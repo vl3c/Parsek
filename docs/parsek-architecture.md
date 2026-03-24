@@ -872,7 +872,7 @@ The architecture naturally enables use cases like racing your own ghosts, but th
 
 ---
 
-*Document version: 1.2 - Parsek 0.4.3 (code refactor: SOLID restructuring)*
+*Document version: 1.3 - Parsek 0.5.2 (T25: GhostPlaybackEngine extraction)*
 
 ### New files from 0.4.3 code refactor
 - `GhostTypes.cs` — 21 ghost data types (previously at top of GhostVisualBuilder.cs)

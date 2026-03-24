@@ -55,7 +55,10 @@ namespace Parsek
         private readonly List<PlaybackCompletedEvent> deferredCompletedEvents = new List<PlaybackCompletedEvent>();
         private readonly List<GhostLifecycleEvent> deferredCreatedEvents = new List<GhostLifecycleEvent>();
 
-        // Dedup: prevent completed events from firing every frame for past-end recordings
+        // Dedup: prevent completed events from firing every frame for past-end recordings.
+        // Rewind safety: DestroyAllGhosts() clears this set, and rewind always calls
+        // DestroyAllGhosts (via ParsekFlight cleanup path), so completedEventFired
+        // is guaranteed to be empty when playback restarts after a rewind.
         private readonly HashSet<int> completedEventFired = new HashSet<int>();
 
         #endregion
@@ -86,7 +89,6 @@ namespace Parsek
         /// <summary>
         /// Main per-frame update. Iterates all active trajectories, spawns/positions/destroys
         /// ghosts, fires lifecycle events. Called from host's Update().
-        /// Placeholder — will be implemented in Phase 5 when methods move from ParsekFlight.
         /// </summary>
         internal void UpdatePlayback(
             IReadOnlyList<IPlaybackTrajectory> trajectories,
@@ -122,7 +124,7 @@ namespace Parsek
                     if (ghostStates.ContainsKey(i))
                     {
                         DestroyAllOverlapGhosts(i);
-                        DestroyGhost(i);
+                        DestroyGhost(i, traj, f);
                         ParsekLog.Info("Engine", $"Ghost #{i} destroyed — recording skipped (disabled/suppressed)");
                     }
                     continue;
@@ -150,7 +152,7 @@ namespace Parsek
                         if (ghostActive)
                         {
                             ParsekLog.Info("Engine", $"Loop ghost #{i} \"{traj.VesselName}\" — anchor vessel {traj.LoopAnchorVesselId} unloaded, destroying ghost");
-                            DestroyGhost(i);
+                            DestroyGhost(i, traj, f);
                             DestroyAllOverlapGhosts(i);
                         }
                         continue;
@@ -196,10 +198,13 @@ namespace Parsek
                             ParsekLog.VerboseRateLimited("Engine", $"enter-{i}",
                                 $"Ghost ENTERED range: #{i} \"{traj.VesselName}\" ({f.segmentLabel})");
 
-                        deferredCreatedEvents.Add(new GhostLifecycleEvent
+                        if (OnGhostCreated != null)
                         {
-                            Index = i, Trajectory = traj, State = state, Flags = f
-                        });
+                            deferredCreatedEvents.Add(new GhostLifecycleEvent
+                            {
+                                Index = i, Trajectory = traj, State = state, Flags = f
+                            });
+                        }
                     }
                 }
 
@@ -391,7 +396,9 @@ namespace Parsek
                                 if (capIdx == ctx.protectedIndex) break;
                                 ParsekLog.Info("Engine",
                                     $"SoftCap: despawning ghost #{capIdx} \"{vesselName}\"");
-                                DestroyGhost(capIdx);
+                                IPlaybackTrajectory capTraj = capIdx >= 0 && capIdx < trajectories.Count
+                                    ? trajectories[capIdx] : null;
+                                DestroyGhost(capIdx, capTraj);
                                 softCapSuppressed.Add(capIdx);
                                 break;
                             case GhostCapAction.SimplifyToOrbitLine:
@@ -477,7 +484,7 @@ namespace Parsek
                     out loopUT, out cycleIndex, out inPauseWindow, index))
             {
                 if (ghostActive)
-                    DestroyGhost(index);
+                    DestroyGhost(index, traj, flags);
                 return;
             }
 
@@ -516,7 +523,7 @@ namespace Parsek
                 });
 
                 GhostPlaybackLogic.ResetReentryFx(state, index);
-                DestroyGhost(index);
+                DestroyGhost(index, traj, flags);
                 ghostActive = false;
                 state = null;
             }
@@ -631,7 +638,7 @@ namespace Parsek
         {
             if (ctx.currentUT < traj.StartUT)
             {
-                if (primaryActive) DestroyGhost(index);
+                if (primaryActive) DestroyGhost(index, traj, flags);
                 DestroyAllOverlapGhosts(index);
                 return;
             }
@@ -651,8 +658,6 @@ namespace Parsek
                 overlapGhosts[index] = overlaps;
             }
 
-            bool srfRel = traj.RecordingFormatVersion >= 5;
-
             // Primary ghost represents the newest (lastCycle)
             bool primaryCycleChanged = !primaryActive || primaryState == null
                 || primaryState.loopCycleIndex != lastCycle;
@@ -669,7 +674,7 @@ namespace Parsek
                 }
                 else if (primaryActive)
                 {
-                    DestroyGhost(index);
+                    DestroyGhost(index, traj, flags);
                 }
 
                 // Spawn new primary for lastCycle
@@ -694,10 +699,9 @@ namespace Parsek
                 });
             }
 
-            // Determine anchor-relative positioning
-            bool useAnchor = GhostPlaybackLogic.ShouldUseLoopAnchor(traj);
-
             // Position primary ghost
+            // Note: anchor-relative positioning is handled internally by positioner.PositionLoop,
+            // which calls ShouldUseLoopAnchor itself. No need to pre-compute here.
             if (primaryState != null && primaryState.ghost != null)
             {
                 double cycleStartUT = traj.StartUT + lastCycle * cycleDuration;
@@ -860,8 +864,14 @@ namespace Parsek
             return true;
         }
 
-        /// <summary>Whether any time warp is active.</summary>
-        internal static bool IsAnyWarpActive()
+        /// <summary>Whether any time warp is active (using FrameContext values, no KSP globals).</summary>
+        internal static bool IsAnyWarpActive(FrameContext ctx)
+        {
+            return GhostPlaybackLogic.IsAnyWarpActive(ctx.warpRateIndex, ctx.warpRate);
+        }
+
+        /// <summary>Whether any time warp is active (reads KSP globals directly — host convenience wrapper).</summary>
+        internal static bool IsAnyWarpActiveFromGlobals()
         {
             return GhostPlaybackLogic.IsAnyWarpActive(TimeWarp.CurrentRateIndex, TimeWarp.CurrentRate);
         }
@@ -896,6 +906,11 @@ namespace Parsek
                 return;
             }
 
+            // TODO(standalone): FlightGlobals.Bodies is a KSP global dependency.
+            // For standalone extraction, inject a body-lookup delegate or interface
+            // (e.g., Func<string, CelestialBody> bodyLookup) via the constructor.
+            // CelestialBody is needed here for atmosphere physics (pressure, temperature,
+            // density, speed of sound), so this cannot be easily abstracted away.
             CelestialBody body = FlightGlobals.Bodies?.Find(b => b.name == bodyName);
             if (body == null)
             {

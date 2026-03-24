@@ -48,12 +48,10 @@ namespace Parsek
         internal int lastPlaybackIndex = 0;
 
         // Ghost state is owned by the engine (T25). These properties forward to engine fields
-        // so existing code continues to work during the incremental extraction.
+        // so existing ParsekFlight code accesses engine-owned collections transparently.
         private Dictionary<int, GhostPlaybackState> ghostStates => engine.ghostStates;
-        private readonly MaterialPropertyBlock reentryShellMpb = new MaterialPropertyBlock();
         private List<GameObject> activeExplosions => engine.activeExplosions;
         private Dictionary<int, List<GhostPlaybackState>> overlapGhosts => engine.overlapGhosts;
-        private const int MaxOverlapGhostsPerRecording = GhostPlaybackEngine.MaxOverlapGhostsPerRecording;
         private Dictionary<int, double> loopPhaseOffsets => engine.loopPhaseOffsets;
 
         // Real Spawn Control: proximity-based nearby craft detection
@@ -253,15 +251,6 @@ namespace Parsek
         private HashSet<string> pendingSpawnRecordingIds = new HashSet<string>();
         private string pendingWatchRecordingId = null;  // recording ID that was in watch mode when deferred
         private bool timelineResourceReplayPausedLogged = false;
-        // Loop constants moved to engine (T25).
-        private const double OverlapExplosionHoldSeconds = GhostPlaybackEngine.OverlapExplosionHoldSeconds;
-
-        // Soft cap state moved to engine (T25). Forwarding properties for incremental extraction.
-        private List<(int recordingIndex, GhostPriority priority)> cachedZone1Ghosts => engine.cachedZone1Ghosts;
-        private List<(int recordingIndex, GhostPriority priority)> cachedZone2Ghosts => engine.cachedZone2Ghosts;
-        private bool softCapTriggeredThisFrame { get => engine.softCapTriggeredThisFrame; set => engine.softCapTriggeredThisFrame = value; }
-        private HashSet<int> softCapSuppressed => engine.softCapSuppressed;
-
         // Camera follow (watch mode) — transient, never serialized
         private const string WatchModeLockId = "ParsekWatch";
         private const ControlTypes WatchModeLockMask =
@@ -725,6 +714,13 @@ namespace Parsek
             vesselGhoster?.CleanupAll();
             vesselGhoster = null;
             activeGhostChains = null;
+
+            // Unsubscribe camera events before policy/engine disposal
+            if (engine != null)
+            {
+                engine.OnLoopCameraAction -= HandleLoopCameraAction;
+                engine.OnOverlapCameraAction -= HandleOverlapCameraAction;
+            }
 
             // Clean up engine + policy (engine.Dispose calls DestroyAllGhosts internally)
             policy?.Dispose();
@@ -3412,9 +3408,9 @@ namespace Parsek
                     $"Anchor vessel loaded: pid={pid}, rec #{i} '{rec.VesselName}' " +
                     $"phase cycle={cycleIndex} loopUT={loopUT:F2} paused={isInPause}");
 
-                // The loop playback system in UpdateLoopingTimelinePlayback will pick up
-                // this recording on the next Update frame and spawn the ghost at the
-                // computed phase — no direct spawn here avoids duplicate spawning.
+                // The loop playback system in GhostPlaybackEngine.UpdateLoopingPlayback
+                // will pick up this recording on the next Update frame and spawn the
+                // ghost at the computed phase — no direct spawn here avoids duplicate spawning.
             }
         }
 
@@ -6258,8 +6254,9 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Engine-based timeline playback path (T25 cutover).
-        /// Replaces UpdateTimelinePlayback when useEnginePlayback=true.
+        /// Engine-based timeline playback. Builds FrameContext and TrajectoryPlaybackFlags,
+        /// delegates per-frame ghost positioning to GhostPlaybackEngine, then applies
+        /// resource deltas and watch-mode validity checks.
         /// </summary>
         void UpdateTimelinePlaybackViaEngine()
         {
@@ -6283,6 +6280,7 @@ namespace Parsek
             {
                 currentUT = currentUT,
                 warpRate = TimeWarp.CurrentRate,
+                warpRateIndex = TimeWarp.CurrentRateIndex,
                 activeVesselPos = FlightGlobals.ActiveVessel != null
                     ? (Vector3d)FlightGlobals.ActiveVessel.transform.position
                     : Vector3d.zero,
@@ -6300,7 +6298,11 @@ namespace Parsek
             // Run engine rendering
             engine.UpdatePlayback(cachedTrajectories, flags, ctx);
 
-            // Per-frame resource deltas (policy concern, not engine)
+            // Per-frame resource deltas (policy concern, not engine).
+            // Intentional: deltas accrue for both in-range AND past-end recordings
+            // regardless of whether a ghost is visually active. Resource replay must
+            // track the full timeline even when the ghost is disabled or suppressed,
+            // so career funds/science/reputation stay consistent with recorded history.
             for (int i = 0; i < committed.Count; i++)
             {
                 var rec = committed[i];
@@ -6685,7 +6687,6 @@ namespace Parsek
         }
 
         // DestroyGhostResources moved to engine (T25 Phase 4)
-        private void DestroyOverlapGhostState(GhostPlaybackState state) => engine.DestroyOverlapGhostState(state);
 
         /// <summary>
         /// Destroys all overlap ghosts for a recording index.
@@ -6951,7 +6952,7 @@ namespace Parsek
             }
         }
 
-        bool IsAnyWarpActive() => GhostPlaybackEngine.IsAnyWarpActive();
+        bool IsAnyWarpActive() => GhostPlaybackEngine.IsAnyWarpActiveFromGlobals();
 
         void ExitAllWarpForPlaybackStart(string context)
         {
@@ -8558,7 +8559,7 @@ namespace Parsek
         /// <summary>
         /// Executes a time jump to a recording's EndUT so it becomes a real craft.
         /// Called from ParsekUI when the player clicks a "Warp" button.
-        /// Passes null chains to ExecuteJump — spawning is handled by UpdateTimelinePlayback.
+        /// Passes null chains to ExecuteJump — spawning is handled by the engine playback loop.
         /// </summary>
         internal void WarpToRecordingEnd(int recordingIndex)
         {
@@ -8590,7 +8591,7 @@ namespace Parsek
                     targetUT, rec.VesselName, targetUT - currentUT));
 
             TimeJumpManager.NotifyRecorder(recorder, currentUT, targetUT);
-            // Pass null chains — let UpdateTimelinePlayback handle spawn naturally
+            // Pass null chains — let the engine playback loop handle spawn naturally
             TimeJumpManager.ExecuteJump(targetUT, null, vesselGhoster);
         }
 

@@ -42,7 +42,7 @@ namespace Parsek
         /// </summary>
         internal void RunSpawnDeathChecks()
         {
-            // TODO: Move spawn-death detection from ParsekFlight (deferred)
+            // TODO(#132): Move spawn-death detection from ParsekFlight
         }
 
         /// <summary>
@@ -51,7 +51,7 @@ namespace Parsek
         /// </summary>
         internal void FlushDeferredSpawns(double currentUT, float warpRate)
         {
-            // TODO: Move FlushDeferredSpawns from ParsekFlight (deferred)
+            // TODO(#132): Move FlushDeferredSpawns from ParsekFlight
         }
 
         private void HandlePlaybackCompleted(PlaybackCompletedEvent evt)
@@ -88,7 +88,7 @@ namespace Parsek
             bool spawned = false;
             if (evt.Flags.needsSpawn && evt.PastEffectiveEnd)
             {
-                bool isWarp = GhostPlaybackEngine.IsAnyWarpActive();
+                bool isWarp = GhostPlaybackEngine.IsAnyWarpActiveFromGlobals();
                 if (isWarp)
                 {
                     pendingSpawnRecordingIds.Add(evt.Flags.recordingId);

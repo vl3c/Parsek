@@ -52,6 +52,9 @@ namespace Parsek
         /// <summary>Current time warp rate (1.0 = normal).</summary>
         public float warpRate;
 
+        /// <summary>Current time warp rate index (0 = no warp).</summary>
+        public int warpRateIndex;
+
         /// <summary>Active vessel world position (for bubble-distance checks).</summary>
         public Vector3d activeVesselPos;
 

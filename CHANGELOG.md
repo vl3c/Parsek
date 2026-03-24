@@ -34,7 +34,7 @@ Second-pass structural refactoring. ~80 method extractions, ~105 logging additio
   - `GhostPlaybackEngine` (1553 lines) — extracted ghost lifecycle, per-frame rendering, loop/overlap playback, zone transitions, soft caps, reentry FX from ParsekFlight. Zero Recording references; accesses trajectories via `IPlaybackTrajectory` interface only. Fires lifecycle events (OnGhostCreated, OnPlaybackCompleted, OnLoopRestarted, etc.) for policy layer.
   - `ParsekPlaybackPolicy` (192 lines) — event subscriber handling spawn decisions, resource deltas, camera management, deferred spawn queue.
   - `IPlaybackTrajectory` interface — 19-property boundary exposing only trajectory/visual data from Recording. Enables future standalone ghost playback mod.
-  - `IGhostPositioner` interface — 7 positioning methods implemented by ParsekFlight, delegates world-space placement to the host scene.
+  - `IGhostPositioner` interface — 8 positioning methods implemented by ParsekFlight, delegates world-space placement to the host scene.
   - `GhostPlaybackEvents` — TrajectoryPlaybackFlags, FrameContext, lifecycle event types, CameraActionEvent for watch-mode decomposition.
   - 109 new tests (MockTrajectory, engine lifecycle, query API, interface isolation, log assertions)
 
@@ -44,7 +44,7 @@ Second-pass structural refactoring. ~80 method extractions, ~105 logging additio
 
 ### Test Coverage
 
-3227 → 3315 tests (+88). New test areas:
+3227 → 3420 tests (+193). New test areas:
 - GroupTreeDataTests (14): recordings tree data-computation
 - PostSpawnTerminalStateTests (12): spawn terminal state clearing
 - InterpolatePointsTests (11): trajectory interpolation edge cases

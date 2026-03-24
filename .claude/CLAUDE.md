@@ -25,7 +25,7 @@ Key source files and what they do - read the relevant one before modifying:
 - `GhostPlaybackEngine.cs` - ghost playback mechanics engine: owns ghostStates, per-frame positioning, loop/overlap playback, zone transitions, soft caps, reentry FX. Zero Recording references — accesses trajectories via IPlaybackTrajectory only. Future standalone mod core.
 - `ParsekPlaybackPolicy.cs` - event subscriber reacting to engine lifecycle events (spawn decisions, resource deltas, camera management, deferred spawn queue)
 - `IPlaybackTrajectory.cs` - interface exposing 19 trajectory/visual fields from Recording to the engine
-- `IGhostPositioner.cs` - interface for positioning ghosts in the world (implemented by ParsekFlight)
+- `IGhostPositioner.cs` - 8 positioning methods implemented by ParsekFlight, delegates world-space placement to the host scene
 - `GhostPlaybackEvents.cs` - lifecycle event types (PlaybackCompleted, LoopRestarted, OverlapExpired, CameraAction), TrajectoryPlaybackFlags, FrameContext
 - `FlightRecorder.cs` - recording state + sampling (called by Harmony patch)
 - `ParsekUI.cs` - UI windows (main, recordings, actions, settings, Real Spawn Control) and map markers
