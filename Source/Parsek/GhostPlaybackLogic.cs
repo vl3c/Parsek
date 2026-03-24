@@ -439,6 +439,7 @@ namespace Parsek
                 return vesselExistsOverride(vesselPersistentId);
 
             if (FlightGlobals.Vessels == null) return false;
+
             for (int i = 0; i < FlightGlobals.Vessels.Count; i++)
             {
                 if (FlightGlobals.Vessels[i] != null &&
