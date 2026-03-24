@@ -76,7 +76,7 @@ The shared core would need 3-4 parameters/flags to account for these differences
 
 **What:** Same structure (guard → tree suppress → non-tree commit+restart), differ in phase-name derivation and ScreenMessage text.
 
-**Why deferred:** Each is only 36-38 lines. The differences (phase derivation, screen message, which recorder flag is checked) would require 3 parameters that make the shared method harder to read than the two explicit copies. Net savings would be ~15 lines.
+**Status:** **DONE** — extracted `CommitBoundaryAndRestart(phase, bodyName, logMessage, screenMessage)` shared tail. Guards, tree-mode suppression, and phase computation stay in each method.
 
 ---
 
@@ -198,7 +198,7 @@ All three violate zero-logic-changes constraint.
 
 ### C1. SanitizeQuaternion instance wrapper removal
 **What:** ParsekFlight has a 3-line instance method `SanitizeQuaternion(Quaternion q)` that just forwards to `TrajectoryMath.SanitizeQuaternion(q)`. ParsekKSC correctly calls TrajectoryMath directly. 4 call sites in ParsekFlight.
-**Action:** Replace 4 call sites with `TrajectoryMath.SanitizeQuaternion(q)`, delete the wrapper.
+**Status:** **DONE** — wrapper was already removed during refactor-2. All call sites already use `TrajectoryMath.SanitizeQuaternion` directly.
 
 ### C2. Namespace consistency verification
 **Action:** Verify all files use `namespace Parsek` (or `namespace Parsek.Patches`). Verify new files (EngineFxBuilder.cs, MaterialCleanup.cs) match.
@@ -221,7 +221,7 @@ All three violate zero-logic-changes constraint.
 | D4 | ParsekFlight+ParsekKSC | ~60 | Low | **DONE** (Phase 3A Split 4: shared positioning) |
 | D5 | ParsekFlight | ~80 | Medium | Open — needs D20 first |
 | D6 | ParsekFlight | ~15 | N/A | Closed — below 5-line min |
-| D7 | ParsekFlight | ~75 | Low | Open |
+| D7 | ParsekFlight | ~75 | Low | **DONE** (CommitBoundaryAndRestart shared tail) |
 | D8 | ParsekFlight | ~500 | High | Open — needs D20 first |
 | D9 | ParsekFlight | ~194 | Low | Closed — minimal gain |
 | D10 | ParsekFlight | ~60 | Medium | Closed — API divergence |

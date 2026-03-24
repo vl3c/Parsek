@@ -161,23 +161,17 @@ Both `DrawResourceBudget` and `DrawCompactBudgetLine` call `ResourceBudget.Compu
 
 **Priority:** Low — minor perf
 
-### T22. GhostSoftCapManager.EvaluateCaps not tested when Enabled=false
+### ~~T22. GhostSoftCapManager.EvaluateCaps not tested when Enabled=false~~ DONE
 
-No test verifies that `EvaluateCaps` returns empty actions when `Enabled = false`. This is the critical production toggle — if the guard were removed, no test would catch it.
+Added `EvaluateCaps_Disabled_ReturnsEmpty_EvenAboveAllThresholds` test.
 
-**Priority:** Low — test gap
+### ~~T23. SessionMerger frame trimming not tested~~ DONE
 
-### T23. SessionMerger frame trimming not tested
+Added `ResolveOverlaps_FramesTrimmedToResultBoundaries` test with multi-frame sections.
 
-Tests assert `startUT`/`endUT`/`source` after `ResolveOverlaps` but never check that the `frames` lists were actually trimmed. `TrimFrames` could be broken and tests would still pass.
+### ~~T24. EnvironmentDetector untested for ORBITING and ESCAPING situations~~ DONE
 
-**Priority:** Low — test gap
-
-### T24. EnvironmentDetector untested for ORBITING and ESCAPING situations
-
-Tests only cover LANDED(1), SPLASHED(2), PRELAUNCH(4), FLYING(8), SUB_ORBITAL(16). The ORBITING(32) and ESCAPING(64) situations are untested. They fall through to the altitude/thrust check, which is likely correct but should be verified.
-
-**Priority:** Low — test gap
+Added 5 tests covering ORBITING(32) and ESCAPING(64) with thrust/no-thrust and airless body variants.
 
 ---
 
