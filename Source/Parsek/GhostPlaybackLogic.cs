@@ -1916,12 +1916,9 @@ namespace Parsek
 
             if (GhostChainWalker.IsIntermediateChainLink(chains, rec))
             {
-                var ownerChain = GhostChainWalker.FindChainForVessel(chains, rec.VesselPersistentId);
-                ParsekLog.Info("ChainWalker",
-                    string.Format(CultureInfo.InvariantCulture,
-                        "Intermediate spawn suppressed: rec={0} vessel={1} -- chain tip at UT={2:F1}",
-                        rec.RecordingId, rec.VesselName,
-                        ownerChain != null ? ownerChain.SpawnUT : 0.0));
+                // Per-frame per-recording — rate-limit to avoid log spam
+                ParsekLog.VerboseRateLimited("ChainWalker", $"chain-suppress-{rec.RecordingId}",
+                    $"Intermediate spawn suppressed: rec={rec.RecordingId} vessel={rec.VesselName}");
                 return (true, "intermediate ghost chain link");
             }
 

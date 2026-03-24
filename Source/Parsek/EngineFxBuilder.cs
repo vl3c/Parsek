@@ -214,8 +214,8 @@ namespace Parsek
                                 srcLegacyAnchor.name, child.name, prefab.transform, ghostModelNode,
                                 srcLegacyAnchor, ghostLegacyParent, fxClone.transform,
                                 legacyFxOffset, legacyLocalRot, true);
-                            ParsekLog.Log($"    Engine FX (legacy): '{partName}' midx={moduleIndex} " +
-                                $"fx='{child.name}' anchor='{srcLegacyAnchor.name}' offset={legacyFxOffset} systems={addedSystems}");
+                            ParsekLog.VerboseRateLimited("EngineFx", $"legacy-{partName}-{moduleIndex}",
+                                $"Engine FX (legacy): '{partName}' midx={moduleIndex} fx='{child.name}' systems={addedSystems}");
                         }
                         else
                         {
@@ -243,8 +243,8 @@ namespace Parsek
                             child.name, child.name, prefab.transform, ghostModelNode,
                             child, fallbackParent, fxClone.transform,
                             child.localPosition, child.localRotation, true);
-                        ParsekLog.Log($"    Engine FX (legacy): '{partName}' midx={moduleIndex} " +
-                            $"fx='{child.name}' systems={addedSystems}");
+                        ParsekLog.VerboseRateLimited("EngineFx", $"legacy-{partName}-{moduleIndex}",
+                            $"Engine FX (legacy): '{partName}' midx={moduleIndex} fx='{child.name}' systems={addedSystems}");
                     }
                     else
                     {

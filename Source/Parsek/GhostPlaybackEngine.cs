@@ -193,7 +193,8 @@ namespace Parsek
                     if (ghostActive)
                     {
                         if (loggedGhostEnter.Add(i))
-                            ParsekLog.Info("Engine", $"Ghost ENTERED range: #{i} \"{traj.VesselName}\" ({f.segmentLabel})");
+                            ParsekLog.VerboseRateLimited("Engine", $"enter-{i}",
+                                $"Ghost ENTERED range: #{i} \"{traj.VesselName}\" ({f.segmentLabel})");
 
                         deferredCreatedEvents.Add(new GhostLifecycleEvent
                         {
@@ -545,9 +546,8 @@ namespace Parsek
                 if (!ghostStates.TryGetValue(index, out state) || state == null)
                     return;
                 state.loopCycleIndex = cycleIndex;
-                if (loggedGhostEnter.Add(index))
-                    ParsekLog.Info("Engine",
-                        $"Ghost ENTERED range: #{index} \"{traj.VesselName}\" at UT {ctx.currentUT:F1} (loop cycle={cycleIndex})");
+                ParsekLog.VerboseRateLimited("Engine", $"enter-{index}",
+                    $"Ghost ENTERED range: #{index} \"{traj.VesselName}\" at UT {ctx.currentUT:F1} (loop cycle={cycleIndex})");
 
                 // Fire camera event for retarget to new ghost
                 OnLoopCameraAction?.Invoke(new CameraActionEvent
@@ -681,7 +681,7 @@ namespace Parsek
                     return;
                 }
                 primaryState.loopCycleIndex = lastCycle;
-                ParsekLog.Info("Engine",
+                ParsekLog.VerboseRateLimited("Engine", $"enter-{index}",
                     $"Ghost ENTERED range: #{index} \"{traj.VesselName}\" cycle={lastCycle} at UT {ctx.currentUT:F1} (overlap)");
 
                 // Fire camera event for retarget
@@ -1184,7 +1184,8 @@ namespace Parsek
         /// </summary>
         internal void SpawnGhost(int index, IPlaybackTrajectory traj)
         {
-            ParsekLog.Info("Engine", $"SpawnGhost index={index} vessel={traj?.VesselName}");
+            ParsekLog.VerboseRateLimited("Engine", $"spawn-{index}",
+                $"SpawnGhost index={index} vessel={traj?.VesselName}");
             completedEventFired.Remove(index); // Reset dedup for time-jump backward
 
             Color ghostColor = new Color(0.2f, 1f, 0.4f, 0.8f); // bright green-cyan
@@ -1205,12 +1206,14 @@ namespace Parsek
             if (ghost == null)
             {
                 ghost = GhostVisualBuilder.CreateGhostSphere($"Parsek_Timeline_{index}", ghostColor);
-                ParsekLog.Info("Engine", $"Timeline ghost #{index}: using sphere fallback");
+                ParsekLog.VerboseRateLimited("Engine", $"build-{index}",
+                    $"Timeline ghost #{index}: using sphere fallback");
             }
             else
             {
                 bool usedStartSnapshot = traj.GhostVisualSnapshot != null;
-                ParsekLog.Info("Engine", usedStartSnapshot
+                ParsekLog.VerboseRateLimited("Engine", $"build-{index}",
+                    usedStartSnapshot
                     ? $"Timeline ghost #{index}: built from recording-start snapshot"
                     : $"Timeline ghost #{index}: built from vessel snapshot");
             }
@@ -1248,7 +1251,7 @@ namespace Parsek
 
             ghostStates[index] = state;
 
-            ParsekLog.Info("Engine",
+            ParsekLog.VerboseRateLimited("Engine", $"spawned-{index}",
                 $"Ghost #{index} spawned: snapshot={builtFromSnapshot} parts={state.partTree?.Count ?? 0} " +
                 $"engines={state.engineInfos?.Count ?? 0} rcs={state.rcsInfos?.Count ?? 0}");
         }
@@ -1316,7 +1319,8 @@ namespace Parsek
         internal void DestroyGhost(int index, IPlaybackTrajectory traj = null,
             TrajectoryPlaybackFlags flags = default)
         {
-            ParsekLog.Info("Engine", $"DestroyGhost index={index}");
+            ParsekLog.VerboseRateLimited("Engine", $"destroy-{index}",
+                $"DestroyGhost index={index}");
 
             GhostPlaybackState state;
             if (!ghostStates.TryGetValue(index, out state))
