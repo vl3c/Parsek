@@ -14,7 +14,7 @@ namespace Parsek
     /// Handles recording, playback, timeline management, and UI.
     /// </summary>
     [KSPAddon(KSPAddon.Startup.Flight, false)]
-    public class ParsekFlight : MonoBehaviour
+    public class ParsekFlight : MonoBehaviour, IGhostPositioner
     {
         internal const string MODID = "Parsek_NS";
         internal const string MODNAME = "Parsek";
@@ -347,9 +347,7 @@ namespace Parsek
             ui = new ParsekUI(this);
 
             // Ghost playback engine + policy (T25 extraction)
-            // Positioner will be set in Phase 7 when ParsekFlight implements IGhostPositioner.
-            // For now, engine shell exists but does not process any ghosts.
-            engine = new GhostPlaybackEngine(null, co => StartCoroutine(co));
+            engine = new GhostPlaybackEngine(this, co => StartCoroutine(co));
             policy = new ParsekPlaybackPolicy(engine, this);
 
             // Clean up any orphaned toolbar from rapid scene transitions (e.g. rewind)
@@ -6469,7 +6467,7 @@ namespace Parsek
                                 state.ghost.transform.position,
                                 FlightGlobals.ActiveVessel.transform.position);
                         }
-                        var zoneResult = ApplyZoneRendering(i, state, rec, ghostDistance);
+                        var zoneResult = ApplyZoneRenderingImpl(i, state, rec, ghostDistance, watchedRecordingIndex);
                         if (zoneResult.hiddenByZone)
                         {
                             // Still apply resource deltas even when mesh is hidden
@@ -6565,7 +6563,7 @@ namespace Parsek
                                 state.ghost.transform.position,
                                 FlightGlobals.ActiveVessel.transform.position);
                         }
-                        var bgZoneResult = ApplyZoneRendering(i, state, rec, bgGhostDistance);
+                        var bgZoneResult = ApplyZoneRenderingImpl(i, state, rec, bgGhostDistance, watchedRecordingIndex);
                         if (bgZoneResult.hiddenByZone)
                         {
                             if (rec.TreeId == null)
@@ -7140,7 +7138,7 @@ namespace Parsek
                     state.ghost.transform.position,
                     FlightGlobals.ActiveVessel.transform.position);
             }
-            var loopZoneResult = ApplyZoneRendering(recIdx, state, rec, loopZoneDistance);
+            var loopZoneResult = ApplyZoneRenderingImpl(recIdx, state, rec, loopZoneDistance, watchedRecordingIndex);
             if (loopZoneResult.hiddenByZone)
                 return;
 
@@ -8417,23 +8415,18 @@ namespace Parsek
         #region Zone Rendering (shared by normal, background, and looped ghosts)
 
         /// <summary>
-        /// Result of zone rendering evaluation for a ghost.
-        /// </summary>
-        struct ZoneRenderingResult
-        {
-            public bool hiddenByZone;       // Ghost was hidden (Beyond zone) — caller should skip/continue
-            public bool skipPartEvents;     // Part events should not be applied this frame
-        }
+        // ZoneRenderingResult struct is now in IGhostPositioner.cs (namespace-level, shared with engine)
 
         /// <summary>
         /// Evaluates zone-based rendering for a ghost: computes distance, classifies zone,
         /// detects transitions, hides/shows mesh, exits watch mode if needed.
         /// Shared by normal, background, and looped ghost update paths.
         /// </summary>
-        ZoneRenderingResult ApplyZoneRendering(int recIdx, GhostPlaybackState state, Recording rec, double ghostDistance)
+        ZoneRenderingResult ApplyZoneRenderingImpl(int recIdx, GhostPlaybackState state, IPlaybackTrajectory rec,
+            double ghostDistance, int protectedIndex)
         {
             var zone = RenderingZoneManager.ClassifyDistance(ghostDistance);
-            bool isWatchedGhost = watchedRecordingIndex == recIdx;
+            bool isWatchedGhost = protectedIndex == recIdx;
 
             // Detect zone transition
             if (state != null)
@@ -8488,6 +8481,102 @@ namespace Parsek
             }
 
             return new ZoneRenderingResult { hiddenByZone = false, skipPartEvents = shouldSkipPartEvents };
+        }
+
+        #endregion
+
+        #region IGhostPositioner implementation
+
+        void IGhostPositioner.InterpolateAndPosition(int index, IPlaybackTrajectory traj,
+            GhostPlaybackState state, double ut, bool suppressFx)
+        {
+            if (state?.ghost == null || traj?.Points == null) return;
+            int playbackIdx = state.playbackIndex;
+            bool srfRel = traj.RecordingFormatVersion >= 5;
+            bool surfaceSkip = TrajectoryMath.IsSurfaceAtUT(traj.TrackSections, ut);
+            InterpolationResult interpResult;
+            InterpolateAndPosition(state.ghost, traj.Points, traj.OrbitSegments,
+                ref playbackIdx, ut, index * 10000, out interpResult, srfRel, surfaceSkip);
+            state.SetInterpolated(interpResult);
+            state.playbackIndex = playbackIdx;
+        }
+
+        void IGhostPositioner.InterpolateAndPositionRelative(int index, IPlaybackTrajectory traj,
+            GhostPlaybackState state, double ut, bool suppressFx, uint anchorVesselId)
+        {
+            if (state?.ghost == null || traj?.Points == null) return;
+            // Find the relative TrackSection to get section-local frames
+            int sectionIdx = TrajectoryMath.FindTrackSectionForUT(traj.TrackSections, ut);
+            var sectionFrames = (sectionIdx >= 0 && traj.TrackSections[sectionIdx].frames != null)
+                ? traj.TrackSections[sectionIdx].frames
+                : traj.Points;
+
+            int playbackIdx = state.playbackIndex;
+            InterpolationResult interpResult;
+            InterpolateAndPositionRelative(state.ghost, sectionFrames, ref playbackIdx,
+                ut, anchorVesselId, out interpResult);
+            state.SetInterpolated(interpResult);
+            state.playbackIndex = playbackIdx;
+        }
+
+        void IGhostPositioner.PositionAtPoint(int index, IPlaybackTrajectory traj,
+            GhostPlaybackState state, TrajectoryPoint point)
+        {
+            if (state?.ghost == null) return;
+            bool srfRel = traj != null && traj.RecordingFormatVersion >= 5;
+            PositionGhostAt(state.ghost, point, srfRel);
+        }
+
+        void IGhostPositioner.PositionAtSurface(int index, IPlaybackTrajectory traj,
+            GhostPlaybackState state)
+        {
+            if (state?.ghost == null || traj?.SurfacePos == null) return;
+            PositionGhostAtSurface(state.ghost, traj.SurfacePos.Value);
+        }
+
+        void IGhostPositioner.PositionFromOrbit(int index, IPlaybackTrajectory traj,
+            GhostPlaybackState state, double ut)
+        {
+            if (state?.ghost == null || traj?.OrbitSegments == null) return;
+            // Find the orbit segment covering this UT
+            OrbitSegment? seg = FindOrbitSegment(traj.OrbitSegments, ut);
+            if (seg.HasValue)
+                PositionGhostFromOrbit(state.ghost, seg.Value, ut, index * 10000);
+        }
+
+        void IGhostPositioner.PositionLoop(int index, IPlaybackTrajectory traj,
+            GhostPlaybackState state, double ut, bool suppressFx)
+        {
+            if (state?.ghost == null || traj == null) return;
+            int playbackIdx = state.playbackIndex;
+            bool srfRel = traj.RecordingFormatVersion >= 5;
+            bool useAnchor = GhostPlaybackLogic.ShouldUseLoopAnchor(traj);
+            if (useAnchor && !GhostPlaybackLogic.ValidateLoopAnchor(traj.LoopAnchorVesselId))
+            {
+                long anchorKey = ((long)index << 32) | traj.LoopAnchorVesselId;
+                if (loggedAnchorNotFound.Add(anchorKey))
+                    ParsekLog.Warn("Loop",
+                        $"Loop anchor vessel pid={traj.LoopAnchorVesselId} not found for " +
+                        $"recording #{index} \"{traj.VesselName}\" — falling back to absolute positioning");
+                useAnchor = false;
+            }
+            InterpolationResult interpResult;
+            PositionLoopGhost(state.ghost, traj, ref playbackIdx, ut,
+                index, index * 10000, srfRel, useAnchor, out interpResult);
+            state.SetInterpolated(interpResult);
+            state.playbackIndex = playbackIdx;
+        }
+
+        ZoneRenderingResult IGhostPositioner.ApplyZoneRendering(int index, GhostPlaybackState state,
+            IPlaybackTrajectory traj, double distance, int protectedIndex)
+        {
+            // Delegates to the private ApplyZoneRendering which has the same signature
+            return ApplyZoneRenderingImpl(index, state, traj, distance, protectedIndex);
+        }
+
+        void IGhostPositioner.ClearOrbitCache()
+        {
+            orbitCache.Clear();
         }
 
         #endregion
@@ -8835,7 +8924,7 @@ namespace Parsek
         /// </summary>
         void PositionLoopGhost(
             GameObject ghost,
-            Recording rec,
+            IPlaybackTrajectory rec,
             ref int playbackIdx,
             double loopUT,
             int recIdx,
