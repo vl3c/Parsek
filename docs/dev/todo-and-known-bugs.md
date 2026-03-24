@@ -75,7 +75,7 @@ Engine and RCS particle systems are instantiated per ghost. Pooling would reduce
 
 ### T10. RealVesselExists O(n) per frame (bug #49)
 
-`GhostPlaybackLogic.RealVesselExists` scans `FlightGlobals.Vessels` linearly. A HashSet lookup by PID would be O(1).
+`GhostPlaybackLogic.RealVesselExists` scans `FlightGlobals.Vessels` linearly. A HashSet lookup by PID would be O(1). Attempted frame-cached HashSet but `Time.frameCount` (Unity native) crashes in test environment. Needs a non-Unity cache invalidation approach (e.g., manual invalidation from the playback update loop).
 
 **Priority:** Low — only matters with many committed recordings
 
@@ -143,23 +143,17 @@ Redesign milestone capture, resource budgeting, and action replay validated per 
 
 **Priority:** Low — test infrastructure
 
-### T19. FlightRecorder per-frame List<PartEvent> allocations
+### ~~T19. FlightRecorder per-frame List&lt;PartEvent&gt; allocations~~ DONE
 
-`CheckLightBlinkTransition`, `CheckEngineTransition`, `CheckRcsTransition`, and `ProcessRcsDebounce` allocate `new List<PartEvent>()` every physics frame for every cached module. At 50Hz with e.g. 10 engines, that's 500 allocations/second producing zero events most of the time. Should use a caller-owned reusable list or return `PartEvent?` for the common single-event case.
+Methods now append to a caller-owned reusable buffer instead of allocating per call.
 
-**Priority:** Medium — GC pressure during recording
+### ~~T20. ParsekFlight.TimelineGhosts allocates new Dictionary on every access~~ DONE
 
-### T20. ParsekFlight.TimelineGhosts allocates new Dictionary on every access
+Cached per-frame via `Time.frameCount`.
 
-The `TimelineGhosts` property creates `new Dictionary<int, GameObject>()` every call. If accessed per-frame from UI code, generates garbage. Should cache or return a read-only view.
+### ~~T21. ParsekUI double ComputeTotal calls~~ DONE
 
-**Priority:** Low — UI-path only
-
-### T21. ParsekUI double ComputeTotal calls
-
-Both `DrawResourceBudget` and `DrawCompactBudgetLine` call `ResourceBudget.ComputeTotal(...)` independently. If both are drawn in the same OnGUI frame, budget is computed twice. Should compute once and pass the result.
-
-**Priority:** Low — minor perf
+Cached per-frame via `GetCachedBudget()` helper.
 
 ### ~~T22. GhostSoftCapManager.EvaluateCaps not tested when Enabled=false~~ DONE
 

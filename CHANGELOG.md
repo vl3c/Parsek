@@ -35,6 +35,13 @@ Second-pass structural refactoring. ~80 method extractions, ~105 logging additio
   - `AnimLookup` enum + `FindAnimation` resolver parameterize 3 animation lookup strategies
   - 4 animation sample caches consolidated into 1 `animationSampleCache`
   - `CommitBoundaryAndRestart` shared tail extracted from atmosphere/SOI split handlers (D7)
+- **Performance**
+  - Per-frame `List<PartEvent>` allocations eliminated — 4 transition-check methods now append to reusable buffer (T19)
+  - `TimelineGhosts` dictionary cached per-frame instead of allocating on every property access (T20)
+  - `ResourceBudget.ComputeTotal` cached per-frame, shared across `DrawResourceBudget` and `DrawCompactBudgetLine` (T21)
+- **Audits**
+  - C2: namespace consistency verified — all 73 files correct (`Parsek` or `Parsek.Patches`)
+  - C3: one-class-per-file verified — 5 files have multiple types but all are acceptable data-type bundles or tightly coupled enum+class pairs
 
 ### Bug Fixes
 
