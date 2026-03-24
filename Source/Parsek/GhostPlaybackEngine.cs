@@ -97,6 +97,12 @@ namespace Parsek
             FrameContext ctx)
         {
             if (trajectories == null || trajectories.Count == 0) return;
+            if (positioner == null) return; // Not yet wired (Phase 7)
+            if (flags == null || flags.Length < trajectories.Count)
+            {
+                ParsekLog.Warn("Engine", $"UpdatePlayback: flags array mismatch (flags={flags?.Length ?? 0} trajectories={trajectories.Count})");
+                return;
+            }
 
             bool suppressGhosts = GhostPlaybackLogic.ShouldSuppressGhosts(ctx.warpRate);
             bool suppressVisualFx = GhostPlaybackLogic.ShouldSuppressVisualFx(ctx.warpRate);
