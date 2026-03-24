@@ -24,9 +24,6 @@ namespace Parsek
         // Gates Update() resource ticking while coroutines reset resource baselines
         private bool resourceTickingSuspended = false;
 
-        #region Crew Replacements (delegated to CrewReservationManager)
-        #endregion
-
         public override void OnSave(ConfigNode node)
         {
             // Safety net (defense-in-depth): if a pending recording still exists outside Flight
@@ -982,7 +979,7 @@ namespace Parsek
 
         #endregion
 
-        #region Crew Reservation
+        #region Recording Serialization
 
         /// <summary>
         /// Saves standalone (non-tree) recordings to the given ConfigNode.
