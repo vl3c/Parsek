@@ -305,5 +305,154 @@ namespace Parsek.Tests
             Assert.Contains(logLines, l =>
                 l.Contains("[SpawnCollision]") && l.Contains("no PART subnodes"));
         }
+
+        // ────────────────────────────────────────────────────────────
+        //  ParsePartPositions
+        // ────────────────────────────────────────────────────────────
+
+        [Fact]
+        public void ParsePartPositions_NormalParts_ReturnsPositions()
+        {
+            // Bug caught: basic parsing of PART pos values must produce correct Vector3 tuples
+            var p1 = new ConfigNode("PART");
+            p1.AddValue("pos", "1.5,2.5,3.5");
+            var p2 = new ConfigNode("PART");
+            p2.AddValue("pos", "-1,0,4.2");
+
+            var result = SpawnCollisionDetector.ParsePartPositions(new[] { p1, p2 });
+
+            Assert.Equal(2, result.Count);
+            Assert.Equal(1.5, (double)result[0].localPos.x, 4);
+            Assert.Equal(2.5, (double)result[0].localPos.y, 4);
+            Assert.Equal(3.5, (double)result[0].localPos.z, 4);
+            Assert.Equal(-1.0, (double)result[1].localPos.x, 4);
+            Assert.Equal(0.0, (double)result[1].localPos.y, 4);
+            Assert.Equal(4.2, (double)result[1].localPos.z, 1);
+
+            // DefaultPartHalfExtent = 1.25
+            Assert.Equal(1.25, (double)result[0].halfExtent, 4);
+            Assert.Equal(1.25, (double)result[1].halfExtent, 4);
+        }
+
+        [Fact]
+        public void ParsePartPositions_EmptyArray_ReturnsEmptyList()
+        {
+            // Bug caught: empty partNodes array must not crash, must return empty list
+            var result = SpawnCollisionDetector.ParsePartPositions(new ConfigNode[0]);
+
+            Assert.Empty(result);
+        }
+
+        [Fact]
+        public void ParsePartPositions_MalformedPos_SkipsBadParts()
+        {
+            // Bug caught: non-numeric pos values must be skipped without crashing
+            var good = new ConfigNode("PART");
+            good.AddValue("pos", "1,2,3");
+            var bad = new ConfigNode("PART");
+            bad.AddValue("pos", "abc,def,ghi");
+
+            var result = SpawnCollisionDetector.ParsePartPositions(new[] { good, bad });
+
+            Assert.Single(result);
+            Assert.Equal(1.0, (double)result[0].localPos.x, 4);
+        }
+
+        [Fact]
+        public void ParsePartPositions_TwoComponentPos_Skipped()
+        {
+            // Bug caught: pos with only 2 components (missing z) must be skipped
+            var bad = new ConfigNode("PART");
+            bad.AddValue("pos", "1,2");
+
+            var result = SpawnCollisionDetector.ParsePartPositions(new[] { bad });
+
+            Assert.Empty(result);
+        }
+
+        [Fact]
+        public void ParsePartPositions_MissingPosField_Skipped()
+        {
+            // Bug caught: PART node without any pos value must be skipped
+            var noPosNode = new ConfigNode("PART");
+            noPosNode.AddValue("name", "fuelTank");
+            // No "pos" value
+
+            var result = SpawnCollisionDetector.ParsePartPositions(new[] { noPosNode });
+
+            Assert.Empty(result);
+        }
+
+        [Fact]
+        public void ParsePartPositions_EmptyPosValue_Skipped()
+        {
+            // Bug caught: empty string pos must be handled by IsNullOrEmpty guard
+            var emptyPos = new ConfigNode("PART");
+            emptyPos.AddValue("pos", "");
+
+            var result = SpawnCollisionDetector.ParsePartPositions(new[] { emptyPos });
+
+            Assert.Empty(result);
+        }
+
+        [Fact]
+        public void ParsePartPositions_WhitespaceInComponents_Trimmed()
+        {
+            // Bug caught: pos values with spaces around components (e.g. from hand-edited
+            // config files) must be trimmed before parsing
+            var node = new ConfigNode("PART");
+            node.AddValue("pos", " 1.0 , 2.0 , 3.0 ");
+
+            var result = SpawnCollisionDetector.ParsePartPositions(new[] { node });
+
+            Assert.Single(result);
+            Assert.Equal(1.0, (double)result[0].localPos.x, 4);
+            Assert.Equal(2.0, (double)result[0].localPos.y, 4);
+            Assert.Equal(3.0, (double)result[0].localPos.z, 4);
+        }
+
+        [Fact]
+        public void ParsePartPositions_MixedGoodAndBad_OnlyGoodParsed()
+        {
+            // Bug caught: a mix of valid, malformed, and missing-pos parts must
+            // produce exactly the valid subset — no silent data corruption
+            var good1 = new ConfigNode("PART");
+            good1.AddValue("pos", "0,0,0");
+            var noPos = new ConfigNode("PART");
+            noPos.AddValue("name", "decoupler");
+            var good2 = new ConfigNode("PART");
+            good2.AddValue("pos", "5,10,15");
+
+            var result = SpawnCollisionDetector.ParsePartPositions(
+                new[] { good1, noPos, good2 });
+
+            Assert.Equal(2, result.Count);
+            Assert.Equal(0.0, (double)result[0].localPos.x, 4);
+            Assert.Equal(5.0, (double)result[1].localPos.x, 4);
+            Assert.Equal(10.0, (double)result[1].localPos.y, 4);
+            Assert.Equal(15.0, (double)result[1].localPos.z, 4);
+        }
+
+        [Fact]
+        public void ParsePartPositions_LogsCountMessage()
+        {
+            // Bug caught: diagnostic logging must report how many parts were parsed
+            // vs total, enabling debugging of snapshot parsing issues
+            logLines.Clear();
+
+            var p1 = new ConfigNode("PART");
+            p1.AddValue("pos", "1,2,3");
+            var p2 = new ConfigNode("PART");
+            p2.AddValue("pos", "4,5,6");
+            var bad = new ConfigNode("PART");
+            bad.AddValue("pos", "nope");
+
+            SpawnCollisionDetector.ParsePartPositions(new[] { p1, p2, bad });
+
+            Assert.Contains(logLines, l =>
+                l.Contains("[SpawnCollision]") &&
+                l.Contains("ParsePartPositions") &&
+                l.Contains("2/3"));
+        }
     }
 }
