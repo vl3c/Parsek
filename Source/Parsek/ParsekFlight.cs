@@ -292,6 +292,10 @@ namespace Parsek
         private GhostPlaybackEngine engine;
         private ParsekPlaybackPolicy policy;
 
+        // T25 cutover flag: when true, engine.UpdatePlayback is the primary path.
+        // When false, old UpdateTimelinePlayback runs (via forwarding properties).
+        internal bool useEnginePlayback = false;
+
         #endregion
 
         #region Public Accessors (for ParsekUI)
@@ -348,6 +352,8 @@ namespace Parsek
 
             // Ghost playback engine + policy (T25 extraction)
             engine = new GhostPlaybackEngine(this);
+            engine.OnLoopCameraAction += HandleLoopCameraAction;
+            engine.OnOverlapCameraAction += HandleOverlapCameraAction;
             policy = new ParsekPlaybackPolicy(engine, this);
 
             // Clean up any orphaned toolbar from rapid scene transitions (e.g. rewind)
@@ -422,7 +428,10 @@ namespace Parsek
                 UpdateUndockContinuationSampling();
                 HandleInput();
                 if (isPlaying) UpdatePlayback();
-                UpdateTimelinePlayback();
+                if (useEnginePlayback)
+                    UpdateTimelinePlaybackViaEngine();
+                else
+                    UpdateTimelinePlayback();
                 return;
             }
 
@@ -438,7 +447,10 @@ namespace Parsek
                 UpdatePlayback();
             }
 
-            UpdateTimelinePlayback();
+            if (useEnginePlayback)
+                UpdateTimelinePlaybackViaEngine();
+            else
+                UpdateTimelinePlayback();
             UpdateProximityCheck();
         }
 
@@ -6109,6 +6121,12 @@ namespace Parsek
         /// Handles collision-blocked chains: if spawn is blocked, chain stays active.
         /// If chain was previously blocked, tries to spawn at propagated position.
         /// </summary>
+        /// <summary>Called by ParsekPlaybackPolicy when engine fires PlaybackCompleted with needsSpawn.</summary>
+        internal void SpawnVesselOrChainTipFromPolicy(Recording rec, int index)
+        {
+            SpawnVesselOrChainTip(rec, index);
+        }
+
         private void SpawnVesselOrChainTip(Recording rec, int index)
         {
             // Real vessel dedup: if a vessel with this PID still exists in the game world,
@@ -6220,6 +6238,89 @@ namespace Parsek
                 };
             }
             return flags;
+        }
+
+        /// <summary>
+        /// Engine-based timeline playback path (T25 cutover).
+        /// Replaces UpdateTimelinePlayback when useEnginePlayback=true.
+        /// </summary>
+        void UpdateTimelinePlaybackViaEngine()
+        {
+            var committed = RecordingStore.CommittedRecordings;
+            double currentUT = Planetarium.GetUniversalTime();
+
+            // Chain ghost positioning (independent of engine)
+            PositionChainGhosts(currentUT);
+
+            // Flush deferred spawns from warp
+            FlushDeferredSpawns(committed);
+
+            if (committed.Count == 0) return;
+
+            // Pre-compute flags
+            var flags = ComputePlaybackFlags(committed, currentUT);
+
+            // Build frame context
+            var ctx = new FrameContext
+            {
+                currentUT = currentUT,
+                warpRate = TimeWarp.CurrentRate,
+                activeVesselPos = FlightGlobals.ActiveVessel != null
+                    ? (Vector3d)FlightGlobals.ActiveVessel.transform.position
+                    : Vector3d.zero,
+                protectedIndex = watchedRecordingIndex,
+                externalGhostCount = activeGhostChains?.Count ?? 0,
+                autoLoopIntervalSeconds = ParsekSettings.Current?.autoLoopIntervalSeconds
+                    ?? GhostPlaybackLogic.DefaultLoopIntervalSeconds,
+            };
+
+            // Build trajectory list (Recording implements IPlaybackTrajectory)
+            var trajectories = new List<IPlaybackTrajectory>(committed.Count);
+            for (int i = 0; i < committed.Count; i++)
+                trajectories.Add(committed[i]);
+
+            // Run engine rendering
+            engine.UpdatePlayback(trajectories, flags, ctx);
+
+            // Per-frame resource deltas (policy concern, not engine)
+            for (int i = 0; i < committed.Count; i++)
+            {
+                var rec = committed[i];
+                if (rec.TreeId != null) continue; // tree recordings handle resources at tree level
+                if (currentUT > rec.EndUT || (currentUT >= rec.StartUT && currentUT <= rec.EndUT))
+                    ApplyResourceDeltas(rec, currentUT);
+            }
+
+            // Tree-level resource deltas
+            ApplyTreeResourceDeltas(currentUT);
+
+            // Watch-mode ghost validity check
+            if (watchedRecordingIndex >= 0)
+            {
+                if (!engine.HasActiveGhost(watchedRecordingIndex))
+                {
+                    // Check overlap ghosts
+                    bool hasOverlap = false;
+                    if (watchedOverlapCycleIndex >= 0)
+                    {
+                        List<GhostPlaybackState> overlaps;
+                        if (engine.TryGetOverlapGhosts(watchedRecordingIndex, out overlaps))
+                        {
+                            for (int i = 0; i < overlaps.Count; i++)
+                            {
+                                if (overlaps[i]?.loopCycleIndex == watchedOverlapCycleIndex)
+                                { hasOverlap = true; break; }
+                            }
+                        }
+                    }
+                    if (!hasOverlap && watchedOverlapCycleIndex != -2) // -2 = holding after explosion
+                    {
+                        ParsekLog.Info("CameraFollow",
+                            $"Watched ghost #{watchedRecordingIndex} no longer active — exiting watch mode");
+                        ExitWatchMode();
+                    }
+                }
+            }
         }
 
         void UpdateTimelinePlayback()
@@ -7911,6 +8012,80 @@ namespace Parsek
         #endregion
 
         #region Camera Follow (Watch Mode)
+
+        // === Camera event handlers for engine loop/overlap cycle transitions ===
+
+        private void HandleLoopCameraAction(CameraActionEvent evt)
+        {
+            if (watchedRecordingIndex != evt.Index) return; // not watching this recording
+
+            switch (evt.Action)
+            {
+                case CameraActionType.ExitWatch:
+                    ExitWatchMode();
+                    break;
+
+                case CameraActionType.ExplosionHoldStart:
+                    if (overlapCameraAnchor != null) Destroy(overlapCameraAnchor);
+                    overlapCameraAnchor = new UnityEngine.GameObject("ParsekLoopCameraAnchor");
+                    overlapCameraAnchor.transform.position = evt.AnchorPosition;
+                    if (FlightCamera.fetch != null)
+                        FlightCamera.fetch.SetTargetTransform(overlapCameraAnchor.transform);
+                    overlapRetargetAfterUT = evt.HoldUntilUT;
+                    watchedOverlapCycleIndex = -2;
+                    ParsekLog.Info("CameraFollow",
+                        $"Loop: camera holding at explosion for #{evt.Index}");
+                    break;
+
+                case CameraActionType.ExplosionHoldEnd:
+                    watchedOverlapCycleIndex = -1;
+                    overlapRetargetAfterUT = -1;
+                    if (overlapCameraAnchor != null) { Destroy(overlapCameraAnchor); overlapCameraAnchor = null; }
+                    ParsekLog.Info("CameraFollow",
+                        $"Loop: ready for re-target for #{evt.Index}");
+                    break;
+
+                case CameraActionType.RetargetToNewGhost:
+                    if (watchedOverlapCycleIndex == -1 && evt.GhostPivot != null && FlightCamera.fetch != null)
+                    {
+                        FlightCamera.fetch.SetTargetTransform(evt.GhostPivot);
+                        watchedOverlapCycleIndex = evt.NewCycleIndex;
+                        ParsekLog.Info("CameraFollow",
+                            $"Loop: camera retargeted to ghost #{evt.Index} cycle={evt.NewCycleIndex}");
+                    }
+                    break;
+            }
+        }
+
+        private void HandleOverlapCameraAction(CameraActionEvent evt)
+        {
+            if (watchedRecordingIndex != evt.Index) return;
+
+            switch (evt.Action)
+            {
+                case CameraActionType.RetargetToNewGhost:
+                    if (watchedOverlapCycleIndex == -1 && evt.GhostPivot != null && FlightCamera.fetch != null)
+                    {
+                        FlightCamera.fetch.SetTargetTransform(evt.GhostPivot);
+                        watchedOverlapCycleIndex = evt.NewCycleIndex;
+                        ParsekLog.Info("CameraFollow",
+                            $"Overlap: camera retargeted to ghost #{evt.Index} cycle={evt.NewCycleIndex}");
+                    }
+                    break;
+
+                case CameraActionType.ExplosionHoldStart:
+                    overlapRetargetAfterUT = evt.HoldUntilUT;
+                    watchedOverlapCycleIndex = -2;
+                    if (overlapCameraAnchor != null) Destroy(overlapCameraAnchor);
+                    overlapCameraAnchor = new UnityEngine.GameObject("ParsekOverlapCameraAnchor");
+                    overlapCameraAnchor.transform.position = evt.AnchorPosition;
+                    if (FlightCamera.fetch != null)
+                        FlightCamera.fetch.SetTargetTransform(overlapCameraAnchor.transform);
+                    ParsekLog.Info("CameraFollow",
+                        $"Overlap: camera holding at explosion for #{evt.Index} cycle={evt.NewCycleIndex}");
+                    break;
+            }
+        }
 
         // Lazy-initialized styles for the watch mode overlay
         private GUIStyle watchOverlayStyle;
