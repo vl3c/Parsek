@@ -473,8 +473,9 @@ namespace Parsek.Tests
             var active = new HashSet<ulong>();
             var throttles = new Dictionary<ulong, float>();
             ulong key = FlightRecorder.EncodeEngineKey(100, 0);
-            var events = FlightRecorder.CheckEngineTransition(
-                key, 100, 0, "liquidEngine", true, 0.8f, active, throttles, 200.0);
+            var events = new List<PartEvent>();
+            FlightRecorder.CheckEngineTransition(
+                key, 100, 0, "liquidEngine", true, 0.8f, active, throttles, 200.0, events);
 
             Assert.Single(events);
             Assert.Equal(PartEventType.EngineIgnited, events[0].eventType);
@@ -491,8 +492,9 @@ namespace Parsek.Tests
             ulong key = FlightRecorder.EncodeEngineKey(100, 0);
             var active = new HashSet<ulong> { key };
             var throttles = new Dictionary<ulong, float> { { key, 1.0f } };
-            var events = FlightRecorder.CheckEngineTransition(
-                key, 100, 0, "liquidEngine", false, 0f, active, throttles, 210.0);
+            var events = new List<PartEvent>();
+            FlightRecorder.CheckEngineTransition(
+                key, 100, 0, "liquidEngine", false, 0f, active, throttles, 210.0, events);
 
             Assert.Single(events);
             Assert.Equal(PartEventType.EngineShutdown, events[0].eventType);
@@ -507,8 +509,9 @@ namespace Parsek.Tests
             ulong key = FlightRecorder.EncodeEngineKey(100, 0);
             var active = new HashSet<ulong> { key };
             var throttles = new Dictionary<ulong, float> { { key, 0.5f } };
-            var events = FlightRecorder.CheckEngineTransition(
-                key, 100, 0, "liquidEngine", true, 0.9f, active, throttles, 215.0);
+            var events = new List<PartEvent>();
+            FlightRecorder.CheckEngineTransition(
+                key, 100, 0, "liquidEngine", true, 0.9f, active, throttles, 215.0, events);
 
             Assert.Single(events);
             Assert.Equal(PartEventType.EngineThrottle, events[0].eventType);
@@ -522,8 +525,9 @@ namespace Parsek.Tests
             ulong key = FlightRecorder.EncodeEngineKey(100, 0);
             var active = new HashSet<ulong> { key };
             var throttles = new Dictionary<ulong, float> { { key, 0.5f } };
-            var events = FlightRecorder.CheckEngineTransition(
-                key, 100, 0, "liquidEngine", true, 0.505f, active, throttles, 215.0);
+            var events = new List<PartEvent>();
+            FlightRecorder.CheckEngineTransition(
+                key, 100, 0, "liquidEngine", true, 0.505f, active, throttles, 215.0, events);
 
             Assert.Empty(events);
         }
@@ -534,8 +538,9 @@ namespace Parsek.Tests
             var active = new HashSet<ulong>();
             var throttles = new Dictionary<ulong, float>();
             ulong key = FlightRecorder.EncodeEngineKey(100, 0);
-            var events = FlightRecorder.CheckEngineTransition(
-                key, 100, 0, "liquidEngine", false, 0f, active, throttles, 200.0);
+            var events = new List<PartEvent>();
+            FlightRecorder.CheckEngineTransition(
+                key, 100, 0, "liquidEngine", false, 0f, active, throttles, 200.0, events);
 
             Assert.Empty(events);
         }
@@ -548,13 +553,15 @@ namespace Parsek.Tests
 
             // First engine on part 200, midx=0
             ulong key0 = FlightRecorder.EncodeEngineKey(200, 0);
-            var events0 = FlightRecorder.CheckEngineTransition(
-                key0, 200, 0, "rapier", true, 1.0f, active, throttles, 300.0);
+            var events0 = new List<PartEvent>();
+            FlightRecorder.CheckEngineTransition(
+                key0, 200, 0, "rapier", true, 1.0f, active, throttles, 300.0, events0);
 
             // Second engine on same part 200, midx=1
             ulong key1 = FlightRecorder.EncodeEngineKey(200, 1);
-            var events1 = FlightRecorder.CheckEngineTransition(
-                key1, 200, 1, "rapier", true, 0.5f, active, throttles, 300.0);
+            var events1 = new List<PartEvent>();
+            FlightRecorder.CheckEngineTransition(
+                key1, 200, 1, "rapier", true, 0.5f, active, throttles, 300.0, events1);
 
             Assert.Single(events0);
             Assert.Equal(0, events0[0].moduleIndex);
@@ -823,9 +830,10 @@ namespace Parsek.Tests
             var blinking = new HashSet<uint>();
             var blinkRates = new Dictionary<uint, float>();
 
-            var events = FlightRecorder.CheckLightBlinkTransition(
+            var events = new List<PartEvent>();
+            FlightRecorder.CheckLightBlinkTransition(
                 42, "spotLight1", isBlinking: true, blinkRate: 2.5f,
-                blinking, blinkRates, 100.0);
+                blinking, blinkRates, 100.0, events);
 
             Assert.Single(events);
             Assert.Equal(PartEventType.LightBlinkEnabled, events[0].eventType);
@@ -840,9 +848,10 @@ namespace Parsek.Tests
             var blinking = new HashSet<uint> { 42 };
             var blinkRates = new Dictionary<uint, float> { { 42, 1.2f } };
 
-            var events = FlightRecorder.CheckLightBlinkTransition(
+            var events = new List<PartEvent>();
+            FlightRecorder.CheckLightBlinkTransition(
                 42, "spotLight1", isBlinking: false, blinkRate: 1.2f,
-                blinking, blinkRates, 110.0);
+                blinking, blinkRates, 110.0, events);
 
             Assert.Single(events);
             Assert.Equal(PartEventType.LightBlinkDisabled, events[0].eventType);
@@ -856,9 +865,10 @@ namespace Parsek.Tests
             var blinking = new HashSet<uint> { 42 };
             var blinkRates = new Dictionary<uint, float> { { 42, 1.0f } };
 
-            var events = FlightRecorder.CheckLightBlinkTransition(
+            var events = new List<PartEvent>();
+            FlightRecorder.CheckLightBlinkTransition(
                 42, "spotLight1", isBlinking: true, blinkRate: 3.0f,
-                blinking, blinkRates, 120.0);
+                blinking, blinkRates, 120.0, events);
 
             Assert.Single(events);
             Assert.Equal(PartEventType.LightBlinkRate, events[0].eventType);
@@ -872,9 +882,10 @@ namespace Parsek.Tests
             var blinking = new HashSet<uint> { 42 };
             var blinkRates = new Dictionary<uint, float> { { 42, 2.0f } };
 
-            var events = FlightRecorder.CheckLightBlinkTransition(
+            var events = new List<PartEvent>();
+            FlightRecorder.CheckLightBlinkTransition(
                 42, "spotLight1", isBlinking: true, blinkRate: 2.005f,
-                blinking, blinkRates, 130.0);
+                blinking, blinkRates, 130.0, events);
 
             Assert.Empty(events);
         }
@@ -1542,8 +1553,9 @@ namespace Parsek.Tests
             var active = new HashSet<ulong>();
             var throttles = new Dictionary<ulong, float>();
             ulong key = FlightRecorder.EncodeEngineKey(100, 0);
-            var events = FlightRecorder.CheckRcsTransition(
-                key, 100, 0, "RCSBlock", true, 0.6f, active, throttles, 200.0);
+            var events = new List<PartEvent>();
+            FlightRecorder.CheckRcsTransition(
+                key, 100, 0, "RCSBlock", true, 0.6f, active, throttles, 200.0, events);
 
             Assert.Single(events);
             Assert.Equal(PartEventType.RCSActivated, events[0].eventType);
@@ -1560,8 +1572,9 @@ namespace Parsek.Tests
             ulong key = FlightRecorder.EncodeEngineKey(100, 0);
             var active = new HashSet<ulong> { key };
             var throttles = new Dictionary<ulong, float> { { key, 0.5f } };
-            var events = FlightRecorder.CheckRcsTransition(
-                key, 100, 0, "RCSBlock", false, 0f, active, throttles, 210.0);
+            var events = new List<PartEvent>();
+            FlightRecorder.CheckRcsTransition(
+                key, 100, 0, "RCSBlock", false, 0f, active, throttles, 210.0, events);
 
             Assert.Single(events);
             Assert.Equal(PartEventType.RCSStopped, events[0].eventType);
@@ -1576,8 +1589,9 @@ namespace Parsek.Tests
             ulong key = FlightRecorder.EncodeEngineKey(100, 0);
             var active = new HashSet<ulong> { key };
             var throttles = new Dictionary<ulong, float> { { key, 0.3f } };
-            var events = FlightRecorder.CheckRcsTransition(
-                key, 100, 0, "RCSBlock", true, 0.8f, active, throttles, 215.0);
+            var events = new List<PartEvent>();
+            FlightRecorder.CheckRcsTransition(
+                key, 100, 0, "RCSBlock", true, 0.8f, active, throttles, 215.0, events);
 
             Assert.Single(events);
             Assert.Equal(PartEventType.RCSThrottle, events[0].eventType);
@@ -1591,8 +1605,9 @@ namespace Parsek.Tests
             ulong key = FlightRecorder.EncodeEngineKey(100, 0);
             var active = new HashSet<ulong> { key };
             var throttles = new Dictionary<ulong, float> { { key, 0.5f } };
-            var events = FlightRecorder.CheckRcsTransition(
-                key, 100, 0, "RCSBlock", true, 0.505f, active, throttles, 215.0);
+            var events = new List<PartEvent>();
+            FlightRecorder.CheckRcsTransition(
+                key, 100, 0, "RCSBlock", true, 0.505f, active, throttles, 215.0, events);
 
             Assert.Empty(events);
         }
@@ -1603,8 +1618,9 @@ namespace Parsek.Tests
             var active = new HashSet<ulong>();
             var throttles = new Dictionary<ulong, float>();
             ulong key = FlightRecorder.EncodeEngineKey(100, 0);
-            var events = FlightRecorder.CheckRcsTransition(
-                key, 100, 0, "RCSBlock", false, 0f, active, throttles, 200.0);
+            var events = new List<PartEvent>();
+            FlightRecorder.CheckRcsTransition(
+                key, 100, 0, "RCSBlock", false, 0f, active, throttles, 200.0, events);
 
             Assert.Empty(events);
         }
@@ -1616,12 +1632,14 @@ namespace Parsek.Tests
             var throttles = new Dictionary<ulong, float>();
 
             ulong key0 = FlightRecorder.EncodeEngineKey(200, 0);
-            var events0 = FlightRecorder.CheckRcsTransition(
-                key0, 200, 0, "RCSBlock", true, 0.7f, active, throttles, 300.0);
+            var events0 = new List<PartEvent>();
+            FlightRecorder.CheckRcsTransition(
+                key0, 200, 0, "RCSBlock", true, 0.7f, active, throttles, 300.0, events0);
 
             ulong key1 = FlightRecorder.EncodeEngineKey(200, 1);
-            var events1 = FlightRecorder.CheckRcsTransition(
-                key1, 200, 1, "RCSBlock", true, 0.3f, active, throttles, 300.0);
+            var events1 = new List<PartEvent>();
+            FlightRecorder.CheckRcsTransition(
+                key1, 200, 1, "RCSBlock", true, 0.3f, active, throttles, 300.0, events1);
 
             Assert.Single(events0);
             Assert.Equal(0, events0[0].moduleIndex);
@@ -2640,8 +2658,9 @@ namespace Parsek.Tests
             ulong key = FlightRecorder.EncodeEngineKey(100, 0);
             var active = new HashSet<ulong> { key };
             var throttles = new Dictionary<ulong, float> { { key, 0.8f } };
-            var events = FlightRecorder.CheckEngineTransition(
-                key, 100, 0, "liquidEngine", true, 0.8f, active, throttles, 200.0);
+            var events = new List<PartEvent>();
+            FlightRecorder.CheckEngineTransition(
+                key, 100, 0, "liquidEngine", true, 0.8f, active, throttles, 200.0, events);
 
             Assert.Empty(events); // No EngineIgnited event
         }
@@ -2653,8 +2672,9 @@ namespace Parsek.Tests
             ulong key = FlightRecorder.EncodeEngineKey(100, 0);
             var empty = new HashSet<ulong>();
             var throttles = new Dictionary<ulong, float>();
-            var events = FlightRecorder.CheckEngineTransition(
-                key, 100, 0, "liquidEngine", true, 0.8f, empty, throttles, 200.0);
+            var events = new List<PartEvent>();
+            FlightRecorder.CheckEngineTransition(
+                key, 100, 0, "liquidEngine", true, 0.8f, empty, throttles, 200.0, events);
 
             Assert.Single(events);
             Assert.Equal(PartEventType.EngineIgnited, events[0].eventType);
@@ -2750,8 +2770,9 @@ namespace Parsek.Tests
             ulong key = FlightRecorder.EncodeEngineKey(700, 0);
             var active = new HashSet<ulong> { key };
             var throttles = new Dictionary<ulong, float> { { key, 0.5f } };
-            var events = FlightRecorder.CheckRcsTransition(
-                key, 700, 0, "rcsBlock", true, 0.5f, active, throttles, 100.0);
+            var events = new List<PartEvent>();
+            FlightRecorder.CheckRcsTransition(
+                key, 700, 0, "rcsBlock", true, 0.5f, active, throttles, 100.0, events);
 
             Assert.Empty(events); // No RCSActivated event
         }

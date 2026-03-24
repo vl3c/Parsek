@@ -92,6 +92,9 @@ namespace Parsek
         private HashSet<ulong> loggedControlSurfaceClassificationMisses = new HashSet<ulong>();
         private HashSet<ulong> loggedRobotArmScannerClassificationMisses = new HashSet<ulong>();
         private HashSet<ulong> loggedAnimateHeatClassificationMisses = new HashSet<ulong>();
+        // Reusable buffer for transition-check methods that return multiple events per call.
+        // Cleared before each call to avoid per-frame List<PartEvent> allocations.
+        private readonly List<PartEvent> reusableEventBuffer = new List<PartEvent>();
         private HashSet<uint> loggedCargoBayDeployIndexIssues = new HashSet<uint>();
         private HashSet<uint> loggedCargoBayAnimationIssues = new HashSet<uint>();
         private HashSet<uint> loggedCargoBayClosedPositionIssues = new HashSet<uint>();
@@ -606,11 +609,11 @@ namespace Parsek
             return null;
         }
 
-        internal static List<PartEvent> CheckLightBlinkTransition(
+        internal static void CheckLightBlinkTransition(
             uint partPersistentId, string partName, bool isBlinking, float blinkRate,
-            HashSet<uint> blinkingSet, Dictionary<uint, float> blinkRateMap, double ut)
+            HashSet<uint> blinkingSet, Dictionary<uint, float> blinkRateMap, double ut,
+            List<PartEvent> events)
         {
-            var events = new List<PartEvent>();
             bool wasBlinking = blinkingSet.Contains(partPersistentId);
             float safeBlinkRate = blinkRate > 0f ? blinkRate : 1f;
 
@@ -626,7 +629,7 @@ namespace Parsek
                     partName = partName,
                     value = safeBlinkRate
                 });
-                return events;
+                return;
             }
 
             if (!isBlinking && wasBlinking)
@@ -640,7 +643,7 @@ namespace Parsek
                     eventType = PartEventType.LightBlinkDisabled,
                     partName = partName
                 });
-                return events;
+                return;
             }
 
             if (isBlinking && wasBlinking)
@@ -662,8 +665,6 @@ namespace Parsek
                     });
                 }
             }
-
-            return events;
         }
 
         internal static void ClassifyLadderState(float animTime, out bool isExtended, out bool isRetracted)
@@ -827,15 +828,16 @@ namespace Parsek
                         ParsekLog.Verbose("Recorder", $"Part event: {evt.Value.eventType} '{evt.Value.partName}' pid={evt.Value.partPersistentId}");
                     }
 
-                    var blinkEvents = CheckLightBlinkTransition(
+                    reusableEventBuffer.Clear();
+                    CheckLightBlinkTransition(
                         p.persistentId, p.partInfo?.name ?? "unknown",
                         light.isBlinking, light.blinkRate,
-                        blinkingLights, lightBlinkRates, ut);
-                    for (int e = 0; e < blinkEvents.Count; e++)
+                        blinkingLights, lightBlinkRates, ut, reusableEventBuffer);
+                    for (int e = 0; e < reusableEventBuffer.Count; e++)
                     {
-                        PartEvents.Add(blinkEvents[e]);
-                        ParsekLog.Verbose("Recorder", $"Part event: {blinkEvents[e].eventType} '{blinkEvents[e].partName}' " +
-                            $"pid={blinkEvents[e].partPersistentId} val={blinkEvents[e].value:F2}");
+                        PartEvents.Add(reusableEventBuffer[e]);
+                        ParsekLog.Verbose("Recorder", $"Part event: {reusableEventBuffer[e].eventType} '{reusableEventBuffer[e].partName}' " +
+                            $"pid={reusableEventBuffer[e].partPersistentId} val={reusableEventBuffer[e].value:F2}");
                     }
                 }
 
@@ -2392,12 +2394,12 @@ namespace Parsek
             LogCoverageDetails("Robotics", roboticModules);
         }
 
-        internal static List<PartEvent> CheckEngineTransition(
+        internal static void CheckEngineTransition(
             ulong key, uint pid, int moduleIndex, string partName,
             bool ignited, float throttle,
-            HashSet<ulong> activeSet, Dictionary<ulong, float> lastThrottleMap, double ut)
+            HashSet<ulong> activeSet, Dictionary<ulong, float> lastThrottleMap, double ut,
+            List<PartEvent> events)
         {
-            var events = new List<PartEvent>();
             bool wasActive = activeSet.Contains(key);
 
             if (ignited && !wasActive)
@@ -2448,8 +2450,6 @@ namespace Parsek
                     });
                 }
             }
-
-            return events;
         }
 
         private void CheckEngineState(Vessel v)
@@ -2475,22 +2475,23 @@ namespace Parsek
                         $"midx={moduleIndex} id={engineId} thrustTransforms={thrustTransformCount}");
                 }
 
-                var events = CheckEngineTransition(
+                reusableEventBuffer.Clear();
+                CheckEngineTransition(
                     key, part.persistentId, moduleIndex,
                     part.partInfo?.name ?? "unknown",
                     ignited, throttle,
-                    activeEngineKeys, lastThrottle, ut);
+                    activeEngineKeys, lastThrottle, ut, reusableEventBuffer);
 
-                for (int e = 0; e < events.Count; e++)
+                for (int e = 0; e < reusableEventBuffer.Count; e++)
                 {
-                    PartEvents.Add(events[e]);
-                    ParsekLog.Verbose("Recorder", $"Part event: {events[e].eventType} '{events[e].partName}' " +
-                        $"pid={events[e].partPersistentId} midx={events[e].moduleIndex} val={events[e].value:F2}");
+                    PartEvents.Add(reusableEventBuffer[e]);
+                    ParsekLog.Verbose("Recorder", $"Part event: {reusableEventBuffer[e].eventType} '{reusableEventBuffer[e].partName}' " +
+                        $"pid={reusableEventBuffer[e].partPersistentId} midx={reusableEventBuffer[e].moduleIndex} val={reusableEventBuffer[e].value:F2}");
 
                     // Some engines with ModuleJettison (e.g. Mainsail/Skipper/Vector) can
                     // visually drop covers on ignition even when isJettisoned polling lags.
                     // Emit a one-shot shroud event on ignition as a reliable fallback.
-                    if (events[e].eventType == PartEventType.EngineIgnited &&
+                    if (reusableEventBuffer[e].eventType == PartEventType.EngineIgnited &&
                         part.FindModuleImplementing<ModuleJettison>() != null)
                     {
                         var shroudEvt = CheckJettisonTransition(
@@ -2567,12 +2568,12 @@ namespace Parsek
             return frameCount >= threshold;
         }
 
-        internal static List<PartEvent> CheckRcsTransition(
+        internal static void CheckRcsTransition(
             ulong key, uint pid, int moduleIndex, string partName,
             bool active, float power,
-            HashSet<ulong> activeSet, Dictionary<ulong, float> lastThrottleMap, double ut)
+            HashSet<ulong> activeSet, Dictionary<ulong, float> lastThrottleMap, double ut,
+            List<PartEvent> events)
         {
-            var events = new List<PartEvent>();
             bool wasActive = activeSet.Contains(key);
 
             if (active && !wasActive)
@@ -2623,8 +2624,6 @@ namespace Parsek
                     });
                 }
             }
-
-            return events;
         }
 
         /// <summary>
@@ -2632,14 +2631,13 @@ namespace Parsek
         /// threshold crossing, throttle change detection, and micro-correction
         /// filtering. Returns any part events produced this frame.
         /// </summary>
-        internal static List<PartEvent> ProcessRcsDebounce(
+        internal static void ProcessRcsDebounce(
             ulong key, uint pid, int moduleIndex, string partName,
             bool active, float[] thrustForces, float thrusterPower, double ut,
             Dictionary<ulong, int> frameCountMap,
-            HashSet<ulong> activeSet, Dictionary<ulong, float> throttleMap)
+            HashSet<ulong> activeSet, Dictionary<ulong, float> throttleMap,
+            List<PartEvent> events)
         {
-            var events = new List<PartEvent>();
-
             if (active)
             {
                 int count;
@@ -2651,19 +2649,17 @@ namespace Parsek
                 {
                     // Debounce threshold crossed — emit RCSActivated
                     float power = ComputeRcsPower(thrustForces, thrusterPower);
-                    var transition = CheckRcsTransition(
+                    CheckRcsTransition(
                         key, pid, moduleIndex, partName,
-                        true, power, activeSet, throttleMap, ut);
-                    events.AddRange(transition);
+                        true, power, activeSet, throttleMap, ut, events);
                 }
                 else if (count > RcsDebounceFrameThreshold)
                 {
                     // Already recording — check for throttle changes
                     float power = ComputeRcsPower(thrustForces, thrusterPower);
-                    var transition = CheckRcsTransition(
+                    CheckRcsTransition(
                         key, pid, moduleIndex, partName,
-                        true, power, activeSet, throttleMap, ut);
-                    events.AddRange(transition);
+                        true, power, activeSet, throttleMap, ut, events);
                 }
                 // else: count < threshold, still debouncing — skip
             }
@@ -2676,10 +2672,9 @@ namespace Parsek
                     if (IsRcsRecordingSustained(count, RcsDebounceFrameThreshold))
                     {
                         // Was a sustained activation — emit RCSStopped
-                        var transition = CheckRcsTransition(
+                        CheckRcsTransition(
                             key, pid, moduleIndex, partName,
-                            false, 0f, activeSet, throttleMap, ut);
-                        events.AddRange(transition);
+                            false, 0f, activeSet, throttleMap, ut, events);
                     }
                     else
                     {
@@ -2690,8 +2685,6 @@ namespace Parsek
                     frameCountMap.Remove(key);
                 }
             }
-
-            return events;
         }
 
         private void CheckRcsState(Vessel v)
@@ -2717,15 +2710,16 @@ namespace Parsek
                 uint pid = part.persistentId;
                 string partName = part.partInfo?.name ?? "unknown";
 
-                var events = ProcessRcsDebounce(
+                reusableEventBuffer.Clear();
+                ProcessRcsDebounce(
                     key, pid, moduleIndex, partName,
                     active, rcs.thrustForces, rcs.thrusterPower, ut,
-                    rcsActiveFrameCount, activeRcsKeys, lastRcsThrottle);
-                for (int e = 0; e < events.Count; e++)
+                    rcsActiveFrameCount, activeRcsKeys, lastRcsThrottle, reusableEventBuffer);
+                for (int e = 0; e < reusableEventBuffer.Count; e++)
                 {
-                    PartEvents.Add(events[e]);
-                    ParsekLog.Verbose("Recorder", $"Part event: {events[e].eventType} '{events[e].partName}' " +
-                        $"pid={events[e].partPersistentId} midx={events[e].moduleIndex} val={events[e].value:F2}");
+                    PartEvents.Add(reusableEventBuffer[e]);
+                    ParsekLog.Verbose("Recorder", $"Part event: {reusableEventBuffer[e].eventType} '{reusableEventBuffer[e].partName}' " +
+                        $"pid={reusableEventBuffer[e].partPersistentId} midx={reusableEventBuffer[e].moduleIndex} val={reusableEventBuffer[e].value:F2}");
                 }
             }
         }

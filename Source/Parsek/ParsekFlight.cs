@@ -48,6 +48,10 @@ namespace Parsek
         internal int lastPlaybackIndex = 0;
 
         private Dictionary<int, GhostPlaybackState> ghostStates = new Dictionary<int, GhostPlaybackState>();
+
+        // Cached TimelineGhosts dictionary — rebuilt once per frame on first access
+        private Dictionary<int, GameObject> cachedTimelineGhosts = new Dictionary<int, GameObject>();
+        private int cachedTimelineGhostsFrame = -1;
         private readonly MaterialPropertyBlock reentryShellMpb = new MaterialPropertyBlock();
         private readonly List<GameObject> activeExplosions = new List<GameObject>();
 
@@ -307,10 +311,17 @@ namespace Parsek
         {
             get
             {
-                var result = new Dictionary<int, GameObject>();
-                foreach (var kv in ghostStates)
-                    result[kv.Key] = kv.Value.ghost;
-                return result;
+                int currentFrame = Time.frameCount;
+                if (cachedTimelineGhostsFrame != currentFrame)
+                {
+                    cachedTimelineGhosts.Clear();
+                    foreach (var kv in ghostStates)
+                        cachedTimelineGhosts[kv.Key] = kv.Value.ghost;
+                    cachedTimelineGhostsFrame = currentFrame;
+                    ParsekLog.Verbose("Flight",
+                        $"TimelineGhosts: rebuilt cache, {cachedTimelineGhosts.Count} ghosts (frame {currentFrame})");
+                }
+                return cachedTimelineGhosts;
             }
         }
         public bool HasActiveChain => activeChainId != null;
@@ -757,11 +768,8 @@ namespace Parsek
             StopPlayback();
             DestroyAllTimelineGhosts();
             GhostVisualBuilder.ClearCanopyCache();
-            GhostVisualBuilder.ClearDeployableCache();
+            GhostVisualBuilder.ClearAnimationSampleCache();
             GhostVisualBuilder.ClearFxPrefabCache();
-            GhostVisualBuilder.ClearGearCache();
-            GhostVisualBuilder.ClearLadderCache();
-            GhostVisualBuilder.ClearCargoBayCache();
             GhostVisualBuilder.ClearAnimateHeatCache();
         }
 
@@ -4685,6 +4693,25 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Shared tail for boundary splits: stops recording, commits the segment,
+        /// restarts recording and restores undock continuation PID.
+        /// </summary>
+        private void CommitBoundaryAndRestart(string phase, string bodyName,
+            string logMessage, string screenMessage)
+        {
+            recorder.StopRecordingForChainBoundary();
+            CommitBoundarySplit(phase, bodyName);
+            recorder = null;
+            StartRecording();
+            if (IsRecording)
+            {
+                recorder.UndockSiblingPid = undockContinuationPid;
+                ParsekLog.Info("Flight", logMessage);
+                ParsekLog.ScreenMessage(screenMessage, 2f);
+            }
+        }
+
+        /// <summary>
         /// Handles atmosphere boundary auto-split when crossing the atmosphere edge.
         /// Commits the current segment, restarts recording in the new phase.
         /// </summary>
@@ -4712,17 +4739,10 @@ namespace Parsek
             string bodyName = FlightGlobals.ActiveVessel?.mainBody?.name ?? "Unknown";
             ParsekLog.Info("Flight", $"Atmosphere auto-split triggered: {bodyName} {phase}\u2192{newPhase} " +
                 $"(chain={activeChainId ?? "(new)"}, points={recorder.Recording.Count})");
-            recorder.StopRecordingForChainBoundary();
-            CommitBoundarySplit(phase, bodyName);
-            recorder = null;
-            StartRecording();
-            if (IsRecording)
-            {
-                recorder.UndockSiblingPid = undockContinuationPid;
-                ParsekLog.Info("Flight", $"Recording continues after atmosphere boundary " +
-                    $"(chain={activeChainId}, idx={activeChainNextIndex}, {bodyName} {phase}\u2192{newPhase})");
-                ParsekLog.ScreenMessage($"Recording continues ({(newPhase == "atmo" ? "entering" : "exiting")} atmosphere)", 2f);
-            }
+            CommitBoundaryAndRestart(phase, bodyName,
+                $"Recording continues after atmosphere boundary " +
+                    $"(chain={activeChainId}, idx={activeChainNextIndex}, {bodyName} {phase}\u2192{newPhase})",
+                $"Recording continues ({(newPhase == "atmo" ? "entering" : "exiting")} atmosphere)");
         }
 
         /// <summary>
@@ -4755,17 +4775,10 @@ namespace Parsek
             string fromPhase = (fromCB != null && fromCB.atmosphere) ? "exo" : "space";
             ParsekLog.Info("Flight", $"SOI auto-split triggered: {fromBody} ({fromPhase}) \u2192 {toBody} " +
                 $"(chain={activeChainId ?? "(new)"}, points={recorder.Recording.Count})");
-            recorder.StopRecordingForChainBoundary();
-            CommitBoundarySplit(fromPhase, fromBody);
-            recorder = null;
-            StartRecording();
-            if (IsRecording)
-            {
-                recorder.UndockSiblingPid = undockContinuationPid;
-                ParsekLog.Info("Flight", $"Recording continues after SOI change " +
-                    $"({fromBody} \u2192 {toBody}, chain={activeChainId}, idx={activeChainNextIndex})");
-                ParsekLog.ScreenMessage($"Recording continues (entering {toBody} SOI)", 2f);
-            }
+            CommitBoundaryAndRestart(fromPhase, fromBody,
+                $"Recording continues after SOI change " +
+                    $"({fromBody} \u2192 {toBody}, chain={activeChainId}, idx={activeChainNextIndex})",
+                $"Recording continues (entering {toBody} SOI)");
         }
 
         /// <summary>

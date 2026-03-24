@@ -272,10 +272,11 @@ namespace Parsek.Tests
             ulong key = FlightRecorder.EncodeEngineKey(42, 0);
 
             // Engine off -> on at 80% throttle
-            var events = FlightRecorder.CheckEngineTransition(
+            var events = new List<PartEvent>();
+            FlightRecorder.CheckEngineTransition(
                 key, 42, 0, "liquidEngine1-2",
                 true, 0.8f,
-                activeEngineKeys, lastThrottle, 100.0);
+                activeEngineKeys, lastThrottle, 100.0, events);
 
             Assert.NotNull(events);
             Assert.True(events.Count > 0);
@@ -358,10 +359,11 @@ namespace Parsek.Tests
             ulong key = FlightRecorder.EncodeEngineKey(42, 0);
 
             // RCS off -> on
-            var events = FlightRecorder.CheckRcsTransition(
+            var events = new List<PartEvent>();
+            FlightRecorder.CheckRcsTransition(
                 key, 42, 0, "RCSBlock",
                 true, 0.5f,
-                activeRcsKeys, lastRcsThrottle, 100.0);
+                activeRcsKeys, lastRcsThrottle, 100.0, events);
 
             Assert.NotNull(events);
             Assert.True(events.Count > 0);
