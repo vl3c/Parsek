@@ -174,7 +174,7 @@ namespace Parsek
         }
 
         internal static double ResolveLoopInterval(
-            Recording rec, double globalAutoInterval,
+            IPlaybackTrajectory rec, double globalAutoInterval,
             double defaultInterval, double minCycleDuration)
         {
             if (rec == null) return defaultInterval;
@@ -228,7 +228,7 @@ namespace Parsek
         /// TrackSections that contain the offset data needed for relative playback.
         /// Pure static for testability.
         /// </summary>
-        internal static bool ShouldUseLoopAnchor(Recording rec)
+        internal static bool ShouldUseLoopAnchor(IPlaybackTrajectory rec)
         {
             if (rec == null || rec.LoopAnchorVesselId == 0)
                 return false;
@@ -316,7 +316,7 @@ namespace Parsek
         /// - Anchor vessel body mismatch (wrong celestial body)
         /// </summary>
         internal static bool ShouldSpawnLoopedGhost(
-            Recording rec,
+            IPlaybackTrajectory rec,
             bool anchorVesselExists,
             string anchorBodyName,
             string recordingBodyName)
@@ -698,7 +698,7 @@ namespace Parsek
 
         #region Part Events
 
-        internal static void ApplyPartEvents(int recIdx, Recording rec, double currentUT, GhostPlaybackState state)
+        internal static void ApplyPartEvents(int recIdx, IPlaybackTrajectory rec, double currentUT, GhostPlaybackState state)
         {
             if (rec.PartEvents == null || rec.PartEvents.Count == 0) return;
             if (state.ghost == null)
@@ -1000,7 +1000,7 @@ namespace Parsek
         }
 
         internal static void InitializeInventoryPlacementVisibility(
-            Recording rec, GhostPlaybackState state)
+            IPlaybackTrajectory rec, GhostPlaybackState state)
         {
             if (rec == null || rec.PartEvents == null || rec.PartEvents.Count == 0) return;
             if (state == null || state.ghost == null) return;
@@ -1032,7 +1032,7 @@ namespace Parsek
         /// <summary>
         /// Initializes flag ghost visibility — all flags start hidden and appear when their event fires.
         /// </summary>
-        internal static void InitializeFlagVisibility(Recording rec, GhostPlaybackState state)
+        internal static void InitializeFlagVisibility(IPlaybackTrajectory rec, GhostPlaybackState state)
         {
             if (rec == null || rec.FlagEvents == null || rec.FlagEvents.Count == 0) return;
             if (state == null) return;
@@ -1044,7 +1044,7 @@ namespace Parsek
         /// they are never destroyed by Parsek. Duplicate check prevents re-spawning on loop wrap.
         /// The FlagEvent in the recording tracks which flag was planted (name, position, texture, plaque).
         /// </summary>
-        internal static void ApplyFlagEvents(GhostPlaybackState state, Recording rec, double currentUT)
+        internal static void ApplyFlagEvents(GhostPlaybackState state, IPlaybackTrajectory rec, double currentUT)
         {
             if (rec == null || rec.FlagEvents == null || rec.FlagEvents.Count == 0) return;
             if (state == null) return;

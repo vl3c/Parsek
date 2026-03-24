@@ -280,7 +280,7 @@ namespace Parsek
         /// Returns null if the snapshot is missing or produces zero visuals.
         /// </summary>
         internal static GhostBuildResult BuildTimelineGhostFromSnapshot(
-            Recording rec, string rootName)
+            IPlaybackTrajectory rec, string rootName)
         {
             ConfigNode snapshotNode = GetGhostSnapshot(rec);
             if (snapshotNode == null)
@@ -432,7 +432,7 @@ namespace Parsek
             };
         }
 
-        internal static ConfigNode GetGhostSnapshot(Recording rec)
+        internal static ConfigNode GetGhostSnapshot(IPlaybackTrajectory rec)
         {
             if (rec == null) return null;
             return rec.GhostVisualSnapshot ?? rec.VesselSnapshot;
