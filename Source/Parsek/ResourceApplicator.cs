@@ -94,7 +94,7 @@ namespace Parsek
                 var tree = trees[i];
                 if (tree.ResourcesApplied)
                 {
-                    ParsekLog.VerboseRateLimited("ResourceApplicator", $"tree-skip-{tree.TreeName}",
+                    ParsekLog.VerboseRateLimited("ResourceApplicator", "tree-skip-applied",
                         $"TickTrees: skipping tree '{tree.TreeName}' — already applied");
                     continue;
                 }
@@ -108,7 +108,7 @@ namespace Parsek
 
                 if (currentUT <= treeEndUT)
                 {
-                    ParsekLog.VerboseRateLimited("ResourceApplicator", $"tree-wait-{tree.TreeName}",
+                    ParsekLog.VerboseRateLimited("ResourceApplicator", "tree-wait-ut",
                         $"TickTrees: waiting for tree '{tree.TreeName}' — currentUT={currentUT:F1} treeEndUT={treeEndUT:F1}");
                     continue;
                 }

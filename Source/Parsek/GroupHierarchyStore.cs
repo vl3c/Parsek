@@ -10,6 +10,7 @@ namespace Parsek
     internal static class GroupHierarchyStore
     {
         // Group hierarchy: child group name → parent group name
+        // TODO: Encapsulate behind accessor methods to reduce direct coupling from ParsekUI (~25 sites)
         internal static Dictionary<string, string> groupParents = new Dictionary<string, string>();
 
         // Hidden groups: group names hidden from the recordings list when Hide is active
@@ -17,6 +18,19 @@ namespace Parsek
 
         // Hide toggle state (persisted across scene changes and save/load)
         internal static bool hideActive = true;
+
+        /// <summary>Read-only access to group parent mappings.</summary>
+        internal static IReadOnlyDictionary<string, string> GroupParents => groupParents;
+
+        /// <summary>Read-only access to hidden group set.</summary>
+        internal static IReadOnlyCollection<string> HiddenGroups => hiddenGroups;
+
+        /// <summary>Whether hidden groups are actively filtered from the UI.</summary>
+        internal static bool HideActive
+        {
+            get => hideActive;
+            set => hideActive = value;
+        }
 
         #region Hierarchy Operations
 

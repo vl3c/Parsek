@@ -87,7 +87,7 @@ namespace Parsek
                             if (pcm.name == name && pcm.rosterStatus == ProtoCrewMember.RosterStatus.Assigned)
                             {
                                 pcm.rosterStatus = ProtoCrewMember.RosterStatus.Available;
-                                CrewLog($"[Parsek Scenario] Unreserved crew '{name}'");
+                                CrewLog($"Unreserved crew '{name}'");
 
                                 // Clean up the replacement kerbal
                                 CleanUpReplacement(name, roster);
@@ -133,7 +133,7 @@ namespace Parsek
                         if (pcm.rosterStatus == ProtoCrewMember.RosterStatus.Missing)
                         {
                             pcm.rosterStatus = ProtoCrewMember.RosterStatus.Available;
-                            CrewLog($"[Parsek Scenario] Rescued Missing crew '{name}' → Available for reservation");
+                            CrewLog($"Rescued Missing crew '{name}' → Available for reservation");
                         }
 
                         // Hire a replacement kerbal so the available pool stays constant.
@@ -149,20 +149,20 @@ namespace Parsek
                                 {
                                     KerbalRoster.SetExperienceTrait(replacement, pcm.experienceTrait.TypeName);
                                     crewReplacements[name] = replacement.name;
-                                    CrewLog($"[Parsek Scenario] Hired replacement '{replacement.name}' " +
+                                    CrewLog($"Hired replacement '{replacement.name}' " +
                                         $"(trait: {pcm.experienceTrait.TypeName}) for reserved '{name}'");
                                 }
                             }
                             catch (System.Exception ex)
                             {
-                                CrewLog($"[Parsek Scenario] Failed to hire replacement for '{name}': {ex.Message}");
+                                CrewLog($"Failed to hire replacement for '{name}': {ex.Message}");
                             }
                         }
 
                         break;
                     }
                     if (!found)
-                        CrewLog($"[Parsek Scenario] WARNING: Crew '{name}' not found in roster during reservation");
+                        CrewWarn($" Crew '{name}' not found in roster during reservation");
                 }
             }
         }
@@ -189,7 +189,7 @@ namespace Parsek
                 }
 
                 crewReplacements.Clear();
-                CrewLog("[Parsek Scenario] Cleared all crew replacements");
+                CrewLog("Cleared all crew replacements");
             }
             finally
             {
@@ -248,7 +248,7 @@ namespace Parsek
 
                     if (replacement == null)
                     {
-                        CrewLog($"[Parsek Scenario] Cannot swap '{original.name}': replacement '{replacementName}' not in roster");
+                        CrewLog($"Cannot swap '{original.name}': replacement '{replacementName}' not in roster");
                         failCount++;
                         continue;
                     }
@@ -256,14 +256,14 @@ namespace Parsek
                     int seatIndex = part.protoModuleCrew.IndexOf(original);
                     if (seatIndex < 0)
                     {
-                        CrewLog($"[Parsek Scenario] Cannot swap '{original.name}': not found in part crew list");
+                        CrewLog($"Cannot swap '{original.name}': not found in part crew list");
                         failCount++;
                         continue;
                     }
                     part.RemoveCrewmember(original);
                     part.AddCrewmemberAt(replacement, seatIndex);
                     swapCount++;
-                    CrewLog($"[Parsek Scenario] Swapped '{original.name}' → '{replacement.name}' in part '{part.partInfo.title}'");
+                    CrewLog($"Swapped '{original.name}' → '{replacement.name}' in part '{part.partInfo.title}'");
                 }
             }
 
@@ -271,13 +271,13 @@ namespace Parsek
             {
                 FlightGlobals.ActiveVessel.SpawnCrew();
                 GameEvents.onVesselCrewWasModified.Fire(FlightGlobals.ActiveVessel);
-                CrewLog($"[Parsek Scenario] Crew swap complete: {swapCount} succeeded" +
+                CrewLog($"Crew swap complete: {swapCount} succeeded" +
                     (failCount > 0 ? $", {failCount} failed" : "") +
                     " — refreshed vessel crew display");
             }
             else if (failCount > 0)
             {
-                CrewLog($"[Parsek Scenario] Crew swap: 0 succeeded, {failCount} failed");
+                CrewLog($"Crew swap: 0 succeeded, {failCount} failed");
             }
 
             RemoveReservedEvaVessels();
@@ -314,18 +314,18 @@ namespace Parsek
 
             if (replacement == null)
             {
-                CrewLog($"[Parsek Scenario] Replacement '{replacementName}' not found in roster (already removed?)");
+                CrewLog($"Replacement '{replacementName}' not found in roster (already removed?)");
                 return;
             }
 
             if (replacement.rosterStatus == ProtoCrewMember.RosterStatus.Available)
             {
                 roster.Remove(replacement);
-                CrewLog($"[Parsek Scenario] Removed replacement '{replacementName}' (was unused)");
+                CrewLog($"Removed replacement '{replacementName}' (was unused)");
             }
             else
             {
-                CrewLog($"[Parsek Scenario] Kept replacement '{replacementName}' " +
+                CrewLog($"Kept replacement '{replacementName}' " +
                     $"(status: {replacement.rosterStatus} — now a real kerbal)");
             }
         }
@@ -348,7 +348,7 @@ namespace Parsek
                 string evaCrewName = GetEvaCrewName(vessel);
                 if (!ShouldRemoveEvaVessel(true, evaCrewName, crewReplacements)) continue;
 
-                CrewLog($"[Parsek Scenario] Removing reserved EVA vessel '{evaCrewName}' (pid={vessel.persistentId})");
+                CrewLog($"Removing reserved EVA vessel '{evaCrewName}' (pid={vessel.persistentId})");
 
                 // 1. Remove ProtoVessel to prevent re-spawn on save/load
                 var flightState = HighLogic.CurrentGame?.flightState;
@@ -369,7 +369,7 @@ namespace Parsek
             }
 
             if (evaRemoved > 0)
-                CrewLog($"[Parsek Scenario] Removed {evaRemoved} reserved EVA vessel(s)");
+                CrewLog($"Removed {evaRemoved} reserved EVA vessel(s)");
         }
 
         /// <summary>
@@ -384,21 +384,12 @@ namespace Parsek
 
         private static void CrewLog(string message)
         {
-            const string legacyPrefix = "[Parsek Scenario] ";
-            string clean = message ?? "(empty)";
-            if (clean.StartsWith(legacyPrefix, StringComparison.Ordinal))
-                clean = clean.Substring(legacyPrefix.Length);
+            ParsekLog.Info("CrewReservation", message ?? "(empty)");
+        }
 
-            if (clean.StartsWith("WARNING:", StringComparison.OrdinalIgnoreCase) ||
-                clean.StartsWith("WARN:", StringComparison.OrdinalIgnoreCase))
-            {
-                int idx = clean.IndexOf(':');
-                string trimmed = idx >= 0 ? clean.Substring(idx + 1).TrimStart() : clean;
-                ParsekLog.Warn("CrewReservation", trimmed);
-                return;
-            }
-
-            ParsekLog.Info("CrewReservation", clean);
+        private static void CrewWarn(string message)
+        {
+            ParsekLog.Warn("CrewReservation", message ?? "(empty)");
         }
 
         #endregion
@@ -468,7 +459,7 @@ namespace Parsek
             ConfigNode replacementsNode = node.GetNode("CREW_REPLACEMENTS");
             if (replacementsNode == null)
             {
-                CrewLog("[Parsek Scenario] Loaded 0 crew replacements (no CREW_REPLACEMENTS node)");
+                CrewLog("Loaded 0 crew replacements (no CREW_REPLACEMENTS node)");
                 return;
             }
 
@@ -483,7 +474,7 @@ namespace Parsek
                 }
             }
 
-            CrewLog($"[Parsek Scenario] Loaded {crewReplacements.Count} crew replacement(s)");
+            CrewLog($"Loaded {crewReplacements.Count} crew replacement(s)");
         }
 
         internal static void SaveCrewReplacements(ConfigNode node)
@@ -497,7 +488,7 @@ namespace Parsek
                     entry.AddValue("original", kvp.Key);
                     entry.AddValue("replacement", kvp.Value);
                 }
-                CrewLog($"[Parsek Scenario] Saved {crewReplacements.Count} crew replacement(s)");
+                CrewLog($"Saved {crewReplacements.Count} crew replacement(s)");
             }
         }
 
