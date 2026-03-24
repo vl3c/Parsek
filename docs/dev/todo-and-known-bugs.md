@@ -1556,6 +1556,46 @@ Root cause likely in `StripOrphanedSpawnedVessels` or `PreProcessRewindSave` —
 
 **Status:** Open
 
+## 130. GhostDestroyed event has empty vessel name for loop-restarted ghosts
+
+When a looping ghost cycle restarts, the engine fires `OnGhostDestroyed` for the old cycle. The event's `Trajectory` field is null/empty because `DestroyGhost` is called after the ghost state is already being torn down. The log shows `GhostDestroyed index=8 vessel=` (empty name).
+
+Root cause: `DestroyGhost` fires the event but the trajectory reference passed by the caller (loop playback) may be null when the ghost is destroyed during cycle rebuild. The trajectory reference should be captured before destruction.
+
+**Priority:** Low — cosmetic logging only, no functional impact
+
+**Status:** Open
+
+## 131. Explosion GO count can reach ~90 for overlapping reentry loops
+
+With 3+ overlapping negative-interval loop ghosts that have Destroyed terminal state (e.g., R2 reentry test), each produces continuous explosions. The `activeExplosions` list grows to ~90 concurrent explosion GameObjects before natural particle lifetime decay brings it back to ~10-12 steady state.
+
+Not a crash or leak (explosions decay naturally), but 90 concurrent particle-emitting GOs could cause frame drops on lower-end hardware.
+
+Possible fix: cap `activeExplosions.Count` and skip new explosions when at cap, or increase explosion pruning frequency.
+
+**Priority:** Low — only occurs with many overlapping destroyed-terminal loops
+
+**Status:** Open
+
+## 132. Policy RunSpawnDeathChecks and FlushDeferredSpawns are TODO stubs
+
+`ParsekPlaybackPolicy.RunSpawnDeathChecks()` and `FlushDeferredSpawns()` are placeholder stubs. The old path equivalents in `ParsekFlight.UpdateTimelinePlaybackViaEngine()` still call the original `FlushDeferredSpawns(committed)` directly, so deferred spawns work. But spawn-death detection (vessel dies immediately after spawning → re-spawn with death count tracking) is not wired through the policy yet.
+
+The pure predicates (`ShouldAbandonSpawnDeathLoop`, `ShouldFlushDeferredSpawns`, `ShouldSkipDeferredSpawn`) are tested; only the integration through the policy event handlers is missing.
+
+**Priority:** Medium — edge case (rapid spawn-death cycles) not handled by new path
+
+**Status:** Open
+
+## 133. Forwarding properties in ParsekFlight add ~500 lines of indirection
+
+After T25 extraction, ParsekFlight still has forwarding properties (`ghostStates => engine.ghostStates`, `overlapGhosts => engine.overlapGhosts`, etc.) and bridge methods (`DestroyTimelineGhost`, `DestroyAllOverlapGhosts`, `UpdateReentryFx`, etc.) that external callers (scene change, camera follow, delete, preview) use. These add ~500 lines that could be eliminated by updating callers to use the engine query API directly.
+
+**Priority:** Low — tech debt, no functional impact
+
+**Status:** Open
+
 # In-Game Tests
 
 - [ ] Vessels propagate naturally along orbits after FF (no position freezing)

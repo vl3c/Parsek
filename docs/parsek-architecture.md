@@ -2,8 +2,16 @@
 
 ## Document Status
 **Version:** 1.1
-**Phase:** Parsek 0.4.3
+**Phase:** Parsek 0.4.3 (conceptual — class names differ from implementation)
 **Last Updated:** March 2026
+
+> **Note (v0.5.2):** This document describes the conceptual architecture from early development.
+> The actual implementation uses different class names: `ParsekFlight` (not MainTimeline),
+> `FlightRecorder` (not MissionRecorder), `Recording` (not MissionRecording),
+> `GhostPlaybackEngine` (not PlaybackVessel). The PLAYBACK ENGINE box in the diagram
+> now maps to `GhostPlaybackEngine` (1553 lines, extracted from ParsekFlight in T25)
+> which owns ghost state, per-frame rendering, loop/overlap playback, and fires lifecycle
+> events to `ParsekPlaybackPolicy`. See `CLAUDE.md` for the current file inventory.
 
 ---
 

@@ -1,5 +1,17 @@
 # T25: Ghost Playback Engine Extraction
 
+**Status: COMPLETED** (March 2026, 31 commits, PR #84)
+
+| Component | Planned | Actual |
+|-----------|---------|--------|
+| GhostPlaybackEngine | ~2000 lines | 1553 lines |
+| ParsekPlaybackPolicy | ~400 lines | 192 lines |
+| IPlaybackTrajectory | ~50 lines | 48 lines |
+| IGhostPositioner | ~30 lines | 52 lines |
+| GhostPlaybackEvents | ~60 lines | 169 lines |
+| ParsekFlight reduction | 9900→7200 | 9900→8657 (forwarding properties add ~500 lines of tech debt) |
+| New tests | — | 109 tests |
+
 ## Context
 
 ParsekFlight.cs is ~9900 lines. The `#region Timeline Auto-Playback` (lines 5895–8337) is the largest region at **2443 lines** (~25% of the file). It contains 38 methods covering ghost spawn/destroy lifecycle, per-frame positioning, loop playback, overlap playback, resource deltas, reentry FX, explosion FX, deferred spawns, soft caps, and watch camera.
