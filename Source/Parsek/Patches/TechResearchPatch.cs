@@ -15,7 +15,7 @@ namespace Parsek.Patches
             string techId = __instance.techID;
             if (string.IsNullOrEmpty(techId)) return true;
 
-            if (GameStateRecorder.SuppressBlockingPatches)
+            if (GameStateRecorder.IsReplayingActions)
             {
                 ParsekLog.Verbose("TechResearchPatch",
                     $"Bypassing block for '{techId}' — action replay in progress");

@@ -28,7 +28,7 @@ namespace Parsek
         private bool showRecordingsWindow;
         private Rect recordingsWindowRect;
         private Vector2 recordingsScrollPos;
-        // ParsekScenario.hideActive is stored on ParsekScenario for persistence across scene changes and save/load
+        // GroupHierarchyStore.hideActive is stored on GroupHierarchyStore for persistence across scene changes and save/load
         private bool isResizingRecordingsWindow;
         private bool recordingsWindowHasInputLock;
         private const string RecordingsInputLockId = "Parsek_RecordingsWindow";
@@ -858,7 +858,7 @@ namespace Parsek
             // Build parent → children map from hierarchy
             grpChildren = new Dictionary<string, List<string>>();
             var allGrpNames = new HashSet<string>(grpToRecs.Keys);
-            foreach (var kvp in ParsekScenario.groupParents)
+            foreach (var kvp in GroupHierarchyStore.groupParents)
             {
                 allGrpNames.Add(kvp.Key);
                 allGrpNames.Add(kvp.Value);
@@ -866,7 +866,7 @@ namespace Parsek
             for (int i = 0; i < knownEmptyGroups.Count; i++)
                 allGrpNames.Add(knownEmptyGroups[i]);
 
-            foreach (var kvp in ParsekScenario.groupParents)
+            foreach (var kvp in GroupHierarchyStore.groupParents)
             {
                 List<string> children;
                 if (!grpChildren.TryGetValue(kvp.Value, out children))
@@ -883,7 +883,7 @@ namespace Parsek
             rootGrps = new List<string>();
             foreach (var g in allGrpNames)
             {
-                if (!ParsekScenario.groupParents.ContainsKey(g))
+                if (!GroupHierarchyStore.groupParents.ContainsKey(g))
                     rootGrps.Add(g);
             }
             rootGrps.Sort(System.StringComparer.OrdinalIgnoreCase);
@@ -1162,13 +1162,13 @@ namespace Parsek
                 GUILayout.BeginHorizontal(GUILayout.Width(ColW_Hide));
                 GUILayout.FlexibleSpace();
                 GUILayout.Label("Hide");
-                bool newHideActive = GUILayout.Toggle(ParsekScenario.hideActive, "");
+                bool newHideActive = GUILayout.Toggle(GroupHierarchyStore.hideActive, "");
                 GUILayout.FlexibleSpace();
                 GUILayout.EndHorizontal();
-                if (newHideActive != ParsekScenario.hideActive)
+                if (newHideActive != GroupHierarchyStore.hideActive)
                 {
-                    ParsekScenario.hideActive = newHideActive;
-                    ParsekLog.Info("UI", $"Hide active toggled: {ParsekScenario.hideActive}");
+                    GroupHierarchyStore.hideActive = newHideActive;
+                    ParsekLog.Info("UI", $"Hide active toggled: {GroupHierarchyStore.hideActive}");
                 }
 
                 GUILayout.EndHorizontal();
@@ -1286,7 +1286,7 @@ namespace Parsek
         private bool DrawRecordingRow(int ri, List<Recording> committed, double now, float indentPx)
         {
             var rec = committed[ri];
-            if (rec.Hidden && ParsekScenario.hideActive) return false;
+            if (rec.Hidden && GroupHierarchyStore.hideActive) return false;
             GUILayout.BeginHorizontal();
 
             // Enable checkbox (always at column 0)
@@ -1563,7 +1563,7 @@ namespace Parsek
             Dictionary<string, List<string>> grpChildren)
         {
             // Skip hidden groups when hide is active
-            if (ParsekScenario.hideActive && ParsekScenario.hiddenGroups.Contains(groupName))
+            if (GroupHierarchyStore.hideActive && GroupHierarchyStore.hiddenGroups.Contains(groupName))
                 return false;
 
             // Collect unique descendant recordings for aggregate controls
@@ -1697,7 +1697,7 @@ namespace Parsek
             GUILayout.Label("", GUILayout.Width(ColW_Rewind));
 
             // Hide group checkbox
-            bool groupHidden = ParsekScenario.hiddenGroups.Contains(groupName);
+            bool groupHidden = GroupHierarchyStore.hiddenGroups.Contains(groupName);
             GUILayout.BeginHorizontal(GUILayout.Width(ColW_Hide));
             GUILayout.FlexibleSpace();
             bool newGroupHidden = GUILayout.Toggle(groupHidden, "");
@@ -1706,9 +1706,9 @@ namespace Parsek
             if (newGroupHidden != groupHidden)
             {
                 if (newGroupHidden)
-                    ParsekScenario.hiddenGroups.Add(groupName);
+                    GroupHierarchyStore.hiddenGroups.Add(groupName);
                 else
-                    ParsekScenario.hiddenGroups.Remove(groupName);
+                    GroupHierarchyStore.hiddenGroups.Remove(groupName);
                 ParsekLog.Info("UI", $"Group '{groupName}' hidden={newGroupHidden}");
             }
 
@@ -1781,7 +1781,7 @@ namespace Parsek
         private bool DrawChainBlock(string chainId, List<int> members, int depth,
             List<Recording> committed, double now)
         {
-            if (ParsekScenario.hideActive)
+            if (GroupHierarchyStore.hideActive)
             {
                 bool anyVisible = false;
                 for (int m = 0; m < members.Count; m++)
@@ -1904,7 +1904,7 @@ namespace Parsek
                 return;
             }
 
-            ParsekScenario.RenameGroupInHierarchy(oldName, newName);
+            GroupHierarchyStore.RenameGroupInHierarchy(oldName, newName);
 
             // Update expansion state
             if (expandedGroups.Remove(oldName))
@@ -1942,7 +1942,7 @@ namespace Parsek
 
             // Determine parent group (null = root)
             string parentName;
-            ParsekScenario.groupParents.TryGetValue(groupName, out parentName);
+            GroupHierarchyStore.groupParents.TryGetValue(groupName, out parentName);
 
             string subText = "";
             if (childCount > 0)
@@ -1964,7 +1964,7 @@ namespace Parsek
                     new DialogGUIButton("Disband Group", () =>
                     {
                         int updated = RecordingStore.ReplaceGroupOnAll(capturedName, capturedParent);
-                        ParsekScenario.RemoveGroupFromHierarchy(capturedName);
+                        GroupHierarchyStore.RemoveGroupFromHierarchy(capturedName);
                         knownEmptyGroups.Remove(capturedName);
                         expandedGroups.Remove(capturedName);
                         ParsekLog.Info("UI", $"Group '{capturedName}' disbanded ({updated} recordings moved to '{capturedParent ?? "(standalone)"}')");
@@ -2028,7 +2028,7 @@ namespace Parsek
             // For group-in-group: checked = current parent (if any)
             groupPopupChecked = new HashSet<string>();
             string parent;
-            if (ParsekScenario.groupParents.TryGetValue(groupName, out parent))
+            if (GroupHierarchyStore.groupParents.TryGetValue(groupName, out parent))
                 groupPopupChecked.Add(parent);
             groupPopupOriginal = new HashSet<string>(groupPopupChecked);
             groupPopupNewName = "";
@@ -2042,7 +2042,7 @@ namespace Parsek
             isResizingGroupPopup = false;
             groupPopupExpanded = new HashSet<string>();
             // Default: all groups expanded
-            foreach (var kvp in ParsekScenario.groupParents)
+            foreach (var kvp in GroupHierarchyStore.groupParents)
             {
                 groupPopupExpanded.Add(kvp.Value);
             }
@@ -2063,7 +2063,7 @@ namespace Parsek
 
             // Collect all group names
             var allNames = new HashSet<string>(RecordingStore.GetGroupNames());
-            foreach (var kvp in ParsekScenario.groupParents)
+            foreach (var kvp in GroupHierarchyStore.groupParents)
             {
                 allNames.Add(kvp.Key);
                 allNames.Add(kvp.Value);
@@ -2077,14 +2077,14 @@ namespace Parsek
             {
                 cycleInvalid = new HashSet<string>();
                 cycleInvalid.Add(groupPopupGroup);
-                var desc = ParsekScenario.GetDescendantGroups(groupPopupGroup);
+                var desc = GroupHierarchyStore.GetDescendantGroups(groupPopupGroup);
                 for (int i = 0; i < desc.Count; i++)
                     cycleInvalid.Add(desc[i]);
             }
 
             // Build hierarchy for display
             var parentToChildren = new Dictionary<string, List<string>>();
-            foreach (var kvp in ParsekScenario.groupParents)
+            foreach (var kvp in GroupHierarchyStore.groupParents)
             {
                 List<string> ch;
                 if (!parentToChildren.TryGetValue(kvp.Value, out ch))
@@ -2100,7 +2100,7 @@ namespace Parsek
             var rootNames = new List<string>();
             foreach (var n in allNames)
             {
-                if (!ParsekScenario.groupParents.ContainsKey(n))
+                if (!GroupHierarchyStore.groupParents.ContainsKey(n))
                     rootNames.Add(n);
             }
             rootNames.Sort(System.StringComparer.OrdinalIgnoreCase);
@@ -2278,7 +2278,7 @@ namespace Parsek
                 if (groupPopupChecked.Count == 0)
                 {
                     // Remove parent (root level)
-                    ParsekScenario.SetGroupParent(groupPopupGroup, null);
+                    GroupHierarchyStore.SetGroupParent(groupPopupGroup, null);
                     ParsekLog.Info("UI", $"Group '{groupPopupGroup}' moved to root level");
                 }
                 else
@@ -2286,7 +2286,7 @@ namespace Parsek
                     // Set parent to the single checked group
                     foreach (var parent in groupPopupChecked)
                     {
-                        ParsekScenario.SetGroupParent(groupPopupGroup, parent);
+                        GroupHierarchyStore.SetGroupParent(groupPopupGroup, parent);
                         ParsekLog.Info("UI", $"Group '{groupPopupGroup}' parent set to '{parent}'");
                         break;
                     }

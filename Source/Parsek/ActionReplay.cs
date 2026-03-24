@@ -79,8 +79,7 @@ namespace Parsek
             int skipCount = 0;
             int failCount = 0;
 
-            GameStateRecorder.SuppressActionReplay = true;
-            GameStateRecorder.SuppressBlockingPatches = true;
+            GameStateRecorder.IsReplayingActions = true;
             GameStateRecorder.SuppressCrewEvents = true;
             try
             {
@@ -124,8 +123,7 @@ namespace Parsek
             }
             finally
             {
-                GameStateRecorder.SuppressActionReplay = false;
-                GameStateRecorder.SuppressBlockingPatches = false;
+                GameStateRecorder.IsReplayingActions = false;
                 GameStateRecorder.SuppressCrewEvents = false;
             }
 
@@ -177,7 +175,7 @@ namespace Parsek
                     partsPurchased = new List<AvailablePart>()
                 };
 
-                string partsStr = ParseDetailField(e.detail, "parts");
+                string partsStr = GameStateEventDisplay.ExtractDetailField(e.detail, "parts");
                 if (!string.IsNullOrEmpty(partsStr))
                 {
                     var partNames = partsStr.Split(',');
@@ -308,7 +306,7 @@ namespace Parsek
 
         /// <summary>
         /// Upgrades a facility to the level recorded in the committed event.
-        /// SuppressBlockingPatches must be set to bypass FacilityUpgradePatch.
+        /// IsReplayingActions must be set to bypass FacilityUpgradePatch.
         /// </summary>
         internal static bool ReplayFacilityUpgrade(GameStateEvent e, out bool skipped)
         {
@@ -429,7 +427,7 @@ namespace Parsek
 
                 newCrew.ChangeName(kerbalName);
 
-                string trait = ParseDetailField(e.detail, "trait");
+                string trait = GameStateEventDisplay.ExtractDetailField(e.detail, "trait");
                 if (!string.IsNullOrEmpty(trait))
                     KerbalRoster.SetExperienceTrait(newCrew, trait);
 
@@ -474,29 +472,6 @@ namespace Parsek
                 successCount++;
             else
                 failCount++;
-        }
-
-        #endregion
-
-        #region Utilities
-
-        /// <summary>
-        /// Parses a named field from a semicolon-delimited key=value detail string.
-        /// Example: ParseDetailField("cost=5;parts=a,b", "parts") returns "a,b".
-        /// Returns null if not found or detail is empty.
-        /// </summary>
-        internal static string ParseDetailField(string detail, string fieldName)
-        {
-            if (string.IsNullOrEmpty(detail)) return null;
-            var pairs = detail.Split(';');
-            for (int i = 0; i < pairs.Length; i++)
-            {
-                int eq = pairs[i].IndexOf('=');
-                if (eq < 0) continue;
-                if (pairs[i].Substring(0, eq).Trim() == fieldName)
-                    return pairs[i].Substring(eq + 1).Trim();
-            }
-            return null;
         }
 
         #endregion

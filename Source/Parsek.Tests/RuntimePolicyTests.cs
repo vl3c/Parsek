@@ -141,6 +141,74 @@ namespace Parsek.Tests
             Assert.Equal(1, target);
         }
 
+        #region ComputeStandaloneDelta
+
+        private static List<TrajectoryPoint> MakeResourcePoints(
+            params (double ut, double funds, float science, float reputation)[] entries)
+        {
+            var points = new List<TrajectoryPoint>();
+            for (int i = 0; i < entries.Length; i++)
+            {
+                points.Add(new TrajectoryPoint
+                {
+                    ut = entries[i].ut,
+                    funds = entries[i].funds,
+                    science = entries[i].science,
+                    reputation = entries[i].reputation,
+                    latitude = 0, longitude = 0, altitude = 0,
+                    rotation = Quaternion.identity,
+                    velocity = Vector3.zero,
+                    bodyName = "Kerbin"
+                });
+            }
+            return points;
+        }
+
+        [Fact]
+        public void ComputeStandaloneDelta_NoAdvance_ReturnsNoChange()
+        {
+            var points = MakeResourcePoints(
+                (10, 1000, 100, 50),
+                (20, 900, 95, 48),
+                (30, 800, 90, 46));
+            var delta = ResourceBudget.ComputeStandaloneDelta(points, lastAppliedIndex: 1, currentUT: 15);
+            Assert.False(delta.hasChange);
+            Assert.Equal(1, delta.targetIndex);
+        }
+
+        [Fact]
+        public void ComputeStandaloneDelta_AdvancesMultiplePoints()
+        {
+            var points = MakeResourcePoints(
+                (10, 1000, 100, 50),
+                (20, 900, 95, 48),
+                (30, 800, 90, 46));
+            var delta = ResourceBudget.ComputeStandaloneDelta(points, lastAppliedIndex: -1, currentUT: 25);
+            Assert.True(delta.hasChange);
+            Assert.Equal(1, delta.targetIndex);
+            Assert.Equal(-100, delta.funds);
+            Assert.Equal(-5f, delta.science);
+            Assert.Equal(-2f, delta.reputation);
+        }
+
+        [Fact]
+        public void ComputeStandaloneDelta_FromNegativeOneIndex()
+        {
+            var points = MakeResourcePoints(
+                (10, 1000, 100, 50),
+                (20, 900, 95, 48),
+                (30, 800, 90, 46));
+            var delta = ResourceBudget.ComputeStandaloneDelta(points, lastAppliedIndex: -1, currentUT: 35);
+            Assert.True(delta.hasChange);
+            Assert.Equal(2, delta.targetIndex);
+            // From index 0 (Max(-1,0)=0) to index 2
+            Assert.Equal(-200, delta.funds);
+            Assert.Equal(-10f, delta.science);
+            Assert.Equal(-4f, delta.reputation);
+        }
+
+        #endregion
+
         [Fact]
         public void ComputeScaledRcsEmissionRate_ShowcaseEnforcesVisibilityFloor()
         {

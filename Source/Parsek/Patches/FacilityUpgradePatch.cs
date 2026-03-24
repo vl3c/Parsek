@@ -26,7 +26,7 @@ namespace Parsek.Patches
             string facilityId = __instance.id;
             if (string.IsNullOrEmpty(facilityId)) return true;
 
-            if (GameStateRecorder.SuppressBlockingPatches)
+            if (GameStateRecorder.IsReplayingActions)
             {
                 ParsekLog.Verbose("FacilityUpgradePatch",
                     $"Bypassing block for '{facilityId}' — action replay in progress");
