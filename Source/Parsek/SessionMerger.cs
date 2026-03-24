@@ -108,6 +108,8 @@ namespace Parsek
             var ic = CultureInfo.InvariantCulture;
 
             int outputSectionCount = mergedSections.Count;
+            int overlapsResolved = inputSectionCount > outputSectionCount
+                ? inputSectionCount - outputSectionCount : 0;
             int overlapCount = CountOverlapsResolved(inputSections, mergedSections);
 
             int activeCount = 0, bgCount = 0, cpCount = 0;

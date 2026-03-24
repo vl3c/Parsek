@@ -451,10 +451,9 @@ namespace Parsek
             EmitFromUintSet(sets.jettisonedShrouds, PartEventType.ShroudJettisoned);
             EmitFromUintSet(sets.deployedFairings, PartEventType.FairingJettisoned);
             EmitFromUintSet(sets.lightsOn, PartEventType.LightOn);
-            EmitFromUintSet(sets.deployedGear, PartEventType.GearDeployed);
-            EmitFromUintSet(sets.openCargoBays, PartEventType.CargoBayOpened);
 
             // blinkingLights → LightBlinkEnabled (value = blink rate from lightBlinkRates)
+            // NOTE: must emit BEFORE deployedGear/openCargoBays to preserve original ordering
             if (sets.blinkingLights != null)
             {
                 foreach (uint pid in sets.blinkingLights)
@@ -474,6 +473,10 @@ namespace Parsek
                     ParsekLog.Verbose(logTag, $"Seed event: LightBlinkEnabled pid={pid} part='{NameFor(pid)}' rate={blinkRate.ToString("F2", CultureInfo.InvariantCulture)}");
                 }
             }
+
+            // deployedGear and openCargoBays (after blinkingLights to preserve original ordering)
+            EmitFromUintSet(sets.deployedGear, PartEventType.GearDeployed);
+            EmitFromUintSet(sets.openCargoBays, PartEventType.CargoBayOpened);
 
             // parachuteStates → ParachuteSemiDeployed (value=1) or ParachuteDeployed (value=2)
             if (sets.parachuteStates != null)

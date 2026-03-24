@@ -2060,7 +2060,7 @@ namespace Parsek
                 argumentOfPeriapsis = v.orbit.argumentOfPeriapsis,
                 meanAnomalyAtEpoch = v.orbit.meanAnomalyAtEpoch,
                 epoch = v.orbit.epoch,
-                bodyName = v.mainBody?.name ?? "Kerbin"
+                bodyName = v.mainBody.name
             };
         }
 

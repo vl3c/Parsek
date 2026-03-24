@@ -444,7 +444,7 @@ namespace Parsek
                 {
                     if (recordings[i].TreeId == null) continue;
 
-                    ClearPostSpawnTerminalState(recordings[i]);
+                    ClearPostSpawnTerminalState(recordings[i], "tree recording");
 
                     recordings[i].VesselSpawned = false;
                     recordings[i].SpawnAttempts = 0;
@@ -1466,7 +1466,7 @@ namespace Parsek
         /// Clears terminal state (Recovered/Destroyed) that was set after a vessel was spawned.
         /// On revert, the spawn is undone so the terminal state from the previous flight is stale.
         /// </summary>
-        internal static void ClearPostSpawnTerminalState(Recording rec)
+        internal static void ClearPostSpawnTerminalState(Recording rec, string context = "recording")
         {
             if (rec.VesselSpawned && rec.TerminalStateValue.HasValue)
             {
@@ -1474,7 +1474,7 @@ namespace Parsek
                 if (ts == TerminalState.Recovered || ts == TerminalState.Destroyed)
                 {
                     ParsekLog.Verbose("Scenario",
-                        $"Clearing post-spawn terminal state {ts} for recording '{rec.VesselName}'");
+                        $"Clearing post-spawn terminal state {ts} for {context} '{rec.VesselName}'");
                     rec.TerminalStateValue = null;
                 }
             }

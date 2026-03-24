@@ -12,47 +12,47 @@ See [code-refactor-2-plan.md](code-refactor-2-plan.md) for the full refactoring 
 
 | File | Lines | Tier | Status | Notes |
 |------|-------|------|--------|-------|
-| ParsekFlight.cs | 9,876 | 1 | Pending | +1,651 since R1. Top targets: PromoteToTreeForBreakup (266, 13 steps), CreateSplitBranch (170), OnSceneChangeRequested (205), commit pattern dedup |
-| GhostVisualBuilder.cs | 7,642 | 1 | Pending | +1,247 since R1. Animation sampling methods, FX prefab chain, AddPartVisuals |
-| FlightRecorder.cs | 4,956 | 1 | Pending | +849 since R1. StartRecording (165), OnPhysicsFrame (212, 18 Check* calls), LogVisualRecordingCoverage (200) |
-| ParsekUI.cs | 3,595 | 1 | Pending | +672 since R1. DrawRecordingsWindow (304), DrawRecordingRow (205), DrawGroupTree (221) |
-| BackgroundRecorder.cs | 2,759 | 1 | Pending | +1,235 since R1 (81% growth!). HandleBackgroundVesselSplit (177), individual Check* method extraction only |
-| RecordingStore.cs | 2,673 | 1 | Pending | +678 since R1. POINT ser/deser duplicated 4x (2 ser + 2 deser), DeserializeTrackSections (187), InitiateRewind (139) |
-| ParsekScenario.cs | 2,693 | 1 | Pending | +396 since R1. OnLoad (586!) needs split into 3-4 sub-methods |
-| GhostPlaybackLogic.cs | 2,185 | 1 | Pending | +771 since R1. PopulateGhostInfoDictionaries (94). Engine/RCS FX only ~50-60% similar — dedup may not be worthwhile |
-| VesselSpawner.cs | 1,031 | 2A | Pending | Minor growth. SpawnOrRecoverIfTooClose (143), crew handling dedup |
-| RecordingTree.cs | 953 | 2A | Pending | +262 since R1. LoadRecordingResourceAndState (132), BranchPoint metadata |
-| ParsekKSC.cs | 919 | 2A | Pending | +67 since R1. SpawnKscGhost (132), UpdateOverlapKsc (122) |
-| MergeDialog.cs | 862 | 2A | Pending | +330 since R1. Three dialog methods share structural pattern |
-| PartStateSeeder.cs | 722 | 2B | Pending | NEW. EmitSeedEvents (278, ~15 repetitive blocks), heavy FlightRecorder coupling |
-| VesselGhoster.cs | 682 | 2B | Pending | NEW. SpawnAtChainTip (107), TrySpawnBlockedChain (149) |
-| GhostChainWalker.cs | 592 | 2B | Pending | NEW. ComputeAllGhostChains (64), ResolveTipsAndCrossTreeLinks (86). **LOGGING GAPS:** IsIntermediateChainLink (35) and WalkToLeaf (52) have zero logging |
-| TimeJumpManager.cs | 552 | 2B | Pending | NEW. ExecuteJump (147), ExecuteForwardJump (104) |
-| SessionMerger.cs | 476 | 2C | Pending | NEW. MergeTree (111), ResolveOverlaps (170) |
-| GhostCommNetRelay.cs | 389 | 2C | Pending | NEW. ComputeCombinedAntennaPowerFromList (49) |
-| SpawnCollisionDetector.cs | 378 | 2C | Pending | NEW. CheckOverlapAgainstLoadedVessels (60), WalkbackAlongTrajectory (42). **TEST GAP:** only 16 tests for 378 lines |
-| GhostExtender.cs | 266 | 2C | Pending | NEW. PropagateOrbital (83, Keplerian propagator) |
-| SelectiveSpawnUI.cs | 201 | 2C | Pending | NEW. Clean pure static. Likely no changes needed |
-| Recording.cs | 251 | 3 | Pending | Modified since R1. Pure data class. No changes needed |
-| GhostTypes.cs | 218 | 3 | Pending | Modified since R1. Pure data types. No changes needed |
-| EnvironmentDetector.cs | 190 | 3 | Pending | NEW. Clean. No changes needed |
-| GhostingTriggerClassifier.cs | 181 | 3 | Pending | NEW. Clean. No changes needed |
-| CrashCoalescer.cs | 163 | 3 | Pending | NEW. Clean. No changes needed |
-| SpawnWarningUI.cs | 160 | 3 | Pending | NEW. Clean. No changes needed |
-| SegmentBoundaryLogic.cs | 156 | 3 | Pending | NEW. Clean. No changes needed |
-| GhostSoftCapManager.cs | 150 | 3 | Pending | NEW. Clean. No changes needed |
-| GhostMapPresence.cs | 130 | 3 | Pending | NEW. Clean. No changes needed |
-| AntennaSpec.cs | 127 | 3 | Pending | NEW. Clean. No changes needed |
-| AnchorDetector.cs | 116 | 3 | Pending | NEW. Clean. No changes needed |
-| TerrainCorrector.cs | 104 | 3 | Pending | NEW. Clean. No changes needed |
-| RenderingZoneManager.cs | 101 | 3 | Pending | NEW. Clean. No changes needed |
-| GhostPlaybackState.cs | 73 | 3 | Pending | Modified since R1. Data container. No changes needed |
-| TrackSection.cs | 73 | 3 | Pending | NEW. Pure data. No changes needed |
-| GhostChain.cs | 50 | 3 | Pending | NEW. Pure data. No changes needed |
-| ProximityRateSelector.cs | 42 | 3 | Pending | NEW. Clean. No changes needed |
-| SegmentEvent.cs | 30 | 3 | Pending | NEW. Pure data. No changes needed |
-| FlagEvent.cs | 22 | 3 | Pending | NEW. Pure data. No changes needed |
-| ControllerInfo.cs | 21 | 3 | Pending | NEW. Pure data. No changes needed |
+| ParsekFlight.cs | 9,905 | 1 | Pass1-Done | 17 extractions, 25 log calls. OnSceneChangeRequested 205→50, continuation dedup ×4, commit dedup deferred (D2) |
+| GhostVisualBuilder.cs | 7,754 | 1 | Pass1-Done | 10 extractions, 9 log calls. AddPartVisuals 802→454. TryBuildEngineFX deferred (D13) |
+| FlightRecorder.cs | 4,921 | 1 | Pass1-Done | 6 extractions, 3 log calls. FinalizeRecordingState triple-dedup, CreateOrbitSegmentFromVessel ×4 |
+| ParsekUI.cs | 3,599 | 1 | Pass1-Done | BuildGroupTreeData (internal static), DrawGhostCapSlider dedup, 5 log calls |
+| BackgroundRecorder.cs | 2,754 | 1 | Pass1-Done | 4 extractions. BuildPartTrackingSetsFromState dedup, CreateOrbitSegmentFromVessel ×3 |
+| RecordingStore.cs | 2,533 | 1 | Pass1-Done | 6 extractions (-140 lines). POINT/ORBIT ser/deser dedup ×4, PreProcessRewindSave delegation |
+| ParsekScenario.cs | 2,726 | 1 | Pass1-Done | 5 extractions. OnLoad split: HandleRewindOnLoad, DiscardStalePendingState, LoadRecordingTrees |
+| GhostPlaybackLogic.cs | 2,243 | 1 | Pass1-Done | BuildDictByPid generic helper, 7 logging additions |
+| VesselSpawner.cs | 1,031 | 2A | Pass1-Done | 3 extractions (ResolveSpawnPosition, FindNearestVesselDistance, LogSpawnFailure), 1 log |
+| RecordingTree.cs | 953 | 2A | Pass1-Done | No changes needed — already well-structured |
+| ParsekKSC.cs | 919 | 2A | Pass1-Done | PopulateGhostInfoDictionaries extracted from SpawnKscGhost |
+| MergeDialog.cs | 862 | 2A | Pass1-Done | No changes needed — helpers already extracted |
+| PartStateSeeder.cs | 662 | 2B | Pass1-Done | EmitFromUintSet local helper (-60 lines), EmitHeat/Engine/RcsSeedEvents extracted |
+| VesselGhoster.cs | 709 | 2B | Pass1-Done | ResolveSpawnPosition, TryWalkbackSpawn extracted |
+| GhostChainWalker.cs | 687 | 2B | Pass1-Done | **Logging gaps FIXED**: IsIntermediateChainLink, WalkToLeaf, TraceLineagePids, ResolveTermination. MergeCrossTreeLinks extracted |
+| TimeJumpManager.cs | 613 | 2B | Pass1-Done | CaptureOrbitalStates, ApplyEpochShifts, SpawnCrossedChainTips, PutLoadedVesselsOnRails, TakeVesselsOffRails |
+| SessionMerger.cs | 476 | 2C | Pass1-Done | LogMergeDiagnostics extracted from MergeTree |
+| GhostCommNetRelay.cs | 389 | 2C | Pass1-Done | No changes needed — well-structured |
+| SpawnCollisionDetector.cs | 378 | 2C | Pass1-Done | ParsePartPositions extracted (internal static). Entry-point logging added |
+| GhostExtender.cs | 266 | 2C | Pass1-Done | ComputeOrbitalPosition + CartesianToGeodetic extracted. PropagateOrbital 83→15 |
+| SelectiveSpawnUI.cs | 201 | 2C | Pass1-Done | No changes needed |
+| Recording.cs | 251 | 3 | Pass1-Done | No changes needed — scanned, already well-logged |
+| GhostTypes.cs | 218 | 3 | Pass1-Done | No changes needed — pure data types |
+| EnvironmentDetector.cs | 190 | 3 | Pass1-Done | No changes needed — already well-logged |
+| GhostingTriggerClassifier.cs | 181 | 3 | Pass1-Done | No changes needed — all paths logged |
+| CrashCoalescer.cs | 163 | 3 | Pass1-Done | No changes needed |
+| SpawnWarningUI.cs | 160 | 3 | Pass1-Done | No changes needed |
+| SegmentBoundaryLogic.cs | 156 | 3 | Pass1-Done | No changes needed |
+| GhostSoftCapManager.cs | 150 | 3 | Pass1-Done | No changes needed |
+| GhostMapPresence.cs | 130 | 3 | Pass1-Done | No changes needed |
+| AntennaSpec.cs | 127 | 3 | Pass1-Done | No changes needed |
+| AnchorDetector.cs | 116 | 3 | Pass1-Done | No changes needed |
+| TerrainCorrector.cs | 104 | 3 | Pass1-Done | No changes needed |
+| RenderingZoneManager.cs | 101 | 3 | Pass1-Done | No changes needed |
+| GhostPlaybackState.cs | 73 | 3 | Pass1-Done | No changes needed |
+| TrackSection.cs | 73 | 3 | Pass1-Done | No changes needed |
+| GhostChain.cs | 50 | 3 | Pass1-Done | No changes needed |
+| ProximityRateSelector.cs | 42 | 3 | Pass1-Done | No changes needed |
+| SegmentEvent.cs | 30 | 3 | Pass1-Done | No changes needed |
+| FlagEvent.cs | 22 | 3 | Pass1-Done | No changes needed |
+| ControllerInfo.cs | 21 | 3 | Pass1-Done | No changes needed |
 | TrajectoryMath.cs | 627 | — | Skip | Refactored in R1, minimal changes since |
 | ActionReplay.cs | 504 | — | Skip | Refactored in R1, no changes since |
 | MilestoneStore.cs | 474 | — | Skip | Refactored in R1, no changes since |
