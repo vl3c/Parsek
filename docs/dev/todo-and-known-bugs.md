@@ -224,6 +224,12 @@ Focus areas: ResourceApplicator (0% direct coverage for KSP-mutation methods), C
 
 **Priority:** Medium — test confidence degrades as suite grows without pruning
 
+### T33. Encapsulate GroupHierarchyStore mutable fields
+
+`groupParents`, `hiddenGroups`, `hideActive` are `internal static` fields accessed directly by ParsekUI (~25 sites) and tests (~60 sites). Read-only accessors (`GroupParents`, `HiddenGroups`, `HideActive`) were added but callers still use the mutable fields. Migrate callers to use accessors + mutation methods (e.g. `AddHiddenGroup`/`RemoveHiddenGroup` instead of `hiddenGroups.Add`/`Remove`) to reduce coupling and enable future change tracking.
+
+**Priority:** Low — no functional risk, purely structural improvement
+
 ---
 
 # Known Bugs
