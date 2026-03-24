@@ -261,8 +261,7 @@ namespace Parsek.Tests
             ParsekScenario.ClearPostSpawnTerminalState(rec);
 
             Assert.Contains(logLines, l =>
-                l.Contains("recording") &&
-                l.Contains("DefaultCtx"));
+                l.Contains("for recording 'DefaultCtx'"));
         }
     }
 }

@@ -30,13 +30,13 @@ Files with >8 dependencies flagged as high coupling. ParsekFlight depends on vir
 |-------|-------------|----------------------|
 | GameStateRecorder.SuppressCrewEvents | GameStateRecorder | ActionReplay, ParsekScenario |
 | GameStateRecorder.SuppressResourceEvents | GameStateRecorder | ParsekScenario, ParsekFlight |
-| RecordingStore.IsRewinding | RecordingStore | ParsekScenario, ParsekFlight |
-| RecordingStore.RewindUT/AdjustedUT | RecordingStore | ParsekScenario, ParsekFlight |
+| RecordingStore.IsRewinding | RecordingStore | ParsekScenario (ParsekFlight reads only) |
+| RecordingStore.RewindUT/AdjustedUT | RecordingStore | ParsekScenario (ParsekFlight reads only) |
 | RecordingStore.pendingRecording | RecordingStore | ParsekFlight |
 | RecordingStore.pendingTree | RecordingStore | ParsekFlight, MergeDialog |
 | PhysicsFramePatch.ActiveRecorder | PhysicsFramePatch | FlightRecorder |
 | PhysicsFramePatch.BackgroundRecorderInstance | PhysicsFramePatch | ParsekFlight |
-| FlightResultsPatch.Bypass | FlightResultsPatch | MergeDialog |
+| FlightResultsPatch.Bypass | FlightResultsPatch | MergeDialog (indirect: via ReplayFlightResults) |
 | MilestoneStore.CurrentEpoch | MilestoneStore | ParsekScenario |
 | ResourceBudget.budgetDirty | ResourceBudget | MilestoneStore |
 
@@ -46,8 +46,8 @@ Files with >8 dependencies flagged as high coupling. ParsekFlight depends on vir
 
 | Parent | Nested Type | Used By |
 |--------|------------|---------|
-| ResourceBudget | BudgetSummary | RecordingStore, ParsekFlight, ParsekScenario, ParsekUI, MergeDialog |
-| FlightRecorder | VesselSwitchDecision | BackgroundRecorder |
+| ResourceBudget | BudgetSummary | RecordingStore, ParsekScenario |
+| FlightRecorder | VesselSwitchDecision | (FlightRecorder only + tests) |
 | ParsekUI | UIMode | ParsekKSC |
 
 ---
@@ -71,11 +71,11 @@ SetEngineEmission ↔ SetRcsEmission: confirmed ~47% shared. Not worth unifying 
 
 ---
 
-## 5. Dead Code Candidates
+## 5. Dead Code + Unnecessary Indirection
 
-- `GhostVisualBuilder.GetFairingShowMesh` — zero call sites (production or test)
-- `GhostVisualBuilder.GenerateFairingTrussMesh` — zero call sites
-- `ParsekFlight.SanitizeQuaternion` instance wrapper — unnecessary, `TrajectoryMath.SanitizeQuaternion` called directly by ParsekKSC
+- `GhostVisualBuilder.GetFairingShowMesh` — zero call sites (production or test). **Dead code.**
+- `GhostVisualBuilder.GenerateFairingTrussMesh` — zero call sites. **Dead code.**
+- `ParsekFlight.SanitizeQuaternion` instance wrapper — has 4 call sites within ParsekFlight, but is an unnecessary indirection over `TrajectoryMath.SanitizeQuaternion` (which ParsekKSC calls directly). **Not dead code** — unnecessary wrapper. Phase 3C cleanup candidate.
 
 ---
 
@@ -94,8 +94,8 @@ SetEngineEmission ↔ SetRcsEmission: confirmed ~47% shared. Not worth unifying 
 
 | # | Type | From | To |
 |---|------|------|----|
-| 5 | BudgetSummary | ResourceBudget (nested) | ResourceBudget.cs (top-level) or own file |
-| 6 | VesselSwitchDecision | FlightRecorder (nested) | Own file |
+| 5 | BudgetSummary | ResourceBudget (nested) | Top-level in ResourceBudget.cs (only 2 external users) |
+| 6 | VesselSwitchDecision | FlightRecorder (nested) | Low priority (no external production users) |
 | 7 | UIMode | ParsekUI (nested) | Own file |
 | 8 | MaterialCleanup | GhostVisualBuilder (nested) | Own file |
 | 9 | Dead code removal | GhostVisualBuilder | Delete GetFairingShowMesh, GenerateFairingTrussMesh |

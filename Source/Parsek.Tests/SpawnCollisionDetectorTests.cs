@@ -96,6 +96,7 @@ namespace Parsek.Tests
         [Fact]
         public void BoundsOverlap_Overlapping_ReturnsTrue()
         {
+            // Bug caught: coincident bounds must be detected as overlapping
             // Two 2x2x2 bounds at same position
             Bounds a = new Bounds(Vector3.zero, new Vector3(2, 2, 2));
             Bounds b = new Bounds(Vector3.zero, new Vector3(2, 2, 2));
@@ -109,6 +110,7 @@ namespace Parsek.Tests
         [Fact]
         public void BoundsOverlap_Separated_ReturnsFalse()
         {
+            // Bug caught: well-separated bounds must not false-positive as overlapping
             // Two 2x2x2 bounds 100m apart on X axis
             Bounds a = new Bounds(Vector3.zero, new Vector3(2, 2, 2));
             Bounds b = new Bounds(Vector3.zero, new Vector3(2, 2, 2));
@@ -123,6 +125,7 @@ namespace Parsek.Tests
         [Fact]
         public void BoundsOverlap_PaddingCausesOverlap()
         {
+            // Bug caught: padding parameter must expand effective bounds to catch near-misses
             // Two 2x2x2 bounds, centers 3m apart on X axis
             // Without padding: a.max.x=1, b.min.x=2 → gap of 1m → no overlap
             // With padding=2m: a.max.x=1+2=3, b.min.x=2-2=0 → overlap
@@ -143,6 +146,7 @@ namespace Parsek.Tests
         [Fact]
         public void BoundsOverlap_PaddingNotEnough_ReturnsFalse()
         {
+            // Bug caught: padding must not create false overlaps for well-separated bounds
             // Two 2x2x2 bounds, 10m apart on X axis, padding=2m
             // a.max.x = 1+2 = 3, b.min.x = 10-1-2 = 7 → no overlap
             Bounds a = new Bounds(Vector3.zero, new Vector3(2, 2, 2));
@@ -162,6 +166,7 @@ namespace Parsek.Tests
         [Fact]
         public void ComputeVesselBounds_ValidSnapshot_ReturnsBounds()
         {
+            // Bug caught: valid PART positions must produce correct enclosing bounds
             var node = new ConfigNode("VESSEL");
             var p1 = node.AddNode("PART");
             p1.AddValue("pos", "0,0,0");
@@ -183,6 +188,7 @@ namespace Parsek.Tests
         [Fact]
         public void ComputeVesselBounds_NullSnapshot_ReturnsFallbackBounds()
         {
+            // Bug caught: null snapshot must not crash, must return safe fallback bounds
             Bounds bounds = SpawnCollisionDetector.ComputeVesselBounds(null);
 
             // Fallback: 2m cube at origin
@@ -193,6 +199,7 @@ namespace Parsek.Tests
         [Fact]
         public void ComputeVesselBounds_NoParts_ReturnsFallbackBounds()
         {
+            // Bug caught: empty vessel (no PART nodes) must return fallback, not crash
             var node = new ConfigNode("VESSEL");
             // No PART subnodes
 
@@ -210,6 +217,7 @@ namespace Parsek.Tests
         [Fact]
         public void ComputeVesselBounds_MalformedPos_SkipsBadParts()
         {
+            // Bug caught: malformed pos values must be skipped, good parts still produce valid bounds
             var node = new ConfigNode("VESSEL");
 
             // Good part
@@ -239,6 +247,7 @@ namespace Parsek.Tests
         [Fact]
         public void ComputeVesselBounds_AllBadPositions_ReturnsFallbackBounds()
         {
+            // Bug caught: vessel with only unparseable parts must fallback, not crash or return zero bounds
             var node = new ConfigNode("VESSEL");
             var p1 = node.AddNode("PART");
             p1.AddValue("pos", "not,a,number");
@@ -258,6 +267,7 @@ namespace Parsek.Tests
         [Fact]
         public void ComputeBoundsFromParts_LogsPartCount()
         {
+            // Bug caught: part count must be logged for debugging bounds computation
             logLines.Clear();
 
             var parts = new List<(Vector3 localPos, float halfExtent)>
@@ -275,6 +285,7 @@ namespace Parsek.Tests
         [Fact]
         public void ComputeBoundsFromParts_EmptyList_LogsZeroBounds()
         {
+            // Bug caught: empty part list must log a diagnostic (aids debugging "why no collision check")
             logLines.Clear();
 
             SpawnCollisionDetector.ComputeBoundsFromParts(
@@ -287,6 +298,7 @@ namespace Parsek.Tests
         [Fact]
         public void ComputeVesselBounds_NullSnapshot_LogsFallback()
         {
+            // Bug caught: null snapshot must produce a diagnostic log (silent fallback hides bugs)
             logLines.Clear();
 
             SpawnCollisionDetector.ComputeVesselBounds(null);
@@ -298,6 +310,7 @@ namespace Parsek.Tests
         [Fact]
         public void ComputeVesselBounds_NoParts_LogsFallback()
         {
+            // Bug caught: VESSEL with no PART nodes must log fallback (empty vessel edge case)
             logLines.Clear();
 
             SpawnCollisionDetector.ComputeVesselBounds(new ConfigNode("VESSEL"));
