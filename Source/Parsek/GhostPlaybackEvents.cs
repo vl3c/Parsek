@@ -86,8 +86,8 @@ namespace Parsek
         /// <summary>Whether a ghost GameObject was active when playback ended.</summary>
         public bool GhostWasActive;
 
-        /// <summary>Whether the chain end UT was exceeded (not just this segment's end).</summary>
-        public bool PastChainEnd;
+        /// <summary>Whether the effective end UT was exceeded (may extend beyond this segment's own EndUT).</summary>
+        public bool PastEffectiveEnd;
 
         /// <summary>The final trajectory point (for spawn positioning).</summary>
         public TrajectoryPoint LastPoint;
@@ -144,6 +144,12 @@ namespace Parsek
     {
         /// <summary>Recording index this action relates to.</summary>
         public int Index;
+
+        /// <summary>Trajectory for logging and identification.</summary>
+        public IPlaybackTrajectory Trajectory;
+
+        /// <summary>Policy flags for identification.</summary>
+        public TrajectoryPlaybackFlags Flags;
 
         /// <summary>What camera action is needed.</summary>
         public CameraActionType Action;

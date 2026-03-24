@@ -3,6 +3,19 @@ using UnityEngine;
 namespace Parsek
 {
     /// <summary>
+    /// Result of zone rendering evaluation.
+    /// The engine uses this to skip positioning/events for hidden ghosts.
+    /// </summary>
+    internal struct ZoneRenderingResult
+    {
+        /// <summary>Ghost was hidden (Beyond zone) — engine should skip further work.</summary>
+        public bool hiddenByZone;
+
+        /// <summary>Part events should not be applied this frame (zone policy).</summary>
+        public bool skipPartEvents;
+    }
+
+    /// <summary>
     /// Positions ghost GameObjects in the world. Implemented by the host
     /// scene controller (ParsekFlight for flight scene, ParsekKSC for KSC scene).
     ///
@@ -17,7 +30,7 @@ namespace Parsek
 
         void InterpolateAndPositionRelative(int index, IPlaybackTrajectory traj,
             GhostPlaybackState state, double ut, bool suppressFx,
-            IPlaybackTrajectory anchorTraj, double anchorUT);
+            uint anchorVesselId);
 
         void PositionAtPoint(int index, IPlaybackTrajectory traj,
             GhostPlaybackState state, TrajectoryPoint point);
@@ -33,7 +46,7 @@ namespace Parsek
 
         GameObject CreateSphere(string name, int index);
 
-        void ApplyZoneRendering(int index, GhostPlaybackState state,
+        ZoneRenderingResult ApplyZoneRendering(int index, GhostPlaybackState state,
             IPlaybackTrajectory traj, double distance, int protectedIndex);
 
         void ClearOrbitCache();
