@@ -1544,6 +1544,56 @@ Root cause likely in `StripOrphanedSpawnedVessels` or `PreProcessRewindSave` —
 
 **Status:** Open
 
+## 130. CleanupOrphanedSpawnedVessels destroys freshly-spawned past vessel on first flight after rewind
+
+After rewind to UT ~99.8, entering flight at UT ~111. The Aeris 4A recording (UT 53–78, **before** the rewind point) correctly spawns a LANDED vessel on frame 1 (`VesselSpawned=true`). Half a second later, `CleanupOrphanedSpawnedVessels` runs during `OnFlightReady` and **destroys** the just-spawned vessel because "Aeris 4A" matches the cleanup names list. The vessel-gone check resets `VesselSpawned=false` (spawnDeathCount 1/3), the re-spawn attempt is collision-blocked by Crater Crawler at 14m for 150 frames, and eventually abandoned.
+
+**Root cause:** The rewind path populates `PendingCleanupNames` with ALL recording vessel names (11 names) via `CollectAllRecordingVesselNames()`. This makes sense for stripping future vessels from the save, but `CleanupOrphanedSpawnedVessels` at `OnFlightReady` also uses these same names. By then, past-recording vessels have already been correctly spawned by `UpdateTimelinePlayback`, and the cleanup destroys them.
+
+Different from #109 (missing cleanup on second rewind) — here cleanup runs but is over-aggressive on the first flight. Different from #112 (self-overlap) — here the vessel is destroyed by cleanup, not blocked by its own copy.
+
+**Fix:** `CleanupOrphanedSpawnedVessels` should exclude vessels that were just spawned by Parsek in the current frame/scene (check `VesselSpawned=true` or `SpawnedVesselPersistentId` against loaded vessels). Or: clear `PendingCleanupNames` after `StripOrphanedSpawnedVessels` runs in OnLoad so the cleanup doesn't re-fire at OnFlightReady.
+
+**Priority:** High — destroys correctly-spawned vessels after rewind
+
+**Status:** Open
+
+## 131. ShouldSpawnAtRecordingEnd VERBOSE log spam — 377K lines/session
+
+`GhostPlaybackLogic.ShouldSpawnAtRecordingEnd` logs a VERBOSE line for every suppressed recording on every call. Called from `UpdateTimelinePlayback()` → `Update()` per-recording per-frame. With 37 recordings and 60fps, this produces ~2,200 lines/second. In the analyzed session: 377,350 lines — 73% of all Parsek log output and the single largest spam source.
+
+Different from #117 (CanRewind/CanFastForward UI spam, now fixed) and #121 (Ghost SKIPPED during collision-blocked spawn).
+
+**Fix:** Remove all VERBOSE logs from `ShouldSpawnAtRecordingEnd`. Like CanRewind/CanFastForward (#117), this is a per-frame read-only check where the `reason` out-parameter already conveys the suppression reason to the caller.
+
+**Priority:** High — blocks effective log analysis
+
+**Status:** Open
+
+## 132. ParsePartPositions: 0/N parts parsed from vessel snapshot
+
+`SpawnCollisionDetector.ParsePartPositions` parsed 0 of 40 parts from the Aeris 4A vessel snapshot, falling back to a 2m bounds estimate. This makes the collision check unreliable — the actual vessel footprint is much larger than 2m but the detector can't compute it.
+
+Different from #127 (wrong position source for collision check, now fixed). This is about the part position parser itself failing to extract coordinates from snapshot PART nodes.
+
+**Fix:** Investigate why `ParsePartPositions` fails on the Aeris 4A snapshot. Likely the PART nodes use a different position format or key name than expected. Add a VERBOSE diagnostic log showing what keys/values the parser found vs expected.
+
+**Priority:** Low — fallback bounds work but are inaccurate
+
+**Status:** Open
+
+## 133. Crew status corruption: reserved kerbals become Missing after post-rewind EVA vessel removal
+
+After rewind, `OnFlightReady` removes reserved EVA vessels (Bob Kerman pid=2373555091, Halemy Kerman pid=2924298993). KSP's removal sets their status from Assigned to Missing. The crew rescue logic (`Rescued Missing crew → Available`) runs earlier during OnLoad but not after OnFlightReady, so these kerbals stay Missing for the rest of the session until the next save/load cycle.
+
+Log evidence: `CrewStatusChanged 'Bob Kerman' Assigned → Missing` at UT 115.6, and `CrewStatusChanged 'Halemy Kerman' Assigned → Missing` at UT 115.6. Similar to #116 (Valentina lost to Missing) but triggered by EVA vessel removal rather than vessel strip.
+
+**Fix:** Run crew status rescue after `OnFlightReady` EVA vessel removal, not just during OnLoad. Or: prevent EVA vessels for reserved crew from existing in the save in the first place.
+
+**Priority:** Medium — crew becomes unavailable until next load
+
+**Status:** Open
+
 # In-Game Tests
 
 - [ ] Vessels propagate naturally along orbits after FF (no position freezing)
