@@ -1,5 +1,4 @@
 using System;
-using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 
@@ -18,7 +17,6 @@ namespace Parsek
     internal class GhostPlaybackEngine
     {
         private readonly IGhostPositioner positioner;
-        private readonly Action<IEnumerator> startCoroutine;
 
         #region Ghost state
 
@@ -77,10 +75,9 @@ namespace Parsek
 
         #endregion
 
-        internal GhostPlaybackEngine(IGhostPositioner positioner, Action<IEnumerator> startCoroutine)
+        internal GhostPlaybackEngine(IGhostPositioner positioner)
         {
             this.positioner = positioner;
-            this.startCoroutine = startCoroutine;
             ParsekLog.Info("Engine", "GhostPlaybackEngine created");
         }
 
@@ -297,12 +294,8 @@ namespace Parsek
                         CurrentUT = ctx.currentUT
                     });
 
-                    // Mid-chain: hold ghost at final position; otherwise destroy
-                    if (!f.isMidChain)
-                    {
-                        DestroyGhost(i);
-                    }
-
+                    // Ghost stays alive — policy decides when to destroy
+                    // (may hold for watch-mode camera, or destroy immediately)
                     continue;
                 }
 
@@ -507,7 +500,7 @@ namespace Parsek
                     Index = index,
                     Action = needsExplosion ? CameraActionType.ExplosionHoldStart : CameraActionType.ExplosionHoldEnd,
                     AnchorPosition = state?.ghost != null ? state.ghost.transform.position : Vector3.zero,
-                    HoldUntilUT = Planetarium.GetUniversalTime() + OverlapExplosionHoldSeconds,
+                    HoldUntilUT = ctx.currentUT + OverlapExplosionHoldSeconds,
                     Trajectory = traj, Flags = flags
                 });
 
@@ -750,7 +743,7 @@ namespace Parsek
                         Action = CameraActionType.ExplosionHoldStart,
                         NewCycleIndex = cycle,
                         AnchorPosition = ovState.ghost != null ? ovState.ghost.transform.position : Vector3.zero,
-                        HoldUntilUT = Planetarium.GetUniversalTime() + OverlapExplosionHoldSeconds,
+                        HoldUntilUT = ctx.currentUT + OverlapExplosionHoldSeconds,
                         Trajectory = traj, Flags = flags
                     });
 
@@ -1192,6 +1185,7 @@ namespace Parsek
         internal void SpawnGhost(int index, IPlaybackTrajectory traj)
         {
             ParsekLog.Info("Engine", $"SpawnGhost index={index} vessel={traj?.VesselName}");
+            completedEventFired.Remove(index); // Reset dedup for time-jump backward
 
             Color ghostColor = new Color(0.2f, 1f, 0.4f, 0.8f); // bright green-cyan
             GhostBuildResult buildResult = null;
@@ -1319,7 +1313,8 @@ namespace Parsek
         /// Despawns a single primary timeline ghost. Destroys its resources and
         /// removes it from ghostStates and loopPhaseOffsets.
         /// </summary>
-        internal void DestroyGhost(int index)
+        internal void DestroyGhost(int index, IPlaybackTrajectory traj = null,
+            TrajectoryPlaybackFlags flags = default)
         {
             ParsekLog.Info("Engine", $"DestroyGhost index={index}");
 
@@ -1327,10 +1322,17 @@ namespace Parsek
             if (!ghostStates.TryGetValue(index, out state))
                 return;
 
+            // Fire before destroy so subscribers can read state
+            OnGhostDestroyed?.Invoke(new GhostLifecycleEvent
+            {
+                Index = index, Trajectory = traj, State = state, Flags = flags
+            });
+
             DestroyGhostResources(state);
 
             ghostStates.Remove(index);
             loopPhaseOffsets.Remove(index);
+            completedEventFired.Remove(index);
         }
 
         /// <summary>
@@ -1501,6 +1503,7 @@ namespace Parsek
             ReindexSet(loggedGhostEnter, removedIndex);
             ReindexSet(loggedReshow, removedIndex);
             ReindexSet(softCapSuppressed, removedIndex);
+            ReindexSet(completedEventFired, removedIndex);
         }
 
         private static void ReindexDict<T>(Dictionary<int, T> dict, int removedIndex)

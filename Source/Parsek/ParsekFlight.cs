@@ -347,7 +347,7 @@ namespace Parsek
             ui = new ParsekUI(this);
 
             // Ghost playback engine + policy (T25 extraction)
-            engine = new GhostPlaybackEngine(this, co => StartCoroutine(co));
+            engine = new GhostPlaybackEngine(this);
             policy = new ParsekPlaybackPolicy(engine, this);
 
             // Clean up any orphaned toolbar from rapid scene transitions (e.g. rewind)
