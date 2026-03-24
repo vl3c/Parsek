@@ -9001,7 +9001,7 @@ namespace Parsek
             Vector3d interpolatedPos = Vector3d.Lerp(posBefore, posAfter, t);
             Quaternion interpolatedRot = Quaternion.Slerp(before.rotation, after.rotation, t);
 
-            interpolatedRot = SanitizeQuaternion(interpolatedRot);
+            interpolatedRot = TrajectoryMath.SanitizeQuaternion(interpolatedRot);
 
             if (double.IsNaN(interpolatedPos.x) || double.IsNaN(interpolatedPos.y) || double.IsNaN(interpolatedPos.z))
             {
@@ -9066,7 +9066,7 @@ namespace Parsek
             Vector3d worldPos = body.GetWorldSurfacePosition(
                 point.latitude, point.longitude, point.altitude);
 
-            Quaternion sanitized = SanitizeQuaternion(point.rotation);
+            Quaternion sanitized = TrajectoryMath.SanitizeQuaternion(point.rotation);
             ghost.transform.position = worldPos;
             ghost.transform.rotation = surfaceRelativeRotation
                 ? body.bodyTransform.rotation * sanitized
@@ -9380,7 +9380,7 @@ namespace Parsek
 
             // Interpolate rotation (stored as relative rotation)
             Quaternion interpolatedRot = Quaternion.Slerp(before.rotation, after.rotation, t);
-            interpolatedRot = SanitizeQuaternion(interpolatedRot);
+            interpolatedRot = TrajectoryMath.SanitizeQuaternion(interpolatedRot);
 
             if (!ghost.activeSelf) ghost.SetActive(true);
 
@@ -9453,7 +9453,7 @@ namespace Parsek
         {
             if (!ghost.activeSelf) ghost.SetActive(true);
 
-            Quaternion sanitized = SanitizeQuaternion(point.rotation);
+            Quaternion sanitized = TrajectoryMath.SanitizeQuaternion(point.rotation);
             double dx = point.latitude;
             double dy = point.longitude;
             double dz = point.altitude;
@@ -9538,12 +9538,6 @@ namespace Parsek
 
             // Fall through to point-based interpolation
             InterpolateAndPosition(ghost, points, ref cachedIndex, targetUT, out interpResult, surfaceRelativeRotation);
-        }
-
-        // Delegates to TrajectoryMath — kept for backward compatibility
-        internal Quaternion SanitizeQuaternion(Quaternion q)
-        {
-            return TrajectoryMath.SanitizeQuaternion(q);
         }
 
         #endregion

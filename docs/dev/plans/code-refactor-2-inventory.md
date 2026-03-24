@@ -1,8 +1,8 @@
 # Parsek Code Refactor-2 Inventory
 
-**Total: 68 source files, 52,061 lines** (excluding obj/ generated files)
+**Total: 70 source files, 52,151 lines** (excluding obj/ generated files)
 **Files needing audit: 41** (Tier 1: 8, Tier 2: 13, Tier 3: 20)
-**Baseline tests: 3227 pass**
+**Baseline tests: 3261 pass**
 
 See [code-refactor-2-plan.md](code-refactor-2-plan.md) for the full refactoring plan.
 
@@ -12,19 +12,19 @@ See [code-refactor-2-plan.md](code-refactor-2-plan.md) for the full refactoring 
 
 | File | Lines | Tier | Status | Notes |
 |------|-------|------|--------|-------|
-| ParsekFlight.cs | 9,905 | 1 | Pass1-Done | 17 extractions, 25 log calls. OnSceneChangeRequested 205→50, continuation dedup ×4, commit dedup deferred (D2) |
-| GhostVisualBuilder.cs | 7,754 | 1 | Pass1-Done | 10 extractions, 9 log calls. AddPartVisuals 802→454. TryBuildEngineFX deferred (D13) |
+| ParsekFlight.cs | 9,899 | 1 | Pass3-Done | 17 extractions, 25 log calls. OnSceneChangeRequested 205→50, continuation dedup ×4, commit dedup deferred (D2). Pass3: SanitizeQuaternion wrapper removed |
+| GhostVisualBuilder.cs | 6,625 | 1 | Pass3-Done | 10 extractions, 9 log calls. AddPartVisuals 802→454. Pass3: EngineFxBuilder + MaterialCleanup split out |
 | FlightRecorder.cs | 4,921 | 1 | Pass1-Done | 6 extractions, 3 log calls. FinalizeRecordingState triple-dedup, CreateOrbitSegmentFromVessel ×4 |
-| ParsekUI.cs | 3,599 | 1 | Pass1-Done | BuildGroupTreeData (internal static), DrawGhostCapSlider dedup, 5 log calls |
+| ParsekUI.cs | 3,600 | 1 | Pass1-Done | BuildGroupTreeData (internal static), DrawGhostCapSlider dedup, 5 log calls |
 | BackgroundRecorder.cs | 2,754 | 1 | Pass1-Done | 4 extractions. BuildPartTrackingSetsFromState dedup, CreateOrbitSegmentFromVessel ×3 |
 | RecordingStore.cs | 2,533 | 1 | Pass1-Done | 6 extractions (-140 lines). POINT/ORBIT ser/deser dedup ×4, PreProcessRewindSave delegation |
 | ParsekScenario.cs | 2,726 | 1 | Pass1-Done | 5 extractions. OnLoad split: HandleRewindOnLoad, DiscardStalePendingState, LoadRecordingTrees |
-| GhostPlaybackLogic.cs | 2,243 | 1 | Pass1-Done | BuildDictByPid generic helper, 7 logging additions |
+| GhostPlaybackLogic.cs | 2,289 | 1 | Pass3-Done | BuildDictByPid generic helper, 7 logging additions. Pass3: received shared methods from ParsekKSC |
 | VesselSpawner.cs | 1,031 | 2A | Pass1-Done | 3 extractions (ResolveSpawnPosition, FindNearestVesselDistance, LogSpawnFailure), 1 log |
 | RecordingTree.cs | 953 | 2A | Pass1-Done | No changes needed — already well-structured |
-| ParsekKSC.cs | 919 | 2A | Pass1-Done | PopulateGhostInfoDictionaries extracted from SpawnKscGhost |
+| ParsekKSC.cs | 784 | 2A | Pass3-Done | PopulateGhostInfoDictionaries extracted from SpawnKscGhost. Pass3: shared methods moved to TrajectoryMath/GhostPlaybackLogic |
 | MergeDialog.cs | 862 | 2A | Pass1-Done | No changes needed — helpers already extracted |
-| PartStateSeeder.cs | 662 | 2B | Pass1-Done | EmitFromUintSet local helper (-60 lines), EmitHeat/Engine/RcsSeedEvents extracted |
+| PartStateSeeder.cs | 665 | 2B | Pass1-Done | EmitFromUintSet local helper (-60 lines), EmitHeat/Engine/RcsSeedEvents extracted |
 | VesselGhoster.cs | 709 | 2B | Pass1-Done | ResolveSpawnPosition, TryWalkbackSpawn extracted |
 | GhostChainWalker.cs | 687 | 2B | Pass1-Done | **Logging gaps FIXED**: IsIntermediateChainLink, WalkToLeaf, TraceLineagePids, ResolveTermination. MergeCrossTreeLinks extracted |
 | TimeJumpManager.cs | 613 | 2B | Pass1-Done | CaptureOrbitalStates, ApplyEpochShifts, SpawnCrossedChainTips, PutLoadedVesselsOnRails, TakeVesselsOffRails |
@@ -53,7 +53,7 @@ See [code-refactor-2-plan.md](code-refactor-2-plan.md) for the full refactoring 
 | SegmentEvent.cs | 30 | 3 | Pass1-Done | No changes needed |
 | FlagEvent.cs | 22 | 3 | Pass1-Done | No changes needed |
 | ControllerInfo.cs | 21 | 3 | Pass1-Done | No changes needed |
-| TrajectoryMath.cs | 627 | — | Skip | Refactored in R1, minimal changes since |
+| TrajectoryMath.cs | 671 | — | Pass3-Done | Refactored in R1. Pass3: received InterpolatePoints from ParsekFlight/ParsekKSC |
 | ActionReplay.cs | 504 | — | Skip | Refactored in R1, no changes since |
 | MilestoneStore.cs | 474 | — | Skip | Refactored in R1, no changes since |
 | ResourceBudget.cs | 407 | — | Skip | Refactored in R1, no changes since |
@@ -68,6 +68,8 @@ See [code-refactor-2-plan.md](code-refactor-2-plan.md) for the full refactoring 
 | ParsekHarmony.cs | 54 | — | Skip | Refactored in R1, no changes since |
 | ParsekToolbarRegistration.cs | 32 | — | Skip | Refactored in R1, no changes since |
 | CommittedActionDialog.cs | 36 | — | Skip | Refactored in R1, no changes since |
+| EngineFxBuilder.cs | 988 | — | Pass3-New | Extracted from GhostVisualBuilder (TryBuildEngineFX + helpers) |
+| MaterialCleanup.cs | 18 | — | Pass3-New | Extracted from GhostVisualBuilder (MonoBehaviour for material cleanup) |
 | PartEvent.cs | 61 | — | Skip | Pure data type, no changes since R1 |
 | OrbitSegment.cs | 51 | — | Skip | Pure data type, no changes since R1 |
 | SurfacePosition.cs | 65 | — | Skip | Pure data type, no changes since R1 |
@@ -81,7 +83,7 @@ See [code-refactor-2-plan.md](code-refactor-2-plan.md) for the full refactoring 
 | Patches/ScienceSubjectPatch.cs | 50 | — | Skip | Refactored in R1, no changes since |
 | Properties/AssemblyInfo.cs | 23 | — | Skip | Auto-generated |
 
-**Status values:** `Pending` | `Pass1-InProgress` | `Pass1-Done` | `Skip`
+**Status values:** `Pending` | `Pass1-InProgress` | `Pass1-Done` | `Pass3-Done` | `Pass3-New` | `Skip`
 
 ---
 
@@ -91,7 +93,7 @@ See [code-refactor-2-plan.md](code-refactor-2-plan.md) for the full refactoring 
 
 ---
 
-#### `ParsekFlight.cs` -- 9,876 lines (was 8,225 at refactor-1)
+#### `ParsekFlight.cs` -- 9,899 lines (was 8,225 at refactor-1)
 **Types:**
 - `ParsekFlight` (public class, MonoBehaviour) — main flight-scene controller
 - `GhostPosMode` (private enum) — PointInterp, SinglePoint, Orbit, Surface, Relative
@@ -128,7 +130,7 @@ See [code-refactor-2-plan.md](code-refactor-2-plan.md) for the full refactoring 
 
 ---
 
-#### `GhostVisualBuilder.cs` -- 7,642 lines (was 6,395 at refactor-1)
+#### `GhostVisualBuilder.cs` -- 6,625 lines (was 6,395 at refactor-1, was 7,642 pre-Pass3)
 **Types:**
 - `GhostVisualBuilder` (internal static class)
 - `MaterialCleanup` (private class, MonoBehaviour, nested line 7182)
@@ -190,7 +192,7 @@ See [code-refactor-2-plan.md](code-refactor-2-plan.md) for the full refactoring 
 
 ---
 
-#### `ParsekUI.cs` -- 3,595 lines (was 2,923 at refactor-1)
+#### `ParsekUI.cs` -- 3,600 lines (was 2,923 at refactor-1)
 **Types:**
 - `ParsekUI` (public class)
 - `UIMode` (public enum)
@@ -321,7 +323,7 @@ See [code-refactor-2-plan.md](code-refactor-2-plan.md) for the full refactoring 
 
 ---
 
-#### `GhostPlaybackLogic.cs` -- 2,185 lines (was ~1,414 at refactor-1 creation)
+#### `GhostPlaybackLogic.cs` -- 2,289 lines (was ~1,414 at refactor-1 creation)
 **Types:**
 - `GhostPlaybackLogic` (internal static class)
 
@@ -392,7 +394,7 @@ See [code-refactor-2-plan.md](code-refactor-2-plan.md) for the full refactoring 
 
 ---
 
-#### `ParsekKSC.cs` -- 919 lines (was 852 at refactor-1)
+#### `ParsekKSC.cs` -- 784 lines (was 852 at refactor-1, was 919 pre-Pass3)
 **Types:**
 - `ParsekKSC` (public class, MonoBehaviour, KSPAddon)
 
@@ -429,7 +431,7 @@ See [code-refactor-2-plan.md](code-refactor-2-plan.md) for the full refactoring 
 
 ---
 
-#### `PartStateSeeder.cs` -- 722 lines [NEW]
+#### `PartStateSeeder.cs` -- 665 lines [NEW]
 **Types:**
 - `PartStateSeeder` (internal static class)
 - `PartTrackingSets` (internal class, 20 public mutable fields)
@@ -684,12 +686,14 @@ See [code-refactor-2-plan.md](code-refactor-2-plan.md) for the full refactoring 
 
 | Metric | Value |
 |--------|-------|
-| Total source files | 68 |
-| Total source lines | 52,061 |
+| Total source files | 70 |
+| Total source lines | 52,151 |
 | Files needing refactoring | 21 (Tier 1: 8, Tier 2: 13) |
 | Files needing scan only | 20 (Tier 3) |
 | Files skipped (already clean) | 27 (15 named + 6 data types + 5 Patches + AssemblyInfo) |
-| **Total accounted** | **68** |
-| Baseline test count | 3,227 |
-| Test files | 107 |
-| Test lines | 62,271 |
+| New files from Pass 3 splits | 2 (EngineFxBuilder.cs, MaterialCleanup.cs) |
+| **Total accounted** | **70** |
+| Pass 3 status | 6 files Pass3-Done, 2 files Pass3-New |
+| Baseline test count | 3,261 |
+| Test files | 133 |
+| Test lines | 63,084 |
