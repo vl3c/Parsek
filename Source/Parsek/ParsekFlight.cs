@@ -7772,20 +7772,16 @@ namespace Parsek
                 }
             }
 
-            // Rebuild ghost state keys — indices above the removed one shift down by 1
-            ReindexAfterDelete(ghostStates, index);
-            ReindexAfterDelete(overlapGhosts, index);
-            ReindexAfterDelete(loopPhaseOffsets, index);
+            // Reindex all engine-owned ghost state (dicts + sets)
+            engine.ReindexAfterDelete(index);
 
             // Clear orbit cache — keys are index-derived (i * 10000 + segIdx),
             // so after reindexing they would map to wrong recordings
             orbitCache.Clear();
 
-            // Clear diagnostic guards since indices shifted
-            loggedGhostEnter.Clear();
+            // Clear ParsekFlight-local diagnostic guards since indices shifted
             loggedOrbitSegments.Clear();
             loggedOrbitRotationSegments.Clear();
-            loggedReshow.Clear();
             pendingSpawnRecordingIds.Remove(rec.RecordingId);
 
             ParsekLog.ScreenMessage($"Recording '{rec.VesselName}' deleted", 2f);
@@ -8217,12 +8213,7 @@ namespace Parsek
         /// </summary>
         internal bool IsGhostOnSameBody(int index)
         {
-            GhostPlaybackState s;
-            if (!ghostStates.TryGetValue(index, out s) || s == null) return false;
-            string ghostBody = s.lastInterpolatedBodyName;
-            string activeBody = FlightGlobals.ActiveVessel?.mainBody?.name;
-            if (string.IsNullOrEmpty(ghostBody) || string.IsNullOrEmpty(activeBody)) return false;
-            return ghostBody == activeBody;
+            return engine.IsGhostOnBody(index, FlightGlobals.ActiveVessel?.mainBody?.name);
         }
 
         /// <summary>

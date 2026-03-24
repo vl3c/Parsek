@@ -134,15 +134,14 @@ namespace Parsek
                 && state.currentZone != RenderingZone.Beyond;
         }
 
-        /// <summary>Whether the ghost is on the same celestial body as the active vessel.</summary>
-        internal bool IsGhostOnSameBody(int index)
+        /// <summary>Whether the ghost is on the specified celestial body.</summary>
+        internal bool IsGhostOnBody(int index, string bodyName)
         {
             if (!ghostStates.TryGetValue(index, out var state) || state == null)
                 return false;
-            var activeVessel = FlightGlobals.ActiveVessel;
-            if (activeVessel?.mainBody == null)
+            if (string.IsNullOrEmpty(bodyName))
                 return false;
-            return state.lastInterpolatedBodyName == activeVessel.mainBody.name;
+            return state.lastInterpolatedBodyName == bodyName;
         }
 
         /// <summary>Get the body name the ghost was last positioned on.</summary>
@@ -395,6 +394,9 @@ namespace Parsek
         {
             ParsekLog.Info("Engine", $"DestroyAllGhosts: clearing {ghostStates.Count} primary + {overlapGhosts.Count} overlap entries");
 
+            // Fire event BEFORE clearing so subscribers can inspect ghost state if needed
+            OnAllGhostsDestroying?.Invoke();
+
             // Destroy all primary ghost GOs
             var keys = new List<int>(ghostStates.Keys);
             foreach (int key in keys)
@@ -423,8 +425,6 @@ namespace Parsek
             softCapTriggeredThisFrame = false;
 
             CleanupActiveExplosions();
-
-            OnAllGhostsDestroying?.Invoke();
         }
 
         /// <summary>
