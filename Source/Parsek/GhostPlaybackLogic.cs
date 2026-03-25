@@ -678,17 +678,9 @@ namespace Parsek
             bool ghostExists, string vesselName, int recIdx)
         {
             if (explosionAlreadyFired)
-            {
-                ParsekLog.VerboseRateLimited("ExplosionFx", $"explosion_fired_{recIdx}",
-                    $"ShouldTriggerExplosion: ghost #{recIdx} — skipped (already fired)");
                 return false;
-            }
             if (terminalState != TerminalState.Destroyed)
-            {
-                ParsekLog.VerboseRateLimited("ExplosionFx", $"not_destroyed_{recIdx}",
-                    $"ShouldTriggerExplosion: ghost #{recIdx} — skipped (terminalState={terminalState?.ToString() ?? "null"}, not Destroyed)");
                 return false;
-            }
             if (!ghostExists)
             {
                 return false;

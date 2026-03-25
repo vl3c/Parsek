@@ -5528,7 +5528,8 @@ namespace Parsek
                 info.fireParticles = ps;
                 info.combinedEmissionMesh = combinedMesh;
 
-                ParsekLog.Verbose("ReentryFx", $"combined {combines.Count} meshes into emission shape " +
+                ParsekLog.VerboseRateLimited("ReentryFx", "emission-build",
+                    $"combined {combines.Count} meshes into emission shape " +
                     $"({(combinedMesh != null ? combinedMesh.vertexCount : 0)} verts) for ghost #{ghostIndex}");
             }
 
@@ -5548,7 +5549,8 @@ namespace Parsek
                     info.allClonedMaterials.Add(shellMat);
                 }
 
-                ParsekLog.Verbose("ReentryFx", $"{info.fireShellMeshes.Count} meshes collected for fire shell overlay on ghost #{ghostIndex}");
+                ParsekLog.VerboseRateLimited("ReentryFx", "shell-build",
+                    $"{info.fireShellMeshes.Count} meshes collected for fire shell overlay on ghost #{ghostIndex}");
             }
 
             return info;
