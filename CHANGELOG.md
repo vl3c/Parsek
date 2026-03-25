@@ -87,6 +87,10 @@ Second-pass structural refactoring + game action system modularization + continu
 - **RestoreGhostFidelity renderer over-enable** — `RestoreGhostFidelity` previously re-enabled all renderers unconditionally, overriding part-event visibility state (decoupled/destroyed parts could reappear for one frame after soft cap resolution). Now tracks which renderers were disabled by `ReduceGhostFidelity` and only re-enables those.
 - **CommitSegmentCore log index off-by-one** — Post-commit log message showed the *next* segment's index instead of the committed segment's index. Now captures index before increment.
 - **ParsekUI build error** — Missing `using System` for `Action` type in `DrawSortableHeaderCore<TCol>` generic method.
+- **Simplified ghost re-shown by warp-down logic** — `SimplifyToOrbitLine` soft cap hid a ghost (`activeSelf=false`, `simplified=true`), but the warp-down re-show logic saw an inactive ghost in a non-Beyond zone and re-activated it, defeating the soft cap. Fixed by adding `!state.simplified` to both re-show conditions.
+- **CommitVesselSwitchTermination orphaned undock continuation** — Only cleaned up vessel continuation (`ContinuationVesselPid`) but not undock continuation. Could leave an active undock continuation until next `ClearAll()`.
+- **StopContinuation incomplete reset** — Did not reset `ContinuationLastVelocity`/`ContinuationLastUT`, asymmetric with `ClearAll()` and `StopUndockContinuation`.
+- **Log spam cleanup** — "Terminated chain spawn suppressed" (26k lines/session) rate-limited; "GetCachedBudget" (6.8k) rate-limited; per-save serialization logs (4k) downgraded to Verbose; explosion FX spawn log (237) downgraded to Verbose; redundant "0 segment events" log (1.8k) removed. Total ~53% reduction in Parsek log output.
 
 ### Test Suite Audit (T32)
 
