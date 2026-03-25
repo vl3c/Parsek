@@ -29,6 +29,9 @@ namespace Parsek
         public string TipTreeId;
         public bool IsTerminated;
 
+        // Runtime state: cached trajectory index for O(1) amortized lookup (not serialized)
+        public int CachedTrajectoryIndex;
+
         // Runtime state: spawn blocked by collision (not serialized)
         public bool SpawnBlocked;
         public double BlockedSinceUT;

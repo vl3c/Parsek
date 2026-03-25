@@ -187,140 +187,16 @@ namespace Parsek
                 }
 
                 // === In-range rendering ===
-                if (inRange && !ghostActive && !softCapSuppressed.Contains(i))
+                if (inRange)
                 {
-                    SpawnGhost(i, traj);
-                    ghostStates.TryGetValue(i, out state);
-                    ghostActive = state != null && state.ghost != null;
-                    if (ghostActive)
-                    {
-                        if (loggedGhostEnter.Add(i))
-                            ParsekLog.VerboseRateLimited("Engine", $"enter-{i}",
-                                $"Ghost ENTERED range: #{i} \"{traj.VesselName}\" ({f.segmentLabel})");
-
-                        if (OnGhostCreated != null)
-                        {
-                            deferredCreatedEvents.Add(new GhostLifecycleEvent
-                            {
-                                Index = i, Trajectory = traj, State = state, Flags = f
-                            });
-                        }
-                    }
-                }
-
-                if (inRange && ghostActive)
-                {
-                    // Re-show ghost after warp-down
-                    if (!state.ghost.activeSelf && state.currentZone != RenderingZone.Beyond)
-                    {
-                        state.ghost.SetActive(true);
-                        if (loggedReshow.Add(i))
-                            ParsekLog.Info("Engine", $"Ghost re-shown after warp-down: #{i} \"{traj.VesselName}\"");
-                    }
-
-                    // Zone-based rendering
-                    double ghostDist = Vector3d.Distance(ctx.activeVesselPos,
-                        (Vector3d)state.ghost.transform.position);
-                    var zoneResult = positioner.ApplyZoneRendering(i, state, traj, ghostDist, ctx.protectedIndex);
-                    if (zoneResult.hiddenByZone) continue;
-
-                    // Position the ghost
-                    if (hasPoints)
-                    {
-                        // Check for relative frame positioning (Phase 3b: docking/rendezvous)
-                        bool usedRelative = false;
-                        if (traj.TrackSections != null && traj.TrackSections.Count > 0)
-                        {
-                            int sectionIdx = TrajectoryMath.FindTrackSectionForUT(traj.TrackSections, ctx.currentUT);
-                            if (sectionIdx >= 0 && traj.TrackSections[sectionIdx].referenceFrame == ReferenceFrame.Relative)
-                            {
-                                positioner.InterpolateAndPositionRelative(i, traj, state,
-                                    ctx.currentUT, suppressVisualFx,
-                                    traj.TrackSections[sectionIdx].anchorVesselId);
-                                usedRelative = true;
-                            }
-                        }
-                        if (!usedRelative)
-                        {
-                            positioner.InterpolateAndPosition(i, traj, state, ctx.currentUT, suppressVisualFx);
-                        }
-                    }
-                    else if (hasSurfaceData)
-                    {
-                        positioner.PositionAtSurface(i, traj, state);
-                    }
-                    else if (hasOrbitData)
-                    {
-                        positioner.PositionFromOrbit(i, traj, state, ctx.currentUT);
-                    }
-
-                    // Apply visual events
-                    if (!zoneResult.skipPartEvents)
-                    {
-                        GhostPlaybackLogic.ApplyPartEvents(i, traj, ctx.currentUT, state);
-                        GhostPlaybackLogic.ApplyFlagEvents(state, traj, ctx.currentUT);
-                    }
-
-                    // Reentry FX
-                    UpdateReentryFx(i, state, traj.VesselName, ctx.warpRate);
-
-                    // RCS emission suppression during warp
-                    if (suppressVisualFx)
-                        GhostPlaybackLogic.StopAllRcsEmissions(state);
-                    else
-                        GhostPlaybackLogic.RestoreAllRcsEmissions(state);
-
-                    continue;
+                    if (RenderInRangeGhost(i, traj, f, ctx, suppressVisualFx,
+                            hasPoints, hasSurfaceData, hasOrbitData, ref state, ref ghostActive))
+                        continue;
                 }
 
                 // === Past end: fire completed event, optionally destroy ===
-                if ((pastEnd || pastEffectiveEnd) && ghostActive && !completedEventFired.Contains(i))
-                {
-                    completedEventFired.Add(i);
-                    // Position ghost at final point
-                    if (hasPoints)
-                    {
-                        var lastPoint = traj.Points[traj.Points.Count - 1];
-                        positioner.PositionAtPoint(i, traj, state, lastPoint);
-                    }
-
-                    // Trigger explosion if destroyed
-                    TriggerExplosionIfDestroyed(state, traj, i, ctx.warpRate);
-
-                    // Fire completed event (policy handles spawn/resources/camera)
-                    deferredCompletedEvents.Add(new PlaybackCompletedEvent
-                    {
-                        Index = i,
-                        Trajectory = traj,
-                        State = state,
-                        Flags = f,
-                        GhostWasActive = true,
-                        PastEffectiveEnd = pastEffectiveEnd,
-                        LastPoint = hasPoints ? traj.Points[traj.Points.Count - 1] : default,
-                        CurrentUT = ctx.currentUT
-                    });
-
-                    // Ghost stays alive — policy decides when to destroy
-                    // (may hold for watch-mode camera, or destroy immediately)
-                    continue;
-                }
-
-                // Past end, ghost not active: fire event for policy (deferred spawn, resources)
                 if ((pastEnd || pastEffectiveEnd) && !completedEventFired.Contains(i))
-                {
-                    completedEventFired.Add(i);
-                    deferredCompletedEvents.Add(new PlaybackCompletedEvent
-                    {
-                        Index = i,
-                        Trajectory = traj,
-                        State = state,
-                        Flags = f,
-                        GhostWasActive = false,
-                        PastEffectiveEnd = pastEffectiveEnd,
-                        LastPoint = hasPoints ? traj.Points[traj.Points.Count - 1] : default,
-                        CurrentUT = ctx.currentUT
-                    });
-                }
+                    HandlePastEndGhost(i, traj, f, ctx, state, ghostActive, hasPoints);
             }
 
             // Post-loop: soft caps
@@ -339,6 +215,150 @@ namespace Parsek
 
             for (int i = 0; i < deferredCompletedEvents.Count; i++)
                 OnPlaybackCompleted?.Invoke(deferredCompletedEvents[i]);
+        }
+
+        /// <summary>
+        /// Handles in-range ghost rendering: spawn if needed, position, apply visual events.
+        /// Returns true if the ghost was processed (caller should continue to next iteration).
+        /// </summary>
+        private bool RenderInRangeGhost(int i, IPlaybackTrajectory traj, TrajectoryPlaybackFlags f,
+            FrameContext ctx, bool suppressVisualFx,
+            bool hasPoints, bool hasSurfaceData, bool hasOrbitData,
+            ref GhostPlaybackState state, ref bool ghostActive)
+        {
+            if (!ghostActive && !softCapSuppressed.Contains(i))
+            {
+                SpawnGhost(i, traj);
+                ghostStates.TryGetValue(i, out state);
+                ghostActive = state != null && state.ghost != null;
+                if (ghostActive)
+                {
+                    if (loggedGhostEnter.Add(i))
+                        ParsekLog.VerboseRateLimited("Engine", $"enter-{i}",
+                            $"Ghost ENTERED range: #{i} \"{traj.VesselName}\" ({f.segmentLabel})");
+
+                    if (OnGhostCreated != null)
+                    {
+                        deferredCreatedEvents.Add(new GhostLifecycleEvent
+                        {
+                            Index = i, Trajectory = traj, State = state, Flags = f
+                        });
+                    }
+                }
+            }
+
+            if (!ghostActive) return false;
+
+            // Re-show ghost after warp-down (but not if soft cap simplified it)
+            if (!state.ghost.activeSelf && state.currentZone != RenderingZone.Beyond && !state.simplified)
+            {
+                state.ghost.SetActive(true);
+                if (loggedReshow.Add(i))
+                    ParsekLog.Info("Engine", $"Ghost re-shown after warp-down: #{i} \"{traj.VesselName}\"");
+            }
+
+            // Zone-based rendering
+            double ghostDist = Vector3d.Distance(ctx.activeVesselPos,
+                (Vector3d)state.ghost.transform.position);
+            var zoneResult = positioner.ApplyZoneRendering(i, state, traj, ghostDist, ctx.protectedIndex);
+            if (zoneResult.hiddenByZone) return true;
+
+            // Position the ghost
+            if (hasPoints)
+            {
+                // Check for relative frame positioning (Phase 3b: docking/rendezvous)
+                bool usedRelative = false;
+                if (traj.TrackSections != null && traj.TrackSections.Count > 0)
+                {
+                    int sectionIdx = TrajectoryMath.FindTrackSectionForUT(traj.TrackSections, ctx.currentUT);
+                    if (sectionIdx >= 0 && traj.TrackSections[sectionIdx].referenceFrame == ReferenceFrame.Relative)
+                    {
+                        positioner.InterpolateAndPositionRelative(i, traj, state,
+                            ctx.currentUT, suppressVisualFx,
+                            traj.TrackSections[sectionIdx].anchorVesselId);
+                        usedRelative = true;
+                    }
+                }
+                if (!usedRelative)
+                {
+                    positioner.InterpolateAndPosition(i, traj, state, ctx.currentUT, suppressVisualFx);
+                }
+            }
+            else if (hasSurfaceData)
+            {
+                positioner.PositionAtSurface(i, traj, state);
+            }
+            else if (hasOrbitData)
+            {
+                positioner.PositionFromOrbit(i, traj, state, ctx.currentUT);
+            }
+
+            // Apply visual events
+            ApplyFrameVisuals(i, traj, state, ctx.currentUT, ctx.warpRate,
+                zoneResult.skipPartEvents, suppressVisualFx);
+
+            return true;
+        }
+
+        /// <summary>
+        /// Handles past-end ghost: positions at final point, triggers explosion if destroyed,
+        /// fires completed event. Works for both active and inactive ghost cases.
+        /// </summary>
+        private void HandlePastEndGhost(int i, IPlaybackTrajectory traj, TrajectoryPlaybackFlags f,
+            FrameContext ctx, GhostPlaybackState state, bool ghostActive, bool hasPoints)
+        {
+            completedEventFired.Add(i);
+
+            if (ghostActive)
+            {
+                // Position ghost at final point
+                if (hasPoints)
+                {
+                    var lastPoint = traj.Points[traj.Points.Count - 1];
+                    positioner.PositionAtPoint(i, traj, state, lastPoint);
+                }
+
+                // Trigger explosion if destroyed
+                TriggerExplosionIfDestroyed(state, traj, i, ctx.warpRate);
+            }
+
+            // Fire completed event (policy handles spawn/resources/camera).
+            // Ghost stays alive — policy decides when to destroy
+            // (may hold for watch-mode camera, or destroy immediately).
+            deferredCompletedEvents.Add(new PlaybackCompletedEvent
+            {
+                Index = i,
+                Trajectory = traj,
+                State = state,
+                Flags = f,
+                GhostWasActive = ghostActive,
+                PastEffectiveEnd = ctx.currentUT > f.chainEndUT,
+                LastPoint = hasPoints ? traj.Points[traj.Points.Count - 1] : default,
+                CurrentUT = ctx.currentUT
+            });
+        }
+
+        /// <summary>
+        /// Applies per-frame visual events to a ghost: part events, flag events,
+        /// reentry FX, and RCS emission state. Called after positioning.
+        /// When skipPartEvents is true, only reentry FX and RCS are applied.
+        /// </summary>
+        private void ApplyFrameVisuals(int index, IPlaybackTrajectory traj,
+            GhostPlaybackState state, double ut, float warpRate,
+            bool skipPartEvents, bool suppressVisualFx)
+        {
+            if (!skipPartEvents)
+            {
+                GhostPlaybackLogic.ApplyPartEvents(index, traj, ut, state);
+                GhostPlaybackLogic.ApplyFlagEvents(state, traj, ut);
+            }
+
+            UpdateReentryFx(index, state, traj.VesselName, warpRate);
+
+            if (suppressVisualFx)
+                GhostPlaybackLogic.StopAllRcsEmissions(state);
+            else
+                GhostPlaybackLogic.RestoreAllRcsEmissions(state);
         }
 
         /// <summary>
@@ -404,16 +424,24 @@ namespace Parsek
                             case GhostCapAction.SimplifyToOrbitLine:
                                 GhostPlaybackState simplifyState;
                                 if (ghostStates.TryGetValue(capIdx, out simplifyState) &&
-                                    simplifyState?.ghost != null && simplifyState.ghost.activeSelf)
+                                    simplifyState?.ghost != null && !simplifyState.simplified)
                                 {
-                                    simplifyState.ghost.SetActive(false);
+                                    if (simplifyState.ghost.activeSelf)
+                                        simplifyState.ghost.SetActive(false);
+                                    simplifyState.simplified = true;
                                     ParsekLog.Verbose("Engine",
-                                        $"SoftCap: simplified ghost #{capIdx} \"{vesselName}\" — mesh hidden");
+                                        $"SoftCap: SimplifyToOrbitLine ghost #{capIdx} \"{vesselName}\" — mesh hidden");
                                 }
                                 break;
                             case GhostCapAction.ReduceFidelity:
-                                ParsekLog.Verbose("Engine",
-                                    $"SoftCap: ReduceFidelity ghost #{capIdx} \"{vesselName}\" (no-op placeholder)");
+                                GhostPlaybackState reduceState;
+                                if (ghostStates.TryGetValue(capIdx, out reduceState) &&
+                                    reduceState?.ghost != null && !reduceState.fidelityReduced)
+                                {
+                                    GhostPlaybackLogic.ReduceGhostFidelity(reduceState);
+                                    ParsekLog.Verbose("Engine",
+                                        $"SoftCap: ReduceFidelity ghost #{capIdx} \"{vesselName}\"");
+                                }
                                 break;
                         }
                     }
@@ -427,6 +455,22 @@ namespace Parsek
                     ParsekLog.Verbose("Engine",
                         $"SoftCap resolved, clearing {softCapSuppressed.Count} suppressed ghosts");
                     softCapSuppressed.Clear();
+                }
+
+                // Restore fidelity and re-show simplified ghosts now that caps are resolved
+                foreach (var kvp in ghostStates)
+                {
+                    var capState = kvp.Value;
+                    if (capState == null) continue;
+                    if (capState.fidelityReduced)
+                        GhostPlaybackLogic.RestoreGhostFidelity(capState);
+                    if (capState.simplified && capState.ghost != null)
+                    {
+                        capState.ghost.SetActive(true);
+                        capState.simplified = false;
+                        ParsekLog.Verbose("Engine",
+                            $"SoftCap resolved: re-showing simplified ghost #{kvp.Key}");
+                    }
                 }
             }
         }
@@ -567,7 +611,7 @@ namespace Parsek
 
                 ghostActive = true;
             }
-            else if (!state.ghost.activeSelf && state.currentZone != RenderingZone.Beyond)
+            else if (!state.ghost.activeSelf && state.currentZone != RenderingZone.Beyond && !state.simplified)
             {
                 state.ghost.SetActive(true);
                 if (loggedReshow.Add(index))
@@ -616,15 +660,7 @@ namespace Parsek
 
             // Apply visual events
             if (!skipLoopPartEvents)
-            {
-                GhostPlaybackLogic.ApplyPartEvents(index, traj, loopUT, state);
-                GhostPlaybackLogic.ApplyFlagEvents(state, traj, loopUT);
-                UpdateReentryFx(index, state, traj.VesselName, ctx.warpRate);
-                if (suppressVisualFx)
-                    GhostPlaybackLogic.StopAllRcsEmissions(state);
-                else
-                    GhostPlaybackLogic.RestoreAllRcsEmissions(state);
-            }
+                ApplyFrameVisuals(index, traj, state, loopUT, ctx.warpRate, false, suppressVisualFx);
         }
 
         /// <summary>
@@ -709,14 +745,7 @@ namespace Parsek
                 double loopUT = traj.StartUT + phase;
 
                 positioner.PositionLoop(index, traj, primaryState, loopUT, suppressVisualFx);
-
-                GhostPlaybackLogic.ApplyPartEvents(index, traj, loopUT, primaryState);
-                GhostPlaybackLogic.ApplyFlagEvents(primaryState, traj, loopUT);
-                UpdateReentryFx(index, primaryState, traj.VesselName, ctx.warpRate);
-                if (suppressVisualFx)
-                    GhostPlaybackLogic.StopAllRcsEmissions(primaryState);
-                else
-                    GhostPlaybackLogic.RestoreAllRcsEmissions(primaryState);
+                ApplyFrameVisuals(index, traj, primaryState, loopUT, ctx.warpRate, false, suppressVisualFx);
             }
 
             // Update overlap ghosts (older cycles)
@@ -777,14 +806,7 @@ namespace Parsek
                 double loopUT = traj.StartUT + phase;
 
                 positioner.PositionLoop(index, traj, ovState, loopUT, suppressVisualFx);
-
-                GhostPlaybackLogic.ApplyPartEvents(index, traj, loopUT, ovState);
-                GhostPlaybackLogic.ApplyFlagEvents(ovState, traj, loopUT);
-                UpdateReentryFx(index, ovState, traj.VesselName, ctx.warpRate);
-                if (suppressVisualFx)
-                    GhostPlaybackLogic.StopAllRcsEmissions(ovState);
-                else
-                    GhostPlaybackLogic.RestoreAllRcsEmissions(ovState);
+                ApplyFrameVisuals(index, traj, ovState, loopUT, ctx.warpRate, false, suppressVisualFx);
             }
         }
 

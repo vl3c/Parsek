@@ -43,11 +43,9 @@ GitHub Actions workflow to build, run tests, package `GameData/Parsek/` into a z
 
 ## TODO — Performance
 
-### T5. ReduceFidelity and SimplifyToOrbitLine full implementations
+### ~~T5. ReduceFidelity and SimplifyToOrbitLine full implementations~~ DONE
 
-`GhostSoftCapManager` actions `ReduceFidelity` (mesh part culling) and `SimplifyToOrbitLine` (orbit line replacement) are placeholder — ghosts are hidden but not replaced with simplified representations.
-
-**Priority:** Medium — needed when ghost counts are high enough to trigger soft caps
+`ReduceFidelity` now disables 75% of renderers by index (keeps every 4th) for a coarse LOD silhouette. `SimplifyToOrbitLine` hides ghost mesh with `simplified` flag (orbit line rendering deferred to future). Both have frame-skip flags (`fidelityReduced`/`simplified`) to avoid re-processing. Caps-resolved branch restores fidelity and re-shows simplified ghosts.
 
 ### T6. LOD culling for distant ghost meshes
 
@@ -67,17 +65,13 @@ Engine and RCS particle systems are instantiated per ghost. Pooling would reduce
 
 **Priority:** Low
 
-### T9. Background ghost cachedIdx persistence (bug #62)
+### ~~T9. Background ghost cachedIdx persistence (bug #62)~~ DONE
 
-`InterpolateAndPosition` for background/chain ghosts resets trajectory lookup index each frame instead of caching per-ghost. O(n) search instead of O(1) amortized.
+Cached trajectory lookup index on `GhostChain.CachedTrajectoryIndex` instead of resetting to 0 each frame. `FindWaypointIndex` safely falls back to binary search if the index is stale after a recording change. O(n) → O(1) amortized.
 
-**Priority:** Low — minor perf cost
+### ~~T10. RealVesselExists O(n) per frame (bug #49)~~ DONE
 
-### T10. RealVesselExists O(n) per frame (bug #49)
-
-`GhostPlaybackLogic.RealVesselExists` scans `FlightGlobals.Vessels` linearly. A HashSet lookup by PID would be O(1). Attempted frame-cached HashSet but `Time.frameCount` (Unity native) crashes in test environment. Needs a non-Unity cache invalidation approach (e.g., manual invalidation from the playback update loop).
-
-**Priority:** Low — only matters with many committed recordings
+Replaced `RealVesselExists` linear scan with frame-cached `HashSet<uint>`. Manual invalidation via `InvalidateVesselCache()` called as first line of `UpdateTimelinePlaybackViaEngine` (avoids `Time.frameCount` crash in tests). Cache rebuilt lazily on first call per frame. `vesselExistsOverride` bypass preserved for tests.
 
 ---
 
@@ -173,15 +167,15 @@ Added 5 tests covering ORBITING(32) and ESCAPING(64) with thrust/no-thrust and a
 
 Items identified during refactor-2 (March 2026) but deferred because they require architectural changes beyond mechanical extraction. Full details in [refactor-2-deferred.md](plans/refactor-2-deferred.md).
 
+A broader refactor-3 audit (March 2026) identified additional structural opportunities beyond these deferred items. Full analysis in [refactor-3-audit.md](plans/refactor-3-audit.md).
+
 ### T25. ParsekFlight TimelinePlaybackController extraction (D20)
 
-**Status: DONE** — Completed as GhostPlaybackEngine (1553 lines) + ParsekPlaybackPolicy (192 lines) + IPlaybackTrajectory/IGhostPositioner/GhostPlaybackEvents interfaces. ParsekFlight reduced from ~9900 to 8657 lines. Engine has zero Recording references, accesses trajectories via IPlaybackTrajectory interface only. D2, D5, D8 now unblocked.
+**Status: DONE** — Completed as GhostPlaybackEngine (1553 lines) + ParsekPlaybackPolicy (192 lines) + IPlaybackTrajectory/IGhostPositioner/GhostPlaybackEvents interfaces. ParsekFlight reduced from ~9900 to 8657 lines. Engine has zero Recording references, accesses trajectories via IPlaybackTrajectory interface only. D5 and D8 now done (PR #85). D2 done (T28, CommitSegmentCore extracted).
 
-### T26. ParsekFlight ChainSegmentManager extraction (D21)
+### ~~T26. ParsekFlight ChainSegmentManager extraction (D21)~~ DONE
 
-Extract chain state + 4 commit methods (~400-500 lines) into a `ChainSegmentManager` class. Blocked by `activeChainId` being referenced 50+ times across 5 regions. T25 prerequisite is met; chain state isolation is the remaining blocker.
-
-**Priority:** Medium — T25 complete, chain state isolation still needed
+Phase 1 (state isolation): 16 chain state fields moved to ChainSegmentManager. ~150 field accesses migrated. Phase 2 (method moves): 12 methods (~505 lines) moved — 8 pure continuation methods (Group A) + 4 commit methods (Group B). `CommitSegmentCore` extracts shared stash/tag/commit/advance pattern. 3 orchestration methods stay on ParsekFlight (StartRecording lifecycle). ParsekFlight net -620 lines.
 
 ### ~~T27. GhostVisualBuilder SampleXxxStates unification (D15)~~ DONE (PR #82)
 
@@ -189,9 +183,7 @@ Extracted `SampleAnimationStates` core method with `AnimLookup` enum + `FindAnim
 
 ### T28. ParsekFlight commit-pattern dedup (D2)
 
-Unify `CommitChainSegment`, `CommitDockUndockSegment`, `CommitBoundarySplit`, `HandleVesselSwitchChainTermination` (~316 lines, ~60% shared stash-tag-commit-advance pattern). Blocked: callback-based `CommitChainSegmentCore` would change the call pattern. Becomes feasible after T26 (instance methods on ChainSegmentManager).
-
-**Priority:** Low — depends on T26
+~~Unify `CommitChainSegment`, `CommitDockUndockSegment`, `CommitBoundarySplit`, `HandleVesselSwitchChainTermination`.~~ **DONE** — `CommitSegmentCore` extracts shared stash/tag/commit/advance pattern. All 4 commit methods now delegate to CommitSegmentCore via `Action<Recording>` callback. CommitSegmentCore handles nullable CaptureAtStop for boundary splits.
 
 ### T29. BackgroundRecorder Check*State polling dedup (D11)
 
@@ -199,11 +191,9 @@ Unify `CommitChainSegment`, `CommitDockUndockSegment`, `CommitBoundarySplit`, `H
 
 **Priority:** Low — intentional design, not a bug
 
-### T30. ParsekUI window resize drag dedup (D18)
+### ~~T30. ParsekUI window resize drag dedup (D18)~~ DONE
 
-4 windows + group popup all have identical ~15-line resize drag blocks. IMGUI `Event.current.Use()` calls are order-sensitive — a shared helper could subtly break input consumption.
-
-**Priority:** Low — cosmetic duplication, risk outweighs savings
+Extracted `HandleResizeDrag` and `DrawResizeHandle` static helpers. 4 drag blocks + 4 handle blocks replaced with 8 one-liner calls. Group Popup passes null for windowName to suppress logging. Latent bugfix: Group Popup now gets `Event.current.Use()` on MouseDrag (other 3 windows already had it).
 
 ### T31. ParsekFlight CreateBreakupChildRecording dedup (D1)
 
@@ -225,11 +215,33 @@ Remaining edge case gaps (P3, not addressed):
 
 **Priority:** Low — the harmful tests are gone; remaining gaps are additive coverage
 
-### T33. Encapsulate GroupHierarchyStore mutable fields
+### ~~T33. Encapsulate GroupHierarchyStore mutable fields~~ DONE
 
-`groupParents`, `hiddenGroups`, `hideActive` are `internal static` fields accessed directly by ParsekUI (~25 sites) and tests (~60 sites). Read-only accessors (`GroupParents`, `HiddenGroups`, `HideActive`) were added but callers still use the mutable fields. Migrate callers to use accessors + mutation methods (e.g. `AddHiddenGroup`/`RemoveHiddenGroup` instead of `hiddenGroups.Add`/`Remove`) to reduce coupling and enable future change tracking.
+Added 5 accessor methods (`AddHiddenGroup`, `RemoveHiddenGroup`, `IsGroupHidden`, `TryGetGroupParent`, `HasGroupParent`). Migrated all ~20 ParsekUI.cs direct field accesses to use accessors and read-only properties. Tests retain direct field access for setup (pragmatic — encapsulation targets production coupling).
 
-**Priority:** Low — no functional risk, purely structural improvement
+### T34. ChainSegmentManager unit tests
+
+ChainSegmentManager has no dedicated test file. Pure state-machine methods (`ClearAll`, `ClearChainIdentity`, `StopContinuation`, `StopUndockContinuation`) and the commit abort paths are testable without Unity. Continuation sampling logic (`SampleContinuationVessel`) would need mocking for `FlightRecorder.FindVesselByPid` and `RecordingStore`.
+
+**Priority:** Medium — new class with non-trivial state transitions
+
+### T35. ChainSegmentManager field encapsulation
+
+ParsekFlight still reads/writes `chainManager` internal fields directly in ~5 locations (CommitFlight chain tagging, FallbackCommitSplitRecorder, PromoteToTreeForBreakup, vessel destruction handler, EVA crew name set). Consider adding `TagPendingWithChainMetadata(Recording)` and making identity fields read-only with mutation via methods only.
+
+**Priority:** Low — functional but leaky abstraction
+
+### T36. Continuation recording index fragility
+
+`ContinuationRecordingIdx` and `UndockContinuationRecIdx` store `int` indices into `RecordingStore.CommittedRecordings`. If a recording is ever removed from the list while continuation is active, the stored index silently points to the wrong recording or goes out of bounds (bounds check prevents crash but stops continuation). Consider storing `RecordingId` alongside the index for validation.
+
+**Priority:** Low — no code path currently removes committed recordings during flight
+
+### T37. Showcase kerbal-with-flag height mismatch
+
+In the showcase part list, the kerbal holding a flag is not at the same height as the other parts. Likely a Y-offset issue in the showcase positioning/snapshot for the kerbal part.
+
+**Priority:** Low — cosmetic
 
 ---
 
@@ -789,11 +801,11 @@ xUnit eagerly instantiates test classes, so one class's constructor can overwrit
 
 **Status:** Open — low priority
 
-## 49. RealVesselExists O(n) per frame
+## 49. ~~RealVesselExists O(n) per frame~~
 
 `GhostPlaybackLogic.RealVesselExists` iterates `FlightGlobals.Vessels` linearly. Called per background recording per frame. Negligible with typical vessel counts (10-50), would matter with 100+. Fix: cache PIDs in HashSet, rebuild on vessel add/remove events.
 
-**Status:** Open — low priority
+**Status:** Fixed (T10, PR #85) — frame-cached `HashSet<uint>` with manual invalidation via `InvalidateVesselCache()` at start of `UpdateTimelinePlaybackViaEngine`
 
 ## 50. UI: subgroups missing enable and loop checkboxes
 

@@ -6077,7 +6077,7 @@ namespace Parsek
             // Auto-destroy after max smoke lifetime + buffer
             Object.Destroy(obj, 5.0f);
 
-            ParsekLog.Info("ExplosionFx",
+            ParsekLog.Verbose("ExplosionFx",
                 $"Spawned at ({worldPosition.x:F1},{worldPosition.y:F1},{worldPosition.z:F1}) vesselLength={vesselLength:F1}m");
 
             return obj;

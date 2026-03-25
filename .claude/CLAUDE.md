@@ -27,6 +27,7 @@ Key source files and what they do - read the relevant one before modifying:
 - `IPlaybackTrajectory.cs` - interface exposing 19 trajectory/visual fields from Recording to the engine
 - `IGhostPositioner.cs` - 8 positioning methods implemented by ParsekFlight, delegates world-space placement to the host scene
 - `GhostPlaybackEvents.cs` - lifecycle event types (PlaybackCompleted, LoopRestarted, OverlapExpired, CameraAction), TrajectoryPlaybackFlags, FrameContext
+- `ChainSegmentManager.cs` - chain segment state (active chain ID, continuation tracking, boundary anchors). Owns 16 fields previously scattered across ParsekFlight.
 - `FlightRecorder.cs` - recording state + sampling (called by Harmony patch)
 - `ParsekUI.cs` - UI windows (main, recordings, actions, settings, Real Spawn Control) and map markers
 - `SelectiveSpawnUI.cs` - pure static methods for Real Spawn Control (proximity candidates, countdown formatting)

@@ -24,15 +24,7 @@ Items identified during refactoring but deferred for safety or scope reasons. Re
 
 **What:** 4 methods (~316 lines) share a stash-tag-commit-advance pattern (~60% identical code).
 
-**Why deferred:** A callback-based `CommitChainSegmentCore(Action<Recording> preCommitCustomization)` changes the call pattern. Each method has unique pre/post steps:
-- CommitChainSegment: EVA crew name + continuation sampling post-commit
-- CommitDockUndockSegment: dock/undock PartEvent injection + `ChainBranch = 0`
-- CommitBoundarySplit: SegmentPhase/SegmentBodyName tagging
-- HandleVesselSwitchChainTermination: derives phase/body from vessel, does NOT null VesselSnapshot, terminates chain instead of advancing, handles continuation cleanup
-
-The shared core would need 3-4 parameters/flags to account for these differences, making the "helper" harder to reason about than the current explicit copies.
-
-**Revisit when:** Pass 3. If chain management is extracted to its own class (`ChainSegmentManager`), the pattern may be cleanable with an instance method that owns the shared state.
+**Status:** **DONE** (T28). Extracted `CommitSegmentCore(FlightRecorder, string, Action<Recording>, bool)` on ChainSegmentManager. All 4 commit methods now delegate to CommitSegmentCore via `Action<Recording>` callback for per-method customization. CommitSegmentCore handles nullable CaptureAtStop for boundary splits.
 
 ---
 
@@ -56,11 +48,9 @@ The shared core would need 3-4 parameters/flags to account for these differences
 
 ### D5. Ghost playback frame application dedup
 
-**What:** The sequence `PositionLoopGhost/InterpolateAndPosition → SetInterpolated → ApplyPartEvents → ApplyFlagEvents → UpdateReentryFx → RCS toggle` appears 4+ times across UpdateTimelinePlayback, UpdateLoopingTimelinePlayback, and UpdateOverlapLoopPlayback.
+**What:** The sequence `ApplyPartEvents → ApplyFlagEvents → UpdateReentryFx → RCS toggle` appears 4 times across UpdatePlayback, UpdateLoopingPlayback, and UpdateOverlapPlayback.
 
-**Why deferred:** The blocks are similar but not identical — each has different parameters for `suppressVisualFx`, anchor-relative mode, and seed offsets. Extracting would require 5+ parameters, making the helper signature unwieldy. The blocks are also deeply embedded in loop iterations with local variables.
-
-**Revisit when:** Pass 3. If the three playback methods move to a `TimelinePlaybackController` class, the shared pattern may be cleanable with instance state.
+**Status:** **DONE** (PR #85). Extracted `ApplyFrameVisuals` private method with `skipPartEvents` parameter to preserve Site 1 semantics (reentry FX + RCS run unconditionally even when part events are zone-skipped). 4 call sites updated.
 
 ---
 
@@ -82,11 +72,9 @@ The shared core would need 3-4 parameters/flags to account for these differences
 
 ### D8. UpdateTimelinePlayback full decomposition
 
-**What:** 681-line method with 18+ phases. Group B extracts FlushDeferredSpawns and EvaluateGhostSoftCaps (the bookend phases), but the 500-line per-recording loop body remains.
+**What:** UpdatePlayback loop body (~207 lines) with multiple phases: spawn, position, apply visuals, past-end handling.
 
-**Why deferred:** The loop body has heavy coupling to loop-local state (`ghostActive`, `inRange`, `pastEnd`, various flags). Extracting sub-phases would require passing 10+ local variables as parameters or converting them to fields (not allowed). The `continue` statements within the loop also prevent clean extraction.
-
-**Revisit when:** Pass 3. If timeline playback moves to its own class, the loop locals become instance fields and sub-methods become natural.
+**Status:** **DONE** (PR #85). Extracted `RenderInRangeGhost` (~84 lines, spawn + position + visuals) and `HandlePastEndGhost` (~47 lines, merged active/inactive past-end blocks). Loop body reduced from ~207 to ~70 lines. Uses `ref` params for state modified by spawn, return-bool for `continue` semantics. No instance field pollution — all loop-local state stays as locals.
 
 ---
 
@@ -157,13 +145,12 @@ The shared core would need 3-4 parameters/flags to account for these differences
 ## Deferred from ParsekUI.cs
 
 ### D18. ParsekUI window resize drag duplication
-**What:** 4 windows (Recordings, Actions, Settings, Spawn Control) + Group Popup all have identical ~15-line resize drag blocks in their `*IfOpen` methods and identical ~10-line resize handle blocks in their draw methods.
-**Why deferred:** Extracting requires passing the rect, bool flag, and min dimensions through a shared helper. The IMGUI Event.current.Use() calls are order-sensitive — a shared helper could subtly break input consumption if the call order changes.
-**Revisit when:** Pass 3, if IMGUI code moves to its own subsystem.
+**What:** 4 windows (Recordings, Actions, Spawn Control) + Group Popup all have identical ~15-line resize drag blocks and ~10-line resize handle blocks.
+**Status:** **DONE** (T30). Extracted `HandleResizeDrag` and `DrawResizeHandle` static helpers with `ref Rect` + `ref bool` parameters. 8 call sites replaced. Group Popup passes null for windowName to suppress logging. Latent bugfix: Group Popup now gets `Event.current.Use()` on MouseDrag.
 
 ### D19. ParsekUI DrawSortableHeader / DrawSpawnSortableHeader near-duplicate
 **What:** Two near-identical sort header methods operating on different enum types (SortColumn vs SpawnSortColumn).
-**Why deferred:** Unifying requires a generic or interface, which changes the call pattern.
+**Status:** **DONE**. Extracted `DrawSortableHeaderCore<TCol>` with `ref TCol currentCol, ref bool ascending, Action onChanged`. Both wrappers delegate to the core. `ToggleSpawnSort` removed (absorbed into core). All 11 call sites unchanged.
 
 ---
 
@@ -177,13 +164,15 @@ The shared core would need 3-4 parameters/flags to account for these differences
 **Enabled:** D2 (commit-pattern dedup via instance methods), D5 (frame application dedup), D8 (UpdatePlayback decomposition on engine).
 
 ### D21. ChainSegmentManager from ParsekFlight (~400-500 lines)
-**What:** Extract chain state (`activeChainId`, `activeChainNextIndex`, `activeChainPrevId`, `activeChainCrewName`, continuation fields) and chain methods (`CommitChainSegment`, `CommitDockUndockSegment`, `CommitBoundarySplit`, `HandleVesselSwitchChainTermination`, `HandleDockUndockCommitRestart`, continuation methods).
+**What:** Extract chain state and chain methods into a ChainSegmentManager class.
 
-**Why deferred:** `activeChainId` referenced 50+ times across 5 regions (Scene Change, Split Event Detection, Update Helpers, Recording, Timeline Auto-Playback). Chain state is NOT localized to chain methods — it's read/written during recording start/stop, dock/undock handling, scene change, and tree mode logic. Same fundamental issue as D20.
+**Status:** **DONE** (T26 Phase 1 + Phase 2).
+- Phase 1: 16 chain state fields moved to ChainSegmentManager. ~150 field accesses migrated.
+- Phase 2: 12 methods (~505 lines) moved. Group A (8 pure continuation methods) moved directly. Group B (4 commit methods) refactored: receive recorder as parameter, return bool for abort handling. `CommitVesselSwitchTermination` split from `HandleVesselSwitchChainTermination` (guards + recorder=null stay as thin wrapper on ParsekFlight).
+- 3 orchestration methods stay on ParsekFlight (HandleDockUndockCommitRestart, HandleChainBoardingTransition, CommitBoundaryAndRestart — own StartRecording lifecycle).
+- ChainSegmentManager: 686 lines. ParsekFlight net -620 lines.
 
-**Revisit when:** Same as D20. Requires isolating chain state into a struct that can be owned by either ParsekFlight or a dedicated manager.
-
-**Enables if done:** D2 (commit-pattern dedup — the 4 commit methods could share a core method on the manager instance).
+**Enabled:** D2 (CommitSegmentCore extracted, T28 done).
 
 ---
 
@@ -200,7 +189,7 @@ The shared core would need 3-4 parameters/flags to account for these differences
 **Action:** Verify every .cs file has exactly one public/internal type. Exceptions: data-type files (GhostTypes.cs, GameStateEvent.cs) that bundle related types are acceptable.
 
 ### C4. Inventory doc final update
-**Action:** Mark all files Pass3-Done where applicable. Update line counts to final values.
+**Status:** **DONE** — Line counts updated for all modified files. ParsekFlight 8098, GhostPlaybackEngine 1594, ChainSegmentManager 686 (new), ParsekUI 3557, GhostPlaybackLogic 2274, GhostPlaybackState 75, GhostChain 53.
 
 ---
 
@@ -209,13 +198,13 @@ The shared core would need 3-4 parameters/flags to account for these differences
 | ID | File | Lines affected | Risk | Status |
 |----|------|---------------|------|--------|
 | D1 | ParsekFlight | ~160 | Medium | Open — conditional flags needed |
-| D2 | ParsekFlight | ~316 | High | Open — **unblocked by D20 completion** (instance methods on GhostPlaybackEngine) |
+| D2 | ChainSegmentManager | ~316 | High | **DONE** (T28: CommitSegmentCore + per-method customization callbacks) |
 | D3 | ParsekFlight+ParsekKSC | ~120 | Low | **DONE** (Phase 3A Split 4: TrajectoryMath.InterpolatePoints) |
 | D4 | ParsekFlight+ParsekKSC | ~60 | Low | **DONE** (Phase 3A Split 4: shared positioning) |
-| D5 | ParsekFlight | ~80 | Medium | Open — **unblocked by D20 completion** |
+| D5 | GhostPlaybackEngine | ~80 | Medium | **DONE** (PR #85: ApplyFrameVisuals with skipPartEvents param) |
 | D6 | ParsekFlight | ~15 | N/A | Closed — below 5-line min |
 | D7 | ParsekFlight | ~75 | Low | **DONE** (CommitBoundaryAndRestart shared tail) |
-| D8 | GhostPlaybackEngine | ~500 | High | Open — **unblocked by D20 completion** (UpdatePlayback decomposition on engine) |
+| D8 | GhostPlaybackEngine | ~500 | High | **DONE** (PR #85: RenderInRangeGhost + HandlePastEndGhost, loop body 207→70 lines) |
 | D9 | ParsekFlight | ~194 | Low | Closed — minimal gain |
 | D10 | ParsekFlight | ~60 | Medium | Closed — API divergence |
 | D11 | BackgroundRecorder | ~736 | High | Open — intentional design |
@@ -225,7 +214,7 @@ The shared core would need 3-4 parameters/flags to account for these differences
 | D15 | GhostVisualBuilder | ~300 | Medium | **DONE** (PR #82: SampleAnimationStates + AnimLookup) |
 | D16 | GhostVisualBuilder | ~300 | Medium | Closed — too many numeric params |
 | D17 | GhostVisualBuilder | ~30 | Low | Closed — guard param |
-| D18 | ParsekUI | ~125 | Medium | Open |
-| D19 | ParsekUI | ~40 | Low | Open |
+| D18 | ParsekUI | ~125 | Medium | **DONE** (T30: HandleResizeDrag + DrawResizeHandle helpers) |
+| D19 | ParsekUI | ~40 | Low | **DONE** (DrawSortableHeaderCore<TCol> generic extraction) |
 | D20 | ParsekFlight→GhostPlaybackEngine | ~2443 | High | **DONE** (T25: GhostPlaybackEngine 1553 lines + ParsekPlaybackPolicy 192 lines + interfaces) |
-| D21 | ParsekFlight | ~400-500 | High | Open — requires state isolation |
+| D21 | ParsekFlight→ChainSegmentManager | ~400-500 | High | **DONE** (Phase 1: state isolation. Phase 2: 12 methods moved. CommitSegmentCore extracted. ParsekFlight -620 lines.) |

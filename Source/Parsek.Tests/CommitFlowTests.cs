@@ -27,6 +27,7 @@ namespace Parsek.Tests
         public void Dispose()
         {
             GhostPlaybackLogic.ResetVesselExistsOverride();
+            GhostPlaybackLogic.ResetVesselCacheForTesting();
             ParsekLog.ResetTestOverrides();
             ParsekLog.SuppressLogging = true;
             RecordingStore.SuppressLogging = true;
