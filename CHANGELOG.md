@@ -4,6 +4,27 @@ All notable changes to Parsek are documented here.
 
 ---
 
+## 0.5.3
+
+### Bug Fixes
+
+- **Fix #134: CleanupOrphanedSpawnedVessels destroys freshly-spawned past vessels after rewind.** The rewind path populated `PendingCleanupNames` with all recording vessel names for `StripOrphanedSpawnedVessels`, but left them set for `CleanupOrphanedSpawnedVessels` in `OnFlightReady`, which then destroyed correctly-spawned past vessels. Fix: clear `PendingCleanupPids`/`PendingCleanupNames` immediately after the strip completes.
+- **Fix #43: Update known-bugs status.** Shader fallback lookup (`FindShaderOnRenderers`) was already implemented in commit 25ccfa9 but doc status was stale.
+
+### Investigated (Open)
+
+- **#48: ComputeBoundaryDiscontinuity hardcodes Kerbin radius.** Diagnostic-only — logged discontinuity magnitude is wrong on non-Kerbin bodies. Does not affect playback.
+- **#95: Committed recordings mutated after commit.** Continuation vessel destruction nulls `VesselSnapshot` and sets `VesselDestroyed` on committed recordings. Prevents re-spawn after revert. Needs separation of mutable continuation state from frozen committed data.
+- **#96: Ghost disappears between recording end and real vessel spawn.** Ghost destroyed immediately in `HandlePlaybackCompleted` regardless of spawn success. Needs "hold ghost until spawn" mechanism with timeout.
+- **#99: KSC view does not spawn real vessels when ghost timelines complete.** `ParsekKSC` is visual-only — no spawn logic. Needs lightweight spawn handler at recording completion.
+
+### Previously Fixed (Confirmed)
+
+- **#43** (shader fallback), **#49** (RealVesselExists O(n)) — already fixed in prior releases, confirmed during investigation.
+- **#50** (subgroup checkboxes) — code appears to draw them via recursive `DrawGroupTree`; needs in-game verification.
+
+---
+
 ## 0.5.2
 
 Second-pass structural refactoring + game action system modularization + continued decomposition. ~80 method extractions, ~105 logging additions, 103 new tests. 1 latent bug fixed, 1 latent IMGUI bugfix. Zero logic changes (except bug fixes).
