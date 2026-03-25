@@ -183,58 +183,6 @@ namespace Parsek.Tests
 
         #endregion
 
-        #region Offset interpolation correctness
-
-        [Fact]
-        public void OffsetInterpolation_Midpoint_AveragesCorrectly()
-        {
-            // Simulate what InterpolateAndPositionRelative does internally
-            double beforeDx = 10.0, afterDx = 20.0;
-            double beforeDy = 0.0, afterDy = 10.0;
-            double beforeDz = -5.0, afterDz = 5.0;
-            float t = 0.5f;
-
-            double dx = beforeDx + (afterDx - beforeDx) * t;
-            double dy = beforeDy + (afterDy - beforeDy) * t;
-            double dz = beforeDz + (afterDz - beforeDz) * t;
-
-            Assert.Equal(15.0, dx, 10);
-            Assert.Equal(5.0, dy, 10);
-            Assert.Equal(0.0, dz, 10);
-        }
-
-        [Fact]
-        public void OffsetInterpolation_T0_ReturnsBeforeValues()
-        {
-            double beforeDx = 10.0, afterDx = 20.0;
-            float t = 0.0f;
-
-            double dx = beforeDx + (afterDx - beforeDx) * t;
-            Assert.Equal(10.0, dx, 10);
-        }
-
-        [Fact]
-        public void OffsetInterpolation_T1_ReturnsAfterValues()
-        {
-            double beforeDx = 10.0, afterDx = 20.0;
-            float t = 1.0f;
-
-            double dx = beforeDx + (afterDx - beforeDx) * t;
-            Assert.Equal(20.0, dx, 10);
-        }
-
-        [Fact]
-        public void OffsetInterpolation_QuarterPoint_LinearlyCorrect()
-        {
-            double beforeDx = 0.0, afterDx = 100.0;
-            float t = 0.25f;
-
-            double dx = beforeDx + (afterDx - beforeDx) * t;
-            Assert.Equal(25.0, dx, 10);
-        }
-
-        #endregion
-
         #region Integration: ApplyRelativeOffset + interpolation
 
         [Fact]
@@ -353,24 +301,6 @@ namespace Parsek.Tests
         #endregion
 
         #region Log assertions for relative playback scenarios
-
-        [Fact]
-        public void ApplyRelativeOffset_LogsVerboseOffsetMagnitude()
-        {
-            logLines.Clear();
-
-            // ApplyRelativeOffset itself doesn't log, but the verbose log in
-            // InterpolateAndPositionRelative does. Since we can't call that here
-            // (needs Unity runtime), we verify the pure math produces correct results
-            // and trust that the log path is covered by the wiring code.
-            var anchor = new Vector3d(0, 0, 0);
-            var result = TrajectoryMath.ApplyRelativeOffset(anchor, 100, 200, 300);
-            double magnitude = result.magnitude;
-
-            // Pure math doesn't log — this test verifies the function is callable
-            // and returns correct values that would be logged in-game
-            Assert.True(magnitude > 0);
-        }
 
         [Fact]
         public void FindTrackSectionForUT_WithMixedSections_NavigatesCorrectly()

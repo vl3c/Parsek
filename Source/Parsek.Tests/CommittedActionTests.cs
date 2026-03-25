@@ -4,7 +4,7 @@ using Xunit;
 namespace Parsek.Tests
 {
     [Collection("Sequential")]
-    public class CommittedActionTests
+    public class CommittedActionTests : System.IDisposable
     {
         public CommittedActionTests()
         {
@@ -15,6 +15,14 @@ namespace Parsek.Tests
             RecordingStore.SuppressLogging = true;
             RecordingStore.ResetForTesting();
             ParsekLog.SuppressLogging = true;
+        }
+
+        public void Dispose()
+        {
+            RecordingStore.ResetForTesting();
+            MilestoneStore.ResetForTesting();
+            GameStateStore.ResetForTesting();
+            ParsekLog.ResetTestOverrides();
         }
 
         #region GetCommittedTechIds

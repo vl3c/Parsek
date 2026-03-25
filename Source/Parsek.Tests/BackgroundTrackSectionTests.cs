@@ -286,7 +286,7 @@ namespace Parsek.Tests
         #region On-rails transition creates Checkpoint section
 
         [Fact]
-        public void StartCheckpointTrackSection_ViaGoOnRails_CreatesCheckpointSource()
+        public void GoOnRails_ClassifiesAsExoBallistic()
         {
             // We cannot call OnBackgroundVesselGoOnRails directly (needs Vessel),
             // so test the static properties of StartCheckpointTrackSection via

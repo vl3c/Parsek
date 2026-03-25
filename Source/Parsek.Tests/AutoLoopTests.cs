@@ -7,11 +7,8 @@ namespace Parsek.Tests
     [Collection("Sequential")]
     public class AutoLoopTests : System.IDisposable
     {
-        private readonly List<string> logLines = new List<string>();
-
         public AutoLoopTests()
         {
-            ParsekLog.TestSinkForTesting = line => logLines.Add(line);
             ParsekLog.SuppressLogging = false;
             RecordingStore.SuppressLogging = true;
         }

@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Globalization;
 using Parsek.Tests.Generators;
@@ -7,7 +8,7 @@ using Xunit;
 namespace Parsek.Tests
 {
     [Collection("Sequential")]
-    public class PartEventTests
+    public class PartEventTests : IDisposable
     {
         public PartEventTests()
         {
@@ -351,8 +352,8 @@ namespace Parsek.Tests
         [Fact]
         public void RemoveSpecificCrew_NullSnapshot_NoException()
         {
-            VesselSpawner.RemoveSpecificCrewFromSnapshot(null, new HashSet<string> { "Jeb" });
-            // No exception = pass
+            var ex = Record.Exception(() => VesselSpawner.RemoveSpecificCrewFromSnapshot(null, new HashSet<string> { "Jeb" }));
+            Assert.Null(ex);
         }
 
         [Fact]
@@ -362,8 +363,8 @@ namespace Parsek.Tests
                 .AddPart("mk1pod.v2", "Jeb")
                 .Build();
 
-            VesselSpawner.RemoveSpecificCrewFromSnapshot(snapshot, null);
-            // No exception = pass
+            var ex = Record.Exception(() => VesselSpawner.RemoveSpecificCrewFromSnapshot(snapshot, null));
+            Assert.Null(ex);
         }
 
         #endregion
@@ -2449,6 +2450,12 @@ namespace Parsek.Tests
         }
 
         #endregion
+
+        public void Dispose()
+        {
+            RecordingStore.ResetForTesting();
+            ParsekLog.ResetTestOverrides();
+        }
     }
 
     /// <summary>

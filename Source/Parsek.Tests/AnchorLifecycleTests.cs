@@ -115,35 +115,6 @@ namespace Parsek.Tests
             Assert.True(GhostPlaybackLogic.IsAnchorLoaded(100, loadedSet));
         }
 
-        [Fact]
-        public void LoadedSet_RemoveNonexistent_NoError()
-        {
-            var loadedSet = new HashSet<uint>();
-            // Removing something not in the set should not throw
-            loadedSet.Remove(42);
-            Assert.Empty(loadedSet);
-        }
-
-        [Fact]
-        public void LoadedSet_DuplicateAdd_Idempotent()
-        {
-            var loadedSet = new HashSet<uint>();
-            loadedSet.Add(42);
-            loadedSet.Add(42); // duplicate
-            Assert.Single(loadedSet);
-            Assert.True(GhostPlaybackLogic.IsAnchorLoaded(42, loadedSet));
-        }
-
-        [Fact]
-        public void LoadedSet_Clear_RemovesAll()
-        {
-            var loadedSet = new HashSet<uint> { 42, 100, 999 };
-            loadedSet.Clear();
-            Assert.False(GhostPlaybackLogic.IsAnchorLoaded(42, loadedSet));
-            Assert.False(GhostPlaybackLogic.IsAnchorLoaded(100, loadedSet));
-            Assert.False(GhostPlaybackLogic.IsAnchorLoaded(999, loadedSet));
-        }
-
         #endregion
 
         #region Anchor Gating Combined with ShouldSpawnLoopedGhost

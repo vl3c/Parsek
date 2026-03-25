@@ -13,14 +13,11 @@ namespace Parsek.Tests
     [Collection("Sequential")]
     public class InterpolatePointsTests : IDisposable
     {
-        private readonly List<string> logLines = new List<string>();
-
         public InterpolatePointsTests()
         {
             ParsekLog.ResetTestOverrides();
             ParsekLog.SuppressLogging = false;
             ParsekLog.VerboseOverrideForTesting = true;
-            ParsekLog.TestSinkForTesting = line => logLines.Add(line);
         }
 
         public void Dispose()

@@ -211,18 +211,19 @@ Unify `CommitChainSegment`, `CommitDockUndockSegment`, `CommitBoundarySplit`, `H
 
 **Priority:** Low — moderate savings, moderate risk
 
-### T32. Deep test suite audit
+### T32. Deep test suite audit — DONE (audit + fixes), edge cases deferred
 
-3337 tests accumulated across multiple refactoring passes. Need a thorough audit to:
-- Identify **redundant tests** — duplicates or tests that cover the exact same code path
-- Find **always-passing tests** — tests that can't fail due to missing assertions, tautological checks, or mocked-away logic
-- Discover **missing edge cases** — guard conditions, error paths, and boundary values that have no coverage
-- Check **test isolation** — shared static state leaks between tests (missing ResetForTesting calls, wrong `[Collection]` attributes)
-- Verify **log-assertion completeness** — methods with logging that have no corresponding log-assertion tests
+Audit completed: 110 test files (~55k lines) reviewed by 9 Opus subagents, independently reviewed. Fixes applied: 43 files changed, +170/-1182 lines.
 
-Focus areas: ResourceApplicator (0% direct coverage for KSP-mutation methods), CrewReservationManager (mutation methods untested), ParsekFlight resource replay (duplicated logic with no shared tests).
+Resolved: 8 exact duplicate pairs deleted, 28 always-passing/tautological tests deleted, 17 classes given IDisposable, 12 tests not calling production code deleted, 4 misleading names fixed, unused log capture removed, dead code removed, `[Collection("Sequential")]` added where needed.
 
-**Priority:** Medium — test confidence degrades as suite grows without pruning
+Remaining edge case gaps (P3, not addressed):
+- ResourceApplicator KSP-mutation methods (0% direct coverage)
+- CrewReservationManager mutation methods (untested)
+- ParsekFlight resource replay paths (duplicated logic)
+- ~10 specific missing edge cases documented in `docs/dev/done/plans/task-32-test-audit.md` Section 7
+
+**Priority:** Low — the harmful tests are gone; remaining gaps are additive coverage
 
 ### T33. Encapsulate GroupHierarchyStore mutable fields
 

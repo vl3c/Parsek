@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using Parsek.Tests.Generators;
 using UnityEngine;
@@ -6,7 +7,7 @@ using Xunit;
 namespace Parsek.Tests
 {
     [Collection("Sequential")]
-    public class DockUndockChainTests
+    public class DockUndockChainTests : IDisposable
     {
         public DockUndockChainTests()
         {
@@ -604,14 +605,6 @@ namespace Parsek.Tests
         #region DecideOnVesselSwitch priority — undockSiblingPid vs EVA
 
         [Fact]
-        public void DecideOnVesselSwitch_UndockSiblingPid_TakesPriorityOverStop()
-        {
-            // EVA flags false, different vessel, but matches sibling → UndockSwitch, not Stop
-            var result = FlightRecorder.DecideOnVesselSwitch(100, 200, false, false, undockSiblingPid: 200);
-            Assert.Equal(FlightRecorder.VesselSwitchDecision.UndockSwitch, result);
-        }
-
-        [Fact]
         public void DecideOnVesselSwitch_UndockSiblingPid_DoesNotOverrideEva()
         {
             // If switched to EVA vessel that happens to match undockSiblingPid,
@@ -693,6 +686,12 @@ namespace Parsek.Tests
         }
 
         #endregion
+
+        public void Dispose()
+        {
+            RecordingStore.ResetForTesting();
+            ParsekLog.ResetTestOverrides();
+        }
     }
 }
 

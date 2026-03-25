@@ -95,8 +95,10 @@ namespace Parsek.Tests
         {
             try
             {
-                ActionReplay.ReplayCommittedActions(new List<Milestone>());
-                // Empty list — no milestones to process, no crash = success
+                var ex = Record.Exception(() => ActionReplay.ReplayCommittedActions(new List<Milestone>()));
+                Assert.Null(ex);
+                Assert.False(GameStateRecorder.IsReplayingActions);
+                Assert.False(GameStateRecorder.SuppressCrewEvents);
             }
             finally
             {
@@ -231,8 +233,10 @@ namespace Parsek.Tests
         [Fact]
         public void ReplayCommittedActions_NullList_NoOp()
         {
-            ActionReplay.ReplayCommittedActions(null);
-            // No crash = success
+            var ex = Record.Exception(() => ActionReplay.ReplayCommittedActions(null));
+            Assert.Null(ex);
+            Assert.False(GameStateRecorder.IsReplayingActions);
+            Assert.False(GameStateRecorder.SuppressCrewEvents);
         }
 
         [Fact]
