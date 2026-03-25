@@ -393,6 +393,12 @@ namespace Parsek
         /// </summary>
         private static Func<uint, bool> vesselExistsOverride;
 
+        // Frame-cached vessel PID set for O(1) lookup. Invalidated manually per frame
+        // via InvalidateVesselCache(). Using manual invalidation instead of Time.frameCount
+        // because Unity native properties crash in the test environment.
+        private static HashSet<uint> cachedVesselPids;
+        private static bool vesselCacheValid;
+
         /// <summary>
         /// Injectable override for chain-ghosted vessel checks (null = assume not ghosted).
         /// Set via SetIsGhostedOverride for unit tests; in production, wired to VesselGhoster.IsGhosted.
@@ -440,13 +446,24 @@ namespace Parsek
 
             if (FlightGlobals.Vessels == null) return false;
 
-            for (int i = 0; i < FlightGlobals.Vessels.Count; i++)
+            if (!vesselCacheValid)
             {
-                if (FlightGlobals.Vessels[i] != null &&
-                    FlightGlobals.Vessels[i].persistentId == vesselPersistentId)
-                    return true;
+                if (cachedVesselPids == null)
+                    cachedVesselPids = new HashSet<uint>();
+                else
+                    cachedVesselPids.Clear();
+
+                for (int i = 0; i < FlightGlobals.Vessels.Count; i++)
+                {
+                    if (FlightGlobals.Vessels[i] != null)
+                        cachedVesselPids.Add(FlightGlobals.Vessels[i].persistentId);
+                }
+                vesselCacheValid = true;
+                ParsekLog.VerboseRateLimited("Flight", "vessel-cache-rebuild",
+                    $"RealVesselExists: rebuilt vessel PID cache ({cachedVesselPids.Count} vessels)");
             }
-            return false;
+
+            return cachedVesselPids.Contains(vesselPersistentId);
         }
 
         /// <summary>
@@ -531,6 +548,25 @@ namespace Parsek
         internal static void ResetVesselExistsOverride()
         {
             vesselExistsOverride = null;
+        }
+
+        /// <summary>
+        /// Invalidate the vessel PID cache. Call once per frame before any
+        /// RealVesselExists calls (e.g., first line of UpdateTimelinePlaybackViaEngine).
+        /// </summary>
+        internal static void InvalidateVesselCache()
+        {
+            vesselCacheValid = false;
+        }
+
+        /// <summary>
+        /// Reset vessel cache state for testing. Clears cache and invalidation flag.
+        /// Call alongside ResetVesselExistsOverride in test teardown.
+        /// </summary>
+        internal static void ResetVesselCacheForTesting()
+        {
+            cachedVesselPids = null;
+            vesselCacheValid = false;
         }
 
         #endregion

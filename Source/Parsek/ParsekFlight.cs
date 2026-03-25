@@ -6051,13 +6051,10 @@ namespace Parsek
                 if (bgRec != null && bgRec.Points.Count > 0)
                 {
                     // Position from trajectory points (same interpolation as existing ghost positioning)
-                    // TODO: cachedIdx resets to 0 each frame — when ghost GO creation is implemented
-                    // (6b-4), cache this on the ghost state or chain for O(1) amortized lookup.
                     bool srfRel = bgRec.RecordingFormatVersion >= 5;
                     bool surfaceSkip = TrajectoryMath.IsSurfaceAtUT(bgRec.TrackSections, currentUT);
-                    int cachedIdx = 0;
                     InterpolateAndPosition(info.ghostGO, bgRec.Points, bgRec.OrbitSegments,
-                        ref cachedIdx, currentUT, (int)(chain.OriginalVesselPid * 10000),
+                        ref chain.CachedTrajectoryIndex, currentUT, (int)(chain.OriginalVesselPid * 10000),
                         out _, surfaceRelativeRotation: srfRel, skipOrbitSegments: surfaceSkip);
 
                     ParsekLog.VerboseRateLimited("Flight", "chain-ghost-trajectory-" + chain.OriginalVesselPid,
@@ -6273,6 +6270,8 @@ namespace Parsek
         /// </summary>
         void UpdateTimelinePlaybackViaEngine()
         {
+            GhostPlaybackLogic.InvalidateVesselCache();
+
             var committed = RecordingStore.CommittedRecordings;
             double currentUT = Planetarium.GetUniversalTime();
 
