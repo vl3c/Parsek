@@ -67,17 +67,13 @@ Engine and RCS particle systems are instantiated per ghost. Pooling would reduce
 
 **Priority:** Low
 
-### T9. Background ghost cachedIdx persistence (bug #62)
+### ~~T9. Background ghost cachedIdx persistence (bug #62)~~ DONE
 
-`InterpolateAndPosition` for background/chain ghosts resets trajectory lookup index each frame instead of caching per-ghost. O(n) search instead of O(1) amortized.
+Cached trajectory lookup index on `GhostChain.CachedTrajectoryIndex` instead of resetting to 0 each frame. `FindWaypointIndex` safely falls back to binary search if the index is stale after a recording change. O(n) → O(1) amortized.
 
-**Priority:** Low — minor perf cost
+### ~~T10. RealVesselExists O(n) per frame (bug #49)~~ DONE
 
-### T10. RealVesselExists O(n) per frame (bug #49)
-
-`GhostPlaybackLogic.RealVesselExists` scans `FlightGlobals.Vessels` linearly. A HashSet lookup by PID would be O(1). Attempted frame-cached HashSet but `Time.frameCount` (Unity native) crashes in test environment. Needs a non-Unity cache invalidation approach (e.g., manual invalidation from the playback update loop).
-
-**Priority:** Low — only matters with many committed recordings
+Replaced `RealVesselExists` linear scan with frame-cached `HashSet<uint>`. Manual invalidation via `InvalidateVesselCache()` called as first line of `UpdateTimelinePlaybackViaEngine` (avoids `Time.frameCount` crash in tests). Cache rebuilt lazily on first call per frame. `vesselExistsOverride` bypass preserved for tests.
 
 ---
 
