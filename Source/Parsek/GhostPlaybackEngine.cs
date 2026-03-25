@@ -1382,8 +1382,8 @@ namespace Parsek
         internal void DestroyOverlapGhostState(GhostPlaybackState state)
         {
             if (state == null) return;
-            ParsekLog.Verbose("Engine",
-                $"Destroying overlap ghost cycle={state.loopCycleIndex}");
+            ParsekLog.VerboseRateLimited("Engine", "destroy-overlap",
+                $"Destroying overlap ghost cycle={state.loopCycleIndex}", 2.0);
             DestroyGhostResources(state);
         }
 

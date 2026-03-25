@@ -137,7 +137,7 @@ namespace Parsek
                     if (result != null)
                     {
                         fxPrefabCache[prefabName] = result;
-                        ParsekLog.Log($"  FX prefab substitution: '{prefabName}' -> '{fallbackName}'");
+                        ParsekLog.Verbose("GhostVisual", $"FX prefab substitution: '{prefabName}' -> '{fallbackName}'");
                         return result;
                     }
                 }
@@ -186,7 +186,7 @@ namespace Parsek
                 GameObject result = Resources.Load<GameObject>(resourcePath);
                 if (result != null)
                 {
-                    ParsekLog.Log($"  FX prefab loaded from Resources: '{prefabName}' (path='{resourcePath}')");
+                    ParsekLog.Verbose("GhostVisual", $"FX prefab loaded from Resources: '{prefabName}' (path='{resourcePath}')");
                     return result;
                 }
             }
@@ -196,14 +196,14 @@ namespace Parsek
                 : null;
             if (modelPrefab != null)
             {
-                ParsekLog.Log($"  FX prefab loaded from GameDatabase model: '{prefabName}'");
+                ParsekLog.Verbose("GhostVisual", $"FX prefab loaded from GameDatabase model: '{prefabName}'");
                 return modelPrefab;
             }
 
             PopulateFxPrefabCacheFromLoadedObjects();
             if (TryGetFxPrefabFromCache(prefabName, out GameObject cached))
             {
-                ParsekLog.Log($"  FX prefab resolved from loaded objects: '{prefabName}'");
+                ParsekLog.Verbose("GhostVisual", $"FX prefab resolved from loaded objects: '{prefabName}'");
                 return cached;
             }
 
@@ -239,7 +239,7 @@ namespace Parsek
                 added++;
             }
 
-            ParsekLog.Log($"  FX prefab cache extended from loaded objects: +{added} entries");
+            ParsekLog.Info("GhostVisual", $"FX prefab cache extended from loaded objects: +{added} entries");
         }
 
         private static void RebuildFxPrefabCache()
@@ -264,7 +264,7 @@ namespace Parsek
                     }
                 }
             }
-            ParsekLog.Log($"  FX prefab cache built from PartLoader: {fxPrefabCache.Count} entries");
+            ParsekLog.Info("GhostVisual", $"FX prefab cache built from PartLoader: {fxPrefabCache.Count} entries");
         }
 
         /// <summary>Clear the fx prefab cache (e.g., on scene change).</summary>
@@ -2271,7 +2271,7 @@ namespace Parsek
                             srcFxTransform, prefab.transform, modelRoot, ghostModelNode, cloneMap);
                         if (ghostFxParent == null)
                         {
-                            ParsekLog.Log($"    RCS '{partName}' midx={moduleIndex}: " +
+                            ParsekLog.Verbose("GhostVisual", $"RCS '{partName}' midx={moduleIndex}: " +
                                 $"transform='{transformName}' parent resolution failed");
                             continue;
                         }
@@ -4418,6 +4418,7 @@ namespace Parsek
             ref int meshCount, ref int damagedSkipped, ref int nullMeshSkipped)
         {
             int skinnedCloned = 0;
+            int partRootFallbackCount = 0;
             for (int r = 0; r < skinnedRenderers.Length; r++)
             {
                 var smr = skinnedRenderers[r];
@@ -4439,9 +4440,6 @@ namespace Parsek
                 if (IsRendererOnDamagedTransform(smr.transform, damagedWheelNames))
                 {
                     damagedSkipped++;
-                    ParsekLog.VerboseRateLimited("GhostVisual", $"dmg_smr_{partName}_{r}",
-                        $"    Part '{partName}' pid={persistentId}: skipping damaged wheel " +
-                        $"SkinnedMeshRenderer '{smr.name}' (ModuleWheelDamage.damagedTransformName match)", 60.0);
                     continue;
                 }
 
@@ -4493,15 +4491,8 @@ namespace Parsek
                 ghostSmr.receiveShadows = smr.receiveShadows;
                 meshCount++;
                 skinnedCloned++;
-                ParsekLog.VerboseRateLimited("GhostVisual", $"smr_{partName}_{r}",
-                    $"    SMR[{r}] '{smr.gameObject.name}' mesh={smr.sharedMesh.name} " +
-                    $"localPos={leaf.localPosition} localScale={leaf.localScale} " +
-                    $"bones={resolvedBones}/{(smr.bones != null ? smr.bones.Length : 0)}", 60.0);
                 if (usedPartRootFallbackForBones)
-                {
-                    ParsekLog.VerboseRateLimited("GhostVisual", $"smr_fb_{partName}_{r}",
-                        $"      SMR[{r}] '{smr.gameObject.name}': used part-root fallback for external bone transforms", 60.0);
-                }
+                    partRootFallbackCount++;
             }
 
             return skinnedCloned;
@@ -4924,9 +4915,6 @@ namespace Parsek
                 if (IsRendererOnDamagedTransform(mr.transform, damagedWheelNames))
                 {
                     damagedSkipped++;
-                    ParsekLog.VerboseRateLimited("GhostVisual", $"dmg_mr_{partName}_{r}",
-                        $"    Part '{partName}' pid={persistentId}: skipping damaged wheel " +
-                        $"MeshRenderer '{mr.gameObject.name}' (ModuleWheelDamage.damagedTransformName match)", 60.0);
                     continue;
                 }
                 var mf = mr.GetComponent<MeshFilter>();
@@ -4936,9 +4924,6 @@ namespace Parsek
                 leaf.gameObject.AddComponent<MeshFilter>().sharedMesh = mf.sharedMesh;
                 leaf.gameObject.AddComponent<MeshRenderer>().sharedMaterials = mr.sharedMaterials;
                 meshCount++;
-                ParsekLog.VerboseRateLimited("GhostVisual", $"mr_{partName}_{r}",
-                    $"    MR[{r}] '{mr.gameObject.name}' mesh={mf.sharedMesh.name} " +
-                    $"localPos={leaf.localPosition} localScale={leaf.localScale}", 60.0);
                 added = true;
             }
             if (variantSkipped > 0)
@@ -5546,7 +5531,7 @@ namespace Parsek
                 info.fireParticles = ps;
                 info.combinedEmissionMesh = combinedMesh;
 
-                ParsekLog.Log($"  ReentryFx: combined {combines.Count} meshes into emission shape " +
+                ParsekLog.Verbose("ReentryFx", $"combined {combines.Count} meshes into emission shape " +
                     $"({(combinedMesh != null ? combinedMesh.vertexCount : 0)} verts) for ghost #{ghostIndex}");
             }
 
@@ -5566,7 +5551,7 @@ namespace Parsek
                     info.allClonedMaterials.Add(shellMat);
                 }
 
-                ParsekLog.Log($"  ReentryFx: {info.fireShellMeshes.Count} meshes collected for fire shell overlay on ghost #{ghostIndex}");
+                ParsekLog.Verbose("ReentryFx", $"{info.fireShellMeshes.Count} meshes collected for fire shell overlay on ghost #{ghostIndex}");
             }
 
             return info;
@@ -5740,7 +5725,7 @@ namespace Parsek
             // Rebuild fire shell mesh list from active parts only
             info.fireShellMeshes = CollectFireShellMeshes(meshFilters, false);
 
-            ParsekLog.Log($"  ReentryFx: rebuilt emission mesh ({combines.Count} meshes, " +
+            ParsekLog.Verbose("ReentryFx", $"rebuilt emission mesh ({combines.Count} meshes, " +
                 $"{(info.combinedEmissionMesh != null ? info.combinedEmissionMesh.vertexCount : 0)} verts) " +
                 $"and {info.fireShellMeshes.Count} fire shell meshes after decouple");
         }
@@ -6179,7 +6164,7 @@ namespace Parsek
                 CelestialBody body = FlightGlobals.Bodies?.Find(b => b.name == evt.bodyName);
                 if (body == null)
                 {
-                    ParsekLog.Warn("GhostBuild",
+                    ParsekLog.Warn("GhostVisual",
                         $"Cannot spawn flag vessel: body '{evt.bodyName}' not found");
                     return null;
                 }
@@ -6226,12 +6211,12 @@ namespace Parsek
 
                 if (pv.vesselRef == null)
                 {
-                    ParsekLog.Warn("GhostBuild",
+                    ParsekLog.Warn("GhostVisual",
                         $"Flag vessel spawn failed: ProtoVessel.Load() produced null vesselRef");
                     return null;
                 }
 
-                ParsekLog.Verbose("GhostBuild",
+                ParsekLog.Verbose("GhostVisual",
                     $"Spawned flag vessel: '{vesselName}' by '{evt.placedBy}' " +
                     $"at ({evt.latitude:F4},{evt.longitude:F4},{evt.altitude:F1}) on {evt.bodyName}");
 
@@ -6239,7 +6224,7 @@ namespace Parsek
             }
             catch (System.Exception ex)
             {
-                ParsekLog.Error("GhostBuild",
+                ParsekLog.Error("GhostVisual",
                     $"Failed to spawn flag vessel: {ex.Message}");
                 return null;
             }
@@ -6272,7 +6257,7 @@ namespace Parsek
                 }
                 else
                 {
-                    ParsekLog.Warn("GhostBuild", "Could not find KSP/Emissive/Diffuse shader, using default");
+                    ParsekLog.Warn("GhostVisual", "Could not find KSP/Emissive/Diffuse shader, using default");
                 }
             }
 
