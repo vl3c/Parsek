@@ -14,9 +14,9 @@ All notable changes to Parsek are documented here.
 - **Fix #96: Hold ghost until spawn succeeds.** Ghost no longer disappears when spawn is blocked or warp-deferred. `HandlePlaybackCompleted` holds the ghost at its final position via `heldGhosts` dict. `RetryHeldGhostSpawns` retries each frame, releasing on success or 5s timeout.
 - **Fix #99: Spawn real vessels at KSC when ghost timelines complete.** `ParsekKSC.TrySpawnAtRecordingEnd` calls `VesselSpawner.RespawnVessel` when ghosts exit range. Chain mid-segment suppression via `IsChainMidSegment`. `OnSave` auto-unreserve guarded at SpaceCenter to prevent snapshot pre-emption.
 
-### Investigated (Open)
-
-- **#48: ComputeBoundaryDiscontinuity hardcodes Kerbin radius.** Diagnostic-only — does not affect playback.
+- **Fix #48: Use actual body radius in ComputeBoundaryDiscontinuity.** Replaced hardcoded Kerbin radius (600,000m) with lookup from static dictionary of 17 stock KSP body radii. Diagnostic-only fix — logged discontinuity magnitude is now accurate on all bodies.
+- **Fix #77: Use InvariantCulture for TerrainCorrector log formatting.** Replaced 8 `{val:F1}` interpolation sites with `.ToString("F1", IC)` to prevent comma-decimal output on non-English locales.
+- **Fix #73: Filter vessel types in CheckWarningProximity.** Extracted `ShouldSkipVesselType` helper (Debris/EVA/Flag/SpaceObject) shared between `CheckOverlapAgainstLoadedVessels` and `CheckWarningProximity`.
 
 ### Previously Fixed (Confirmed)
 
