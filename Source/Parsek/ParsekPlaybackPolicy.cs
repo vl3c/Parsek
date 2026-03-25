@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using UnityEngine;
 
 namespace Parsek
 {
@@ -20,6 +21,17 @@ namespace Parsek
         // Deferred spawn queue: recording IDs queued during warp, flushed when warp ends
         internal readonly HashSet<string> pendingSpawnRecordingIds = new HashSet<string>();
         internal string pendingWatchRecordingId;
+
+        /// <summary>
+        /// Tracks ghosts held at their final position while waiting for a blocked/deferred
+        /// spawn to resolve. The ghost stays visible so there is no gap between ghost
+        /// disappearance and real vessel appearance (#96).
+        /// Key: recording index. Value: info about the held ghost (start time, watched state).
+        /// </summary>
+        internal readonly Dictionary<int, HeldGhostInfo> heldGhosts = new Dictionary<int, HeldGhostInfo>();
+
+        /// <summary>Maximum real-time seconds to hold a ghost before giving up and destroying it.</summary>
+        internal const float HeldGhostTimeoutSeconds = 5.0f;
 
         internal ParsekPlaybackPolicy(GhostPlaybackEngine engine, ParsekFlight host)
         {
@@ -97,6 +109,22 @@ namespace Parsek
                         pendingWatchRecordingId = evt.Flags.recordingId;
                         host.ExitWatchModeFromPolicy();
                     }
+
+                    // Hold ghost during warp-deferred spawn (#96)
+                    if (evt.GhostWasActive)
+                    {
+                        heldGhosts[evt.Index] = new HeldGhostInfo
+                        {
+                            holdStartTime = Time.time,
+                            recordingId = evt.Flags.recordingId,
+                            vesselName = evt.Trajectory?.VesselName,
+                            wasWatched = isWatched,
+                        };
+                        ParsekLog.Info("Policy",
+                            $"Ghost held during warp-deferred spawn: #{evt.Index} \"{evt.Trajectory?.VesselName}\" " +
+                            $"id={evt.Flags.recordingId}");
+                    }
+
                     ParsekLog.Info("Policy",
                         $"Deferred spawn during warp: #{evt.Index} \"{evt.Trajectory?.VesselName}\"");
                 }
@@ -110,21 +138,39 @@ namespace Parsek
                             host.ExitWatchModeFromPolicy();
 
                         host.SpawnVesselOrChainTipFromPolicy(committed[evt.Index], evt.Index);
-                        spawned = true;
 
-                        // Switch camera to spawned vessel if we were watching
-                        if (isWatched)
+                        // Check if spawn actually succeeded
+                        spawned = committed[evt.Index].VesselSpawned;
+
+                        // If spawn succeeded, switch camera to spawned vessel if we were watching
+                        if (spawned && isWatched)
                         {
                             uint spawnedPid = committed[evt.Index].SpawnedVesselPersistentId;
                             if (spawnedPid != 0)
                                 host.DeferredActivateVesselFromPolicy(spawnedPid);
+                        }
+
+                        // If spawn was blocked, hold the ghost (#96)
+                        if (!spawned && evt.GhostWasActive)
+                        {
+                            heldGhosts[evt.Index] = new HeldGhostInfo
+                            {
+                                holdStartTime = Time.time,
+                                recordingId = evt.Flags.recordingId,
+                                vesselName = evt.Trajectory?.VesselName,
+                                wasWatched = isWatched,
+                            };
+                            ParsekLog.Info("Policy",
+                                $"Ghost held pending spawn retry: #{evt.Index} \"{evt.Trajectory?.VesselName}\" " +
+                                $"id={evt.Flags.recordingId} — spawn blocked, ghost stays visible");
+                            return; // Do not destroy the ghost
                         }
                     }
                 }
             }
 
             // Destroy ghost
-            if (evt.GhostWasActive)
+            if (evt.GhostWasActive && !heldGhosts.ContainsKey(evt.Index))
             {
                 // If watching and not spawning: hold ghost for camera (3-5 seconds)
                 if (isWatched && !spawned && !evt.Flags.needsSpawn)
@@ -150,10 +196,135 @@ namespace Parsek
             }
         }
 
+        /// <summary>
+        /// Retries spawn for ghosts that are held at their final position while waiting
+        /// for a blocked/deferred spawn to resolve. Called each frame after the engine
+        /// update. On success or timeout, destroys the ghost.
+        /// </summary>
+        internal void RetryHeldGhostSpawns()
+        {
+            if (heldGhosts.Count == 0) return;
+
+            var committed = RecordingStore.CommittedRecordings;
+            float now = Time.time;
+
+            // Collect indices to release (cannot modify dict during iteration)
+            List<int> toRelease = null;
+
+            foreach (var kvp in heldGhosts)
+            {
+                int index = kvp.Key;
+                HeldGhostInfo info = kvp.Value;
+
+                var decision = DecideHeldGhostAction(
+                    index, info, committed, now, HeldGhostTimeoutSeconds);
+
+                switch (decision)
+                {
+                    case HeldGhostAction.RetrySpawn:
+                        // Recording is valid and not yet spawned — retry
+                        host.SpawnVesselOrChainTipFromPolicy(committed[index], index);
+                        if (committed[index].VesselSpawned)
+                        {
+                            ParsekLog.Info("Policy",
+                                $"Held ghost spawn succeeded on retry: #{index} \"{info.vesselName}\" " +
+                                $"id={info.recordingId} held={now - info.holdStartTime:F1}s");
+
+                            // If this was watched, activate the spawned vessel camera
+                            if (info.wasWatched)
+                            {
+                                uint spawnedPid = committed[index].SpawnedVesselPersistentId;
+                                if (spawnedPid != 0)
+                                    host.DeferredActivateVesselFromPolicy(spawnedPid);
+                            }
+
+                            if (toRelease == null) toRelease = new List<int>();
+                            toRelease.Add(index);
+                        }
+                        break;
+
+                    case HeldGhostAction.ReleaseSpawned:
+                        // Already spawned by another path (e.g. FlushDeferredSpawns)
+                        ParsekLog.Info("Policy",
+                            $"Held ghost released (already spawned): #{index} \"{info.vesselName}\" " +
+                            $"id={info.recordingId} held={now - info.holdStartTime:F1}s");
+                        if (toRelease == null) toRelease = new List<int>();
+                        toRelease.Add(index);
+                        break;
+
+                    case HeldGhostAction.Timeout:
+                        ParsekLog.Warn("Policy",
+                            $"Held ghost timed out: #{index} \"{info.vesselName}\" " +
+                            $"id={info.recordingId} held={now - info.holdStartTime:F1}s " +
+                            $"— destroying ghost without spawn");
+                        if (toRelease == null) toRelease = new List<int>();
+                        toRelease.Add(index);
+                        break;
+
+                    case HeldGhostAction.InvalidIndex:
+                        ParsekLog.Warn("Policy",
+                            $"Held ghost has invalid index: #{index} \"{info.vesselName}\" " +
+                            $"id={info.recordingId} — releasing");
+                        if (toRelease == null) toRelease = new List<int>();
+                        toRelease.Add(index);
+                        break;
+
+                    case HeldGhostAction.Hold:
+                        // Keep waiting
+                        break;
+                }
+            }
+
+            if (toRelease != null)
+            {
+                for (int i = 0; i < toRelease.Count; i++)
+                {
+                    int index = toRelease[i];
+                    engine.DestroyGhost(index);
+                    heldGhosts.Remove(index);
+                }
+            }
+        }
+
+        /// <summary>
+        /// Pure decision logic for held ghost retry. Determines what action to take
+        /// for a held ghost based on current state. Testable without Unity side effects.
+        /// </summary>
+        internal static HeldGhostAction DecideHeldGhostAction(
+            int index, HeldGhostInfo info, IReadOnlyList<Recording> committed,
+            float currentTime, float timeoutSeconds)
+        {
+            // Invalid index — recording list may have changed
+            if (index < 0 || index >= committed.Count)
+                return HeldGhostAction.InvalidIndex;
+
+            var rec = committed[index];
+
+            // Verify this is still the same recording (indices can shift after deletes)
+            if (rec.RecordingId != info.recordingId)
+                return HeldGhostAction.InvalidIndex;
+
+            // Already spawned by another path
+            if (rec.VesselSpawned)
+                return HeldGhostAction.ReleaseSpawned;
+
+            // Timeout check
+            float elapsed = currentTime - info.holdStartTime;
+            if (elapsed >= timeoutSeconds)
+                return HeldGhostAction.Timeout;
+
+            // Still waiting — try spawning again
+            return HeldGhostAction.RetrySpawn;
+        }
+
         private void HandleGhostDestroyed(GhostLifecycleEvent evt)
         {
             ParsekLog.Verbose("Policy",
                 $"GhostDestroyed index={evt.Index} vessel={evt.Trajectory?.VesselName}");
+
+            // If a held ghost was destroyed externally (e.g. soft cap, DestroyAllGhosts),
+            // remove it from the held set so we don't try to destroy it again
+            heldGhosts.Remove(evt.Index);
         }
 
         private void HandleLoopRestarted(LoopRestartedEvent evt)
@@ -174,6 +345,7 @@ namespace Parsek
             ParsekLog.Info("Policy", "AllGhostsDestroying — clearing policy state");
             pendingSpawnRecordingIds.Clear();
             pendingWatchRecordingId = null;
+            heldGhosts.Clear();
         }
 
         /// <summary>
@@ -186,7 +358,48 @@ namespace Parsek
             engine.OnLoopRestarted -= HandleLoopRestarted;
             engine.OnOverlapExpired -= HandleOverlapExpired;
             engine.OnAllGhostsDestroying -= HandleAllGhostsDestroying;
+            heldGhosts.Clear();
             ParsekLog.Info("Policy", "ParsekPlaybackPolicy disposed and unsubscribed from 5 engine events");
         }
+    }
+
+    /// <summary>
+    /// Tracks a ghost held at its final position while waiting for spawn to complete (#96).
+    /// </summary>
+    internal struct HeldGhostInfo
+    {
+        /// <summary>Time.time when the ghost was held (real time, not UT).</summary>
+        public float holdStartTime;
+
+        /// <summary>Recording ID to verify index stability after deletes.</summary>
+        public string recordingId;
+
+        /// <summary>Vessel name for logging.</summary>
+        public string vesselName;
+
+        /// <summary>Whether this ghost was being watched when held.</summary>
+        public bool wasWatched;
+    }
+
+    /// <summary>
+    /// Decision result for held ghost retry logic. Returned by the pure
+    /// DecideHeldGhostAction method for testability.
+    /// </summary>
+    internal enum HeldGhostAction
+    {
+        /// <summary>Keep the ghost held — not yet timed out, spawn not yet attempted.</summary>
+        Hold,
+
+        /// <summary>Retry the spawn attempt.</summary>
+        RetrySpawn,
+
+        /// <summary>Recording was already spawned by another path — release ghost.</summary>
+        ReleaseSpawned,
+
+        /// <summary>Timeout exceeded — destroy ghost without spawn.</summary>
+        Timeout,
+
+        /// <summary>Index is invalid or recording ID mismatch — release ghost.</summary>
+        InvalidIndex,
     }
 }
