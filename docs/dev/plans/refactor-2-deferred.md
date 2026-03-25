@@ -24,7 +24,7 @@ Items identified during refactoring but deferred for safety or scope reasons. Re
 
 **What:** 4 methods (~316 lines) share a stash-tag-commit-advance pattern (~60% identical code).
 
-**Status:** **DONE** (T28). Extracted `CommitSegmentCore(FlightRecorder, string, Action<Recording>, bool)` on ChainSegmentManager. Used by CommitChainSegment and CommitDockUndockSegment via `Action<Recording>` callback for per-method customization. CommitBoundarySplit and CommitVesselSwitchTermination have special stash paths (nullable CaptureAtStop, extra metadata) and handle stash inline — the shared pattern didn't fit cleanly for these two.
+**Status:** **DONE** (T28). Extracted `CommitSegmentCore(FlightRecorder, string, Action<Recording>, bool)` on ChainSegmentManager. All 4 commit methods now delegate to CommitSegmentCore via `Action<Recording>` callback for per-method customization. CommitSegmentCore handles nullable CaptureAtStop for boundary splits.
 
 ---
 
@@ -170,7 +170,7 @@ Items identified during refactoring but deferred for safety or scope reasons. Re
 - Phase 1: 16 chain state fields moved to ChainSegmentManager. ~150 field accesses migrated.
 - Phase 2: 12 methods (~505 lines) moved. Group A (8 pure continuation methods) moved directly. Group B (4 commit methods) refactored: receive recorder as parameter, return bool for abort handling. `CommitVesselSwitchTermination` split from `HandleVesselSwitchChainTermination` (guards + recorder=null stay as thin wrapper on ParsekFlight).
 - 3 orchestration methods stay on ParsekFlight (HandleDockUndockCommitRestart, HandleChainBoardingTransition, CommitBoundaryAndRestart — own StartRecording lifecycle).
-- ChainSegmentManager: 687 lines. ParsekFlight net -620 lines.
+- ChainSegmentManager: 686 lines. ParsekFlight net -620 lines.
 
 **Enabled:** D2 (CommitSegmentCore extracted, T28 done).
 

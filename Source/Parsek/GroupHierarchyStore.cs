@@ -10,12 +10,15 @@ namespace Parsek
     internal static class GroupHierarchyStore
     {
         // Group hierarchy: child group name → parent group name
+        // Internal for test access; production code should use GroupParents/TryGetGroupParent/HasGroupParent
         internal static Dictionary<string, string> groupParents = new Dictionary<string, string>();
 
         // Hidden groups: group names hidden from the recordings list when Hide is active
+        // Internal for test access; production code should use HiddenGroups/IsGroupHidden/AddHiddenGroup/RemoveHiddenGroup
         internal static HashSet<string> hiddenGroups = new HashSet<string>();
 
         // Hide toggle state (persisted across scene changes and save/load)
+        // Internal for test access; production code should use HideActive property
         internal static bool hideActive = true;
 
         /// <summary>Read-only access to group parent mappings.</summary>

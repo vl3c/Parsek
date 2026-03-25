@@ -2243,30 +2243,42 @@ namespace Parsek
         {
             if (state.ghost == null) return;
             var renderers = state.ghost.GetComponentsInChildren<Renderer>(true);
-            int disabled = 0;
+            state.fidelityDisabledRenderers = new List<Renderer>();
             for (int i = 0; i < renderers.Length; i++)
             {
                 // Keep every 4th renderer for a coarse silhouette
                 if (i % 4 == 0) continue;
                 if (!renderers[i].enabled) continue;
                 renderers[i].enabled = false;
-                disabled++;
+                state.fidelityDisabledRenderers.Add(renderers[i]);
             }
             state.fidelityReduced = true;
-            ParsekLog.Verbose("Visual", $"ReduceFidelity: disabled {disabled}/{renderers.Length} renderers");
+            ParsekLog.Verbose("Visual",
+                $"ReduceFidelity: disabled {state.fidelityDisabledRenderers.Count}/{renderers.Length} renderers");
         }
 
         /// <summary>
-        /// Restores full ghost visual fidelity by re-enabling all renderers.
+        /// Restores ghost visual fidelity by re-enabling only the renderers that
+        /// ReduceGhostFidelity disabled. Preserves part-event visibility state
+        /// (e.g. decoupled/destroyed parts stay hidden).
         /// </summary>
         internal static void RestoreGhostFidelity(GhostPlaybackState state)
         {
-            if (state.ghost == null) return;
-            var renderers = state.ghost.GetComponentsInChildren<Renderer>(true);
-            for (int i = 0; i < renderers.Length; i++)
-                renderers[i].enabled = true;
+            if (state.fidelityDisabledRenderers != null)
+            {
+                int restored = 0;
+                for (int i = 0; i < state.fidelityDisabledRenderers.Count; i++)
+                {
+                    if (state.fidelityDisabledRenderers[i] != null)
+                    {
+                        state.fidelityDisabledRenderers[i].enabled = true;
+                        restored++;
+                    }
+                }
+                ParsekLog.Verbose("Visual", $"RestoreGhostFidelity: re-enabled {restored} renderers");
+                state.fidelityDisabledRenderers = null;
+            }
             state.fidelityReduced = false;
-            ParsekLog.Verbose("Visual", "RestoreGhostFidelity: all renderers re-enabled");
         }
 
         #endregion

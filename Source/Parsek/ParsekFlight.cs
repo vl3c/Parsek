@@ -880,10 +880,7 @@ namespace Parsek
             }
 
             // Clear chain fields after both paths have consumed them
-            chainManager.ActiveChainId = null;
-            chainManager.ActiveChainNextIndex = 0;
-            chainManager.ActiveChainPrevId = null;
-            chainManager.ActiveChainCrewName = null;
+            chainManager.ClearChainIdentity();
 
             // Capture vessel situation + PersistentId on the pending recording.
             // VesselPersistentId: safety net for the fallback path where
@@ -2718,10 +2715,7 @@ namespace Parsek
             }
 
             // 11. Clear stale standalone state
-            chainManager.ActiveChainId = null;
-            chainManager.ActiveChainNextIndex = 0;
-            chainManager.ActiveChainPrevId = null;
-            chainManager.ActiveChainCrewName = null;
+            chainManager.ClearChainIdentity();
             if (chainManager.UndockContinuationPid != 0)
                 chainManager.StopUndockContinuation("tree promotion");
             if (chainManager.ContinuationVesselPid != 0)

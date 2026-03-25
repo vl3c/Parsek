@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using ClickThroughFix;
 using UnityEngine;
@@ -3450,7 +3451,7 @@ namespace Parsek
             ReleaseSettingsInputLock();
             ReleaseSpawnControlInputLock();
             if (mapMarkerTexture != null)
-                Object.Destroy(mapMarkerTexture);
+                UnityEngine.Object.Destroy(mapMarkerTexture);
         }
 
         private void DrawMapMarkerAt(Camera cam, Vector3 worldPos, string label, Color color)
