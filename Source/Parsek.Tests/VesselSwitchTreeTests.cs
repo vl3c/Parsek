@@ -4,7 +4,7 @@ using Xunit;
 namespace Parsek.Tests
 {
     [Collection("Sequential")]
-    public class VesselSwitchTreeTests
+    public class VesselSwitchTreeTests : System.IDisposable
     {
         public VesselSwitchTreeTests()
         {
@@ -14,6 +14,13 @@ namespace Parsek.Tests
             GameStateStore.SuppressLogging = true;
             ParsekLog.SuppressLogging = true;
             RecordingStore.ResetForTesting();
+        }
+
+        public void Dispose()
+        {
+            RecordingStore.ResetForTesting();
+            MilestoneStore.ResetForTesting();
+            ParsekLog.ResetTestOverrides();
         }
 
         /// <summary>

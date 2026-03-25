@@ -5,7 +5,7 @@ using Xunit;
 namespace Parsek.Tests
 {
     [Collection("Sequential")]
-    public class TreeLogVerificationTests
+    public class TreeLogVerificationTests : System.IDisposable
     {
         private readonly List<string> capturedLines = new List<string>();
 
@@ -25,6 +25,13 @@ namespace Parsek.Tests
             // Suppress side effects that would crash outside Unity
             GameStateStore.SuppressLogging = true;
             MilestoneStore.SuppressLogging = true;
+        }
+
+        public void Dispose()
+        {
+            RecordingStore.ResetForTesting();
+            MilestoneStore.ResetForTesting();
+            ParsekLog.ResetTestOverrides();
         }
 
         private Recording MakeTreeRecording(string id, string treeId, string vesselName = "Ship")

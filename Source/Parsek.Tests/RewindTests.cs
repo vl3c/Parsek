@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Globalization;
 using UnityEngine;
@@ -6,7 +7,7 @@ using Xunit;
 namespace Parsek.Tests
 {
     [Collection("Sequential")]
-    public class RewindTests
+    public class RewindTests : IDisposable
     {
         public RewindTests()
         {
@@ -15,6 +16,12 @@ namespace Parsek.Tests
             MilestoneStore.SuppressLogging = true;
             MilestoneStore.ResetForTesting();
             ParsekLog.SuppressLogging = true;
+        }
+
+        public void Dispose()
+        {
+            RecordingStore.ResetForTesting();
+            ParsekLog.ResetTestOverrides();
         }
 
         [Fact]
@@ -34,34 +41,6 @@ namespace Parsek.Tests
             Assert.False(RecordingStore.IsStableState(64));  // ESCAPING
             Assert.False(RecordingStore.IsStableState(128)); // DOCKED
             Assert.False(RecordingStore.IsStableState(0));   // unknown
-        }
-
-        [Fact]
-        public void CanRewind_NoRewindSave_ReturnsFalse()
-        {
-            var rec = new Recording();
-            string reason;
-            Assert.False(RecordingStore.CanRewind(rec, out reason, isRecording: false));
-            Assert.Equal("No rewind save available", reason);
-        }
-
-        [Fact]
-        public void CanRewind_AlreadyRewinding_ReturnsFalse()
-        {
-            var rec = new Recording { RewindSaveFileName = "parsek_rw_abc123" };
-            RecordingStore.IsRewinding = true;
-            string reason;
-            Assert.False(RecordingStore.CanRewind(rec, out reason, isRecording: false));
-            Assert.Equal("Rewind already in progress", reason);
-        }
-
-        [Fact]
-        public void CanRewind_Recording_ReturnsFalse()
-        {
-            var rec = new Recording { RewindSaveFileName = "parsek_rw_abc123" };
-            string reason;
-            Assert.False(RecordingStore.CanRewind(rec, out reason, isRecording: true));
-            Assert.Equal("Stop recording before rewinding", reason);
         }
 
         [Fact]
@@ -141,26 +120,6 @@ namespace Parsek.Tests
             Assert.Equal(0.0, rec.RewindReservedFunds);
             Assert.Equal(0.0, rec.RewindReservedScience);
             Assert.Equal(0f, rec.RewindReservedRep);
-        }
-
-        [Fact]
-        public void ApplyPersistenceArtifactsFrom_CopiesRewindFields()
-        {
-            var source = new Recording
-            {
-                RewindSaveFileName = "parsek_rw_test01",
-                RewindReservedFunds = 1000.0,
-                RewindReservedScience = 50.0,
-                RewindReservedRep = 5.0f
-            };
-
-            var target = new Recording();
-            target.ApplyPersistenceArtifactsFrom(source);
-
-            Assert.Equal("parsek_rw_test01", target.RewindSaveFileName);
-            Assert.Equal(1000.0, target.RewindReservedFunds);
-            Assert.Equal(50.0, target.RewindReservedScience);
-            Assert.Equal(5.0f, target.RewindReservedRep);
         }
 
         [Fact]

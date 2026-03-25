@@ -5,7 +5,7 @@ using Xunit;
 namespace Parsek.Tests
 {
     [Collection("Sequential")]
-    public class MergeEventDetectionTests
+    public class MergeEventDetectionTests : System.IDisposable
     {
         public MergeEventDetectionTests()
         {
@@ -15,6 +15,13 @@ namespace Parsek.Tests
             GameStateStore.SuppressLogging = true;
             ParsekLog.SuppressLogging = true;
             RecordingStore.ResetForTesting();
+        }
+
+        public void Dispose()
+        {
+            RecordingStore.ResetForTesting();
+            MilestoneStore.ResetForTesting();
+            ParsekLog.ResetTestOverrides();
         }
 
         #region BuildMergeBranchData — Dock (Two Parents)

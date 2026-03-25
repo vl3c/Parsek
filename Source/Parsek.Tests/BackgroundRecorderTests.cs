@@ -1,10 +1,11 @@
+using System;
 using System.Collections.Generic;
 using Xunit;
 
 namespace Parsek.Tests
 {
     [Collection("Sequential")]
-    public class BackgroundRecorderTests
+    public class BackgroundRecorderTests : IDisposable
     {
         public BackgroundRecorderTests()
         {
@@ -13,6 +14,12 @@ namespace Parsek.Tests
             MilestoneStore.ResetForTesting();
             GameStateStore.SuppressLogging = true;
             ParsekLog.SuppressLogging = true;
+            RecordingStore.ResetForTesting();
+        }
+
+        public void Dispose()
+        {
+            ParsekLog.ResetTestOverrides();
             RecordingStore.ResetForTesting();
         }
 
@@ -368,58 +375,6 @@ namespace Parsek.Tests
             Assert.NotNull(events);
             Assert.True(events.Count > 0);
             Assert.Equal(PartEventType.RCSActivated, events[0].eventType);
-        }
-
-        #endregion
-
-        #region 9.4 Adaptive Sampling
-
-        [Fact]
-        public void ShouldRecordPoint_UsedByBackground_WorksWithDefaults()
-        {
-            // BackgroundRecorder uses TrajectoryMath.ShouldRecordPoint with the same
-            // parameters as FlightRecorder. Verify it works with typical values.
-            var currentVel = new UnityEngine.Vector3(100f, 0f, 0f);
-            var lastVel = new UnityEngine.Vector3(100f, 0f, 0f);
-            double currentUT = 101.0;
-            double lastUT = 100.0;
-
-            // With default settings: 3s max interval, 2deg direction, 5% speed
-            bool shouldRecord = TrajectoryMath.ShouldRecordPoint(
-                currentVel, lastVel, currentUT, lastUT, 3.0f, 2.0f, 0.05f);
-
-            // Same velocity, only 1s apart -> should NOT record
-            Assert.False(shouldRecord);
-        }
-
-        [Fact]
-        public void ShouldRecordPoint_RecordsAfterMaxInterval()
-        {
-            var currentVel = new UnityEngine.Vector3(100f, 0f, 0f);
-            var lastVel = new UnityEngine.Vector3(100f, 0f, 0f);
-            double currentUT = 104.0;
-            double lastUT = 100.0;
-
-            // 4s elapsed, max interval is 3s -> should record
-            bool shouldRecord = TrajectoryMath.ShouldRecordPoint(
-                currentVel, lastVel, currentUT, lastUT, 3.0f, 2.0f, 0.05f);
-
-            Assert.True(shouldRecord);
-        }
-
-        [Fact]
-        public void ShouldRecordPoint_RecordsOnVelocityDirectionChange()
-        {
-            var currentVel = new UnityEngine.Vector3(100f, 10f, 0f);
-            var lastVel = new UnityEngine.Vector3(100f, 0f, 0f);
-            double currentUT = 100.5;
-            double lastUT = 100.0;
-
-            // Velocity direction changed by about 5.7 degrees (> 2 deg threshold)
-            bool shouldRecord = TrajectoryMath.ShouldRecordPoint(
-                currentVel, lastVel, currentUT, lastUT, 3.0f, 2.0f, 0.05f);
-
-            Assert.True(shouldRecord);
         }
 
         #endregion

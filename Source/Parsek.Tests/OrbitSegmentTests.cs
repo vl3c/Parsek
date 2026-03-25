@@ -6,7 +6,7 @@ using Xunit;
 namespace Parsek.Tests
 {
     [Collection("Sequential")]
-    public class OrbitSegmentTests
+    public class OrbitSegmentTests : System.IDisposable
     {
         public OrbitSegmentTests()
         {
@@ -15,6 +15,13 @@ namespace Parsek.Tests
             MilestoneStore.ResetForTesting();
             GameStateStore.SuppressLogging = true;
             RecordingStore.ResetForTesting();
+        }
+
+        public void Dispose()
+        {
+            RecordingStore.ResetForTesting();
+            MilestoneStore.ResetForTesting();
+            ParsekLog.ResetTestOverrides();
         }
 
         private OrbitSegment MakeSegment(double startUT, double endUT, string body = "Kerbin")

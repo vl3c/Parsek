@@ -126,46 +126,6 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void CloseCurrentTrackSection_WithFrames_ComputesSampleRate()
-        {
-            recorder.StartNewTrackSection(SegmentEnvironment.Atmospheric, ReferenceFrame.Absolute, 100.0);
-
-            // We need to test sample rate with actual frames. We can access the TrackSections
-            // list after close, so let's simulate by creating a section, adding frames to
-            // the recorder.Recording (which OnPhysicsFrame does), and then calling close.
-            // But the dual-write only happens in OnPhysicsFrame... so we test the formula:
-            // sampleRateHz = frames.Count / duration
-
-            // Close the section to get access, then verify formula separately.
-            recorder.CloseCurrentTrackSection(100.0);
-            recorder.TrackSections.Clear();
-
-            // Create a section with a known frame count by building it directly
-            var testSection = new TrackSection
-            {
-                environment = SegmentEnvironment.Atmospheric,
-                referenceFrame = ReferenceFrame.Absolute,
-                startUT = 100.0,
-                frames = new List<TrajectoryPoint>(),
-                checkpoints = new List<OrbitSegment>()
-            };
-
-            // Add 20 frames
-            for (int i = 0; i < 20; i++)
-            {
-                testSection.frames.Add(new TrajectoryPoint { ut = 100.0 + i * 0.5 });
-            }
-
-            testSection.endUT = 110.0;
-
-            // Compute expected sample rate: 20 frames / 10s = 2.0 Hz
-            double duration = testSection.endUT - testSection.startUT;
-            float expectedRate = (float)(testSection.frames.Count / duration);
-
-            Assert.Equal(2.0f, expectedRate);
-        }
-
-        [Fact]
         public void CloseCurrentTrackSection_SetsEndUT()
         {
             recorder.StartNewTrackSection(SegmentEnvironment.ExoBallistic, ReferenceFrame.Absolute, 300.0);

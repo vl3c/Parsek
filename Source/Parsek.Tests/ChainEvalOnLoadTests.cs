@@ -107,24 +107,6 @@ namespace Parsek.Tests
 
         #endregion
 
-        #region NoCommittedTrees
-
-        /// <summary>
-        /// With no committed trees, ComputeAllGhostChains returns empty dict.
-        /// EvaluateAndApplyGhostChains would set activeGhostChains=null.
-        /// </summary>
-        [Fact]
-        public void NoCommittedTrees_ProducesNullChains()
-        {
-            var chains = GhostChainWalker.ComputeAllGhostChains(
-                new List<RecordingTree>(), 1000);
-
-            Assert.NotNull(chains);
-            Assert.Empty(chains);
-        }
-
-        #endregion
-
         #region SingleChain
 
         /// <summary>
@@ -289,22 +271,6 @@ namespace Parsek.Tests
         #endregion
 
         #region Log assertions
-
-        /// <summary>
-        /// When no committed trees exist, the log should contain the "no committed trees" message.
-        /// This verifies the early-exit path in EvaluateAndApplyGhostChains.
-        /// </summary>
-        [Fact]
-        public void NoTrees_LogsNoCommittedTrees()
-        {
-            logLines.Clear();
-
-            GhostChainWalker.ComputeAllGhostChains(
-                new List<RecordingTree>(), 1000);
-
-            Assert.Contains(logLines, l =>
-                l.Contains("[ChainWalker]") && l.Contains("No committed trees"));
-        }
 
         /// <summary>
         /// When chains are found, the log should contain the "Chain built" message

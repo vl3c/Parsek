@@ -6,7 +6,7 @@ using Xunit;
 namespace Parsek.Tests
 {
     [Collection("Sequential")]
-    public class FlagEventTests
+    public class FlagEventTests : IDisposable
     {
         public FlagEventTests()
         {
@@ -209,13 +209,10 @@ namespace Parsek.Tests
 
             RecordingStore.StashPending(points, "TrimTest", flagEvents: flagEvents);
 
-            if (RecordingStore.HasPending && RecordingStore.Pending.FlagEvents.Count > 0)
-            {
-                // If trimming occurred, the flag event UT should be >= the first point's UT
-                double firstPointUT = RecordingStore.Pending.Points[0].ut;
-                Assert.True(RecordingStore.Pending.FlagEvents[0].ut >= firstPointUT,
-                    $"Flag event UT {RecordingStore.Pending.FlagEvents[0].ut} should be >= first point UT {firstPointUT}");
-            }
+            // If trimming occurred, the flag event UT should be >= the first point's UT
+            double firstPointUT = RecordingStore.Pending.Points[0].ut;
+            Assert.True(RecordingStore.Pending.FlagEvents[0].ut >= firstPointUT,
+                $"Flag event UT {RecordingStore.Pending.FlagEvents[0].ut} should be >= first point UT {firstPointUT}");
         }
 
         [Fact]
@@ -330,6 +327,12 @@ namespace Parsek.Tests
         {
             string result = ParsekFlight.FormatPlaqueWithDate("", "");
             Assert.Equal("", result);
+        }
+
+        public void Dispose()
+        {
+            RecordingStore.ResetForTesting();
+            ParsekLog.ResetTestOverrides();
         }
     }
 }
