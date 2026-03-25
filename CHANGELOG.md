@@ -54,10 +54,11 @@ Second-pass structural refactoring + game action system modularization + continu
   - `ApplyFrameVisuals` extracted — deduplicates part events + flag events + reentry FX + RCS toggle from 4 call sites. `skipPartEvents` parameter preserves Site 1 semantics.
   - `RenderInRangeGhost` (~84 lines) + `HandlePastEndGhost` (~47 lines) extracted from `UpdatePlayback` loop body. Loop body reduced from ~207 to ~70 lines.
 - **Pass 7 — ChainSegmentManager extraction** (T26, ParsekFlight 8657 → 8098 lines)
-  - `ChainSegmentManager` (686 lines) — owns 16 chain state fields + 14 methods. ~150 field accesses migrated from ParsekFlight. `ClearAll()` replaces 13-line scattered reset.
+  - `ChainSegmentManager` (686 lines) — owns 16 chain state fields + 16 methods. ~150 field accesses migrated from ParsekFlight. `ClearAll()` replaces 13-line scattered reset.
   - Phase 1: State isolation (16 fields moved, `StopContinuation`/`StopUndockContinuation` moved)
   - Phase 2: 12 methods moved (Group A: 8 continuation methods. Group B: 4 commit methods refactored with recorder-as-parameter + bool return for abort handling)
-  - `CommitSegmentCore` shared pattern (T28/D2) — stash/tag/commit/advance extracted with `Action<Recording>` callback for per-method customization
+  - `CommitSegmentCore` shared pattern (T28/D2) — stash/tag/commit/advance extracted with `Action<Recording>` callback for per-method customization. All 4 commit methods delegate to core (nullable CaptureAtStop handled for boundary splits).
+  - `ClearChainIdentity()` — replaces inline 4-field reset patterns in 3 locations
   - 3 orchestration methods stay on ParsekFlight (HandleDockUndockCommitRestart, HandleChainBoardingTransition, CommitBoundaryAndRestart — own StartRecording lifecycle)
 - **Pass 8 — UI dedup** (T30/D18, D19)
   - `HandleResizeDrag` + `DrawResizeHandle` static helpers — 4 drag blocks + 4 handle blocks replaced with 8 one-liner calls
@@ -83,6 +84,9 @@ Second-pass structural refactoring + game action system modularization + continu
 
 - **KSC ghost heat initialization** — KSC scene ghosts now properly start heat-animated parts in cold state. Previously, the KSC private copy of `PopulateGhostInfoDictionaries` missed the cold-state initialization that the flight scene had. Fixed by deleting the private copy and calling the shared `GhostPlaybackLogic` version.
 - **Group Popup drag event leak** — Group popup window resize drag was missing `Event.current.Use()` on MouseDrag, allowing drag events to fall through to underlying windows. Fixed by extracting shared `HandleResizeDrag` helper that applies `Use()` uniformly across all 4 windows (T30/D18).
+- **RestoreGhostFidelity renderer over-enable** — `RestoreGhostFidelity` previously re-enabled all renderers unconditionally, overriding part-event visibility state (decoupled/destroyed parts could reappear for one frame after soft cap resolution). Now tracks which renderers were disabled by `ReduceGhostFidelity` and only re-enables those.
+- **CommitSegmentCore log index off-by-one** — Post-commit log message showed the *next* segment's index instead of the committed segment's index. Now captures index before increment.
+- **ParsekUI build error** — Missing `using System` for `Action` type in `DrawSortableHeaderCore<TCol>` generic method.
 
 ### Test Suite Audit (T32)
 
@@ -97,7 +101,7 @@ Deep audit of all 110 test files (~55k lines). 43 files changed, +170/-1182 line
 
 ### Test Coverage
 
-3227 → 3439 tests (+212). New test areas:
+3227 → 3374 tests (net +147: +212 new, -65 from T32 audit cleanup). New test areas:
 - GroupTreeDataTests (14): recordings tree data-computation
 - PostSpawnTerminalStateTests (12): spawn terminal state clearing
 - InterpolatePointsTests (11): trajectory interpolation edge cases

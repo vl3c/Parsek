@@ -181,7 +181,7 @@ Extracted `SampleAnimationStates` core method with `AnimLookup` enum + `FindAnim
 
 ### T28. ParsekFlight commit-pattern dedup (D2)
 
-~~Unify `CommitChainSegment`, `CommitDockUndockSegment`, `CommitBoundarySplit`, `HandleVesselSwitchChainTermination`.~~ **DONE** — `CommitSegmentCore` extracts shared stash/tag/commit/advance pattern used by CommitChainSegment and CommitDockUndockSegment. CommitBoundarySplit and CommitVesselSwitchTermination have special stash paths (nullable CaptureAtStop, extra metadata) and handle stash inline.
+~~Unify `CommitChainSegment`, `CommitDockUndockSegment`, `CommitBoundarySplit`, `HandleVesselSwitchChainTermination`.~~ **DONE** — `CommitSegmentCore` extracts shared stash/tag/commit/advance pattern. All 4 commit methods now delegate to CommitSegmentCore via `Action<Recording>` callback. CommitSegmentCore handles nullable CaptureAtStop for boundary splits.
 
 ### T29. BackgroundRecorder Check*State polling dedup (D11)
 
@@ -216,6 +216,24 @@ Remaining edge case gaps (P3, not addressed):
 ### ~~T33. Encapsulate GroupHierarchyStore mutable fields~~ DONE
 
 Added 5 accessor methods (`AddHiddenGroup`, `RemoveHiddenGroup`, `IsGroupHidden`, `TryGetGroupParent`, `HasGroupParent`). Migrated all ~20 ParsekUI.cs direct field accesses to use accessors and read-only properties. Tests retain direct field access for setup (pragmatic — encapsulation targets production coupling).
+
+### T34. ChainSegmentManager unit tests
+
+ChainSegmentManager has no dedicated test file. Pure state-machine methods (`ClearAll`, `ClearChainIdentity`, `StopContinuation`, `StopUndockContinuation`) and the commit abort paths are testable without Unity. Continuation sampling logic (`SampleContinuationVessel`) would need mocking for `FlightRecorder.FindVesselByPid` and `RecordingStore`.
+
+**Priority:** Medium — new class with non-trivial state transitions
+
+### T35. ChainSegmentManager field encapsulation
+
+ParsekFlight still reads/writes `chainManager` internal fields directly in ~5 locations (CommitFlight chain tagging, FallbackCommitSplitRecorder, PromoteToTreeForBreakup, vessel destruction handler, EVA crew name set). Consider adding `TagPendingWithChainMetadata(Recording)` and making identity fields read-only with mutation via methods only.
+
+**Priority:** Low — functional but leaky abstraction
+
+### T36. Continuation recording index fragility
+
+`ContinuationRecordingIdx` and `UndockContinuationRecIdx` store `int` indices into `RecordingStore.CommittedRecordings`. If a recording is ever removed from the list while continuation is active, the stored index silently points to the wrong recording or goes out of bounds (bounds check prevents crash but stops continuation). Consider storing `RecordingId` alongside the index for validation.
+
+**Priority:** Low — no code path currently removes committed recordings during flight
 
 ---
 
