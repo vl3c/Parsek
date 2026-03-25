@@ -308,35 +308,7 @@ namespace Parsek.Tests
 
         #region Log assertions
 
-        [Fact]
-        public void Serialize_LogsEventCount()
-        {
-            var logLines = new List<string>();
-            ParsekLog.SuppressLogging = false;
-            RecordingStore.SuppressLogging = false;
-            ParsekLog.TestSinkForTesting = line => logLines.Add(line);
-
-            try
-            {
-                var events = new List<SegmentEvent>
-                {
-                    new SegmentEvent { ut = 100.0, type = SegmentEventType.ControllerChange },
-                    new SegmentEvent { ut = 200.0, type = SegmentEventType.ControllerDisabled }
-                };
-
-                var node = new ConfigNode("ROOT");
-                RecordingStore.SerializeSegmentEvents(node, events);
-
-                Assert.Contains(logLines, l =>
-                    l.Contains("RecordingStore") && l.Contains("2 segment events serialized"));
-            }
-            finally
-            {
-                ParsekLog.SuppressLogging = true;
-                RecordingStore.SuppressLogging = true;
-                ParsekLog.ResetTestOverrides();
-            }
-        }
+        // Serialize_LogsEventCount removed: per-recording verbose log replaced with batch summary
 
         [Fact]
         public void UnknownType_LogsWarningWithBadValue()

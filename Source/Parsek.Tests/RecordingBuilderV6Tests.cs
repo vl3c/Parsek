@@ -576,31 +576,8 @@ namespace Parsek.Tests
 
         #region Log assertions
 
-        [Fact]
-        public void BuildTrajectoryNode_WithTrackSections_LogsSerializationCount()
-        {
-            var builder = new RecordingBuilder("LogTest")
-                .AddAtmosphericSection(17000.0, 17100.0)
-                .AddAtmosphericSection(17100.0, 17200.0);
-
-            builder.BuildTrajectoryNode();
-
-            Assert.Contains(logLines, l =>
-                l.Contains("[RecordingStore]") && l.Contains("serialized 2 track section(s)"));
-        }
-
-        [Fact]
-        public void BuildTrajectoryNode_WithSegmentEvents_LogsSerializationCount()
-        {
-            var builder = new RecordingBuilder("SegEventLogTest")
-                .AddSegmentEvent(SegmentEventType.ControllerChange, 17050.0, "test")
-                .AddSegmentEvent(SegmentEventType.PartDestroyed, 17080.0, "test2");
-
-            builder.BuildTrajectoryNode();
-
-            Assert.Contains(logLines, l =>
-                l.Contains("RecordingStore") && l.Contains("2 segment events serialized"));
-        }
+        // BuildTrajectoryNode_WithTrackSections_LogsSerializationCount removed: per-recording verbose log replaced with batch summary
+        // BuildTrajectoryNode_WithSegmentEvents_LogsSerializationCount removed: per-recording verbose log replaced with batch summary
 
         #endregion
 

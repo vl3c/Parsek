@@ -71,19 +71,38 @@ namespace Parsek
             node.RemoveNodes("RECORDING_TREE");
             var committedTrees = RecordingStore.CommittedTrees;
             ParsekLog.Info("Scenario", $"OnSave: saving {committedTrees.Count} committed tree(s)");
-            for (int t = 0; t < committedTrees.Count; t++)
             {
-                var tree = committedTrees[t];
-
-                // Write bulk data to external files for each recording in the tree
-                foreach (var rec in tree.Recordings.Values)
+                int treeRecCount = 0;
+                int treeTotalPoints = 0;
+                int treeTotalOrbitSegments = 0;
+                int treeTotalPartEvents = 0;
+                int treeWithTrackSections = 0;
+                int treeWithSnapshots = 0;
+                for (int t = 0; t < committedTrees.Count; t++)
                 {
-                    if (!RecordingStore.SaveRecordingFiles(rec))
-                        ScenarioLog($"[Parsek Scenario] WARNING: File write failed for tree recording '{rec.VesselName}'");
-                }
+                    var tree = committedTrees[t];
 
-                ConfigNode treeNode = node.AddNode("RECORDING_TREE");
-                tree.Save(treeNode);
+                    // Write bulk data to external files for each recording in the tree
+                    foreach (var rec in tree.Recordings.Values)
+                    {
+                        if (!RecordingStore.SaveRecordingFiles(rec))
+                            ScenarioLog($"[Parsek Scenario] WARNING: File write failed for tree recording '{rec.VesselName}'");
+                        treeRecCount++;
+                        treeTotalPoints += rec.Points.Count;
+                        treeTotalOrbitSegments += rec.OrbitSegments.Count;
+                        treeTotalPartEvents += rec.PartEvents.Count;
+                        if (rec.TrackSections != null && rec.TrackSections.Count > 0) treeWithTrackSections++;
+                        if (rec.VesselSnapshot != null) treeWithSnapshots++;
+                    }
+
+                    ConfigNode treeNode = node.AddNode("RECORDING_TREE");
+                    tree.Save(treeNode);
+                }
+                if (committedTrees.Count > 0)
+                    ParsekLog.Verbose("Scenario",
+                        $"Saved {committedTrees.Count} trees ({treeRecCount} recordings): {treeTotalPoints} points, " +
+                        $"{treeTotalOrbitSegments} orbit segments, {treeTotalPartEvents} part events, " +
+                        $"{treeWithTrackSections} with track sections, {treeWithSnapshots} with snapshots");
             }
 
             // Persist crew replacement mappings
@@ -748,6 +767,12 @@ namespace Parsek
 
             if (treeNodes.Length > 0)
             {
+                int treeRecCount = 0;
+                int treeTotalPoints = 0;
+                int treeTotalOrbitSegments = 0;
+                int treeTotalPartEvents = 0;
+                int treeWithTrackSections = 0;
+                int treeWithSnapshots = 0;
                 for (int t = 0; t < treeNodes.Length; t++)
                 {
                     var tree = RecordingTree.Load(treeNodes[t]);
@@ -764,11 +789,21 @@ namespace Parsek
                     foreach (var rec in tree.Recordings.Values)
                     {
                         recordings.Add(rec);
+                        treeRecCount++;
+                        treeTotalPoints += rec.Points.Count;
+                        treeTotalOrbitSegments += rec.OrbitSegments.Count;
+                        treeTotalPartEvents += rec.PartEvents.Count;
+                        if (rec.TrackSections != null && rec.TrackSections.Count > 0) treeWithTrackSections++;
+                        if (rec.VesselSnapshot != null) treeWithSnapshots++;
                     }
 
                     ScenarioLog($"[Parsek Scenario] Loaded tree '{tree.TreeName}': " +
                         $"{tree.Recordings.Count} recordings, {tree.BranchPoints.Count} branch points");
                 }
+                ParsekLog.Verbose("Scenario",
+                    $"Loaded {treeNodes.Length} trees ({treeRecCount} recordings): {treeTotalPoints} points, " +
+                    $"{treeTotalOrbitSegments} orbit segments, {treeTotalPartEvents} part events, " +
+                    $"{treeWithTrackSections} with track sections, {treeWithSnapshots} with snapshots");
             }
         }
 
@@ -999,6 +1034,11 @@ namespace Parsek
         private static void LoadStandaloneRecordingsFromNodes(
             ConfigNode[] recNodes, List<Recording> recordings)
         {
+            int totalPoints = 0;
+            int totalOrbitSegments = 0;
+            int totalPartEvents = 0;
+            int withTrackSections = 0;
+            int withSnapshots = 0;
             for (int r = 0; r < recNodes.Length; r++)
             {
                 var recNode = recNodes[r];
@@ -1129,6 +1169,11 @@ namespace Parsek
                 // Always add — even degraded recordings (missing .prec → 0 points)
                 // must occupy their slot to preserve index-based revert mapping.
                 recordings.Add(rec);
+                totalPoints += rec.Points.Count;
+                totalOrbitSegments += rec.OrbitSegments.Count;
+                totalPartEvents += rec.PartEvents.Count;
+                if (rec.TrackSections != null && rec.TrackSections.Count > 0) withTrackSections++;
+                if (rec.VesselSnapshot != null) withSnapshots++;
                 string phaseInfo = !string.IsNullOrEmpty(rec.SegmentPhase)
                     ? $", phase={rec.SegmentBodyName} {rec.SegmentPhase}" : "";
                 string chainInfo = !string.IsNullOrEmpty(rec.ChainId)
@@ -1141,6 +1186,9 @@ namespace Parsek
                      rec.GhostVisualSnapshot != null ? " (ghost-only)" : "") +
                     phaseInfo + chainInfo + enabledInfo);
             }
+            ParsekLog.Verbose("Scenario",
+                $"Loaded {recNodes.Length} standalone recordings: {totalPoints} points, {totalOrbitSegments} orbit segments, " +
+                $"{totalPartEvents} part events, {withTrackSections} with track sections, {withSnapshots} with snapshots");
         }
 
         /// <summary>
@@ -1266,6 +1314,11 @@ namespace Parsek
         private static void SaveStandaloneRecordings(ConfigNode node, List<Recording> recordings)
         {
             int count = 0;
+            int totalPoints = 0;
+            int totalOrbitSegments = 0;
+            int totalPartEvents = 0;
+            int withTrackSections = 0;
+            int withSnapshots = 0;
             for (int r = 0; r < recordings.Count; r++)
             {
                 var rec = recordings[r];
@@ -1274,6 +1327,11 @@ namespace Parsek
                 if (rec.TreeId != null)
                     continue;
                 count++;
+                totalPoints += rec.Points.Count;
+                totalOrbitSegments += rec.OrbitSegments.Count;
+                totalPartEvents += rec.PartEvents.Count;
+                if (rec.TrackSections != null && rec.TrackSections.Count > 0) withTrackSections++;
+                if (rec.VesselSnapshot != null) withSnapshots++;
 
                 ConfigNode recNode = node.AddNode("RECORDING");
 
@@ -1335,7 +1393,9 @@ namespace Parsek
                 // Persist resource index so quickload doesn't re-apply deltas
                 recNode.AddValue("lastResIdx", rec.LastAppliedResourceIndex);
             }
-            ParsekLog.Verbose("Scenario", $"Saved {count} standalone recordings");
+            ParsekLog.Verbose("Scenario",
+                $"Saved {count} standalone recordings: {totalPoints} points, {totalOrbitSegments} orbit segments, " +
+                $"{totalPartEvents} part events, {withTrackSections} with track sections, {withSnapshots} with snapshots");
         }
 
         /// <summary>
@@ -1385,10 +1445,6 @@ namespace Parsek
             if (rec.Hidden)
                 recNode.AddValue("hidden", rec.Hidden.ToString());
 
-            ParsekLog.Verbose("Scenario", $"Saved metadata: id={rec.RecordingId}, " +
-                $"phase={rec.SegmentPhase ?? "(none)"}, body={rec.SegmentBodyName ?? "(none)"}, " +
-                $"playback={rec.PlaybackEnabled}, hidden={rec.Hidden}, chain={rec.ChainId ?? "(none)"}/{rec.ChainIndex}, " +
-                $"preLaunch=[F={rec.PreLaunchFunds:F0}, S={rec.PreLaunchScience:F1}, R={rec.PreLaunchReputation:F1}]");
         }
 
         /// <summary>
@@ -1544,10 +1600,6 @@ namespace Parsek
                     rec.Hidden = hidden;
             }
 
-            ParsekLog.Verbose("Scenario", $"Loaded metadata: id={rec.RecordingId}, " +
-                $"phase={rec.SegmentPhase ?? "(none)"}, body={rec.SegmentBodyName ?? "(none)"}, " +
-                $"playback={rec.PlaybackEnabled}, hidden={rec.Hidden}, chain={rec.ChainId ?? "(none)"}/{rec.ChainIndex}, " +
-                $"preLaunch=[F={rec.PreLaunchFunds:F0}, S={rec.PreLaunchScience:F1}, R={rec.PreLaunchReputation:F1}]");
         }
 
         /// <summary>
