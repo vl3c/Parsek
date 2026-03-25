@@ -354,13 +354,6 @@ namespace Parsek.Tests
 
         #endregion
 
-        #region Classify — Verbose logging
-
-        // Classify_LogsInputParametersAndResult and Classify_Surface_LogsSituationAndSpeed
-        // removed: per-frame verbose logging was removed from Classify (was 0.9% of all log output).
-
-        #endregion
-
         #region Hysteresis — No change
 
         [Fact]
@@ -640,9 +633,6 @@ namespace Parsek.Tests
                 l.Contains("ExoBallistic") &&
                 l.Contains("immediate"));
         }
-
-        // Hysteresis_PendingStart_LogsVerbose and Hysteresis_PendingCancel_LogsVerbose
-        // removed: per-frame verbose logging was removed from hysteresis pending/cancel paths.
 
         [Fact]
         public void Hysteresis_Initialization_LogsVerbose()

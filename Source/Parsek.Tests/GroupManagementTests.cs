@@ -804,30 +804,6 @@ namespace Parsek.Tests
         // ─── hiddenGroups persistence ───────────────────────────────────────
 
         [Fact]
-        public void HiddenGroups_OnSave_WritesHiddenGroupsNode()
-        {
-            // Bug: hidden groups not persisted — all groups reappear after save/load
-            GroupHierarchyStore.hiddenGroups.Add("Archived");
-            GroupHierarchyStore.hiddenGroups.Add("Deprecated");
-
-            // Simulate what OnSave does for HIDDEN_GROUPS
-            var node = new ConfigNode("SCENARIO");
-            if (GroupHierarchyStore.hiddenGroups.Count > 0)
-            {
-                ConfigNode hiddenNode = node.AddNode("HIDDEN_GROUPS");
-                foreach (var g in GroupHierarchyStore.hiddenGroups)
-                    hiddenNode.AddValue("group", g);
-            }
-
-            ConfigNode savedNode = node.GetNode("HIDDEN_GROUPS");
-            Assert.NotNull(savedNode);
-            string[] groups = savedNode.GetValues("group");
-            Assert.Equal(2, groups.Length);
-            Assert.Contains("Archived", groups);
-            Assert.Contains("Deprecated", groups);
-        }
-
-        [Fact]
         public void HiddenGroups_LoadHiddenGroups_ReadsBack()
         {
             // Bug: LoadHiddenGroups fails to populate hiddenGroups from ConfigNode
@@ -855,33 +831,6 @@ namespace Parsek.Tests
             GroupHierarchyStore.LoadHiddenGroups(node);
 
             Assert.Empty(GroupHierarchyStore.hiddenGroups);
-        }
-
-        [Fact]
-        public void HiddenGroups_RoundTrip_SaveThenLoad()
-        {
-            // Bug: hidden groups lost across save/load cycle (end-to-end)
-            GroupHierarchyStore.hiddenGroups.Add("Flights");
-            GroupHierarchyStore.hiddenGroups.Add("Tests");
-
-            // Save
-            var node = new ConfigNode("SCENARIO");
-            if (GroupHierarchyStore.hiddenGroups.Count > 0)
-            {
-                ConfigNode hiddenNode = node.AddNode("HIDDEN_GROUPS");
-                foreach (var g in GroupHierarchyStore.hiddenGroups)
-                    hiddenNode.AddValue("group", g);
-            }
-
-            // Clear and reload
-            GroupHierarchyStore.hiddenGroups.Clear();
-            Assert.Empty(GroupHierarchyStore.hiddenGroups);
-
-            GroupHierarchyStore.LoadHiddenGroups(node);
-
-            Assert.Equal(2, GroupHierarchyStore.hiddenGroups.Count);
-            Assert.Contains("Flights", GroupHierarchyStore.hiddenGroups);
-            Assert.Contains("Tests", GroupHierarchyStore.hiddenGroups);
         }
 
         [Fact]

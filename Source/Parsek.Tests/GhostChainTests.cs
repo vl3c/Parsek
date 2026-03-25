@@ -25,18 +25,6 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void ChainLink_DefaultValues_AreNullOrZero()
-        {
-            var link = new ChainLink();
-
-            Assert.Null(link.recordingId);
-            Assert.Null(link.treeId);
-            Assert.Null(link.branchPointId);
-            Assert.Equal(0.0, link.ut);
-            Assert.Null(link.interactionType);
-        }
-
-        [Fact]
         public void GhostChain_Constructor_InitializesEmptyLinks()
         {
             var chain = new GhostChain();
@@ -109,15 +97,5 @@ namespace Parsek.Tests
             Assert.Null(chain.Links[1].branchPointId);
         }
 
-        [Fact]
-        public void GhostChain_SpawnUT_MatchesAssignedValue()
-        {
-            var chain = new GhostChain
-            {
-                SpawnUT = 17060.0
-            };
-
-            Assert.Equal(17060.0, chain.SpawnUT);
-        }
     }
 }

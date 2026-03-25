@@ -742,46 +742,6 @@ namespace Parsek.Tests
             Assert.Equal("Samantha Kerman", loaded2.GetValue("replacement"));
         }
 
-        [Fact]
-        public void CrewReplacements_SaveNode_EmptyMappingSkipsNode()
-        {
-            // With no replacements, the CREW_REPLACEMENTS node should not be created
-            var node = new ConfigNode("SCENARIO");
-
-            // No CREW_REPLACEMENTS node means nothing to load
-            Assert.Null(node.GetNode("CREW_REPLACEMENTS"));
-        }
-
-        [Fact]
-        public void CrewReplacements_LoadNode_HandlesNullValues()
-        {
-            var node = new ConfigNode("SCENARIO");
-            var replacementsNode = node.AddNode("CREW_REPLACEMENTS");
-
-            // Entry with missing replacement value
-            var entry = replacementsNode.AddNode("ENTRY");
-            entry.AddValue("original", "Jeb");
-            // No "replacement" value
-
-            // This should not crash and should not add an invalid mapping
-            var crNode = node.GetNode("CREW_REPLACEMENTS");
-            var entries = crNode.GetNodes("ENTRY");
-            Assert.Single(entries);
-
-            string replacement = entries[0].GetValue("replacement");
-            Assert.Null(replacement);
-        }
-
-        [Fact]
-        public void CrewReplacements_LoadNode_MissingNodeReturnsCleanState()
-        {
-            var node = new ConfigNode("SCENARIO");
-
-            // No CREW_REPLACEMENTS node at all
-            Assert.Null(node.GetNode("CREW_REPLACEMENTS"));
-            // This mirrors what LoadCrewReplacements does: clear + return early
-        }
-
         // --- Reservation decision logic (extracted for testability) ---
 
         [Fact]

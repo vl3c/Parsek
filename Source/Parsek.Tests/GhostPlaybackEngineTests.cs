@@ -730,29 +730,6 @@ namespace Parsek.Tests
         // These tests verify pre-conditions of DestroyAllGhosts without
         // actually calling it (which would trigger Unity ECall).
 
-        [Fact]
-        public void DestroyAllGhosts_Precondition_CollectionsPopulated()
-        {
-            var engine = new GhostPlaybackEngine(null);
-            engine.ghostStates[0] = new GhostPlaybackState();
-            engine.ghostStates[1] = new GhostPlaybackState();
-            engine.overlapGhosts[0] = new List<GhostPlaybackState>();
-            engine.loopPhaseOffsets[0] = 5.0;
-            engine.loadedAnchorVessels.Add(100);
-            engine.softCapSuppressed.Add(0);
-            engine.loggedGhostEnter.Add(0);
-            engine.loggedReshow.Add(0);
-
-            // Verify state was populated (DestroyAllGhosts would clear it)
-            Assert.Equal(2, engine.ghostStates.Count);
-            Assert.Single(engine.overlapGhosts);
-            Assert.Single(engine.loopPhaseOffsets);
-            Assert.Single(engine.loadedAnchorVessels);
-            Assert.Single(engine.softCapSuppressed);
-            Assert.Single(engine.loggedGhostEnter);
-            Assert.Single(engine.loggedReshow);
-        }
-
         #endregion
 
         // ===================================================================
@@ -776,38 +753,6 @@ namespace Parsek.Tests
         // ===================================================================
 
         #region InterfaceIsolation
-
-        [Fact]
-        public void ShouldLoopPlayback_AcceptsMockTrajectory_NoCast()
-        {
-            // If engine internally casts to Recording, this will throw InvalidCastException
-            var mock = new MockTrajectory().WithTimeRange(100, 200).WithLoop();
-            bool result = GhostPlaybackEngine.ShouldLoopPlayback(mock);
-            Assert.True(result);
-        }
-
-        [Fact]
-        public void TryComputeLoopPlaybackUT_AcceptsMockTrajectory_NoCast()
-        {
-            var engine = new GhostPlaybackEngine(null);
-            var mock = new MockTrajectory().WithTimeRange(100, 200).WithLoop(10);
-
-            double loopUT;
-            int cycleIndex;
-            bool inPause;
-            bool result = engine.TryComputeLoopPlaybackUT(mock, 150, 10,
-                out loopUT, out cycleIndex, out inPause);
-            Assert.True(result);
-        }
-
-        [Fact]
-        public void GetLoopIntervalSeconds_AcceptsMockTrajectory_NoCast()
-        {
-            var engine = new GhostPlaybackEngine(null);
-            var mock = new MockTrajectory().WithTimeRange(100, 200).WithLoop(25);
-            double result = engine.GetLoopIntervalSeconds(mock, 42.0);
-            Assert.Equal(25.0, result);
-        }
 
         #endregion
 

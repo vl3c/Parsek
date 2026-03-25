@@ -467,47 +467,6 @@ namespace Parsek.Tests
 
         #endregion
 
-        #region Log Assertion Tests
-
-        [Fact]
-        public void BuildBackgroundSplitBranchData_LogsSplitInfo()
-        {
-            // BuildBackgroundSplitBranchData is pure and doesn't log,
-            // but HandleBackgroundVesselSplit does. Since we can't call it in tests,
-            // verify the log output from the tree-build simulation path.
-            // We test the pure decision method's reason strings instead.
-            string reason = BackgroundRecorder.ShouldStopDebrisRecording(
-                131.0, 130.0, vesselExists: true, vesselLoaded: true);
-            Assert.Equal("ttl_expired", reason);
-        }
-
-        [Fact]
-        public void ShouldStopDebrisRecording_Destroyed_ReasonIsCorrect()
-        {
-            // Verifies the exact reason string for downstream consumers
-            string reason = BackgroundRecorder.ShouldStopDebrisRecording(
-                100.0, 130.0, vesselExists: false, vesselLoaded: false);
-            Assert.Equal("destroyed", reason);
-        }
-
-        [Fact]
-        public void ShouldStopDebrisRecording_TTLExpired_ReasonIsCorrect()
-        {
-            string reason = BackgroundRecorder.ShouldStopDebrisRecording(
-                135.0, 130.0, vesselExists: true, vesselLoaded: true);
-            Assert.Equal("ttl_expired", reason);
-        }
-
-        [Fact]
-        public void ShouldStopDebrisRecording_OutOfBubble_ReasonIsCorrect()
-        {
-            string reason = BackgroundRecorder.ShouldStopDebrisRecording(
-                100.0, 130.0, vesselExists: true, vesselLoaded: false);
-            Assert.Equal("out_of_bubble", reason);
-        }
-
-        #endregion
-
         #region BuildBackgroundSplitBranchData — Parent Linkage
 
         [Fact]

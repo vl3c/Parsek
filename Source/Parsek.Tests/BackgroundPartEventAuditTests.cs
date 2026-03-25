@@ -201,19 +201,6 @@ namespace Parsek.Tests
                 l.Contains("[BgRecorder]") && l.Contains("part or vessel is null"));
         }
 
-        [Fact]
-        public void OnBackgroundPartDie_VesselNotInBackgroundMap_Ignored()
-        {
-            // A vessel PID not in the background map should be silently skipped
-            var tree = MakeTree((100, "rec_bg1"));
-            var bgRecorder = new BackgroundRecorder(tree);
-
-            // No PartEvents should be added (vessel 999 is not in the map)
-            // Since we can't create a real Part, we verify by checking the recording
-            // has no events after the call would have been routed.
-            Assert.Empty(tree.Recordings["rec_bg1"].PartEvents);
-        }
-
         #endregion
 
         #region OnBackgroundPartJointBreak Routing
@@ -352,24 +339,6 @@ namespace Parsek.Tests
 
             // Cannot actually call SubscribePartEvents outside Unity (GameEvents is null),
             // but we can verify the flag is initially false.
-        }
-
-        [Fact]
-        public void Shutdown_LogsCompletionMessage()
-        {
-            var tree = MakeTree((100, "rec_bg1"));
-            var bgRecorder = new BackgroundRecorder(tree);
-
-            // Shutdown will try Planetarium.GetUniversalTime() which is 0 outside Unity
-            // but should not throw
-            try
-            {
-                bgRecorder.Shutdown();
-            }
-            catch (System.NullReferenceException)
-            {
-                // Expected outside Unity (Planetarium is null)
-            }
         }
 
         #endregion

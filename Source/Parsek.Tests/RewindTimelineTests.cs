@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using Xunit;
 
@@ -9,7 +10,7 @@ namespace Parsek.Tests
     /// These cover the pure guard logic extracted from ParsekFlight.UpdateTimelinePlayback.
     /// </summary>
     [Collection("Sequential")]
-    public class RewindTimelineTests
+    public class RewindTimelineTests : IDisposable
     {
         public RewindTimelineTests()
         {
@@ -18,6 +19,13 @@ namespace Parsek.Tests
             MilestoneStore.SuppressLogging = true;
             MilestoneStore.ResetForTesting();
             ParsekLog.SuppressLogging = true;
+        }
+
+        public void Dispose()
+        {
+            RecordingStore.ResetForTesting();
+            MilestoneStore.ResetForTesting();
+            ParsekLog.ResetTestOverrides();
         }
 
         #region ShouldSpawnAtRecordingEnd — Base Conditions
@@ -531,42 +539,6 @@ namespace Parsek.Tests
             string reason;
             Assert.False(RecordingStore.CanRewind(rec, out reason, isRecording: true));
             Assert.Equal("Rewind already in progress", reason);
-        }
-
-        #endregion
-
-        #region InitiateRewind — Flag Setting
-
-        [Fact]
-        public void InitiateRewind_SetsIsRewinding()
-        {
-            // We can verify the flag-setting part of InitiateRewind
-            // (the file I/O part requires KSP runtime)
-            Assert.False(RecordingStore.IsRewinding);
-            RecordingStore.IsRewinding = true;
-            Assert.True(RecordingStore.IsRewinding);
-        }
-
-        [Fact]
-        public void InitiateRewind_SetsRewindUT()
-        {
-            RecordingStore.RewindUT = 17000.0;
-            Assert.Equal(17000.0, RecordingStore.RewindUT);
-        }
-
-        [Fact]
-        public void InitiateRewind_SetsRewindReserved()
-        {
-            RecordingStore.RewindReserved = new BudgetSummary
-            {
-                reservedFunds = 5000.0,
-                reservedScience = 25.0,
-                reservedReputation = 3.0
-            };
-
-            Assert.Equal(5000.0, RecordingStore.RewindReserved.reservedFunds);
-            Assert.Equal(25.0, RecordingStore.RewindReserved.reservedScience);
-            Assert.Equal(3.0, RecordingStore.RewindReserved.reservedReputation);
         }
 
         #endregion

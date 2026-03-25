@@ -1,10 +1,11 @@
+using System;
 using System.Collections.Generic;
 using Xunit;
 
 namespace Parsek.Tests
 {
     [Collection("Sequential")]
-    public class TerminalEventTests
+    public class TerminalEventTests : IDisposable
     {
         public TerminalEventTests()
         {
@@ -310,7 +311,7 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void ApplyTerminalDestruction_DoesNotOverwriteExistingData()
+        public void ApplyTerminalDestruction_OverwritesExistingData()
         {
             // Verify that calling ApplyTerminalDestruction overwrites the recording's
             // terminal fields (this is the expected behavior — the method is the authority)
@@ -344,5 +345,11 @@ namespace Parsek.Tests
         }
 
         #endregion
+
+        public void Dispose()
+        {
+            RecordingStore.ResetForTesting();
+            ParsekLog.ResetTestOverrides();
+        }
     }
 }

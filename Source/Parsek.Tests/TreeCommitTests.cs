@@ -7,7 +7,7 @@ using Xunit;
 namespace Parsek.Tests
 {
     [Collection("Sequential")]
-    public class TreeCommitTests
+    public class TreeCommitTests : System.IDisposable
     {
         public TreeCommitTests()
         {
@@ -17,6 +17,13 @@ namespace Parsek.Tests
             GameStateStore.SuppressLogging = true;
             ParsekLog.SuppressLogging = true;
             RecordingStore.ResetForTesting();
+        }
+
+        public void Dispose()
+        {
+            RecordingStore.ResetForTesting();
+            MilestoneStore.ResetForTesting();
+            ParsekLog.ResetTestOverrides();
         }
 
         // --- Helper methods ---

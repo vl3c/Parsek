@@ -6,7 +6,7 @@ using Xunit;
 namespace Parsek.Tests
 {
     [Collection("Sequential")]
-    public class GameStateEventTests
+    public class GameStateEventTests : IDisposable
     {
         public GameStateEventTests()
         {
@@ -622,30 +622,8 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void CrewSuppression_FlagCanBeSet()
-        {
-            GameStateRecorder.SuppressCrewEvents = true;
-            Assert.True(GameStateRecorder.SuppressCrewEvents);
-
-            // Restore
-            GameStateRecorder.SuppressCrewEvents = false;
-            Assert.False(GameStateRecorder.SuppressCrewEvents);
-        }
-
-        [Fact]
         public void ResourceSuppression_FlagDefaultsFalse()
         {
-            Assert.False(GameStateRecorder.SuppressResourceEvents);
-        }
-
-        [Fact]
-        public void ResourceSuppression_FlagCanBeSet()
-        {
-            GameStateRecorder.SuppressResourceEvents = true;
-            Assert.True(GameStateRecorder.SuppressResourceEvents);
-
-            // Restore
-            GameStateRecorder.SuppressResourceEvents = false;
             Assert.False(GameStateRecorder.SuppressResourceEvents);
         }
 
@@ -1753,17 +1731,6 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void SerializeEmpty_NoScienceSubjectsNode_WhenBothEmpty()
-        {
-            GameStateStore.ResetForTesting();
-
-            var root = new ConfigNode("ROOT");
-            GameStateStore.SerializeScienceSubjectsInto(root);
-
-            Assert.Null(root.GetNode("SCIENCE_SUBJECTS"));
-        }
-
-        [Fact]
         public void Serialize_CreatesNode_WhenOnlyOriginalsExist()
         {
             GameStateStore.ResetForTesting();
@@ -1781,5 +1748,15 @@ namespace Parsek.Tests
         }
 
         #endregion
+
+        public void Dispose()
+        {
+            RecordingStore.ResetForTesting();
+            GameStateStore.ResetForTesting();
+            MilestoneStore.ResetForTesting();
+            ParsekLog.ResetTestOverrides();
+            GameStateRecorder.SuppressCrewEvents = false;
+            GameStateRecorder.SuppressResourceEvents = false;
+        }
     }
 }

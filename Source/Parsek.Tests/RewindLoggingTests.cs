@@ -323,13 +323,6 @@ namespace Parsek.Tests
             Assert.Equal(0f, RecordingStore.RewindReserved.reservedReputation);
         }
 
-        [Fact]
-        public void RewindAdjustedUT_DefaultsToZero()
-        {
-            RecordingStore.ResetForTesting();
-            Assert.Equal(0.0, RecordingStore.RewindAdjustedUT);
-        }
-
         #endregion
 
         #region FallbackCommit Rewind Field Propagation
@@ -744,26 +737,6 @@ namespace Parsek.Tests
             // Coroutine's captured value survives the clearing
             Assert.Equal(490.0, coroutineCapturedUT);
             Assert.Equal(0.0, RecordingStore.RewindAdjustedUT);
-        }
-
-        [Fact]
-        public void UTFlow_MustNotBeSetBeforeLoadScene()
-        {
-            // REGRESSION TEST: Verify InitiateRewind does NOT contain
-            // Planetarium.SetUniversalTime before LoadScene.
-            //
-            // This is a structural invariant: the scene transition overwrites
-            // any UT set before it. UT must be set in the coroutine.
-            //
-            // We test this by verifying the data flow: RewindAdjustedUT is
-            // stored for the coroutine, not consumed immediately.
-            RecordingStore.RewindAdjustedUT = 446.9;
-
-            // The coroutine reads this value. If InitiateRewind consumed it
-            // (by calling Planetarium.SetUniversalTime and then clearing it),
-            // the coroutine would get 0. This test ensures the value persists
-            // until the coroutine captures it.
-            Assert.Equal(446.9, RecordingStore.RewindAdjustedUT);
         }
 
         [Fact]

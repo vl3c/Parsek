@@ -281,10 +281,6 @@ namespace Parsek.Tests
 
         #endregion
 
-        #region CheckAnimateHeatTransition — removed (signature changed on main, needs rewrite)
-
-        #endregion
-
         #region ComputeRcsPower — pure static
 
         [Fact]

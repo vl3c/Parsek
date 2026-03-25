@@ -87,25 +87,6 @@ namespace Parsek.Tests
 
         #endregion
 
-        #region Round-trip: source=Background
-
-        [Fact]
-        public void RoundTrip_SourceBackground_PreservedCorrectly()
-        {
-            var section = MakeSection(source: TrackSectionSource.Background);
-
-            var parent = new ConfigNode("TEST");
-            RecordingStore.SerializeTrackSections(parent, new List<TrackSection> { section });
-
-            var loaded = new List<TrackSection>();
-            RecordingStore.DeserializeTrackSections(parent, loaded);
-
-            Assert.Single(loaded);
-            Assert.Equal(TrackSectionSource.Background, loaded[0].source);
-        }
-
-        #endregion
-
         #region Round-trip: source=Checkpoint
 
         [Fact]

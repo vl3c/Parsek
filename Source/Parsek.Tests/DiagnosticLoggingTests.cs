@@ -8,7 +8,7 @@ namespace Parsek.Tests
     /// and orbit segment gap detection in synthetic recordings.
     /// </summary>
     [Collection("Sequential")]
-    public class DiagnosticLoggingTests
+    public class DiagnosticLoggingTests : System.IDisposable
     {
         public DiagnosticLoggingTests()
         {
@@ -18,6 +18,12 @@ namespace Parsek.Tests
             MilestoneStore.ResetForTesting();
             GameStateStore.SuppressLogging = true;
             RecordingStore.ResetForTesting();
+        }
+
+        public void Dispose()
+        {
+            RecordingStore.ResetForTesting();
+            ParsekLog.ResetTestOverrides();
         }
 
         #region LogSpawnContext Null Safety (Regression: Issue 3)
@@ -31,8 +37,8 @@ namespace Parsek.Tests
                 VesselSnapshot = null
             };
 
-            // Should not throw NullReferenceException
-            VesselSpawner.LogSpawnContext(rec, double.MaxValue);
+            var ex = Record.Exception(() => VesselSpawner.LogSpawnContext(rec, double.MaxValue));
+            Assert.Null(ex);
         }
 
         [Fact]
@@ -46,7 +52,8 @@ namespace Parsek.Tests
                 VesselSnapshot = node
             };
 
-            VesselSpawner.LogSpawnContext(rec, 500.0);
+            var ex = Record.Exception(() => VesselSpawner.LogSpawnContext(rec, 500.0));
+            Assert.Null(ex);
         }
 
         [Fact]
@@ -63,7 +70,8 @@ namespace Parsek.Tests
                 VesselSnapshot = node
             };
 
-            VesselSpawner.LogSpawnContext(rec, 1000.0);
+            var ex = Record.Exception(() => VesselSpawner.LogSpawnContext(rec, 1000.0));
+            Assert.Null(ex);
         }
 
         #endregion
@@ -84,7 +92,8 @@ namespace Parsek.Tests
                 VesselSnapshot = node
             };
 
-            VesselSpawner.LogSpawnContext(rec, 250.0);
+            var ex = Record.Exception(() => VesselSpawner.LogSpawnContext(rec, 250.0));
+            Assert.Null(ex);
         }
 
         [Fact]
@@ -106,7 +115,8 @@ namespace Parsek.Tests
                 VesselSnapshot = node
             };
 
-            VesselSpawner.LogSpawnContext(rec, 100.0);
+            var ex = Record.Exception(() => VesselSpawner.LogSpawnContext(rec, 100.0));
+            Assert.Null(ex);
         }
 
         [Fact]
@@ -124,7 +134,8 @@ namespace Parsek.Tests
                 VesselSnapshot = node
             };
 
-            VesselSpawner.LogSpawnContext(rec, double.MaxValue);
+            var ex = Record.Exception(() => VesselSpawner.LogSpawnContext(rec, double.MaxValue));
+            Assert.Null(ex);
         }
 
         #endregion
