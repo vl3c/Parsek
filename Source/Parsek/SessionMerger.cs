@@ -15,6 +15,44 @@ namespace Parsek
         private const string Tag = "Merger";
 
         /// <summary>
+        /// Stock KSP body equatorial radii in meters. Used by ComputeBoundaryDiscontinuity
+        /// for lat/lon-to-meters conversion on the correct body.
+        /// </summary>
+        private static readonly Dictionary<string, double> BodyRadii = new Dictionary<string, double>
+        {
+            { "Kerbol", 261600000 },
+            { "Moho", 250000 },
+            { "Eve", 700000 },
+            { "Gilly", 13000 },
+            { "Kerbin", 600000 },
+            { "Mun", 200000 },
+            { "Minmus", 60000 },
+            { "Duna", 320000 },
+            { "Ike", 130000 },
+            { "Dres", 138000 },
+            { "Jool", 6000000 },
+            { "Laythe", 500000 },
+            { "Vall", 300000 },
+            { "Tylo", 600000 },
+            { "Bop", 65000 },
+            { "Pol", 44000 },
+            { "Eeloo", 210000 }
+        };
+
+        /// <summary>
+        /// Returns the equatorial radius for a stock KSP body.
+        /// Falls back to Kerbin radius (600,000m) for null or unknown body names.
+        /// </summary>
+        private static double GetBodyRadius(string bodyName)
+        {
+            if (bodyName == null)
+                return 600000.0;
+            if (BodyRadii.TryGetValue(bodyName, out double radius))
+                return radius;
+            return 600000.0;
+        }
+
+        /// <summary>
         /// Merges all recordings in the tree. For each recording, resolves overlapping
         /// TrackSections by source priority and merges PartEvents with deduplication.
         /// Returns a dictionary mapping recordingId to a clean merged Recording.
@@ -345,9 +383,9 @@ namespace Parsek
             // Altitude difference is straightforward in meters
             double dAlt = firstNext.altitude - lastPrev.altitude;
 
-            // Lat/lon to approximate meters (using Kerbin radius ~600,000m)
-            // This is approximate but sufficient for discontinuity diagnostics
-            const double bodyRadius = 600000.0;
+            // Lat/lon to approximate meters using the body radius from the last point
+            // of the previous section. Approximate but sufficient for discontinuity diagnostics.
+            double bodyRadius = GetBodyRadius(lastPrev.bodyName);
             double dLat = (firstNext.latitude - lastPrev.latitude) * Math.PI / 180.0;
             double dLon = (firstNext.longitude - lastPrev.longitude) * Math.PI / 180.0;
             double avgLat = (firstNext.latitude + lastPrev.latitude) * 0.5 * Math.PI / 180.0;
