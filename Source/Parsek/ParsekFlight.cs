@@ -984,8 +984,11 @@ namespace Parsek
                 {
                     var rec = RecordingStore.CommittedRecordings[chainManager.ContinuationRecordingIdx];
                     rec.VesselDestroyed = true;
-                    rec.VesselSnapshot = null;
-                    Log($"Continuation vessel destroyed (pid={chainManager.ContinuationVesselPid})");
+                    // Bug #95: Do NOT null VesselSnapshot on committed recordings.
+                    // VesselDestroyed already gates spawn via ShouldSpawnAtRecordingEnd.
+                    // Nulling the snapshot permanently prevents re-spawn after revert.
+                    Log($"Continuation vessel destroyed (pid={chainManager.ContinuationVesselPid}), " +
+                        $"VesselDestroyed=true, VesselSnapshot preserved={rec.VesselSnapshot != null}");
                 }
                 chainManager.StopContinuation("vessel destroyed");
             }
@@ -5731,6 +5734,10 @@ namespace Parsek
 
             // Run engine rendering
             engine.UpdatePlayback(cachedTrajectories, flags, ctx);
+
+            // Retry held ghost spawns (#96): ghosts held at final position while
+            // waiting for a blocked/deferred spawn to resolve
+            policy.RetryHeldGhostSpawns();
 
             // Per-frame resource deltas (policy concern, not engine).
             // Intentional: deltas accrue for both in-range AND past-end recordings
