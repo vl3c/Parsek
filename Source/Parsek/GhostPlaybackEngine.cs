@@ -130,8 +130,7 @@ namespace Parsek
                     if (ghostStates.ContainsKey(i))
                     {
                         DestroyAllOverlapGhosts(i);
-                        DestroyGhost(i, traj, f);
-                        ParsekLog.Info("Engine", $"Ghost #{i} destroyed — recording skipped (disabled/suppressed)");
+                        DestroyGhost(i, traj, f, reason: "disabled/suppressed");
                     }
                     continue;
                 }
@@ -157,8 +156,7 @@ namespace Parsek
                     {
                         if (ghostActive)
                         {
-                            ParsekLog.Info("Engine", $"Loop ghost #{i} \"{traj.VesselName}\" — anchor vessel {traj.LoopAnchorVesselId} unloaded, destroying ghost");
-                            DestroyGhost(i, traj, f);
+                            DestroyGhost(i, traj, f, reason: $"anchor {traj.LoopAnchorVesselId} unloaded");
                             DestroyAllOverlapGhosts(i);
                         }
                         continue;
@@ -427,7 +425,7 @@ namespace Parsek
                                     $"SoftCap: despawning ghost #{capIdx} \"{vesselName}\"");
                                 IPlaybackTrajectory capTraj = capIdx >= 0 && capIdx < trajectories.Count
                                     ? trajectories[capIdx] : null;
-                                DestroyGhost(capIdx, capTraj);
+                                DestroyGhost(capIdx, capTraj, reason: "soft cap despawn");
                                 softCapSuppressed.Add(capIdx);
                                 break;
                             case GhostCapAction.SimplifyToOrbitLine:
@@ -537,7 +535,7 @@ namespace Parsek
                     out loopUT, out cycleIndex, out inPauseWindow, index))
             {
                 if (ghostActive)
-                    DestroyGhost(index, traj, flags);
+                    DestroyGhost(index, traj, flags, reason: "loop UT computation failed");
                 return;
             }
 
@@ -576,7 +574,7 @@ namespace Parsek
                 });
 
                 GhostPlaybackLogic.ResetReentryFx(state, index);
-                DestroyGhost(index, traj, flags);
+                DestroyGhost(index, traj, flags, reason: "loop cycle boundary");
                 ghostActive = false;
                 state = null;
             }
@@ -683,7 +681,7 @@ namespace Parsek
         {
             if (ctx.currentUT < traj.StartUT)
             {
-                if (primaryActive) DestroyGhost(index, traj, flags);
+                if (primaryActive) DestroyGhost(index, traj, flags, reason: "before start UT");
                 DestroyAllOverlapGhosts(index);
                 return;
             }
@@ -719,7 +717,7 @@ namespace Parsek
                 }
                 else if (primaryActive)
                 {
-                    DestroyGhost(index, traj, flags);
+                    DestroyGhost(index, traj, flags, reason: "cycle transition");
                 }
 
                 // Spawn new primary for lastCycle
@@ -1285,6 +1283,14 @@ namespace Parsek
             GhostPlaybackLogic.InitializeFlagVisibility(traj, state);
 
             ghostStates[index] = state;
+
+            string buildType = builtFromSnapshot
+                ? (traj.GhostVisualSnapshot != null ? "recording-start snapshot" : "vessel snapshot")
+                : "sphere fallback";
+            ParsekLog.VerboseRateLimited("Engine", $"spawn-{index}",
+                $"Ghost #{index} \"{traj?.VesselName}\" spawned ({buildType}, " +
+                $"parts={state.partTree?.Count ?? 0} engines={state.engineInfos?.Count ?? 0} " +
+                $"rcs={state.rcsInfos?.Count ?? 0})", 1.0);
         }
 
         /// <summary>
@@ -1348,13 +1354,16 @@ namespace Parsek
         /// removes it from ghostStates and loopPhaseOffsets.
         /// </summary>
         internal void DestroyGhost(int index, IPlaybackTrajectory traj = null,
-            TrajectoryPlaybackFlags flags = default)
+            TrajectoryPlaybackFlags flags = default, string reason = null)
         {
             frameDestroyCount++;
 
             GhostPlaybackState state;
             if (!ghostStates.TryGetValue(index, out state))
                 return;
+
+            ParsekLog.VerboseRateLimited("Engine", $"destroy-{index}",
+                $"Ghost #{index} \"{traj?.VesselName}\" destroyed ({reason ?? "unknown"})", 1.0);
 
             // Fire before destroy so subscribers can read state
             OnGhostDestroyed?.Invoke(new GhostLifecycleEvent

@@ -146,7 +146,7 @@ namespace Parsek
                     return;
                 }
 
-                engine.DestroyGhost(evt.Index, evt.Trajectory, evt.Flags);
+                engine.DestroyGhost(evt.Index, evt.Trajectory, evt.Flags, reason: "playback completed");
             }
         }
 
