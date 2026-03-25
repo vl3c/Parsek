@@ -322,7 +322,9 @@ namespace Parsek
                 TriggerExplosionIfDestroyed(state, traj, i, ctx.warpRate);
             }
 
-            // Fire completed event (policy handles spawn/resources/camera)
+            // Fire completed event (policy handles spawn/resources/camera).
+            // Ghost stays alive — policy decides when to destroy
+            // (may hold for watch-mode camera, or destroy immediately).
             deferredCompletedEvents.Add(new PlaybackCompletedEvent
             {
                 Index = i,
