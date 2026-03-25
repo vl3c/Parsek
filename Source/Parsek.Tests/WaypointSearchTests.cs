@@ -9,6 +9,7 @@ namespace Parsek.Tests
     /// Tests for FindWaypointIndex binary search logic.
     /// Calls TrajectoryMath.FindWaypointIndex directly (exposed via InternalsVisibleTo).
     /// </summary>
+    [Collection("Sequential")]
     public class WaypointSearchTests : IDisposable
     {
         private List<TrajectoryPoint> points;

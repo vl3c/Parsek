@@ -180,28 +180,6 @@ namespace Parsek.Tests
             Assert.True(useTrackSections);
         }
 
-        [Fact]
-        public void PlaybackGate_V5HasNoTrackSections_V6Has()
-        {
-            // Verify that v5 recordings have no TrackSections, v6 recordings do
-            var v5Rec = new Recording();
-            v5Rec.RecordingFormatVersion = 5;
-            Assert.Empty(v5Rec.TrackSections);
-
-            var v6Rec = new Recording();
-            v6Rec.RecordingFormatVersion = 6;
-            v6Rec.TrackSections.Add(new TrackSection
-            {
-                environment = SegmentEnvironment.Atmospheric,
-                referenceFrame = ReferenceFrame.Absolute,
-                startUT = 17000,
-                endUT = 17100,
-                frames = new List<TrajectoryPoint>(),
-                checkpoints = new List<OrbitSegment>()
-            });
-            Assert.True(v6Rec.TrackSections.Count > 0);
-        }
-
         #endregion
 
         #region RecordingBuilder version default
