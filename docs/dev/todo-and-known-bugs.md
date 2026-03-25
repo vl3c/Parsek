@@ -173,11 +173,9 @@ Items identified during refactor-2 (March 2026) but deferred because they requir
 
 **Status: DONE** — Completed as GhostPlaybackEngine (1553 lines) + ParsekPlaybackPolicy (192 lines) + IPlaybackTrajectory/IGhostPositioner/GhostPlaybackEvents interfaces. ParsekFlight reduced from ~9900 to 8657 lines. Engine has zero Recording references, accesses trajectories via IPlaybackTrajectory interface only. D5 and D8 now done (PR #85). D2 still open (blocked by T26).
 
-### T26. ParsekFlight ChainSegmentManager extraction (D21)
+### ~~T26. ParsekFlight ChainSegmentManager extraction (D21)~~ Phase 1 DONE
 
-Extract chain state + 4 commit methods (~400-500 lines) into a `ChainSegmentManager` class. Blocked by `activeChainId` being referenced 50+ times across 5 regions. T25 prerequisite is met; chain state isolation is the remaining blocker.
-
-**Priority:** Medium — T25 complete, chain state isolation still needed
+Phase 1 (state isolation): 16 chain state fields moved from ParsekFlight to ChainSegmentManager class. ~150 field accesses migrated. `ClearAll()` replaces 13-line scattered reset. `StopContinuation` and `StopUndockContinuation` moved as pure methods. Complex orchestration methods (CommitChainSegment, etc.) stay on ParsekFlight accessing state via `chainManager.X`. Phase 2 (method moves) deferred — requires splitting orchestration methods that interleave with recorder lifecycle.
 
 ### ~~T27. GhostVisualBuilder SampleXxxStates unification (D15)~~ DONE (PR #82)
 

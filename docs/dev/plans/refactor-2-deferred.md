@@ -172,11 +172,11 @@ The shared core would need 3-4 parameters/flags to account for these differences
 **Enabled:** D2 (commit-pattern dedup via instance methods), D5 (frame application dedup), D8 (UpdatePlayback decomposition on engine).
 
 ### D21. ChainSegmentManager from ParsekFlight (~400-500 lines)
-**What:** Extract chain state (`activeChainId`, `activeChainNextIndex`, `activeChainPrevId`, `activeChainCrewName`, continuation fields) and chain methods (`CommitChainSegment`, `CommitDockUndockSegment`, `CommitBoundarySplit`, `HandleVesselSwitchChainTermination`, `HandleDockUndockCommitRestart`, continuation methods).
+**What:** Extract chain state and chain methods into a ChainSegmentManager class.
 
-**Why deferred:** `activeChainId` referenced 50+ times across 5 regions (Scene Change, Split Event Detection, Update Helpers, Recording, Timeline Auto-Playback). Chain state is NOT localized to chain methods — it's read/written during recording start/stop, dock/undock handling, scene change, and tree mode logic. Same fundamental issue as D20.
+**Phase 1 — DONE:** State isolation completed. 16 chain state fields moved to `ChainSegmentManager`. ~150 field accesses in ParsekFlight migrated to `chainManager.X`. `ClearAll()` replaces scattered field resets. `StopContinuation` and `StopUndockContinuation` moved as pure methods.
 
-**Revisit when:** Same as D20. Requires isolating chain state into a struct that can be owned by either ParsekFlight or a dedicated manager.
+**Phase 2 — Open:** Move complex orchestration methods (CommitChainSegment, CommitDockUndockSegment, CommitBoundarySplit, HandleVesselSwitchChainTermination, HandleDockUndockCommitRestart). Blocked: these methods interleave with `recorder` lifecycle (`StopRecordingForChainBoundary`, `recorder = null`) and call `StartRecording()`. Requires callback/interface pattern or method splitting.
 
 **Enables if done:** D2 (commit-pattern dedup — the 4 commit methods could share a core method on the manager instance).
 
@@ -223,4 +223,4 @@ The shared core would need 3-4 parameters/flags to account for these differences
 | D18 | ParsekUI | ~125 | Medium | **DONE** (T30: HandleResizeDrag + DrawResizeHandle helpers) |
 | D19 | ParsekUI | ~40 | Low | Open |
 | D20 | ParsekFlight→GhostPlaybackEngine | ~2443 | High | **DONE** (T25: GhostPlaybackEngine 1553 lines + ParsekPlaybackPolicy 192 lines + interfaces) |
-| D21 | ParsekFlight | ~400-500 | High | Open — requires state isolation |
+| D21 | ParsekFlight→ChainSegmentManager | ~400-500 | High | **Phase 1 DONE** (state isolation, 16 fields + 2 methods moved). Phase 2 open (orchestration methods). |
