@@ -1,10 +1,12 @@
 # Parsek Code Refactor-2 Inventory
 
-**Total: 75 source files** (excluding obj/ generated files)
+**Total: 78 source files** (excluding obj/ generated files)
 **Files needing audit: 41** (Tier 1: 8, Tier 2: 13, Tier 3: 20)
 **Baseline tests: 3420 pass** (3311 existing + 109 T25 engine tests)
 
-**T25 extraction (post-refactor-2):** 5 new files added (GhostPlaybackEngine 1553, ParsekPlaybackPolicy 192, IPlaybackTrajectory 48, IGhostPositioner 52, GhostPlaybackEvents 169). ParsekFlight reduced from 9899 to 8657.
+**T25 extraction:** 5 new files (GhostPlaybackEngine, ParsekPlaybackPolicy, IPlaybackTrajectory, IGhostPositioner, GhostPlaybackEvents).
+**T26 extraction:** ChainSegmentManager (686 lines) extracted from ParsekFlight.
+**Post-refactor extractions:** GroupHierarchyStore, ResourceApplicator, CrewReservationManager from ParsekScenario.
 
 See [code-refactor-2-plan.md](code-refactor-2-plan.md) for the full refactoring plan.
 
@@ -14,19 +16,20 @@ See [code-refactor-2-plan.md](code-refactor-2-plan.md) for the full refactoring 
 
 | File | Lines | Tier | Status | Notes |
 |------|-------|------|--------|-------|
-| ParsekFlight.cs | 8,657 | 1 | T25-Done | 17 extractions, 25 log calls. T25: GhostPlaybackEngine extraction (-1243 lines). Pass3: SanitizeQuaternion wrapper removed |
-| GhostPlaybackEngine.cs | 1,553 | — | T25-New | Ghost playback mechanics engine. Zero Recording refs. IPlaybackTrajectory interface only. |
+| ParsekFlight.cs | 8,098 | 1 | T26-Done | 17 extractions, 25 log calls. T25: GhostPlaybackEngine extraction. T26: ChainSegmentManager extraction (-620 lines). Pass3: SanitizeQuaternion wrapper removed |
+| GhostPlaybackEngine.cs | 1,594 | — | T25-New | Ghost playback mechanics engine. Zero Recording refs. D5: ApplyFrameVisuals. D8: RenderInRangeGhost + HandlePastEndGhost. T5: ReduceFidelity + SimplifyToOrbitLine. |
+| ChainSegmentManager.cs | 686 | — | T26-New | Chain segment state + commit methods. CommitSegmentCore shared pattern. 16 fields + 14 methods. |
 | ParsekPlaybackPolicy.cs | 192 | — | T25-New | Event subscriber: spawn, resources, camera policy |
 | IPlaybackTrajectory.cs | 48 | — | T25-New | 19-property interface boundary for trajectory data |
 | IGhostPositioner.cs | 52 | — | T25-New | 7-method positioning interface (implemented by ParsekFlight) |
 | GhostPlaybackEvents.cs | 169 | — | T25-New | Event types, TrajectoryPlaybackFlags, FrameContext |
 | GhostVisualBuilder.cs | 6,625 | 1 | Pass3-Done | 10 extractions, 9 log calls. AddPartVisuals 802→454. Pass3: EngineFxBuilder + MaterialCleanup split out |
 | FlightRecorder.cs | 4,921 | 1 | Pass1-Done | 6 extractions, 3 log calls. FinalizeRecordingState triple-dedup, CreateOrbitSegmentFromVessel ×4 |
-| ParsekUI.cs | 3,600 | 1 | Pass1-Done | BuildGroupTreeData (internal static), DrawGhostCapSlider dedup, 5 log calls |
+| ParsekUI.cs | 3,557 | 1 | D19-Done | BuildGroupTreeData, DrawGhostCapSlider dedup, T30: HandleResizeDrag/DrawResizeHandle. D19: DrawSortableHeaderCore<TCol>. T33: accessor migration. |
 | BackgroundRecorder.cs | 2,754 | 1 | Pass1-Done | 4 extractions. BuildPartTrackingSetsFromState dedup, CreateOrbitSegmentFromVessel ×3 |
 | RecordingStore.cs | 2,533 | 1 | Pass1-Done | 6 extractions (-140 lines). POINT/ORBIT ser/deser dedup ×4, PreProcessRewindSave delegation |
 | ParsekScenario.cs | 2,726 | 1 | Pass1-Done | 5 extractions. OnLoad split: HandleRewindOnLoad, DiscardStalePendingState, LoadRecordingTrees |
-| GhostPlaybackLogic.cs | 2,289 | 1 | Pass3-Done | BuildDictByPid generic helper, 7 logging additions. Pass3: received shared methods from ParsekKSC |
+| GhostPlaybackLogic.cs | 2,274 | 1 | T5-Done | BuildDictByPid generic helper, 7 logging additions. Pass3: shared methods from ParsekKSC. T5: ReduceGhostFidelity/RestoreGhostFidelity. T10: RealVesselExists HashSet cache. |
 | VesselSpawner.cs | 1,031 | 2A | Pass1-Done | 3 extractions (ResolveSpawnPosition, FindNearestVesselDistance, LogSpawnFailure), 1 log |
 | RecordingTree.cs | 953 | 2A | Pass1-Done | No changes needed — already well-structured |
 | ParsekKSC.cs | 784 | 2A | Pass3-Done | PopulateGhostInfoDictionaries extracted from SpawnKscGhost. Pass3: shared methods moved to TrajectoryMath/GhostPlaybackLogic |
@@ -53,9 +56,9 @@ See [code-refactor-2-plan.md](code-refactor-2-plan.md) for the full refactoring 
 | AnchorDetector.cs | 116 | 3 | Pass1-Done | No changes needed |
 | TerrainCorrector.cs | 104 | 3 | Pass1-Done | No changes needed |
 | RenderingZoneManager.cs | 101 | 3 | Pass1-Done | No changes needed |
-| GhostPlaybackState.cs | 73 | 3 | Pass1-Done | No changes needed |
+| GhostPlaybackState.cs | 75 | 3 | T5-Done | T5: added fidelityReduced + simplified flags |
 | TrackSection.cs | 73 | 3 | Pass1-Done | No changes needed |
-| GhostChain.cs | 50 | 3 | Pass1-Done | No changes needed |
+| GhostChain.cs | 53 | 3 | T9-Done | T9: added CachedTrajectoryIndex field |
 | ProximityRateSelector.cs | 42 | 3 | Pass1-Done | No changes needed |
 | SegmentEvent.cs | 30 | 3 | Pass1-Done | No changes needed |
 | FlagEvent.cs | 22 | 3 | Pass1-Done | No changes needed |
@@ -100,7 +103,7 @@ See [code-refactor-2-plan.md](code-refactor-2-plan.md) for the full refactoring 
 
 ---
 
-#### `ParsekFlight.cs` -- 9,899 lines (was 8,225 at refactor-1)
+#### `ParsekFlight.cs` -- 8,098 lines (was 9,899 pre-T25, 8,657 post-T25, now 8,098 post-T26)
 **Types:**
 - `ParsekFlight` (public class, MonoBehaviour) — main flight-scene controller
 - `GhostPosMode` (private enum) — PointInterp, SinglePoint, Orbit, Surface, Relative

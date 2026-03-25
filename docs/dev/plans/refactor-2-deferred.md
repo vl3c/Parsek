@@ -189,7 +189,7 @@ Items identified during refactoring but deferred for safety or scope reasons. Re
 **Action:** Verify every .cs file has exactly one public/internal type. Exceptions: data-type files (GhostTypes.cs, GameStateEvent.cs) that bundle related types are acceptable.
 
 ### C4. Inventory doc final update
-**Action:** Mark all files Pass3-Done where applicable. Update line counts to final values.
+**Status:** **DONE** — Line counts updated for all modified files. ParsekFlight 8098, GhostPlaybackEngine 1594, ChainSegmentManager 686 (new), ParsekUI 3557, GhostPlaybackLogic 2274, GhostPlaybackState 75, GhostChain 53.
 
 ---
 
