@@ -591,5 +591,45 @@ namespace Parsek.Tests
 
             Assert.Equal(-1, result);
         }
+
+        // ────────────────────────────────────────────────────────────
+        //  ShouldSkipVesselType (#73)
+        // ────────────────────────────────────────────────────────────
+
+        [Fact]
+        public void ShouldSkipVesselType_Debris_ReturnsTrue()
+        {
+            Assert.True(SpawnCollisionDetector.ShouldSkipVesselType(VesselType.Debris));
+        }
+
+        [Fact]
+        public void ShouldSkipVesselType_EVA_ReturnsTrue()
+        {
+            Assert.True(SpawnCollisionDetector.ShouldSkipVesselType(VesselType.EVA));
+        }
+
+        [Fact]
+        public void ShouldSkipVesselType_Flag_ReturnsTrue()
+        {
+            Assert.True(SpawnCollisionDetector.ShouldSkipVesselType(VesselType.Flag));
+        }
+
+        [Fact]
+        public void ShouldSkipVesselType_SpaceObject_ReturnsTrue()
+        {
+            Assert.True(SpawnCollisionDetector.ShouldSkipVesselType(VesselType.SpaceObject));
+        }
+
+        [Fact]
+        public void ShouldSkipVesselType_Ship_ReturnsFalse()
+        {
+            Assert.False(SpawnCollisionDetector.ShouldSkipVesselType(VesselType.Ship));
+        }
+
+        [Fact]
+        public void ShouldSkipVesselType_Relay_ReturnsFalse()
+        {
+            Assert.False(SpawnCollisionDetector.ShouldSkipVesselType(VesselType.Relay));
+        }
     }
 }
