@@ -743,7 +743,7 @@ When applying variant TEXTURE rules to ghost parts, `Shader.Find("KSP/Emissive S
 
 **Possible fix:** Cache a reference to known KSP shaders at mod initialization by finding them on existing materials rather than by name. Or accept the fallback as "good enough."
 
-**Status:** Open — low priority cosmetic
+**Status:** Fixed (commit 25ccfa9 — `FindShaderOnRenderers` fallback lookup on existing materials)
 
 ## 44. Code cleanup: duplicated seeding logic and growing out-parameter list
 
@@ -1622,11 +1622,11 @@ After rewind to UT ~99.8, entering flight at UT ~111. The Aeris 4A recording (UT
 
 Different from #109 (missing cleanup on second rewind) — here cleanup runs but is over-aggressive on the first flight. Different from #112 (self-overlap) — here the vessel is destroyed by cleanup, not blocked by its own copy.
 
-**Fix:** `CleanupOrphanedSpawnedVessels` should exclude vessels that were just spawned by Parsek in the current frame/scene (check `VesselSpawned=true` or `SpawnedVesselPersistentId` against loaded vessels). Or: clear `PendingCleanupNames` after `StripOrphanedSpawnedVessels` runs in OnLoad so the cleanup doesn't re-fire at OnFlightReady.
+**Fix:** Clear `PendingCleanupPids` and `PendingCleanupNames` immediately after `StripOrphanedSpawnedVessels` completes in `HandleRewindOnLoad`. The strip already handled protoVessel cleanup in the flightState; leaving the overbroad names set in PendingCleanupNames caused `CleanupOrphanedSpawnedVessels` in `OnFlightReady` to destroy freshly-spawned past vessels. With the clear, OnFlightReady sees null and skips cleanup. The revert path's `alreadyHasCleanupData` guard sees null and collects fresh data from `CollectSpawnedVesselInfo()` if needed.
 
 **Priority:** High — destroys correctly-spawned vessels after rewind
 
-**Status:** Open
+**Status:** Fixed
 
 ## 135. ShouldSpawnAtRecordingEnd VERBOSE log spam — 377K lines/session
 
