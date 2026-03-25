@@ -195,11 +195,9 @@ Unify `CommitChainSegment`, `CommitDockUndockSegment`, `CommitBoundarySplit`, `H
 
 **Priority:** Low — intentional design, not a bug
 
-### T30. ParsekUI window resize drag dedup (D18)
+### ~~T30. ParsekUI window resize drag dedup (D18)~~ DONE
 
-4 windows + group popup all have identical ~15-line resize drag blocks. IMGUI `Event.current.Use()` calls are order-sensitive — a shared helper could subtly break input consumption.
-
-**Priority:** Low — cosmetic duplication, risk outweighs savings
+Extracted `HandleResizeDrag` and `DrawResizeHandle` static helpers. 4 drag blocks + 4 handle blocks replaced with 8 one-liner calls. Group Popup passes null for windowName to suppress logging. Latent bugfix: Group Popup now gets `Event.current.Use()` on MouseDrag (other 3 windows already had it).
 
 ### T31. ParsekFlight CreateBreakupChildRecording dedup (D1)
 
@@ -220,11 +218,9 @@ Focus areas: ResourceApplicator (0% direct coverage for KSP-mutation methods), C
 
 **Priority:** Medium — test confidence degrades as suite grows without pruning
 
-### T33. Encapsulate GroupHierarchyStore mutable fields
+### ~~T33. Encapsulate GroupHierarchyStore mutable fields~~ DONE
 
-`groupParents`, `hiddenGroups`, `hideActive` are `internal static` fields accessed directly by ParsekUI (~25 sites) and tests (~60 sites). Read-only accessors (`GroupParents`, `HiddenGroups`, `HideActive`) were added but callers still use the mutable fields. Migrate callers to use accessors + mutation methods (e.g. `AddHiddenGroup`/`RemoveHiddenGroup` instead of `hiddenGroups.Add`/`Remove`) to reduce coupling and enable future change tracking.
-
-**Priority:** Low — no functional risk, purely structural improvement
+Added 5 accessor methods (`AddHiddenGroup`, `RemoveHiddenGroup`, `IsGroupHidden`, `TryGetGroupParent`, `HasGroupParent`). Migrated all ~20 ParsekUI.cs direct field accesses to use accessors and read-only properties. Tests retain direct field access for setup (pragmatic — encapsulation targets production coupling).
 
 ---
 

@@ -28,7 +28,7 @@ namespace Parsek
         private bool showRecordingsWindow;
         private Rect recordingsWindowRect;
         private Vector2 recordingsScrollPos;
-        // GroupHierarchyStore.hideActive is stored on GroupHierarchyStore for persistence across scene changes and save/load
+        // GroupHierarchyStore.HideActive is stored on GroupHierarchyStore for persistence across scene changes and save/load
         private bool isResizingRecordingsWindow;
         private bool recordingsWindowHasInputLock;
         private const string RecordingsInputLockId = "Parsek_RecordingsWindow";
@@ -482,25 +482,8 @@ namespace Parsek
                 ParsekLog.Verbose("UI", $"Actions window initial position: x={x.ToString("F0", ic)} y={mainWindowRect.y.ToString("F0", ic)} (mainWindow.x={mainWindowRect.x.ToString("F0", ic)})");
             }
 
-            // Handle resize drag
-            if (isResizingActionsWindow)
-            {
-                if (Event.current.type == EventType.MouseDrag || Event.current.type == EventType.MouseUp)
-                {
-                    float newW = Mathf.Max(MinWindowWidth, Event.current.mousePosition.x - actionsWindowRect.x);
-                    float newH = Mathf.Max(MinWindowHeight, Event.current.mousePosition.y - actionsWindowRect.y);
-                    actionsWindowRect.width = newW;
-                    actionsWindowRect.height = newH;
-                }
-                if (Event.current.type == EventType.MouseUp)
-                {
-                    isResizingActionsWindow = false;
-                    var ic = System.Globalization.CultureInfo.InvariantCulture;
-                    ParsekLog.Verbose("UI", $"Actions window resize ended: w={actionsWindowRect.width.ToString("F0", ic)} h={actionsWindowRect.height.ToString("F0", ic)}");
-                }
-                if (Event.current.type == EventType.MouseDrag)
-                    Event.current.Use();
-            }
+            HandleResizeDrag(ref actionsWindowRect, ref isResizingActionsWindow,
+                MinWindowWidth, MinWindowHeight, "Actions window");
 
             EnsureOpaqueWindowStyle();
             actionsWindowRect = ClickThruBlocker.GUILayoutWindow(
@@ -684,18 +667,8 @@ namespace Parsek
                 ParsekLog.Verbose("UI", "Actions window closed via button");
             }
 
-            // Resize handle (bottom-right corner)
-            Rect handleRect = new Rect(
-                actionsWindowRect.width - ResizeHandleSize,
-                actionsWindowRect.height - ResizeHandleSize,
-                ResizeHandleSize, ResizeHandleSize);
-            GUI.Label(handleRect, "\u25e2"); // triangle
-            if (Event.current.type == EventType.MouseDown && handleRect.Contains(Event.current.mousePosition))
-            {
-                isResizingActionsWindow = true;
-                ParsekLog.Verbose("UI", "Actions window resize started");
-                Event.current.Use();
-            }
+            DrawResizeHandle(actionsWindowRect, ref isResizingActionsWindow,
+                "Actions window");
 
             GUI.DragWindow();
         }
@@ -858,7 +831,7 @@ namespace Parsek
             // Build parent → children map from hierarchy
             grpChildren = new Dictionary<string, List<string>>();
             var allGrpNames = new HashSet<string>(grpToRecs.Keys);
-            foreach (var kvp in GroupHierarchyStore.groupParents)
+            foreach (var kvp in GroupHierarchyStore.GroupParents)
             {
                 allGrpNames.Add(kvp.Key);
                 allGrpNames.Add(kvp.Value);
@@ -866,7 +839,7 @@ namespace Parsek
             for (int i = 0; i < knownEmptyGroups.Count; i++)
                 allGrpNames.Add(knownEmptyGroups[i]);
 
-            foreach (var kvp in GroupHierarchyStore.groupParents)
+            foreach (var kvp in GroupHierarchyStore.GroupParents)
             {
                 List<string> children;
                 if (!grpChildren.TryGetValue(kvp.Value, out children))
@@ -883,7 +856,7 @@ namespace Parsek
             rootGrps = new List<string>();
             foreach (var g in allGrpNames)
             {
-                if (!GroupHierarchyStore.groupParents.ContainsKey(g))
+                if (!GroupHierarchyStore.HasGroupParent(g))
                     rootGrps.Add(g);
             }
             rootGrps.Sort(System.StringComparer.OrdinalIgnoreCase);
@@ -923,25 +896,8 @@ namespace Parsek
                 ParsekLog.Verbose("UI", $"Recordings window initial position: x={recordingsWindowRect.x.ToString("F0", ic)} y={recordingsWindowRect.y.ToString("F0", ic)}");
             }
 
-            // Handle resize drag (must be outside the window function to track across frames)
-            if (isResizingRecordingsWindow)
-            {
-                if (Event.current.type == EventType.MouseDrag || Event.current.type == EventType.MouseUp)
-                {
-                    float newW = Mathf.Max(MinWindowWidth, Event.current.mousePosition.x - recordingsWindowRect.x);
-                    float newH = Mathf.Max(MinWindowHeight, Event.current.mousePosition.y - recordingsWindowRect.y);
-                    recordingsWindowRect.width = newW;
-                    recordingsWindowRect.height = newH;
-                }
-                if (Event.current.type == EventType.MouseUp)
-                {
-                    isResizingRecordingsWindow = false;
-                    var ic = System.Globalization.CultureInfo.InvariantCulture;
-                    ParsekLog.Verbose("UI", $"Recordings window resize ended: w={recordingsWindowRect.width.ToString("F0", ic)} h={recordingsWindowRect.height.ToString("F0", ic)}");
-                }
-                if (Event.current.type == EventType.MouseDrag)
-                    Event.current.Use();
-            }
+            HandleResizeDrag(ref recordingsWindowRect, ref isResizingRecordingsWindow,
+                MinWindowWidth, MinWindowHeight, "Recordings window");
 
             EnsureOpaqueWindowStyle();
             recordingsWindowRect = ClickThruBlocker.GUILayoutWindow(
@@ -1162,13 +1118,13 @@ namespace Parsek
                 GUILayout.BeginHorizontal(GUILayout.Width(ColW_Hide));
                 GUILayout.FlexibleSpace();
                 GUILayout.Label("Hide");
-                bool newHideActive = GUILayout.Toggle(GroupHierarchyStore.hideActive, "");
+                bool newHideActive = GUILayout.Toggle(GroupHierarchyStore.HideActive, "");
                 GUILayout.FlexibleSpace();
                 GUILayout.EndHorizontal();
-                if (newHideActive != GroupHierarchyStore.hideActive)
+                if (newHideActive != GroupHierarchyStore.HideActive)
                 {
-                    GroupHierarchyStore.hideActive = newHideActive;
-                    ParsekLog.Info("UI", $"Hide active toggled: {GroupHierarchyStore.hideActive}");
+                    GroupHierarchyStore.HideActive = newHideActive;
+                    ParsekLog.Info("UI", $"Hide active toggled: {GroupHierarchyStore.HideActive}");
                 }
 
                 GUILayout.EndHorizontal();
@@ -1264,18 +1220,8 @@ namespace Parsek
 
             GUILayout.EndHorizontal();
 
-            // Resize handle (bottom-right corner)
-            Rect handleRect = new Rect(
-                recordingsWindowRect.width - ResizeHandleSize,
-                recordingsWindowRect.height - ResizeHandleSize,
-                ResizeHandleSize, ResizeHandleSize);
-            GUI.Label(handleRect, "\u25e2"); // triangle
-            if (Event.current.type == EventType.MouseDown && handleRect.Contains(Event.current.mousePosition))
-            {
-                isResizingRecordingsWindow = true;
-                ParsekLog.Verbose("UI", "Recordings window resize started");
-                Event.current.Use();
-            }
+            DrawResizeHandle(recordingsWindowRect, ref isResizingRecordingsWindow,
+                "Recordings window");
 
             GUI.DragWindow();
         }
@@ -1286,7 +1232,7 @@ namespace Parsek
         private bool DrawRecordingRow(int ri, List<Recording> committed, double now, float indentPx)
         {
             var rec = committed[ri];
-            if (rec.Hidden && GroupHierarchyStore.hideActive) return false;
+            if (rec.Hidden && GroupHierarchyStore.HideActive) return false;
             GUILayout.BeginHorizontal();
 
             // Enable checkbox (always at column 0)
@@ -1563,7 +1509,7 @@ namespace Parsek
             Dictionary<string, List<string>> grpChildren)
         {
             // Skip hidden groups when hide is active
-            if (GroupHierarchyStore.hideActive && GroupHierarchyStore.hiddenGroups.Contains(groupName))
+            if (GroupHierarchyStore.HideActive && GroupHierarchyStore.IsGroupHidden(groupName))
                 return false;
 
             // Collect unique descendant recordings for aggregate controls
@@ -1697,7 +1643,7 @@ namespace Parsek
             GUILayout.Label("", GUILayout.Width(ColW_Rewind));
 
             // Hide group checkbox
-            bool groupHidden = GroupHierarchyStore.hiddenGroups.Contains(groupName);
+            bool groupHidden = GroupHierarchyStore.IsGroupHidden(groupName);
             GUILayout.BeginHorizontal(GUILayout.Width(ColW_Hide));
             GUILayout.FlexibleSpace();
             bool newGroupHidden = GUILayout.Toggle(groupHidden, "");
@@ -1706,9 +1652,9 @@ namespace Parsek
             if (newGroupHidden != groupHidden)
             {
                 if (newGroupHidden)
-                    GroupHierarchyStore.hiddenGroups.Add(groupName);
+                    GroupHierarchyStore.AddHiddenGroup(groupName);
                 else
-                    GroupHierarchyStore.hiddenGroups.Remove(groupName);
+                    GroupHierarchyStore.RemoveHiddenGroup(groupName);
                 ParsekLog.Info("UI", $"Group '{groupName}' hidden={newGroupHidden}");
             }
 
@@ -1781,7 +1727,7 @@ namespace Parsek
         private bool DrawChainBlock(string chainId, List<int> members, int depth,
             List<Recording> committed, double now)
         {
-            if (GroupHierarchyStore.hideActive)
+            if (GroupHierarchyStore.HideActive)
             {
                 bool anyVisible = false;
                 for (int m = 0; m < members.Count; m++)
@@ -1942,7 +1888,7 @@ namespace Parsek
 
             // Determine parent group (null = root)
             string parentName;
-            GroupHierarchyStore.groupParents.TryGetValue(groupName, out parentName);
+            GroupHierarchyStore.TryGetGroupParent(groupName, out parentName);
 
             string subText = "";
             if (childCount > 0)
@@ -2028,7 +1974,7 @@ namespace Parsek
             // For group-in-group: checked = current parent (if any)
             groupPopupChecked = new HashSet<string>();
             string parent;
-            if (GroupHierarchyStore.groupParents.TryGetValue(groupName, out parent))
+            if (GroupHierarchyStore.TryGetGroupParent(groupName, out parent))
                 groupPopupChecked.Add(parent);
             groupPopupOriginal = new HashSet<string>(groupPopupChecked);
             groupPopupNewName = "";
@@ -2042,7 +1988,7 @@ namespace Parsek
             isResizingGroupPopup = false;
             groupPopupExpanded = new HashSet<string>();
             // Default: all groups expanded
-            foreach (var kvp in GroupHierarchyStore.groupParents)
+            foreach (var kvp in GroupHierarchyStore.GroupParents)
             {
                 groupPopupExpanded.Add(kvp.Value);
             }
@@ -2063,7 +2009,7 @@ namespace Parsek
 
             // Collect all group names
             var allNames = new HashSet<string>(RecordingStore.GetGroupNames());
-            foreach (var kvp in GroupHierarchyStore.groupParents)
+            foreach (var kvp in GroupHierarchyStore.GroupParents)
             {
                 allNames.Add(kvp.Key);
                 allNames.Add(kvp.Value);
@@ -2084,7 +2030,7 @@ namespace Parsek
 
             // Build hierarchy for display
             var parentToChildren = new Dictionary<string, List<string>>();
-            foreach (var kvp in GroupHierarchyStore.groupParents)
+            foreach (var kvp in GroupHierarchyStore.GroupParents)
             {
                 List<string> ch;
                 if (!parentToChildren.TryGetValue(kvp.Value, out ch))
@@ -2100,24 +2046,13 @@ namespace Parsek
             var rootNames = new List<string>();
             foreach (var n in allNames)
             {
-                if (!GroupHierarchyStore.groupParents.ContainsKey(n))
+                if (!GroupHierarchyStore.HasGroupParent(n))
                     rootNames.Add(n);
             }
             rootNames.Sort(System.StringComparer.OrdinalIgnoreCase);
 
-            // Handle resize drag (outside window function to track across frames)
-            if (isResizingGroupPopup)
-            {
-                if (Event.current.type == EventType.MouseDrag || Event.current.type == EventType.MouseUp)
-                {
-                    float newW = Mathf.Max(GroupPopupMinW, Event.current.mousePosition.x - groupPopupRect.x);
-                    float newH = Mathf.Max(GroupPopupMinH, Event.current.mousePosition.y - groupPopupRect.y);
-                    groupPopupRect.width = newW;
-                    groupPopupRect.height = newH;
-                }
-                if (Event.current.type == EventType.MouseUp)
-                    isResizingGroupPopup = false;
-            }
+            HandleResizeDrag(ref groupPopupRect, ref isResizingGroupPopup,
+                GroupPopupMinW, GroupPopupMinH, null);
 
             // Initialize popup rect on first open
             if (groupPopupRect.width < 1f)
@@ -2200,17 +2135,7 @@ namespace Parsek
             GUILayout.FlexibleSpace();
             GUILayout.EndHorizontal();
 
-            // Resize handle (bottom-right corner)
-            Rect handleRect = new Rect(
-                groupPopupRect.width - ResizeHandleSize,
-                groupPopupRect.height - ResizeHandleSize,
-                ResizeHandleSize, ResizeHandleSize);
-            GUI.Label(handleRect, "\u25e2");
-            if (Event.current.type == EventType.MouseDown && handleRect.Contains(Event.current.mousePosition))
-            {
-                isResizingGroupPopup = true;
-                Event.current.Use();
-            }
+            DrawResizeHandle(groupPopupRect, ref isResizingGroupPopup, null);
 
             GUI.DragWindow();
         }
@@ -2988,26 +2913,8 @@ namespace Parsek
                     $"Real Spawn Control window initial position: x={spawnControlWindowRect.x.ToString("F0", ic)} y={spawnControlWindowRect.y.ToString("F0", ic)}");
             }
 
-            // Handle resize drag
-            if (isResizingSpawnControlWindow)
-            {
-                if (Event.current.type == EventType.MouseDrag || Event.current.type == EventType.MouseUp)
-                {
-                    float newW = Mathf.Max(MinWindowWidth, Event.current.mousePosition.x - spawnControlWindowRect.x);
-                    float newH = Mathf.Max(MinWindowHeight, Event.current.mousePosition.y - spawnControlWindowRect.y);
-                    spawnControlWindowRect.width = newW;
-                    spawnControlWindowRect.height = newH;
-                }
-                if (Event.current.type == EventType.MouseUp)
-                {
-                    isResizingSpawnControlWindow = false;
-                    var ic = System.Globalization.CultureInfo.InvariantCulture;
-                    ParsekLog.Verbose("UI",
-                        $"Real Spawn Control window resize ended: w={spawnControlWindowRect.width.ToString("F0", ic)} h={spawnControlWindowRect.height.ToString("F0", ic)}");
-                }
-                if (Event.current.type == EventType.MouseDrag)
-                    Event.current.Use();
-            }
+            HandleResizeDrag(ref spawnControlWindowRect, ref isResizingSpawnControlWindow,
+                MinWindowWidth, MinWindowHeight, "Real Spawn Control window");
 
             EnsureOpaqueWindowStyle();
             spawnControlWindowRect = ClickThruBlocker.GUILayoutWindow(
@@ -3206,18 +3113,8 @@ namespace Parsek
                 GUILayout.Label(GUI.tooltip, GUI.skin.box);
             }
 
-            // Resize handle (bottom-right corner)
-            Rect handleRect = new Rect(
-                spawnControlWindowRect.width - ResizeHandleSize,
-                spawnControlWindowRect.height - ResizeHandleSize,
-                ResizeHandleSize, ResizeHandleSize);
-            GUI.Label(handleRect, "\u25e2");
-            if (Event.current.type == EventType.MouseDown && handleRect.Contains(Event.current.mousePosition))
-            {
-                isResizingSpawnControlWindow = true;
-                ParsekLog.Verbose("UI", "Real Spawn Control window resize started");
-                Event.current.Use();
-            }
+            DrawResizeHandle(spawnControlWindowRect, ref isResizingSpawnControlWindow,
+                "Real Spawn Control window");
 
             GUI.DragWindow();
         }
@@ -3613,6 +3510,56 @@ namespace Parsek
                 mapMarkerStyle.fontSize = 11;
                 mapMarkerStyle.fontStyle = FontStyle.Bold;
                 mapMarkerStyle.alignment = TextAnchor.UpperCenter;
+            }
+        }
+
+        /// <summary>
+        /// Handles resize drag for a window. Call before the window function.
+        /// Group Popup passes null for windowName to suppress logging.
+        /// </summary>
+        private static void HandleResizeDrag(ref Rect windowRect, ref bool isResizing,
+            float minWidth, float minHeight, string windowName)
+        {
+            if (!isResizing) return;
+
+            if (Event.current.type == EventType.MouseDrag || Event.current.type == EventType.MouseUp)
+            {
+                float newW = Mathf.Max(minWidth, Event.current.mousePosition.x - windowRect.x);
+                float newH = Mathf.Max(minHeight, Event.current.mousePosition.y - windowRect.y);
+                windowRect.width = newW;
+                windowRect.height = newH;
+            }
+            if (Event.current.type == EventType.MouseUp)
+            {
+                isResizing = false;
+                if (windowName != null)
+                {
+                    var ic = System.Globalization.CultureInfo.InvariantCulture;
+                    ParsekLog.Verbose("UI",
+                        $"{windowName} resize ended: w={windowRect.width.ToString("F0", ic)} h={windowRect.height.ToString("F0", ic)}");
+                }
+            }
+            if (Event.current.type == EventType.MouseDrag)
+                Event.current.Use();
+        }
+
+        /// <summary>
+        /// Draws a resize handle triangle and starts resize on mouse down.
+        /// Call at the end of the window draw function.
+        /// </summary>
+        private static void DrawResizeHandle(Rect windowRect, ref bool isResizing, string windowName)
+        {
+            Rect handleRect = new Rect(
+                windowRect.width - ResizeHandleSize,
+                windowRect.height - ResizeHandleSize,
+                ResizeHandleSize, ResizeHandleSize);
+            GUI.Label(handleRect, "\u25e2");
+            if (Event.current.type == EventType.MouseDown && handleRect.Contains(Event.current.mousePosition))
+            {
+                isResizing = true;
+                if (windowName != null)
+                    ParsekLog.Verbose("UI", $"{windowName} resize started");
+                Event.current.Use();
             }
         }
     }

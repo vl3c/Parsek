@@ -10,7 +10,6 @@ namespace Parsek
     internal static class GroupHierarchyStore
     {
         // Group hierarchy: child group name → parent group name
-        // TODO: Encapsulate behind accessor methods to reduce direct coupling from ParsekUI (~25 sites)
         internal static Dictionary<string, string> groupParents = new Dictionary<string, string>();
 
         // Hidden groups: group names hidden from the recordings list when Hide is active
@@ -30,6 +29,36 @@ namespace Parsek
         {
             get => hideActive;
             set => hideActive = value;
+        }
+
+        /// <summary>Add a group to the hidden set.</summary>
+        internal static void AddHiddenGroup(string groupName)
+        {
+            hiddenGroups.Add(groupName);
+        }
+
+        /// <summary>Remove a group from the hidden set.</summary>
+        internal static void RemoveHiddenGroup(string groupName)
+        {
+            hiddenGroups.Remove(groupName);
+        }
+
+        /// <summary>Check if a group is hidden.</summary>
+        internal static bool IsGroupHidden(string groupName)
+        {
+            return hiddenGroups.Contains(groupName);
+        }
+
+        /// <summary>Try to get the parent of a group.</summary>
+        internal static bool TryGetGroupParent(string groupName, out string parentName)
+        {
+            return groupParents.TryGetValue(groupName, out parentName);
+        }
+
+        /// <summary>Check if a group has a parent assigned.</summary>
+        internal static bool HasGroupParent(string groupName)
+        {
+            return groupParents.ContainsKey(groupName);
         }
 
         #region Hierarchy Operations

@@ -153,9 +153,8 @@ The shared core would need 3-4 parameters/flags to account for these differences
 ## Deferred from ParsekUI.cs
 
 ### D18. ParsekUI window resize drag duplication
-**What:** 4 windows (Recordings, Actions, Settings, Spawn Control) + Group Popup all have identical ~15-line resize drag blocks in their `*IfOpen` methods and identical ~10-line resize handle blocks in their draw methods.
-**Why deferred:** Extracting requires passing the rect, bool flag, and min dimensions through a shared helper. The IMGUI Event.current.Use() calls are order-sensitive — a shared helper could subtly break input consumption if the call order changes.
-**Revisit when:** Pass 3, if IMGUI code moves to its own subsystem.
+**What:** 4 windows (Recordings, Actions, Spawn Control) + Group Popup all have identical ~15-line resize drag blocks and ~10-line resize handle blocks.
+**Status:** **DONE** (T30). Extracted `HandleResizeDrag` and `DrawResizeHandle` static helpers with `ref Rect` + `ref bool` parameters. 8 call sites replaced. Group Popup passes null for windowName to suppress logging. Latent bugfix: Group Popup now gets `Event.current.Use()` on MouseDrag.
 
 ### D19. ParsekUI DrawSortableHeader / DrawSpawnSortableHeader near-duplicate
 **What:** Two near-identical sort header methods operating on different enum types (SortColumn vs SpawnSortColumn).
@@ -221,7 +220,7 @@ The shared core would need 3-4 parameters/flags to account for these differences
 | D15 | GhostVisualBuilder | ~300 | Medium | **DONE** (PR #82: SampleAnimationStates + AnimLookup) |
 | D16 | GhostVisualBuilder | ~300 | Medium | Closed — too many numeric params |
 | D17 | GhostVisualBuilder | ~30 | Low | Closed — guard param |
-| D18 | ParsekUI | ~125 | Medium | Open |
+| D18 | ParsekUI | ~125 | Medium | **DONE** (T30: HandleResizeDrag + DrawResizeHandle helpers) |
 | D19 | ParsekUI | ~40 | Low | Open |
 | D20 | ParsekFlight→GhostPlaybackEngine | ~2443 | High | **DONE** (T25: GhostPlaybackEngine 1553 lines + ParsekPlaybackPolicy 192 lines + interfaces) |
 | D21 | ParsekFlight | ~400-500 | High | Open — requires state isolation |
