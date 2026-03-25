@@ -669,6 +669,17 @@ namespace Parsek
                         skipPrelaunch: false);
             }
 
+            // Rewind strip already handled protoVessel cleanup in flightState.
+            // Clear pending data so OnFlightReady doesn't re-run with overbroad names
+            // that would match freshly-spawned past vessels (bug #134). The revert path's
+            // alreadyHasCleanupData guard (line ~352) will see null and collect
+            // fresh data from CollectSpawnedVesselInfo() if needed.
+            RecordingStore.PendingCleanupPids = null;
+            RecordingStore.PendingCleanupNames = null;
+            ParsekLog.Info("Rewind",
+                "OnLoad: cleared PendingCleanupPids/Names after strip — " +
+                "prevents OnFlightReady from destroying freshly-spawned past vessels");
+
             // Set budgetDeductionEpoch BEFORE scheduling coroutine
             // (prevents ApplyBudgetDeductionWhenReady from double-deducting)
             budgetDeductionEpoch = MilestoneStore.CurrentEpoch;
