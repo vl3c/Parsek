@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Globalization;
 using Parsek.Tests.Generators;
@@ -2449,6 +2450,12 @@ namespace Parsek.Tests
         }
 
         #endregion
+
+        public void Dispose()
+        {
+            RecordingStore.ResetForTesting();
+            ParsekLog.ResetTestOverrides();
+        }
     }
 
     /// <summary>
@@ -2800,11 +2807,5 @@ namespace Parsek.Tests
         }
 
         #endregion
-
-        public void Dispose()
-        {
-            RecordingStore.ResetForTesting();
-            ParsekLog.ResetTestOverrides();
-        }
     }
 }

@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using UnityEngine;
 using Xunit;
 
 namespace Parsek.Tests
@@ -35,6 +36,21 @@ namespace Parsek.Tests
             rec.Points.Add(new TrajectoryPoint { ut = 999999 });
             rec.Points.Add(new TrajectoryPoint { ut = 1000099 });
             return rec;
+        }
+
+        private List<TrajectoryPoint> MakePoints(int count, double startUT = 100)
+        {
+            var points = new List<TrajectoryPoint>();
+            for (int i = 0; i < count; i++)
+            {
+                points.Add(new TrajectoryPoint
+                {
+                    ut = startUT + i * 10,
+                    latitude = 0, longitude = 0, altitude = 100,
+                    velocity = new Vector3(10, 50, 0)
+                });
+            }
+            return points;
         }
 
         [Fact]
