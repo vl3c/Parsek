@@ -213,11 +213,11 @@ Implements `IResourceModule` (second-tier):
 
 ## Phase 4: Complex Modules
 
-### Task 10: Kerbals Module
+### Task 10a: Kerbals Module — Reservation and Chains
 
-**Overview:** Expand existing `CrewReservationManager` into full kerbals module. Design doc section 9.
+**Overview:** Core kerbal reservation and replacement chain system. Design doc section 9.1-9.7.
 
-**Extends:** `CrewReservationManager.cs` and/or new `KerbalsModule.cs` (~400 lines)
+**Extends:** `CrewReservationManager.cs` and/or new `KerbalsModule.cs` (~300 lines)
 
 Functionality:
 - UT=0 reservation per kerbal (continuous block, no gaps)
@@ -225,16 +225,34 @@ Functionality:
 - Replacement chains: per-slot, ordered by generation
 - Stand-in generation: same class, randomized attributes, 0 XP, free
 - Retired pool: displaced stand-ins that were used in recordings
-- XP accumulation: walk assignments, sum xpGained
-- Hiring: `KerbalHire` spending action, funds cost
-- Rescue: `KerbalRescue` closes stranded reservation
 - Dismissal protection: Parsek-managed kerbals cannot be dismissed
 
-**Tests:** `KerbalsModuleTests.cs` — all 8 verified scenarios from design doc 9.11, chain depth 3, stand-in dies within chain, permanent loss, multi-crew mission. ~20 tests.
+**Tests:** `KerbalsModuleTests.cs` — simple reservation (9.11 scenario 1), deep chain (scenario 2), stranded→rescued (scenario 3), rewind recomputes (scenario 4), stand-in dies within chain (scenario 6), permanent loss (scenario 7). ~15 tests.
 
-**Depends on:** Tasks 3, 8 (hiring is a funds spending).
+**Depends on:** Task 3.
+**Enables:** Task 10b.
+**Done when:** Chain scenarios from design doc 9.11 pass.
+
+---
+
+### Task 10b: Kerbals Module — XP, Hiring, Rescue
+
+**Overview:** XP accumulation, hiring as funds spending, rescue mechanics. Design doc sections 9.8-9.13.
+
+**Extends:** `KerbalsModule.cs` (~+150 lines)
+
+Functionality:
+- XP accumulation: walk assignments per kerbal, sum xpGained (banks on recovery only)
+- Hiring: `KerbalHire` spending action, funds cost (career mode)
+- Rescue: `KerbalRescue` closes stranded reservation
+- Existence timeline: default crew from UT=0, hired from hire UT, rescued from recovery UT
+- Astronaut Complex capacity: stand-ins and retired bypass the cap
+
+**Tests:** Multi-crew mission (scenario 5), XP walk, hiring cost flow to funds. ~8 tests.
+
+**Depends on:** Task 10a, Task 8 (hiring is a funds spending).
 **Enables:** Task 15 (roster patching).
-**Done when:** All verified scenarios from design doc 9.11 pass.
+**Done when:** XP and hiring scenarios pass.
 
 ---
 
@@ -421,7 +439,27 @@ Functionality:
 
 ---
 
-### Task 20: Logging Audit and Test Coverage
+### Task 20: Migration from Old Resource System
+
+**Overview:** Transition from existing `ResourceApplicator` point-by-point delta system to ledger-based recalculation. Handle saves that have existing recordings with old resource tracking.
+
+**Modifies:** `ResourceApplicator.cs`, `ParsekScenario.cs`, `ResourceBudget.cs`
+
+Functionality:
+- First-load migration: existing recordings have no ledger file → seed ledger from current game state
+- Deprecate `ResourceApplicator.TickStandalone/TickTrees` — replace with ledger tick
+- Deprecate `ResourceBudget.ComputeStandaloneDelta` — replace with ledger-derived available balances
+- Feature flag: allow gradual rollout (old system as fallback during development)
+- Backward compat: save files without ledger load normally using old system
+
+**Tests:** Migration scenarios — old save loads correctly, ledger seeded from game state. ~5 tests.
+
+**Depends on:** Tasks 15, 17 (new system must be working before migration).
+**Done when:** Old saves load and function correctly with new ledger system.
+
+---
+
+### Task 21: Logging Audit and Test Coverage
 
 **Overview:** Ensure every decision point in the new system has diagnostic logging. Expand test coverage to all verified scenarios from the design doc.
 
@@ -432,6 +470,23 @@ Functionality:
 
 ---
 
+### Task 22: Full Career End-to-End Test
+
+**Overview:** Implement the "Full Career Mun Landing Timeline" from design doc section 12 as an end-to-end integration test. This exercises all modules in combination.
+
+**New test file:** `Source/Parsek.Tests/FullCareerTimelineTests.cs`
+
+Functionality:
+- Build a complete Mun landing timeline programmatically (all 23 game actions from section 12)
+- Run full recalculation walk
+- Verify science balances, fund balances, milestone effective flags, contract state, kerbal reservations
+- Test retroactive commit: add a second recording before the first, verify recalculation handles priority
+
+**Depends on:** Tasks 4-12 (all modules).
+**Done when:** Full career scenario produces correct state across all modules.
+
+---
+
 ## Summary
 
 | Phase | Tasks | Description |
@@ -439,16 +494,16 @@ Functionality:
 | 1. Foundation | 1-3 | Data types, ledger I/O, recalculation engine |
 | 2. Simple Modules | 4-7 | Science, milestones, contracts (first-tier) |
 | 3. Second-Tier | 8-9 | Funds, reputation (depend on first-tier) |
-| 4. Complex Modules | 10-12 | Kerbals, facilities, strategies |
+| 4. Complex Modules | 10a-12 | Kerbals (reservation+chains, XP+hire), facilities, strategies |
 | 5. Integration | 13-17 | Event capture, commit, patching, warp, rewind |
-| 6. Polish | 18-20 | KSC spendings, UI, logging/tests |
+| 6. Polish | 18-22 | KSC spendings, UI, migration, logging/tests, end-to-end test |
 
 **Parallelization opportunities:**
 - Tasks 4, 6, 7 are independent first-tier modules — can run in parallel
 - Tasks 8, 9 can run in parallel (both second-tier, independent)
-- Tasks 10, 11, 12 can run in parallel (independent complex modules)
+- Tasks 10a, 11, 12 can run in parallel (independent complex modules)
 - Tasks 13, 14 are sequential
-- Tasks 18, 19, 20 can mostly run in parallel
+- Tasks 18, 19, 21 can mostly run in parallel
 
-**Estimated new tests:** ~140-160 tests across all modules
+**Estimated new tests:** ~160-180 tests across all modules
 **Estimated new code:** ~3500-4500 lines (excluding tests)
