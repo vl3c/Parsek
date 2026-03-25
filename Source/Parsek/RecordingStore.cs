@@ -1894,7 +1894,7 @@ namespace Parsek
                 rec.OrbitSegments.Add(DeserializeOrbitSegment(segNodes[s], ns, ic));
 
             if (!SuppressLogging)
-                ParsekLog.Verbose("Store", $"Deserialized {rec.OrbitSegments.Count} orbit segments");
+                ParsekLog.Verbose("RecordingStore", $"Deserialized {rec.OrbitSegments.Count} orbit segments");
         }
 
         /// <summary>
