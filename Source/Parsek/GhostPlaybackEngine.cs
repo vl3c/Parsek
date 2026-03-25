@@ -424,16 +424,24 @@ namespace Parsek
                             case GhostCapAction.SimplifyToOrbitLine:
                                 GhostPlaybackState simplifyState;
                                 if (ghostStates.TryGetValue(capIdx, out simplifyState) &&
-                                    simplifyState?.ghost != null && simplifyState.ghost.activeSelf)
+                                    simplifyState?.ghost != null && !simplifyState.simplified)
                                 {
-                                    simplifyState.ghost.SetActive(false);
+                                    if (simplifyState.ghost.activeSelf)
+                                        simplifyState.ghost.SetActive(false);
+                                    simplifyState.simplified = true;
                                     ParsekLog.Verbose("Engine",
-                                        $"SoftCap: simplified ghost #{capIdx} \"{vesselName}\" — mesh hidden");
+                                        $"SoftCap: SimplifyToOrbitLine ghost #{capIdx} \"{vesselName}\" — mesh hidden");
                                 }
                                 break;
                             case GhostCapAction.ReduceFidelity:
-                                ParsekLog.Verbose("Engine",
-                                    $"SoftCap: ReduceFidelity ghost #{capIdx} \"{vesselName}\" (no-op placeholder)");
+                                GhostPlaybackState reduceState;
+                                if (ghostStates.TryGetValue(capIdx, out reduceState) &&
+                                    reduceState?.ghost != null && !reduceState.fidelityReduced)
+                                {
+                                    GhostPlaybackLogic.ReduceGhostFidelity(reduceState);
+                                    ParsekLog.Verbose("Engine",
+                                        $"SoftCap: ReduceFidelity ghost #{capIdx} \"{vesselName}\"");
+                                }
                                 break;
                         }
                     }
@@ -447,6 +455,22 @@ namespace Parsek
                     ParsekLog.Verbose("Engine",
                         $"SoftCap resolved, clearing {softCapSuppressed.Count} suppressed ghosts");
                     softCapSuppressed.Clear();
+                }
+
+                // Restore fidelity and re-show simplified ghosts now that caps are resolved
+                foreach (var kvp in ghostStates)
+                {
+                    var capState = kvp.Value;
+                    if (capState == null) continue;
+                    if (capState.fidelityReduced)
+                        GhostPlaybackLogic.RestoreGhostFidelity(capState);
+                    if (capState.simplified && capState.ghost != null)
+                    {
+                        capState.ghost.SetActive(true);
+                        capState.simplified = false;
+                        ParsekLog.Verbose("Engine",
+                            $"SoftCap resolved: re-showing simplified ghost #{kvp.Key}");
+                    }
                 }
             }
         }

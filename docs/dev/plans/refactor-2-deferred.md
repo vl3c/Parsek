@@ -150,7 +150,7 @@ Items identified during refactoring but deferred for safety or scope reasons. Re
 
 ### D19. ParsekUI DrawSortableHeader / DrawSpawnSortableHeader near-duplicate
 **What:** Two near-identical sort header methods operating on different enum types (SortColumn vs SpawnSortColumn).
-**Why deferred:** Unifying requires a generic or interface, which changes the call pattern.
+**Status:** **DONE**. Extracted `DrawSortableHeaderCore<TCol>` with `ref TCol currentCol, ref bool ascending, Action onChanged`. Both wrappers delegate to the core. `ToggleSpawnSort` removed (absorbed into core). All 11 call sites unchanged.
 
 ---
 
@@ -215,6 +215,6 @@ Items identified during refactoring but deferred for safety or scope reasons. Re
 | D16 | GhostVisualBuilder | ~300 | Medium | Closed — too many numeric params |
 | D17 | GhostVisualBuilder | ~30 | Low | Closed — guard param |
 | D18 | ParsekUI | ~125 | Medium | **DONE** (T30: HandleResizeDrag + DrawResizeHandle helpers) |
-| D19 | ParsekUI | ~40 | Low | Open |
+| D19 | ParsekUI | ~40 | Low | **DONE** (DrawSortableHeaderCore<TCol> generic extraction) |
 | D20 | ParsekFlight→GhostPlaybackEngine | ~2443 | High | **DONE** (T25: GhostPlaybackEngine 1553 lines + ParsekPlaybackPolicy 192 lines + interfaces) |
 | D21 | ParsekFlight→ChainSegmentManager | ~400-500 | High | **DONE** (Phase 1: state isolation. Phase 2: 12 methods moved. CommitSegmentCore extracted. ParsekFlight -620 lines.) |

@@ -43,11 +43,9 @@ GitHub Actions workflow to build, run tests, package `GameData/Parsek/` into a z
 
 ## TODO — Performance
 
-### T5. ReduceFidelity and SimplifyToOrbitLine full implementations
+### ~~T5. ReduceFidelity and SimplifyToOrbitLine full implementations~~ DONE
 
-`GhostSoftCapManager` actions `ReduceFidelity` (mesh part culling) and `SimplifyToOrbitLine` (orbit line replacement) are placeholder — ghosts are hidden but not replaced with simplified representations.
-
-**Priority:** Medium — needed when ghost counts are high enough to trigger soft caps
+`ReduceFidelity` now disables 75% of renderers by index (keeps every 4th) for a coarse LOD silhouette. `SimplifyToOrbitLine` hides ghost mesh with `simplified` flag (orbit line rendering deferred to future). Both have frame-skip flags (`fidelityReduced`/`simplified`) to avoid re-processing. Caps-resolved branch restores fidelity and re-shows simplified ghosts.
 
 ### T6. LOD culling for distant ghost meshes
 

@@ -35,6 +35,8 @@ namespace Parsek
         public bool explosionFired;
         public bool pauseHidden;
         public bool rcsSuppressed;
+        public bool fidelityReduced;     // true when ReduceFidelity soft cap disabled some renderers
+        public bool simplified;          // true when SimplifyToOrbitLine soft cap hid the ghost mesh
         public Transform cameraPivot; // child of ghost; centroid of active parts — camera targets this
         public Vector3 lastInterpolatedVelocity;
         public string lastInterpolatedBodyName;

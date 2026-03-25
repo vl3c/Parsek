@@ -2231,5 +2231,44 @@ namespace Parsek
         }
 
         #endregion
+
+        #region Soft Cap Fidelity
+
+        /// <summary>
+        /// Reduces ghost visual fidelity by disabling a fraction of renderers.
+        /// Keeps approximately 1 in 4 renderers to maintain recognizable shape
+        /// while significantly reducing draw calls.
+        /// </summary>
+        internal static void ReduceGhostFidelity(GhostPlaybackState state)
+        {
+            if (state.ghost == null) return;
+            var renderers = state.ghost.GetComponentsInChildren<Renderer>(true);
+            int disabled = 0;
+            for (int i = 0; i < renderers.Length; i++)
+            {
+                // Keep every 4th renderer for a coarse silhouette
+                if (i % 4 == 0) continue;
+                if (!renderers[i].enabled) continue;
+                renderers[i].enabled = false;
+                disabled++;
+            }
+            state.fidelityReduced = true;
+            ParsekLog.Verbose("Visual", $"ReduceFidelity: disabled {disabled}/{renderers.Length} renderers");
+        }
+
+        /// <summary>
+        /// Restores full ghost visual fidelity by re-enabling all renderers.
+        /// </summary>
+        internal static void RestoreGhostFidelity(GhostPlaybackState state)
+        {
+            if (state.ghost == null) return;
+            var renderers = state.ghost.GetComponentsInChildren<Renderer>(true);
+            for (int i = 0; i < renderers.Length; i++)
+                renderers[i].enabled = true;
+            state.fidelityReduced = false;
+            ParsekLog.Verbose("Visual", "RestoreGhostFidelity: all renderers re-enabled");
+        }
+
+        #endregion
     }
 }

@@ -2414,27 +2414,37 @@ namespace Parsek
                 false, HighLogic.UISkin);
         }
 
-        private void DrawSortableHeader(string label, SortColumn col, float width, bool expand = false)
+        private void DrawSortableHeaderCore<TCol>(
+            string label, TCol col, ref TCol currentCol, ref bool ascending,
+            float width, bool expand, Action onChanged)
+            where TCol : struct
         {
-            string arrow = sortColumn == col ? (sortAscending ? " \u25b2" : " \u25bc") : "";
-            bool clicked;
-            if (expand)
-                clicked = GUILayout.Button(label + arrow, GUI.skin.label, GUILayout.ExpandWidth(true));
-            else
-                clicked = GUILayout.Button(label + arrow, GUI.skin.label, GUILayout.Width(width));
+            string arrow = EqualityComparer<TCol>.Default.Equals(currentCol, col)
+                ? (ascending ? " \u25b2" : " \u25bc") : "";
+            bool clicked = expand
+                ? GUILayout.Button(label + arrow, GUI.skin.label, GUILayout.ExpandWidth(true))
+                : GUILayout.Button(label + arrow, GUI.skin.label, GUILayout.Width(width));
 
             if (clicked)
             {
-                if (sortColumn == col)
-                    sortAscending = !sortAscending;
+                if (EqualityComparer<TCol>.Default.Equals(currentCol, col))
+                    ascending = !ascending;
                 else
                 {
-                    sortColumn = col;
-                    sortAscending = true;
+                    currentCol = col;
+                    ascending = true;
                 }
+                onChanged?.Invoke();
+            }
+        }
+
+        private void DrawSortableHeader(string label, SortColumn col, float width, bool expand = false)
+        {
+            DrawSortableHeaderCore(label, col, ref sortColumn, ref sortAscending, width, expand, () =>
+            {
                 InvalidateSort();
                 ParsekLog.Verbose("UI", $"Sort column changed: {sortColumn} {(sortAscending ? "asc" : "desc")}");
-            }
+            });
         }
 
         private void InvalidateSort()
@@ -2968,29 +2978,10 @@ namespace Parsek
 
         private void DrawSpawnSortableHeader(string label, SpawnSortColumn col, bool expand, float width)
         {
-            string arrow = spawnSortColumn == col ? (spawnSortAscending ? " \u25b2" : " \u25bc") : "";
-            if (expand)
+            DrawSortableHeaderCore(label, col, ref spawnSortColumn, ref spawnSortAscending, width, expand, () =>
             {
-                if (GUILayout.Button(label + arrow, GUI.skin.label, GUILayout.ExpandWidth(true)))
-                    ToggleSpawnSort(col);
-            }
-            else
-            {
-                if (GUILayout.Button(label + arrow, GUI.skin.label, GUILayout.Width(width)))
-                    ToggleSpawnSort(col);
-            }
-        }
-
-        private void ToggleSpawnSort(SpawnSortColumn col)
-        {
-            if (spawnSortColumn == col)
-                spawnSortAscending = !spawnSortAscending;
-            else
-            {
-                spawnSortColumn = col;
-                spawnSortAscending = true;
-            }
-            ParsekLog.Verbose("UI", $"Spawn sort changed: column={spawnSortColumn}, ascending={spawnSortAscending}");
+                ParsekLog.Verbose("UI", $"Spawn sort changed: column={spawnSortColumn}, ascending={spawnSortAscending}");
+            });
         }
 
         private int CompareSpawnCandidates(NearbySpawnCandidate a, NearbySpawnCandidate b)
