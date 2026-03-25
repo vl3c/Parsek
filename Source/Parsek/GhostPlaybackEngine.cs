@@ -249,8 +249,8 @@ namespace Parsek
 
             if (!ghostActive) return false;
 
-            // Re-show ghost after warp-down
-            if (!state.ghost.activeSelf && state.currentZone != RenderingZone.Beyond)
+            // Re-show ghost after warp-down (but not if soft cap simplified it)
+            if (!state.ghost.activeSelf && state.currentZone != RenderingZone.Beyond && !state.simplified)
             {
                 state.ghost.SetActive(true);
                 if (loggedReshow.Add(i))
@@ -611,7 +611,7 @@ namespace Parsek
 
                 ghostActive = true;
             }
-            else if (!state.ghost.activeSelf && state.currentZone != RenderingZone.Beyond)
+            else if (!state.ghost.activeSelf && state.currentZone != RenderingZone.Beyond && !state.simplified)
             {
                 state.ghost.SetActive(true);
                 if (loggedReshow.Add(index))

@@ -101,6 +101,8 @@ namespace Parsek
                 $"recording #{ContinuationRecordingIdx}");
             ContinuationVesselPid = 0;
             ContinuationRecordingIdx = -1;
+            ContinuationLastVelocity = Vector3.zero;
+            ContinuationLastUT = -1;
         }
 
         /// <summary>
@@ -612,12 +614,14 @@ namespace Parsek
                 return false;
             }
 
-            // Clean up continuation sampling if active
+            // Clean up all continuation sampling if active
             if (ContinuationVesselPid != 0)
             {
                 RefreshContinuationSnapshot();
                 StopContinuation("vessel-switch chain termination");
             }
+            if (UndockContinuationPid != 0)
+                StopUndockContinuation("vessel-switch chain termination");
 
             // Terminate chain — no continuation possible after vessel switch
             ParsekLog.Info("Chain", $"Chain terminated by vessel switch: chain={ActiveChainId}, " +
