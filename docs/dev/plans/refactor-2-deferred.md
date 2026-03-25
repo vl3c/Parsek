@@ -56,11 +56,9 @@ The shared core would need 3-4 parameters/flags to account for these differences
 
 ### D5. Ghost playback frame application dedup
 
-**What:** The sequence `PositionLoopGhost/InterpolateAndPosition → SetInterpolated → ApplyPartEvents → ApplyFlagEvents → UpdateReentryFx → RCS toggle` appears 4+ times across UpdateTimelinePlayback, UpdateLoopingTimelinePlayback, and UpdateOverlapLoopPlayback.
+**What:** The sequence `ApplyPartEvents → ApplyFlagEvents → UpdateReentryFx → RCS toggle` appears 4 times across UpdatePlayback, UpdateLoopingPlayback, and UpdateOverlapPlayback.
 
-**Why deferred:** The blocks are similar but not identical — each has different parameters for `suppressVisualFx`, anchor-relative mode, and seed offsets. Extracting would require 5+ parameters, making the helper signature unwieldy. The blocks are also deeply embedded in loop iterations with local variables.
-
-**Revisit when:** Pass 3. If the three playback methods move to a `TimelinePlaybackController` class, the shared pattern may be cleanable with instance state.
+**Status:** **DONE** (PR #85). Extracted `ApplyFrameVisuals` private method with `skipPartEvents` parameter to preserve Site 1 semantics (reentry FX + RCS run unconditionally even when part events are zone-skipped). 4 call sites updated.
 
 ---
 
@@ -82,11 +80,9 @@ The shared core would need 3-4 parameters/flags to account for these differences
 
 ### D8. UpdateTimelinePlayback full decomposition
 
-**What:** 681-line method with 18+ phases. Group B extracts FlushDeferredSpawns and EvaluateGhostSoftCaps (the bookend phases), but the 500-line per-recording loop body remains.
+**What:** UpdatePlayback loop body (~207 lines) with multiple phases: spawn, position, apply visuals, past-end handling.
 
-**Why deferred:** The loop body has heavy coupling to loop-local state (`ghostActive`, `inRange`, `pastEnd`, various flags). Extracting sub-phases would require passing 10+ local variables as parameters or converting them to fields (not allowed). The `continue` statements within the loop also prevent clean extraction.
-
-**Revisit when:** Pass 3. If timeline playback moves to its own class, the loop locals become instance fields and sub-methods become natural.
+**Status:** **DONE** (PR #85). Extracted `RenderInRangeGhost` (~84 lines, spawn + position + visuals) and `HandlePastEndGhost` (~47 lines, merged active/inactive past-end blocks). Loop body reduced from ~207 to ~70 lines. Uses `ref` params for state modified by spawn, return-bool for `continue` semantics. No instance field pollution — all loop-local state stays as locals.
 
 ---
 
@@ -212,10 +208,10 @@ The shared core would need 3-4 parameters/flags to account for these differences
 | D2 | ParsekFlight | ~316 | High | Open — **unblocked by D20 completion** (instance methods on GhostPlaybackEngine) |
 | D3 | ParsekFlight+ParsekKSC | ~120 | Low | **DONE** (Phase 3A Split 4: TrajectoryMath.InterpolatePoints) |
 | D4 | ParsekFlight+ParsekKSC | ~60 | Low | **DONE** (Phase 3A Split 4: shared positioning) |
-| D5 | ParsekFlight | ~80 | Medium | Open — **unblocked by D20 completion** |
+| D5 | GhostPlaybackEngine | ~80 | Medium | **DONE** (PR #85: ApplyFrameVisuals with skipPartEvents param) |
 | D6 | ParsekFlight | ~15 | N/A | Closed — below 5-line min |
 | D7 | ParsekFlight | ~75 | Low | **DONE** (CommitBoundaryAndRestart shared tail) |
-| D8 | GhostPlaybackEngine | ~500 | High | Open — **unblocked by D20 completion** (UpdatePlayback decomposition on engine) |
+| D8 | GhostPlaybackEngine | ~500 | High | **DONE** (PR #85: RenderInRangeGhost + HandlePastEndGhost, loop body 207→70 lines) |
 | D9 | ParsekFlight | ~194 | Low | Closed — minimal gain |
 | D10 | ParsekFlight | ~60 | Medium | Closed — API divergence |
 | D11 | BackgroundRecorder | ~736 | High | Open — intentional design |

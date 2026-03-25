@@ -175,7 +175,7 @@ Items identified during refactor-2 (March 2026) but deferred because they requir
 
 ### T25. ParsekFlight TimelinePlaybackController extraction (D20)
 
-**Status: DONE** — Completed as GhostPlaybackEngine (1553 lines) + ParsekPlaybackPolicy (192 lines) + IPlaybackTrajectory/IGhostPositioner/GhostPlaybackEvents interfaces. ParsekFlight reduced from ~9900 to 8657 lines. Engine has zero Recording references, accesses trajectories via IPlaybackTrajectory interface only. D2, D5, D8 now unblocked.
+**Status: DONE** — Completed as GhostPlaybackEngine (1553 lines) + ParsekPlaybackPolicy (192 lines) + IPlaybackTrajectory/IGhostPositioner/GhostPlaybackEvents interfaces. ParsekFlight reduced from ~9900 to 8657 lines. Engine has zero Recording references, accesses trajectories via IPlaybackTrajectory interface only. D5 and D8 now done (PR #85). D2 still open (blocked by T26).
 
 ### T26. ParsekFlight ChainSegmentManager extraction (D21)
 
