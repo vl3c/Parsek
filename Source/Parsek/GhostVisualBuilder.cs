@@ -4418,7 +4418,6 @@ namespace Parsek
             ref int meshCount, ref int damagedSkipped, ref int nullMeshSkipped)
         {
             int skinnedCloned = 0;
-            int partRootFallbackCount = 0;
             for (int r = 0; r < skinnedRenderers.Length; r++)
             {
                 var smr = skinnedRenderers[r];
@@ -4491,8 +4490,6 @@ namespace Parsek
                 ghostSmr.receiveShadows = smr.receiveShadows;
                 meshCount++;
                 skinnedCloned++;
-                if (usedPartRootFallbackForBones)
-                    partRootFallbackCount++;
             }
 
             return skinnedCloned;
