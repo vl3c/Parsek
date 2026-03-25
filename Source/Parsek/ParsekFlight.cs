@@ -124,23 +124,12 @@ namespace Parsek
         // Auto-record: EVA from pad triggers recording after vessel switch completes
         private bool pendingAutoRecord = false;
 
-        // Active chain being built (persists across segments)
-        private string activeChainId;          // null if not building a chain
-        private int activeChainNextIndex;      // next segment's ChainIndex
-        private string activeChainPrevId;      // previous segment's RecordingId (for ParentRecordingId)
-        private string activeChainCrewName;    // EVA crew name for current segment (null if vessel)
-
-        // Pending chain transition
-        private bool pendingChainContinuation; // true when a segment ended and next should start
-        private bool pendingChainIsBoarding;   // true = boarding (EVA→vessel), false = EVA exit
-        private string pendingChainEvaName;    // kerbal name for EVA transitions
+        // Chain segment management (T26 extraction)
+        private ChainSegmentManager chainManager;
 
         // Boarding confirmation via onCrewBoardVessel
         private uint pendingBoardingTargetPid; // vessel PID from onCrewBoardVessel, 0 = none
         private int boardingConfirmFrames;     // frames since boarding event (auto-clear after 3)
-
-        // Boundary anchor for chain continuation (copied from previous segment's last point)
-        private TrajectoryPoint? pendingBoundaryAnchor;
 
         // Pending dock/undock transitions (set by event handlers, consumed by Update)
         private uint pendingDockMergedPid;          // merged vessel pid, 0 = no pending dock
@@ -148,19 +137,6 @@ namespace Parsek
         private int dockConfirmFrames;              // frame counter for confirmation window (auto-clear after 5)
         private uint pendingUndockOtherPid;         // pid of vessel that split off, 0 = no pending undock
         private int undockConfirmFrames;            // frame counter for confirmation window
-
-        // Undock continuation (ghost-only recording for the other vessel)
-        private uint undockContinuationPid;         // 0 = not tracking
-        private int undockContinuationRecIdx = -1;
-        private Vector3 undockContinuationLastVel;
-        private double undockContinuationLastUT = -1;
-
-        // Continuation sampling: after a vessel chain segment commits (V→EVA),
-        // keeps tracking the original vessel so its trajectory extends beyond the EVA point.
-        private uint continuationVesselPid;        // 0 = not tracking
-        private int continuationRecordingIdx = -1; // index into CommittedRecordings
-        private Vector3 continuationLastVelocity;
-        private double continuationLastUT = -1;
 
         // Continuation adaptive sampling thresholds (read from settings, same as FlightRecorder)
         private static float continuationMaxInterval =>
@@ -314,7 +290,7 @@ namespace Parsek
                 return cachedTimelineGhosts;
             }
         }
-        public bool HasActiveChain => activeChainId != null;
+        public bool HasActiveChain => chainManager?.HasActiveChain ?? false;
         public bool HasActiveTree => activeTree != null;
 
         // Camera follow (watch mode)
@@ -349,6 +325,9 @@ namespace Parsek
             GameEvents.afterFlagPlanted.Add(OnAfterFlagPlanted);
 
             ui = new ParsekUI(this);
+
+            // Chain segment management (T26 extraction)
+            chainManager = new ChainSegmentManager();
 
             // Ghost playback engine + policy (T25 extraction)
             engine = new GhostPlaybackEngine(this);
@@ -385,10 +364,10 @@ namespace Parsek
 
             // Chain: auto-commit previous segment when recording stopped (EVA exit)
             // VesselSnapshot nulled in CommitChainSegment — mid-chain segments are ghost-only.
-            if (pendingChainContinuation && !pendingChainIsBoarding &&
+            if (chainManager.PendingContinuation && !chainManager.PendingIsBoarding &&
                 recorder != null && !recorder.IsRecording && recorder.CaptureAtStop != null)
             {
-                CommitChainSegment(recorder, pendingChainEvaName);
+                CommitChainSegment(recorder, chainManager.PendingEvaName);
                 recorder = null;
                 // pendingAutoRecord is still true — will start child EVA recording next
             }
@@ -880,12 +859,12 @@ namespace Parsek
                 // Fallback path (ForceStop): CaptureAtStop is null, so
                 // ApplyPersistenceArtifactsFrom didn't run. Apply chain
                 // metadata directly from the active fields.
-                if (RecordingStore.HasPending && activeChainId != null)
+                if (RecordingStore.HasPending && chainManager.ActiveChainId != null)
                 {
-                    RecordingStore.Pending.ChainId = activeChainId;
-                    RecordingStore.Pending.ChainIndex = activeChainNextIndex;
-                    RecordingStore.Pending.ParentRecordingId = activeChainPrevId;
-                    RecordingStore.Pending.EvaCrewName = activeChainCrewName;
+                    RecordingStore.Pending.ChainId = chainManager.ActiveChainId;
+                    RecordingStore.Pending.ChainIndex = chainManager.ActiveChainNextIndex;
+                    RecordingStore.Pending.ParentRecordingId = chainManager.ActiveChainPrevId;
+                    RecordingStore.Pending.EvaCrewName = chainManager.ActiveChainCrewName;
                 }
 
                 // Copy rewind fields from recorder (ForceStop bypasses ApplyPersistenceArtifactsFrom)
@@ -908,10 +887,10 @@ namespace Parsek
             }
 
             // Clear chain fields after both paths have consumed them
-            activeChainId = null;
-            activeChainNextIndex = 0;
-            activeChainPrevId = null;
-            activeChainCrewName = null;
+            chainManager.ActiveChainId = null;
+            chainManager.ActiveChainNextIndex = 0;
+            chainManager.ActiveChainPrevId = null;
+            chainManager.ActiveChainCrewName = null;
 
             // Capture vessel situation + PersistentId on the pending recording.
             // VesselPersistentId: safety net for the fallback path where
@@ -1008,30 +987,30 @@ namespace Parsek
             }
 
             // If the continuation vessel is destroyed, mark the recording and stop tracking
-            if (continuationVesselPid != 0 && v.persistentId == continuationVesselPid)
+            if (chainManager.ContinuationVesselPid != 0 && v.persistentId == chainManager.ContinuationVesselPid)
             {
-                if (continuationRecordingIdx >= 0 &&
-                    continuationRecordingIdx < RecordingStore.CommittedRecordings.Count)
+                if (chainManager.ContinuationRecordingIdx >= 0 &&
+                    chainManager.ContinuationRecordingIdx < RecordingStore.CommittedRecordings.Count)
                 {
-                    var rec = RecordingStore.CommittedRecordings[continuationRecordingIdx];
+                    var rec = RecordingStore.CommittedRecordings[chainManager.ContinuationRecordingIdx];
                     rec.VesselDestroyed = true;
                     rec.VesselSnapshot = null;
-                    Log($"Continuation vessel destroyed (pid={continuationVesselPid})");
+                    Log($"Continuation vessel destroyed (pid={chainManager.ContinuationVesselPid})");
                 }
-                StopContinuation("vessel destroyed");
+                chainManager.StopContinuation("vessel destroyed");
             }
 
             // If the undock continuation vessel is destroyed, stop tracking
-            if (undockContinuationPid != 0 && v.persistentId == undockContinuationPid)
+            if (chainManager.UndockContinuationPid != 0 && v.persistentId == chainManager.UndockContinuationPid)
             {
-                if (undockContinuationRecIdx >= 0 &&
-                    undockContinuationRecIdx < RecordingStore.CommittedRecordings.Count)
+                if (chainManager.UndockContinuationRecIdx >= 0 &&
+                    chainManager.UndockContinuationRecIdx < RecordingStore.CommittedRecordings.Count)
                 {
-                    var rec = RecordingStore.CommittedRecordings[undockContinuationRecIdx];
+                    var rec = RecordingStore.CommittedRecordings[chainManager.UndockContinuationRecIdx];
                     rec.VesselDestroyed = true;
-                    Log($"Undock continuation vessel destroyed (pid={undockContinuationPid})");
+                    Log($"Undock continuation vessel destroyed (pid={chainManager.UndockContinuationPid})");
                 }
-                StopUndockContinuation("vessel destroyed");
+                chainManager.StopUndockContinuation("vessel destroyed");
             }
         }
 
@@ -1401,10 +1380,10 @@ namespace Parsek
             // Create a new recorder and start recording with isPromotion
             recorder = new FlightRecorder();
             recorder.ActiveTree = activeTree;
-            if (pendingBoundaryAnchor.HasValue)
+            if (chainManager.PendingBoundaryAnchor.HasValue)
             {
-                recorder.BoundaryAnchor = pendingBoundaryAnchor;
-                pendingBoundaryAnchor = null;
+                recorder.BoundaryAnchor = chainManager.PendingBoundaryAnchor;
+                chainManager.PendingBoundaryAnchor = null;
             }
             recorder.StartRecording(isPromotion: true);
 
@@ -1738,10 +1717,10 @@ namespace Parsek
             }
 
             // Stop any existing undock continuation and vessel continuation (tree handles them)
-            if (undockContinuationPid != 0)
-                StopUndockContinuation("tree branch");
-            if (continuationVesselPid != 0)
-                StopContinuation("tree branch");
+            if (chainManager.UndockContinuationPid != 0)
+                chainManager.StopUndockContinuation("tree branch");
+            if (chainManager.ContinuationVesselPid != 0)
+                chainManager.StopContinuation("tree branch");
 
             // Create new FlightRecorder for active child
             recorder = new FlightRecorder();
@@ -1925,12 +1904,12 @@ namespace Parsek
                     pending.RewindReservedRep = captured.RewindReservedRep;
 
                     // Preserve chain membership if this segment was part of a chain
-                    if (activeChainId != null)
+                    if (chainManager.ActiveChainId != null)
                     {
-                        pending.ChainId = activeChainId;
-                        pending.ChainIndex = activeChainNextIndex;
-                        pending.ParentRecordingId = activeChainPrevId;
-                        pending.EvaCrewName = activeChainCrewName;
+                        pending.ChainId = chainManager.ActiveChainId;
+                        pending.ChainIndex = chainManager.ActiveChainNextIndex;
+                        pending.ParentRecordingId = chainManager.ActiveChainPrevId;
+                        pending.EvaCrewName = chainManager.ActiveChainCrewName;
                     }
 
                     // Set terminal state for destroyed vessels
@@ -1974,8 +1953,8 @@ namespace Parsek
                 }
 
                 RecordingStore.CommitPending();
-                string chainInfo = activeChainId != null
-                    ? $" (chain={activeChainId}, idx={activeChainNextIndex})"
+                string chainInfo = chainManager.ActiveChainId != null
+                    ? $" (chain={chainManager.ActiveChainId}, idx={chainManager.ActiveChainNextIndex})"
                     : " (standalone)";
                 ParsekLog.Info("Flight", $"Vessel destroyed during split — recording committed{chainInfo}");
             }
@@ -2746,14 +2725,14 @@ namespace Parsek
             }
 
             // 11. Clear stale standalone state
-            activeChainId = null;
-            activeChainNextIndex = 0;
-            activeChainPrevId = null;
-            activeChainCrewName = null;
-            if (undockContinuationPid != 0)
-                StopUndockContinuation("tree promotion");
-            if (continuationVesselPid != 0)
-                StopContinuation("tree promotion");
+            chainManager.ActiveChainId = null;
+            chainManager.ActiveChainNextIndex = 0;
+            chainManager.ActiveChainPrevId = null;
+            chainManager.ActiveChainCrewName = null;
+            if (chainManager.UndockContinuationPid != 0)
+                chainManager.StopUndockContinuation("tree promotion");
+            if (chainManager.ContinuationVesselPid != 0)
+                chainManager.StopContinuation("tree promotion");
 
             // 12. Start new FlightRecorder for continuation
             recorder = new FlightRecorder();
@@ -3046,7 +3025,7 @@ namespace Parsek
 
         void OnCrewBoardVessel(GameEvents.FromToAction<Part, Part> data)
         {
-            if (activeChainId == null && activeTree == null)
+            if (chainManager.ActiveChainId == null && activeTree == null)
             {
                 ParsekLog.Verbose("Flight", "OnCrewBoardVessel: no active chain or tree — ignoring");
                 return;
@@ -3078,7 +3057,7 @@ namespace Parsek
         void CommitChainSegment(FlightRecorder segmentRecorder, string evaCrewName)
         {
             string segmentId = segmentRecorder.CaptureAtStop.RecordingId;
-            Log($"Chain: committing segment (id={segmentId}, chainIdx={activeChainNextIndex})");
+            Log($"Chain: committing segment (id={segmentId}, chainIdx={chainManager.ActiveChainNextIndex})");
 
             RecordingStore.StashPending(
                 segmentRecorder.Recording,
@@ -3092,8 +3071,8 @@ namespace Parsek
             if (!RecordingStore.HasPending)
             {
                 Log("Chain: segment too short to stash — aborting chain continuation");
-                pendingChainContinuation = false;
-                pendingChainEvaName = null;
+                chainManager.PendingContinuation = false;
+                chainManager.PendingEvaName = null;
                 pendingAutoRecord = false;
                 return;
             }
@@ -3103,22 +3082,22 @@ namespace Parsek
                 $"GhostVisualSnapshot={RecordingStore.Pending.GhostVisualSnapshot != null}");
 
             // First transition: initialize chain
-            if (activeChainId == null)
+            if (chainManager.ActiveChainId == null)
             {
-                activeChainId = System.Guid.NewGuid().ToString("N");
-                activeChainNextIndex = 0;
+                chainManager.ActiveChainId = System.Guid.NewGuid().ToString("N");
+                chainManager.ActiveChainNextIndex = 0;
                 // Auto-group chain under a group named after the starting vessel.
                 // Use GenerateUniqueGroupName to avoid merging multiple launches into one group (bug #104).
                 string chainGroupName = RecordingStore.GenerateUniqueGroupName(
                     RecordingStore.Pending.VesselName ?? "Chain");
                 RecordingStore.Pending.RecordingGroups = new System.Collections.Generic.List<string> { chainGroupName };
-                Log($"Chain: started new chain (id={activeChainId}, group='{chainGroupName}')");
+                Log($"Chain: started new chain (id={chainManager.ActiveChainId}, group='{chainGroupName}')");
             }
 
             // Tag segment with chain metadata
-            RecordingStore.Pending.ChainId = activeChainId;
-            RecordingStore.Pending.ChainIndex = activeChainNextIndex;
-            RecordingStore.Pending.ParentRecordingId = activeChainPrevId;
+            RecordingStore.Pending.ChainId = chainManager.ActiveChainId;
+            RecordingStore.Pending.ChainIndex = chainManager.ActiveChainNextIndex;
+            RecordingStore.Pending.ParentRecordingId = chainManager.ActiveChainPrevId;
             RecordingStore.Pending.EvaCrewName = evaCrewName;
 
             RecordingStore.CommitPending();
@@ -3127,41 +3106,41 @@ namespace Parsek
 
             // Prepare boundary anchor from last point of committed segment
             if (segmentRecorder.Recording.Count > 0)
-                pendingBoundaryAnchor = segmentRecorder.Recording[segmentRecorder.Recording.Count - 1];
+                chainManager.PendingBoundaryAnchor = segmentRecorder.Recording[segmentRecorder.Recording.Count - 1];
 
             // Advance chain state
-            activeChainNextIndex++;
-            activeChainPrevId = segmentId;
+            chainManager.ActiveChainNextIndex++;
+            chainManager.ActiveChainPrevId = segmentId;
 
             // Continuation sampling: track the vessel after mid-chain commit
             if (!segmentRecorder.RecordingStartedAsEva)
             {
                 // Vessel segment committed (V→EVA): start continuation to extend trajectory
-                continuationVesselPid = segmentRecorder.RecordingVesselId;
-                continuationRecordingIdx = RecordingStore.CommittedRecordings.Count - 1;
-                var lastPoints = RecordingStore.CommittedRecordings[continuationRecordingIdx].Points;
+                chainManager.ContinuationVesselPid = segmentRecorder.RecordingVesselId;
+                chainManager.ContinuationRecordingIdx = RecordingStore.CommittedRecordings.Count - 1;
+                var lastPoints = RecordingStore.CommittedRecordings[chainManager.ContinuationRecordingIdx].Points;
                 if (lastPoints.Count > 0)
                 {
-                    continuationLastVelocity = lastPoints[lastPoints.Count - 1].velocity;
-                    continuationLastUT = lastPoints[lastPoints.Count - 1].ut;
+                    chainManager.ContinuationLastVelocity = lastPoints[lastPoints.Count - 1].velocity;
+                    chainManager.ContinuationLastUT = lastPoints[lastPoints.Count - 1].ut;
                 }
                 else
                 {
-                    continuationLastVelocity = Vector3.zero;
-                    continuationLastUT = -1;
+                    chainManager.ContinuationLastVelocity = Vector3.zero;
+                    chainManager.ContinuationLastUT = -1;
                 }
-                Log($"Continuation started: tracking vessel pid={continuationVesselPid} " +
-                    $"in recording #{continuationRecordingIdx}");
+                Log($"Continuation started: tracking vessel pid={chainManager.ContinuationVesselPid} " +
+                    $"in recording #{chainManager.ContinuationRecordingIdx}");
             }
-            else if (continuationVesselPid != 0)
+            else if (chainManager.ContinuationVesselPid != 0)
             {
                 // EVA segment committed during boarding (EVA→V): stop continuation,
                 // null the vessel segment's VesselSnapshot (new vessel segment handles spawning)
-                var vesselRec = RecordingStore.CommittedRecordings[continuationRecordingIdx];
+                var vesselRec = RecordingStore.CommittedRecordings[chainManager.ContinuationRecordingIdx];
                 vesselRec.VesselSnapshot = null;
                 Log($"Continuation stopped (boarding): nulled VesselSnapshot " +
-                    $"on recording #{continuationRecordingIdx}");
-                StopContinuation("boarding");
+                    $"on recording #{chainManager.ContinuationRecordingIdx}");
+                chainManager.StopContinuation("boarding");
             }
         }
 
@@ -3234,30 +3213,22 @@ namespace Parsek
         void UpdateContinuationSampling()
         {
             SampleContinuationVessel(
-                continuationVesselPid, ref continuationRecordingIdx,
-                ref continuationLastVelocity, ref continuationLastUT,
-                StopContinuation, "continuation");
-        }
-
-        void StopContinuation(string reason)
-        {
-            Log($"Continuation stopped ({reason}): was tracking pid={continuationVesselPid}, " +
-                $"recording #{continuationRecordingIdx}");
-            continuationVesselPid = 0;
-            continuationRecordingIdx = -1;
+                chainManager.ContinuationVesselPid, ref chainManager.ContinuationRecordingIdx,
+                ref chainManager.ContinuationLastVelocity, ref chainManager.ContinuationLastUT,
+                chainManager.StopContinuation, "continuation");
         }
 
         private void StopAllContinuations(string reason)
         {
-            if (continuationVesselPid != 0)
+            if (chainManager.ContinuationVesselPid != 0)
             {
                 RefreshContinuationSnapshot();
-                StopContinuation(reason);
+                chainManager.StopContinuation(reason);
             }
-            if (undockContinuationPid != 0)
+            if (chainManager.UndockContinuationPid != 0)
             {
                 RefreshUndockContinuationSnapshot();
-                StopUndockContinuation(reason);
+                chainManager.StopUndockContinuation(reason);
             }
         }
 
@@ -3311,7 +3282,7 @@ namespace Parsek
         void RefreshContinuationSnapshot()
         {
             RefreshContinuationSnapshotCore(
-                continuationVesselPid, continuationRecordingIdx, StopContinuation,
+                chainManager.ContinuationVesselPid, chainManager.ContinuationRecordingIdx, chainManager.StopContinuation,
                 r => r.VesselSnapshot, (r, s) => r.VesselSnapshot = s,
                 "Continuation");
         }
@@ -3763,22 +3734,22 @@ namespace Parsek
             }
 
             // First transition: initialize chain
-            if (activeChainId == null)
+            if (chainManager.ActiveChainId == null)
             {
-                activeChainId = System.Guid.NewGuid().ToString("N");
-                activeChainNextIndex = 0;
+                chainManager.ActiveChainId = System.Guid.NewGuid().ToString("N");
+                chainManager.ActiveChainNextIndex = 0;
                 // Use GenerateUniqueGroupName to avoid merging multiple launches into one group (bug #104).
                 string chainGroupName = RecordingStore.GenerateUniqueGroupName(
                     RecordingStore.Pending.VesselName ?? "Chain");
                 RecordingStore.Pending.RecordingGroups = new System.Collections.Generic.List<string> { chainGroupName };
-                Log($"Dock/Undock chain: started new chain (id={activeChainId}, group='{chainGroupName}')");
+                Log($"Dock/Undock chain: started new chain (id={chainManager.ActiveChainId}, group='{chainGroupName}')");
             }
 
             // Tag segment with chain metadata
-            RecordingStore.Pending.ChainId = activeChainId;
-            RecordingStore.Pending.ChainIndex = activeChainNextIndex;
+            RecordingStore.Pending.ChainId = chainManager.ActiveChainId;
+            RecordingStore.Pending.ChainIndex = chainManager.ActiveChainNextIndex;
             RecordingStore.Pending.ChainBranch = 0; // always primary path
-            RecordingStore.Pending.ParentRecordingId = activeChainPrevId;
+            RecordingStore.Pending.ParentRecordingId = chainManager.ActiveChainPrevId;
             RecordingStore.Pending.EvaCrewName = null; // vessel segment, not EVA
 
             // Mid-chain segments are ghost-only (VesselSnapshot nulled)
@@ -3790,11 +3761,11 @@ namespace Parsek
 
             // Prepare boundary anchor from last point of committed segment
             if (segmentRecorder.Recording.Count > 0)
-                pendingBoundaryAnchor = segmentRecorder.Recording[segmentRecorder.Recording.Count - 1];
+                chainManager.PendingBoundaryAnchor = segmentRecorder.Recording[segmentRecorder.Recording.Count - 1];
 
             // Advance chain state
-            activeChainNextIndex++;
-            activeChainPrevId = segmentId;
+            chainManager.ActiveChainNextIndex++;
+            chainManager.ActiveChainPrevId = segmentId;
         }
 
         /// <summary>
@@ -3807,16 +3778,16 @@ namespace Parsek
         {
             if (recorder == null || recorder.IsRecording || recorder.CaptureAtStop == null)
                 return;
-            if (activeChainId == null)
+            if (chainManager.ActiveChainId == null)
                 return;
-            if (pendingChainContinuation || recorder.ChainToVesselPending
+            if (chainManager.PendingContinuation || recorder.ChainToVesselPending
                 || recorder.DockMergePending || recorder.UndockSwitchPending)
                 return;
 
             var captured = recorder.CaptureAtStop;
             string segmentId = captured.RecordingId;
             ParsekLog.Info("Flight", $"Vessel-switch chain termination: committing final segment " +
-                $"(id={segmentId}, chain={activeChainId}, idx={activeChainNextIndex}, " +
+                $"(id={segmentId}, chain={chainManager.ActiveChainId}, idx={chainManager.ActiveChainNextIndex}, " +
                 $"points={recorder.Recording.Count}, orbits={recorder.OrbitSegments.Count})");
 
             RecordingStore.StashPending(
@@ -3833,10 +3804,10 @@ namespace Parsek
                 ParsekLog.Warn("Flight", "Vessel-switch chain termination: segment too short to stash — " +
                     $"aborting (points={recorder.Recording.Count})");
                 // Still clear chain state to avoid blocking CommitFlight
-                activeChainId = null;
-                activeChainNextIndex = 0;
-                activeChainPrevId = null;
-                activeChainCrewName = null;
+                chainManager.ActiveChainId = null;
+                chainManager.ActiveChainNextIndex = 0;
+                chainManager.ActiveChainPrevId = null;
+                chainManager.ActiveChainCrewName = null;
                 recorder = null;
                 return;
             }
@@ -3844,11 +3815,11 @@ namespace Parsek
             RecordingStore.Pending.ApplyPersistenceArtifactsFrom(captured);
 
             // Tag chain metadata
-            RecordingStore.Pending.ChainId = activeChainId;
-            RecordingStore.Pending.ChainIndex = activeChainNextIndex;
+            RecordingStore.Pending.ChainId = chainManager.ActiveChainId;
+            RecordingStore.Pending.ChainIndex = chainManager.ActiveChainNextIndex;
             RecordingStore.Pending.ChainBranch = 0;
-            RecordingStore.Pending.ParentRecordingId = activeChainPrevId;
-            RecordingStore.Pending.EvaCrewName = activeChainCrewName;
+            RecordingStore.Pending.ParentRecordingId = chainManager.ActiveChainPrevId;
+            RecordingStore.Pending.EvaCrewName = chainManager.ActiveChainCrewName;
             RecordingStore.Pending.VesselPersistentId = recorder.RecordingVesselId;
 
             // Derive segment phase/body from the recorded vessel (not ActiveVessel which changed)
@@ -3874,20 +3845,20 @@ namespace Parsek
             CrewReservationManager.SwapReservedCrewInFlight();
 
             // Clean up continuation sampling if active
-            if (continuationVesselPid != 0)
+            if (chainManager.ContinuationVesselPid != 0)
             {
                 RefreshContinuationSnapshot();
-                StopContinuation("vessel-switch chain termination");
+                chainManager.StopContinuation("vessel-switch chain termination");
             }
 
             // Terminate chain — no continuation possible after vessel switch
-            ParsekLog.Info("Flight", $"Chain terminated by vessel switch: chain={activeChainId}, " +
-                $"finalIdx={activeChainNextIndex}, segment={segmentId}, " +
+            ParsekLog.Info("Flight", $"Chain terminated by vessel switch: chain={chainManager.ActiveChainId}, " +
+                $"finalIdx={chainManager.ActiveChainNextIndex}, segment={segmentId}, " +
                 $"totalRecordings={RecordingStore.CommittedRecordings.Count}");
-            activeChainId = null;
-            activeChainNextIndex = 0;
-            activeChainPrevId = null;
-            activeChainCrewName = null;
+            chainManager.ActiveChainId = null;
+            chainManager.ActiveChainNextIndex = 0;
+            chainManager.ActiveChainPrevId = null;
+            chainManager.ActiveChainCrewName = null;
             recorder = null;
         }
 
@@ -3927,23 +3898,23 @@ namespace Parsek
             RecordingStore.Pending.SegmentBodyName = bodyName;
 
             // First transition: initialize chain
-            if (activeChainId == null)
+            if (chainManager.ActiveChainId == null)
             {
-                activeChainId = System.Guid.NewGuid().ToString("N");
-                activeChainNextIndex = 0;
+                chainManager.ActiveChainId = System.Guid.NewGuid().ToString("N");
+                chainManager.ActiveChainNextIndex = 0;
                 // Use GenerateUniqueGroupName to avoid merging multiple launches into one group (bug #104).
                 string chainGroupName = RecordingStore.GenerateUniqueGroupName(
                     RecordingStore.Pending.VesselName ?? "Chain");
                 RecordingStore.Pending.RecordingGroups = new System.Collections.Generic.List<string> { chainGroupName };
-                ParsekLog.Info("Flight", $"Boundary split: started new chain (id={activeChainId}, group='{chainGroupName}')");
+                ParsekLog.Info("Flight", $"Boundary split: started new chain (id={chainManager.ActiveChainId}, group='{chainGroupName}')");
             }
 
             // Tag segment with chain metadata
-            RecordingStore.Pending.ChainId = activeChainId;
-            RecordingStore.Pending.ChainIndex = activeChainNextIndex;
+            RecordingStore.Pending.ChainId = chainManager.ActiveChainId;
+            RecordingStore.Pending.ChainIndex = chainManager.ActiveChainNextIndex;
             RecordingStore.Pending.ChainBranch = 0;
-            RecordingStore.Pending.ParentRecordingId = activeChainPrevId;
-            RecordingStore.Pending.EvaCrewName = activeChainCrewName;
+            RecordingStore.Pending.ParentRecordingId = chainManager.ActiveChainPrevId;
+            RecordingStore.Pending.EvaCrewName = chainManager.ActiveChainCrewName;
 
             // Mid-chain segments are ghost-only
             RecordingStore.Pending.VesselSnapshot = null;
@@ -3954,13 +3925,13 @@ namespace Parsek
 
             // Prepare boundary anchor from last point of committed segment
             if (recorder.Recording.Count > 0)
-                pendingBoundaryAnchor = recorder.Recording[recorder.Recording.Count - 1];
+                chainManager.PendingBoundaryAnchor = recorder.Recording[recorder.Recording.Count - 1];
 
             // Advance chain state
-            activeChainNextIndex++;
-            activeChainPrevId = segmentId;
-            ParsekLog.Verbose("Flight", $"Boundary split committed: chain={activeChainId}, " +
-                $"nextIdx={activeChainNextIndex}, segment={bodyName} {completedPhase}, " +
+            chainManager.ActiveChainNextIndex++;
+            chainManager.ActiveChainPrevId = segmentId;
+            ParsekLog.Verbose("Flight", $"Boundary split committed: chain={chainManager.ActiveChainId}, " +
+                $"nextIdx={chainManager.ActiveChainNextIndex}, segment={bodyName} {completedPhase}, " +
                 $"totalRecordings={RecordingStore.CommittedRecordings.Count}");
         }
 
@@ -3971,8 +3942,8 @@ namespace Parsek
         void StartUndockContinuation(uint otherPid)
         {
             // Stop any existing continuation first
-            if (undockContinuationPid != 0)
-                StopUndockContinuation("replaced by new undock");
+            if (chainManager.UndockContinuationPid != 0)
+                chainManager.StopUndockContinuation("replaced by new undock");
 
             Vessel otherVessel = FlightRecorder.FindVesselByPid(otherPid);
             if (otherVessel == null)
@@ -4004,8 +3975,8 @@ namespace Parsek
             var contRec = new Recording
             {
                 VesselName = Recording.ResolveLocalizedName(otherVessel.vesselName) + " (undock continuation)",
-                ChainId = activeChainId,
-                ChainIndex = activeChainNextIndex - 1, // same index as the player's new segment
+                ChainId = chainManager.ActiveChainId,
+                ChainIndex = chainManager.ActiveChainNextIndex - 1, // same index as the player's new segment
                 ChainBranch = 1, // parallel branch — ghost-only, never spawns
                 GhostVisualSnapshot = ghostSnapshot,
                 RecordingId = System.Guid.NewGuid().ToString("N"),
@@ -4014,13 +3985,13 @@ namespace Parsek
             contRec.Points.Add(seedPoint);
 
             RecordingStore.CommittedRecordings.Add(contRec);
-            undockContinuationRecIdx = RecordingStore.CommittedRecordings.Count - 1;
-            undockContinuationPid = otherPid;
-            undockContinuationLastVel = velocity;
-            undockContinuationLastUT = ut;
+            chainManager.UndockContinuationRecIdx = RecordingStore.CommittedRecordings.Count - 1;
+            chainManager.UndockContinuationPid = otherPid;
+            chainManager.UndockContinuationLastVel = velocity;
+            chainManager.UndockContinuationLastUT = ut;
 
             Log($"Undock continuation started: tracking vessel pid={otherPid} " +
-                $"in recording #{undockContinuationRecIdx} (chain={activeChainId}, branch=1)");
+                $"in recording #{chainManager.UndockContinuationRecIdx} (chain={chainManager.ActiveChainId}, branch=1)");
         }
 
         /// <summary>
@@ -4030,18 +4001,9 @@ namespace Parsek
         void UpdateUndockContinuationSampling()
         {
             SampleContinuationVessel(
-                undockContinuationPid, ref undockContinuationRecIdx,
-                ref undockContinuationLastVel, ref undockContinuationLastUT,
-                StopUndockContinuation, "undock continuation");
-        }
-
-        void StopUndockContinuation(string reason)
-        {
-            Log($"Undock continuation stopped ({reason}): was tracking pid={undockContinuationPid}, " +
-                $"recording #{undockContinuationRecIdx}");
-            undockContinuationPid = 0;
-            undockContinuationRecIdx = -1;
-            undockContinuationLastUT = -1;
+                chainManager.UndockContinuationPid, ref chainManager.UndockContinuationRecIdx,
+                ref chainManager.UndockContinuationLastVel, ref chainManager.UndockContinuationLastUT,
+                chainManager.StopUndockContinuation, "undock continuation");
         }
 
         /// <summary>
@@ -4050,7 +4012,7 @@ namespace Parsek
         void RefreshUndockContinuationSnapshot()
         {
             RefreshContinuationSnapshotCore(
-                undockContinuationPid, undockContinuationRecIdx, StopUndockContinuation,
+                chainManager.UndockContinuationPid, chainManager.UndockContinuationRecIdx, chainManager.StopUndockContinuation,
                 r => r.GhostVisualSnapshot, (r, s) => r.GhostVisualSnapshot = s,
                 "Undock continuation");
         }
@@ -4327,17 +4289,8 @@ namespace Parsek
             preBreakVesselPids = null;
 
             // Clear chain state on flight ready (revert resets everything)
-            activeChainId = null;
-            activeChainNextIndex = 0;
-            activeChainPrevId = null;
-            activeChainCrewName = null;
-            pendingChainContinuation = false;
-            pendingChainIsBoarding = false;
-            pendingChainEvaName = null;
+            chainManager.ClearAll();
             pendingBoardingTargetPid = 0;
-            pendingBoundaryAnchor = null;
-            continuationVesselPid = 0;
-            continuationRecordingIdx = -1;
 
             // Clear dock/undock state
             pendingDockMergedPid = 0;
@@ -4345,9 +4298,6 @@ namespace Parsek
             dockConfirmFrames = 0;
             pendingUndockOtherPid = 0;
             undockConfirmFrames = 0;
-            undockContinuationPid = 0;
-            undockContinuationRecIdx = -1;
-            undockContinuationLastUT = -1;
 
             // Clear merge event detection state
             pendingTreeDockMerge = false;
@@ -4545,8 +4495,8 @@ namespace Parsek
                 if (IsRecording)
                 {
                     // Pass undock continuation pid so OnPhysicsFrame can detect sibling switch
-                    recorder.UndockSiblingPid = undockContinuationPid;
-                    Log($"Recording continues after dock (chain={activeChainId}, idx={activeChainNextIndex})");
+                    recorder.UndockSiblingPid = chainManager.UndockContinuationPid;
+                    Log($"Recording continues after dock (chain={chainManager.ActiveChainId}, idx={chainManager.ActiveChainNextIndex})");
                     ScreenMessage("Recording continues (docked)", 2f);
                 }
                 pendingDockMergedPid = 0;
@@ -4563,8 +4513,8 @@ namespace Parsek
                 StartRecording();
                 if (IsRecording)
                 {
-                    recorder.UndockSiblingPid = undockContinuationPid;
-                    Log($"Recording continues after dock as target (chain={activeChainId}, idx={activeChainNextIndex})");
+                    recorder.UndockSiblingPid = chainManager.UndockContinuationPid;
+                    Log($"Recording continues after dock as target (chain={chainManager.ActiveChainId}, idx={chainManager.ActiveChainNextIndex})");
                     ScreenMessage("Recording continues (docked)", 2f);
                 }
                 pendingDockAsTarget = false;
@@ -4583,8 +4533,8 @@ namespace Parsek
                 if (IsRecording)
                 {
                     StartUndockContinuation(pendingUndockOtherPid);
-                    recorder.UndockSiblingPid = undockContinuationPid;
-                    Log($"Recording continues after undock (chain={activeChainId}, idx={activeChainNextIndex})");
+                    recorder.UndockSiblingPid = chainManager.UndockContinuationPid;
+                    Log($"Recording continues after undock (chain={chainManager.ActiveChainId}, idx={chainManager.ActiveChainNextIndex})");
                     ScreenMessage("Recording continues (undocked)", 2f);
                 }
                 pendingUndockOtherPid = 0;
@@ -4600,16 +4550,16 @@ namespace Parsek
                 recorder = null;
 
                 // Stop existing undock continuation (we're switching roles)
-                if (undockContinuationPid != 0)
-                    StopUndockContinuation("sibling switch");
+                if (chainManager.UndockContinuationPid != 0)
+                    chainManager.StopUndockContinuation("sibling switch");
 
                 StartRecording();
                 if (IsRecording)
                 {
                     // The "old" vessel (remaining) becomes continuation
                     StartUndockContinuation(oldPid);
-                    recorder.UndockSiblingPid = undockContinuationPid;
-                    Log($"Recording continues after undock switch (chain={activeChainId}, idx={activeChainNextIndex})");
+                    recorder.UndockSiblingPid = chainManager.UndockContinuationPid;
+                    Log($"Recording continues after undock switch (chain={chainManager.ActiveChainId}, idx={chainManager.ActiveChainNextIndex})");
                     ScreenMessage("Recording continues (undocked)", 2f);
                 }
                 pendingUndockOtherPid = 0;
@@ -4657,7 +4607,7 @@ namespace Parsek
             pendingBoardingTargetPid = 0;
             boardingConfirmFrames = 0;
             pendingBoardingTargetInTree = false;
-            activeChainCrewName = null;
+            chainManager.ActiveChainCrewName = null;
 
             Log("Tree board merge completed");
         }
@@ -4673,7 +4623,7 @@ namespace Parsek
                 return;
 
             // Only continue the chain if we're already in one AND the boarding event confirmed
-            if (activeChainId != null &&
+            if (chainManager.ActiveChainId != null &&
                 pendingBoardingTargetPid != 0 &&
                 FlightGlobals.ActiveVessel != null &&
                 FlightGlobals.ActiveVessel.persistentId == pendingBoardingTargetPid)
@@ -4682,15 +4632,15 @@ namespace Parsek
                 pendingBoardingTargetPid = 0;
                 boardingConfirmFrames = 0;
 
-                CommitChainSegment(recorder, activeChainCrewName);
+                CommitChainSegment(recorder, chainManager.ActiveChainCrewName);
                 recorder = null;
 
                 // Start new vessel recording on the boarded vessel
-                activeChainCrewName = null; // vessel segment, not EVA
+                chainManager.ActiveChainCrewName = null; // vessel segment, not EVA
                 StartRecording();
                 if (IsRecording)
                 {
-                    Log($"Chain vessel recording started (chain={activeChainId}, idx={activeChainNextIndex})");
+                    Log($"Chain vessel recording started (chain={chainManager.ActiveChainId}, idx={chainManager.ActiveChainNextIndex})");
                     ScreenMessage("Recording STARTED (boarded vessel)", 2f);
                 }
             }
@@ -4719,7 +4669,7 @@ namespace Parsek
             StartRecording();
             if (IsRecording)
             {
-                recorder.UndockSiblingPid = undockContinuationPid;
+                recorder.UndockSiblingPid = chainManager.UndockContinuationPid;
                 ParsekLog.Info("Flight", logMessage);
                 ParsekLog.ScreenMessage(screenMessage, 2f);
             }
@@ -4752,10 +4702,10 @@ namespace Parsek
             string newPhase = recorder.EnteredAtmosphere ? "atmo" : "exo";
             string bodyName = FlightGlobals.ActiveVessel?.mainBody?.name ?? "Unknown";
             ParsekLog.Info("Flight", $"Atmosphere auto-split triggered: {bodyName} {phase}\u2192{newPhase} " +
-                $"(chain={activeChainId ?? "(new)"}, points={recorder.Recording.Count})");
+                $"(chain={chainManager.ActiveChainId ?? "(new)"}, points={recorder.Recording.Count})");
             CommitBoundaryAndRestart(phase, bodyName,
                 $"Recording continues after atmosphere boundary " +
-                    $"(chain={activeChainId}, idx={activeChainNextIndex}, {bodyName} {phase}\u2192{newPhase})",
+                    $"(chain={chainManager.ActiveChainId}, idx={chainManager.ActiveChainNextIndex}, {bodyName} {phase}\u2192{newPhase})",
                 $"Recording continues ({(newPhase == "atmo" ? "entering" : "exiting")} atmosphere)");
         }
 
@@ -4788,10 +4738,10 @@ namespace Parsek
             CelestialBody fromCB = FlightGlobals.Bodies?.Find(b => b.name == fromBody);
             string fromPhase = (fromCB != null && fromCB.atmosphere) ? "exo" : "space";
             ParsekLog.Info("Flight", $"SOI auto-split triggered: {fromBody} ({fromPhase}) \u2192 {toBody} " +
-                $"(chain={activeChainId ?? "(new)"}, points={recorder.Recording.Count})");
+                $"(chain={chainManager.ActiveChainId ?? "(new)"}, points={recorder.Recording.Count})");
             CommitBoundaryAndRestart(fromPhase, fromBody,
                 $"Recording continues after SOI change " +
-                    $"({fromBody} \u2192 {toBody}, chain={activeChainId}, idx={activeChainNextIndex})",
+                    $"({fromBody} \u2192 {toBody}, chain={chainManager.ActiveChainId}, idx={chainManager.ActiveChainNextIndex})",
                 $"Recording continues (entering {toBody} SOI)");
         }
 
@@ -4893,11 +4843,11 @@ namespace Parsek
             {
                 pendingAutoRecord = false;
 
-                if (pendingChainContinuation)
+                if (chainManager.PendingContinuation)
                 {
-                    pendingChainContinuation = false;
-                    pendingChainEvaName = null;
-                    Log($"Chain EVA recording started (chain={activeChainId}, idx={activeChainNextIndex}, crew={activeChainCrewName})");
+                    chainManager.PendingContinuation = false;
+                    chainManager.PendingEvaName = null;
+                    Log($"Chain EVA recording started (chain={chainManager.ActiveChainId}, idx={chainManager.ActiveChainNextIndex}, crew={chainManager.ActiveChainCrewName})");
                     ScreenMessage("Recording STARTED (EVA chain)", 2f);
                 }
                 else
@@ -4935,16 +4885,16 @@ namespace Parsek
         {
             // Chain continuations (atmosphere/SOI splits, dock/undock, boarding) are NOT
             // new launches — they must not capture a fresh rewind save.  The rewind save
-            // belongs to the chain root only.  activeChainId is set by
+            // belongs to the chain root only.  chainManager.ActiveChainId is set by
             // CommitBoundarySplit / CommitChainSegment / CommitDockUndockSegment *before*
             // this method is called, so a non-null value reliably indicates a continuation.
-            bool isContinuation = activeChainId != null;
+            bool isContinuation = chainManager.ActiveChainId != null;
 
             recorder = new FlightRecorder();
-            if (pendingBoundaryAnchor.HasValue)
+            if (chainManager.PendingBoundaryAnchor.HasValue)
             {
-                recorder.BoundaryAnchor = pendingBoundaryAnchor;
-                pendingBoundaryAnchor = null;
+                recorder.BoundaryAnchor = chainManager.PendingBoundaryAnchor;
+                chainManager.PendingBoundaryAnchor = null;
             }
             // Propagate tree mode to new recorder so DecideOnVesselSwitch uses tree decisions
             if (activeTree != null)
@@ -4976,7 +4926,7 @@ namespace Parsek
             GameEvents.onPartDeCoupleNewVesselComplete.Add(OnDecoupleNewVesselDuringSplitCheck);
 
             uint pid = FlightGlobals.ActiveVessel != null ? FlightGlobals.ActiveVessel.persistentId : 0;
-            ParsekLog.Info("Flight", $"StartRecording succeeded: pid={pid}, chainActive={activeChainId != null}, tree={activeTree != null}");
+            ParsekLog.Info("Flight", $"StartRecording succeeded: pid={pid}, chainActive={chainManager.ActiveChainId != null}, tree={activeTree != null}");
         }
 
         /// <summary>
@@ -5088,12 +5038,12 @@ namespace Parsek
             recorder?.StopRecording();
 
             // Tag the final segment with chain metadata if in a chain
-            if (recorder?.CaptureAtStop != null && activeChainId != null)
+            if (recorder?.CaptureAtStop != null && chainManager.ActiveChainId != null)
             {
-                recorder.CaptureAtStop.ChainId = activeChainId;
-                recorder.CaptureAtStop.ChainIndex = activeChainNextIndex;
-                recorder.CaptureAtStop.ParentRecordingId = activeChainPrevId;
-                recorder.CaptureAtStop.EvaCrewName = activeChainCrewName;
+                recorder.CaptureAtStop.ChainId = chainManager.ActiveChainId;
+                recorder.CaptureAtStop.ChainIndex = chainManager.ActiveChainNextIndex;
+                recorder.CaptureAtStop.ParentRecordingId = chainManager.ActiveChainPrevId;
+                recorder.CaptureAtStop.EvaCrewName = chainManager.ActiveChainCrewName;
             }
 
             // Tag final segment phase if untagged
@@ -5133,7 +5083,7 @@ namespace Parsek
             }
 
             // Guard: mid-chain recordings can't be committed standalone
-            if (activeChainId != null)
+            if (chainManager.ActiveChainId != null)
             {
                 ParsekLog.ScreenMessage("Cannot commit mid-chain \u2014 finish or revert first", 2f);
                 Log("CommitFlight blocked: active chain in progress");
@@ -6231,7 +6181,7 @@ namespace Parsek
                 var rec = committed[i];
                 bool hasData = rec.Points.Count >= 2 || rec.OrbitSegments.Count > 0 || rec.SurfacePos.HasValue;
 
-                bool isActiveChain = activeChainId != null && rec.ChainId == activeChainId;
+                bool isActiveChain = chainManager.ActiveChainId != null && rec.ChainId == chainManager.ActiveChainId;
                 bool chainLoopOrDisabled = rec.ChainId != null &&
                     (RecordingStore.IsChainLooping(rec.ChainId)
                      || RecordingStore.IsChainFullyDisabled(rec.ChainId));
@@ -6719,7 +6669,7 @@ namespace Parsek
         }
 
         public bool CanDeleteRecording =>
-            !IsRecording && continuationRecordingIdx < 0 && undockContinuationRecIdx < 0;
+            !IsRecording && chainManager.ContinuationRecordingIdx < 0 && chainManager.UndockContinuationRecIdx < 0;
 
         public void DeleteRecording(int index)
         {
@@ -6734,7 +6684,7 @@ namespace Parsek
             {
                 ParsekLog.Warn("Flight",
                     $"DeleteRecording blocked: index={index}, isRecording={IsRecording}, " +
-                    $"continuationRecordingIdx={continuationRecordingIdx}, undockContinuationRecIdx={undockContinuationRecIdx}");
+                    $"chainManager.ContinuationRecordingIdx={chainManager.ContinuationRecordingIdx}, chainManager.UndockContinuationRecIdx={chainManager.UndockContinuationRecIdx}");
                 return;
             }
 
@@ -8508,7 +8458,7 @@ namespace Parsek
                     continue;
 
                 // Check spawn eligibility
-                bool isActiveChainMember = activeChainId != null && rec.ChainId == activeChainId;
+                bool isActiveChainMember = chainManager.ActiveChainId != null && rec.ChainId == chainManager.ActiveChainId;
                 bool isChainLoopingOrDisabled = !string.IsNullOrEmpty(rec.ChainId) &&
                     (RecordingStore.IsChainLooping(rec.ChainId) ||
                      RecordingStore.IsChainFullyDisabled(rec.ChainId));
