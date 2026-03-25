@@ -585,7 +585,7 @@ namespace Parsek
 
                 SafeWriteConfigNode(rootNode, path);
 
-                ParsekLog.Info("GameStateStore", $"Saved baseline at UT {baseline.ut:F0} to {path}");
+                ParsekLog.Verbose("GameStateStore", $"Saved baseline at UT {baseline.ut:F0} to {path}");
                 return true;
             }
             catch (Exception ex)

@@ -1981,7 +1981,6 @@ namespace Parsek
         {
             if (events == null || events.Count == 0)
             {
-                Log("[Recording] SerializeSegmentEvents: 0 segment events");
                 return;
             }
 
@@ -2121,7 +2120,7 @@ namespace Parsek
                     $"frames={frameCount} checkpoints={checkpointCount}");
             }
 
-            ParsekLog.Info("RecordingStore",
+            ParsekLog.Verbose("RecordingStore",
                 $"SerializeTrackSections: serialized {tracks.Count} track section(s)");
         }
 
@@ -2247,7 +2246,7 @@ namespace Parsek
                     $"frames={frameCount} checkpoints={checkpointCount}");
             }
 
-            ParsekLog.Info("RecordingStore",
+            ParsekLog.Verbose("RecordingStore",
                 $"DeserializeTrackSections: deserialized {tracks.Count} track section(s) from {tsNodes.Length} node(s)");
         }
 
@@ -2329,7 +2328,8 @@ namespace Parsek
                         SafeWriteConfigNode(rec.GhostVisualSnapshot, ghostPath);
                 }
 
-                Log($"[Parsek] Saved recording files for {rec.RecordingId}: points={rec.Points.Count}, " +
+                ParsekLog.Verbose("RecordingStore",
+                    $"Saved recording files for {rec.RecordingId}: points={rec.Points.Count}, " +
                     $"orbitSegments={rec.OrbitSegments.Count}, partEvents={rec.PartEvents.Count}, " +
                     $"hasVesselSnapshot={rec.VesselSnapshot != null}, hasGhostSnapshot={rec.GhostVisualSnapshot != null}");
 
@@ -2414,7 +2414,8 @@ namespace Parsek
                 if (rec.GhostVisualSnapshot == null && rec.VesselSnapshot != null)
                     rec.GhostVisualSnapshot = rec.VesselSnapshot.CreateCopy();
 
-                Log($"[Parsek] Loaded recording files for {rec.RecordingId}: points={rec.Points.Count}, " +
+                ParsekLog.Verbose("RecordingStore",
+                    $"Loaded recording files for {rec.RecordingId}: points={rec.Points.Count}, " +
                     $"orbitSegments={rec.OrbitSegments.Count}, partEvents={rec.PartEvents.Count}, " +
                     $"hasVesselSnapshot={rec.VesselSnapshot != null}, hasGhostSnapshot={rec.GhostVisualSnapshot != null}");
 
