@@ -1664,6 +1664,22 @@ Log evidence: `CrewStatusChanged 'Bob Kerman' Assigned → Missing` at UT 115.6,
 
 **Status:** Open
 
+## 138. [v0.5.3] Log spam audit: untagged messages, wrong levels, per-renderer noise
+
+Comprehensive log audit of a 70-second KSC session with 273 recordings. Parsek produced 19,771 lines (68.4% of all KSP.log output). Three categories of issues found and fixed:
+
+1. **Untagged messages (2,651 INFO lines):** 26 `ParsekLog.Log()` calls in EngineFxBuilder (16) and GhostVisualBuilder (10) bypassed subsystem tagging — all appeared as `[General]`, making grep-by-subsystem useless for 55% of INFO output. Migrated to proper `Verbose("EngineFx")` / `Verbose("GhostVisual")` / `Info("GhostVisual")`. Deleted `ParsekLog.Log()` method.
+
+2. **Wrong log levels (3,495 INFO lines):** ReentryFx mesh combination messages (2×1,074 = 2,148 lines) fired per ghost build at INFO — should be VERBOSE. KSC per-ghost spawn/enter/reshow/destroy messages (1,347 lines) at INFO — per-ghost detail is VERBOSE, batch summary is INFO.
+
+3. **Per-renderer VERBOSE noise (~5,000+ lines):** Individual `MR[N]`/`SMR[N]` logs (1,041), per-renderer damaged-wheel skip logs, and per-SMR bone fallback logs all used per-renderer rate-limit keys, producing one log per unique renderer across all ghost builds. Removed — the per-part summary already captures the same totals.
+
+Additionally: FlightRecorder `Recorded point` Verbose → VerboseRateLimited (5s), overlap ghost destroy rate-limited, KSC ghost destroy rate-limited, `Store`→`RecordingStore` and `GhostBuild`→`GhostVisual` tag consolidation.
+
+Full analysis in `docs/dev/log-audit-2026-03-25.md`.
+
+**Status:** Fixed
+
 # In-Game Tests
 
 - [ ] Vessels propagate naturally along orbits after FF (no position freezing)

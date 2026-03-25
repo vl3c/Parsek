@@ -4,6 +4,26 @@ All notable changes to Parsek are documented here.
 
 ---
 
+## 0.5.3
+
+Log spam audit and cleanup. Analyzed a 28,923-line KSP.log from a 70-second KSC session with 273 recordings — Parsek was 68.4% of all output (19,771 lines). Identified and fixed the top spam sources.
+
+### Log Cleanup
+
+- **Removed `ParsekLog.Log()` method** — all 26 call sites (16 in EngineFxBuilder, 10 in GhostVisualBuilder) were using the subsystem-less `Log()` wrapper, producing 2,651 lines tagged as `[General]` (55% of all INFO output). Migrated to proper `Verbose("EngineFx")` / `Verbose("GhostVisual")` / `Info("GhostVisual")`. Deleted the method to prevent future untagged usage.
+- **ReentryFx INFO→VERBOSE** — mesh combination and fire shell overlay messages fired per ghost build at INFO level (2,148 lines in 70s). Downgraded to Verbose.
+- **KSC per-ghost spawn/destroy INFO→VERBOSE** — per-ghost spawn, enter-range, re-show, warp-hide, and no-longer-eligible messages at INFO level (1,347 lines). Downgraded to Verbose. Added batch summary in OnDestroy (`Destroyed N primary + N overlap KSC ghosts`).
+- **FlightRecorder point logging rate-limited** — `Recorded point #N` logged every 10th physics frame at Verbose without rate limiting (~50 lines/sec during recording). Changed to `VerboseRateLimited` with 5s interval.
+- **Mass ghost teardown batched** — KSC `DestroyKscGhost` per-ghost log (277 consecutive in one burst) changed to `VerboseRateLimited`. Overlap ghost destroy in `GhostPlaybackEngine` similarly rate-limited.
+- **Per-renderer VERBOSE diagnostics removed** — individual MR[N]/SMR[N] per-renderer logs (1,041+ lines), per-renderer damaged-wheel skip logs, and per-SMR bone fallback logs removed. Per-part summary already captures the same counts.
+- **Subsystem tag consolidation** — `Store`→`RecordingStore` (1 occurrence), `GhostBuild`→`GhostVisual` (5 occurrences). Reduces tag count from 63 to 61.
+
+### Documentation
+
+- Log audit report: `docs/dev/log-audit-2026-03-25.md`
+
+---
+
 ## 0.5.2
 
 Second-pass structural refactoring + game action system modularization + continued decomposition. ~80 method extractions, ~105 logging additions, 103 new tests. 1 latent bug fixed, 1 latent IMGUI bugfix. Zero logic changes (except bug fixes).
