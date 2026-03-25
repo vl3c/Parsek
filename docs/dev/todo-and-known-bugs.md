@@ -799,7 +799,7 @@ xUnit eagerly instantiates test classes, so one class's constructor can overwrit
 
 `SessionMerger.ComputeBoundaryDiscontinuity` uses `const double bodyRadius = 600000.0` (Kerbin). Wrong for Mun (200km), Eve (700km), etc. Diagnostic-only — logged magnitude is inaccurate on non-Kerbin bodies, doesn't affect playback.
 
-**Status:** Open — low priority
+**Status:** Fixed — added stock body radii dictionary and `GetBodyRadius` helper; `ComputeBoundaryDiscontinuity` now uses `lastPrev.bodyName` to look up the correct radius
 
 ## 49. ~~RealVesselExists O(n) per frame~~
 
@@ -1022,7 +1022,7 @@ Related to the general "initial part state" problem — the ghost builder needs 
 
 Unlike `CheckOverlapAgainstLoadedVessels` which properly excludes Debris/EVA/Flag/SpaceObject and `FlightGlobals.ActiveVessel`, the `CheckWarningProximity` method includes everything. The player's own vessel at distance ~0 would always be the "closest vessel", making proximity warnings fire constantly with the player's own name. Should apply the same filters as `CheckOverlapAgainstLoadedVessels`.
 
-**Status:** Open
+**Status:** Fixed — extracted `ShouldSkipVesselType` helper, applied in both `CheckOverlapAgainstLoadedVessels` and `CheckWarningProximity`
 
 ## 74. FlightRecorder.SamplePosition ignores RELATIVE mode at on-rails boundary
 
@@ -1046,7 +1046,7 @@ Lines 90-97: For `ecc >= 1.0 || sma <= 0`, the fallback returns `(0, 0, sma - bo
 
 Lines 37, 42-44 in `TerrainCorrector.cs` use `$"{corrected:F1}"` string interpolation which uses the system locale (comma on some machines). Inconsistent with the project's InvariantCulture policy. Only affects log output, not gameplay or serialization.
 
-**Status:** Open — cosmetic
+**Status:** Fixed — added `CultureInfo.InvariantCulture` field and replaced all 8 `{val:F1}` interpolation sites with `.ToString("F1", IC)`
 
 ## 78. RecordingTree.DetermineTerminalState maps DOCKED to Orbiting
 
