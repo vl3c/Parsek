@@ -46,8 +46,10 @@ Required sections (always include):
 Include when relevant:
 - Terminology (if introducing new concepts distinct from KSP's model)
 - Mental Model (if the system has non-obvious state or flow)
+- KSP API Surface (verified method signatures, gotchas from decompilation — include in the design doc when design decisions depend on API behavior, don't defer to inventory)
 - Existing Systems: What Changes vs What's New
-- What Doesn't Change / Out of Scope
+- Out of Scope (things the feature *could* do but won't)
+- What Doesn't Change (existing systems unaffected)
 - Backward Compatibility (if touching saves or recording format)
 - Performance Budget (if per-frame or scaling operations)
 - Error Recovery (if I/O, scene changes, or KSP API failure are concerns)
@@ -138,10 +140,16 @@ Exhaustive for the feature's complexity. Group by category
 **Expected behavior:** What should happen.
 **Deferred reason:** (if deferred) Why, and when to revisit.
 
+## Out of Scope
+
+Things this feature *could* do but explicitly won't. This is the primary
+scope creep prevention tool — it tells implementation agents "do not
+build this, even if it seems like a natural extension."
+
 ## What Doesn't Change
 
-Systems and behaviors NOT affected by this redesign. Prevents scope creep
-and gives reviewers confidence.
+Existing systems and behaviors NOT affected by this redesign. Gives
+reviewers confidence that unrelated code is preserved.
 
 ## Backward Compatibility
 
