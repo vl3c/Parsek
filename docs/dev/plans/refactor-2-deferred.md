@@ -24,15 +24,7 @@ Items identified during refactoring but deferred for safety or scope reasons. Re
 
 **What:** 4 methods (~316 lines) share a stash-tag-commit-advance pattern (~60% identical code).
 
-**Why deferred:** A callback-based `CommitChainSegmentCore(Action<Recording> preCommitCustomization)` changes the call pattern. Each method has unique pre/post steps:
-- CommitChainSegment: EVA crew name + continuation sampling post-commit
-- CommitDockUndockSegment: dock/undock PartEvent injection + `ChainBranch = 0`
-- CommitBoundarySplit: SegmentPhase/SegmentBodyName tagging
-- HandleVesselSwitchChainTermination: derives phase/body from vessel, does NOT null VesselSnapshot, terminates chain instead of advancing, handles continuation cleanup
-
-The shared core would need 3-4 parameters/flags to account for these differences, making the "helper" harder to reason about than the current explicit copies.
-
-**Revisit when:** Pass 3. If chain management is extracted to its own class (`ChainSegmentManager`), the pattern may be cleanable with an instance method that owns the shared state.
+**Status:** **DONE** (T28). Extracted `CommitSegmentCore(FlightRecorder, string, Action<Recording>, bool)` on ChainSegmentManager. Used by CommitChainSegment and CommitDockUndockSegment via `Action<Recording>` callback for per-method customization. CommitBoundarySplit and CommitVesselSwitchTermination have special stash paths (nullable CaptureAtStop, extra metadata) and handle stash inline — the shared pattern didn't fit cleanly for these two.
 
 ---
 
@@ -174,11 +166,13 @@ The shared core would need 3-4 parameters/flags to account for these differences
 ### D21. ChainSegmentManager from ParsekFlight (~400-500 lines)
 **What:** Extract chain state and chain methods into a ChainSegmentManager class.
 
-**Phase 1 — DONE:** State isolation completed. 16 chain state fields moved to `ChainSegmentManager`. ~150 field accesses in ParsekFlight migrated to `chainManager.X`. `ClearAll()` replaces scattered field resets. `StopContinuation` and `StopUndockContinuation` moved as pure methods.
+**Status:** **DONE** (T26 Phase 1 + Phase 2).
+- Phase 1: 16 chain state fields moved to ChainSegmentManager. ~150 field accesses migrated.
+- Phase 2: 12 methods (~505 lines) moved. Group A (8 pure continuation methods) moved directly. Group B (4 commit methods) refactored: receive recorder as parameter, return bool for abort handling. `CommitVesselSwitchTermination` split from `HandleVesselSwitchChainTermination` (guards + recorder=null stay as thin wrapper on ParsekFlight).
+- 3 orchestration methods stay on ParsekFlight (HandleDockUndockCommitRestart, HandleChainBoardingTransition, CommitBoundaryAndRestart — own StartRecording lifecycle).
+- ChainSegmentManager: 687 lines. ParsekFlight net -620 lines.
 
-**Phase 2 — Open:** Move complex orchestration methods (CommitChainSegment, CommitDockUndockSegment, CommitBoundarySplit, HandleVesselSwitchChainTermination, HandleDockUndockCommitRestart). Blocked: these methods interleave with `recorder` lifecycle (`StopRecordingForChainBoundary`, `recorder = null`) and call `StartRecording()`. Requires callback/interface pattern or method splitting.
-
-**Enables if done:** D2 (commit-pattern dedup — the 4 commit methods could share a core method on the manager instance).
+**Enabled:** D2 (CommitSegmentCore extracted, T28 done).
 
 ---
 
@@ -204,7 +198,7 @@ The shared core would need 3-4 parameters/flags to account for these differences
 | ID | File | Lines affected | Risk | Status |
 |----|------|---------------|------|--------|
 | D1 | ParsekFlight | ~160 | Medium | Open — conditional flags needed |
-| D2 | ParsekFlight | ~316 | High | Open — **unblocked by D20 completion** (instance methods on GhostPlaybackEngine) |
+| D2 | ChainSegmentManager | ~316 | High | **DONE** (T28: CommitSegmentCore + per-method customization callbacks) |
 | D3 | ParsekFlight+ParsekKSC | ~120 | Low | **DONE** (Phase 3A Split 4: TrajectoryMath.InterpolatePoints) |
 | D4 | ParsekFlight+ParsekKSC | ~60 | Low | **DONE** (Phase 3A Split 4: shared positioning) |
 | D5 | GhostPlaybackEngine | ~80 | Medium | **DONE** (PR #85: ApplyFrameVisuals with skipPartEvents param) |
@@ -223,4 +217,4 @@ The shared core would need 3-4 parameters/flags to account for these differences
 | D18 | ParsekUI | ~125 | Medium | **DONE** (T30: HandleResizeDrag + DrawResizeHandle helpers) |
 | D19 | ParsekUI | ~40 | Low | Open |
 | D20 | ParsekFlight→GhostPlaybackEngine | ~2443 | High | **DONE** (T25: GhostPlaybackEngine 1553 lines + ParsekPlaybackPolicy 192 lines + interfaces) |
-| D21 | ParsekFlight→ChainSegmentManager | ~400-500 | High | **Phase 1 DONE** (state isolation, 16 fields + 2 methods moved). Phase 2 open (orchestration methods). |
+| D21 | ParsekFlight→ChainSegmentManager | ~400-500 | High | **DONE** (Phase 1: state isolation. Phase 2: 12 methods moved. CommitSegmentCore extracted. ParsekFlight -620 lines.) |

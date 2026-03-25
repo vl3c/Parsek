@@ -173,9 +173,9 @@ Items identified during refactor-2 (March 2026) but deferred because they requir
 
 **Status: DONE** — Completed as GhostPlaybackEngine (1553 lines) + ParsekPlaybackPolicy (192 lines) + IPlaybackTrajectory/IGhostPositioner/GhostPlaybackEvents interfaces. ParsekFlight reduced from ~9900 to 8657 lines. Engine has zero Recording references, accesses trajectories via IPlaybackTrajectory interface only. D5 and D8 now done (PR #85). D2 still open (blocked by T26).
 
-### ~~T26. ParsekFlight ChainSegmentManager extraction (D21)~~ Phase 1 DONE
+### ~~T26. ParsekFlight ChainSegmentManager extraction (D21)~~ DONE
 
-Phase 1 (state isolation): 16 chain state fields moved from ParsekFlight to ChainSegmentManager class. ~150 field accesses migrated. `ClearAll()` replaces 13-line scattered reset. `StopContinuation` and `StopUndockContinuation` moved as pure methods. Complex orchestration methods (CommitChainSegment, etc.) stay on ParsekFlight accessing state via `chainManager.X`. Phase 2 (method moves) deferred — requires splitting orchestration methods that interleave with recorder lifecycle.
+Phase 1 (state isolation): 16 chain state fields moved to ChainSegmentManager. ~150 field accesses migrated. Phase 2 (method moves): 12 methods (~505 lines) moved — 8 pure continuation methods (Group A) + 4 commit methods (Group B). `CommitSegmentCore` extracts shared stash/tag/commit/advance pattern. 3 orchestration methods stay on ParsekFlight (StartRecording lifecycle). ParsekFlight net -620 lines.
 
 ### ~~T27. GhostVisualBuilder SampleXxxStates unification (D15)~~ DONE (PR #82)
 
@@ -183,9 +183,7 @@ Extracted `SampleAnimationStates` core method with `AnimLookup` enum + `FindAnim
 
 ### T28. ParsekFlight commit-pattern dedup (D2)
 
-Unify `CommitChainSegment`, `CommitDockUndockSegment`, `CommitBoundarySplit`, `HandleVesselSwitchChainTermination` (~316 lines, ~60% shared stash-tag-commit-advance pattern). Blocked: callback-based `CommitChainSegmentCore` would change the call pattern. Becomes feasible after T26 (instance methods on ChainSegmentManager).
-
-**Priority:** Low — depends on T26
+~~Unify `CommitChainSegment`, `CommitDockUndockSegment`, `CommitBoundarySplit`, `HandleVesselSwitchChainTermination`.~~ **DONE** — `CommitSegmentCore` extracts shared stash/tag/commit/advance pattern used by CommitChainSegment and CommitDockUndockSegment. CommitBoundarySplit and CommitVesselSwitchTermination have special stash paths (nullable CaptureAtStop, extra metadata) and handle stash inline.
 
 ### T29. BackgroundRecorder Check*State polling dedup (D11)
 
