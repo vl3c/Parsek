@@ -62,6 +62,17 @@ Second-pass structural refactoring + game action system modularization. ~80 meth
 
 - **KSC ghost heat initialization** — KSC scene ghosts now properly start heat-animated parts in cold state. Previously, the KSC private copy of `PopulateGhostInfoDictionaries` missed the cold-state initialization that the flight scene had. Fixed by deleting the private copy and calling the shared `GhostPlaybackLogic` version.
 
+### Test Suite Audit (T32)
+
+Deep audit of all 110 test files (~55k lines). 43 files changed, +170/-1182 lines:
+- 8 exact duplicate test pairs deleted
+- 28 always-passing/tautological tests removed (zero-assertion, property setter, inline-math-only)
+- 12 tests not exercising production code deleted (hand-written logic, ConfigNode API tests, ParsekLog direct calls)
+- 17 test classes given `IDisposable` for proper shared state cleanup
+- 4 misleading test names fixed
+- 3 unused `logLines` captures removed, dead code cleaned up, `[Collection("Sequential")]` added to WaypointSearchTests
+- 3 `.NET framework behavior` tests deleted (HashSet operations in AnchorLifecycleTests)
+
 ### Test Coverage
 
 3227 → 3439 tests (+212). New test areas:
