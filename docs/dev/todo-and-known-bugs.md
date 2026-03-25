@@ -237,6 +237,12 @@ ParsekFlight still reads/writes `chainManager` internal fields directly in ~5 lo
 
 **Priority:** Low — no code path currently removes committed recordings during flight
 
+### T37. Showcase kerbal-with-flag height mismatch
+
+In the showcase part list, the kerbal holding a flag is not at the same height as the other parts. Likely a Y-offset issue in the showcase positioning/snapshot for the kerbal part.
+
+**Priority:** Low — cosmetic
+
 ---
 
 # Known Bugs
@@ -795,11 +801,11 @@ xUnit eagerly instantiates test classes, so one class's constructor can overwrit
 
 **Status:** Open — low priority
 
-## 49. RealVesselExists O(n) per frame
+## 49. ~~RealVesselExists O(n) per frame~~
 
 `GhostPlaybackLogic.RealVesselExists` iterates `FlightGlobals.Vessels` linearly. Called per background recording per frame. Negligible with typical vessel counts (10-50), would matter with 100+. Fix: cache PIDs in HashSet, rebuild on vessel add/remove events.
 
-**Status:** Open — low priority
+**Status:** Fixed (T10, PR #85) — frame-cached `HashSet<uint>` with manual invalidation via `InvalidateVesselCache()` at start of `UpdateTimelinePlaybackViaEngine`
 
 ## 50. UI: subgroups missing enable and loop checkboxes
 

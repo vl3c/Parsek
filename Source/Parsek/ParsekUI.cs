@@ -214,7 +214,7 @@ namespace Parsek
                     MilestoneStore.Milestones,
                     RecordingStore.CommittedTrees);
                 cachedBudgetFrame = currentFrame;
-                ParsekLog.Verbose("UI",
+                ParsekLog.VerboseRateLimited("UI", "budget-recompute",
                     $"GetCachedBudget: recomputed budget (frame {currentFrame})");
             }
             return cachedBudget;

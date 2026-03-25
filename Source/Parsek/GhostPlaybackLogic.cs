@@ -1962,7 +1962,8 @@ namespace Parsek
             var chain = GhostChainWalker.FindChainForVessel(chains, rec.VesselPersistentId);
             if (chain != null && chain.IsTerminated && chain.TipRecordingId == rec.RecordingId)
             {
-                ParsekLog.Info("ChainWalker",
+                ParsekLog.VerboseRateLimited("ChainWalker",
+                    "terminated-spawn-" + rec.VesselPersistentId,
                     string.Format(CultureInfo.InvariantCulture,
                         "Terminated chain spawn suppressed: rec={0} vessel={1} vesselPid={2}",
                         rec.RecordingId, rec.VesselName, rec.VesselPersistentId));
