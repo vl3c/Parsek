@@ -11,15 +11,12 @@ namespace Parsek.Tests
     [Collection("Sequential")]
     public class MergeDialogExtractedTests : IDisposable
     {
-        private readonly List<string> logLines = new List<string>();
-
         public MergeDialogExtractedTests()
         {
             RecordingStore.SuppressLogging = true;
             RecordingStore.ResetForTesting();
             ParsekLog.ResetTestOverrides();
             ParsekLog.SuppressLogging = false;
-            ParsekLog.TestSinkForTesting = line => logLines.Add(line);
             ParsekLog.VerboseOverrideForTesting = true;
         }
 
