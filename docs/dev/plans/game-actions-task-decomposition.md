@@ -46,8 +46,9 @@ Types to create:
 Functionality:
 - `SaveToFile(string path, List<GameAction> actions)` — safe-write (.tmp + rename)
 - `LoadFromFile(string path) → List<GameAction>` — parse all actions from file
-- `Reconcile(List<GameAction> actions, HashSet<string> validRecordingIds, double maxUT)` — prune orphaned earnings and future spendings (design doc 2.3)
-- Path utilities: `GetLedgerPath(string saveName)`
+- `Reconcile(List<GameAction> actions, HashSet<string> validRecordingIds, double maxUT)` — prune orphaned earnings and future spendings (design doc 2.3). Note: "after" means `> maxUT` (strictly after), not `>=`.
+- Path utilities: use `RecordingPaths.EnsureGameStateDirectory()` and `ResolveSaveScopedPath("Parsek/GameState/ledger.pgld")`
+- **Initial seeding:** On first init for a career save, extract starting funds from save file and write `FundsInitial` action (design doc 2.5). Seeded once, immutable thereafter.
 
 **Integration with ParsekScenario:** Add `ledgerPath` field to ScenarioModule save/load. Reference-only in .sfs, bulk data in external file.
 
@@ -96,7 +97,7 @@ Implements `IResourceModule`:
 - Per-subject state: `Dictionary<string, SubjectState>` with `creditedTotal` and `maxValue`
 - Running science balance
 
-**Tests:** `ScienceModuleTests.cs` — basic earning, retroactive priority (design doc 4.7 scenarios), cap hit, multiple collections within one recording, mixed transmit/recover. ~15 tests.
+**Tests:** `ScienceModuleTests.cs` — basic earning, retroactive priority (design doc 4.7 scenarios), cap hit, multiple collections within one recording, mixed transmit/recover. Include log assertion tests for cap-hit decisions and priority shifts. ~15 tests.
 
 **Depends on:** Task 3 (engine interface).
 **Enables:** Task 5 (science spending).
@@ -182,7 +183,7 @@ Implements `IResourceModule` (second-tier):
 
 **Tests:** `FundsModuleTests.cs` — seeded balance, reservation blocks overspending (design doc 5.12), interleaved facility/hire spendings, new recording expands budget. ~12 tests.
 
-**Depends on:** Tasks 5 (reservation pattern), 6 (milestone effective funds), 7 (contract funds).
+**Depends on:** Tasks 5 (reservation pattern), 6 (milestone effective funds), 7 (contract funds), 10b (kerbal hire costs).
 **Enables:** Task 15 (patching).
 **Done when:** All verified scenarios from design doc 5.12 pass.
 
@@ -250,9 +251,11 @@ Functionality:
 
 **Tests:** Multi-crew mission (scenario 5), XP walk, hiring cost flow to funds. ~8 tests.
 
-**Depends on:** Task 10a, Task 8 (hiring is a funds spending).
-**Enables:** Task 15 (roster patching).
+**Depends on:** Task 10a.
+**Enables:** Task 8 (hire costs flow into funds module), Task 15 (roster patching).
 **Done when:** XP and hiring scenarios pass.
+
+**Note:** Kerbals is a first-tier module (design doc 1.8). `KerbalHire` spending actions are *produced* by this module and *consumed* by the Funds module. The dependency flows Kerbals→Funds, not Funds→Kerbals.
 
 ---
 
@@ -342,29 +345,44 @@ Functionality:
 
 ---
 
-### Task 15: KSP State Patching
+### Task 15a: KSP State Patching — Resources (Science, Funds, Reputation)
 
-**Overview:** After recalculation, write derived state into KSP singletons. Design doc section 3.1-3.2. Replaces existing `ResourceApplicator` point-by-point delta system.
+**Overview:** Write derived resource state into KSP singletons after recalculation. These are well-understood APIs already used by `ResourceApplicator`.
 
-**New file:** `Source/Parsek/KspStatePatcher.cs` (~350 lines)
+**New file:** `Source/Parsek/KspStatePatcher.cs` (~200 lines initial)
 
 Functionality:
-- Phase 1 (recalculate): pure computation, produces derived values per module
-- Phase 2 (patch): write into KSP state
-  - Science: `ResearchAndDevelopment.Instance` — per-subject totals, available science balance, tech tree unlock state
-  - Funds: `Funding.Instance.Funds` — set to `availableFunds(currentUT)`
-  - Reputation: `Reputation.Instance.reputation` — set to `runningRep`
-  - Milestones: `ProgressTracking.Instance` — set achieved flags
-  - Kerbals: `HighLogic.CurrentGame.CrewRoster` — roster entries, XP, status
-  - Facilities: `ScenarioUpgradeableFacilities` — building levels
-- Use `SuppressResourceEvents` during patching
+- Science: `ResearchAndDevelopment.Instance` — per-subject totals, available science balance, tech tree unlock state
+- Funds: `Funding.Instance.Funds` — set to `availableFunds(currentUT)`
+- Reputation: `Reputation.Instance.reputation` — set to `runningRep`
+- Use `SuppressResourceEvents` AND `IsReplayingActions` during patching (both flags needed — the former prevents event re-capture, the latter bypasses Harmony blocking patches like `TechResearchPatch`)
 - Patch triggers: commit, rewind, warp exit, KSP load
 
-**Tests:** Patching is hard to unit-test (KSP singletons). Focus on verifying derived state computation. Manual in-game testing for actual patching.
+**Tests:** Derived state computation verification (pure math, testable without KSP). ~5 tests.
 
-**Depends on:** Tasks 4-12 (all modules produce derived state).
+**Depends on:** Tasks 4-9 (resource modules produce derived state).
+**Enables:** Task 15b, Tasks 16-17.
+**Done when:** Resource patching calls are structured and derived state is correct.
+
+---
+
+### Task 15b: KSP State Patching — Milestones, Kerbals, Facilities
+
+**Overview:** Write derived non-resource state into KSP singletons. These APIs are less explored and may need investigation.
+
+**Extends:** `KspStatePatcher.cs` (~+150 lines)
+
+Functionality:
+- Milestones: `ProgressTracking.Instance` — set achieved flags (needs API investigation)
+- Kerbals: `HighLogic.CurrentGame.CrewRoster` — roster entries, XP, status
+- Facilities: `ScenarioUpgradeableFacilities` — building levels (already known from `ActionReplay`)
+- Address Harmony patch transition: `ScienceSubjectPatch` may become redundant (ledger patches per-subject totals directly); `TechResearchPatch` and `FacilityUpgradePatch` blocking logic should be replaced by ledger reservation checks
+
+**Tests:** Manual in-game testing for KSP API interactions. ~3 unit tests for derived state.
+
+**Depends on:** Tasks 10-12, 15a.
 **Enables:** Tasks 16, 17.
-**Done when:** Derived state is correctly computed; KSP patching calls are structured.
+**Done when:** All KSP singletons receive correct derived state.
 
 ---
 
@@ -439,23 +457,34 @@ Functionality:
 
 ---
 
-### Task 20: Migration from Old Resource System
+### Task 20: Old System Deprecation and Migration
 
-**Overview:** Transition from existing `ResourceApplicator` point-by-point delta system to ledger-based recalculation. Handle saves that have existing recordings with old resource tracking.
+**Overview:** Replace the existing `ResourceApplicator`/`ActionReplay`/`MilestoneStore`/`ResourceBudget` pipeline with ledger-based equivalents. This is the critical transition task.
 
-**Modifies:** `ResourceApplicator.cs`, `ParsekScenario.cs`, `ResourceBudget.cs`
+**Modifies:** `ParsekScenario.cs`, `ParsekFlight.cs`, `ResourceApplicator.cs`, `ActionReplay.cs`, `ResourceBudget.cs`, `MilestoneStore.cs`, `GameStateStore.cs`
 
-Functionality:
-- First-load migration: existing recordings have no ledger file → seed ledger from current game state
-- Deprecate `ResourceApplicator.TickStandalone/TickTrees` — replace with ledger tick
-- Deprecate `ResourceBudget.ComputeStandaloneDelta` — replace with ledger-derived available balances
-- Feature flag: allow gradual rollout (old system as fallback during development)
-- Backward compat: save files without ledger load normally using old system
+**Existing call sites to replace (in ParsekScenario/ParsekFlight):**
+- `ResourceApplicator.TickStandalone/TickTrees` → ledger recalculation + patch
+- `ResourceApplicator.DeductBudget` → ledger recalculation + patch
+- `ResourceApplicator.CorrectToBaseline` → ledger recalculation + patch
+- `ActionReplay.ReplayCommittedActions` → ledger recalculation + patch (covers tech, parts, facilities, crew)
+- `MilestoneStore.CreateMilestone/FlushPendingEvents` → ledger commit path
+- `ResourceBudget.ComputeStandaloneDelta` → ledger-derived available balances
+- `GameStateStore.CommitScienceSubjects` → ledger science module
 
-**Tests:** Migration scenarios — old save loads correctly, ledger seeded from game state. ~5 tests.
+**Harmony patch transition:**
+- `ScienceSubjectPatch`: may become redundant (ledger patches per-subject totals directly). Keep as fallback during transition, remove when verified.
+- `TechResearchPatch`/`FacilityUpgradePatch`: blocking logic should be replaced by ledger reservation checks. These patches currently check `MilestoneStore` — redirect to ledger.
 
-**Depends on:** Tasks 15, 17 (new system must be working before migration).
-**Done when:** Old saves load and function correctly with new ledger system.
+**Migration for existing saves:**
+- First-load detection: no ledger file exists → seed ledger from current game state + existing `MilestoneStore` events
+- Feature flag: `ParsekSettings.useLedgerSystem` for gradual rollout
+- Backward compat: saves without ledger load using old system (flag=false)
+
+**Tests:** Migration scenarios — old save loads, ledger seeded from game state, old ResourceApplicator calls replaced. ~8 tests.
+
+**Depends on:** Tasks 15a/b, 17 (new system must be working before migration).
+**Done when:** Old saves load and function correctly. Old system call sites replaced. Feature flag controls rollout.
 
 ---
 
@@ -491,19 +520,21 @@ Functionality:
 
 | Phase | Tasks | Description |
 |-------|-------|-------------|
-| 1. Foundation | 1-3 | Data types, ledger I/O, recalculation engine |
-| 2. Simple Modules | 4-7 | Science, milestones, contracts (first-tier) |
-| 3. Second-Tier | 8-9 | Funds, reputation (depend on first-tier) |
-| 4. Complex Modules | 10a-12 | Kerbals (reservation+chains, XP+hire), facilities, strategies |
-| 5. Integration | 13-17 | Event capture, commit, patching, warp, rewind |
-| 6. Polish | 18-22 | KSC spendings, UI, migration, logging/tests, end-to-end test |
+| 1. Foundation | 1-3 | Data types, ledger I/O (with seeding), recalculation engine |
+| 2. Simple Modules | 4-7 | Science (earnings + spending), milestones, contracts (first-tier) |
+| 3. Second-Tier | 8-9 | Funds (depends on milestones, contracts, kerbals), reputation |
+| 4. Complex Modules | 10a/b-12 | Kerbals (reservation → XP/hire), facilities, strategies |
+| 5. Integration | 13-17 | Event capture, commit, patching (15a resources, 15b rest), warp, rewind |
+| 6. Polish | 18-22 | KSC spendings, UI, old system deprecation/migration, logging/tests, end-to-end |
 
 **Parallelization opportunities:**
 - Tasks 4, 6, 7 are independent first-tier modules — can run in parallel
-- Tasks 8, 9 can run in parallel (both second-tier, independent)
+- Tasks 8, 9 can run in parallel AFTER 10b completes (funds needs kerbal hire costs)
 - Tasks 10a, 11, 12 can run in parallel (independent complex modules)
 - Tasks 13, 14 are sequential
 - Tasks 18, 19, 21 can mostly run in parallel
 
-**Estimated new tests:** ~160-180 tests across all modules
-**Estimated new code:** ~3500-4500 lines (excluding tests)
+**Key dependency chain:** 1 → 2 → 3 → {4,6,7} → {10a,11,12} → 10b → {8,9} → {15a,15b} → {16,17} → 20
+
+**Estimated new tests:** ~180-200 tests across all modules (including log assertion tests per module)
+**Estimated new code:** ~4000-5000 lines (excluding tests)

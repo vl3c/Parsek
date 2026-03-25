@@ -24,7 +24,15 @@
 | `FlightRecorder.cs` | 4914 | Recording state, physics frame sampling | May need new event subscriptions for contract/milestone capture | Pending |
 | `ParsekUI.cs` | ~3500 | UI windows | Add available balance display, resource breakdown panels | Pending |
 | `Recording.cs` | 275 | Recording data class | May need fields for linking to ledger earning actions | Pending |
-| `Patches/ScienceSubjectPatch.cs` | ~100 | Harmony patch for science subjects | Review for interaction with new science recalculation | Pending |
+| `GameStateStore.cs` | 709 | In-memory event store, external file I/O | Coexists with or replaced by ledger; `CommitScienceSubjects` → ledger science module | Pending |
+| `ActionReplay.cs` | 479 | Replays tech/parts/facilities/crew | **Replace** with ledger recalculation + KspStatePatcher | Pending |
+| `GameStateEvent.cs` | 302 | Event type enum, serialization | May coexist; new `GameAction` types extend beyond this | Pending |
+| `GameStateBaseline.cs` | ~200 | Snapshot game state at epoch | Review for ledger seeding integration | Pending |
+| `MilestoneStore.cs` | 474 | Milestone checkpoint aggregation | **Replace** with ledger commit path | Pending |
+| `RecordingPaths.cs` | 166 | Path utilities for sidecar files | Add `BuildLedgerRelativePath()` | Pending |
+| `Patches/ScienceSubjectPatch.cs` | ~100 | Harmony patch for science subjects | May become redundant (ledger patches per-subject totals directly) | Pending |
+| `Patches/TechResearchPatch.cs` | ~80 | Blocks duplicate tech research | Redirect to ledger reservation check | Pending |
+| `Patches/FacilityUpgradePatch.cs` | ~80 | Blocks duplicate facility upgrades | Redirect to ledger reservation check | Pending |
 
 ## Existing Files — Pattern References (Read-Only)
 
