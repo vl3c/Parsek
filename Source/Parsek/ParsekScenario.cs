@@ -560,19 +560,24 @@ namespace Parsek
             }
 
             // Auto-unreserve crew for recordings whose EndUT has already passed
-            // but vessel was never spawned (e.g. UT advanced while in Space Center).
+            // but vessel was never spawned. Skip at SpaceCenter — ParsekKSC now
+            // handles spawning there (bug #99), so nulling the snapshot here would
+            // pre-empt the KSC spawn.
             double currentUT = Planetarium.GetUniversalTime();
-            for (int i = 0; i < recordings.Count; i++)
+            if (HighLogic.LoadedScene != GameScenes.SPACECENTER)
             {
-                var rec = recordings[i];
-                if (rec.LoopPlayback) continue;
-                if (rec.VesselSnapshot != null && !rec.VesselSpawned && currentUT > rec.EndUT)
+                for (int i = 0; i < recordings.Count; i++)
                 {
-                    CrewReservationManager.UnreserveCrewInSnapshot(rec.VesselSnapshot);
-                    rec.VesselSnapshot = null;
-                    rec.VesselSpawned = true;
-                    ScenarioLog($"[Parsek Scenario] Auto-unreserved crew for recording #{i} " +
-                        $"({rec.VesselName}) — EndUT passed without spawn");
+                    var rec = recordings[i];
+                    if (rec.LoopPlayback) continue;
+                    if (rec.VesselSnapshot != null && !rec.VesselSpawned && currentUT > rec.EndUT)
+                    {
+                        CrewReservationManager.UnreserveCrewInSnapshot(rec.VesselSnapshot);
+                        rec.VesselSnapshot = null;
+                        rec.VesselSpawned = true;
+                        ScenarioLog($"[Parsek Scenario] Auto-unreserved crew for recording #{i} " +
+                            $"({rec.VesselName}) — EndUT passed without spawn");
+                    }
                 }
             }
 
@@ -1644,7 +1649,7 @@ namespace Parsek
         /// that were set by OnSceneChangeRequested. Only prevents Destroyed from overwriting Recovered
         /// (onVesselTerminated fires after onVesselRecovered for the same vessel).
         /// </summary>
-        private static bool UpdateRecordingsForTerminalEvent(string vesselName, TerminalState state, double ut)
+        internal static bool UpdateRecordingsForTerminalEvent(string vesselName, TerminalState state, double ut)
         {
             bool anyUpdated = false;
 

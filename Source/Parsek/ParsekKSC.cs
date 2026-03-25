@@ -37,6 +37,9 @@ namespace Parsek
         private HashSet<int> loggedGhostSpawn = new HashSet<int>();
         private HashSet<int> loggedReshow = new HashSet<int>();
 
+        // KSC spawn dedup: tracks recording IDs that have had spawn attempted (bug #99)
+        private HashSet<string> kscSpawnAttempted = new HashSet<string>();
+
         // Loop constants are in GhostPlaybackLogic
         // Safety cap for overlap ghosts. Natural phase expiration keeps count bounded for
         // well-behaved recordings, but pathological cases (very short duration, very negative
@@ -279,12 +282,20 @@ namespace Parsek
                 else
                 {
                     TriggerExplosionIfDestroyed(state, rec, recIdx);
+                    // Spawn real vessel when ghost timeline completes (bug #99)
+                    TrySpawnAtRecordingEnd(recIdx, rec);
                     ParsekLog.Verbose("KSCGhost",
                         $"Ghost #{recIdx} \"{rec.VesselName}\" exited range at UT {currentUT:F1}");
                     DestroyKscGhost(state, recIdx);
                     kscGhosts.Remove(recIdx);
                     loggedGhostSpawn.Remove(recIdx);
                 }
+            }
+            else if (!inRange && !inPauseWindow && currentUT > rec.EndUT)
+            {
+                // Ghost was never created (e.g., time-warped through the entire window)
+                // but recording is past its end — still need to spawn the vessel (bug #99)
+                TrySpawnAtRecordingEnd(recIdx, rec);
             }
         }
 
@@ -740,6 +751,71 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Attempt to spawn a real vessel when a recording's ghost reaches end-of-timeline
+        /// at KSC. Uses the same eligibility checks as Flight scene but simplified:
+        /// no active chain concept, no collision detection (vessels are unloaded at KSC),
+        /// no deferred spawn queue (no warp concern — KSC spawns are one-shot).
+        /// The spawned vessel will appear in Tracking Station and persist in the save,
+        /// but won't be loaded/physical at KSC (no physics range). Bug #99.
+        /// </summary>
+        void TrySpawnAtRecordingEnd(int recIdx, Recording rec)
+        {
+            // Looping recordings restart — never spawn at end
+            if (rec.LoopPlayback)
+            {
+                ParsekLog.Verbose("KSCSpawn",
+                    $"Spawn skipped for #{recIdx} \"{rec.VesselName}\": looping recording");
+                return;
+            }
+
+            // Dedup: only attempt once per recording per scene session
+            if (rec.RecordingId != null && !kscSpawnAttempted.Add(rec.RecordingId))
+            {
+                ParsekLog.Verbose("KSCSpawn",
+                    $"Spawn skipped for #{recIdx} \"{rec.VesselName}\": already attempted (id={rec.RecordingId})");
+                return;
+            }
+
+            // Use the KSC-specific eligibility check
+            var (needsSpawn, reason) = GhostPlaybackLogic.ShouldSpawnAtKscEnd(rec);
+            if (!needsSpawn)
+            {
+                ParsekLog.Info("KSCSpawn",
+                    $"Spawn not needed for #{recIdx} \"{rec.VesselName}\": {reason}");
+                return;
+            }
+
+            // At KSC, FlightGlobals.Vessels may be empty/null but
+            // HighLogic.CurrentGame.flightState.protoVessels is always available.
+            // RespawnVessel uses protoVessels directly — works in any scene.
+            ParsekLog.Info("KSCSpawn",
+                $"Attempting spawn for #{recIdx} \"{rec.VesselName}\" (id={rec.RecordingId})");
+
+            try
+            {
+                uint spawnedPid = VesselSpawner.RespawnVessel(rec.VesselSnapshot);
+                if (spawnedPid != 0)
+                {
+                    rec.VesselSpawned = true;
+                    rec.SpawnedVesselPersistentId = spawnedPid;
+                    ParsekLog.Info("KSCSpawn",
+                        $"Vessel spawned for #{recIdx} \"{rec.VesselName}\" " +
+                        $"pid={spawnedPid} — will appear in Tracking Station");
+                }
+                else
+                {
+                    ParsekLog.Warn("KSCSpawn",
+                        $"Spawn FAILED for #{recIdx} \"{rec.VesselName}\" — RespawnVessel returned 0");
+                }
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.Error("KSCSpawn",
+                    $"Spawn exception for #{recIdx} \"{rec.VesselName}\": {ex.Message}");
+            }
+        }
+
+        /// <summary>
         /// Clean up a KSC ghost — stop FX, destroy canopies and GameObject.
         /// </summary>
         void DestroyKscGhost(GhostPlaybackState state, int index)
@@ -771,6 +847,7 @@ namespace Parsek
             kscOverlapGhosts.Clear();
             loggedGhostSpawn.Clear();
             loggedReshow.Clear();
+            kscSpawnAttempted.Clear();
 
             ParsekLog.Info("KSC", "ParsekKSC destroyed");
             ui?.Cleanup();

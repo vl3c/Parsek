@@ -2091,6 +2091,28 @@ namespace Parsek
         }
 
         /// <summary>
+        /// KSC-specific spawn eligibility check. Simplified version of the Flight scene's
+        /// spawn decision: at KSC there is no active chain being built, so isActiveChainMember
+        /// is always false. Chain looping/disabled state is derived from RecordingStore.
+        /// Returns (needsSpawn, reason) — same semantics as ShouldSpawnAtRecordingEnd.
+        /// </summary>
+        internal static (bool needsSpawn, string reason) ShouldSpawnAtKscEnd(Recording rec)
+        {
+            // At KSC, no chain is being built → isActiveChainMember = false
+            bool isChainLoopingOrDisabled = !string.IsNullOrEmpty(rec.ChainId) &&
+                (RecordingStore.IsChainLooping(rec.ChainId) ||
+                 RecordingStore.IsChainFullyDisabled(rec.ChainId));
+
+            // Intermediate chain segments should not spawn — only the chain tip spawns.
+            // In Flight, ShouldSuppressSpawnForChain handles this via runtime GhostChain
+            // state, but at KSC there are no GhostChain objects. Use the committed data.
+            if (RecordingStore.IsChainMidSegment(rec))
+                return (false, "intermediate chain segment (not tip)");
+
+            return ShouldSpawnAtRecordingEnd(rec, false, isChainLoopingOrDisabled);
+        }
+
+        /// <summary>
         /// Safety-net check: determines whether a recording is a non-leaf node in a
         /// committed tree by scanning the tree's branch points for parent references.
         /// This catches cases where ChildBranchPointId was not set on the recording
