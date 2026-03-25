@@ -1984,31 +1984,26 @@ namespace Parsek
             // Base condition: must have a snapshot, not already spawned, not destroyed
             if (rec.VesselSnapshot == null)
             {
-                // Reason returned to caller; per-frame logging removed (was 73% of all log output)no vessel snapshot");
                 return (false, "no vessel snapshot");
             }
             if (rec.VesselSpawned)
             {
-                // Reason returned to caller; per-frame logging removed (was 73% of all log output)already spawned (VesselSpawned=true)");
                 return (false, "already spawned (VesselSpawned=true)");
             }
             if (rec.VesselDestroyed)
             {
-                // Reason returned to caller; per-frame logging removed (was 73% of all log output)vessel destroyed");
                 return (false, "vessel destroyed");
             }
 
             // Branch > 0 recordings are ghost-only (undock continuations) — never spawn
             if (rec.ChainBranch > 0)
             {
-                // Reason returned to caller; per-frame logging removed (was 73% of all log output)branch > 0 (ghost-only)");
                 return (false, "branch > 0 (ghost-only)");
             }
 
             // Suppress spawning for recordings belonging to a chain currently being built
             if (isActiveChainMember)
             {
-                // Reason returned to caller; per-frame logging removed (was 73% of all log output)active chain being built");
                 return (false, "active chain being built");
             }
 
@@ -2020,14 +2015,12 @@ namespace Parsek
             // Suppress spawn for looping or fully-disabled chains
             if (isChainLoopingOrDisabled)
             {
-                // Reason returned to caller; per-frame logging removed (was 73% of all log output)chain looping or fully disabled");
                 return (false, "chain looping or fully disabled");
             }
 
             // Non-leaf tree recordings should never spawn (they branched into children)
             if (rec.ChildBranchPointId != null)
             {
-                // Reason returned to caller; per-frame logging removed (was 73% of all log output)non-leaf tree recording");
                 return (false, "non-leaf tree recording");
             }
 
@@ -2036,14 +2029,12 @@ namespace Parsek
             // ChildBranchPointId was not set (e.g., serialization gaps). (#114)
             if (IsNonLeafInCommittedTree(rec))
             {
-                // Reason returned to caller; per-frame logging removed (was 73% of all log output)non-leaf in committed tree (safety net)");
                 return (false, "non-leaf in committed tree (safety net)");
             }
 
             // Debris recordings are visual-only (short TTL, no meaningful vessel to persist)
             if (rec.IsDebris)
             {
-                // Reason returned to caller; per-frame logging removed (was 73% of all log output)debris recording (visual-only)");
                 return (false, "debris recording (visual-only)");
             }
 
@@ -2056,7 +2047,6 @@ namespace Parsek
                     || ts == TerminalState.Docked || ts == TerminalState.Boarded
                     || ts == TerminalState.SubOrbital)
                 {
-                    // Reason returned to caller; per-frame logging removed (was 73% of all log output)terminal state {ts}");
                     return (false, $"terminal state {ts}");
                 }
             }
@@ -2067,7 +2057,6 @@ namespace Parsek
             // captured mid-flight. (#114)
             if (IsSnapshotSituationUnsafe(rec.VesselSnapshot))
             {
-                // Reason returned to caller; per-frame logging removed (was 73% of all log output)snapshot situation unsafe (FLYING/SUB_ORBITAL)");
                 return (false, "snapshot situation unsafe (FLYING/SUB_ORBITAL)");
             }
 
@@ -2075,7 +2064,6 @@ namespace Parsek
             // On revert, SpawnedVesselPersistentId resets to 0 from quicksave so reverts still work.
             if (rec.SpawnedVesselPersistentId != 0)
             {
-                // Reason returned to caller; per-frame logging removed (was 73% of all log output)already spawned (pid={rec.SpawnedVesselPersistentId})");
                 return (false, $"already spawned (pid={rec.SpawnedVesselPersistentId})");
             }
 

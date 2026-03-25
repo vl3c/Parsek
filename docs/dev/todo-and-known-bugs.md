@@ -1638,7 +1638,7 @@ Different from #117 (CanRewind/CanFastForward UI spam, now fixed) and #121 (Ghos
 
 **Priority:** High — blocks effective log analysis
 
-**Status:** Open
+**Status:** Fixed — per-frame VERBOSE logs removed; reason returned to caller via out-parameter tuple. Garbled comments from partial edit cleaned up in log audit PR.
 
 ## 136. ParsePartPositions: 0/N parts parsed from vessel snapshot
 
