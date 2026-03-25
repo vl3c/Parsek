@@ -6,7 +6,7 @@ All notable changes to Parsek are documented here.
 
 ## 0.5.2
 
-Second-pass structural refactoring + game action system modularization. ~80 method extractions, ~105 logging additions, 103 new tests. 1 latent bug fixed. Zero logic changes (except the bug fix).
+Second-pass structural refactoring + game action system modularization + continued decomposition. ~80 method extractions, ~105 logging additions, 103 new tests. 1 latent bug fixed, 1 latent IMGUI bugfix. Zero logic changes (except bug fixes).
 
 ### Code Refactor
 
@@ -50,17 +50,39 @@ Second-pass structural refactoring + game action system modularization. ~80 meth
   - `SuppressActionReplay` + `SuppressBlockingPatches` merged into single `IsReplayingActions` flag
   - `ActionReplay.ParseDetailField` removed, callers use `GameStateEventDisplay.ExtractDetailField`
   - Guard logs added to all silent early-return paths in ResourceApplicator and CrewReservationManager
+- **Pass 6 — GhostPlaybackEngine decomposition** (D5, D8)
+  - `ApplyFrameVisuals` extracted — deduplicates part events + flag events + reentry FX + RCS toggle from 4 call sites. `skipPartEvents` parameter preserves Site 1 semantics.
+  - `RenderInRangeGhost` (~84 lines) + `HandlePastEndGhost` (~47 lines) extracted from `UpdatePlayback` loop body. Loop body reduced from ~207 to ~70 lines.
+- **Pass 7 — ChainSegmentManager extraction** (T26, ParsekFlight 8657 → 8098 lines)
+  - `ChainSegmentManager` (686 lines) — owns 16 chain state fields + 14 methods. ~150 field accesses migrated from ParsekFlight. `ClearAll()` replaces 13-line scattered reset.
+  - Phase 1: State isolation (16 fields moved, `StopContinuation`/`StopUndockContinuation` moved)
+  - Phase 2: 12 methods moved (Group A: 8 continuation methods. Group B: 4 commit methods refactored with recorder-as-parameter + bool return for abort handling)
+  - `CommitSegmentCore` shared pattern (T28/D2) — stash/tag/commit/advance extracted with `Action<Recording>` callback for per-method customization
+  - 3 orchestration methods stay on ParsekFlight (HandleDockUndockCommitRestart, HandleChainBoardingTransition, CommitBoundaryAndRestart — own StartRecording lifecycle)
+- **Pass 8 — UI dedup** (T30/D18, D19)
+  - `HandleResizeDrag` + `DrawResizeHandle` static helpers — 4 drag blocks + 4 handle blocks replaced with 8 one-liner calls
+  - `DrawSortableHeaderCore<TCol>` generic method — unifies `DrawSortableHeader` and `DrawSpawnSortableHeader` via `ref` sort state + `Action onChanged`. `ToggleSpawnSort` removed.
+- **Pass 9 — Encapsulation** (T33)
+  - `GroupHierarchyStore` accessor migration — 5 new accessor methods (`AddHiddenGroup`, `RemoveHiddenGroup`, `IsGroupHidden`, `TryGetGroupParent`, `HasGroupParent`). All ~20 ParsekUI.cs direct field accesses migrated to accessors/read-only properties.
 - **Performance**
   - Per-frame `List<PartEvent>` allocations eliminated — 4 transition-check methods now append to reusable buffer (T19)
   - `TimelineGhosts` dictionary cached per-frame instead of allocating on every property access (T20)
   - `ResourceBudget.ComputeTotal` cached per-frame, shared across `DrawResourceBudget` and `DrawCompactBudgetLine` (T21)
+  - Chain ghost `cachedIdx` persisted on `GhostChain` — O(n) → O(1) amortized trajectory lookup (T9)
+  - `RealVesselExists` HashSet cache — O(n) linear scan → O(1) per frame with manual invalidation (T10)
+- **Ghost Soft Caps** (T5)
+  - `ReduceFidelity` implemented — disables 75% of renderers by index for coarse LOD silhouette
+  - `SimplifyToOrbitLine` improved — hides ghost mesh with `simplified` flag, frame-skip to avoid re-processing
+  - Caps-resolved branch restores fidelity and re-shows simplified ghosts
 - **Audits**
   - C2: namespace consistency verified — all 73 files correct (`Parsek` or `Parsek.Patches`)
   - C3: one-class-per-file verified — 5 files have multiple types but all are acceptable data-type bundles or tightly coupled enum+class pairs
+  - C4: inventory doc line counts updated to final values
 
 ### Bug Fixes
 
 - **KSC ghost heat initialization** — KSC scene ghosts now properly start heat-animated parts in cold state. Previously, the KSC private copy of `PopulateGhostInfoDictionaries` missed the cold-state initialization that the flight scene had. Fixed by deleting the private copy and calling the shared `GhostPlaybackLogic` version.
+- **Group Popup drag event leak** — Group popup window resize drag was missing `Event.current.Use()` on MouseDrag, allowing drag events to fall through to underlying windows. Fixed by extracting shared `HandleResizeDrag` helper that applies `Use()` uniformly across all 4 windows (T30/D18).
 
 ### Test Coverage
 
@@ -84,8 +106,10 @@ Second-pass structural refactoring + game action system modularization. ~80 meth
 
 - Refactor plan, inventory, review checklist, architecture analysis
 - 21 deferred items tracked in `refactor-2-deferred.md` with Open/Done/Closed status
-- 7 future TODO items (T25-T31) added to `todo-and-known-bugs.md`
-- C1, D7, D15, T22-T24, T27 marked done
+- Deferred items completed: D2, D5, D7, D8, D15, D18, D19, D20, D21
+- TODO items completed: T5, T9, T10, T19-T27, T28, T30, T33, C1-C4
+- `CLAUDE.md` updated with `ChainSegmentManager.cs` description
+- Inventory doc (C4) updated with final line counts for all modified files
 
 ---
 
