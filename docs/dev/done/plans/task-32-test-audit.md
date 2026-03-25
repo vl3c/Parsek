@@ -3,6 +3,7 @@
 **Date:** 2026-03-25
 **Scope:** All 110 test files (~55,000 lines) in `Source/Parsek.Tests/`
 **Method:** 9 Opus subagents each read every line of their assigned batch, reporting findings in 6 categories
+**Reviewed by:** Independent Opus reviewer spot-checked 18+ findings against source code; corrections applied below
 
 ---
 
@@ -29,10 +30,16 @@ Tests that can never fail due to missing assertions, tautological checks, or gua
 |---|---|---|---|
 | ActionReplayTests | `ReplayCommittedActions_EmptyList_NoOp` | 94 | No assertion at all |
 | ActionReplayTests | `ReplayCommittedActions_NullList_NoOp` | 232 | No assertion at all |
-| DiagnosticLoggingTests | `LogSpawnContext_NullSnapshot_DoesNotThrow` | 26 | No assertion (6 tests total in file, lines 26-112) |
-| BackgroundPartEventAuditTests | `Shutdown_LogsCompletionMessage` | 358 | Catches NRE, no assertion |
-| PartEventTests | `RemoveSpecificCrew_NullSnapshot_NoException` | 352 | No assertion |
-| PartEventTests | `RemoveSpecificCrew_NullExcludeSet_NoException` | 359 | No assertion |
+| BackgroundPartEventAuditTests | `Shutdown_LogsCompletionMessage` | 358 | Catches NRE so shutdown path never executes; zero coverage |
+
+### Implicit does-not-throw regression tests (low-value but not zero-value)
+These call real production code with edge-case inputs but have no explicit assertions. They have regression value (e.g., NRE crash guards) but should add explicit `Record.Exception` wrapping for clarity.
+
+| File | Test | Line | Issue |
+|---|---|---|---|
+| DiagnosticLoggingTests | `LogSpawnContext_*` | 26-112 | 6 tests call `VesselSpawner.LogSpawnContext` with null/edge inputs, no explicit assertion |
+| PartEventTests | `RemoveSpecificCrew_NullSnapshot_NoException` | 352 | Calls production code with null, no explicit assertion |
+| PartEventTests | `RemoveSpecificCrew_NullExcludeSet_NoException` | 359 | Same |
 
 ### Tests that never call production code
 | File | Test | Line | Issue |
@@ -60,7 +67,9 @@ Tests that can never fail due to missing assertions, tautological checks, or gua
 | RewindTimelineTests | `InitiateRewind_SetsIsRewinding` | 541 | Sets bool, asserts bool |
 | RewindTimelineTests | `InitiateRewind_SetsRewindUT` | 551 | Sets double, asserts double |
 | RewindTimelineTests | `InitiateRewind_SetsRewindReserved` | 558 | Sets value, asserts value |
-| GhostChainTests | `ChainLink_DefaultValues_AreNullOrZero` | 28 | Tests C# auto-property defaults |
+| GameStateEventTests | `CrewSuppression_FlagCanBeSet` | 625 | Sets static bool, asserts bool, inline restore |
+| GameStateEventTests | `ResourceSuppression_FlagCanBeSet` | 641 | Same pattern |
+| GhostChainTests | `ChainLink_DefaultValues_AreNullOrZero` | 28 | Tests C# auto-property defaults (low-value, not zero-value) |
 | GhostChainTests | `GhostChain_SpawnUT_MatchesAssignedValue` | 113 | Property set/get |
 | RewindLoggingTests | `UTFlow_MustNotBeSetBeforeLoadScene` | 750 | Sets then reads property |
 | FormatVersionTests | `PlaybackGate_V5HasNoTrackSections_V6Has` | 184 | v6 side: adds item then asserts count > 0 |
@@ -145,7 +154,7 @@ Tests that can never fail due to missing assertions, tautological checks, or gua
 | LoopPhaseTests (ComputeLoopPhaseFromUT_Tests) | 10 | None (low risk) |
 | MergeDialogTests (MergeDialogFormatTests) | 5 | None (low risk) |
 | RuntimePolicyTests | 8 | None (low risk) |
-| SelectiveSpawnUITests | 7 | ParsekLog, SelectiveSpawnUI.KerbinTimeOverrideForTesting |
+| ~~SelectiveSpawnUITests~~ | ~~7~~ | ~~Already has attribute -- reviewer-corrected~~ |
 | TrackSectionTests | 8 | None (low risk) |
 | TrajectoryPointTests | 7 | None (low risk) |
 | VesselPersistenceTests | 5 | None (low risk) |
@@ -158,11 +167,8 @@ Tests that can never fail due to missing assertions, tautological checks, or gua
 | GameStateEventTests | `ResourceSuppression_FlagCanBeSet` | 641 | Inline restore of `SuppressResourceEvents` |
 | MilestoneTests | `GameStateStore_AddEvent_StampsCurrentEpoch` | 571 | Manual `CurrentEpoch = 0` reset at line 586 |
 
-### Incorrect teardown
-| File | Line | Issue |
-|---|---|---|
-| ResolveLocalizedNameTests | 16 | `Dispose` sets `SuppressLogging = false` (should be `true` or use `ResetTestOverrides`) |
-| TerrainCorrectorTests | 26 | `Dispose` sets `RecordingStore.SuppressLogging = false` (opposite of typical) |
+### ~~Incorrect teardown~~ (reviewer-corrected: these are correct)
+Both ResolveLocalizedNameTests and TerrainCorrectorTests correctly restore `SuppressLogging` to `false` (the runtime default) in Dispose. `ResetTestOverrides()` does not handle `SuppressLogging`, so explicit restore is the right pattern.
 
 ---
 
@@ -228,8 +234,8 @@ Tests that can never fail due to missing assertions, tautological checks, or gua
 ## Recommendations (Priority Order)
 
 ### P0 - Fix immediately
-1. **Delete exact duplicate tests** (9 pairs identified) -- they add CI time with zero additional coverage
-2. **Add assertions to zero-assertion tests** or delete them -- 6 tests that can never fail provide false confidence
+1. **Delete exact duplicate tests** (8 pairs identified) -- they add CI time with zero additional coverage
+2. **Add assertions to zero-assertion tests** or delete them -- tests that can never fail provide false confidence
 
 ### P1 - Fix soon
 3. **Add `IDisposable`** to the 17 test classes that modify shared state without cleanup
@@ -237,10 +243,9 @@ Tests that can never fail due to missing assertions, tautological checks, or gua
 5. **Fix misleading test names** (4 instances) -- names that contradict behavior cause confusion during debugging
 
 ### P2 - Fix when convenient
-6. **Add `[Collection("Sequential")]`** to `SelectiveSpawnUITests` and `WaypointSearchTests` (the two that actually touch shared state)
+6. **Add `[Collection("Sequential")]`** to `WaypointSearchTests` (touches ParsekLog shared state without the attribute)
 7. **Consolidate near-duplicate tests** into `[Theory]` with `[InlineData]` where appropriate
 8. **Wire up unused log capture** in 5 test classes or remove the setup
-9. **Fix incorrect teardown** in ResolveLocalizedNameTests and TerrainCorrectorTests
 
 ### P3 - Low priority
 10. **Add missing edge case tests** per the gaps table above
