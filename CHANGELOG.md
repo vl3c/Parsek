@@ -10,17 +10,17 @@ All notable changes to Parsek are documented here.
 
 - **Fix #134: CleanupOrphanedSpawnedVessels destroys freshly-spawned past vessels after rewind.** The rewind path populated `PendingCleanupNames` with all recording vessel names for `StripOrphanedSpawnedVessels`, but left them set for `CleanupOrphanedSpawnedVessels` in `OnFlightReady`, which then destroyed correctly-spawned past vessels. Fix: clear `PendingCleanupPids`/`PendingCleanupNames` immediately after the strip completes.
 - **Fix #43: Update known-bugs status.** Shader fallback lookup (`FindShaderOnRenderers`) was already implemented in commit 25ccfa9 but doc status was stale.
+- **Fix #95: Preserve VesselSnapshot on committed recordings.** Removed snapshot nulling from continuation vessel destroyed and EVA boarding handlers. `VesselDestroyed` flag gates spawn and is now reset by `ResetRecordingPlaybackFields` on revert/rewind. `UpdateRecordingsForTerminalEvent` skips all committed recordings. Items 3-5 (continuation sampling/refresh) deferred as tech debt.
+- **Fix #96: Hold ghost until spawn succeeds.** Ghost no longer disappears when spawn is blocked or warp-deferred. `HandlePlaybackCompleted` holds the ghost at its final position via `heldGhosts` dict. `RetryHeldGhostSpawns` retries each frame, releasing on success or 5s timeout.
+- **Fix #99: Spawn real vessels at KSC when ghost timelines complete.** `ParsekKSC.TrySpawnAtRecordingEnd` calls `VesselSpawner.RespawnVessel` when ghosts exit range. Chain mid-segment suppression via `IsChainMidSegment`. `OnSave` auto-unreserve guarded at SpaceCenter to prevent snapshot pre-emption.
 
 ### Investigated (Open)
 
-- **#48: ComputeBoundaryDiscontinuity hardcodes Kerbin radius.** Diagnostic-only — logged discontinuity magnitude is wrong on non-Kerbin bodies. Does not affect playback.
-- **#95: Committed recordings mutated after commit.** Continuation vessel destruction nulls `VesselSnapshot` and sets `VesselDestroyed` on committed recordings. Prevents re-spawn after revert. Needs separation of mutable continuation state from frozen committed data.
-- **#96: Ghost disappears between recording end and real vessel spawn.** Ghost destroyed immediately in `HandlePlaybackCompleted` regardless of spawn success. Needs "hold ghost until spawn" mechanism with timeout.
-- **#99: KSC view does not spawn real vessels when ghost timelines complete.** `ParsekKSC` is visual-only — no spawn logic. Needs lightweight spawn handler at recording completion.
+- **#48: ComputeBoundaryDiscontinuity hardcodes Kerbin radius.** Diagnostic-only — does not affect playback.
 
 ### Previously Fixed (Confirmed)
 
-- **#43** (shader fallback), **#49** (RealVesselExists O(n)) — already fixed in prior releases, confirmed during investigation.
+- **#43** (shader fallback), **#49** (RealVesselExists O(n)) — already fixed in prior releases.
 - **#50** (subgroup checkboxes) — code appears to draw them via recursive `DrawGroupTree`; needs in-game verification.
 
 ---
