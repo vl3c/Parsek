@@ -18,9 +18,28 @@ Log spam audit and cleanup. Analyzed a 28,923-line KSP.log from a 70-second KSC 
 - **Per-renderer VERBOSE diagnostics removed** — individual MR[N]/SMR[N] per-renderer logs (1,041+ lines), per-renderer damaged-wheel skip logs, and per-SMR bone fallback logs removed. Per-part summary already captures the same counts.
 - **Subsystem tag consolidation** — `Store`→`RecordingStore` (1 occurrence), `GhostBuild`→`GhostVisual` (5 occurrences). Reduces tag count from 63 to 61.
 
+### Round 2 — Ghost Lifecycle Batch Logging
+
+- **Frame batch summary** — replaced per-ghost spawn/destroy/build Verbose logs (15,489 Engine lines) with per-frame counters and one `VerboseRateLimited` summary: `Frame: spawned=N destroyed=N active=N`.
+- **DestroyGhost reason parameter** — all 7+ call sites now pass a reason string (`"cycle transition"`, `"soft cap despawn"`, `"anchor unloaded"`, etc.). Per-ghost destroy log restored at 1s rate limit with full context.
+- **SpawnGhost per-ghost log restored** — 1s rate-limited per-index key with build type (snapshot/sphere), part/engine/rcs counts.
+- **ShouldTriggerExplosion skip logs removed** — 1,959 lines/session of pure predicate noise (caller already knows the result).
+- **CrewReservation null snapshot log removed** — 515 lines of expected-path noise.
+- **ReentryFx → shared rate-limit keys** — mesh combination messages now dedup across all ghosts (was per-ghost-index).
+- **Overlap/explosion lifecycle → shared VRL keys** — overlap move, overlap expired, explosion created, parts hidden, loop restarted, overlap expired all changed from per-index to shared keys.
+- **Zone rendering Info→VRL** — per-ghost zone transition messages downgraded from Info to VerboseRateLimited (1,008 lines).
+- **Bug #135 cleanup** — fixed 12 garbled comments in ShouldSpawnAtRecordingEnd left from prior partial edit.
+
+### Round 3 — Serialization Batch Summaries
+
+- **Per-recording serialization logs removed** — 12 Verbose logs in RecordingStore (orbit segments, track sections, segment events, file summaries) and 2 per-recording metadata logs in ParsekScenario removed. These produced ~2,900 lines per save/load cycle.
+- **4 batch summaries added** — standalone save/load and tree save/load now log one summary each with aggregate counters (points, orbit segments, part events, track sections, snapshots).
+- **DeserializeSegmentEvents** — changed from always-log to Warn-only when events are skipped.
+
 ### Documentation
 
 - Log audit report: `docs/dev/log-audit-2026-03-25.md`
+- CLAUDE.md: added batch counting convention to Logging Requirements, removed obsolete `ParsekLog.Log` reference
 
 ---
 

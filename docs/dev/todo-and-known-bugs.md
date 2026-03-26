@@ -1676,6 +1676,10 @@ Comprehensive log audit of a 70-second KSC session with 273 recordings. Parsek p
 
 Additionally: FlightRecorder `Recorded point` Verbose → VerboseRateLimited (5s), overlap ghost destroy rate-limited, KSC ghost destroy rate-limited, `Store`→`RecordingStore` and `GhostBuild`→`GhostVisual` tag consolidation.
 
+**Round 2:** Ghost lifecycle batch logging. Replaced per-ghost spawn/destroy/build VRL logs (15,489 Engine VERBOSE lines) with per-frame counters and one summary. Added `reason` parameter to DestroyGhost (7 annotated call sites). Removed ShouldTriggerExplosion skip logs (1,959 lines), CrewReservation null-snapshot log (515 lines). Changed overlap/explosion/loop lifecycle VRL from per-index to shared keys. Downgraded Zone rendering per-ghost transitions from Info to VRL (1,008 lines). Fixed 12 garbled comments in ShouldSpawnAtRecordingEnd (#135).
+
+**Round 3:** Serialization batch summaries. Removed 12 per-recording Verbose logs in RecordingStore + 2 per-recording metadata logs in ParsekScenario (~2,900 lines per save/load cycle). Added 4 batch summaries with aggregate counters. DeserializeSegmentEvents changed to Warn-only on skip.
+
 Full analysis in `docs/dev/log-audit-2026-03-25.md`.
 
 **Status:** Fixed

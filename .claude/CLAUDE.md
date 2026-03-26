@@ -70,12 +70,13 @@ Alt+F12 opens Unity debug console in-game.
 
 Every action, state transition, guard condition skip, and FX lifecycle event MUST be logged. The KSP.log is our primary debugging tool — if it didn't get logged, it didn't happen.
 
-- Use `ParsekLog.Log` / `ParsekLog.Info` / `ParsekLog.Warn` for important events
-- Use `ParsekLog.Verbose` for high-frequency or detailed diagnostic info
-- Use `ParsekLog.VerboseRateLimited` for per-frame data (avoids log spam)
+- Use `ParsekLog.Info` / `ParsekLog.Warn` for important events
+- Use `ParsekLog.Verbose` for detailed diagnostic info (one-shot operations)
+- Use `ParsekLog.VerboseRateLimited` for per-frame or per-ghost-per-cycle data (avoids log spam). Use shared keys for aggregate summaries, per-index keys only when the index identity matters for debugging.
 - Include subsystem tag, relevant IDs (recording index, vessel name, part PID), and numeric values
 - Log format: `[Parsek][LEVEL][Subsystem] message` (handled by ParsekLog.Write)
-- See existing patterns in `ParsekFlight.cs` (ghost lifecycle) and `GhostVisualBuilder.cs` (FX build chain) for reference
+- **Batch counting convention:** When iterating over collections with per-item decisions (skip/process), declare local `int` counters, increment inside the loop, and log a single summary after the loop. Use `Verbose` for one-shot operations (load/save), `VerboseRateLimited` for per-frame summaries. Do not log per-item inside the loop unless the item count is bounded (under ~20).
+- See existing patterns in `GhostPlaybackEngine.cs` (frame batch counters) and `ParsekScenario.cs` (save/load batch summaries) for reference
 
 ## Testing Requirements
 
