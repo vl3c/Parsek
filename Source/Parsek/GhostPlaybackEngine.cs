@@ -50,6 +50,7 @@ namespace Parsek
         // Constants
         internal const int MaxOverlapGhostsPerRecording = 5;
         internal const double OverlapExplosionHoldSeconds = 3.0;
+        internal const int MaxActiveExplosions = 30;
 
         // Per-frame batch counters (avoid per-ghost log spam)
         private int frameSpawnCount;
@@ -1441,6 +1442,16 @@ namespace Parsek
             }
 
             state.explosionFired = true;
+
+            // Bug #131: cap active explosion count to prevent frame drops with overlapping reentry loops
+            if (activeExplosions.Count >= MaxActiveExplosions)
+            {
+                GhostPlaybackLogic.HideAllGhostParts(state);
+                ParsekLog.VerboseRateLimited("ExplosionFx", "explosion-capped",
+                    $"Explosion skipped for ghost #{recIdx} \"{traj.VesselName}\": " +
+                    $"activeExplosions={activeExplosions.Count} >= cap={MaxActiveExplosions}");
+                return;
+            }
 
             Vector3 worldPos = state.ghost.transform.position;
             float vesselLength = state.reentryFxInfo != null
