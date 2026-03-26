@@ -377,4 +377,373 @@ namespace Parsek.Tests
     }
 
     #endregion
+
+    #region Bug #72 — Antenna combination exponent from strongest combinable
+
+    [Collection("Sequential")]
+    public class Bug72_AntennaCombinationExponentTests : IDisposable
+    {
+        private readonly List<string> logLines = new List<string>();
+
+        public Bug72_AntennaCombinationExponentTests()
+        {
+            ParsekLog.ResetTestOverrides();
+            ParsekLog.SuppressLogging = false;
+            ParsekLog.VerboseOverrideForTesting = true;
+            ParsekLog.TestSinkForTesting = line => logLines.Add(line);
+            GhostCommNetRelay.ResetRemoteTechCacheForTesting();
+        }
+
+        public void Dispose()
+        {
+            ParsekLog.ResetTestOverrides();
+            ParsekLog.SuppressLogging = true;
+            GhostCommNetRelay.ResetRemoteTechCacheForTesting();
+        }
+
+        /// <summary>
+        /// When the strongest antenna is combinable, ResolveCombinationExponent
+        /// returns its own exponent (common case, unchanged behavior).
+        /// </summary>
+        [Fact]
+        public void ResolveCombinationExponent_StrongestCombinable_ReturnsItsExponent()
+        {
+            var specs = new List<AntennaSpec>
+            {
+                new AntennaSpec { partName = "big", antennaPower = 1000000, antennaCombinable = true, antennaCombinableExponent = 0.75 },
+                new AntennaSpec { partName = "small", antennaPower = 500000, antennaCombinable = true, antennaCombinableExponent = 0.5 }
+            };
+
+            var (exponent, sourceIdx) = GhostCommNetRelay.ResolveCombinationExponent(specs, strongestIdx: 0);
+
+            Assert.Equal(0.75, exponent);
+            Assert.Equal(0, sourceIdx);
+        }
+
+        /// <summary>
+        /// When the strongest antenna is non-combinable, ResolveCombinationExponent
+        /// returns the strongest *combinable* antenna's exponent (Bug #72 fix).
+        /// </summary>
+        [Fact]
+        public void ResolveCombinationExponent_StrongestNonCombinable_UsesStrongestCombinable()
+        {
+            var specs = new List<AntennaSpec>
+            {
+                new AntennaSpec { partName = "internal", antennaPower = 5000000, antennaCombinable = false, antennaCombinableExponent = 1.0 },
+                new AntennaSpec { partName = "relay", antennaPower = 1000000, antennaCombinable = true, antennaCombinableExponent = 0.75 },
+                new AntennaSpec { partName = "smallRelay", antennaPower = 500000, antennaCombinable = true, antennaCombinableExponent = 0.5 }
+            };
+
+            var (exponent, sourceIdx) = GhostCommNetRelay.ResolveCombinationExponent(specs, strongestIdx: 0);
+
+            // Should use the strongest combinable (relay at index 1), not the overall strongest (internal at index 0)
+            Assert.Equal(0.75, exponent);
+            Assert.Equal(1, sourceIdx);
+            Assert.Contains(logLines, l =>
+                l.Contains("[GhostCommNet]") && l.Contains("non-combinable") && l.Contains("relay"));
+        }
+
+        /// <summary>
+        /// When no antenna is combinable, ResolveCombinationExponent returns sourceIndex -1.
+        /// </summary>
+        [Fact]
+        public void ResolveCombinationExponent_NoCombinable_ReturnsMinusOne()
+        {
+            var specs = new List<AntennaSpec>
+            {
+                new AntennaSpec { partName = "a1", antennaPower = 5000000, antennaCombinable = false, antennaCombinableExponent = 1.0 },
+                new AntennaSpec { partName = "a2", antennaPower = 1000000, antennaCombinable = false, antennaCombinableExponent = 0.75 }
+            };
+
+            var (exponent, sourceIdx) = GhostCommNetRelay.ResolveCombinationExponent(specs, strongestIdx: 0);
+
+            Assert.Equal(-1, sourceIdx);
+        }
+
+        /// <summary>
+        /// End-to-end: combined power with non-combinable strongest should use
+        /// the combinable antenna's exponent, producing different results than
+        /// the old buggy code.
+        /// </summary>
+        [Fact]
+        public void ComputeCombinedPower_NonCombinableStrongest_UsesCorrectExponent()
+        {
+            // Non-combinable strongest with exponent 1.0 (would produce wrong result if used)
+            // Two combinable antennas with exponent 0.75
+            var specs = new List<AntennaSpec>
+            {
+                new AntennaSpec { partName = "probeCore", antennaPower = 5000000, antennaCombinable = false, antennaCombinableExponent = 1.0 },
+                new AntennaSpec { partName = "relay1", antennaPower = 1000000, antennaCombinable = true, antennaCombinableExponent = 0.75 },
+                new AntennaSpec { partName = "relay2", antennaPower = 500000, antennaCombinable = true, antennaCombinableExponent = 0.75 }
+            };
+
+            double result = GhostCommNetRelay.ComputeCombinedAntennaPower(specs);
+
+            // Strongest = 5000000 (probeCore, non-combinable)
+            // Exponent should come from relay1 (strongest combinable) = 0.75
+            // relay1 contribution: 1000000 * (1000000/5000000)^0.75
+            // relay2 contribution: 500000 * (500000/5000000)^0.75
+            double ratio1 = 1000000.0 / 5000000.0;
+            double ratio2 = 500000.0 / 5000000.0;
+            double expected = 5000000.0 + 1000000.0 * Math.Pow(ratio1, 0.75) + 500000.0 * Math.Pow(ratio2, 0.75);
+            Assert.Equal(expected, result, 1);
+
+            // If the old buggy code used exponent 1.0 instead of 0.75, the result would be:
+            double wrongExpected = 5000000.0 + 1000000.0 * Math.Pow(ratio1, 1.0) + 500000.0 * Math.Pow(ratio2, 1.0);
+            Assert.NotEqual(wrongExpected, result, 1);
+        }
+    }
+
+    #endregion
+
+    #region Bug #81 — TrackSection deep copy
+
+    public class Bug81_TrackSectionDeepCopyTests
+    {
+        /// <summary>
+        /// Modifying a copied recording's TrackSection frames must not affect the original.
+        /// </summary>
+        [Fact]
+        public void DeepCopyTrackSections_FramesMutationDoesNotAffectOriginal()
+        {
+            var original = new List<TrackSection>
+            {
+                new TrackSection
+                {
+                    environment = SegmentEnvironment.Atmospheric,
+                    startUT = 100.0,
+                    endUT = 200.0,
+                    frames = new List<TrajectoryPoint>
+                    {
+                        new TrajectoryPoint { ut = 100.0, latitude = 1.0 },
+                        new TrajectoryPoint { ut = 150.0, latitude = 2.0 }
+                    },
+                    checkpoints = new List<OrbitSegment>
+                    {
+                        new OrbitSegment { startUT = 100.0 }
+                    }
+                }
+            };
+
+            var copy = Recording.DeepCopyTrackSections(original);
+
+            // Mutate the copy's frames
+            copy[0].frames.Add(new TrajectoryPoint { ut = 175.0, latitude = 3.0 });
+            copy[0].checkpoints.Add(new OrbitSegment { startUT = 200.0 });
+
+            // Original must be unaffected
+            Assert.Equal(2, original[0].frames.Count);
+            Assert.Single(original[0].checkpoints);
+            Assert.Equal(3, copy[0].frames.Count);
+            Assert.Equal(2, copy[0].checkpoints.Count);
+        }
+
+        /// <summary>
+        /// Null frames/checkpoints in source should remain null in copy.
+        /// </summary>
+        [Fact]
+        public void DeepCopyTrackSections_NullLists_StayNull()
+        {
+            var original = new List<TrackSection>
+            {
+                new TrackSection
+                {
+                    environment = SegmentEnvironment.ExoBallistic,
+                    startUT = 300.0,
+                    endUT = 400.0,
+                    frames = null,
+                    checkpoints = null
+                }
+            };
+
+            var copy = Recording.DeepCopyTrackSections(original);
+
+            Assert.Null(copy[0].frames);
+            Assert.Null(copy[0].checkpoints);
+        }
+
+        /// <summary>
+        /// Scalar fields (startUT, endUT, environment) are copied correctly.
+        /// </summary>
+        [Fact]
+        public void DeepCopyTrackSections_ScalarFieldsCopied()
+        {
+            var original = new List<TrackSection>
+            {
+                new TrackSection
+                {
+                    environment = SegmentEnvironment.SurfaceMobile,
+                    referenceFrame = ReferenceFrame.Relative,
+                    startUT = 500.0,
+                    endUT = 600.0,
+                    sampleRateHz = 10.0f,
+                    source = TrackSectionSource.Background,
+                    boundaryDiscontinuityMeters = 1.5f,
+                    frames = new List<TrajectoryPoint>()
+                }
+            };
+
+            var copy = Recording.DeepCopyTrackSections(original);
+
+            Assert.Equal(SegmentEnvironment.SurfaceMobile, copy[0].environment);
+            Assert.Equal(ReferenceFrame.Relative, copy[0].referenceFrame);
+            Assert.Equal(500.0, copy[0].startUT);
+            Assert.Equal(600.0, copy[0].endUT);
+            Assert.Equal(10.0f, copy[0].sampleRateHz);
+            Assert.Equal(TrackSectionSource.Background, copy[0].source);
+            Assert.Equal(1.5f, copy[0].boundaryDiscontinuityMeters);
+        }
+
+        /// <summary>
+        /// ApplyPersistenceArtifactsFrom should deep copy TrackSections.
+        /// </summary>
+        [Fact]
+        public void ApplyPersistenceArtifactsFrom_TrackSectionsMutationDoesNotAffectSource()
+        {
+            var source = new Recording();
+            source.TrackSections = new List<TrackSection>
+            {
+                new TrackSection
+                {
+                    startUT = 100.0,
+                    endUT = 200.0,
+                    frames = new List<TrajectoryPoint>
+                    {
+                        new TrajectoryPoint { ut = 100.0 },
+                        new TrajectoryPoint { ut = 200.0 }
+                    }
+                }
+            };
+
+            var dest = new Recording();
+            dest.ApplyPersistenceArtifactsFrom(source);
+
+            // Mutate the dest's TrackSection frames
+            dest.TrackSections[0].frames.Add(new TrajectoryPoint { ut = 300.0 });
+
+            // Source must be unaffected
+            Assert.Equal(2, source.TrackSections[0].frames.Count);
+            Assert.Equal(3, dest.TrackSections[0].frames.Count);
+        }
+    }
+
+    #endregion
+
+    #region Bug #122 — Identity crew status transitions filtered
+
+    [Collection("Sequential")]
+    public class Bug122_CrewIdentityTransitionTests : IDisposable
+    {
+        private readonly List<string> logLines = new List<string>();
+
+        public Bug122_CrewIdentityTransitionTests()
+        {
+            ParsekLog.ResetTestOverrides();
+            ParsekLog.SuppressLogging = false;
+            ParsekLog.VerboseOverrideForTesting = true;
+            ParsekLog.TestSinkForTesting = line => logLines.Add(line);
+        }
+
+        public void Dispose()
+        {
+            ParsekLog.ResetTestOverrides();
+            ParsekLog.SuppressLogging = true;
+        }
+
+        /// <summary>
+        /// Dead->Dead is an identity transition and should be filtered.
+        /// </summary>
+        [Fact]
+        public void IsRealStatusChange_DeadToDead_ReturnsFalse()
+        {
+            bool result = GameStateRecorder.IsRealStatusChange(
+                ProtoCrewMember.RosterStatus.Dead,
+                ProtoCrewMember.RosterStatus.Dead);
+
+            Assert.False(result);
+        }
+
+        /// <summary>
+        /// Available->Available is an identity transition and should be filtered.
+        /// </summary>
+        [Fact]
+        public void IsRealStatusChange_AvailableToAvailable_ReturnsFalse()
+        {
+            bool result = GameStateRecorder.IsRealStatusChange(
+                ProtoCrewMember.RosterStatus.Available,
+                ProtoCrewMember.RosterStatus.Available);
+
+            Assert.False(result);
+        }
+
+        /// <summary>
+        /// Assigned->Assigned is an identity transition and should be filtered.
+        /// </summary>
+        [Fact]
+        public void IsRealStatusChange_AssignedToAssigned_ReturnsFalse()
+        {
+            bool result = GameStateRecorder.IsRealStatusChange(
+                ProtoCrewMember.RosterStatus.Assigned,
+                ProtoCrewMember.RosterStatus.Assigned);
+
+            Assert.False(result);
+        }
+
+        /// <summary>
+        /// Available->Assigned is a real transition.
+        /// </summary>
+        [Fact]
+        public void IsRealStatusChange_AvailableToAssigned_ReturnsTrue()
+        {
+            bool result = GameStateRecorder.IsRealStatusChange(
+                ProtoCrewMember.RosterStatus.Available,
+                ProtoCrewMember.RosterStatus.Assigned);
+
+            Assert.True(result);
+        }
+
+        /// <summary>
+        /// Assigned->Dead is a real transition.
+        /// </summary>
+        [Fact]
+        public void IsRealStatusChange_AssignedToDead_ReturnsTrue()
+        {
+            bool result = GameStateRecorder.IsRealStatusChange(
+                ProtoCrewMember.RosterStatus.Assigned,
+                ProtoCrewMember.RosterStatus.Dead);
+
+            Assert.True(result);
+        }
+
+        /// <summary>
+        /// Missing->Available is a real transition.
+        /// </summary>
+        [Fact]
+        public void IsRealStatusChange_MissingToAvailable_ReturnsTrue()
+        {
+            bool result = GameStateRecorder.IsRealStatusChange(
+                ProtoCrewMember.RosterStatus.Missing,
+                ProtoCrewMember.RosterStatus.Available);
+
+            Assert.True(result);
+        }
+    }
+
+    #endregion
+
+    #region Bug #131 — Explosion GO cap
+
+    public class Bug131_ExplosionCapTests
+    {
+        /// <summary>
+        /// MaxActiveExplosions constant is set to 30.
+        /// </summary>
+        [Fact]
+        public void MaxActiveExplosions_Is30()
+        {
+            Assert.Equal(30, GhostPlaybackEngine.MaxActiveExplosions);
+        }
+    }
+
+    #endregion
 }

@@ -1020,7 +1020,9 @@ Related to the general "initial part state" problem — the ghost builder needs 
 
 `ComputeCombinedAntennaPowerFromList` uses the strongest antenna's `antennaCombinableExponent` regardless of whether the strongest is itself combinable. KSP's actual formula uses the strongest *combinable* antenna as the base when the overall strongest is non-combinable. Result: ghost relay power is computed higher than KSP would.
 
-**Status:** Open
+**Fix:** Extracted `ResolveCombinationExponent` pure method that finds the strongest *combinable* antenna's exponent when the overall strongest is non-combinable. `ComputeCombinedAntennaPowerFromList` now uses this to select the correct exponent. Added logging when correction applies.
+
+**Status:** Fixed
 
 ## 73. SpawnCollisionDetector.CheckWarningProximity includes ActiveVessel and unfiltered vessel types
 
@@ -1082,7 +1084,9 @@ If called during time warp (warp rate > 1), `Planetarium.SetUniversalTime` can i
 
 `Recording` copy constructor does `new List<TrackSection>(source.TrackSections)` which copies struct values but shares `frames`/`checkpoints` list references between source and copy. Currently safe because recordings are read-only after construction, but fragile if any code later mutates a copied recording's track section frames.
 
-**Status:** Open — fragile but not currently triggered
+**Fix:** Extracted `Recording.DeepCopyTrackSections` that creates new `List<TrajectoryPoint>` and `List<OrbitSegment>` for each TrackSection. Used in `ApplyPersistenceArtifactsFrom`.
+
+**Status:** Fixed
 
 ## 82. IsDebris, Controllers, SurfacePos not serialized for standalone recordings
 
@@ -1516,21 +1520,21 @@ When a recording's ghost is past EndUT and spawn is collision-blocked, `UpdateTi
 
 When a spawned vessel is immediately destroyed (bug #110b), KSP fires `CrewStatusChanged` for crew already marked Dead. `GameStateRecorder` records these `Dead → Dead` no-op transitions as real events. Session 4 showed 10 such events across 3 spawn-death cycles.
 
-**Fix:** Filter identity transitions (`oldStatus == newStatus`) in `GameStateRecorder` before recording.
+**Fix:** Added `IsRealStatusChange(oldStatus, newStatus)` internal static pure method that returns false for identity transitions. Guard added to `OnKerbalStatusChange` before recording. Logs filtered transitions at Verbose level.
 
 **Priority:** Low — minor log noise, bounded by #110b's 3-cycle limit
 
-**Status:** Open
+**Status:** Fixed
 
 ## 123. `#autoLOC` localization keys in internal log messages
 
 Bug #103 fixed user-facing group headers, but some internal code paths (`TimeJumpManager`, `SpawnCollisionDetector`, `FlightRecorder`) still pass raw `Vessel.vesselName` (which may be an `#autoLOC_XXXXX` key) to log messages. Session 4 showed `vessel '#autoLOC_501224'` in TimeJump WARN messages and spawn collision logs.
 
-**Fix:** Apply `ResolveVesselName` more broadly to internal log call sites, or accept as cosmetic log-only issue.
+**Fix:** Wrapped all `v.vesselName` references in `TimeJumpManager.cs` (~11 sites) and all `other.vesselName` references in `SpawnCollisionDetector.cs` (~8 sites, including `blockerName` and `closestName` assignments) with `Recording.ResolveLocalizedName()`.
 
 **Priority:** Low — log readability only, no gameplay impact
 
-**Status:** Open
+**Status:** Fixed
 
 ## 124. Watch mode exit key conflicts with KSP Abort action group
 
@@ -1608,11 +1612,11 @@ With 3+ overlapping negative-interval loop ghosts that have Destroyed terminal s
 
 Not a crash or leak (explosions decay naturally), but 90 concurrent particle-emitting GOs could cause frame drops on lower-end hardware.
 
-Possible fix: cap `activeExplosions.Count` and skip new explosions when at cap, or increase explosion pruning frequency.
+**Fix:** Added `MaxActiveExplosions = 30` constant. `TriggerExplosionIfDestroyed` checks `activeExplosions.Count >= MaxActiveExplosions` before creating new explosion GOs and skips with rate-limited log when at cap. Ghost parts still hidden even when explosion is skipped.
 
 **Priority:** Low — only occurs with many overlapping destroyed-terminal loops
 
-**Status:** Open
+**Status:** Fixed
 
 ## 132. Policy RunSpawnDeathChecks and FlushDeferredSpawns are TODO stubs
 

@@ -8,6 +8,12 @@ All notable changes to Parsek are documented here.
 
 ### Bug Fixes
 
+- **Fix #72: GhostCommNetRelay antenna combination formula wrong for non-combinable strongest.** Extracted `ResolveCombinationExponent` pure method. When the overall strongest antenna is non-combinable, the combination exponent now comes from the strongest *combinable* antenna, matching KSP's actual formula.
+- **Fix #81: TrackSection struct shallow copy shares mutable list references.** Extracted `Recording.DeepCopyTrackSections` that creates independent `frames` and `checkpoints` lists for each copied TrackSection. Used in `ApplyPersistenceArtifactsFrom`.
+- **Fix #122: Dead->Dead crew status identity transitions logged as events.** Added `IsRealStatusChange` guard in `GameStateRecorder.OnKerbalStatusChange` to filter identity transitions before recording.
+- **Fix #123: #autoLOC localization keys in internal log messages.** Wrapped `v.vesselName` in `TimeJumpManager` and `other.vesselName` in `SpawnCollisionDetector` with `Recording.ResolveLocalizedName()`.
+- **Fix #131: Explosion GO count can reach ~90 for overlapping reentry loops.** Added `MaxActiveExplosions = 30` cap in `TriggerExplosionIfDestroyed`. New explosions are skipped (with logging) when at cap; ghost parts are still hidden.
+
 - **Fix #78: DetermineTerminalState maps DOCKED to Orbiting.** Changed `case 128` (DOCKED) to return `TerminalState.Docked` instead of `TerminalState.Orbiting`. Edge case for debris that docks.
 - **Fix #80: TimeJumpManager.ExecuteJump no warp guard.** Added warp stop at the start of `ExecuteJump` — calls `TimeWarp.SetRate(0, true)` when `CurrentRateIndex > 0` to prevent desync from `SetUniversalTime` during warp.
 - **Fix #75: GhostPlaybackLogic inconsistent negative interval handling.** Added early guard in `ComputeLoopPhaseFromUT` for `currentUT < recordingStartUT`, consistent with `TryComputeLoopPlaybackUT`. Removed redundant duplicate guard.
