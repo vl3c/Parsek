@@ -369,6 +369,20 @@ namespace Parsek
                             $"OnLoad: revert cleanup collected — " +
                             $"{spawnedPids?.Count ?? 0} pid(s), {spawnedNames?.Count ?? 0} name(s)");
                     }
+
+                    // Clear pending tree/recording from previous flight — dialog was shown
+                    // but user reverted before acting on it. Prevents OnFlightReady fallback
+                    // from showing the dialog again (#64).
+                    if (RecordingStore.HasPendingTree)
+                    {
+                        ParsekLog.Info("Scenario", "Clearing orphaned pending tree on revert");
+                        RecordingStore.DiscardPendingTree();
+                    }
+                    if (RecordingStore.HasPending)
+                    {
+                        ParsekLog.Info("Scenario", "Clearing orphaned pending recording on revert");
+                        RecordingStore.DiscardPending();
+                    }
                 }
 
                 // Restore mutable state from save. On revert the launch quicksave has
