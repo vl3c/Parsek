@@ -1072,6 +1072,7 @@ namespace Parsek
             {
                 Vessel v = FlightGlobals.Vessels[i];
                 if (v == null || v.vesselType != VesselType.Flag) continue;
+                if (GhostMapPresence.IsGhostMapVessel(v.persistentId)) continue;
                 if (v.mainBody != body) continue;
 
                 Vector3d flagPos = body.GetWorldSurfacePosition(v.latitude, v.longitude, v.altitude);

@@ -711,6 +711,9 @@ namespace Parsek
             vesselGhoster = null;
             activeGhostChains = null;
 
+            // Remove ghost map ProtoVessels on scene teardown
+            GhostMapPresence.RemoveAllGhostVessels("scene-cleanup");
+
             // Unsubscribe camera events before policy/engine disposal
             if (engine != null)
             {
@@ -932,6 +935,8 @@ namespace Parsek
 
         void OnVesselWillDestroy(Vessel v)
         {
+            if (v != null && GhostMapPresence.IsGhostMapVessel(v.persistentId)) return;
+
             // Watch mode: null out saved camera vessel if it's being destroyed
             if (watchedRecordingIndex >= 0 && savedCameraVessel != null && v == savedCameraVessel)
                 savedCameraVessel = null;
@@ -1222,6 +1227,8 @@ namespace Parsek
         /// </summary>
         void OnVesselSwitchComplete(Vessel newVessel)
         {
+            if (newVessel != null && GhostMapPresence.IsGhostMapVessel(newVessel.persistentId)) return;
+
             // Watch mode: re-target camera to ghost — KSP reparents pivot on vessel switch.
             // Don't early-return: tree vessel-switch logic below must still run so that
             // programmatic switches (e.g. docking absorbs a vessel) properly transition
@@ -2227,6 +2234,7 @@ namespace Parsek
                     {
                         Vessel v = FlightGlobals.Vessels[i];
                         if (v == null || v.persistentId == recordedPid) continue;
+                        if (GhostMapPresence.IsGhostMapVessel(v.persistentId)) continue;
 
                         // Only consider vessels that didn't exist before the break
                         if (preBreakVesselPids != null && preBreakVesselPids.Contains(v.persistentId))
@@ -2987,6 +2995,8 @@ namespace Parsek
 
         void OnVesselSituationChange(GameEvents.HostedFromToAction<Vessel, Vessel.Situations> data)
         {
+            if (data.host != null && GhostMapPresence.IsGhostMapVessel(data.host.persistentId)) return;
+
             // Track when the active vessel enters LANDED/SPLASHED for the settle timer
             if (data.host == FlightGlobals.ActiveVessel &&
                 (data.to == Vessel.Situations.LANDED || data.to == Vessel.Situations.SPLASHED))
@@ -3124,6 +3134,8 @@ namespace Parsek
 
         void OnVesselGoOffRails(Vessel v)
         {
+            if (v != null && GhostMapPresence.IsGhostMapVessel(v.persistentId)) return;
+
             recorder?.OnVesselGoOffRails(v);
             backgroundRecorder?.OnBackgroundVesselGoOffRails(v);
         }
@@ -3131,6 +3143,8 @@ namespace Parsek
         void OnVesselLoaded(Vessel v)
         {
             if (v == null) return;
+            if (GhostMapPresence.IsGhostMapVessel(v.persistentId)) return;
+
             uint pid = v.persistentId;
             loadedAnchorVessels.Add(pid);
 
@@ -3185,6 +3199,8 @@ namespace Parsek
 
         void OnVesselSOIChanged(GameEvents.HostedFromToAction<Vessel, CelestialBody> data)
         {
+            if (data.host != null && GhostMapPresence.IsGhostMapVessel(data.host.persistentId)) return;
+
             recorder?.OnVesselSOIChanged(data);
             backgroundRecorder?.OnBackgroundVesselSOIChanged(data.host, data.from);
         }
@@ -3829,6 +3845,14 @@ namespace Parsek
                 }
 
                 activeChains[pid] = chain;
+
+                // Create ghost map vessel for non-terminated chains with orbital data
+                if (!chain.IsTerminated && !string.IsNullOrEmpty(chain.TipRecordingId))
+                {
+                    Recording tipRecording = FindTipRecordingById(chain.TipRecordingId);
+                    if (tipRecording != null)
+                        GhostMapPresence.CreateGhostVessel(chain, tipRecording);
+                }
 
                 // Only attempt ghosting if the vessel actually exists in the scene.
                 // Tree recordings may reference vessels that were never spawned (e.g.,
@@ -5105,6 +5129,7 @@ namespace Parsek
             {
                 var vessel = FlightGlobals.Vessels[i];
                 if (vessel.persistentId == activePid) continue;
+                if (GhostMapPresence.IsGhostMapVessel(vessel.persistentId)) continue;
 
                 bool matchByPid = hasPids && pids.Contains(vessel.persistentId);
                 bool matchByName = hasNames && names.Contains(Recording.ResolveLocalizedName(vessel.vesselName));
@@ -5692,7 +5717,17 @@ namespace Parsek
                         rec.SpawnedVesselPersistentId = spawnedPid;
                         rec.VesselSpawned = true;
                         activeGhostChains.Remove(chain.OriginalVesselPid);
-            
+
+                        // Remove ghost map vessel — chain resolved by spawn
+                        bool wasTarget = GhostMapPresence.RemoveGhostVessel(
+                            chain.OriginalVesselPid, "chain-tip-spawn");
+                        if (wasTarget)
+                        {
+                            Vessel spawned = FlightRecorder.FindVesselByPid(spawnedPid);
+                            if (spawned != null)
+                                FlightGlobals.fetch?.SetVesselTarget(spawned);
+                        }
+
                         ParsekLog.Info("Flight",
                             $"Blocked chain tip spawn resolved: #{index} \"{rec.VesselName}\" pid={spawnedPid}");
                     }
@@ -5706,7 +5741,17 @@ namespace Parsek
                         rec.SpawnedVesselPersistentId = spawnedPid;
                         rec.VesselSpawned = true;
                         activeGhostChains.Remove(chain.OriginalVesselPid);
-            
+
+                        // Remove ghost map vessel — chain resolved by spawn
+                        bool wasTarget = GhostMapPresence.RemoveGhostVessel(
+                            chain.OriginalVesselPid, "chain-tip-spawn");
+                        if (wasTarget)
+                        {
+                            Vessel spawned = FlightRecorder.FindVesselByPid(spawnedPid);
+                            if (spawned != null)
+                                FlightGlobals.fetch?.SetVesselTarget(spawned);
+                        }
+
                         ParsekLog.Info("Flight",
                             $"Chain tip spawn complete: #{index} \"{rec.VesselName}\" pid={spawnedPid}");
                     }
@@ -6198,9 +6243,36 @@ namespace Parsek
             return null;
         }
 
+        /// <summary>
+        /// Finds a committed recording by its RecordingId. Searches all committed recordings.
+        /// Used for ghost map vessel creation (looking up chain tip recordings).
+        /// </summary>
+        private static Recording FindTipRecordingById(string recordingId)
+        {
+            var committed = RecordingStore.CommittedRecordings;
+            for (int i = 0; i < committed.Count; i++)
+            {
+                if (committed[i].RecordingId == recordingId)
+                    return committed[i];
+            }
+            return null;
+        }
+
+        void SpawnTimelineGhost(int index, Recording rec)
+        {
+            engine.SpawnGhost(index, rec);
+        }
+
+        internal void DestroyTimelineGhost(int index)
+        {
+            engine.DestroyGhost(index);
+        }
 
         public void DestroyAllTimelineGhosts()
         {
+            // Remove ghost map ProtoVessels before engine cleanup
+            GhostMapPresence.RemoveAllGhostVessels("rewind");
+
             // Engine destroys all ghost GOs and clears engine-owned state.
             // Fires OnAllGhostsDestroying so policy clears its own state.
             engine.DestroyAllGhosts();
@@ -7101,7 +7173,8 @@ namespace Parsek
             while (UnityEngine.Time.time < deadline)
             {
                 yield return null;
-                Vessel v = FlightGlobals.Vessels?.Find(vessel => vessel.persistentId == pid);
+                Vessel v = FlightGlobals.Vessels?.Find(vessel => vessel.persistentId == pid
+                    && !GhostMapPresence.IsGhostMapVessel(vessel.persistentId));
                 if (v != null)
                 {
                     v.IgnoreGForces(240);

@@ -324,6 +324,7 @@ namespace Parsek
             for (int v = 0; v < FlightGlobals.Vessels.Count; v++)
             {
                 Vessel other = FlightGlobals.Vessels[v];
+                if (GhostMapPresence.IsGhostMapVessel(other.persistentId)) continue;
                 if (other.mainBody != body) continue;
                 double dist = Vector3d.Distance(spawnPos, other.GetWorldPos3D());
                 if (dist < closestDist)
@@ -528,6 +529,7 @@ namespace Parsek
 
             for (int v = 0; v < FlightGlobals.Vessels.Count; v++)
             {
+                if (GhostMapPresence.IsGhostMapVessel(FlightGlobals.Vessels[v].persistentId)) continue;
                 var crew = FlightGlobals.Vessels[v].GetVesselCrew();
                 for (int c = 0; c < crew.Count; c++)
                 {
@@ -752,7 +754,10 @@ namespace Parsek
             for (int i = 0; i < FlightGlobals.Vessels.Count; i++)
             {
                 if (FlightGlobals.Vessels[i].persistentId == pid)
+                {
+                    if (GhostMapPresence.IsGhostMapVessel(pid)) return false;
                     return true;
+                }
             }
             return false;
         }

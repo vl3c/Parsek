@@ -129,6 +129,14 @@ namespace Parsek
             ParsekLog.Verbose("Scenario",
                 $"OnSave: wrote milestoneEpoch={MilestoneStore.CurrentEpoch}, budgetDeductionEpoch={budgetDeductionEpoch}");
 
+            // Strip ghost map ProtoVessels — they are transient and reconstructed on load
+            if (GhostMapPresence.ghostMapVesselPids.Count > 0)
+            {
+                var flightState = HighLogic.CurrentGame?.flightState;
+                if (flightState != null)
+                    GhostMapPresence.StripFromSave(flightState);
+            }
+
             lastOnSaveScene = HighLogic.LoadedScene;
         }
 
@@ -1415,6 +1423,7 @@ namespace Parsek
             for (int i = protoVessels.Count - 1; i >= 0; i--)
             {
                 var pv = protoVessels[i];
+                if (GhostMapPresence.IsGhostMapVessel(pv.persistentId)) continue;
                 if (!spawnedNames.Contains(Recording.ResolveLocalizedName(pv.vesselName)))
                     continue;
 
@@ -1852,6 +1861,7 @@ namespace Parsek
         private void OnVesselRecovered(ProtoVessel pv, bool fromTrackingStation)
         {
             if (pv == null) return;
+            if (GhostMapPresence.IsGhostMapVessel(pv.persistentId)) return;
 
             // During rewind, vessels are stripped from the save which fires onVesselRecovered.
             // Ignore these — the recordings must keep their snapshots for ghost playback and spawning.
@@ -1874,6 +1884,7 @@ namespace Parsek
         private void OnVesselTerminated(ProtoVessel pv)
         {
             if (pv == null) return;
+            if (GhostMapPresence.IsGhostMapVessel(pv.persistentId)) return;
             if (RecordingStore.IsRewinding) return;
             string vesselName = pv.vesselName;
             if (string.IsNullOrEmpty(vesselName)) return;

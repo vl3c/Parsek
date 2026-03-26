@@ -364,6 +364,7 @@ namespace Parsek
             foreach (Vessel v in FlightGlobals.VesselsLoaded)
             {
                 if (v == null || v.orbit == null) continue;
+                if (GhostMapPresence.IsGhostMapVessel(v.persistentId)) continue;
 
                 // Surface vessels: no epoch shift needed (surface-fixed coords are UT-independent)
                 if (v.situation == Vessel.Situations.LANDED ||
@@ -502,6 +503,7 @@ namespace Parsek
             foreach (Vessel v in loadedSnapshot)
             {
                 if (v == null) continue;
+                if (GhostMapPresence.IsGhostMapVessel(v.persistentId)) continue;
 
                 // Atmospheric warning: Keplerian propagation ignores drag,
                 // vessel may end up underground after forward jump
@@ -593,6 +595,7 @@ namespace Parsek
             foreach (Vessel v in vessels)
             {
                 if (v == null || v.parts == null) continue;
+                if (GhostMapPresence.IsGhostMapVessel(v.persistentId)) continue;
 
                 foreach (Part p in v.parts)
                 {

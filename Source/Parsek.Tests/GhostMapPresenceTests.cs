@@ -11,6 +11,7 @@ namespace Parsek.Tests
 
         public GhostMapPresenceTests()
         {
+            GhostMapPresence.ResetForTesting();
             ParsekLog.ResetTestOverrides();
             ParsekLog.SuppressLogging = false;
             ParsekLog.VerboseOverrideForTesting = true;
@@ -19,6 +20,7 @@ namespace Parsek.Tests
 
         public void Dispose()
         {
+            GhostMapPresence.ResetForTesting();
             ParsekLog.ResetTestOverrides();
             ParsekLog.SuppressLogging = true;
         }
@@ -251,6 +253,108 @@ namespace Parsek.Tests
 
             Assert.Equal("(unnamed)", name);
             Assert.Contains("Ghost", status);
+        }
+
+        #endregion
+
+        #region IsGhostMapVessel
+
+        /// <summary>
+        /// Empty PID set returns false for any PID.
+        /// Guards: no false positives when no ghost vessels exist.
+        /// </summary>
+        [Fact]
+        public void IsGhostMapVessel_EmptySet_ReturnsFalse()
+        {
+            Assert.False(GhostMapPresence.IsGhostMapVessel(12345));
+        }
+
+        /// <summary>
+        /// After adding a PID, IsGhostMapVessel returns true for that PID.
+        /// Guards: registered ghost PIDs are correctly identified.
+        /// </summary>
+        [Fact]
+        public void IsGhostMapVessel_AfterAdd_ReturnsTrue()
+        {
+            GhostMapPresence.ghostMapVesselPids.Add(12345);
+            Assert.True(GhostMapPresence.IsGhostMapVessel(12345));
+        }
+
+        /// <summary>
+        /// After adding then removing a PID, IsGhostMapVessel returns false.
+        /// Guards: removed ghost PIDs are no longer identified as ghosts.
+        /// </summary>
+        [Fact]
+        public void IsGhostMapVessel_AfterRemove_ReturnsFalse()
+        {
+            GhostMapPresence.ghostMapVesselPids.Add(12345);
+            GhostMapPresence.ghostMapVesselPids.Remove(12345);
+            Assert.False(GhostMapPresence.IsGhostMapVessel(12345));
+        }
+
+        /// <summary>
+        /// ResetForTesting clears all PID tracking state.
+        /// Guards: test isolation — no state bleeds between tests.
+        /// </summary>
+        [Fact]
+        public void ResetForTesting_ClearsAllState()
+        {
+            GhostMapPresence.ghostMapVesselPids.Add(111);
+            GhostMapPresence.ghostMapVesselPids.Add(222);
+            GhostMapPresence.ResetForTesting();
+            Assert.False(GhostMapPresence.IsGhostMapVessel(111));
+            Assert.False(GhostMapPresence.IsGhostMapVessel(222));
+            Assert.Empty(GhostMapPresence.ghostMapVesselPids);
+        }
+
+        #endregion
+
+        #region HasOrbitData (IPlaybackTrajectory overload)
+
+        /// <summary>
+        /// Null IPlaybackTrajectory returns false without throwing.
+        /// Guards: null safety for the interface overload.
+        /// </summary>
+        [Fact]
+        public void HasOrbitData_NullTrajectory_ReturnsFalse()
+        {
+            Assert.False(GhostMapPresence.HasOrbitData((IPlaybackTrajectory)null));
+        }
+
+        /// <summary>
+        /// Recording accessed via IPlaybackTrajectory interface returns true when orbit data present.
+        /// Guards: interface-based lookup works (engine uses IPlaybackTrajectory, not Recording).
+        /// </summary>
+        [Fact]
+        public void HasOrbitData_ViaInterface_ReturnsTrue()
+        {
+            var rec = new Recording
+            {
+                TerminalOrbitBody = "Mun",
+                TerminalOrbitSemiMajorAxis = 12000000
+            };
+            IPlaybackTrajectory traj = rec;
+            Assert.True(GhostMapPresence.HasOrbitData(traj));
+        }
+
+        #endregion
+
+        #region Log assertions
+
+        /// <summary>
+        /// HasOrbitData logs result with [GhostMap] tag.
+        /// Guards: diagnostic logging fires for orbit data checks.
+        /// </summary>
+        [Fact]
+        public void HasOrbitData_LogsResult()
+        {
+            var rec = new Recording
+            {
+                TerminalOrbitBody = "Kerbin",
+                TerminalOrbitSemiMajorAxis = 700000
+            };
+            GhostMapPresence.HasOrbitData(rec);
+            Assert.Contains(logLines, l => l.Contains("[GhostMap]") && l.Contains("result=True"));
         }
 
         #endregion
