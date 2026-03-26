@@ -958,6 +958,14 @@ namespace Parsek
             PendingCleanupNames = null;
         }
 
+        /// <summary>
+        /// Adds a recording directly to committed list. For unit tests only.
+        /// </summary>
+        internal static void AddCommittedForTesting(Recording rec)
+        {
+            committedRecordings.Add(rec);
+        }
+
         internal static void DeleteRecordingFiles(Recording rec)
         {
             if (rec == null)
