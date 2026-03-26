@@ -267,6 +267,13 @@ namespace Parsek
             double recordingEndUT,
             double intervalSeconds)
         {
+            // Early guard: currentUT before recording start — consistent with TryComputeLoopPlaybackUT
+            if (currentUT < recordingStartUT)
+            {
+                ParsekLog.Verbose("Loop", $"ComputeLoopPhaseFromUT: currentUT={currentUT:R} before recordingStartUT={recordingStartUT:R}, returning startUT");
+                return (recordingStartUT, 0, false);
+            }
+
             double duration = recordingEndUT - recordingStartUT;
             if (duration <= 0)
             {
@@ -282,11 +289,6 @@ namespace Parsek
             }
 
             double elapsed = currentUT - recordingStartUT;
-            if (elapsed < 0)
-            {
-                ParsekLog.Verbose("Loop", $"ComputeLoopPhaseFromUT: currentUT={currentUT:R} before recordingStartUT={recordingStartUT:R}, returning startUT");
-                return (recordingStartUT, 0, false);
-            }
 
             long cycleIndex = (long)(elapsed / cycleDuration);
             double phaseInCycle = elapsed - (cycleIndex * cycleDuration);
