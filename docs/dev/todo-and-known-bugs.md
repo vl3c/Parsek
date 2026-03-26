@@ -1648,7 +1648,7 @@ Different from #117 (CanRewind/CanFastForward UI spam, now fixed) and #121 (Ghos
 
 **Priority:** High — blocks effective log analysis
 
-**Status:** Open
+**Status:** Fixed — per-frame VERBOSE logs removed; reason returned to caller via out-parameter tuple. Garbled comments from partial edit cleaned up in log audit PR.
 
 ## 136. ParsePartPositions: 0/N parts parsed from vessel snapshot
 
@@ -1671,6 +1671,28 @@ Log evidence: `CrewStatusChanged 'Bob Kerman' Assigned → Missing` at UT 115.6,
 **Root cause:** `RemoveReservedEvaVessels` calls `vessel.Unload()` which orphans crew — KSP sets their status to Missing. No rescue runs after.
 
 **Fix:** Added `RescueReservedCrewAfterEvaRemoval` in `CrewReservationManager` — called at the end of `RemoveReservedEvaVessels` when `evaRemoved > 0`. Scans the roster for crew matching `ShouldRescueFromMissing` (Missing status AND in the replacements dict) and sets them to `Assigned` (not Available — they're still reserved for spawn). Wrapped in `GameStateRecorder.SuppressCrewEvents` to prevent the status change from being recorded as a game state event. Pure decision method `ShouldRescueFromMissing` extracted for testability.
+
+**Status:** Fixed
+
+## 138. [v0.5.3] Log spam audit: untagged messages, wrong levels, per-renderer noise
+
+Comprehensive log audit of a 70-second KSC session with 273 recordings. Parsek produced 19,771 lines (68.4% of all KSP.log output). Three categories of issues found and fixed:
+
+1. **Untagged messages (2,651 INFO lines):** 26 `ParsekLog.Log()` calls in EngineFxBuilder (16) and GhostVisualBuilder (10) bypassed subsystem tagging — all appeared as `[General]`, making grep-by-subsystem useless for 55% of INFO output. Migrated to proper `Verbose("EngineFx")` / `Verbose("GhostVisual")` / `Info("GhostVisual")`. Deleted `ParsekLog.Log()` method.
+
+2. **Wrong log levels (3,495 INFO lines):** ReentryFx mesh combination messages (2×1,074 = 2,148 lines) fired per ghost build at INFO — should be VERBOSE. KSC per-ghost spawn/enter/reshow/destroy messages (1,347 lines) at INFO — per-ghost detail is VERBOSE, batch summary is INFO.
+
+3. **Per-renderer VERBOSE noise (~5,000+ lines):** Individual `MR[N]`/`SMR[N]` logs (1,041), per-renderer damaged-wheel skip logs, and per-SMR bone fallback logs all used per-renderer rate-limit keys, producing one log per unique renderer across all ghost builds. Removed — the per-part summary already captures the same totals.
+
+Additionally: FlightRecorder `Recorded point` Verbose → VerboseRateLimited (5s), overlap ghost destroy rate-limited, KSC ghost destroy rate-limited, `Store`→`RecordingStore` and `GhostBuild`→`GhostVisual` tag consolidation.
+
+**Round 2:** Ghost lifecycle batch logging. Replaced per-ghost spawn/destroy/build VRL logs (15,489 Engine VERBOSE lines) with per-frame counters and one summary. Added `reason` parameter to DestroyGhost (7 annotated call sites). Removed ShouldTriggerExplosion skip logs (1,959 lines), CrewReservation null-snapshot log (515 lines). Changed overlap/explosion/loop lifecycle VRL from per-index to shared keys. Downgraded Zone rendering per-ghost transitions from Info to VRL (1,008 lines). Fixed 12 garbled comments in ShouldSpawnAtRecordingEnd (#135).
+
+**Round 3:** Serialization batch summaries. Removed 12 per-recording Verbose logs in RecordingStore + 2 per-recording metadata logs in ParsekScenario (~2,900 lines per save/load cycle). Added 4 batch summaries with aggregate counters. DeserializeSegmentEvents changed to Warn-only on skip.
+
+**Round 4:** Remaining spam from post-R3 analysis. SpawnWarning FormatChainStatus VRL'd (1,165 lines per-frame poll). Zone transitions Info→VRL shared key (501 lines, 248-line bursts). Scenario per-recording index dump Info→Verbose (390 lines). Per-recording "Loaded recording:" Info→Verbose (278 lines). "Triggering explosion" Info→VRL per-index 10s (406 lines). Net result: Parsek output rate dropped from 16,947/min (pre-fix) to 1,327/min (post-R3) — **92.2% reduction**.
+
+Full analysis in `docs/dev/log-audit-2026-03-25.md`.
 
 **Status:** Fixed
 

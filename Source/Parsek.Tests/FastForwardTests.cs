@@ -64,7 +64,7 @@ namespace Parsek.Tests
             // Bug #117: blocked-path VERBOSE logs removed (per-frame UI spam).
             // Reason is conveyed via the out parameter, not log output.
             Assert.DoesNotContain(logLines, l =>
-                l.Contains("[Store]") && l.Contains("CanFastForward") && l.Contains("blocked"));
+                l.Contains("[RecordingStore]") && l.Contains("CanFastForward") && l.Contains("blocked"));
         }
 
         [Fact]

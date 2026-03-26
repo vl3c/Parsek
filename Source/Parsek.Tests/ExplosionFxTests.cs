@@ -45,7 +45,7 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void ShouldTriggerExplosion_AlreadyFired_ReturnsFalseAndLogs()
+        public void ShouldTriggerExplosion_AlreadyFired_ReturnsFalse()
         {
             bool result = GhostPlaybackLogic.ShouldTriggerExplosion(
                 explosionAlreadyFired: true,
@@ -55,12 +55,10 @@ namespace Parsek.Tests
                 recIdx: 5);
 
             Assert.False(result);
-            Assert.Contains(logLines, l =>
-                l.Contains("[ExplosionFx]") && l.Contains("already fired") && l.Contains("#5"));
         }
 
         [Fact]
-        public void ShouldTriggerExplosion_NotDestroyed_Landed_ReturnsFalseAndLogs()
+        public void ShouldTriggerExplosion_NotDestroyed_Landed_ReturnsFalse()
         {
             bool result = GhostPlaybackLogic.ShouldTriggerExplosion(
                 explosionAlreadyFired: false,
@@ -70,12 +68,10 @@ namespace Parsek.Tests
                 recIdx: 1);
 
             Assert.False(result);
-            Assert.Contains(logLines, l =>
-                l.Contains("[ExplosionFx]") && l.Contains("terminalState=Landed") && l.Contains("not Destroyed"));
         }
 
         [Fact]
-        public void ShouldTriggerExplosion_NullTerminalState_ReturnsFalseAndLogs()
+        public void ShouldTriggerExplosion_NullTerminalState_ReturnsFalse()
         {
             bool result = GhostPlaybackLogic.ShouldTriggerExplosion(
                 explosionAlreadyFired: false,
@@ -85,8 +81,6 @@ namespace Parsek.Tests
                 recIdx: 0);
 
             Assert.False(result);
-            Assert.Contains(logLines, l =>
-                l.Contains("[ExplosionFx]") && l.Contains("terminalState=null") && l.Contains("not Destroyed"));
         }
 
         [Fact]
@@ -119,8 +113,6 @@ namespace Parsek.Tests
                 recIdx: 0);
 
             Assert.False(result);
-            Assert.Contains(logLines, l =>
-                l.Contains("[ExplosionFx]") && l.Contains("not Destroyed"));
         }
 
         // --- Guard evaluation order: already-fired checked before terminal state ---
@@ -129,76 +121,14 @@ namespace Parsek.Tests
         public void ShouldTriggerExplosion_AlreadyFired_SkipsBeforeCheckingTerminalState()
         {
             // Even with Destroyed state, already-fired should be checked first
-            GhostPlaybackLogic.ShouldTriggerExplosion(
+            bool result = GhostPlaybackLogic.ShouldTriggerExplosion(
                 explosionAlreadyFired: true,
                 terminalState: TerminalState.Destroyed,
                 ghostExists: true,
                 vesselName: "V",
                 recIdx: 0);
 
-            Assert.Contains(logLines, l => l.Contains("already fired"));
-            Assert.DoesNotContain(logLines, l => l.Contains("will fire"));
-        }
-
-        // --- Rate-limited logging: first call emits, repeated calls are suppressed ---
-
-        [Fact]
-        public void ShouldTriggerExplosion_AlreadyFired_FirstCallEmits_SubsequentSuppressed()
-        {
-            ParsekLog.VerboseOverrideForTesting = true;
-            ParsekLog.ResetRateLimitsForTesting();
-            double now = 5000.0;
-            ParsekLog.ClockOverrideForTesting = () => now;
-
-            // First call: should emit
-            GhostPlaybackLogic.ShouldTriggerExplosion(true, TerminalState.Destroyed, true, "V", 2);
-            Assert.Single(logLines, l => l.Contains("already fired") && l.Contains("#2"));
-
-            // Repeated calls within rate-limit window: suppressed
-            now += 0.1;
-            GhostPlaybackLogic.ShouldTriggerExplosion(true, TerminalState.Destroyed, true, "V", 2);
-            now += 0.1;
-            GhostPlaybackLogic.ShouldTriggerExplosion(true, TerminalState.Destroyed, true, "V", 2);
-
-            // Still only one log line for this key
-            Assert.Single(logLines, l => l.Contains("already fired") && l.Contains("#2"));
-        }
-
-        [Fact]
-        public void ShouldTriggerExplosion_NotDestroyed_FirstCallEmits_SubsequentSuppressed()
-        {
-            ParsekLog.VerboseOverrideForTesting = true;
-            ParsekLog.ResetRateLimitsForTesting();
-            double now = 5000.0;
-            ParsekLog.ClockOverrideForTesting = () => now;
-
-            // First call: should emit
-            GhostPlaybackLogic.ShouldTriggerExplosion(false, TerminalState.Recovered, true, "V", 4);
-            Assert.Single(logLines, l => l.Contains("not Destroyed") && l.Contains("#4"));
-
-            // Repeated calls within rate-limit window: suppressed
-            now += 0.1;
-            GhostPlaybackLogic.ShouldTriggerExplosion(false, TerminalState.Recovered, true, "V", 4);
-            now += 0.1;
-            GhostPlaybackLogic.ShouldTriggerExplosion(false, TerminalState.Recovered, true, "V", 4);
-
-            Assert.Single(logLines, l => l.Contains("not Destroyed") && l.Contains("#4"));
-        }
-
-        [Fact]
-        public void ShouldTriggerExplosion_DifferentGhostIndices_IndependentRateLimitKeys()
-        {
-            ParsekLog.VerboseOverrideForTesting = true;
-            ParsekLog.ResetRateLimitsForTesting();
-            double now = 5000.0;
-            ParsekLog.ClockOverrideForTesting = () => now;
-
-            // Two different ghost indices should each emit on first call
-            GhostPlaybackLogic.ShouldTriggerExplosion(true, TerminalState.Destroyed, true, "V", 1);
-            GhostPlaybackLogic.ShouldTriggerExplosion(true, TerminalState.Destroyed, true, "V", 2);
-
-            Assert.Single(logLines, l => l.Contains("already fired") && l.Contains("#1"));
-            Assert.Single(logLines, l => l.Contains("already fired") && l.Contains("#2"));
+            Assert.False(result);
         }
 
         // --- ApplyDestroyedFallback tests ---
