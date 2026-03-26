@@ -329,8 +329,9 @@ namespace Parsek
 
         private void HandleGhostDestroyed(GhostLifecycleEvent evt)
         {
+            string name = evt.State?.vesselName ?? evt.Trajectory?.VesselName ?? "Unknown";
             ParsekLog.Verbose("Policy",
-                $"GhostDestroyed index={evt.Index} vessel={evt.Trajectory?.VesselName}");
+                $"GhostDestroyed index={evt.Index} vessel={name}");
 
             // If a held ghost was destroyed externally (e.g. soft cap, DestroyAllGhosts),
             // remove it from the held set so we don't try to destroy it again
