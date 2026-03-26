@@ -150,6 +150,26 @@ Log spam audit and cleanup. Analyzed a 28,923-line KSP.log from a 70-second KSC 
 - Log audit report: `docs/dev/log-audit-2026-03-25.md`
 - CLAUDE.md: added batch counting convention to Logging Requirements, removed obsolete `ParsekLog.Log` reference
 
+### Ghost Map Presence (bug #60)
+
+Ghost chain vessels now appear in KSP's tracking station, show orbit lines in map view, and can be targeted for rendezvous planning.
+
+- **ProtoVessel-based map integration** — lightweight ProtoVessel per ghost chain provides automatic tracking station entry, orbit line (OrbitRenderer), clickable map icon (MapObject), and navigation targeting (ITargetable). Created on chain init, removed on chain resolve/rewind/scene cleanup, stripped from saves.
+- **30 guard rails** across 10 source files — `IsGhostMapVessel(pid)` checks on all `FlightGlobals.Vessels` iteration sites and vessel GameEvent handlers. Prevents ghost ProtoVessels from being recorded, spawned against, or processed as real vessels.
+- **5 Harmony patches** — `Vessel.GoOffRails` (prevent physics loading), `CommNetVessel.OnStart` (prevent duplicate CommNet nodes — GhostCommNetRelay handles CommNet separately), `SpaceTracking.FlyVessel`/`OnVesselDeleteConfirm`/`OnRecoverConfirm` (block tracking station actions with screen message).
+- **Orbit segment updates** — ghost ProtoVessel orbit updated per-frame when the ghost traverses OrbitSegment boundaries (SOI transitions, orbit changes). Tracked via `LastMapOrbitBodyName`/`LastMapOrbitSma` on GhostChain.
+- **Soft cap integration** — `Despawn` cap action removes ghost ProtoVessel; `ReduceFidelity` and `SimplifyToOrbitLine` keep it (orbit line stays visible even when mesh is hidden).
+- **Target transfer** — if ghost was the navigation target when chain resolves (real vessel spawns), the spawned vessel becomes the new target automatically.
+- **VesselType mirroring** — ghost uses the original vessel's type from snapshot (Ship, Station, Relay, etc.) for correct tracking station filter placement.
+- **IPlaybackTrajectory extended** with 8 terminal orbit properties for engine-side access without Recording dependency.
+- **23 new tests** — PID tracking, HasOrbitData, ComputeGhostDisplayInfo, ResolveVesselType, interface access, log assertions.
+
+### Design & Research
+
+- Ghost orbits & trajectories investigation document (12 scenarios, 37 edge cases)
+- KSP API decompilation reference (17 classes: ProtoVessel, OrbitRenderer, MapObject, SpaceTracking, etc.)
+- KSPTrajectories mod architecture analysis (rendering, coordinate transforms, NavBall integration)
+
 ---
 
 ## 0.5.2

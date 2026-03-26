@@ -2,7 +2,7 @@
 
 *ProtoVessel-based tracking station entries, orbit lines, and navigation targeting for ghost vessels.*
 
-**Status:** Ready for implementation
+**Status:** Implemented (Phases 1–3), pending in-game verification
 **Branch:** `claude/ghost-orbits-trajectories-JrKkc`
 **Prerequisites:** Investigation document + KSP API decompilation (same branch)
 

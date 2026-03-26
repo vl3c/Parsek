@@ -85,11 +85,9 @@ To implement properly: either rescale prefab Cap/Truss meshes from XSECTION data
 
 **Priority:** Low — cosmetic, only visible briefly after fairing jettison
 
-### T11. Ghost map presence KSP integration (bug #60)
+### ~~T11. Ghost map presence KSP integration (bug #60)~~ — DONE
 
-`GhostMapPresence` pure data layer is complete. 4 KSP integration points need in-game API investigation: tracking station registration, map orbit lines, nav target support, cleanup on despawn.
-
-**Priority:** Medium — improves ghost world presence
+Implemented via ProtoVessel-based approach. Ghost chains with orbital data get lightweight ProtoVessels that provide automatic tracking station entries, orbit lines, map icons, and navigation targeting. 27 guard rails across 9 files, 4 Harmony patches (GoOffRails, CommNetVessel, SpaceTracking Fly/Delete/Recover). Orbit segment updates on SOI transitions. Soft cap despawn integration. 23 tests.
 
 ### T12. EVA recording scope expansion (bug #56)
 
@@ -915,16 +913,16 @@ When the player stages/decouples parts, KSP may instantly destroy the separated 
 
 ## 60. Ghost map presence stubs not implemented (GhostMapPresence.cs)
 
-`GhostMapPresence` has the pure data layer complete (`HasOrbitData`, `ComputeGhostDisplayInfo`) but 4 KSP integration points are stubbed out as TODO comments (lines 108-128):
+Implemented via ProtoVessel-based approach on branch `claude/ghost-orbits-trajectories-JrKkc`. All 4 integration points resolved:
 
-1. **Register ghost in tracking station** — investigate whether KSP requires a `ProtoVessel` entry or if a custom `MapNode` can be created directly
-2. **Create map view orbit line** — distinct color/style to differentiate from real vessel orbits, needs `PlanetariumCamera` API research
-3. **Enable ghost as navigation target** — allow player to set ghost as rendezvous target for transfer planning, investigate `Vessel.SetTarget` compatibility
-4. **Remove tracking entry on despawn** — clean up when ghost is destroyed or chain tip spawns
+1. **Tracking station** — ProtoVessel auto-registers in FlightGlobals.Vessels → appears in tracking station
+2. **Map orbit lines** — OrbitDriver with Keplerian propagation → automatic OrbitRenderer
+3. **Navigation targeting** — Vessel implements ITargetable → targeting works natively
+4. **Cleanup on despawn** — vessel.Die() handles all deregistration; called on chain resolve, rewind, scene cleanup
 
-Tagged as Phase 6f-1 in code. Requires in-game API investigation.
+Guard rails: 27 `IsGhostMapVessel` checks across 9 source files. 4 Harmony patches: GoOffRails (prevent physics loading), CommNetVessel.OnStart (prevent duplicate CommNet nodes), SpaceTracking FlyVessel/DeleteConfirm/RecoverConfirm (block tracking station actions).
 
-**Status:** Open — deferred (Phase 6f)
+**Status:** Fixed
 
 ## 61. Controlled children have no recording segments after breakup
 

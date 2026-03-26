@@ -88,13 +88,13 @@ Comprehensive redesign of the recording and playback systems. Multi-vessel sessi
 
 **Ghost visual hardening:** Variant textures, damaged wheel filtering, fairing meshes and internal structure, SRB nozzle glow, engine shrouds, initial state seeding for all tracking sets. Compound part visuals (fuel lines, struts). Plume and smoke trail fixes. Control surfaces, robotics/servo detection, cabin lights, animation-based deployables. RCS debounce.
 
-**Ghost world presence:** CommNet relay via antenna specs. Ghost labels. Map view / tracking station stubs (full KSP integration pending).
+**Ghost world presence:** CommNet relay via antenna specs. Ghost labels. ProtoVessel-based map presence — tracking station entries, orbit lines, navigation targeting, Harmony guard rails.
 
 **Real Spawn Control:** Proximity-based UI for warping to when nearby ghost craft become real vessels. Per-craft warp buttons, sortable columns, countdown display, screen notifications. Countdown column in Recordings Manager.
 
 **UI:** Fast-forward redesigned as instant UT jump. Watch mode distance limits. Spawn abandon status display.
 
-**Remaining work** tracked in `docs/dev/todo-and-known-bugs.md`. Key areas: log spam reduction, ghost map presence KSP integration (tracking station, orbit lines, nav target), UI subgroup controls and EVA recording scope expansion, minor performance optimizations.
+**Remaining work** tracked in `docs/dev/todo-and-known-bugs.md`. Key areas: log spam reduction, UI subgroup controls and EVA recording scope expansion, minor performance optimizations.
 
 ---
 

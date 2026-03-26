@@ -1,6 +1,6 @@
 # Ghost Orbits & Trajectories — Design Investigation
 
-## Status: Investigation complete — Steps 1–2 done, ready for Step 3 (Design Doc)
+## Status: Complete — Investigation → Design → Implementation (Phases 1–3 done)
 
 ### Companion Documents
 - **KSP API Decompilation Reference**: `docs/dev/research/ksp-map-presence-api-decompilation.md` — decompiled ProtoVessel, OrbitRenderer, MapObject, SpaceTracking, FlightGlobals, GameEvents, VesselType, ITargetable. Includes minimal ConfigNode template and runtime creation/cleanup sequences.
