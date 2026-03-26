@@ -208,7 +208,7 @@ namespace Parsek.Tests
         {
             var rec = MakeKerbinRecording(startUT: 100, endUT: 200, loopPlayback: true);
             double loopUT;
-            int cycleIndex;
+            long cycleIndex;
             bool inPauseWindow;
 
             bool result = ParsekKSC.TryComputeLoopUT(rec, 50,
@@ -223,7 +223,7 @@ namespace Parsek.Tests
             var rec = MakeKerbinRecording(startUT: 100, endUT: 200, loopPlayback: true,
                 loopInterval: 10.0);
             double loopUT;
-            int cycleIndex;
+            long cycleIndex;
             bool inPauseWindow;
 
             bool result = ParsekKSC.TryComputeLoopUT(rec, 100,
@@ -241,7 +241,7 @@ namespace Parsek.Tests
             var rec = MakeKerbinRecording(
                 startUT: 100, endUT: 200, loopPlayback: true, loopInterval: 10.0);
             double loopUT;
-            int cycleIndex;
+            long cycleIndex;
             bool inPauseWindow;
 
             bool result = ParsekKSC.TryComputeLoopUT(rec, 150,
@@ -261,7 +261,7 @@ namespace Parsek.Tests
             var rec = MakeKerbinRecording(
                 startUT: 100, endUT: 200, loopPlayback: true, loopInterval: 10.0);
             double loopUT;
-            int cycleIndex;
+            long cycleIndex;
             bool inPauseWindow;
 
             bool result = ParsekKSC.TryComputeLoopUT(rec, 205,
@@ -281,7 +281,7 @@ namespace Parsek.Tests
             var rec = MakeKerbinRecording(
                 startUT: 100, endUT: 200, loopPlayback: true, loopInterval: 10.0);
             double loopUT;
-            int cycleIndex;
+            long cycleIndex;
             bool inPauseWindow;
 
             bool result = ParsekKSC.TryComputeLoopUT(rec, 215,
@@ -297,7 +297,7 @@ namespace Parsek.Tests
         public void TryComputeLoopUT_NullRecording_ReturnsFalse()
         {
             double loopUT;
-            int cycleIndex;
+            long cycleIndex;
             bool inPauseWindow;
 
             bool result = ParsekKSC.TryComputeLoopUT(null, 100,
@@ -317,7 +317,7 @@ namespace Parsek.Tests
             };
 
             double loopUT;
-            int cycleIndex;
+            long cycleIndex;
             bool inPauseWindow;
 
             bool result = ParsekKSC.TryComputeLoopUT(rec, 150,
@@ -332,7 +332,7 @@ namespace Parsek.Tests
             var rec = MakeKerbinRecording(
                 startUT: 100, endUT: 200, loopPlayback: true, loopInterval: 0.0);
             double loopUT;
-            int cycleIndex;
+            long cycleIndex;
             bool inPauseWindow;
 
             // At UT 250: elapsed=150, cycleDuration=100, cycle=1, cycleTime=50
@@ -352,7 +352,7 @@ namespace Parsek.Tests
             var rec = MakeKerbinRecording(
                 startUT: 100, endUT: 200, loopPlayback: true, loopInterval: 10.0);
             double loopUT;
-            int cycleIndex;
+            long cycleIndex;
             bool inPauseWindow;
 
             // At UT 11100: elapsed=11000, cycleDuration=110, cycle=100
@@ -371,7 +371,7 @@ namespace Parsek.Tests
             var rec = MakeKerbinRecording(
                 startUT: 100, endUT: 200, loopPlayback: true, loopInterval: 10.0);
             double loopUT;
-            int cycleIndex;
+            long cycleIndex;
             bool inPauseWindow;
 
             // At UT 200: elapsed=100, cycle=0, cycleTime=100 == duration
@@ -460,7 +460,7 @@ namespace Parsek.Tests
             var rec = MakeKerbinRecording(
                 startUT: 100, endUT: 200, loopPlayback: true, loopInterval: -30.0);
             double loopUT;
-            int cycleIndex;
+            long cycleIndex;
             bool inPauseWindow;
 
             // At UT 250: elapsed=150, cycleDuration=70, cycle=2, cycleTime=150-140=10

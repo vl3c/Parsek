@@ -394,7 +394,7 @@ namespace Parsek.Tests
                 endUT: 120,
                 intervalSeconds: 10,
                 out double loopUT,
-                out int cycleIndex);
+                out long cycleIndex);
 
             Assert.Equal(expectedInPlayback, inPlayback);
             Assert.Equal(expectedCycle, cycleIndex);
@@ -429,7 +429,7 @@ namespace Parsek.Tests
             GhostPlaybackLogic.GetActiveCycles(
                 currentUT: 115, startUT: 100, endUT: 120,
                 intervalSeconds: 10, maxCycles: 5,
-                out int first, out int last);
+                out long first, out long last);
             Assert.Equal(0, first);
             Assert.Equal(0, last);
         }
@@ -442,7 +442,7 @@ namespace Parsek.Tests
             GhostPlaybackLogic.GetActiveCycles(
                 currentUT: 135, startUT: 100, endUT: 120,
                 intervalSeconds: 10, maxCycles: 5,
-                out int first, out int last);
+                out long first, out long last);
             Assert.Equal(1, first);
             Assert.Equal(1, last);
         }
@@ -455,7 +455,7 @@ namespace Parsek.Tests
             GhostPlaybackLogic.GetActiveCycles(
                 currentUT: 110, startUT: 100, endUT: 120,
                 intervalSeconds: 0, maxCycles: 5,
-                out int first, out int last);
+                out long first, out long last);
             Assert.Equal(0, first);
             Assert.Equal(0, last);
         }
@@ -468,7 +468,7 @@ namespace Parsek.Tests
             GhostPlaybackLogic.GetActiveCycles(
                 currentUT: 145, startUT: 100, endUT: 120,
                 intervalSeconds: 0, maxCycles: 5,
-                out int first, out int last);
+                out long first, out long last);
             Assert.Equal(2, first);
             Assert.Equal(2, last);
         }
@@ -484,7 +484,7 @@ namespace Parsek.Tests
             GhostPlaybackLogic.GetActiveCycles(
                 currentUT: 150, startUT: 100, endUT: 160,
                 intervalSeconds: -20, maxCycles: 5,
-                out int first, out int last);
+                out long first, out long last);
             Assert.Equal(0, first);
             Assert.Equal(1, last);
         }
@@ -499,7 +499,7 @@ namespace Parsek.Tests
             GhostPlaybackLogic.GetActiveCycles(
                 currentUT: 145, startUT: 100, endUT: 160,
                 intervalSeconds: -40, maxCycles: 5,
-                out int first, out int last);
+                out long first, out long last);
             Assert.Equal(0, first);
             Assert.Equal(2, last);
         }
@@ -512,7 +512,7 @@ namespace Parsek.Tests
             GhostPlaybackLogic.GetActiveCycles(
                 currentUT: 145, startUT: 100, endUT: 160,
                 intervalSeconds: -40, maxCycles: 2,
-                out int first, out int last);
+                out long first, out long last);
             Assert.Equal(1, first);  // capped: last(2) - maxCycles(2) + 1 = 1
             Assert.Equal(2, last);
         }
@@ -523,7 +523,7 @@ namespace Parsek.Tests
             GhostPlaybackLogic.GetActiveCycles(
                 currentUT: 50, startUT: 100, endUT: 160,
                 intervalSeconds: -20, maxCycles: 5,
-                out int first, out int last);
+                out long first, out long last);
             Assert.Equal(0, first);
             Assert.Equal(0, last);
         }
@@ -536,7 +536,7 @@ namespace Parsek.Tests
             GhostPlaybackLogic.GetActiveCycles(
                 currentUT: 1130, startUT: 100, endUT: 120,
                 intervalSeconds: 1000, maxCycles: 5,
-                out int first, out int last);
+                out long first, out long last);
             Assert.Equal(1, first);
             Assert.Equal(1, last);
         }
@@ -548,7 +548,7 @@ namespace Parsek.Tests
             GhostPlaybackLogic.GetActiveCycles(
                 currentUT: 100.005, startUT: 100, endUT: 110,
                 intervalSeconds: -9.999, maxCycles: 5,
-                out int first, out int last);
+                out long first, out long last);
             // With cycleDuration=0.001, elapsed=0.005 → lastCycle=5
             // But maxCycles=5 caps to first=1
             Assert.True(last >= first);
@@ -563,7 +563,7 @@ namespace Parsek.Tests
             bool ok = GhostPlaybackLogic.TryComputeLoopPlaybackUT(
                 currentUT: 118, startUT: 100, endUT: 120,
                 intervalSeconds: -5,
-                out double loopUT, out int cycleIndex);
+                out double loopUT, out long cycleIndex);
 
             Assert.True(ok);
             Assert.Equal(1, cycleIndex);
@@ -580,7 +580,7 @@ namespace Parsek.Tests
             GhostPlaybackLogic.GetActiveCycles(
                 currentUT: 110, startUT: 100, endUT: 121,
                 intervalSeconds: -20, maxCycles: 5,
-                out int first, out int last);
+                out long first, out long last);
             Assert.Equal(10, last);
             // firstCycle is capped by maxCycles=5: last(10) - 5 + 1 = 6
             Assert.Equal(6, first);
@@ -597,7 +597,7 @@ namespace Parsek.Tests
             GhostPlaybackLogic.GetActiveCycles(
                 currentUT: 110, startUT: 100, endUT: 121,
                 intervalSeconds: -20, maxCycles: 100,
-                out int first, out int last);
+                out long first, out long last);
             Assert.Equal(10, last);
             Assert.Equal(0, first);
             Assert.Equal(11, last - first + 1);
@@ -614,7 +614,7 @@ namespace Parsek.Tests
             GhostPlaybackLogic.GetActiveCycles(
                 currentUT: 125, startUT: 100, endUT: 121,
                 intervalSeconds: -20, maxCycles: 100,
-                out int first, out int last);
+                out long first, out long last);
             Assert.Equal(25, last);
             Assert.Equal(5, first);
             Assert.Equal(21, last - first + 1); // exactly 21 simultaneous
@@ -628,7 +628,7 @@ namespace Parsek.Tests
             bool ok = GhostPlaybackLogic.TryComputeLoopPlaybackUT(
                 currentUT: 120, startUT: 100, endUT: 120,
                 intervalSeconds: 0,
-                out double loopUT, out int cycleIndex);
+                out double loopUT, out long cycleIndex);
             Assert.True(ok);
             Assert.Equal(1, cycleIndex);
             Assert.Equal(100.0, loopUT, 6); // start of new cycle
@@ -642,7 +642,7 @@ namespace Parsek.Tests
             bool ok = GhostPlaybackLogic.TryComputeLoopPlaybackUT(
                 currentUT: 125, startUT: 100, endUT: 120,
                 intervalSeconds: 10,
-                out double loopUT, out int cycleIndex);
+                out double loopUT, out long cycleIndex);
             // In pause → returns false (older behavior returns endUT with cycle 0)
             // Let's just verify it doesn't crash and returns valid state
             Assert.Equal(0, cycleIndex);
@@ -655,7 +655,7 @@ namespace Parsek.Tests
             GhostPlaybackLogic.GetActiveCycles(
                 currentUT: 100, startUT: 100, endUT: 100,
                 intervalSeconds: 10, maxCycles: 5,
-                out int first, out int last);
+                out long first, out long last);
             Assert.Equal(0, first);
             Assert.Equal(0, last);
         }

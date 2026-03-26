@@ -104,8 +104,8 @@ namespace Parsek
     /// </summary>
     internal class LoopRestartedEvent : GhostLifecycleEvent
     {
-        public int PreviousCycleIndex;
-        public int NewCycleIndex;
+        public long PreviousCycleIndex;
+        public long NewCycleIndex;
         public bool ExplosionFired;
         public Vector3 ExplosionPosition;
     }
@@ -115,7 +115,7 @@ namespace Parsek
     /// </summary>
     internal class OverlapExpiredEvent : GhostLifecycleEvent
     {
-        public int CycleIndex;
+        public long CycleIndex;
         public bool ExplosionFired;
         public Vector3 ExplosionPosition;
     }
@@ -158,7 +158,7 @@ namespace Parsek
         public CameraActionType Action;
 
         /// <summary>Cycle index for RetargetToNewGhost.</summary>
-        public int NewCycleIndex;
+        public long NewCycleIndex;
 
         /// <summary>World position for ExplosionHoldStart anchor.</summary>
         public Vector3 AnchorPosition;

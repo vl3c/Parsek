@@ -181,7 +181,7 @@ namespace Parsek
                     DestroyAllKscOverlapGhosts(i);
 
                     double targetUT;
-                    int cycleIndex;
+                    long cycleIndex;
                     bool inPauseWindow;
                     bool inRange = TryComputeLoopUT(rec, currentUT,
                         out targetUT, out cycleIndex, out inPauseWindow);
@@ -203,7 +203,7 @@ namespace Parsek
         /// Single-ghost playback path (positive/zero loop interval, or non-looping).
         /// </summary>
         void UpdateSingleGhostKsc(int recIdx, Recording rec,
-            double currentUT, double targetUT, int cycleIndex,
+            double currentUT, double targetUT, long cycleIndex,
             bool inRange, bool inPauseWindow, bool suppressVisualFx)
         {
             GhostPlaybackState state;
@@ -215,7 +215,7 @@ namespace Parsek
                 // Loop cycle change: destroy + respawn to guarantee clean visual state
                 if (ghostActive && rec.LoopPlayback && state.loopCycleIndex != cycleIndex)
                 {
-                    int oldCycle = state.loopCycleIndex;
+                    long oldCycle = state.loopCycleIndex;
                     TriggerExplosionIfDestroyed(state, rec, recIdx);
                     DestroyKscGhost(state, recIdx);
                     kscGhosts.Remove(recIdx);
@@ -322,7 +322,7 @@ namespace Parsek
             double cycleDuration = duration + intervalSeconds;
             if (cycleDuration < GhostPlaybackLogic.MinCycleDuration) cycleDuration = GhostPlaybackLogic.MinCycleDuration;
 
-            int firstCycle, lastCycle;
+            long firstCycle, lastCycle;
             GhostPlaybackLogic.GetActiveCycles(currentUT, rec.StartUT, rec.EndUT,
                 intervalSeconds, MaxOverlapGhostsPerRecording, out firstCycle, out lastCycle);
 
@@ -396,7 +396,7 @@ namespace Parsek
                     continue;
                 }
 
-                int cycle = ovState.loopCycleIndex;
+                long cycle = ovState.loopCycleIndex;
                 double cycleStart = rec.StartUT + cycle * cycleDuration;
                 double phase = currentUT - cycleStart;
 
@@ -666,7 +666,7 @@ namespace Parsek
             Recording rec,
             double currentUT,
             out double loopUT,
-            out int cycleIndex,
+            out long cycleIndex,
             out bool inPauseWindow)
         {
             loopUT = rec != null ? rec.StartUT : 0;
@@ -684,7 +684,7 @@ namespace Parsek
                 cycleDuration = duration;
 
             double elapsed = currentUT - rec.StartUT;
-            cycleIndex = (int)Math.Floor(elapsed / cycleDuration);
+            cycleIndex = (long)Math.Floor(elapsed / cycleDuration);
             if (cycleIndex < 0) cycleIndex = 0;
 
             double cycleTime = elapsed - (cycleIndex * cycleDuration);

@@ -232,7 +232,7 @@ namespace Parsek
         internal int watchedRecordingIndex = -1;       // -1 = not watching
         string watchedRecordingId = null;     // stable across index shifts
         float watchStartTime;                 // Time.time when watch mode was entered
-        int watchedOverlapCycleIndex = -1;    // which overlap cycle the camera is following (-1 = ready for next, -2 = holding after explosion)
+        long watchedOverlapCycleIndex = -1;    // which overlap cycle the camera is following (-1 = ready for next, -2 = holding after explosion)
         double overlapRetargetAfterUT = -1;   // delay re-target after watched cycle explodes
         GameObject overlapCameraAnchor;       // temp anchor so FlightCamera doesn't reference destroyed ghost
         Vessel savedCameraVessel = null;
@@ -1623,6 +1623,8 @@ namespace Parsek
                     rootRec.Points = new List<TrajectoryPoint>(splitRecorder.CaptureAtStop.Points);
                     rootRec.OrbitSegments = new List<OrbitSegment>(splitRecorder.CaptureAtStop.OrbitSegments);
                     rootRec.PartEvents = new List<PartEvent>(splitRecorder.CaptureAtStop.PartEvents);
+                    rootRec.FlagEvents = new List<FlagEvent>(splitRecorder.CaptureAtStop.FlagEvents);
+                    rootRec.SegmentEvents = new List<SegmentEvent>(splitRecorder.CaptureAtStop.SegmentEvents);
                     rootRec.TrackSections = new List<TrackSection>(splitRecorder.CaptureAtStop.TrackSections);
                     rootRec.GhostVisualSnapshot = splitRecorder.CaptureAtStop.GhostVisualSnapshot;
                     rootRec.VesselSnapshot = splitRecorder.CaptureAtStop.VesselSnapshot;
@@ -1639,6 +1641,7 @@ namespace Parsek
 
                 // Create BackgroundRecorder
                 backgroundRecorder = new BackgroundRecorder(activeTree);
+                backgroundRecorder.SubscribePartEvents();
                 Patches.PhysicsFramePatch.BackgroundRecorderInstance = backgroundRecorder;
 
                 ParsekLog.Info("Flight", $"Tree created: id={treeId}, root={rootRecId}, " +
@@ -2696,6 +2699,7 @@ namespace Parsek
             // Create BackgroundRecorder
             activeTree.RebuildBackgroundMap();
             backgroundRecorder = new BackgroundRecorder(activeTree);
+            backgroundRecorder.SubscribePartEvents();
             Patches.PhysicsFramePatch.BackgroundRecorderInstance = backgroundRecorder;
 
             ParsekLog.Info("Coalescer",
@@ -5881,7 +5885,7 @@ namespace Parsek
 
         private bool TryComputeLoopPlaybackUT(
             Recording rec, double currentUT,
-            out double loopUT, out int cycleIndex, out bool inPauseWindow,
+            out double loopUT, out long cycleIndex, out bool inPauseWindow,
             int recIdx = -1)
         {
             double globalInterval = ParsekSettings.Current?.autoLoopIntervalSeconds

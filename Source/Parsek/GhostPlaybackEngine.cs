@@ -522,7 +522,7 @@ namespace Parsek
             // --- Positive/zero interval: single ghost path (no overlap) ---
             DestroyAllOverlapGhosts(index);
             double loopUT;
-            int cycleIndex;
+            long cycleIndex;
             bool inPauseWindow;
             if (!TryComputeLoopPlaybackUT(traj, ctx.currentUT, ctx.autoLoopIntervalSeconds,
                     out loopUT, out cycleIndex, out inPauseWindow, index))
@@ -683,7 +683,7 @@ namespace Parsek
             if (cycleDuration < GhostPlaybackLogic.MinCycleDuration)
                 cycleDuration = GhostPlaybackLogic.MinCycleDuration;
 
-            int firstCycle, lastCycle;
+            long firstCycle, lastCycle;
             GhostPlaybackLogic.GetActiveCycles(ctx.currentUT, traj.StartUT, traj.EndUT, intervalSeconds,
                 MaxOverlapGhostsPerRecording, out firstCycle, out lastCycle);
 
@@ -758,7 +758,7 @@ namespace Parsek
                     continue;
                 }
 
-                int cycle = ovState.loopCycleIndex;
+                long cycle = ovState.loopCycleIndex;
                 double cycleStart = traj.StartUT + cycle * cycleDuration;
                 double phase = ctx.currentUT - cycleStart;
 
@@ -840,7 +840,7 @@ namespace Parsek
             double currentUT,
             double autoLoopIntervalSeconds,
             out double loopUT,
-            out int cycleIndex,
+            out long cycleIndex,
             out bool inPauseWindow,
             int recIdx = -1)
         {
@@ -868,7 +868,7 @@ namespace Parsek
                 elapsed += phaseOffset;
             }
 
-            cycleIndex = (int)Math.Floor(elapsed / cycleDuration);
+            cycleIndex = (long)Math.Floor(elapsed / cycleDuration);
             if (cycleIndex < 0) cycleIndex = 0;
 
             double cycleTime = elapsed - (cycleIndex * cycleDuration);
@@ -1260,6 +1260,7 @@ namespace Parsek
 
             var state = new GhostPlaybackState
             {
+                vesselName = traj?.VesselName ?? "Unknown",
                 ghost = ghost,
                 cameraPivot = cameraPivotObj.transform,
                 playbackIndex = 0,
@@ -1356,12 +1357,13 @@ namespace Parsek
         internal void DestroyGhost(int index, IPlaybackTrajectory traj = null,
             TrajectoryPlaybackFlags flags = default)
         {
-            ParsekLog.VerboseRateLimited("Engine", $"destroy-{index}",
-                $"DestroyGhost index={index}");
-
             GhostPlaybackState state;
             if (!ghostStates.TryGetValue(index, out state))
                 return;
+
+            string name = state?.vesselName ?? traj?.VesselName ?? "Unknown";
+            ParsekLog.VerboseRateLimited("Engine", $"destroy-{index}",
+                $"DestroyGhost index={index} vessel={name}");
 
             // Fire before destroy so subscribers can read state
             OnGhostDestroyed?.Invoke(new GhostLifecycleEvent

@@ -12,11 +12,12 @@ namespace Parsek
 
     internal class GhostPlaybackState
     {
+        public string vesselName;
         public GameObject ghost;
         public List<Material> materials;
         public int playbackIndex;
         public int partEventIndex;
-        public int loopCycleIndex = -1;
+        public long loopCycleIndex = -1;
         public Dictionary<uint, List<uint>> partTree;
         public Dictionary<uint, ParachuteGhostInfo> parachuteInfos;
         public Dictionary<uint, JettisonGhostInfo> jettisonInfos;

@@ -81,7 +81,7 @@ namespace Parsek
 
         internal static bool TryComputeLoopPlaybackUT(
             double currentUT, double startUT, double endUT, double intervalSeconds,
-            out double loopUT, out int cycleIndex)
+            out double loopUT, out long cycleIndex)
         {
             loopUT = startUT;
             cycleIndex = 0;
@@ -95,7 +95,7 @@ namespace Parsek
                 cycleDuration = MinCycleDuration;
 
             double elapsed = currentUT - startUT;
-            cycleIndex = (int)Math.Floor(elapsed / cycleDuration);
+            cycleIndex = (long)Math.Floor(elapsed / cycleDuration);
             double phase = elapsed - (cycleIndex * cycleDuration);
 
             // For positive intervals: phase > duration means we're in the pause window
@@ -118,8 +118,8 @@ namespace Parsek
         /// ends and the ghost is about to be rebuilt. Returns -2 (explosion hold),
         /// -1 (ready for immediate re-target), or unchanged if not watching.
         /// </summary>
-        internal static int ComputeWatchCycleOnLoopRebuild(
-            int currentWatchCycle, bool isWatching, bool needsExplosion, bool inPauseWindow)
+        internal static long ComputeWatchCycleOnLoopRebuild(
+            long currentWatchCycle, bool isWatching, bool needsExplosion, bool inPauseWindow)
         {
             if (!isWatching) return currentWatchCycle;
             // Already in a hold — don't start another one, let the current hold
@@ -138,7 +138,7 @@ namespace Parsek
         internal static void GetActiveCycles(
             double currentUT, double startUT, double endUT,
             double intervalSeconds, int maxCycles,
-            out int firstActiveCycle, out int lastActiveCycle)
+            out long firstActiveCycle, out long lastActiveCycle)
         {
             firstActiveCycle = 0;
             lastActiveCycle = 0;
@@ -152,7 +152,7 @@ namespace Parsek
                 cycleDuration = MinCycleDuration;
 
             double elapsed = currentUT - startUT;
-            lastActiveCycle = (int)Math.Floor(elapsed / cycleDuration);
+            lastActiveCycle = (long)Math.Floor(elapsed / cycleDuration);
             if (lastActiveCycle < 0) lastActiveCycle = 0;
 
             // First cycle whose playback hasn't finished yet
@@ -163,7 +163,7 @@ namespace Parsek
             }
             else
             {
-                firstActiveCycle = (int)Math.Floor(elapsedMinusDuration / cycleDuration) + 1;
+                firstActiveCycle = (long)Math.Floor(elapsedMinusDuration / cycleDuration) + 1;
                 if (firstActiveCycle < 0) firstActiveCycle = 0;
             }
 
@@ -261,7 +261,7 @@ namespace Parsek
         ///   cycleIndex: which cycle we're in (0-based)
         ///   isInPause: true if currentUT falls in the pause interval between cycles
         /// </summary>
-        internal static (double loopUT, int cycleIndex, bool isInPause) ComputeLoopPhaseFromUT(
+        internal static (double loopUT, long cycleIndex, bool isInPause) ComputeLoopPhaseFromUT(
             double currentUT,
             double recordingStartUT,
             double recordingEndUT,
@@ -288,7 +288,7 @@ namespace Parsek
                 return (recordingStartUT, 0, false);
             }
 
-            int cycleIndex = (int)(elapsed / cycleDuration);
+            long cycleIndex = (long)(elapsed / cycleDuration);
             double phaseInCycle = elapsed - (cycleIndex * cycleDuration);
 
             if (phaseInCycle < duration)
