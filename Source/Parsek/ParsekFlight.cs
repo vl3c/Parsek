@@ -3128,6 +3128,7 @@ namespace Parsek
 
         void OnVesselGoOnRails(Vessel v)
         {
+            if (v != null && GhostMapPresence.IsGhostMapVessel(v.persistentId)) return;
             recorder?.OnVesselGoOnRails(v);
             backgroundRecorder?.OnBackgroundVesselGoOnRails(v);
         }
@@ -3177,6 +3178,7 @@ namespace Parsek
         void OnVesselUnloaded(Vessel v)
         {
             if (v == null) return;
+            if (GhostMapPresence.IsGhostMapVessel(v.persistentId)) return;
             uint pid = v.persistentId;
             loadedAnchorVessels.Remove(pid);
 

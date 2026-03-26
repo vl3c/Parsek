@@ -471,7 +471,8 @@ namespace Parsek
 
                 for (int i = 0; i < FlightGlobals.Vessels.Count; i++)
                 {
-                    if (FlightGlobals.Vessels[i] != null)
+                    if (FlightGlobals.Vessels[i] != null
+                        && !GhostMapPresence.IsGhostMapVessel(FlightGlobals.Vessels[i].persistentId))
                         cachedVesselPids.Add(FlightGlobals.Vessels[i].persistentId);
                 }
                 vesselCacheValid = true;
