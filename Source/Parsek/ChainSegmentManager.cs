@@ -412,7 +412,7 @@ namespace Parsek
             preCommitCustomization?.Invoke(RecordingStore.Pending);
 
             RecordingStore.CommitPending();
-            CrewReservationManager.ReserveSnapshotCrew();
+            KerbalsModule.RecalculateAndApply();
             CrewReservationManager.SwapReservedCrewInFlight();
 
             if (advanceChain)

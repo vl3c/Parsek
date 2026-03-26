@@ -1188,6 +1188,7 @@ namespace Parsek
             {
                 ParsekLog.Info("Flight", "ShowPostDestructionTreeMergeDialog: auto-merge enabled — committing tree");
                 RecordingStore.CommitPendingTree();
+                KerbalsModule.RecalculateAndApply();
                 MergeDialog.ReplayFlightResultsIfPending();
             }
             else
@@ -1929,6 +1930,7 @@ namespace Parsek
                     if (ParsekScenario.IsAutoMerge)
                     {
                         RecordingStore.CommitPending();
+                        KerbalsModule.RecalculateAndApply();
                         ParsekLog.Info("Flight",
                             $"Vessel destroyed during split — auto-merged ({dur:F1}s)");
                     }
@@ -1943,6 +1945,7 @@ namespace Parsek
                 }
 
                 RecordingStore.CommitPending();
+                KerbalsModule.RecalculateAndApply();
                 string chainInfo = chainManager.ActiveChainId != null
                     ? $" (chain={chainManager.ActiveChainId}, idx={chainManager.ActiveChainNextIndex})"
                     : " (standalone)";
@@ -3599,7 +3602,7 @@ namespace Parsek
                     {
                         Log($"Auto-committing EVA child recording (parent={pending.ParentRecordingId}, crew={pending.EvaCrewName})");
                         RecordingStore.CommitPending();
-                        CrewReservationManager.ReserveSnapshotCrew();
+                        KerbalsModule.RecalculateAndApply();
                     }
                     else
                     {
@@ -4627,6 +4630,7 @@ namespace Parsek
 
             // Commit to timeline
             RecordingStore.CommitPending();
+            KerbalsModule.RecalculateAndApply();
 
             // Clear recorder state
             recorder = null;
@@ -4689,12 +4693,14 @@ namespace Parsek
             ParsekLog.Info("Flight",
                 $"CommitTreeFlight: ResourcesApplied=true, marked {markedCount}/{activeTree.Recordings.Count} recordings as fully applied");
 
-            // Reserve crew for all leaf vessels (except active vessel)
+            // Get spawnable leaves before commit (tree is consumed by CommitTree)
             var spawnableLeaves = activeTree.GetSpawnableLeaves();
-            ReserveCrewForLeaves(spawnableLeaves);
 
             // Commit tree to storage
             RecordingStore.CommitTree(activeTree);
+
+            // Recalculate crew reservations (replaces ReserveCrewForLeaves)
+            KerbalsModule.RecalculateAndApply();
 
             // Spawn all non-active leaf vessels
             SpawnTreeLeaves(activeTree, activeRecId);
@@ -7754,6 +7760,7 @@ namespace Parsek
             if (ParsekScenario.IsAutoMerge)
             {
                 RecordingStore.CommitPending();
+                KerbalsModule.RecalculateAndApply();
                 Log($"Auto-merged recording from {pending.VesselName} ({pending.Points.Count} points)");
             }
             else

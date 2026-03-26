@@ -123,7 +123,7 @@ namespace Parsek
                         {
                             // Defer spawn — vessel appears when ghost finishes at EndUT
                             RecordingStore.CommitPending();
-                            CrewReservationManager.ReserveSnapshotCrew();
+                            KerbalsModule.RecalculateAndApply();
                             CrewReservationManager.SwapReservedCrewInFlight();
                             ClearPendingFlag();
                             ReplayFlightResultsIfPending();
@@ -185,7 +185,7 @@ namespace Parsek
                     new DialogGUIButton("Merge to Timeline", () =>
                     {
                         RecordingStore.CommitPending();
-                        CrewReservationManager.ReserveSnapshotCrew();
+                        KerbalsModule.RecalculateAndApply();
                         CrewReservationManager.SwapReservedCrewInFlight();
                         ClearPendingFlag();
                         ReplayFlightResultsIfPending();
@@ -393,7 +393,7 @@ namespace Parsek
                     if (av != null && av.persistentId != 0)
                         MarkForceSpawnOnTreeRecordings(tree, av.persistentId);
                     RecordingStore.CommitPendingTree();
-                    CrewReservationManager.ReserveSnapshotCrew();
+                    KerbalsModule.RecalculateAndApply();
                     CrewReservationManager.SwapReservedCrewInFlight();
                     ClearPendingFlag();
                     ReplayFlightResultsIfPending();
@@ -807,7 +807,7 @@ namespace Parsek
                         MarkForceSpawnOnTreeRecordings(capturedTree, av.persistentId);
                     ApplyVesselDecisions(capturedTree, capturedDecisions);
                     RecordingStore.CommitPendingTree();
-                    CrewReservationManager.ReserveSnapshotCrew();
+                    KerbalsModule.RecalculateAndApply();
                     CrewReservationManager.SwapReservedCrewInFlight();
                     ClearPendingFlag();
                     ReplayFlightResultsIfPending();

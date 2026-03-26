@@ -435,6 +435,27 @@ namespace Parsek
 
         #endregion
 
+        #region Bridge Methods (KerbalsModule)
+
+        /// <summary>
+        /// Set a crew replacement mapping. Called by KerbalsModule.ApplyToRoster
+        /// to bridge derived state to SwapReservedCrewInFlight.
+        /// </summary>
+        internal static void SetReplacement(string originalName, string replacementName)
+        {
+            crewReplacements[originalName] = replacementName;
+        }
+
+        /// <summary>
+        /// Clear all replacements without roster access. For KerbalsModule use.
+        /// </summary>
+        internal static void ClearReplacementsInternal()
+        {
+            crewReplacements.Clear();
+        }
+
+        #endregion
+
         #region Testing & Serialization
 
         /// <summary>
