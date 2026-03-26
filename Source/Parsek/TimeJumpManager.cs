@@ -164,6 +164,13 @@ namespace Parsek
             Dictionary<uint, GhostChain> chains,
             VesselGhoster ghoster)
         {
+            // Stop time warp before jumping — SetUniversalTime during warp can cause desync
+            if (TimeWarp.CurrentRateIndex > 0)
+            {
+                TimeWarp.SetRate(0, true);
+                ParsekLog.Info(Tag, "ExecuteJump: stopped time warp before jump");
+            }
+
             double t0 = Planetarium.GetUniversalTime();
             double jumpDelta = targetUT - t0;
 
