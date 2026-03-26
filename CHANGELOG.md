@@ -8,6 +8,11 @@ All notable changes to Parsek are documented here.
 
 ### Bug Fixes
 
+- **Fix #78: DetermineTerminalState maps DOCKED to Orbiting.** Changed `case 128` (DOCKED) to return `TerminalState.Docked` instead of `TerminalState.Orbiting`. Edge case for debris that docks.
+- **Fix #80: TimeJumpManager.ExecuteJump no warp guard.** Added warp stop at the start of `ExecuteJump` — calls `TimeWarp.SetRate(0, true)` when `CurrentRateIndex > 0` to prevent desync from `SetUniversalTime` during warp.
+- **Fix #75: GhostPlaybackLogic inconsistent negative interval handling.** Added early guard in `ComputeLoopPhaseFromUT` for `currentUT < recordingStartUT`, consistent with `TryComputeLoopPlaybackUT`. Removed redundant duplicate guard.
+- **Fix #82: IsDebris, Controllers, SurfacePos not serialized for standalone recordings.** Added save/load for all three fields in `ParsekScenario.SaveStandaloneRecordings` / `LoadStandaloneRecordingsFromNodes`, matching the tree recording pattern.
+
 - **Fix #134: CleanupOrphanedSpawnedVessels destroys freshly-spawned past vessels after rewind.** The rewind path populated `PendingCleanupNames` with all recording vessel names for `StripOrphanedSpawnedVessels`, but left them set for `CleanupOrphanedSpawnedVessels` in `OnFlightReady`, which then destroyed correctly-spawned past vessels. Fix: clear `PendingCleanupPids`/`PendingCleanupNames` immediately after the strip completes.
 - **Fix #43: Update known-bugs status.** Shader fallback lookup (`FindShaderOnRenderers`) was already implemented in commit 25ccfa9 but doc status was stale.
 - **Fix #95: Preserve VesselSnapshot on committed recordings.** Removed snapshot nulling from continuation vessel destroyed and EVA boarding handlers. `VesselDestroyed` flag gates spawn and is now reset by `ResetRecordingPlaybackFields` on revert/rewind. `UpdateRecordingsForTerminalEvent` skips all committed recordings. Items 3-5 (continuation sampling/refresh) deferred as tech debt.

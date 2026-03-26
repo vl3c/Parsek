@@ -924,7 +924,7 @@ Tagged as Phase 6f-1 in code. Requires in-game API investigation.
 
 `ParsekFlight.cs:5030` — `InterpolateAndPosition` for background recording ghosts resets `cachedIdx` to 0 each frame instead of caching it on the ghost state or chain. This means every frame does a full binary search instead of O(1) amortized sequential lookup. No visual impact, minor performance cost with many background ghosts.
 
-**Status:** Open — low priority optimization
+**Status:** Fixed — `GhostChain.CachedTrajectoryIndex` caches the lookup index
 
 ## 63. Log contract checker lacks error whitelist
 
@@ -1038,7 +1038,9 @@ Unlike `CheckOverlapAgainstLoadedVessels` which properly excludes Debris/EVA/Fla
 
 `ComputeLoopPhaseFromUT` (line 275) clamps negative intervals to 0 via `Math.Max(0, intervalSeconds)`, but `TryComputeLoopPlaybackUT` (line 91) and `GetActiveCycles` (line 148) allow negative intervals (overlapping cycles). These methods compute related loop timing — the disagreement could cause visual glitches (wrong phase or missing overlap cycles) when negative intervals are used.
 
-**Status:** Open
+**Fix:** Added early guard in `ComputeLoopPhaseFromUT` for `currentUT < recordingStartUT`, returning `(recordingStartUT, 0, false)` — consistent with `TryComputeLoopPlaybackUT` returning false for pre-start times. Removed the redundant `elapsed < 0` guard that was deeper in the method.
+
+**Status:** Fixed
 
 ## 76. GhostExtender.PropagateOrbital hyperbolic fallback can return negative altitude
 
@@ -1056,7 +1058,9 @@ Lines 37, 42-44 in `TerrainCorrector.cs` use `$"{corrected:F1}"` string interpol
 
 `DetermineTerminalState` maps the KSP `DOCKED` situation to `TerminalState.Orbiting`. When called from `EndDebrisRecording`, a debris piece that docks would get `Orbiting` instead of a more appropriate terminal state. Edge case but semantically wrong.
 
-**Status:** Open — unlikely to occur for debris
+**Fix:** Changed `case 128` (DOCKED) to return `TerminalState.Docked` instead of `TerminalState.Orbiting`.
+
+**Status:** Fixed
 
 ## ~~79. TimeJumpManager.ExecuteJump mutates caller's chains dictionary~~
 
@@ -1070,7 +1074,9 @@ Line 278: `chains.Remove(chain.OriginalVesselPid)` is a side effect on the calle
 
 If called during time warp (warp rate > 1), `Planetarium.SetUniversalTime` can interact badly with KSP's internal warp state. There is no guard to ensure warp is stopped before the jump.
 
-**Status:** Open — needs in-game verification
+**Fix:** Added warp guard at the start of `ExecuteJump`: checks `TimeWarp.CurrentRateIndex > 0` and calls `TimeWarp.SetRate(0, true)` to stop warp before proceeding. Logs info when warp is stopped.
+
+**Status:** Fixed
 
 ## 81. TrackSection struct shallow copy shares mutable list references
 
@@ -1082,7 +1088,9 @@ If called during time warp (warp rate > 1), `Planetarium.SetUniversalTime` can i
 
 These fields are serialized in the `RecordingTree` code path but not in `ParsekScenario.SaveStandaloneRecordings` / `LoadStandaloneRecordingsFromNodes`. Standalone recordings lose these values across save/load. May be intentional if standalone recordings are never debris.
 
-**Status:** Open — verify if standalone debris recordings can exist
+**Fix:** Added serialization for all three fields in both `SaveStandaloneRecordings` and `LoadStandaloneRecordingsFromNodes`, matching the tree recording pattern in `RecordingTree.SaveRecordingResourceAndState`/`LoadRecordingResourceAndState`. IsDebris uses `bool.TryParse`, Controllers use CONTROLLER sub-nodes, SurfacePos uses `SurfacePosition.SaveInto`/`LoadFrom` with SURFACE_POSITION sub-node.
+
+**Status:** Fixed
 
 ## 83. GhostCommNetRelay.ReregisterAllNodes re-adds potentially stale CommNode objects
 
