@@ -112,6 +112,16 @@ namespace Parsek
         /// <summary>Ordering within the same UT for spending actions. 0 for earnings.</summary>
         public int Sequence;
 
+        // ---- Derived fields (recalculated, NOT serialized) ----
+
+        /// <summary>
+        /// Whether this action's effects are active after recalculation.
+        /// Set by first-tier modules (e.g., MilestonesModule sets false for duplicate milestones,
+        /// ScienceModule caps effective science). Defaults to true.
+        /// NOT serialized — recomputed from scratch on every recalculation walk.
+        /// </summary>
+        public bool Effective = true;
+
         // ---- Science fields ----
 
         /// <summary>Full KSP subject string, e.g. "crewReport@MunSrfLandedMidlands".</summary>
