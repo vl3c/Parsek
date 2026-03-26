@@ -5619,6 +5619,7 @@ namespace Parsek
                             {
                                 PositionGhostFromOrbitOnly(info.ghostGO, rec, currentUT,
                                     (int)(chain.OriginalVesselPid * 10000));
+                                UpdateChainGhostOrbitIfNeeded(chain, rec.OrbitSegments, currentUT);
                                 positioned = true;
                                 ParsekLog.VerboseRateLimited("Flight",
                                     "chain-ghost-orbit-" + chain.OriginalVesselPid,
