@@ -117,7 +117,7 @@ namespace Parsek
         /// <summary>
         /// Whether this action's effects are active after recalculation.
         /// Set by first-tier modules (e.g., MilestonesModule sets false for duplicate milestones,
-        /// ScienceModule caps effective science). Defaults to true.
+        /// ContractsModule sets false for duplicate completions). Defaults to true.
         /// NOT serialized — recomputed from scratch on every recalculation walk.
         /// </summary>
         public bool Effective = true;
