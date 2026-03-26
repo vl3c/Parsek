@@ -146,7 +146,7 @@ namespace Parsek
                     return;
                 }
 
-                engine.DestroyGhost(evt.Index, evt.Trajectory, evt.Flags);
+                engine.DestroyGhost(evt.Index, evt.Trajectory, evt.Flags, reason: "playback completed");
             }
         }
 
@@ -158,14 +158,14 @@ namespace Parsek
 
         private void HandleLoopRestarted(LoopRestartedEvent evt)
         {
-            ParsekLog.Verbose("Policy",
+            ParsekLog.VerboseRateLimited("Policy", "loop-restarted",
                 $"LoopRestarted index={evt.Index} cycle={evt.PreviousCycleIndex}->{evt.NewCycleIndex} " +
                 $"explosion={evt.ExplosionFired}");
         }
 
         private void HandleOverlapExpired(OverlapExpiredEvent evt)
         {
-            ParsekLog.Verbose("Policy",
+            ParsekLog.VerboseRateLimited("Policy", "overlap-expired",
                 $"OverlapExpired index={evt.Index} cycle={evt.CycleIndex} explosion={evt.ExplosionFired}");
         }
 

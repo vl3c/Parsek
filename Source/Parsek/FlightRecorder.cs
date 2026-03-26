@@ -4448,7 +4448,8 @@ namespace Parsek
 
             if (Recording.Count % 10 == 0)
             {
-                ParsekLog.Verbose("Recorder", $"Recorded point #{Recording.Count}: {point}");
+                ParsekLog.VerboseRateLimited("Recorder", "recorded-point",
+                    $"Recorded point #{Recording.Count}: {point}", 5.0);
             }
         }
 

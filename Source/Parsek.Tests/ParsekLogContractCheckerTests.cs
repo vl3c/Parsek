@@ -189,10 +189,8 @@ namespace Parsek.Tests
                 (e.Message ?? "").Contains("Boundary split: committing segment"));
             Assert.Contains(session, e => e.Subsystem == "Flight" &&
                 (e.Message ?? "").Contains("Boundary split committed"));
-            Assert.Contains(session, e => e.Subsystem == "Scenario" &&
-                (e.Message ?? "").Contains("Saved metadata:") && (e.Message ?? "").Contains("phase=atmo"));
-            Assert.Contains(session, e => e.Subsystem == "Scenario" &&
-                (e.Message ?? "").Contains("Loaded metadata:") && (e.Message ?? "").Contains("phase=space"));
+            Assert.Contains(session, e => e.Subsystem == "Flight" &&
+                (e.Message ?? "").Contains("Boundary split: committing segment") && (e.Message ?? "").Contains("phase=atmo"));
             Assert.Contains(session, e => e.Subsystem == "RecordingStore" &&
                 (e.Message ?? "").Contains("Validating chains"));
             Assert.Contains(session, e => e.Subsystem == "RecordingStore" &&

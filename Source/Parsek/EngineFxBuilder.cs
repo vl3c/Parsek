@@ -73,7 +73,7 @@ namespace Parsek
                             {
                                 if (TryGetFxModelFallbackRotation(modelName, out mmpLocalRot))
                                 {
-                                    ParsekLog.Log($"    Engine FX model rotation fallback: '{modelName}' euler={mmpLocalRot.eulerAngles}");
+                                    ParsekLog.Verbose("EngineFx", $"model rotation fallback: '{modelName}' euler={mmpLocalRot.eulerAngles}");
                                 }
                             }
 
@@ -280,7 +280,7 @@ namespace Parsek
                         srcFxTransform, prefab.transform, modelRoot, ghostModelNode, cloneMap);
                     if (ghostFxParent == null)
                     {
-                        ParsekLog.Log($"    Engine FX: '{partName}' midx={moduleIndex} " +
+                        ParsekLog.Verbose("EngineFx", $"'{partName}' midx={moduleIndex} " +
                             $"transform='{transformName}' parent resolution failed");
                         continue;
                     }
@@ -309,14 +309,14 @@ namespace Parsek
                                 Vector3 srcFwd = srcFxTransform.forward;
                                 Vector3 srcUp = srcFxTransform.up;
                                 Quaternion srcLocalRot = srcFxTransform.localRotation;
-                                ParsekLog.Log($"    Engine FX cloned: '{partName}' midx={moduleIndex} " +
+                                ParsekLog.Verbose("EngineFx", $"cloned: '{partName}' midx={moduleIndex} " +
                                     $"type={nodeType} transform='{transformName}' model='{modelName}' " +
                                     $"systems={addedSystems} " +
                                     $"srcLocalRot={srcLocalRot} srcFwd={srcFwd} srcUp={srcUp}");
                             }
                             else
                             {
-                                ParsekLog.Log($"    Engine FX model has no ParticleSystem: '{modelName}' for '{partName}'");
+                                ParsekLog.Verbose("EngineFx", $"model has no ParticleSystem: '{modelName}' for '{partName}'");
                                 Object.Destroy(fxInstance);
                             }
                         }
@@ -351,14 +351,14 @@ namespace Parsek
                 GameObject fxPrefab = GhostVisualBuilder.FindFxPrefab(prefabName);
                 if (fxPrefab == null)
                 {
-                    ParsekLog.Log($"    Engine FX prefab not found: '{prefabName}' for '{partName}'");
+                    ParsekLog.Verbose("EngineFx", $"prefab not found: '{prefabName}' for '{partName}'");
                     continue;
                 }
 
                 var fxTransforms = GhostVisualBuilder.FindTransformsRecursive(prefab.transform, transformName);
                 if (fxTransforms.Count == 0)
                 {
-                    ParsekLog.Log($"    Engine FX (prefab): '{partName}' midx={moduleIndex} " +
+                    ParsekLog.Verbose("EngineFx", $"'{partName}' midx={moduleIndex} " +
                         $"transform '{transformName}' not found on prefab");
                     continue;
                 }
@@ -373,8 +373,8 @@ namespace Parsek
                         srcFxTransform, prefab.transform, modelRoot, ghostModelNode, cloneMap);
                     if (ghostFxParent == null)
                     {
-                        ParsekLog.Log($"    Engine FX (prefab): '{partName}' midx={moduleIndex} " +
-                            $"transform='{transformName}' parent resolution failed");
+                        ParsekLog.Verbose("EngineFx", $"'{partName}' midx={moduleIndex} " +
+                            $"transform='{transformName}' (prefab) parent resolution failed");
                         continue;
                     }
                     GhostVisualBuilder.LogFxParentAlignmentDiagnostic(partName, moduleIndex, "PREFAB_PARTICLE", transformName,
@@ -406,12 +406,12 @@ namespace Parsek
                         GhostVisualBuilder.LogFxInstancePlacementDiagnostic(partName, moduleIndex, "PREFAB_PARTICLE", transformName,
                             prefabName, prefab.transform, ghostModelNode, srcFxTransform, ghostFxParent,
                             fxInstance.transform, localOffset, localRot, hasLocalRot);
-                        ParsekLog.Log($"    Engine FX (prefab): '{partName}' midx={moduleIndex} " +
+                        ParsekLog.Verbose("EngineFx", $"(prefab): '{partName}' midx={moduleIndex} " +
                             $"transform='{transformName}' prefab='{prefabName}' systems={addedSystems}");
                     }
                     else
                     {
-                        ParsekLog.Log($"    Engine FX (prefab): '{partName}' midx={moduleIndex} " +
+                        ParsekLog.Verbose("EngineFx", $"(prefab): '{partName}' midx={moduleIndex} " +
                             $"prefab '{prefabName}' has no ParticleSystem");
                         Object.Destroy(fxInstance);
                     }
@@ -464,7 +464,7 @@ namespace Parsek
                 {
                     // RAPIER has multi-mode engine modules sharing nozzle transforms; recording events
                     // target midx=0, so skip duplicate module FX to avoid doubled plumes.
-                    ParsekLog.Log($"    Engine '{partName}' midx={moduleIndex}: skipped duplicate multi-mode FX module");
+                    ParsekLog.Verbose("EngineFx", $"'{partName}' midx={moduleIndex}: skipped duplicate multi-mode FX module");
                     continue;
                 }
 
@@ -598,7 +598,7 @@ namespace Parsek
 
                     prefabFxEntries.Add((prefabName, fallbackTransform, fallbackOffset, localRotation, hasLocalRotation));
                     string rotationSuffix = hasLocalRotation ? $" rot={localRotation.eulerAngles}" : "";
-                    ParsekLog.Log($"    Engine FX fallback: '{partName}' midx={moduleIndex} " +
+                    ParsekLog.Verbose("EngineFx", $"fallback: '{partName}' midx={moduleIndex} " +
                         $"added {description} on '{fallbackTransform}' offset={fallbackOffset}{rotationSuffix}");
                 }
 
@@ -700,7 +700,7 @@ namespace Parsek
                         kickbackTransform, kickbackOffset, kickbackThumperLocalRot, true));
                     prefabFxEntries.Add(("fx_exhaustFlame_yellow",
                         kickbackTransform, kickbackOffset, kickbackThumperLocalRot, true));
-                    ParsekLog.Log($"    Engine FX fallback: '{partName}' midx={moduleIndex} " +
+                    ParsekLog.Verbose("EngineFx", $"fallback: '{partName}' midx={moduleIndex} " +
                         $"forced Thumper-style plume on '{kickbackTransform}' offset={kickbackOffset} " +
                         $"rot={kickbackThumperLocalRot.eulerAngles} hasRot=true " +
                         $"(removed MODEL={removedKickbackModelFx}, PREFAB={removedKickbackPrefabs})");
@@ -764,7 +764,7 @@ namespace Parsek
 
                     prefabFxEntries.Add(("fx_smokeTrail_light", rhinoTransform, rhinoOffset, rhinoPlumeRotation, true));
                     prefabFxEntries.Add(("fx_exhaustFlame_yellow_medium", rhinoTransform, rhinoOffset, rhinoPlumeRotation, true));
-                    ParsekLog.Log($"    Engine FX fallback: '{partName}' midx={moduleIndex} " +
+                    ParsekLog.Verbose("EngineFx", $"fallback: '{partName}' midx={moduleIndex} " +
                         $"forced compact Mainsail-like plume on '{rhinoTransform}' offset={rhinoOffset} " +
                         $"(removed MODEL={removedRhinoModelFx}, PREFAB={removedRhinoPrefabs})");
                 }
@@ -850,7 +850,7 @@ namespace Parsek
                         }
 
                         prefabFxEntries.Add(("fx_exhaustFlame_blue", fallbackTransform, fallbackOffset, fallbackRotation, fallbackHasLocalRotation));
-                        ParsekLog.Log($"    Engine FX fallback: '{partName}' midx={moduleIndex} " +
+                        ParsekLog.Verbose("EngineFx", $"fallback: '{partName}' midx={moduleIndex} " +
                             $"added Skipper-style blue flame prefab on '{fallbackTransform}' offset={fallbackOffset} rot={fallbackRotation.eulerAngles}");
                     }
                 }
@@ -907,7 +907,7 @@ namespace Parsek
 
                     prefabFxEntries.Add(("fx_smokeTrail_large", rapierSmokeTransform, rapierSmokeOffset,
                         rapierSmokeRotation, rapierSmokeHasLocalRotation));
-                    ParsekLog.Log($"    Engine FX fallback: '{partName}' midx={moduleIndex} " +
+                    ParsekLog.Verbose("EngineFx", $"fallback: '{partName}' midx={moduleIndex} " +
                         $"replaced {removedRapierSmoke} smoke entries with Vector-style smoke on '{rapierSmokeTransform}' " +
                         $"offset={rapierSmokeOffset} rot={rapierSmokeRotation.eulerAngles}");
 
@@ -941,7 +941,7 @@ namespace Parsek
 
                         Quaternion flameRotation = Quaternion.Euler(-90f, 0f, 0f);
                         prefabFxEntries.Add(("fx_exhaustFlame_white", flameTransform, flameOffset, flameRotation, true));
-                        ParsekLog.Log($"    Engine FX fallback: '{partName}' midx={moduleIndex} " +
+                        ParsekLog.Verbose("EngineFx", $"fallback: '{partName}' midx={moduleIndex} " +
                             $"added Vector-style white flame on '{flameTransform}' offset={flameOffset} rot={flameRotation.eulerAngles}");
                     }
                 }

@@ -475,51 +475,6 @@ namespace Parsek.Tests
 
         #endregion
 
-        #region Test 10: Log assertion - serialization logs track section count
-
-        [Fact]
-        public void Serialize_LogsTrackSectionCount()
-        {
-            var tracks = new List<TrackSection>
-            {
-                new TrackSection
-                {
-                    environment = SegmentEnvironment.Atmospheric,
-                    referenceFrame = ReferenceFrame.Absolute,
-                    startUT = 17000.0,
-                    endUT = 17100.0,
-                    sampleRateHz = 10.0f,
-                    frames = new List<TrajectoryPoint>
-                    {
-                        MakePoint(17000.0, 0, 0, 100),
-                        MakePoint(17100.0, 0, 0, 200),
-                    },
-                    checkpoints = new List<OrbitSegment>()
-                },
-                new TrackSection
-                {
-                    environment = SegmentEnvironment.ExoBallistic,
-                    referenceFrame = ReferenceFrame.OrbitalCheckpoint,
-                    startUT = 17100.0,
-                    endUT = 18000.0,
-                    sampleRateHz = 0.1f,
-                    frames = new List<TrajectoryPoint>(),
-                    checkpoints = new List<OrbitSegment>
-                    {
-                        MakeOrbitSegment(17100, 18000),
-                    }
-                }
-            };
-
-            var parent = new ConfigNode("TEST");
-            RecordingStore.SerializeTrackSections(parent, tracks);
-
-            Assert.Contains(logLines, l =>
-                l.Contains("[RecordingStore]") && l.Contains("serialized 2 track section(s)"));
-        }
-
-        #endregion
-
         #region AnchorPid not written when zero
 
         [Fact]
