@@ -320,7 +320,7 @@ namespace Parsek
                 {
                     ParsekLog.Verbose(Tag,
                         string.Format(IC, "Skipping {0} vessel {1} in overlap check",
-                            other.vesselType, other.vesselName));
+                            other.vesselType, Recording.ResolveLocalizedName(other.vesselName)));
                     continue;
                 }
 
@@ -336,17 +336,17 @@ namespace Parsek
                     if (dist < closestDist)
                     {
                         closestDist = dist;
-                        blockerName = other.vesselName;
+                        blockerName = Recording.ResolveLocalizedName(other.vesselName);
                     }
 
                     ParsekLog.VerboseRateLimited(Tag,
                         "overlap-" + other.persistentId,
-                        $"Spawn overlaps with {other.vesselName} (pid={other.persistentId}) at {dist.ToString("F1", IC)}m");
+                        $"Spawn overlaps with {Recording.ResolveLocalizedName(other.vesselName)} (pid={other.persistentId}) at {dist.ToString("F1", IC)}m");
                 }
                 else
                 {
                     ParsekLog.Verbose(Tag,
-                        $"No overlap with {other.vesselName} at {dist.ToString("F1", IC)}m");
+                        $"No overlap with {Recording.ResolveLocalizedName(other.vesselName)} at {dist.ToString("F1", IC)}m");
                 }
             }
 
@@ -385,7 +385,7 @@ namespace Parsek
                 {
                     ParsekLog.Verbose(Tag,
                         string.Format(IC, "Skipping {0} vessel {1} in proximity check",
-                            other.vesselType, other.vesselName));
+                            other.vesselType, Recording.ResolveLocalizedName(other.vesselName)));
                     continue;
                 }
 
@@ -393,7 +393,7 @@ namespace Parsek
                 if (dist < closestDist)
                 {
                     closestDist = dist;
-                    closestName = other.vesselName;
+                    closestName = Recording.ResolveLocalizedName(other.vesselName);
                 }
             }
 

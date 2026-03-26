@@ -292,7 +292,7 @@ namespace Parsek
             ParsekLog.Info(Tag,
                 string.Format(ic,
                     "TIME_JUMP SegmentEvent emitted for recording vessel pid={0} name={1}",
-                    v.persistentId, v.vesselName));
+                    v.persistentId, Recording.ResolveLocalizedName(v.vesselName)));
         }
 
         /// <summary>
@@ -373,7 +373,7 @@ namespace Parsek
                     ParsekLog.Verbose(Tag,
                         string.Format(ic,
                             "Epoch shift skipped (surface): pid={0} name={1} situation={2}",
-                            v.persistentId, v.vesselName, v.situation));
+                            v.persistentId, Recording.ResolveLocalizedName(v.vesselName), v.situation));
                     continue;
                 }
 
@@ -384,7 +384,7 @@ namespace Parsek
                     ParsekLog.Warn(Tag,
                         string.Format(ic,
                             "WARNING: vessel '{0}' is in atmosphere — epoch shift is approximate",
-                            v.vesselName));
+                            Recording.ResolveLocalizedName(v.vesselName)));
                 }
 
                 capturedStates.Add((v, v.orbit.pos, v.orbit.vel, v.orbit.referenceBody, v.orbit.meanAnomalyAtEpoch));
@@ -417,7 +417,7 @@ namespace Parsek
                     ParsekLog.Verbose(Tag,
                         string.Format(ic,
                             "Epoch-shifted vessel: pid={0} name={1} body={2} dMeanAnomaly={3:F6}",
-                            v.persistentId, v.vesselName,
+                            v.persistentId, Recording.ResolveLocalizedName(v.vesselName),
                             body != null ? body.bodyName : "null",
                             shift));
                 }
@@ -426,7 +426,7 @@ namespace Parsek
                     ParsekLog.Error(Tag,
                         string.Format(ic,
                             "Epoch shift failed: pid={0} name={1} error={2}",
-                            v.persistentId, v.vesselName, ex.Message));
+                            v.persistentId, Recording.ResolveLocalizedName(v.vesselName), ex.Message));
                 }
             }
         }
@@ -511,7 +511,7 @@ namespace Parsek
                     ParsekLog.Warn(Tag,
                         string.Format(ic,
                             "WARNING: vessel '{0}' is in atmosphere — orbit propagation is approximate",
-                            v.vesselName));
+                            Recording.ResolveLocalizedName(v.vesselName)));
                 }
 
                 if (!v.packed && v.loaded)
@@ -523,14 +523,14 @@ namespace Parsek
                         ParsekLog.Verbose(Tag,
                             string.Format(ic,
                                 "Put vessel on rails: pid={0} name={1}",
-                                v.persistentId, v.vesselName));
+                                v.persistentId, Recording.ResolveLocalizedName(v.vesselName)));
                     }
                     catch (Exception ex)
                     {
                         ParsekLog.Warn(Tag,
                             string.Format(ic,
                                 "Failed to put vessel on rails: pid={0} name={1} error={2}",
-                                v.persistentId, v.vesselName, ex.Message));
+                                v.persistentId, Recording.ResolveLocalizedName(v.vesselName), ex.Message));
                     }
                 }
             }
@@ -555,14 +555,14 @@ namespace Parsek
                     ParsekLog.Verbose(Tag,
                         string.Format(ic,
                             "Took vessel off rails: pid={0} name={1}",
-                            v.persistentId, v.vesselName));
+                            v.persistentId, Recording.ResolveLocalizedName(v.vesselName)));
                 }
                 catch (Exception ex)
                 {
                     ParsekLog.Warn(Tag,
                         string.Format(ic,
                             "Failed to take vessel off rails: pid={0} name={1} error={2}",
-                            v.persistentId, v.vesselName, ex.Message));
+                            v.persistentId, Recording.ResolveLocalizedName(v.vesselName), ex.Message));
                 }
             }
         }
@@ -610,7 +610,7 @@ namespace Parsek
                             ParsekLog.Verbose(Tag,
                                 string.Format(ic,
                                     "Fixed converter timestamp: vessel={0} part={1} module={2} old={3:F1} new={4:F1}",
-                                    v.vesselName, p.partInfo?.name ?? "?", converter.GetType().Name,
+                                    Recording.ResolveLocalizedName(v.vesselName), p.partInfo?.name ?? "?", converter.GetType().Name,
                                     oldTime, newUT));
                         }
                     }
