@@ -218,6 +218,38 @@ namespace Parsek.Tests
             Assert.Contains("snapshot situation unsafe", reason);
         }
 
+        [Fact]
+        public void ShouldSpawnAtKscEnd_StandaloneLoopPlayback_AllowsFirstSpawn()
+        {
+            // Regression: standalone looping recordings DO spawn on first playthrough
+            // (matching Flight behavior). VesselSpawned=true prevents re-spawn on
+            // subsequent loops. TrySpawnAtRecordingEnd has a separate LoopPlayback
+            // early return as a safety net, but the eligibility check allows it.
+            var rec = MakeEligibleRecording();
+            rec.ChainId = null;
+            rec.LoopPlayback = true;
+            rec.VesselSpawned = false;
+
+            var (needsSpawn, _) = GhostPlaybackLogic.ShouldSpawnAtKscEnd(rec);
+
+            Assert.True(needsSpawn);
+        }
+
+        [Fact]
+        public void ShouldSpawnAtKscEnd_StandaloneLoopPlayback_AlreadySpawned_ReturnsFalse()
+        {
+            // After first spawn, VesselSpawned=true prevents re-spawning on loop restart
+            var rec = MakeEligibleRecording();
+            rec.ChainId = null;
+            rec.LoopPlayback = true;
+            rec.VesselSpawned = true;
+
+            var (needsSpawn, reason) = GhostPlaybackLogic.ShouldSpawnAtKscEnd(rec);
+
+            Assert.False(needsSpawn);
+            Assert.Contains("already spawned", reason);
+        }
+
         #endregion
 
         #region ShouldSpawnAtKscEnd — chain suppression
