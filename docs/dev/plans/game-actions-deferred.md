@@ -11,7 +11,7 @@ Items identified during design that are out of scope for the initial implementat
 **What:** Extract KSP's exact reputation gain/loss curve from decompiled `Reputation` class (the grain system and gain/loss asymmetry).
 **Why deferred:** Requires decompilation investigation before implementation can begin. The Reputation module depends on this.
 **Revisit when:** Starting Reputation module implementation (Task for reputation).
-**Status:** Open
+**Status:** Done (Spike A) — exact keyframes extracted from decompiled Assembly-CSharp.dll. See `game-actions-spike-findings.md`.
 
 ---
 
@@ -128,7 +128,7 @@ Items identified during design that are out of scope for the initial implementat
 **What:** Can reputation go below -1000? Does the loss curve diminish near the floor like the gain curve does near the ceiling?
 **Why deferred:** Requires decompilation investigation alongside D1.
 **Revisit when:** Reputation curve extraction (D1).
-**Status:** Open
+**Status:** Done (Spike A) — Loss curve multiplier approaches ~0.0x near rep=-1000 (symmetric with gain ceiling). No hard clamp in `AddReputation`, but `SetReputation` clamps to [-1000, 1000]. Effectively, rep cannot go significantly below -1000.
 
 ---
 
