@@ -485,7 +485,7 @@ namespace Parsek
         /// Read VesselType from vessel snapshot ConfigNode.
         /// Falls back to VesselType.Ship if snapshot is null or type is missing.
         /// </summary>
-        private static VesselType ResolveVesselType(ConfigNode vesselSnapshot)
+        internal static VesselType ResolveVesselType(ConfigNode vesselSnapshot)
         {
             if (vesselSnapshot == null) return VesselType.Ship;
 

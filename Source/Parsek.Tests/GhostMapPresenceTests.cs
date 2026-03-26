@@ -339,6 +339,187 @@ namespace Parsek.Tests
 
         #endregion
 
+        #region ResolveVesselType
+
+        /// <summary>
+        /// Null snapshot falls back to Ship.
+        /// Guards: null safety when recording has no vessel snapshot.
+        /// </summary>
+        [Fact]
+        public void ResolveVesselType_NullSnapshot_ReturnsShip()
+        {
+            VesselType result = GhostMapPresence.ResolveVesselType(null);
+            Assert.Equal(VesselType.Ship, result);
+        }
+
+        /// <summary>
+        /// Snapshot with no "type" value falls back to Ship.
+        /// Guards: missing type key in snapshot ConfigNode.
+        /// </summary>
+        [Fact]
+        public void ResolveVesselType_MissingTypeValue_ReturnsShip()
+        {
+            var node = new ConfigNode("VESSEL");
+            // No "type" key added
+            VesselType result = GhostMapPresence.ResolveVesselType(node);
+            Assert.Equal(VesselType.Ship, result);
+        }
+
+        /// <summary>
+        /// Valid "Ship" type string parses correctly.
+        /// Guards: standard vessel type round-trips through snapshot.
+        /// </summary>
+        [Fact]
+        public void ResolveVesselType_Ship_ReturnsShip()
+        {
+            var node = new ConfigNode("VESSEL");
+            node.AddValue("type", "Ship");
+            Assert.Equal(VesselType.Ship, GhostMapPresence.ResolveVesselType(node));
+        }
+
+        /// <summary>
+        /// Valid "Station" type string parses correctly.
+        /// Guards: station ghost vessels get correct map icon.
+        /// </summary>
+        [Fact]
+        public void ResolveVesselType_Station_ReturnsStation()
+        {
+            var node = new ConfigNode("VESSEL");
+            node.AddValue("type", "Station");
+            Assert.Equal(VesselType.Station, GhostMapPresence.ResolveVesselType(node));
+        }
+
+        /// <summary>
+        /// Valid "Relay" type string parses correctly.
+        /// Guards: relay ghost vessels get correct map icon.
+        /// </summary>
+        [Fact]
+        public void ResolveVesselType_Relay_ReturnsRelay()
+        {
+            var node = new ConfigNode("VESSEL");
+            node.AddValue("type", "Relay");
+            Assert.Equal(VesselType.Relay, GhostMapPresence.ResolveVesselType(node));
+        }
+
+        /// <summary>
+        /// Unrecognized type string falls back to Ship and logs a message.
+        /// Guards: corrupt or modded type strings don't crash.
+        /// </summary>
+        [Fact]
+        public void ResolveVesselType_UnrecognizedType_ReturnsShipAndLogs()
+        {
+            var node = new ConfigNode("VESSEL");
+            node.AddValue("type", "BogusType");
+            VesselType result = GhostMapPresence.ResolveVesselType(node);
+            Assert.Equal(VesselType.Ship, result);
+            Assert.Contains(logLines, l =>
+                l.Contains("[GhostMap]") && l.Contains("unrecognized type") &&
+                l.Contains("BogusType"));
+        }
+
+        /// <summary>
+        /// Case-insensitive parse: "station" (lowercase) resolves to Station.
+        /// Guards: KSP snapshot files may have inconsistent casing.
+        /// </summary>
+        [Fact]
+        public void ResolveVesselType_CaseInsensitive_ParsesCorrectly()
+        {
+            var node = new ConfigNode("VESSEL");
+            node.AddValue("type", "station");
+            Assert.Equal(VesselType.Station, GhostMapPresence.ResolveVesselType(node));
+        }
+
+        #endregion
+
+        #region HasOrbitData — negative SMA (hyperbolic)
+
+        /// <summary>
+        /// Recording with negative SMA (hyperbolic orbit) returns false.
+        /// Known limitation: hyperbolic orbits have negative SMA, but the
+        /// current check requires SMA > 0. This is acceptable because ghost
+        /// map presence is for stable orbits (tracking station display).
+        /// Hyperbolic trajectories are transient and don't need map markers.
+        /// </summary>
+        [Fact]
+        public void HasOrbitData_NegativeSMA_ReturnsFalse()
+        {
+            var rec = new Recording
+            {
+                TerminalOrbitBody = "Kerbin",
+                TerminalOrbitSemiMajorAxis = -500000.0,
+                TerminalOrbitEccentricity = 1.5
+            };
+
+            bool result = GhostMapPresence.HasOrbitData(rec);
+
+            Assert.False(result);
+        }
+
+        #endregion
+
+        #region PID set / vessel dict sync
+
+        /// <summary>
+        /// Adding a PID to ghostMapVesselPids without creating a vessel
+        /// means GetGhostVessel returns null for any chain PID.
+        /// Guards: PID set and vessel dict are independent — a PID in the
+        /// set does not imply a vessel exists in the dict.
+        /// </summary>
+        [Fact]
+        public void PidSetAndVesselDict_PidAddedButNoVessel_GetGhostVesselReturnsNull()
+        {
+            GhostMapPresence.ghostMapVesselPids.Add(999);
+
+            Assert.True(GhostMapPresence.IsGhostMapVessel(999));
+            Assert.Null(GhostMapPresence.GetGhostVessel(999));
+        }
+
+        /// <summary>
+        /// ResetForTesting clears PID set even when vessel dict was empty.
+        /// Guards: reset is safe when state is partially populated.
+        /// </summary>
+        [Fact]
+        public void ResetForTesting_ClearsPidsEvenIfNoVesselsExist()
+        {
+            GhostMapPresence.ghostMapVesselPids.Add(111);
+            GhostMapPresence.ghostMapVesselPids.Add(222);
+
+            // No vessels created — dict is empty
+            Assert.Null(GhostMapPresence.GetGhostVessel(111));
+            Assert.Null(GhostMapPresence.GetGhostVessel(222));
+
+            GhostMapPresence.ResetForTesting();
+
+            Assert.False(GhostMapPresence.IsGhostMapVessel(111));
+            Assert.False(GhostMapPresence.IsGhostMapVessel(222));
+            Assert.Empty(GhostMapPresence.ghostMapVesselPids);
+        }
+
+        /// <summary>
+        /// Multiple PIDs can coexist in the set independently.
+        /// Guards: no collision or overwrite between different ghost PIDs.
+        /// </summary>
+        [Fact]
+        public void PidSet_MultiplePids_IndependentTracking()
+        {
+            GhostMapPresence.ghostMapVesselPids.Add(100);
+            GhostMapPresence.ghostMapVesselPids.Add(200);
+            GhostMapPresence.ghostMapVesselPids.Add(300);
+
+            Assert.True(GhostMapPresence.IsGhostMapVessel(100));
+            Assert.True(GhostMapPresence.IsGhostMapVessel(200));
+            Assert.True(GhostMapPresence.IsGhostMapVessel(300));
+            Assert.False(GhostMapPresence.IsGhostMapVessel(400));
+
+            GhostMapPresence.ghostMapVesselPids.Remove(200);
+
+            Assert.True(GhostMapPresence.IsGhostMapVessel(100));
+            Assert.False(GhostMapPresence.IsGhostMapVessel(200));
+            Assert.True(GhostMapPresence.IsGhostMapVessel(300));
+        }
+
+        #endregion
+
         #region Log assertions
 
         /// <summary>

@@ -366,6 +366,16 @@ namespace Parsek
             // If a held ghost was destroyed externally (e.g. soft cap, DestroyAllGhosts),
             // remove it from the held set so we don't try to destroy it again
             heldGhosts.Remove(evt.Index);
+
+            // If this ghost had a map ProtoVessel (soft cap despawn), remove it.
+            // Map from recording index → VesselPersistentId → chain PID.
+            var committed = RecordingStore.CommittedRecordings;
+            if (committed != null && evt.Index >= 0 && evt.Index < committed.Count)
+            {
+                uint vesselPid = committed[evt.Index].VesselPersistentId;
+                if (vesselPid != 0 && GhostMapPresence.GetGhostVessel(vesselPid) != null)
+                    GhostMapPresence.RemoveGhostVessel(vesselPid, "soft-cap-despawn");
+            }
         }
 
         private void HandleLoopRestarted(LoopRestartedEvent evt)

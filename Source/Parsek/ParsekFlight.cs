@@ -5594,6 +5594,9 @@ namespace Parsek
                         ref chain.CachedTrajectoryIndex, currentUT, (int)(chain.OriginalVesselPid * 10000),
                         out _, surfaceRelativeRotation: srfRel, skipOrbitSegments: surfaceSkip);
 
+                    // Update ghost map ProtoVessel orbit if segment changed
+                    UpdateChainGhostOrbitIfNeeded(chain, bgRec.OrbitSegments, currentUT);
+
                     ParsekLog.VerboseRateLimited("Flight", "chain-ghost-trajectory-" + chain.OriginalVesselPid,
                         string.Format(CultureInfo.InvariantCulture,
                             "Chain ghost positioned from trajectory: pid={0} rec={1} UT={2:F1}",
@@ -5650,6 +5653,29 @@ namespace Parsek
                     }
                 }
             }
+        }
+
+        /// <summary>
+        /// Check if the chain ghost's orbit segment changed and update the ghost map ProtoVessel.
+        /// Called each frame after positioning a chain ghost to keep the map orbit line in sync.
+        /// </summary>
+        private static void UpdateChainGhostOrbitIfNeeded(
+            GhostChain chain, List<OrbitSegment> segments, double currentUT)
+        {
+            if (segments == null || segments.Count == 0) return;
+
+            OrbitSegment? seg = TrajectoryMath.FindOrbitSegment(segments, currentUT);
+            if (!seg.HasValue) return;
+
+            // Detect change: body or SMA shifted (covers SOI transitions and orbit changes)
+            if (seg.Value.bodyName == chain.LastMapOrbitBodyName
+                && seg.Value.semiMajorAxis == chain.LastMapOrbitSma)
+                return;
+
+            chain.LastMapOrbitBodyName = seg.Value.bodyName;
+            chain.LastMapOrbitSma = seg.Value.semiMajorAxis;
+
+            GhostMapPresence.UpdateGhostOrbit(chain.OriginalVesselPid, seg.Value);
         }
 
         /// <summary>
