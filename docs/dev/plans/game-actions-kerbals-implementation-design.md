@@ -108,6 +108,7 @@ public enum KerbalEndState
 internal static KerbalEndState InferCrewEndState(
     TerminalState? vesselState, ProtoCrewMember.RosterStatus rosterStatus)
 {
+    // Roster status takes priority — KSP sets this regardless of vessel state
     if (rosterStatus == ProtoCrewMember.RosterStatus.Dead)
         return KerbalEndState.Dead;
     if (rosterStatus == ProtoCrewMember.RosterStatus.Missing)
@@ -125,11 +126,19 @@ internal static KerbalEndState InferCrewEndState(
         case TerminalState.Orbiting:
         case TerminalState.SubOrbital:
             return KerbalEndState.Orbiting;
+        case TerminalState.Docked:
+        case TerminalState.Boarded:
+            // Crew merged into the survivor vessel via dock or board.
+            // They are alive and on the surviving vessel — treat as Recovered
+            // (they'll be handled by the survivor's recording).
+            return KerbalEndState.Recovered;
         default:
-            return KerbalEndState.Orbiting; // conservative default
+            return KerbalEndState.Orbiting; // conservative default for null
     }
 }
 ```
+
+**Design note on Docked/Boarded:** When a vessel docks or a kerbal boards, the recording's TerminalState is set to `Docked`/`Boarded`. The crew merged into the survivor vessel and are alive. We treat them as `Recovered` for reservation purposes — they will appear in the survivor recording's crew.
 
 **Design note:** STRANDED is not in this enum. In Phase A, we don't distinguish "landed successfully" from "stranded." Both are `Landed`. The design doc's `STRANDED` is a future refinement requiring player input or heuristics (no fuel + remote body). For Phase A, `Landed` on a non-Kerbin body means the crew is unavailable until a rescue recording closes the reservation — functionally identical to STRANDED.
 
@@ -175,9 +184,9 @@ internal class KerbalSlot
 
 internal struct ChainEntry
 {
-    public string StandInName;
-    public bool UsedInRecording;  // true if this stand-in appears in any committed recording
-    public bool IsReserved;       // true if currently reserved by a recording
+    public string StandInName;    // persisted — same name across recalculations
+    public bool UsedInRecording;  // derived — scan committed recordings for this name
+    public bool IsReserved;       // derived — check if any recording has this kerbal
 }
 ```
 
@@ -204,11 +213,52 @@ internal static class KerbalsModule
     /// <summary>
     /// Recalculate all kerbal state from committed recordings.
     /// Called on: commit, rewind, revert, KSP load.
+    /// Uses RecordingStore.CommittedRecordings directly (includes tree leaves).
+    /// Tree leaves are already in CommittedRecordings after CommitTree().
     /// </summary>
-    internal static void Recalculate(
-        IReadOnlyList<Recording> recordings,
-        IReadOnlyList<RecordingTree> trees)
-    { ... }
+    internal static void Recalculate()
+    {
+        var recordings = RecordingStore.CommittedRecordings;
+        // Skip loop recordings and fully-disabled chains
+        // (same filtering as existing ReserveSnapshotCrew)
+        ...
+    }
+
+    /// <summary>
+    /// Apply derived state to KSP roster. Creates stand-ins, removes unused
+    /// stand-ins, sets roster statuses. Populates crewReplacements dict
+    /// for SwapReservedCrewInFlight compatibility.
+    ///
+    /// Wraps mutations in SuppressCrewEvents = true.
+    /// </summary>
+    internal static void ApplyToRoster(KerbalRoster roster)
+    {
+        GameStateRecorder.SuppressCrewEvents = true;
+        try
+        {
+            // 1. For each slot needing a stand-in:
+            //    - If stand-in name already in roster: keep (deterministic)
+            //    - If not: create via roster.GetNewKerbal(), set trait
+            //    - Store in KERBAL_SLOTS for name persistence
+
+            // 2. For each unused stand-in displaced by owner reclaim:
+            //    - Remove from roster via roster.Remove()
+
+            // 3. For each reserved kerbal:
+            //    - Set rosterStatus = Assigned
+            //    - Populate crewReplacements[reserved] = activeOccupant
+            //      (bridge to SwapReservedCrewInFlight)
+
+            // 4. For each retired kerbal:
+            //    - Set rosterStatus = Assigned (unassignable)
+
+            // 5. Invalidate ResourceBudget (existing pattern)
+        }
+        finally
+        {
+            GameStateRecorder.SuppressCrewEvents = false;
+        }
+    }
 
     /// <summary>
     /// Check if a kerbal is available for a new recording.
@@ -239,39 +289,47 @@ internal static class KerbalsModule
 The core algorithm. Pure computation, no KSP mutation.
 
 ```
-Recalculate(recordings, trees):
-  1. Clear all derived state (reservations, slots, retired, pendingStandIns).
+Recalculate():
+  1. Clear derived state (reservations, retired set).
+     DO NOT clear slots — stand-in names persist across recalculations.
 
   2. Collect all crew assignments:
-     For each committed recording (standalone + tree leaves):
+     For each committed recording in RecordingStore.CommittedRecordings:
+       Skip if rec.LoopPlayback (loop recordings don't reserve crew)
+       Skip if RecordingStore.IsChainFullyDisabled(rec.ChainId)
        crew = ExtractCrewFromSnapshot(rec.VesselSnapshot)
-       endStates = rec.CrewEndStates  (or infer from TerminalState if not set)
+       endStates = rec.CrewEndStates (or infer from TerminalState if not populated)
        For each kerbalName in crew:
          endState = endStates[kerbalName] ?? KerbalEndState.Orbiting
-         endUT = rec.EndUT  (or PositiveInfinity if Landed/Orbiting/Dead/MIA)
-         Add to reservations: merge with existing (take max endUT, permanent wins)
+         endUT:
+           Recovered → rec.EndUT (temporary)
+           Landed/Orbiting → double.PositiveInfinity (open-ended temporary)
+           Dead/MIA → double.PositiveInfinity + IsPermanent=true (permanent)
+         Add/merge reservation: take max endUT across recordings, permanent wins
 
-  3. Build replacement chains:
+  3. Build replacement chains (uses persisted slots for name stability):
      For each reservation where !IsPermanent:
-       Create or find KerbalSlot for the owner
-       If owner is reserved and no stand-in exists:
-         Generate stand-in action (same trait, random name)
-         Add to slot chain
-       If stand-in is also reserved (used in a recording):
-         Generate next stand-in
-         Add to chain (recurse)
+       Find existing KerbalSlot (from persisted KERBAL_SLOTS) or create new
+       Determine if owner is currently reserved (exists in reservations dict)
+       If reserved and chain has no stand-in, OR last stand-in is also reserved:
+         If existing slot already has a stand-in name at this depth: reuse it
+         Else: generate new name via KerbalRoster.GetNewKerbal() — save name to slot
+       Mark chain entries: UsedInRecording = (name appears in any committed snapshot)
+       Mark chain entries: IsReserved = (name in reservations dict)
 
   4. Identify retired kerbals:
      For each slot, for each chain entry:
-       If entry.UsedInRecording AND entry is displaced (owner or predecessor reclaimed):
+       If entry.UsedInRecording AND displaced (owner or predecessor is free):
          Add to retiredKerbals set
 
   5. Determine active occupants:
      For each slot:
        Walk chain from deepest to shallowest
        First non-reserved entry = active occupant
-       If all entries reserved, generate a new stand-in = active occupant
+       If all reserved, the deepest pending stand-in = active occupant
 ```
+
+**Stand-in naming determinism:** Stand-in names are generated once (via `KerbalRoster.GetNewKerbal()`) and persisted in KERBAL_SLOTS. On subsequent recalculations, the same name is reused from the persisted slot. This prevents roster orphans. Only when a new chain depth is needed (deeper than any existing entry) is a new name generated.
 
 **Key invariant:** After recalculation, every slot has exactly one active occupant who is Available in the roster. The total available roster size is constant (original roster size minus permanently lost kerbals).
 
@@ -281,29 +339,36 @@ Recalculate(recordings, trees):
 
 ### 5.1 At Commit Time
 
-**Where:** After `RecordingStore.CommitPending()` in all 5 commit paths.
-**What:** Populate `rec.CrewEndStates`, then run `KerbalsModule.Recalculate()`.
+**Where:** Every call site that invokes `RecordingStore.CommitPending()` or `CommitPendingTree()`. There are **14+ call sites** across 4 files. Rather than patching each one, the recalculation is centralized.
+
+**Strategy:** Hook into `RecordingStore.CommitPending()`/`CommitPendingTree()` completion, or add a single `RecalculateAndApplyCrew()` method called from a centralized post-commit point.
+
+**Current call sites for `ReserveSnapshotCrew()` (all need replacement):**
+- `MergeDialog.cs`: lines 126, 188, 396, 810
+- `ParsekFlight.cs`: lines 3602, 4694 (tree leaf reservation)
+- `ParsekScenario.cs`: lines 507, 534, 686
+
+**Current call sites for `CommitPending`/`CommitPendingTree` that do NOT call `ReserveSnapshotCrew` afterward (need addition):**
+- `ParsekFlight.cs`: lines 1190, 1931, 1945, 4629, 7756
+- `ParsekScenario.cs`: safety-net commits at lines 37, 44, 489, 495, 593, 606, 813
+- `ChainSegmentManager.cs`: line 414
+
+**Recommended approach:** Create `KerbalsModule.RecalculateAndApply()` that calls both `Recalculate()` and `ApplyToRoster()`:
 
 ```csharp
-// In MergeDialog.cs or ParsekFlight.cs commit paths:
-RecordingStore.CommitPending();
+internal static void RecalculateAndApply()
+{
+    var roster = HighLogic.CurrentGame?.CrewRoster;
+    if (roster == null) return;
 
-// NEW: populate crew end states on the just-committed recording
-PopulateCrewEndStates(lastCommitted);
-
-// NEW: full recalculation (replaces ReserveSnapshotCrew for kerbal state)
-KerbalsModule.Recalculate(
-    RecordingStore.CommittedRecordings,
-    RecordingStore.CommittedTrees);
-
-// NEW: apply derived state to KSP roster
-KerbalsModule.ApplyToRoster(HighLogic.CurrentGame.CrewRoster);
-
-// EXISTING (still needed for crew swap on active vessel):
-CrewReservationManager.SwapReservedCrewInFlight();
+    Recalculate();
+    ApplyToRoster(roster);
+}
 ```
 
-**Phase A simplification:** `CrewReservationManager` continues to own the swap logic and `crewReplacements` dict. `KerbalsModule` computes the *correct* state; `CrewReservationManager` applies it to the active vessel. Over time, `CrewReservationManager` methods migrate into `KerbalsModule`.
+Then grep for all `ReserveSnapshotCrew()` calls and replace with `KerbalsModule.RecalculateAndApply()`. Also add calls after commit paths that currently lack crew handling.
+
+**Bridge to `SwapReservedCrewInFlight`:** `ApplyToRoster()` populates `CrewReservationManager.crewReplacements` dict as step 3 (mapping reserved kerbal → active occupant). This keeps `SwapReservedCrewInFlight()` working unchanged — it reads from `crewReplacements` to swap crew on the active vessel.
 
 ### 5.2 At Rewind/Revert Time
 
@@ -313,10 +378,7 @@ CrewReservationManager.SwapReservedCrewInFlight();
 ```csharp
 // Replace: CrewReservationManager.ReserveSnapshotCrew();
 // With:
-KerbalsModule.Recalculate(
-    RecordingStore.CommittedRecordings,
-    RecordingStore.CommittedTrees);
-KerbalsModule.ApplyToRoster(HighLogic.CurrentGame.CrewRoster);
+KerbalsModule.RecalculateAndApply();
 ```
 
 ### 5.3 At Spawn Time
@@ -386,16 +448,8 @@ Alternating `crew`/`state` values (same pattern as existing paired ConfigNode va
 
 Stand-in kerbals need to be identifiable as Parsek-managed. Options:
 
-**Option A: Extend `crewReplacements` dict** to store chain depth:
-```
-CREW_REPLACEMENTS
-{
-    ENTRY { original = Jeb; replacement = Hanley; depth = 0 }
-    ENTRY { original = Hanley; replacement = Kirrim; depth = 1 }
-}
-```
+**Format: `KERBAL_SLOTS` ConfigNode** (directly represents the chain model):
 
-**Option B: Separate `KERBAL_SLOTS` ConfigNode** (cleaner for chains):
 ```
 KERBAL_SLOTS
 {
@@ -403,13 +457,25 @@ KERBAL_SLOTS
     {
         owner = Jebediah Kerman
         trait = Pilot
-        CHAIN_ENTRY { name = Hanley Kerman; used = false }
-        CHAIN_ENTRY { name = Kirrim Kerman; used = true }
+        CHAIN_ENTRY { name = Hanley Kerman }
+        CHAIN_ENTRY { name = Kirrim Kerman }
     }
 }
 ```
 
-**Recommendation:** Option B. It's cleaner, directly represents the chain model, and doesn't overload the existing `crewReplacements` dict. The existing dict can be migrated to this format.
+Note: `used` is not stored — it's derived by scanning committed recording snapshots for the stand-in name. This avoids stale data on rewind. The slot only persists **names and trait** for deterministic re-creation.
+
+### 6.4 Backward Compatibility
+
+Existing saves have `CREW_REPLACEMENTS` with flat `ENTRY { original; replacement }` nodes. Migration:
+
+1. On load: if `KERBAL_SLOTS` node exists, load it. Done.
+2. If no `KERBAL_SLOTS` but `CREW_REPLACEMENTS` exists: migrate.
+   - For each ENTRY: create a SLOT with `owner = original`, `trait = (read from roster)`, one CHAIN_ENTRY with `name = replacement`.
+3. On next save: write `KERBAL_SLOTS`. Keep writing `CREW_REPLACEMENTS` as well for one version (backward compat window).
+4. After one version: stop writing `CREW_REPLACEMENTS`.
+
+This ensures saves can be opened by older Parsek versions during the transition.
 
 ---
 
@@ -493,7 +559,23 @@ KERBAL_SLOTS
 **Scenario:** Player hires a kerbal manually and wants to dismiss them.
 **Phase A behavior:** `KerbalsModule.IsManaged()` returns false for manually-hired unrecorded kerbals. Dismissal proceeds normally.
 
-### E15: EVA child recording crew overlaps with parent snapshot
+### E15: Loop recordings excluded from reservation
+**Scenario:** A recording has `LoopPlayback = true`.
+**Phase A behavior:** `Recalculate()` skips it (same as existing `ReserveSnapshotCrew` behavior). Loop recordings are visual-only replays, not committed timeline entries.
+
+### E16: Disabled chain recordings excluded
+**Scenario:** A chain is fully disabled by the player.
+**Phase A behavior:** `Recalculate()` skips all recordings in the chain (same as existing `IsChainFullyDisabled` check). Disabled recordings don't reserve crew.
+
+### E17: KSP respawns MIA kerbal while Parsek has permanent reservation
+**Scenario:** Jeb is MIA (permanent reservation). KSP respawns Jeb after configurable delay.
+**Phase A behavior:** Parsek's next `RecalculateAndApply()` will find Jeb in the roster with status Available (KSP respawned). But reservations dict still has Jeb as permanently reserved. `ApplyToRoster()` sets Jeb back to Assigned. KSP's respawn is effectively overridden. This is the conservative-by-design approach — MIA is permanent in Parsek until a future phase adds respawn support. (Design doc D7.)
+
+### E18: Docked vessel recording — crew end state
+**Scenario:** Vessel A docks into Vessel B. Recording A has TerminalState.Docked.
+**Phase A behavior:** `InferCrewEndState` returns `Recovered` for crew on vessel A. They merged into B and are alive. Vessel B's recording will track them going forward.
+
+### E19: EVA child recording crew overlaps with parent snapshot
 **Scenario:** Jeb EVAs from a vessel. The parent snapshot still lists Jeb as crew.
 **Phase A behavior:** `ExtractCrewFromSnapshot` on the parent returns Jeb. But `RemoveSpecificCrewFromSnapshot` removes Jeb from the parent spawn snapshot at spawn time. The reservation system sees Jeb in the EVA recording only (parent's Jeb is excluded via `BuildExcludeCrewSet`). No double-reservation.
 
@@ -504,22 +586,26 @@ KERBAL_SLOTS
 ### 9.1 Unit Tests (Pure Static Methods)
 
 **`KerbalEndStateTests.cs`:**
-1. `InferCrewEndState_Recovered_ReturnsRecovered` — vessel Recovered + Available → Recovered
-2. `InferCrewEndState_Destroyed_ReturnsDead` — vessel Destroyed → Dead
-3. `InferCrewEndState_DeadRosterStatus_ReturnsDead` — any vessel state + Dead → Dead
-4. `InferCrewEndState_MissingRosterStatus_ReturnsMIA` — any vessel state + Missing → MIA
-5. `InferCrewEndState_Landed_ReturnsLanded` — vessel Landed + Available → Landed
-6. `InferCrewEndState_NullTerminalState_ReturnsOrbiting` — null → Orbiting (conservative)
+1. `InferCrewEndState_Recovered_ReturnsRecovered` — fails if recovered crew treated as stranded (wrong reservation duration)
+2. `InferCrewEndState_Destroyed_ReturnsDead` — fails if destroyed crew treated as alive (duplicate kerbal possible)
+3. `InferCrewEndState_DeadRosterStatus_ReturnsDead` — fails if roster status not checked first (Dead crew on Landed vessel misclassified)
+4. `InferCrewEndState_MissingRosterStatus_ReturnsMIA` — fails if Missing crew treated as available
+5. `InferCrewEndState_Landed_ReturnsLanded` — fails if landed crew treated as recovered (premature slot reclaim)
+6. `InferCrewEndState_NullTerminalState_ReturnsOrbiting` — fails if null causes exception instead of conservative default
+6b. `InferCrewEndState_Docked_ReturnsRecovered` — fails if docked crew treated as orbiting (wrong reservation)
+6c. `InferCrewEndState_Boarded_ReturnsRecovered` — fails if boarded crew treated as orbiting
 
 **`KerbalReservationTests.cs`:**
-7. `Recalculate_SingleRecording_ReservesAllCrew` — one recording with Jeb+Bill → both reserved
-8. `Recalculate_RecoveredCrew_TemporaryReservation` — recovered at UT=2000 → reserved until 2000
-9. `Recalculate_DeadCrew_PermanentReservation` — dead crew → permanent, IsPermanent=true
-10. `Recalculate_MultiplRecordings_MaxEndUT` — Jeb in rec A (UT=2000) + rec B (UT=3000) → reserved until 3000
-11. `Recalculate_NoCrewRecording_NoReservations` — probe recording → empty reservations
-12. `IsKerbalAvailable_Reserved_ReturnsFalse` — Jeb reserved → not available
-13. `IsKerbalAvailable_NotReserved_ReturnsTrue` — Bill not in any recording → available
-14. `IsKerbalAvailable_PermanentlyGone_ReturnsFalse` — dead kerbal → not available
+7. `Recalculate_SingleRecording_ReservesAllCrew` — fails if crew extraction misses multi-crew vessel → duplicate kerbal paradox
+8. `Recalculate_RecoveredCrew_TemporaryReservation` — fails if recovered uses PositiveInfinity → crew locked forever
+9. `Recalculate_DeadCrew_PermanentReservation` — fails if dead crew not marked permanent → stand-in generated for dead crew
+10. `Recalculate_MultipleRecordings_MaxEndUT` — fails if endUT not merged → crew freed too early between recordings
+11. `Recalculate_NoCrewRecording_NoReservations` — fails if probe snapshot triggers reservation
+12. `IsKerbalAvailable_Reserved_ReturnsFalse` — fails if available check doesn't consult reservations → duplicate kerbal
+13. `IsKerbalAvailable_NotReserved_ReturnsTrue` — fails if unrecorded kerbals blocked → can't fly anyone
+14. `IsKerbalAvailable_PermanentlyGone_ReturnsFalse` — fails if dead kerbal shown as available
+14b. `Recalculate_SkipsLoopRecordings` — fails if loop recordings reserve crew → visual replays block crew
+14c. `Recalculate_SkipsDisabledChains` — fails if disabled recordings reserve crew
 
 **`KerbalChainTests.cs`:**
 15. `Recalculate_ReservedCrew_GeneratesStandIn` — Jeb reserved → stand-in generated with same trait
@@ -545,7 +631,7 @@ KERBAL_SLOTS
 **`KerbalRecalculationIntegrationTests.cs`:**
 30. `FullScenario_SimpleReservationAndReturn` — design doc 9.11 scenario 1
 31. `FullScenario_DeepChainAllUsed` — design doc 9.11 scenario 2
-32. `FullScenario_StrandedThenRescued` — design doc 9.11 scenario 3 (using Landed state)
+32. `FullScenario_LandedOnRemoteBody_OpenEndedReservation` — crew landed on Mun → reserved until PositiveInfinity (rescue linkage deferred, tests open-ended reservation behavior)
 33. `FullScenario_RewindRecomputes` — design doc 9.11 scenario 4
 34. `FullScenario_MultiCrewMission` — design doc 9.11 scenario 5
 35. `FullScenario_StandInDiesInChain` — design doc 9.11 scenario 6
@@ -577,8 +663,9 @@ KERBAL_SLOTS
 | `Source/Parsek/CrewReservationManager.cs` | Extend with chain serialization, delegate to KerbalsModule | A |
 | `Source/Parsek/ParsekScenario.cs` | Replace `ReserveSnapshotCrew()` calls with `KerbalsModule.Recalculate()` | A |
 | `Source/Parsek/MergeDialog.cs` | Call `KerbalsModule.Recalculate()` after commit | A |
-| `Source/Parsek/ParsekFlight.cs` | Call `KerbalsModule.Recalculate()` after commit, add `PopulateCrewEndStates` | A |
+| `Source/Parsek/ParsekFlight.cs` | Replace ReserveSnapshotCrew calls, add PopulateCrewEndStates | A |
 | `Source/Parsek/RecordingStore.cs` | Add CrewEndStates to serialization | A |
+| `Source/Parsek/ChainSegmentManager.cs` | Add RecalculateAndApply after chain commit (line 414) | A |
 | `Source/Parsek.Tests/KerbalEndStateTests.cs` | **New** — unit tests | A |
 | `Source/Parsek.Tests/KerbalReservationTests.cs` | **New** — reservation + chain tests | A |
 | `Source/Parsek.Tests/KerbalRecalculationIntegrationTests.cs` | **New** — integration tests | A |
