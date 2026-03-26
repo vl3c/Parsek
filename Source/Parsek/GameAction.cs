@@ -112,6 +112,14 @@ namespace Parsek
         /// <summary>Ordering within the same UT for spending actions. 0 for earnings.</summary>
         public int Sequence;
 
+        /// <summary>
+        /// Derived field set by resource modules during recalculation. NOT serialized.
+        /// True means this action's effects should be applied (e.g., first completion of a contract).
+        /// False means the action is a duplicate (e.g., second completion of the same contract — rewards zeroed).
+        /// Defaults to true — only modules that implement once-ever semantics set this to false.
+        /// </summary>
+        public bool Effective = true;
+
         // ---- Science fields ----
 
         /// <summary>Full KSP subject string, e.g. "crewReport@MunSrfLandedMidlands".</summary>
