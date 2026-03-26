@@ -10,23 +10,31 @@ Task breakdown for implementing `docs/parsek-game-actions-system-design.md`. Fol
 
 ## Phase 0: Risk Reduction Spikes
 
-Before starting Phase 1, run three focused spikes to confirm or kill the hardest assumptions. Each spike is a time-boxed investigation (not implementation) that produces findings, not code.
+Before starting Phase 1, run four focused spikes to confirm or kill the hardest assumptions. Each spike is a time-boxed investigation (not implementation) that produces findings, not code.
 
 ### Spike A: Reputation Curve Extraction
 
 Decompile `Reputation.AddReputation()` from Assembly-CSharp.dll to extract the exact gain/loss curve formula. This blocks the reputation module (Task 9, deferred item D1). Determine: is the curve a simple polynomial, lookup table, or AnimationCurve? Can it be replicated with a pure function?
 
+**If infeasible:** Use a linear approximation (multiplier = 1.0 at all rep levels) as a placeholder. Task 9 ships with approximate rep and a TODO to swap in the real curve. Acceptable because rep doesn't gate any hard constraint (unlike science/funds).
+
 ### Spike B: Contract State Patching Feasibility
 
 Prototype `ContractSystem` state manipulation: can Parsek reliably add/remove/complete contracts programmatically? Test `Contract.Load(ConfigNode)` from a previously captured snapshot. Determine: how much state can be round-tripped? Do contract parameters survive? This informs Task 15b and deferred item D3.
+
+**If infeasible:** Descope Task 15b's contract patching to event-only tracking (no state reconstruction). Contracts are observed and logged but not restored after rewind — KSP's procedural generation handles re-offering. Slot reservation still works (computed from ledger, not ContractSystem).
 
 ### Spike C: Kerbal Roster Manipulation
 
 Test programmatic kerbal roster operations beyond what `CrewReservationManager` already does: add kerbals with specific XP levels, set experience trait, place in retired/unassigned state, verify dismissal protection. Determine: can Parsek control all aspects needed by the Kerbals module (Tasks 10a/b)?
 
+**If infeasible:** Identify which specific operations fail and redesign around them. Most operations are already used in existing code (3 callsites for GetNewKerbal, 2 for SetExperienceTrait), so total infeasibility is unlikely — individual operations may need workarounds.
+
 ### Spike D: KSC Event Hooks
 
 Investigate how KSP reports KSC-time events (tech unlock, facility upgrade, kerbal hire) — specifically which `GameEvents` fire and in what order. This de-risks Task 18 (KSC Spending Actions), which is in Phase 6 but involves API surface that could surprise.
+
+**If infeasible:** Fall back to polling-based detection (same approach already used for facility upgrades). More complex but proven. Alternatively, defer Task 18 and rely on existing ActionReplay for KSC actions.
 
 ---
 
@@ -542,6 +550,7 @@ Functionality:
 
 | Phase | Tasks | Description |
 |-------|-------|-------------|
+| 0. Risk Reduction | Spikes A-D | Reputation curve, contract patching, kerbal roster, KSC events |
 | 1. Foundation | 1-3 | Data types, ledger I/O (with seeding), recalculation engine |
 | 2. Simple Modules | 4-7 | Science (earnings + spending), milestones, contracts (first-tier) |
 | 3. Second-Tier | 8-9 | Funds (depends on milestones, contracts, kerbals), reputation |
