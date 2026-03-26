@@ -383,14 +383,14 @@ namespace Parsek.Tests
                 KerbalRole = "Pilot",
                 StartUT = 17000.0f,
                 EndUT = float.NaN,
-                KerbalEndStateField = KerbalEndState.Stranded,
+                KerbalEndStateField = KerbalEndState.Unknown,
                 XpGained = 0.0f
             };
 
             var result = RoundTrip(original);
 
-            Assert.True(float.IsNaN(result.EndUT), "EndUT should be NaN for stranded kerbals");
-            Assert.Equal(KerbalEndState.Stranded, result.KerbalEndStateField);
+            Assert.True(float.IsNaN(result.EndUT), "EndUT should be NaN for open-ended kerbals");
+            Assert.Equal(KerbalEndState.Unknown, result.KerbalEndStateField);
         }
 
         [Fact]
@@ -892,10 +892,10 @@ namespace Parsek.Tests
         // ================================================================
 
         [Theory]
-        [InlineData(KerbalEndState.Recovered)]
+        [InlineData(KerbalEndState.Aboard)]
         [InlineData(KerbalEndState.Dead)]
-        [InlineData(KerbalEndState.MIA)]
-        [InlineData(KerbalEndState.Stranded)]
+        [InlineData(KerbalEndState.Recovered)]
+        [InlineData(KerbalEndState.Unknown)]
         public void KerbalEndState_AllValues_RoundTrip(KerbalEndState state)
         {
             var original = new GameAction
@@ -906,7 +906,7 @@ namespace Parsek.Tests
                 KerbalName = "Test Kerman",
                 KerbalRole = "Pilot",
                 StartUT = 17000.0f,
-                EndUT = state == KerbalEndState.Stranded ? float.NaN : 18000.0f,
+                EndUT = state == KerbalEndState.Unknown ? float.NaN : 18000.0f,
                 KerbalEndStateField = state,
                 XpGained = 0f
             };

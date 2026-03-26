@@ -79,17 +79,7 @@ namespace Parsek
         Other           = 4
     }
 
-    /// <summary>
-    /// End state for a kerbal at the end of a recording assignment.
-    /// Separate from the existing TerminalState enum which covers vessel terminal states.
-    /// </summary>
-    public enum KerbalEndState
-    {
-        Recovered = 0,
-        Dead      = 1,
-        MIA       = 2,
-        Stranded  = 3
-    }
+    // KerbalEndState enum is in KerbalEndState.cs (Aboard=0, Dead=1, Recovered=2, Unknown=3)
 
     /// <summary>
     /// Resource type identifier for strategy source/target fields.
