@@ -51,11 +51,6 @@ namespace Parsek
             ResetRateLimitsForTesting();
         }
 
-        public static void Log(string message)
-        {
-            Info("General", message);
-        }
-
         public static void Info(string subsystem, string message)
         {
             Write("INFO", subsystem, message);

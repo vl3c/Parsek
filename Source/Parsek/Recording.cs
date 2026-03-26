@@ -91,6 +91,11 @@ namespace Parsek
         // null = not extracted (legacy recording or no antennas).
         internal List<AntennaSpec> AntennaSpecs;
 
+        // Per-kerbal end states inferred from terminal state + vessel snapshot.
+        // null = not yet populated (legacy recording or no crew).
+        // Key = kerbal name, Value = inferred end state.
+        public Dictionary<string, KerbalEndState> CrewEndStates;
+
         // Background recording: surface position for landed/splashed vessels
         public SurfacePosition? SurfacePos;            // null if not a background landed vessel
 
@@ -212,6 +217,8 @@ namespace Parsek
                 ? new List<string>(source.RecordingGroups) : null;
             AntennaSpecs = source.AntennaSpecs != null
                 ? new List<AntennaSpec>(source.AntennaSpecs) : null;
+            CrewEndStates = source.CrewEndStates != null
+                ? new Dictionary<string, KerbalEndState>(source.CrewEndStates) : null;
 
             // Copy segment events and tracks if source has them
             if (source.SegmentEvents != null && source.SegmentEvents.Count > 0)

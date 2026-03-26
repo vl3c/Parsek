@@ -12,7 +12,6 @@
 [LOG 14:20:28.530] [Parsek][INFO][Flight] Boundary split: committing segment (id=rec001, phase=atmo, body=Kerbin, points=48, orbits=0)
 [LOG 14:20:28.540] [Parsek][INFO][Flight] Boundary split: started new chain (id=abc12345)
 [LOG 14:20:28.550] [Parsek][VERBOSE][Flight] Boundary split committed: chain=abc12345, nextIdx=1, segment=Kerbin atmo, totalRecordings=1
-[LOG 14:20:28.560] [Parsek][VERBOSE][Scenario] Saved metadata: id=rec001, phase=atmo, body=Kerbin, playback=True, chain=abc12345/0
 [LOG 14:20:28.600] [Parsek][INFO][Recorder] Recording started (physics-frame sampling)
 [LOG 14:20:28.610] [Parsek][VERBOSE][Recorder] Boundary detection initialized: body=Kerbin, inAtmo=False, hasAtmo=True, alt=72500m
 [LOG 14:20:28.620] [Parsek][INFO][Flight] Recording continues after atmosphere boundary (Kerbin exo, chain=abc12345)
@@ -22,16 +21,11 @@
 [LOG 14:20:50.220] [Parsek][INFO][Flight] SOI auto-split triggered: Kerbin (exo) → Mun (chain=abc12345, points=22)
 [LOG 14:20:50.230] [Parsek][INFO][Flight] Boundary split: committing segment (id=rec002, phase=exo, body=Kerbin, points=22, orbits=1)
 [LOG 14:20:50.240] [Parsek][VERBOSE][Flight] Boundary split committed: chain=abc12345, nextIdx=2, segment=Kerbin exo, totalRecordings=2
-[LOG 14:20:50.250] [Parsek][VERBOSE][Scenario] Saved metadata: id=rec002, phase=exo, body=Kerbin, playback=True, chain=abc12345/1
 [LOG 14:20:50.300] [Parsek][INFO][Recorder] Recording started (physics-frame sampling)
 [LOG 14:20:50.310] [Parsek][VERBOSE][Recorder] Boundary detection initialized: body=Mun, inAtmo=False, hasAtmo=False, alt=25000m
 [LOG 14:20:50.320] [Parsek][INFO][Flight] Recording continues after SOI change (Kerbin → Mun, chain=abc12345)
 [LOG 14:21:10.500] [Parsek][VERBOSE][Recorder] Sample skipped due to adaptive threshold | suppressed=5
 [LOG 14:21:30.700] [Parsek][INFO][Recorder] Recording stopped. 35 points, 1 orbit segments over 40.4s
-[LOG 14:21:30.710] [Parsek][VERBOSE][Scenario] Saved metadata: id=rec003, phase=space, body=Mun, playback=True, chain=abc12345/2
-[LOG 14:21:30.720] [Parsek][VERBOSE][Scenario] Loaded metadata: id=rec001, phase=atmo, body=Kerbin, playback=True, chain=abc12345/0
-[LOG 14:21:30.730] [Parsek][VERBOSE][Scenario] Loaded metadata: id=rec002, phase=exo, body=Kerbin, playback=True, chain=abc12345/1
-[LOG 14:21:30.740] [Parsek][VERBOSE][Scenario] Loaded metadata: id=rec003, phase=space, body=Mun, playback=True, chain=abc12345/2
 [LOG 14:21:30.750] [Parsek][VERBOSE][RecordingStore] Validating chains: 1 branch group(s)
 [LOG 14:21:30.760] [Parsek][VERBOSE][RecordingStore] All chains validated OK
 [LOG 14:21:50.100] [Parsek][VERBOSE][Flight] Ghost #0 destroyed — segment disabled (Mun Transfer, Kerbin atmo)

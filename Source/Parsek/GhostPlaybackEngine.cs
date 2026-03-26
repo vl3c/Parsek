@@ -51,6 +51,10 @@ namespace Parsek
         internal const int MaxOverlapGhostsPerRecording = 5;
         internal const double OverlapExplosionHoldSeconds = 3.0;
 
+        // Per-frame batch counters (avoid per-ghost log spam)
+        private int frameSpawnCount;
+        private int frameDestroyCount;
+
         // Deferred event lists (reused per frame to avoid GC allocation)
         private readonly List<PlaybackCompletedEvent> deferredCompletedEvents = new List<PlaybackCompletedEvent>();
         private readonly List<GhostLifecycleEvent> deferredCreatedEvents = new List<GhostLifecycleEvent>();
@@ -112,6 +116,8 @@ namespace Parsek
 
             deferredCompletedEvents.Clear();
             deferredCreatedEvents.Clear();
+            frameSpawnCount = 0;
+            frameDestroyCount = 0;
 
             for (int i = 0; i < trajectories.Count; i++)
             {
@@ -124,8 +130,7 @@ namespace Parsek
                     if (ghostStates.ContainsKey(i))
                     {
                         DestroyAllOverlapGhosts(i);
-                        DestroyGhost(i, traj, f);
-                        ParsekLog.Info("Engine", $"Ghost #{i} destroyed — recording skipped (disabled/suppressed)");
+                        DestroyGhost(i, traj, f, reason: "disabled/suppressed");
                     }
                     continue;
                 }
@@ -151,8 +156,7 @@ namespace Parsek
                     {
                         if (ghostActive)
                         {
-                            ParsekLog.Info("Engine", $"Loop ghost #{i} \"{traj.VesselName}\" — anchor vessel {traj.LoopAnchorVesselId} unloaded, destroying ghost");
-                            DestroyGhost(i, traj, f);
+                            DestroyGhost(i, traj, f, reason: $"anchor {traj.LoopAnchorVesselId} unloaded");
                             DestroyAllOverlapGhosts(i);
                         }
                         continue;
@@ -199,6 +203,11 @@ namespace Parsek
                     HandlePastEndGhost(i, traj, f, ctx, state, ghostActive, hasPoints);
             }
 
+            // Post-loop: batch summary
+            if (frameSpawnCount > 0 || frameDestroyCount > 0)
+                ParsekLog.VerboseRateLimited("Engine", "frame-summary",
+                    $"Frame: spawned={frameSpawnCount} destroyed={frameDestroyCount} active={ghostStates.Count}");
+
             // Post-loop: soft caps
             EvaluateSoftCaps(trajectories, ctx);
 
@@ -233,9 +242,7 @@ namespace Parsek
                 ghostActive = state != null && state.ghost != null;
                 if (ghostActive)
                 {
-                    if (loggedGhostEnter.Add(i))
-                        ParsekLog.VerboseRateLimited("Engine", $"enter-{i}",
-                            $"Ghost ENTERED range: #{i} \"{traj.VesselName}\" ({f.segmentLabel})");
+                    loggedGhostEnter.Add(i);
 
                     if (OnGhostCreated != null)
                     {
@@ -418,7 +425,7 @@ namespace Parsek
                                     $"SoftCap: despawning ghost #{capIdx} \"{vesselName}\"");
                                 IPlaybackTrajectory capTraj = capIdx >= 0 && capIdx < trajectories.Count
                                     ? trajectories[capIdx] : null;
-                                DestroyGhost(capIdx, capTraj);
+                                DestroyGhost(capIdx, capTraj, reason: "soft cap despawn");
                                 softCapSuppressed.Add(capIdx);
                                 break;
                             case GhostCapAction.SimplifyToOrbitLine:
@@ -528,7 +535,7 @@ namespace Parsek
                     out loopUT, out cycleIndex, out inPauseWindow, index))
             {
                 if (ghostActive)
-                    DestroyGhost(index, traj, flags);
+                    DestroyGhost(index, traj, flags, reason: "loop UT computation failed");
                 return;
             }
 
@@ -567,7 +574,7 @@ namespace Parsek
                 });
 
                 GhostPlaybackLogic.ResetReentryFx(state, index);
-                DestroyGhost(index, traj, flags);
+                DestroyGhost(index, traj, flags, reason: "loop cycle boundary");
                 ghostActive = false;
                 state = null;
             }
@@ -674,7 +681,7 @@ namespace Parsek
         {
             if (ctx.currentUT < traj.StartUT)
             {
-                if (primaryActive) DestroyGhost(index, traj, flags);
+                if (primaryActive) DestroyGhost(index, traj, flags, reason: "before start UT");
                 DestroyAllOverlapGhosts(index);
                 return;
             }
@@ -705,12 +712,12 @@ namespace Parsek
                 {
                     ghostStates.Remove(index);
                     overlaps.Add(primaryState);
-                    ParsekLog.Verbose("Engine",
+                    ParsekLog.VerboseRateLimited("Engine", "overlap-move",
                         $"Ghost #{index} cycle={primaryState.loopCycleIndex} moved to overlap list");
                 }
                 else if (primaryActive)
                 {
-                    DestroyGhost(index, traj, flags);
+                    DestroyGhost(index, traj, flags, reason: "cycle transition");
                 }
 
                 // Spawn new primary for lastCycle
@@ -789,7 +796,7 @@ namespace Parsek
                         ExplosionPosition = ovState.ghost != null ? ovState.ghost.transform.position : Vector3.zero
                     });
 
-                    ParsekLog.Info("Engine",
+                    ParsekLog.VerboseRateLimited("Engine", "overlap-expired",
                         $"Ghost EXITED range: #{index} \"{traj.VesselName}\" cycle={cycle} (overlap expired)");
                     DestroyOverlapGhostState(ovState);
                     overlaps.RemoveAt(i);
@@ -1221,8 +1228,7 @@ namespace Parsek
         /// </summary>
         internal void SpawnGhost(int index, IPlaybackTrajectory traj)
         {
-            ParsekLog.VerboseRateLimited("Engine", $"spawn-{index}",
-                $"SpawnGhost index={index} vessel={traj?.VesselName}");
+            frameSpawnCount++;
             completedEventFired.Remove(index); // Reset dedup for time-jump backward
 
             Color ghostColor = new Color(0.2f, 1f, 0.4f, 0.8f); // bright green-cyan
@@ -1243,16 +1249,6 @@ namespace Parsek
             if (ghost == null)
             {
                 ghost = GhostVisualBuilder.CreateGhostSphere($"Parsek_Timeline_{index}", ghostColor);
-                ParsekLog.VerboseRateLimited("Engine", $"build-{index}",
-                    $"Timeline ghost #{index}: using sphere fallback");
-            }
-            else
-            {
-                bool usedStartSnapshot = traj.GhostVisualSnapshot != null;
-                ParsekLog.VerboseRateLimited("Engine", $"build-{index}",
-                    usedStartSnapshot
-                    ? $"Timeline ghost #{index}: built from recording-start snapshot"
-                    : $"Timeline ghost #{index}: built from vessel snapshot");
             }
 
             var cameraPivotObj = new GameObject("cameraPivot");
@@ -1288,9 +1284,13 @@ namespace Parsek
 
             ghostStates[index] = state;
 
-            ParsekLog.VerboseRateLimited("Engine", $"spawned-{index}",
-                $"Ghost #{index} spawned: snapshot={builtFromSnapshot} parts={state.partTree?.Count ?? 0} " +
-                $"engines={state.engineInfos?.Count ?? 0} rcs={state.rcsInfos?.Count ?? 0}");
+            string buildType = builtFromSnapshot
+                ? (traj.GhostVisualSnapshot != null ? "recording-start snapshot" : "vessel snapshot")
+                : "sphere fallback";
+            ParsekLog.VerboseRateLimited("Engine", $"spawn-{index}",
+                $"Ghost #{index} \"{traj?.VesselName}\" spawned ({buildType}, " +
+                $"parts={state.partTree?.Count ?? 0} engines={state.engineInfos?.Count ?? 0} " +
+                $"rcs={state.rcsInfos?.Count ?? 0})", 1.0);
         }
 
         /// <summary>
@@ -1354,14 +1354,16 @@ namespace Parsek
         /// removes it from ghostStates and loopPhaseOffsets.
         /// </summary>
         internal void DestroyGhost(int index, IPlaybackTrajectory traj = null,
-            TrajectoryPlaybackFlags flags = default)
+            TrajectoryPlaybackFlags flags = default, string reason = null)
         {
-            ParsekLog.VerboseRateLimited("Engine", $"destroy-{index}",
-                $"DestroyGhost index={index}");
+            frameDestroyCount++;
 
             GhostPlaybackState state;
             if (!ghostStates.TryGetValue(index, out state))
                 return;
+
+            ParsekLog.VerboseRateLimited("Engine", $"destroy-{index}",
+                $"Ghost #{index} \"{traj?.VesselName}\" destroyed ({reason ?? "unknown"})", 1.0);
 
             // Fire before destroy so subscribers can read state
             OnGhostDestroyed?.Invoke(new GhostLifecycleEvent
@@ -1382,8 +1384,8 @@ namespace Parsek
         internal void DestroyOverlapGhostState(GhostPlaybackState state)
         {
             if (state == null) return;
-            ParsekLog.Verbose("Engine",
-                $"Destroying overlap ghost cycle={state.loopCycleIndex}");
+            ParsekLog.VerboseRateLimited("Engine", "destroy-overlap",
+                $"Destroying overlap ghost cycle={state.loopCycleIndex}", 2.0);
             DestroyGhostResources(state);
         }
 
@@ -1443,9 +1445,9 @@ namespace Parsek
                 ? state.reentryFxInfo.vesselLength
                 : GhostVisualBuilder.ComputeGhostLength(state.ghost);
 
-            ParsekLog.Info("Engine",
+            ParsekLog.VerboseRateLimited("ExplosionFx", $"trigger-{recIdx}",
                 $"Triggering explosion for ghost #{recIdx} \"{traj.VesselName}\" " +
-                $"at ({worldPos.x:F1},{worldPos.y:F1},{worldPos.z:F1}) vesselLength={vesselLength:F1}m");
+                $"at ({worldPos.x:F1},{worldPos.y:F1},{worldPos.z:F1}) vesselLength={vesselLength:F1}m", 10.0);
 
             var explosion = GhostVisualBuilder.SpawnExplosionFx(worldPos, vesselLength);
             if (explosion != null)
@@ -1462,12 +1464,13 @@ namespace Parsek
                     }
                 }
 
-                ParsekLog.Verbose("Engine",
+                ParsekLog.VerboseRateLimited("ExplosionFx", "explosion-created",
                     $"Explosion GO created for ghost #{recIdx}, activeExplosions.Count={activeExplosions.Count}");
             }
 
             GhostPlaybackLogic.HideAllGhostParts(state);
-            ParsekLog.Verbose("Engine", $"Ghost #{recIdx} parts hidden after explosion");
+            ParsekLog.VerboseRateLimited("Engine", "parts-hidden-explosion",
+                $"Ghost #{recIdx} parts hidden after explosion");
         }
 
         /// <summary>

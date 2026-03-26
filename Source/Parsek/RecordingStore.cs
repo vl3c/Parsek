@@ -1893,8 +1893,6 @@ namespace Parsek
             for (int s = 0; s < segNodes.Length; s++)
                 rec.OrbitSegments.Add(DeserializeOrbitSegment(segNodes[s], ns, ic));
 
-            if (!SuppressLogging)
-                ParsekLog.Verbose("Store", $"Deserialized {rec.OrbitSegments.Count} orbit segments");
         }
 
         /// <summary>
@@ -1970,8 +1968,6 @@ namespace Parsek
                 rec.FlagEvents.Add(evt);
             }
 
-            if (feNodes.Length > 0)
-                Log($"[Recording] Deserialized {feNodes.Length} flag event(s) for recording {rec.RecordingId}");
         }
 
         /// <summary>
@@ -1995,7 +1991,6 @@ namespace Parsek
                     evtNode.AddValue("details", evt.details);
             }
 
-            Log($"[Recording] SerializeSegmentEvents: {events.Count} segment events serialized");
         }
 
         /// <summary>
@@ -2048,7 +2043,8 @@ namespace Parsek
                 events.Add(evt);
             }
 
-            Log($"[Recording] DeserializeSegmentEvents: {events.Count} deserialized, {skipped} skipped (of {seNodes.Length} total)");
+            if (skipped > 0)
+                ParsekLog.Warn("RecordingStore", $"DeserializeSegmentEvents: {skipped}/{seNodes.Length} events skipped");
         }
 
         /// <summary>
@@ -2060,7 +2056,6 @@ namespace Parsek
         {
             if (tracks == null || tracks.Count == 0)
             {
-                ParsekLog.Verbose("RecordingStore", "SerializeTrackSections: 0 track sections to serialize");
                 return;
             }
 
@@ -2113,15 +2108,7 @@ namespace Parsek
                     }
                 }
 
-                int frameCount = track.frames?.Count ?? 0;
-                int checkpointCount = track.checkpoints?.Count ?? 0;
-                ParsekLog.Verbose("RecordingStore",
-                    $"SerializeTrackSections: [{t}] env={track.environment} ref={track.referenceFrame} " +
-                    $"frames={frameCount} checkpoints={checkpointCount}");
             }
-
-            ParsekLog.Verbose("RecordingStore",
-                $"SerializeTrackSections: serialized {tracks.Count} track section(s)");
         }
 
         /// <summary>
@@ -2137,7 +2124,6 @@ namespace Parsek
             ConfigNode[] tsNodes = parent.GetNodes("TRACK_SECTION");
             if (tsNodes.Length == 0)
             {
-                ParsekLog.Verbose("RecordingStore", "DeserializeTrackSections: no TRACK_SECTION nodes found");
                 return;
             }
 
@@ -2238,16 +2224,80 @@ namespace Parsek
                     section.checkpoints = new List<OrbitSegment>();
 
                 tracks.Add(section);
+            }
+        }
 
-                int frameCount = section.frames.Count;
-                int checkpointCount = section.checkpoints.Count;
-                ParsekLog.Verbose("RecordingStore",
-                    $"DeserializeTrackSections: [{t}] env={section.environment} ref={section.referenceFrame} " +
-                    $"frames={frameCount} checkpoints={checkpointCount}");
+        #endregion
+
+        #region Crew End States Serialization
+
+        /// <summary>
+        /// Serializes CrewEndStates dictionary into CREW_END_STATES ConfigNode children
+        /// on the given parent node. Each entry becomes an ENTRY subnode with "name" and "state" keys.
+        /// No-op if CrewEndStates is null or empty.
+        /// </summary>
+        internal static void SerializeCrewEndStates(ConfigNode parent, Recording rec)
+        {
+            if (rec.CrewEndStates == null || rec.CrewEndStates.Count == 0)
+                return;
+
+            ConfigNode cesNode = parent.AddNode("CREW_END_STATES");
+            int count = 0;
+            foreach (var kvp in rec.CrewEndStates)
+            {
+                ConfigNode entry = cesNode.AddNode("ENTRY");
+                entry.AddValue("name", kvp.Key ?? "");
+                entry.AddValue("state", ((int)kvp.Value).ToString(CultureInfo.InvariantCulture));
+                count++;
+            }
+            ParsekLog.Verbose("RecordingStore",
+                $"SerializeCrewEndStates: wrote {count} entries for recording={rec.RecordingId}");
+        }
+
+        /// <summary>
+        /// Deserializes CrewEndStates from a CREW_END_STATES ConfigNode on the given parent.
+        /// Sets rec.CrewEndStates to a new dictionary if entries are found, or leaves it null
+        /// if the node is absent (backward compatible with legacy recordings).
+        /// </summary>
+        internal static void DeserializeCrewEndStates(ConfigNode parent, Recording rec)
+        {
+            ConfigNode cesNode = parent.GetNode("CREW_END_STATES");
+            if (cesNode == null)
+                return;
+
+            ConfigNode[] entries = cesNode.GetNodes("ENTRY");
+            if (entries.Length == 0)
+                return;
+
+            rec.CrewEndStates = new Dictionary<string, KerbalEndState>();
+            int loaded = 0;
+            int skipped = 0;
+
+            for (int i = 0; i < entries.Length; i++)
+            {
+                string name = entries[i].GetValue("name");
+                string stateStr = entries[i].GetValue("state");
+
+                if (string.IsNullOrEmpty(name))
+                {
+                    skipped++;
+                    continue;
+                }
+
+                int stateInt;
+                if (!int.TryParse(stateStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out stateInt)
+                    || !Enum.IsDefined(typeof(KerbalEndState), stateInt))
+                {
+                    skipped++;
+                    continue;
+                }
+
+                rec.CrewEndStates[name] = (KerbalEndState)stateInt;
+                loaded++;
             }
 
             ParsekLog.Verbose("RecordingStore",
-                $"DeserializeTrackSections: deserialized {tracks.Count} track section(s) from {tsNodes.Length} node(s)");
+                $"DeserializeCrewEndStates: loaded={loaded} skipped={skipped} for recording={rec.RecordingId}");
         }
 
         #endregion
@@ -2327,11 +2377,6 @@ namespace Parsek
                     else if (!File.Exists(ghostPath))
                         SafeWriteConfigNode(rec.GhostVisualSnapshot, ghostPath);
                 }
-
-                ParsekLog.Verbose("RecordingStore",
-                    $"Saved recording files for {rec.RecordingId}: points={rec.Points.Count}, " +
-                    $"orbitSegments={rec.OrbitSegments.Count}, partEvents={rec.PartEvents.Count}, " +
-                    $"hasVesselSnapshot={rec.VesselSnapshot != null}, hasGhostSnapshot={rec.GhostVisualSnapshot != null}");
 
                 return true;
             }
@@ -2413,11 +2458,6 @@ namespace Parsek
                 // Backward compat: if no ghost snapshot, fall back to vessel snapshot
                 if (rec.GhostVisualSnapshot == null && rec.VesselSnapshot != null)
                     rec.GhostVisualSnapshot = rec.VesselSnapshot.CreateCopy();
-
-                ParsekLog.Verbose("RecordingStore",
-                    $"Loaded recording files for {rec.RecordingId}: points={rec.Points.Count}, " +
-                    $"orbitSegments={rec.OrbitSegments.Count}, partEvents={rec.PartEvents.Count}, " +
-                    $"hasVesselSnapshot={rec.VesselSnapshot != null}, hasGhostSnapshot={rec.GhostVisualSnapshot != null}");
 
                 return true;
             }

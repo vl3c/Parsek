@@ -107,11 +107,7 @@ namespace Parsek
         internal static void ReserveCrewIn(ConfigNode snapshot, bool alreadySpawned, KerbalRoster roster)
         {
             if (snapshot == null || alreadySpawned)
-            {
-                if (snapshot == null)
-                    ParsekLog.Verbose("CrewReservation", "ReserveCrewIn: null snapshot — skipping");
                 return;
-            }
 
             foreach (ConfigNode partNode in snapshot.GetNodes("PART"))
             {

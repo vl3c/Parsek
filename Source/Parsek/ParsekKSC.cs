@@ -133,7 +133,7 @@ namespace Parsek
                     if (kvp.Value.ghost != null && kvp.Value.ghost.activeSelf)
                     {
                         kvp.Value.ghost.SetActive(false);
-                        ParsekLog.Info("KSCGhost",
+                        ParsekLog.Verbose("KSCGhost",
                             $"Ghost #{kvp.Key} hidden: warp {warpRate.ToString("F1", CultureInfo.InvariantCulture)}x > {GhostPlaybackLogic.GhostHideWarpThreshold}x");
                     }
                 foreach (int key in new List<int>(kscOverlapGhosts.Keys))
@@ -150,7 +150,7 @@ namespace Parsek
                     // — clean up any active ghosts so they don't linger in the scene.
                     if (kscGhosts.ContainsKey(i))
                     {
-                        ParsekLog.Info("KSCGhost",
+                        ParsekLog.Verbose("KSCGhost",
                             $"Ghost #{i} \"{rec.VesselName}\" no longer eligible — destroying");
                         DestroyKscGhost(kscGhosts[i], i);
                         kscGhosts.Remove(i);
@@ -229,7 +229,7 @@ namespace Parsek
                     state.loopCycleIndex = cycleIndex;
                     kscGhosts[recIdx] = state;
                     if (loggedGhostSpawn.Add(recIdx))
-                        ParsekLog.Info("KSCGhost",
+                        ParsekLog.Verbose("KSCGhost",
                             $"Ghost #{recIdx} \"{rec.VesselName}\" entered range: " +
                             $"targetUT={targetUT:F1} recUT=[{rec.StartUT:F1},{rec.EndUT:F1}] " +
                             $"cycle={cycleIndex} loop={rec.LoopPlayback} " +
@@ -239,7 +239,7 @@ namespace Parsek
                 {
                     state.ghost.SetActive(true);
                     if (loggedReshow.Add(recIdx))
-                        ParsekLog.Info("KSCGhost",
+                        ParsekLog.Verbose("KSCGhost",
                             $"Ghost #{recIdx} \"{rec.VesselName}\" re-shown after warp-down");
                 }
 
@@ -346,7 +346,7 @@ namespace Parsek
                 if (primaryState == null) return;
                 primaryState.loopCycleIndex = lastCycle;
                 kscGhosts[recIdx] = primaryState;
-                ParsekLog.Info("KSCGhost",
+                ParsekLog.Verbose("KSCGhost",
                     $"Ghost #{recIdx} \"{rec.VesselName}\" overlap spawn cycle={lastCycle}");
             }
 
@@ -494,7 +494,7 @@ namespace Parsek
             // Initialize flag event index — flags are spawned as real vessels on-demand by ApplyFlagEvents
             GhostPlaybackLogic.InitializeFlagVisibility(rec, state);
 
-            ParsekLog.Info("KSCGhost",
+            ParsekLog.Verbose("KSCGhost",
                 $"Ghost #{index} \"{rec.VesselName}\" spawned" +
                 $" (engines={buildResult.engineInfos?.Count ?? 0}" +
                 $" rcs={buildResult.rcsInfos?.Count ?? 0}" +
@@ -753,7 +753,8 @@ namespace Parsek
             if (state.ghost != null)
                 Destroy(state.ghost);
 
-            ParsekLog.Verbose("KSCGhost", $"Ghost #{index} destroyed");
+            ParsekLog.VerboseRateLimited("KSCGhost", "ghost-destroyed",
+                $"Ghost #{index} destroyed", 2.0);
         }
 
         #endregion
@@ -761,14 +762,21 @@ namespace Parsek
         void OnDestroy()
         {
             // Clean up all KSC ghosts (primary + overlap)
+            int primaryCount = kscGhosts.Count;
             foreach (var kv in kscGhosts)
                 DestroyKscGhost(kv.Value, kv.Key);
             kscGhosts.Clear();
 
+            int overlapCount = 0;
             foreach (var kv in kscOverlapGhosts)
+            {
+                overlapCount += kv.Value.Count;
                 for (int i = 0; i < kv.Value.Count; i++)
                     DestroyKscGhost(kv.Value[i], kv.Key);
+            }
             kscOverlapGhosts.Clear();
+            if (primaryCount + overlapCount > 0)
+                ParsekLog.Info("KSCGhost", $"Destroyed {primaryCount} primary + {overlapCount} overlap KSC ghosts");
             loggedGhostSpawn.Clear();
             loggedReshow.Clear();
 

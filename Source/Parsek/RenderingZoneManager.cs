@@ -70,7 +70,7 @@ namespace Parsek
         internal static void LogZoneTransition(string ghostId, RenderingZone oldZone, RenderingZone newZone, double distanceMeters)
         {
             string distStr = distanceMeters.ToString("F0", CultureInfo.InvariantCulture);
-            ParsekLog.Info("Zone",
+            ParsekLog.VerboseRateLimited("Zone", "zone-transition",
                 $"Zone transition: ghost={ghostId} {oldZone}->{newZone} dist={distStr}m");
         }
 
