@@ -1566,13 +1566,11 @@ On the second rewind in session 7, `UnreserveCrewIn` logs `Replacement 'Hadfry K
 
 When a vessel is sitting on the launch pad and the player rewinds to an earlier point, the pad vessel still appears as a real (non-ghost) vessel in the rewound save. It should be stripped from the flight state during rewind since it belongs to the future timeline — the player hasn't launched it yet at the rewound UT.
 
-Root cause likely in `StripOrphanedSpawnedVessels` or `PreProcessRewindSave` — the pad vessel may not match the vessel name/PID filters because it was placed by KSP's launch system (not spawned by Parsek), or its PRELAUNCH situation may be explicitly excluded from stripping.
+**Root cause:** `StripOrphanedSpawnedVessels` filters by name first. Unrecorded PRELAUNCH vessels fail the name check and survive because they were placed by KSP's launch system, not spawned by Parsek.
 
-**Fix:** Check the rewind vessel-strip logic for PRELAUNCH vessels. A vessel on the pad in the future should be treated the same as any other future vessel — stripped on rewind. May need to match by launch UT or vessel situation rather than relying on Parsek spawn tracking.
+**Fix:** Added `StripFuturePrelaunchVessels` in `ParsekScenario` — a second-pass strip that runs after the name-based strip in `HandleRewindOnLoad`. `PreProcessRewindSave` now captures PIDs of all surviving vessels in the quicksave into `RecordingStore.RewindQuicksaveVesselPids`. The second pass strips PRELAUNCH vessels whose PID is not in this whitelist — they must be from a future launch. Whitelisted PRELAUNCH vessels (the player's pad vessel at rewind time) are preserved.
 
-**Priority:** Medium — visible bug that breaks the timeline illusion
-
-**Status:** Open
+**Status:** Fixed
 
 ## 130. GhostDestroyed event has empty vessel name for loop-restarted ghosts
 
@@ -1658,11 +1656,11 @@ After rewind, `OnFlightReady` removes reserved EVA vessels (Bob Kerman pid=23735
 
 Log evidence: `CrewStatusChanged 'Bob Kerman' Assigned → Missing` at UT 115.6, and `CrewStatusChanged 'Halemy Kerman' Assigned → Missing` at UT 115.6. Similar to #116 (Valentina lost to Missing) but triggered by EVA vessel removal rather than vessel strip.
 
-**Fix:** Run crew status rescue after `OnFlightReady` EVA vessel removal, not just during OnLoad. Or: prevent EVA vessels for reserved crew from existing in the save in the first place.
+**Root cause:** `RemoveReservedEvaVessels` calls `vessel.Unload()` which orphans crew — KSP sets their status to Missing. No rescue runs after.
 
-**Priority:** Medium — crew becomes unavailable until next load
+**Fix:** Added `RescueReservedCrewAfterEvaRemoval` in `CrewReservationManager` — called at the end of `RemoveReservedEvaVessels` when `evaRemoved > 0`. Scans the roster for crew matching `ShouldRescueFromMissing` (Missing status AND in the replacements dict) and sets them to `Assigned` (not Available — they're still reserved for spawn). Wrapped in `GameStateRecorder.SuppressCrewEvents` to prevent the status change from being recorded as a game state event. Pure decision method `ShouldRescueFromMissing` extracted for testability.
 
-**Status:** Open
+**Status:** Fixed
 
 # In-Game Tests
 
