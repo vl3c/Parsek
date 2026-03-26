@@ -311,6 +311,13 @@ namespace Parsek
         /// </summary>
         [NonSerialized] public bool Affordable;
 
+        /// <summary>
+        /// Actual reputation change after applying the gain/loss curve against running rep.
+        /// Set by ReputationModule during recalculation walk. Positive for gains, negative for losses.
+        /// Always derived, never stored.
+        /// </summary>
+        [NonSerialized] public float EffectiveRep;
+
         // ================================================================
         // Serialization
         // ================================================================
