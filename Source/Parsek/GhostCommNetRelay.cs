@@ -224,6 +224,13 @@ namespace Parsek
                 return false;
             }
 
+            if (activeGhostNodes.ContainsKey(vesselPid))
+            {
+                var oldNode = activeGhostNodes[vesselPid];
+                CommNetNetwork.Instance?.CommNet?.Remove(oldNode);
+                ParsekLog.Warn(Tag, $"Removed orphaned CommNode for pid={vesselPid} before re-registration");
+            }
+
             var node = new CommNode();
             node.name = "Parsek Ghost: " + vesselName;
             node.isHome = false;
