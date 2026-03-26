@@ -201,7 +201,15 @@ namespace Parsek
             ApplyEpochShifts(capturedStates, targetUT);
 
             // Step 4: Process crossed chain tips — spawn real vessels
-            int spawnCount = SpawnCrossedChainTips(chains, ghoster, t0, targetUT);
+            var spawnedPids = SpawnCrossedChainTips(chains, ghoster, t0, targetUT);
+
+            // Remove spawned chains from caller's dict (#79 — SpawnCrossedChainTips
+            // no longer mutates the dict directly)
+            if (chains != null)
+            {
+                for (int i = 0; i < spawnedPids.Count; i++)
+                    chains.Remove(spawnedPids[i]);
+            }
 
             // Step 5: Game actions recalculation
             // The game actions system is a future dependency. If not available, skip with warning.
@@ -213,7 +221,7 @@ namespace Parsek
             ParsekLog.Info(Tag,
                 string.Format(ic,
                     "Time jump complete: {0} vessels spawned, {1} ghosts remaining",
-                    spawnCount, remainingGhosts));
+                    spawnedPids.Count, remainingGhosts));
         }
 
         /// <summary>
@@ -418,15 +426,17 @@ namespace Parsek
 
         /// <summary>
         /// Spawns real vessels for all chain tips crossed during a time jump.
-        /// Returns the number of successfully spawned vessels.
+        /// Returns the list of spawned vessel PIDs (caller is responsible for
+        /// removing them from the chains dictionary). Does NOT mutate the input
+        /// chains dict (#79).
         /// </summary>
-        private static int SpawnCrossedChainTips(
+        internal static List<uint> SpawnCrossedChainTips(
             Dictionary<uint, GhostChain> chains,
             VesselGhoster ghoster,
             double t0, double targetUT)
         {
             var crossed = FindCrossedChainTips(chains, t0, targetUT);
-            int spawnCount = 0;
+            var spawnedPids = new List<uint>();
 
             foreach (GhostChain chain in crossed)
             {
@@ -444,8 +454,7 @@ namespace Parsek
                     uint spawnedPid = ghoster.SpawnAtChainTip(chain);
                     if (spawnedPid != 0)
                     {
-                        spawnCount++;
-                        chains.Remove(chain.OriginalVesselPid);
+                        spawnedPids.Add(chain.OriginalVesselPid);
                         ParsekLog.Info(Tag,
                             string.Format(ic,
                                 "Chain tip spawned during jump: vessel={0} spawnedPid={1}",
@@ -468,7 +477,7 @@ namespace Parsek
                 }
             }
 
-            return spawnCount;
+            return spawnedPids;
         }
 
         /// <summary>
