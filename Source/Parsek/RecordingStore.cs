@@ -2229,6 +2229,79 @@ namespace Parsek
 
         #endregion
 
+        #region Crew End States Serialization
+
+        /// <summary>
+        /// Serializes CrewEndStates dictionary into CREW_END_STATES ConfigNode children
+        /// on the given parent node. Each entry becomes an ENTRY subnode with "name" and "state" keys.
+        /// No-op if CrewEndStates is null or empty.
+        /// </summary>
+        internal static void SerializeCrewEndStates(ConfigNode parent, Recording rec)
+        {
+            if (rec.CrewEndStates == null || rec.CrewEndStates.Count == 0)
+                return;
+
+            ConfigNode cesNode = parent.AddNode("CREW_END_STATES");
+            int count = 0;
+            foreach (var kvp in rec.CrewEndStates)
+            {
+                ConfigNode entry = cesNode.AddNode("ENTRY");
+                entry.AddValue("name", kvp.Key ?? "");
+                entry.AddValue("state", ((int)kvp.Value).ToString(CultureInfo.InvariantCulture));
+                count++;
+            }
+            ParsekLog.Verbose("RecordingStore",
+                $"SerializeCrewEndStates: wrote {count} entries for recording={rec.RecordingId}");
+        }
+
+        /// <summary>
+        /// Deserializes CrewEndStates from a CREW_END_STATES ConfigNode on the given parent.
+        /// Sets rec.CrewEndStates to a new dictionary if entries are found, or leaves it null
+        /// if the node is absent (backward compatible with legacy recordings).
+        /// </summary>
+        internal static void DeserializeCrewEndStates(ConfigNode parent, Recording rec)
+        {
+            ConfigNode cesNode = parent.GetNode("CREW_END_STATES");
+            if (cesNode == null)
+                return;
+
+            ConfigNode[] entries = cesNode.GetNodes("ENTRY");
+            if (entries.Length == 0)
+                return;
+
+            rec.CrewEndStates = new Dictionary<string, KerbalEndState>();
+            int loaded = 0;
+            int skipped = 0;
+
+            for (int i = 0; i < entries.Length; i++)
+            {
+                string name = entries[i].GetValue("name");
+                string stateStr = entries[i].GetValue("state");
+
+                if (string.IsNullOrEmpty(name))
+                {
+                    skipped++;
+                    continue;
+                }
+
+                int stateInt;
+                if (!int.TryParse(stateStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out stateInt)
+                    || !Enum.IsDefined(typeof(KerbalEndState), stateInt))
+                {
+                    skipped++;
+                    continue;
+                }
+
+                rec.CrewEndStates[name] = (KerbalEndState)stateInt;
+                loaded++;
+            }
+
+            ParsekLog.Verbose("RecordingStore",
+                $"DeserializeCrewEndStates: loaded={loaded} skipped={skipped} for recording={rec.RecordingId}");
+        }
+
+        #endregion
+
         #region Recording File I/O
 
         internal static bool SaveRecordingFiles(Recording rec)

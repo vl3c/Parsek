@@ -1152,6 +1152,9 @@ namespace Parsek
                     ScenarioLog($"[Parsek Scenario] Loaded {rec.AntennaSpecs.Count} antenna spec(s) for '{rec.VesselName}'");
                 }
 
+                // Restore crew end states (kerbals module)
+                RecordingStore.DeserializeCrewEndStates(recNode, rec);
+
                 // Restore resource application index
                 string resIdxStr = recNode.GetValue("lastResIdx");
                 if (resIdxStr != null)
@@ -1384,6 +1387,9 @@ namespace Parsek
                             specNode.AddValue("type", spec.antennaType);
                     }
                 }
+
+                // Persist crew end states (kerbals module)
+                RecordingStore.SerializeCrewEndStates(recNode, rec);
 
                 // Persist resource index so quickload doesn't re-apply deltas
                 recNode.AddValue("lastResIdx", rec.LastAppliedResourceIndex);
