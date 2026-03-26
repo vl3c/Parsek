@@ -19,6 +19,13 @@ All notable changes to Parsek are documented here.
 - **Fix #73: Filter vessel types in CheckWarningProximity.** Extracted `ShouldSkipVesselType` helper (Debris/EVA/Flag/SpaceObject) shared between `CheckOverlapAgainstLoadedVessels` and `CheckWarningProximity`.
 - **Fix #129: Strip future PRELAUNCH vessels on rewind.** Unrecorded pad vessels from the future persisted after rewind because `StripOrphanedSpawnedVessels` only matched recorded names. Added PID-based quicksave whitelist: `PreProcessRewindSave` captures surviving vessel PIDs, `HandleRewindOnLoad` strips any PRELAUNCH vessel not in the whitelist.
 - **Fix #137: Rescue reserved crew from Missing after EVA vessel removal.** `vessel.Unload()` in `RemoveReservedEvaVessels` orphaned crew → KSP set them Missing. Added `RescueReservedCrewAfterEvaRemoval` to restore Missing→Assigned for crew in `crewReplacements` dict.
+- **Fix #64: Clear pending tree/recording on revert.** Merge dialog shown twice when reverting during tree destruction. `pendingTree` (static) persisted across scene transitions without cleanup. Now discarded in the OnLoad revert path.
+- **Fix #71: Remove old CommNode before re-registration.** `RegisterNode` now removes existing node from CommNet before adding new one, preventing orphaned nodes.
+- **Fix #79: SpawnCrossedChainTips no longer mutates caller's dict.** Returns spawned PIDs list; caller removes after call.
+- **Fix #84: int→long for cycleIndex.** Prevents integer overflow in loop phase calculations for very long sessions. Updated across 10 files (state, events, logic, engine, KSC, flight).
+- **Fix #101: BackgroundRecorder.SubscribePartEvents now called.** Part events (onPartDie, onPartJointBreak) are now subscribed for background vessels at both tree creation sites.
+- **Fix #102: CreateSplitBranch copies FlagEvents and SegmentEvents.** Previously omitted, causing flag/segment data loss on tree split.
+- **Fix #130: Cache vesselName on GhostPlaybackState.** Destroy events now show vessel name even when trajectory reference is null (loop restart).
 
 ### Previously Fixed (Confirmed)
 

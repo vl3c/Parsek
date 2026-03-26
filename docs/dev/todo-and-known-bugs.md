@@ -932,7 +932,7 @@ Tagged as Phase 6f-1 in code. Requires in-game API investigation.
 
 **Status:** Open — low priority (test infrastructure)
 
-## 64. Merge dialog shown twice on revert during tree destruction
+## ~~64. Merge dialog shown twice on revert during tree destruction~~
 
 When a vessel is destroyed during tree recording, `ShowPostDestructionTreeMergeDialog` fires and shows the merge dialog. If the user reverts to launch while the dialog is open, the scene teardown destroys the dialog but the pending tree survives in `RecordingStore.pendingTree` (static, persists across scenes). On the new flight scene, `OnFlightReady` detects the orphaned pending tree and shows the dialog again via the fallback path (`Pending tree reached OnFlightReady — showing tree merge dialog (fallback)`).
 
@@ -940,7 +940,9 @@ The revert detection (`isRevert=False`) does not recognize this as a revert, so 
 
 **Repro:** Record a flight in tree mode → destroy vessel → merge dialog appears → click "Revert to Launch" → dialog appears a second time.
 
-**Status:** Open
+**Fix:** Added `DiscardPendingTree` / `DiscardPending` guards in the `isRevert` block of `ParsekScenario.OnLoad`, clearing orphaned pending state before `OnFlightReady` can trigger the fallback dialog.
+
+**Status:** Fixed
 
 ## 65. Ghost shroud visible at playback start when already jettisoned at recording start
 
@@ -1006,11 +1008,13 @@ Related to the general "initial part state" problem — the ghost builder needs 
 
 **Status:** Fixed — `PartStateSeeder.EmitSeedEvents` now emits synthetic `DeployableExtended` events at `startUT` for all pre-extended deployables. Covers all 16 tracking set types including gear, lights, engines, RCS, thermal animations, and more.
 
-## 71. GhostCommNetRelay.RegisterNode orphans CommNet nodes on double registration
+## ~~71. GhostCommNetRelay.RegisterNode orphans CommNet nodes on double registration~~
 
 `RegisterNode` at line 237 does `activeGhostNodes[vesselPid] = node` which overwrites any existing entry without removing the old `CommNode` from `CommNetNetwork.Instance.CommNet` first. If called twice for the same PID (e.g., ghost destroyed and recreated), the first node becomes permanently orphaned in the CommNet graph. Fix: check for existing node and `CommNet.Remove()` before registering.
 
-**Status:** Open
+**Fix:** Added guard before `CommNet.Add(node)` that checks `activeGhostNodes` for existing entry and removes the old node from CommNet first, with a warning log.
+
+**Status:** Fixed
 
 ## 72. GhostCommNetRelay antenna combination formula wrong for non-combinable strongest
 
@@ -1054,11 +1058,13 @@ Lines 37, 42-44 in `TerrainCorrector.cs` use `$"{corrected:F1}"` string interpol
 
 **Status:** Open — unlikely to occur for debris
 
-## 79. TimeJumpManager.ExecuteJump mutates caller's chains dictionary
+## ~~79. TimeJumpManager.ExecuteJump mutates caller's chains dictionary~~
 
 Line 278: `chains.Remove(chain.OriginalVesselPid)` is a side effect on the caller's dictionary, not documented in the method signature. Could cause subtle issues if the caller iterates `chains` after calling `ExecuteJump`. The caller should decide which chains to remove.
 
-**Status:** Open — design smell
+**Fix:** `SpawnCrossedChainTips` now returns a `List<uint>` of spawned PIDs without mutating the input dict. The caller (`ExecuteJump`) removes them after the call.
+
+**Status:** Fixed
 
 ## 80. TimeJumpManager.ExecuteJump has no guard against active time warp
 
@@ -1084,11 +1090,13 @@ After CommNet reinitialization, the existing `CommNode` objects in `activeGhostN
 
 **Status:** Open — needs in-game verification
 
-## 84. GhostPlaybackLogic.ComputeLoopPhaseFromUT integer overflow risk
+## ~~84. GhostPlaybackLogic.ComputeLoopPhaseFromUT integer overflow risk~~
 
 Line 289: `int cycleIndex = (int)(elapsed / cycleDuration)` — for very long-running loops with short cycle durations, the double value can exceed `Int32.MaxValue`. The cast produces undefined behavior in C# (typically `Int32.MinValue` or garbage). A 0.1s recording looping for 250+ in-game days would overflow.
 
-**Status:** Open — extreme edge case
+**Fix:** Changed `cycleIndex` from `int` to `long` across all loop phase calculation sites: `ComputeLoopPhaseFromUT`, `GetActiveCycles`, `TryComputeLoopPlaybackUT` (static and instance), `GhostPlaybackState.loopCycleIndex`, event types (`LoopRestartedEvent`, `OverlapExpiredEvent`, `CameraActionEvent`), `GhostSoftCapManager.ClassifyPriority`, `ParsekKSC.TryComputeLoopUT`/`UpdateSingleGhostKsc`, and `ParsekFlight.watchedOverlapCycleIndex`.
+
+**Status:** Fixed
 
 ## 85. Fairing nosecone cap missing on ghost
 
@@ -1231,17 +1239,21 @@ The Recordings Manager has three columns that all describe where a recording sit
 
 **Status:** Open
 
-## 101. BackgroundRecorder.SubscribePartEvents never called
+## ~~101. BackgroundRecorder.SubscribePartEvents never called~~
 
 `BackgroundRecorder.SubscribePartEvents()` (line ~180) subscribes to `GameEvents.onPartDie` and `onPartJointBreak` for background vessels, but is never called from any tree creation path (`CreateSplitBranch`, `PromoteToTreeForBreakup`). Background vessel part destruction events are not captured. Trajectory sampling works (via `PhysicsFramePatch`), so the impact is cosmetic — part events on background debris/vessels won't appear in their recordings.
 
-**Status:** Open — low priority (background debris have 30s TTL, cosmetic-only impact)
+**Fix:** Added `backgroundRecorder.SubscribePartEvents()` call after `BackgroundRecorder` construction in both `CreateSplitBranch` and `PromoteToTreeForBreakup`.
 
-## 102. CreateSplitBranch omits FlagEvents and SegmentEvents in root recording
+**Status:** Fixed
+
+## ~~102. CreateSplitBranch omits FlagEvents and SegmentEvents in root recording~~
 
 `CreateSplitBranch` (ParsekFlight.cs ~line 1515-1518) copies Points, OrbitSegments, PartEvents, and TrackSections from `CaptureAtStop` into the root recording but omits `FlagEvents` and `SegmentEvents`. If flags were planted or segment events occurred before the first tree split, they are lost from the root recording. The newer `PromoteToTreeForBreakup` method copies all six data lists.
 
-**Status:** Open — low priority (flag planting before first EVA split is rare)
+**Fix:** Added `FlagEvents` and `SegmentEvents` copy lines alongside the existing `PartEvents` copy in `CreateSplitBranch`.
+
+**Status:** Fixed
 
 ## 103. Group headers show raw #autoLOC keys instead of resolved vessel names
 
@@ -1572,15 +1584,15 @@ When a vessel is sitting on the launch pad and the player rewinds to an earlier 
 
 **Status:** Fixed
 
-## 130. GhostDestroyed event has empty vessel name for loop-restarted ghosts
+## ~~130. GhostDestroyed event has empty vessel name for loop-restarted ghosts~~
 
 When a looping ghost cycle restarts, the engine fires `OnGhostDestroyed` for the old cycle. The event's `Trajectory` field is null/empty because `DestroyGhost` is called after the ghost state is already being torn down. The log shows `GhostDestroyed index=8 vessel=` (empty name).
 
 Root cause: `DestroyGhost` fires the event but the trajectory reference passed by the caller (loop playback) may be null when the ghost is destroyed during cycle rebuild. The trajectory reference should be captured before destruction.
 
-**Priority:** Low — cosmetic logging only, no functional impact
+**Fix:** Added `vesselName` field to `GhostPlaybackState`, set at `SpawnGhost` time from `traj.VesselName`. `DestroyGhost` and `HandleGhostDestroyed` now use `state.vesselName` as primary name source with fallback chain: `state?.vesselName ?? traj?.VesselName ?? "Unknown"`.
 
-**Status:** Open
+**Status:** Fixed
 
 ## 131. Explosion GO count can reach ~90 for overlapping reentry loops
 
