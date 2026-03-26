@@ -673,5 +673,38 @@ Consolidating all edge cases from scenarios above:
 
 ### Interaction with Other Systems
 27. **CommNet:** Ghost ProtoVessel might register its own CommNet node (from the single probe core part). Conflicts with `GhostCommNetRelay` which already manages ghost CommNet nodes. Solution: use a part without ModuleDataTransmitter, or disable CommNet on ghost ProtoVessel.
-28. **Contracts:** Some contracts target vessel types or count vessels. Ghost ProtoVessels shouldn't be countable for contracts. VesselType or naming convention to exclude them.
+28. **Contracts:** Some contracts target vessel types or count vessels. Ghost ProtoVessels shouldn't be countable for contracts. VesselType or naming convention to exclude them. A contract requiring "have a vessel in orbit of Kerbin" could be falsely completed by a ghost ProtoVessel.
 29. **Science/resources:** Ghost ProtoVessel shouldn't have science data or resources that could be "recovered" for value.
+
+### Parsek Internal System Guards (from review)
+30. **GameEvent cascade:** Creating a ghost ProtoVessel fires `onNewVesselCreated`. Parsek listens to vessel events (`onVesselWillDestroy`, `onVesselSituationChange`, `onVesselLoaded`, `onVesselGoOnRails`, `onVesselRecovered`, `onVesselTerminated`). Background recorder might try to record it, spawn collision detector might consider it, `FlightRecorder.FindVesselByPid` would find it. **Every Parsek event handler needs a ghost-vessel guard.**
+31. **FlightGlobals.Vessels iteration:** 35+ locations across `ParsekFlight.cs`, `FlightRecorder.cs`, `BackgroundRecorder.cs`, `SpawnCollisionDetector.cs`, `VesselSpawner.cs`, `GhostPlaybackLogic.cs`, `CrewReservationManager.cs` iterate `FlightGlobals.Vessels`. Ghost ProtoVessels will appear in all these loops. Need a reliable marker and O(1) filter — `HashSet<uint>` of ghost ProtoVessel PIDs on `GhostMapPresence`.
+32. **ParsekScenario.StripOrphanedSpawnedVessels:** Strips orphaned spawned vessels from `flightState.protoVessels` on scene transitions. Ghost ProtoVessels must be excluded from this cleanup.
+33. **BackgroundRecorder ghost capture:** If ghost ProtoVessel loads (player flies nearby), the background recorder could sample it. `BackgroundRecorder` already filters by VesselType (skips Debris, EVA, SpaceObject, Flag). Ghost vessel type must be in this exclusion list.
+34. **Vessel recovery in Tracking Station:** If player right-clicks ghost entry and selects "Recover Vessel", KSP would destroy the ProtoVessel and credit funds. Must disable recovery for ghost ProtoVessels (or block via vessel type).
+35. **Chain tip change → orphaned ProtoVessel:** When chain tip changes (new recording becomes tip), the orbit changes. Old ProtoVessel must be removed/updated. Failure leaves orphaned ProtoVessels.
+36. **Orbit epoch drift:** Terminal orbit elements are frozen at recording time. Over long periods, KSP's `OrbitDriver` propagation may diverge from `GhostExtender.PropagateOrbital` pure math. Ghost mesh and map icon could separate. Both systems must agree, or one should be authoritative.
+
+### Hyperbolic/Escape Trajectories
+37. **Hyperbolic orbits:** `GhostExtender.PropagateOrbital` explicitly rejects `ecc >= 1.0`. But KSP's `OrbitDriver` handles hyperbolic orbits natively. A ghost ProtoVessel on an escape trajectory would actually work better than the current pure-math propagator — an advantage of the ProtoVessel approach.
+
+## Clean-Context Review Summary
+
+A clean Opus agent reviewed the investigation and found:
+
+**Issues:**
+1. **Misattributed section reference** — "Section 13.2" boundary rule is actually in the extension plan doc, not parsek-flight-recorder-design.md Section 13.2. Fix the citation.
+2. **Event cascade risk underestimated** — Creating ghost ProtoVessels fires GameEvents that Parsek listens to. Every handler needs guards. This is the biggest implementation hazard.
+3. **FlightGlobals.Vessels pollution** — 35+ iteration sites in Parsek need ghost-vessel filtering. Need a `HashSet<uint>` tracking set for O(1) exclusion.
+4. **Flag spawning precedent missed** — `GhostVisualBuilder.cs` (line 6200-6238) already creates lightweight single-part ProtoVessels for flags. Closest existing analogue to ghost map vessels.
+
+**Completeness gaps:**
+5. `StripOrphanedSpawnedVessels` cleanup needs ghost exclusion
+6. Hyperbolic orbits work better with ProtoVessel than with GhostExtender (advantage)
+7. `IPlaybackTrajectory` doesn't expose terminal orbit fields — interface may need extension
+8. Mod interaction (MechJeb, KER) — they'll see ghost ProtoVessels in vessel lists
+9. `OrbitRenderer.orbitColor` is per-vessel-type — ghost VesselType choice affects orbit color automatically
+
+**Assessment:** Recommended approach (ProtoVessel) is correct. Implementation complexity is underestimated due to the guard-rail work needed across 35+ FlightGlobals.Vessels iteration sites and multiple GameEvent handlers. The design doc must include a comprehensive "guard rail" section.
+
+**Key design doc requirement:** A `HashSet<uint> ghostMapVesselPids` tracking set on `GhostMapPresence` for O(1) "is this a ghost map vessel?" checks throughout the codebase. Every `FlightGlobals.Vessels` loop and every vessel GameEvent handler in Parsek must check this set.
