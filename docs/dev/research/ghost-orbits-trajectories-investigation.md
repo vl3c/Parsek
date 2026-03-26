@@ -1,6 +1,10 @@
 # Ghost Orbits & Trajectories — Design Investigation
 
-## Status: Investigation / Step 1–2 of workflow
+## Status: Investigation complete — Steps 1–2 done, ready for Step 3 (Design Doc)
+
+### Companion Documents
+- **KSP API Decompilation Reference**: `docs/dev/research/ksp-map-presence-api-decompilation.md` — decompiled ProtoVessel, OrbitRenderer, MapObject, SpaceTracking, FlightGlobals, GameEvents, VesselType, ITargetable. Includes minimal ConfigNode template and runtime creation/cleanup sequences.
+- **KSPTrajectories Architecture Analysis**: `docs/mods-references/KSPTrajectories-architecture-analysis.md` — procedural mesh ribbon rendering, coordinate transforms, GL utilities, NavBall marker cloning, camera integration patterns. Useful for custom ghost orbit line styling (Phase 2).
 
 ## Problem
 
@@ -273,6 +277,18 @@ For flight scene, uses `LineRenderer` component instead:
 ### Critical Insight
 
 Trajectories bypasses KSP's orbit renderer entirely because it renders non-Keplerian (atmospheric) trajectories. Parsek ghosts, however, **are** Keplerian orbits — stored as standard orbital elements. This means Parsek can potentially use KSP's native `OrbitRenderer` instead of reimplementing Trajectories' ribbon mesh system, getting orbit lines + map integration for free via a lightweight ProtoVessel approach.
+
+### What Trajectories Provides for Phase 2 (Custom Visual Style)
+
+If ghost orbit lines need visual differentiation from stock orbits (dashed, different color, semi-transparent), the Trajectories ribbon mesh technique is the reference implementation:
+- **Procedural mesh ribbons** with screen-space-width edges (`MakeRibbonEdge`)
+- **Stock material reuse**: `MapView.fetch.orbitLinesMaterial` for visual consistency
+- **Layer handling**: Layer 24 (3D mode) vs layer 31 (2D mode) via `MapView.Draw3DLines`
+- **Camera attachment**: MonoBehaviour on `PlanetariumCamera.Camera.gameObject` with `OnPreRender` callback
+- **Coordinate pipeline**: `ScaledSpace.LocalToScaledSpace()` for world-to-map conversion
+- **Horizon occlusion**: Body-radius test to clip lines behind planets
+
+Full analysis in `docs/mods-references/KSPTrajectories-architecture-analysis.md`.
 
 ## Recommended Investigation Path
 
@@ -708,3 +724,163 @@ A clean Opus agent reviewed the investigation and found:
 **Assessment:** Recommended approach (ProtoVessel) is correct. Implementation complexity is underestimated due to the guard-rail work needed across 35+ FlightGlobals.Vessels iteration sites and multiple GameEvent handlers. The design doc must include a comprehensive "guard rail" section.
 
 **Key design doc requirement:** A `HashSet<uint> ghostMapVesselPids` tracking set on `GhostMapPresence` for O(1) "is this a ghost map vessel?" checks throughout the codebase. Every `FlightGlobals.Vessels` loop and every vessel GameEvent handler in Parsek must check this set.
+
+## KSP API Decompilation Results
+
+Full decompilation reference in `docs/dev/research/ksp-map-presence-api-decompilation.md`. Key findings summarized below.
+
+### ProtoVessel Creation — Verified Path
+
+The runtime creation path is confirmed as:
+```csharp
+// 1. Build ConfigNode
+ConfigNode vesselNode = BuildGhostVesselNode(orbit, name);
+
+// 2. Create ProtoVessel (validates persistentId, parses ORBIT/PART/DISCOVERY nodes)
+ProtoVessel pv = new ProtoVessel(vesselNode, HighLogic.CurrentGame);
+
+// 3. Load into game — creates Vessel GameObject, OrbitDriver, MapObject, OrbitRenderer,
+//    registers in FlightGlobals, fires GameEvents.onVesselCreate
+pv.Load(HighLogic.CurrentGame.flightState);
+```
+
+Cleanup is simply `pv.vesselRef.Die()` — handles all deregistration, target clearing, component destruction, FlightGlobals removal, and mapObject termination.
+
+### Minimal ConfigNode Template (Verified)
+
+```
+VESSEL
+{
+    pid = <new-guid>
+    persistentId = <unique-uint>
+    name = Ghost: My Vessel
+    type = Ship
+    sit = ORBITING
+    landed = False
+    splashed = False
+    met = 0
+    lct = <current-UT>
+    lastUT = <current-UT>
+    root = 0
+    lat = 0
+    lon = 0
+    alt = <from-orbit>
+    hgt = -1
+    nrm = 0,1,0
+    rot = 0,0,0,1
+    CoM = 0,0,0
+    stg = 0
+    prst = True
+    ref = <part-persistent-id>
+    ctrl = False
+    vesselSpawning = False
+    ORBIT
+    {
+        SMA = <semi-major-axis>
+        ECC = <eccentricity>
+        INC = <inclination>
+        LPE = <arg-periapsis>
+        LAN = <LAN>
+        MNA = <mean-anomaly>
+        EPH = <epoch>
+        REF = <body-index>
+    }
+    PART
+    {
+        name = <any-valid-part>
+        uid = <id>
+        mid = <id>
+        persistentId = <unique-uint>
+        parent = 0
+        position = 0,0,0
+        rotation = 0,0,0,1
+        mirror = 1,1,1
+        srfN = None, -1
+        connected = True
+        attached = True
+        state = 0
+        temp = 300
+        mass = 0.01
+        expt = 0
+    }
+    ACTIONGROUPS { }
+    DISCOVERY
+    {
+        state = -1
+        lastObservedTime = <current-UT>
+        lifetime = Infinity
+        refTime = Infinity
+        size = 2
+    }
+}
+```
+
+**Alternative**: `ProtoVessel.CreateVesselNode(name, type, orbit, 0, partNodes, discoveryNode)` builds most of this automatically — but only supports `ORBITING` situation. Landed ghosts need manual ConfigNode construction.
+
+### OrbitRenderer Gate Logic (Decompiled)
+
+Orbit lines render when ALL conditions are met:
+1. `MapView.fetch != null` and `MapView.MapIsEnabled`
+2. `OrbitLine != null`
+3. `mode != OFF`
+4. `lineOpacity > 0`
+5. Not debris (or mouse hovering)
+6. `orbitDisplayUnlocked` (tracking station upgrade level ≥ 1)
+7. `discoveryInfo.HaveKnowledgeAbout(DiscoveryLevels.StateVectors)` — **requires 0x8 flag**
+8. `MapViewFiltering.CheckAgainstFilter(vessel)` — type-based filter passes
+
+**Implication**: `DiscoveryLevels.Owned` (-1, all flags) satisfies conditions 7 and 8. Ghost VesselType choice determines which filter button shows/hides ghosts.
+
+### MapViewFiltering — VesselType → Filter Mapping (Decompiled)
+
+```csharp
+VesselType.Debris    → Debris filter
+VesselType.Probe     → Probes filter
+VesselType.Relay     → Relay filter
+VesselType.Ship      → Ships filter
+VesselType.Station   → Stations filter
+VesselType.Unknown   → Unknown filter (fallback for any unrecognized type)
+VesselType.DeployedSciencePart → ALWAYS HIDDEN (returns false)
+```
+
+**Decision needed**: What VesselType should ghosts use? Options:
+- **Mirror the original vessel's type** (ghost of a Station → VesselType.Station) — ghosts appear under the same filter as their real counterparts. Most intuitive.
+- **VesselType.Unknown** — ghosts always in "Unknown" filter. Easy to toggle all ghosts at once, but mixed in with asteroids.
+- **VesselType.Probe** — all ghosts filterable under "Probes". Simple but misleading.
+
+### GameEvents Fired During Ghost Creation/Destruction
+
+**On `ProtoVessel.Load()` (creation):**
+- `GameEvents.onVesselCreate` — every Parsek vessel event handler will see this
+- `GameEvents.onFlightGlobalsAddVessel` — every FlightGlobals.Vessels iteration affected
+- `GameEvents.onVesselPrecalcAssign` — VesselPrecalculate assigned
+
+**On `Vessel.Die()` (cleanup):**
+- `GameEvents.onVesselWillDestroy` — fires first
+- `GameEvents.onFlightGlobalsRemoveVessel` — list removal
+- Target auto-cleared if ghost was targeted
+
+**Guard requirement confirmed**: Every Parsek handler for these events needs a `ghostMapVesselPids.Contains(vessel.persistentId)` check.
+
+### VesselType Full Enum (17 values)
+
+```csharp
+Debris=0, SpaceObject=1, Unknown=2, Probe=3, Relay=4, Rover=5, Lander=6,
+Ship=7, Plane=8, Station=9, Base=10, EVA=11, Flag=12,
+DeployedScienceController=13, DeployedSciencePart=14, DroppedPart=15, DeployedGroundPart=16
+```
+
+### Key Gotchas from Decompilation
+
+1. **`MapView.fetch` must be non-null** for orbit rendering setup. True in FLIGHT (after scene load) and TRACKSTATION. If creating ghosts very early, `AddOrbitRenderer()` silently skips — vessel exists but has no map presence.
+2. **`CreateVesselNode` only supports ORBITING**. Landed ghosts need manual ConfigNode.
+3. **Part name must exist in PartLoader** or `ProtoVessel.Load()` shows missing parts dialog and aborts.
+4. **`vesselSpawning = false`** for ghosts — if true, KSP applies ground-positioning logic.
+5. **`autoClean = false` and `persistent = true`** both needed — `autoClean` deletes debris near KSC, `persistent` prevents MAX_VESSELS_BUDGET culling.
+6. **`ScaledMovement.Create` sets `vessel = ActiveVessel` initially** — corrected in `Start()` from `tgtRef`. Brief frame where `mapObject.vessel` is wrong.
+7. **Ghost ProtoVessels will be saved to .sfs** via FlightState. Must either prevent save (strip on `onProtoVesselSave`) or accept and clean up on load.
+8. **FlightGlobals.GetUniquepersistentId()** generates collision-free IDs via Guid hash + loop.
+9. **`Vessel.Awake()` creates DiscoveryInfo(Owned)** but `ProtoVessel.Load()` overwrites from DISCOVERY node — the ConfigNode is authoritative.
+10. **Tracking station "Fly" button** loads the ProtoVessel as active vessel — must intercept or ghost will load as a single-part probe core.
+11. **Tracking station "Recover" button** destroys vessel and credits funds — must block for ghosts.
+12. **`OrbitDriver.UpdateMode.UPDATE`** required for Keplerian propagation. `IDLE` for landed. `TRACK_Phys` needs physics (not applicable).
