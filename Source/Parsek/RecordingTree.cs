@@ -867,8 +867,8 @@ namespace Parsek
                     return TerminalState.SubOrbital;
                 case 4:  // PRELAUNCH
                     return TerminalState.Landed;
-                case 128: // DOCKED — handled via explicit TerminalState.Docked in merge logic
-                    return TerminalState.Orbiting;
+                case 128: // DOCKED
+                    return TerminalState.Docked;
                 default:
                     ParsekLog.Warn("RecordingTree", $"DetermineTerminalState: unexpected situation={situation}, defaulting to SubOrbital");
                     return TerminalState.SubOrbital;
