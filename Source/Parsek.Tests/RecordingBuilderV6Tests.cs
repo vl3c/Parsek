@@ -574,13 +574,6 @@ namespace Parsek.Tests
 
         #endregion
 
-        #region Log assertions
-
-        // BuildTrajectoryNode_WithTrackSections_LogsSerializationCount removed: per-recording verbose log replaced with batch summary
-        // BuildTrajectoryNode_WithSegmentEvents_LogsSerializationCount removed: per-recording verbose log replaced with batch summary
-
-        #endregion
-
         #region Empty collections: no nodes emitted
 
         [Fact]

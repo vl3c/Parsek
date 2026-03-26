@@ -308,8 +308,6 @@ namespace Parsek.Tests
 
         #region Log assertions
 
-        // Serialize_LogsEventCount removed: per-recording verbose log replaced with batch summary
-
         [Fact]
         public void UnknownType_LogsWarningWithBadValue()
         {

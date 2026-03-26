@@ -71,39 +71,34 @@ namespace Parsek
             node.RemoveNodes("RECORDING_TREE");
             var committedTrees = RecordingStore.CommittedTrees;
             ParsekLog.Info("Scenario", $"OnSave: saving {committedTrees.Count} committed tree(s)");
+            int treeRecCount = 0;
+            int treeTotalPoints = 0, treeTotalOrbitSegments = 0, treeTotalPartEvents = 0;
+            int treeWithTrackSections = 0, treeWithSnapshots = 0;
+            for (int t = 0; t < committedTrees.Count; t++)
             {
-                int treeRecCount = 0;
-                int treeTotalPoints = 0;
-                int treeTotalOrbitSegments = 0;
-                int treeTotalPartEvents = 0;
-                int treeWithTrackSections = 0;
-                int treeWithSnapshots = 0;
-                for (int t = 0; t < committedTrees.Count; t++)
+                var tree = committedTrees[t];
+
+                // Write bulk data to external files for each recording in the tree
+                foreach (var rec in tree.Recordings.Values)
                 {
-                    var tree = committedTrees[t];
-
-                    // Write bulk data to external files for each recording in the tree
-                    foreach (var rec in tree.Recordings.Values)
-                    {
-                        if (!RecordingStore.SaveRecordingFiles(rec))
-                            ScenarioLog($"[Parsek Scenario] WARNING: File write failed for tree recording '{rec.VesselName}'");
-                        treeRecCount++;
-                        treeTotalPoints += rec.Points.Count;
-                        treeTotalOrbitSegments += rec.OrbitSegments.Count;
-                        treeTotalPartEvents += rec.PartEvents.Count;
-                        if (rec.TrackSections != null && rec.TrackSections.Count > 0) treeWithTrackSections++;
-                        if (rec.VesselSnapshot != null) treeWithSnapshots++;
-                    }
-
-                    ConfigNode treeNode = node.AddNode("RECORDING_TREE");
-                    tree.Save(treeNode);
+                    if (!RecordingStore.SaveRecordingFiles(rec))
+                        ScenarioLog($"[Parsek Scenario] WARNING: File write failed for tree recording '{rec.VesselName}'");
+                    treeRecCount++;
+                    treeTotalPoints += rec.Points.Count;
+                    treeTotalOrbitSegments += rec.OrbitSegments.Count;
+                    treeTotalPartEvents += rec.PartEvents.Count;
+                    if (rec.TrackSections != null && rec.TrackSections.Count > 0) treeWithTrackSections++;
+                    if (rec.VesselSnapshot != null) treeWithSnapshots++;
                 }
-                if (committedTrees.Count > 0)
-                    ParsekLog.Verbose("Scenario",
-                        $"Saved {committedTrees.Count} trees ({treeRecCount} recordings): {treeTotalPoints} points, " +
-                        $"{treeTotalOrbitSegments} orbit segments, {treeTotalPartEvents} part events, " +
-                        $"{treeWithTrackSections} with track sections, {treeWithSnapshots} with snapshots");
+
+                ConfigNode treeNode = node.AddNode("RECORDING_TREE");
+                tree.Save(treeNode);
             }
+            if (committedTrees.Count > 0)
+                ParsekLog.Verbose("Scenario",
+                    $"Saved {committedTrees.Count} trees ({treeRecCount} recordings): {treeTotalPoints} points, " +
+                    $"{treeTotalOrbitSegments} orbit segments, {treeTotalPartEvents} part events, " +
+                    $"{treeWithTrackSections} with track sections, {treeWithSnapshots} with snapshots");
 
             // Persist crew replacement mappings
             CrewReservationManager.SaveCrewReplacements(node);

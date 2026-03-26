@@ -7025,7 +7025,7 @@ namespace Parsek
                 if (state != null && state.ghost != null && state.ghost.activeSelf)
                 {
                     state.ghost.SetActive(false);
-                    ParsekLog.VerboseRateLimited("Zone", $"zone-hide-{recIdx}",
+                    ParsekLog.VerboseRateLimited("Zone", "zone-hide",
                         $"Ghost #{recIdx} \"{rec.VesselName}\" hidden: beyond visual range " +
                         $"({ghostDistance.ToString("F0", CultureInfo.InvariantCulture)}m)");
                 }
@@ -7036,7 +7036,7 @@ namespace Parsek
             if (state != null && state.ghost != null && !state.ghost.activeSelf)
             {
                 state.ghost.SetActive(true);
-                ParsekLog.VerboseRateLimited("Zone", $"zone-show-{recIdx}",
+                ParsekLog.VerboseRateLimited("Zone", "zone-show",
                     $"Ghost #{recIdx} \"{rec.VesselName}\" re-shown: entered visual range " +
                     $"({ghostDistance.ToString("F0", CultureInfo.InvariantCulture)}m)");
             }

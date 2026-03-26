@@ -475,12 +475,6 @@ namespace Parsek.Tests
 
         #endregion
 
-        #region Test 10: Log assertion - serialization logs track section count
-
-        // Serialize_LogsTrackSectionCount removed: per-recording verbose log replaced with batch summary
-
-        #endregion
-
         #region AnchorPid not written when zero
 
         [Fact]
