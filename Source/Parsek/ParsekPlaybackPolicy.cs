@@ -32,6 +32,7 @@ namespace Parsek
 
         /// <summary>Maximum real-time seconds to hold a ghost before giving up and destroying it.</summary>
         internal const float HeldGhostTimeoutSeconds = 5.0f;
+        internal const float HeldGhostRetryIntervalSeconds = 1.0f;
 
         internal ParsekPlaybackPolicy(GhostPlaybackEngine engine, ParsekFlight host)
         {
@@ -127,6 +128,7 @@ namespace Parsek
 
                     ParsekLog.Info("Policy",
                         $"Deferred spawn during warp: #{evt.Index} \"{evt.Trajectory?.VesselName}\"");
+                    return; // Do not destroy ghost — held during warp
                 }
                 else
                 {
@@ -169,8 +171,8 @@ namespace Parsek
                 }
             }
 
-            // Destroy ghost
-            if (evt.GhostWasActive && !heldGhosts.ContainsKey(evt.Index))
+            // Destroy ghost (held paths returned early above)
+            if (evt.GhostWasActive)
             {
                 // If watching and not spawning: hold ghost for camera (3-5 seconds)
                 if (isWatched && !spawned && !evt.Flags.needsSpawn)
@@ -217,12 +219,15 @@ namespace Parsek
                 HeldGhostInfo info = kvp.Value;
 
                 var decision = DecideHeldGhostAction(
-                    index, info, committed, now, HeldGhostTimeoutSeconds);
+                    index, info, committed, now, HeldGhostTimeoutSeconds,
+                    HeldGhostRetryIntervalSeconds);
 
                 switch (decision)
                 {
                     case HeldGhostAction.RetrySpawn:
                         // Recording is valid and not yet spawned — retry
+                        info.lastRetryTime = now;
+                        heldGhosts[index] = info; // write back (struct copy)
                         host.SpawnVesselOrChainTipFromPolicy(committed[index], index);
                         if (committed[index].VesselSpawned)
                         {
@@ -292,7 +297,8 @@ namespace Parsek
         /// </summary>
         internal static HeldGhostAction DecideHeldGhostAction(
             int index, HeldGhostInfo info, IReadOnlyList<Recording> committed,
-            float currentTime, float timeoutSeconds)
+            float currentTime, float timeoutSeconds,
+            float retryIntervalSeconds = 1.0f)
         {
             // Invalid index — recording list may have changed
             if (index < 0 || index >= committed.Count)
@@ -313,7 +319,11 @@ namespace Parsek
             if (elapsed >= timeoutSeconds)
                 return HeldGhostAction.Timeout;
 
-            // Still waiting — try spawning again
+            // Throttle retry attempts — avoid hammering spawn every frame
+            float sinceLast = currentTime - info.lastRetryTime;
+            if (sinceLast < retryIntervalSeconds)
+                return HeldGhostAction.Hold;
+
             return HeldGhostAction.RetrySpawn;
         }
 
@@ -371,6 +381,9 @@ namespace Parsek
         /// <summary>Time.time when the ghost was held (real time, not UT).</summary>
         public float holdStartTime;
 
+        /// <summary>Time.time of last spawn retry attempt (throttles retries to 1/sec).</summary>
+        public float lastRetryTime;
+
         /// <summary>Recording ID to verify index stability after deletes.</summary>
         public string recordingId;
 
@@ -387,7 +400,7 @@ namespace Parsek
     /// </summary>
     internal enum HeldGhostAction
     {
-        /// <summary>Keep the ghost held — not yet timed out, spawn not yet attempted.</summary>
+        /// <summary>Keep holding — retry interval not yet elapsed (throttles to 1/sec).</summary>
         Hold,
 
         /// <summary>Retry the spawn attempt.</summary>

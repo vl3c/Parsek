@@ -811,7 +811,7 @@ namespace Parsek
             catch (Exception ex)
             {
                 ParsekLog.Error("KSCSpawn",
-                    $"Spawn exception for #{recIdx} \"{rec.VesselName}\": {ex.Message}");
+                    $"Spawn exception for #{recIdx} \"{rec.VesselName}\": {ex}");
             }
         }
 

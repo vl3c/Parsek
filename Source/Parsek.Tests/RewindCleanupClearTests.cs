@@ -108,9 +108,12 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void RewindStrip_LogsClearMessage()
+        public void RewindStrip_LogMessageFormat_ContainsExpectedText()
         {
-            // Simulate the rewind path clearing and logging
+            // Note: This tests the expected log message FORMAT, not that production
+            // code actually emits it (HandleRewindOnLoad requires KSP runtime).
+            // Verifies the log message contract — if someone changes the message
+            // text in production, this test reminds them to update the contract.
             RecordingStore.PendingCleanupPids = new HashSet<uint> { 1 };
             RecordingStore.PendingCleanupNames = new HashSet<string> { "X" };
 

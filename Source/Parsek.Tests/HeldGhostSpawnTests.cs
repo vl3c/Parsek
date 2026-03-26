@@ -193,6 +193,63 @@ namespace Parsek.Tests
             Assert.Equal(HeldGhostAction.Timeout, action);
         }
 
+        [Fact]
+        public void DecideAction_RecentRetry_ReturnsHold()
+        {
+            // When last retry was too recent (< retryIntervalSeconds), return Hold
+            var committed = new List<Recording> { MakeRecording("rec-1") };
+            var info = new HeldGhostInfo
+            {
+                holdStartTime = 0f,
+                lastRetryTime = 1.5f,
+                recordingId = "rec-1"
+            };
+
+            var action = ParsekPlaybackPolicy.DecideHeldGhostAction(
+                0, info, committed, currentTime: 2.0f, timeoutSeconds: 5f,
+                retryIntervalSeconds: 1.0f);
+
+            Assert.Equal(HeldGhostAction.Hold, action);
+        }
+
+        [Fact]
+        public void DecideAction_RetryIntervalElapsed_ReturnsRetrySpawn()
+        {
+            // When retry interval has elapsed, allow retry
+            var committed = new List<Recording> { MakeRecording("rec-1") };
+            var info = new HeldGhostInfo
+            {
+                holdStartTime = 0f,
+                lastRetryTime = 1.0f,
+                recordingId = "rec-1"
+            };
+
+            var action = ParsekPlaybackPolicy.DecideHeldGhostAction(
+                0, info, committed, currentTime: 2.5f, timeoutSeconds: 5f,
+                retryIntervalSeconds: 1.0f);
+
+            Assert.Equal(HeldGhostAction.RetrySpawn, action);
+        }
+
+        [Fact]
+        public void DecideAction_FirstRetry_NoLastRetryTime_ReturnsRetrySpawn()
+        {
+            // First retry: lastRetryTime defaults to 0, so sinceLast >= interval
+            var committed = new List<Recording> { MakeRecording("rec-1") };
+            var info = new HeldGhostInfo
+            {
+                holdStartTime = 0f,
+                lastRetryTime = 0f,
+                recordingId = "rec-1"
+            };
+
+            var action = ParsekPlaybackPolicy.DecideHeldGhostAction(
+                0, info, committed, currentTime: 1.0f, timeoutSeconds: 5f,
+                retryIntervalSeconds: 1.0f);
+
+            Assert.Equal(HeldGhostAction.RetrySpawn, action);
+        }
+
         #endregion
 
         #region HeldGhostInfo struct
@@ -202,6 +259,7 @@ namespace Parsek.Tests
         {
             var info = new HeldGhostInfo();
             Assert.Equal(0f, info.holdStartTime);
+            Assert.Equal(0f, info.lastRetryTime);
             Assert.Null(info.recordingId);
             Assert.Null(info.vesselName);
             Assert.False(info.wasWatched);

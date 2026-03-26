@@ -325,14 +325,14 @@ namespace Parsek.Tests
         // ────────────────────────────────────────────────────────────
 
         [Fact]
-        public void ContinuationVesselDestroyed_LogsPreservation()
+        public void ContinuationVesselDestroyed_LogMessageFormat_ContainsExpectedText()
         {
-            // The destruction handler should log that the snapshot is preserved.
-            // This tests the log message format from the fixed code.
+            // Note: This tests the expected log message FORMAT, not that production
+            // code actually emits it (OnVesselWillDestroy requires KSP runtime).
+            // Verifies the log message contract for the destruction handler.
             var rec = MakeCommittedRecording("TestRocket", 55555);
             RecordingStore.CommittedRecordings.Add(rec);
 
-            // Simulate the log message that the fixed code produces
             ParsekLog.Info("Flight",
                 $"Continuation vessel destroyed (pid={55555}), " +
                 $"VesselDestroyed=true, VesselSnapshot preserved={rec.VesselSnapshot != null}");
