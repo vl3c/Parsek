@@ -8,6 +8,28 @@ Task breakdown for implementing `docs/parsek-game-actions-system-design.md`. Fol
 
 ---
 
+## Phase 0: Risk Reduction Spikes
+
+Before starting Phase 1, run three focused spikes to confirm or kill the hardest assumptions. Each spike is a time-boxed investigation (not implementation) that produces findings, not code.
+
+### Spike A: Reputation Curve Extraction
+
+Decompile `Reputation.AddReputation()` from Assembly-CSharp.dll to extract the exact gain/loss curve formula. This blocks the reputation module (Task 9, deferred item D1). Determine: is the curve a simple polynomial, lookup table, or AnimationCurve? Can it be replicated with a pure function?
+
+### Spike B: Contract State Patching Feasibility
+
+Prototype `ContractSystem` state manipulation: can Parsek reliably add/remove/complete contracts programmatically? Test `Contract.Load(ConfigNode)` from a previously captured snapshot. Determine: how much state can be round-tripped? Do contract parameters survive? This informs Task 15b and deferred item D3.
+
+### Spike C: Kerbal Roster Manipulation
+
+Test programmatic kerbal roster operations beyond what `CrewReservationManager` already does: add kerbals with specific XP levels, set experience trait, place in retired/unassigned state, verify dismissal protection. Determine: can Parsek control all aspects needed by the Kerbals module (Tasks 10a/b)?
+
+### Spike D: KSC Event Hooks
+
+Investigate how KSP reports KSC-time events (tech unlock, facility upgrade, kerbal hire) — specifically which `GameEvents` fire and in what order. This de-risks Task 18 (KSC Spending Actions), which is in Phase 6 but involves API surface that could surprise.
+
+---
+
 ## Phase 1: Foundation
 
 ### Task 1: Core Data Types and Action Schemas
@@ -529,12 +551,18 @@ Functionality:
 
 **Parallelization opportunities:**
 - Tasks 4, 6, 7 are independent first-tier modules — can run in parallel
+- Task 10a can start after Task 3 (no funds dependency)
 - Tasks 8, 9 can run in parallel AFTER 10b completes (funds needs kerbal hire costs)
-- Tasks 10a, 11, 12 can run in parallel (independent complex modules)
 - Tasks 13, 14 are sequential
-- Tasks 18, 19, 21 can mostly run in parallel
 
-**Key dependency chain:** 1 → 2 → 3 → {4,6,7} → {10a,11,12} → 10b → {8,9} → {15a,15b} → {16,17} → 20
+**Parallelization caveats (NOT parallelizable despite sharing a phase):**
+- Task 11 (Facilities) depends on Task 8 (Funds) for upgrade/repair cost flow
+- Task 12 (Strategies) depends on Tasks 7, 8, 9 for contract reward transforms
+- Tasks 11, 12 must wait for their second-tier dependencies, not just Task 3
+
+**Key dependency chain:** Spikes → 1 → 2 → 3 → {4,6,7,10a} → 10b → {8,9} → {11,12} → {15a,15b} → {16,17} → 20
+
+**Performance note:** Full recalculation walk from UT=0 on every warp exit. With typical career playthroughs (10-50 recordings, hundreds of actions), this should be sub-millisecond. At extreme scale (100+ recordings, thousands of actions), profile before optimizing — the sort is O(n log n) and the walk is O(n) with small constant factors.
 
 **Estimated new tests:** ~180-200 tests across all modules (including log assertion tests per module)
 **Estimated new code:** ~4000-5000 lines (excluding tests)
