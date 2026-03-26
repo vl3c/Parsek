@@ -454,5 +454,302 @@ namespace Parsek.Tests
                 l.Contains("Reset") &&
                 l.Contains("cleared 1 subjects"));
         }
+
+        // ================================================================
+        // Reservation system tests (design doc 4.5)
+        // ================================================================
+
+        // Design doc 4.7, "Reservation blocks new spending on rewind":
+        //   Recording A earns 30 at UT=500. Recording B earns 20 at UT=1000.
+        //   Tech node at UT=1500 costs 45. Balance after walk: 5.
+        //
+        //   Player rewinds, fast-forwards to UT=600.
+        //     Effective earnings up to UT=600: 30 (recording A only).
+        //     ALL committed spendings: 45 (tech node).
+        //     Available: 30 - 45 = -15 → 0.
+        //     Player cannot unlock a new tech node. Correct.
+
+        [Fact]
+        public void Reservation_BlocksNewSpending()
+        {
+            // Set up the full action list for the pre-pass
+            var actions = new List<GameAction>
+            {
+                MakeEarning(500.0, "subA", 30f, 100f, "rec-A"),
+                MakeEarning(1000.0, "subB", 20f, 100f, "rec-B"),
+                MakeSpending(1500.0, "advRocketry", 45f)
+            };
+
+            // Pre-pass: compute total committed spendings (45)
+            module.ComputeTotalSpendings(actions);
+
+            // Walk only up to UT=600: only recording A's earning is processed
+            module.ProcessAction(actions[0]); // earn 30 at UT=500
+
+            // At UT=600: effective earnings = 30, all spendings = 45
+            // Available = 30 - 45 = -15 → clamped to 0
+            Assert.Equal(0.0, module.GetAvailableScience());
+            Assert.Equal(30.0, module.GetTotalEffectiveEarnings());
+            Assert.Equal(45.0, module.GetTotalCommittedSpendings());
+        }
+
+        // Design doc 4.7, "Reservation blocks new spending on rewind" (continued):
+        //   Player fast-forwards to UT=1100.
+        //     Effective earnings up to UT=1100: 50 (both recordings).
+        //     Available: 50 - 45 = 5.
+        //     Player can unlock a node costing up to 5. Correct.
+
+        [Fact]
+        public void Reservation_AllowsAfterMoreEarnings()
+        {
+            var actions = new List<GameAction>
+            {
+                MakeEarning(500.0, "subA", 30f, 100f, "rec-A"),
+                MakeEarning(1000.0, "subB", 20f, 100f, "rec-B"),
+                MakeSpending(1500.0, "advRocketry", 45f)
+            };
+
+            // Pre-pass
+            module.ComputeTotalSpendings(actions);
+
+            // Walk up to UT=1100: both earnings processed
+            module.ProcessAction(actions[0]); // earn 30 at UT=500
+            module.ProcessAction(actions[1]); // earn 20 at UT=1000
+
+            // At UT=1100: effective earnings = 50, all spendings = 45
+            // Available = 50 - 45 = 5
+            Assert.Equal(5.0, module.GetAvailableScience());
+            Assert.Equal(50.0, module.GetTotalEffectiveEarnings());
+        }
+
+        [Fact]
+        public void GetAvailableScience_NoSpendings_EqualsRunningScience()
+        {
+            var actions = new List<GameAction>
+            {
+                MakeEarning(500.0, "subA", 30f, 100f, "rec-A"),
+                MakeEarning(1000.0, "subB", 20f, 100f, "rec-B")
+            };
+
+            // Pre-pass: no spendings → totalCommittedSpendings = 0
+            module.ComputeTotalSpendings(actions);
+
+            // Walk all earnings
+            module.ProcessAction(actions[0]);
+            module.ProcessAction(actions[1]);
+
+            // Available = 50 - 0 = 50 = runningScience (since no spendings deducted)
+            Assert.Equal(50.0, module.GetAvailableScience());
+            Assert.Equal(50.0, module.GetRunningScience());
+            Assert.Equal(0.0, module.GetTotalCommittedSpendings());
+        }
+
+        [Fact]
+        public void GetAvailableScience_WithSpendings_ReflectsReservation()
+        {
+            var actions = new List<GameAction>
+            {
+                MakeEarning(500.0, "subA", 30f, 100f, "rec-A"),
+                MakeEarning(1000.0, "subB", 20f, 100f, "rec-B"),
+                MakeSpending(800.0, "node1", 10f, 0),
+                MakeSpending(1500.0, "node2", 15f, 0)
+            };
+
+            // Pre-pass: total spendings = 10 + 15 = 25
+            module.ComputeTotalSpendings(actions);
+            Assert.Equal(25.0, module.GetTotalCommittedSpendings());
+
+            // Full walk (sorted by UT, earnings before spendings):
+            //   UT=500: earn 30
+            //   UT=800: spend 10
+            //   UT=1000: earn 20
+            //   UT=1500: spend 15
+            module.ProcessAction(actions[0]); // earn 30
+            module.ProcessAction(actions[2]); // spend 10
+            module.ProcessAction(actions[1]); // earn 20
+            module.ProcessAction(actions[3]); // spend 15
+
+            // runningScience = 30 - 10 + 20 - 15 = 25
+            Assert.Equal(25.0, module.GetRunningScience(), 10);
+
+            // totalEffectiveEarnings = 30 + 20 = 50
+            Assert.Equal(50.0, module.GetTotalEffectiveEarnings());
+
+            // availableScience = totalEffectiveEarnings - totalCommittedSpendings = 50 - 25 = 25
+            Assert.Equal(25.0, module.GetAvailableScience());
+        }
+
+        [Fact]
+        public void Reservation_AfterFullWalk_MatchesBalance()
+        {
+            // After a full walk (all actions processed), available should match runningScience
+            // because all spendings have been deducted from both.
+            var actions = new List<GameAction>
+            {
+                MakeEarning(500.0, "subA", 30f, 100f, "rec-A"),
+                MakeSpending(1000.0, "node1", 10f)
+            };
+
+            module.ComputeTotalSpendings(actions);
+
+            // Walk all actions
+            module.ProcessAction(actions[0]); // earn 30
+            module.ProcessAction(actions[1]); // spend 10
+
+            // runningScience = 30 - 10 = 20
+            // totalEffectiveEarnings = 30
+            // available = 30 - 10 = 20 = runningScience (all spendings consumed)
+            Assert.Equal(20.0, module.GetRunningScience(), 10);
+            Assert.Equal(20.0, module.GetAvailableScience());
+        }
+
+        [Fact]
+        public void Reservation_MidWalk_LowerThanRunningScience()
+        {
+            // Mid-walk (not all spendings processed yet), available should be lower than runningScience
+            // because future spendings are reserved but not yet deducted from runningScience.
+            var actions = new List<GameAction>
+            {
+                MakeEarning(500.0, "subA", 30f, 100f, "rec-A"),
+                MakeSpending(1500.0, "node1", 10f)
+            };
+
+            module.ComputeTotalSpendings(actions);
+
+            // Walk only the earning
+            module.ProcessAction(actions[0]); // earn 30
+
+            // runningScience = 30 (no spending deducted yet)
+            // available = 30 - 10 = 20 (future spending reserved)
+            Assert.Equal(30.0, module.GetRunningScience());
+            Assert.Equal(20.0, module.GetAvailableScience());
+        }
+
+        [Fact]
+        public void Reservation_WithSubjectCap_UsesEffectiveNotAwarded()
+        {
+            // The reservation uses effective science (post-cap), not raw scienceAwarded.
+            // Two recordings earn 20 each from a subject with cap 25. Total effective = 25.
+            var actions = new List<GameAction>
+            {
+                MakeEarning(500.0, "subA", 20f, 25f, "rec-A"),
+                MakeEarning(1000.0, "subA", 20f, 25f, "rec-B"),
+                MakeSpending(1500.0, "node1", 20f)
+            };
+
+            module.ComputeTotalSpendings(actions);
+
+            // Walk all earnings
+            module.ProcessAction(actions[0]); // effective = 20 (headroom 25)
+            module.ProcessAction(actions[1]); // effective = 5 (headroom 5, cap hit)
+
+            // totalEffectiveEarnings = 25, totalCommittedSpendings = 20
+            // available = 25 - 20 = 5
+            Assert.Equal(5.0, module.GetAvailableScience());
+            Assert.Equal(25.0, module.GetTotalEffectiveEarnings());
+        }
+
+        [Fact]
+        public void ComputeTotalSpendings_NullList_SetsZero()
+        {
+            module.ComputeTotalSpendings(null);
+            Assert.Equal(0.0, module.GetTotalCommittedSpendings());
+        }
+
+        [Fact]
+        public void ComputeTotalSpendings_EmptyList_SetsZero()
+        {
+            module.ComputeTotalSpendings(new List<GameAction>());
+            Assert.Equal(0.0, module.GetTotalCommittedSpendings());
+        }
+
+        [Fact]
+        public void ComputeTotalSpendings_IgnoresNonSpendingActions()
+        {
+            var actions = new List<GameAction>
+            {
+                MakeEarning(500.0, "subA", 30f, 100f, "rec-A"),
+                new GameAction { UT = 600.0, Type = GameActionType.FundsSpending, Cost = 999f },
+                MakeSpending(1000.0, "node1", 15f)
+            };
+
+            module.ComputeTotalSpendings(actions);
+
+            // Only ScienceSpending (15) counted, not FundsSpending (999)
+            Assert.Equal(15.0, module.GetTotalCommittedSpendings());
+        }
+
+        [Fact]
+        public void ComputeTotalSpendings_SkipsNullEntries()
+        {
+            var actions = new List<GameAction>
+            {
+                MakeSpending(500.0, "node1", 10f),
+                null,
+                MakeSpending(1000.0, "node2", 20f)
+            };
+
+            module.ComputeTotalSpendings(actions);
+            Assert.Equal(30.0, module.GetTotalCommittedSpendings());
+        }
+
+        [Fact]
+        public void Reset_ClearsReservationState()
+        {
+            var actions = new List<GameAction>
+            {
+                MakeEarning(500.0, "subA", 30f, 100f, "rec-A"),
+                MakeSpending(1000.0, "node1", 10f)
+            };
+
+            module.ComputeTotalSpendings(actions);
+            module.ProcessAction(actions[0]);
+
+            Assert.Equal(30.0, module.GetTotalEffectiveEarnings());
+            Assert.Equal(10.0, module.GetTotalCommittedSpendings());
+            Assert.Equal(20.0, module.GetAvailableScience());
+
+            // Reset should clear everything
+            module.Reset();
+
+            Assert.Equal(0.0, module.GetTotalEffectiveEarnings());
+            Assert.Equal(0.0, module.GetTotalCommittedSpendings());
+            Assert.Equal(0.0, module.GetAvailableScience());
+        }
+
+        // ================================================================
+        // Reservation log assertion tests
+        // ================================================================
+
+        [Fact]
+        public void ComputeTotalSpendings_LogsSummary()
+        {
+            var actions = new List<GameAction>
+            {
+                MakeSpending(500.0, "node1", 10f),
+                MakeSpending(1000.0, "node2", 20f)
+            };
+
+            module.ComputeTotalSpendings(actions);
+
+            Assert.Contains(logLines, l =>
+                l.Contains("[ScienceModule]") &&
+                l.Contains("ComputeTotalSpendings") &&
+                l.Contains("spendingCount=2") &&
+                l.Contains("totalCommittedSpendings="));
+        }
+
+        [Fact]
+        public void Reset_LogsReservationFields()
+        {
+            logLines.Clear();
+            module.Reset();
+
+            Assert.Contains(logLines, l =>
+                l.Contains("[ScienceModule]") &&
+                l.Contains("Reset") &&
+                l.Contains("totalCommittedSpendings=0") &&
+                l.Contains("totalEffectiveEarnings=0"));
+        }
     }
 }

@@ -10,6 +10,12 @@ namespace Parsek
     ///   - For each ScienceEarning: headroom = maxValue - creditedTotal, effectiveScience = min(awarded, headroom)
     ///   - For each ScienceSpending: check affordability, deduct from running balance
     ///
+    /// Reservation system (design doc section 4.5):
+    ///   availableScience(ut) = sum(effective earnings up to ut) - sum(ALL committed spendings on entire timeline)
+    ///   The pre-pass <see cref="ComputeTotalSpendings"/> sums all spending costs before the walk starts.
+    ///   During the walk, <see cref="totalEffectiveEarnings"/> accumulates effective earnings.
+    ///   <see cref="GetAvailableScience"/> returns the amount the player can actually spend at the current point.
+    ///
     /// Pure computation — no KSP state access.
     /// </summary>
     internal class ScienceModule : IResourceModule
@@ -32,6 +38,20 @@ namespace Parsek
         /// <summary>Accumulated effective science balance (earnings minus spendings).</summary>
         private double runningScience;
 
+        /// <summary>
+        /// Sum of ALL committed science spending costs on the entire timeline.
+        /// Computed by <see cref="ComputeTotalSpendings"/> before the walk starts.
+        /// Used by <see cref="GetAvailableScience"/> for the reservation check.
+        /// </summary>
+        private double totalCommittedSpendings;
+
+        /// <summary>
+        /// Running sum of effective science earnings accumulated during the walk.
+        /// Updated in <see cref="ProcessEarning"/> alongside runningScience.
+        /// Used by <see cref="GetAvailableScience"/> for the reservation check.
+        /// </summary>
+        private double totalEffectiveEarnings;
+
         // ================================================================
         // IResourceModule
         // ================================================================
@@ -45,9 +65,12 @@ namespace Parsek
             int subjectCount = subjects.Count;
             subjects.Clear();
             runningScience = 0.0;
+            totalCommittedSpendings = 0.0;
+            totalEffectiveEarnings = 0.0;
 
             ParsekLog.Verbose("ScienceModule",
-                $"Reset: cleared {subjectCount} subjects, runningScience=0");
+                $"Reset: cleared {subjectCount} subjects, runningScience=0, " +
+                $"totalCommittedSpendings=0, totalEffectiveEarnings=0");
         }
 
         /// <summary>
@@ -69,6 +92,41 @@ namespace Parsek
                     break;
                 // All other action types: ignore silently
             }
+        }
+
+        // ================================================================
+        // Pre-pass: compute total committed spendings
+        // ================================================================
+
+        /// <summary>
+        /// Pre-pass: sums all ScienceSpending costs from the action list before the walk starts.
+        /// Called by the engine (or test harness) before <see cref="ProcessAction"/> is invoked.
+        /// This is required for the reservation system: available = effective earnings - ALL spendings.
+        /// </summary>
+        internal void ComputeTotalSpendings(List<GameAction> actions)
+        {
+            totalCommittedSpendings = 0.0;
+
+            if (actions == null)
+            {
+                ParsekLog.Verbose("ScienceModule",
+                    "ComputeTotalSpendings: null actions list, totalCommittedSpendings=0");
+                return;
+            }
+
+            int spendingCount = 0;
+            for (int i = 0; i < actions.Count; i++)
+            {
+                if (actions[i] != null && actions[i].Type == GameActionType.ScienceSpending)
+                {
+                    totalCommittedSpendings += (double)actions[i].Cost;
+                    spendingCount++;
+                }
+            }
+
+            ParsekLog.Verbose("ScienceModule",
+                $"ComputeTotalSpendings: spendingCount={spendingCount}, " +
+                $"totalCommittedSpendings={totalCommittedSpendings.ToString("R", IC)}");
         }
 
         // ================================================================
@@ -112,6 +170,7 @@ namespace Parsek
             state.CreditedTotal += effectiveScience;
             subjects[subjectId] = state;
             runningScience += effectiveScience;
+            totalEffectiveEarnings += effectiveScience;
 
             // Set derived field on the action
             action.EffectiveScience = (float)effectiveScience;
@@ -175,10 +234,26 @@ namespace Parsek
         // Query methods
         // ================================================================
 
-        /// <summary>Returns the current running science balance.</summary>
+        /// <summary>Returns the current running science balance (earnings minus spendings seen so far).</summary>
         internal double GetRunningScience()
         {
             return runningScience;
+        }
+
+        /// <summary>
+        /// Returns the available science after the reservation system is applied.
+        /// This is the amount the player can actually spend at the current point in the walk.
+        ///
+        /// Formula (design doc 4.5):
+        ///   availableScience = totalEffectiveEarnings - totalCommittedSpendings
+        ///
+        /// Requires <see cref="ComputeTotalSpendings"/> to have been called before the walk.
+        /// Returns 0 if the result would be negative (player cannot spend negative science).
+        /// </summary>
+        internal double GetAvailableScience()
+        {
+            double available = totalEffectiveEarnings - totalCommittedSpendings;
+            return available > 0.0 ? available : 0.0;
         }
 
         /// <summary>
@@ -195,6 +270,18 @@ namespace Parsek
                 return state.CreditedTotal;
 
             return 0.0;
+        }
+
+        /// <summary>Returns the total effective earnings accumulated during the walk.</summary>
+        internal double GetTotalEffectiveEarnings()
+        {
+            return totalEffectiveEarnings;
+        }
+
+        /// <summary>Returns the total committed spendings computed by the pre-pass.</summary>
+        internal double GetTotalCommittedSpendings()
+        {
+            return totalCommittedSpendings;
         }
 
         /// <summary>Returns the number of tracked subjects (for diagnostics).</summary>
