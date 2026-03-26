@@ -1680,6 +1680,8 @@ Additionally: FlightRecorder `Recorded point` Verbose → VerboseRateLimited (5s
 
 **Round 3:** Serialization batch summaries. Removed 12 per-recording Verbose logs in RecordingStore + 2 per-recording metadata logs in ParsekScenario (~2,900 lines per save/load cycle). Added 4 batch summaries with aggregate counters. DeserializeSegmentEvents changed to Warn-only on skip.
 
+**Round 4:** Remaining spam from post-R3 analysis. SpawnWarning FormatChainStatus VRL'd (1,165 lines per-frame poll). Zone transitions Info→VRL shared key (501 lines, 248-line bursts). Scenario per-recording index dump Info→Verbose (390 lines). Per-recording "Loaded recording:" Info→Verbose (278 lines). "Triggering explosion" Info→VRL per-index 10s (406 lines). Net result: Parsek output rate dropped from 16,947/min (pre-fix) to 1,327/min (post-R3) — **92.2% reduction**.
+
 Full analysis in `docs/dev/log-audit-2026-03-25.md`.
 
 **Status:** Fixed

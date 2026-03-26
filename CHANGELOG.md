@@ -36,6 +36,14 @@ Log spam audit and cleanup. Analyzed a 28,923-line KSP.log from a 70-second KSC 
 - **4 batch summaries added** — standalone save/load and tree save/load now log one summary each with aggregate counters (points, orbit segments, part events, track sections, snapshots).
 - **DeserializeSegmentEvents** — changed from always-log to Warn-only when events are skipped.
 
+### Round 4 — Remaining Spam Sources
+
+- **SpawnWarning FormatChainStatus** — Verbose → VerboseRateLimited shared key. Per-frame poll logging identical status (1,165 lines, 802-line burst).
+- **Zone transition per-ghost** — Info → VerboseRateLimited shared key. 248-ghost bursts at scene switch collapsed to 1 line.
+- **Scenario per-recording index dump** — Info → Verbose. Summary header stays at Info; per-recording detail demoted.
+- **Per-recording "Loaded recording:"** — ScenarioLog (Info) → Verbose. Batch summary covers aggregates.
+- **"Triggering explosion"** — Info → VerboseRateLimited per-index 10s. Looping overlap re-explosions deduplicated.
+
 ### Documentation
 
 - Log audit report: `docs/dev/log-audit-2026-03-25.md`
