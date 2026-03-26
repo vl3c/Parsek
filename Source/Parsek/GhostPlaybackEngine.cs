@@ -1445,9 +1445,9 @@ namespace Parsek
                 ? state.reentryFxInfo.vesselLength
                 : GhostVisualBuilder.ComputeGhostLength(state.ghost);
 
-            ParsekLog.Info("Engine",
+            ParsekLog.VerboseRateLimited("ExplosionFx", $"trigger-{recIdx}",
                 $"Triggering explosion for ghost #{recIdx} \"{traj.VesselName}\" " +
-                $"at ({worldPos.x:F1},{worldPos.y:F1},{worldPos.z:F1}) vesselLength={vesselLength:F1}m");
+                $"at ({worldPos.x:F1},{worldPos.y:F1},{worldPos.z:F1}) vesselLength={vesselLength:F1}m", 10.0);
 
             var explosion = GhostVisualBuilder.SpawnExplosionFx(worldPos, vesselLength);
             if (explosion != null)

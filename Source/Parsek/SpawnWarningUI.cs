@@ -102,7 +102,7 @@ namespace Parsek
                     chain.SpawnUT.ToString("F0", IC));
             }
 
-            ParsekLog.Verbose(Tag,
+            ParsekLog.VerboseRateLimited(Tag, "chain-status",
                 string.Format(IC,
                     "FormatChainStatus: vessel={0} terminated={1} blocked={2} walkbackExhausted={3} -> \"{4}\"",
                     name, chain.IsTerminated, chain.SpawnBlocked, chain.WalkbackExhausted, status));

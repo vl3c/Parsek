@@ -563,7 +563,7 @@ namespace Parsek
                     status = "IN PROGRESS";
                 else
                     status = "past";
-                ParsekLog.Info("Scenario", $"  #{i}: \"{loadedRec.VesselName}\" — {status}");
+                ParsekLog.Verbose("Scenario", $"  #{i}: \"{loadedRec.VesselName}\" — {status}");
             }
 
             if (CrewReservationManager.CrewReplacements.Count > 0)
@@ -1174,7 +1174,7 @@ namespace Parsek
                 string chainInfo = !string.IsNullOrEmpty(rec.ChainId)
                     ? $", chain={rec.ChainId.Substring(0, System.Math.Min(8, rec.ChainId.Length))}../{rec.ChainIndex}" : "";
                 string enabledInfo = !rec.PlaybackEnabled ? ", DISABLED" : "";
-                ScenarioLog($"[Parsek Scenario] Loaded recording: {rec.VesselName}, " +
+                ParsekLog.Verbose("Scenario", $"Loaded recording: {rec.VesselName}, " +
                     $"{rec.Points.Count} points, {rec.OrbitSegments.Count} orbit segments" +
                     (rec.Points.Count > 0 ? $", UT {rec.StartUT:F0}-{rec.EndUT:F0}" : ", degraded (0 points)") +
                     (rec.VesselSnapshot != null ? " (vessel spawn)" :
