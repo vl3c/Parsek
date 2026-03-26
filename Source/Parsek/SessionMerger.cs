@@ -17,6 +17,8 @@ namespace Parsek
         /// <summary>
         /// Stock KSP body equatorial radii in meters. Used by ComputeBoundaryDiscontinuity
         /// for lat/lon-to-meters conversion on the correct body.
+        /// Modded bodies (RSS, Kopernicus) fall back to Kerbin radius — acceptable for
+        /// this diagnostic-only calculation.
         /// </summary>
         private static readonly Dictionary<string, double> BodyRadii = new Dictionary<string, double>
         {
