@@ -956,6 +956,7 @@ namespace Parsek
             GameStateRecorder.PendingScienceSubjects.Clear();
             PendingCleanupPids = null;
             PendingCleanupNames = null;
+            RewindQuicksaveVesselPids = null;
         }
 
         internal static void DeleteRecordingFiles(Recording rec)
@@ -1238,6 +1239,11 @@ namespace Parsek
         internal static HashSet<uint> PendingCleanupPids { get; set; }
         internal static HashSet<string> PendingCleanupNames { get; set; }
 
+        // PIDs of vessels that existed in the rewind quicksave.
+        // Used by StripFuturePrelaunchVessels to whitelist known-good PRELAUNCH vessels
+        // (e.g. the player's pad vessel) and strip only unknown ones from the future.
+        internal static HashSet<uint> RewindQuicksaveVesselPids { get; set; }
+
         /// <summary>
         /// Collects vessel names from ALL committed recordings (regardless of spawn state).
         /// Used during rewind to strip every vessel matching a recording name from flightState —
@@ -1445,6 +1451,7 @@ namespace Parsek
             RewindBaselineFunds = 0;
             RewindBaselineScience = 0;
             RewindBaselineRep = 0;
+            RewindQuicksaveVesselPids = null;
         }
 
         /// <summary>
@@ -1674,6 +1681,22 @@ namespace Parsek
                     $"Stripped {removedByName + removedByPid} vessel(s) from save " +
                     $"({removedByName} by name [{namesStr}], {removedByPid} by PID)");
             }
+
+            // Capture PIDs of surviving vessels in the quicksave.
+            // Used by StripFuturePrelaunchVessels to whitelist known-good PRELAUNCH
+            // vessels and strip only unknown ones that appeared after the rewind point.
+            var survivingPids = new HashSet<uint>();
+            var survivingNodes = flightState.GetNodes("VESSEL");
+            for (int s = 0; s < survivingNodes.Length; s++)
+            {
+                uint spid;
+                if (uint.TryParse(survivingNodes[s].GetValue("persistentId"), out spid))
+                    survivingPids.Add(spid);
+            }
+            RewindQuicksaveVesselPids = survivingPids.Count > 0 ? survivingPids : null;
+            if (!SuppressLogging)
+                ParsekLog.Info("Rewind",
+                    $"Captured {survivingPids.Count} surviving vessel PID(s) from quicksave");
 
             root.Save(sfsPath);
         }

@@ -685,6 +685,24 @@ namespace Parsek
                 "OnLoad: cleared PendingCleanupPids/Names after strip — " +
                 "prevents OnFlightReady from destroying freshly-spawned past vessels");
 
+            // Strip PRELAUNCH vessels from the future (bug #129).
+            // StripOrphanedSpawnedVessels filters by name — unrecorded PRELAUNCH vessels
+            // (e.g. a pad vessel from a later launch) fail the name check and survive.
+            // Use the quicksave PID whitelist to identify and remove them.
+            var quicksavePids = RecordingStore.RewindQuicksaveVesselPids;
+            if (quicksavePids != null)
+            {
+                var fs = HighLogic.CurrentGame?.flightState;
+                if (fs != null)
+                {
+                    int prelaunchStripped = StripFuturePrelaunchVessels(fs.protoVessels, quicksavePids);
+                    if (prelaunchStripped > 0)
+                        ParsekLog.Info("Rewind",
+                            $"Stripped {prelaunchStripped} future PRELAUNCH vessel(s)");
+                }
+                RecordingStore.RewindQuicksaveVesselPids = null;
+            }
+
             // Set budgetDeductionEpoch BEFORE scheduling coroutine
             // (prevents ApplyBudgetDeductionWhenReady from double-deducting)
             budgetDeductionEpoch = MilestoneStore.CurrentEpoch;
@@ -744,6 +762,7 @@ namespace Parsek
                 RecordingStore.RewindBaselineFunds = 0;
                 RecordingStore.RewindBaselineScience = 0;
                 RecordingStore.RewindBaselineRep = 0;
+                RecordingStore.RewindQuicksaveVesselPids = null;
             }
         }
 
@@ -1277,6 +1296,52 @@ namespace Parsek
                     $"StripOrphanedSpawnedVessels: removed {stripped} vessel(s) from flightState");
 
             return stripped;
+        }
+
+        /// <summary>
+        /// Strips PRELAUNCH vessels whose persistentId is NOT in the quicksave whitelist.
+        /// These are pad vessels from a future launch that persisted through rewind because
+        /// StripOrphanedSpawnedVessels only filters by name — unrecorded PRELAUNCH vessels
+        /// fail the name check and survive.
+        /// </summary>
+        /// <param name="protoVessels">The flightState's protoVessels list (modified in-place).</param>
+        /// <param name="quicksavePids">PIDs of vessels that existed in the rewind quicksave.</param>
+        internal static int StripFuturePrelaunchVessels(
+            List<ProtoVessel> protoVessels, HashSet<uint> quicksavePids)
+        {
+            if (protoVessels == null || quicksavePids == null)
+                return 0;
+
+            int stripped = 0;
+            for (int i = protoVessels.Count - 1; i >= 0; i--)
+            {
+                var pv = protoVessels[i];
+                if (!ShouldStripFuturePrelaunch(pv.situation, pv.persistentId, quicksavePids))
+                    continue;
+
+                ParsekLog.Info("Scenario",
+                    $"Stripping future PRELAUNCH vessel '{pv.vesselName}' " +
+                    $"(pid={pv.persistentId}) — not in quicksave whitelist");
+                protoVessels.RemoveAt(i);
+                stripped++;
+            }
+
+            return stripped;
+        }
+
+        /// <summary>
+        /// Pure decision: should this vessel be stripped as a future PRELAUNCH vessel?
+        /// Returns true if the vessel is PRELAUNCH and its PID is not in the quicksave whitelist.
+        /// Extracted for testability (ProtoVessel can't be constructed outside KSP).
+        /// </summary>
+        internal static bool ShouldStripFuturePrelaunch(
+            Vessel.Situations situation, uint persistentId, HashSet<uint> quicksavePids)
+        {
+            if (quicksavePids == null)
+                return false;
+            if (situation != Vessel.Situations.PRELAUNCH)
+                return false;
+            return !quicksavePids.Contains(persistentId);
         }
 
         private static void SaveStandaloneRecordings(ConfigNode node, List<Recording> recordings)
