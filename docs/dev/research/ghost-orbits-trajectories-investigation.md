@@ -76,33 +76,68 @@ The "Beyond" zone explicitly says "position tracked for map view only" — this 
 
 `GhostSoftCapManager` has a `SimplifyToOrbitLine` action (enum value 2) that hides ghost meshes and is supposed to show orbit lines instead. Currently the mesh hiding works but the orbit line rendering is a placeholder — the exact gap this feature would fill.
 
-## KSP API Investigation Areas
+## KSP API Investigation Results
 
-### Approach 1: Lightweight ProtoVessel (Recommended for investigation)
+### Critical Finding: No Map Presence Without a Real Vessel
+
+Research confirms: **there is no way to have map/tracking station presence without a real `Vessel` in `FlightGlobals.Vessels`**. The tracking station reads from `FlightGlobals.Vessels` directly. `MapObject.ObjectType` is a closed enum (`Vessel`, `CelestialBody`, `ManeuverNode`) — mods cannot add new types. Any ghost that needs to appear in tracking station or have a clickable map icon must be backed by an actual Vessel object.
+
+This resolves the "ProtoVessel vs custom" question decisively in favor of ProtoVessel.
+
+### Approach 1: Lightweight ProtoVessel (RECOMMENDED)
 
 Create a minimal `ProtoVessel` per ghost with orbital data. This gives:
 - Automatic tracking station entry
-- Automatic map view icon (clickable `MapObject`)
-- Automatic orbit line via `OrbitRenderer`
-- ITargetable support (vessels implement `ITargetable`)
-- All KSP native tools work (closest approach, distance readouts)
+- Automatic map view icon (clickable `MapObject` via `vessel.mapObject`)
+- Automatic orbit line via `OrbitRenderer` (managed by `OrbitDriver`)
+- `ITargetable` support (Vessel implements ITargetable)
+- All KSP native tools work (closest approach, distance readouts, navball markers)
 
-**How it works:**
-```
-ConfigNode vesselNode → ProtoVessel → flightState.protoVessels.Add → pv.Load
+**Contract Configurator pattern** (the canonical reference for lightweight vessel creation):
+```csharp
+// Create orbit from Keplerian elements
+Orbit orbit = new Orbit(inc, ecc, sma, lan, argPe, mna, epoch, body);
+
+// Build minimal part nodes (single lightweight part)
+ConfigNode[] partNodes = /* single probe core or structural part */;
+
+// Discovery info for tracking station visibility
+ConfigNode discoveryNode = ProtoVessel.CreateDiscoveryNode(
+    DiscoveryLevels.Owned, UntrackedObjectClass.A, lifetime, maxLifetime);
+
+// Create vessel node
+ConfigNode protoVesselNode = ProtoVessel.CreateVesselNode(
+    name, vesselType, orbit, 0, partNodes,
+    new ConfigNode[] { discoveryNode });
+
+// Register with game — this creates a Vessel with mapObject, OrbitDriver, etc.
+ProtoVessel protoVessel = new ProtoVessel(protoVesselNode, HighLogic.CurrentGame);
+protoVessel.Load(HighLogic.CurrentGame.flightState);
 ```
 
 Parsek already does this for chain-tip spawns (`VesselSpawner.RespawnVessel`). The difference: a "map-only" ghost ProtoVessel would be:
-- Minimal part tree (single part or even partless)
-- Marked with a distinct vessel type (e.g., `VesselType.Unknown` or custom)
+- Minimal part tree (single part — e.g., a probe core)
+- Marked with a distinct vessel type (e.g., `VesselType.Probe` or `VesselType.Unknown`)
 - Orbit data from recording's terminal orbital elements
 - `DiscoveryLevels.Owned` for tracking station visibility
+- Name prefixed/suffixed to indicate ghost status (e.g., "[Ghost] Station Alpha")
+
+**OrbitDriver.UpdateMode** controls orbit propagation:
+- `UPDATE` (1) — Keplerian propagation (on-rails). This is what ghost vessels need.
+- `TRACK_Phys` (0) — physics-driven. Not needed for ghosts.
+- `IDLE` (2) — not updating.
+
+**Discovery system controls visibility:**
+- `DiscoveryLevels.Owned` — fully visible in tracking station
+- `UntrackedObjectClass.A` through `I` — size classification
+- Created via `ProtoVessel.CreateDiscoveryNode(level, sizeClass, lifetime, maxLifetime)`
 
 **Concerns:**
 - ProtoVessel creation is "heavy" — Section 13.2 design constraint says *"ProtoVessel creation is acceptable ONLY for unloaded chain-tip spawns and tracking station entries"*. Map-only ghosts fit this exception.
 - Must be carefully lifecycle-managed: created when ghost becomes active, removed when chain resolves
 - PID collision risks (same fix as `RegenerateVesselIdentity`)
 - Performance with many ghost ProtoVessels (soft cap already limits ghost count)
+- If player flies near ghost ProtoVessel, KSP may try to load it — must prevent or handle
 
 ### Approach 2: Custom OrbitRenderer + MapNode
 
@@ -112,19 +147,19 @@ Create orbit lines and map icons without a ProtoVessel:
 - Create custom `MapNode` for clickable icon
 
 **Pros:** Lighter weight, no vessel system pollution
-**Cons:** Much more API surface to implement, targeting won't work natively (need custom `ITargetable`), no tracking station entry without more work
+**Cons:** `MapObject.ObjectType` is a closed enum — can't create custom map object types. No tracking station entry without a Vessel. Targeting needs custom `ITargetable` implementation. **Effectively a dead end for most features we need.**
 
-### Approach 3: GL Line Drawing (Trajectories mod approach)
+### Approach 3: Procedural Mesh Rendering (Trajectories mod approach)
 
-The KSPTrajectories mod draws trajectory predictions directly using OpenGL:
-- `MapOverlay.cs` hooks into `OnPostRender` of `PlanetariumCamera`
-- Uses `GLUtils.DrawPath` with `GL.Begin(GL.LINE_STRIP)`
-- Creates a `Material` with a line shader
-- Converts orbital positions to `ScaledSpace` coordinates
-- Draws independently of KSP's orbit rendering system
+The KSPTrajectories mod draws trajectory predictions using procedural mesh ribbons:
+- `MapOverlay.cs` attaches a `MonoBehaviour` to `PlanetariumCamera.Camera.gameObject`
+- Uses `MapView.fetch.orbitLinesMaterial` for stock-matching appearance
+- Builds triangle-strip meshes in `OnPreRender` with screen-space ribbon width
+- Respects `MapView.Draw3DLines` (layer 24 for 3D, layer 31 for 2D)
+- Converts positions via `ScaledSpace.LocalToScaledSpace()`
 
-**Pros:** Full control over visual style, no vessel system interaction
-**Cons:** No native KSP interaction (clicking, targeting), doesn't appear in tracking station, significant rendering code to write
+**Pros:** Full control over visual style, works for non-Keplerian trajectories
+**Cons:** No native KSP interaction (clicking, targeting), doesn't appear in tracking station, significant rendering code
 
 ### Approach 4: Hybrid
 
@@ -136,16 +171,37 @@ This is likely the best approach: get full KSP integration via ProtoVessel, then
 
 ## ITargetable Interface (for rendezvous targeting)
 
-KSP vessels implement `ITargetable` which provides:
-- `GetName()` — display name
-- `GetVessel()` — owning vessel
-- `GetOrbit()` — orbital data
-- `GetTransform()` — world transform for position
-- `GetObtVelocity()` — orbital velocity
-- `GetSrfVelocity()` — surface velocity
-- `GetFwdVector()` — forward direction
+KSP's `ITargetable` interface (reconstructed from decompiled code and mod usage):
+```csharp
+public interface ITargetable
+{
+    Vector3 GetFwdVector();
+    string GetName();
+    string GetDisplayName();
+    Vessel GetVessel();
+    VesselTargetModes GetTargetingMode();
+    bool GetActiveTargetable();
+    Orbit GetOrbit();
+    OrbitDriver GetOrbitDriver();
+    Transform GetTransform();
+    Vector3d GetObtVelocity();
+    Vector3d GetSrfVelocity();
+}
+```
 
-If using the ProtoVessel approach, `ITargetable` comes for free via `Vessel`. If using custom approach, would need to implement this interface on a ghost wrapper object and register it with `FlightGlobals.fetch.SetVesselTarget()`.
+**Stock implementors:** `Vessel`, `CelestialBody`, `ModuleDockingNode`.
+
+**`FlightGlobals.fetch.SetVesselTarget(ITargetable tgt)`** accepts any `ITargetable`. This means:
+- With ProtoVessel approach: targeting comes **free** — `Vessel` implements `ITargetable`
+- Without ProtoVessel: would need a custom `ITargetable` implementation wrapping ghost orbit data
+
+**Critical methods for rendezvous:**
+- `GetOrbit()` — needed for intercept/closest-approach calculations
+- `GetTransform()` — needed for navball direction vectors
+- `GetTargetingMode()` — return `DirectionAndVelocity` for rendezvous
+- `GetVessel()` — can return null for non-vessel targets (CelestialBody does this)
+
+Since the ProtoVessel approach creates a real `Vessel`, all targeting works natively without custom code.
 
 ## KSPTrajectories Mod — Detailed Analysis
 
