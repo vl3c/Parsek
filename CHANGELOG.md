@@ -17,6 +17,8 @@ All notable changes to Parsek are documented here.
 - **Fix #48: Use actual body radius in ComputeBoundaryDiscontinuity.** Replaced hardcoded Kerbin radius (600,000m) with lookup from static dictionary of 17 stock KSP body radii. Diagnostic-only fix — logged discontinuity magnitude is now accurate on all bodies.
 - **Fix #77: Use InvariantCulture for TerrainCorrector log formatting.** Replaced 8 `{val:F1}` interpolation sites with `.ToString("F1", IC)` to prevent comma-decimal output on non-English locales.
 - **Fix #73: Filter vessel types in CheckWarningProximity.** Extracted `ShouldSkipVesselType` helper (Debris/EVA/Flag/SpaceObject) shared between `CheckOverlapAgainstLoadedVessels` and `CheckWarningProximity`.
+- **Fix #129: Strip future PRELAUNCH vessels on rewind.** Unrecorded pad vessels from the future persisted after rewind because `StripOrphanedSpawnedVessels` only matched recorded names. Added PID-based quicksave whitelist: `PreProcessRewindSave` captures surviving vessel PIDs, `HandleRewindOnLoad` strips any PRELAUNCH vessel not in the whitelist.
+- **Fix #137: Rescue reserved crew from Missing after EVA vessel removal.** `vessel.Unload()` in `RemoveReservedEvaVessels` orphaned crew → KSP set them Missing. Added `RescueReservedCrewAfterEvaRemoval` to restore Missing→Assigned for crew in `crewReplacements` dict.
 
 ### Previously Fixed (Confirmed)
 
