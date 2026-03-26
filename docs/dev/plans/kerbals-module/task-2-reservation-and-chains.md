@@ -212,8 +212,11 @@ private static void ComputeRetiredSet()
                     $"Retired: '{standIn}' (used in recording, displaced by predecessor)");
             }
 
-            // Next predecessor is free only if this one is also free
-            predecessorFree = predecessorFree || !isReserved;
+            // For the next entry: predecessor is free if BOTH the current
+            // predecessor was free AND this entry is also free.
+            // Once we hit a reserved entry, nothing deeper is displaced.
+            if (!predecessorFree || isReserved)
+                predecessorFree = false;
         }
     }
 }
@@ -605,6 +608,23 @@ namespace Parsek.Tests
             Assert.False(KerbalsModule.IsManaged("Val"));
         }
 
+        [Fact]
+        public void Recalculate_OwnerDead_NoChainGenerated()
+        {
+            // Fails if dead owner gets a stand-in → slot should exit chain system
+            var rec = MakeRecording("Ship", new[] { "Jeb" },
+                TerminalState.Destroyed, 1000);
+            RecordingStore.AddCommittedForTesting(rec);
+
+            KerbalsModule.Recalculate();
+
+            // Jeb is permanently reserved
+            Assert.True(KerbalsModule.Reservations["Jeb"].IsPermanent);
+            // No chain generated for permanently gone owner
+            if (KerbalsModule.Slots.ContainsKey("Jeb"))
+                Assert.True(KerbalsModule.Slots["Jeb"].OwnerPermanentlyGone);
+        }
+
         // --- Serialization ---
 
         [Fact]
@@ -703,7 +723,13 @@ namespace Parsek.Tests
 8. Implement `FindTraitForKerbal()` helper
 9. Implement `SaveSlots()`/`LoadSlots()` with backward compat migration
 10. Implement `ResetForTesting()`
-11. Add `RecordingStore.AddCommittedForTesting(rec)` helper if not already present
+11. Add `RecordingStore.AddCommittedForTesting(rec)` helper — adds a recording directly to the private `committedRecordings` list:
+    ```csharp
+    internal static void AddCommittedForTesting(Recording rec)
+    {
+        committedRecordings.Add(rec);
+    }
+    ```
 12. Create `KerbalReservationTests.cs` — all tests
 13. `dotnet build` + `dotnet test`
 

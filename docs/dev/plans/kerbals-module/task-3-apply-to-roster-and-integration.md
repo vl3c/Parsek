@@ -113,8 +113,7 @@ internal static void ApplyToRoster(KerbalRoster roster)
         }
 
         // Step 3: Set roster statuses and populate crewReplacements bridge
-        CrewReservationManager.ResetReplacementsForTesting(); // clear existing dict
-        // NOTE: In production, use an internal method to clear without the test guard
+        CrewReservationManager.ClearReplacementsInternal();
 
         foreach (var kvp in reservations)
         {
@@ -235,16 +234,16 @@ namespace Parsek.Patches
     [HarmonyPatch(typeof(KerbalRoster), nameof(KerbalRoster.Remove))]
     internal static class KerbalDismissalPatch
     {
-        static bool Prefix(ProtoCrewMember %.crew)
+        static bool Prefix(ProtoCrewMember crew)
         {
             // Allow Parsek's own cleanup calls
             if (GameStateRecorder.SuppressCrewEvents) return true;
             if (GameStateRecorder.IsReplayingActions) return true;
 
-            if (KerbalsModule.IsManaged(%.crew.name))
+            if (KerbalsModule.IsManaged(crew.name))
             {
                 ParsekLog.Info("KerbalDismissal",
-                    $"Blocked dismissal of '{%.crew.name}' — managed by Parsek");
+                    $"Blocked dismissal of '{crew.name}' — managed by Parsek");
                 // TODO Phase B: show popup dialog like CommittedActionDialog
                 return false;
             }
@@ -279,16 +278,42 @@ Register in `ParsekHarmony.cs` — the existing Harmony patcher auto-discovers `
 
 **Call sites that currently LACK crew handling (add `RecalculateAndApply`):**
 
-| File | Method | Action |
-|------|--------|--------|
-| `ParsekFlight.cs:1190` | Auto-merge tree on destruction | Add |
-| `ParsekFlight.cs:1931` | Vessel destroyed during split | Add |
-| `ParsekFlight.cs:4629` | CommitFlight button | Add (after existing `ReserveCrewForLeaves`) |
-| `ParsekFlight.cs:7756` | CommitOrShowDialog auto-merge | Add |
-| `ParsekScenario.cs:489` | Auto-commit ghost-only | Add |
-| `ChainSegmentManager.cs:414` | Chain segment commit | Add |
+| File | Line(s) | Method | Action |
+|------|---------|--------|--------|
+| `ParsekFlight.cs` | 1190 | Auto-merge tree on destruction | Add |
+| `ParsekFlight.cs` | 1931 | Vessel destroyed during split | Add |
+| `ParsekFlight.cs` | 4629 | CommitFlight button | Add (after existing `ReserveCrewForLeaves`) |
+| `ParsekFlight.cs` | 7756 | CommitOrShowDialog auto-merge | Add |
+| `ParsekScenario.cs` | 37, 44 | Safety-net OnSave commits | Add |
+| `ParsekScenario.cs` | 489, 495 | Auto-commit ghost-only/tree | Add |
+| `ParsekScenario.cs` | 593, 606 | Outside-Flight autocommit | Add |
+| `ParsekScenario.cs` | 813 | EVA child auto-commit in deferred merge | Add |
+| `ChainSegmentManager.cs` | 414 | Chain segment commit | Add |
 
 **ParsekFlight.ReserveCrewForLeaves (line 4694):** This calls `ReserveCrewIn` for individual tree leaves. Replace with `RecalculateAndApply()` after `CommitTree` — the recalculation handles all leaves.
+
+**`PopulateCrewEndStates` call:** Add to the `RecalculateAndApply()` method itself, BEFORE `Recalculate()`. For each committed recording that has a null `CrewEndStates` and a non-null `VesselSnapshot`, call `PopulateCrewEndStates(rec)`:
+
+```csharp
+internal static void RecalculateAndApply()
+{
+    var roster = HighLogic.CurrentGame?.CrewRoster;
+    if (roster == null) return;
+
+    // Populate end states on any recording that hasn't been populated yet
+    for (int i = 0; i < RecordingStore.CommittedRecordings.Count; i++)
+    {
+        var rec = RecordingStore.CommittedRecordings[i];
+        if (rec.CrewEndStates == null && rec.VesselSnapshot != null)
+            PopulateCrewEndStates(rec);
+    }
+
+    Recalculate();
+    ApplyToRoster(roster);
+}
+```
+
+This ensures end states are populated on first recalculation after commit, and also handles legacy recordings loaded from saves (they have no `CrewEndStates` yet).
 
 ---
 
@@ -310,7 +335,16 @@ In `ParsekScenario.OnLoad`:
 KerbalsModule.LoadSlots(node);
 ```
 
-In rewind path (`HandleRewindOnLoad`): skip `LoadSlots` (same as existing `LoadCrewReplacements` skip — in-memory state is authoritative during rewind).
+In rewind path (`HandleRewindOnLoad`): skip `LoadSlots` (same as existing `LoadCrewReplacements` skip at line 214 — in-memory state is authoritative during rewind). Add the guard:
+
+```csharp
+// In OnLoad, around line 214-218:
+if (!RecordingStore.IsRewinding)
+{
+    CrewReservationManager.LoadCrewReplacements(node);
+    KerbalsModule.LoadSlots(node);  // NEW: load alongside crew replacements
+}
+```
 
 ---
 
