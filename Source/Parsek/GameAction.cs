@@ -296,6 +296,22 @@ namespace Parsek
         public float InitialFunds;
 
         // ================================================================
+        // Derived fields — set during recalculation walk, NOT serialized
+        // ================================================================
+
+        /// <summary>
+        /// Science actually credited after applying subject cap headroom.
+        /// Set by ScienceModule during recalculation walk. Always derived, never stored.
+        /// </summary>
+        [NonSerialized] public float EffectiveScience;
+
+        /// <summary>
+        /// Whether a spending action was affordable at the time it was processed in the walk.
+        /// Set by resource modules during recalculation walk. Always derived, never stored.
+        /// </summary>
+        [NonSerialized] public bool Affordable;
+
+        // ================================================================
         // Serialization
         // ================================================================
 

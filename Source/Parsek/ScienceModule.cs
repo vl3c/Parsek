@@ -1,0 +1,203 @@
+using System;
+using System.Collections.Generic;
+using System.Globalization;
+
+namespace Parsek
+{
+    /// <summary>
+    /// Science resource module — tracks per-subject credited totals and running science balance.
+    /// Implements the hard-cap walk from design doc section 4.6:
+    ///   - For each ScienceEarning: headroom = maxValue - creditedTotal, effectiveScience = min(awarded, headroom)
+    ///   - For each ScienceSpending: check affordability, deduct from running balance
+    ///
+    /// Pure computation — no KSP state access.
+    /// </summary>
+    internal class ScienceModule : IResourceModule
+    {
+        private static readonly CultureInfo IC = CultureInfo.InvariantCulture;
+
+        /// <summary>Per-subject tracking state for the hard-cap walk.</summary>
+        internal struct SubjectState
+        {
+            /// <summary>Total science credited to this subject across all recordings so far in the walk.</summary>
+            public double CreditedTotal;
+
+            /// <summary>Maximum science this subject can yield (scienceCap).</summary>
+            public double MaxValue;
+        }
+
+        /// <summary>Per-subject state keyed by subjectId.</summary>
+        private readonly Dictionary<string, SubjectState> subjects = new Dictionary<string, SubjectState>();
+
+        /// <summary>Accumulated effective science balance (earnings minus spendings).</summary>
+        private double runningScience;
+
+        // ================================================================
+        // IResourceModule
+        // ================================================================
+
+        /// <summary>
+        /// Resets all derived state before a recalculation walk.
+        /// Clears per-subject credited totals and resets running science to 0.
+        /// </summary>
+        public void Reset()
+        {
+            int subjectCount = subjects.Count;
+            subjects.Clear();
+            runningScience = 0.0;
+
+            ParsekLog.Verbose("ScienceModule",
+                $"Reset: cleared {subjectCount} subjects, runningScience=0");
+        }
+
+        /// <summary>
+        /// Processes a single game action during the recalculation walk.
+        /// Handles ScienceEarning and ScienceSpending; ignores all other action types.
+        /// </summary>
+        public void ProcessAction(GameAction action)
+        {
+            if (action == null)
+                return;
+
+            switch (action.Type)
+            {
+                case GameActionType.ScienceEarning:
+                    ProcessEarning(action);
+                    break;
+                case GameActionType.ScienceSpending:
+                    ProcessSpending(action);
+                    break;
+                // All other action types: ignore silently
+            }
+        }
+
+        // ================================================================
+        // Earning
+        // ================================================================
+
+        /// <summary>
+        /// Processes a ScienceEarning action: applies the subject hard cap, computes effective science,
+        /// updates the credited total and running balance. Sets <see cref="GameAction.EffectiveScience"/>.
+        /// </summary>
+        internal void ProcessEarning(GameAction action)
+        {
+            string subjectId = action.SubjectId ?? "";
+            float scienceAwarded = action.ScienceAwarded;
+            float subjectMaxValue = action.SubjectMaxValue;
+
+            // Get or initialize subject state
+            SubjectState state;
+            if (!subjects.TryGetValue(subjectId, out state))
+            {
+                state = new SubjectState
+                {
+                    CreditedTotal = 0.0,
+                    MaxValue = subjectMaxValue
+                };
+            }
+
+            // Update maxValue if the incoming action reports a higher cap
+            // (in practice this should be consistent, but be defensive)
+            if (subjectMaxValue > state.MaxValue)
+                state.MaxValue = subjectMaxValue;
+
+            // Hard cap walk: headroom = maxValue - creditedTotal
+            double headroom = state.MaxValue - state.CreditedTotal;
+            if (headroom < 0.0) headroom = 0.0;
+
+            double effectiveScience = Math.Min((double)scienceAwarded, headroom);
+            if (effectiveScience < 0.0) effectiveScience = 0.0;
+
+            // Update state
+            state.CreditedTotal += effectiveScience;
+            subjects[subjectId] = state;
+            runningScience += effectiveScience;
+
+            // Set derived field on the action
+            action.EffectiveScience = (float)effectiveScience;
+
+            // Log — always log earnings (bounded by number of science actions, not per-frame)
+            bool capHit = effectiveScience < (double)scienceAwarded;
+            if (capHit)
+            {
+                ParsekLog.Verbose("ScienceModule",
+                    $"Earning (cap hit): subject={subjectId}, awarded={scienceAwarded.ToString("R", IC)}, " +
+                    $"effective={effectiveScience.ToString("R", IC)}, headroom={headroom.ToString("R", IC)}, " +
+                    $"creditedTotal={state.CreditedTotal.ToString("R", IC)}, " +
+                    $"maxValue={state.MaxValue.ToString("R", IC)}, " +
+                    $"runningScience={runningScience.ToString("R", IC)}, " +
+                    $"recordingId={action.RecordingId ?? "(none)"}");
+            }
+            else
+            {
+                ParsekLog.Verbose("ScienceModule",
+                    $"Earning: subject={subjectId}, awarded={scienceAwarded.ToString("R", IC)}, " +
+                    $"effective={effectiveScience.ToString("R", IC)}, " +
+                    $"creditedTotal={state.CreditedTotal.ToString("R", IC)}, " +
+                    $"maxValue={state.MaxValue.ToString("R", IC)}, " +
+                    $"runningScience={runningScience.ToString("R", IC)}, " +
+                    $"recordingId={action.RecordingId ?? "(none)"}");
+            }
+        }
+
+        // ================================================================
+        // Spending
+        // ================================================================
+
+        /// <summary>
+        /// Processes a ScienceSpending action: checks affordability, deducts from running balance.
+        /// Sets <see cref="GameAction.Affordable"/>.
+        /// </summary>
+        internal void ProcessSpending(GameAction action)
+        {
+            float cost = action.Cost;
+            bool affordable = runningScience >= (double)cost;
+
+            action.Affordable = affordable;
+
+            if (affordable)
+            {
+                runningScience -= (double)cost;
+
+                ParsekLog.Verbose("ScienceModule",
+                    $"Spending: nodeId={action.NodeId ?? "(none)"}, cost={cost.ToString("R", IC)}, " +
+                    $"affordable=true, runningScience={runningScience.ToString("R", IC)}");
+            }
+            else
+            {
+                ParsekLog.Warn("ScienceModule",
+                    $"Spending NOT affordable: nodeId={action.NodeId ?? "(none)"}, cost={cost.ToString("R", IC)}, " +
+                    $"runningScience={runningScience.ToString("R", IC)} — possible bug or data corruption");
+            }
+        }
+
+        // ================================================================
+        // Query methods
+        // ================================================================
+
+        /// <summary>Returns the current running science balance.</summary>
+        internal double GetRunningScience()
+        {
+            return runningScience;
+        }
+
+        /// <summary>
+        /// Returns the credited total for a specific subject.
+        /// Returns 0 if the subject has not been seen.
+        /// </summary>
+        internal double GetSubjectCredited(string subjectId)
+        {
+            if (subjectId == null)
+                return 0.0;
+
+            SubjectState state;
+            if (subjects.TryGetValue(subjectId, out state))
+                return state.CreditedTotal;
+
+            return 0.0;
+        }
+
+        /// <summary>Returns the number of tracked subjects (for diagnostics).</summary>
+        internal int SubjectCount => subjects.Count;
+    }
+}
