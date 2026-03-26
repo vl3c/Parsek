@@ -1210,6 +1210,37 @@ namespace Parsek
                         rec.LastAppliedResourceIndex = resIdx;
                 }
 
+                // Restore IsDebris flag
+                string isDebrisStr = recNode.GetValue("isDebris");
+                if (isDebrisStr != null)
+                {
+                    bool isDebris;
+                    if (bool.TryParse(isDebrisStr, out isDebris))
+                        rec.IsDebris = isDebris;
+                }
+
+                // Restore controller info (v6+)
+                ConfigNode[] ctrlNodes = recNode.GetNodes("CONTROLLER");
+                if (ctrlNodes.Length > 0)
+                {
+                    rec.Controllers = new List<ControllerInfo>(ctrlNodes.Length);
+                    for (int i = 0; i < ctrlNodes.Length; i++)
+                    {
+                        var ctrl = new ControllerInfo();
+                        ctrl.type = ctrlNodes[i].GetValue("type") ?? "";
+                        ctrl.partName = ctrlNodes[i].GetValue("part") ?? "";
+                        uint ctrlPid;
+                        if (uint.TryParse(ctrlNodes[i].GetValue("pid"), NumberStyles.Integer, CultureInfo.InvariantCulture, out ctrlPid))
+                            ctrl.partPersistentId = ctrlPid;
+                        rec.Controllers.Add(ctrl);
+                    }
+                }
+
+                // Restore background surface position
+                ConfigNode spNode = recNode.GetNode("SURFACE_POSITION");
+                if (spNode != null)
+                    rec.SurfacePos = SurfacePosition.LoadFrom(spNode);
+
                 // Always add — even degraded recordings (missing .prec → 0 points)
                 // must occupy their slot to preserve index-based revert mapping.
                 recordings.Add(rec);
@@ -1482,6 +1513,29 @@ namespace Parsek
 
                 // Persist resource index so quickload doesn't re-apply deltas
                 recNode.AddValue("lastResIdx", rec.LastAppliedResourceIndex);
+
+                // Persist IsDebris flag
+                if (rec.IsDebris)
+                    recNode.AddValue("isDebris", rec.IsDebris.ToString());
+
+                // Persist controller info (v6+)
+                if (rec.Controllers != null)
+                {
+                    for (int i = 0; i < rec.Controllers.Count; i++)
+                    {
+                        var ctrlNode = recNode.AddNode("CONTROLLER");
+                        ctrlNode.AddValue("type", rec.Controllers[i].type ?? "");
+                        ctrlNode.AddValue("part", rec.Controllers[i].partName ?? "");
+                        ctrlNode.AddValue("pid", rec.Controllers[i].partPersistentId.ToString(CultureInfo.InvariantCulture));
+                    }
+                }
+
+                // Persist background surface position
+                if (rec.SurfacePos.HasValue)
+                {
+                    var spNode = recNode.AddNode("SURFACE_POSITION");
+                    SurfacePosition.SaveInto(spNode, rec.SurfacePos.Value);
+                }
             }
             ParsekLog.Verbose("Scenario",
                 $"Saved {count} standalone recordings: {totalPoints} points, {totalOrbitSegments} orbit segments, " +
