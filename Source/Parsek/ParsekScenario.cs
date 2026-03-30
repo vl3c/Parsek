@@ -384,18 +384,31 @@ namespace Parsek
                             $"{spawnedPids?.Count ?? 0} pid(s), {spawnedNames?.Count ?? 0} name(s)");
                     }
 
-                    // Clear pending tree/recording from previous flight — dialog was shown
+                    // Clear pending tree/recording from a PREVIOUS flight — dialog was shown
                     // but user reverted before acting on it. Prevents OnFlightReady fallback
                     // from showing the dialog again (#64).
-                    if (RecordingStore.HasPendingTree)
+                    // However, if the pending was stashed during THIS scene transition
+                    // (OnSceneChangeRequested → StashPending/StashPendingTree), it is fresh
+                    // and must survive so OnFlightReady can show the merge dialog.
+                    if (RecordingStore.PendingStashedThisTransition)
                     {
-                        ParsekLog.Info("Scenario", "Clearing orphaned pending tree on revert");
-                        RecordingStore.DiscardPendingTree();
+                        ParsekLog.Info("Scenario",
+                            "Revert: keeping freshly-stashed pending (stashed this transition) — " +
+                            $"tree={RecordingStore.HasPendingTree}, standalone={RecordingStore.HasPending}");
+                        RecordingStore.PendingStashedThisTransition = false;
                     }
-                    if (RecordingStore.HasPending)
+                    else
                     {
-                        ParsekLog.Info("Scenario", "Clearing orphaned pending recording on revert");
-                        RecordingStore.DiscardPending();
+                        if (RecordingStore.HasPendingTree)
+                        {
+                            ParsekLog.Info("Scenario", "Clearing orphaned pending tree on revert (stale from previous flight)");
+                            RecordingStore.DiscardPendingTree();
+                        }
+                        if (RecordingStore.HasPending)
+                        {
+                            ParsekLog.Info("Scenario", "Clearing orphaned pending recording on revert (stale from previous flight)");
+                            RecordingStore.DiscardPending();
+                        }
                     }
                 }
 

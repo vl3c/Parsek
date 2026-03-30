@@ -66,6 +66,12 @@ namespace Parsek
             return MergeDefault.Persist;
         }
 
+        // Set true by StashPending / StashPendingTree during OnSceneChangeRequested.
+        // Checked by ParsekScenario.OnLoad to distinguish a freshly-stashed pending
+        // (from the current revert — should show dialog) from a stale pending left
+        // over from a previous flight (should be discarded per #64).
+        internal static bool PendingStashedThisTransition;
+
         // Just-finished recording awaiting user decision (merge or discard)
         private static Recording pendingRecording;
 
@@ -186,6 +192,8 @@ namespace Parsek
                     : new List<TrackSection>(),
                 VesselName = vesselName
             };
+
+            PendingStashedThisTransition = true;
 
             Log($"[Parsek] Stashed pending recording: {points.Count} points, " +
                 $"{pendingRecording.OrbitSegments.Count} orbit segments from {vesselName}");
@@ -361,7 +369,10 @@ namespace Parsek
         {
             pendingTree = tree;
             if (tree != null)
+            {
+                PendingStashedThisTransition = true;
                 Log($"[Parsek] Stashed pending tree '{tree.TreeName}' ({tree.Recordings.Count} recordings)");
+            }
         }
 
         /// <summary>
@@ -957,6 +968,7 @@ namespace Parsek
             PendingCleanupPids = null;
             PendingCleanupNames = null;
             RewindQuicksaveVesselPids = null;
+            PendingStashedThisTransition = false;
         }
 
         internal static void DeleteRecordingFiles(Recording rec)
