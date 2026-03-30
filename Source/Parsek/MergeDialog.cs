@@ -14,6 +14,12 @@ namespace Parsek
         private const string MergeLockId = "ParsekMergeDialog";
 
         /// <summary>
+        /// Fired after a tree is committed via the merge dialog.
+        /// ParsekFlight subscribes to re-evaluate ghost chains.
+        /// </summary>
+        internal static System.Action OnTreeCommitted;
+
+        /// <summary>
         /// Clears the deferred merge dialog flag and removes the input lock.
         /// Called from every button callback.
         /// </summary>
@@ -397,6 +403,7 @@ namespace Parsek
                     CrewReservationManager.SwapReservedCrewInFlight();
                     ClearPendingFlag();
                     ReplayFlightResultsIfPending();
+                    OnTreeCommitted?.Invoke();
                     if (spawnCount > 0)
                         ParsekLog.ScreenMessage(
                             $"Tree merged \u2014 {spawnCount} vessel(s) will appear after ghost playback", 3f);
@@ -815,6 +822,7 @@ namespace Parsek
                     CrewReservationManager.SwapReservedCrewInFlight();
                     ClearPendingFlag();
                     ReplayFlightResultsIfPending();
+                    OnTreeCommitted?.Invoke();
 
                     int persistCount = 0;
                     foreach (var val in capturedDecisions.Values)

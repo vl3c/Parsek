@@ -320,6 +320,7 @@ namespace Parsek
             GameEvents.onGroundSciencePartRemoved.Add(OnGroundSciencePartRemoved);
             GameEvents.onVesselChange.Add(OnVesselSwitchComplete);
             GameEvents.onTimeWarpRateChanged.Add(OnTimeWarpRateChanged);
+            MergeDialog.OnTreeCommitted += OnTreeCommittedFromMergeDialog;
             GameEvents.afterFlagPlanted.Add(OnAfterFlagPlanted);
 
             ui = new ParsekUI(this);
@@ -672,6 +673,7 @@ namespace Parsek
             GameEvents.onGroundSciencePartRemoved.Remove(OnGroundSciencePartRemoved);
             GameEvents.onVesselChange.Remove(OnVesselSwitchComplete);
             GameEvents.onTimeWarpRateChanged.Remove(OnTimeWarpRateChanged);
+            MergeDialog.OnTreeCommitted -= OnTreeCommittedFromMergeDialog;
             GameEvents.afterFlagPlanted.Remove(OnAfterFlagPlanted);
 
             // Restore debris persistence if still overridden
@@ -3802,6 +3804,16 @@ namespace Parsek
         /// pending tree dialog. Ghost chain state is NOT persisted — it is re-derived
         /// from committed recordings on every scene load.
         /// </summary>
+        /// <summary>
+        /// Called when the merge dialog commits a tree. Re-evaluates ghost chains
+        /// so newly committed recordings get ghost map ProtoVessels immediately.
+        /// </summary>
+        private void OnTreeCommittedFromMergeDialog()
+        {
+            ParsekLog.Info("GhostMap", "Tree committed from merge dialog — re-evaluating ghost chains");
+            EvaluateAndApplyGhostChains();
+        }
+
         private void EvaluateAndApplyGhostChains()
         {
             var trees = RecordingStore.CommittedTrees;
