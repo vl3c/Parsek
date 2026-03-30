@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Globalization;
 
 namespace Parsek
 {
@@ -14,6 +15,8 @@ namespace Parsek
     /// </summary>
     internal class MilestonesModule : IResourceModule
     {
+        private static readonly CultureInfo IC = CultureInfo.InvariantCulture;
+
         private readonly HashSet<string> creditedMilestones = new HashSet<string>();
 
         /// <summary>
@@ -24,6 +27,12 @@ namespace Parsek
             int previousCount = creditedMilestones.Count;
             creditedMilestones.Clear();
             ParsekLog.Verbose("Milestones", $"Reset: cleared {previousCount} credited milestones");
+        }
+
+        /// <inheritdoc/>
+        public void PrePass(List<GameAction> actions)
+        {
+            // No pre-pass needed for milestones
         }
 
         /// <summary>
@@ -46,17 +55,17 @@ namespace Parsek
                 action.Effective = true;
                 creditedMilestones.Add(milestoneId);
                 ParsekLog.Verbose("Milestones",
-                    $"Credited milestone '{milestoneId}' at UT={action.UT:F1}" +
+                    $"Credited milestone '{milestoneId}' at UT={action.UT.ToString("F1", IC)}" +
                     $" (recording={action.RecordingId ?? "null"}," +
-                    $" funds={action.MilestoneFundsAwarded:F0}," +
-                    $" rep={action.MilestoneRepAwarded:F0})," +
+                    $" funds={action.MilestoneFundsAwarded.ToString("F0", IC)}," +
+                    $" rep={action.MilestoneRepAwarded.ToString("F0", IC)})," +
                     $" total credited={creditedMilestones.Count}");
             }
             else
             {
                 action.Effective = false;
                 ParsekLog.Verbose("Milestones",
-                    $"Duplicate milestone '{milestoneId}' zeroed at UT={action.UT:F1}" +
+                    $"Duplicate milestone '{milestoneId}' zeroed at UT={action.UT.ToString("F1", IC)}" +
                     $" (recording={action.RecordingId ?? "null"})");
             }
         }

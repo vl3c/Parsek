@@ -156,7 +156,7 @@ namespace Parsek.Tests
                 Type = GameActionType.FundsEarning,
                 RecordingId = "rec_002",
                 FundsAwarded = 10000f,
-                FundsSourceField = FundsSource.ContractComplete
+                FundsSource = FundsEarningSource.ContractComplete
             });
             Ledger.AddAction(new GameAction
             {

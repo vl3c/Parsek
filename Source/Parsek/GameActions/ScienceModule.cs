@@ -74,6 +74,15 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Pre-pass: sums all ScienceSpending costs from the sorted action list before the walk starts.
+        /// This is required for the reservation system: available = effective earnings - ALL spendings.
+        /// </summary>
+        public void PrePass(List<GameAction> actions)
+        {
+            ComputeTotalSpendings(actions);
+        }
+
+        /// <summary>
         /// Processes a single game action during the recalculation walk.
         /// Handles ScienceEarning and ScienceSpending; ignores all other action types.
         /// </summary>

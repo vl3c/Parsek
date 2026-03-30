@@ -16,6 +16,13 @@ namespace Parsek
             = new Dictionary<string, KerbalReservation>();
         private static HashSet<string> retiredKerbals = new HashSet<string>();
 
+        /// <summary>
+        /// Set of all crew names appearing in any active committed recording.
+        /// Built once at the start of Recalculate for O(1) lookups in ComputeRetiredSet
+        /// and IsKerbalInAnyRecording. Excludes loop and disabled-chain recordings.
+        /// </summary>
+        private static HashSet<string> allRecordingCrew = new HashSet<string>();
+
         // ── Persisted state (stand-in names survive recalculation) ──
         private static Dictionary<string, KerbalSlot> slots
             = new Dictionary<string, KerbalSlot>();
@@ -216,11 +223,12 @@ namespace Parsek
             // 1. Clear derived state. DO NOT clear slots (names persist).
             reservations.Clear();
             retiredKerbals.Clear();
+            allRecordingCrew.Clear();
 
             var recordings = RecordingStore.CommittedRecordings;
             int skippedLoop = 0, skippedDisabled = 0, skippedNoCrew = 0, processed = 0;
 
-            // 2. Build reservations from all committed recordings
+            // 2. Build reservations and allRecordingCrew set from all committed recordings
             for (int i = 0; i < recordings.Count; i++)
             {
                 var rec = recordings[i];
@@ -243,6 +251,10 @@ namespace Parsek
                 }
 
                 processed++;
+
+                // Build the all-crew set for O(1) lookup in ComputeRetiredSet
+                for (int c = 0; c < crew.Count; c++)
+                    allRecordingCrew.Add(crew[c]);
 
                 for (int c = 0; c < crew.Count; c++)
                 {
@@ -398,20 +410,13 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Check if a kerbal name appears in any committed recording's crew.
-        /// Used to determine UsedInRecording for chain entries.
+        /// Check if a kerbal name appears in any active committed recording's crew.
+        /// Uses the allRecordingCrew HashSet built during Recalculate for O(1) lookup.
+        /// Must be called after Recalculate() has run.
         /// </summary>
         internal static bool IsKerbalInAnyRecording(string kerbalName)
         {
-            var recordings = RecordingStore.CommittedRecordings;
-            for (int i = 0; i < recordings.Count; i++)
-            {
-                if (recordings[i].LoopPlayback) continue;
-                if (RecordingStore.IsChainFullyDisabled(recordings[i].ChainId)) continue;
-                var crew = CrewReservationManager.ExtractCrewFromSnapshot(recordings[i].VesselSnapshot);
-                if (crew.Contains(kerbalName)) return true;
-            }
-            return false;
+            return allRecordingCrew.Contains(kerbalName);
         }
 
         /// <summary>
@@ -818,6 +823,7 @@ namespace Parsek
             reservations.Clear();
             slots.Clear();
             retiredKerbals.Clear();
+            allRecordingCrew.Clear();
         }
     }
 }

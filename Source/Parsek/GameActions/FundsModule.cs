@@ -76,6 +76,15 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Pre-pass: sums all fund spending costs from the sorted action list before the walk starts.
+        /// Required for the reservation system: availableFunds = initialFunds + totalEarnings - totalCommittedSpendings.
+        /// </summary>
+        public void PrePass(List<GameAction> actions)
+        {
+            ComputeTotalSpendings(actions);
+        }
+
+        /// <summary>
         /// Processes a single game action during the recalculation walk.
         /// Handles fund-affecting action types; ignores all others.
         ///
@@ -206,7 +215,7 @@ namespace Parsek
                 ParsekLog.Verbose(Tag,
                     $"FundsEarning skipped (not effective): " +
                     $"fundsAwarded={action.FundsAwarded.ToString("R", IC)}, " +
-                    $"source={action.FundsSourceField}, " +
+                    $"source={action.FundsSource}, " +
                     $"recordingId={action.RecordingId ?? "(none)"}");
                 return;
             }
@@ -217,7 +226,7 @@ namespace Parsek
 
             ParsekLog.Verbose(Tag,
                 $"FundsEarning: +{amount.ToString("R", IC)}, " +
-                $"source={action.FundsSourceField}, " +
+                $"source={action.FundsSource}, " +
                 $"runningBalance={runningBalance.ToString("R", IC)}, " +
                 $"totalEarnings={totalEarnings.ToString("R", IC)}, " +
                 $"recordingId={action.RecordingId ?? "(none)"}");
@@ -239,7 +248,7 @@ namespace Parsek
             {
                 ParsekLog.Verbose(Tag,
                     $"FundsSpending: -{cost.ToString("R", IC)}, " +
-                    $"source={action.FundsSpendingSourceField}, " +
+                    $"source={action.FundsSpendingSource}, " +
                     $"affordable=true, " +
                     $"runningBalance={runningBalance.ToString("R", IC)}, " +
                     $"recordingId={action.RecordingId ?? "(none)"}");
@@ -248,7 +257,7 @@ namespace Parsek
             {
                 ParsekLog.Warn(Tag,
                     $"FundsSpending NOT affordable: -{cost.ToString("R", IC)}, " +
-                    $"source={action.FundsSpendingSourceField}, " +
+                    $"source={action.FundsSpendingSource}, " +
                     $"runningBalance={runningBalance.ToString("R", IC)}, " +
                     $"recordingId={action.RecordingId ?? "(none)"} " +
                     "— possible bug or data corruption");
@@ -333,11 +342,14 @@ namespace Parsek
                 $"totalEarnings={totalEarnings.ToString("R", IC)}");
         }
 
+        private void ProcessContractFail(GameAction action) => ProcessContractPenalty(action, "ContractFail");
+        private void ProcessContractCancel(GameAction action) => ProcessContractPenalty(action, "ContractCancel");
+
         /// <summary>
-        /// Processes ContractFail: deducts FundsPenalty from running balance.
+        /// Shared processing for ContractFail/ContractCancel: deducts FundsPenalty from running balance.
         /// Penalties apply unconditionally (not gated by Effective flag).
         /// </summary>
-        private void ProcessContractFail(GameAction action)
+        private void ProcessContractPenalty(GameAction action, string label)
         {
             double penalty = (double)action.FundsPenalty;
             if (penalty <= 0.0)
@@ -346,25 +358,7 @@ namespace Parsek
             runningBalance -= penalty;
 
             ParsekLog.Verbose(Tag,
-                $"ContractFail penalty: -{penalty.ToString("R", IC)}, " +
-                $"contractId={action.ContractId ?? "(none)"}, " +
-                $"runningBalance={runningBalance.ToString("R", IC)}");
-        }
-
-        /// <summary>
-        /// Processes ContractCancel: deducts FundsPenalty from running balance.
-        /// Penalties apply unconditionally (not gated by Effective flag).
-        /// </summary>
-        private void ProcessContractCancel(GameAction action)
-        {
-            double penalty = (double)action.FundsPenalty;
-            if (penalty <= 0.0)
-                return;
-
-            runningBalance -= penalty;
-
-            ParsekLog.Verbose(Tag,
-                $"ContractCancel penalty: -{penalty.ToString("R", IC)}, " +
+                $"{label} penalty: -{penalty.ToString("R", IC)}, " +
                 $"contractId={action.ContractId ?? "(none)"}, " +
                 $"runningBalance={runningBalance.ToString("R", IC)}");
         }

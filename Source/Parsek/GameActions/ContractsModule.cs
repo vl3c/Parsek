@@ -53,6 +53,12 @@ namespace Parsek
         }
 
         /// <inheritdoc/>
+        public void PrePass(List<GameAction> actions)
+        {
+            // No pre-pass needed for contracts
+        }
+
+        /// <inheritdoc/>
         public void ProcessAction(GameAction action)
         {
             switch (action.Type)

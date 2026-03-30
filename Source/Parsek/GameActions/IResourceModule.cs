@@ -1,3 +1,5 @@
+using System.Collections.Generic;
+
 namespace Parsek
 {
     /// <summary>
@@ -12,6 +14,14 @@ namespace Parsek
         /// Called once at the start of each <see cref="RecalculationEngine.Recalculate"/> invocation.
         /// </summary>
         void Reset();
+
+        /// <summary>
+        /// Pre-pass over the full sorted action list before the walk begins.
+        /// Modules that need aggregate information (e.g. total committed spendings
+        /// for the reservation system) compute it here. Called after Reset and
+        /// before the first ProcessAction dispatch.
+        /// </summary>
+        void PrePass(List<GameAction> actions);
 
         /// <summary>
         /// Processes a single game action during the recalculation walk.

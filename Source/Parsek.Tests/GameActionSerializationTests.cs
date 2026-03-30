@@ -102,7 +102,7 @@ namespace Parsek.Tests
                 Type = GameActionType.FundsEarning,
                 RecordingId = "rec_003",
                 FundsAwarded = 50000.5f,
-                FundsSourceField = FundsSource.ContractComplete
+                FundsSource = FundsEarningSource.ContractComplete
             };
 
             var result = RoundTrip(original);
@@ -110,7 +110,7 @@ namespace Parsek.Tests
             Assert.Equal(GameActionType.FundsEarning, result.Type);
             Assert.Equal("rec_003", result.RecordingId);
             Assert.Equal(50000.5f, result.FundsAwarded);
-            Assert.Equal(FundsSource.ContractComplete, result.FundsSourceField);
+            Assert.Equal(FundsEarningSource.ContractComplete, result.FundsSource);
         }
 
         [Fact]
@@ -122,12 +122,12 @@ namespace Parsek.Tests
                 Type = GameActionType.FundsEarning,
                 RecordingId = "rec_004",
                 FundsAwarded = 12300.0f,
-                FundsSourceField = FundsSource.Recovery
+                FundsSource = FundsEarningSource.Recovery
             };
 
             var result = RoundTrip(original);
 
-            Assert.Equal(FundsSource.Recovery, result.FundsSourceField);
+            Assert.Equal(FundsEarningSource.Recovery, result.FundsSource);
             Assert.Equal(12300.0f, result.FundsAwarded);
         }
 
@@ -140,7 +140,7 @@ namespace Parsek.Tests
                 Type = GameActionType.FundsSpending,
                 RecordingId = "rec_005",
                 FundsSpent = 25000.0f,
-                FundsSpendingSourceField = FundsSpendingSource.VesselBuild
+                FundsSpendingSource = FundsSpendingSource.VesselBuild
             };
 
             var result = RoundTrip(original);
@@ -148,7 +148,7 @@ namespace Parsek.Tests
             Assert.Equal(GameActionType.FundsSpending, result.Type);
             Assert.Equal("rec_005", result.RecordingId);
             Assert.Equal(25000.0f, result.FundsSpent);
-            Assert.Equal(FundsSpendingSource.VesselBuild, result.FundsSpendingSourceField);
+            Assert.Equal(FundsSpendingSource.VesselBuild, result.FundsSpendingSource);
         }
 
         [Fact]
@@ -160,14 +160,14 @@ namespace Parsek.Tests
                 Type = GameActionType.FundsSpending,
                 Sequence = 1,
                 FundsSpent = 150000.0f,
-                FundsSpendingSourceField = FundsSpendingSource.FacilityUpgrade
+                FundsSpendingSource = FundsSpendingSource.FacilityUpgrade
             };
 
             var result = RoundTrip(original);
 
             Assert.Null(result.RecordingId);
             Assert.Equal(1, result.Sequence);
-            Assert.Equal(FundsSpendingSource.FacilityUpgrade, result.FundsSpendingSourceField);
+            Assert.Equal(FundsSpendingSource.FacilityUpgrade, result.FundsSpendingSource);
         }
 
         [Fact]
@@ -796,23 +796,23 @@ namespace Parsek.Tests
         // ================================================================
 
         [Theory]
-        [InlineData(FundsSource.ContractComplete)]
-        [InlineData(FundsSource.ContractAdvance)]
-        [InlineData(FundsSource.Recovery)]
-        [InlineData(FundsSource.Milestone)]
-        [InlineData(FundsSource.Other)]
-        public void FundsSource_AllValues_RoundTrip(FundsSource source)
+        [InlineData(FundsEarningSource.ContractComplete)]
+        [InlineData(FundsEarningSource.ContractAdvance)]
+        [InlineData(FundsEarningSource.Recovery)]
+        [InlineData(FundsEarningSource.Milestone)]
+        [InlineData(FundsEarningSource.Other)]
+        public void FundsSource_AllValues_RoundTrip(FundsEarningSource source)
         {
             var original = new GameAction
             {
                 UT = 17000.0,
                 Type = GameActionType.FundsEarning,
                 FundsAwarded = 1000.0f,
-                FundsSourceField = source
+                FundsSource = source
             };
 
             var result = RoundTrip(original);
-            Assert.Equal(source, result.FundsSourceField);
+            Assert.Equal(source, result.FundsSource);
         }
 
         // ================================================================
@@ -834,11 +834,11 @@ namespace Parsek.Tests
                 UT = 17000.0,
                 Type = GameActionType.FundsSpending,
                 FundsSpent = 500.0f,
-                FundsSpendingSourceField = source
+                FundsSpendingSource = source
             };
 
             var result = RoundTrip(original);
-            Assert.Equal(source, result.FundsSpendingSourceField);
+            Assert.Equal(source, result.FundsSpendingSource);
         }
 
         // ================================================================

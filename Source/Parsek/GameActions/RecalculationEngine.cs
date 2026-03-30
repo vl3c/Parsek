@@ -52,24 +52,48 @@ namespace Parsek
             switch (tier)
             {
                 case ModuleTier.FirstTier:
+                    if (firstTierModules.Contains(module))
+                    {
+                        ParsekLog.Verbose("RecalcEngine",
+                            $"First-tier module already registered: {module.GetType().Name}, skipping");
+                        return;
+                    }
                     firstTierModules.Add(module);
                     ParsekLog.Verbose("RecalcEngine",
                         $"Registered first-tier module: {module.GetType().Name}, total={firstTierModules.Count}");
                     break;
 
                 case ModuleTier.SecondTier:
+                    if (secondTierModules.Contains(module))
+                    {
+                        ParsekLog.Verbose("RecalcEngine",
+                            $"Second-tier module already registered: {module.GetType().Name}, skipping");
+                        return;
+                    }
                     secondTierModules.Add(module);
                     ParsekLog.Verbose("RecalcEngine",
                         $"Registered second-tier module: {module.GetType().Name}, total={secondTierModules.Count}");
                     break;
 
                 case ModuleTier.Strategy:
+                    if (strategyTransform == module)
+                    {
+                        ParsekLog.Verbose("RecalcEngine",
+                            $"Strategy transform module already registered: {module.GetType().Name}, skipping");
+                        return;
+                    }
                     strategyTransform = module;
                     ParsekLog.Verbose("RecalcEngine",
                         $"Registered strategy transform module: {module.GetType().Name}");
                     break;
 
                 case ModuleTier.Facilities:
+                    if (facilitiesModule == module)
+                    {
+                        ParsekLog.Verbose("RecalcEngine",
+                            $"Facilities module already registered: {module.GetType().Name}, skipping");
+                        return;
+                    }
                     facilitiesModule = module;
                     ParsekLog.Verbose("RecalcEngine",
                         $"Registered facilities module: {module.GetType().Name}");
@@ -122,6 +146,9 @@ namespace Parsek
 
             // 2. Reset all modules
             ResetAllModules();
+
+            // 2b. Pre-pass: let modules compute aggregate data before the walk
+            PrePassAllModules(sorted);
 
             // 3. Walk sorted actions
             int firstTierDispatches = 0;
@@ -244,6 +271,21 @@ namespace Parsek
         // ================================================================
         // Internal helpers
         // ================================================================
+
+        private static void PrePassAllModules(List<GameAction> sorted)
+        {
+            for (int i = 0; i < firstTierModules.Count; i++)
+                firstTierModules[i].PrePass(sorted);
+
+            if (strategyTransform != null)
+                strategyTransform.PrePass(sorted);
+
+            for (int i = 0; i < secondTierModules.Count; i++)
+                secondTierModules[i].PrePass(sorted);
+
+            if (facilitiesModule != null)
+                facilitiesModule.PrePass(sorted);
+        }
 
         private static void ResetAllModules()
         {

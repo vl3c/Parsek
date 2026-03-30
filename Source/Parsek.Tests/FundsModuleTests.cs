@@ -39,14 +39,14 @@ namespace Parsek.Tests
         }
 
         private static GameAction MakeFundsEarning(double ut, float fundsAwarded,
-            FundsSource source, string recordingId = null)
+            FundsEarningSource source, string recordingId = null)
         {
             return new GameAction
             {
                 UT = ut,
                 Type = GameActionType.FundsEarning,
                 FundsAwarded = fundsAwarded,
-                FundsSourceField = source,
+                FundsSource = source,
                 RecordingId = recordingId
             };
         }
@@ -59,7 +59,7 @@ namespace Parsek.Tests
                 UT = ut,
                 Type = GameActionType.FundsSpending,
                 FundsSpent = fundsSpent,
-                FundsSpendingSourceField = source,
+                FundsSpendingSource = source,
                 RecordingId = recordingId,
                 Sequence = sequence
             };
@@ -158,7 +158,7 @@ namespace Parsek.Tests
         {
             var seed = MakeSeed(0, 25000f);
             module.ProcessAction(seed);
-            module.ProcessAction(MakeFundsEarning(100, 5000f, FundsSource.Recovery, "rec-A"));
+            module.ProcessAction(MakeFundsEarning(100, 5000f, FundsEarningSource.Recovery, "rec-A"));
 
             module.Reset();
 
@@ -183,7 +183,7 @@ namespace Parsek.Tests
         public void FundsEarning_AddsToBalanceAndTotalEarnings()
         {
             module.ProcessAction(MakeSeed(0, 25000f));
-            module.ProcessAction(MakeFundsEarning(100, 8000f, FundsSource.Recovery, "rec-A"));
+            module.ProcessAction(MakeFundsEarning(100, 8000f, FundsEarningSource.Recovery, "rec-A"));
 
             Assert.Equal(33000.0, module.GetRunningBalance());
             Assert.Equal(8000.0, module.GetTotalEarnings());
@@ -194,7 +194,7 @@ namespace Parsek.Tests
         {
             module.ProcessAction(MakeSeed(0, 25000f));
 
-            var earning = MakeFundsEarning(100, 8000f, FundsSource.Milestone);
+            var earning = MakeFundsEarning(100, 8000f, FundsEarningSource.Milestone);
             earning.Effective = false;
             module.ProcessAction(earning);
 
@@ -205,7 +205,7 @@ namespace Parsek.Tests
         [Fact]
         public void FundsEarning_NonEffective_LogsSkip()
         {
-            var earning = MakeFundsEarning(100, 8000f, FundsSource.Milestone);
+            var earning = MakeFundsEarning(100, 8000f, FundsEarningSource.Milestone);
             earning.Effective = false;
             module.ProcessAction(earning);
 
@@ -389,7 +389,7 @@ namespace Parsek.Tests
                 MakeSeed(0, 25000f),
                 MakeFundsSpending(10, 5000f, FundsSpendingSource.VesselBuild, "rec-A"),
                 MakeFundsSpending(100, 15000f, FundsSpendingSource.FacilityUpgrade),
-                MakeFundsEarning(50, 8000f, FundsSource.Milestone)
+                MakeFundsEarning(50, 8000f, FundsEarningSource.Milestone)
             };
 
             module.ComputeTotalSpendings(actions);
@@ -444,7 +444,7 @@ namespace Parsek.Tests
         {
             module.ComputeTotalSpendings(new List<GameAction>());
             module.ProcessAction(MakeSeed(0, 25000f));
-            module.ProcessAction(MakeFundsEarning(100, 10000f, FundsSource.Recovery, "rec-A"));
+            module.ProcessAction(MakeFundsEarning(100, 10000f, FundsEarningSource.Recovery, "rec-A"));
 
             Assert.Equal(35000.0, module.GetAvailableFunds());
         }
@@ -483,7 +483,7 @@ namespace Parsek.Tests
                 MakeSeed(0, 25000f),
                 MakeFundsSpending(10, 5000f, FundsSpendingSource.VesselBuild, "rec-A"),
                 MakeMilestone(50, "FirstOrbit", 8000f, effective: true),
-                MakeFundsEarning(60, 3000f, FundsSource.Recovery, "rec-A")
+                MakeFundsEarning(60, 3000f, FundsEarningSource.Recovery, "rec-A")
             };
 
             module.ComputeTotalSpendings(actions);
@@ -524,11 +524,11 @@ namespace Parsek.Tests
             {
                 MakeSeed(0, 25000f),
                 MakeFundsSpending(10, 5000f, FundsSpendingSource.VesselBuild, "rec-A"),
-                MakeFundsEarning(50, 8000f, FundsSource.Milestone),
-                MakeFundsEarning(60, 3000f, FundsSource.Recovery, "rec-A"),
+                MakeFundsEarning(50, 8000f, FundsEarningSource.Milestone),
+                MakeFundsEarning(60, 3000f, FundsEarningSource.Recovery, "rec-A"),
                 MakeFundsSpending(100, 15000f, FundsSpendingSource.VesselBuild, "rec-B"),
-                MakeFundsEarning(200, 20000f, FundsSource.ContractComplete, "rec-B"),
-                MakeFundsEarning(250, 12000f, FundsSource.Recovery, "rec-B")
+                MakeFundsEarning(200, 20000f, FundsEarningSource.ContractComplete, "rec-B"),
+                MakeFundsEarning(250, 12000f, FundsEarningSource.Recovery, "rec-B")
             };
 
             module.ComputeTotalSpendings(actions);
@@ -576,11 +576,11 @@ namespace Parsek.Tests
             {
                 MakeSeed(0, 50000f),
                 MakeFundsSpending(50, 20000f, FundsSpendingSource.VesselBuild, "rec-A"),
-                MakeFundsEarning(100, 30000f, FundsSource.ContractComplete, "rec-A"),
+                MakeFundsEarning(100, 30000f, FundsEarningSource.ContractComplete, "rec-A"),
                 MakeFundsSpending(200, 15000f, FundsSpendingSource.VesselBuild, "rec-B"),
-                MakeFundsEarning(300, 25000f, FundsSource.Recovery, "rec-B"),
+                MakeFundsEarning(300, 25000f, FundsEarningSource.Recovery, "rec-B"),
                 MakeFundsSpending(400, 30000f, FundsSpendingSource.VesselBuild, "rec-C"),
-                MakeFundsEarning(500, 40000f, FundsSource.ContractComplete, "rec-C"),
+                MakeFundsEarning(500, 40000f, FundsEarningSource.ContractComplete, "rec-C"),
                 MakeFundsSpending(600, 25000f, FundsSpendingSource.KerbalHire),
                 MakeFundsSpending(700, 35000f, FundsSpendingSource.FacilityUpgrade)
             };
@@ -614,11 +614,11 @@ namespace Parsek.Tests
             {
                 MakeSeed(0, 50000f),
                 MakeFundsSpending(50, 20000f, FundsSpendingSource.VesselBuild, "rec-A"),
-                MakeFundsEarning(100, 30000f, FundsSource.ContractComplete, "rec-A"),
+                MakeFundsEarning(100, 30000f, FundsEarningSource.ContractComplete, "rec-A"),
                 MakeFundsSpending(200, 15000f, FundsSpendingSource.VesselBuild, "rec-B"),
-                MakeFundsEarning(300, 25000f, FundsSource.Recovery, "rec-B"),
+                MakeFundsEarning(300, 25000f, FundsEarningSource.Recovery, "rec-B"),
                 MakeFundsSpending(400, 30000f, FundsSpendingSource.VesselBuild, "rec-C"),
-                MakeFundsEarning(500, 40000f, FundsSource.ContractComplete, "rec-C"),
+                MakeFundsEarning(500, 40000f, FundsEarningSource.ContractComplete, "rec-C"),
                 MakeFundsSpending(600, 25000f, FundsSpendingSource.KerbalHire),
                 MakeFundsSpending(700, 35000f, FundsSpendingSource.FacilityUpgrade)
             };
@@ -640,11 +640,11 @@ namespace Parsek.Tests
             {
                 MakeSeed(0, 50000f),
                 MakeFundsSpending(50, 20000f, FundsSpendingSource.VesselBuild, "rec-A"),
-                MakeFundsEarning(100, 30000f, FundsSource.ContractComplete, "rec-A"),
+                MakeFundsEarning(100, 30000f, FundsEarningSource.ContractComplete, "rec-A"),
                 MakeFundsSpending(200, 15000f, FundsSpendingSource.VesselBuild, "rec-B"),
-                MakeFundsEarning(300, 25000f, FundsSource.Recovery, "rec-B"),
+                MakeFundsEarning(300, 25000f, FundsEarningSource.Recovery, "rec-B"),
                 MakeFundsSpending(400, 30000f, FundsSpendingSource.VesselBuild, "rec-C"),
-                MakeFundsEarning(500, 40000f, FundsSource.ContractComplete, "rec-C"),
+                MakeFundsEarning(500, 40000f, FundsEarningSource.ContractComplete, "rec-C"),
                 MakeFundsSpending(600, 25000f, FundsSpendingSource.KerbalHire),
                 MakeFundsSpending(700, 35000f, FundsSpendingSource.FacilityUpgrade)
             };
@@ -683,7 +683,7 @@ namespace Parsek.Tests
             var phase1Actions = new List<GameAction>
             {
                 MakeSeed(0, 25000f),
-                MakeFundsEarning(100, 100000f, FundsSource.ContractComplete, "rec-A"),
+                MakeFundsEarning(100, 100000f, FundsEarningSource.ContractComplete, "rec-A"),
                 MakeFundsSpending(500, 40000f, FundsSpendingSource.VesselBuild, "rec-A"),
                 MakeFundsSpending(1500, 50000f, FundsSpendingSource.FacilityUpgrade)
             };
@@ -703,9 +703,9 @@ namespace Parsek.Tests
             var phase2Actions = new List<GameAction>
             {
                 MakeSeed(0, 25000f),
-                MakeFundsEarning(100, 100000f, FundsSource.ContractComplete, "rec-A"),
+                MakeFundsEarning(100, 100000f, FundsEarningSource.ContractComplete, "rec-A"),
                 MakeFundsSpending(200, 15000f, FundsSpendingSource.VesselBuild, "rec-B"),
-                MakeFundsEarning(300, 30000f, FundsSource.ContractComplete, "rec-B"),
+                MakeFundsEarning(300, 30000f, FundsEarningSource.ContractComplete, "rec-B"),
                 MakeFundsSpending(500, 40000f, FundsSpendingSource.VesselBuild, "rec-A"),
                 MakeFundsSpending(1500, 50000f, FundsSpendingSource.FacilityUpgrade)
             };
@@ -735,7 +735,7 @@ namespace Parsek.Tests
             module.ProcessAction(MakeMilestone(10, "FirstLaunch", 5000f, effective: true));
             module.ProcessAction(MakeContractAccept(20, "c-1", 2000f));
             module.ProcessAction(MakeContractComplete(30, "c-1", 10000f, effective: true));
-            module.ProcessAction(MakeFundsEarning(40, 3000f, FundsSource.Recovery, "rec-A"));
+            module.ProcessAction(MakeFundsEarning(40, 3000f, FundsEarningSource.Recovery, "rec-A"));
 
             // Balance: 25000 + 5000 + 2000 + 10000 + 3000 = 45000
             Assert.Equal(45000.0, module.GetRunningBalance());
@@ -795,7 +795,7 @@ namespace Parsek.Tests
         [Fact]
         public void FundsEarning_LogsAmount()
         {
-            module.ProcessAction(MakeFundsEarning(100, 8000f, FundsSource.Recovery, "rec-A"));
+            module.ProcessAction(MakeFundsEarning(100, 8000f, FundsEarningSource.Recovery, "rec-A"));
 
             Assert.Contains(logLines, l =>
                 l.Contains("[Funds]") && l.Contains("FundsEarning") && l.Contains("8000"));

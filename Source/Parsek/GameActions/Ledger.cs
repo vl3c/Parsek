@@ -191,10 +191,8 @@ namespace Parsek
         /// Prunes the in-memory ledger against the current save state:
         /// - Earning actions whose recordingId is NOT in validRecordingIds are removed.
         /// - Spending actions whose UT is strictly after maxUT are removed.
-        /// Earnings are identified by having a non-null recordingId.
-        /// Spendings are identified by having a null recordingId or by action types that
-        /// represent KSC spending (ScienceSpending, FundsSpending, FacilityUpgrade, FacilityRepair,
-        /// KerbalHire, StrategyActivate, StrategyDeactivate).
+        /// Earnings and spendings are classified by <see cref="RecalculationEngine.IsEarningType"/>
+        /// and <see cref="RecalculationEngine.IsSpendingType"/>.
         /// FundsInitial actions are always kept.
         /// </summary>
         internal static void Reconcile(HashSet<string> validRecordingIds, double maxUT)
@@ -224,10 +222,10 @@ namespace Parsek
                     continue;
                 }
 
-                // Earning actions: have a non-null recordingId
-                if (action.RecordingId != null)
+                // Earning actions: classified by type, validated by recordingId
+                if (RecalculationEngine.IsEarningType(action.Type))
                 {
-                    if (validRecordingIds.Contains(action.RecordingId))
+                    if (action.RecordingId != null && validRecordingIds.Contains(action.RecordingId))
                     {
                         surviving.Add(action);
                         kept++;
@@ -239,15 +237,44 @@ namespace Parsek
                     continue;
                 }
 
-                // Spending actions (no recordingId): prune if UT > maxUT
-                if (action.UT > maxUT)
+                // Spending actions: classified by type, pruned by UT
+                if (RecalculationEngine.IsSpendingType(action.Type))
                 {
-                    prunedSpendings++;
+                    if (action.UT > maxUT)
+                    {
+                        prunedSpendings++;
+                    }
+                    else
+                    {
+                        surviving.Add(action);
+                        kept++;
+                    }
+                    continue;
                 }
-                else
+
+                // Other action types (e.g. ContractAccept, KerbalAssignment, etc.)
+                // that are neither earning nor spending: keep if recordingId is valid
+                // or if they have no recordingId and UT is within range
+                if (action.RecordingId != null)
+                {
+                    if (validRecordingIds.Contains(action.RecordingId))
+                    {
+                        surviving.Add(action);
+                        kept++;
+                    }
+                    else
+                    {
+                        prunedEarnings++;
+                    }
+                }
+                else if (action.UT <= maxUT)
                 {
                     surviving.Add(action);
                     kept++;
+                }
+                else
+                {
+                    prunedSpendings++;
                 }
             }
 

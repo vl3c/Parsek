@@ -40,7 +40,7 @@ namespace Parsek
     }
 
     /// <summary>Where fund earnings came from.</summary>
-    public enum FundsSource
+    public enum FundsEarningSource
     {
         ContractComplete = 0,
         ContractAdvance  = 1,
@@ -165,13 +165,13 @@ namespace Parsek
         public float FundsAwarded;
 
         /// <summary>Source of fund earnings.</summary>
-        public FundsSource FundsSourceField;
+        public FundsEarningSource FundsSource;
 
         /// <summary>Funds spent (immutable).</summary>
         public float FundsSpent;
 
         /// <summary>Source of fund spending.</summary>
-        public FundsSpendingSource FundsSpendingSourceField;
+        public FundsSpendingSource FundsSpendingSource;
 
         // ---- Reputation fields ----
 
@@ -303,20 +303,20 @@ namespace Parsek
         /// Science actually credited after applying subject cap headroom.
         /// Set by ScienceModule during recalculation walk. Always derived, never stored.
         /// </summary>
-        [NonSerialized] public float EffectiveScience;
+        public float EffectiveScience;
 
         /// <summary>
         /// Whether a spending action was affordable at the time it was processed in the walk.
         /// Set by resource modules during recalculation walk. Always derived, never stored.
         /// </summary>
-        [NonSerialized] public bool Affordable;
+        public bool Affordable;
 
         /// <summary>
         /// Actual reputation change after applying the gain/loss curve against running rep.
         /// Set by ReputationModule during recalculation walk. Positive for gains, negative for losses.
         /// Always derived, never stored.
         /// </summary>
-        [NonSerialized] public float EffectiveRep;
+        public float EffectiveRep;
 
         // ================================================================
         // Serialization
@@ -532,9 +532,7 @@ namespace Parsek
             a.Situation = n.GetValue("situation");
             a.Biome = n.GetValue("biome");
             TryParseFloat(n, "scienceAwarded", out a.ScienceAwarded);
-            int methodInt;
-            if (TryParseInt(n, "method", out methodInt) && Enum.IsDefined(typeof(ScienceMethod), methodInt))
-                a.Method = (ScienceMethod)methodInt;
+            TryParseEnum(n, "method", out a.Method);
             TryParseFloat(n, "transmitScalar", out a.TransmitScalar);
             TryParseFloat(n, "subjectMaxValue", out a.SubjectMaxValue);
         }
@@ -554,29 +552,25 @@ namespace Parsek
         private void SerializeFundsEarning(ConfigNode n)
         {
             n.AddValue("fundsAwarded", FundsAwarded.ToString("R", IC));
-            n.AddValue("fundsSource", ((int)FundsSourceField).ToString(IC));
+            n.AddValue("fundsSource", ((int)FundsSource).ToString(IC));
         }
 
         private static void DeserializeFundsEarning(ConfigNode n, GameAction a)
         {
             TryParseFloat(n, "fundsAwarded", out a.FundsAwarded);
-            int srcInt;
-            if (TryParseInt(n, "fundsSource", out srcInt) && Enum.IsDefined(typeof(FundsSource), srcInt))
-                a.FundsSourceField = (FundsSource)srcInt;
+            TryParseEnum(n, "fundsSource", out a.FundsSource);
         }
 
         private void SerializeFundsSpending(ConfigNode n)
         {
             n.AddValue("fundsSpent", FundsSpent.ToString("R", IC));
-            n.AddValue("fundsSpendingSource", ((int)FundsSpendingSourceField).ToString(IC));
+            n.AddValue("fundsSpendingSource", ((int)FundsSpendingSource).ToString(IC));
         }
 
         private static void DeserializeFundsSpending(ConfigNode n, GameAction a)
         {
             TryParseFloat(n, "fundsSpent", out a.FundsSpent);
-            int srcInt;
-            if (TryParseInt(n, "fundsSpendingSource", out srcInt) && Enum.IsDefined(typeof(FundsSpendingSource), srcInt))
-                a.FundsSpendingSourceField = (FundsSpendingSource)srcInt;
+            TryParseEnum(n, "fundsSpendingSource", out a.FundsSpendingSource);
         }
 
         private void SerializeMilestone(ConfigNode n)
@@ -629,28 +623,20 @@ namespace Parsek
             TryParseFloat(n, "scienceReward", out a.ScienceReward);
         }
 
-        private void SerializeContractFail(ConfigNode n)
+        private void SerializeContractFail(ConfigNode n) => SerializeContractPenalty(n);
+        private static void DeserializeContractFail(ConfigNode n, GameAction a) => DeserializeContractPenalty(n, a);
+
+        private void SerializeContractCancel(ConfigNode n) => SerializeContractPenalty(n);
+        private static void DeserializeContractCancel(ConfigNode n, GameAction a) => DeserializeContractPenalty(n, a);
+
+        private void SerializeContractPenalty(ConfigNode n)
         {
             if (ContractId != null) n.AddValue("contractId", ContractId);
             n.AddValue("fundsPenalty", FundsPenalty.ToString("R", IC));
             n.AddValue("repPenalty", RepPenalty.ToString("R", IC));
         }
 
-        private static void DeserializeContractFail(ConfigNode n, GameAction a)
-        {
-            a.ContractId = n.GetValue("contractId");
-            TryParseFloat(n, "fundsPenalty", out a.FundsPenalty);
-            TryParseFloat(n, "repPenalty", out a.RepPenalty);
-        }
-
-        private void SerializeContractCancel(ConfigNode n)
-        {
-            if (ContractId != null) n.AddValue("contractId", ContractId);
-            n.AddValue("fundsPenalty", FundsPenalty.ToString("R", IC));
-            n.AddValue("repPenalty", RepPenalty.ToString("R", IC));
-        }
-
-        private static void DeserializeContractCancel(ConfigNode n, GameAction a)
+        private static void DeserializeContractPenalty(ConfigNode n, GameAction a)
         {
             a.ContractId = n.GetValue("contractId");
             TryParseFloat(n, "fundsPenalty", out a.FundsPenalty);
@@ -666,9 +652,7 @@ namespace Parsek
         private static void DeserializeRepEarning(ConfigNode n, GameAction a)
         {
             TryParseFloat(n, "nominalRep", out a.NominalRep);
-            int srcInt;
-            if (TryParseInt(n, "repSource", out srcInt) && Enum.IsDefined(typeof(ReputationSource), srcInt))
-                a.RepSource = (ReputationSource)srcInt;
+            TryParseEnum(n, "repSource", out a.RepSource);
         }
 
         private void SerializeRepPenalty(ConfigNode n)
@@ -680,9 +664,7 @@ namespace Parsek
         private static void DeserializeRepPenalty(ConfigNode n, GameAction a)
         {
             TryParseFloat(n, "nominalPenalty", out a.NominalPenalty);
-            int srcInt;
-            if (TryParseInt(n, "repPenaltySource", out srcInt) && Enum.IsDefined(typeof(ReputationPenaltySource), srcInt))
-                a.RepPenaltySource = (ReputationPenaltySource)srcInt;
+            TryParseEnum(n, "repPenaltySource", out a.RepPenaltySource);
         }
 
         private void SerializeKerbalAssignment(ConfigNode n)
@@ -703,9 +685,7 @@ namespace Parsek
             TryParseFloat(n, "startUT", out a.StartUT);
             if (!TryParseFloat(n, "endUT", out a.EndUT))
                 a.EndUT = float.NaN;
-            int stateInt;
-            if (TryParseInt(n, "endState", out stateInt) && Enum.IsDefined(typeof(KerbalEndState), stateInt))
-                a.KerbalEndStateField = (KerbalEndState)stateInt;
+            TryParseEnum(n, "endState", out a.KerbalEndStateField);
             TryParseFloat(n, "xpGained", out a.XpGained);
         }
 
@@ -803,12 +783,8 @@ namespace Parsek
         private static void DeserializeStrategyActivate(ConfigNode n, GameAction a)
         {
             a.StrategyId = n.GetValue("strategyId");
-            int srcInt;
-            if (TryParseInt(n, "sourceResource", out srcInt) && Enum.IsDefined(typeof(StrategyResource), srcInt))
-                a.SourceResource = (StrategyResource)srcInt;
-            int tgtInt;
-            if (TryParseInt(n, "targetResource", out tgtInt) && Enum.IsDefined(typeof(StrategyResource), tgtInt))
-                a.TargetResource = (StrategyResource)tgtInt;
+            TryParseEnum(n, "sourceResource", out a.SourceResource);
+            TryParseEnum(n, "targetResource", out a.TargetResource);
             TryParseFloat(n, "commitment", out a.Commitment);
             TryParseFloat(n, "setupCost", out a.SetupCost);
         }
@@ -849,6 +825,18 @@ namespace Parsek
             string val = n.GetValue(key);
             if (val == null) return false;
             return int.TryParse(val, NumberStyles.Integer, IC, out result);
+        }
+
+        private static bool TryParseEnum<T>(ConfigNode n, string key, out T result) where T : struct
+        {
+            result = default(T);
+            string val = n.GetValue(key);
+            if (val == null) return false;
+            int intVal;
+            if (!int.TryParse(val, NumberStyles.Integer, IC, out intVal)) return false;
+            if (!Enum.IsDefined(typeof(T), intVal)) return false;
+            result = (T)(object)intVal;
+            return true;
         }
     }
 }

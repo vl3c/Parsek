@@ -1,4 +1,5 @@
 using System;
+using System.Globalization;
 
 namespace Parsek
 {
@@ -24,6 +25,7 @@ namespace Parsek
     {
         private const string Tag = "Reputation";
         private const float RepRange = 1000f;
+        private static readonly CultureInfo IC = CultureInfo.InvariantCulture;
 
         private float runningRep;
 
@@ -36,7 +38,13 @@ namespace Parsek
         {
             float previousRep = runningRep;
             runningRep = 0f;
-            ParsekLog.Verbose(Tag, $"Reset: runningRep {previousRep:F2} -> 0");
+            ParsekLog.Verbose(Tag, $"Reset: runningRep {previousRep.ToString("F2", IC)} -> 0");
+        }
+
+        /// <inheritdoc/>
+        public void PrePass(System.Collections.Generic.List<GameAction> actions)
+        {
+            // No pre-pass needed for reputation
         }
 
         /// <inheritdoc/>
@@ -84,8 +92,8 @@ namespace Parsek
             runningRep = result.newRep;
 
             ParsekLog.Verbose(Tag,
-                $"RepEarning at UT={action.UT:F1}: nominal={nominal:F2}, " +
-                $"effective={result.actualDelta:F2}, runningRep={runningRep:F2}" +
+                $"RepEarning at UT={action.UT.ToString("F1", IC)}: nominal={nominal.ToString("F2", IC)}, " +
+                $"effective={result.actualDelta.ToString("F2", IC)}, runningRep={runningRep.ToString("F2", IC)}" +
                 $" (recording={action.RecordingId ?? "null"})");
         }
 
@@ -99,8 +107,8 @@ namespace Parsek
             runningRep = result.newRep;
 
             ParsekLog.Verbose(Tag,
-                $"RepPenalty at UT={action.UT:F1}: nominalPenalty={action.NominalPenalty:F2}, " +
-                $"effective={result.actualDelta:F2}, runningRep={runningRep:F2}" +
+                $"RepPenalty at UT={action.UT.ToString("F1", IC)}: nominalPenalty={action.NominalPenalty.ToString("F2", IC)}, " +
+                $"effective={result.actualDelta.ToString("F2", IC)}, runningRep={runningRep.ToString("F2", IC)}" +
                 $" (recording={action.RecordingId ?? "null"})");
         }
 
@@ -110,7 +118,7 @@ namespace Parsek
             {
                 action.EffectiveRep = 0f;
                 ParsekLog.Verbose(Tag,
-                    $"Milestone rep skipped (not effective) at UT={action.UT:F1}" +
+                    $"Milestone rep skipped (not effective) at UT={action.UT.ToString("F1", IC)}" +
                     $": milestoneId={action.MilestoneId ?? "null"}");
                 return;
             }
@@ -125,9 +133,9 @@ namespace Parsek
             runningRep = result.newRep;
 
             ParsekLog.Verbose(Tag,
-                $"Milestone rep at UT={action.UT:F1}: milestoneId={action.MilestoneId ?? "null"}, " +
-                $"nominal={nominal:F2}, effective={result.actualDelta:F2}, " +
-                $"runningRep={runningRep:F2}");
+                $"Milestone rep at UT={action.UT.ToString("F1", IC)}: milestoneId={action.MilestoneId ?? "null"}, " +
+                $"nominal={nominal.ToString("F2", IC)}, effective={result.actualDelta.ToString("F2", IC)}, " +
+                $"runningRep={runningRep.ToString("F2", IC)}");
         }
 
         private void ProcessContractCompleteRep(GameAction action)
@@ -136,7 +144,7 @@ namespace Parsek
             {
                 action.EffectiveRep = 0f;
                 ParsekLog.Verbose(Tag,
-                    $"Contract complete rep skipped (not effective) at UT={action.UT:F1}" +
+                    $"Contract complete rep skipped (not effective) at UT={action.UT.ToString("F1", IC)}" +
                     $": contractId={action.ContractId ?? "null"}");
                 return;
             }
@@ -151,9 +159,9 @@ namespace Parsek
             runningRep = result.newRep;
 
             ParsekLog.Verbose(Tag,
-                $"Contract complete rep at UT={action.UT:F1}: contractId={action.ContractId ?? "null"}, " +
-                $"nominal={nominal:F2}, effective={result.actualDelta:F2}, " +
-                $"runningRep={runningRep:F2}");
+                $"Contract complete rep at UT={action.UT.ToString("F1", IC)}: contractId={action.ContractId ?? "null"}, " +
+                $"nominal={nominal.ToString("F2", IC)}, effective={result.actualDelta.ToString("F2", IC)}, " +
+                $"runningRep={runningRep.ToString("F2", IC)}");
         }
 
         private void ProcessContractPenaltyRep(GameAction action)
@@ -168,10 +176,10 @@ namespace Parsek
             runningRep = result.newRep;
 
             ParsekLog.Verbose(Tag,
-                $"Contract {action.Type} rep at UT={action.UT:F1}: " +
+                $"Contract {action.Type} rep at UT={action.UT.ToString("F1", IC)}: " +
                 $"contractId={action.ContractId ?? "null"}, " +
-                $"nominalPenalty={action.RepPenalty:F2}, effective={result.actualDelta:F2}, " +
-                $"runningRep={runningRep:F2}");
+                $"nominalPenalty={action.RepPenalty.ToString("F2", IC)}, effective={result.actualDelta.ToString("F2", IC)}, " +
+                $"runningRep={runningRep.ToString("F2", IC)}");
         }
 
         // ================================================================
