@@ -38,6 +38,15 @@ All notable changes to Parsek are documented here.
 - **Fix #102: CreateSplitBranch copies FlagEvents and SegmentEvents.** Previously omitted, causing flag/segment data loss on tree split.
 - **Fix #130: Cache vesselName on GhostPlaybackState.** Destroy events now show vessel name even when trajectory reference is null (loop restart).
 
+- **Fix #139: Merge dialog not shown on revert to launch.** Bug #64 fix unconditionally discarded freshly-stashed pendings. Added `PendingStashedThisTransition` flag to distinguish fresh (keep) vs stale (discard) pendings across scene transitions.
+- **Fix #140: Camera resets to active vessel on loop ghost cycle boundary.** Non-destroyed looped ghosts left FlightCamera with null target between destroy/respawn. `ExplosionHoldEnd` now creates a temporary camera bridge anchor; `RetargetToNewGhost` cleans it up.
+- **Fix #141: Budget deduction drives science/funds/reputation negative.** Extracted `ClampDeduction(reserved, available)` pure method. All three resource types clamped to available balance.
+- **Fix #142: Ghosts spawning into dying scene after DestroyAllGhosts.** Added `sceneChangeInProgress` flag to suppress `Update()`/`LateUpdate()` after `OnSceneChangeRequested`.
+- **Fix #143: ApplyTreeResourceDeltas per-frame no-op overhead.** Added fast-path early-out when all trees already have `ResourcesApplied=true`.
+- **Fix #144: Degraded trees (0 points) deduct budget.** Extracted `RecordingTree.IsDegraded`/`ComputeEndUT()`. Trees with no trajectory data skip budget application.
+- **Fix #145: Ghoster WARN spam for non-existent synthetic vessels.** Pre-check vessel existence before ghosting; downgraded to VERBOSE.
+- **Fix #22 (revised): Facility upgrade replay deferred instead of dropped.** Facility upgrades in Flight scene now set `deferred=true`, stopping the watermark so they are retried on next scene load (previously marked as replayed and permanently skipped).
+
 ### Previously Fixed (Confirmed)
 
 - **#43** (shader fallback), **#49** (RealVesselExists O(n)) — already fixed in prior releases.

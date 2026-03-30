@@ -243,6 +243,18 @@ In the showcase part list, the kerbal holding a flag is not at the same height a
 
 **Priority:** Low — cosmetic
 
+### T38. Debris recording filtering
+
+Currently every breakup piece (including tiny debris fragments) gets its own background recording. A 17-debris breakup produces 17 separate recordings cluttering the UI. Should filter by vessel type/mass/part count and only record meaningful stages and boosters, not every small debris fragment.
+
+**Priority:** Medium — user experience, UI clutter
+
+### T39. Watch mode for distant ghosts (post-separation stages)
+
+After stage separation, the ghost for the continuation stage is at 40-120km altitude — beyond visual range (120km) from the pad. The Watch (W) button is disabled because the `inRange` check rejects Beyond-zone ghosts. The user expects to be able to watch all stages in sequence. Watch mode should teleport the camera to the ghost's location instead of requiring the ghost to be within visual range of the active vessel.
+
+**Priority:** High — core user experience for multi-stage flights
+
 ---
 
 # Known Bugs
@@ -410,7 +422,7 @@ During rewind, action replay logs `Facility upgrade: 'SpaceCenter/LaunchPad' —
 
 **Reproduction:** Rewind to a point before a launchpad upgrade milestone. Check log for "facility not found" warning.
 
-**Status:** Fixed — downgraded from WARN to INFO with explanatory message ("expected in Flight scene where facility refs are unavailable"). The facility level data from the quicksave is authoritative; the action replay skip is harmless.
+**Status:** Fixed — facility upgrade replay now sets `deferred=true` when `facilityRefs` are unavailable (Flight scene). The watermark stops at the deferred event so it is retried on the next scene load (e.g., Space Center). Previously the event was marked as replayed and permanently skipped.
 
 ## 23. Ghost geometry log noise and orphaned .pcrf files
 
@@ -940,7 +952,7 @@ The revert detection (`isRevert=False`) does not recognize this as a revert, so 
 
 **Repro:** Record a flight in tree mode → destroy vessel → merge dialog appears → click "Revert to Launch" → dialog appears a second time.
 
-**Fix:** Added `DiscardPendingTree` / `DiscardPending` guards in the `isRevert` block of `ParsekScenario.OnLoad`, clearing orphaned pending state before `OnFlightReady` can trigger the fallback dialog.
+**Fix:** Added `DiscardPendingTree` / `DiscardPending` guards in the `isRevert` block of `ParsekScenario.OnLoad`, clearing orphaned pending state before `OnFlightReady` can trigger the fallback dialog. Original fix was too aggressive — it also discarded freshly-stashed pendings from the current recording (caused bug #139). Refined with `PendingStashedThisTransition` flag to distinguish fresh vs stale pendings.
 
 **Status:** Fixed
 
@@ -1705,6 +1717,66 @@ Additionally: FlightRecorder `Recorded point` Verbose → VerboseRateLimited (5s
 **Round 4:** Remaining spam from post-R3 analysis. SpawnWarning FormatChainStatus VRL'd (1,165 lines per-frame poll). Zone transitions Info→VRL shared key (501 lines, 248-line bursts). Scenario per-recording index dump Info→Verbose (390 lines). Per-recording "Loaded recording:" Info→Verbose (278 lines). "Triggering explosion" Info→VRL per-index 10s (406 lines). Net result: Parsek output rate dropped from 16,947/min (pre-fix) to 1,327/min (post-R3) — **92.2% reduction**.
 
 Full analysis in `docs/dev/log-audit-2026-03-25.md`.
+
+**Status:** Fixed
+
+## ~~139. Merge dialog not shown on revert to launch~~
+
+After recording a flight and reverting to launch, the commit/merge confirmation window does not appear. The recording data is permanently lost.
+
+**Root cause:** Bug #64 fix unconditionally discarded pending recordings/trees in `ParsekScenario.OnLoad` on revert. It could not distinguish a freshly-stashed pending (from the current recording, via `OnSceneChangeRequested`) from a stale orphan (from a previous flight where the user ignored the dialog).
+
+**Fix:** Added `RecordingStore.PendingStashedThisTransition` flag. Set `true` by `StashPending`/`StashPendingTree` during scene change, checked in `OnLoad` — only discards stale pendings (flag=false), preserves fresh ones (flag=true) so `OnFlightReady` can show the dialog.
+
+**Status:** Fixed
+
+## ~~140. Camera resets to active vessel on loop ghost cycle boundary~~
+
+When watching (W) a looped rocket from launch, the camera snaps back to the active vessel when the ghost reaches the end of its recording and the loop cycle changes. Expected: camera should smoothly follow the ghost from one loop iteration to the next.
+
+**Root cause:** For non-destroyed recordings at cycle boundary, `ExplosionHoldEnd` destroyed the camera anchor without creating a bridge. Between ghost destruction and respawn, `FlightCamera` detected a null target and snapped to `ActiveVessel`.
+
+**Fix:** `ExplosionHoldEnd` now creates a temporary camera bridge anchor at the ghost's last position (same pattern as `ExplosionHoldStart` for explosions). `RetargetToNewGhost` cleans up the bridge when the new ghost's pivot is available.
+
+**Status:** Fixed
+
+## ~~141. Budget deduction can drive science/funds/reputation negative~~
+
+Budget deduction in `ResourceApplicator.DeductBudget` did not clamp to available balance. Player with 1.6 science and 5.0 reserved → science goes to -3.4 after deduction.
+
+**Fix:** Extracted `ResourceApplicator.ClampDeduction(reserved, available)` pure method. All three resource deductions (funds, science, reputation) now clamped to `Min(reserved, Max(0, available))`.
+
+**Status:** Fixed
+
+## ~~142. Ghosts spawning into dying scene after DestroyAllGhosts~~
+
+After `OnSceneChangeRequested` calls `DestroyAllGhosts`, `ParsekFlight.Update()` continues running (MonoBehaviour not yet destroyed) and spawns hundreds of new ghosts into the dying scene. Wasted CPU/memory during scene transition.
+
+**Fix:** Added `sceneChangeInProgress` flag set in `OnSceneChangeRequested`, checked at top of `Update()` and `LateUpdate()` to skip all processing.
+
+**Status:** Fixed
+
+## ~~143. ApplyTreeResourceDeltas per-frame no-op overhead~~
+
+`ApplyTreeResourceDeltas` called every physics frame (~1200/sec), iterating 10 trees, finding all already applied, returning. ~6000 suppressed calls per 5s rate-limit interval.
+
+**Fix:** Added fast-path early-out: scans `ResourcesApplied` flag on all trees, returns immediately if all are true.
+
+**Status:** Fixed
+
+## ~~144. Degraded tree recordings (0 points) deduct budget~~
+
+Synthetic test tree recordings with missing `.prec` trajectory files loaded with 0 points but non-zero delta values. `ApplyTreeLumpSum` applied their budget (14k funds) to real career saves.
+
+**Fix:** Extracted `RecordingTree.IsDegraded` / `ComputeEndUT()` methods. `ApplyTreeResourceDeltas` skips degraded trees (all recordings 0 points), marking them as applied without deducting.
+
+**Status:** Fixed
+
+## ~~145. Ghoster WARN spam for non-existent synthetic vessels~~
+
+`VesselGhoster.GhostVessel` logged WARN for PIDs that don't exist in the scene (synthetic test tree vessels). Three warnings fired every flight load for PIDs 8001, 8005, 8006.
+
+**Fix:** Caller now checks `FindVesselByPid` before calling `GhostVessel`. Non-existent vessels logged at VERBOSE (nothing to ghost). `GhostVessel` internal "not found" also downgraded to VERBOSE.
 
 **Status:** Fixed
 
