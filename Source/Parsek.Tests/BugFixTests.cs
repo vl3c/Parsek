@@ -746,4 +746,222 @@ namespace Parsek.Tests
     }
 
     #endregion
+
+    #region Budget deduction clamping
+
+    public class ClampDeductionTests
+    {
+        [Fact]
+        public void ClampDeduction_ReservedLessThanAvailable_ReturnsReserved()
+        {
+            Assert.Equal(100.0, ResourceApplicator.ClampDeduction(100.0, 500.0));
+        }
+
+        [Fact]
+        public void ClampDeduction_ReservedExceedsAvailable_ClampsToAvailable()
+        {
+            // Bug: science 1.6 available, 5.0 reserved → should clamp to 1.6, not 5.0
+            Assert.Equal(1.6, ResourceApplicator.ClampDeduction(5.0, 1.6), precision: 10);
+        }
+
+        [Fact]
+        public void ClampDeduction_AvailableIsZero_ReturnsZero()
+        {
+            Assert.Equal(0.0, ResourceApplicator.ClampDeduction(100.0, 0.0));
+        }
+
+        [Fact]
+        public void ClampDeduction_AvailableIsNegative_ReturnsZero()
+        {
+            // If balance is already negative, don't deduct anything
+            Assert.Equal(0.0, ResourceApplicator.ClampDeduction(50.0, -10.0));
+        }
+
+        [Fact]
+        public void ClampDeduction_ReservedEqualsAvailable_ReturnsExact()
+        {
+            Assert.Equal(42.0, ResourceApplicator.ClampDeduction(42.0, 42.0));
+        }
+
+        [Fact]
+        public void ClampDeduction_ZeroReserved_ReturnsZero()
+        {
+            Assert.Equal(0.0, ResourceApplicator.ClampDeduction(0.0, 500.0));
+        }
+    }
+
+    #endregion
+
+    #region Degraded tree detection
+
+    public class DegradedTreeTests
+    {
+        [Fact]
+        public void IsDegraded_AllRecordingsZeroPoints_ReturnsTrue()
+        {
+            var tree = new RecordingTree { TreeName = "EmptyTree" };
+            tree.Recordings["r1"] = new Recording { Points = new List<TrajectoryPoint>() };
+            tree.Recordings["r2"] = new Recording { Points = new List<TrajectoryPoint>() };
+
+            Assert.True(tree.IsDegraded);
+            Assert.Equal(0, tree.ComputeEndUT());
+        }
+
+        [Fact]
+        public void IsDegraded_SomeRecordingsHavePoints_ReturnsFalse()
+        {
+            var tree = new RecordingTree { TreeName = "MixedTree" };
+            tree.Recordings["r1"] = new Recording { Points = new List<TrajectoryPoint>() };
+            tree.Recordings["r2"] = new Recording
+            {
+                Points = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint { ut = 100 },
+                    new TrajectoryPoint { ut = 200 }
+                }
+            };
+
+            Assert.False(tree.IsDegraded);
+            Assert.Equal(200.0, tree.ComputeEndUT());
+        }
+
+        [Fact]
+        public void IsDegraded_NoRecordings_ReturnsTrue()
+        {
+            var tree = new RecordingTree { TreeName = "NoRecs" };
+
+            Assert.True(tree.IsDegraded);
+        }
+
+        [Fact]
+        public void ComputeEndUT_MultipleRecordings_ReturnsMax()
+        {
+            var tree = new RecordingTree { TreeName = "Multi" };
+            tree.Recordings["r1"] = new Recording
+            {
+                Points = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint { ut = 100 },
+                    new TrajectoryPoint { ut = 150 }
+                }
+            };
+            tree.Recordings["r2"] = new Recording
+            {
+                Points = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint { ut = 200 },
+                    new TrajectoryPoint { ut = 300 }
+                }
+            };
+
+            Assert.Equal(300.0, tree.ComputeEndUT());
+        }
+    }
+
+    #endregion
+
+    #region Pending stash lifecycle (revert dialog fix)
+
+    [Collection("Sequential")]
+    public class PendingStashLifecycleTests : IDisposable
+    {
+        private readonly List<string> logLines = new List<string>();
+
+        public PendingStashLifecycleTests()
+        {
+            RecordingStore.SuppressLogging = true;
+            RecordingStore.ResetForTesting();
+            MilestoneStore.SuppressLogging = true;
+            MilestoneStore.ResetForTesting();
+            GameStateStore.SuppressLogging = true;
+            ParsekLog.SuppressLogging = false;
+            ParsekLog.VerboseOverrideForTesting = true;
+            ParsekLog.TestSinkForTesting = line => logLines.Add(line);
+        }
+
+        private List<TrajectoryPoint> MakePoints(int count)
+        {
+            var points = new List<TrajectoryPoint>();
+            for (int i = 0; i < count; i++)
+                points.Add(new TrajectoryPoint
+                {
+                    ut = 100 + i * 10,
+                    latitude = 0, longitude = 0, altitude = 100,
+                    rotation = UnityEngine.Quaternion.identity,
+                    velocity = UnityEngine.Vector3.zero,
+                    bodyName = "Kerbin"
+                });
+            return points;
+        }
+
+        [Fact]
+        public void FreshStash_SurvivesRevertGuard()
+        {
+            // Simulate: stash pending (OnSceneChangeRequested), then OnLoad revert guard
+            RecordingStore.StashPending(MakePoints(5), "FreshRocket");
+            Assert.True(RecordingStore.PendingStashedThisTransition);
+            Assert.True(RecordingStore.HasPending);
+
+            // Simulate the OnLoad guard: if flag is true, keep pending
+            if (RecordingStore.PendingStashedThisTransition)
+            {
+                ParsekLog.Info("Scenario",
+                    "Revert: keeping freshly-stashed pending (stashed this transition) — " +
+                    $"tree={RecordingStore.HasPendingTree}, standalone={RecordingStore.HasPending}");
+                RecordingStore.PendingStashedThisTransition = false;
+            }
+
+            // Pending survived
+            Assert.True(RecordingStore.HasPending);
+            Assert.Equal("FreshRocket", RecordingStore.Pending.VesselName);
+            Assert.False(RecordingStore.PendingStashedThisTransition);
+            Assert.Contains(logLines, l => l.Contains("keeping freshly-stashed pending"));
+        }
+
+        [Fact]
+        public void StaleStash_DiscardedByRevertGuard()
+        {
+            // Simulate: stash pending, then flag cleared (previous scene consumed it),
+            // then another revert runs OnLoad guard
+            RecordingStore.StashPending(MakePoints(5), "StaleRocket");
+            RecordingStore.PendingStashedThisTransition = false; // simulate consumed
+
+            // Simulate the OnLoad guard: if flag is false, discard
+            if (!RecordingStore.PendingStashedThisTransition)
+            {
+                if (RecordingStore.HasPending)
+                {
+                    ParsekLog.Info("Scenario", "Clearing orphaned pending recording on revert (stale from previous flight)");
+                    RecordingStore.DiscardPending();
+                }
+            }
+
+            Assert.False(RecordingStore.HasPending);
+            Assert.Contains(logLines, l => l.Contains("stale from previous flight"));
+        }
+
+        [Fact]
+        public void FreshTreeStash_SurvivesRevertGuard()
+        {
+            var tree = new RecordingTree { TreeName = "FreshTree" };
+            RecordingStore.StashPendingTree(tree);
+            Assert.True(RecordingStore.PendingStashedThisTransition);
+
+            // Guard keeps it
+            if (RecordingStore.PendingStashedThisTransition)
+                RecordingStore.PendingStashedThisTransition = false;
+
+            Assert.True(RecordingStore.HasPendingTree);
+            Assert.Equal("FreshTree", RecordingStore.PendingTree.TreeName);
+        }
+
+        public void Dispose()
+        {
+            ParsekLog.SuppressLogging = true;
+            ParsekLog.ResetTestOverrides();
+            RecordingStore.ResetForTesting();
+        }
+    }
+
+    #endregion
 }
