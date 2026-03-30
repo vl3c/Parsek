@@ -768,13 +768,10 @@ namespace Parsek
                 return;
             }
 
-            // Dedup: only attempt once per recording per scene session
+            // Dedup: only attempt once per recording per scene session.
+            // No logging — this fires every frame for every past-end recording (O(N*fps)).
             if (rec.RecordingId != null && !kscSpawnAttempted.Add(rec.RecordingId))
-            {
-                ParsekLog.Verbose("KSCSpawn",
-                    $"Spawn skipped for #{recIdx} \"{rec.VesselName}\": already attempted (id={rec.RecordingId})");
                 return;
-            }
 
             // Use the KSC-specific eligibility check
             var (needsSpawn, reason) = GhostPlaybackLogic.ShouldSpawnAtKscEnd(rec);

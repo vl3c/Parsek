@@ -815,6 +815,7 @@ namespace Parsek
             Transform prefabRoot, Transform ghostModelNode,
             Transform srcFxTransform, Transform ghostFxParent)
         {
+            if (!ParsekLog.IsVerboseEnabled) return;
             if (prefabRoot == null || ghostModelNode == null ||
                 srcFxTransform == null || ghostFxParent == null)
                 return;
@@ -851,6 +852,7 @@ namespace Parsek
             Quaternion configuredLocalRotation,
             bool hasConfiguredLocalRotation)
         {
+            if (!ParsekLog.IsVerboseEnabled) return;
             if (prefabRoot == null || ghostModelNode == null ||
                 srcFxTransform == null || ghostFxParent == null || fxTransform == null)
                 return;

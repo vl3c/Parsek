@@ -54,7 +54,7 @@ namespace Parsek
             if (bestPid != 0)
             {
                 var ic = CultureInfo.InvariantCulture;
-                ParsekLog.Verbose("Anchor",
+                ParsekLog.VerboseRateLimited("Anchor", "find-nearest",
                     $"FindNearestAnchor: anchorPid={bestPid} dist={bestDistance.ToString("F1", ic)}m " +
                     $"focusedPid={focusedVesselPid} candidates={vesselInfos.Count}");
             }
@@ -107,7 +107,7 @@ namespace Parsek
             if (inRange)
             {
                 var ic = CultureInfo.InvariantCulture;
-                ParsekLog.Verbose("Anchor",
+                ParsekLog.VerboseRateLimited("Anchor", "dock-approach",
                     $"Docking approach detected: dist={anchorDistance.ToString("F1", ic)}m < {DockingApproachDistance.ToString("F0", ic)}m");
             }
             return inRange;
