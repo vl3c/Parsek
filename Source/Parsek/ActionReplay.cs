@@ -89,13 +89,18 @@ namespace Parsek
                     if (!m.Committed) continue;
 
                     int newLastReplayed = m.LastReplayedEventIndex;
+                    bool hitDeferred = false;
                     for (int j = m.LastReplayedEventIndex + 1; j < m.Events.Count; j++)
                     {
                         var evt = m.Events[j];
                         if (evt.ut > maxUT) break;
-                        newLastReplayed = j;
-                        if (!IsReplayableEvent(evt.eventType)) continue;
+                        if (!IsReplayableEvent(evt.eventType))
+                        {
+                            if (!hitDeferred) newLastReplayed = j;
+                            continue;
+                        }
 
+                        bool deferred = false;
                         switch (evt.eventType)
                         {
                             case GameStateEventType.TechResearched:
@@ -107,17 +112,28 @@ namespace Parsek
                                     ref partCount, ref skipCount, ref failCount);
                                 break;
                             case GameStateEventType.FacilityUpgraded:
-                                AccumulateReplayResult(ReplayFacilityUpgrade(evt, out var facSkip), facSkip,
+                            {
+                                bool facSuccess = ReplayFacilityUpgrade(evt, out var facSkip, out deferred);
+                                AccumulateReplayResult(facSuccess, facSkip,
                                     ref facilityCount, ref skipCount, ref failCount);
                                 break;
+                            }
                             case GameStateEventType.CrewHired:
                                 AccumulateReplayResult(ReplayCrewHire(evt, out var crewSkip), crewSkip,
                                     ref crewCount, ref skipCount, ref failCount);
                                 break;
                         }
+
+                        // Don't advance watermark past a deferred event —
+                        // it must be retried on the next scene load (e.g., facility
+                        // upgrades unavailable in Flight scene).
+                        if (deferred)
+                            hitDeferred = true;
+                        else if (!hitDeferred)
+                            newLastReplayed = j;
                     }
 
-                    // Mark events up to maxUT as replayed
+                    // Mark events up to last non-deferred as replayed
                     m.LastReplayedEventIndex = newLastReplayed;
                 }
             }
@@ -308,9 +324,10 @@ namespace Parsek
         /// Upgrades a facility to the level recorded in the committed event.
         /// IsReplayingActions must be set to bypass FacilityUpgradePatch.
         /// </summary>
-        internal static bool ReplayFacilityUpgrade(GameStateEvent e, out bool skipped)
+        internal static bool ReplayFacilityUpgrade(GameStateEvent e, out bool skipped, out bool deferred)
         {
             skipped = false;
+            deferred = false;
             string facilityId = e.key;
 
             if (string.IsNullOrEmpty(facilityId))
@@ -326,10 +343,13 @@ namespace Parsek
                     || proto.facilityRefs == null || proto.facilityRefs.Count == 0)
                 {
                     ParsekLog.Info("ActionReplay",
-                        $"Facility upgrade: '{facilityId}' — facility not found, skipping " +
-                        "(expected in Flight scene where facility refs are unavailable)");
-                    skipped = true;
-                    return true;
+                        $"Facility upgrade: '{facilityId}' — facility refs unavailable " +
+                        "(expected in Flight scene), deferring to next scene load");
+                    // Mark as deferred so the watermark doesn't advance past this event.
+                    // The upgrade will be retried when the player visits a scene
+                    // where facility refs are loaded (e.g., Space Center).
+                    deferred = true;
+                    return false;
                 }
 
                 var facility = proto.facilityRefs[0];
