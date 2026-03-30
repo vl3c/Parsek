@@ -13,7 +13,7 @@ namespace Parsek
     {
         // Zone boundary distances (km converted to meters for consistency)
         internal const double PhysicsBubbleRadius = 2300.0;      // 2.3 km
-        internal const double VisualRangeRadius = 500000.0;       // 500 km (testing)
+        internal const double VisualRangeRadius = 1000000.0;      // 1000 km (testing)
 
         // Looped ghost spawn thresholds (tighter than full-timeline)
         internal const double LoopFullFidelityRadius = 2300.0;    // Full fidelity within physics bubble

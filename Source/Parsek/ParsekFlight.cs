@@ -6291,6 +6291,29 @@ namespace Parsek
         {
             if (watchedRecordingIndex < 0) return;
 
+            // Watch-end hold timer: after non-looped playback completes, the ghost
+            // is held visible for a few seconds so the user sees the terminal state.
+            // Once expired, destroy the ghost and exit watch mode.
+            if (watchEndHoldUntilUT > 0 && Planetarium.GetUniversalTime() >= watchEndHoldUntilUT)
+            {
+                int idx = watchedRecordingIndex;
+                ParsekLog.Info("CameraFollow",
+                    $"Watch hold expired for #{idx} at UT {watchEndHoldUntilUT:F1} — destroying ghost and exiting watch");
+                watchEndHoldUntilUT = -1;
+                GhostPlaybackState held;
+                if (ghostStates.TryGetValue(idx, out held) && held != null)
+                {
+                    var committed = RecordingStore.CommittedRecordings;
+                    if (idx >= 0 && idx < committed.Count)
+                    {
+                        var traj = committed[idx] as IPlaybackTrajectory;
+                        engine.DestroyGhost(idx, traj, default(TrajectoryPlaybackFlags), reason: "watch hold expired");
+                    }
+                }
+                ExitWatchMode();
+                return;
+            }
+
             // Safety net: orphaned -2 state with invalid timer — clear to -1 so
             // normal logic can take over (or exit watch mode via safety net below)
             if (watchedOverlapCycleIndex == -2 && overlapRetargetAfterUT <= 0)
@@ -6586,6 +6609,21 @@ namespace Parsek
             if (watchedRecordingIndex >= 0 && watchedRecordingIndex < committed.Count)
                 vesselName = committed[watchedRecordingIndex].VesselName;
 
+            // Compute distance from ghost to active vessel
+            string distText = "";
+            GhostPlaybackState watchState;
+            if (ghostStates.TryGetValue(watchedRecordingIndex, out watchState)
+                && watchState?.ghost != null && FlightGlobals.ActiveVessel != null)
+            {
+                double dist = Vector3d.Distance(
+                    (Vector3d)watchState.ghost.transform.position,
+                    (Vector3d)FlightGlobals.ActiveVessel.transform.position);
+                if (dist < 1000)
+                    distText = dist.ToString("F0", System.Globalization.CultureInfo.InvariantCulture) + " m";
+                else
+                    distText = (dist / 1000).ToString("F1", System.Globalization.CultureInfo.InvariantCulture) + " km";
+            }
+
             float boxW = 300f, boxH = 50f;
             float x = (Screen.width * 0.5f - boxW) / 2f; // centered in the left half of the screen
             float y = 10f;
@@ -6595,7 +6633,10 @@ namespace Parsek
             GUI.DrawTexture(bgRect, Texture2D.whiteTexture);
             GUI.color = Color.white;
 
-            GUI.Label(new Rect(x, y + 5, boxW, 22f), "Watching: " + vesselName, watchOverlayStyle);
+            string title = string.IsNullOrEmpty(distText)
+                ? "Watching: " + vesselName
+                : "Watching: " + vesselName + "  (" + distText + ")";
+            GUI.Label(new Rect(x, y + 5, boxW, 22f), title, watchOverlayStyle);
             GUI.Label(new Rect(x, y + 27, boxW, 18f), "Press [ or ] to return to vessel", watchOverlayHintStyle);
         }
 

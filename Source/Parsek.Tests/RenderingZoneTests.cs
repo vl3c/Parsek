@@ -161,7 +161,7 @@ namespace Parsek.Tests
         [Fact]
         public void ShouldRenderMesh_BeyondVisualRange_ReturnsFalse()
         {
-            Assert.False(RenderingZoneManager.ShouldRenderMesh(500000));
+            Assert.False(RenderingZoneManager.ShouldRenderMesh(RenderingZoneManager.VisualRangeRadius + 100000));
         }
 
         #endregion
