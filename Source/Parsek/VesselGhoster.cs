@@ -51,7 +51,7 @@ namespace Parsek
             Vessel vessel = FlightRecorder.FindVesselByPid(vesselPid);
             if (vessel == null)
             {
-                ParsekLog.Warn(Tag,
+                ParsekLog.Verbose(Tag,
                     string.Format(ic, "GhostVessel: pid={0} — vessel not found via FindVesselByPid", vesselPid));
                 return false;
             }

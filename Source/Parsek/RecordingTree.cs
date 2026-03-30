@@ -37,6 +37,27 @@ namespace Parsek
         // Rebuilt alongside BackgroundMap via RebuildBackgroundMap().
         public HashSet<uint> OwnedVesselPids = new HashSet<uint>();
 
+        /// <summary>
+        /// Returns the maximum EndUT across all recordings in this tree.
+        /// Returns 0 if all recordings have 0 points (degraded tree).
+        /// </summary>
+        internal double ComputeEndUT()
+        {
+            double endUT = 0;
+            foreach (var rec in Recordings.Values)
+            {
+                double recEnd = rec.EndUT;
+                if (recEnd > endUT) endUT = recEnd;
+            }
+            return endUT;
+        }
+
+        /// <summary>
+        /// Returns true if this tree has no trajectory data (all recordings have 0 points).
+        /// Degraded trees should not have their budget applied.
+        /// </summary>
+        internal bool IsDegraded => ComputeEndUT() == 0;
+
         // --- Serialization ---
 
         public void Save(ConfigNode treeNode)

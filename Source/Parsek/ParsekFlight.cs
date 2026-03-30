@@ -37,6 +37,10 @@ namespace Parsek
         private double lastLandedUT = -1;
         private const double LandedSettleThreshold = 5.0; // seconds
 
+        // Set true in OnSceneChangeRequested — suppresses Update() to prevent
+        // ghost spawns and other processing into the dying scene.
+        private bool sceneChangeInProgress;
+
         // Manual playback state (preview of current recording)
         private bool isPlaying = false;
         private double playbackStartUT;
@@ -276,7 +280,7 @@ namespace Parsek
                     foreach (var kv in ghostStates)
                         cachedTimelineGhosts[kv.Key] = kv.Value.ghost;
                     cachedTimelineGhostsFrame = currentFrame;
-                    ParsekLog.Verbose("Flight",
+                    ParsekLog.VerboseRateLimited("Flight", "timeline-ghosts-cache",
                         $"TimelineGhosts: rebuilt cache, {cachedTimelineGhosts.Count} ghosts (frame {currentFrame})");
                 }
                 return cachedTimelineGhosts;
@@ -349,6 +353,10 @@ namespace Parsek
 
         void Update()
         {
+            // After OnSceneChangeRequested, the scene is tearing down — skip all processing
+            // to prevent ghost spawns and other work into the dying scene.
+            if (sceneChangeInProgress) return;
+
             ClearStaleConfirmations();
 
             HandleTreeDockMerge();
@@ -427,6 +435,8 @@ namespace Parsek
         /// </summary>
         void LateUpdate()
         {
+            if (sceneChangeInProgress) return;
+
             for (int i = 0; i < ghostPosEntries.Count; i++)
             {
                 var e = ghostPosEntries[i];
@@ -727,6 +737,7 @@ namespace Parsek
 
         void OnSceneChangeRequested(GameScenes scene)
         {
+            sceneChangeInProgress = true;
             ParsekLog.Info("Flight", $"Scene change requested: {scene}");
 
             // Exit watch mode on scene change
@@ -3817,7 +3828,17 @@ namespace Parsek
                 }
 
                 activeChains[pid] = chain;
-                if (vesselGhoster.GhostVessel(pid))
+
+                // Only attempt ghosting if the vessel actually exists in the scene.
+                // Tree recordings may reference vessels that were never spawned (e.g.,
+                // synthetic test data or vessels in a different SOI/scene).
+                Vessel chainVessel = FlightRecorder.FindVesselByPid(pid);
+                if (chainVessel == null)
+                {
+                    ParsekLog.Verbose("Ghoster", string.Format(CultureInfo.InvariantCulture,
+                        "Chain vessel pid={0} not loaded in scene — nothing to ghost", pid));
+                }
+                else if (vesselGhoster.GhostVessel(pid))
                     ghostedCount++;
                 else
                 {
@@ -5992,22 +6013,33 @@ namespace Parsek
         void ApplyTreeResourceDeltas(double currentUT)
         {
             var trees = RecordingStore.CommittedTrees;
+            if (trees.Count == 0) return;
+
+            // Fast path: skip per-tree iteration if all trees are already applied.
+            bool anyPending = false;
+            for (int i = 0; i < trees.Count; i++)
+            {
+                if (!trees[i].ResourcesApplied) { anyPending = true; break; }
+            }
+            if (!anyPending) return;
+
             for (int i = 0; i < trees.Count; i++)
             {
                 var tree = trees[i];
                 if (tree.ResourcesApplied)
-                {
-                    ParsekLog.VerboseRateLimited("Flight", "tree-res-skip-applied",
-                        $"ApplyTreeResourceDeltas: skipping tree '{tree.TreeName}' — already applied");
                     continue;
-                }
 
-                // Compute tree EndUT: max EndUT across all recordings
-                double treeEndUT = 0;
-                foreach (var rec in tree.Recordings.Values)
+                double treeEndUT = tree.ComputeEndUT();
+
+                // Skip degraded trees (all recordings have 0 points — trajectory files missing).
+                // These have stale delta values from metadata but no actual playback data,
+                // so applying their budget would incorrectly charge the player.
+                if (tree.IsDegraded)
                 {
-                    double recEnd = rec.EndUT;
-                    if (recEnd > treeEndUT) treeEndUT = recEnd;
+                    tree.ResourcesApplied = true;
+                    ParsekLog.Info("Flight",
+                        $"ApplyTreeResourceDeltas: skipping degraded tree '{tree.TreeName}' — no trajectory data (0 points)");
+                    continue;
                 }
 
                 if (currentUT <= treeEndUT)
@@ -6435,11 +6467,19 @@ namespace Parsek
                     break;
 
                 case CameraActionType.ExplosionHoldEnd:
+                    // Non-destroyed loop boundary: ghost will be destroyed and respawned.
+                    // Create a temporary camera anchor at the ghost's last position to bridge
+                    // the gap between destroy and respawn — without this, FlightCamera detects
+                    // a null target and snaps back to the active vessel.
                     watchedOverlapCycleIndex = -1;
                     overlapRetargetAfterUT = -1;
-                    if (overlapCameraAnchor != null) { Destroy(overlapCameraAnchor); overlapCameraAnchor = null; }
+                    if (overlapCameraAnchor != null) Destroy(overlapCameraAnchor);
+                    overlapCameraAnchor = new UnityEngine.GameObject("ParsekLoopCameraBridge");
+                    overlapCameraAnchor.transform.position = evt.AnchorPosition;
+                    if (FlightCamera.fetch != null)
+                        FlightCamera.fetch.SetTargetTransform(overlapCameraAnchor.transform);
                     ParsekLog.Info("CameraFollow",
-                        $"Loop: ready for re-target for #{evt.Index}");
+                        $"Loop: camera bridged at cycle boundary for #{evt.Index}");
                     break;
 
                 case CameraActionType.RetargetToNewGhost:
@@ -6447,6 +6487,8 @@ namespace Parsek
                     {
                         FlightCamera.fetch.SetTargetTransform(evt.GhostPivot);
                         watchedOverlapCycleIndex = evt.NewCycleIndex;
+                        // Clean up the bridge anchor now that camera is on the new ghost
+                        if (overlapCameraAnchor != null) { Destroy(overlapCameraAnchor); overlapCameraAnchor = null; }
                         ParsekLog.Info("CameraFollow",
                             $"Loop: camera retargeted to ghost #{evt.Index} cycle={evt.NewCycleIndex}");
                     }
@@ -6465,6 +6507,7 @@ namespace Parsek
                     {
                         FlightCamera.fetch.SetTargetTransform(evt.GhostPivot);
                         watchedOverlapCycleIndex = evt.NewCycleIndex;
+                        if (overlapCameraAnchor != null) { Destroy(overlapCameraAnchor); overlapCameraAnchor = null; }
                         ParsekLog.Info("CameraFollow",
                             $"Overlap: camera retargeted to ghost #{evt.Index} cycle={evt.NewCycleIndex}");
                     }
