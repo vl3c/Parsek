@@ -442,6 +442,7 @@ namespace Parsek.Tests
             var rec = MakeRecording("Ship", new[] { "Jeb" },
                 TerminalState.Recovered, 2000);
             RecordingStore.AddCommittedForTesting(rec);
+            KerbalsModule.Recalculate(); // builds the allRecordingCrew HashSet
 
             Assert.True(KerbalsModule.IsKerbalInAnyRecording("Jeb"));
         }

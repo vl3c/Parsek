@@ -32,11 +32,17 @@ namespace Parsek.Tests
         private class TestModule : IResourceModule
         {
             public int ResetCount;
+            public int PrePassCount;
             public List<GameAction> ProcessedActions = new List<GameAction>();
 
             public void Reset()
             {
                 ResetCount++;
+            }
+
+            public void PrePass(List<GameAction> actions)
+            {
+                PrePassCount++;
             }
 
             public void ProcessAction(GameAction action)
