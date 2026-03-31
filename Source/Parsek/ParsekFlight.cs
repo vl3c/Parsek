@@ -1114,7 +1114,7 @@ namespace Parsek
             {
                 double flightDuration = RecordingStore.Pending.EndUT - RecordingStore.Pending.StartUT;
                 double maxDist = RecordingStore.Pending.MaxDistanceFromLaunch;
-                if (flightDuration < 10.0 && maxDist < 30.0)
+                if (IsPadFailure(flightDuration, maxDist))
                 {
                     Log($"Post-destruction: pad failure ({flightDuration:F1}s, {maxDist:F0}m) — auto-discarding");
                     ScreenMessage("Recording discarded — pad failure", 3f);
@@ -1938,7 +1938,7 @@ namespace Parsek
                 {
                     double dur = RecordingStore.Pending.EndUT - RecordingStore.Pending.StartUT;
                     double maxDist = RecordingStore.Pending.MaxDistanceFromLaunch;
-                    if (dur < 10.0 && maxDist < 30.0)
+                    if (IsPadFailure(dur, maxDist))
                     {
                         ParsekLog.Info("Flight",
                             $"Vessel destroyed during split — pad failure ({dur:F1}s, {maxDist:F0}m), discarding");
@@ -6261,6 +6261,15 @@ namespace Parsek
         /// Reindexes an int-keyed dictionary after a deletion: keys above removedIndex shift down by 1.
         /// The entry at removedIndex (if any) is dropped.
         /// </summary>
+        /// <summary>
+        /// Returns true if the recording should be discarded as a pad failure:
+        /// duration &lt; 10s AND max distance from launch &lt; 30m.
+        /// </summary>
+        internal static bool IsPadFailure(double duration, double maxDistanceFromLaunch)
+        {
+            return duration < 10.0 && maxDistanceFromLaunch < 30.0;
+        }
+
         internal static void ReindexAfterDelete<T>(Dictionary<int, T> dict, int removedIndex)
         {
             var old = new Dictionary<int, T>(dict);
