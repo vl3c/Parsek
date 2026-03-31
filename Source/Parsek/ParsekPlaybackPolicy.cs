@@ -358,25 +358,93 @@ namespace Parsek
             return HeldGhostAction.RetrySpawn;
         }
 
+        /// <summary>
+        /// Recording indices eligible for ghost map ProtoVessels but deferred until
+        /// the ghost enters an orbital segment. Avoids showing orbit lines during
+        /// atmospheric ascent when the ghost mesh is still on the pad.
+        /// </summary>
+        private readonly Dictionary<int, IPlaybackTrajectory> pendingMapVessels =
+            new Dictionary<int, IPlaybackTrajectory>();
+
         private void HandleGhostCreated(GhostLifecycleEvent evt)
         {
-            // Create ghost map ProtoVessel for orbit line / tracking station / targeting.
-            // Only for non-debris recordings that end in a stable orbit.
-            // Skip destroyed, suborbital, landed, splashed — their terminal orbit
-            // is misleading (orbit line shows trajectory that the vessel never completes).
             if (evt.Trajectory == null || evt.Trajectory.IsDebris)
                 return;
 
-            // Only create for stable orbital terminal states.
-            // Skip destroyed/suborbital/landed/splashed/recovered/boarded —
-            // their terminal orbit is misleading or nonexistent.
+            // Only for stable orbital terminal states
             var terminal = evt.Trajectory.TerminalStateValue;
             if (terminal.HasValue
                 && terminal.Value != TerminalState.Orbiting
-                && terminal.Value != TerminalState.Docked)  // docked = still in orbit
+                && terminal.Value != TerminalState.Docked)
                 return;
 
-            GhostMapPresence.CreateGhostVesselForRecording(evt.Index, evt.Trajectory);
+            if (!GhostMapPresence.HasOrbitData(evt.Trajectory))
+                return;
+
+            // Check if the ghost starts in an orbital segment (orbit-only recording
+            // or UT is already within an orbital segment). If so, create immediately.
+            // Otherwise, defer — the per-frame check will create it when the ghost
+            // enters its first orbital segment.
+            double startUT = evt.Trajectory.StartUT;
+            if (StartsInOrbit(evt.Trajectory, startUT))
+            {
+                GhostMapPresence.CreateGhostVesselForRecording(evt.Index, evt.Trajectory);
+            }
+            else
+            {
+                pendingMapVessels[evt.Index] = evt.Trajectory;
+                ParsekLog.Verbose("Policy",
+                    $"Deferred ghost map vessel for #{evt.Index} \"{evt.Trajectory.VesselName}\" " +
+                    "— recording starts pre-orbital");
+            }
+        }
+
+        /// <summary>
+        /// Check deferred ghost map ProtoVessels. Called each frame after engine update.
+        /// Creates the ProtoVessel when the ghost enters an orbital segment.
+        /// </summary>
+        internal void CheckPendingMapVessels(double currentUT)
+        {
+            if (pendingMapVessels.Count == 0) return;
+
+            List<int> toCreate = null;
+            foreach (var kvp in pendingMapVessels)
+            {
+                if (TrajectoryMath.FindOrbitSegment(kvp.Value.OrbitSegments, currentUT) != null)
+                {
+                    if (toCreate == null) toCreate = new List<int>();
+                    toCreate.Add(kvp.Key);
+                }
+            }
+
+            if (toCreate != null)
+            {
+                for (int i = 0; i < toCreate.Count; i++)
+                {
+                    int idx = toCreate[i];
+                    if (pendingMapVessels.TryGetValue(idx, out var traj))
+                    {
+                        GhostMapPresence.CreateGhostVesselForRecording(idx, traj);
+                        pendingMapVessels.Remove(idx);
+                        ParsekLog.Info("Policy",
+                            $"Created deferred ghost map vessel for #{idx} \"{traj.VesselName}\" — ghost entered orbital segment");
+                    }
+                }
+            }
+        }
+
+        /// <summary>
+        /// Returns true if the trajectory is in an orbital segment at the given UT
+        /// (i.e., recording starts in orbit, no atmospheric ascent phase before first segment).
+        /// </summary>
+        internal static bool StartsInOrbit(IPlaybackTrajectory traj, double ut)
+        {
+            if (traj.OrbitSegments == null || traj.OrbitSegments.Count == 0)
+                return false;
+            // If recording has no trajectory points, it's orbit-only
+            if (traj.Points == null || traj.Points.Count == 0)
+                return true;
+            return TrajectoryMath.FindOrbitSegment(traj.OrbitSegments, ut) != null;
         }
 
         private void HandleGhostDestroyed(GhostLifecycleEvent evt)
@@ -388,6 +456,7 @@ namespace Parsek
             // If a held ghost was destroyed externally (e.g. soft cap, DestroyAllGhosts),
             // remove it from the held set so we don't try to destroy it again
             heldGhosts.Remove(evt.Index);
+            pendingMapVessels.Remove(evt.Index);
 
             // Remove recording-index-based ghost map ProtoVessel
             GhostMapPresence.RemoveGhostVesselForRecording(evt.Index, "ghost-destroyed");
@@ -421,6 +490,7 @@ namespace Parsek
             pendingSpawnRecordingIds.Clear();
             pendingWatchRecordingId = null;
             heldGhosts.Clear();
+            pendingMapVessels.Clear();
         }
 
         /// <summary>
@@ -435,6 +505,7 @@ namespace Parsek
             engine.OnOverlapExpired -= HandleOverlapExpired;
             engine.OnAllGhostsDestroying -= HandleAllGhostsDestroying;
             heldGhosts.Clear();
+            pendingMapVessels.Clear();
             ParsekLog.Info("Policy", "ParsekPlaybackPolicy disposed and unsubscribed from 5 engine events");
         }
     }

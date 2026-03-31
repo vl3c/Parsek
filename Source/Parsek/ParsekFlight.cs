@@ -5936,6 +5936,9 @@ namespace Parsek
             // waiting for a blocked/deferred spawn to resolve
             policy.RetryHeldGhostSpawns();
 
+            // Create deferred ghost map ProtoVessels when ghosts enter orbital segments
+            policy.CheckPendingMapVessels(Planetarium.GetUniversalTime());
+
             // Per-frame resource deltas (policy concern, not engine).
             // Intentional: deltas accrue for both in-range AND past-end recordings
             // regardless of whether a ghost is visually active. Resource replay must
