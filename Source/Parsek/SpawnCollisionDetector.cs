@@ -166,6 +166,59 @@ namespace Parsek
         }
 
         // ────────────────────────────────────────────────────────────
+        //  KSC exclusion zone (pure, unit-testable)
+        // ────────────────────────────────────────────────────────────
+
+        /// <summary>KSC launch pad latitude in degrees.</summary>
+        internal const double KscPadLatitude = -0.0972;
+
+        /// <summary>KSC launch pad longitude in degrees.</summary>
+        internal const double KscPadLongitude = -74.5575;
+
+        /// <summary>
+        /// Default exclusion radius in meters around the KSC launch pad.
+        /// The pad structure extends ~50-80m; 150m provides safety margin
+        /// against collisions with pad infrastructure. (#170)
+        /// </summary>
+        internal const double DefaultKscExclusionRadiusMeters = 150.0;
+
+        /// <summary>
+        /// Pure decision: is the given lat/lon within the KSC launch pad exclusion zone?
+        /// Uses great-circle surface distance approximation (flat-Earth for short distances).
+        /// Only meaningful on the home world (Kerbin) — caller must check body.isHomeWorld.
+        /// </summary>
+        /// <param name="latitude">Spawn latitude in degrees.</param>
+        /// <param name="longitude">Spawn longitude in degrees.</param>
+        /// <param name="bodyRadius">Radius of the body in meters (e.g. 600000 for Kerbin).</param>
+        /// <param name="exclusionRadiusMeters">Exclusion radius in meters.</param>
+        /// <returns>True if the position is within the exclusion zone.</returns>
+        internal static bool IsWithinKscExclusionZone(
+            double latitude, double longitude, double bodyRadius, double exclusionRadiusMeters)
+        {
+            double dLat = (latitude - KscPadLatitude) * Math.PI / 180.0;
+            double dLon = (longitude - KscPadLongitude) * Math.PI / 180.0;
+            double avgLat = (latitude + KscPadLatitude) * 0.5 * Math.PI / 180.0;
+
+            // Flat-Earth approximation: valid for distances << body radius
+            double dx = dLon * Math.Cos(avgLat) * bodyRadius;
+            double dy = dLat * bodyRadius;
+            double distanceMeters = Math.Sqrt(dx * dx + dy * dy);
+
+            bool withinZone = distanceMeters < exclusionRadiusMeters;
+
+            ParsekLog.Verbose(Tag,
+                string.Format(IC,
+                    "IsWithinKscExclusionZone: lat={0} lon={1} distance={2}m radius={3}m → {4}",
+                    latitude.ToString("F4", IC),
+                    longitude.ToString("F4", IC),
+                    distanceMeters.ToString("F1", IC),
+                    exclusionRadiusMeters.ToString("F0", IC),
+                    withinZone));
+
+            return withinZone;
+        }
+
+        // ────────────────────────────────────────────────────────────
         //  Trajectory walkback (pure, unit-testable)
         // ────────────────────────────────────────────────────────────
 

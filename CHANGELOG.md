@@ -15,6 +15,7 @@ All notable changes to Parsek are documented here.
 
 ### Bug Fixes
 
+- **Fix #170: Vessel spawned near launch pad collides with infrastructure, chain-explodes player's rocket.** Added 150m KSC launch pad exclusion zone (`IsWithinKscExclusionZone` in `SpawnCollisionDetector`) to block spawns near pad infrastructure. Fixed `RemoveDeadCrewFromSnapshot` to remove reserved crew who are Dead (reservation no longer overrides death). Added `ShouldBlockSpawnForDeadCrew` guard to abandon spawn when all crew are dead.
 - **Fix #72: GhostCommNetRelay antenna combination formula wrong for non-combinable strongest.** Extracted `ResolveCombinationExponent` pure method. When the overall strongest antenna is non-combinable, the combination exponent now comes from the strongest *combinable* antenna, matching KSP's actual formula.
 - **Fix #81: TrackSection struct shallow copy shares mutable list references.** Extracted `Recording.DeepCopyTrackSections` that creates independent `frames` and `checkpoints` lists for each copied TrackSection. Used in `ApplyPersistenceArtifactsFrom`.
 - **Fix #122: Dead->Dead crew status identity transitions logged as events.** Added `IsRealStatusChange` guard in `GameStateRecorder.OnKerbalStatusChange` to filter identity transitions before recording.
