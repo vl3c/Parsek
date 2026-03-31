@@ -4432,7 +4432,7 @@ namespace Parsek
                         $"may be procedurally generated at runtime. Ghost will be missing this mesh.");
                     continue;
                 }
-                if (filterInactiveVariantRenderers && !smr.gameObject.activeInHierarchy) continue;
+                if (filterInactiveVariantRenderers && !hasVariantGameObjectRules && !smr.gameObject.activeInHierarchy) continue;
                 if (hasVariantGameObjectRules &&
                     !IsRendererEnabledByVariantRule(
                         smr.transform, modelRoot, selectedVariantGameObjects,
@@ -4898,7 +4898,10 @@ namespace Parsek
             {
                 var mr = meshRenderers[r];
                 if (mr == null) continue;
-                if (filterInactiveVariantRenderers && !mr.gameObject.activeInHierarchy)
+                // Skip inactive renderers only when no GAMEOBJECT rules exist (#125).
+                // When rules are present, they are the sole authority on which objects to include —
+                // the prefab's base variant may have different objects active than the snapshot's variant.
+                if (filterInactiveVariantRenderers && !hasVariantGameObjectRules && !mr.gameObject.activeInHierarchy)
                 {
                     variantSkipped++;
                     continue;
