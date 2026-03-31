@@ -1909,6 +1909,32 @@ After rewind, `StripOrphanedSpawnedVessels` only matches vessels by recording na
 
 **Status:** Open — needs careful design (stripping all non-whitelisted vessels could remove legitimate vessels in edge cases)
 
+## 165. Engine seed event records throttle=0.00 at recording start
+
+When recording starts on the launchpad with staged engines, `CacheEngineModules` seeds `EngineIgnited` with `throttle=0.00` (the current value before the player throttles up). During playback, the ghost processes `EngineIgnited(0.00)` → plume off → then `EngineThrottle(1.00)` a few frames later → plume on. Creates a visible flame flash-off at the start of every playback cycle.
+
+**Fix:** Seed events should either omit the throttle value (let playback start with default) or the playback engine should not suppress plumes for `EngineIgnited` events with `throttle=0`.
+
+**Priority:** Medium — visible flame flash at recording start
+
+**Status:** Open
+
+## 166. R buttons disabled after tree commit — rewind saves consumed
+
+After a recording tree is committed via the merge dialog, all R buttons for that tree's recordings become disabled because the rewind quicksave files were deleted during tree promotion. Only the root recording had a rewind save; branch recordings never had one.
+
+**Priority:** Low — by design for tree recordings, but confusing UX
+
+**Status:** Open — design gap: should tree branches inherit the root's rewind save?
+
+## 167. Crew swap not executed for KSC-spawned vessels
+
+When a vessel is spawned at KSC (via `TrySpawnAtRecordingEnd`), the crew reservation swap (`SwapReservedCrewInFlight`) only runs on flight-ready. If the user never enters the flight scene for that vessel, the crew swap never executes. The vessel appears to have the original (reserved) crew instead of the replacement.
+
+**Priority:** Medium — spawned vessel has wrong crew
+
+**Status:** Open — swap needs to run at spawn time for KSC spawns, not just flight-ready
+
 ## 159. EVA auto-recordings have no rewind save — R button absent
 
 EVA recordings started from non-launch situations (landed base, orbiting station) have no `RewindSaveFileName` because rewind saves are only captured for chain root / launch recordings. The R button in the recordings window doesn't appear for these recordings (shows empty space, not disabled).
