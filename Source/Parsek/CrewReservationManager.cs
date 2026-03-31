@@ -469,6 +469,7 @@ namespace Parsek
         {
             return status == ProtoCrewMember.RosterStatus.Missing
                 && !string.IsNullOrEmpty(crewName)
+                && replacements != null
                 && replacements.ContainsKey(crewName);
         }
 

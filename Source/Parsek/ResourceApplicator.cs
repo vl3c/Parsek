@@ -165,10 +165,6 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Deducts the committed budget from the game state and marks all recordings/trees
-        /// as fully applied. Called after resource singletons are available on revert.
-        /// </summary>
-        /// <summary>
         /// Clamps a budget deduction to the available balance, preventing negative values.
         /// </summary>
         internal static double ClampDeduction(double reserved, double available)
@@ -176,6 +172,10 @@ namespace Parsek
             return System.Math.Min(reserved, System.Math.Max(0, available));
         }
 
+        /// <summary>
+        /// Deducts the committed budget from the game state and marks all recordings/trees
+        /// as fully applied. Called after resource singletons are available on revert.
+        /// </summary>
         internal static void DeductBudget(BudgetSummary budget, IList<Recording> recordings, IReadOnlyList<RecordingTree> trees)
         {
             GameStateRecorder.SuppressResourceEvents = true;

@@ -437,7 +437,7 @@ namespace Parsek.Tests
         public void ZoneBoundaries_CorrectValues()
         {
             Assert.Equal(2300.0, RenderingZoneManager.PhysicsBubbleRadius);
-            Assert.Equal(1000000.0, RenderingZoneManager.VisualRangeRadius);
+            Assert.Equal(120000.0, RenderingZoneManager.VisualRangeRadius);
             Assert.Equal(2300.0, RenderingZoneManager.LoopFullFidelityRadius);
             Assert.Equal(50000.0, RenderingZoneManager.LoopSimplifiedRadius);
         }
