@@ -138,7 +138,7 @@ namespace Parsek
 
         // Boarding confirmation via onCrewBoardVessel
         private uint pendingBoardingTargetPid; // vessel PID from onCrewBoardVessel, 0 = none
-        private int boardingConfirmFrames;     // frames since boarding event (auto-clear after 3)
+        private int boardingConfirmFrames;     // frames since boarding event (auto-clear after 10)
 
         // Pending dock/undock transitions (set by event handlers, consumed by Update)
         private uint pendingDockMergedPid;          // merged vessel pid, 0 = no pending dock
@@ -3866,11 +3866,12 @@ namespace Parsek
         /// </summary>
         private void ClearStaleConfirmations()
         {
-            // Auto-clear stale boarding confirmation after 3 frames
+            // Auto-clear stale boarding confirmation after 10 frames (#57)
+            // Was 3 frames (~60ms at 50fps) — too short for vessel switches
             if (pendingBoardingTargetPid != 0)
             {
                 boardingConfirmFrames++;
-                if (boardingConfirmFrames > 3)
+                if (boardingConfirmFrames > 10)
                 {
                     ParsekLog.Info("Flight", $"Boarding confirmation expired (targetPid={pendingBoardingTargetPid})");
                     pendingBoardingTargetPid = 0;
