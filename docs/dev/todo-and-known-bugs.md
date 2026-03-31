@@ -253,6 +253,18 @@ After stage separation, the ghost for the continuation stage is at 40-120km alti
 
 **Priority:** High — core user experience for multi-stage flights
 
+### T40. Ghost orbit line visual differentiation (Phase 4)
+
+Ghost orbit lines look identical to real vessel orbit lines. Should have a distinct visual treatment (different color, semi-transparent, or dashed) so the player can tell at a glance which orbits are ghosts. Reference: KSPTrajectories mod ribbon mesh technique for custom orbit rendering. Could also use Harmony patch on `OrbitRenderer.DrawOrbit` or `orbitColor` patching.
+
+**Priority:** Low — cosmetic, functional without it
+
+### T41. Ghost orbit line persists during non-orbital playback phases
+
+When a recording-index ghost exits an orbital segment (e.g., atmospheric re-entry), the ghost map ProtoVessel's orbit line remains at the last segment's orbit. It should either disappear during non-orbital phases or be removed and re-created when the ghost re-enters an orbital segment.
+
+**Priority:** Low — minor visual inconsistency, ghost mesh shows correct position
+
 ---
 
 # Known Bugs

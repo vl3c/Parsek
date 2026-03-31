@@ -532,6 +532,15 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Returns true if a ghost map ProtoVessel exists for the given recording index.
+        /// Used by ParsekUI to suppress the green dot marker when the native KSP icon is active.
+        /// </summary>
+        internal static bool HasGhostVesselForRecording(int recordingIndex)
+        {
+            return vesselsByRecordingIndex.ContainsKey(recordingIndex);
+        }
+
+        /// <summary>
         /// Reset all state for testing (avoids Debug.Log crash outside Unity).
         /// </summary>
         internal static void ResetForTesting()
