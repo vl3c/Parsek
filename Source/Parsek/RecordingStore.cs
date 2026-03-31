@@ -314,18 +314,45 @@ namespace Parsek
             // so they appear collapsed in the recordings window instead of as separate entries.
             // Use GenerateUniqueGroupName to avoid merging multiple launches of the same vessel
             // into one group (bug #104).
+            // Debris recordings get a "Debris" subgroup under the main group.
             if (!string.IsNullOrEmpty(tree.TreeName) && tree.Recordings.Count > 1)
             {
                 string groupName = GenerateUniqueGroupName(tree.TreeName);
+                int debrisCount = 0;
+                string debrisGroupName = null;
+
                 foreach (var rec in tree.Recordings.Values)
                 {
-                    if (rec.RecordingGroups == null)
-                        rec.RecordingGroups = new List<string>();
-                    if (!rec.RecordingGroups.Contains(groupName))
-                        rec.RecordingGroups.Add(groupName);
+                    if (rec.IsDebris)
+                    {
+                        // Create debris subgroup on first debris recording
+                        if (debrisGroupName == null)
+                        {
+                            debrisGroupName = groupName + " / Debris";
+                            GroupHierarchyStore.SetGroupParent(debrisGroupName, groupName);
+                        }
+                        if (rec.RecordingGroups == null)
+                            rec.RecordingGroups = new List<string>();
+                        if (!rec.RecordingGroups.Contains(debrisGroupName))
+                            rec.RecordingGroups.Add(debrisGroupName);
+                        debrisCount++;
+                    }
+                    else
+                    {
+                        if (rec.RecordingGroups == null)
+                            rec.RecordingGroups = new List<string>();
+                        if (!rec.RecordingGroups.Contains(groupName))
+                            rec.RecordingGroups.Add(groupName);
+                    }
                 }
-                ParsekLog.Info("RecordingStore",
-                    $"Auto-grouped {tree.Recordings.Count} recordings under '{groupName}'");
+
+                int stageCount = tree.Recordings.Count - debrisCount;
+                if (debrisCount > 0)
+                    ParsekLog.Info("RecordingStore",
+                        $"Auto-grouped {stageCount} stage(s) under '{groupName}', {debrisCount} debris under '{debrisGroupName}'");
+                else
+                    ParsekLog.Info("RecordingStore",
+                        $"Auto-grouped {tree.Recordings.Count} recordings under '{groupName}'");
             }
 
             // Add all tree recordings to committedRecordings (enables ghost playback)
