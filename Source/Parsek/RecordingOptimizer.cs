@@ -149,9 +149,6 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Compares two RecordingGroups lists for equality.
-        /// Both null/empty = equal. Both non-null = same elements.
-        /// </summary>
         /// <summary>
         /// Merges recording B into recording A (A absorbs B).
         /// Points, events, sections, and orbit segments are concatenated.
@@ -250,8 +247,7 @@ namespace Parsek
             original.Points.RemoveRange(splitPointIdx, original.Points.Count - splitPointIdx);
 
             // 3. Partition PartEvents by UT
-            PartitionByUT(original.PartEvents, second.PartEvents, splitUT,
-                (e) => e.ut, (list, items) => list.AddRange(items));
+            PartitionPartEvents(original.PartEvents, second.PartEvents, splitUT);
 
             // 4. Partition SegmentEvents by UT
             PartitionSegmentEvents(original.SegmentEvents, second.SegmentEvents, splitUT);
@@ -348,6 +344,12 @@ namespace Parsek
 
         #region Private helpers
 
+        /// <summary>
+        /// Maps a SegmentEnvironment to a phase tag for post-split recordings.
+        /// Only used by SplitAtSection — not a general-purpose mapping.
+        /// Surface and propulsive environments near-surface map to "approach" (airless body near-surface).
+        /// Atmospheric maps to "atmo". Everything else maps to "exo".
+        /// </summary>
         private static string EnvironmentToPhase(SegmentEnvironment env)
         {
             switch (env)
@@ -359,21 +361,18 @@ namespace Parsek
             }
         }
 
-        private static void PartitionByUT(List<PartEvent> source, List<PartEvent> target,
-            double splitUT, System.Func<PartEvent, double> getUT,
-            System.Action<List<PartEvent>, List<PartEvent>> addRange)
+        private static void PartitionPartEvents(List<PartEvent> source,
+            List<PartEvent> target, double splitUT)
         {
             if (source == null) return;
-            var toMove = new List<PartEvent>();
             for (int i = source.Count - 1; i >= 0; i--)
             {
                 if (source[i].ut >= splitUT)
                 {
-                    toMove.Insert(0, source[i]);
+                    target.Insert(0, source[i]);
                     source.RemoveAt(i);
                 }
             }
-            target.AddRange(toMove);
         }
 
         private static void PartitionSegmentEvents(List<SegmentEvent> source,

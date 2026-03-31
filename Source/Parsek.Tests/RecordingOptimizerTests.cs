@@ -536,5 +536,86 @@ namespace Parsek.Tests
         }
 
         #endregion
+
+        #region RunOptimizationPass integration
+
+        [Fact]
+        public void RunOptimizationPass_MergesThreeExoSegments()
+        {
+            RecordingStore.SuppressLogging = true;
+            RecordingStore.ResetForTesting();
+
+            // Commit 3 consecutive exo segments in the same chain
+            var a = MakeChainSegment("chain1", 0, startUT: 17000, endUT: 17030);
+            var b = MakeChainSegment("chain1", 1, startUT: 17030, endUT: 17060);
+            var c = MakeChainSegment("chain1", 2, startUT: 17060, endUT: 17090);
+
+            var recordings = RecordingStore.CommittedRecordings;
+            recordings.Add(a);
+            recordings.Add(b);
+            recordings.Add(c);
+
+            RecordingStore.RunOptimizationPass();
+
+            // Should be merged into 1 recording
+            Assert.Single(recordings);
+            Assert.Equal(0, recordings[0].ChainIndex);
+            Assert.Equal(6, recordings[0].Points.Count); // 2+2+2
+            Assert.Equal(17000, recordings[0].StartUT);
+            Assert.Equal(17090, recordings[0].EndUT);
+
+            RecordingStore.ResetForTesting();
+        }
+
+        [Fact]
+        public void RunOptimizationPass_SkipsUserModifiedSegments()
+        {
+            RecordingStore.SuppressLogging = true;
+            RecordingStore.ResetForTesting();
+
+            var a = MakeChainSegment("chain1", 0, startUT: 17000, endUT: 17030);
+            var b = MakeChainSegment("chain1", 1, startUT: 17030, endUT: 17060);
+            b.LoopPlayback = true; // user enabled loop — blocks merge
+            var c = MakeChainSegment("chain1", 2, startUT: 17060, endUT: 17090);
+
+            var recordings = RecordingStore.CommittedRecordings;
+            recordings.Add(a);
+            recordings.Add(b);
+            recordings.Add(c);
+
+            RecordingStore.RunOptimizationPass();
+
+            // No merges should occur (b blocks both pairs)
+            Assert.Equal(3, recordings.Count);
+
+            RecordingStore.ResetForTesting();
+        }
+
+        [Fact]
+        public void RunOptimizationPass_MergesDifferentChainsSeparately()
+        {
+            RecordingStore.SuppressLogging = true;
+            RecordingStore.ResetForTesting();
+
+            var a1 = MakeChainSegment("chain1", 0, startUT: 17000, endUT: 17030);
+            var a2 = MakeChainSegment("chain1", 1, startUT: 17030, endUT: 17060);
+            var b1 = MakeChainSegment("chain2", 0, phase: "approach", startUT: 17000, endUT: 17020);
+            var b2 = MakeChainSegment("chain2", 1, phase: "approach", startUT: 17020, endUT: 17040);
+
+            var recordings = RecordingStore.CommittedRecordings;
+            recordings.Add(a1);
+            recordings.Add(a2);
+            recordings.Add(b1);
+            recordings.Add(b2);
+
+            RecordingStore.RunOptimizationPass();
+
+            // Both chains should be merged independently → 2 recordings
+            Assert.Equal(2, recordings.Count);
+
+            RecordingStore.ResetForTesting();
+        }
+
+        #endregion
     }
 }

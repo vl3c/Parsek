@@ -3344,7 +3344,7 @@ namespace Parsek
         internal static double ComputeApproachAltitude(CelestialBody body)
         {
             if (body != null && body.timeWarpAltitudeLimits != null
-                && body.timeWarpAltitudeLimits.Length > 4
+                && body.timeWarpAltitudeLimits.Length >= 5
                 && body.timeWarpAltitudeLimits[4] > 0)
             {
                 return body.timeWarpAltitudeLimits[4];

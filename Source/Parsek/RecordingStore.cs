@@ -806,9 +806,10 @@ namespace Parsek
             }
 
             int mergeCount = 0;
+            const int maxMergesPerPass = 50;
             // Iterate merge passes until no more candidates (merging may create new adjacent pairs)
             bool changed = true;
-            while (changed)
+            while (changed && mergeCount < maxMergesPerPass)
             {
                 changed = false;
                 var candidates = RecordingOptimizer.FindMergeCandidates(recordings);
@@ -849,7 +850,10 @@ namespace Parsek
                 changed = true;
             }
 
-            if (mergeCount > 0)
+            if (mergeCount >= maxMergesPerPass)
+                ParsekLog.Warn("RecordingStore",
+                    $"Optimization pass: hit merge cap ({maxMergesPerPass}), some candidates may remain");
+            else if (mergeCount > 0)
                 ParsekLog.Info("RecordingStore", $"Optimization pass: merged {mergeCount} segment pair(s)");
             else
                 ParsekLog.Verbose("RecordingStore", "Optimization pass: no merge candidates found");
