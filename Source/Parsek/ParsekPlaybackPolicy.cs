@@ -366,6 +366,13 @@ namespace Parsek
         private readonly Dictionary<int, IPlaybackTrajectory> pendingMapVessels =
             new Dictionary<int, IPlaybackTrajectory>();
 
+        /// <summary>
+        /// Tracks the last orbit segment body+SMA per recording index for change detection.
+        /// Used to update the ghost ProtoVessel orbit as the ghost traverses segments.
+        /// </summary>
+        private readonly Dictionary<int, (string body, double sma)> lastMapOrbitByIndex =
+            new Dictionary<int, (string body, double sma)>();
+
         private void HandleGhostCreated(GhostLifecycleEvent evt)
         {
             if (evt.Trajectory == null || evt.Trajectory.IsDebris)
@@ -389,6 +396,10 @@ namespace Parsek
             if (StartsInOrbit(evt.Trajectory, startUT))
             {
                 GhostMapPresence.CreateGhostVesselForRecording(evt.Index, evt.Trajectory);
+                // Seed segment tracking for per-frame orbit updates
+                OrbitSegment? seg = TrajectoryMath.FindOrbitSegment(evt.Trajectory.OrbitSegments, startUT);
+                if (seg.HasValue)
+                    lastMapOrbitByIndex[evt.Index] = (seg.Value.bodyName, seg.Value.semiMajorAxis);
             }
             else
             {
@@ -400,36 +411,71 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Check deferred ghost map ProtoVessels. Called each frame after engine update.
-        /// Creates the ProtoVessel when the ghost enters an orbital segment.
+        /// Per-frame check for ghost map ProtoVessels. Handles two responsibilities:
+        /// 1. Creates deferred ProtoVessels when ghosts enter their first orbital segment
+        /// 2. Updates existing ProtoVessel orbits when ghosts traverse segment boundaries
         /// </summary>
         internal void CheckPendingMapVessels(double currentUT)
         {
-            if (pendingMapVessels.Count == 0) return;
-
-            List<int> toCreate = null;
-            foreach (var kvp in pendingMapVessels)
+            // 1. Create deferred ProtoVessels for ghosts that just entered an orbital segment
+            if (pendingMapVessels.Count > 0)
             {
-                if (TrajectoryMath.FindOrbitSegment(kvp.Value.OrbitSegments, currentUT) != null)
+                List<int> toCreate = null;
+                foreach (var kvp in pendingMapVessels)
                 {
-                    if (toCreate == null) toCreate = new List<int>();
-                    toCreate.Add(kvp.Key);
+                    OrbitSegment? seg = TrajectoryMath.FindOrbitSegment(kvp.Value.OrbitSegments, currentUT);
+                    if (seg != null)
+                    {
+                        if (toCreate == null) toCreate = new List<int>();
+                        toCreate.Add(kvp.Key);
+                    }
+                }
+
+                if (toCreate != null)
+                {
+                    for (int i = 0; i < toCreate.Count; i++)
+                    {
+                        int idx = toCreate[i];
+                        if (pendingMapVessels.TryGetValue(idx, out var traj))
+                        {
+                            GhostMapPresence.CreateGhostVesselForRecording(idx, traj);
+                            pendingMapVessels.Remove(idx);
+
+                            // Track initial segment for change detection
+                            OrbitSegment? seg = TrajectoryMath.FindOrbitSegment(traj.OrbitSegments, currentUT);
+                            if (seg.HasValue)
+                                lastMapOrbitByIndex[idx] = (seg.Value.bodyName, seg.Value.semiMajorAxis);
+
+                            ParsekLog.Info("Policy",
+                                $"Created deferred ghost map vessel for #{idx} \"{traj.VesselName}\" — ghost entered orbital segment");
+                        }
+                    }
                 }
             }
 
-            if (toCreate != null)
+            // 2. Update orbits for existing recording-index ProtoVessels when segment changes
+            var committed = RecordingStore.CommittedRecordings;
+            if (committed == null) return;
+
+            foreach (var kvp in lastMapOrbitByIndex)
             {
-                for (int i = 0; i < toCreate.Count; i++)
-                {
-                    int idx = toCreate[i];
-                    if (pendingMapVessels.TryGetValue(idx, out var traj))
-                    {
-                        GhostMapPresence.CreateGhostVesselForRecording(idx, traj);
-                        pendingMapVessels.Remove(idx);
-                        ParsekLog.Info("Policy",
-                            $"Created deferred ghost map vessel for #{idx} \"{traj.VesselName}\" — ghost entered orbital segment");
-                    }
-                }
+                int idx = kvp.Key;
+                if (idx < 0 || idx >= committed.Count) continue;
+
+                var rec = committed[idx];
+                if (rec.OrbitSegments == null || rec.OrbitSegments.Count == 0) continue;
+
+                OrbitSegment? seg = TrajectoryMath.FindOrbitSegment(rec.OrbitSegments, currentUT);
+                if (!seg.HasValue) continue;
+
+                // Exact equality is intentional: stored segment values don't drift.
+                // A change means a different OrbitSegment, not floating-point accumulation.
+                if (seg.Value.bodyName == kvp.Value.body
+                    && seg.Value.semiMajorAxis == kvp.Value.sma)
+                    continue;
+
+                GhostMapPresence.UpdateGhostOrbitForRecording(idx, seg.Value);
+                lastMapOrbitByIndex[idx] = (seg.Value.bodyName, seg.Value.semiMajorAxis);
             }
         }
 
@@ -457,6 +503,7 @@ namespace Parsek
             // remove it from the held set so we don't try to destroy it again
             heldGhosts.Remove(evt.Index);
             pendingMapVessels.Remove(evt.Index);
+            lastMapOrbitByIndex.Remove(evt.Index);
 
             // Remove recording-index-based ghost map ProtoVessel
             GhostMapPresence.RemoveGhostVesselForRecording(evt.Index, "ghost-destroyed");
@@ -491,6 +538,7 @@ namespace Parsek
             pendingWatchRecordingId = null;
             heldGhosts.Clear();
             pendingMapVessels.Clear();
+            lastMapOrbitByIndex.Clear();
         }
 
         /// <summary>
@@ -506,6 +554,7 @@ namespace Parsek
             engine.OnAllGhostsDestroying -= HandleAllGhostsDestroying;
             heldGhosts.Clear();
             pendingMapVessels.Clear();
+            lastMapOrbitByIndex.Clear();
             ParsekLog.Info("Policy", "ParsekPlaybackPolicy disposed and unsubscribed from 5 engine events");
         }
     }

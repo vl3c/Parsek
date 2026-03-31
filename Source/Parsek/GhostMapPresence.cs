@@ -409,6 +409,44 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Update orbit for a recording-index ghost when the ghost traverses orbit segments.
+        /// Reuses the same logic as UpdateGhostOrbit but keyed by recording index.
+        /// </summary>
+        internal static void UpdateGhostOrbitForRecording(int recordingIndex, OrbitSegment segment)
+        {
+            if (!vesselsByRecordingIndex.TryGetValue(recordingIndex, out Vessel vessel))
+                return;
+
+            if (vessel.orbitDriver == null) return;
+
+            CelestialBody body = FindBodyByName(segment.bodyName);
+            if (body == null) return;
+
+            Orbit newOrbit = new Orbit(
+                segment.inclination,
+                segment.eccentricity,
+                segment.semiMajorAxis,
+                segment.longitudeOfAscendingNode,
+                segment.argumentOfPeriapsis,
+                segment.meanAnomalyAtEpoch,
+                segment.epoch,
+                body);
+
+            vessel.orbitDriver.orbit.UpdateFromOrbitAtUT(
+                newOrbit, Planetarium.GetUniversalTime(), body);
+
+            if (vessel.orbitDriver.celestialBody != body)
+                vessel.orbitDriver.celestialBody = body;
+
+            vessel.orbitDriver.updateFromParameters();
+
+            ParsekLog.Verbose(Tag,
+                string.Format(ic,
+                    "UpdateGhostOrbitForRecording: #{0} body={1} sma={2:F0}",
+                    recordingIndex, body.name, segment.semiMajorAxis));
+        }
+
+        /// <summary>
         /// Strip ghost ProtoVessels from flightState before save.
         /// Ghost vessels are transient — reconstructed from recording data on load.
         /// Called from ParsekScenario.OnSave.
