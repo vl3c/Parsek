@@ -41,14 +41,14 @@ namespace Parsek.Tests
         [Fact]
         public void ClassifyDistance_AtVisualBoundary_ReturnsBeyond()
         {
-            // 120000m is the boundary — no longer < 120000, so it falls to Beyond
-            Assert.Equal(RenderingZone.Beyond, RenderingZoneManager.ClassifyDistance(120000));
+            // At boundary — no longer < VisualRangeRadius, so it falls to Beyond
+            Assert.Equal(RenderingZone.Beyond, RenderingZoneManager.ClassifyDistance(RenderingZoneManager.VisualRangeRadius));
         }
 
         [Fact]
         public void ClassifyDistance_FarBeyond_ReturnsBeyond()
         {
-            Assert.Equal(RenderingZone.Beyond, RenderingZoneManager.ClassifyDistance(500000));
+            Assert.Equal(RenderingZone.Beyond, RenderingZoneManager.ClassifyDistance(RenderingZoneManager.VisualRangeRadius + 100000));
         }
 
         #endregion
@@ -155,13 +155,13 @@ namespace Parsek.Tests
         [Fact]
         public void ShouldRenderMesh_AtVisualBoundary_ReturnsFalse()
         {
-            Assert.False(RenderingZoneManager.ShouldRenderMesh(120000));
+            Assert.False(RenderingZoneManager.ShouldRenderMesh(RenderingZoneManager.VisualRangeRadius));
         }
 
         [Fact]
         public void ShouldRenderMesh_BeyondVisualRange_ReturnsFalse()
         {
-            Assert.False(RenderingZoneManager.ShouldRenderMesh(500000));
+            Assert.False(RenderingZoneManager.ShouldRenderMesh(RenderingZoneManager.VisualRangeRadius + 100000));
         }
 
         #endregion

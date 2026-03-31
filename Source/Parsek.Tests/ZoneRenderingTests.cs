@@ -54,13 +54,13 @@ namespace Parsek.Tests
         [Fact]
         public void ClassifyDistance_AtVisualBoundary_ReturnsBeyond()
         {
-            Assert.Equal(RenderingZone.Beyond, RenderingZoneManager.ClassifyDistance(120000));
+            Assert.Equal(RenderingZone.Beyond, RenderingZoneManager.ClassifyDistance(RenderingZoneManager.VisualRangeRadius));
         }
 
         [Fact]
         public void ClassifyDistance_FarBeyond_ReturnsBeyond()
         {
-            Assert.Equal(RenderingZone.Beyond, RenderingZoneManager.ClassifyDistance(500000));
+            Assert.Equal(RenderingZone.Beyond, RenderingZoneManager.ClassifyDistance(RenderingZoneManager.VisualRangeRadius + 100000));
             Assert.Equal(RenderingZone.Beyond, RenderingZoneManager.ClassifyDistance(double.MaxValue));
         }
 
@@ -308,8 +308,8 @@ namespace Parsek.Tests
         [Fact]
         public void ShouldRenderMesh_InBeyondZone_ReturnsFalse()
         {
-            Assert.False(RenderingZoneManager.ShouldRenderMesh(120000));
-            Assert.False(RenderingZoneManager.ShouldRenderMesh(500000));
+            Assert.False(RenderingZoneManager.ShouldRenderMesh(RenderingZoneManager.VisualRangeRadius));
+            Assert.False(RenderingZoneManager.ShouldRenderMesh(RenderingZoneManager.VisualRangeRadius + 100000));
         }
 
         #endregion
@@ -464,12 +464,13 @@ namespace Parsek.Tests
         [Fact]
         public void ZoneAndLoopSpawn_BeyondVisualRange_BothSuppress()
         {
-            // At 120km: Beyond zone, loop spawn suppressed (>50km)
-            var zone = RenderingZoneManager.ClassifyDistance(120000);
-            var (spawn, _) = RenderingZoneManager.ShouldSpawnLoopedGhostAtDistance(120000);
+            // At visual range boundary: Beyond zone, loop spawn suppressed (>50km)
+            double vr = RenderingZoneManager.VisualRangeRadius;
+            var zone = RenderingZoneManager.ClassifyDistance(vr);
+            var (spawn, _) = RenderingZoneManager.ShouldSpawnLoopedGhostAtDistance(vr);
             Assert.Equal(RenderingZone.Beyond, zone);
             Assert.False(spawn);
-            Assert.False(RenderingZoneManager.ShouldRenderMesh(120000));
+            Assert.False(RenderingZoneManager.ShouldRenderMesh(vr));
         }
 
         [Fact]

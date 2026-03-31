@@ -365,7 +365,49 @@ namespace Parsek
             }
 
             if (evaRemoved > 0)
+            {
                 CrewLog($"Removed {evaRemoved} reserved EVA vessel(s)");
+                RescueReservedCrewAfterEvaRemoval();
+            }
+        }
+
+        /// <summary>
+        /// Rescues reserved crew members that were set to Missing by vessel.Unload()
+        /// during EVA vessel removal. Sets them back to Assigned (not Available) because
+        /// they are still reserved for a future ghost spawn.
+        /// Must be called after RemoveReservedEvaVessels when EVA vessels were removed.
+        /// </summary>
+        private static void RescueReservedCrewAfterEvaRemoval()
+        {
+            var roster = HighLogic.CurrentGame?.CrewRoster;
+            if (roster == null)
+            {
+                CrewLog("RescueReservedCrewAfterEvaRemoval: no crew roster — skipping");
+                return;
+            }
+
+            GameStateRecorder.SuppressCrewEvents = true;
+            try
+            {
+                int rescued = 0;
+                foreach (ProtoCrewMember pcm in roster.Crew)
+                {
+                    if (!ShouldRescueFromMissing(pcm.rosterStatus, pcm.name, crewReplacements))
+                        continue;
+
+                    pcm.rosterStatus = ProtoCrewMember.RosterStatus.Assigned;
+                    rescued++;
+                    CrewLog($"Rescued Missing crew '{pcm.name}' → Assigned " +
+                        $"(was orphaned by EVA vessel removal)");
+                }
+
+                if (rescued > 0)
+                    CrewLog($"Rescued {rescued} reserved crew member(s) from Missing status");
+            }
+            finally
+            {
+                GameStateRecorder.SuppressCrewEvents = false;
+            }
         }
 
         /// <summary>
@@ -412,6 +454,23 @@ namespace Parsek
         internal static bool ShouldProcessCrewForReservation(ProtoCrewMember.RosterStatus status)
         {
             return status != ProtoCrewMember.RosterStatus.Dead;
+        }
+
+        /// <summary>
+        /// Pure decision: should this crew member be rescued from Missing status?
+        /// A Missing crew member is rescued if they are reserved (in the replacements dict),
+        /// indicating they were orphaned by RemoveReservedEvaVessels calling vessel.Unload().
+        /// Extracted for testability.
+        /// </summary>
+        internal static bool ShouldRescueFromMissing(
+            ProtoCrewMember.RosterStatus status,
+            string crewName,
+            IReadOnlyDictionary<string, string> replacements)
+        {
+            return status == ProtoCrewMember.RosterStatus.Missing
+                && !string.IsNullOrEmpty(crewName)
+                && replacements != null
+                && replacements.ContainsKey(crewName);
         }
 
         /// <summary>

@@ -253,6 +253,7 @@ namespace Parsek.Tests
         [InlineData(8, TerminalState.SubOrbital)]   // FLYING
         [InlineData(64, TerminalState.SubOrbital)]  // ESCAPING
         [InlineData(4, TerminalState.Landed)]       // PRELAUNCH
+        [InlineData(128, TerminalState.Docked)]     // DOCKED
         public void DetermineTerminalState_AllSituations(int situation, TerminalState expected)
         {
             var result = RecordingTree.DetermineTerminalState(situation);

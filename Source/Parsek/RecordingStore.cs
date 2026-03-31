@@ -66,6 +66,12 @@ namespace Parsek
             return MergeDefault.Persist;
         }
 
+        // Set true by StashPending / StashPendingTree during OnSceneChangeRequested.
+        // Checked by ParsekScenario.OnLoad to distinguish a freshly-stashed pending
+        // (from the current revert — should show dialog) from a stale pending left
+        // over from a previous flight (should be discarded per #64).
+        internal static bool PendingStashedThisTransition;
+
         // Just-finished recording awaiting user decision (merge or discard)
         private static Recording pendingRecording;
 
@@ -187,6 +193,8 @@ namespace Parsek
                 VesselName = vesselName
             };
 
+            PendingStashedThisTransition = true;
+
             Log($"[Parsek] Stashed pending recording: {points.Count} points, " +
                 $"{pendingRecording.OrbitSegments.Count} orbit segments from {vesselName}");
         }
@@ -306,18 +314,104 @@ namespace Parsek
             // so they appear collapsed in the recordings window instead of as separate entries.
             // Use GenerateUniqueGroupName to avoid merging multiple launches of the same vessel
             // into one group (bug #104).
+            // Debris recordings get a "Debris" subgroup under the main group.
             if (!string.IsNullOrEmpty(tree.TreeName) && tree.Recordings.Count > 1)
             {
                 string groupName = GenerateUniqueGroupName(tree.TreeName);
+                int debrisCount = 0;
+                string debrisGroupName = null;
+
                 foreach (var rec in tree.Recordings.Values)
                 {
-                    if (rec.RecordingGroups == null)
-                        rec.RecordingGroups = new List<string>();
-                    if (!rec.RecordingGroups.Contains(groupName))
-                        rec.RecordingGroups.Add(groupName);
+                    if (rec.IsDebris)
+                    {
+                        // Create debris subgroup on first debris recording
+                        if (debrisGroupName == null)
+                        {
+                            debrisGroupName = groupName + " / Debris";
+                            GroupHierarchyStore.SetGroupParent(debrisGroupName, groupName);
+                        }
+                        if (rec.RecordingGroups == null)
+                            rec.RecordingGroups = new List<string>();
+                        if (!rec.RecordingGroups.Contains(debrisGroupName))
+                            rec.RecordingGroups.Add(debrisGroupName);
+                        debrisCount++;
+                    }
+                    else
+                    {
+                        if (rec.RecordingGroups == null)
+                            rec.RecordingGroups = new List<string>();
+                        if (!rec.RecordingGroups.Contains(groupName))
+                            rec.RecordingGroups.Add(groupName);
+                    }
                 }
-                ParsekLog.Info("RecordingStore",
-                    $"Auto-grouped {tree.Recordings.Count} recordings under '{groupName}'");
+
+                int stageCount = tree.Recordings.Count - debrisCount;
+                if (debrisCount > 0)
+                    ParsekLog.Info("RecordingStore",
+                        $"Auto-grouped {stageCount} stage(s) under '{groupName}', {debrisCount} debris under '{debrisGroupName}'");
+                else
+                    ParsekLog.Info("RecordingStore",
+                        $"Auto-grouped {tree.Recordings.Count} recordings under '{groupName}'");
+            }
+
+            // Adopt orphaned committed recordings that belong to this tree but were
+            // committed as standalone before the tree (e.g., split segments committed
+            // via deferred merge dialog before the tree revert/commit).
+            // Match by TreeId (if set) or by vessel PID + overlapping time range.
+            if (!string.IsNullOrEmpty(tree.TreeName))
+            {
+                string adoptGroupName = null;
+                foreach (var rec in tree.Recordings.Values)
+                {
+                    if (!rec.IsDebris && rec.RecordingGroups != null && rec.RecordingGroups.Count > 0)
+                    {
+                        adoptGroupName = rec.RecordingGroups[0];
+                        break;
+                    }
+                }
+
+                if (adoptGroupName != null)
+                {
+                    // Collect tree vessel PIDs and time range for matching
+                    var treePids = new HashSet<uint>();
+                    double treeStartUT = double.MaxValue, treeEndUT = 0;
+                    foreach (var rec in tree.Recordings.Values)
+                    {
+                        if (rec.VesselPersistentId != 0)
+                            treePids.Add(rec.VesselPersistentId);
+                        if (rec.StartUT < treeStartUT) treeStartUT = rec.StartUT;
+                        if (rec.EndUT > treeEndUT) treeEndUT = rec.EndUT;
+                    }
+
+                    int adopted = 0;
+                    for (int i = 0; i < committedRecordings.Count; i++)
+                    {
+                        var cr = committedRecordings[i];
+                        if (cr.RecordingGroups != null && cr.RecordingGroups.Count > 0) continue;
+
+                        bool match = cr.TreeId == tree.Id;
+                        if (!match && treePids.Contains(cr.VesselPersistentId)
+                            && cr.StartUT >= treeStartUT - 60 && cr.EndUT <= treeEndUT + 60)
+                            match = true;
+
+                        if (!match) continue;
+
+                        string targetGroup = cr.IsDebris
+                            ? adoptGroupName + " / Debris"
+                            : adoptGroupName;
+                        // Ensure debris subgroup has parent relationship
+                        if (cr.IsDebris)
+                            GroupHierarchyStore.SetGroupParent(targetGroup, adoptGroupName);
+                        cr.RecordingGroups = new List<string> { targetGroup };
+                        adopted++;
+                        ParsekLog.Info("RecordingStore",
+                            $"Adopted orphaned recording '{cr.VesselName}' (id={cr.RecordingId}) into group '{targetGroup}'");
+                    }
+                    if (adopted > 0)
+                        ParsekLog.Info("RecordingStore",
+                            $"Adopted {adopted} orphaned recording(s) into tree group '{adoptGroupName}'");
+                }
             }
 
             // Add all tree recordings to committedRecordings (enables ghost playback)
@@ -361,7 +455,10 @@ namespace Parsek
         {
             pendingTree = tree;
             if (tree != null)
+            {
+                PendingStashedThisTransition = true;
                 Log($"[Parsek] Stashed pending tree '{tree.TreeName}' ({tree.Recordings.Count} recordings)");
+            }
         }
 
         /// <summary>
@@ -956,6 +1053,17 @@ namespace Parsek
             GameStateRecorder.PendingScienceSubjects.Clear();
             PendingCleanupPids = null;
             PendingCleanupNames = null;
+            RewindQuicksaveVesselPids = null;
+            PendingStashedThisTransition = false;
+        }
+
+        /// <summary>
+        /// Directly adds a recording to the committed list. For unit tests only —
+        /// bypasses StashPending/CommitPending flow to set up pre-existing state.
+        /// </summary>
+        internal static void CommitPendingForTesting(Recording rec)
+        {
+            committedRecordings.Add(rec);
         }
 
         internal static void DeleteRecordingFiles(Recording rec)
@@ -1182,6 +1290,7 @@ namespace Parsek
             }
 
             rec.VesselSpawned = false;
+            rec.VesselDestroyed = false;
             rec.SpawnAttempts = 0;
             rec.SpawnDeathCount = 0;
             rec.SpawnedVesselPersistentId = 0;
@@ -1236,6 +1345,11 @@ namespace Parsek
         // (before spawn state reset), consumed and cleared in ParsekFlight.OnFlightReady.
         internal static HashSet<uint> PendingCleanupPids { get; set; }
         internal static HashSet<string> PendingCleanupNames { get; set; }
+
+        // PIDs of vessels that existed in the rewind quicksave.
+        // Used by StripFuturePrelaunchVessels to whitelist known-good PRELAUNCH vessels
+        // (e.g. the player's pad vessel) and strip only unknown ones from the future.
+        internal static HashSet<uint> RewindQuicksaveVesselPids { get; set; }
 
         /// <summary>
         /// Collects vessel names from ALL committed recordings (regardless of spawn state).
@@ -1444,6 +1558,7 @@ namespace Parsek
             RewindBaselineFunds = 0;
             RewindBaselineScience = 0;
             RewindBaselineRep = 0;
+            RewindQuicksaveVesselPids = null;
         }
 
         /// <summary>
@@ -1673,6 +1788,22 @@ namespace Parsek
                     $"Stripped {removedByName + removedByPid} vessel(s) from save " +
                     $"({removedByName} by name [{namesStr}], {removedByPid} by PID)");
             }
+
+            // Capture PIDs of surviving vessels in the quicksave.
+            // Used by StripFuturePrelaunchVessels to whitelist known-good PRELAUNCH
+            // vessels and strip only unknown ones that appeared after the rewind point.
+            var survivingPids = new HashSet<uint>();
+            var survivingNodes = flightState.GetNodes("VESSEL");
+            for (int s = 0; s < survivingNodes.Length; s++)
+            {
+                uint spid;
+                if (uint.TryParse(survivingNodes[s].GetValue("persistentId"), out spid))
+                    survivingPids.Add(spid);
+            }
+            RewindQuicksaveVesselPids = survivingPids.Count > 0 ? survivingPids : null;
+            if (!SuppressLogging)
+                ParsekLog.Info("Rewind",
+                    $"Captured {survivingPids.Count} surviving vessel PID(s) from quicksave");
 
             root.Save(sfsPath);
         }

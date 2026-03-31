@@ -217,10 +217,29 @@ namespace Parsek
             if (source.SegmentEvents != null && source.SegmentEvents.Count > 0)
                 SegmentEvents = new List<SegmentEvent>(source.SegmentEvents);
             if (source.TrackSections != null && source.TrackSections.Count > 0)
-                TrackSections = new List<TrackSection>(source.TrackSections);
+                TrackSections = DeepCopyTrackSections(source.TrackSections);
             if (source.Controllers != null)
                 Controllers = new List<ControllerInfo>(source.Controllers);
             IsDebris = source.IsDebris;
+        }
+
+        /// <summary>
+        /// Deep copies a list of TrackSection structs, creating new list instances for
+        /// the mutable frames and checkpoints fields. Prevents shared references between
+        /// original and copy (Bug #81).
+        /// </summary>
+        internal static List<TrackSection> DeepCopyTrackSections(List<TrackSection> source)
+        {
+            var result = new List<TrackSection>(source.Count);
+            for (int i = 0; i < source.Count; i++)
+            {
+                var s = source[i];
+                var copy = s;
+                copy.frames = s.frames != null ? new List<TrajectoryPoint>(s.frames) : null;
+                copy.checkpoints = s.checkpoints != null ? new List<OrbitSegment>(s.checkpoints) : null;
+                result.Add(copy);
+            }
+            return result;
         }
 
         /// <summary>

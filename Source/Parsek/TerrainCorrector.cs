@@ -1,3 +1,5 @@
+using System.Globalization;
+
 namespace Parsek
 {
     /// <summary>
@@ -9,6 +11,7 @@ namespace Parsek
     internal static class TerrainCorrector
     {
         private const string Tag = "TerrainCorrect";
+        private static readonly CultureInfo IC = CultureInfo.InvariantCulture;
 
         /// <summary>
         /// Computes the corrected altitude that preserves the vessel's clearance
@@ -34,14 +37,14 @@ namespace Parsek
             if (corrected < minAlt)
             {
                 ParsekLog.Verbose(Tag,
-                    $"ComputeCorrectedAltitude: clamped from {corrected:F1} to {minAlt:F1} (terrain+0.5m floor)");
+                    $"ComputeCorrectedAltitude: clamped from {corrected.ToString("F1", IC)} to {minAlt.ToString("F1", IC)} (terrain+0.5m floor)");
                 corrected = minAlt;
             }
 
             ParsekLog.Verbose(Tag,
-                $"ComputeCorrectedAltitude: currentTerrain={currentTerrainHeight:F1} " +
-                $"recordedAlt={recordedAltitude:F1} recordedTerrain={recordedTerrainHeight:F1} " +
-                $"clearance={clearance:F1} corrected={corrected:F1}");
+                $"ComputeCorrectedAltitude: currentTerrain={currentTerrainHeight.ToString("F1", IC)} " +
+                $"recordedAlt={recordedAltitude.ToString("F1", IC)} recordedTerrain={recordedTerrainHeight.ToString("F1", IC)} " +
+                $"clearance={clearance.ToString("F1", IC)} corrected={corrected.ToString("F1", IC)}");
 
             return corrected;
         }
@@ -97,7 +100,7 @@ namespace Parsek
             }
 
             ParsekLog.Verbose(Tag,
-                $"ShouldCorrectTerrain: terminal={ts} terrainHeight={recordedTerrainHeight:F1} — returning true");
+                $"ShouldCorrectTerrain: terminal={ts} terrainHeight={recordedTerrainHeight.ToString("F1", IC)} — returning true");
             return true;
         }
     }

@@ -999,5 +999,185 @@ namespace Parsek.Tests
         }
 
         #endregion
+
+        #region Facility Deferral Tests
+
+        [Fact]
+        public void ReplayFacilityUpgrade_NoFacilityRefs_SetsDeferred()
+        {
+            try
+            {
+                var evt = new GameStateEvent
+                {
+                    ut = 100,
+                    eventType = GameStateEventType.FacilityUpgraded,
+                    key = "SpaceCenter/LaunchPad",
+                    valueAfter = 0.5
+                };
+
+                bool result = ActionReplay.ReplayFacilityUpgrade(evt, out bool skipped, out bool deferred);
+
+                Assert.False(result);
+                Assert.False(skipped);
+                Assert.True(deferred);
+            }
+            finally
+            {
+                Cleanup();
+            }
+        }
+
+        [Fact]
+        public void ReplayCommittedActions_DeferredFacility_WatermarkStopsBeforeDeferredEvent()
+        {
+            try
+            {
+                var milestone = new Milestone
+                {
+                    MilestoneId = "deferred-test",
+                    Committed = true,
+                    Events = new List<GameStateEvent>
+                    {
+                        new GameStateEvent
+                        {
+                            ut = 100,
+                            eventType = GameStateEventType.FundsChanged,
+                            key = "ContractReward"
+                        },
+                        new GameStateEvent
+                        {
+                            ut = 200,
+                            eventType = GameStateEventType.FacilityUpgraded,
+                            key = "SpaceCenter/LaunchPad",
+                            valueAfter = 0.5
+                        },
+                        new GameStateEvent
+                        {
+                            ut = 300,
+                            eventType = GameStateEventType.FundsChanged,
+                            key = "AnotherReward"
+                        }
+                    },
+                    LastReplayedEventIndex = -1
+                };
+
+                var milestones = new List<Milestone> { milestone };
+                ActionReplay.ReplayCommittedActions(milestones);
+
+                // Watermark should stop at index 0 (the FundsChanged before the deferred facility).
+                // Index 1 (FacilityUpgraded) is deferred, so watermark must NOT advance past it.
+                Assert.Equal(0, milestone.LastReplayedEventIndex);
+
+                // Verify deferred log message
+                Assert.Contains(logLines, l => l.Contains("deferring to next scene load"));
+            }
+            finally
+            {
+                Cleanup();
+            }
+        }
+
+        [Fact]
+        public void ReplayCommittedActions_DeferredFacility_BlocksSubsequentTechUnlock()
+        {
+            try
+            {
+                var milestone = new Milestone
+                {
+                    MilestoneId = "deferred-blocks-subsequent",
+                    Committed = true,
+                    Events = new List<GameStateEvent>
+                    {
+                        new GameStateEvent
+                        {
+                            ut = 100,
+                            eventType = GameStateEventType.FundsChanged,
+                            key = "ContractReward"
+                        },
+                        new GameStateEvent
+                        {
+                            ut = 200,
+                            eventType = GameStateEventType.FacilityUpgraded,
+                            key = "SpaceCenter/LaunchPad",
+                            valueAfter = 0.5
+                        },
+                        new GameStateEvent
+                        {
+                            ut = 300,
+                            eventType = GameStateEventType.TechResearched,
+                            key = "stability"
+                        }
+                    },
+                    LastReplayedEventIndex = -1
+                };
+
+                var milestones = new List<Milestone> { milestone };
+                ActionReplay.ReplayCommittedActions(milestones);
+
+                // Watermark should stop at index 0 — the deferred facility at index 1
+                // blocks the watermark, so index 2 (TechResearched) is also not marked.
+                // On next scene load (e.g., Space Center), indices 1 and 2 will be retried.
+                Assert.Equal(0, milestone.LastReplayedEventIndex);
+            }
+            finally
+            {
+                Cleanup();
+            }
+        }
+
+        [Fact]
+        public void ReplayCommittedActions_DeferredFacility_RetryAdvancesWatermark()
+        {
+            try
+            {
+                // First pass: facility deferred, watermark stuck at 0
+                var milestone = new Milestone
+                {
+                    MilestoneId = "retry-test",
+                    Committed = true,
+                    Events = new List<GameStateEvent>
+                    {
+                        new GameStateEvent
+                        {
+                            ut = 100,
+                            eventType = GameStateEventType.FundsChanged,
+                            key = "ContractReward"
+                        },
+                        new GameStateEvent
+                        {
+                            ut = 200,
+                            eventType = GameStateEventType.FacilityUpgraded,
+                            key = "SpaceCenter/LaunchPad",
+                            valueAfter = 0.5
+                        }
+                    },
+                    LastReplayedEventIndex = -1
+                };
+
+                var milestones = new List<Milestone> { milestone };
+                ActionReplay.ReplayCommittedActions(milestones);
+
+                // First pass: watermark at 0 (facility deferred)
+                Assert.Equal(0, milestone.LastReplayedEventIndex);
+
+                // Second pass: same state, same result — facility still deferred
+                ActionReplay.ReplayCommittedActions(milestones);
+                Assert.Equal(0, milestone.LastReplayedEventIndex);
+
+                // The FacilityUpgraded at index 1 is retried each time (not skipped).
+                // Verify deferred log appears at least twice.
+                int deferredCount = 0;
+                foreach (var l in logLines)
+                    if (l.Contains("deferring to next scene load")) deferredCount++;
+                Assert.True(deferredCount >= 2,
+                    $"Expected deferred log at least twice, got {deferredCount}");
+            }
+            finally
+            {
+                Cleanup();
+            }
+        }
+
+        #endregion
     }
 }

@@ -81,7 +81,7 @@ namespace Parsek
 
         internal static bool TryComputeLoopPlaybackUT(
             double currentUT, double startUT, double endUT, double intervalSeconds,
-            out double loopUT, out int cycleIndex)
+            out double loopUT, out long cycleIndex)
         {
             loopUT = startUT;
             cycleIndex = 0;
@@ -95,7 +95,7 @@ namespace Parsek
                 cycleDuration = MinCycleDuration;
 
             double elapsed = currentUT - startUT;
-            cycleIndex = (int)Math.Floor(elapsed / cycleDuration);
+            cycleIndex = (long)Math.Floor(elapsed / cycleDuration);
             double phase = elapsed - (cycleIndex * cycleDuration);
 
             // For positive intervals: phase > duration means we're in the pause window
@@ -118,8 +118,8 @@ namespace Parsek
         /// ends and the ghost is about to be rebuilt. Returns -2 (explosion hold),
         /// -1 (ready for immediate re-target), or unchanged if not watching.
         /// </summary>
-        internal static int ComputeWatchCycleOnLoopRebuild(
-            int currentWatchCycle, bool isWatching, bool needsExplosion, bool inPauseWindow)
+        internal static long ComputeWatchCycleOnLoopRebuild(
+            long currentWatchCycle, bool isWatching, bool needsExplosion, bool inPauseWindow)
         {
             if (!isWatching) return currentWatchCycle;
             // Already in a hold — don't start another one, let the current hold
@@ -138,7 +138,7 @@ namespace Parsek
         internal static void GetActiveCycles(
             double currentUT, double startUT, double endUT,
             double intervalSeconds, int maxCycles,
-            out int firstActiveCycle, out int lastActiveCycle)
+            out long firstActiveCycle, out long lastActiveCycle)
         {
             firstActiveCycle = 0;
             lastActiveCycle = 0;
@@ -152,7 +152,7 @@ namespace Parsek
                 cycleDuration = MinCycleDuration;
 
             double elapsed = currentUT - startUT;
-            lastActiveCycle = (int)Math.Floor(elapsed / cycleDuration);
+            lastActiveCycle = (long)Math.Floor(elapsed / cycleDuration);
             if (lastActiveCycle < 0) lastActiveCycle = 0;
 
             // First cycle whose playback hasn't finished yet
@@ -163,7 +163,7 @@ namespace Parsek
             }
             else
             {
-                firstActiveCycle = (int)Math.Floor(elapsedMinusDuration / cycleDuration) + 1;
+                firstActiveCycle = (long)Math.Floor(elapsedMinusDuration / cycleDuration) + 1;
                 if (firstActiveCycle < 0) firstActiveCycle = 0;
             }
 
@@ -261,12 +261,19 @@ namespace Parsek
         ///   cycleIndex: which cycle we're in (0-based)
         ///   isInPause: true if currentUT falls in the pause interval between cycles
         /// </summary>
-        internal static (double loopUT, int cycleIndex, bool isInPause) ComputeLoopPhaseFromUT(
+        internal static (double loopUT, long cycleIndex, bool isInPause) ComputeLoopPhaseFromUT(
             double currentUT,
             double recordingStartUT,
             double recordingEndUT,
             double intervalSeconds)
         {
+            // Early guard: currentUT before recording start — consistent with TryComputeLoopPlaybackUT
+            if (currentUT < recordingStartUT)
+            {
+                ParsekLog.Verbose("Loop", $"ComputeLoopPhaseFromUT: currentUT={currentUT:R} before recordingStartUT={recordingStartUT:R}, returning startUT");
+                return (recordingStartUT, 0, false);
+            }
+
             double duration = recordingEndUT - recordingStartUT;
             if (duration <= 0)
             {
@@ -282,13 +289,8 @@ namespace Parsek
             }
 
             double elapsed = currentUT - recordingStartUT;
-            if (elapsed < 0)
-            {
-                ParsekLog.Verbose("Loop", $"ComputeLoopPhaseFromUT: currentUT={currentUT:R} before recordingStartUT={recordingStartUT:R}, returning startUT");
-                return (recordingStartUT, 0, false);
-            }
 
-            int cycleIndex = (int)(elapsed / cycleDuration);
+            long cycleIndex = (long)(elapsed / cycleDuration);
             double phaseInCycle = elapsed - (cycleIndex * cycleDuration);
 
             if (phaseInCycle < duration)
@@ -2071,6 +2073,28 @@ namespace Parsek
         }
 
         /// <summary>
+        /// KSC-specific spawn eligibility check. Simplified version of the Flight scene's
+        /// spawn decision: at KSC there is no active chain being built, so isActiveChainMember
+        /// is always false. Chain looping/disabled state is derived from RecordingStore.
+        /// Returns (needsSpawn, reason) — same semantics as ShouldSpawnAtRecordingEnd.
+        /// </summary>
+        internal static (bool needsSpawn, string reason) ShouldSpawnAtKscEnd(Recording rec)
+        {
+            // At KSC, no chain is being built → isActiveChainMember = false
+            bool isChainLoopingOrDisabled = !string.IsNullOrEmpty(rec.ChainId) &&
+                (RecordingStore.IsChainLooping(rec.ChainId) ||
+                 RecordingStore.IsChainFullyDisabled(rec.ChainId));
+
+            // Intermediate chain segments should not spawn — only the chain tip spawns.
+            // In Flight, ShouldSuppressSpawnForChain handles this via runtime GhostChain
+            // state, but at KSC there are no GhostChain objects. Use the committed data.
+            if (RecordingStore.IsChainMidSegment(rec))
+                return (false, "intermediate chain segment (not tip)");
+
+            return ShouldSpawnAtRecordingEnd(rec, false, isChainLoopingOrDisabled);
+        }
+
+        /// <summary>
         /// Safety-net check: determines whether a recording is a non-leaf node in a
         /// committed tree by scanning the tree's branch points for parent references.
         /// This catches cases where ChildBranchPointId was not set on the recording
@@ -2260,6 +2284,114 @@ namespace Parsek
                 state.fidelityDisabledRenderers = null;
             }
             state.fidelityReduced = false;
+        }
+
+        #endregion
+
+        #region Watch Mode Decisions
+
+        /// <summary>
+        /// Determines whether the watch mode should auto-exit because the ghost
+        /// exceeded the camera cutoff distance.
+        /// </summary>
+        internal static bool ShouldExitWatchForCutoff(double ghostDistanceMeters, float cutoffKm)
+        {
+            return ghostDistanceMeters >= cutoffKm * 1000.0;
+        }
+
+        /// <summary>
+        /// Determines whether a ghost is within the camera cutoff distance
+        /// (eligible for Watch button). Zone must not be Beyond AND distance
+        /// must be within the cutoff.
+        /// </summary>
+        internal static bool IsWithinWatchRange(RenderingZone zone, double distanceMeters, float cutoffKm)
+        {
+            if (zone == RenderingZone.Beyond) return false;
+            return distanceMeters < cutoffKm * 1000.0;
+        }
+
+        /// <summary>
+        /// Searches committed recordings for the next watch target after the current
+        /// recording completes. Handles chain continuation (same chainId, next index)
+        /// and tree branching (childBranchPointId → child with same vessel PID).
+        /// </summary>
+        /// <param name="currentRec">The recording that just completed.</param>
+        /// <param name="committed">All committed recordings.</param>
+        /// <param name="trees">All committed trees (for branch point lookup).</param>
+        /// <param name="isGhostActive">Predicate: is there an active ghost at index j?</param>
+        /// <returns>Index into committed, or -1 if no target found.</returns>
+        internal static int FindNextWatchTarget(
+            Recording currentRec,
+            IList<Recording> committed,
+            IReadOnlyList<RecordingTree> trees,
+            Func<int, bool> isGhostActive)
+        {
+            if (currentRec == null || committed == null) return -1;
+
+            // Case 1: Chain continuation (same chainId, next chainIndex, branch 0)
+            if (!string.IsNullOrEmpty(currentRec.ChainId) && currentRec.ChainIndex >= 0
+                && currentRec.ChainBranch == 0)
+            {
+                int nextChainIndex = currentRec.ChainIndex + 1;
+                for (int j = 0; j < committed.Count; j++)
+                {
+                    var candidate = committed[j];
+                    if (candidate.ChainId == currentRec.ChainId
+                        && candidate.ChainBranch == 0
+                        && candidate.ChainIndex == nextChainIndex
+                        && isGhostActive(j))
+                    {
+                        return j;
+                    }
+                }
+            }
+
+            // Case 2: Tree branching via ChildBranchPointId
+            if (!string.IsNullOrEmpty(currentRec.ChildBranchPointId)
+                && !string.IsNullOrEmpty(currentRec.TreeId)
+                && trees != null)
+            {
+                BranchPoint bp = null;
+                for (int t = 0; t < trees.Count; t++)
+                {
+                    var tree = trees[t];
+                    if (tree.Id != currentRec.TreeId) continue;
+                    for (int b = 0; b < tree.BranchPoints.Count; b++)
+                    {
+                        if (tree.BranchPoints[b].Id == currentRec.ChildBranchPointId)
+                        {
+                            bp = tree.BranchPoints[b];
+                            break;
+                        }
+                    }
+                    break;
+                }
+
+                if (bp != null)
+                {
+                    int fallbackIdx = -1;
+                    for (int c = 0; c < bp.ChildRecordingIds.Count; c++)
+                    {
+                        string childId = bp.ChildRecordingIds[c];
+                        for (int j = 0; j < committed.Count; j++)
+                        {
+                            if (committed[j].RecordingId != childId) continue;
+                            if (!isGhostActive(j)) continue;
+
+                            // Prefer child with same vessel PID (same vessel continues)
+                            if (committed[j].VesselPersistentId == currentRec.VesselPersistentId)
+                                return j;
+
+                            if (fallbackIdx < 0)
+                                fallbackIdx = j;
+                        }
+                    }
+                    if (fallbackIdx >= 0)
+                        return fallbackIdx;
+                }
+            }
+
+            return -1;
         }
 
         #endregion
