@@ -3420,6 +3420,7 @@ namespace Parsek
             }
             settingsCameraCutoffEditing = false;
             settingsCameraCutoffEditRect = default;
+            GUIUtility.keyboardControl = 0;
         }
 
         private void DrawDiagnosticsSettings(ParsekSettings s)
