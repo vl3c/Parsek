@@ -1337,7 +1337,7 @@ When a ghost vessel is destroyed (recording ends, zone exit, loop cycle boundary
 
 **Priority:** Low — cosmetic polish, no functional impact
 
-**Status:** Open
+**Status:** Fixed — `DetachAndLingerParticleSystems` helper stops emission, unparents active particle systems from the ghost, and schedules delayed destruction (8s). Applied in both `GhostPlaybackEngine.DestroyGhostResources` and `ParsekKSC.DestroyKscGhost`. Systems with no live particles are destroyed immediately.
 
 ## 108. EngineShutdown event not recorded when engine cuts off
 
