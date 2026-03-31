@@ -1,5 +1,6 @@
 using CommNet;
 using HarmonyLib;
+using UnityEngine;
 
 namespace Parsek.Patches
 {
@@ -50,6 +51,39 @@ namespace Parsek.Patches
                 return false;
             }
             return true;
+        }
+    }
+
+    /// <summary>
+    /// Intercepts vessel switching to ghost map ProtoVessels (double-click in map view).
+    /// Instead of switching to the ghost (a single barometer part), enters watch mode
+    /// for the ghost's recording — following the ghost camera to its actual position.
+    /// </summary>
+    [HarmonyPatch(typeof(FlightGlobals), nameof(FlightGlobals.SetActiveVessel))]
+    internal static class GhostVesselSwitchPatch
+    {
+        static bool Prefix(Vessel v)
+        {
+            if (v == null || !GhostMapPresence.IsGhostMapVessel(v.persistentId))
+                return true;
+
+            int recIndex = GhostMapPresence.FindRecordingIndexByVesselPid(v.persistentId);
+            if (recIndex < 0)
+            {
+                ParsekLog.Verbose("GhostMap",
+                    $"Blocked SetActiveVessel for ghost '{v.vesselName}' pid={v.persistentId} — no recording index found");
+                return false;
+            }
+
+            var flight = Object.FindObjectOfType<ParsekFlight>();
+            if (flight != null)
+            {
+                flight.EnterWatchMode(recIndex);
+                ParsekLog.Info("GhostMap",
+                    $"Redirected SetActiveVessel to watch mode for ghost '{v.vesselName}' recording #{recIndex}");
+            }
+
+            return false;
         }
     }
 }

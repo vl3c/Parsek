@@ -596,6 +596,20 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Find the recording index for a ghost map vessel by its PID.
+        /// Returns -1 if not found.
+        /// </summary>
+        internal static int FindRecordingIndexByVesselPid(uint vesselPid)
+        {
+            foreach (var kvp in vesselsByRecordingIndex)
+            {
+                if (kvp.Value != null && kvp.Value.persistentId == vesselPid)
+                    return kvp.Key;
+            }
+            return -1;
+        }
+
+        /// <summary>
         /// Reset all state for testing (avoids Debug.Log crash outside Unity).
         /// </summary>
         internal static void ResetForTesting()
