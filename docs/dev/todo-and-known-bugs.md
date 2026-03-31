@@ -1156,7 +1156,9 @@ When a chain recording hits a boundary split (e.g., atmosphere exit), the commit
 
 After recording completes (via chain boundary or scene change), the recording is auto-committed without showing a dialog asking the user to approve. The merge dialog is currently only shown on revert, not on normal commit flow. User expects to be asked before committing.
 
-**Status:** Open — design decision needed: should normal commits require approval?
+**Design decision:** Show approval dialog when recording ends due to scene change to Space Center or Tracking Station AND vessel is landed/splashed (meaningful endpoint). Auto-commit for: game exit (no dialog opportunity), boundary splits, chain continuations, and mid-flight scene changes. The dialog should offer Keep / Discard.
+
+**Status:** Open — design decided, needs implementation
 
 ## 89. Watch button enabled for distant ghosts beyond visual range
 
