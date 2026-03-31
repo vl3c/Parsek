@@ -67,7 +67,7 @@ namespace Parsek
         private const float ColW_Launch = 110f;
         // ColW_Countdown removed (#98) — merged into Status column
         private const float ColW_Dur = 65f;
-        private const float ColW_Status = 95f;
+        private const float ColW_Status = 120f;
         private const float ColW_Loop = 55f;
         private const float ColW_Watch = 50f;
         private const float ColW_Rewind = 65f;
@@ -152,6 +152,10 @@ namespace Parsek
         private string settingsCameraCutoffText = "";
         private Rect settingsCameraCutoffEditRect;
         private const float ColW_Period = 80f;
+
+        // R/FF button state tracking for transition logging
+        private Dictionary<int, bool> lastCanRewind = new Dictionary<int, bool>();
+        private Dictionary<int, bool> lastCanFF = new Dictionary<int, bool>();
 
         // Cached styles for status labels
         private GUIStyle statusStyleFuture;
@@ -1393,6 +1397,12 @@ namespace Parsek
                     string ffReason;
                     bool isRecording = InFlight && flight.IsRecording;
                     bool canFF = RecordingStore.CanFastForward(rec, out ffReason, isRecording: isRecording);
+                    bool prevFF;
+                    if (!lastCanFF.TryGetValue(ri, out prevFF) || prevFF != canFF)
+                    {
+                        lastCanFF[ri] = canFF;
+                        ParsekLog.Verbose("UI", $"FF #{ri} \"{rec.VesselName}\": {(canFF ? "enabled" : "disabled — " + ffReason)}");
+                    }
                     GUI.enabled = canFF;
                     string tooltip = canFF
                         ? "Fast-forward to this launch"
@@ -1410,6 +1420,12 @@ namespace Parsek
                     string rewindReason;
                     bool isRecording = InFlight && flight.IsRecording;
                     bool canRewind = RecordingStore.CanRewind(rec, out rewindReason, isRecording: isRecording);
+                    bool prevR;
+                    if (!lastCanRewind.TryGetValue(ri, out prevR) || prevR != canRewind)
+                    {
+                        lastCanRewind[ri] = canRewind;
+                        ParsekLog.Verbose("UI", $"R #{ri} \"{rec.VesselName}\": {(canRewind ? "enabled" : "disabled — " + rewindReason)}");
+                    }
                     GUI.enabled = canRewind;
                     string tooltip = canRewind
                         ? "Rewind to this launch"
