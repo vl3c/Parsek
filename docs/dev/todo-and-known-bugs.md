@@ -873,9 +873,11 @@ The AnchorDetector's 2300m threshold triggers on any nearby vessel, including: l
 
 ## 56. EVA recordings only created from launch pad
 
-`OnCrewOnEva` ignores EVAs when the vessel situation is not "on pad." In-flight EVAs (suborbital, flying, orbiting) are not recorded.
+`OnCrewOnEva` ignores EVAs when the vessel situation is not "on pad." In-flight EVAs (suborbital, flying, orbiting) are not auto-recorded.
 
-**Status:** Open — medium priority (design limitation)
+**Investigation notes:** Mid-recording EVAs already work correctly — `OnCrewOnEva` creates a tree branch for EVAs from the recording vessel regardless of situation (line 3061-3086). The gap is auto-starting a NEW recording for EVAs from non-recording vessels in flight (line 3094 gates on `PRELAUNCH`). Expanding this is a design choice — auto-recording random in-flight EVAs may be unwanted. The PRELAUNCH guard is intentional.
+
+**Status:** Open — design limitation (mid-recording EVAs already handled; auto-record for in-flight non-recording vessels is a design choice)
 
 ## 57. Boarding confirmation expired on vessel switch
 
@@ -1046,7 +1048,7 @@ Unlike `CheckOverlapAgainstLoadedVessels` which properly excludes Debris/EVA/Fla
 
 `SamplePosition` (lines 4320-4356) always records raw `v.latitude/v.longitude/v.altitude`. When called at on-rails transitions while in RELATIVE mode (before mode is cleared at line 4414 and before the track section transition at line 4423), the boundary point has absolute coordinates within a RELATIVE TrackSection, creating a potential discontinuity.
 
-**Status:** Open — verify if the boundary point timing makes this moot in practice
+**Status:** Fixed — moved RELATIVE mode clearing and track section transition BEFORE `SamplePosition` in `OnVesselGoOnRails`. The boundary point now goes into a new ABSOLUTE section with correct absolute coordinates instead of into the RELATIVE section with misinterpreted values.
 
 ## 75. GhostPlaybackLogic inconsistent negative interval handling
 
@@ -1347,7 +1349,9 @@ Likely cause: `CheckEngineTransition` may not detect the `EngineIgnited → fals
 
 **Priority:** Medium — ghost engines keep burning past cutoff, visually incorrect
 
-**Status:** Partially fixed (terminal events added; mid-flight detection issue may remain)
+**Investigation notes:** `CheckEngineState` (line 2466) uses `engine.EngineIgnited && engine.isOperational` — this correctly catches flameout (isOperational=false on fuel depletion). Terminal events at recording stop (#108 partial fix) and at on-rails transition (#150) cover boundary cases. The mid-flight polling logic appears correct for both manual shutdown and flameout. The inconsistent throttle event behavior (238 events one recording, zero the next) may be a `CacheEngineModules` stale-cache issue or a `ModuleEnginesFX` vs `ModuleEngines` difference. Needs in-game repro to investigate further.
+
+**Status:** Mostly fixed (terminal events at stop + on-rails; mid-flight polling logic correct for known cases; inconsistent throttle events need in-game repro)
 
 ## 109. Missing CleanupOrphanedSpawnedVessels on second Rewind flight-ready
 
