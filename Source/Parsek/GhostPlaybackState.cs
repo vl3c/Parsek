@@ -44,6 +44,7 @@ namespace Parsek
         public string lastInterpolatedBodyName;
         public double lastInterpolatedAltitude;
         public RenderingZone currentZone = RenderingZone.Physics; // distance-based rendering zone
+        public double lastDistance; // meters from active vessel, updated per frame in ApplyZonePolicy
         public int flagEventIndex;               // tracks which flags have been spawned
 
         public void SetInterpolated(InterpolationResult r)

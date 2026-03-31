@@ -6614,13 +6614,16 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Returns true if the ghost at index is within visual range (not in the Beyond zone).
+        /// Returns true if the ghost at index is within the camera cutoff distance.
         /// </summary>
         internal bool IsGhostWithinVisualRange(int index)
         {
             GhostPlaybackState s;
             if (!ghostStates.TryGetValue(index, out s) || s == null) return false;
-            return s.currentZone != RenderingZone.Beyond;
+            if (s.currentZone == RenderingZone.Beyond) return false;
+            // Also check against settings cutoff (may be smaller than visual range)
+            double cutoffMeters = (ParsekSettings.Current?.ghostCameraCutoffKm ?? 300f) * 1000.0;
+            return s.lastDistance < cutoffMeters;
         }
 
         /// <summary>
@@ -7134,6 +7137,10 @@ namespace Parsek
             var zone = RenderingZoneManager.ClassifyDistance(ghostDistance);
             bool isWatchedGhost = protectedIndex == recIdx;
 
+            // Cache distance on state for use by IsGhostWithinVisualRange
+            if (state != null)
+                state.lastDistance = ghostDistance;
+
             // Detect zone transition
             if (state != null)
             {
@@ -7155,9 +7162,10 @@ namespace Parsek
             // visual range — beyond that, exit watch mode and let the ghost be hidden.
             if (shouldHideMesh && isWatchedGhost)
             {
-                if (ghostDistance < RenderingZoneManager.VisualRangeRadius)
+                double cutoffMeters = (ParsekSettings.Current?.ghostCameraCutoffKm ?? 300f) * 1000.0;
+                if (ghostDistance < cutoffMeters)
                 {
-                    // Within visual range — exempt from hide
+                    // Within camera cutoff — exempt from hide
                     shouldHideMesh = false;
                     ParsekLog.VerboseRateLimited("Zone", $"watched-zone-exempt-{recIdx}",
                         $"Ghost #{recIdx} \"{rec.VesselName}\" beyond physics bubble " +
@@ -7166,11 +7174,11 @@ namespace Parsek
                 }
                 else
                 {
-                    // Beyond visual range — exit watch mode
+                    // Beyond camera cutoff — exit watch mode
                     ParsekLog.Info("Zone",
-                        $"Ghost #{recIdx} \"{rec.VesselName}\" exceeded visual range " +
+                        $"Ghost #{recIdx} \"{rec.VesselName}\" exceeded ghost camera cutoff " +
                         $"({ghostDistance.ToString("F0", CultureInfo.InvariantCulture)}m > " +
-                        $"{RenderingZoneManager.VisualRangeRadius.ToString("F0", CultureInfo.InvariantCulture)}m) — exiting watch mode");
+                        $"{cutoffMeters.ToString("F0", CultureInfo.InvariantCulture)}m) — exiting watch mode");
                     ExitWatchMode();
                 }
             }

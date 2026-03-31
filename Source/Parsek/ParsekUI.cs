@@ -147,6 +147,10 @@ namespace Parsek
         private string settingsAutoLoopText = "";
         private bool settingsAutoLoopEditing;
         private Rect settingsAutoLoopEditRect;
+
+        private bool settingsCameraCutoffEditing;
+        private string settingsCameraCutoffText = "";
+        private Rect settingsCameraCutoffEditRect;
         private const float ColW_Period = 80f;
 
         // Cached styles for status labels
@@ -3145,16 +3149,22 @@ namespace Parsek
             }
 
             // Click outside active settings edit field → commit
-            if (Event.current.type == EventType.MouseDown && settingsAutoLoopEditing)
+            if (Event.current.type == EventType.MouseDown)
             {
-                if (settingsAutoLoopEditRect.width > 0 && !settingsAutoLoopEditRect.Contains(Event.current.mousePosition))
+                if (settingsAutoLoopEditing && settingsAutoLoopEditRect.width > 0
+                    && !settingsAutoLoopEditRect.Contains(Event.current.mousePosition))
                     CommitSettingsAutoLoopEdit(s);
+                if (settingsCameraCutoffEditing && settingsCameraCutoffEditRect.width > 0
+                    && !settingsCameraCutoffEditRect.Contains(Event.current.mousePosition))
+                    CommitSettingsCameraCutoffEdit(s);
             }
 
             #region Settings sections
             DrawRecordingSettings(s);
             GUILayout.Space(SpacingSmall);
             DrawLoopingSettings(s);
+            GUILayout.Space(SpacingSmall);
+            DrawGhostCameraSettings(s);
             GUILayout.Space(SpacingSmall);
             DrawDiagnosticsSettings(s);
             GUILayout.Space(SpacingSmall);
@@ -3183,9 +3193,11 @@ namespace Parsek
                 s.ghostCapZone1Reduce = 8;
                 s.ghostCapZone1Despawn = 15;
                 s.ghostCapZone2Simplify = 20;
+                s.ghostCameraCutoffKm = 300f;
                 GhostSoftCapManager.Enabled = false;
                 GhostSoftCapManager.ApplySettings(8, 15, 20);
                 settingsAutoLoopEditing = false;
+                settingsCameraCutoffEditing = false;
                 ParsekLog.Info("UI", "Settings reset to defaults");
             }
             if (GUILayout.Button("Close"))
@@ -3285,6 +3297,62 @@ namespace Parsek
                 }
             }
             GUILayout.EndHorizontal();
+        }
+
+        private void DrawGhostCameraSettings(ParsekSettings s)
+        {
+            GUILayout.Label("Ghost Camera", GUI.skin.box);
+            GUILayout.BeginHorizontal();
+            GUILayout.Label(new GUIContent("Cutoff",
+                "Watch mode auto-exits when ghost exceeds this distance from the active vessel"),
+                GUILayout.Width(40));
+            {
+                if (!settingsCameraCutoffEditing)
+                {
+                    string displayText = s.ghostCameraCutoffKm.ToString("F0", System.Globalization.CultureInfo.InvariantCulture);
+                    GUI.SetNextControlName("CameraCutoffEdit");
+                    string newText = GUILayout.TextField(displayText, GUILayout.Width(45));
+                    if (GUI.GetNameOfFocusedControl() == "CameraCutoffEdit")
+                    {
+                        settingsCameraCutoffText = newText;
+                        settingsCameraCutoffEditing = true;
+                        settingsCameraCutoffEditRect = GUILayoutUtility.GetLastRect();
+                    }
+                }
+                else
+                {
+                    bool submit = Event.current.type == EventType.KeyDown &&
+                        (Event.current.keyCode == KeyCode.Return || Event.current.keyCode == KeyCode.KeypadEnter);
+
+                    GUI.SetNextControlName("CameraCutoffEdit");
+                    string newText = GUILayout.TextField(settingsCameraCutoffText, GUILayout.Width(45));
+                    settingsCameraCutoffEditRect = GUILayoutUtility.GetLastRect();
+                    if (newText != settingsCameraCutoffText)
+                        settingsCameraCutoffText = newText;
+
+                    if (submit)
+                    {
+                        CommitSettingsCameraCutoffEdit(s);
+                        Event.current.Use();
+                    }
+                }
+            }
+            GUILayout.Label("km");
+            GUILayout.EndHorizontal();
+        }
+
+        private void CommitSettingsCameraCutoffEdit(ParsekSettings s)
+        {
+            var ic = System.Globalization.CultureInfo.InvariantCulture;
+            if (float.TryParse(settingsCameraCutoffText, System.Globalization.NumberStyles.Float,
+                    ic, out float parsed) && parsed >= 10f && parsed <= 10000f)
+            {
+                s.ghostCameraCutoffKm = parsed;
+                ParsekLog.Info("UI",
+                    $"Setting changed: ghostCameraCutoffKm={s.ghostCameraCutoffKm.ToString("F0", ic)}");
+            }
+            settingsCameraCutoffEditing = false;
+            settingsCameraCutoffEditRect = default;
         }
 
         private void DrawDiagnosticsSettings(ParsekSettings s)
