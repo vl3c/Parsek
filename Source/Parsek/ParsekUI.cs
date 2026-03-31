@@ -54,6 +54,8 @@ namespace Parsek
         // Cached styles for actions window
         private GUIStyle actionsGrayStyle;
         private GUIStyle actionsWhiteStyle;
+        private GUIStyle actionsGreenStyle;
+        private GUIStyle actionsRedStyle;
 
         // Actions table sort state
         private enum ActionsSortColumn { Time, Type, Description, Status }
@@ -536,6 +538,12 @@ namespace Parsek
 
             actionsWhiteStyle = new GUIStyle(GUI.skin.label);
             actionsWhiteStyle.normal.textColor = Color.white;
+
+            actionsGreenStyle = new GUIStyle(GUI.skin.label);
+            actionsGreenStyle.normal.textColor = new Color(0.5f, 1f, 0.5f);
+
+            actionsRedStyle = new GUIStyle(GUI.skin.label);
+            actionsRedStyle.normal.textColor = new Color(1f, 0.5f, 0.5f);
         }
 
         private void DrawActionsWindow(int windowID)
@@ -551,11 +559,13 @@ namespace Parsek
             BuildSortedActionEvents(actionsSortColumn, actionsSortAscending,
                 out allEvents, out uncommittedEvents);
 
-            // Single scroll view for both sections
+            // Single scroll view for all sections
             bool hasCommitted = allEvents.Count > 0;
             bool hasUncommitted = uncommittedEvents.Count > 0;
+            var ledgerActions = Ledger.Actions;
+            bool hasLedger = ledgerActions.Count > 0;
 
-            if (hasCommitted || hasUncommitted)
+            if (hasLedger || hasCommitted || hasUncommitted)
             {
                 GUILayout.Space(5);
 
@@ -577,8 +587,44 @@ namespace Parsek
 
                 actionsScrollPos = GUILayout.BeginScrollView(actionsScrollPos, GUILayout.ExpandHeight(true));
 
+                // --- Ledger Actions (new game actions system) ---
+                if (hasLedger)
+                {
+                    GUILayout.Label($"Ledger Actions ({ledgerActions.Count})", GUI.skin.box);
+
+                    // Sorted by UT descending (newest first)
+                    for (int i = ledgerActions.Count - 1; i >= 0; i--)
+                    {
+                        var action = ledgerActions[i];
+                        Color color = GameActionDisplay.GetColor(action.Type);
+                        GUIStyle style;
+                        if (color.g > 0.9f && color.r < 0.6f)
+                            style = actionsGreenStyle;
+                        else if (color.r > 0.9f && color.g < 0.6f)
+                            style = actionsRedStyle;
+                        else
+                            style = actionsWhiteStyle;
+
+                        GUILayout.BeginHorizontal();
+
+                        string time = KSPUtil.PrintDateCompact(action.UT, true);
+                        GUILayout.Label(time, style, GUILayout.Width(90));
+
+                        string category = GameActionDisplay.GetCategory(action.Type);
+                        GUILayout.Label(category, style, GUILayout.Width(65));
+
+                        string desc = GameActionDisplay.GetDescription(action);
+                        GUILayout.Label(desc, style, GUILayout.ExpandWidth(true));
+
+                        GUILayout.EndHorizontal();
+                    }
+                }
+
+                // --- Recorded Actions (legacy game state events) ---
                 if (hasCommitted)
                 {
+                    if (hasLedger)
+                        GUILayout.Space(5);
                     GUILayout.Label("Recorded Actions", GUI.skin.box);
 
                     for (int i = 0; i < allEvents.Count; i++)
@@ -610,7 +656,7 @@ namespace Parsek
 
                 if (hasUncommitted)
                 {
-                    if (hasCommitted)
+                    if (hasCommitted || hasLedger)
                         GUILayout.Space(5);
                     GUILayout.Label("Uncommitted", GUI.skin.box);
 
