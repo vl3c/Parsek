@@ -474,6 +474,43 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Create ghost ProtoVessels for all committed recordings with stable orbital data.
+        /// Used in non-flight scenes (tracking station) where the playback engine is not running.
+        /// Skips debris, non-orbital terminal states, and recordings that already have ghost vessels.
+        /// </summary>
+        internal static int CreateGhostVesselsFromCommittedRecordings()
+        {
+            var committed = RecordingStore.CommittedRecordings;
+            if (committed == null || committed.Count == 0) return 0;
+
+            int created = 0;
+            for (int i = 0; i < committed.Count; i++)
+            {
+                var rec = committed[i];
+                if (rec.IsDebris) continue;
+
+                var terminal = rec.TerminalStateValue;
+                if (terminal.HasValue
+                    && terminal.Value != TerminalState.Orbiting
+                    && terminal.Value != TerminalState.Docked)
+                    continue;
+
+                if (!HasOrbitData(rec)) continue;
+
+                Vessel v = CreateGhostVesselForRecording(i, rec);
+                if (v != null) created++;
+            }
+
+            if (created > 0)
+                ParsekLog.Info(Tag,
+                    string.Format(ic,
+                        "Created {0} ghost ProtoVessel(s) from {1} committed recordings",
+                        created, committed.Count));
+
+            return created;
+        }
+
+        /// <summary>
         /// Get the ghost Vessel for a chain PID, or null if none exists.
         /// Used for target transfer when chain resolves.
         /// </summary>
