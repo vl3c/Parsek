@@ -318,6 +318,13 @@ namespace Parsek
         /// </summary>
         public float EffectiveRep;
 
+        /// <summary>Transformed funds reward after strategy application (derived, not serialized).</summary>
+        public float TransformedFundsReward;
+        /// <summary>Transformed science reward after strategy application (derived, not serialized).</summary>
+        public float TransformedScienceReward;
+        /// <summary>Transformed rep reward after strategy application (derived, not serialized).</summary>
+        public float TransformedRepReward;
+
         // ================================================================
         // Serialization
         // ================================================================

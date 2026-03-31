@@ -129,6 +129,18 @@ namespace Parsek
                 case GameActionType.ContractCancel:
                     ProcessContractCancel(action);
                     break;
+                case GameActionType.FacilityUpgrade:
+                    ProcessFacilityCost(action, "FacilityUpgrade");
+                    break;
+                case GameActionType.FacilityRepair:
+                    ProcessFacilityCost(action, "FacilityRepair");
+                    break;
+                case GameActionType.KerbalHire:
+                    ProcessKerbalHire(action);
+                    break;
+                case GameActionType.StrategyActivate:
+                    ProcessStrategySetupCost(action);
+                    break;
                 // All other action types: ignore silently
             }
         }
@@ -162,6 +174,9 @@ namespace Parsek
 
             int spendingCount = 0;
             int penaltyCount = 0;
+            int facilityCostCount = 0;
+            int hireCostCount = 0;
+            int setupCostCount = 0;
             for (int i = 0; i < actions.Count; i++)
             {
                 var a = actions[i];
@@ -178,11 +193,25 @@ namespace Parsek
                         totalCommittedSpendings += (double)a.FundsPenalty;
                         penaltyCount++;
                         break;
+                    case GameActionType.FacilityUpgrade:
+                    case GameActionType.FacilityRepair:
+                        totalCommittedSpendings += (double)a.FacilityCost;
+                        facilityCostCount++;
+                        break;
+                    case GameActionType.KerbalHire:
+                        totalCommittedSpendings += (double)a.HireCost;
+                        hireCostCount++;
+                        break;
+                    case GameActionType.StrategyActivate:
+                        totalCommittedSpendings += (double)a.SetupCost;
+                        setupCostCount++;
+                        break;
                 }
             }
 
             ParsekLog.Verbose(Tag,
                 $"ComputeTotalSpendings: spendings={spendingCount}, penalties={penaltyCount}, " +
+                $"facilityCosts={facilityCostCount}, hireCosts={hireCostCount}, setupCosts={setupCostCount}, " +
                 $"totalCommittedSpendings={totalCommittedSpendings.ToString("R", IC)}");
         }
 
@@ -324,11 +353,11 @@ namespace Parsek
                 ParsekLog.Verbose(Tag,
                     $"ContractComplete funds skipped (not effective): " +
                     $"contractId={action.ContractId ?? "(none)"}, " +
-                    $"fundsReward={action.FundsReward.ToString("R", IC)}");
+                    $"fundsReward={action.TransformedFundsReward.ToString("R", IC)}");
                 return;
             }
 
-            double reward = (double)action.FundsReward;
+            double reward = (double)action.TransformedFundsReward;
             if (reward <= 0.0)
                 return;
 
@@ -360,6 +389,63 @@ namespace Parsek
             ParsekLog.Verbose(Tag,
                 $"{label} penalty: -{penalty.ToString("R", IC)}, " +
                 $"contractId={action.ContractId ?? "(none)"}, " +
+                $"runningBalance={runningBalance.ToString("R", IC)}");
+        }
+
+        /// <summary>
+        /// Processes FacilityUpgrade/FacilityRepair: deducts FacilityCost from running balance.
+        /// </summary>
+        private void ProcessFacilityCost(GameAction action, string label)
+        {
+            double cost = (double)action.FacilityCost;
+            bool affordable = runningBalance >= cost;
+            action.Affordable = affordable;
+
+            runningBalance -= cost;
+
+            ParsekLog.Verbose(Tag,
+                $"{label}: -{cost.ToString("R", IC)}, " +
+                $"facilityId={action.FacilityId ?? "(none)"}, " +
+                $"affordable={affordable}, " +
+                $"runningBalance={runningBalance.ToString("R", IC)}");
+        }
+
+        /// <summary>
+        /// Processes KerbalHire: deducts HireCost from running balance.
+        /// </summary>
+        private void ProcessKerbalHire(GameAction action)
+        {
+            double cost = (double)action.HireCost;
+            bool affordable = runningBalance >= cost;
+            action.Affordable = affordable;
+
+            runningBalance -= cost;
+
+            ParsekLog.Verbose(Tag,
+                $"KerbalHire: -{cost.ToString("R", IC)}, " +
+                $"kerbalName={action.KerbalName ?? "(none)"}, " +
+                $"affordable={affordable}, " +
+                $"runningBalance={runningBalance.ToString("R", IC)}");
+        }
+
+        /// <summary>
+        /// Processes StrategyActivate: deducts SetupCost from running balance.
+        /// </summary>
+        private void ProcessStrategySetupCost(GameAction action)
+        {
+            double cost = (double)action.SetupCost;
+            if (cost <= 0.0)
+                return;
+
+            bool affordable = runningBalance >= cost;
+            action.Affordable = affordable;
+
+            runningBalance -= cost;
+
+            ParsekLog.Verbose(Tag,
+                $"StrategyActivate: -{cost.ToString("R", IC)}, " +
+                $"strategyId={action.StrategyId ?? "(none)"}, " +
+                $"affordable={affordable}, " +
                 $"runningBalance={runningBalance.ToString("R", IC)}");
         }
 

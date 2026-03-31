@@ -48,7 +48,7 @@ namespace Parsek
             if (action.Type != GameActionType.MilestoneAchievement)
                 return;
 
-            string milestoneId = action.MilestoneId;
+            string milestoneId = action.MilestoneId ?? "";
 
             if (!creditedMilestones.Contains(milestoneId))
             {

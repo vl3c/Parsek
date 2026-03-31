@@ -149,7 +149,7 @@ namespace Parsek
                 return;
             }
 
-            float nominal = action.RepReward;
+            float nominal = action.TransformedRepReward;
             if (nominal == 0f)
                 return;
 

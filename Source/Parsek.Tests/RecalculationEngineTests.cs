@@ -323,6 +323,8 @@ namespace Parsek.Tests
         [InlineData(GameActionType.FacilityRepair)]
         [InlineData(GameActionType.KerbalHire)]
         [InlineData(GameActionType.StrategyActivate)]
+        [InlineData(GameActionType.ContractFail)]
+        [InlineData(GameActionType.ContractCancel)]
         public void IsSpendingType_AllSpendings(GameActionType type)
         {
             Assert.True(RecalculationEngine.IsSpendingType(type));
@@ -347,8 +349,6 @@ namespace Parsek.Tests
 
         [Theory]
         [InlineData(GameActionType.ContractAccept)]
-        [InlineData(GameActionType.ContractFail)]
-        [InlineData(GameActionType.ContractCancel)]
         [InlineData(GameActionType.ReputationPenalty)]
         [InlineData(GameActionType.KerbalAssignment)]
         [InlineData(GameActionType.KerbalStandIn)]

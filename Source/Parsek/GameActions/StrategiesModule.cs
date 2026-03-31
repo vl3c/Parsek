@@ -184,22 +184,22 @@ namespace Parsek
                 switch (strategy.SourceResource)
                 {
                     case StrategyResource.Funds:
-                        diverted = action.FundsReward * strategy.Commitment;
-                        action.FundsReward -= diverted;
+                        diverted = action.TransformedFundsReward * strategy.Commitment;
+                        action.TransformedFundsReward -= diverted;
                         AddToTargetResource(action, strategy.TargetResource, diverted * conversionRate);
                         LogTransform(strategy, action, "FundsReward", diverted, conversionRate);
                         break;
 
                     case StrategyResource.Science:
-                        diverted = action.ScienceReward * strategy.Commitment;
-                        action.ScienceReward -= diverted;
+                        diverted = action.TransformedScienceReward * strategy.Commitment;
+                        action.TransformedScienceReward -= diverted;
                         AddToTargetResource(action, strategy.TargetResource, diverted * conversionRate);
                         LogTransform(strategy, action, "ScienceReward", diverted, conversionRate);
                         break;
 
                     case StrategyResource.Reputation:
-                        diverted = action.RepReward * strategy.Commitment;
-                        action.RepReward -= diverted;
+                        diverted = action.TransformedRepReward * strategy.Commitment;
+                        action.TransformedRepReward -= diverted;
                         AddToTargetResource(action, strategy.TargetResource, diverted * conversionRate);
                         LogTransform(strategy, action, "RepReward", diverted, conversionRate);
                         break;
@@ -212,13 +212,13 @@ namespace Parsek
             switch (target)
             {
                 case StrategyResource.Funds:
-                    action.FundsReward += amount;
+                    action.TransformedFundsReward += amount;
                     break;
                 case StrategyResource.Science:
-                    action.ScienceReward += amount;
+                    action.TransformedScienceReward += amount;
                     break;
                 case StrategyResource.Reputation:
-                    action.RepReward += amount;
+                    action.TransformedRepReward += amount;
                     break;
             }
         }

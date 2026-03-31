@@ -147,7 +147,19 @@ namespace Parsek
             // 2. Reset all modules
             ResetAllModules();
 
-            // 2b. Pre-pass: let modules compute aggregate data before the walk
+            // 2b. Reset derived fields to defaults before walk (prevents stale values from previous recalculation)
+            for (int i = 0; i < sorted.Count; i++)
+            {
+                sorted[i].Effective = true;
+                sorted[i].EffectiveScience = 0f;
+                sorted[i].Affordable = false;
+                sorted[i].EffectiveRep = 0f;
+                sorted[i].TransformedFundsReward = sorted[i].FundsReward;
+                sorted[i].TransformedScienceReward = sorted[i].ScienceReward;
+                sorted[i].TransformedRepReward = sorted[i].RepReward;
+            }
+
+            // 2c. Pre-pass: let modules compute aggregate data before the walk
             PrePassAllModules(sorted);
 
             // 3. Walk sorted actions
@@ -262,6 +274,8 @@ namespace Parsek
                 case GameActionType.FacilityRepair:
                 case GameActionType.KerbalHire:
                 case GameActionType.StrategyActivate:
+                case GameActionType.ContractFail:
+                case GameActionType.ContractCancel:
                     return true;
                 default:
                     return false;

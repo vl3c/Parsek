@@ -83,6 +83,7 @@ namespace Parsek.Tests
                 RecordingId = recordingId,
                 ContractId = contractId,
                 RepReward = repReward,
+                TransformedRepReward = repReward,
                 Effective = effective
             };
         }

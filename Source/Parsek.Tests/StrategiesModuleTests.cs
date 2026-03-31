@@ -75,6 +75,9 @@ namespace Parsek.Tests
                 FundsReward = fundsReward,
                 RepReward = repReward,
                 ScienceReward = scienceReward,
+                TransformedFundsReward = fundsReward,
+                TransformedScienceReward = scienceReward,
+                TransformedRepReward = repReward,
                 Effective = effective
             };
         }
@@ -110,18 +113,18 @@ namespace Parsek.Tests
                 fundsReward: 40000f, repReward: 50f, scienceReward: 0f);
             module.ProcessAction(contract1);
 
-            Assert.Equal(40000f, contract1.FundsReward);
-            AssertFloatEqual(45f, contract1.RepReward);
-            AssertFloatEqual(5f, contract1.ScienceReward);
+            Assert.Equal(40000f, contract1.TransformedFundsReward);
+            AssertFloatEqual(45f, contract1.TransformedRepReward);
+            AssertFloatEqual(5f, contract1.TransformedScienceReward);
 
             // UT=600: inside window
             var contract2 = MakeContractComplete("c2", 600.0,
                 fundsReward: 30000f, repReward: 30f, scienceReward: 0f);
             module.ProcessAction(contract2);
 
-            Assert.Equal(30000f, contract2.FundsReward);
-            AssertFloatEqual(27f, contract2.RepReward);
-            AssertFloatEqual(3f, contract2.ScienceReward);
+            Assert.Equal(30000f, contract2.TransformedFundsReward);
+            AssertFloatEqual(27f, contract2.TransformedRepReward);
+            AssertFloatEqual(3f, contract2.TransformedScienceReward);
 
             // UT=700: deactivate
             var deactivate = MakeDeactivate("UnpaidResearch", 700.0);
@@ -132,9 +135,9 @@ namespace Parsek.Tests
                 fundsReward: 20000f, repReward: 40f, scienceReward: 0f);
             module.ProcessAction(contract3);
 
-            Assert.Equal(20000f, contract3.FundsReward);
-            Assert.Equal(40f, contract3.RepReward);
-            Assert.Equal(0f, contract3.ScienceReward);
+            Assert.Equal(20000f, contract3.TransformedFundsReward);
+            Assert.Equal(40f, contract3.TransformedRepReward);
+            Assert.Equal(0f, contract3.TransformedScienceReward);
         }
 
         // ================================================================
@@ -159,9 +162,9 @@ namespace Parsek.Tests
             module.ProcessAction(contract);
 
             // No transform — contract UT < strategy ActivateUT
-            Assert.Equal(50000f, contract.FundsReward);
-            Assert.Equal(50f, contract.RepReward);
-            Assert.Equal(0f, contract.ScienceReward);
+            Assert.Equal(50000f, contract.TransformedFundsReward);
+            Assert.Equal(50f, contract.TransformedRepReward);
+            Assert.Equal(0f, contract.TransformedScienceReward);
         }
 
         // ================================================================
@@ -318,9 +321,9 @@ namespace Parsek.Tests
             module.ProcessAction(contract);
 
             // 20% of 10000 funds diverted = 2000
-            AssertFloatEqual(8000f, contract.FundsReward);
-            AssertFloatEqual(2010f, contract.RepReward);  // 10 + 2000
-            AssertFloatEqual(5f, contract.ScienceReward);  // unchanged
+            AssertFloatEqual(8000f, contract.TransformedFundsReward);
+            AssertFloatEqual(2010f, contract.TransformedRepReward);  // 10 + 2000
+            AssertFloatEqual(5f, contract.TransformedScienceReward);  // unchanged
         }
 
         [Fact]
@@ -336,9 +339,9 @@ namespace Parsek.Tests
             module.ProcessAction(contract);
 
             // 25% of 40 science diverted = 10
-            AssertFloatEqual(1010f, contract.FundsReward);   // 1000 + 10
-            AssertFloatEqual(0f, contract.RepReward);
-            AssertFloatEqual(30f, contract.ScienceReward);   // 40 - 10
+            AssertFloatEqual(1010f, contract.TransformedFundsReward);   // 1000 + 10
+            AssertFloatEqual(0f, contract.TransformedRepReward);
+            AssertFloatEqual(30f, contract.TransformedScienceReward);   // 40 - 10
         }
 
         [Fact]
@@ -354,9 +357,9 @@ namespace Parsek.Tests
             module.ProcessAction(contract);
 
             // 15% of 100 rep diverted = 15
-            AssertFloatEqual(5015f, contract.FundsReward);   // 5000 + 15
-            AssertFloatEqual(85f, contract.RepReward);        // 100 - 15
-            AssertFloatEqual(0f, contract.ScienceReward);
+            AssertFloatEqual(5015f, contract.TransformedFundsReward);   // 5000 + 15
+            AssertFloatEqual(85f, contract.TransformedRepReward);        // 100 - 15
+            AssertFloatEqual(0f, contract.TransformedScienceReward);
         }
 
         // ================================================================
@@ -374,8 +377,8 @@ namespace Parsek.Tests
                 repReward: 100f, scienceReward: 0f);
             module.ProcessAction(contract);
 
-            AssertFloatEqual(99f, contract.RepReward);
-            AssertFloatEqual(1f, contract.ScienceReward);
+            AssertFloatEqual(99f, contract.TransformedRepReward);
+            AssertFloatEqual(1f, contract.TransformedScienceReward);
         }
 
         [Fact]
@@ -389,8 +392,8 @@ namespace Parsek.Tests
                 fundsReward: 40000f, scienceReward: 0f);
             module.ProcessAction(contract);
 
-            AssertFloatEqual(30000f, contract.FundsReward);
-            AssertFloatEqual(10000f, contract.ScienceReward);
+            AssertFloatEqual(30000f, contract.TransformedFundsReward);
+            AssertFloatEqual(10000f, contract.TransformedScienceReward);
         }
 
         // ================================================================
@@ -411,9 +414,9 @@ namespace Parsek.Tests
             module.ProcessAction(contract);
 
             // No transform
-            Assert.Equal(10000f, contract.FundsReward);
-            Assert.Equal(50f, contract.RepReward);
-            Assert.Equal(0f, contract.ScienceReward);
+            Assert.Equal(10000f, contract.TransformedFundsReward);
+            Assert.Equal(50f, contract.TransformedRepReward);
+            Assert.Equal(0f, contract.TransformedScienceReward);
         }
 
         // ================================================================
@@ -427,9 +430,9 @@ namespace Parsek.Tests
                 fundsReward: 10000f, repReward: 50f, scienceReward: 10f);
             module.ProcessAction(contract);
 
-            Assert.Equal(10000f, contract.FundsReward);
-            Assert.Equal(50f, contract.RepReward);
-            Assert.Equal(10f, contract.ScienceReward);
+            Assert.Equal(10000f, contract.TransformedFundsReward);
+            Assert.Equal(50f, contract.TransformedRepReward);
+            Assert.Equal(10f, contract.TransformedScienceReward);
         }
 
         // ================================================================
@@ -449,8 +452,8 @@ namespace Parsek.Tests
                 repReward: 100f, scienceReward: 0f);
             module.ProcessAction(contract);
 
-            Assert.Equal(100f, contract.RepReward);
-            Assert.Equal(0f, contract.ScienceReward);
+            Assert.Equal(100f, contract.TransformedRepReward);
+            Assert.Equal(0f, contract.TransformedScienceReward);
         }
 
         // ================================================================
@@ -508,9 +511,9 @@ namespace Parsek.Tests
             // order does not matter:
             // Rep -> Sci: 10% of 100 = 10 diverted. Rep = 90, Sci = 10.
             // Funds -> Rep: 20% of 10000 = 2000 diverted. Funds = 8000, Rep = 90 + 2000 = 2090.
-            AssertFloatEqual(8000f, contract.FundsReward);
-            AssertFloatEqual(2090f, contract.RepReward);
-            AssertFloatEqual(10f, contract.ScienceReward);
+            AssertFloatEqual(8000f, contract.TransformedFundsReward);
+            AssertFloatEqual(2090f, contract.TransformedRepReward);
+            AssertFloatEqual(10f, contract.TransformedScienceReward);
         }
 
         // ================================================================
@@ -599,12 +602,12 @@ namespace Parsek.Tests
             RecalculationEngine.Recalculate(actions);
 
             // c1 at UT=400 inside strategy window: rep 50->45, sci 0->5
-            AssertFloatEqual(45f, actions[1].RepReward);
-            AssertFloatEqual(5f, actions[1].ScienceReward);
+            AssertFloatEqual(45f, actions[1].TransformedRepReward);
+            AssertFloatEqual(5f, actions[1].TransformedScienceReward);
 
             // c2 at UT=800 outside strategy window: no transform
-            Assert.Equal(40f, actions[3].RepReward);
-            Assert.Equal(0f, actions[3].ScienceReward);
+            Assert.Equal(40f, actions[3].TransformedRepReward);
+            Assert.Equal(0f, actions[3].TransformedScienceReward);
         }
 
         // ================================================================
@@ -629,8 +632,8 @@ namespace Parsek.Tests
             var contract = MakeContractComplete("c1", 300.0, repReward: 100f, scienceReward: 0f);
             module.ProcessAction(contract);
 
-            AssertFloatEqual(80f, contract.RepReward);    // 20% diverted
-            AssertFloatEqual(20f, contract.ScienceReward);
+            AssertFloatEqual(80f, contract.TransformedRepReward);    // 20% diverted
+            AssertFloatEqual(20f, contract.TransformedScienceReward);
         }
 
         [Fact]
@@ -645,9 +648,9 @@ namespace Parsek.Tests
             module.ProcessAction(contract);
 
             // 10% of 0 rep = 0 diverted, no change
-            Assert.Equal(10000f, contract.FundsReward);
-            Assert.Equal(0f, contract.RepReward);
-            Assert.Equal(0f, contract.ScienceReward);
+            Assert.Equal(10000f, contract.TransformedFundsReward);
+            Assert.Equal(0f, contract.TransformedRepReward);
+            Assert.Equal(0f, contract.TransformedScienceReward);
         }
 
         [Fact]

@@ -102,6 +102,7 @@ namespace Parsek.Tests
                 Type = GameActionType.ContractComplete,
                 ContractId = contractId,
                 FundsReward = fundsReward,
+                TransformedFundsReward = fundsReward,
                 Effective = effective
             };
         }
