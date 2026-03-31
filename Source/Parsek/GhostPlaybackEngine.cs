@@ -1311,21 +1311,15 @@ namespace Parsek
                 }
             }
 
+            // Detach active engine/RCS particle systems so smoke trails linger (#107).
+            // Stopped systems with no live particles are destroyed immediately.
             if (state.engineInfos != null)
-            {
                 foreach (var info in state.engineInfos.Values)
-                    for (int i = 0; i < info.particleSystems.Count; i++)
-                        if (info.particleSystems[i] != null)
-                            UnityEngine.Object.Destroy(info.particleSystems[i].gameObject);
-            }
+                    GhostPlaybackLogic.DetachAndLingerParticleSystems(info.particleSystems, info.kspEmitters);
 
             if (state.rcsInfos != null)
-            {
                 foreach (var info in state.rcsInfos.Values)
-                    for (int i = 0; i < info.particleSystems.Count; i++)
-                        if (info.particleSystems[i] != null)
-                            UnityEngine.Object.Destroy(info.particleSystems[i].gameObject);
-            }
+                    GhostPlaybackLogic.DetachAndLingerParticleSystems(info.particleSystems, info.kspEmitters);
 
             DestroyReentryFxResources(state.reentryFxInfo);
 

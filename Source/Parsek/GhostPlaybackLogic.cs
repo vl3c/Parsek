@@ -1324,6 +1324,37 @@ namespace Parsek
             }
         }
 
+        /// <summary>
+        /// Detaches active particle systems from the ghost hierarchy so they can linger
+        /// and fade out naturally after the ghost is destroyed (#107). Stops emission,
+        /// unparents, and schedules delayed destruction.
+        /// </summary>
+        internal static void DetachAndLingerParticleSystems(
+            List<ParticleSystem> particleSystems, List<KspEmitterRef> kspEmitters, float lingerSeconds = 8f)
+        {
+            if (kspEmitters != null)
+                SetKspEmittersEnabled(kspEmitters, false);
+            if (particleSystems == null) return;
+
+            for (int i = 0; i < particleSystems.Count; i++)
+            {
+                var ps = particleSystems[i];
+                if (ps == null) continue;
+
+                // Only detach if particles are alive (no point lingering an empty system)
+                if (ps.particleCount == 0)
+                {
+                    UnityEngine.Object.Destroy(ps.gameObject);
+                    continue;
+                }
+
+                ps.Stop(true, ParticleSystemStopBehavior.StopEmitting);
+                ps.transform.SetParent(null, true);
+                UnityEngine.Object.Destroy(ps.gameObject, lingerSeconds);
+            }
+            particleSystems.Clear();
+        }
+
         internal static void SetParticleRenderersEnabled(ParticleSystem ps, bool enabled)
         {
             if (ps == null)
