@@ -1840,6 +1840,34 @@ After FF (fast-forward time jump) to a distant recording segment, Parsek transfe
 
 **Status:** Fixed — added 100km distance guard in `EnterWatchMode` (refuses watch + shows screen message when ghost is beyond rendering-safe distance). Also rate-limited `FindNextWatchTarget` logging during watch hold to eliminate ~200-line per-hold spam.
 
+## 152. GhostVesselSwitchPatch Harmony ambiguous match
+
+`GhostVesselSwitchPatch` (on `ghost-orbits-trajectories` branch) fails with "Ambiguous match for HarmonyMethod[(class=FlightGlobals, methodname=SetActiveVessel, type=Normal, args=undefined)]". `FlightGlobals.SetActiveVessel` has multiple overloads in KSP 1.12.5 and the `[HarmonyPatch]` attribute doesn't specify parameter types.
+
+**Fix:** Add `typeof(Vessel)` to the patch attribute: `[HarmonyPatch(typeof(FlightGlobals), nameof(FlightGlobals.SetActiveVessel), typeof(Vessel))]`
+
+**Priority:** Medium — patch silently fails every session, ghost vessel click redirect doesn't work
+
+**Status:** Open — on `ghost-orbits-trajectories` branch, not main
+
+## 153. AnimateHeat unable to classify pointyNoseConeB
+
+`ModuleAnimateHeat` on pointyNoseConeB (Protective Rocket Nose Cone Mk7) doesn't match the expected classification pattern. Logged at VERBOSE level. These nose cones won't have heat glow animation on ghost playback.
+
+**Priority:** Low — cosmetic, barely noticeable
+
+**Status:** Open
+
+## 154. parsek_38.png texture compression warning
+
+KSP warns `Texture resolution is not valid for compression` for the 38x38 toolbar icon. Not a power-of-two size so KSP can't DXT-compress it.
+
+**Fix:** Resize to 32x32 or 64x64.
+
+**Priority:** Low — cosmetic, icon works fine uncompressed
+
+**Status:** Open
+
 # In-Game Tests
 
 - [x] Vessels propagate naturally along orbits after FF (no position freezing)
