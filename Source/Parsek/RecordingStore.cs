@@ -1346,6 +1346,9 @@ namespace Parsek
         internal static HashSet<uint> PendingCleanupPids { get; set; }
         internal static HashSet<string> PendingCleanupNames { get; set; }
 
+        // Destination scene from last OnSceneChangeRequested — consumed in OnLoad (#88)
+        internal static GameScenes? PendingDestinationScene { get; set; }
+
         // PIDs of vessels that existed in the rewind quicksave.
         // Used by StripFuturePrelaunchVessels to whitelist known-good PRELAUNCH vessels
         // (e.g. the player's pad vessel) and strip only unknown ones from the future.

@@ -72,6 +72,52 @@ namespace Parsek.Tests
         }
 
         // ────────────────────────────────────────────────────────────
+        //  ShouldShowCommitApproval — commit dialog trigger (#88)
+        // ────────────────────────────────────────────────────────────
+
+        [Fact]
+        public void ShouldShowCommitApproval_LandedAtKSC_ReturnsTrue()
+        {
+            Assert.True(GhostPlaybackLogic.ShouldShowCommitApproval(
+                GameScenes.SPACECENTER, TerminalState.Landed));
+        }
+
+        [Fact]
+        public void ShouldShowCommitApproval_SplashedAtTrackStation_ReturnsTrue()
+        {
+            Assert.True(GhostPlaybackLogic.ShouldShowCommitApproval(
+                GameScenes.TRACKSTATION, TerminalState.Splashed));
+        }
+
+        [Fact]
+        public void ShouldShowCommitApproval_OrbitingAtKSC_ReturnsFalse()
+        {
+            Assert.False(GhostPlaybackLogic.ShouldShowCommitApproval(
+                GameScenes.SPACECENTER, TerminalState.Orbiting));
+        }
+
+        [Fact]
+        public void ShouldShowCommitApproval_LandedAtMainMenu_ReturnsFalse()
+        {
+            Assert.False(GhostPlaybackLogic.ShouldShowCommitApproval(
+                GameScenes.MAINMENU, TerminalState.Landed));
+        }
+
+        [Fact]
+        public void ShouldShowCommitApproval_LandedAtFlight_ReturnsFalse()
+        {
+            Assert.False(GhostPlaybackLogic.ShouldShowCommitApproval(
+                GameScenes.FLIGHT, TerminalState.Landed));
+        }
+
+        [Fact]
+        public void ShouldShowCommitApproval_NullTerminalState_ReturnsFalse()
+        {
+            Assert.False(GhostPlaybackLogic.ShouldShowCommitApproval(
+                GameScenes.SPACECENTER, null));
+        }
+
+        // ────────────────────────────────────────────────────────────
         //  CacheEngineModules — null-vessel guard
         // ────────────────────────────────────────────────────────────
 

@@ -740,6 +740,7 @@ namespace Parsek
         void OnSceneChangeRequested(GameScenes scene)
         {
             sceneChangeInProgress = true;
+            RecordingStore.PendingDestinationScene = scene;
             ParsekLog.Info("Flight", $"Scene change requested: {scene}");
 
             // Exit watch mode on scene change

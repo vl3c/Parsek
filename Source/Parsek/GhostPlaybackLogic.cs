@@ -35,6 +35,20 @@ namespace Parsek
             return currentWarpRate > GhostHideWarpThreshold;
         }
 
+        /// <summary>
+        /// Returns true if a commit approval dialog should be shown instead of auto-committing (#88).
+        /// Triggers when leaving Flight to KSC or Tracking Station with a landed/splashed vessel.
+        /// </summary>
+        internal static bool ShouldShowCommitApproval(GameScenes destination, TerminalState? terminalState)
+        {
+            if (destination != GameScenes.SPACECENTER && destination != GameScenes.TRACKSTATION)
+                return false;
+            if (!terminalState.HasValue)
+                return false;
+            var ts = terminalState.Value;
+            return ts == TerminalState.Landed || ts == TerminalState.Splashed;
+        }
+
         internal static bool ShouldFlushDeferredSpawns(int pendingCount, bool isWarpActive)
         {
             return pendingCount > 0 && !isWarpActive;

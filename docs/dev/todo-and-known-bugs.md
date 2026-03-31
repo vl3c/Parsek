@@ -1158,7 +1158,7 @@ After recording completes (via chain boundary or scene change), the recording is
 
 **Design decision:** Show approval dialog when recording ends due to scene change to Space Center or Tracking Station AND vessel is landed/splashed (meaningful endpoint). Auto-commit for: game exit (no dialog opportunity), boundary splits, chain continuations, and mid-flight scene changes. The dialog should offer Keep / Discard.
 
-**Status:** Open — design decided, needs implementation
+**Status:** Fixed — `ShouldShowCommitApproval` predicate checks destination scene (KSC/TS) and terminal state (Landed/Splashed). When triggered with autoMerge ON, defers to the existing merge dialog instead of auto-committing. Game exit (forceAutoMerge) bypasses. 6 tests.
 
 ## 89. Watch button enabled for distant ghosts beyond visual range
 

@@ -528,18 +528,47 @@ namespace Parsek
                 {
                     if (IsAutoMerge || forceAutoMerge)
                     {
-                        // autoMerge ON: auto-commit ghost-only (existing behavior)
+                        // Check if commit approval dialog should be shown (#88):
+                        // landed/splashed vessel going to KSC or Tracking Station
+                        var destScene = RecordingStore.PendingDestinationScene;
+                        TerminalState? termState = null;
                         if (RecordingStore.HasPending)
+                            termState = RecordingStore.Pending.TerminalStateValue;
+                        else if (RecordingStore.HasPendingTree)
                         {
-                            AutoCommitGhostOnly(RecordingStore.Pending);
-                            RecordingStore.CommitPending();
-                            ScreenMessages.PostScreenMessage("[Parsek] Recording committed to timeline", 5f);
+                            // Find root recording's terminal state from tree
+                            Recording rootRec;
+                            if (RecordingStore.PendingTree.Recordings.TryGetValue(
+                                RecordingStore.PendingTree.RootRecordingId, out rootRec))
+                                termState = rootRec.TerminalStateValue;
                         }
-                        if (RecordingStore.HasPendingTree)
+                        bool showApproval = !forceAutoMerge && destScene.HasValue &&
+                            GhostPlaybackLogic.ShouldShowCommitApproval(destScene.Value, termState);
+                        RecordingStore.PendingDestinationScene = null;
+
+                        if (showApproval && !mergeDialogPending)
                         {
-                            AutoCommitTreeGhostOnly(RecordingStore.PendingTree);
-                            RecordingStore.CommitPendingTree();
-                            ScreenMessages.PostScreenMessage("[Parsek] Tree recording committed to timeline", 5f);
+                            // Defer to approval dialog instead of auto-committing
+                            mergeDialogPending = true;
+                            StartCoroutine(ShowDeferredMergeDialog());
+                            ParsekLog.Info("Scenario",
+                                "Commit approval deferred: vessel landed/splashed at KSC/TS exit");
+                        }
+                        else
+                        {
+                            // autoMerge ON: auto-commit ghost-only (existing behavior)
+                            if (RecordingStore.HasPending)
+                            {
+                                AutoCommitGhostOnly(RecordingStore.Pending);
+                                RecordingStore.CommitPending();
+                                ScreenMessages.PostScreenMessage("[Parsek] Recording committed to timeline", 5f);
+                            }
+                            if (RecordingStore.HasPendingTree)
+                            {
+                                AutoCommitTreeGhostOnly(RecordingStore.PendingTree);
+                                RecordingStore.CommitPendingTree();
+                                ScreenMessages.PostScreenMessage("[Parsek] Tree recording committed to timeline", 5f);
+                            }
                         }
                     }
                     else if ((RecordingStore.HasPending || RecordingStore.HasPendingTree) && !mergeDialogPending)
