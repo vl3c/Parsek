@@ -1842,6 +1842,33 @@ After FF (fast-forward time jump) to a distant recording segment, Parsek transfe
 
 **Status:** Fixed — added 100km distance guard in `EnterWatchMode` (refuses watch + shows screen message when ghost is beyond rendering-safe distance). Also rate-limited `FindNextWatchTarget` logging during watch hold to eliminate ~200-line per-hold spam.
 
+## 157. Green sphere ghost for debris after ghost-only merge decision
+
+When a debris recording is set to "ghost-only" in the merge dialog, `ApplyVesselDecisions` nulls `VesselSnapshot`. If `GhostVisualSnapshot` was also null (debris destroyed before snapshot copy), `GetGhostSnapshot` returns null and the ghost falls back to a green sphere.
+
+**Partial fix:** `ApplyVesselDecisions` now copies `VesselSnapshot` to `GhostVisualSnapshot` before nulling the spawn snapshot, if `GhostVisualSnapshot` is not already set. This ensures ghost-only recordings always have visual data when a snapshot was available at merge time.
+
+**Remaining issue:** If the debris was destroyed before ANY snapshot was captured (both null at recording time), the sphere fallback is unavoidable. Could improve by capturing snapshot at the moment of breakup rather than deferring.
+
+**Priority:** Low — cosmetic (sphere fallback for very-short-lived debris)
+
+**Status:** Partially fixed
+
+## 158. Watch mode auto-follow picks debris instead of core vessel after separation
+
+When the recording vessel separates (e.g., SRB jettison), `FindNextWatchTarget` looks for a continuation recording at the branch point. If the continuation has only 1 trajectory point and 0 track sections (boundary seed with no real data), no ghost is spawned for it. The watch target finder falls through to the first debris child with an active ghost, causing the camera to follow a booster instead of the core vehicle.
+
+**Root cause:** The continuation recording created at breakup has insufficient trajectory data for ghost spawn. `FindNextWatchTarget` checks `HasActiveGhost` which returns false for the unspawned continuation, so it picks the first debris alternative.
+
+**Fix options:**
+1. `FindNextWatchTarget` should look through the continuation's own children/successors when it has no active ghost (recursive descent)
+2. Ensure continuation recordings always have enough data to spawn (at least 2 points)
+3. Use vessel PID matching to prefer the continuation even without a ghost
+
+**Priority:** Medium — camera follows wrong vessel after staging
+
+**Status:** Open
+
 ## 152. GhostVesselSwitchPatch Harmony ambiguous match
 
 `GhostVesselSwitchPatch` (on `ghost-orbits-trajectories` branch) fails with "Ambiguous match for HarmonyMethod[(class=FlightGlobals, methodname=SetActiveVessel, type=Normal, args=undefined)]". `FlightGlobals.SetActiveVessel` has multiple overloads in KSP 1.12.5 and the `[HarmonyPatch]` attribute doesn't specify parameter types.
