@@ -56,6 +56,8 @@ All notable changes to Parsek are documented here.
 - **Ghost camera cutoff setting.** Settings > Ghost Camera > Cutoff [300] km. Watch mode auto-exits when ghost exceeds this distance. Watch button disabled for ghosts beyond cutoff. Default 300km, configurable 10-10000km.
 - **Watch mode distance overlay.** "Watching: Vessel (45.2 km)" in the notification bar shows distance from ghost to active vessel.
 - **Watch mode auto-follow on stage separation.** Camera automatically follows the controller vessel through tree branch points and chain continuations.
+- **T+ mission time in Countdown column.** Past/live recordings show elapsed time since launch (T+Xh Ym Zs) instead of "LIVE" or "-".
+- **Debris subgroups in recordings window.** Debris recordings from stage separations are auto-grouped under a "Vessel / Debris" subgroup. Orphaned split segments adopted into the tree group on commit.
 
 ### Previously Fixed (Confirmed)
 
