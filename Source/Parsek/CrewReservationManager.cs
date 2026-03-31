@@ -419,6 +419,7 @@ namespace Parsek
         /// </summary>
         internal static int RescueOrphanedCrew(List<ProtoVessel> survivingVessels)
         {
+            if (survivingVessels == null) return 0;
             var roster = HighLogic.CurrentGame?.CrewRoster;
             if (roster == null)
             {

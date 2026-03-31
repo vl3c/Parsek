@@ -61,18 +61,18 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void ShouldStripFuturePrelaunch_NonPrelaunch_ReturnsFalse()
+        public void ShouldStripFuturePrelaunch_NonPrelaunch_AlsoStripped()
         {
-            // A LANDED vessel should never be stripped regardless of PID
+            // #164: ALL vessel types not in whitelist are stripped (not just PRELAUNCH)
             var quicksavePids = new HashSet<uint> { 100 };
 
-            Assert.False(ParsekScenario.ShouldStripFuturePrelaunch(
+            Assert.True(ParsekScenario.ShouldStripFuturePrelaunch(
                 Vessel.Situations.LANDED, 999, quicksavePids));
-            Assert.False(ParsekScenario.ShouldStripFuturePrelaunch(
+            Assert.True(ParsekScenario.ShouldStripFuturePrelaunch(
                 Vessel.Situations.ORBITING, 999, quicksavePids));
-            Assert.False(ParsekScenario.ShouldStripFuturePrelaunch(
+            Assert.True(ParsekScenario.ShouldStripFuturePrelaunch(
                 Vessel.Situations.FLYING, 999, quicksavePids));
-            Assert.False(ParsekScenario.ShouldStripFuturePrelaunch(
+            Assert.True(ParsekScenario.ShouldStripFuturePrelaunch(
                 Vessel.Situations.SPLASHED, 999, quicksavePids));
         }
 

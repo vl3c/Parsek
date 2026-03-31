@@ -1907,7 +1907,46 @@ After rewind, `StripOrphanedSpawnedVessels` only matches vessels by recording na
 
 **Priority:** Medium — flags and other player-created vessels from the future persist after rewind
 
-**Status:** Open — needs careful design (stripping all non-whitelisted vessels could remove legitimate vessels in edge cases)
+**Status:** Fixed — removed PRELAUNCH restriction from `ShouldStripFuturePrelaunch`. Now strips ALL vessel types not in the quicksave PID whitelist. The whitelist is captured from the actual quicksave at rewind time, so only vessels that existed at the rewind target UT survive.
+
+## 168. Parsek-spawned vessels not re-spawned at correct time after rewind, or removed right after spawn
+
+After rewind, the expanded strip (#164) correctly removes all non-quicksave vessels including Parsek-spawned ones. Two issues prevent correct re-spawning:
+
+1. `SpawnedVesselPersistentId` and `VesselSpawned` are not reset after the strip, so the spawn system thinks the vessel is already spawned and skips re-spawning.
+2. If a vessel IS re-spawned (e.g., at KSC), the next revert may strip it again because its new PID isn't in the quicksave whitelist.
+
+**Fix:** (a) `ResetAllPlaybackState` (or a new post-strip reset) must clear `SpawnedVesselPersistentId` and `VesselSpawned` on all committed recordings after the rewind strip. (b) The strip must distinguish between "vessel from the future that shouldn't exist yet" vs "vessel legitimately spawned by timeline playback at the correct time."
+
+**Priority:** High — spawned vessels disappear permanently or are removed right after spawn
+
+**Status:** Open
+
+## 165. Engine seed event records throttle=0.00 at recording start
+
+When recording starts on the launchpad with staged engines, `CacheEngineModules` seeds `EngineIgnited` with `throttle=0.00` (the current value before the player throttles up). During playback, the ghost processes `EngineIgnited(0.00)` → plume off → then `EngineThrottle(1.00)` a few frames later → plume on. Creates a visible flame flash-off at the start of every playback cycle.
+
+**Fix:** Seed events should either omit the throttle value (let playback start with default) or the playback engine should not suppress plumes for `EngineIgnited` events with `throttle=0`.
+
+**Priority:** Medium — visible flame flash at recording start
+
+**Status:** Open
+
+## 166. R buttons disabled after tree commit — rewind saves consumed
+
+After a recording tree is committed via the merge dialog, all R buttons for that tree's recordings become disabled because the rewind quicksave files were deleted during tree promotion. Only the root recording had a rewind save; branch recordings never had one.
+
+**Priority:** Low — by design for tree recordings, but confusing UX
+
+**Status:** Open — design gap: should tree branches inherit the root's rewind save?
+
+## 167. Crew swap not executed for KSC-spawned vessels
+
+When a vessel is spawned at KSC (via `TrySpawnAtRecordingEnd`), the crew reservation swap (`SwapReservedCrewInFlight`) only runs on flight-ready. If the user never enters the flight scene for that vessel, the crew swap never executes. The vessel appears to have the original (reserved) crew instead of the replacement.
+
+**Priority:** Medium — spawned vessel has wrong crew
+
+**Status:** Open — swap needs to run at spawn time for KSC spawns, not just flight-ready
 
 ## 159. EVA auto-recordings have no rewind save — R button absent
 

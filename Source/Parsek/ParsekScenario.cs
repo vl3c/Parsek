@@ -1461,8 +1461,8 @@ namespace Parsek
                     continue;
 
                 ParsekLog.Info("Scenario",
-                    $"Stripping future PRELAUNCH vessel '{pv.vesselName}' " +
-                    $"(pid={pv.persistentId}) — not in quicksave whitelist");
+                    $"Stripping future vessel '{pv.vesselName}' " +
+                    $"(pid={pv.persistentId}, sit={pv.situation}) — not in quicksave whitelist");
                 protoVessels.RemoveAt(i);
                 stripped++;
             }
@@ -1480,8 +1480,9 @@ namespace Parsek
         {
             if (quicksavePids == null)
                 return false;
-            if (situation != Vessel.Situations.PRELAUNCH)
-                return false;
+            // Strip ANY vessel not in the quicksave whitelist (#164).
+            // Previously only stripped PRELAUNCH; now catches flags, landed capsules,
+            // and other player-created vessels from the future after rewind.
             return !quicksavePids.Contains(persistentId);
         }
 

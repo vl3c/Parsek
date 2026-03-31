@@ -7094,19 +7094,23 @@ namespace Parsek
 
         IEnumerator DeferredActivateVessel(uint pid)
         {
-            for (int frame = 0; frame < 10; frame++)
+            // Wait up to 5 seconds for the vessel to appear and load.
+            // Distant vessels (e.g. splashdown site 37km away) take much longer
+            // than 10 frames to load — KSP must range-load them first.
+            float deadline = UnityEngine.Time.time + 5f;
+            while (UnityEngine.Time.time < deadline)
             {
                 yield return null;
                 Vessel v = FlightGlobals.Vessels?.Find(vessel => vessel.persistentId == pid);
-                if (v != null && v.loaded)
+                if (v != null)
                 {
                     v.IgnoreGForces(240);
                     FlightGlobals.ForceSetActiveVessel(v);
-                    Log($"Activated vessel pid={pid}");
+                    Log($"Activated vessel pid={pid} (loaded={v.loaded})");
                     yield break;
                 }
             }
-            Log($"WARNING: Could not activate vessel pid={pid} within 10 frames");
+            Log($"WARNING: Could not activate vessel pid={pid} within 5 seconds");
         }
 
         #region Zone Rendering (shared by normal, background, and looped ghosts)
