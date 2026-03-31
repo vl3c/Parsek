@@ -152,17 +152,22 @@ Log spam audit and cleanup. Analyzed a 28,923-line KSP.log from a 70-second KSC 
 
 ### Ghost Map Presence (bug #60)
 
-Ghost chain vessels now appear in KSP's tracking station, show orbit lines in map view, and can be targeted for rendezvous planning.
+Ghost vessels now appear in KSP's tracking station, show orbit lines in map view, and can be targeted for rendezvous planning. Works for both ghost chain vessels and timeline playback ghosts.
 
-- **ProtoVessel-based map integration** — lightweight ProtoVessel per ghost chain provides automatic tracking station entry, orbit line (OrbitRenderer), clickable map icon (MapObject), and navigation targeting (ITargetable). Created on chain init, removed on chain resolve/rewind/scene cleanup, stripped from saves.
-- **30 guard rails** across 10 source files — `IsGhostMapVessel(pid)` checks on all `FlightGlobals.Vessels` iteration sites and vessel GameEvent handlers. Prevents ghost ProtoVessels from being recorded, spawned against, or processed as real vessels.
-- **5 Harmony patches** — `Vessel.GoOffRails` (prevent physics loading), `CommNetVessel.OnStart` (prevent duplicate CommNet nodes — GhostCommNetRelay handles CommNet separately), `SpaceTracking.FlyVessel`/`OnVesselDeleteConfirm`/`OnRecoverConfirm` (block tracking station actions with screen message).
-- **Orbit segment updates** — ghost ProtoVessel orbit updated per-frame when the ghost traverses OrbitSegment boundaries (SOI transitions, orbit changes). Tracked via `LastMapOrbitBodyName`/`LastMapOrbitSma` on GhostChain.
-- **Soft cap integration** — `Despawn` cap action removes ghost ProtoVessel; `ReduceFidelity` and `SimplifyToOrbitLine` keep it (orbit line stays visible even when mesh is hidden).
-- **Target transfer** — if ghost was the navigation target when chain resolves (real vessel spawns), the spawned vessel becomes the new target automatically.
-- **VesselType mirroring** — ghost uses the original vessel's type from snapshot (Ship, Station, Relay, etc.) for correct tracking station filter placement.
-- **IPlaybackTrajectory extended** with 8 terminal orbit properties for engine-side access without Recording dependency.
-- **23 new tests** — PID tracking, HasOrbitData, ComputeGhostDisplayInfo, ResolveVesselType, interface access, log assertions.
+- **ProtoVessel-based map integration** — lightweight ProtoVessel (single `sensorBarometer` part) per ghost provides automatic tracking station entry, orbit line (OrbitRenderer), clickable map icon (MapObject), and navigation targeting (ITargetable). Created on chain init or engine ghost spawn, removed on resolve/destroy/rewind/scene cleanup, stripped from saves.
+- **Timeline playback + chain ghosts** — both recording-index ghosts (from the playback engine) and chain ghosts (from `VesselGhoster`) get ProtoVessels. Parallel tracking dicts with unified cleanup via `RemoveAllGhostPresenceForIndex`.
+- **Deferred orbit line creation** — recordings that start pre-orbital (launch-to-orbit) don't show orbit lines during atmospheric ascent. ProtoVessel created when ghost enters first orbital segment, with the current segment's orbit (not terminal orbit).
+- **Per-frame orbit segment tracking** — ghost ProtoVessel orbit updates as the ghost traverses segments (Hohmann transfers, SOI transitions). Both chain and recording-index ghosts use the same `ApplyOrbitToVessel`/`BuildOrbitFromSegment` helpers.
+- **Terminal state filtering** — only Orbiting/Docked recordings get orbit lines. Destroyed, SubOrbital, Landed, Splashed skip (misleading orbit). Debris always skipped.
+- **30 guard rails** across 10 source files — `IsGhostMapVessel(pid)` checks on all `FlightGlobals.Vessels` iteration sites and vessel GameEvent handlers.
+- **6 Harmony patches** — `Vessel.GoOffRails` (prevent physics loading), `CommNetVessel.OnStart` (prevent duplicate CommNet nodes), `FlightGlobals.SetActiveVessel` (redirect to watch mode), `SpaceTracking.FlyVessel`/`OnVesselDeleteConfirm`/`OnRecoverConfirm` (block tracking station actions with screen message, release input lock via `OnDialogDismiss`).
+- **Tracking station scene support** — `ParsekTrackingStation` addon creates ghost ProtoVessels from committed recordings when visiting tracking station directly.
+- **Soft cap integration** — `Despawn` removes ProtoVessel; `ReduceFidelity` and `SimplifyToOrbitLine` keep it (orbit line stays visible when mesh is hidden).
+- **Target transfer** — if ghost was the navigation target when chain resolves, the spawned vessel becomes the new target.
+- **VesselType mirroring** — ghost uses the original vessel's type from snapshot for correct filter placement.
+- **Green dot suppression** — `DrawMapMarkers` skips the old GUI overlay dot when a native KSP map icon exists for that ghost.
+- **Merge dialog re-evaluation** — `MergeDialog.OnTreeCommitted` callback triggers chain re-evaluation so ghost ProtoVessels are created immediately after commit+revert.
+- **46 tests** — PID tracking, HasOrbitData, ComputeGhostDisplayInfo, ResolveVesselType, terminal state filtering, debris filtering, StartsInOrbit, orbit segment tracking, log assertions.
 
 ### Design & Research
 
