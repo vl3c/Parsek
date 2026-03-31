@@ -797,7 +797,7 @@ Player landed in water, EVA'd 3 kerbals from the pad vessel, but 2 of them disap
 
 **Impact:** Medium — crew members lost unexpectedly.
 
-**Status:** Open — needs investigation
+**Status:** Open — deferred to resource/game actions tracking redesign
 
 ## 47. ~~ParsekLog.TestSinkForTesting race condition (test infrastructure)~~
 
