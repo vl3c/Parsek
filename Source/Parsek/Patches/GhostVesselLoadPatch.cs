@@ -75,7 +75,7 @@ namespace Parsek.Patches
                 return false;
             }
 
-            var flight = Object.FindObjectOfType<ParsekFlight>();
+            var flight = ParsekFlight.Instance;
             if (flight != null)
             {
                 flight.EnterWatchMode(recIndex);

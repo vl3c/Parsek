@@ -16,6 +16,8 @@ namespace Parsek
     [KSPAddon(KSPAddon.Startup.Flight, false)]
     public class ParsekFlight : MonoBehaviour, IGhostPositioner
     {
+        internal static ParsekFlight Instance { get; private set; }
+
         internal const string MODID = "Parsek_NS";
         internal const string MODNAME = "Parsek";
 
@@ -301,6 +303,7 @@ namespace Parsek
 
         void Start()
         {
+            Instance = this;
             Log("Parsek Flight loaded.");
 
             GameEvents.onGameSceneLoadRequested.Add(OnSceneChangeRequested);
@@ -645,6 +648,7 @@ namespace Parsek
 
         void OnDestroy()
         {
+            Instance = null;
             ParsekLog.Info("Flight", "OnDestroy: cleaning up ParsekFlight");
 
             if (toolbarControl != null)
@@ -3799,12 +3803,6 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Evaluates ghost chains from committed trees and ghosts claimed vessels.
-        /// Called during OnFlightReady after initialization/migration but before
-        /// pending tree dialog. Ghost chain state is NOT persisted — it is re-derived
-        /// from committed recordings on every scene load.
-        /// </summary>
-        /// <summary>
         /// Called when the merge dialog commits a tree. Re-evaluates ghost chains
         /// so newly committed recordings get ghost map ProtoVessels immediately.
         /// </summary>
@@ -3814,6 +3812,12 @@ namespace Parsek
             EvaluateAndApplyGhostChains();
         }
 
+        /// <summary>
+        /// Evaluates ghost chains from committed trees and ghosts claimed vessels.
+        /// Called during OnFlightReady after initialization/migration but before
+        /// pending tree dialog. Ghost chain state is NOT persisted — it is re-derived
+        /// from committed recordings on every scene load.
+        /// </summary>
         private void EvaluateAndApplyGhostChains()
         {
             var trees = RecordingStore.CommittedTrees;
@@ -5685,7 +5689,9 @@ namespace Parsek
             OrbitSegment? seg = TrajectoryMath.FindOrbitSegment(segments, currentUT);
             if (!seg.HasValue) return;
 
-            // Detect change: body or SMA shifted (covers SOI transitions and orbit changes)
+            // Detect change: body or SMA shifted (covers SOI transitions and orbit changes).
+            // Exact equality is intentional: segment values are stored doubles that don't drift.
+            // A change means a different OrbitSegment was found, not floating-point accumulation.
             if (seg.Value.bodyName == chain.LastMapOrbitBodyName
                 && seg.Value.semiMajorAxis == chain.LastMapOrbitSma)
                 return;
@@ -5701,11 +5707,27 @@ namespace Parsek
         /// SpawnOrRecoverIfTooClose for normal recordings.
         /// Handles collision-blocked chains: if spawn is blocked, chain stays active.
         /// If chain was previously blocked, tries to spawn at propagated position.
+        /// Called by ParsekPlaybackPolicy when engine fires PlaybackCompleted with needsSpawn.
         /// </summary>
-        /// <summary>Called by ParsekPlaybackPolicy when engine fires PlaybackCompleted with needsSpawn.</summary>
         internal void SpawnVesselOrChainTipFromPolicy(Recording rec, int index)
         {
             SpawnVesselOrChainTip(rec, index);
+        }
+
+        /// <summary>
+        /// Remove the ghost map vessel for a chain on spawn and transfer nav target
+        /// to the newly spawned real vessel if the ghost was the current target.
+        /// </summary>
+        private void ResolveChainGhostOnSpawn(GhostChain chain, uint spawnedPid)
+        {
+            bool wasTarget = GhostMapPresence.RemoveGhostVessel(
+                chain.OriginalVesselPid, "chain-tip-spawn");
+            if (wasTarget)
+            {
+                Vessel spawned = FlightRecorder.FindVesselByPid(spawnedPid);
+                if (spawned != null)
+                    FlightGlobals.fetch?.SetVesselTarget(spawned);
+            }
         }
 
         /// <summary>Called by policy when a mid-chain segment ends while watched.</summary>
@@ -5761,16 +5783,7 @@ namespace Parsek
                         rec.SpawnedVesselPersistentId = spawnedPid;
                         rec.VesselSpawned = true;
                         activeGhostChains.Remove(chain.OriginalVesselPid);
-
-                        // Remove ghost map vessel — chain resolved by spawn
-                        bool wasTarget = GhostMapPresence.RemoveGhostVessel(
-                            chain.OriginalVesselPid, "chain-tip-spawn");
-                        if (wasTarget)
-                        {
-                            Vessel spawned = FlightRecorder.FindVesselByPid(spawnedPid);
-                            if (spawned != null)
-                                FlightGlobals.fetch?.SetVesselTarget(spawned);
-                        }
+                        ResolveChainGhostOnSpawn(chain, spawnedPid);
 
                         ParsekLog.Info("Flight",
                             $"Blocked chain tip spawn resolved: #{index} \"{rec.VesselName}\" pid={spawnedPid}");
@@ -5785,16 +5798,7 @@ namespace Parsek
                         rec.SpawnedVesselPersistentId = spawnedPid;
                         rec.VesselSpawned = true;
                         activeGhostChains.Remove(chain.OriginalVesselPid);
-
-                        // Remove ghost map vessel — chain resolved by spawn
-                        bool wasTarget = GhostMapPresence.RemoveGhostVessel(
-                            chain.OriginalVesselPid, "chain-tip-spawn");
-                        if (wasTarget)
-                        {
-                            Vessel spawned = FlightRecorder.FindVesselByPid(spawnedPid);
-                            if (spawned != null)
-                                FlightGlobals.fetch?.SetVesselTarget(spawned);
-                        }
+                        ResolveChainGhostOnSpawn(chain, spawnedPid);
 
                         ParsekLog.Info("Flight",
                             $"Chain tip spawn complete: #{index} \"{rec.VesselName}\" pid={spawnedPid}");

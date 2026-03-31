@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
-using System.Linq;
 
 namespace Parsek
 {
@@ -191,103 +190,12 @@ namespace Parsek
                 return vesselsByChainPid[chain.OriginalVesselPid];
             }
 
-            ProtoVessel pv = null;
-            try
-            {
-                // Resolve reference body
-                CelestialBody body = FlightGlobals.Bodies?.FirstOrDefault(
-                    b => b.name == traj.TerminalOrbitBody);
-                if (body == null)
-                {
-                    ParsekLog.Warn(Tag,
-                        string.Format(ic,
-                            "CreateGhostVessel: body '{0}' not found for chain pid={1}",
-                            traj.TerminalOrbitBody, chain.OriginalVesselPid));
-                    return null;
-                }
+            string logContext = string.Format(ic, "chain pid={0}", chain.OriginalVesselPid);
+            Vessel vessel = BuildAndLoadGhostProtoVessel(traj, logContext);
+            if (vessel != null)
+                vesselsByChainPid[chain.OriginalVesselPid] = vessel;
 
-                // Build orbit from terminal elements
-                Orbit orbit = new Orbit(
-                    traj.TerminalOrbitInclination,
-                    traj.TerminalOrbitEccentricity,
-                    traj.TerminalOrbitSemiMajorAxis,
-                    traj.TerminalOrbitLAN,
-                    traj.TerminalOrbitArgumentOfPeriapsis,
-                    traj.TerminalOrbitMeanAnomalyAtEpoch,
-                    traj.TerminalOrbitEpoch,
-                    body);
-
-                // Single antenna-free part (avoids CommNet conflict with GhostCommNetRelay)
-                ConfigNode partNode = ProtoVessel.CreatePartNode("sensorBarometer", 0);
-
-                // Discovery: fully visible, infinite lifetime
-                ConfigNode discovery = ProtoVessel.CreateDiscoveryNode(
-                    DiscoveryLevels.Owned, UntrackedObjectClass.C,
-                    double.PositiveInfinity, double.PositiveInfinity);
-
-                // Resolve vessel type from snapshot (mirror original vessel's type)
-                VesselType vtype = ResolveVesselType(traj.VesselSnapshot);
-
-                string vesselName = "Ghost: " + (traj.VesselName ?? "Unknown");
-
-                ConfigNode vesselNode = ProtoVessel.CreateVesselNode(
-                    vesselName, vtype, orbit, 0,
-                    new ConfigNode[] { partNode }, discovery);
-
-                // Critical settings: prevent ground positioning and KSC cleanup
-                vesselNode.SetValue("vesselSpawning", "False", true);
-                vesselNode.SetValue("prst", "True", true);
-                vesselNode.SetValue("cln", "False", true);
-
-                // Create ProtoVessel
-                pv = new ProtoVessel(vesselNode, HighLogic.CurrentGame);
-
-                // PRE-REGISTER PID before Load — pv.Load fires onVesselCreate and guards
-                // must see this PID as a ghost vessel during the event cascade.
-                ghostMapVesselPids.Add(pv.persistentId);
-
-                // Add to flightState (required for persistence layer tracking)
-                HighLogic.CurrentGame.flightState.protoVessels.Add(pv);
-
-                // Load — creates Vessel GO, OrbitDriver, MapObject, OrbitRenderer,
-                // registers in FlightGlobals, fires GameEvents.onVesselCreate
-                pv.Load(HighLogic.CurrentGame.flightState);
-
-                if (pv.vesselRef == null)
-                {
-                    ParsekLog.Warn(Tag,
-                        string.Format(ic,
-                            "CreateGhostVessel: pv.Load succeeded but vesselRef is null for chain pid={0}",
-                            chain.OriginalVesselPid));
-                    ghostMapVesselPids.Remove(pv.persistentId);
-                    HighLogic.CurrentGame.flightState.protoVessels.Remove(pv);
-                    return null;
-                }
-
-                vesselsByChainPid[chain.OriginalVesselPid] = pv.vesselRef;
-
-                ParsekLog.Info(Tag,
-                    string.Format(ic,
-                        "Created ghost vessel '{0}' pid={1} ghostPid={2} type={3} body={4} sma={5:F0}",
-                        vesselName, chain.OriginalVesselPid, pv.vesselRef.persistentId,
-                        vtype, body.name, traj.TerminalOrbitSemiMajorAxis));
-
-                return pv.vesselRef;
-            }
-            catch (Exception ex)
-            {
-                // Clean up pre-registered state on failure
-                if (pv != null)
-                {
-                    ghostMapVesselPids.Remove(pv.persistentId);
-                    HighLogic.CurrentGame?.flightState?.protoVessels?.Remove(pv);
-                }
-                ParsekLog.Error(Tag,
-                    string.Format(ic,
-                        "CreateGhostVessel failed for chain pid={0}: {1}",
-                        chain.OriginalVesselPid, ex.Message));
-                return null;
-            }
+            return vessel;
         }
 
         /// <summary>
@@ -314,8 +222,7 @@ namespace Parsek
                 return;
             }
 
-            CelestialBody body = FlightGlobals.Bodies?.FirstOrDefault(
-                b => b.name == segment.bodyName);
+            CelestialBody body = FindBodyByName(segment.bodyName);
             if (body == null)
             {
                 ParsekLog.Warn(Tag,
@@ -464,75 +371,12 @@ namespace Parsek
             if (vesselsByRecordingIndex.ContainsKey(recordingIndex))
                 return vesselsByRecordingIndex[recordingIndex];
 
-            try
-            {
-                CelestialBody body = FlightGlobals.Bodies?.FirstOrDefault(
-                    b => b.name == traj.TerminalOrbitBody);
-                if (body == null)
-                {
-                    ParsekLog.Warn(Tag,
-                        string.Format(ic,
-                            "CreateGhostVesselForRecording: body '{0}' not found for index={1}",
-                            traj.TerminalOrbitBody, recordingIndex));
-                    return null;
-                }
+            string logContext = string.Format(ic, "recording index={0}", recordingIndex);
+            Vessel vessel = BuildAndLoadGhostProtoVessel(traj, logContext);
+            if (vessel != null)
+                vesselsByRecordingIndex[recordingIndex] = vessel;
 
-                Orbit orbit = new Orbit(
-                    traj.TerminalOrbitInclination,
-                    traj.TerminalOrbitEccentricity,
-                    traj.TerminalOrbitSemiMajorAxis,
-                    traj.TerminalOrbitLAN,
-                    traj.TerminalOrbitArgumentOfPeriapsis,
-                    traj.TerminalOrbitMeanAnomalyAtEpoch,
-                    traj.TerminalOrbitEpoch,
-                    body);
-
-                ConfigNode partNode = ProtoVessel.CreatePartNode("sensorBarometer", 0);
-                ConfigNode discovery = ProtoVessel.CreateDiscoveryNode(
-                    DiscoveryLevels.Owned, UntrackedObjectClass.C,
-                    double.PositiveInfinity, double.PositiveInfinity);
-
-                VesselType vtype = ResolveVesselType(traj.VesselSnapshot);
-                string vesselName = "Ghost: " + (traj.VesselName ?? "Unknown");
-
-                ConfigNode vesselNode = ProtoVessel.CreateVesselNode(
-                    vesselName, vtype, orbit, 0,
-                    new ConfigNode[] { partNode }, discovery);
-
-                vesselNode.SetValue("vesselSpawning", "False", true);
-                vesselNode.SetValue("prst", "True", true);
-                vesselNode.SetValue("cln", "False", true);
-
-                ProtoVessel pv = new ProtoVessel(vesselNode, HighLogic.CurrentGame);
-                ghostMapVesselPids.Add(pv.persistentId);
-                HighLogic.CurrentGame.flightState.protoVessels.Add(pv);
-                pv.Load(HighLogic.CurrentGame.flightState);
-
-                if (pv.vesselRef == null)
-                {
-                    ghostMapVesselPids.Remove(pv.persistentId);
-                    HighLogic.CurrentGame.flightState.protoVessels.Remove(pv);
-                    return null;
-                }
-
-                vesselsByRecordingIndex[recordingIndex] = pv.vesselRef;
-
-                ParsekLog.Info(Tag,
-                    string.Format(ic,
-                        "Created ghost map vessel for recording #{0} '{1}' ghostPid={2} body={3} sma={4:F0}",
-                        recordingIndex, vesselName, pv.vesselRef.persistentId,
-                        body.name, traj.TerminalOrbitSemiMajorAxis));
-
-                return pv.vesselRef;
-            }
-            catch (Exception ex)
-            {
-                ParsekLog.Error(Tag,
-                    string.Format(ic,
-                        "CreateGhostVesselForRecording failed for index={0}: {1}",
-                        recordingIndex, ex.Message));
-                return null;
-            }
+            return vessel;
         }
 
         /// <summary>
@@ -622,6 +466,115 @@ namespace Parsek
         // ------------------------------------------------------------------
         // Helpers
         // ------------------------------------------------------------------
+
+        /// <summary>
+        /// Find a CelestialBody by name without LINQ allocation.
+        /// Returns null if FlightGlobals.Bodies is null or name not found.
+        /// </summary>
+        private static CelestialBody FindBodyByName(string bodyName)
+        {
+            var bodies = FlightGlobals.Bodies;
+            if (bodies == null) return null;
+            for (int i = 0; i < bodies.Count; i++)
+                if (bodies[i].name == bodyName) return bodies[i];
+            return null;
+        }
+
+        /// <summary>
+        /// Shared ProtoVessel creation: resolves body, builds orbit + vessel node,
+        /// creates ProtoVessel, pre-registers PID, loads into flightState.
+        /// Returns the Vessel or null on failure. Handles full cleanup on error.
+        /// </summary>
+        private static Vessel BuildAndLoadGhostProtoVessel(IPlaybackTrajectory traj, string logContext)
+        {
+            ProtoVessel pv = null;
+            try
+            {
+                CelestialBody body = FindBodyByName(traj.TerminalOrbitBody);
+                if (body == null)
+                {
+                    ParsekLog.Warn(Tag,
+                        string.Format(ic,
+                            "BuildAndLoadGhostProtoVessel: body '{0}' not found for {1}",
+                            traj.TerminalOrbitBody, logContext));
+                    return null;
+                }
+
+                Orbit orbit = new Orbit(
+                    traj.TerminalOrbitInclination,
+                    traj.TerminalOrbitEccentricity,
+                    traj.TerminalOrbitSemiMajorAxis,
+                    traj.TerminalOrbitLAN,
+                    traj.TerminalOrbitArgumentOfPeriapsis,
+                    traj.TerminalOrbitMeanAnomalyAtEpoch,
+                    traj.TerminalOrbitEpoch,
+                    body);
+
+                // Single antenna-free part (avoids CommNet conflict with GhostCommNetRelay)
+                ConfigNode partNode = ProtoVessel.CreatePartNode("sensorBarometer", 0);
+
+                // Discovery: fully visible, infinite lifetime
+                ConfigNode discovery = ProtoVessel.CreateDiscoveryNode(
+                    DiscoveryLevels.Owned, UntrackedObjectClass.C,
+                    double.PositiveInfinity, double.PositiveInfinity);
+
+                VesselType vtype = ResolveVesselType(traj.VesselSnapshot);
+                string vesselName = "Ghost: " + (traj.VesselName ?? "Unknown");
+
+                ConfigNode vesselNode = ProtoVessel.CreateVesselNode(
+                    vesselName, vtype, orbit, 0,
+                    new ConfigNode[] { partNode }, discovery);
+
+                // Critical settings: prevent ground positioning and KSC cleanup
+                vesselNode.SetValue("vesselSpawning", "False", true);
+                vesselNode.SetValue("prst", "True", true);
+                vesselNode.SetValue("cln", "False", true);
+
+                pv = new ProtoVessel(vesselNode, HighLogic.CurrentGame);
+
+                // PRE-REGISTER PID before Load — pv.Load fires onVesselCreate and guards
+                // must see this PID as a ghost vessel during the event cascade.
+                ghostMapVesselPids.Add(pv.persistentId);
+
+                HighLogic.CurrentGame.flightState.protoVessels.Add(pv);
+
+                // Load — creates Vessel GO, OrbitDriver, MapObject, OrbitRenderer,
+                // registers in FlightGlobals, fires GameEvents.onVesselCreate
+                pv.Load(HighLogic.CurrentGame.flightState);
+
+                if (pv.vesselRef == null)
+                {
+                    ParsekLog.Warn(Tag,
+                        string.Format(ic,
+                            "BuildAndLoadGhostProtoVessel: vesselRef is null after Load for {0}",
+                            logContext));
+                    ghostMapVesselPids.Remove(pv.persistentId);
+                    HighLogic.CurrentGame.flightState.protoVessels.Remove(pv);
+                    return null;
+                }
+
+                ParsekLog.Info(Tag,
+                    string.Format(ic,
+                        "Created ghost vessel '{0}' ghostPid={1} type={2} body={3} sma={4:F0} for {5}",
+                        vesselName, pv.vesselRef.persistentId,
+                        vtype, body.name, traj.TerminalOrbitSemiMajorAxis, logContext));
+
+                return pv.vesselRef;
+            }
+            catch (Exception ex)
+            {
+                if (pv != null)
+                {
+                    ghostMapVesselPids.Remove(pv.persistentId);
+                    HighLogic.CurrentGame?.flightState?.protoVessels?.Remove(pv);
+                }
+                ParsekLog.Error(Tag,
+                    string.Format(ic,
+                        "BuildAndLoadGhostProtoVessel failed for {0}: {1}",
+                        logContext, ex.Message));
+                return null;
+            }
+        }
 
         /// <summary>
         /// Read VesselType from vessel snapshot ConfigNode.
