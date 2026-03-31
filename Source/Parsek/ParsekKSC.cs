@@ -790,6 +790,10 @@ namespace Parsek
 
             try
             {
+                // Correct unsafe snapshot situation before spawning (#169).
+                // Same guard as SpawnOrRecoverIfTooClose — prevents on-rails pressure destruction.
+                VesselSpawner.CorrectUnsafeSnapshotSituation(rec.VesselSnapshot, rec.TerminalStateValue);
+
                 uint spawnedPid = VesselSpawner.RespawnVessel(rec.VesselSnapshot);
                 if (spawnedPid != 0)
                 {

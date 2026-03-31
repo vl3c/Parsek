@@ -76,6 +76,7 @@ All notable changes to Parsek are documented here.
 - **Fix #162: AutoCommitGhostOnly strips snapshot from landed EVAs.** Preserves `VesselSnapshot` for Landed/Splashed terminals.
 - **Fix #163: KSC spawns vessels from the future after rewind.** `ShouldSpawnAtKscEnd` now checks `currentUT >= EndUT`.
 - **Fix #165: Engine flame flash on ignition.** `EngineIgnited` with throttle=0 now uses min 0.01 emission.
+- **Fix #169: EVA vessel spawned FLYING destroyed by on-rails pressure.** EVA snapshot captured `sit=FLYING` but terminal state was Landed. KSP's on-rails pressure check killed the vessel instantly, crew set to Dead. `CorrectUnsafeSnapshotSituation` now corrects FLYING/SUB_ORBITAL to LANDED/SPLASHED before spawning when terminal state indicates safe surface arrival.
 - **Fix #164: Strip all future vessels on rewind, not just PRELAUNCH.** Flags, landed capsules, and other player-created vessels from the future now removed after rewind.
 - **DeferredActivateVessel timeout increased** from 10 frames to 5 seconds. Distant spawned vessels (37km+) couldn't load in 10 frames.
 - **ComputeTotal logging removed.** Eliminated 52% of all Parsek log output (pure computation was logging every UI frame).
