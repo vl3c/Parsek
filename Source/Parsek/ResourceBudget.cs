@@ -202,9 +202,6 @@ namespace Parsek
             budgetDirty = false;
             var result = new BudgetSummary();
 
-            ParsekLog.Verbose("ResourceBudget",
-                $"ComputeTotal: {recordings?.Count ?? 0} recordings, {milestones?.Count ?? 0} milestones, {trees?.Count ?? 0} trees");
-
             if (recordings != null)
             {
                 for (int i = 0; i < recordings.Count; i++)
@@ -220,15 +217,9 @@ namespace Parsek
             {
                 for (int i = 0; i < trees.Count; i++)
                 {
-                    double treeFunds = TreeCommittedFundsCost(trees[i]);
-                    double treeScience = TreeCommittedScienceCost(trees[i]);
-                    double treeRep = TreeCommittedReputationCost(trees[i]);
-                    result.reservedFunds += treeFunds;
-                    result.reservedScience += treeScience;
-                    result.reservedReputation += treeRep;
-                    ParsekLog.Verbose("ResourceBudget",
-                        $"ComputeTotal tree: '{trees[i].TreeName}' resourcesApplied={trees[i].ResourcesApplied} " +
-                        $"funds={treeFunds:F0} science={treeScience:F1} rep={treeRep:F1}");
+                    result.reservedFunds += TreeCommittedFundsCost(trees[i]);
+                    result.reservedScience += TreeCommittedScienceCost(trees[i]);
+                    result.reservedReputation += TreeCommittedReputationCost(trees[i]);
                 }
             }
 
@@ -241,10 +232,6 @@ namespace Parsek
                     result.reservedScience += MilestoneCommittedScience(milestones[i]);
                 }
             }
-
-            ParsekLog.Verbose("ResourceBudget",
-                $"ComputeTotal result: reservedFunds={result.reservedFunds:F0}, " +
-                $"reservedScience={result.reservedScience:F1}, reservedReputation={result.reservedReputation:F1}");
 
             cachedBudget = result;
             return result;

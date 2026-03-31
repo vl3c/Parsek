@@ -208,7 +208,7 @@ namespace Parsek
                 catch (System.NullReferenceException)
                 {
                     ParsekLog.Verbose("Scenario",
-                        "Failed to register main menu hook (GameEvents not ready) — will retry on next OnLoad");
+                        "Main menu hook deferred (GameEvents not ready) — will retry on next OnLoad");
                 }
             }
 
@@ -458,6 +458,11 @@ namespace Parsek
                             skipPrelaunch: true);
                 }
 
+                // Rescue crew orphaned by vessel stripping (#116)
+                if (isRevert && HighLogic.CurrentGame?.flightState != null)
+                    CrewReservationManager.RescueOrphanedCrew(
+                        HighLogic.CurrentGame.flightState.protoVessels);
+
                 // Then restore from saved tree nodes (present on scene change, absent on revert)
                 ConfigNode[] savedTreeNodes = node.GetNodes("RECORDING_TREE");
                 if (savedTreeNodes.Length > 0)
@@ -523,18 +528,47 @@ namespace Parsek
                 {
                     if (IsAutoMerge || forceAutoMerge)
                     {
-                        // autoMerge ON: auto-commit ghost-only (existing behavior)
+                        // Check if commit approval dialog should be shown (#88):
+                        // landed/splashed vessel going to KSC or Tracking Station
+                        var destScene = RecordingStore.PendingDestinationScene;
+                        TerminalState? termState = null;
                         if (RecordingStore.HasPending)
+                            termState = RecordingStore.Pending.TerminalStateValue;
+                        else if (RecordingStore.HasPendingTree)
                         {
-                            AutoCommitGhostOnly(RecordingStore.Pending);
-                            RecordingStore.CommitPending();
-                            ScreenMessages.PostScreenMessage("[Parsek] Recording committed to timeline", 5f);
+                            // Find root recording's terminal state from tree
+                            Recording rootRec;
+                            if (RecordingStore.PendingTree.Recordings.TryGetValue(
+                                RecordingStore.PendingTree.RootRecordingId, out rootRec))
+                                termState = rootRec.TerminalStateValue;
                         }
-                        if (RecordingStore.HasPendingTree)
+                        bool showApproval = !forceAutoMerge && destScene.HasValue &&
+                            GhostPlaybackLogic.ShouldShowCommitApproval(destScene.Value, termState);
+                        RecordingStore.PendingDestinationScene = null;
+
+                        if (showApproval && !mergeDialogPending)
                         {
-                            AutoCommitTreeGhostOnly(RecordingStore.PendingTree);
-                            RecordingStore.CommitPendingTree();
-                            ScreenMessages.PostScreenMessage("[Parsek] Tree recording committed to timeline", 5f);
+                            // Defer to approval dialog instead of auto-committing
+                            mergeDialogPending = true;
+                            StartCoroutine(ShowDeferredMergeDialog());
+                            ParsekLog.Info("Scenario",
+                                "Commit approval deferred: vessel landed/splashed at KSC/TS exit");
+                        }
+                        else
+                        {
+                            // autoMerge ON: auto-commit ghost-only (existing behavior)
+                            if (RecordingStore.HasPending)
+                            {
+                                AutoCommitGhostOnly(RecordingStore.Pending);
+                                RecordingStore.CommitPending();
+                                ScreenMessages.PostScreenMessage("[Parsek] Recording committed to timeline", 5f);
+                            }
+                            if (RecordingStore.HasPendingTree)
+                            {
+                                AutoCommitTreeGhostOnly(RecordingStore.PendingTree);
+                                RecordingStore.CommitPendingTree();
+                                ScreenMessages.PostScreenMessage("[Parsek] Tree recording committed to timeline", 5f);
+                            }
                         }
                     }
                     else if ((RecordingStore.HasPending || RecordingStore.HasPendingTree) && !mergeDialogPending)
@@ -743,6 +777,12 @@ namespace Parsek
                 }
                 RecordingStore.RewindQuicksaveVesselPids = null;
             }
+
+            // Rescue crew orphaned by vessel stripping (#116).
+            // Must run BEFORE ReserveSnapshotCrew so crew are Available for re-reservation.
+            if (HighLogic.CurrentGame?.flightState != null)
+                CrewReservationManager.RescueOrphanedCrew(
+                    HighLogic.CurrentGame.flightState.protoVessels);
 
             // Set budgetDeductionEpoch BEFORE scheduling coroutine
             // (prevents ApplyBudgetDeductionWhenReady from double-deducting)
@@ -1421,8 +1461,8 @@ namespace Parsek
                     continue;
 
                 ParsekLog.Info("Scenario",
-                    $"Stripping future PRELAUNCH vessel '{pv.vesselName}' " +
-                    $"(pid={pv.persistentId}) — not in quicksave whitelist");
+                    $"Stripping future vessel '{pv.vesselName}' " +
+                    $"(pid={pv.persistentId}, sit={pv.situation}) — not in quicksave whitelist");
                 protoVessels.RemoveAt(i);
                 stripped++;
             }
@@ -1440,8 +1480,9 @@ namespace Parsek
         {
             if (quicksavePids == null)
                 return false;
-            if (situation != Vessel.Situations.PRELAUNCH)
-                return false;
+            // Strip ANY vessel not in the quicksave whitelist (#164).
+            // Previously only stripped PRELAUNCH; now catches flags, landed capsules,
+            // and other player-created vessels from the future after rewind.
             return !quicksavePids.Contains(persistentId);
         }
 
@@ -1777,9 +1818,16 @@ namespace Parsek
         /// </summary>
         private static void AutoCommitGhostOnly(Recording pending)
         {
-            CrewReservationManager.UnreserveCrewInSnapshot(pending.VesselSnapshot);
-            pending.VesselSnapshot = null;
-            ParsekLog.Info("Scenario", $"Auto-commit ghost-only: '{pending.VesselName}'" +
+            // Preserve snapshot for recordings that landed/splashed — they should be
+            // eligible for vessel spawning even when committed outside Flight (#EVA-spawn).
+            bool preserveForSpawn = pending.TerminalStateValue == TerminalState.Landed ||
+                pending.TerminalStateValue == TerminalState.Splashed;
+            if (!preserveForSpawn)
+            {
+                CrewReservationManager.UnreserveCrewInSnapshot(pending.VesselSnapshot);
+                pending.VesselSnapshot = null;
+            }
+            ParsekLog.Info("Scenario", $"Auto-commit{(preserveForSpawn ? "" : " ghost-only")}: '{pending.VesselName}'" +
                 (pending.TerminalStateValue.HasValue ? $" (terminal={pending.TerminalStateValue.Value})" : ""));
         }
 

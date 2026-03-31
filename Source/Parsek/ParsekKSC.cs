@@ -819,8 +819,13 @@ namespace Parsek
         {
             if (state == null) return;
 
-            GhostPlaybackLogic.StopAllEngineFx(state);
-            GhostPlaybackLogic.StopAllRcsFx(state);
+            // Detach active particle systems so smoke trails linger (#107)
+            if (state.engineInfos != null)
+                foreach (var info in state.engineInfos.Values)
+                    GhostPlaybackLogic.DetachAndLingerParticleSystems(info.particleSystems, info.kspEmitters);
+            if (state.rcsInfos != null)
+                foreach (var info in state.rcsInfos.Values)
+                    GhostPlaybackLogic.DetachAndLingerParticleSystems(info.particleSystems, info.kspEmitters);
 
             GhostPlaybackLogic.DestroyAllFakeCanopies(state);
             if (state.ghost != null)

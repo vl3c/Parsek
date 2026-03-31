@@ -109,43 +109,7 @@ namespace Parsek.Tests
                 line => line.Contains("Discarded pending tree 'Mun Mission'"));
         }
 
-        // ============================================================
-        // C4: ComputeTotal tree loop — per-tree verbose log
-        // ============================================================
-
-        [Fact]
-        public void ComputeTotal_LogsPerTreeBreakdown()
-        {
-            var treeA = new RecordingTree
-            {
-                Id = "treeA",
-                TreeName = "Applied Tree",
-                DeltaFunds = -3000,
-                ResourcesApplied = true
-            };
-            var treeB = new RecordingTree
-            {
-                Id = "treeB",
-                TreeName = "Pending Tree",
-                DeltaFunds = -2000,
-                ResourcesApplied = false
-            };
-
-            var trees = new List<RecordingTree> { treeA, treeB };
-
-            ResourceBudget.ComputeTotal(
-                new List<Recording>(),
-                new List<Milestone>(),
-                trees);
-
-            // Tree A logged as applied (funds=0 since TreeCommittedFundsCost returns 0 for applied)
-            Assert.Contains(capturedLines,
-                line => line.Contains("Applied Tree") && line.Contains("resourcesApplied=True"));
-
-            // Tree B logged as not applied with cost contribution
-            Assert.Contains(capturedLines,
-                line => line.Contains("Pending Tree") && line.Contains("resourcesApplied=False"));
-        }
+        // C4: ComputeTotal logging removed — pure computation should not log (log spam fix)
 
         // ============================================================
         // C5: RecordingTree.Save logs summary

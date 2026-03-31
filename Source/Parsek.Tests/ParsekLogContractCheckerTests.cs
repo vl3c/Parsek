@@ -156,6 +156,40 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void ErrorWhitelist_SuppressesMatchingErrors()
+        {
+            var entries = ParsekKspLogParser.ParseLines(new[]
+            {
+                "[LOG] [Parsek][INFO][Init] SessionStart runUtc=3010",
+                "[LOG] [Parsek][INFO][Recorder] Recording started (physics-frame sampling)",
+                "[LOG] [Parsek][ERROR][Test] Expected error for testing",
+                "[LOG] [Parsek][INFO][Recorder] Recording stopped. 3 points, 0 orbit segments over 1.2s"
+            });
+
+            var violations = ParsekLogContractChecker.ValidateLatestSession(entries,
+                errorWhitelist: new[] { "Expected error for testing" });
+
+            Assert.DoesNotContain(violations, v => v.Code == "ERR-001");
+        }
+
+        [Fact]
+        public void ErrorWhitelist_DoesNotSuppressNonMatchingErrors()
+        {
+            var entries = ParsekKspLogParser.ParseLines(new[]
+            {
+                "[LOG] [Parsek][INFO][Init] SessionStart runUtc=3011",
+                "[LOG] [Parsek][INFO][Recorder] Recording started (physics-frame sampling)",
+                "[LOG] [Parsek][ERROR][Test] Some other error",
+                "[LOG] [Parsek][INFO][Recorder] Recording stopped. 3 points, 0 orbit segments over 1.2s"
+            });
+
+            var violations = ParsekLogContractChecker.ValidateLatestSession(entries,
+                errorWhitelist: new[] { "Expected error for testing" });
+
+            Assert.Contains(violations, v => v.Code == "ERR-001");
+        }
+
+        [Fact]
         public void AtmoSoiFixture_HasNoViolations()
         {
             var entries = ParsekKspLogParser.ParseFile(TestFixtureLoader.GetFixturePath("good_atmo_soi_session.log"));

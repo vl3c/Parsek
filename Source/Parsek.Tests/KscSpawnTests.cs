@@ -76,7 +76,7 @@ namespace Parsek.Tests
         {
             var rec = MakeEligibleRecording();
 
-            var (needsSpawn, reason) = GhostPlaybackLogic.ShouldSpawnAtKscEnd(rec);
+            var (needsSpawn, reason) = GhostPlaybackLogic.ShouldSpawnAtKscEnd(rec, rec.EndUT + 1);
 
             Assert.True(needsSpawn);
             Assert.Equal("", reason);
@@ -88,7 +88,7 @@ namespace Parsek.Tests
             var rec = MakeEligibleRecording();
             rec.ChainId = null;
 
-            var (needsSpawn, reason) = GhostPlaybackLogic.ShouldSpawnAtKscEnd(rec);
+            var (needsSpawn, reason) = GhostPlaybackLogic.ShouldSpawnAtKscEnd(rec, rec.EndUT + 1);
 
             Assert.True(needsSpawn);
             Assert.Equal("", reason);
@@ -104,7 +104,7 @@ namespace Parsek.Tests
             var rec = MakeEligibleRecording();
             rec.VesselSnapshot = null;
 
-            var (needsSpawn, reason) = GhostPlaybackLogic.ShouldSpawnAtKscEnd(rec);
+            var (needsSpawn, reason) = GhostPlaybackLogic.ShouldSpawnAtKscEnd(rec, rec.EndUT + 1);
 
             Assert.False(needsSpawn);
             Assert.Contains("no vessel snapshot", reason);
@@ -116,7 +116,7 @@ namespace Parsek.Tests
             var rec = MakeEligibleRecording();
             rec.VesselSpawned = true;
 
-            var (needsSpawn, reason) = GhostPlaybackLogic.ShouldSpawnAtKscEnd(rec);
+            var (needsSpawn, reason) = GhostPlaybackLogic.ShouldSpawnAtKscEnd(rec, rec.EndUT + 1);
 
             Assert.False(needsSpawn);
             Assert.Contains("already spawned", reason);
@@ -128,7 +128,7 @@ namespace Parsek.Tests
             var rec = MakeEligibleRecording();
             rec.VesselDestroyed = true;
 
-            var (needsSpawn, reason) = GhostPlaybackLogic.ShouldSpawnAtKscEnd(rec);
+            var (needsSpawn, reason) = GhostPlaybackLogic.ShouldSpawnAtKscEnd(rec, rec.EndUT + 1);
 
             Assert.False(needsSpawn);
             Assert.Contains("vessel destroyed", reason);
@@ -140,7 +140,7 @@ namespace Parsek.Tests
             var rec = MakeEligibleRecording();
             rec.ChainBranch = 1;
 
-            var (needsSpawn, reason) = GhostPlaybackLogic.ShouldSpawnAtKscEnd(rec);
+            var (needsSpawn, reason) = GhostPlaybackLogic.ShouldSpawnAtKscEnd(rec, rec.EndUT + 1);
 
             Assert.False(needsSpawn);
             Assert.Contains("branch > 0", reason);
@@ -152,7 +152,7 @@ namespace Parsek.Tests
             var rec = MakeEligibleRecording();
             rec.TerminalStateValue = TerminalState.Destroyed;
 
-            var (needsSpawn, reason) = GhostPlaybackLogic.ShouldSpawnAtKscEnd(rec);
+            var (needsSpawn, reason) = GhostPlaybackLogic.ShouldSpawnAtKscEnd(rec, rec.EndUT + 1);
 
             Assert.False(needsSpawn);
             Assert.Contains("terminal state", reason);
@@ -164,7 +164,7 @@ namespace Parsek.Tests
             var rec = MakeEligibleRecording();
             rec.TerminalStateValue = TerminalState.Recovered;
 
-            var (needsSpawn, reason) = GhostPlaybackLogic.ShouldSpawnAtKscEnd(rec);
+            var (needsSpawn, reason) = GhostPlaybackLogic.ShouldSpawnAtKscEnd(rec, rec.EndUT + 1);
 
             Assert.False(needsSpawn);
             Assert.Contains("terminal state", reason);
@@ -176,7 +176,7 @@ namespace Parsek.Tests
             var rec = MakeEligibleRecording();
             rec.IsDebris = true;
 
-            var (needsSpawn, reason) = GhostPlaybackLogic.ShouldSpawnAtKscEnd(rec);
+            var (needsSpawn, reason) = GhostPlaybackLogic.ShouldSpawnAtKscEnd(rec, rec.EndUT + 1);
 
             Assert.False(needsSpawn);
             Assert.Contains("debris", reason);
@@ -188,7 +188,7 @@ namespace Parsek.Tests
             var rec = MakeEligibleRecording();
             rec.ChildBranchPointId = "bp-1";
 
-            var (needsSpawn, reason) = GhostPlaybackLogic.ShouldSpawnAtKscEnd(rec);
+            var (needsSpawn, reason) = GhostPlaybackLogic.ShouldSpawnAtKscEnd(rec, rec.EndUT + 1);
 
             Assert.False(needsSpawn);
             Assert.Contains("non-leaf", reason);
@@ -200,7 +200,7 @@ namespace Parsek.Tests
             var rec = MakeEligibleRecording();
             rec.SpawnedVesselPersistentId = 99999;
 
-            var (needsSpawn, reason) = GhostPlaybackLogic.ShouldSpawnAtKscEnd(rec);
+            var (needsSpawn, reason) = GhostPlaybackLogic.ShouldSpawnAtKscEnd(rec, rec.EndUT + 1);
 
             Assert.False(needsSpawn);
             Assert.Contains("already spawned", reason);
@@ -212,7 +212,7 @@ namespace Parsek.Tests
             var rec = MakeEligibleRecording();
             rec.VesselSnapshot.SetValue("sit", "FLYING", true);
 
-            var (needsSpawn, reason) = GhostPlaybackLogic.ShouldSpawnAtKscEnd(rec);
+            var (needsSpawn, reason) = GhostPlaybackLogic.ShouldSpawnAtKscEnd(rec, rec.EndUT + 1);
 
             Assert.False(needsSpawn);
             Assert.Contains("snapshot situation unsafe", reason);
@@ -230,7 +230,7 @@ namespace Parsek.Tests
             rec.LoopPlayback = true;
             rec.VesselSpawned = false;
 
-            var (needsSpawn, _) = GhostPlaybackLogic.ShouldSpawnAtKscEnd(rec);
+            var (needsSpawn, _) = GhostPlaybackLogic.ShouldSpawnAtKscEnd(rec, rec.EndUT + 1);
 
             Assert.True(needsSpawn);
         }
@@ -244,7 +244,7 @@ namespace Parsek.Tests
             rec.LoopPlayback = true;
             rec.VesselSpawned = true;
 
-            var (needsSpawn, reason) = GhostPlaybackLogic.ShouldSpawnAtKscEnd(rec);
+            var (needsSpawn, reason) = GhostPlaybackLogic.ShouldSpawnAtKscEnd(rec, rec.EndUT + 1);
 
             Assert.False(needsSpawn);
             Assert.Contains("already spawned", reason);
@@ -273,7 +273,7 @@ namespace Parsek.Tests
             RecordingStore.CommittedRecordings.Add(midRec);
             RecordingStore.CommittedRecordings.Add(tipRec);
 
-            var (needsSpawn, reason) = GhostPlaybackLogic.ShouldSpawnAtKscEnd(tipRec);
+            var (needsSpawn, reason) = GhostPlaybackLogic.ShouldSpawnAtKscEnd(tipRec, tipRec.EndUT + 1);
 
             Assert.False(needsSpawn);
             Assert.Contains("chain looping", reason);
@@ -298,7 +298,7 @@ namespace Parsek.Tests
             RecordingStore.CommittedRecordings.Add(midRec);
             RecordingStore.CommittedRecordings.Add(tipRec);
 
-            var (needsSpawn, reason) = GhostPlaybackLogic.ShouldSpawnAtKscEnd(tipRec);
+            var (needsSpawn, reason) = GhostPlaybackLogic.ShouldSpawnAtKscEnd(tipRec, tipRec.EndUT + 1);
 
             Assert.False(needsSpawn);
             Assert.Contains("chain looping or fully disabled", reason);
@@ -325,7 +325,7 @@ namespace Parsek.Tests
             RecordingStore.CommittedRecordings.Add(midRec);
             RecordingStore.CommittedRecordings.Add(tipRec);
 
-            var (needsSpawn, reason) = GhostPlaybackLogic.ShouldSpawnAtKscEnd(tipRec);
+            var (needsSpawn, reason) = GhostPlaybackLogic.ShouldSpawnAtKscEnd(tipRec, tipRec.EndUT + 1);
 
             Assert.True(needsSpawn);
             Assert.Equal("", reason);
@@ -389,7 +389,7 @@ namespace Parsek.Tests
             RecordingStore.CommittedRecordings.Add(midRec);
             RecordingStore.CommittedRecordings.Add(tipRec);
 
-            var (needsSpawn, reason) = GhostPlaybackLogic.ShouldSpawnAtKscEnd(midRec);
+            var (needsSpawn, reason) = GhostPlaybackLogic.ShouldSpawnAtKscEnd(midRec, midRec.EndUT + 1);
             Assert.False(needsSpawn);
             Assert.Contains("intermediate chain segment", reason);
         }
@@ -408,7 +408,7 @@ namespace Parsek.Tests
             RecordingStore.CommittedRecordings.Add(midRec);
             RecordingStore.CommittedRecordings.Add(tipRec);
 
-            var (needsSpawn, _) = GhostPlaybackLogic.ShouldSpawnAtKscEnd(tipRec);
+            var (needsSpawn, _) = GhostPlaybackLogic.ShouldSpawnAtKscEnd(tipRec, tipRec.EndUT + 1);
             Assert.True(needsSpawn);
         }
 

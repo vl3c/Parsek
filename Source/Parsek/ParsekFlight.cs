@@ -138,7 +138,7 @@ namespace Parsek
 
         // Boarding confirmation via onCrewBoardVessel
         private uint pendingBoardingTargetPid; // vessel PID from onCrewBoardVessel, 0 = none
-        private int boardingConfirmFrames;     // frames since boarding event (auto-clear after 3)
+        private int boardingConfirmFrames;     // frames since boarding event (auto-clear after 10)
 
         // Pending dock/undock transitions (set by event handlers, consumed by Update)
         private uint pendingDockMergedPid;          // merged vessel pid, 0 = no pending dock
@@ -215,11 +215,8 @@ namespace Parsek
         }
 
         // Diagnostic logging guards (log once per state transition, not per frame)
-        // loggedGhostEnter and loggedReshow moved to engine (T25).
-        private HashSet<int> loggedGhostEnter => engine.loggedGhostEnter;
         private HashSet<int> loggedOrbitSegments = new HashSet<int>();
         private HashSet<int> loggedOrbitRotationSegments = new HashSet<int>();
-        private HashSet<int> loggedReshow => engine.loggedReshow;
 
         // Anchor vessel tracking moved to engine (T25).
         private HashSet<uint> loadedAnchorVessels => engine.loadedAnchorVessels;
@@ -743,6 +740,7 @@ namespace Parsek
         void OnSceneChangeRequested(GameScenes scene)
         {
             sceneChangeInProgress = true;
+            RecordingStore.PendingDestinationScene = scene;
             ParsekLog.Info("Flight", $"Scene change requested: {scene}");
 
             // Exit watch mode on scene change
@@ -1117,7 +1115,7 @@ namespace Parsek
             {
                 double flightDuration = RecordingStore.Pending.EndUT - RecordingStore.Pending.StartUT;
                 double maxDist = RecordingStore.Pending.MaxDistanceFromLaunch;
-                if (flightDuration < 10.0 && maxDist < 30.0)
+                if (IsPadFailure(flightDuration, maxDist))
                 {
                     Log($"Post-destruction: pad failure ({flightDuration:F1}s, {maxDist:F0}m) — auto-discarding");
                     ScreenMessage("Recording discarded — pad failure", 3f);
@@ -1941,7 +1939,7 @@ namespace Parsek
                 {
                     double dur = RecordingStore.Pending.EndUT - RecordingStore.Pending.StartUT;
                     double maxDist = RecordingStore.Pending.MaxDistanceFromLaunch;
-                    if (dur < 10.0 && maxDist < 30.0)
+                    if (IsPadFailure(dur, maxDist))
                     {
                         ParsekLog.Info("Flight",
                             $"Vessel destroyed during split — pad failure ({dur:F1}s, {maxDist:F0}m), discarding");
@@ -3094,12 +3092,6 @@ namespace Parsek
                 ParsekLog.Verbose("Flight", "OnCrewOnEva: source vessel is null — ignoring");
                 return;
             }
-            if (data.from.vessel.situation != Vessel.Situations.PRELAUNCH)
-            {
-                ParsekLog.VerboseRateLimited("Flight", "eva-not-prelaunch",
-                    $"OnCrewOnEva: vessel not on pad (sit={data.from.vessel.situation}) — ignoring");
-                return;
-            }
             if (ParsekSettings.Current?.autoRecordOnEva == false)
             {
                 ParsekLog.Verbose("Flight", "OnCrewOnEva: auto-record on EVA disabled in settings");
@@ -3108,7 +3100,7 @@ namespace Parsek
 
             // The EVA kerbal may not yet be the active vessel, defer to Update()
             pendingAutoRecord = true;
-            Log("EVA from pad detected — pending auto-record");
+            Log($"EVA detected (sit={data.from.vessel.situation}) — pending auto-record");
         }
 
         internal static string ExtractEvaKerbalName(GameEvents.FromToAction<Part, Part> data)
@@ -3182,7 +3174,7 @@ namespace Parsek
                     ParsekLog.Info("Loop",
                         $"Anchor vessel unloaded: pid={pid}, destroying looped ghost #{i} '{rec.VesselName}'");
                     DestroyAllOverlapGhosts(i);
-                    DestroyTimelineGhost(i);
+                    engine.DestroyGhost(i);
                 }
             }
         }
@@ -3875,11 +3867,12 @@ namespace Parsek
         /// </summary>
         private void ClearStaleConfirmations()
         {
-            // Auto-clear stale boarding confirmation after 3 frames
+            // Auto-clear stale boarding confirmation after 10 frames (#57)
+            // Was 3 frames (~60ms at 50fps) — too short for vessel switches
             if (pendingBoardingTargetPid != 0)
             {
                 boardingConfirmFrames++;
-                if (boardingConfirmFrames > 3)
+                if (boardingConfirmFrames > 10)
                 {
                     ParsekLog.Info("Flight", $"Boarding confirmation expired (targetPid={pendingBoardingTargetPid})");
                     pendingBoardingTargetPid = 0;
@@ -4394,6 +4387,16 @@ namespace Parsek
             // CommitBoundarySplit / CommitChainSegment / CommitDockUndockSegment *before*
             // this method is called, so a non-null value reliably indicates a continuation.
             bool isContinuation = chainManager.ActiveChainId != null;
+
+            // Commit orphaned CaptureAtStop from a previous recorder that was stopped
+            // by vessel switch but never committed (e.g., auto-record started on new
+            // vessel before scene change). Without this, the old recording data is lost.
+            if (recorder != null && !recorder.IsRecording && recorder.CaptureAtStop != null
+                && chainManager.ActiveChainId == null && activeTree == null)
+            {
+                FallbackCommitSplitRecorder(recorder);
+                ParsekLog.Info("Flight", "Committed orphaned recording before starting new one");
+            }
 
             recorder = new FlightRecorder();
             if (chainManager.PendingBoundaryAnchor.HasValue)
@@ -5283,7 +5286,7 @@ namespace Parsek
                                 Destroy(info.particleSystems[i].gameObject);
                 }
 
-                DestroyReentryFxResources(previewGhostState.reentryFxInfo);
+                engine.DestroyReentryFxResources(previewGhostState.reentryFxInfo);
 
                 GhostPlaybackLogic.DestroyAllFakeCanopies(previewGhostState);
                 previewGhostState = null;
@@ -5368,7 +5371,7 @@ namespace Parsek
                 previewGhostState.SetInterpolated(interpResult);
                 GhostPlaybackLogic.ApplyPartEvents(-1, previewRecording, recordingTime, previewGhostState);
                 GhostPlaybackLogic.ApplyFlagEvents(previewGhostState, previewRecording, recordingTime);
-                UpdateReentryFx(-1, previewGhostState, previewRecording.VesselName ?? "Preview");
+                engine.UpdateReentryFx(-1, previewGhostState, previewRecording.VesselName ?? "Preview", TimeWarp.CurrentRate);
             }
         }
 
@@ -6141,15 +6144,6 @@ namespace Parsek
             return null;
         }
 
-        void SpawnTimelineGhost(int index, Recording rec)
-        {
-            engine.SpawnGhost(index, rec);
-        }
-
-        internal void DestroyTimelineGhost(int index)
-        {
-            engine.DestroyGhost(index);
-        }
 
         public void DestroyAllTimelineGhosts()
         {
@@ -6175,17 +6169,6 @@ namespace Parsek
         /// Checks whether the recording ended with destruction and spawns an explosion FX if so.
         /// Pure decision logic is in ShouldTriggerExplosion; this method handles the side effects.
         /// </summary>
-        void TriggerExplosionIfDestroyed(GhostPlaybackState state, Recording rec, int recIdx)
-        {
-            engine.TriggerExplosionIfDestroyed(state, rec, recIdx, TimeWarp.CurrentRate);
-        }
-
-        void CleanupActiveExplosions()
-        {
-            engine.CleanupActiveExplosions();
-        }
-
-        // DestroyGhostResources moved to engine (T25 Phase 4)
 
         /// <summary>
         /// Destroys all overlap ghosts for a recording index.
@@ -6233,7 +6216,7 @@ namespace Parsek
 
             // Destroy ghost if active (primary + overlap)
             DestroyAllOverlapGhosts(index);
-            DestroyTimelineGhost(index);
+            engine.DestroyGhost(index);
 
             // Remove from store (handles chain degradation + file deletion)
             RecordingStore.RemoveRecordingAt(index);
@@ -6277,6 +6260,15 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Returns true if the recording should be discarded as a pad failure:
+        /// duration &lt; 10s AND max distance from launch &lt; 30m.
+        /// </summary>
+        internal static bool IsPadFailure(double duration, double maxDistanceFromLaunch)
+        {
+            return duration < 10.0 && maxDistanceFromLaunch < 30.0;
+        }
+
+        /// <summary>
         /// Reindexes an int-keyed dictionary after a deletion: keys above removedIndex shift down by 1.
         /// The entry at removedIndex (if any) is dropped.
         /// </summary>
@@ -6293,16 +6285,6 @@ namespace Parsek
             }
         }
 
-        // DriveReentryToZero, UpdateReentryFx, DriveReentryLayers moved to engine (T25 Phase 5)
-        private void UpdateReentryFx(int recIdx, GhostPlaybackState state, string vesselName)
-        {
-            engine.UpdateReentryFx(recIdx, state, vesselName, TimeWarp.CurrentRate);
-        }
-
-        private void DestroyReentryFxResources(ReentryFxInfo info)
-        {
-            engine.DestroyReentryFxResources(info);
-        }
 
         /// <summary>
         /// Drive the camera pivot position every frame during watch mode.
@@ -6723,6 +6705,24 @@ namespace Parsek
             if (string.IsNullOrEmpty(ghostBody) || string.IsNullOrEmpty(activeBody) || ghostBody != activeBody)
                 return;
 
+            // Distance guard: KSP rendering breaks when camera is far from the active vessel
+            // (FloatingOrigin, terrain, atmosphere, skybox are all anchored to active vessel).
+            // Refuse watch if ghost is beyond the rendering-safe distance (#151).
+            const float MaxWatchDistanceKm = 100f;
+            if (FlightGlobals.ActiveVessel != null && gs.ghost != null)
+            {
+                float distKm = (float)(Vector3d.Distance(
+                    gs.ghost.transform.position, FlightGlobals.ActiveVessel.transform.position) / 1000.0);
+                if (distKm > MaxWatchDistanceKm)
+                {
+                    ParsekLog.Info("CameraFollow",
+                        $"EnterWatchMode refused: ghost #{index} \"{committed[index].VesselName}\" " +
+                        $"is {distKm.ToString("F0", CultureInfo.InvariantCulture)}km from active vessel (max {MaxWatchDistanceKm}km)");
+                    ScreenMessage($"Ghost too far to watch ({distKm:F0}km)", 3f);
+                    return;
+                }
+            }
+
             // Flight warning: if active vessel is in an unsafe state, show a brief screen message
             var av = FlightGlobals.ActiveVessel;
             if (av != null)
@@ -6958,8 +6958,8 @@ namespace Parsek
         /// </summary>
         int FindNextWatchTarget(int currentIndex, Recording currentRec)
         {
-            if (ParsekLog.IsVerboseEnabled)
-                ParsekLog.Verbose("Watch", $"FindNextWatchTarget: currentIndex={currentIndex}, chainId={currentRec.ChainId ?? "null"}, chainIndex={currentRec.ChainIndex}, treeId={currentRec.TreeId ?? "null"}, childBpId={currentRec.ChildBranchPointId ?? "null"}");
+            ParsekLog.VerboseRateLimited("Watch", "findNextWatch",
+                $"FindNextWatchTarget: currentIndex={currentIndex}, chainId={currentRec.ChainId ?? "null"}, chainIndex={currentRec.ChainIndex}, treeId={currentRec.TreeId ?? "null"}, childBpId={currentRec.ChildBranchPointId ?? "null"}");
 
             int result = GhostPlaybackLogic.FindNextWatchTarget(
                 currentRec,
@@ -6967,13 +6967,9 @@ namespace Parsek
                 RecordingStore.CommittedTrees,
                 HasActiveGhost);
 
-            if (ParsekLog.IsVerboseEnabled)
-            {
-                if (result >= 0)
-                    ParsekLog.Verbose("Watch", $"FindNextWatchTarget: found target at index {result}");
-                else
-                    ParsekLog.Verbose("Watch", $"FindNextWatchTarget: no next target found for index {currentIndex}");
-            }
+            if (result >= 0)
+                ParsekLog.Info("Watch", $"FindNextWatchTarget: found target at index {result}");
+
             return result;
         }
 
@@ -7044,19 +7040,23 @@ namespace Parsek
 
         IEnumerator DeferredActivateVessel(uint pid)
         {
-            for (int frame = 0; frame < 10; frame++)
+            // Wait up to 5 seconds for the vessel to appear and load.
+            // Distant vessels (e.g. splashdown site 37km away) take much longer
+            // than 10 frames to load — KSP must range-load them first.
+            float deadline = UnityEngine.Time.time + 5f;
+            while (UnityEngine.Time.time < deadline)
             {
                 yield return null;
                 Vessel v = FlightGlobals.Vessels?.Find(vessel => vessel.persistentId == pid);
-                if (v != null && v.loaded)
+                if (v != null)
                 {
                     v.IgnoreGForces(240);
                     FlightGlobals.ForceSetActiveVessel(v);
-                    Log($"Activated vessel pid={pid}");
+                    Log($"Activated vessel pid={pid} (loaded={v.loaded})");
                     yield break;
                 }
             }
-            Log($"WARNING: Could not activate vessel pid={pid} within 10 frames");
+            Log($"WARNING: Could not activate vessel pid={pid} within 5 seconds");
         }
 
         #region Zone Rendering (shared by normal, background, and looped ghosts)

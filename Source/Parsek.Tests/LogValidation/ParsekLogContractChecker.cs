@@ -31,7 +31,9 @@ namespace Parsek.Tests.LogValidation
             @"^SessionStart runUtc=(?<utc>\d+)$",
             RegexOptions.Compiled);
 
-        public static IReadOnlyList<LogViolation> ValidateLatestSession(IReadOnlyList<KspLogEntry> parsekEntries)
+        public static IReadOnlyList<LogViolation> ValidateLatestSession(
+            IReadOnlyList<KspLogEntry> parsekEntries,
+            IReadOnlyList<string> errorWhitelist = null)
         {
             if (parsekEntries == null)
                 throw new ArgumentNullException(nameof(parsekEntries));
@@ -96,8 +98,8 @@ namespace Parsek.Tests.LogValidation
                     }
                 }
 
-                // TODO: add whitelist support when intentional error-path scenarios are introduced.
-                if (string.Equals(entry.Level, "ERROR", StringComparison.Ordinal))
+                if (string.Equals(entry.Level, "ERROR", StringComparison.Ordinal) &&
+                    !IsWhitelisted(entry.Message, errorWhitelist))
                 {
                     violations.Add(new LogViolation(
                         code: "ERR-001",
@@ -154,6 +156,19 @@ namespace Parsek.Tests.LogValidation
             }
 
             return violations;
+        }
+
+        private static bool IsWhitelisted(string message, IReadOnlyList<string> whitelist)
+        {
+            if (whitelist == null || whitelist.Count == 0)
+                return false;
+            string msg = message ?? string.Empty;
+            for (int i = 0; i < whitelist.Count; i++)
+            {
+                if (msg.IndexOf(whitelist[i], StringComparison.Ordinal) >= 0)
+                    return true;
+            }
+            return false;
         }
 
         private static bool IsSessionStart(KspLogEntry entry)

@@ -51,7 +51,36 @@ All notable changes to Parsek are documented here.
 - **Fix #148: Fast-forward doesn't transfer watch to target.** `FastForwardToRecording` now exits watch and defers entering on the FF target after engine positions ghosts.
 - **Fix #149: RCS throttle event spam.** Deadband increased from 1% to 5% — reduces RCS part events by ~90% for SAS-active flights.
 
+- **Fix #135: ParsePartPositions wrong key.** `SpawnCollisionDetector.ParsePartPositions` only checked `"pos"` but KSP vessel snapshots use `"position"`. Parsed 0/40 parts on real vessels, falling back to inaccurate 2m bounds. Now checks both keys.
+- **Fix #150: Engine/RCS FX not stopped at on-rails.** `FlightRecorder.OnVesselGoOnRails` now calls `EmitTerminalEngineAndRcsEvents()` before going on-rails. Ghost engine plumes no longer persist during orbit segments.
+- **Fix #151: FF watch renders broken scene.** Added 100km distance guard in `EnterWatchMode` — refuses watch when ghost is beyond rendering-safe distance from active vessel. Rate-limited `FindNextWatchTarget` logging during watch hold.
+- **Fix: Enter key on camera cutoff input.** Enter key now commits the value (KeyDown was consumed by TextField before the check ran).
+- **Fix #74: RELATIVE mode boundary point at on-rails.** `SamplePosition` recorded absolute lat/lon/alt into a RELATIVE TrackSection at on-rails boundaries. Moved RELATIVE clearing before boundary sampling.
+- **Fix #107: Engine/SRB smoke trails vanish on ghost despawn.** Particle systems are now detached from the ghost hierarchy before destruction, allowing trails to fade naturally (8s linger).
+- **Fix #125: Engine plate shrouds not visible on ghost.** Inactive-variant renderer filter preempted GAMEOBJECT rules. When explicit variant rules exist, they are now the sole authority on object inclusion.
+- **Engine throttle deadband increased to 5%.** SRBs with smooth thrust curves generated excessive EngineThrottle events at 1% deadband. Matches RCS deadband (#149).
+- **Fix #56: Auto-record EVA from any vessel situation.** Removed PRELAUNCH restriction — kerbals EVA'ing from landed bases, orbiting stations, etc. now auto-record.
+- **Fix #57: Boarding confirmation timeout too short.** Increased from 3 frames (~60ms) to 10 frames (~200ms).
+- **Fix #115/#116: Crew lost to Missing after rewind vessel strip.** New `RescueOrphanedCrew` sets orphaned Assigned crew to Available after vessel stripping, before KSP's validation marks them Missing.
+- **Fix #155: Orphaned recording lost on auto-record vessel switch.** `StartRecording` now commits the orphaned recorder's data before creating a new one.
+- **Fix #76: GhostExtender hyperbolic fallback negative altitude.** Added `Math.Max(0, ...)` to prevent ghost underground placement.
+- **Fix #157: Green sphere ghost for ghost-only debris.** `ApplyVesselDecisions` now preserves `GhostVisualSnapshot` before nulling spawn snapshot.
+- **Fix #161: EVA snapshot situation stale.** `ShouldSpawnAtRecordingEnd` overrides unsafe-situation check when terminal state is Landed/Splashed.
+- **Fix #162: AutoCommitGhostOnly strips snapshot from landed EVAs.** Preserves `VesselSnapshot` for Landed/Splashed terminals.
+- **Fix #163: KSC spawns vessels from the future after rewind.** `ShouldSpawnAtKscEnd` now checks `currentUT >= EndUT`.
+- **Fix #165: Engine flame flash on ignition.** `EngineIgnited` with throttle=0 now uses min 0.01 emission.
+- **Fix #164: Strip all future vessels on rewind, not just PRELAUNCH.** Flags, landed capsules, and other player-created vessels from the future now removed after rewind.
+- **DeferredActivateVessel timeout increased** from 10 frames to 5 seconds. Distant spawned vessels (37km+) couldn't load in 10 frames.
+- **ComputeTotal logging removed.** Eliminated 52% of all Parsek log output (pure computation was logging every UI frame).
+- **Status column widened** (95→120px) for longer T+ timestamps.
+- **R/FF button state transition logging** for debugging enable/disable issues.
+
 ### Features
+
+- **Settings window: "Ghosts" group.** Merged "Ghost Camera" and "Ghost Soft Caps" sections into a single "Ghosts" group. Added checkbox-to-label spacing for all settings toggles.
+- **Fix #50: Chain block enable/loop checkboxes.** Chain headers now have aggregate enable and loop checkboxes (were empty spacers).
+- **Fix #98: Merge Countdown into Status column.** Status now shows `T-Xm Xs` for future, `Active` for playing, terminal state name for past.
+- **Fix #88: Commit approval dialog for landed/splashed vessels.** When leaving Flight to KSC or Tracking Station with a landed/splashed vessel, shows Keep/Discard dialog instead of auto-committing. Game exit still auto-commits.
 
 - **Ghost camera cutoff setting.** Settings > Ghost Camera > Cutoff [300] km. Watch mode auto-exits when ghost exceeds this distance. Watch button disabled for ghosts beyond cutoff. Default 300km, configurable 10-10000km.
 - **Watch mode distance overlay.** "Watching: Vessel (45.2 km)" in the notification bar shows distance from ghost to active vessel.
@@ -62,7 +91,14 @@ All notable changes to Parsek are documented here.
 ### Previously Fixed (Confirmed)
 
 - **#43** (shader fallback), **#49** (RealVesselExists O(n)) — already fixed in prior releases.
-- **#50** (subgroup checkboxes) — code appears to draw them via recursive `DrawGroupTree`; needs in-game verification.
+- **#121** (Ghost SKIPPED log spam) — resolved by T25 Phase 9 engine extraction.
+- **#133** — removed 6 dead forwarding methods + 2 unused properties from ParsekFlight, inlined call sites.
+- **#63** — added `errorWhitelist` parameter to `ParsekLogContractChecker.ValidateLatestSession`.
+- **#83** — CommNet stale nodes concern is not a bug; follows stock KSP re-registration pattern.
+- **#108** — engine cutoff polling logic (`EngineIgnited && isOperational`) correctly catches flameout; remaining inconsistency needs in-game repro.
+- **#113** — stock FX modules infeasible on ghost architecture; current reimplementation is correct.
+- **#153** — AnimateHeat nose cone classification requires reflection hack for negligible visual effect; won't fix.
+- **#156** — extracted `IsPadFailure` static method + 7 tests; remaining items need Unity runtime.
 
 Log spam audit and cleanup. Analyzed a 28,923-line KSP.log from a 70-second KSC session with 273 recordings — Parsek was 68.4% of all output (19,771 lines). Identified and fixed the top spam sources.
 

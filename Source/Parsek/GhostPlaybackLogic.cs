@@ -35,6 +35,20 @@ namespace Parsek
             return currentWarpRate > GhostHideWarpThreshold;
         }
 
+        /// <summary>
+        /// Returns true if a commit approval dialog should be shown instead of auto-committing (#88).
+        /// Triggers when leaving Flight to KSC or Tracking Station with a landed/splashed vessel.
+        /// </summary>
+        internal static bool ShouldShowCommitApproval(GameScenes destination, TerminalState? terminalState)
+        {
+            if (destination != GameScenes.SPACECENTER && destination != GameScenes.TRACKSTATION)
+                return false;
+            if (!terminalState.HasValue)
+                return false;
+            var ts = terminalState.Value;
+            return ts == TerminalState.Landed || ts == TerminalState.Splashed;
+        }
+
         internal static bool ShouldFlushDeferredSpawns(int pendingCount, bool isWarpActive)
         {
             return pendingCount > 0 && !isWarpActive;
@@ -829,7 +843,10 @@ namespace Parsek
                         }
                         break;
                     case PartEventType.EngineIgnited:
-                        SetEngineEmission(state, evt, evt.value);
+                        // Use at least a minimum emission on ignition (#165) — seed events
+                        // may record throttle=0 when engines are staged but not yet throttled.
+                        // The next EngineThrottle event will set the correct level.
+                        SetEngineEmission(state, evt, System.Math.Max(evt.value, 0.01f));
                         ApplyHeatState(state, evt, HeatLevel.Hot);
                         break;
                     case PartEventType.EngineShutdown:
@@ -1322,6 +1339,37 @@ namespace Parsek
                     SetParticleRenderersEnabled(ps, false);
                 }
             }
+        }
+
+        /// <summary>
+        /// Detaches active particle systems from the ghost hierarchy so they can linger
+        /// and fade out naturally after the ghost is destroyed (#107). Stops emission,
+        /// unparents, and schedules delayed destruction.
+        /// </summary>
+        internal static void DetachAndLingerParticleSystems(
+            List<ParticleSystem> particleSystems, List<KspEmitterRef> kspEmitters, float lingerSeconds = 8f)
+        {
+            if (kspEmitters != null)
+                SetKspEmittersEnabled(kspEmitters, false);
+            if (particleSystems == null) return;
+
+            for (int i = 0; i < particleSystems.Count; i++)
+            {
+                var ps = particleSystems[i];
+                if (ps == null) continue;
+
+                // Only detach if particles are alive (no point lingering an empty system)
+                if (ps.particleCount == 0)
+                {
+                    UnityEngine.Object.Destroy(ps.gameObject);
+                    continue;
+                }
+
+                ps.Stop(true, ParticleSystemStopBehavior.StopEmitting);
+                ps.transform.SetParent(null, true);
+                UnityEngine.Object.Destroy(ps.gameObject, lingerSeconds);
+            }
+            particleSystems.Clear();
         }
 
         internal static void SetParticleRenderersEnabled(ParticleSystem ps, bool enabled)
@@ -2057,7 +2105,11 @@ namespace Parsek
             // KSP's on-rails aero check (101.3 kPa) immediately destroys spawned vessels.
             // This catches cases where TerminalState is null/Landed but the snapshot was
             // captured mid-flight. (#114)
-            if (IsSnapshotSituationUnsafe(rec.VesselSnapshot))
+            // Override: if terminal state is Landed/Splashed, the vessel DID land safely —
+            // the snapshot's sit field may be stale from recording start (Bug 2b). (#EVA-spawn)
+            bool terminalOverridesUnsafe = rec.TerminalStateValue == TerminalState.Landed ||
+                rec.TerminalStateValue == TerminalState.Splashed;
+            if (!terminalOverridesUnsafe && IsSnapshotSituationUnsafe(rec.VesselSnapshot))
             {
                 return (false, "snapshot situation unsafe (FLYING/SUB_ORBITAL)");
             }
@@ -2080,6 +2132,15 @@ namespace Parsek
         /// </summary>
         internal static (bool needsSpawn, string reason) ShouldSpawnAtKscEnd(Recording rec)
         {
+            return ShouldSpawnAtKscEnd(rec, Planetarium.GetUniversalTime());
+        }
+
+        internal static (bool needsSpawn, string reason) ShouldSpawnAtKscEnd(Recording rec, double currentUT)
+        {
+            // Don't spawn vessels whose recording hasn't finished yet at the current UT (#rewind-persistence)
+            if (currentUT < rec.EndUT)
+                return (false, $"current UT {currentUT:F0} before recording end {rec.EndUT:F0}");
+
             // At KSC, no chain is being built → isActiveChainMember = false
             bool isChainLoopingOrDisabled = !string.IsNullOrEmpty(rec.ChainId) &&
                 (RecordingStore.IsChainLooping(rec.ChainId) ||
