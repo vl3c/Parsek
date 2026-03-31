@@ -65,9 +65,9 @@ namespace Parsek
         private const float ColW_Phase = 70f;
         private const float ColW_Index = 30f;
         private const float ColW_Launch = 110f;
-        private const float ColW_Countdown = 95f;
+        // ColW_Countdown removed (#98) — merged into Status column
         private const float ColW_Dur = 65f;
-        private const float ColW_Status = 55f;
+        private const float ColW_Status = 95f;
         private const float ColW_Loop = 55f;
         private const float ColW_Watch = 50f;
         private const float ColW_Rewind = 65f;
@@ -1073,7 +1073,6 @@ namespace Parsek
                 DrawSortableHeader("Name", SortColumn.Name, 0, true);
                 DrawSortableHeader("Phase", SortColumn.Phase, ColW_Phase);
                 DrawSortableHeader("Launch", SortColumn.LaunchTime, ColW_Launch);
-                DrawSortableHeader("Countdown", SortColumn.LaunchTime, ColW_Countdown);
                 DrawSortableHeader("Duration", SortColumn.Duration, ColW_Dur);
 
                 if (showExpandedStats)
@@ -1276,13 +1275,6 @@ namespace Parsek
                 : "-";
             GUILayout.Label(launchTime, GUILayout.Width(ColW_Launch));
 
-            // Countdown (T-) / Mission time (T+)
-            if (rec.Points.Count > 0)
-                GUILayout.Label(SelectiveSpawnUI.FormatCountdown(rec.StartUT - now),
-                    GUILayout.Width(ColW_Countdown));
-            else
-                GUILayout.Label("-", GUILayout.Width(ColW_Countdown));
-
             // Duration
             double dur = rec.EndUT - rec.StartUT;
             GUILayout.Label(FormatDuration(dur), GUILayout.Width(ColW_Dur));
@@ -1297,23 +1289,25 @@ namespace Parsek
                 GUILayout.Label(stats.pointCount.ToString(), GUILayout.Width(ColW_Pts));
             }
 
-            // Status
+            // Status (#98: merged countdown into status column)
             GUIStyle statusStyle;
             string statusText;
             if (now < rec.StartUT)
             {
                 statusStyle = statusStyleFuture;
-                statusText = "future";
+                statusText = rec.Points.Count > 0
+                    ? SelectiveSpawnUI.FormatCountdown(rec.StartUT - now)
+                    : "future";
             }
             else if (now <= rec.EndUT)
             {
                 statusStyle = statusStyleActive;
-                statusText = "active";
+                statusText = "Active";
             }
             else
             {
                 statusStyle = statusStylePast;
-                statusText = "past";
+                statusText = rec.TerminalStateValue?.ToString() ?? "past";
             }
 
             // Phase 6d-3: Chain status tooltip — show ghost chain info on hover
