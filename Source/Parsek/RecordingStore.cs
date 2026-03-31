@@ -789,6 +789,72 @@ namespace Parsek
             return rec.SegmentPhase;
         }
 
+        // ─── Recording optimization ─────────────────────────────────────────
+
+        /// <summary>
+        /// Runs the optimization pass: find merge candidates among committed recordings,
+        /// execute merges, re-index chains. Called on save load after migrations.
+        /// Merge-only for now; split support deferred (requires file I/O for new sidecar files).
+        /// </summary>
+        internal static void RunOptimizationPass()
+        {
+            var recordings = CommittedRecordings;
+            if (recordings == null || recordings.Count < 2)
+            {
+                ParsekLog.Verbose("RecordingStore", "Optimization pass: skipped (< 2 recordings)");
+                return;
+            }
+
+            int mergeCount = 0;
+            // Iterate merge passes until no more candidates (merging may create new adjacent pairs)
+            bool changed = true;
+            while (changed)
+            {
+                changed = false;
+                var candidates = RecordingOptimizer.FindMergeCandidates(recordings);
+                if (candidates.Count == 0) break;
+
+                // Process first candidate only per pass (indices shift after removal)
+                var (idxA, idxB) = candidates[0];
+                var target = recordings[idxA];
+                var absorbed = recordings[idxB];
+
+                string absorbedId = RecordingOptimizer.MergeInto(target, absorbed);
+                string chainId = target.ChainId;
+
+                // Remove absorbed recording from committed list
+                recordings.RemoveAt(idxB);
+
+                // Delete absorbed recording's sidecar files
+                try { DeleteRecordingFiles(absorbed); }
+                catch (System.Exception ex)
+                {
+                    ParsekLog.Warn("RecordingStore",
+                        $"Optimization: failed to delete files for merged recording {absorbedId}: {ex.Message}");
+                }
+
+                // Save updated target recording files
+                try { SaveRecordingFiles(target); }
+                catch (System.Exception ex)
+                {
+                    ParsekLog.Warn("RecordingStore",
+                        $"Optimization: failed to save updated recording {target.RecordingId}: {ex.Message}");
+                }
+
+                // Re-index the chain
+                if (!string.IsNullOrEmpty(chainId))
+                    RecordingOptimizer.ReindexChain(recordings, chainId);
+
+                mergeCount++;
+                changed = true;
+            }
+
+            if (mergeCount > 0)
+                ParsekLog.Info("RecordingStore", $"Optimization pass: merged {mergeCount} segment pair(s)");
+            else
+                ParsekLog.Verbose("RecordingStore", "Optimization pass: no merge candidates found");
+        }
+
         // ─── Group management helpers ────────────────────────────────────────
 
         /// <summary>
