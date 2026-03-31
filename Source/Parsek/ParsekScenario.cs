@@ -126,6 +126,9 @@ namespace Parsek
             // Save milestones to external file + mutable state to .sfs
             MilestoneStore.SaveMilestoneFile();
             MilestoneStore.SaveMutableState(node);
+
+            // Save ledger to external file
+            LedgerOrchestrator.OnSave();
             node.AddValue("milestoneEpoch", MilestoneStore.CurrentEpoch);
             node.AddValue("budgetDeductionEpoch",
                 budgetDeductionEpoch.ToString(CultureInfo.InvariantCulture));
@@ -244,6 +247,10 @@ namespace Parsek
                 GameStateStore.LoadEventFile();
                 GameStateStore.LoadBaselines();
                 MilestoneStore.LoadMilestoneFile();
+
+                // Load ledger from external file (skip during rewind — in-memory ledger is source of truth)
+                if (!RecordingStore.IsRewinding)
+                    LedgerOrchestrator.OnLoad();
 
                 // Clean up stale parsek_rw_*.sfs temp files left by a crash during rewind
                 try
@@ -903,27 +910,30 @@ namespace Parsek
             }
             budgetDeductionEpoch = MilestoneStore.CurrentEpoch;
 
-            var budget = ResourceBudget.ComputeTotal(
-                RecordingStore.CommittedRecordings,
-                MilestoneStore.Milestones,
-                RecordingStore.CommittedTrees);
+            // DISABLED: replaced by LedgerOrchestrator
+            // var budget = ResourceBudget.ComputeTotal(
+            //     RecordingStore.CommittedRecordings,
+            //     MilestoneStore.Milestones,
+            //     RecordingStore.CommittedTrees);
+            //
+            // if (budget.reservedFunds <= 0 && budget.reservedScience <= 0
+            //     && budget.reservedReputation <= 0)
+            // {
+            //     ParsekLog.Verbose("Scenario", "No committed budget to deduct on revert — all zero");
+            //     resourceTickingSuspended = false;
+            //     yield break;
+            // }
+            //
+            // ParsekLog.Info("Scenario",
+            //     $"Budget deduction starting for epoch {MilestoneStore.CurrentEpoch}: " +
+            //     $"funds={budget.reservedFunds:F0}, science={budget.reservedScience:F1}, rep={budget.reservedReputation:F1}");
+            //
+            // ResourceApplicator.DeductBudget(budget, RecordingStore.CommittedRecordings, RecordingStore.CommittedTrees);
+            //
+            // // Replay committed actions (tech, parts, facilities, crew) before resuming ticking
+            // ActionReplay.ReplayCommittedActions(MilestoneStore.Milestones);
 
-            if (budget.reservedFunds <= 0 && budget.reservedScience <= 0
-                && budget.reservedReputation <= 0)
-            {
-                ParsekLog.Verbose("Scenario", "No committed budget to deduct on revert — all zero");
-                resourceTickingSuspended = false;
-                yield break;
-            }
-
-            ParsekLog.Info("Scenario",
-                $"Budget deduction starting for epoch {MilestoneStore.CurrentEpoch}: " +
-                $"funds={budget.reservedFunds:F0}, science={budget.reservedScience:F1}, rep={budget.reservedReputation:F1}");
-
-            ResourceApplicator.DeductBudget(budget, RecordingStore.CommittedRecordings, RecordingStore.CommittedTrees);
-
-            // Replay committed actions (tech, parts, facilities, crew) before resuming ticking
-            ActionReplay.ReplayCommittedActions(MilestoneStore.Milestones);
+            LedgerOrchestrator.RecalculateAndPatch();
             resourceTickingSuspended = false;
         }
 
@@ -972,12 +982,15 @@ namespace Parsek
                        || Reputation.Instance == null))
                 yield return null;
 
-            ResourceApplicator.CorrectToBaseline(baselineFunds, baselineScience, baselineRep);
+            // DISABLED: replaced by LedgerOrchestrator
+            // ResourceApplicator.CorrectToBaseline(baselineFunds, baselineScience, baselineRep);
+            //
+            // // Replay committed actions (tech, parts, facilities, crew).
+            // // Always runs regardless of game mode — tech unlocks and facility upgrades
+            // // exist in science mode too. Pass rewindUT to skip events after the rewind point.
+            // ActionReplay.ReplayCommittedActions(MilestoneStore.Milestones, rewindUT);
 
-            // Replay committed actions (tech, parts, facilities, crew).
-            // Always runs regardless of game mode — tech unlocks and facility upgrades
-            // exist in science mode too. Pass rewindUT to skip events after the rewind point.
-            ActionReplay.ReplayCommittedActions(MilestoneStore.Milestones, rewindUT);
+            LedgerOrchestrator.RecalculateAndPatch();
 
             // Belt-and-suspenders epoch guard
             budgetDeductionEpoch = MilestoneStore.CurrentEpoch;
@@ -1008,9 +1021,10 @@ namespace Parsek
                 && Reputation.Instance == null)
                 return;
 
-            double currentUT = Planetarium.GetUniversalTime();
-            ResourceApplicator.TickStandalone(RecordingStore.CommittedRecordings, currentUT);
-            ResourceApplicator.TickTrees(RecordingStore.CommittedTrees, currentUT);
+            // DISABLED: replaced by LedgerOrchestrator
+            // double currentUT = Planetarium.GetUniversalTime();
+            // ResourceApplicator.TickStandalone(RecordingStore.CommittedRecordings, currentUT);
+            // ResourceApplicator.TickTrees(RecordingStore.CommittedTrees, currentUT);
         }
 
 
