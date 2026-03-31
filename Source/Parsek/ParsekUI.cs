@@ -1742,8 +1742,19 @@ namespace Parsek
 
             GUILayout.BeginHorizontal();
 
-            // Spacers matching header widget types for alignment
-            GUILayout.Space(ColW_Enable);
+            // Enable checkbox (aggregate over chain members)
+            int chainEnabledCount = 0;
+            for (int m = 0; m < members.Count; m++)
+                if (committed[members[m]].PlaybackEnabled) chainEnabledCount++;
+            bool chainAllEnabled = members.Count > 0 && chainEnabledCount == members.Count;
+            bool chainNewEnabled = GUILayout.Toggle(chainAllEnabled, "", GUILayout.Width(ColW_Enable));
+            if (chainNewEnabled != chainAllEnabled)
+            {
+                for (int m = 0; m < members.Count; m++)
+                    committed[members[m]].PlaybackEnabled = chainNewEnabled;
+                ParsekLog.Info("UI", $"Chain '{chainId}' playback set to {chainNewEnabled} ({members.Count} segments)");
+            }
+
             GUILayout.Space(ColW_Index);
 
             // Indent inside Name column for chains in sub-groups
@@ -1778,8 +1789,22 @@ namespace Parsek
                 ParsekLog.Verbose("UI", $"Group popup opened for chain '{chainName}'");
             }
 
-            // Spacers for remaining columns (Loop, Period, Watch, Rewind, Hide)
-            GUILayout.Label("", GUILayout.Width(ColW_Loop));
+            // Loop checkbox (aggregate over chain members)
+            int chainLoopCount = 0;
+            for (int m = 0; m < members.Count; m++)
+                if (committed[members[m]].LoopPlayback) chainLoopCount++;
+            bool chainAllLoop = members.Count > 0 && chainLoopCount == members.Count;
+            GUILayout.BeginHorizontal(GUILayout.Width(ColW_Loop));
+            GUILayout.FlexibleSpace();
+            bool chainNewLoop = GUILayout.Toggle(chainAllLoop, "");
+            GUILayout.FlexibleSpace();
+            GUILayout.EndHorizontal();
+            if (chainNewLoop != chainAllLoop)
+            {
+                for (int m = 0; m < members.Count; m++)
+                    committed[members[m]].LoopPlayback = chainNewLoop;
+                ParsekLog.Info("UI", $"Chain '{chainId}' loop set to {chainNewLoop} ({members.Count} segments)");
+            }
             GUILayout.Label("", GUILayout.Width(ColW_Period));
             if (InFlight) GUILayout.Label("", GUILayout.Width(ColW_Watch));
             GUILayout.Label("", GUILayout.Width(ColW_Rewind));
