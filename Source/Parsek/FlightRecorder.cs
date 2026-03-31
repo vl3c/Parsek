@@ -2610,7 +2610,7 @@ namespace Parsek
                     lastP = 0f;
 
                 float delta = power - lastP;
-                if (delta > 0.01f || delta < -0.01f)
+                if (delta > 0.05f || delta < -0.05f)
                 {
                     lastThrottleMap[key] = power;
                     events.Add(new PartEvent

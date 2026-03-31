@@ -1780,6 +1780,38 @@ Synthetic test tree recordings with missing `.prec` trajectory files loaded with
 
 **Status:** Fixed
 
+## ~~146. Ghost frozen at final position after watch hold~~
+
+After watching a ghost through playback completion, the 3s hold timer was set (`watchEndHoldUntilUT`) but never checked — ghost held at its final position indefinitely.
+
+**Fix:** `UpdateWatchCamera` now checks the hold timer every frame. During the hold, retries `FindNextWatchTarget` to auto-follow to a continuation. On expiry, destroys ghost and exits watch.
+
+**Status:** Fixed
+
+## ~~147. Watch mode auto-follow race condition at stage separation~~
+
+`FindNextWatchTarget` at PlaybackCompleted returned -1 because the continuation ghost wasn't spawned yet (~1s delay). Camera snapped back to active vessel.
+
+**Fix:** The hold timer now retries `FindNextWatchTarget` every frame during the hold period. Auto-follows as soon as the continuation ghost spawns.
+
+**Status:** Fixed
+
+## ~~148. Fast-forward doesn't transfer watch to target recording~~
+
+Fast-forward while watching stayed locked to the old ghost (1400km away). The FF target ghost was hidden and destroyed without ever being watched.
+
+**Fix:** `FastForwardToRecording` now exits watch on the old ghost and sets `pendingWatchAfterFF`. After engine positions ghosts post-jump, watch auto-enters on the FF target.
+
+**Status:** Fixed
+
+## ~~149. RCS throttle event spam — 4451 events per recording~~
+
+RCS throttle deadband was 1% — SAS continuously adjusts RCS by >1% every physics frame, producing thousands of events per recording. A 2.2h flight produced 4537 part events, 98% RCS throttle.
+
+**Fix:** Increased deadband from 1% to 5% in `CheckRcsTransition`. Reduces RCS throttle events by ~90% while preserving visually meaningful changes.
+
+**Status:** Fixed
+
 # In-Game Tests
 
 - [ ] Vessels propagate naturally along orbits after FF (no position freezing)

@@ -46,6 +46,16 @@ All notable changes to Parsek are documented here.
 - **Fix #144: Degraded trees (0 points) deduct budget.** Extracted `RecordingTree.IsDegraded`/`ComputeEndUT()`. Trees with no trajectory data skip budget application.
 - **Fix #145: Ghoster WARN spam for non-existent synthetic vessels.** Pre-check vessel existence before ghosting; downgraded to VERBOSE.
 - **Fix #22 (revised): Facility upgrade replay deferred instead of dropped.** Facility upgrades in Flight scene now set `deferred=true`, stopping the watermark so they are retried on next scene load (previously marked as replayed and permanently skipped).
+- **Fix #146: Ghost frozen at final position after watch hold.** `watchEndHoldUntilUT` was set but never consumed — ghost held indefinitely. Added expiry check in `UpdateWatchCamera` that retries auto-follow during hold, then destroys ghost on timeout.
+- **Fix #147: Watch mode auto-follow race condition.** Continuation ghost not yet spawned when `FindNextWatchTarget` runs at completion. Hold timer now retries every frame; auto-follows as soon as continuation appears.
+- **Fix #148: Fast-forward doesn't transfer watch to target.** `FastForwardToRecording` now exits watch and defers entering on the FF target after engine positions ghosts.
+- **Fix #149: RCS throttle event spam.** Deadband increased from 1% to 5% — reduces RCS part events by ~90% for SAS-active flights.
+
+### Features
+
+- **Ghost camera cutoff setting.** Settings > Ghost Camera > Cutoff [300] km. Watch mode auto-exits when ghost exceeds this distance. Watch button disabled for ghosts beyond cutoff. Default 300km, configurable 10-10000km.
+- **Watch mode distance overlay.** "Watching: Vessel (45.2 km)" in the notification bar shows distance from ghost to active vessel.
+- **Watch mode auto-follow on stage separation.** Camera automatically follows the controller vessel through tree branch points and chain continuations.
 
 ### Previously Fixed (Confirmed)
 
