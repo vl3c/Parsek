@@ -69,6 +69,7 @@ All notable changes to Parsek are documented here.
 - **Settings window: "Ghosts" group.** Merged "Ghost Camera" and "Ghost Soft Caps" sections into a single "Ghosts" group. Added checkbox-to-label spacing for all settings toggles.
 - **Fix #50: Chain block enable/loop checkboxes.** Chain headers now have aggregate enable and loop checkboxes (were empty spacers).
 - **Fix #98: Merge Countdown into Status column.** Status now shows `T-Xm Xs` for future, `Active` for playing, terminal state name for past.
+- **Fix #88: Commit approval dialog for landed/splashed vessels.** When leaving Flight to KSC or Tracking Station with a landed/splashed vessel, shows Keep/Discard dialog instead of auto-committing. Game exit still auto-commits.
 
 - **Ghost camera cutoff setting.** Settings > Ghost Camera > Cutoff [300] km. Watch mode auto-exits when ghost exceeds this distance. Watch button disabled for ghosts beyond cutoff. Default 300km, configurable 10-10000km.
 - **Watch mode distance overlay.** "Watching: Vessel (45.2 km)" in the notification bar shows distance from ghost to active vessel.
