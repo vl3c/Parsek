@@ -1114,7 +1114,7 @@ These fields are serialized in the `RecordingTree` code path but not in `ParsekS
 
 After CommNet reinitialization, the existing `CommNode` objects in `activeGhostNodes` are re-added via `commNet.Add(kvp.Value)`. If KSP's CommNet reinitialization invalidates old node objects, re-adding them could fail silently. Consider creating fresh `CommNode` objects with the same data.
 
-**Status:** Open — needs in-game verification
+**Status:** Not a bug — re-adding the same `CommNode` object to the new network follows the stock KSP pattern (`CommNetVessel.OnNetworkInitialized` does the same). `CommNet.Add()` updates `node.Net` to the new network, and link rebuilding happens from scratch. Additionally, `GhostCommNetRelay` is not yet wired into the runtime (no code instantiates it).
 
 ## ~~84. GhostPlaybackLogic.ComputeLoopPhaseFromUT integer overflow risk~~
 
@@ -1570,7 +1570,7 @@ Likely same root cause as the original procedural fairing work: the fairing mesh
 
 **Priority:** Medium — visually noticeable on any vessel using engine plates
 
-**Status:** Open
+**Status:** Fixed — engine plate shrouds are static meshes (not procedural fairings) controlled by `ModulePartVariants` GAMEOBJECTS rules. The inactive-variant renderer filter at lines 4901/4435 was killing them before the GAMEOBJECT rules could include them (prefab uses different base variant than snapshot). Fix: skip the inactive filter when explicit GAMEOBJECT rules exist — they become the sole authority on which objects to include. Also fixes any part with `ModulePartVariants` where the snapshot variant differs from the prefab base variant.
 
 ## 126. Rewind vessel strip fails due to localization key mismatch
 
