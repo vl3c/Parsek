@@ -1261,4 +1261,182 @@ namespace Parsek.Tests
     }
 
     #endregion
+
+    #region Debris auto-grouping and orphan adoption
+
+    [Collection("Sequential")]
+    public class DebrisGroupingTests : IDisposable
+    {
+        public DebrisGroupingTests()
+        {
+            RecordingStore.SuppressLogging = true;
+            RecordingStore.ResetForTesting();
+            MilestoneStore.SuppressLogging = true;
+            MilestoneStore.ResetForTesting();
+            GameStateStore.SuppressLogging = true;
+            ParsekLog.SuppressLogging = true;
+            GroupHierarchyStore.ResetForTesting();
+        }
+
+        public void Dispose()
+        {
+            RecordingStore.ResetForTesting();
+            GroupHierarchyStore.ResetForTesting();
+        }
+
+        private Recording MakeRec(string id, string name, bool isDebris = false, uint pid = 100,
+            string treeId = null, double startUT = 100, double endUT = 200)
+        {
+            return new Recording
+            {
+                RecordingId = id,
+                VesselName = name,
+                VesselPersistentId = pid,
+                IsDebris = isDebris,
+                TreeId = treeId,
+                Points = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint { ut = startUT },
+                    new TrajectoryPoint { ut = endUT }
+                }
+            };
+        }
+
+        [Fact]
+        public void CommitTree_DebrisGroupedUnderSubgroup()
+        {
+            var tree = new RecordingTree
+            {
+                Id = "t1", TreeName = "Rocket",
+                Recordings = new Dictionary<string, Recording>
+                {
+                    { "stage", MakeRec("stage", "Rocket", treeId: "t1") },
+                    { "debris", MakeRec("debris", "Rocket Debris", isDebris: true, treeId: "t1") }
+                }
+            };
+
+            RecordingStore.CommitTree(tree);
+
+            var committed = RecordingStore.CommittedRecordings;
+            var stage = committed.Find(r => r.RecordingId == "stage");
+            var debris = committed.Find(r => r.RecordingId == "debris");
+
+            // Stage should be in the main group
+            Assert.NotNull(stage.RecordingGroups);
+            Assert.Single(stage.RecordingGroups);
+            Assert.StartsWith("Rocket", stage.RecordingGroups[0]);
+            Assert.DoesNotContain("Debris", stage.RecordingGroups[0]);
+
+            // Debris should be in the debris subgroup
+            Assert.NotNull(debris.RecordingGroups);
+            Assert.Single(debris.RecordingGroups);
+            Assert.Contains("Debris", debris.RecordingGroups[0]);
+
+            // Debris subgroup should have parent relationship
+            string debrisGroup = debris.RecordingGroups[0];
+            string stageGroup = stage.RecordingGroups[0];
+            Assert.True(GroupHierarchyStore.TryGetGroupParent(debrisGroup, out string parent));
+            Assert.Equal(stageGroup, parent);
+        }
+
+        [Fact]
+        public void CommitTree_NoDebris_AllInMainGroup()
+        {
+            var tree = new RecordingTree
+            {
+                Id = "t2", TreeName = "Ship",
+                Recordings = new Dictionary<string, Recording>
+                {
+                    { "s1", MakeRec("s1", "Ship", treeId: "t2") },
+                    { "s2", MakeRec("s2", "Ship", treeId: "t2") }
+                }
+            };
+
+            RecordingStore.CommitTree(tree);
+
+            var committed = RecordingStore.CommittedRecordings;
+            foreach (var rec in committed)
+            {
+                Assert.NotNull(rec.RecordingGroups);
+                Assert.DoesNotContain("Debris", rec.RecordingGroups[0]);
+            }
+        }
+
+        [Fact]
+        public void CommitTree_AdoptsOrphanedRecordingByTreeId()
+        {
+            // Pre-commit an orphaned recording with matching TreeId
+            var orphan = MakeRec("orphan", "Rocket", treeId: "t3", pid: 100, startUT: 100, endUT: 150);
+            RecordingStore.CommitPendingForTesting(orphan);
+            Assert.Null(orphan.RecordingGroups);
+
+            var tree = new RecordingTree
+            {
+                Id = "t3", TreeName = "Rocket",
+                Recordings = new Dictionary<string, Recording>
+                {
+                    // Need >1 recording for auto-grouping to kick in
+                    { "root", MakeRec("root", "Rocket", treeId: "t3", startUT: 100, endUT: 200) },
+                    { "cont", MakeRec("cont", "Rocket", treeId: "t3", startUT: 200, endUT: 300) }
+                }
+            };
+
+            RecordingStore.CommitTree(tree);
+
+            // Orphan should now have a group
+            Assert.NotNull(orphan.RecordingGroups);
+            Assert.Single(orphan.RecordingGroups);
+            Assert.StartsWith("Rocket", orphan.RecordingGroups[0]);
+        }
+
+        [Fact]
+        public void CommitTree_AdoptsOrphanedDebrisWithParentRelation()
+        {
+            var orphanDebris = MakeRec("orphan-d", "Rocket Debris", isDebris: true, pid: 200, startUT: 100, endUT: 120);
+            orphanDebris.TreeId = "t4";
+            RecordingStore.CommitPendingForTesting(orphanDebris);
+
+            var tree = new RecordingTree
+            {
+                Id = "t4", TreeName = "Rocket",
+                Recordings = new Dictionary<string, Recording>
+                {
+                    { "root", MakeRec("root", "Rocket", treeId: "t4", startUT: 100, endUT: 200) },
+                    { "cont", MakeRec("cont", "Rocket", treeId: "t4", startUT: 200, endUT: 300) }
+                }
+            };
+
+            RecordingStore.CommitTree(tree);
+
+            // Adopted debris should be in debris subgroup with parent set
+            Assert.NotNull(orphanDebris.RecordingGroups);
+            Assert.Contains("Debris", orphanDebris.RecordingGroups[0]);
+            Assert.True(GroupHierarchyStore.TryGetGroupParent(orphanDebris.RecordingGroups[0], out string parent));
+        }
+
+        [Fact]
+        public void CommitTree_DoesNotAdoptGroupedRecording()
+        {
+            var alreadyGrouped = MakeRec("grouped", "Rocket", pid: 100, startUT: 100, endUT: 150);
+            alreadyGrouped.RecordingGroups = new List<string> { "OtherGroup" };
+            RecordingStore.CommitPendingForTesting(alreadyGrouped);
+
+            var tree = new RecordingTree
+            {
+                Id = "t5", TreeName = "Rocket",
+                Recordings = new Dictionary<string, Recording>
+                {
+                    { "root", MakeRec("root", "Rocket", treeId: "t5", startUT: 100, endUT: 200) }
+                }
+            };
+
+            RecordingStore.CommitTree(tree);
+
+            // Should still be in the original group, not adopted
+            Assert.Single(alreadyGrouped.RecordingGroups);
+            Assert.Equal("OtherGroup", alreadyGrouped.RecordingGroups[0]);
+        }
+    }
+
+    #endregion
 }

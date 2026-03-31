@@ -21,6 +21,13 @@ namespace Parsek
         // Internal for test access; production code should use HideActive property
         internal static bool hideActive = true;
 
+        internal static void ResetForTesting()
+        {
+            groupParents.Clear();
+            hiddenGroups.Clear();
+            hideActive = true;
+        }
+
         /// <summary>Read-only access to group parent mappings.</summary>
         internal static IReadOnlyDictionary<string, string> GroupParents => groupParents;
 

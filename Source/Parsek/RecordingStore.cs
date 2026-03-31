@@ -400,6 +400,9 @@ namespace Parsek
                         string targetGroup = cr.IsDebris
                             ? adoptGroupName + " / Debris"
                             : adoptGroupName;
+                        // Ensure debris subgroup has parent relationship
+                        if (cr.IsDebris)
+                            GroupHierarchyStore.SetGroupParent(targetGroup, adoptGroupName);
                         cr.RecordingGroups = new List<string> { targetGroup };
                         adopted++;
                         ParsekLog.Info("RecordingStore",
@@ -1052,6 +1055,15 @@ namespace Parsek
             PendingCleanupNames = null;
             RewindQuicksaveVesselPids = null;
             PendingStashedThisTransition = false;
+        }
+
+        /// <summary>
+        /// Directly adds a recording to the committed list. For unit tests only —
+        /// bypasses StashPending/CommitPending flow to set up pre-existing state.
+        /// </summary>
+        internal static void CommitPendingForTesting(Recording rec)
+        {
+            committedRecordings.Add(rec);
         }
 
         internal static void DeleteRecordingFiles(Recording rec)
