@@ -58,6 +58,7 @@ All notable changes to Parsek are documented here.
 - **Fix #74: RELATIVE mode boundary point at on-rails.** `SamplePosition` recorded absolute lat/lon/alt into a RELATIVE TrackSection at on-rails boundaries. Moved RELATIVE clearing before boundary sampling.
 - **Fix #107: Engine/SRB smoke trails vanish on ghost despawn.** Particle systems are now detached from the ghost hierarchy before destruction, allowing trails to fade naturally (8s linger).
 - **Fix #125: Engine plate shrouds not visible on ghost.** Inactive-variant renderer filter preempted GAMEOBJECT rules. When explicit variant rules exist, they are now the sole authority on object inclusion.
+- **Engine throttle deadband increased to 5%.** SRBs with smooth thrust curves generated excessive EngineThrottle events at 1% deadband. Matches RCS deadband (#149).
 
 ### Features
 
