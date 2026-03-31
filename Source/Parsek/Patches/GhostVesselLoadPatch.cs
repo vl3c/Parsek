@@ -59,7 +59,7 @@ namespace Parsek.Patches
     /// Instead of switching to the ghost (a single barometer part), enters watch mode
     /// for the ghost's recording — following the ghost camera to its actual position.
     /// </summary>
-    [HarmonyPatch(typeof(FlightGlobals), nameof(FlightGlobals.SetActiveVessel))]
+    [HarmonyPatch(typeof(FlightGlobals), nameof(FlightGlobals.SetActiveVessel), new[] { typeof(Vessel) })]
     internal static class GhostVesselSwitchPatch
     {
         static bool Prefix(Vessel v)

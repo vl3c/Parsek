@@ -452,11 +452,18 @@ namespace Parsek
                             GhostMapPresence.CreateGhostVesselForRecording(idx, traj);
                             pendingMapVessels.Remove(idx);
 
+                            // Immediately update to the triggering segment's orbit.
+                            // CreateGhostVesselForRecording uses terminal orbit (recording end),
+                            // but the ghost just entered an intermediate segment (e.g., first
+                            // circular orbit during ascent, not the final parking orbit).
+                            GhostMapPresence.UpdateGhostOrbitForRecording(idx, initialSeg);
+
                             // Seed segment tracking from the already-found segment (no second lookup)
                             lastMapOrbitByIndex[idx] = (initialSeg.bodyName, initialSeg.semiMajorAxis);
 
                             ParsekLog.Info("Policy",
-                                $"Created deferred ghost map vessel for #{idx} \"{traj.VesselName}\" — ghost entered orbital segment");
+                                $"Created deferred ghost map vessel for #{idx} \"{traj.VesselName}\" " +
+                                $"— entered segment body={initialSeg.bodyName} sma={initialSeg.semiMajorAxis:F0}");
                         }
                     }
                 }

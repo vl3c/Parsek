@@ -7,6 +7,10 @@ namespace Parsek.Patches
     /// Prevents tracking station actions (Fly, Delete, Recover) on ghost map ProtoVessels.
     /// Ghost vessels are transient map-presence objects — they cannot be flown, deleted, or recovered.
     /// Shows a screen message explaining the ghost status instead.
+    ///
+    /// IMPORTANT: Delete and Recover patches must call OnDialogDismiss on the SpaceTracking
+    /// instance to release the input lock set by the confirmation dialog. Returning false
+    /// skips the original method which contains the unlock call.
     /// </summary>
 
     [HarmonyPatch(typeof(SpaceTracking), "FlyVessel")]
@@ -31,7 +35,6 @@ namespace Parsek.Patches
     {
         static bool Prefix(SpaceTracking __instance)
         {
-            // selectedVessel is private — access via Traverse
             Vessel selected = Traverse.Create(__instance).Field("selectedVessel").GetValue<Vessel>();
             if (selected == null || !GhostMapPresence.IsGhostMapVessel(selected.persistentId))
                 return true;
@@ -42,6 +45,11 @@ namespace Parsek.Patches
                 5f, ScreenMessageStyle.UPPER_CENTER);
             ParsekLog.Info("GhostMap",
                 $"Blocked Delete for ghost '{selected.vesselName}' pid={selected.persistentId}");
+
+            // Release the input lock that the confirmation dialog set.
+            // The original OnVesselDeleteConfirm calls OnDialogDismiss which unlocks UI.
+            // Since we skip the original, we must dismiss ourselves.
+            Traverse.Create(__instance).Method("OnDialogDismiss").GetValue();
             return false;
         }
     }
@@ -61,6 +69,9 @@ namespace Parsek.Patches
                 5f, ScreenMessageStyle.UPPER_CENTER);
             ParsekLog.Info("GhostMap",
                 $"Blocked Recover for ghost '{selected.vesselName}' pid={selected.persistentId}");
+
+            // Release input lock (same reason as Delete patch above)
+            Traverse.Create(__instance).Method("OnDialogDismiss").GetValue();
             return false;
         }
     }
