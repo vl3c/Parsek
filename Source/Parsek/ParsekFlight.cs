@@ -7150,19 +7150,29 @@ namespace Parsek
                 GhostPlaybackLogic.GetZoneRenderingPolicy(zone);
 
             // Beyond zone: hide mesh for non-watched ghosts.
-            // Watched ghost is NEVER hidden by zone distance — the camera is at the ghost,
-            // so the user can always see it regardless of distance from ActiveVessel.
-            // The old grace-period approach (bug #54) was wrong: it exited watch mode after
-            // 2 seconds, but ascending rockets naturally exceed 120km and the camera is
-            // right there watching them. Skip the hide entirely for the watched ghost.
+            // Watched ghosts get a zone exemption so the camera can follow ascending
+            // rockets past the visual range boundary. But cap the exemption at the
+            // visual range — beyond that, exit watch mode and let the ghost be hidden.
             if (shouldHideMesh && isWatchedGhost)
             {
-                // Watched ghost is never hidden by zone — camera is at the ghost
-                shouldHideMesh = false;
-                ParsekLog.VerboseRateLimited("Zone", $"watched-zone-exempt-{recIdx}",
-                    $"Ghost #{recIdx} \"{rec.VesselName}\" beyond visual range " +
-                    $"({ghostDistance.ToString("F0", CultureInfo.InvariantCulture)}m) but watched — exempt from zone hide",
-                    5.0);
+                if (ghostDistance < RenderingZoneManager.VisualRangeRadius)
+                {
+                    // Within visual range — exempt from hide
+                    shouldHideMesh = false;
+                    ParsekLog.VerboseRateLimited("Zone", $"watched-zone-exempt-{recIdx}",
+                        $"Ghost #{recIdx} \"{rec.VesselName}\" beyond physics bubble " +
+                        $"({ghostDistance.ToString("F0", CultureInfo.InvariantCulture)}m) but watched — exempt from zone hide",
+                        5.0);
+                }
+                else
+                {
+                    // Beyond visual range — exit watch mode
+                    ParsekLog.Info("Zone",
+                        $"Ghost #{recIdx} \"{rec.VesselName}\" exceeded visual range " +
+                        $"({ghostDistance.ToString("F0", CultureInfo.InvariantCulture)}m > " +
+                        $"{RenderingZoneManager.VisualRangeRadius.ToString("F0", CultureInfo.InvariantCulture)}m) — exiting watch mode");
+                    ExitWatchMode();
+                }
             }
 
             if (shouldHideMesh)
