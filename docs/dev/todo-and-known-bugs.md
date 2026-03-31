@@ -2021,6 +2021,103 @@ Areas identified by code path simulation that lack unit tests:
 
 **Status:** Partially fixed — item 4 done (7 tests). Items 1-3 require Unity runtime, deferred to in-game testing.
 
+## 169. EVA vessel spawned FLYING in atmosphere destroyed by KSP on-rails pressure check
+
+When VesselSpawner spawns an EVA vessel with `sit=FLYING` at low altitude, KSP's stock on-rails atmospheric pressure check immediately destroys unloaded vessels in dense atmosphere (101.3 kPa = sea level). The vessel never loads into physics — it's destroyed the instant it exists on-rails.
+
+**Observed in:** KSP.log (2026-04-01). Minidou Kerman EVA vessel spawned `sit=FLYING` (pid=1005932671), spawn retry succeeded at 2074m from active vessel, immediately destroyed by `101.3 kPa` pressure check. Crew status changed Available → Dead.
+
+**Root cause:** The spawned vessel is outside physics range (2074m > ~2.3km load distance), so KSP places it on-rails. KSP's on-rails pressure check destroys any unloaded vessel in dense atmosphere. The EVA snapshot captured `sit=FLYING` but there's no guard against spawning in-atmosphere vessels outside physics range.
+
+**Impact:** Critical — crew member killed (Dead status). Data corruption the player can't undo.
+
+**Fix options:**
+1. Check `body.GetPressure(altitude)` before spawning; if above threshold, force `sit=LANDED` or defer spawn until player is close enough for physics loading
+2. Don't spawn EVA vessels outside physics range — defer until within ~2.3km
+3. Force-load the vessel into physics range before KSP runs the pressure check
+4. For EVA vessels, override situation to LANDED if terminal state is Landed/Splashed
+
+**Status:** Open
+
+## 170. Vessel spawned 4m from launch pad collides with infrastructure, chain-explodes player's rocket
+
+A Jumping Flea vessel was spawned `sit=LANDED` at 4m from the launch pad. The bounding box overlap check passed (small vessel bbox didn't overlap the active GDLV3's bbox at 4m), but the vessel landed inside the launch pad's physical collider structure. Chain explosion destroyed both the spawned vessel and the player's active GDLV3 rocket.
+
+**Observed in:** KSP.log (2026-04-01). Jumping Flea spawned at 4m, no overlap detected, `basicFin Exploded!!` followed by collision exits with Launch Pad parts (Launch Pad, COL, Capsule001, Collider), chain explosion propagated to active vessel's SRBs, CRASH coalescer fired for 7 debris pieces.
+
+**Root cause:** Three compounding issues:
+1. `SpawnCollisionDetector.CheckOverlapAgainstLoadedVessels` uses vessel bounding boxes with padding but 4m is within the launch pad's physical collider volume despite passing the bbox check
+2. No check against KSC ground structures (launch pad, buildings) — only checks `FlightGlobals.Vessels`
+3. Dead crew spawned: Minidou Kerman was already Dead from bug #169 (killed 12s earlier). VesselSpawner didn't check crew liveness before spawning
+
+**Impact:** Critical — player's active vessel destroyed by chain explosion from Parsek-spawned vessel.
+
+**Fix options:**
+1. Add minimum spawn distance from KSC origin (e.g., 200m exclusion zone around launch pad coordinates)
+2. Check crew status before spawning — if any crew are Dead/Missing, skip spawn or strip dead crew from snapshot
+3. Increase `SpawnCollisionDetector` padding for landed vessels near KSC
+4. Add terrain/structure raycast at spawn position to detect ground infrastructure
+
+**Status:** Open
+
+## 171. Orbital ghost disappears during 50x time warp
+
+During 50x time warp, the zone rendering system hides ghost meshes beyond 120km (Visual→Beyond boundary). The ghost's entire remaining trajectory plays out while hidden. Playback completes while in the Beyond zone, so the ghost is destroyed without being re-shown.
+
+**Observed in:** KSP.log (2026-04-01). Ghost #6 "GDLV3" spawned, reentry FX activated (Mach 3.01), zone transition Visual→Beyond at 120136m, ghost hidden, playback completed during warp while hidden.
+
+**Root cause:** Expected zone behavior combined with high time warp. The ghost has orbital segments (UT 87-733) so it should be visible as an orbit line during its orbital phase, but the visual mesh disappears when it exits visual range.
+
+**Impact:** Low — visual only, no data loss. UX gap rather than a bug.
+
+**Fix options:**
+1. During time warp >4x, skip zone-based hiding for ghosts with orbital segments
+2. Accept as expected behavior — orbit line on map is the intended substitute
+
+**Status:** Open
+
+## 172. Ghost destruction reason logged as "unknown"
+
+When held ghosts (warp-deferred spawn state) are released after successful vessel spawn, the `DestroyGhost` call lacks a reason string, producing `destroyed (unknown)` in the log.
+
+**Observed in:** KSP.log (2026-04-01). Ghost #2 "Jumping Flea", Ghost #6 "GDLV3", Ghost #24 "Minidou Kerman" all destroyed with reason "unknown".
+
+**Impact:** Cosmetic — logging only. Ghosts are correctly destroyed.
+
+**Fix:** Pass reason string `"held-spawn-released"` from `RetryHeldGhostSpawns` when destroying held ghosts after successful spawn.
+
+**Files:** `ParsekPlaybackPolicy.cs` (`RetryHeldGhostSpawns`)
+
+**Status:** Open
+
+## 173. Zero-point debris leaf recordings saved from same-frame destruction
+
+When a breakup creates debris fragments that are destroyed within the same physics frame, the resulting recordings have zero trajectory points. These create `.prec` sidecar files and tree nodes that serve no purpose.
+
+**Observed in:** KSP.log (2026-04-01). CRASH breakup at UT=107087.40 (GDLV3 pad explosion from bug #170) produced 7 debris pieces, 5 had `points=0` in `FinalizeTreeRecordings`.
+
+**Impact:** Low — storage waste and recording tree UI clutter.
+
+**Fix:** Filter out 0-point leaf recordings during `FinalizeTreeRecordings` — don't save recordings with zero trajectory points and no vessel snapshot. Or mark them with a flag so the UI can hide them.
+
+**Files:** `RecordingTree.cs` or `ParsekFlight.cs` (finalization path)
+
+**Status:** Open
+
+## 174. ChainWalker evaluates terminated chains every frame
+
+`GhostChainWalker.ComputeAllGhostChains` evaluates ~590 terminated chains per frame that can never produce a ghost (all vessels destroyed/recovered). While log output is rate-limited (suppressed counts logged every 5s), the computation still runs.
+
+**Observed in:** KSP.log (2026-04-01). Repeated chain walker messages every 5s with `suppressed=~590` for terminated Kerbal X Debris chains.
+
+**Impact:** Low — performance. No visual or data impact.
+
+**Fix:** Skip trees where all vessels are already terminated, or cache the "no chains possible" result per tree. Invalidate cache on recording commit/revert.
+
+**Files:** `GhostChainWalker.cs`
+
+**Status:** Open
+
 # In-Game Tests
 
 - [x] Vessels propagate naturally along orbits after FF (no position freezing)
