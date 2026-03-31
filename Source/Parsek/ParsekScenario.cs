@@ -1817,9 +1817,16 @@ namespace Parsek
         /// </summary>
         private static void AutoCommitGhostOnly(Recording pending)
         {
-            CrewReservationManager.UnreserveCrewInSnapshot(pending.VesselSnapshot);
-            pending.VesselSnapshot = null;
-            ParsekLog.Info("Scenario", $"Auto-commit ghost-only: '{pending.VesselName}'" +
+            // Preserve snapshot for recordings that landed/splashed — they should be
+            // eligible for vessel spawning even when committed outside Flight (#EVA-spawn).
+            bool preserveForSpawn = pending.TerminalStateValue == TerminalState.Landed ||
+                pending.TerminalStateValue == TerminalState.Splashed;
+            if (!preserveForSpawn)
+            {
+                CrewReservationManager.UnreserveCrewInSnapshot(pending.VesselSnapshot);
+                pending.VesselSnapshot = null;
+            }
+            ParsekLog.Info("Scenario", $"Auto-commit{(preserveForSpawn ? "" : " ghost-only")}: '{pending.VesselName}'" +
                 (pending.TerminalStateValue.HasValue ? $" (terminal={pending.TerminalStateValue.Value})" : ""));
         }
 

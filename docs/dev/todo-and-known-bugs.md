@@ -1869,6 +1869,46 @@ When the recording vessel separates (e.g., SRB jettison), `FindNextWatchTarget` 
 
 **Status:** Open
 
+## 161. EVA snapshot situation stale — spawn blocked by FLYING check
+
+When an EVA recording starts mid-air (e.g., kerbal EVAs from a vessel at altitude), the vessel snapshot captures `sit=FLYING`. If the kerbal later lands, the terminal state is correctly `Landed` but the snapshot's `sit` field is never refreshed (especially on scene exit where `FinalizeIndividualRecording` skips re-snapshotting). `IsSnapshotSituationUnsafe` then blocks the spawn.
+
+**Fix:** `ShouldSpawnAtRecordingEnd` now overrides the unsafe-situation check when `TerminalStateValue` is `Landed` or `Splashed` — the vessel DID land safely regardless of snapshot situation.
+
+**Priority:** High — prevents EVA vessel spawning
+
+**Status:** Fixed
+
+## 162. AutoCommitGhostOnly strips snapshot from landed EVA recordings
+
+When a standalone EVA recording is committed via the safety-net path in `ParsekScenario.OnSave` (outside Flight), `AutoCommitGhostOnly` unconditionally nulls `VesselSnapshot`. This prevents spawning even for LANDED terminals.
+
+**Fix:** `AutoCommitGhostOnly` now preserves `VesselSnapshot` when `TerminalStateValue` is `Landed` or `Splashed`.
+
+**Priority:** High — prevents landed EVA vessel spawning
+
+**Status:** Fixed
+
+## 163. KSCSpawn spawns vessels whose recording hasn't started yet
+
+After rewind, `ParsekKSC.TrySpawnAtRecordingEnd` spawns vessels for all eligible recordings regardless of current UT. A recording at UT 549-692 gets spawned at UT 22 — creating an anachronistic vessel from the future.
+
+**Fix:** `ShouldSpawnAtKscEnd` now checks `currentUT >= rec.EndUT` before allowing spawn.
+
+**Priority:** High — future vessels appear in the past after rewind
+
+**Status:** Fixed
+
+## 164. Rewind does not strip non-recording, non-PRELAUNCH vessels from the future
+
+After rewind, `StripOrphanedSpawnedVessels` only matches vessels by recording name, and `StripFuturePrelaunchVessels` only strips PRELAUNCH vessels. Player-created vessels (flags, rovers, etc.) that didn't exist at the rewind target UT persist.
+
+**Fix options:** Expand `StripFuturePrelaunchVessels` to strip ALL vessel types not in the quicksave PID whitelist (not just PRELAUNCH). The whitelist already contains the right data.
+
+**Priority:** Medium — flags and other player-created vessels from the future persist after rewind
+
+**Status:** Open — needs careful design (stripping all non-whitelisted vessels could remove legitimate vessels in edge cases)
+
 ## 159. EVA auto-recordings have no rewind save — R button absent
 
 EVA recordings started from non-launch situations (landed base, orbiting station) have no `RewindSaveFileName` because rewind saves are only captured for chain root / launch recordings. The R button in the recordings window doesn't appear for these recordings (shows empty space, not disabled).

@@ -2102,7 +2102,11 @@ namespace Parsek
             // KSP's on-rails aero check (101.3 kPa) immediately destroys spawned vessels.
             // This catches cases where TerminalState is null/Landed but the snapshot was
             // captured mid-flight. (#114)
-            if (IsSnapshotSituationUnsafe(rec.VesselSnapshot))
+            // Override: if terminal state is Landed/Splashed, the vessel DID land safely —
+            // the snapshot's sit field may be stale from recording start (Bug 2b). (#EVA-spawn)
+            bool terminalOverridesUnsafe = rec.TerminalStateValue == TerminalState.Landed ||
+                rec.TerminalStateValue == TerminalState.Splashed;
+            if (!terminalOverridesUnsafe && IsSnapshotSituationUnsafe(rec.VesselSnapshot))
             {
                 return (false, "snapshot situation unsafe (FLYING/SUB_ORBITAL)");
             }
@@ -2125,6 +2129,15 @@ namespace Parsek
         /// </summary>
         internal static (bool needsSpawn, string reason) ShouldSpawnAtKscEnd(Recording rec)
         {
+            return ShouldSpawnAtKscEnd(rec, Planetarium.GetUniversalTime());
+        }
+
+        internal static (bool needsSpawn, string reason) ShouldSpawnAtKscEnd(Recording rec, double currentUT)
+        {
+            // Don't spawn vessels whose recording hasn't finished yet at the current UT (#rewind-persistence)
+            if (currentUT < rec.EndUT)
+                return (false, $"current UT {currentUT:F0} before recording end {rec.EndUT:F0}");
+
             // At KSC, no chain is being built → isActiveChainMember = false
             bool isChainLoopingOrDisabled = !string.IsNullOrEmpty(rec.ChainId) &&
                 (RecordingStore.IsChainLooping(rec.ChainId) ||
