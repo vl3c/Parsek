@@ -64,6 +64,14 @@ All notable changes to Parsek are documented here.
 - **Fix #115/#116: Crew lost to Missing after rewind vessel strip.** New `RescueOrphanedCrew` sets orphaned Assigned crew to Available after vessel stripping, before KSP's validation marks them Missing.
 - **Fix #155: Orphaned recording lost on auto-record vessel switch.** `StartRecording` now commits the orphaned recorder's data before creating a new one.
 - **Fix #76: GhostExtender hyperbolic fallback negative altitude.** Added `Math.Max(0, ...)` to prevent ghost underground placement.
+- **Fix #157: Green sphere ghost for ghost-only debris.** `ApplyVesselDecisions` now preserves `GhostVisualSnapshot` before nulling spawn snapshot.
+- **Fix #161: EVA snapshot situation stale.** `ShouldSpawnAtRecordingEnd` overrides unsafe-situation check when terminal state is Landed/Splashed.
+- **Fix #162: AutoCommitGhostOnly strips snapshot from landed EVAs.** Preserves `VesselSnapshot` for Landed/Splashed terminals.
+- **Fix #163: KSC spawns vessels from the future after rewind.** `ShouldSpawnAtKscEnd` now checks `currentUT >= EndUT`.
+- **Fix #165: Engine flame flash on ignition.** `EngineIgnited` with throttle=0 now uses min 0.01 emission.
+- **ComputeTotal logging removed.** Eliminated 52% of all Parsek log output (pure computation was logging every UI frame).
+- **Status column widened** (95→120px) for longer T+ timestamps.
+- **R/FF button state transition logging** for debugging enable/disable issues.
 
 ### Features
 
