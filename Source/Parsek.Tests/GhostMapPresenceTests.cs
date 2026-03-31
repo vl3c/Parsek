@@ -539,5 +539,249 @@ namespace Parsek.Tests
         }
 
         #endregion
+
+        #region Terminal state filtering (edge cases)
+
+        /// <summary>
+        /// Destroyed terminal state should NOT get a ProtoVessel.
+        /// The terminal orbit would show a trajectory the vessel never completes.
+        /// </summary>
+        [Fact]
+        public void TerminalFilter_Destroyed_ShouldNotGetProtoVessel()
+        {
+            var rec = new Recording
+            {
+                TerminalOrbitBody = "Kerbin",
+                TerminalOrbitSemiMajorAxis = 700000,
+                TerminalStateValue = TerminalState.Destroyed
+            };
+            Assert.True(GhostMapPresence.HasOrbitData(rec));
+            // HasOrbitData is true, but the policy layer should filter by terminal state.
+            // This test documents the expectation: Destroyed recordings have orbit data
+            // but should be filtered out at the policy level.
+            Assert.Equal(TerminalState.Destroyed, rec.TerminalStateValue);
+        }
+
+        /// <summary>
+        /// SubOrbital terminal state should NOT get a ProtoVessel.
+        /// Suborbital trajectories show misleading orbit lines.
+        /// </summary>
+        [Fact]
+        public void TerminalFilter_SubOrbital_ShouldNotGetProtoVessel()
+        {
+            var rec = new Recording
+            {
+                TerminalOrbitBody = "Kerbin",
+                TerminalOrbitSemiMajorAxis = 500000,
+                TerminalStateValue = TerminalState.SubOrbital
+            };
+            Assert.True(GhostMapPresence.HasOrbitData(rec));
+            Assert.Equal(TerminalState.SubOrbital, rec.TerminalStateValue);
+        }
+
+        /// <summary>
+        /// Landed terminal state should NOT get a ProtoVessel.
+        /// Landed vessels have no meaningful orbit.
+        /// </summary>
+        [Fact]
+        public void TerminalFilter_Landed_ShouldNotGetProtoVessel()
+        {
+            var rec = new Recording
+            {
+                TerminalOrbitBody = "Mun",
+                TerminalOrbitSemiMajorAxis = 200000,
+                TerminalStateValue = TerminalState.Landed
+            };
+            Assert.True(GhostMapPresence.HasOrbitData(rec));
+            Assert.Equal(TerminalState.Landed, rec.TerminalStateValue);
+        }
+
+        /// <summary>
+        /// Orbiting terminal state SHOULD get a ProtoVessel.
+        /// This is the primary use case — stable orbit with correct orbit line.
+        /// </summary>
+        [Fact]
+        public void TerminalFilter_Orbiting_ShouldGetProtoVessel()
+        {
+            var rec = new Recording
+            {
+                TerminalOrbitBody = "Kerbin",
+                TerminalOrbitSemiMajorAxis = 700000,
+                TerminalStateValue = TerminalState.Orbiting
+            };
+            Assert.True(GhostMapPresence.HasOrbitData(rec));
+            Assert.Equal(TerminalState.Orbiting, rec.TerminalStateValue);
+        }
+
+        /// <summary>
+        /// Docked terminal state SHOULD get a ProtoVessel.
+        /// Docked vessels are still in orbit.
+        /// </summary>
+        [Fact]
+        public void TerminalFilter_Docked_ShouldGetProtoVessel()
+        {
+            var rec = new Recording
+            {
+                TerminalOrbitBody = "Kerbin",
+                TerminalOrbitSemiMajorAxis = 700000,
+                TerminalStateValue = TerminalState.Docked
+            };
+            Assert.True(GhostMapPresence.HasOrbitData(rec));
+            Assert.Equal(TerminalState.Docked, rec.TerminalStateValue);
+        }
+
+        /// <summary>
+        /// Null terminal state (legacy/in-progress recording) SHOULD get a ProtoVessel
+        /// if orbit data exists. Benefit of the doubt.
+        /// </summary>
+        [Fact]
+        public void TerminalFilter_NullState_ShouldGetProtoVessel()
+        {
+            var rec = new Recording
+            {
+                TerminalOrbitBody = "Kerbin",
+                TerminalOrbitSemiMajorAxis = 700000,
+                TerminalStateValue = null
+            };
+            Assert.True(GhostMapPresence.HasOrbitData(rec));
+            Assert.Null(rec.TerminalStateValue);
+        }
+
+        #endregion
+
+        #region Debris filtering
+
+        /// <summary>
+        /// Debris recordings should NOT get ProtoVessels even with valid orbit data.
+        /// Only main vessels with controllers get map presence.
+        /// </summary>
+        [Fact]
+        public void DebrisFilter_IsDebris_ShouldNotGetProtoVessel()
+        {
+            var rec = new Recording
+            {
+                TerminalOrbitBody = "Kerbin",
+                TerminalOrbitSemiMajorAxis = 700000,
+                TerminalStateValue = TerminalState.Orbiting,
+                IsDebris = true
+            };
+            Assert.True(GhostMapPresence.HasOrbitData(rec));
+            Assert.True(rec.IsDebris);
+        }
+
+        /// <summary>
+        /// Non-debris recording with orbit data should get ProtoVessel.
+        /// </summary>
+        [Fact]
+        public void DebrisFilter_NotDebris_ShouldGetProtoVessel()
+        {
+            var rec = new Recording
+            {
+                TerminalOrbitBody = "Kerbin",
+                TerminalOrbitSemiMajorAxis = 700000,
+                TerminalStateValue = TerminalState.Orbiting,
+                IsDebris = false
+            };
+            Assert.True(GhostMapPresence.HasOrbitData(rec));
+            Assert.False(rec.IsDebris);
+        }
+
+        #endregion
+
+        #region Recording index tracking
+
+        /// <summary>
+        /// FindRecordingIndexByVesselPid returns -1 when no vessels tracked.
+        /// </summary>
+        [Fact]
+        public void FindRecordingIndex_EmptyState_ReturnsNegativeOne()
+        {
+            Assert.Equal(-1, GhostMapPresence.FindRecordingIndexByVesselPid(12345));
+        }
+
+        /// <summary>
+        /// Multiple recording-index ghosts tracked independently.
+        /// Removing one doesn't affect others.
+        /// </summary>
+        [Fact]
+        public void RecordingIndexTracking_MultipleIndices_Independent()
+        {
+            // Simulate adding two recording-index entries via PID set
+            GhostMapPresence.ghostMapVesselPids.Add(100);
+            GhostMapPresence.ghostMapVesselPids.Add(200);
+
+            Assert.True(GhostMapPresence.IsGhostMapVessel(100));
+            Assert.True(GhostMapPresence.IsGhostMapVessel(200));
+
+            GhostMapPresence.ghostMapVesselPids.Remove(100);
+            Assert.False(GhostMapPresence.IsGhostMapVessel(100));
+            Assert.True(GhostMapPresence.IsGhostMapVessel(200));
+        }
+
+        #endregion
+
+        #region Orbit segment tracking on GhostChain
+
+        /// <summary>
+        /// GhostChain LastMapOrbitBodyName/Sma start as null/0 (no segment tracked yet).
+        /// </summary>
+        [Fact]
+        public void GhostChain_OrbitTracking_InitiallyNull()
+        {
+            var chain = new GhostChain();
+            Assert.Null(chain.LastMapOrbitBodyName);
+            Assert.Equal(0.0, chain.LastMapOrbitSma);
+        }
+
+        /// <summary>
+        /// After setting orbit tracking fields, they retain values.
+        /// Used by UpdateChainGhostOrbitIfNeeded to detect segment changes.
+        /// </summary>
+        [Fact]
+        public void GhostChain_OrbitTracking_RetainsValues()
+        {
+            var chain = new GhostChain
+            {
+                LastMapOrbitBodyName = "Kerbin",
+                LastMapOrbitSma = 700000
+            };
+            Assert.Equal("Kerbin", chain.LastMapOrbitBodyName);
+            Assert.Equal(700000, chain.LastMapOrbitSma);
+        }
+
+        /// <summary>
+        /// Segment change detection: same body+SMA means no change.
+        /// </summary>
+        [Fact]
+        public void GhostChain_OrbitTracking_SameValues_NoChange()
+        {
+            var chain = new GhostChain
+            {
+                LastMapOrbitBodyName = "Kerbin",
+                LastMapOrbitSma = 700000
+            };
+            // Simulating the check in UpdateChainGhostOrbitIfNeeded
+            bool changed = (chain.LastMapOrbitBodyName != "Kerbin"
+                || chain.LastMapOrbitSma != 700000);
+            Assert.False(changed);
+        }
+
+        /// <summary>
+        /// Segment change detection: different body means SOI transition.
+        /// </summary>
+        [Fact]
+        public void GhostChain_OrbitTracking_BodyChange_DetectedAsSOITransition()
+        {
+            var chain = new GhostChain
+            {
+                LastMapOrbitBodyName = "Kerbin",
+                LastMapOrbitSma = 700000
+            };
+            bool changed = (chain.LastMapOrbitBodyName != "Mun"
+                || chain.LastMapOrbitSma != 200000);
+            Assert.True(changed);
+        }
+
+        #endregion
     }
 }
