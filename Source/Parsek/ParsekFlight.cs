@@ -41,6 +41,10 @@ namespace Parsek
         // ghost spawns and other processing into the dying scene.
         private bool sceneChangeInProgress;
 
+        // Deferred watch target after fast-forward — the ghost needs one frame
+        // to be positioned after the time jump before we can enter watch mode.
+        private int pendingWatchAfterFF = -1;
+
         // Manual playback state (preview of current recording)
         private bool isPlaying = false;
         private double playbackStartUT;
@@ -5760,6 +5764,20 @@ namespace Parsek
             // Run engine rendering
             engine.UpdatePlayback(cachedTrajectories, flags, ctx);
 
+            // Deferred watch after fast-forward: enter watch mode on the FF target
+            // now that the engine has positioned ghosts for the new UT.
+            if (pendingWatchAfterFF >= 0)
+            {
+                int ffIdx = pendingWatchAfterFF;
+                pendingWatchAfterFF = -1;
+                if (HasActiveGhost(ffIdx))
+                {
+                    EnterWatchMode(ffIdx);
+                    ParsekLog.Info("CameraFollow",
+                        $"Deferred FF watch entered: #{ffIdx}");
+                }
+            }
+
             // Retry held ghost spawns (#96): ghosts held at final position while
             // waiting for a blocked/deferred spawn to resolve
             policy.RetryHeldGhostSpawns();
@@ -6293,24 +6311,56 @@ namespace Parsek
 
             // Watch-end hold timer: after non-looped playback completes, the ghost
             // is held visible for a few seconds so the user sees the terminal state.
+            // During the hold, try to auto-follow to a continuation ghost each frame
+            // (continuation may not exist yet at completion time — spawn race condition).
             // Once expired, destroy the ghost and exit watch mode.
-            if (watchEndHoldUntilUT > 0 && Planetarium.GetUniversalTime() >= watchEndHoldUntilUT)
+            if (watchEndHoldUntilUT > 0)
             {
                 int idx = watchedRecordingIndex;
-                ParsekLog.Info("CameraFollow",
-                    $"Watch hold expired for #{idx} at UT {watchEndHoldUntilUT:F1} — destroying ghost and exiting watch");
-                watchEndHoldUntilUT = -1;
-                GhostPlaybackState held;
-                if (ghostStates.TryGetValue(idx, out held) && held != null)
+                var committed = RecordingStore.CommittedRecordings;
+
+                // Try auto-follow each frame during the hold — continuation ghost
+                // may have spawned since the initial check in HandlePlaybackCompleted
+                if (idx >= 0 && idx < committed.Count)
                 {
-                    var committed = RecordingStore.CommittedRecordings;
-                    if (idx >= 0 && idx < committed.Count)
+                    int nextTarget = FindNextWatchTarget(idx, committed[idx]);
+                    if (nextTarget >= 0)
                     {
-                        var traj = committed[idx] as IPlaybackTrajectory;
-                        engine.DestroyGhost(idx, traj, default(TrajectoryPlaybackFlags), reason: "watch hold expired");
+                        ParsekLog.Info("CameraFollow",
+                            $"Watch hold auto-follow: #{idx} → #{nextTarget} (during hold period)");
+                        watchEndHoldUntilUT = -1;
+                        GhostPlaybackState held;
+                        if (ghostStates.TryGetValue(idx, out held) && held != null)
+                        {
+                            var traj = committed[idx] as IPlaybackTrajectory;
+                            engine.DestroyGhost(idx, traj, default(TrajectoryPlaybackFlags),
+                                reason: "auto-followed during hold");
+                        }
+                        TransferWatchToNextSegment(nextTarget);
+                        return;
                     }
                 }
-                ExitWatchMode();
+
+                // Hold expired — no continuation found, destroy and exit
+                if (Planetarium.GetUniversalTime() >= watchEndHoldUntilUT)
+                {
+                    ParsekLog.Info("CameraFollow",
+                        $"Watch hold expired for #{idx} at UT {watchEndHoldUntilUT:F1} — destroying ghost and exiting watch");
+                    watchEndHoldUntilUT = -1;
+                    GhostPlaybackState held;
+                    if (ghostStates.TryGetValue(idx, out held) && held != null)
+                    {
+                        if (idx >= 0 && idx < committed.Count)
+                        {
+                            var traj = committed[idx] as IPlaybackTrajectory;
+                            engine.DestroyGhost(idx, traj, default(TrajectoryPlaybackFlags), reason: "watch hold expired");
+                        }
+                    }
+                    ExitWatchMode();
+                    return;
+                }
+
+                // Still in hold period — don't process further (ghost is frozen at final pos)
                 return;
             }
 
@@ -8154,6 +8204,32 @@ namespace Parsek
                 string.Format(CultureInfo.InvariantCulture,
                     "FastForwardToRecording: jumping to UT={0:F1} for '{1}' (delta={2:F1}s)",
                     targetUT, rec.VesselName, targetUT - currentUT));
+
+            // If watching, transfer watch to the FF target recording.
+            // The current watched ghost may be far away after the time jump.
+            if (watchedRecordingIndex >= 0)
+            {
+                var committed = RecordingStore.CommittedRecordings;
+                int ffTargetIdx = -1;
+                for (int i = 0; i < committed.Count; i++)
+                {
+                    if (committed[i].RecordingId == rec.RecordingId)
+                    {
+                        ffTargetIdx = i;
+                        break;
+                    }
+                }
+                if (ffTargetIdx >= 0 && ffTargetIdx != watchedRecordingIndex)
+                {
+                    ParsekLog.Info("CameraFollow",
+                        $"FF transfer: watch #{watchedRecordingIndex} → #{ffTargetIdx} \"{rec.VesselName}\"");
+                    // Exit current watch, ghost will be positioned by engine after time jump
+                    ExitWatchMode();
+                    // Defer entering watch on the target — the ghost needs to be positioned
+                    // after the time jump. Store the target for post-jump pickup.
+                    pendingWatchAfterFF = ffTargetIdx;
+                }
+            }
 
             TimeJumpManager.NotifyRecorder(recorder, currentUT, targetUT);
             TimeJumpManager.ExecuteForwardJump(targetUT);
