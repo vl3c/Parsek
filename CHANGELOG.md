@@ -59,6 +59,10 @@ All notable changes to Parsek are documented here.
 - **Fix #107: Engine/SRB smoke trails vanish on ghost despawn.** Particle systems are now detached from the ghost hierarchy before destruction, allowing trails to fade naturally (8s linger).
 - **Fix #125: Engine plate shrouds not visible on ghost.** Inactive-variant renderer filter preempted GAMEOBJECT rules. When explicit variant rules exist, they are now the sole authority on object inclusion.
 - **Engine throttle deadband increased to 5%.** SRBs with smooth thrust curves generated excessive EngineThrottle events at 1% deadband. Matches RCS deadband (#149).
+- **Fix #56: Auto-record EVA from any vessel situation.** Removed PRELAUNCH restriction — kerbals EVA'ing from landed bases, orbiting stations, etc. now auto-record.
+- **Fix #57: Boarding confirmation timeout too short.** Increased from 3 frames (~60ms) to 10 frames (~200ms).
+- **Fix #115/#116: Crew lost to Missing after rewind vessel strip.** New `RescueOrphanedCrew` sets orphaned Assigned crew to Available after vessel stripping, before KSP's validation marks them Missing.
+- **Fix #155: Orphaned recording lost on auto-record vessel switch.** `StartRecording` now commits the orphaned recorder's data before creating a new one.
 
 ### Features
 
@@ -80,6 +84,9 @@ All notable changes to Parsek are documented here.
 - **#63** — added `errorWhitelist` parameter to `ParsekLogContractChecker.ValidateLatestSession`.
 - **#83** — CommNet stale nodes concern is not a bug; follows stock KSP re-registration pattern.
 - **#108** — engine cutoff polling logic (`EngineIgnited && isOperational`) correctly catches flameout; remaining inconsistency needs in-game repro.
+- **#113** — stock FX modules infeasible on ghost architecture; current reimplementation is correct.
+- **#153** — AnimateHeat nose cone classification requires reflection hack for negligible visual effect; won't fix.
+- **#156** — extracted `IsPadFailure` static method + 7 tests; remaining items need Unity runtime.
 
 Log spam audit and cleanup. Analyzed a 28,923-line KSP.log from a 70-second KSC session with 273 recordings — Parsek was 68.4% of all output (19,771 lines). Identified and fixed the top spam sources.
 
