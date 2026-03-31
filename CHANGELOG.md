@@ -55,6 +55,9 @@ All notable changes to Parsek are documented here.
 - **Fix #150: Engine/RCS FX not stopped at on-rails.** `FlightRecorder.OnVesselGoOnRails` now calls `EmitTerminalEngineAndRcsEvents()` before going on-rails. Ghost engine plumes no longer persist during orbit segments.
 - **Fix #151: FF watch renders broken scene.** Added 100km distance guard in `EnterWatchMode` — refuses watch when ghost is beyond rendering-safe distance from active vessel. Rate-limited `FindNextWatchTarget` logging during watch hold.
 - **Fix: Enter key on camera cutoff input.** Enter key now commits the value (KeyDown was consumed by TextField before the check ran).
+- **Fix #74: RELATIVE mode boundary point at on-rails.** `SamplePosition` recorded absolute lat/lon/alt into a RELATIVE TrackSection at on-rails boundaries. Moved RELATIVE clearing before boundary sampling.
+- **Fix #107: Engine/SRB smoke trails vanish on ghost despawn.** Particle systems are now detached from the ghost hierarchy before destruction, allowing trails to fade naturally (8s linger).
+- **Fix #125: Engine plate shrouds not visible on ghost.** Inactive-variant renderer filter preempted GAMEOBJECT rules. When explicit variant rules exist, they are now the sole authority on object inclusion.
 
 ### Features
 
@@ -74,6 +77,8 @@ All notable changes to Parsek are documented here.
 - **#121** (Ghost SKIPPED log spam) — resolved by T25 Phase 9 engine extraction.
 - **#133** — removed 6 dead forwarding methods + 2 unused properties from ParsekFlight, inlined call sites.
 - **#63** — added `errorWhitelist` parameter to `ParsekLogContractChecker.ValidateLatestSession`.
+- **#83** — CommNet stale nodes concern is not a bug; follows stock KSP re-registration pattern.
+- **#108** — engine cutoff polling logic (`EngineIgnited && isOperational`) correctly catches flameout; remaining inconsistency needs in-game repro.
 
 Log spam audit and cleanup. Analyzed a 28,923-line KSP.log from a 70-second KSC session with 273 recordings — Parsek was 68.4% of all output (19,771 lines). Identified and fixed the top spam sources.
 
