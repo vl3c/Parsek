@@ -1312,12 +1312,12 @@ namespace Parsek
                 statusStyle = statusStylePast;
                 if (rec.IsDebris)
                     statusText = "past";
-                else if (rec.VesselSpawned && rec.TerminalStateValue.HasValue)
+                else if (rec.TerminalStateValue.HasValue)
                     statusText = rec.TerminalStateValue.Value.ToString();
                 else if (rec.Points.Count > 0)
                     statusText = SelectiveSpawnUI.FormatCountdown(rec.StartUT - now);
                 else
-                    statusText = rec.TerminalStateValue?.ToString() ?? "past";
+                    statusText = "past";
             }
 
             // Phase 6d-3: Chain status tooltip — show ghost chain info on hover
@@ -3336,39 +3336,35 @@ namespace Parsek
                 "Watch mode auto-exits when ghost exceeds this distance from the active vessel"),
                 GUILayout.Width(85));
             {
-                // Single-branch approach: always use the edit buffer.
-                // On focus gain, snapshot the display value. On focus loss or Enter, commit.
-                GUI.SetNextControlName("CameraCutoffEdit");
-                bool wasFocused = settingsCameraCutoffEditing;
-
-                // Check Enter before TextField (TextField consumes KeyDown internally)
-                bool submitCutoff = wasFocused &&
-                    Event.current.type == EventType.KeyDown &&
-                    (Event.current.keyCode == KeyCode.Return || Event.current.keyCode == KeyCode.KeypadEnter);
-
-                string editText = wasFocused ? settingsCameraCutoffText
-                    : s.ghostCameraCutoffKm.ToString("F0", System.Globalization.CultureInfo.InvariantCulture);
-                string newText = GUILayout.TextField(editText, GUILayout.Width(45));
-                settingsCameraCutoffEditRect = GUILayoutUtility.GetLastRect();
-
-                bool isFocused = GUI.GetNameOfFocusedControl() == "CameraCutoffEdit";
-                if (isFocused && !wasFocused)
+                if (!settingsCameraCutoffEditing)
                 {
-                    // Just gained focus — start editing
-                    settingsCameraCutoffText = newText;
-                    settingsCameraCutoffEditing = true;
+                    string displayText = s.ghostCameraCutoffKm.ToString("F0", System.Globalization.CultureInfo.InvariantCulture);
+                    GUI.SetNextControlName("CameraCutoffEdit");
+                    string newText = GUILayout.TextField(displayText, GUILayout.Width(45));
+                    if (GUI.GetNameOfFocusedControl() == "CameraCutoffEdit")
+                    {
+                        settingsCameraCutoffText = newText;
+                        settingsCameraCutoffEditing = true;
+                        settingsCameraCutoffEditRect = GUILayoutUtility.GetLastRect();
+                    }
                 }
-                else if (isFocused)
+                else
                 {
-                    // Still editing — track text changes
-                    settingsCameraCutoffText = newText;
-                }
+                    // Enter key → commit (check before TextField, which consumes KeyDown)
+                    bool submitCutoff = Event.current.type == EventType.KeyDown &&
+                        (Event.current.keyCode == KeyCode.Return || Event.current.keyCode == KeyCode.KeypadEnter);
 
-                if (submitCutoff || (wasFocused && !isFocused))
-                {
-                    // Enter pressed or focus lost — commit
-                    CommitSettingsCameraCutoffEdit(s);
-                    if (submitCutoff) Event.current.Use();
+                    GUI.SetNextControlName("CameraCutoffEdit");
+                    string newText = GUILayout.TextField(settingsCameraCutoffText, GUILayout.Width(45));
+                    settingsCameraCutoffEditRect = GUILayoutUtility.GetLastRect();
+                    if (newText != settingsCameraCutoffText)
+                        settingsCameraCutoffText = newText;
+
+                    if (submitCutoff)
+                    {
+                        CommitSettingsCameraCutoffEdit(s);
+                        Event.current.Use();
+                    }
                 }
             }
             GUILayout.Label("km");
