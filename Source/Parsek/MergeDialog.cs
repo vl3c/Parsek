@@ -102,6 +102,7 @@ namespace Parsek
                             double endUT = pending.EndUT;
                             RecordingStore.CommitPending();
                             LedgerOrchestrator.OnRecordingCommitted(recId, startUT, endUT);
+                            KerbalsModule.RecalculateAndApply();
                             ClearPendingFlag();
                             ReplayFlightResultsIfPending();
                             ParsekLog.ScreenMessage("Recording merged to timeline!", 3f);
@@ -230,6 +231,7 @@ namespace Parsek
                         double endUT = pending.EndUT;
                         RecordingStore.CommitPending();
                         LedgerOrchestrator.OnRecordingCommitted(recId, startUT, endUT);
+                        KerbalsModule.RecalculateAndApply();
                         ClearPendingFlag();
                         ReplayFlightResultsIfPending();
                         ParsekLog.ScreenMessage($"Mission chain ({totalSegments} segments) merged!", 3f);

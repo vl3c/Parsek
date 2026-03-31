@@ -188,42 +188,45 @@ namespace Parsek
         {
             if (contract == null) return;
             var title = contract.Title ?? "";
+            var detail = $"title={title};fundsReward={contract.FundsCompletion};repReward={contract.ReputationCompletion};sciReward={contract.ScienceCompletion}";
             GameStateStore.AddEvent(new GameStateEvent
             {
                 ut = Planetarium.GetUniversalTime(),
                 eventType = GameStateEventType.ContractCompleted,
                 key = contract.ContractGuid.ToString(),
-                detail = title
+                detail = detail
             });
-            ParsekLog.Info("GameStateRecorder", $"Game state: ContractCompleted '{title}'");
+            ParsekLog.Info("GameStateRecorder", $"Game state: ContractCompleted '{title}' (funds={contract.FundsCompletion}, rep={contract.ReputationCompletion}, sci={contract.ScienceCompletion})");
         }
 
         private void OnContractFailed(Contract contract)
         {
             if (contract == null) return;
             var title = contract.Title ?? "";
+            var detail = $"title={title};fundsPenalty={contract.FundsFailure};repPenalty={contract.ReputationFailure}";
             GameStateStore.AddEvent(new GameStateEvent
             {
                 ut = Planetarium.GetUniversalTime(),
                 eventType = GameStateEventType.ContractFailed,
                 key = contract.ContractGuid.ToString(),
-                detail = title
+                detail = detail
             });
-            ParsekLog.Info("GameStateRecorder", $"Game state: ContractFailed '{title}'");
+            ParsekLog.Info("GameStateRecorder", $"Game state: ContractFailed '{title}' (fundsPenalty={contract.FundsFailure}, repPenalty={contract.ReputationFailure})");
         }
 
         private void OnContractCancelled(Contract contract)
         {
             if (contract == null) return;
             var title = contract.Title ?? "";
+            var detail = $"title={title};fundsPenalty={contract.FundsFailure};repPenalty={contract.ReputationFailure}";
             GameStateStore.AddEvent(new GameStateEvent
             {
                 ut = Planetarium.GetUniversalTime(),
                 eventType = GameStateEventType.ContractCancelled,
                 key = contract.ContractGuid.ToString(),
-                detail = title
+                detail = detail
             });
-            ParsekLog.Info("GameStateRecorder", $"Game state: ContractCancelled '{title}'");
+            ParsekLog.Info("GameStateRecorder", $"Game state: ContractCancelled '{title}' (fundsPenalty={contract.FundsFailure}, repPenalty={contract.ReputationFailure})");
         }
 
         private void OnContractDeclined(Contract contract)

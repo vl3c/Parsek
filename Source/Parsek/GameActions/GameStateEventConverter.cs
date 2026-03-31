@@ -260,15 +260,21 @@ namespace Parsek
             };
         }
 
-        /// <summary>BuildingRepaired -> FacilityRepair (buildingId=key).</summary>
+        /// <summary>BuildingRepaired -> FacilityRepair (buildingId=key, cost from detail).</summary>
         private static GameAction ConvertBuildingRepaired(GameStateEvent evt, string recordingId)
         {
+            float cost = 0f;
+            string costStr = ExtractDetail(evt.detail, "cost");
+            if (costStr != null)
+                float.TryParse(costStr, NumberStyles.Float, IC, out cost);
+
             return new GameAction
             {
                 UT = evt.ut,
                 Type = GameActionType.FacilityRepair,
                 RecordingId = recordingId,
-                FacilityId = evt.key
+                FacilityId = evt.key,
+                FacilityCost = cost
             };
         }
 
@@ -308,39 +314,88 @@ namespace Parsek
             };
         }
 
-        /// <summary>ContractCompleted -> ContractComplete (contractId=key, title from detail).</summary>
+        /// <summary>ContractCompleted -> ContractComplete (contractId=key, rewards from detail).</summary>
         private static GameAction ConvertContractCompleted(GameStateEvent evt, string recordingId)
         {
+            float fundsReward = 0f;
+            float repReward = 0f;
+            float sciReward = 0f;
+
+            string fundsStr = ExtractDetail(evt.detail, "fundsReward");
+            if (fundsStr != null)
+                float.TryParse(fundsStr, NumberStyles.Float, IC, out fundsReward);
+
+            string repStr = ExtractDetail(evt.detail, "repReward");
+            if (repStr != null)
+                float.TryParse(repStr, NumberStyles.Float, IC, out repReward);
+
+            string sciStr = ExtractDetail(evt.detail, "sciReward");
+            if (sciStr != null)
+                float.TryParse(sciStr, NumberStyles.Float, IC, out sciReward);
+
+            if (fundsReward == 0f && repReward == 0f && sciReward == 0f)
+                ParsekLog.Warn(Tag,
+                    $"ConvertContractCompleted: all rewards are 0 for contract '{evt.key}' — detail may lack reward fields");
+
             return new GameAction
             {
                 UT = evt.ut,
                 Type = GameActionType.ContractComplete,
                 RecordingId = recordingId,
-                ContractId = evt.key
+                ContractId = evt.key,
+                FundsReward = fundsReward,
+                RepReward = repReward,
+                ScienceReward = sciReward
             };
         }
 
-        /// <summary>ContractFailed -> ContractFail (contractId=key).</summary>
+        /// <summary>ContractFailed -> ContractFail (contractId=key, penalties from detail).</summary>
         private static GameAction ConvertContractFailed(GameStateEvent evt, string recordingId)
         {
+            float fundsPenalty = 0f;
+            float repPenalty = 0f;
+
+            string fundsStr = ExtractDetail(evt.detail, "fundsPenalty");
+            if (fundsStr != null)
+                float.TryParse(fundsStr, NumberStyles.Float, IC, out fundsPenalty);
+
+            string repStr = ExtractDetail(evt.detail, "repPenalty");
+            if (repStr != null)
+                float.TryParse(repStr, NumberStyles.Float, IC, out repPenalty);
+
             return new GameAction
             {
                 UT = evt.ut,
                 Type = GameActionType.ContractFail,
                 RecordingId = recordingId,
-                ContractId = evt.key
+                ContractId = evt.key,
+                FundsPenalty = fundsPenalty,
+                RepPenalty = repPenalty
             };
         }
 
-        /// <summary>ContractCancelled -> ContractCancel (contractId=key).</summary>
+        /// <summary>ContractCancelled -> ContractCancel (contractId=key, penalties from detail).</summary>
         private static GameAction ConvertContractCancelled(GameStateEvent evt, string recordingId)
         {
+            float fundsPenalty = 0f;
+            float repPenalty = 0f;
+
+            string fundsStr = ExtractDetail(evt.detail, "fundsPenalty");
+            if (fundsStr != null)
+                float.TryParse(fundsStr, NumberStyles.Float, IC, out fundsPenalty);
+
+            string repStr = ExtractDetail(evt.detail, "repPenalty");
+            if (repStr != null)
+                float.TryParse(repStr, NumberStyles.Float, IC, out repPenalty);
+
             return new GameAction
             {
                 UT = evt.ut,
                 Type = GameActionType.ContractCancel,
                 RecordingId = recordingId,
-                ContractId = evt.key
+                ContractId = evt.key,
+                FundsPenalty = fundsPenalty,
+                RepPenalty = repPenalty
             };
         }
 

@@ -190,10 +190,10 @@ namespace Parsek
         private SpawnSortColumn cachedSortColumn = SpawnSortColumn.Distance;
         private bool cachedSortAscending = true;
 
-        // Per-frame cached resource budget — avoids duplicate ComputeTotal calls
-        // when both DrawCompactBudgetLine (main window) and DrawResourceBudget (actions window) run
-        private BudgetSummary cachedBudget;
-        private int cachedBudgetFrame = -1;
+        // DISABLED: replaced by LedgerOrchestrator — budget fields retained for future UI integration
+        // private BudgetSummary cachedBudget;
+        // private int cachedBudgetFrame = -1;
+        private BudgetSummary cachedBudget = default(BudgetSummary);
 
         public ParsekUI(ParsekFlight flight)
         {
@@ -211,22 +211,23 @@ namespace Parsek
         private const float SpacingLarge = 10f;
 
         /// <summary>
-        /// Returns the resource budget, cached once per frame. Avoids duplicate
-        /// ComputeTotal calls when both the main window and actions window render.
+        /// Returns the resource budget, cached once per frame.
+        /// DISABLED: replaced by LedgerOrchestrator — returns empty budget.
         /// </summary>
         private BudgetSummary GetCachedBudget()
         {
-            int currentFrame = Time.frameCount;
-            if (cachedBudgetFrame != currentFrame)
-            {
-                cachedBudget = ResourceBudget.ComputeTotal(
-                    RecordingStore.CommittedRecordings,
-                    MilestoneStore.Milestones,
-                    RecordingStore.CommittedTrees);
-                cachedBudgetFrame = currentFrame;
-                ParsekLog.VerboseRateLimited("UI", "budget-recompute",
-                    $"GetCachedBudget: recomputed budget (frame {currentFrame})");
-            }
+            // DISABLED: replaced by LedgerOrchestrator
+            // int currentFrame = Time.frameCount;
+            // if (cachedBudgetFrame != currentFrame)
+            // {
+            //     cachedBudget = ResourceBudget.ComputeTotal(
+            //         RecordingStore.CommittedRecordings,
+            //         MilestoneStore.Milestones,
+            //         RecordingStore.CommittedTrees);
+            //     cachedBudgetFrame = currentFrame;
+            //     ParsekLog.VerboseRateLimited("UI", "budget-recompute",
+            //         $"GetCachedBudget: recomputed budget (frame {currentFrame})");
+            // }
             return cachedBudget;
         }
 
@@ -2502,7 +2503,8 @@ namespace Parsek
                     new DialogGUIButton("Wipe All", () =>
                     {
                         MilestoneStore.ClearAll();
-                        ResourceBudget.Invalidate();
+                        // DISABLED: replaced by LedgerOrchestrator
+                        // ResourceBudget.Invalidate();
                         ParsekLog.Info("UI", "All game actions wiped");
                         ParsekLog.ScreenMessage("All game actions wiped", 2f);
                     }),

@@ -219,7 +219,8 @@ namespace Parsek
             double endUT = pendingRecording.EndUT;
             pendingRecording = null;
 
-            ResourceBudget.Invalidate();
+            // DISABLED: replaced by LedgerOrchestrator
+            // ResourceBudget.Invalidate();
 
             // Capture a game state baseline at each commit (single funnel point)
             GameStateStore.CaptureBaselineIfNeeded();
@@ -241,7 +242,8 @@ namespace Parsek
 
             Log($"[Parsek] Discarded pending recording from {pendingRecording.VesselName}");
             pendingRecording = null;
-            ResourceBudget.Invalidate();
+            // DISABLED: replaced by LedgerOrchestrator
+            // ResourceBudget.Invalidate();
         }
 
         public static void ClearCommitted()
@@ -252,7 +254,8 @@ namespace Parsek
             committedRecordings.Clear();
             committedTrees.Clear();
             GameStateRecorder.PendingScienceSubjects.Clear();
-            ResourceBudget.Invalidate();
+            // DISABLED: replaced by LedgerOrchestrator
+            // ResourceBudget.Invalidate();
             Log($"[Parsek] Cleared {count} committed recordings and all trees");
         }
 
@@ -433,7 +436,8 @@ namespace Parsek
             Log($"[Parsek] Committed tree '{tree.TreeName}' ({tree.Recordings.Count} recordings). " +
                 $"Total committed: {committedRecordings.Count} recordings, {committedTrees.Count} trees");
 
-            ResourceBudget.Invalidate();
+            // DISABLED: replaced by LedgerOrchestrator
+            // ResourceBudget.Invalidate();
 
             // Capture a game state baseline at each commit
             GameStateStore.CaptureBaselineIfNeeded();
@@ -492,7 +496,8 @@ namespace Parsek
             GameStateRecorder.PendingScienceSubjects.Clear();
             Log($"[Parsek] Discarded pending tree '{pendingTree.TreeName}'");
             pendingTree = null;
-            ResourceBudget.Invalidate();
+            // DISABLED: replaced by LedgerOrchestrator
+            // ResourceBudget.Invalidate();
         }
 
         /// <summary>
@@ -1271,7 +1276,8 @@ namespace Parsek
                     ResetRecordingPlaybackFields(rec);
             }
 
-            ResourceBudget.Invalidate();
+            // DISABLED: replaced by LedgerOrchestrator
+            // ResourceBudget.Invalidate();
 
             if (!SuppressLogging)
                 ParsekLog.Info("Rewind",
@@ -1426,7 +1432,8 @@ namespace Parsek
                 }
             }
 
-            ResourceBudget.Invalidate();
+            // DISABLED: replaced by LedgerOrchestrator
+            // ResourceBudget.Invalidate();
 
             if (!SuppressLogging)
                 ParsekLog.Info("Rewind",
