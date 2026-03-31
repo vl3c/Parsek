@@ -1840,27 +1840,6 @@ After FF (fast-forward time jump) to a distant recording segment, Parsek transfe
 
 **Status:** Fixed — added 100km distance guard in `EnterWatchMode` (refuses watch + shows screen message when ghost is beyond rendering-safe distance). Also rate-limited `FindNextWatchTarget` logging during watch hold to eliminate ~200-line per-hold spam.
 
-## 155. Orphaned CaptureAtStop lost on auto-record vessel switch
-
-When recording stops due to vessel switch (non-chain, non-tree), `CaptureAtStop` is built but not committed. If auto-record triggers on the new vessel before a scene change, `StartRecording` overwrites `recorder`, silently losing the old recording data.
-
-**Priority:** Medium — recording data silently lost
-
-**Status:** Fixed — `StartRecording` now calls `FallbackCommitSplitRecorder` on the orphaned recorder before creating a new one. Only applies to non-chain, non-tree cases (chain/tree paths already commit properly).
-
-## 156. Missing test coverage from lifecycle simulation
-
-Areas identified by code path simulation that lack unit tests:
-
-1. `HandleVesselSwitchDuringRecording` with `Stop` decision — no test verifies recording data is committed/stashed rather than orphaned (now fixed by #155, but no regression test)
-2. `CacheEngineModules` with partially-loaded vessel — only null vessel tested; no test for null part entries in parts list
-3. `CheckAtmosphereBoundary` → `HandleAtmosphereBoundarySplit` → `HandleSoiChangeSplit` in sequence — no integration test for rapid multi-boundary scenario
-4. `FallbackCommitSplitRecorder` pad-failure threshold (< 10s AND < 30m) — not tested for the split-recorder fallback path specifically
-
-**Priority:** Low — test infrastructure
-
-**Status:** Open
-
 ## 152. GhostVesselSwitchPatch Harmony ambiguous match
 
 `GhostVesselSwitchPatch` (on `ghost-orbits-trajectories` branch) fails with "Ambiguous match for HarmonyMethod[(class=FlightGlobals, methodname=SetActiveVessel, type=Normal, args=undefined)]". `FlightGlobals.SetActiveVessel` has multiple overloads in KSP 1.12.5 and the `[HarmonyPatch]` attribute doesn't specify parameter types.
@@ -1886,6 +1865,27 @@ KSP warns `Texture resolution is not valid for compression` for the 38x38 toolba
 **Fix:** Resize to 32x32 or 64x64.
 
 **Priority:** Low — cosmetic, icon works fine uncompressed
+
+**Status:** Open
+
+## 155. Orphaned CaptureAtStop lost on auto-record vessel switch
+
+When recording stops due to vessel switch (non-chain, non-tree), `CaptureAtStop` is built but not committed. If auto-record triggers on the new vessel before a scene change, `StartRecording` overwrites `recorder`, silently losing the old recording data.
+
+**Priority:** Medium — recording data silently lost
+
+**Status:** Fixed — `StartRecording` now calls `FallbackCommitSplitRecorder` on the orphaned recorder before creating a new one. Only applies to non-chain, non-tree cases (chain/tree paths already commit properly).
+
+## 156. Missing test coverage from lifecycle simulation
+
+Areas identified by code path simulation that lack unit tests:
+
+1. `HandleVesselSwitchDuringRecording` with `Stop` decision — no test verifies recording data is committed/stashed rather than orphaned (now fixed by #155, but no regression test)
+2. `CacheEngineModules` with partially-loaded vessel — only null vessel tested; no test for null part entries in parts list
+3. `CheckAtmosphereBoundary` → `HandleAtmosphereBoundarySplit` → `HandleSoiChangeSplit` in sequence — no integration test for rapid multi-boundary scenario
+4. `FallbackCommitSplitRecorder` pad-failure threshold (< 10s AND < 30m) — not tested for the split-recorder fallback path specifically
+
+**Priority:** Low — test infrastructure
 
 **Status:** Open
 
