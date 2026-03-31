@@ -149,7 +149,6 @@ namespace Parsek
         }
 
         /// <summary>
-        /// <summary>
         /// Merges recording B into recording A (A absorbs B).
         /// Points, events, sections, and orbit segments are concatenated.
         /// Returns B's RecordingId (caller deletes files + removes from store).
@@ -347,16 +346,14 @@ namespace Parsek
         /// <summary>
         /// Maps a SegmentEnvironment to a phase tag for post-split recordings.
         /// Only used by SplitAtSection — not a general-purpose mapping.
-        /// Surface and propulsive environments near-surface map to "approach" (airless body near-surface).
-        /// Atmospheric maps to "atmo". Everything else maps to "exo".
         /// </summary>
         private static string EnvironmentToPhase(SegmentEnvironment env)
         {
             switch (env)
             {
                 case SegmentEnvironment.Atmospheric: return "atmo";
-                case SegmentEnvironment.SurfaceMobile:
-                case SegmentEnvironment.SurfaceStationary: return "approach";
+                case SegmentEnvironment.SurfaceMobile: return "surface";
+                case SegmentEnvironment.SurfaceStationary: return "surface";
                 default: return "exo";
             }
         }

@@ -487,6 +487,18 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void SplitAtSection_SurfaceTaggedAsSurface()
+        {
+            var rec = MakeRecordingWithSections(17000, 17030, 17060,
+                SegmentEnvironment.ExoBallistic, SegmentEnvironment.SurfaceStationary);
+            rec.SegmentBodyName = "Mun";
+            var second = RecordingOptimizer.SplitAtSection(rec, 1);
+
+            Assert.Equal("exo", rec.SegmentPhase);
+            Assert.Equal("surface", second.SegmentPhase);
+        }
+
+        [Fact]
         public void SplitAtSection_BothHalvesHaveValidUTRanges()
         {
             var rec = MakeRecordingWithSections(17000, 17030, 17060,

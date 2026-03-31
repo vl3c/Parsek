@@ -4,6 +4,17 @@ All notable changes to Parsek are documented here.
 
 ---
 
+## 0.5.4
+
+### Features
+
+- **T97: Altitude-based chain splits for airless bodies.** Recordings auto-split when crossing the approach altitude threshold on bodies without atmosphere (Mun, Minmus, Tylo, etc.). Uses KSP's native `timeWarpAltitudeLimits[4]` (100x warp limit) as the threshold, with `body.Radius * 0.15` as fallback. Enables selective looping of landing approaches without looping orbital coasts.
+- **T97: "approach" phase tagging.** Airless body segments below the threshold are tagged `"approach"` (sky blue in UI) instead of `"space"`. All phase tagging sites updated.
+- **T97: TrackSection altitude metadata.** Min/max altitude tracked per TrackSection during recording. Serialized as sparse keys, backward compatible with existing saves.
+- **T97: Recording optimization pass.** Automatic housekeeping merges redundant consecutive chain segments on save load (same phase, same body, no branch points, no ghosting triggers, no user-modified settings).
+
+---
+
 ## 0.5.3
 
 ### Bug Fixes
