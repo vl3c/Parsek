@@ -1310,10 +1310,14 @@ namespace Parsek
             else
             {
                 statusStyle = statusStylePast;
-                statusText = rec.IsDebris ? "past"
-                    : rec.Points.Count > 0
-                        ? SelectiveSpawnUI.FormatCountdown(rec.StartUT - now)
-                        : (rec.TerminalStateValue?.ToString() ?? "past");
+                if (rec.IsDebris)
+                    statusText = "past";
+                else if (rec.VesselSpawned && rec.TerminalStateValue.HasValue)
+                    statusText = rec.TerminalStateValue.Value.ToString();
+                else if (rec.Points.Count > 0)
+                    statusText = SelectiveSpawnUI.FormatCountdown(rec.StartUT - now);
+                else
+                    statusText = rec.TerminalStateValue?.ToString() ?? "past";
             }
 
             // Phase 6d-3: Chain status tooltip — show ghost chain info on hover
