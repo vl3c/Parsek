@@ -355,6 +355,62 @@ namespace Parsek
                         $"Auto-grouped {tree.Recordings.Count} recordings under '{groupName}'");
             }
 
+            // Adopt orphaned committed recordings that belong to this tree but were
+            // committed as standalone before the tree (e.g., split segments committed
+            // via deferred merge dialog before the tree revert/commit).
+            // Match by TreeId (if set) or by vessel PID + overlapping time range.
+            if (!string.IsNullOrEmpty(tree.TreeName))
+            {
+                string adoptGroupName = null;
+                foreach (var rec in tree.Recordings.Values)
+                {
+                    if (!rec.IsDebris && rec.RecordingGroups != null && rec.RecordingGroups.Count > 0)
+                    {
+                        adoptGroupName = rec.RecordingGroups[0];
+                        break;
+                    }
+                }
+
+                if (adoptGroupName != null)
+                {
+                    // Collect tree vessel PIDs and time range for matching
+                    var treePids = new HashSet<uint>();
+                    double treeStartUT = double.MaxValue, treeEndUT = 0;
+                    foreach (var rec in tree.Recordings.Values)
+                    {
+                        if (rec.VesselPersistentId != 0)
+                            treePids.Add(rec.VesselPersistentId);
+                        if (rec.StartUT < treeStartUT) treeStartUT = rec.StartUT;
+                        if (rec.EndUT > treeEndUT) treeEndUT = rec.EndUT;
+                    }
+
+                    int adopted = 0;
+                    for (int i = 0; i < committedRecordings.Count; i++)
+                    {
+                        var cr = committedRecordings[i];
+                        if (cr.RecordingGroups != null && cr.RecordingGroups.Count > 0) continue;
+
+                        bool match = cr.TreeId == tree.Id;
+                        if (!match && treePids.Contains(cr.VesselPersistentId)
+                            && cr.StartUT >= treeStartUT - 60 && cr.EndUT <= treeEndUT + 60)
+                            match = true;
+
+                        if (!match) continue;
+
+                        string targetGroup = cr.IsDebris
+                            ? adoptGroupName + " / Debris"
+                            : adoptGroupName;
+                        cr.RecordingGroups = new List<string> { targetGroup };
+                        adopted++;
+                        ParsekLog.Info("RecordingStore",
+                            $"Adopted orphaned recording '{cr.VesselName}' (id={cr.RecordingId}) into group '{targetGroup}'");
+                    }
+                    if (adopted > 0)
+                        ParsekLog.Info("RecordingStore",
+                            $"Adopted {adopted} orphaned recording(s) into tree group '{adoptGroupName}'");
+                }
+            }
+
             // Add all tree recordings to committedRecordings (enables ghost playback)
             foreach (var rec in tree.Recordings.Values)
             {
