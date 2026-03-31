@@ -1261,7 +1261,7 @@ The Recordings Manager has three columns that all describe where a recording sit
 
 **Priority:** Low — UI polish, no functional impact
 
-**Status:** Open
+**Status:** Fixed — Countdown column removed. Status column widened (55→95px) and now shows: `T-Xm Xs` when future, `Active` when playing, `TerminalState` enum name (`Orbiting`/`Landed`/`Destroyed`/etc.) when past.
 
 ## ~~101. BackgroundRecorder.SubscribePartEvents never called~~
 
