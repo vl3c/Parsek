@@ -4580,6 +4580,23 @@ namespace Parsek
                 }
             }
 
+            // Emit terminal engine/RCS/robotic events so ghost FX stops during orbit segment (#150)
+            double railsUT = Planetarium.GetUniversalTime();
+            var railsTerminalEvts = EmitTerminalEngineAndRcsEvents(
+                activeEngineKeys, activeRcsKeys, activeRoboticKeys,
+                lastRoboticPosition, railsUT, "Recorder");
+            PartEvents.AddRange(railsTerminalEvts);
+            if (railsTerminalEvts.Count > 0)
+                ParsekLog.Info("Recorder",
+                    $"Emitted {railsTerminalEvts.Count} terminal FX events at on-rails transition (UT={railsUT.ToString("F1", System.Globalization.CultureInfo.InvariantCulture)})");
+
+            // Clear active state so off-rails re-detection starts fresh
+            activeEngineKeys.Clear();
+            activeRcsKeys.Clear();
+            activeRoboticKeys.Clear();
+            lastThrottle.Clear();
+            lastRcsThrottle.Clear();
+            lastRoboticPosition.Clear();
             rcsActiveFrameCount.Clear();
             decoupledPartIds.Clear();
 
