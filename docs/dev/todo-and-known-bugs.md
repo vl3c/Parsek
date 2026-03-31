@@ -877,7 +877,7 @@ The AnchorDetector's 2300m threshold triggers on any nearby vessel, including: l
 
 **Investigation notes:** Mid-recording EVAs already work correctly — `OnCrewOnEva` creates a tree branch for EVAs from the recording vessel regardless of situation (line 3061-3086). The gap is auto-starting a NEW recording for EVAs from non-recording vessels in flight (line 3094 gates on `PRELAUNCH`). Expanding this is a design choice — auto-recording random in-flight EVAs may be unwanted. The PRELAUNCH guard is intentional.
 
-**Status:** Open — design limitation (mid-recording EVAs already handled; auto-record for in-flight non-recording vessels is a design choice)
+**Status:** Fixed — removed PRELAUNCH situation guard. EVAs from any vessel situation (landed, orbiting, splashed, etc.) now trigger auto-record when the setting is enabled. Mid-recording EVAs were already handled via tree branching.
 
 ## 57. Boarding confirmation expired on vessel switch
 

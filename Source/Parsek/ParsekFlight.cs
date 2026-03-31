@@ -3091,12 +3091,6 @@ namespace Parsek
                 ParsekLog.Verbose("Flight", "OnCrewOnEva: source vessel is null — ignoring");
                 return;
             }
-            if (data.from.vessel.situation != Vessel.Situations.PRELAUNCH)
-            {
-                ParsekLog.VerboseRateLimited("Flight", "eva-not-prelaunch",
-                    $"OnCrewOnEva: vessel not on pad (sit={data.from.vessel.situation}) — ignoring");
-                return;
-            }
             if (ParsekSettings.Current?.autoRecordOnEva == false)
             {
                 ParsekLog.Verbose("Flight", "OnCrewOnEva: auto-record on EVA disabled in settings");
@@ -3105,7 +3099,7 @@ namespace Parsek
 
             // The EVA kerbal may not yet be the active vessel, defer to Update()
             pendingAutoRecord = true;
-            Log("EVA from pad detected — pending auto-record");
+            Log($"EVA detected (sit={data.from.vessel.situation}) — pending auto-record");
         }
 
         internal static string ExtractEvaKerbalName(GameEvents.FromToAction<Part, Part> data)
