@@ -823,7 +823,7 @@ xUnit eagerly instantiates test classes, so one class's constructor can overwrit
 
 Recording subgroups in the UI don't have enable (playback toggle) or loop checkboxes. Only top-level recordings show these controls. Subgroup recordings can't be individually toggled for playback or loop mode from the UI.
 
-**Status:** Open
+**Status:** Fixed — subgroups already had checkboxes via recursive `DrawGroupTree`. The actual gap was chain blocks (`DrawChainBlock`) which rendered empty spacers. Added aggregate enable/loop checkboxes to chain headers matching the group pattern.
 
 ## 51. Chain ID lost on vessel-switch auto-stop (CRITICAL)
 
@@ -942,7 +942,7 @@ Tagged as Phase 6f-1 in code. Requires in-game API investigation.
 
 `ParsekLogContractChecker.cs:99` — the `ERR-001` violation flags any ERROR-level log line as a test failure. No whitelist mechanism exists for intentional error-path test scenarios (e.g., testing that invalid input produces an expected error log). Currently no test scenarios require this.
 
-**Status:** Open — low priority (test infrastructure)
+**Status:** Fixed — added optional `errorWhitelist` parameter to `ValidateLatestSession`. `IsWhitelisted` does substring matching against the whitelist. Tests added for both matching and non-matching cases.
 
 ## ~~64. Merge dialog shown twice on revert during tree destruction~~
 
@@ -1526,7 +1526,7 @@ When a recording's ghost is past EndUT and spawn is collision-blocked, `UpdateTi
 
 **Priority:** Low — VERBOSE level only, does not affect gameplay
 
-**Status:** Open
+**Status:** Fixed — the old `UpdateTimelinePlayback` method (which logged per-frame) was replaced by the engine-based path. `PlaybackCompleted` fires once, and `RetryHeldGhostSpawns` uses a retry interval. No per-frame spam remains.
 
 ## 122. Dead→Dead crew status identity transitions logged as events
 
@@ -1646,7 +1646,7 @@ After T25 extraction, ParsekFlight still has forwarding properties (`ghostStates
 
 **Priority:** Low — tech debt, no functional impact
 
-**Status:** Open
+**Status:** Partially fixed — removed 6 dead forwarding methods (`SpawnTimelineGhost`, `DestroyTimelineGhost`, `TriggerExplosionIfDestroyed`, `CleanupActiveExplosions`, `UpdateReentryFx`, `DestroyReentryFxResources`), inlined their 4 remaining call sites to use `engine.*` directly. 7 forwarding properties (`ghostStates`, `activeExplosions`, `overlapGhosts`, `loopPhaseOffsets`, `loggedGhostEnter`, `loggedReshow`, `loadedAnchorVessels`) retained as ergonomic aliases — `ghostStates` alone has 17 usages. Actual indirection was ~40 lines, not ~500.
 
 ## 134. CleanupOrphanedSpawnedVessels destroys freshly-spawned past vessel on first flight after rewind
 
@@ -1684,7 +1684,7 @@ Different from #127 (wrong position source for collision check, now fixed). This
 
 **Priority:** Low — fallback bounds work but are inaccurate
 
-**Status:** Open
+**Status:** Fixed — `ParsePartPositions` only checked the `"pos"` key but KSP vessel snapshots use `"position"`. Added fallback: `GetValue("pos") ?? GetValue("position")`.
 
 ## 137. Crew status corruption: reserved kerbals become Missing after post-rewind EVA vessel removal
 
@@ -1812,7 +1812,29 @@ RCS throttle deadband was 1% — SAS continuously adjusts RCS by >1% every physi
 
 **Status:** Fixed
 
+## 150. Engine/RCS FX not stopped when vessel goes on-rails
+
+When a vessel goes on-rails (time warp), `FlightRecorder.OnVesselGoOnRails` samples a boundary point and creates an orbit segment but does NOT emit `EngineShutdown`/`EngineThrottle val=0` events for active engines or `RCSStopped` events for active RCS. `OnPhysicsFrame` returns immediately when `isOnRails`, so `CheckEngineState`/`CheckRcsState` never run during the orbit segment. If an engine is at non-zero throttle at the moment of time-warp, the ghost displays the engine plume for the entire orbit segment duration.
+
+Contrast with `FinalizeRecordingState` (called at recording stop) which correctly calls `EmitTerminalEngineAndRcsEvents()`.
+
+**Priority:** Medium — visually incorrect ghost engine FX during orbital segments
+
+**Status:** Fixed — `OnVesselGoOnRails` now calls `EmitTerminalEngineAndRcsEvents()` before setting `isOnRails`, emitting `EngineShutdown`/`RCSStopped`/`RoboticMotionStopped` events at the on-rails UT. Active state dicts cleared so off-rails re-detection starts fresh.
+
+## 151. FF watch transfer renders broken scene (camera 1000+ km from active vessel)
+
+After FF (fast-forward time jump) to a distant recording segment, Parsek transfers watch mode to the target ghost. The ghost can be 1000+ km from the active vessel (e.g., reentry capsule ghost vs pad vessel). KSP's rendering pipeline (terrain, atmosphere, skybox, FloatingOrigin) is anchored to the active vessel, so the camera sees an empty void — no Kerbin, no sky.
+
+**Root cause:** `EnterWatchMode` has no distance guard. The deferred FF watch path (`pendingWatchAfterFFId`) enters watch mode on whatever ghost the engine positions, regardless of distance. KSP's `FlightCamera` is set to the ghost's world position 1000+ km from where the scene geometry is rendered.
+
+**Secondary issue:** `FindNextWatchTarget` is called every frame during the 3-second watch hold, producing ~200 log lines of spam.
+
+**Priority:** Medium — broken rendering after FF to distant segment
+
+**Status:** Fixed — added 100km distance guard in `EnterWatchMode` (refuses watch + shows screen message when ghost is beyond rendering-safe distance). Also rate-limited `FindNextWatchTarget` logging during watch hold to eliminate ~200-line per-hold spam.
+
 # In-Game Tests
 
-- [ ] Vessels propagate naturally along orbits after FF (no position freezing)
-- [ ] Resource converters don't burst after FF jump
+- [x] Vessels propagate naturally along orbits after FF (no position freezing)
+- [x] Resource converters don't burst after FF jump
