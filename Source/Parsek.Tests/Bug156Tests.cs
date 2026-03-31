@@ -1,23 +1,18 @@
 using System;
-using System.Collections.Generic;
 using Xunit;
 
 namespace Parsek.Tests
 {
     /// <summary>
-    /// Bug #156: pad-failure threshold tests and CacheEngineModules null-safety.
+    /// Bug #156: pad-failure threshold tests, commit approval, and CacheEngineModules null-safety.
     /// </summary>
     [Collection("Sequential")]
     public class Bug156_PadFailureThresholdTests : IDisposable
     {
-        private readonly List<string> logLines = new List<string>();
-
         public Bug156_PadFailureThresholdTests()
         {
             ParsekLog.ResetTestOverrides();
-            ParsekLog.SuppressLogging = false;
-            ParsekLog.VerboseOverrideForTesting = true;
-            ParsekLog.TestSinkForTesting = line => logLines.Add(line);
+            ParsekLog.SuppressLogging = true;
         }
 
         public void Dispose()
@@ -71,6 +66,12 @@ namespace Parsek.Tests
             Assert.True(ParsekFlight.IsPadFailure(0.0, 0.0));
         }
 
+        [Fact]
+        public void IsPadFailure_DistanceJustUnderThreshold_ReturnsTrue()
+        {
+            Assert.True(ParsekFlight.IsPadFailure(5.0, 29.9));
+        }
+
         // ────────────────────────────────────────────────────────────
         //  ShouldShowCommitApproval — commit dialog trigger (#88)
         // ────────────────────────────────────────────────────────────
@@ -80,6 +81,20 @@ namespace Parsek.Tests
         {
             Assert.True(GhostPlaybackLogic.ShouldShowCommitApproval(
                 GameScenes.SPACECENTER, TerminalState.Landed));
+        }
+
+        [Fact]
+        public void ShouldShowCommitApproval_SplashedAtKSC_ReturnsTrue()
+        {
+            Assert.True(GhostPlaybackLogic.ShouldShowCommitApproval(
+                GameScenes.SPACECENTER, TerminalState.Splashed));
+        }
+
+        [Fact]
+        public void ShouldShowCommitApproval_LandedAtTrackStation_ReturnsTrue()
+        {
+            Assert.True(GhostPlaybackLogic.ShouldShowCommitApproval(
+                GameScenes.TRACKSTATION, TerminalState.Landed));
         }
 
         [Fact]
