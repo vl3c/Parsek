@@ -768,10 +768,14 @@ namespace Parsek
                     {
                         if (rec.VesselSnapshot != null)
                         {
+                            // Preserve GhostVisualSnapshot for ghost rendering if not already set
+                            if (rec.GhostVisualSnapshot == null)
+                                rec.GhostVisualSnapshot = rec.VesselSnapshot.CreateCopy();
                             CrewReservationManager.UnreserveCrewInSnapshot(rec.VesselSnapshot);
                             rec.VesselSnapshot = null;
                             ParsekLog.Info("MergeDialog",
-                                $"ApplyVesselDecisions: ghost-only for '{rec.VesselName}' (id={kvp.Key}), snapshot nulled");
+                                $"ApplyVesselDecisions: ghost-only for '{rec.VesselName}' (id={kvp.Key}), " +
+                                $"spawn snapshot nulled, ghostVisual={rec.GhostVisualSnapshot != null}");
                         }
                     }
                 }

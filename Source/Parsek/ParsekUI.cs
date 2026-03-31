@@ -65,9 +65,9 @@ namespace Parsek
         private const float ColW_Phase = 70f;
         private const float ColW_Index = 30f;
         private const float ColW_Launch = 110f;
-        private const float ColW_Countdown = 95f;
+        // ColW_Countdown removed (#98) — merged into Status column
         private const float ColW_Dur = 65f;
-        private const float ColW_Status = 55f;
+        private const float ColW_Status = 120f;
         private const float ColW_Loop = 55f;
         private const float ColW_Watch = 50f;
         private const float ColW_Rewind = 65f;
@@ -147,7 +147,15 @@ namespace Parsek
         private string settingsAutoLoopText = "";
         private bool settingsAutoLoopEditing;
         private Rect settingsAutoLoopEditRect;
+
+        private bool settingsCameraCutoffEditing;
+        private string settingsCameraCutoffText = "";
+        private Rect settingsCameraCutoffEditRect;
         private const float ColW_Period = 80f;
+
+        // R/FF button state tracking for transition logging
+        private Dictionary<int, bool> lastCanRewind = new Dictionary<int, bool>();
+        private Dictionary<int, bool> lastCanFF = new Dictionary<int, bool>();
 
         // Cached styles for status labels
         private GUIStyle statusStyleFuture;
@@ -1069,7 +1077,6 @@ namespace Parsek
                 DrawSortableHeader("Name", SortColumn.Name, 0, true);
                 DrawSortableHeader("Phase", SortColumn.Phase, ColW_Phase);
                 DrawSortableHeader("Launch", SortColumn.LaunchTime, ColW_Launch);
-                DrawSortableHeader("Countdown", SortColumn.LaunchTime, ColW_Countdown);
                 DrawSortableHeader("Duration", SortColumn.Duration, ColW_Dur);
 
                 if (showExpandedStats)
@@ -1272,15 +1279,6 @@ namespace Parsek
                 : "-";
             GUILayout.Label(launchTime, GUILayout.Width(ColW_Launch));
 
-            // Countdown
-            if (rec.Points.Count > 0 && rec.StartUT > now)
-                GUILayout.Label(SelectiveSpawnUI.FormatCountdown(rec.StartUT - now),
-                    GUILayout.Width(ColW_Countdown));
-            else if (rec.Points.Count > 0 && rec.EndUT > now)
-                GUILayout.Label("LIVE", GUILayout.Width(ColW_Countdown));
-            else
-                GUILayout.Label("-", GUILayout.Width(ColW_Countdown));
-
             // Duration
             double dur = rec.EndUT - rec.StartUT;
             GUILayout.Label(FormatDuration(dur), GUILayout.Width(ColW_Dur));
@@ -1295,23 +1293,35 @@ namespace Parsek
                 GUILayout.Label(stats.pointCount.ToString(), GUILayout.Width(ColW_Pts));
             }
 
-            // Status
+            // Status (#98: merged countdown into status column)
             GUIStyle statusStyle;
             string statusText;
             if (now < rec.StartUT)
             {
                 statusStyle = statusStyleFuture;
-                statusText = "future";
+                statusText = rec.Points.Count > 0
+                    ? SelectiveSpawnUI.FormatCountdown(rec.StartUT - now)
+                    : "future";
             }
             else if (now <= rec.EndUT)
             {
                 statusStyle = statusStyleActive;
-                statusText = "active";
+                statusText = rec.IsDebris ? "active"
+                    : rec.Points.Count > 0
+                        ? SelectiveSpawnUI.FormatCountdown(rec.StartUT - now)
+                        : "active";
             }
             else
             {
                 statusStyle = statusStylePast;
-                statusText = "past";
+                if (rec.IsDebris)
+                    statusText = "past";
+                else if (rec.TerminalStateValue.HasValue)
+                    statusText = rec.TerminalStateValue.Value.ToString();
+                else if (rec.Points.Count > 0)
+                    statusText = SelectiveSpawnUI.FormatCountdown(rec.StartUT - now);
+                else
+                    statusText = "past";
             }
 
             // Phase 6d-3: Chain status tooltip — show ghost chain info on hover
@@ -1387,12 +1397,21 @@ namespace Parsek
                     string ffReason;
                     bool isRecording = InFlight && flight.IsRecording;
                     bool canFF = RecordingStore.CanFastForward(rec, out ffReason, isRecording: isRecording);
+                    bool prevFF;
+                    if (!lastCanFF.TryGetValue(ri, out prevFF) || prevFF != canFF)
+                    {
+                        lastCanFF[ri] = canFF;
+                        ParsekLog.Verbose("UI", $"FF #{ri} \"{rec.VesselName}\": {(canFF ? "enabled" : "disabled — " + ffReason)}");
+                    }
                     GUI.enabled = canFF;
                     string tooltip = canFF
                         ? "Fast-forward to this launch"
                         : ffReason;
                     if (GUILayout.Button(new GUIContent("FF", tooltip), GUILayout.Width(ColW_Rewind)))
+                    {
+                        ParsekLog.Info("UI", $"FF button clicked: #{ri} \"{rec.VesselName}\"");
                         ShowFastForwardConfirmation(rec);
+                    }
                     GUI.enabled = true;
                 }
                 else if (hasRewindSave)
@@ -1401,12 +1420,21 @@ namespace Parsek
                     string rewindReason;
                     bool isRecording = InFlight && flight.IsRecording;
                     bool canRewind = RecordingStore.CanRewind(rec, out rewindReason, isRecording: isRecording);
+                    bool prevR;
+                    if (!lastCanRewind.TryGetValue(ri, out prevR) || prevR != canRewind)
+                    {
+                        lastCanRewind[ri] = canRewind;
+                        ParsekLog.Verbose("UI", $"R #{ri} \"{rec.VesselName}\": {(canRewind ? "enabled" : "disabled — " + rewindReason)}");
+                    }
                     GUI.enabled = canRewind;
                     string tooltip = canRewind
                         ? "Rewind to this launch"
                         : rewindReason;
                     if (GUILayout.Button(new GUIContent("R", tooltip), GUILayout.Width(ColW_Rewind)))
+                    {
+                        ParsekLog.Info("UI", $"Rewind button clicked: #{ri} \"{rec.VesselName}\"");
                         ShowRewindConfirmation(rec);
+                    }
                     GUI.enabled = true;
                 }
                 else
@@ -1740,8 +1768,19 @@ namespace Parsek
 
             GUILayout.BeginHorizontal();
 
-            // Spacers matching header widget types for alignment
-            GUILayout.Space(ColW_Enable);
+            // Enable checkbox (aggregate over chain members)
+            int chainEnabledCount = 0;
+            for (int m = 0; m < members.Count; m++)
+                if (committed[members[m]].PlaybackEnabled) chainEnabledCount++;
+            bool chainAllEnabled = members.Count > 0 && chainEnabledCount == members.Count;
+            bool chainNewEnabled = GUILayout.Toggle(chainAllEnabled, "", GUILayout.Width(ColW_Enable));
+            if (chainNewEnabled != chainAllEnabled)
+            {
+                for (int m = 0; m < members.Count; m++)
+                    committed[members[m]].PlaybackEnabled = chainNewEnabled;
+                ParsekLog.Info("UI", $"Chain '{chainId}' playback set to {chainNewEnabled} ({members.Count} segments)");
+            }
+
             GUILayout.Space(ColW_Index);
 
             // Indent inside Name column for chains in sub-groups
@@ -1776,8 +1815,22 @@ namespace Parsek
                 ParsekLog.Verbose("UI", $"Group popup opened for chain '{chainName}'");
             }
 
-            // Spacers for remaining columns (Loop, Period, Watch, Rewind, Hide)
-            GUILayout.Label("", GUILayout.Width(ColW_Loop));
+            // Loop checkbox (aggregate over chain members)
+            int chainLoopCount = 0;
+            for (int m = 0; m < members.Count; m++)
+                if (committed[members[m]].LoopPlayback) chainLoopCount++;
+            bool chainAllLoop = members.Count > 0 && chainLoopCount == members.Count;
+            GUILayout.BeginHorizontal(GUILayout.Width(ColW_Loop));
+            GUILayout.FlexibleSpace();
+            bool chainNewLoop = GUILayout.Toggle(chainAllLoop, "");
+            GUILayout.FlexibleSpace();
+            GUILayout.EndHorizontal();
+            if (chainNewLoop != chainAllLoop)
+            {
+                for (int m = 0; m < members.Count; m++)
+                    committed[members[m]].LoopPlayback = chainNewLoop;
+                ParsekLog.Info("UI", $"Chain '{chainId}' loop set to {chainNewLoop} ({members.Count} segments)");
+            }
             GUILayout.Label("", GUILayout.Width(ColW_Period));
             if (InFlight) GUILayout.Label("", GUILayout.Width(ColW_Watch));
             GUILayout.Label("", GUILayout.Width(ColW_Rewind));
@@ -2836,7 +2889,7 @@ namespace Parsek
             if (statusStyleFuture != null) return;
 
             statusStyleFuture = new GUIStyle(GUI.skin.label);
-            statusStyleFuture.normal.textColor = Color.gray;
+            statusStyleFuture.normal.textColor = Color.white;
 
             statusStyleActive = new GUIStyle(GUI.skin.label);
             statusStyleActive.normal.textColor = Color.green;
@@ -2864,6 +2917,8 @@ namespace Parsek
             }
 
             EnsureOpaqueWindowStyle();
+            // Reset height each frame so GUILayout auto-sizes to content
+            settingsWindowRect.height = 10;
             settingsWindowRect = ClickThruBlocker.GUILayoutWindow(
                 "ParsekSettings".GetHashCode(),
                 settingsWindowRect,
@@ -3145,10 +3200,14 @@ namespace Parsek
             }
 
             // Click outside active settings edit field → commit
-            if (Event.current.type == EventType.MouseDown && settingsAutoLoopEditing)
+            if (Event.current.type == EventType.MouseDown)
             {
-                if (settingsAutoLoopEditRect.width > 0 && !settingsAutoLoopEditRect.Contains(Event.current.mousePosition))
+                if (settingsAutoLoopEditing && settingsAutoLoopEditRect.width > 0
+                    && !settingsAutoLoopEditRect.Contains(Event.current.mousePosition))
                     CommitSettingsAutoLoopEdit(s);
+                if (settingsCameraCutoffEditing && settingsCameraCutoffEditRect.width > 0
+                    && !settingsCameraCutoffEditRect.Contains(Event.current.mousePosition))
+                    CommitSettingsCameraCutoffEdit(s);
             }
 
             #region Settings sections
@@ -3156,11 +3215,11 @@ namespace Parsek
             GUILayout.Space(SpacingSmall);
             DrawLoopingSettings(s);
             GUILayout.Space(SpacingSmall);
+            DrawGhostSettings(s);
+            GUILayout.Space(SpacingSmall);
             DrawDiagnosticsSettings(s);
             GUILayout.Space(SpacingSmall);
             DrawSamplingSettings(s);
-            GUILayout.Space(SpacingSmall);
-            DrawGhostCapSettings(s);
             GUILayout.Space(SpacingSmall);
             DrawDataManagementSettings(s);
             #endregion
@@ -3183,9 +3242,11 @@ namespace Parsek
                 s.ghostCapZone1Reduce = 8;
                 s.ghostCapZone1Despawn = 15;
                 s.ghostCapZone2Simplify = 20;
+                s.ghostCameraCutoffKm = 300f;
                 GhostSoftCapManager.Enabled = false;
                 GhostSoftCapManager.ApplySettings(8, 15, 20);
                 settingsAutoLoopEditing = false;
+                settingsCameraCutoffEditing = false;
                 ParsekLog.Info("UI", "Settings reset to defaults");
             }
             if (GUILayout.Button("Close"))
@@ -3209,7 +3270,7 @@ namespace Parsek
         {
             GUILayout.Label("Recording", GUI.skin.box);
             bool autoRecordOnLaunch = GUILayout.Toggle(s.autoRecordOnLaunch,
-                new GUIContent("Auto-record on launch", "Start recording when a vessel leaves the pad or runway"));
+                new GUIContent(" Auto-record on launch", "Start recording when a vessel leaves the pad or runway"));
             if (autoRecordOnLaunch != s.autoRecordOnLaunch)
             {
                 s.autoRecordOnLaunch = autoRecordOnLaunch;
@@ -3217,7 +3278,7 @@ namespace Parsek
             }
 
             bool autoRecordOnEva = GUILayout.Toggle(s.autoRecordOnEva,
-                new GUIContent("Auto-record on EVA", "Start recording when a kerbal goes EVA from the pad"));
+                new GUIContent(" Auto-record on EVA", "Start recording when a kerbal goes EVA from the pad"));
             if (autoRecordOnEva != s.autoRecordOnEva)
             {
                 s.autoRecordOnEva = autoRecordOnEva;
@@ -3225,7 +3286,7 @@ namespace Parsek
             }
 
             bool autoMerge = GUILayout.Toggle(s.autoMerge,
-                new GUIContent("Auto-merge recordings", "When off, a confirmation dialog appears after each recording"));
+                new GUIContent(" Auto-merge recordings", "When off, a confirmation dialog appears after each recording"));
             if (autoMerge != s.autoMerge)
             {
                 s.autoMerge = autoMerge;
@@ -3287,10 +3348,107 @@ namespace Parsek
             GUILayout.EndHorizontal();
         }
 
+        private void DrawGhostSettings(ParsekSettings s)
+        {
+            GUILayout.Label("Ghosts", GUI.skin.box);
+
+            // --- Camera cutoff ---
+            GUILayout.BeginHorizontal();
+            GUILayout.Label(new GUIContent("Camera cutoff",
+                "Watch mode auto-exits when ghost exceeds this distance from the active vessel"),
+                GUILayout.Width(85));
+            {
+                if (!settingsCameraCutoffEditing)
+                {
+                    string displayText = s.ghostCameraCutoffKm.ToString("F0", System.Globalization.CultureInfo.InvariantCulture);
+                    GUI.SetNextControlName("CameraCutoffEdit");
+                    string newText = GUILayout.TextField(displayText, GUILayout.Width(45));
+                    if (GUI.GetNameOfFocusedControl() == "CameraCutoffEdit")
+                    {
+                        settingsCameraCutoffText = newText;
+                        settingsCameraCutoffEditing = true;
+                        settingsCameraCutoffEditRect = GUILayoutUtility.GetLastRect();
+                    }
+                }
+                else
+                {
+                    // Enter key → commit (check before TextField, which consumes KeyDown)
+                    bool submitCutoff = Event.current.type == EventType.KeyDown &&
+                        (Event.current.keyCode == KeyCode.Return || Event.current.keyCode == KeyCode.KeypadEnter);
+
+                    GUI.SetNextControlName("CameraCutoffEdit");
+                    string newText = GUILayout.TextField(settingsCameraCutoffText, GUILayout.Width(45));
+                    settingsCameraCutoffEditRect = GUILayoutUtility.GetLastRect();
+                    if (newText != settingsCameraCutoffText)
+                        settingsCameraCutoffText = newText;
+
+                    if (submitCutoff)
+                    {
+                        CommitSettingsCameraCutoffEdit(s);
+                        Event.current.Use();
+                    }
+                }
+            }
+            GUILayout.Label("km");
+            GUILayout.EndHorizontal();
+
+            // --- Soft caps ---
+            GUILayout.Space(SpacingSmall);
+
+            bool enabled = GUILayout.Toggle(s.ghostCapEnabled,
+                new GUIContent(" Enable soft caps",
+                    "Limit ghost count per distance zone to reduce rendering load"));
+            if (enabled != s.ghostCapEnabled)
+            {
+                s.ghostCapEnabled = enabled;
+                GhostSoftCapManager.Enabled = enabled;
+                ParsekLog.Info("UI", $"Ghost soft caps {(enabled ? "enabled" : "disabled")}");
+            }
+
+            if (!s.ghostCapEnabled)
+            {
+                GUILayout.Label("  (caps disabled \u2014 all ghosts rendered)", GUI.skin.label);
+                return;
+            }
+
+            DrawGhostCapSlider("Zone 1 reduce", "Nearby ghosts above this count get reduced fidelity",
+                ref s.ghostCapZone1Reduce, 2, 30, "ghostCap.zone1Reduce", s);
+            DrawGhostCapSlider("Zone 1 despawn", "Nearby ghosts above this count get despawned (lowest priority first)",
+                ref s.ghostCapZone1Despawn, 5, 50, "ghostCap.zone1Despawn", s);
+            DrawGhostCapSlider("Zone 2 simplify", "Distant ghosts above this count get simplified to orbit lines",
+                ref s.ghostCapZone2Simplify, 5, 60, "ghostCap.zone2Simplify", s);
+
+            // Enforce constraint: reduce must be less than despawn
+            if (s.ghostCapZone1Reduce >= s.ghostCapZone1Despawn)
+            {
+                s.ghostCapZone1Reduce = System.Math.Max(2, s.ghostCapZone1Despawn - 1);
+                GhostSoftCapManager.ApplySettings(
+                    s.ghostCapZone1Reduce, s.ghostCapZone1Despawn, s.ghostCapZone2Simplify);
+                ParsekLog.Info("UI",
+                    $"Clamped ghostCapZone1Reduce={s.ghostCapZone1Reduce} to stay below " +
+                    $"ghostCapZone1Despawn={s.ghostCapZone1Despawn}");
+            }
+        }
+
+        private void CommitSettingsCameraCutoffEdit(ParsekSettings s)
+        {
+            var ic = System.Globalization.CultureInfo.InvariantCulture;
+            if (float.TryParse(settingsCameraCutoffText, System.Globalization.NumberStyles.Float,
+                    ic, out float parsed) && parsed >= 10f && parsed <= 10000f)
+            {
+                s.ghostCameraCutoffKm = parsed;
+                ParsekLog.Info("UI",
+                    $"Setting changed: ghostCameraCutoffKm={s.ghostCameraCutoffKm.ToString("F0", ic)}");
+            }
+            settingsCameraCutoffEditing = false;
+            settingsCameraCutoffEditRect = default;
+            GUIUtility.keyboardControl = 0;
+        }
+
         private void DrawDiagnosticsSettings(ParsekSettings s)
         {
             GUILayout.Label("Diagnostics", GUI.skin.box);
-            bool verboseLogging = GUILayout.Toggle(s.verboseLogging, "Verbose logging (development default)");
+            bool verboseLogging = GUILayout.Toggle(s.verboseLogging, " Verbose logging (development default)");
             if (verboseLogging != s.verboseLogging)
             {
                 s.verboseLogging = verboseLogging;
@@ -3354,43 +3512,6 @@ namespace Parsek
                     $"Setting changed: {logKey}={value}", 1.0);
             }
             GUILayout.EndHorizontal();
-        }
-
-        private void DrawGhostCapSettings(ParsekSettings s)
-        {
-            GUILayout.Label("Ghost Soft Caps", GUI.skin.box);
-
-            bool enabled = GUILayout.Toggle(s.ghostCapEnabled, "Enable ghost soft caps");
-            if (enabled != s.ghostCapEnabled)
-            {
-                s.ghostCapEnabled = enabled;
-                GhostSoftCapManager.Enabled = enabled;
-                ParsekLog.Info("UI", $"Ghost soft caps {(enabled ? "enabled" : "disabled")}");
-            }
-
-            if (!s.ghostCapEnabled)
-            {
-                GUILayout.Label("  (caps disabled — all ghosts rendered)", GUI.skin.label);
-                return;
-            }
-
-            DrawGhostCapSlider("Zone 1 reduce", "Nearby ghosts above this count get reduced fidelity",
-                ref s.ghostCapZone1Reduce, 2, 30, "ghostCap.zone1Reduce", s);
-            DrawGhostCapSlider("Zone 1 despawn", "Nearby ghosts above this count get despawned (lowest priority first)",
-                ref s.ghostCapZone1Despawn, 5, 50, "ghostCap.zone1Despawn", s);
-            DrawGhostCapSlider("Zone 2 simplify", "Distant ghosts above this count get simplified to orbit lines",
-                ref s.ghostCapZone2Simplify, 5, 60, "ghostCap.zone2Simplify", s);
-
-            // Enforce constraint: reduce must be less than despawn
-            if (s.ghostCapZone1Reduce >= s.ghostCapZone1Despawn)
-            {
-                s.ghostCapZone1Reduce = System.Math.Max(2, s.ghostCapZone1Despawn - 1);
-                GhostSoftCapManager.ApplySettings(
-                    s.ghostCapZone1Reduce, s.ghostCapZone1Despawn, s.ghostCapZone2Simplify);
-                ParsekLog.Info("UI",
-                    $"Clamped ghostCapZone1Reduce={s.ghostCapZone1Reduce} to stay below " +
-                    $"ghostCapZone1Despawn={s.ghostCapZone1Despawn}");
-            }
         }
 
         private void DrawDataManagementSettings(ParsekSettings s)

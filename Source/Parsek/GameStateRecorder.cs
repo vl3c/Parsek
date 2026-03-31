@@ -356,6 +356,16 @@ namespace Parsek
             ParsekLog.Info("GameStateRecorder", $"Game state: CrewRemoved '{name}'");
         }
 
+        /// <summary>
+        /// Pure: returns true if the status transition is a real change (not an identity
+        /// transition like Dead->Dead). Extracted for testability (Bug #122).
+        /// </summary>
+        internal static bool IsRealStatusChange(ProtoCrewMember.RosterStatus oldStatus,
+            ProtoCrewMember.RosterStatus newStatus)
+        {
+            return oldStatus != newStatus;
+        }
+
         private void OnKerbalStatusChange(ProtoCrewMember crew,
             ProtoCrewMember.RosterStatus oldStatus, ProtoCrewMember.RosterStatus newStatus)
         {
@@ -366,6 +376,15 @@ namespace Parsek
                 return;
             }
             if (crew == null) return;
+
+            // Filter identity transitions (Bug #122: Dead->Dead, Available->Available, etc.)
+            if (!IsRealStatusChange(oldStatus, newStatus))
+            {
+                ParsekLog.Verbose("GameStateRecorder",
+                    $"Filtered identity crew status transition for '{crew.name ?? ""}': {oldStatus} -> {newStatus}");
+                return;
+            }
+
             var name = crew.name ?? "";
 
             double ut = Planetarium.GetUniversalTime();

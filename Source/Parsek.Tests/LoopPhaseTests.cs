@@ -10,6 +10,19 @@ namespace Parsek.Tests
     public class ComputeLoopPhaseFromUT_Tests
     {
         [Fact]
+        public void BeforeRecordingStart_ReturnsStartUTCycle0NotPaused()
+        {
+            // Bug #75: currentUT before startUT should return (startUT, 0, false)
+            // consistent with TryComputeLoopPlaybackUT returning false for pre-start times
+            var (loopUT, cycleIndex, isInPause) = GhostPlaybackLogic.ComputeLoopPhaseFromUT(
+                currentUT: 50.0, recordingStartUT: 100.0, recordingEndUT: 200.0, intervalSeconds: 10.0);
+
+            Assert.Equal(100.0, loopUT);
+            Assert.Equal(0, cycleIndex);
+            Assert.False(isInPause);
+        }
+
+        [Fact]
         public void AtRecordingStart_ReturnsPhase0Cycle0NotPaused()
         {
             var (loopUT, cycleIndex, isInPause) = GhostPlaybackLogic.ComputeLoopPhaseFromUT(

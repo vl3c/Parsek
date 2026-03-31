@@ -12,11 +12,12 @@ namespace Parsek
 
     internal class GhostPlaybackState
     {
+        public string vesselName;
         public GameObject ghost;
         public List<Material> materials;
         public int playbackIndex;
         public int partEventIndex;
-        public int loopCycleIndex = -1;
+        public long loopCycleIndex = -1;
         public Dictionary<uint, List<uint>> partTree;
         public Dictionary<uint, ParachuteGhostInfo> parachuteInfos;
         public Dictionary<uint, JettisonGhostInfo> jettisonInfos;
@@ -43,6 +44,7 @@ namespace Parsek
         public string lastInterpolatedBodyName;
         public double lastInterpolatedAltitude;
         public RenderingZone currentZone = RenderingZone.Physics; // distance-based rendering zone
+        public double lastDistance; // meters from active vessel, updated per frame in ApplyZonePolicy
         public int flagEventIndex;               // tracks which flags have been spawned
 
         public void SetInterpolated(InterpolationResult r)

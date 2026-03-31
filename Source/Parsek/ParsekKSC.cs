@@ -37,6 +37,9 @@ namespace Parsek
         private HashSet<int> loggedGhostSpawn = new HashSet<int>();
         private HashSet<int> loggedReshow = new HashSet<int>();
 
+        // KSC spawn dedup: tracks recording IDs that have had spawn attempted (bug #99)
+        private HashSet<string> kscSpawnAttempted = new HashSet<string>();
+
         // Loop constants are in GhostPlaybackLogic
         // Safety cap for overlap ghosts. Natural phase expiration keeps count bounded for
         // well-behaved recordings, but pathological cases (very short duration, very negative
@@ -178,7 +181,7 @@ namespace Parsek
                     DestroyAllKscOverlapGhosts(i);
 
                     double targetUT;
-                    int cycleIndex;
+                    long cycleIndex;
                     bool inPauseWindow;
                     bool inRange = TryComputeLoopUT(rec, currentUT,
                         out targetUT, out cycleIndex, out inPauseWindow);
@@ -200,7 +203,7 @@ namespace Parsek
         /// Single-ghost playback path (positive/zero loop interval, or non-looping).
         /// </summary>
         void UpdateSingleGhostKsc(int recIdx, Recording rec,
-            double currentUT, double targetUT, int cycleIndex,
+            double currentUT, double targetUT, long cycleIndex,
             bool inRange, bool inPauseWindow, bool suppressVisualFx)
         {
             GhostPlaybackState state;
@@ -212,7 +215,7 @@ namespace Parsek
                 // Loop cycle change: destroy + respawn to guarantee clean visual state
                 if (ghostActive && rec.LoopPlayback && state.loopCycleIndex != cycleIndex)
                 {
-                    int oldCycle = state.loopCycleIndex;
+                    long oldCycle = state.loopCycleIndex;
                     TriggerExplosionIfDestroyed(state, rec, recIdx);
                     DestroyKscGhost(state, recIdx);
                     kscGhosts.Remove(recIdx);
@@ -279,12 +282,20 @@ namespace Parsek
                 else
                 {
                     TriggerExplosionIfDestroyed(state, rec, recIdx);
+                    // Spawn real vessel when ghost timeline completes (bug #99)
+                    TrySpawnAtRecordingEnd(recIdx, rec);
                     ParsekLog.Verbose("KSCGhost",
                         $"Ghost #{recIdx} \"{rec.VesselName}\" exited range at UT {currentUT:F1}");
                     DestroyKscGhost(state, recIdx);
                     kscGhosts.Remove(recIdx);
                     loggedGhostSpawn.Remove(recIdx);
                 }
+            }
+            else if (!inRange && !inPauseWindow && currentUT > rec.EndUT)
+            {
+                // Ghost was never created (e.g., time-warped through the entire window)
+                // but recording is past its end — still need to spawn the vessel (bug #99)
+                TrySpawnAtRecordingEnd(recIdx, rec);
             }
         }
 
@@ -311,7 +322,7 @@ namespace Parsek
             double cycleDuration = duration + intervalSeconds;
             if (cycleDuration < GhostPlaybackLogic.MinCycleDuration) cycleDuration = GhostPlaybackLogic.MinCycleDuration;
 
-            int firstCycle, lastCycle;
+            long firstCycle, lastCycle;
             GhostPlaybackLogic.GetActiveCycles(currentUT, rec.StartUT, rec.EndUT,
                 intervalSeconds, MaxOverlapGhostsPerRecording, out firstCycle, out lastCycle);
 
@@ -385,7 +396,7 @@ namespace Parsek
                     continue;
                 }
 
-                int cycle = ovState.loopCycleIndex;
+                long cycle = ovState.loopCycleIndex;
                 double cycleStart = rec.StartUT + cycle * cycleDuration;
                 double phase = currentUT - cycleStart;
 
@@ -655,7 +666,7 @@ namespace Parsek
             Recording rec,
             double currentUT,
             out double loopUT,
-            out int cycleIndex,
+            out long cycleIndex,
             out bool inPauseWindow)
         {
             loopUT = rec != null ? rec.StartUT : 0;
@@ -673,7 +684,7 @@ namespace Parsek
                 cycleDuration = duration;
 
             double elapsed = currentUT - rec.StartUT;
-            cycleIndex = (int)Math.Floor(elapsed / cycleDuration);
+            cycleIndex = (long)Math.Floor(elapsed / cycleDuration);
             if (cycleIndex < 0) cycleIndex = 0;
 
             double cycleTime = elapsed - (cycleIndex * cycleDuration);
@@ -740,14 +751,81 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Attempt to spawn a real vessel when a recording's ghost reaches end-of-timeline
+        /// at KSC. Uses the same eligibility checks as Flight scene but simplified:
+        /// no active chain concept, no collision detection (vessels are unloaded at KSC),
+        /// no deferred spawn queue (no warp concern — KSC spawns are one-shot).
+        /// The spawned vessel will appear in Tracking Station and persist in the save,
+        /// but won't be loaded/physical at KSC (no physics range). Bug #99.
+        /// </summary>
+        void TrySpawnAtRecordingEnd(int recIdx, Recording rec)
+        {
+            // Looping recordings restart — never spawn at end
+            if (rec.LoopPlayback)
+            {
+                ParsekLog.Verbose("KSCSpawn",
+                    $"Spawn skipped for #{recIdx} \"{rec.VesselName}\": looping recording");
+                return;
+            }
+
+            // Dedup: only attempt once per recording per scene session.
+            // No logging — this fires every frame for every past-end recording (O(N*fps)).
+            if (rec.RecordingId != null && !kscSpawnAttempted.Add(rec.RecordingId))
+                return;
+
+            // Use the KSC-specific eligibility check
+            var (needsSpawn, reason) = GhostPlaybackLogic.ShouldSpawnAtKscEnd(rec);
+            if (!needsSpawn)
+            {
+                ParsekLog.Info("KSCSpawn",
+                    $"Spawn not needed for #{recIdx} \"{rec.VesselName}\": {reason}");
+                return;
+            }
+
+            // At KSC, FlightGlobals.Vessels may be empty/null but
+            // HighLogic.CurrentGame.flightState.protoVessels is always available.
+            // RespawnVessel uses protoVessels directly — works in any scene.
+            ParsekLog.Info("KSCSpawn",
+                $"Attempting spawn for #{recIdx} \"{rec.VesselName}\" (id={rec.RecordingId})");
+
+            try
+            {
+                uint spawnedPid = VesselSpawner.RespawnVessel(rec.VesselSnapshot);
+                if (spawnedPid != 0)
+                {
+                    rec.VesselSpawned = true;
+                    rec.SpawnedVesselPersistentId = spawnedPid;
+                    ParsekLog.Info("KSCSpawn",
+                        $"Vessel spawned for #{recIdx} \"{rec.VesselName}\" " +
+                        $"pid={spawnedPid} — will appear in Tracking Station");
+                }
+                else
+                {
+                    ParsekLog.Warn("KSCSpawn",
+                        $"Spawn FAILED for #{recIdx} \"{rec.VesselName}\" — RespawnVessel returned 0");
+                }
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.Error("KSCSpawn",
+                    $"Spawn exception for #{recIdx} \"{rec.VesselName}\": {ex}");
+            }
+        }
+
+        /// <summary>
         /// Clean up a KSC ghost — stop FX, destroy canopies and GameObject.
         /// </summary>
         void DestroyKscGhost(GhostPlaybackState state, int index)
         {
             if (state == null) return;
 
-            GhostPlaybackLogic.StopAllEngineFx(state);
-            GhostPlaybackLogic.StopAllRcsFx(state);
+            // Detach active particle systems so smoke trails linger (#107)
+            if (state.engineInfos != null)
+                foreach (var info in state.engineInfos.Values)
+                    GhostPlaybackLogic.DetachAndLingerParticleSystems(info.particleSystems, info.kspEmitters);
+            if (state.rcsInfos != null)
+                foreach (var info in state.rcsInfos.Values)
+                    GhostPlaybackLogic.DetachAndLingerParticleSystems(info.particleSystems, info.kspEmitters);
 
             GhostPlaybackLogic.DestroyAllFakeCanopies(state);
             if (state.ghost != null)
@@ -779,6 +857,7 @@ namespace Parsek
                 ParsekLog.Info("KSCGhost", $"Destroyed {primaryCount} primary + {overlapCount} overlap KSC ghosts");
             loggedGhostSpawn.Clear();
             loggedReshow.Clear();
+            kscSpawnAttempted.Clear();
 
             ParsekLog.Info("KSC", "ParsekKSC destroyed");
             ui?.Cleanup();

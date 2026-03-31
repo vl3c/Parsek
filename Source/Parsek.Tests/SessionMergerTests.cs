@@ -39,7 +39,8 @@ namespace Parsek.Tests
             double startUT, double endUT,
             TrackSectionSource source = TrackSectionSource.Active,
             double lat = 0.0, double lon = 0.0, double alt = 70000.0,
-            double endLat = double.NaN, double endLon = double.NaN, double endAlt = double.NaN)
+            double endLat = double.NaN, double endLon = double.NaN, double endAlt = double.NaN,
+            string bodyName = "Kerbin")
         {
             if (double.IsNaN(endLat)) endLat = lat;
             if (double.IsNaN(endLon)) endLon = lon;
@@ -51,7 +52,7 @@ namespace Parsek.Tests
                 {
                     ut = startUT,
                     latitude = lat, longitude = lon, altitude = alt,
-                    bodyName = "Kerbin",
+                    bodyName = bodyName,
                     rotation = Quaternion.identity,
                     velocity = Vector3.zero
                 },
@@ -59,7 +60,7 @@ namespace Parsek.Tests
                 {
                     ut = endUT,
                     latitude = endLat, longitude = endLon, altitude = endAlt,
-                    bodyName = "Kerbin",
+                    bodyName = bodyName,
                     rotation = Quaternion.identity,
                     velocity = Vector3.zero
                 }
@@ -909,6 +910,70 @@ namespace Parsek.Tests
                 l.Contains("[Merger]") && l.Contains("starting merge"));
             Assert.Contains(logLines, l =>
                 l.Contains("[Merger]") && l.Contains("completed merge"));
+        }
+
+        #endregion
+
+        #region ComputeBoundaryDiscontinuity — body radius (#48)
+
+        [Fact]
+        public void ComputeBoundaryDiscontinuity_MunFrames_UsesMunRadius()
+        {
+            // Mun radius = 200,000m. A 1-degree latitude difference on Mun should
+            // produce roughly (pi/180)*200000 = ~3491m, not the ~10472m that Kerbin
+            // (600,000m) would give.
+            var prev = MakeSection(0, 100, TrackSectionSource.Active,
+                lat: 0.0, lon: 0.0, alt: 0.0,
+                endLat: 0.0, endLon: 0.0, endAlt: 0.0,
+                bodyName: "Mun");
+            var next = MakeSection(100, 200, TrackSectionSource.Background,
+                lat: 1.0, lon: 0.0, alt: 0.0,
+                bodyName: "Mun");
+
+            float disc = SessionMerger.ComputeBoundaryDiscontinuity(prev, next);
+
+            // Expected ~3491m for Mun, would be ~10472m with Kerbin radius
+            Assert.True(disc > 3000f && disc < 4000f,
+                $"Expected Mun-scaled distance ~3491m, got {disc}m");
+        }
+
+        [Fact]
+        public void ComputeBoundaryDiscontinuity_NullBodyName_FallsBackToKerbin()
+        {
+            // Null bodyName should fall back to Kerbin radius (600,000m)
+            var prev = MakeSection(0, 100, TrackSectionSource.Active,
+                lat: 0.0, lon: 0.0, alt: 0.0,
+                endLat: 0.0, endLon: 0.0, endAlt: 0.0,
+                bodyName: null);
+            var next = MakeSection(100, 200, TrackSectionSource.Background,
+                lat: 1.0, lon: 0.0, alt: 0.0,
+                bodyName: null);
+
+            float disc = SessionMerger.ComputeBoundaryDiscontinuity(prev, next);
+
+            // Expected ~10472m using Kerbin radius fallback
+            Assert.True(disc > 10000f && disc < 11000f,
+                $"Expected Kerbin-fallback distance ~10472m, got {disc}m");
+        }
+
+        [Fact]
+        public void ComputeBoundaryDiscontinuity_UsesLastPrevBody_NotFirstNext()
+        {
+            // lastPrev is on Mun, firstNext is on Kerbin. The method should use
+            // lastPrev's body (Mun, 200,000m), not firstNext's (Kerbin, 600,000m).
+            var prev = MakeSection(0, 100, TrackSectionSource.Active,
+                lat: 0.0, lon: 0.0, alt: 0.0,
+                endLat: 0.0, endLon: 0.0, endAlt: 0.0,
+                bodyName: "Mun");
+            var next = MakeSection(100, 200, TrackSectionSource.Background,
+                lat: 1.0, lon: 0.0, alt: 0.0,
+                bodyName: "Kerbin");
+
+            float disc = SessionMerger.ComputeBoundaryDiscontinuity(prev, next);
+
+            // Should use Mun radius (~3491m), not Kerbin radius (~10472m)
+            Assert.True(disc > 3000f && disc < 4000f,
+                $"Expected Mun-radius distance ~3491m (lastPrev body), got {disc}m");
         }
 
         #endregion

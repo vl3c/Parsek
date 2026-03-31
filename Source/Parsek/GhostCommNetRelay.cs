@@ -86,6 +86,47 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Pure: resolve which exponent to use for the combination formula.
+        /// KSP uses the strongest *combinable* antenna's exponent. When the overall
+        /// strongest antenna is non-combinable, the exponent comes from a different
+        /// antenna than the one providing strongestPower.
+        /// Returns (exponent, sourceIndex) where sourceIndex is the index whose
+        /// exponent was used (-1 if no combinable antenna found).
+        /// </summary>
+        internal static (double exponent, int sourceIndex) ResolveCombinationExponent(
+            List<AntennaSpec> specs, int strongestIdx)
+        {
+            // If the strongest antenna is combinable, use its exponent (common case)
+            if (specs[strongestIdx].antennaCombinable)
+                return (specs[strongestIdx].antennaCombinableExponent, strongestIdx);
+
+            // Strongest is non-combinable — find the strongest *combinable* antenna
+            int bestCombinableIdx = -1;
+            double bestCombinablePower = -1;
+            for (int i = 0; i < specs.Count; i++)
+            {
+                if (specs[i].antennaCombinable && specs[i].antennaPower > bestCombinablePower)
+                {
+                    bestCombinablePower = specs[i].antennaPower;
+                    bestCombinableIdx = i;
+                }
+            }
+
+            if (bestCombinableIdx < 0)
+                return (0, -1);
+
+            ParsekLog.Info(Tag,
+                string.Format(ic,
+                    "ResolveCombinationExponent: strongest '{0}' (idx={1}) is non-combinable, " +
+                    "using exponent from strongest combinable '{2}' (idx={3}, exponent={4})",
+                    specs[strongestIdx].partName ?? "(null)", strongestIdx,
+                    specs[bestCombinableIdx].partName ?? "(null)", bestCombinableIdx,
+                    specs[bestCombinableIdx].antennaCombinableExponent));
+
+            return (specs[bestCombinableIdx].antennaCombinableExponent, bestCombinableIdx);
+        }
+
+        /// <summary>
         /// Shared implementation for antenna power combination from a pre-filtered list.
         /// </summary>
         private static double ComputeCombinedAntennaPowerFromList(List<AntennaSpec> specs, string caller)
@@ -120,23 +161,13 @@ namespace Parsek
                 return 0;
             }
 
-            // Use strongest antenna's combinability exponent
-            double exponent = specs[strongestIdx].antennaCombinableExponent;
-            bool anyCombinable = false;
+            // Resolve combination exponent from the strongest *combinable* antenna
+            // (Bug #72: was incorrectly using overall strongest's exponent)
+            var (exponent, exponentSourceIdx) = ResolveCombinationExponent(specs, strongestIdx);
 
-            // Check if any antenna is combinable
-            for (int i = 0; i < specs.Count; i++)
+            if (exponentSourceIdx < 0)
             {
-                if (specs[i].antennaCombinable)
-                {
-                    anyCombinable = true;
-                    break;
-                }
-            }
-
-            if (!anyCombinable)
-            {
-                // No combinability — return strongest power only
+                // No combinable antennas — return strongest power only
                 ParsekLog.Verbose(Tag,
                     string.Format(ic,
                         "{0}: no combinable antennas — strongest='{1}' power={2}",
@@ -222,6 +253,13 @@ namespace Parsek
             {
                 ParsekLog.Verbose(Tag, "CommNet instance not available — skipping");
                 return false;
+            }
+
+            if (activeGhostNodes.ContainsKey(vesselPid))
+            {
+                var oldNode = activeGhostNodes[vesselPid];
+                CommNetNetwork.Instance?.CommNet?.Remove(oldNode);
+                ParsekLog.Warn(Tag, $"Removed orphaned CommNode for pid={vesselPid} before re-registration");
             }
 
             var node = new CommNode();

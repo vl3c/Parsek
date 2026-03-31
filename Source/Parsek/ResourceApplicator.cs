@@ -165,6 +165,14 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Clamps a budget deduction to the available balance, preventing negative values.
+        /// </summary>
+        internal static double ClampDeduction(double reserved, double available)
+        {
+            return System.Math.Min(reserved, System.Math.Max(0, available));
+        }
+
+        /// <summary>
         /// Deducts the committed budget from the game state and marks all recordings/trees
         /// as fully applied. Called after resource singletons are available on revert.
         /// </summary>
@@ -176,27 +184,31 @@ namespace Parsek
                 if (budget.reservedFunds > 0 && Funding.Instance != null)
                 {
                     double fundsBefore = Funding.Instance.Funds;
-                    Funding.Instance.AddFunds(-budget.reservedFunds, TransactionReasons.None);
+                    double fundsDeduction = ClampDeduction(budget.reservedFunds, fundsBefore);
+                    Funding.Instance.AddFunds(-fundsDeduction, TransactionReasons.None);
                     ParsekLog.Info("Scenario",
-                        $"Budget deduction: funds {fundsBefore:F0} → {Funding.Instance.Funds:F0} (reserved={budget.reservedFunds:F0})");
+                        $"Budget deduction: funds {fundsBefore:F0} → {Funding.Instance.Funds:F0} " +
+                        $"(reserved={budget.reservedFunds:F0}, clamped={fundsDeduction:F0})");
                 }
 
                 if (budget.reservedScience > 0 && ResearchAndDevelopment.Instance != null)
                 {
                     double scienceBefore = ResearchAndDevelopment.Instance.Science;
-                    ResearchAndDevelopment.Instance.AddScience(
-                        -(float)budget.reservedScience, TransactionReasons.None);
+                    float deduction = (float)ClampDeduction(budget.reservedScience, scienceBefore);
+                    ResearchAndDevelopment.Instance.AddScience(-deduction, TransactionReasons.None);
                     ParsekLog.Info("Scenario",
-                        $"Budget deduction: science {scienceBefore:F1} → {ResearchAndDevelopment.Instance.Science:F1} (reserved={budget.reservedScience:F1})");
+                        $"Budget deduction: science {scienceBefore:F1} → {ResearchAndDevelopment.Instance.Science:F1} " +
+                        $"(reserved={budget.reservedScience:F1}, clamped={deduction:F1})");
                 }
 
                 if (budget.reservedReputation > 0 && Reputation.Instance != null)
                 {
                     float repBefore = Reputation.Instance.reputation;
-                    Reputation.Instance.AddReputation(
-                        -(float)budget.reservedReputation, TransactionReasons.None);
+                    float repDeduction = (float)ClampDeduction(budget.reservedReputation, repBefore);
+                    Reputation.Instance.AddReputation(-repDeduction, TransactionReasons.None);
                     ParsekLog.Info("Scenario",
-                        $"Budget deduction: reputation {repBefore:F1} → {Reputation.Instance.reputation:F1} (reserved={budget.reservedReputation:F1})");
+                        $"Budget deduction: reputation {repBefore:F1} → {Reputation.Instance.reputation:F1} " +
+                        $"(reserved={budget.reservedReputation:F1}, clamped={repDeduction:F1})");
                 }
             }
             finally

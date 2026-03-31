@@ -15,6 +15,18 @@ namespace Parsek
         private const string Tag = "SpawnCollision";
         private static readonly CultureInfo IC = CultureInfo.InvariantCulture;
 
+        /// <summary>
+        /// Returns true for vessel types that should be excluded from spawn collision
+        /// and proximity checks: Debris, EVA, Flag, SpaceObject.
+        /// </summary>
+        internal static bool ShouldSkipVesselType(VesselType type)
+        {
+            return type == VesselType.Debris ||
+                   type == VesselType.EVA ||
+                   type == VesselType.Flag ||
+                   type == VesselType.SpaceObject;
+        }
+
         /// <summary>Default half-extent per part when actual size is unknown.</summary>
         private const float DefaultPartHalfExtent = 1.25f;
 
@@ -98,7 +110,8 @@ namespace Parsek
             var parts = new List<(Vector3 localPos, float halfExtent)>();
             for (int i = 0; i < partNodes.Length; i++)
             {
-                string posStr = partNodes[i].GetValue("pos");
+                string posStr = partNodes[i].GetValue("pos")
+                    ?? partNodes[i].GetValue("position");
                 if (string.IsNullOrEmpty(posStr))
                     continue;
 
@@ -304,14 +317,11 @@ namespace Parsek
                 if (other == FlightGlobals.ActiveVessel) continue;
 
                 // Skip non-significant vessel types that shouldn't block spawns
-                if (other.vesselType == VesselType.Debris ||
-                    other.vesselType == VesselType.EVA ||
-                    other.vesselType == VesselType.Flag ||
-                    other.vesselType == VesselType.SpaceObject)
+                if (ShouldSkipVesselType(other.vesselType))
                 {
                     ParsekLog.Verbose(Tag,
                         string.Format(IC, "Skipping {0} vessel {1} in overlap check",
-                            other.vesselType, other.vesselName));
+                            other.vesselType, Recording.ResolveLocalizedName(other.vesselName)));
                     continue;
                 }
 
@@ -327,17 +337,17 @@ namespace Parsek
                     if (dist < closestDist)
                     {
                         closestDist = dist;
-                        blockerName = other.vesselName;
+                        blockerName = Recording.ResolveLocalizedName(other.vesselName);
                     }
 
                     ParsekLog.VerboseRateLimited(Tag,
                         "overlap-" + other.persistentId,
-                        $"Spawn overlaps with {other.vesselName} (pid={other.persistentId}) at {dist.ToString("F1", IC)}m");
+                        $"Spawn overlaps with {Recording.ResolveLocalizedName(other.vesselName)} (pid={other.persistentId}) at {dist.ToString("F1", IC)}m");
                 }
                 else
                 {
                     ParsekLog.Verbose(Tag,
-                        $"No overlap with {other.vesselName} at {dist.ToString("F1", IC)}m");
+                        $"No overlap with {Recording.ResolveLocalizedName(other.vesselName)} at {dist.ToString("F1", IC)}m");
                 }
             }
 
@@ -371,11 +381,20 @@ namespace Parsek
                 if (!other.loaded) continue;
                 if (other == activeVessel) continue;
 
+                // Skip non-significant vessel types (same filter as overlap check)
+                if (ShouldSkipVesselType(other.vesselType))
+                {
+                    ParsekLog.Verbose(Tag,
+                        string.Format(IC, "Skipping {0} vessel {1} in proximity check",
+                            other.vesselType, Recording.ResolveLocalizedName(other.vesselName)));
+                    continue;
+                }
+
                 float dist = (float)Vector3d.Distance(spawnWorldPos, other.GetWorldPos3D());
                 if (dist < closestDist)
                 {
                     closestDist = dist;
-                    closestName = other.vesselName;
+                    closestName = Recording.ResolveLocalizedName(other.vesselName);
                 }
             }
 

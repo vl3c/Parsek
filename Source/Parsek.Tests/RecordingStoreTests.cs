@@ -676,6 +676,46 @@ namespace Parsek.Tests
 
             Assert.Equal(MergeDefault.GhostOnly, result);
         }
+
+        [Fact]
+        public void StashPending_SetsPendingStashedThisTransition()
+        {
+            Assert.False(RecordingStore.PendingStashedThisTransition);
+
+            RecordingStore.StashPending(MakePoints(3), "Ship");
+
+            Assert.True(RecordingStore.PendingStashedThisTransition);
+        }
+
+        [Fact]
+        public void StashPendingTree_SetsPendingStashedThisTransition()
+        {
+            Assert.False(RecordingStore.PendingStashedThisTransition);
+
+            var tree = new RecordingTree { TreeName = "TestTree" };
+            RecordingStore.StashPendingTree(tree);
+
+            Assert.True(RecordingStore.PendingStashedThisTransition);
+        }
+
+        [Fact]
+        public void StashPendingTree_Null_DoesNotSetFlag()
+        {
+            RecordingStore.StashPendingTree(null);
+
+            Assert.False(RecordingStore.PendingStashedThisTransition);
+        }
+
+        [Fact]
+        public void ResetForTesting_ClearsPendingStashedFlag()
+        {
+            RecordingStore.StashPending(MakePoints(3), "Ship");
+            Assert.True(RecordingStore.PendingStashedThisTransition);
+
+            RecordingStore.ResetForTesting();
+
+            Assert.False(RecordingStore.PendingStashedThisTransition);
+        }
     }
 
     [Collection("Sequential")]

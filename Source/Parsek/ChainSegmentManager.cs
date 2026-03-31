@@ -490,12 +490,13 @@ namespace Parsek
             }
             else if (ContinuationVesselPid != 0)
             {
-                // EVA segment committed during boarding (EVA→V): stop continuation,
-                // null the vessel segment's VesselSnapshot (new vessel segment handles spawning)
-                var vesselRec = RecordingStore.CommittedRecordings[ContinuationRecordingIdx];
-                vesselRec.VesselSnapshot = null;
-                ParsekLog.Verbose("Chain", $"Continuation stopped (boarding): nulled VesselSnapshot " +
-                    $"on recording #{ContinuationRecordingIdx}");
+                // EVA segment committed during boarding (EVA→V): stop continuation.
+                // Bug #95: Do NOT null VesselSnapshot on committed recordings.
+                // The next chain segment handles spawning, but after revert the snapshot
+                // is needed for re-spawn. VesselSnapshot is immutable after commit.
+                ParsekLog.Verbose("Chain", $"Continuation stopped (boarding): " +
+                    $"VesselSnapshot preserved on recording #{ContinuationRecordingIdx} " +
+                    $"(snapshot={RecordingStore.CommittedRecordings[ContinuationRecordingIdx].VesselSnapshot != null})");
                 StopContinuation("boarding");
             }
 

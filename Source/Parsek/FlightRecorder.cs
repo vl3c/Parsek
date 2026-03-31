@@ -2436,7 +2436,7 @@ namespace Parsek
                     lastT = 0f;
 
                 float delta = throttle - lastT;
-                if (delta > 0.01f || delta < -0.01f)
+                if (delta > 0.05f || delta < -0.05f)
                 {
                     lastThrottleMap[key] = throttle;
                     events.Add(new PartEvent
@@ -2610,7 +2610,7 @@ namespace Parsek
                     lastP = 0f;
 
                 float delta = power - lastP;
-                if (delta > 0.01f || delta < -0.01f)
+                if (delta > 0.05f || delta < -0.05f)
                 {
                     lastThrottleMap[key] = power;
                     events.Add(new PartEvent
@@ -4544,6 +4544,24 @@ namespace Parsek
             }
             if (v.persistentId != RecordingVesselId) return;
 
+            // Clear RELATIVE mode BEFORE sampling the boundary point (#74).
+            // SamplePosition records raw lat/lon/alt (absolute coordinates). If called
+            // while isRelativeMode is true, the point would have absolute values in a
+            // RELATIVE TrackSection — causing a position discontinuity during playback.
+            if (isRelativeMode)
+            {
+                ParsekLog.Info("Anchor",
+                    $"RELATIVE mode cleared on rails transition: anchorPid={currentAnchorPid}");
+                double clearUT = Planetarium.GetUniversalTime();
+                var clearEnv = environmentHysteresis != null
+                    ? environmentHysteresis.CurrentEnvironment
+                    : SegmentEnvironment.ExoBallistic;
+                CloseCurrentTrackSection(clearUT);
+                StartNewTrackSection(clearEnv, ReferenceFrame.Absolute, clearUT);
+                isRelativeMode = false;
+                currentAnchorPid = 0;
+            }
+
             // Record a boundary TrajectoryPoint at current UT (stitching point)
             SamplePosition(v);
 
@@ -4580,21 +4598,30 @@ namespace Parsek
                 }
             }
 
+            // Emit terminal engine/RCS/robotic events so ghost FX stops during orbit segment (#150)
+            double railsUT = Planetarium.GetUniversalTime();
+            var railsTerminalEvts = EmitTerminalEngineAndRcsEvents(
+                activeEngineKeys, activeRcsKeys, activeRoboticKeys,
+                lastRoboticPosition, railsUT, "Recorder");
+            PartEvents.AddRange(railsTerminalEvts);
+            if (railsTerminalEvts.Count > 0)
+                ParsekLog.Info("Recorder",
+                    $"Emitted {railsTerminalEvts.Count} terminal FX events at on-rails transition (UT={railsUT.ToString("F1", System.Globalization.CultureInfo.InvariantCulture)})");
+
+            // Clear active state so off-rails re-detection starts fresh
+            activeEngineKeys.Clear();
+            activeRcsKeys.Clear();
+            activeRoboticKeys.Clear();
+            lastThrottle.Clear();
+            lastRcsThrottle.Clear();
+            lastRoboticPosition.Clear();
             rcsActiveFrameCount.Clear();
             decoupledPartIds.Clear();
 
             isOnRails = true;
 
-            // Clear RELATIVE mode — orbital sections are always OrbitalCheckpoint
-            if (isRelativeMode)
-            {
-                ParsekLog.Info("Anchor",
-                    $"RELATIVE mode cleared on rails transition: anchorPid={currentAnchorPid}");
-                isRelativeMode = false;
-                currentAnchorPid = 0;
-            }
-
-            // Reference frame transition: ABSOLUTE/RELATIVE -> ORBITAL_CHECKPOINT
+            // Reference frame transition: ABSOLUTE -> ORBITAL_CHECKPOINT
+            // (RELATIVE already cleared above before SamplePosition)
             double onRailsUT = Planetarium.GetUniversalTime();
             var currentEnv = environmentHysteresis != null
                 ? environmentHysteresis.CurrentEnvironment

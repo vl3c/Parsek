@@ -468,6 +468,39 @@ namespace Parsek.Tests
                 l.Contains("2/3"));
         }
 
+        [Fact]
+        public void ParsePartPositions_PositionKey_ReturnsPositions()
+        {
+            // Bug #135: KSP vessel snapshots use "position" key, not "pos"
+            var p1 = new ConfigNode("PART");
+            p1.AddValue("position", "1.5,2.5,3.5");
+            var p2 = new ConfigNode("PART");
+            p2.AddValue("position", "-1,0,4.2");
+
+            var result = SpawnCollisionDetector.ParsePartPositions(new[] { p1, p2 });
+
+            Assert.Equal(2, result.Count);
+            Assert.Equal(1.5, (double)result[0].localPos.x, 4);
+            Assert.Equal(2.5, (double)result[0].localPos.y, 4);
+            Assert.Equal(3.5, (double)result[0].localPos.z, 4);
+        }
+
+        [Fact]
+        public void ParsePartPositions_MixedPosAndPosition_BothParsed()
+        {
+            // Both "pos" (synthetic snapshots) and "position" (KSP runtime) should work
+            var posNode = new ConfigNode("PART");
+            posNode.AddValue("pos", "1,2,3");
+            var positionNode = new ConfigNode("PART");
+            positionNode.AddValue("position", "4,5,6");
+
+            var result = SpawnCollisionDetector.ParsePartPositions(new[] { posNode, positionNode });
+
+            Assert.Equal(2, result.Count);
+            Assert.Equal(1.0, (double)result[0].localPos.x, 4);
+            Assert.Equal(4.0, (double)result[1].localPos.x, 4);
+        }
+
         // ────────────────────────────────────────────────────────────
         //  WalkbackAlongTrajectory
         // ────────────────────────────────────────────────────────────
@@ -590,6 +623,46 @@ namespace Parsek.Tests
                 points, bounds, 1f, IdentityWorldPos, pos => true);
 
             Assert.Equal(-1, result);
+        }
+
+        // ────────────────────────────────────────────────────────────
+        //  ShouldSkipVesselType (#73)
+        // ────────────────────────────────────────────────────────────
+
+        [Fact]
+        public void ShouldSkipVesselType_Debris_ReturnsTrue()
+        {
+            Assert.True(SpawnCollisionDetector.ShouldSkipVesselType(VesselType.Debris));
+        }
+
+        [Fact]
+        public void ShouldSkipVesselType_EVA_ReturnsTrue()
+        {
+            Assert.True(SpawnCollisionDetector.ShouldSkipVesselType(VesselType.EVA));
+        }
+
+        [Fact]
+        public void ShouldSkipVesselType_Flag_ReturnsTrue()
+        {
+            Assert.True(SpawnCollisionDetector.ShouldSkipVesselType(VesselType.Flag));
+        }
+
+        [Fact]
+        public void ShouldSkipVesselType_SpaceObject_ReturnsTrue()
+        {
+            Assert.True(SpawnCollisionDetector.ShouldSkipVesselType(VesselType.SpaceObject));
+        }
+
+        [Fact]
+        public void ShouldSkipVesselType_Ship_ReturnsFalse()
+        {
+            Assert.False(SpawnCollisionDetector.ShouldSkipVesselType(VesselType.Ship));
+        }
+
+        [Fact]
+        public void ShouldSkipVesselType_Relay_ReturnsFalse()
+        {
+            Assert.False(SpawnCollisionDetector.ShouldSkipVesselType(VesselType.Relay));
         }
     }
 }

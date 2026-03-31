@@ -164,6 +164,13 @@ namespace Parsek
             Dictionary<uint, GhostChain> chains,
             VesselGhoster ghoster)
         {
+            // Stop time warp before jumping — SetUniversalTime during warp can cause desync
+            if (TimeWarp.CurrentRateIndex > 0)
+            {
+                TimeWarp.SetRate(0, true);
+                ParsekLog.Info(Tag, "ExecuteJump: stopped time warp before jump");
+            }
+
             double t0 = Planetarium.GetUniversalTime();
             double jumpDelta = targetUT - t0;
 
@@ -201,7 +208,15 @@ namespace Parsek
             ApplyEpochShifts(capturedStates, targetUT);
 
             // Step 4: Process crossed chain tips — spawn real vessels
-            int spawnCount = SpawnCrossedChainTips(chains, ghoster, t0, targetUT);
+            var spawnedPids = SpawnCrossedChainTips(chains, ghoster, t0, targetUT);
+
+            // Remove spawned chains from caller's dict (#79 — SpawnCrossedChainTips
+            // no longer mutates the dict directly)
+            if (chains != null)
+            {
+                for (int i = 0; i < spawnedPids.Count; i++)
+                    chains.Remove(spawnedPids[i]);
+            }
 
             // Step 5: Game actions recalculation
             // The game actions system is a future dependency. If not available, skip with warning.
@@ -213,7 +228,7 @@ namespace Parsek
             ParsekLog.Info(Tag,
                 string.Format(ic,
                     "Time jump complete: {0} vessels spawned, {1} ghosts remaining",
-                    spawnCount, remainingGhosts));
+                    spawnedPids.Count, remainingGhosts));
         }
 
         /// <summary>
@@ -277,7 +292,7 @@ namespace Parsek
             ParsekLog.Info(Tag,
                 string.Format(ic,
                     "TIME_JUMP SegmentEvent emitted for recording vessel pid={0} name={1}",
-                    v.persistentId, v.vesselName));
+                    v.persistentId, Recording.ResolveLocalizedName(v.vesselName)));
         }
 
         /// <summary>
@@ -358,7 +373,7 @@ namespace Parsek
                     ParsekLog.Verbose(Tag,
                         string.Format(ic,
                             "Epoch shift skipped (surface): pid={0} name={1} situation={2}",
-                            v.persistentId, v.vesselName, v.situation));
+                            v.persistentId, Recording.ResolveLocalizedName(v.vesselName), v.situation));
                     continue;
                 }
 
@@ -369,7 +384,7 @@ namespace Parsek
                     ParsekLog.Warn(Tag,
                         string.Format(ic,
                             "WARNING: vessel '{0}' is in atmosphere — epoch shift is approximate",
-                            v.vesselName));
+                            Recording.ResolveLocalizedName(v.vesselName)));
                 }
 
                 capturedStates.Add((v, v.orbit.pos, v.orbit.vel, v.orbit.referenceBody, v.orbit.meanAnomalyAtEpoch));
@@ -402,7 +417,7 @@ namespace Parsek
                     ParsekLog.Verbose(Tag,
                         string.Format(ic,
                             "Epoch-shifted vessel: pid={0} name={1} body={2} dMeanAnomaly={3:F6}",
-                            v.persistentId, v.vesselName,
+                            v.persistentId, Recording.ResolveLocalizedName(v.vesselName),
                             body != null ? body.bodyName : "null",
                             shift));
                 }
@@ -411,22 +426,24 @@ namespace Parsek
                     ParsekLog.Error(Tag,
                         string.Format(ic,
                             "Epoch shift failed: pid={0} name={1} error={2}",
-                            v.persistentId, v.vesselName, ex.Message));
+                            v.persistentId, Recording.ResolveLocalizedName(v.vesselName), ex.Message));
                 }
             }
         }
 
         /// <summary>
         /// Spawns real vessels for all chain tips crossed during a time jump.
-        /// Returns the number of successfully spawned vessels.
+        /// Returns the list of spawned vessel PIDs (caller is responsible for
+        /// removing them from the chains dictionary). Does NOT mutate the input
+        /// chains dict (#79).
         /// </summary>
-        private static int SpawnCrossedChainTips(
+        internal static List<uint> SpawnCrossedChainTips(
             Dictionary<uint, GhostChain> chains,
             VesselGhoster ghoster,
             double t0, double targetUT)
         {
             var crossed = FindCrossedChainTips(chains, t0, targetUT);
-            int spawnCount = 0;
+            var spawnedPids = new List<uint>();
 
             foreach (GhostChain chain in crossed)
             {
@@ -444,8 +461,7 @@ namespace Parsek
                     uint spawnedPid = ghoster.SpawnAtChainTip(chain);
                     if (spawnedPid != 0)
                     {
-                        spawnCount++;
-                        chains.Remove(chain.OriginalVesselPid);
+                        spawnedPids.Add(chain.OriginalVesselPid);
                         ParsekLog.Info(Tag,
                             string.Format(ic,
                                 "Chain tip spawned during jump: vessel={0} spawnedPid={1}",
@@ -468,7 +484,7 @@ namespace Parsek
                 }
             }
 
-            return spawnCount;
+            return spawnedPids;
         }
 
         /// <summary>
@@ -495,7 +511,7 @@ namespace Parsek
                     ParsekLog.Warn(Tag,
                         string.Format(ic,
                             "WARNING: vessel '{0}' is in atmosphere — orbit propagation is approximate",
-                            v.vesselName));
+                            Recording.ResolveLocalizedName(v.vesselName)));
                 }
 
                 if (!v.packed && v.loaded)
@@ -507,14 +523,14 @@ namespace Parsek
                         ParsekLog.Verbose(Tag,
                             string.Format(ic,
                                 "Put vessel on rails: pid={0} name={1}",
-                                v.persistentId, v.vesselName));
+                                v.persistentId, Recording.ResolveLocalizedName(v.vesselName)));
                     }
                     catch (Exception ex)
                     {
                         ParsekLog.Warn(Tag,
                             string.Format(ic,
                                 "Failed to put vessel on rails: pid={0} name={1} error={2}",
-                                v.persistentId, v.vesselName, ex.Message));
+                                v.persistentId, Recording.ResolveLocalizedName(v.vesselName), ex.Message));
                     }
                 }
             }
@@ -539,14 +555,14 @@ namespace Parsek
                     ParsekLog.Verbose(Tag,
                         string.Format(ic,
                             "Took vessel off rails: pid={0} name={1}",
-                            v.persistentId, v.vesselName));
+                            v.persistentId, Recording.ResolveLocalizedName(v.vesselName)));
                 }
                 catch (Exception ex)
                 {
                     ParsekLog.Warn(Tag,
                         string.Format(ic,
                             "Failed to take vessel off rails: pid={0} name={1} error={2}",
-                            v.persistentId, v.vesselName, ex.Message));
+                            v.persistentId, Recording.ResolveLocalizedName(v.vesselName), ex.Message));
                 }
             }
         }
@@ -594,7 +610,7 @@ namespace Parsek
                             ParsekLog.Verbose(Tag,
                                 string.Format(ic,
                                     "Fixed converter timestamp: vessel={0} part={1} module={2} old={3:F1} new={4:F1}",
-                                    v.vesselName, p.partInfo?.name ?? "?", converter.GetType().Name,
+                                    Recording.ResolveLocalizedName(v.vesselName), p.partInfo?.name ?? "?", converter.GetType().Name,
                                     oldTime, newUT));
                         }
                     }
