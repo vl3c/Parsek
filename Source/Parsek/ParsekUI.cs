@@ -2861,7 +2861,7 @@ namespace Parsek
             if (statusStyleFuture != null) return;
 
             statusStyleFuture = new GUIStyle(GUI.skin.label);
-            statusStyleFuture.normal.textColor = Color.gray;
+            statusStyleFuture.normal.textColor = Color.white;
 
             statusStyleActive = new GUIStyle(GUI.skin.label);
             statusStyleActive.normal.textColor = Color.green;
