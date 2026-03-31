@@ -1427,7 +1427,7 @@ General principle: prefer toggling KSP's own components on/off via reflection ov
 
 **Priority:** Low — improvement opportunity, not a bug
 
-**Status:** Open
+**Status:** Won't fix — stock FX modules (`FXModuleAnimateThrottle`, `FXModuleAnimateRCS`) are `PartModule` subclasses requiring a live `Part` with `vessel` reference. Ghost parts are mesh-only GameObjects by design — attaching real Parts would add physics, CommNet, resource tracking overhead multiplied across all ghosts. Current reimplementation (~520 LOC) is cached per part type with 3-level quantized state, event-driven, near-zero runtime cost. Already audited and documented in-code (line 901-907).
 
 ## 113. Audit ghost FX for KSP-native component usage
 
