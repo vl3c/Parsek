@@ -68,7 +68,7 @@ All notable changes to Parsek are documented here.
 - **Fix #161: EVA snapshot situation stale.** `ShouldSpawnAtRecordingEnd` overrides unsafe-situation check when terminal state is Landed/Splashed.
 - **Fix #162: AutoCommitGhostOnly strips snapshot from landed EVAs.** Preserves `VesselSnapshot` for Landed/Splashed terminals.
 - **Fix #163: KSC spawns vessels from the future after rewind.** `ShouldSpawnAtKscEnd` now checks `currentUT >= EndUT`.
-- **Fix #165: Engine flame flash on ignition.** `EngineIgnited` with throttle=0 now uses min 0.01 emission.
+- **Fix #165: Engine flame flash on ignition.** Seed events for engines at zero throttle (staged but idle on the pad) are now skipped entirely — no plume at playback start. The first real throttle-up event starts the plume at the correct time. Playback retains `Math.Max(0.01f)` floor for backward compatibility with older recordings.
 - **Fix #164: Strip all future vessels on rewind, not just PRELAUNCH.** Flags, landed capsules, and other player-created vessels from the future now removed after rewind.
 - **DeferredActivateVessel timeout increased** from 10 frames to 5 seconds. Distant spawned vessels (37km+) couldn't load in 10 frames.
 - **ComputeTotal logging removed.** Eliminated 52% of all Parsek log output (pure computation was logging every UI frame).
