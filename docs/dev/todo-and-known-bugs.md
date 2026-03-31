@@ -1869,6 +1869,28 @@ When the recording vessel separates (e.g., SRB jettison), `FindNextWatchTarget` 
 
 **Status:** Open
 
+## 159. EVA auto-recordings have no rewind save — R button absent
+
+EVA recordings started from non-launch situations (landed base, orbiting station) have no `RewindSaveFileName` because rewind saves are only captured for chain root / launch recordings. The R button in the recordings window doesn't appear for these recordings (shows empty space, not disabled).
+
+**Priority:** Low — design gap, not a bug. Rewind save belongs to the original launch, not each EVA.
+
+**Status:** Open — needs design decision: should EVA auto-records capture their own rewind save?
+
+## 160. Log spam: remaining sources after ComputeTotal removal
+
+After removing ResourceBudget.ComputeTotal logging (52% of output), remaining spam sources:
+- GhostVisual HIERARCHY/DIAG dumps (~344 lines per session, rate-limited per-key but burst on build)
+- GhostVisual per-part cloning details (~370 lines)
+- Flight "applied heat level Cold" (46 lines, logs no-change steady state)
+- RecordingStore SerializeTrackSections per-recording verbose (184 lines)
+- KSCSpawn "Spawn not needed" at INFO level (54 lines)
+- BgRecorder CheckpointAllVessels checkpointed=0 at INFO (15 lines)
+
+**Priority:** Low — VERBOSE level, but adds up
+
+**Status:** Open — tracked for next log audit round
+
 ## 152. GhostVesselSwitchPatch Harmony ambiguous match
 
 `GhostVesselSwitchPatch` (on `ghost-orbits-trajectories` branch) fails with "Ambiguous match for HarmonyMethod[(class=FlightGlobals, methodname=SetActiveVessel, type=Normal, args=undefined)]". `FlightGlobals.SetActiveVessel` has multiple overloads in KSP 1.12.5 and the `[HarmonyPatch]` attribute doesn't specify parameter types.

@@ -1398,7 +1398,10 @@ namespace Parsek
                         ? "Fast-forward to this launch"
                         : ffReason;
                     if (GUILayout.Button(new GUIContent("FF", tooltip), GUILayout.Width(ColW_Rewind)))
+                    {
+                        ParsekLog.Info("UI", $"FF button clicked: #{ri} \"{rec.VesselName}\"");
                         ShowFastForwardConfirmation(rec);
+                    }
                     GUI.enabled = true;
                 }
                 else if (hasRewindSave)
@@ -1412,7 +1415,10 @@ namespace Parsek
                         ? "Rewind to this launch"
                         : rewindReason;
                     if (GUILayout.Button(new GUIContent("R", tooltip), GUILayout.Width(ColW_Rewind)))
+                    {
+                        ParsekLog.Info("UI", $"Rewind button clicked: #{ri} \"{rec.VesselName}\"");
                         ShowRewindConfirmation(rec);
+                    }
                     GUI.enabled = true;
                 }
                 else
