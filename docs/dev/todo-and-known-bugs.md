@@ -1572,7 +1572,7 @@ Likely same root cause as the original procedural fairing work: the fairing mesh
 
 **Priority:** Medium — visually noticeable on any vessel using engine plates
 
-**Status:** Fixed — engine plate shrouds are static meshes (not procedural fairings) controlled by `ModulePartVariants` GAMEOBJECTS rules. The inactive-variant renderer filter at lines 4901/4435 was killing them before the GAMEOBJECT rules could include them (prefab uses different base variant than snapshot). Fix: skip the inactive filter when explicit GAMEOBJECT rules exist — they become the sole authority on which objects to include. Also fixes any part with `ModulePartVariants` where the snapshot variant differs from the prefab base variant.
+**Status:** Partially fixed — variant filter fix ensures the correct shroud mesh IS cloned (9 MR including Shroud3x2 for "Medium" variant), but the shroud is not visually correct in-game. The `ModuleJettison` lists ALL shroud variants (Shroud3x0-3x4) — the jettison system collects all of them, including non-active variants that were filtered by the variant system. Additionally, the shroud mesh may be positioned incorrectly (user reports it might be rendered upward instead of downward). The shroud meshes are external SharedAssets models whose transform positioning relative to the engine plate needs investigation.
 
 ## 126. Rewind vessel strip fails due to localization key mismatch
 
