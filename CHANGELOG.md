@@ -51,7 +51,16 @@ All notable changes to Parsek are documented here.
 - **Fix #148: Fast-forward doesn't transfer watch to target.** `FastForwardToRecording` now exits watch and defers entering on the FF target after engine positions ghosts.
 - **Fix #149: RCS throttle event spam.** Deadband increased from 1% to 5% — reduces RCS part events by ~90% for SAS-active flights.
 
+- **Fix #135: ParsePartPositions wrong key.** `SpawnCollisionDetector.ParsePartPositions` only checked `"pos"` but KSP vessel snapshots use `"position"`. Parsed 0/40 parts on real vessels, falling back to inaccurate 2m bounds. Now checks both keys.
+- **Fix #150: Engine/RCS FX not stopped at on-rails.** `FlightRecorder.OnVesselGoOnRails` now calls `EmitTerminalEngineAndRcsEvents()` before going on-rails. Ghost engine plumes no longer persist during orbit segments.
+- **Fix #151: FF watch renders broken scene.** Added 100km distance guard in `EnterWatchMode` — refuses watch when ghost is beyond rendering-safe distance from active vessel. Rate-limited `FindNextWatchTarget` logging during watch hold.
+- **Fix: Enter key on camera cutoff input.** Enter key now commits the value (KeyDown was consumed by TextField before the check ran).
+
 ### Features
+
+- **Settings window: "Ghosts" group.** Merged "Ghost Camera" and "Ghost Soft Caps" sections into a single "Ghosts" group. Added checkbox-to-label spacing for all settings toggles.
+- **Fix #50: Chain block enable/loop checkboxes.** Chain headers now have aggregate enable and loop checkboxes (were empty spacers).
+- **Fix #98: Merge Countdown into Status column.** Status now shows `T-Xm Xs` for future, `Active` for playing, terminal state name for past.
 
 - **Ghost camera cutoff setting.** Settings > Ghost Camera > Cutoff [300] km. Watch mode auto-exits when ghost exceeds this distance. Watch button disabled for ghosts beyond cutoff. Default 300km, configurable 10-10000km.
 - **Watch mode distance overlay.** "Watching: Vessel (45.2 km)" in the notification bar shows distance from ghost to active vessel.
@@ -62,7 +71,9 @@ All notable changes to Parsek are documented here.
 ### Previously Fixed (Confirmed)
 
 - **#43** (shader fallback), **#49** (RealVesselExists O(n)) — already fixed in prior releases.
-- **#50** (subgroup checkboxes) — code appears to draw them via recursive `DrawGroupTree`; needs in-game verification.
+- **#121** (Ghost SKIPPED log spam) — resolved by T25 Phase 9 engine extraction.
+- **#133** — removed 6 dead forwarding methods + 2 unused properties from ParsekFlight, inlined call sites.
+- **#63** — added `errorWhitelist` parameter to `ParsekLogContractChecker.ValidateLatestSession`.
 
 Log spam audit and cleanup. Analyzed a 28,923-line KSP.log from a 70-second KSC session with 273 recordings — Parsek was 68.4% of all output (19,771 lines). Identified and fixed the top spam sources.
 

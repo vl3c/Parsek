@@ -1636,7 +1636,7 @@ Not a crash or leak (explosions decay naturally), but 90 concurrent particle-emi
 
 The pure predicates (`ShouldAbandonSpawnDeathLoop`, `ShouldFlushDeferredSpawns`, `ShouldSkipDeferredSpawn`) are tested; only the integration through the policy event handlers is missing.
 
-**Investigation notes:** `FlushDeferredSpawns` works correctly in ParsekFlight — moving to policy is pure refactoring with heavy state dependency (`pendingSpawnRecordingIds`, `pendingWatchRecordingId`, `SpawnVesselOrChainTip`, `DeferredActivateVessel`). Low value, high risk. Spawn-death detection is genuinely absent: `SpawnDeathCount` is never read in the engine path, and no `onVesselTerminated` subscription exists to detect spawned vessel destruction. Implementing requires event subscription + PID-to-recording matching.
+**Investigation notes:** `FlushDeferredSpawns` works correctly in ParsekFlight — moving to policy is pure refactoring with heavy state dependency (`pendingSpawnRecordingIds`, `pendingWatchRecordingId`, `SpawnVesselOrChainTip`, `DeferredActivateVessel`). Low value, high risk. Spawn-death detection is genuinely absent: `SpawnDeathCount` is never read in the engine path, and no `onVesselTerminated` subscription exists to detect spawned vessel destruction. Implementing requires event subscription + PID-to-recording matching. **Dormant bug:** policy and ParsekFlight have duplicate `pendingSpawnRecordingIds`/`pendingWatchRecordingId` fields — policy populates its copies in `HandlePlaybackCompleted` but the flush reads ParsekFlight's copies. Currently works because both paths add to the same set independently, but could diverge.
 
 **Priority:** Low — edge case (rapid spawn-death cycles), FlushDeferredSpawns works via existing path
 
