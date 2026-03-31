@@ -1276,12 +1276,10 @@ namespace Parsek
                 : "-";
             GUILayout.Label(launchTime, GUILayout.Width(ColW_Launch));
 
-            // Countdown
-            if (rec.Points.Count > 0 && rec.StartUT > now)
+            // Countdown (T-) / Mission time (T+)
+            if (rec.Points.Count > 0)
                 GUILayout.Label(SelectiveSpawnUI.FormatCountdown(rec.StartUT - now),
                     GUILayout.Width(ColW_Countdown));
-            else if (rec.Points.Count > 0 && rec.EndUT > now)
-                GUILayout.Label("LIVE", GUILayout.Width(ColW_Countdown));
             else
                 GUILayout.Label("-", GUILayout.Width(ColW_Countdown));
 
