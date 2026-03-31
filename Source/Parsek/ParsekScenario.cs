@@ -458,6 +458,11 @@ namespace Parsek
                             skipPrelaunch: true);
                 }
 
+                // Rescue crew orphaned by vessel stripping (#116)
+                if (isRevert && HighLogic.CurrentGame?.flightState != null)
+                    CrewReservationManager.RescueOrphanedCrew(
+                        HighLogic.CurrentGame.flightState.protoVessels);
+
                 // Then restore from saved tree nodes (present on scene change, absent on revert)
                 ConfigNode[] savedTreeNodes = node.GetNodes("RECORDING_TREE");
                 if (savedTreeNodes.Length > 0)
@@ -743,6 +748,12 @@ namespace Parsek
                 }
                 RecordingStore.RewindQuicksaveVesselPids = null;
             }
+
+            // Rescue crew orphaned by vessel stripping (#116).
+            // Must run BEFORE ReserveSnapshotCrew so crew are Available for re-reservation.
+            if (HighLogic.CurrentGame?.flightState != null)
+                CrewReservationManager.RescueOrphanedCrew(
+                    HighLogic.CurrentGame.flightState.protoVessels);
 
             // Set budgetDeductionEpoch BEFORE scheduling coroutine
             // (prevents ApplyBudgetDeductionWhenReady from double-deducting)

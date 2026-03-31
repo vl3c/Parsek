@@ -411,6 +411,60 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Rescues crew orphaned by vessel stripping during rewind/revert (#116).
+        /// Any crew member with Assigned status who is not on a surviving ProtoVessel
+        /// is set to Available. Dead crew are skipped. Must be called after
+        /// StripOrphanedSpawnedVessels / StripFuturePrelaunchVessels and before
+        /// ReserveSnapshotCrew (which re-reserves Available crew from snapshots).
+        /// </summary>
+        internal static int RescueOrphanedCrew(List<ProtoVessel> survivingVessels)
+        {
+            var roster = HighLogic.CurrentGame?.CrewRoster;
+            if (roster == null)
+            {
+                CrewLog("RescueOrphanedCrew: no crew roster — skipping");
+                return 0;
+            }
+
+            // Build set of crew names still referenced by surviving vessels
+            var survivingCrew = new HashSet<string>();
+            for (int i = 0; i < survivingVessels.Count; i++)
+            {
+                var crew = survivingVessels[i].GetVesselCrew();
+                for (int j = 0; j < crew.Count; j++)
+                    if (!string.IsNullOrEmpty(crew[j].name))
+                        survivingCrew.Add(crew[j].name);
+            }
+
+            GameStateRecorder.SuppressCrewEvents = true;
+            try
+            {
+                int rescued = 0;
+                foreach (ProtoCrewMember pcm in roster.Crew)
+                {
+                    if (pcm.rosterStatus != ProtoCrewMember.RosterStatus.Assigned)
+                        continue;
+                    if (survivingCrew.Contains(pcm.name))
+                        continue;
+
+                    pcm.rosterStatus = ProtoCrewMember.RosterStatus.Available;
+                    rescued++;
+                    CrewLog($"Rescued orphaned crew '{pcm.name}' → Available " +
+                        $"(was Assigned but no vessel references them)");
+                }
+
+                if (rescued > 0)
+                    ParsekLog.Info("Crew",
+                        $"Rescued {rescued} orphaned crew member(s) from vessel strip → Available");
+                return rescued;
+            }
+            finally
+            {
+                GameStateRecorder.SuppressCrewEvents = false;
+            }
+        }
+
+        /// <summary>
         /// Returns the single crew member's name from an EVA vessel, or null.
         /// Uses GetVesselCrew() for robustness with both packed and unpacked vessels.
         /// </summary>

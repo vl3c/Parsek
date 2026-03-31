@@ -1472,7 +1472,7 @@ After revert, the pilot (Jebediah) is already on the pad vessel from the quicksa
 
 **Priority:** Medium
 
-**Status:** Open (mitigated by #114 fix — primary trigger eliminated)
+**Status:** Fixed — `CrewReservationManager.RescueOrphanedCrew` now runs after vessel stripping in both rewind and revert paths, setting orphaned Assigned crew to Available before KSP's validation marks them Missing. Combined with #114 mitigation.
 
 ## 116. Valentina Kerman lost to Missing status after rewind vessel strip
 
@@ -1480,7 +1480,7 @@ Rewind stripped 8 orphaned spawned vessels from the save. Valentina was assigned
 
 **Priority:** Medium
 
-**Status:** Open (mitigated by #114 crew protection — fewer crew placed on doomed vessels)
+**Status:** Fixed — `RescueOrphanedCrew` rescues all orphaned Assigned crew (including non-reserved Valentina) after vessel stripping. Combined with #114 crew protection.
 
 ## 117. CanRewind/CanFastForward VERBOSE log spam — 578K lines/session
 
@@ -1602,7 +1602,7 @@ On the second rewind in session 7, `UnreserveCrewIn` logs `Replacement 'Hadfry K
 
 **Priority:** Low — no crash, handled gracefully, but may cause crew roster drift over many rewinds
 
-**Status:** Open
+**Status:** Mitigated — `RescueOrphanedCrew` now prevents replacement kerbals from becoming Missing after vessel strip. The "not found in roster" issue may still occur if KSP removes the replacement during save/load, but the orphaned-crew rescue reduces the conditions that lead to stale state accumulation.
 
 ## 129. Pad vessel from future persists as real after rewind
 
