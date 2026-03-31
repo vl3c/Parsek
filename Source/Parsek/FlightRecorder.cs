@@ -4544,6 +4544,24 @@ namespace Parsek
             }
             if (v.persistentId != RecordingVesselId) return;
 
+            // Clear RELATIVE mode BEFORE sampling the boundary point (#74).
+            // SamplePosition records raw lat/lon/alt (absolute coordinates). If called
+            // while isRelativeMode is true, the point would have absolute values in a
+            // RELATIVE TrackSection — causing a position discontinuity during playback.
+            if (isRelativeMode)
+            {
+                ParsekLog.Info("Anchor",
+                    $"RELATIVE mode cleared on rails transition: anchorPid={currentAnchorPid}");
+                double clearUT = Planetarium.GetUniversalTime();
+                var clearEnv = environmentHysteresis != null
+                    ? environmentHysteresis.CurrentEnvironment
+                    : SegmentEnvironment.ExoBallistic;
+                CloseCurrentTrackSection(clearUT);
+                StartNewTrackSection(clearEnv, ReferenceFrame.Absolute, clearUT);
+                isRelativeMode = false;
+                currentAnchorPid = 0;
+            }
+
             // Record a boundary TrajectoryPoint at current UT (stitching point)
             SamplePosition(v);
 
@@ -4602,16 +4620,8 @@ namespace Parsek
 
             isOnRails = true;
 
-            // Clear RELATIVE mode — orbital sections are always OrbitalCheckpoint
-            if (isRelativeMode)
-            {
-                ParsekLog.Info("Anchor",
-                    $"RELATIVE mode cleared on rails transition: anchorPid={currentAnchorPid}");
-                isRelativeMode = false;
-                currentAnchorPid = 0;
-            }
-
-            // Reference frame transition: ABSOLUTE/RELATIVE -> ORBITAL_CHECKPOINT
+            // Reference frame transition: ABSOLUTE -> ORBITAL_CHECKPOINT
+            // (RELATIVE already cleared above before SamplePosition)
             double onRailsUT = Planetarium.GetUniversalTime();
             var currentEnv = environmentHysteresis != null
                 ? environmentHysteresis.CurrentEnvironment
