@@ -34,7 +34,11 @@ namespace Parsek
                 if (RecordingStore.HasPending)
                 {
                     AutoCommitGhostOnly(RecordingStore.Pending);
+                    string recId = RecordingStore.Pending.RecordingId;
+                    double startUT = RecordingStore.Pending.StartUT;
+                    double endUT = RecordingStore.Pending.EndUT;
                     RecordingStore.CommitPending();
+                    LedgerOrchestrator.OnRecordingCommitted(recId, startUT, endUT);
                     KerbalsModule.RecalculateAndApply();
                     ParsekLog.Warn("Scenario",
                         "Safety net: committed pending recording on save outside Flight");
@@ -42,7 +46,9 @@ namespace Parsek
                 if (RecordingStore.HasPendingTree)
                 {
                     AutoCommitTreeGhostOnly(RecordingStore.PendingTree);
+                    var treeToCommit = RecordingStore.PendingTree;
                     RecordingStore.CommitPendingTree();
+                    NotifyLedgerTreeCommitted(treeToCommit);
                     KerbalsModule.RecalculateAndApply();
                     ParsekLog.Warn("Scenario",
                         "Safety net: committed pending tree on save outside Flight");
@@ -511,13 +517,19 @@ namespace Parsek
                         if (RecordingStore.HasPending)
                         {
                             AutoCommitGhostOnly(RecordingStore.Pending);
+                            string recId = RecordingStore.Pending.RecordingId;
+                            double startUT = RecordingStore.Pending.StartUT;
+                            double endUT = RecordingStore.Pending.EndUT;
                             RecordingStore.CommitPending();
+                            LedgerOrchestrator.OnRecordingCommitted(recId, startUT, endUT);
                             ScreenMessages.PostScreenMessage("[Parsek] Recording committed to timeline", 5f);
                         }
                         if (RecordingStore.HasPendingTree)
                         {
                             AutoCommitTreeGhostOnly(RecordingStore.PendingTree);
+                            var treeToCommit = RecordingStore.PendingTree;
                             RecordingStore.CommitPendingTree();
+                            NotifyLedgerTreeCommitted(treeToCommit);
                             ScreenMessages.PostScreenMessage("[Parsek] Tree recording committed to timeline", 5f);
                         }
                         KerbalsModule.RecalculateAndApply();
@@ -556,6 +568,16 @@ namespace Parsek
 
             // Restore milestone mutable state (LastReplayedEventIndex) from .sfs
             MilestoneStore.RestoreMutableState(node);
+
+            // Reconcile ledger against loaded recordings (prunes orphaned actions, recalculates)
+            var validIds = new System.Collections.Generic.HashSet<string>();
+            for (int v = 0; v < recordings.Count; v++)
+            {
+                if (!string.IsNullOrEmpty(recordings[v].RecordingId))
+                    validIds.Add(recordings[v].RecordingId);
+            }
+            double reconcileUT = Planetarium.GetUniversalTime();
+            LedgerOrchestrator.OnKspLoad(validIds, reconcileUT);
 
             KerbalsModule.RecalculateAndApply();
 
@@ -616,7 +638,11 @@ namespace Parsek
                         if (pending.VesselSnapshot != null)
                             CrewReservationManager.UnreserveCrewInSnapshot(pending.VesselSnapshot);
                         pending.VesselSnapshot = null;
+                        string recId = pending.RecordingId;
+                        double startUT = pending.StartUT;
+                        double endUT = pending.EndUT;
                         RecordingStore.CommitPending();
+                        LedgerOrchestrator.OnRecordingCommitted(recId, startUT, endUT);
                         ScenarioLog($"[Parsek Scenario] Auto-committed pending recording outside Flight " +
                             $"(scene: {HighLogic.LoadedScene})");
                     }
@@ -630,6 +656,7 @@ namespace Parsek
                             rec.VesselSnapshot = null;
                         }
                         RecordingStore.CommitPendingTree();
+                        NotifyLedgerTreeCommitted(pt);
                         ScenarioLog($"[Parsek Scenario] Auto-committed pending tree outside Flight " +
                             $"(scene: {HighLogic.LoadedScene})");
                     }
@@ -853,7 +880,11 @@ namespace Parsek
                 {
                     ParsekLog.Info("Scenario",
                         $"Deferred merge: auto-committing EVA child recording (parent={RecordingStore.Pending.ParentRecordingId})");
+                    string recId = RecordingStore.Pending.RecordingId;
+                    double startUT = RecordingStore.Pending.StartUT;
+                    double endUT = RecordingStore.Pending.EndUT;
                     RecordingStore.CommitPending();
+                    LedgerOrchestrator.OnRecordingCommitted(recId, startUT, endUT);
                     KerbalsModule.RecalculateAndApply();
                     mergeDialogPending = false;
                     yield break;
@@ -1635,6 +1666,18 @@ namespace Parsek
         }
 
         #region Vessel Lifecycle Events
+
+        /// <summary>
+        /// Notifies the ledger orchestrator about each recording in a committed tree.
+        /// </summary>
+        private static void NotifyLedgerTreeCommitted(RecordingTree tree)
+        {
+            if (tree == null) return;
+            foreach (var rec in tree.Recordings.Values)
+            {
+                LedgerOrchestrator.OnRecordingCommitted(rec.RecordingId, rec.StartUT, rec.EndUT);
+            }
+        }
 
         /// <summary>
         /// Prepares a standalone pending recording for ghost-only commit (no vessel spawn).

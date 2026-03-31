@@ -223,6 +223,7 @@ namespace Parsek
         private HashSet<string> pendingSpawnRecordingIds = new HashSet<string>();
         private string pendingWatchRecordingId = null;  // recording ID that was in watch mode when deferred
         private bool timelineResourceReplayPausedLogged = false;
+        private bool wasWarpActive = false; // tracks previous warp state for exit detection
         // Camera follow (watch mode) — transient, never serialized
         private const string WatchModeLockId = "ParsekWatch";
         private const ControlTypes WatchModeLockMask =
@@ -1187,7 +1188,9 @@ namespace Parsek
             if (ParsekScenario.IsAutoMerge)
             {
                 ParsekLog.Info("Flight", "ShowPostDestructionTreeMergeDialog: auto-merge enabled — committing tree");
+                var treeToCommit = RecordingStore.PendingTree;
                 RecordingStore.CommitPendingTree();
+                NotifyLedgerTreeCommitted(treeToCommit);
                 KerbalsModule.RecalculateAndApply();
                 MergeDialog.ReplayFlightResultsIfPending();
             }
@@ -1929,7 +1932,11 @@ namespace Parsek
                     }
                     if (ParsekScenario.IsAutoMerge)
                     {
+                        string amRecId = RecordingStore.Pending.RecordingId;
+                        double amStart = RecordingStore.Pending.StartUT;
+                        double amEnd = RecordingStore.Pending.EndUT;
                         RecordingStore.CommitPending();
+                        LedgerOrchestrator.OnRecordingCommitted(amRecId, amStart, amEnd);
                         KerbalsModule.RecalculateAndApply();
                         ParsekLog.Info("Flight",
                             $"Vessel destroyed during split — auto-merged ({dur:F1}s)");
@@ -1944,7 +1951,11 @@ namespace Parsek
                     return;
                 }
 
+                string recId = RecordingStore.Pending.RecordingId;
+                double sUT = RecordingStore.Pending.StartUT;
+                double eUT = RecordingStore.Pending.EndUT;
                 RecordingStore.CommitPending();
+                LedgerOrchestrator.OnRecordingCommitted(recId, sUT, eUT);
                 KerbalsModule.RecalculateAndApply();
                 string chainInfo = chainManager.ActiveChainId != null
                     ? $" (chain={chainManager.ActiveChainId}, idx={chainManager.ActiveChainNextIndex})"
@@ -3175,6 +3186,17 @@ namespace Parsek
 
         void OnTimeWarpRateChanged()
         {
+            bool isWarpNow = IsAnyWarpActive();
+
+            // Detect warp exit: was warping, now at 1x — recalculate ledger
+            if (wasWarpActive && !isWarpNow)
+            {
+                ParsekLog.Info("LedgerOrchestrator",
+                    "Warp exit detected — recalculating ledger");
+                LedgerOrchestrator.RecalculateAndPatch();
+            }
+            wasWarpActive = isWarpNow;
+
             if (activeTree == null || backgroundRecorder == null) return;
 
             double ut = Planetarium.GetUniversalTime();
@@ -3601,7 +3623,11 @@ namespace Parsek
                     if (parentFound)
                     {
                         Log($"Auto-committing EVA child recording (parent={pending.ParentRecordingId}, crew={pending.EvaCrewName})");
+                        string recId = pending.RecordingId;
+                        double startUT = pending.StartUT;
+                        double endUT = pending.EndUT;
                         RecordingStore.CommitPending();
+                        LedgerOrchestrator.OnRecordingCommitted(recId, startUT, endUT);
                         KerbalsModule.RecalculateAndApply();
                     }
                     else
@@ -4629,7 +4655,11 @@ namespace Parsek
             pending.LastAppliedResourceIndex = pending.Points.Count - 1;
 
             // Commit to timeline
+            string recId = pending.RecordingId;
+            double startUT = pending.StartUT;
+            double endUT = pending.EndUT;
             RecordingStore.CommitPending();
+            LedgerOrchestrator.OnRecordingCommitted(recId, startUT, endUT);
             KerbalsModule.RecalculateAndApply();
 
             // Clear recorder state
@@ -4985,7 +5015,8 @@ namespace Parsek
                         leaf.VesselSpawned = true;
                         leaf.SpawnedVesselPersistentId = spawnedPid;
                         leaf.LastAppliedResourceIndex = leaf.Points.Count - 1;
-                        ResourceBudget.Invalidate();
+                        // DISABLED: replaced by LedgerOrchestrator
+                        // ResourceBudget.Invalidate();
                         ParsekLog.Info("Flight", $"SpawnTreeLeaves: spawned leaf '{leaf.VesselName}' pid={spawnedPid}");
                     }
                     else
@@ -5971,7 +6002,8 @@ namespace Parsek
                 }
 
                 rec.LastAppliedResourceIndex = targetIndex;
-                ResourceBudget.Invalidate();
+                // DISABLED: replaced by LedgerOrchestrator
+                // ResourceBudget.Invalidate();
 
                 // Log summary when all resource deltas have been applied
                 if (targetIndex == points.Count - 1 && startIdx < targetIndex)
@@ -6067,7 +6099,8 @@ namespace Parsek
             }
 
             tree.ResourcesApplied = true;
-            ResourceBudget.Invalidate();
+            // DISABLED: replaced by LedgerOrchestrator
+            // ResourceBudget.Invalidate();
             Log($"Tree resource lump sum applied for '{tree.TreeName}'");
         }
 
@@ -7759,7 +7792,11 @@ namespace Parsek
         {
             if (ParsekScenario.IsAutoMerge)
             {
+                string recId = pending.RecordingId;
+                double startUT = pending.StartUT;
+                double endUT = pending.EndUT;
                 RecordingStore.CommitPending();
+                LedgerOrchestrator.OnRecordingCommitted(recId, startUT, endUT);
                 KerbalsModule.RecalculateAndApply();
                 Log($"Auto-merged recording from {pending.VesselName} ({pending.Points.Count} points)");
             }
@@ -7767,6 +7804,18 @@ namespace Parsek
             {
                 Log($"Showing merge dialog for {pending.VesselName} ({pending.Points.Count} points)");
                 MergeDialog.Show(pending);
+            }
+        }
+
+        /// <summary>
+        /// Notifies the ledger orchestrator about each recording in a committed tree.
+        /// </summary>
+        static void NotifyLedgerTreeCommitted(RecordingTree tree)
+        {
+            if (tree == null) return;
+            foreach (var rec in tree.Recordings.Values)
+            {
+                LedgerOrchestrator.OnRecordingCommitted(rec.RecordingId, rec.StartUT, rec.EndUT);
             }
         }
 

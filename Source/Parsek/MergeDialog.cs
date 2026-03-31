@@ -97,7 +97,11 @@ namespace Parsek
                             if (pending.VesselSnapshot != null)
                                 CrewReservationManager.UnreserveCrewInSnapshot(pending.VesselSnapshot);
                             pending.VesselSnapshot = null;
+                            string recId = pending.RecordingId;
+                            double startUT = pending.StartUT;
+                            double endUT = pending.EndUT;
                             RecordingStore.CommitPending();
+                            LedgerOrchestrator.OnRecordingCommitted(recId, startUT, endUT);
                             ClearPendingFlag();
                             ReplayFlightResultsIfPending();
                             ParsekLog.ScreenMessage("Recording merged to timeline!", 3f);
@@ -122,7 +126,11 @@ namespace Parsek
                         new DialogGUIButton("Merge to Timeline", () =>
                         {
                             // Defer spawn — vessel appears when ghost finishes at EndUT
+                            string recId = pending.RecordingId;
+                            double startUT = pending.StartUT;
+                            double endUT = pending.EndUT;
                             RecordingStore.CommitPending();
+                            LedgerOrchestrator.OnRecordingCommitted(recId, startUT, endUT);
                             KerbalsModule.RecalculateAndApply();
                             CrewReservationManager.SwapReservedCrewInFlight();
                             ClearPendingFlag();
@@ -184,7 +192,11 @@ namespace Parsek
                 {
                     new DialogGUIButton("Merge to Timeline", () =>
                     {
+                        string recId = pending.RecordingId;
+                        double startUT = pending.StartUT;
+                        double endUT = pending.EndUT;
                         RecordingStore.CommitPending();
+                        LedgerOrchestrator.OnRecordingCommitted(recId, startUT, endUT);
                         KerbalsModule.RecalculateAndApply();
                         CrewReservationManager.SwapReservedCrewInFlight();
                         ClearPendingFlag();
@@ -213,7 +225,11 @@ namespace Parsek
                             CrewReservationManager.UnreserveCrewInSnapshot(pending.VesselSnapshot);
                         pending.VesselSnapshot = null;
                         NullChainSiblingSnapshots(chainSiblings);
+                        string recId = pending.RecordingId;
+                        double startUT = pending.StartUT;
+                        double endUT = pending.EndUT;
                         RecordingStore.CommitPending();
+                        LedgerOrchestrator.OnRecordingCommitted(recId, startUT, endUT);
                         ClearPendingFlag();
                         ReplayFlightResultsIfPending();
                         ParsekLog.ScreenMessage($"Mission chain ({totalSegments} segments) merged!", 3f);
@@ -268,6 +284,18 @@ namespace Parsek
                 false,
                 HighLogic.UISkin
             );
+        }
+
+        /// <summary>
+        /// Notifies the ledger orchestrator about each recording in a committed tree.
+        /// </summary>
+        static void NotifyLedgerTreeCommitted(RecordingTree tree)
+        {
+            if (tree == null) return;
+            foreach (var rec in tree.Recordings.Values)
+            {
+                LedgerOrchestrator.OnRecordingCommitted(rec.RecordingId, rec.StartUT, rec.EndUT);
+            }
         }
 
         /// <summary>
@@ -393,6 +421,7 @@ namespace Parsek
                     if (av != null && av.persistentId != 0)
                         MarkForceSpawnOnTreeRecordings(tree, av.persistentId);
                     RecordingStore.CommitPendingTree();
+                    NotifyLedgerTreeCommitted(tree);
                     KerbalsModule.RecalculateAndApply();
                     CrewReservationManager.SwapReservedCrewInFlight();
                     ClearPendingFlag();
@@ -807,6 +836,7 @@ namespace Parsek
                         MarkForceSpawnOnTreeRecordings(capturedTree, av.persistentId);
                     ApplyVesselDecisions(capturedTree, capturedDecisions);
                     RecordingStore.CommitPendingTree();
+                    NotifyLedgerTreeCommitted(capturedTree);
                     KerbalsModule.RecalculateAndApply();
                     CrewReservationManager.SwapReservedCrewInFlight();
                     ClearPendingFlag();
