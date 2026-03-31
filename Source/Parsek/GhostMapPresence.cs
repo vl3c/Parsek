@@ -38,6 +38,12 @@ namespace Parsek
         private static readonly Dictionary<int, Vessel> vesselsByRecordingIndex = new Dictionary<int, Vessel>();
 
         /// <summary>
+        /// Reverse lookup: ghost vessel PID → recording index.
+        /// Kept in sync with vesselsByRecordingIndex to make FindRecordingIndexByVesselPid O(1).
+        /// </summary>
+        private static readonly Dictionary<uint, int> vesselPidToRecordingIndex = new Dictionary<uint, int>();
+
+        /// <summary>
         /// O(1) check used by all guard code throughout the codebase.
         /// Returns true if the given persistentId belongs to a ghost map ProtoVessel.
         /// </summary>
@@ -298,6 +304,7 @@ namespace Parsek
             ghostMapVesselPids.Clear();
             vesselsByChainPid.Clear();
             vesselsByRecordingIndex.Clear();
+            vesselPidToRecordingIndex.Clear();
 
             ParsekLog.Info(Tag,
                 string.Format(ic,
@@ -325,7 +332,10 @@ namespace Parsek
             string logContext = string.Format(ic, "recording index={0}", recordingIndex);
             Vessel vessel = BuildAndLoadGhostProtoVessel(traj, logContext);
             if (vessel != null)
+            {
                 vesselsByRecordingIndex[recordingIndex] = vessel;
+                vesselPidToRecordingIndex[vessel.persistentId] = recordingIndex;
+            }
 
             return vessel;
         }
@@ -351,12 +361,29 @@ namespace Parsek
             }
 
             ghostMapVesselPids.Remove(ghostPid);
+            vesselPidToRecordingIndex.Remove(ghostPid);
             vesselsByRecordingIndex.Remove(recordingIndex);
 
             ParsekLog.Info(Tag,
                 string.Format(ic,
                     "Removed ghost map vessel for recording #{0} ghostPid={1} reason={2}",
                     recordingIndex, ghostPid, reason));
+        }
+
+        /// <summary>
+        /// Remove all ghost map presence for a given recording index: both the
+        /// recording-index-based ProtoVessel AND any chain-based ProtoVessel for
+        /// the same vessel PID. Centralizes the dual-dict cleanup so callers
+        /// don't need to reach into RecordingStore to find the chain PID.
+        /// </summary>
+        internal static void RemoveAllGhostPresenceForIndex(int recordingIndex, uint vesselPersistentId, string reason)
+        {
+            // 1. Remove recording-index-based ghost (if any)
+            RemoveGhostVesselForRecording(recordingIndex, reason);
+
+            // 2. Remove chain-based ghost (if any) — keyed by vessel PID
+            if (vesselPersistentId != 0 && vesselsByChainPid.ContainsKey(vesselPersistentId))
+                RemoveGhostVessel(vesselPersistentId, reason);
         }
 
         /// <summary>
@@ -458,15 +485,12 @@ namespace Parsek
 
         /// <summary>
         /// Find the recording index for a ghost map vessel by its PID.
-        /// Returns -1 if not found.
+        /// O(1) via reverse lookup dictionary. Returns -1 if not found.
         /// </summary>
         internal static int FindRecordingIndexByVesselPid(uint vesselPid)
         {
-            foreach (var kvp in vesselsByRecordingIndex)
-            {
-                if (kvp.Value != null && kvp.Value.persistentId == vesselPid)
-                    return kvp.Key;
-            }
+            if (vesselPidToRecordingIndex.TryGetValue(vesselPid, out int index))
+                return index;
             return -1;
         }
 
@@ -478,6 +502,7 @@ namespace Parsek
             ghostMapVesselPids.Clear();
             vesselsByChainPid.Clear();
             vesselsByRecordingIndex.Clear();
+            vesselPidToRecordingIndex.Clear();
         }
 
         // ------------------------------------------------------------------
