@@ -7156,30 +7156,28 @@ namespace Parsek
             var (shouldHideMesh, shouldSkipPartEvents, shouldSkipPositioning) =
                 GhostPlaybackLogic.GetZoneRenderingPolicy(zone);
 
-            // Beyond zone: hide mesh for non-watched ghosts.
-            // Watched ghosts get a zone exemption so the camera can follow ascending
-            // rockets past the visual range boundary. But cap the exemption at the
-            // visual range — beyond that, exit watch mode and let the ghost be hidden.
-            if (shouldHideMesh && isWatchedGhost)
+            // Ghost camera cutoff: exit watch mode when the watched ghost exceeds the
+            // user-configured cutoff distance, regardless of zone classification.
+            if (isWatchedGhost)
             {
                 double cutoffMeters = (ParsekSettings.Current?.ghostCameraCutoffKm ?? 300f) * 1000.0;
-                if (ghostDistance < cutoffMeters)
+                if (ghostDistance >= cutoffMeters)
                 {
-                    // Within camera cutoff — exempt from hide
-                    shouldHideMesh = false;
-                    ParsekLog.VerboseRateLimited("Zone", $"watched-zone-exempt-{recIdx}",
-                        $"Ghost #{recIdx} \"{rec.VesselName}\" beyond physics bubble " +
-                        $"({ghostDistance.ToString("F0", CultureInfo.InvariantCulture)}m) but watched — exempt from zone hide",
-                        5.0);
-                }
-                else
-                {
-                    // Beyond camera cutoff — exit watch mode
                     ParsekLog.Info("Zone",
                         $"Ghost #{recIdx} \"{rec.VesselName}\" exceeded ghost camera cutoff " +
                         $"({ghostDistance.ToString("F0", CultureInfo.InvariantCulture)}m > " +
                         $"{cutoffMeters.ToString("F0", CultureInfo.InvariantCulture)}m) — exiting watch mode");
                     ExitWatchMode();
+                    // Don't return — let zone rendering continue (ghost will be hidden if Beyond)
+                }
+                else if (shouldHideMesh)
+                {
+                    // Within cutoff but in Beyond zone — exempt from hide (camera is at ghost)
+                    shouldHideMesh = false;
+                    ParsekLog.VerboseRateLimited("Zone", $"watched-zone-exempt-{recIdx}",
+                        $"Ghost #{recIdx} \"{rec.VesselName}\" beyond visual range " +
+                        $"({ghostDistance.ToString("F0", CultureInfo.InvariantCulture)}m) but watched — exempt from zone hide",
+                        5.0);
                 }
             }
 
