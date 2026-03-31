@@ -1302,16 +1302,18 @@ namespace Parsek
             else if (now <= rec.EndUT)
             {
                 statusStyle = statusStyleActive;
-                statusText = rec.Points.Count > 0
-                    ? SelectiveSpawnUI.FormatCountdown(rec.StartUT - now)
-                    : "active";
+                statusText = rec.IsDebris ? "active"
+                    : rec.Points.Count > 0
+                        ? SelectiveSpawnUI.FormatCountdown(rec.StartUT - now)
+                        : "active";
             }
             else
             {
                 statusStyle = statusStylePast;
-                statusText = rec.Points.Count > 0
-                    ? SelectiveSpawnUI.FormatCountdown(rec.StartUT - now)
-                    : (rec.TerminalStateValue?.ToString() ?? "past");
+                statusText = rec.IsDebris ? "past"
+                    : rec.Points.Count > 0
+                        ? SelectiveSpawnUI.FormatCountdown(rec.StartUT - now)
+                        : (rec.TerminalStateValue?.ToString() ?? "past");
             }
 
             // Phase 6d-3: Chain status tooltip — show ghost chain info on hover
