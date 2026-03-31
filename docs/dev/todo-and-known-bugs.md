@@ -1884,14 +1884,14 @@ When recording stops due to vessel switch (non-chain, non-tree), `CaptureAtStop`
 
 Areas identified by code path simulation that lack unit tests:
 
-1. `HandleVesselSwitchDuringRecording` with `Stop` decision — no test verifies recording data is committed/stashed rather than orphaned (now fixed by #155, but no regression test)
-2. `CacheEngineModules` with partially-loaded vessel — only null vessel tested; no test for null part entries in parts list
-3. `CheckAtmosphereBoundary` → `HandleAtmosphereBoundarySplit` → `HandleSoiChangeSplit` in sequence — no integration test for rapid multi-boundary scenario
-4. `FallbackCommitSplitRecorder` pad-failure threshold (< 10s AND < 30m) — not tested for the split-recorder fallback path specifically
+1. `HandleVesselSwitchDuringRecording` with `Stop` decision — no test verifies recording data is committed/stashed rather than orphaned (fixed by #155, no regression test — requires Unity runtime)
+2. `CacheEngineModules` with partially-loaded vessel — null vessel tested; null part entries require Unity `Vessel` instance (not feasible in unit tests)
+3. `CheckAtmosphereBoundary` → `HandleAtmosphereBoundarySplit` → `HandleSoiChangeSplit` in sequence — requires full `FlightRecorder` instance state (in-game integration test only)
+4. `FallbackCommitSplitRecorder` pad-failure threshold (< 10s AND < 30m) — **done**: extracted `IsPadFailure` static method, 6 boundary tests + 1 CacheEngineModules null-vessel test
 
 **Priority:** Low — test infrastructure
 
-**Status:** Open
+**Status:** Partially fixed — item 4 done (7 tests). Items 1-3 require Unity runtime, deferred to in-game testing.
 
 # In-Game Tests
 
