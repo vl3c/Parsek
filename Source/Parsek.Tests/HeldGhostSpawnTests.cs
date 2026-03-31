@@ -262,7 +262,6 @@ namespace Parsek.Tests
             Assert.Equal(0f, info.lastRetryTime);
             Assert.Null(info.recordingId);
             Assert.Null(info.vesselName);
-            Assert.False(info.wasWatched);
         }
 
         #endregion

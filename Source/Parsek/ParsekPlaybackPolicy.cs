@@ -119,7 +119,6 @@ namespace Parsek
                             holdStartTime = Time.time,
                             recordingId = evt.Flags.recordingId,
                             vesselName = evt.Trajectory?.VesselName,
-                            wasWatched = isWatched,
                         };
                         ParsekLog.Info("Policy",
                             $"Ghost held during warp-deferred spawn: #{evt.Index} \"{evt.Trajectory?.VesselName}\" " +
@@ -160,8 +159,7 @@ namespace Parsek
                                 holdStartTime = Time.time,
                                 recordingId = evt.Flags.recordingId,
                                 vesselName = evt.Trajectory?.VesselName,
-                                wasWatched = isWatched,
-                            };
+                                };
                             ParsekLog.Info("Policy",
                                 $"Ghost held pending spawn retry: #{evt.Index} \"{evt.Trajectory?.VesselName}\" " +
                                 $"id={evt.Flags.recordingId} — spawn blocked, ghost stays visible");
@@ -425,7 +423,6 @@ namespace Parsek
         public string vesselName;
 
         /// <summary>Whether this ghost was being watched when held.</summary>
-        public bool wasWatched;
     }
 
     /// <summary>
