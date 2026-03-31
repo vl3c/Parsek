@@ -783,5 +783,74 @@ namespace Parsek.Tests
         }
 
         #endregion
+
+        #region StartsInOrbit
+
+        /// <summary>
+        /// Empty orbit segments means no orbital phase — not in orbit.
+        /// </summary>
+        [Fact]
+        public void StartsInOrbit_NoSegments_ReturnsFalse()
+        {
+            var rec = new Recording
+            {
+                Points = { new TrajectoryPoint { ut = 100 } },
+                OrbitSegments = new System.Collections.Generic.List<OrbitSegment>()
+            };
+            Assert.False(ParsekPlaybackPolicy.StartsInOrbit(rec, 100));
+        }
+
+        /// <summary>
+        /// Recording with no points but orbit segments is orbit-only.
+        /// </summary>
+        [Fact]
+        public void StartsInOrbit_OrbitOnly_NoPoints_ReturnsTrue()
+        {
+            var rec = new Recording
+            {
+                OrbitSegments = new System.Collections.Generic.List<OrbitSegment>
+                {
+                    new OrbitSegment { startUT = 100, endUT = 500, bodyName = "Kerbin", semiMajorAxis = 700000 }
+                }
+            };
+            // No points added — orbit-only recording
+            Assert.True(ParsekPlaybackPolicy.StartsInOrbit(rec, 100));
+        }
+
+        /// <summary>
+        /// UT before any orbit segment means not in orbit yet (ascending).
+        /// </summary>
+        [Fact]
+        public void StartsInOrbit_UTBeforeSegment_ReturnsFalse()
+        {
+            var rec = new Recording
+            {
+                Points = { new TrajectoryPoint { ut = 50 } },
+                OrbitSegments = new System.Collections.Generic.List<OrbitSegment>
+                {
+                    new OrbitSegment { startUT = 200, endUT = 500, bodyName = "Kerbin", semiMajorAxis = 700000 }
+                }
+            };
+            Assert.False(ParsekPlaybackPolicy.StartsInOrbit(rec, 50));
+        }
+
+        /// <summary>
+        /// UT within an orbit segment means already in orbit.
+        /// </summary>
+        [Fact]
+        public void StartsInOrbit_UTWithinSegment_ReturnsTrue()
+        {
+            var rec = new Recording
+            {
+                Points = { new TrajectoryPoint { ut = 200 } },
+                OrbitSegments = new System.Collections.Generic.List<OrbitSegment>
+                {
+                    new OrbitSegment { startUT = 100, endUT = 500, bodyName = "Kerbin", semiMajorAxis = 700000 }
+                }
+            };
+            Assert.True(ParsekPlaybackPolicy.StartsInOrbit(rec, 200));
+        }
+
+        #endregion
     }
 }

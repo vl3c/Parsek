@@ -376,14 +376,23 @@ namespace Parsek
         private void HandleGhostCreated(GhostLifecycleEvent evt)
         {
             if (evt.Trajectory == null || evt.Trajectory.IsDebris)
+            {
+                if (evt.Trajectory?.IsDebris == true)
+                    ParsekLog.Verbose("Policy",
+                        $"Skipped ghost map for #{evt.Index} \"{evt.Trajectory?.VesselName}\" — debris");
                 return;
+            }
 
             // Only for stable orbital terminal states
             var terminal = evt.Trajectory.TerminalStateValue;
             if (terminal.HasValue
                 && terminal.Value != TerminalState.Orbiting
                 && terminal.Value != TerminalState.Docked)
+            {
+                ParsekLog.Verbose("Policy",
+                    $"Skipped ghost map for #{evt.Index} \"{evt.Trajectory.VesselName}\" — terminal={terminal.Value}");
                 return;
+            }
 
             if (!GhostMapPresence.HasOrbitData(evt.Trajectory))
                 return;
@@ -457,6 +466,9 @@ namespace Parsek
             var committed = RecordingStore.CommittedRecordings;
             if (committed == null) return;
 
+            // Collect updates to apply after iteration (cannot modify dict during foreach)
+            List<KeyValuePair<int, (string body, double sma)>> orbitUpdates = null;
+
             foreach (var kvp in lastMapOrbitByIndex)
             {
                 int idx = kvp.Key;
@@ -475,7 +487,15 @@ namespace Parsek
                     continue;
 
                 GhostMapPresence.UpdateGhostOrbitForRecording(idx, seg.Value);
-                lastMapOrbitByIndex[idx] = (seg.Value.bodyName, seg.Value.semiMajorAxis);
+                if (orbitUpdates == null) orbitUpdates = new List<KeyValuePair<int, (string, double)>>();
+                orbitUpdates.Add(new KeyValuePair<int, (string, double)>(
+                    idx, (seg.Value.bodyName, seg.Value.semiMajorAxis)));
+            }
+
+            if (orbitUpdates != null)
+            {
+                for (int i = 0; i < orbitUpdates.Count; i++)
+                    lastMapOrbitByIndex[orbitUpdates[i].Key] = orbitUpdates[i].Value;
             }
         }
 

@@ -207,59 +207,10 @@ namespace Parsek
             if (!vesselsByChainPid.TryGetValue(chainPid, out Vessel vessel))
             {
                 ParsekLog.Verbose(Tag,
-                    string.Format(ic,
-                        "UpdateGhostOrbit: no ghost vessel for chain pid={0}",
-                        chainPid));
+                    string.Format(ic, "UpdateGhostOrbit: no ghost vessel for chain pid={0}", chainPid));
                 return;
             }
-
-            if (vessel.orbitDriver == null)
-            {
-                ParsekLog.Warn(Tag,
-                    string.Format(ic,
-                        "UpdateGhostOrbit: ghost vessel pid={0} has no OrbitDriver",
-                        chainPid));
-                return;
-            }
-
-            CelestialBody body = FindBodyByName(segment.bodyName);
-            if (body == null)
-            {
-                ParsekLog.Warn(Tag,
-                    string.Format(ic,
-                        "UpdateGhostOrbit: body '{0}' not found for chain pid={1}",
-                        segment.bodyName, chainPid));
-                return;
-            }
-
-            Orbit newOrbit = new Orbit(
-                segment.inclination,
-                segment.eccentricity,
-                segment.semiMajorAxis,
-                segment.longitudeOfAscendingNode,
-                segment.argumentOfPeriapsis,
-                segment.meanAnomalyAtEpoch,
-                segment.epoch,
-                body);
-
-            vessel.orbitDriver.orbit.UpdateFromOrbitAtUT(
-                newOrbit, Planetarium.GetUniversalTime(), body);
-
-            if (vessel.orbitDriver.celestialBody != body)
-            {
-                vessel.orbitDriver.celestialBody = body;
-                ParsekLog.Info(Tag,
-                    string.Format(ic,
-                        "UpdateGhostOrbit: SOI change for chain pid={0} — new body={1}",
-                        chainPid, body.name));
-            }
-
-            vessel.orbitDriver.updateFromParameters();
-
-            ParsekLog.Verbose(Tag,
-                string.Format(ic,
-                    "UpdateGhostOrbit: updated chain pid={0} body={1} sma={2:F0}",
-                    chainPid, body.name, segment.semiMajorAxis));
+            ApplyOrbitToVessel(vessel, segment, string.Format(ic, "chain pid={0}", chainPid));
         }
 
         /// <summary>
@@ -402,7 +353,7 @@ namespace Parsek
             ghostMapVesselPids.Remove(ghostPid);
             vesselsByRecordingIndex.Remove(recordingIndex);
 
-            ParsekLog.Verbose(Tag,
+            ParsekLog.Info(Tag,
                 string.Format(ic,
                     "Removed ghost map vessel for recording #{0} ghostPid={1} reason={2}",
                     recordingIndex, ghostPid, reason));
@@ -410,19 +361,60 @@ namespace Parsek
 
         /// <summary>
         /// Update orbit for a recording-index ghost when the ghost traverses orbit segments.
-        /// Reuses the same logic as UpdateGhostOrbit but keyed by recording index.
         /// </summary>
         internal static void UpdateGhostOrbitForRecording(int recordingIndex, OrbitSegment segment)
         {
             if (!vesselsByRecordingIndex.TryGetValue(recordingIndex, out Vessel vessel))
                 return;
+            ApplyOrbitToVessel(vessel, segment, string.Format(ic, "recording #{0}", recordingIndex));
+        }
 
-            if (vessel.orbitDriver == null) return;
+        /// <summary>
+        /// Shared: apply an OrbitSegment's Keplerian elements to a ghost vessel's OrbitDriver.
+        /// Handles body resolution, orbit construction, SOI transitions, and logging.
+        /// </summary>
+        private static void ApplyOrbitToVessel(Vessel vessel, OrbitSegment segment, string logContext)
+        {
+            if (vessel.orbitDriver == null)
+            {
+                ParsekLog.Warn(Tag,
+                    string.Format(ic, "ApplyOrbitToVessel: no OrbitDriver for {0}", logContext));
+                return;
+            }
 
             CelestialBody body = FindBodyByName(segment.bodyName);
-            if (body == null) return;
+            if (body == null)
+            {
+                ParsekLog.Warn(Tag,
+                    string.Format(ic, "ApplyOrbitToVessel: body '{0}' not found for {1}",
+                        segment.bodyName, logContext));
+                return;
+            }
 
-            Orbit newOrbit = new Orbit(
+            Orbit newOrbit = BuildOrbitFromSegment(segment, body);
+            vessel.orbitDriver.orbit.UpdateFromOrbitAtUT(
+                newOrbit, Planetarium.GetUniversalTime(), body);
+
+            if (vessel.orbitDriver.celestialBody != body)
+            {
+                vessel.orbitDriver.celestialBody = body;
+                ParsekLog.Info(Tag,
+                    string.Format(ic, "SOI change for {0} — new body={1}", logContext, body.name));
+            }
+
+            vessel.orbitDriver.updateFromParameters();
+
+            ParsekLog.Verbose(Tag,
+                string.Format(ic, "Orbit updated for {0} body={1} sma={2:F0}",
+                    logContext, body.name, segment.semiMajorAxis));
+        }
+
+        /// <summary>
+        /// Construct a KSP Orbit object from an OrbitSegment's Keplerian elements.
+        /// </summary>
+        private static Orbit BuildOrbitFromSegment(OrbitSegment segment, CelestialBody body)
+        {
+            return new Orbit(
                 segment.inclination,
                 segment.eccentricity,
                 segment.semiMajorAxis,
@@ -431,19 +423,6 @@ namespace Parsek
                 segment.meanAnomalyAtEpoch,
                 segment.epoch,
                 body);
-
-            vessel.orbitDriver.orbit.UpdateFromOrbitAtUT(
-                newOrbit, Planetarium.GetUniversalTime(), body);
-
-            if (vessel.orbitDriver.celestialBody != body)
-                vessel.orbitDriver.celestialBody = body;
-
-            vessel.orbitDriver.updateFromParameters();
-
-            ParsekLog.Verbose(Tag,
-                string.Format(ic,
-                    "UpdateGhostOrbitForRecording: #{0} body={1} sma={2:F0}",
-                    recordingIndex, body.name, segment.semiMajorAxis));
         }
 
         /// <summary>
