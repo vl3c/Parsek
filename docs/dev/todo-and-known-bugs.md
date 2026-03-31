@@ -1848,6 +1848,19 @@ When recording stops due to vessel switch (non-chain, non-tree), `CaptureAtStop`
 
 **Status:** Fixed — `StartRecording` now calls `FallbackCommitSplitRecorder` on the orphaned recorder before creating a new one. Only applies to non-chain, non-tree cases (chain/tree paths already commit properly).
 
+## 156. Missing test coverage from lifecycle simulation
+
+Areas identified by code path simulation that lack unit tests:
+
+1. `HandleVesselSwitchDuringRecording` with `Stop` decision — no test verifies recording data is committed/stashed rather than orphaned (now fixed by #155, but no regression test)
+2. `CacheEngineModules` with partially-loaded vessel — only null vessel tested; no test for null part entries in parts list
+3. `CheckAtmosphereBoundary` → `HandleAtmosphereBoundarySplit` → `HandleSoiChangeSplit` in sequence — no integration test for rapid multi-boundary scenario
+4. `FallbackCommitSplitRecorder` pad-failure threshold (< 10s AND < 30m) — not tested for the split-recorder fallback path specifically
+
+**Priority:** Low — test infrastructure
+
+**Status:** Open
+
 ## 152. GhostVesselSwitchPatch Harmony ambiguous match
 
 `GhostVesselSwitchPatch` (on `ghost-orbits-trajectories` branch) fails with "Ambiguous match for HarmonyMethod[(class=FlightGlobals, methodname=SetActiveVessel, type=Normal, args=undefined)]". `FlightGlobals.SetActiveVessel` has multiple overloads in KSP 1.12.5 and the `[HarmonyPatch]` attribute doesn't specify parameter types.
