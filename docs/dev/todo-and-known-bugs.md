@@ -887,7 +887,7 @@ After a vessel switch, a boarding event was detected but the confirmation timer 
 
 **Impact:** Low — boarding not recorded, but kerbal not lost.
 
-**Status:** Open — low priority
+**Status:** Fixed — increased confirmation window from 3 frames (~60ms) to 10 frames (~200ms). Enough time for vessel switch to complete without risk of stale confirmations.
 
 ## 58. Background vessel recording requires KSP debris persistence enabled
 
@@ -1856,9 +1856,11 @@ After FF (fast-forward time jump) to a distant recording segment, Parsek transfe
 
 `ModuleAnimateHeat` on pointyNoseConeB (Protective Rocket Nose Cone Mk7) doesn't match the expected classification pattern. Logged at VERBOSE level. These nose cones won't have heat glow animation on ghost playback.
 
-**Priority:** Low — cosmetic, barely noticeable
+**Investigation notes:** `ModuleAnimateHeat` exposes only `lerpMin`/`lerpOffset` config fields via KSPField — the runtime heat value (`part.skinTemperature / part.skinMaxTemp`) is computed internally and applied directly to the Animation clip. None of the candidate field names in `TryClassifyAnimateHeatState` match. Would need reflection on `Animation[animationName].normalizedTime` to read it, which is fragile and not worth the complexity for a barely-visible effect on nose cones.
 
-**Status:** Open
+**Priority:** Low — cosmetic, barely noticeable, would require reflection hack
+
+**Status:** Won't fix — heat glow on nose cones is negligible; classifier correctly handles engine heat modules which are the primary use case
 
 ## 154. parsek_38.png texture compression warning
 
