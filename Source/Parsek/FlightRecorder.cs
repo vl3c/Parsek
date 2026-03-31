@@ -3697,12 +3697,25 @@ namespace Parsek
                 startUT = ut,
                 source = source,
                 frames = new List<TrajectoryPoint>(),
-                checkpoints = new List<OrbitSegment>()
+                checkpoints = new List<OrbitSegment>(),
+                minAltitude = float.NaN,
+                maxAltitude = float.NaN
             };
             trackSectionActive = true;
             ParsekLog.Info("Recorder",
                 $"TrackSection started: env={env} ref={refFrame} source={source} " +
                 $"at UT={ut.ToString("F2", CultureInfo.InvariantCulture)}");
+        }
+
+        /// <summary>
+        /// Updates min/max altitude on the current TrackSection.
+        /// </summary>
+        private void UpdateTrackSectionAltitude(float altitude)
+        {
+            if (float.IsNaN(currentTrackSection.minAltitude) || altitude < currentTrackSection.minAltitude)
+                currentTrackSection.minAltitude = altitude;
+            if (float.IsNaN(currentTrackSection.maxAltitude) || altitude > currentTrackSection.maxAltitude)
+                currentTrackSection.maxAltitude = altitude;
         }
 
         /// <summary>
@@ -4604,6 +4617,7 @@ namespace Parsek
             if (trackSectionActive && currentTrackSection.frames != null)
             {
                 currentTrackSection.frames.Add(point);
+                UpdateTrackSectionAltitude((float)point.altitude);
             }
 
             RefreshBackupSnapshot(v, "periodic");
@@ -4663,6 +4677,7 @@ namespace Parsek
             if (trackSectionActive && currentTrackSection.frames != null)
             {
                 currentTrackSection.frames.Add(point);
+                UpdateTrackSectionAltitude((float)point.altitude);
             }
         }
 

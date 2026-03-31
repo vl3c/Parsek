@@ -2218,6 +2218,12 @@ namespace Parsek
                 if (track.boundaryDiscontinuityMeters > 0f)
                     tsNode.AddValue("bdisc", track.boundaryDiscontinuityMeters.ToString("R", ic));
 
+                // Altitude range: sparse — only write when tracked (non-NaN)
+                if (!float.IsNaN(track.minAltitude))
+                    tsNode.AddValue("minAlt", track.minAltitude.ToString("R", ic));
+                if (!float.IsNaN(track.maxAltitude))
+                    tsNode.AddValue("maxAlt", track.maxAltitude.ToString("R", ic));
+
                 if (track.anchorVesselId != 0)
                     tsNode.AddValue("anchorPid", track.anchorVesselId.ToString(ic));
 
@@ -2329,6 +2335,13 @@ namespace Parsek
                 float bdisc;
                 if (float.TryParse(tsNode.GetValue("bdisc"), ns, ic, out bdisc))
                     section.boundaryDiscontinuityMeters = bdisc;
+
+                // Altitude range: defaults to NaN when absent (legacy recordings)
+                float minAlt, maxAlt;
+                section.minAltitude = float.TryParse(tsNode.GetValue("minAlt"), ns, ic, out minAlt)
+                    ? minAlt : float.NaN;
+                section.maxAltitude = float.TryParse(tsNode.GetValue("maxAlt"), ns, ic, out maxAlt)
+                    ? maxAlt : float.NaN;
 
                 uint anchorPid;
                 if (uint.TryParse(tsNode.GetValue("anchorPid"), NumberStyles.Integer, ic, out anchorPid))

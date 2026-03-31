@@ -583,6 +583,80 @@ namespace Parsek.Tests
             Assert.Empty(node.GetNodes("TRACK_SECTION"));
         }
 
+        [Fact]
+        public void AltitudeMetadata_RoundTrip()
+        {
+            var tracks = new List<TrackSection>
+            {
+                new TrackSection
+                {
+                    environment = SegmentEnvironment.Atmospheric,
+                    referenceFrame = ReferenceFrame.Absolute,
+                    startUT = 17000, endUT = 17060,
+                    frames = new List<TrajectoryPoint>(),
+                    checkpoints = new List<OrbitSegment>(),
+                    minAltitude = 500f,
+                    maxAltitude = 72000f
+                }
+            };
+
+            var node = new ConfigNode("TEST");
+            RecordingStore.SerializeTrackSections(node, tracks);
+
+            var loaded = new List<TrackSection>();
+            RecordingStore.DeserializeTrackSections(node, loaded);
+
+            Assert.Single(loaded);
+            Assert.Equal(500f, loaded[0].minAltitude);
+            Assert.Equal(72000f, loaded[0].maxAltitude);
+        }
+
+        [Fact]
+        public void AltitudeMetadata_LegacyMissing_DefaultsToNaN()
+        {
+            // Simulate a legacy TRACK_SECTION without minAlt/maxAlt
+            var node = new ConfigNode("TEST");
+            var tsNode = node.AddNode("TRACK_SECTION");
+            tsNode.AddValue("env", "0"); // Atmospheric
+            tsNode.AddValue("ref", "0"); // Absolute
+            tsNode.AddValue("startUT", "17000");
+            tsNode.AddValue("endUT", "17060");
+            // No minAlt/maxAlt keys
+
+            var loaded = new List<TrackSection>();
+            RecordingStore.DeserializeTrackSections(node, loaded);
+
+            Assert.Single(loaded);
+            Assert.True(float.IsNaN(loaded[0].minAltitude));
+            Assert.True(float.IsNaN(loaded[0].maxAltitude));
+        }
+
+        [Fact]
+        public void AltitudeMetadata_NaN_NotSerialized()
+        {
+            // TrackSection with NaN altitude (not tracked) should not write minAlt/maxAlt
+            var tracks = new List<TrackSection>
+            {
+                new TrackSection
+                {
+                    environment = SegmentEnvironment.ExoBallistic,
+                    referenceFrame = ReferenceFrame.OrbitalCheckpoint,
+                    startUT = 17000, endUT = 17300,
+                    frames = new List<TrajectoryPoint>(),
+                    checkpoints = new List<OrbitSegment>(),
+                    minAltitude = float.NaN,
+                    maxAltitude = float.NaN
+                }
+            };
+
+            var node = new ConfigNode("TEST");
+            RecordingStore.SerializeTrackSections(node, tracks);
+
+            var tsNode = node.GetNodes("TRACK_SECTION")[0];
+            Assert.Null(tsNode.GetValue("minAlt"));
+            Assert.Null(tsNode.GetValue("maxAlt"));
+        }
+
         #endregion
     }
 }
