@@ -1909,6 +1909,16 @@ After rewind, `StripOrphanedSpawnedVessels` only matches vessels by recording na
 
 **Status:** Fixed — removed PRELAUNCH restriction from `ShouldStripFuturePrelaunch`. Now strips ALL vessel types not in the quicksave PID whitelist. The whitelist is captured from the actual quicksave at rewind time, so only vessels that existed at the rewind target UT survive.
 
+## 168. Parsek-spawned vessels not re-spawned at correct time after rewind
+
+After rewind, the expanded strip (#164) correctly removes all non-quicksave vessels including Parsek-spawned ones. But those vessels need to be re-spawned at their recording's EndUT as the timeline plays forward. The UT guard in `ShouldSpawnAtKscEnd` (#163) prevents premature spawning, and `ShouldSpawnAtRecordingEnd` handles Flight scene spawning. However, `SpawnedVesselPersistentId` and `VesselSpawned` are not reset after the strip, so the spawn system thinks the vessel is already spawned and skips re-spawning.
+
+**Fix:** `ResetAllPlaybackState` (or a new post-strip reset) must clear `SpawnedVesselPersistentId` and `VesselSpawned` on all committed recordings after the rewind strip so the spawn system re-evaluates them.
+
+**Priority:** High — spawned vessels disappear permanently after rewind
+
+**Status:** Open
+
 ## 165. Engine seed event records throttle=0.00 at recording start
 
 When recording starts on the launchpad with staged engines, `CacheEngineModules` seeds `EngineIgnited` with `throttle=0.00` (the current value before the player throttles up). During playback, the ghost processes `EngineIgnited(0.00)` → plume off → then `EngineThrottle(1.00)` a few frames later → plume on. Creates a visible flame flash-off at the start of every playback cycle.
