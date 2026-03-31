@@ -295,5 +295,14 @@ namespace Parsek
 
         /// <summary>Returns the number of tracked subjects (for diagnostics).</summary>
         internal int SubjectCount => subjects.Count;
+
+        /// <summary>
+        /// Returns a read-only view of all tracked subjects for per-subject patching.
+        /// The dictionary maps subjectId to the current SubjectState (creditedTotal, maxValue).
+        /// </summary>
+        internal IReadOnlyDictionary<string, SubjectState> GetAllSubjects()
+        {
+            return subjects;
+        }
     }
 }
