@@ -1476,7 +1476,7 @@ namespace Parsek
                         pending.SegmentPhase = v.altitude < v.mainBody.atmosphereDepth ? "atmo" : "exo";
                     else
                     {
-                        double threshold = FlightRecorder.ComputeApproachAltitude(v.mainBody.Radius);
+                        double threshold = FlightRecorder.ComputeApproachAltitude(v.mainBody);
                         pending.SegmentPhase = v.altitude < threshold ? "approach" : "exo";
                     }
                 }
@@ -4243,7 +4243,7 @@ namespace Parsek
                 fromPhase = "exo"; // was in space around atmospheric body
             else if (fromCB != null)
             {
-                double threshold = FlightRecorder.ComputeApproachAltitude(fromCB.Radius);
+                double threshold = FlightRecorder.ComputeApproachAltitude(fromCB);
                 fromPhase = recorder.Recording.Count > 0 &&
                     recorder.Recording[recorder.Recording.Count - 1].altitude < threshold
                     ? "approach" : "exo";
@@ -4616,7 +4616,7 @@ namespace Parsek
                         recorder.CaptureAtStop.SegmentPhase = v.altitude < v.mainBody.atmosphereDepth ? "atmo" : "exo";
                     else
                     {
-                        double threshold = FlightRecorder.ComputeApproachAltitude(v.mainBody.Radius);
+                        double threshold = FlightRecorder.ComputeApproachAltitude(v.mainBody);
                         recorder.CaptureAtStop.SegmentPhase = v.altitude < threshold ? "approach" : "exo";
                     }
                     ParsekLog.Verbose("Flight", $"Final segment tagged (StopRecording): " +

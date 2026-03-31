@@ -598,7 +598,7 @@ namespace Parsek
                             pending.SegmentPhase = recordedVessel.altitude < recordedVessel.mainBody.atmosphereDepth ? "atmo" : "exo";
                         else
                         {
-                            double threshold = FlightRecorder.ComputeApproachAltitude(recordedVessel.mainBody.Radius);
+                            double threshold = FlightRecorder.ComputeApproachAltitude(recordedVessel.mainBody);
                             pending.SegmentPhase = recordedVessel.altitude < threshold ? "approach" : "exo";
                         }
 

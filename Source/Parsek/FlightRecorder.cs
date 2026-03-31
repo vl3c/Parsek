@@ -3335,6 +3335,23 @@ namespace Parsek
 
         /// <summary>
         /// Returns the approach altitude threshold for an airless body.
+        /// Prefers KSP's timeWarpAltitudeLimits[4] (100x warp limit) when available — this is
+        /// KSP's own definition of "close enough that fast warp is dangerous" and adapts to modded
+        /// planets automatically. Falls back to body.Radius * 0.15 clamped to [5000, 200000].
+        /// </summary>
+        internal static double ComputeApproachAltitude(CelestialBody body)
+        {
+            if (body != null && body.timeWarpAltitudeLimits != null
+                && body.timeWarpAltitudeLimits.Length > 4
+                && body.timeWarpAltitudeLimits[4] > 0)
+            {
+                return body.timeWarpAltitudeLimits[4];
+            }
+            return ComputeApproachAltitude(body != null ? body.Radius : 0);
+        }
+
+        /// <summary>
+        /// Radius-only fallback for tests and contexts without a CelestialBody reference.
         /// body.Radius * 0.15, clamped to [5000, 200000] meters.
         /// </summary>
         internal static double ComputeApproachAltitude(double bodyRadius)
@@ -3523,7 +3540,7 @@ namespace Parsek
             }
             else
             {
-                currentAltitudeThreshold = ComputeApproachAltitude(v.mainBody.Radius);
+                currentAltitudeThreshold = ComputeApproachAltitude(v.mainBody);
                 wasAboveAltitudeThreshold = v.altitude >= currentAltitudeThreshold;
             }
             altitudeBoundaryPending = false;
