@@ -43,7 +43,8 @@ namespace Parsek
 
         // Deferred watch target after fast-forward — the ghost needs one frame
         // to be positioned after the time jump before we can enter watch mode.
-        private int pendingWatchAfterFF = -1;
+        // Uses recording ID (not index) to be safe against list reordering.
+        private string pendingWatchAfterFFId;
 
         // Manual playback state (preview of current recording)
         private bool isPlaying = false;
@@ -247,7 +248,7 @@ namespace Parsek
         float savedCameraDistance = 0f;
         float savedCameraPitch = 0f;
         float savedCameraHeading = 0f;
-        double watchEndHoldUntilUT = -1;      // non-looped end hold timer
+        float watchEndHoldUntilRealTime = -1;  // non-looped end hold timer (real time, warp-independent)
         float savedPivotSharpness = 0.5f;
         int watchNoTargetFrames = 0;          // consecutive frames with no valid camera target (safety net)
 
@@ -5597,11 +5598,11 @@ namespace Parsek
             StartCoroutine(DeferredActivateVessel(vesselPid));
 
         /// <summary>Called by policy to start the watch-mode hold timer at recording end.</summary>
-        internal void StartWatchHoldFromPolicy(double holdUntilUT)
+        internal void StartWatchHoldFromPolicy(float holdUntilRealTime)
         {
-            watchEndHoldUntilUT = holdUntilUT;
+            watchEndHoldUntilRealTime = holdUntilRealTime;
             ParsekLog.Info("CameraFollow",
-                $"Watch hold timer set: holdUntil={holdUntilUT:F1} (watched #{watchedRecordingIndex})");
+                $"Watch hold timer set: holdUntilRealTime={holdUntilRealTime:F1} (watched #{watchedRecordingIndex})");
         }
 
         private void SpawnVesselOrChainTip(Recording rec, int index)
@@ -5766,15 +5767,18 @@ namespace Parsek
 
             // Deferred watch after fast-forward: enter watch mode on the FF target
             // now that the engine has positioned ghosts for the new UT.
-            if (pendingWatchAfterFF >= 0)
+            if (pendingWatchAfterFFId != null)
             {
-                int ffIdx = pendingWatchAfterFF;
-                pendingWatchAfterFF = -1;
-                if (HasActiveGhost(ffIdx))
+                string ffId = pendingWatchAfterFFId;
+                pendingWatchAfterFFId = null;
+                for (int fi = 0; fi < committed.Count; fi++)
                 {
-                    EnterWatchMode(ffIdx);
-                    ParsekLog.Info("CameraFollow",
-                        $"Deferred FF watch entered: #{ffIdx}");
+                    if (committed[fi].RecordingId == ffId && HasActiveGhost(fi))
+                    {
+                        EnterWatchMode(fi);
+                        ParsekLog.Info("CameraFollow", $"Deferred FF watch entered: #{fi}");
+                        break;
+                    }
                 }
             }
 
@@ -6052,7 +6056,7 @@ namespace Parsek
                 // Skip degraded trees (all recordings have 0 points — trajectory files missing).
                 // These have stale delta values from metadata but no actual playback data,
                 // so applying their budget would incorrectly charge the player.
-                if (tree.IsDegraded)
+                if (treeEndUT == 0)
                 {
                     tree.ResourcesApplied = true;
                     ParsekLog.Info("Flight",
@@ -6314,7 +6318,7 @@ namespace Parsek
             // During the hold, try to auto-follow to a continuation ghost each frame
             // (continuation may not exist yet at completion time — spawn race condition).
             // Once expired, destroy the ghost and exit watch mode.
-            if (watchEndHoldUntilUT > 0)
+            if (watchEndHoldUntilRealTime > 0)
             {
                 int idx = watchedRecordingIndex;
                 var committed = RecordingStore.CommittedRecordings;
@@ -6328,7 +6332,7 @@ namespace Parsek
                     {
                         ParsekLog.Info("CameraFollow",
                             $"Watch hold auto-follow: #{idx} → #{nextTarget} (during hold period)");
-                        watchEndHoldUntilUT = -1;
+                        watchEndHoldUntilRealTime = -1;
                         GhostPlaybackState held;
                         if (ghostStates.TryGetValue(idx, out held) && held != null)
                         {
@@ -6342,11 +6346,11 @@ namespace Parsek
                 }
 
                 // Hold expired — no continuation found, destroy and exit
-                if (Planetarium.GetUniversalTime() >= watchEndHoldUntilUT)
+                if (Time.time >= watchEndHoldUntilRealTime)
                 {
                     ParsekLog.Info("CameraFollow",
-                        $"Watch hold expired for #{idx} at UT {watchEndHoldUntilUT:F1} — destroying ghost and exiting watch");
-                    watchEndHoldUntilUT = -1;
+                        $"Watch hold expired for #{idx} at t={watchEndHoldUntilRealTime:F1} — destroying ghost and exiting watch");
+                    watchEndHoldUntilRealTime = -1;
                     GhostPlaybackState held;
                     if (ghostStates.TryGetValue(idx, out held) && held != null)
                     {
@@ -6816,7 +6820,7 @@ namespace Parsek
             ParsekLog.Verbose("CameraFollow", $"InputLockManager control lock \"{WatchModeLockId}\" set: {WatchModeLockMask}");
 
             // Clear hold timer and safety counter
-            watchEndHoldUntilUT = -1;
+            watchEndHoldUntilRealTime = -1;
             watchNoTargetFrames = 0;
 
             string body = gs.lastInterpolatedBodyName ?? "?";
@@ -6880,7 +6884,7 @@ namespace Parsek
             savedCameraDistance = 0f;
             savedCameraPitch = 0f;
             savedCameraHeading = 0f;
-            watchEndHoldUntilUT = -1;
+            watchEndHoldUntilRealTime = -1;
             watchNoTargetFrames = 0;
         }
 
@@ -7022,7 +7026,7 @@ namespace Parsek
             FlightCamera.fetch.SetTargetTransform(segTarget);
             InputLockManager.SetControlLock(WatchModeLockMask, WatchModeLockId);
 
-            watchEndHoldUntilUT = -1;
+            watchEndHoldUntilRealTime = -1;
 
             // Reset watch start time so the zone-exemption logging starts fresh
             // for the new segment (no stale elapsed time from the previous segment)
@@ -8177,7 +8181,7 @@ namespace Parsek
                     ExitWatchMode();
                     // Defer entering watch on the target — the ghost needs to be positioned
                     // after the time jump. Store the target for post-jump pickup.
-                    pendingWatchAfterFF = ffTargetIdx;
+                    pendingWatchAfterFFId = rec.RecordingId;
                 }
             }
 

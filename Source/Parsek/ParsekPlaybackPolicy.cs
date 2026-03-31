@@ -194,10 +194,11 @@ namespace Parsek
                         }
                     }
 
-                    // No continuation found — hold ghost for camera (3-5 seconds)
-                    double holdSeconds = evt.Trajectory?.TerminalStateValue == TerminalState.Destroyed
-                        ? 5.0 : 3.0;
-                    host.StartWatchHoldFromPolicy(evt.CurrentUT + holdSeconds);
+                    // No continuation found — hold ghost for camera (3-5 real seconds).
+                    // Uses real time (Time.time), not UT, so the hold duration is warp-independent.
+                    float holdSeconds = evt.Trajectory?.TerminalStateValue == TerminalState.Destroyed
+                        ? 5f : 3f;
+                    host.StartWatchHoldFromPolicy(Time.time + holdSeconds);
 
                     // Trigger explosion if terminal was Destroyed
                     engine.TriggerExplosionIfDestroyed(evt.State, evt.Trajectory, evt.Index,
@@ -226,8 +227,9 @@ namespace Parsek
             var committed = RecordingStore.CommittedRecordings;
             float now = Time.time;
 
-            // Collect indices to release (cannot modify dict during iteration)
+            // Collect indices to release and retry-time updates (cannot modify dict during iteration)
             List<int> toRelease = null;
+            List<KeyValuePair<int, float>> retryTimeUpdates = null;
 
             foreach (var kvp in heldGhosts)
             {
@@ -242,8 +244,8 @@ namespace Parsek
                 {
                     case HeldGhostAction.RetrySpawn:
                         // Recording is valid and not yet spawned — retry
-                        info.lastRetryTime = now;
-                        heldGhosts[index] = info; // write back (struct copy)
+                        if (retryTimeUpdates == null) retryTimeUpdates = new List<KeyValuePair<int, float>>();
+                        retryTimeUpdates.Add(new KeyValuePair<int, float>(index, now));
                         host.SpawnVesselOrChainTipFromPolicy(committed[index], index);
                         if (committed[index].VesselSpawned)
                         {
@@ -251,8 +253,8 @@ namespace Parsek
                                 $"Held ghost spawn succeeded on retry: #{index} \"{info.vesselName}\" " +
                                 $"id={info.recordingId} held={now - info.holdStartTime:F1}s");
 
-                            // If this was watched, activate the spawned vessel camera
-                            if (info.wasWatched)
+                            // If user is currently watching this recording, activate the spawned vessel
+                            if (host.watchedRecordingIndex == index)
                             {
                                 uint spawnedPid = committed[index].SpawnedVesselPersistentId;
                                 if (spawnedPid != 0)
@@ -293,6 +295,20 @@ namespace Parsek
                     case HeldGhostAction.Hold:
                         // Keep waiting
                         break;
+                }
+            }
+
+            // Apply retry-time updates (deferred to avoid dict mutation during iteration)
+            if (retryTimeUpdates != null)
+            {
+                for (int i = 0; i < retryTimeUpdates.Count; i++)
+                {
+                    int idx = retryTimeUpdates[i].Key;
+                    if (heldGhosts.TryGetValue(idx, out var updated))
+                    {
+                        updated.lastRetryTime = retryTimeUpdates[i].Value;
+                        heldGhosts[idx] = updated;
+                    }
                 }
             }
 
@@ -398,7 +414,8 @@ namespace Parsek
         /// <summary>Time.time when the ghost was held (real time, not UT).</summary>
         public float holdStartTime;
 
-        /// <summary>Time.time of last spawn retry attempt (throttles retries to 1/sec).</summary>
+        /// <summary>Time.time of last spawn retry attempt (throttles retries to 1/sec).
+        /// Defaults to 0 so the first retry fires immediately after hold starts — intentional.</summary>
         public float lastRetryTime;
 
         /// <summary>Recording ID to verify index stability after deletes.</summary>
