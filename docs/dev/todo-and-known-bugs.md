@@ -1907,7 +1907,7 @@ After rewind, `StripOrphanedSpawnedVessels` only matches vessels by recording na
 
 **Priority:** Medium — flags and other player-created vessels from the future persist after rewind
 
-**Status:** Open — needs careful design (stripping all non-whitelisted vessels could remove legitimate vessels in edge cases)
+**Status:** Fixed — removed PRELAUNCH restriction from `ShouldStripFuturePrelaunch`. Now strips ALL vessel types not in the quicksave PID whitelist. The whitelist is captured from the actual quicksave at rewind time, so only vessels that existed at the rewind target UT survive.
 
 ## 165. Engine seed event records throttle=0.00 at recording start
 
