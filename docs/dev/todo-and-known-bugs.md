@@ -1946,7 +1946,11 @@ When a vessel is spawned at KSC (via `TrySpawnAtRecordingEnd`), the crew reserva
 
 **Priority:** Medium — spawned vessel has wrong crew
 
-**Status:** Open — swap needs to run at spawn time for KSC spawns, not just flight-ready
+**Root cause:** `SwapReservedCrewInFlight` operates on a loaded `Vessel` (FlightGlobals.ActiveVessel) which does not exist in KSC scene. KSC spawns via `TrySpawnAtRecordingEnd` call `RespawnVessel` directly, which unreserves crew but does not swap them with replacements.
+
+**Fix:** Added `CrewReservationManager.SwapReservedCrewInSnapshot` — a pure static method that replaces reserved crew names with their replacement names directly in the vessel snapshot ConfigNode. `TrySpawnAtRecordingEnd` now creates a snapshot copy, applies the swap, and passes the modified copy to `RespawnVessel`. This ensures KSC-spawned vessels have the correct (replacement) crew regardless of whether the player enters the flight scene.
+
+**Status:** Fixed
 
 ## 159. EVA auto-recordings have no rewind save — R button absent
 
