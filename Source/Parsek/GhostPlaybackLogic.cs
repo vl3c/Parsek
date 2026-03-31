@@ -2287,5 +2287,113 @@ namespace Parsek
         }
 
         #endregion
+
+        #region Watch Mode Decisions
+
+        /// <summary>
+        /// Determines whether the watch mode should auto-exit because the ghost
+        /// exceeded the camera cutoff distance.
+        /// </summary>
+        internal static bool ShouldExitWatchForCutoff(double ghostDistanceMeters, float cutoffKm)
+        {
+            return ghostDistanceMeters >= cutoffKm * 1000.0;
+        }
+
+        /// <summary>
+        /// Determines whether a ghost is within the camera cutoff distance
+        /// (eligible for Watch button). Zone must not be Beyond AND distance
+        /// must be within the cutoff.
+        /// </summary>
+        internal static bool IsWithinWatchRange(RenderingZone zone, double distanceMeters, float cutoffKm)
+        {
+            if (zone == RenderingZone.Beyond) return false;
+            return distanceMeters < cutoffKm * 1000.0;
+        }
+
+        /// <summary>
+        /// Searches committed recordings for the next watch target after the current
+        /// recording completes. Handles chain continuation (same chainId, next index)
+        /// and tree branching (childBranchPointId → child with same vessel PID).
+        /// </summary>
+        /// <param name="currentRec">The recording that just completed.</param>
+        /// <param name="committed">All committed recordings.</param>
+        /// <param name="trees">All committed trees (for branch point lookup).</param>
+        /// <param name="isGhostActive">Predicate: is there an active ghost at index j?</param>
+        /// <returns>Index into committed, or -1 if no target found.</returns>
+        internal static int FindNextWatchTarget(
+            Recording currentRec,
+            IList<Recording> committed,
+            IReadOnlyList<RecordingTree> trees,
+            Func<int, bool> isGhostActive)
+        {
+            if (currentRec == null || committed == null) return -1;
+
+            // Case 1: Chain continuation (same chainId, next chainIndex, branch 0)
+            if (!string.IsNullOrEmpty(currentRec.ChainId) && currentRec.ChainIndex >= 0
+                && currentRec.ChainBranch == 0)
+            {
+                int nextChainIndex = currentRec.ChainIndex + 1;
+                for (int j = 0; j < committed.Count; j++)
+                {
+                    var candidate = committed[j];
+                    if (candidate.ChainId == currentRec.ChainId
+                        && candidate.ChainBranch == 0
+                        && candidate.ChainIndex == nextChainIndex
+                        && isGhostActive(j))
+                    {
+                        return j;
+                    }
+                }
+            }
+
+            // Case 2: Tree branching via ChildBranchPointId
+            if (!string.IsNullOrEmpty(currentRec.ChildBranchPointId)
+                && !string.IsNullOrEmpty(currentRec.TreeId)
+                && trees != null)
+            {
+                BranchPoint bp = null;
+                for (int t = 0; t < trees.Count; t++)
+                {
+                    var tree = trees[t];
+                    if (tree.Id != currentRec.TreeId) continue;
+                    for (int b = 0; b < tree.BranchPoints.Count; b++)
+                    {
+                        if (tree.BranchPoints[b].Id == currentRec.ChildBranchPointId)
+                        {
+                            bp = tree.BranchPoints[b];
+                            break;
+                        }
+                    }
+                    break;
+                }
+
+                if (bp != null)
+                {
+                    int fallbackIdx = -1;
+                    for (int c = 0; c < bp.ChildRecordingIds.Count; c++)
+                    {
+                        string childId = bp.ChildRecordingIds[c];
+                        for (int j = 0; j < committed.Count; j++)
+                        {
+                            if (committed[j].RecordingId != childId) continue;
+                            if (!isGhostActive(j)) continue;
+
+                            // Prefer child with same vessel PID (same vessel continues)
+                            if (committed[j].VesselPersistentId == currentRec.VesselPersistentId)
+                                return j;
+
+                            if (fallbackIdx < 0)
+                                fallbackIdx = j;
+                        }
+                    }
+                    if (fallbackIdx >= 0)
+                        return fallbackIdx;
+                }
+            }
+
+            return -1;
+        }
+
+        #endregion
     }
 }

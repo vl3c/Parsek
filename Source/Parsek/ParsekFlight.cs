@@ -6620,10 +6620,8 @@ namespace Parsek
         {
             GhostPlaybackState s;
             if (!ghostStates.TryGetValue(index, out s) || s == null) return false;
-            if (s.currentZone == RenderingZone.Beyond) return false;
-            // Also check against settings cutoff (may be smaller than visual range)
-            double cutoffMeters = (ParsekSettings.Current?.ghostCameraCutoffKm ?? 300f) * 1000.0;
-            return s.lastDistance < cutoffMeters;
+            float cutoffKm = ParsekSettings.Current?.ghostCameraCutoffKm ?? 300f;
+            return GhostPlaybackLogic.IsWithinWatchRange(s.currentZone, s.lastDistance, cutoffKm);
         }
 
         /// <summary>
@@ -6959,84 +6957,20 @@ namespace Parsek
             if (ParsekLog.IsVerboseEnabled)
                 ParsekLog.Verbose("Watch", $"FindNextWatchTarget: currentIndex={currentIndex}, chainId={currentRec.ChainId ?? "null"}, chainIndex={currentRec.ChainIndex}, treeId={currentRec.TreeId ?? "null"}, childBpId={currentRec.ChildBranchPointId ?? "null"}");
 
-            var committed = RecordingStore.CommittedRecordings;
-
-            // Case 1: Chain continuation
-            if (!string.IsNullOrEmpty(currentRec.ChainId) && currentRec.ChainIndex >= 0
-                && currentRec.ChainBranch == 0)
-            {
-                int nextChainIndex = currentRec.ChainIndex + 1;
-                for (int j = 0; j < committed.Count; j++)
-                {
-                    var candidate = committed[j];
-                    if (candidate.ChainId == currentRec.ChainId
-                        && candidate.ChainBranch == 0
-                        && candidate.ChainIndex == nextChainIndex
-                        && HasActiveGhost(j))
-                    {
-                        if (ParsekLog.IsVerboseEnabled)
-                            ParsekLog.Verbose("Watch", $"FindNextWatchTarget: chain continuation found at index {j} (chainIndex={nextChainIndex})");
-                        return j;
-                    }
-                }
-            }
-
-            // Case 2: Tree branching via ChildBranchPointId
-            if (!string.IsNullOrEmpty(currentRec.ChildBranchPointId)
-                && !string.IsNullOrEmpty(currentRec.TreeId))
-            {
-                // Find the BranchPoint
-                BranchPoint bp = null;
-                for (int t = 0; t < RecordingStore.CommittedTrees.Count; t++)
-                {
-                    var tree = RecordingStore.CommittedTrees[t];
-                    if (tree.Id != currentRec.TreeId) continue;
-                    for (int b = 0; b < tree.BranchPoints.Count; b++)
-                    {
-                        if (tree.BranchPoints[b].Id == currentRec.ChildBranchPointId)
-                        {
-                            bp = tree.BranchPoints[b];
-                            break;
-                        }
-                    }
-                    break;
-                }
-
-                if (bp != null)
-                {
-                    // Prefer child with same VesselPersistentId (same vessel continues)
-                    int fallbackIdx = -1;
-                    for (int c = 0; c < bp.ChildRecordingIds.Count; c++)
-                    {
-                        string childId = bp.ChildRecordingIds[c];
-                        for (int j = 0; j < committed.Count; j++)
-                        {
-                            if (committed[j].RecordingId != childId) continue;
-                            if (!HasActiveGhost(j)) continue;
-
-                            if (committed[j].VesselPersistentId == currentRec.VesselPersistentId)
-                            {
-                                if (ParsekLog.IsVerboseEnabled)
-                                    ParsekLog.Verbose("Watch", $"FindNextWatchTarget: branch point child match (same vessel) at index {j}");
-                                return j; // same vessel — best match
-                            }
-
-                            if (fallbackIdx < 0)
-                                fallbackIdx = j; // first active child as fallback
-                        }
-                    }
-                    if (fallbackIdx >= 0)
-                    {
-                        if (ParsekLog.IsVerboseEnabled)
-                            ParsekLog.Verbose("Watch", $"FindNextWatchTarget: branch point fallback child at index {fallbackIdx}");
-                        return fallbackIdx;
-                    }
-                }
-            }
+            int result = GhostPlaybackLogic.FindNextWatchTarget(
+                currentRec,
+                RecordingStore.CommittedRecordings,
+                RecordingStore.CommittedTrees,
+                HasActiveGhost);
 
             if (ParsekLog.IsVerboseEnabled)
-                ParsekLog.Verbose("Watch", $"FindNextWatchTarget: no next target found for index {currentIndex}");
-            return -1;
+            {
+                if (result >= 0)
+                    ParsekLog.Verbose("Watch", $"FindNextWatchTarget: found target at index {result}");
+                else
+                    ParsekLog.Verbose("Watch", $"FindNextWatchTarget: no next target found for index {currentIndex}");
+            }
+            return result;
         }
 
         /// <summary>

@@ -964,4 +964,301 @@ namespace Parsek.Tests
     }
 
     #endregion
+
+    #region Watch mode — camera cutoff decisions
+
+    public class WatchCutoffTests
+    {
+        [Theory]
+        [InlineData(299000, 300, false)]  // just inside 300km cutoff
+        [InlineData(300000, 300, true)]   // at boundary → exit
+        [InlineData(301000, 300, true)]   // just outside
+        [InlineData(0, 300, false)]       // on the pad
+        [InlineData(1500000, 300, true)]  // way beyond
+        [InlineData(99000, 100, false)]   // custom 100km cutoff, inside
+        [InlineData(100000, 100, true)]   // custom 100km cutoff, at boundary
+        [InlineData(4999999, 5000, false)] // 5000km cutoff, just inside
+        [InlineData(5000000, 5000, true)]  // exactly at boundary
+        public void ShouldExitWatchForCutoff(double distMeters, float cutoffKm, bool expected)
+        {
+            Assert.Equal(expected, GhostPlaybackLogic.ShouldExitWatchForCutoff(distMeters, cutoffKm));
+        }
+
+        [Fact]
+        public void IsWithinWatchRange_PhysicsZone_WithinCutoff_True()
+        {
+            Assert.True(GhostPlaybackLogic.IsWithinWatchRange(RenderingZone.Physics, 1000, 300));
+        }
+
+        [Fact]
+        public void IsWithinWatchRange_VisualZone_WithinCutoff_True()
+        {
+            Assert.True(GhostPlaybackLogic.IsWithinWatchRange(RenderingZone.Visual, 200000, 300));
+        }
+
+        [Fact]
+        public void IsWithinWatchRange_VisualZone_BeyondCutoff_False()
+        {
+            // Ghost is in Visual zone (< 1000km) but exceeds 300km cutoff
+            Assert.False(GhostPlaybackLogic.IsWithinWatchRange(RenderingZone.Visual, 350000, 300));
+        }
+
+        [Fact]
+        public void IsWithinWatchRange_BeyondZone_AlwaysFalse()
+        {
+            // Beyond zone always returns false, even if distance < cutoff (shouldn't happen normally)
+            Assert.False(GhostPlaybackLogic.IsWithinWatchRange(RenderingZone.Beyond, 100000, 300));
+        }
+
+        [Fact]
+        public void IsWithinWatchRange_AtExactCutoff_False()
+        {
+            Assert.False(GhostPlaybackLogic.IsWithinWatchRange(RenderingZone.Visual, 300000, 300));
+        }
+    }
+
+    #endregion
+
+    #region Watch mode — FindNextWatchTarget
+
+    [Collection("Sequential")]
+    public class FindNextWatchTargetTests
+    {
+        public FindNextWatchTargetTests()
+        {
+            RecordingStore.SuppressLogging = true;
+            RecordingStore.ResetForTesting();
+            MilestoneStore.SuppressLogging = true;
+            MilestoneStore.ResetForTesting();
+            GameStateStore.SuppressLogging = true;
+            ParsekLog.SuppressLogging = true;
+        }
+
+        private Recording MakeRec(string id, string vesselName = "Ship", uint vesselPid = 100,
+            string chainId = null, int chainIndex = -1, int chainBranch = 0,
+            string treeId = null, string childBpId = null)
+        {
+            return new Recording
+            {
+                RecordingId = id,
+                VesselName = vesselName,
+                VesselPersistentId = vesselPid,
+                ChainId = chainId,
+                ChainIndex = chainIndex,
+                ChainBranch = chainBranch,
+                TreeId = treeId,
+                ChildBranchPointId = childBpId,
+                Points = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint { ut = 100 },
+                    new TrajectoryPoint { ut = 200 }
+                }
+            };
+        }
+
+        // --- Chain continuation ---
+
+        [Fact]
+        public void ChainContinuation_NextIndexExists_ReturnsIt()
+        {
+            var recs = new List<Recording>
+            {
+                MakeRec("r0", chainId: "c1", chainIndex: 0),
+                MakeRec("r1", chainId: "c1", chainIndex: 1),
+            };
+            // Ghost at index 1 is active
+            int result = GhostPlaybackLogic.FindNextWatchTarget(
+                recs[0], recs, new List<RecordingTree>(), idx => idx == 1);
+            Assert.Equal(1, result);
+        }
+
+        [Fact]
+        public void ChainContinuation_NextIndexNotActive_ReturnsMinusOne()
+        {
+            var recs = new List<Recording>
+            {
+                MakeRec("r0", chainId: "c1", chainIndex: 0),
+                MakeRec("r1", chainId: "c1", chainIndex: 1),
+            };
+            // No active ghosts
+            int result = GhostPlaybackLogic.FindNextWatchTarget(
+                recs[0], recs, new List<RecordingTree>(), idx => false);
+            Assert.Equal(-1, result);
+        }
+
+        [Fact]
+        public void ChainContinuation_SkipsBranchRecordings()
+        {
+            var recs = new List<Recording>
+            {
+                MakeRec("r0", chainId: "c1", chainIndex: 0),
+                MakeRec("r1", chainId: "c1", chainIndex: 1, chainBranch: 1), // branch, not main
+                MakeRec("r2", chainId: "c1", chainIndex: 1, chainBranch: 0), // main continuation
+            };
+            int result = GhostPlaybackLogic.FindNextWatchTarget(
+                recs[0], recs, new List<RecordingTree>(), idx => true);
+            Assert.Equal(2, result); // skips branch at index 1
+        }
+
+        [Fact]
+        public void ChainContinuation_DifferentChainId_Ignored()
+        {
+            var recs = new List<Recording>
+            {
+                MakeRec("r0", chainId: "c1", chainIndex: 0),
+                MakeRec("r1", chainId: "c2", chainIndex: 1), // different chain
+            };
+            int result = GhostPlaybackLogic.FindNextWatchTarget(
+                recs[0], recs, new List<RecordingTree>(), idx => true);
+            Assert.Equal(-1, result);
+        }
+
+        // --- Tree branching ---
+
+        [Fact]
+        public void TreeBranch_SameVesselPid_Preferred()
+        {
+            var bp = new BranchPoint
+            {
+                Id = "bp1",
+                ChildRecordingIds = new List<string> { "child-debris", "child-main" }
+            };
+            var tree = new RecordingTree
+            {
+                Id = "t1",
+                TreeName = "Test",
+                BranchPoints = new List<BranchPoint> { bp }
+            };
+
+            var recs = new List<Recording>
+            {
+                MakeRec("root", vesselPid: 100, treeId: "t1", childBpId: "bp1"),
+                MakeRec("child-debris", vesselName: "Debris", vesselPid: 200, treeId: "t1"),
+                MakeRec("child-main", vesselName: "Ship", vesselPid: 100, treeId: "t1"),
+            };
+
+            int result = GhostPlaybackLogic.FindNextWatchTarget(
+                recs[0], recs, new List<RecordingTree> { tree }, idx => true);
+            Assert.Equal(2, result); // same vessel PID preferred over debris
+        }
+
+        [Fact]
+        public void TreeBranch_DifferentPid_FallsBackToFirstActive()
+        {
+            var bp = new BranchPoint
+            {
+                Id = "bp1",
+                ChildRecordingIds = new List<string> { "child-a", "child-b" }
+            };
+            var tree = new RecordingTree
+            {
+                Id = "t1",
+                TreeName = "Test",
+                BranchPoints = new List<BranchPoint> { bp }
+            };
+
+            var recs = new List<Recording>
+            {
+                MakeRec("root", vesselPid: 100, treeId: "t1", childBpId: "bp1"),
+                MakeRec("child-a", vesselPid: 200, treeId: "t1"),
+                MakeRec("child-b", vesselPid: 300, treeId: "t1"),
+            };
+
+            int result = GhostPlaybackLogic.FindNextWatchTarget(
+                recs[0], recs, new List<RecordingTree> { tree }, idx => true);
+            Assert.Equal(1, result); // first active child as fallback
+        }
+
+        [Fact]
+        public void TreeBranch_NoActiveChildren_ReturnsMinusOne()
+        {
+            var bp = new BranchPoint
+            {
+                Id = "bp1",
+                ChildRecordingIds = new List<string> { "child-a" }
+            };
+            var tree = new RecordingTree
+            {
+                Id = "t1",
+                TreeName = "Test",
+                BranchPoints = new List<BranchPoint> { bp }
+            };
+
+            var recs = new List<Recording>
+            {
+                MakeRec("root", vesselPid: 100, treeId: "t1", childBpId: "bp1"),
+                MakeRec("child-a", vesselPid: 200, treeId: "t1"),
+            };
+
+            // No active ghosts — simulates the race condition where continuation hasn't spawned
+            int result = GhostPlaybackLogic.FindNextWatchTarget(
+                recs[0], recs, new List<RecordingTree> { tree }, idx => false);
+            Assert.Equal(-1, result);
+        }
+
+        [Fact]
+        public void TreeBranch_RaceCondition_RetryFindsGhost()
+        {
+            var bp = new BranchPoint
+            {
+                Id = "bp1",
+                ChildRecordingIds = new List<string> { "child-main" }
+            };
+            var tree = new RecordingTree
+            {
+                Id = "t1",
+                TreeName = "Test",
+                BranchPoints = new List<BranchPoint> { bp }
+            };
+
+            var recs = new List<Recording>
+            {
+                MakeRec("root", vesselPid: 100, treeId: "t1", childBpId: "bp1"),
+                MakeRec("child-main", vesselPid: 100, treeId: "t1"),
+            };
+
+            // First call: ghost not spawned yet
+            int first = GhostPlaybackLogic.FindNextWatchTarget(
+                recs[0], recs, new List<RecordingTree> { tree }, idx => false);
+            Assert.Equal(-1, first);
+
+            // Retry: ghost now active (simulates spawn 1s later)
+            int retry = GhostPlaybackLogic.FindNextWatchTarget(
+                recs[0], recs, new List<RecordingTree> { tree }, idx => idx == 1);
+            Assert.Equal(1, retry);
+        }
+
+        // --- No chain, no tree ---
+
+        [Fact]
+        public void NoChainNoTree_ReturnsMinusOne()
+        {
+            var recs = new List<Recording>
+            {
+                MakeRec("standalone"),
+            };
+            int result = GhostPlaybackLogic.FindNextWatchTarget(
+                recs[0], recs, new List<RecordingTree>(), idx => true);
+            Assert.Equal(-1, result);
+        }
+
+        [Fact]
+        public void NullRecording_ReturnsMinusOne()
+        {
+            int result = GhostPlaybackLogic.FindNextWatchTarget(
+                null, new List<Recording>(), new List<RecordingTree>(), idx => true);
+            Assert.Equal(-1, result);
+        }
+
+        [Fact]
+        public void NullCommitted_ReturnsMinusOne()
+        {
+            var rec = MakeRec("r0", chainId: "c1", chainIndex: 0);
+            int result = GhostPlaybackLogic.FindNextWatchTarget(
+                rec, null, new List<RecordingTree>(), idx => true);
+            Assert.Equal(-1, result);
+        }
+    }
+
+    #endregion
 }
