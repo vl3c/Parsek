@@ -174,11 +174,27 @@ namespace Parsek
             // Destroy ghost (held paths returned early above)
             if (evt.GhostWasActive)
             {
-                // If watching and not spawning: hold ghost for camera (3-5 seconds)
+                // If watching and not spawning: try auto-follow to next stage, else hold
                 if (isWatched && !spawned && !evt.Flags.needsSpawn)
                 {
-                    // Set hold timer — the existing UpdateWatchCamera / watchEndHoldUntilUT
-                    // mechanism in ParsekFlight handles the per-frame countdown
+                    // Try to find a continuation (tree branch or chain) to auto-follow
+                    var committed = RecordingStore.CommittedRecordings;
+                    if (evt.Index >= 0 && evt.Index < committed.Count)
+                    {
+                        int nextTarget = host.FindNextWatchTargetFromPolicy(evt.Index, committed[evt.Index]);
+                        if (nextTarget >= 0)
+                        {
+                            ParsekLog.Info("Policy",
+                                $"Auto-follow on completion: #{evt.Index} → #{nextTarget} " +
+                                $"(vessel={committed[nextTarget].VesselName})");
+                            host.TransferWatchToNextSegmentFromPolicy(nextTarget);
+                            engine.DestroyGhost(evt.Index, evt.Trajectory, evt.Flags,
+                                reason: "auto-followed to next stage");
+                            return;
+                        }
+                    }
+
+                    // No continuation found — hold ghost for camera (3-5 seconds)
                     double holdSeconds = evt.Trajectory?.TerminalStateValue == TerminalState.Destroyed
                         ? 5.0 : 3.0;
                     host.StartWatchHoldFromPolicy(evt.CurrentUT + holdSeconds);
