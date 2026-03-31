@@ -4,17 +4,11 @@ All notable changes to Parsek are documented here.
 
 ---
 
-## 0.5.4
+## 0.5.3
 
 ### Bug Fixes
 
 - **Fix #168: Spawned vessels not re-spawned after rewind/revert.** After vessel stripping on revert, `SpawnedVesselPersistentId` was restored from the save but pointed to a stripped vessel — blocking re-spawn permanently. Added `ReconcileSpawnStateAfterStrip` that checks surviving PIDs in flightState after all strip operations and resets spawn tracking for recordings whose vessel no longer exists.
-
----
-
-## 0.5.3
-
-### Bug Fixes
 
 - **Fix #72: GhostCommNetRelay antenna combination formula wrong for non-combinable strongest.** Extracted `ResolveCombinationExponent` pure method. When the overall strongest antenna is non-combinable, the combination exponent now comes from the strongest *combinable* antenna, matching KSP's actual formula.
 - **Fix #81: TrackSection struct shallow copy shares mutable list references.** Extracted `Recording.DeepCopyTrackSections` that creates independent `frames` and `checkpoints` lists for each copied TrackSection. Used in `ApplyPersistenceArtifactsFrom`.
