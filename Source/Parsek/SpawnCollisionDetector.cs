@@ -110,7 +110,8 @@ namespace Parsek
             var parts = new List<(Vector3 localPos, float halfExtent)>();
             for (int i = 0; i < partNodes.Length; i++)
             {
-                string posStr = partNodes[i].GetValue("pos");
+                string posStr = partNodes[i].GetValue("pos")
+                    ?? partNodes[i].GetValue("position");
                 if (string.IsNullOrEmpty(posStr))
                     continue;
 
