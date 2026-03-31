@@ -33,6 +33,12 @@ namespace Parsek
         private static readonly Dictionary<uint, Vessel> vesselsByChainPid = new Dictionary<uint, Vessel>();
 
         /// <summary>
+        /// Map from recording index (engine ghost key) to the ghost Vessel object.
+        /// Used for timeline playback ghosts that are not part of a ghost chain.
+        /// </summary>
+        private static readonly Dictionary<int, Vessel> vesselsByRecordingIndex = new Dictionary<int, Vessel>();
+
+        /// <summary>
         /// O(1) check used by all guard code throughout the codebase.
         /// Returns true if the given persistentId belongs to a ghost map ProtoVessel.
         /// </summary>
@@ -400,7 +406,9 @@ namespace Parsek
         /// </summary>
         internal static void RemoveAllGhostVessels(string reason)
         {
-            if (vesselsByChainPid.Count == 0)
+            int chainCount = vesselsByChainPid.Count;
+            int indexCount = vesselsByRecordingIndex.Count;
+            if (chainCount == 0 && indexCount == 0)
             {
                 ParsekLog.Verbose(Tag,
                     string.Format(ic,
@@ -409,10 +417,11 @@ namespace Parsek
                 return;
             }
 
-            int count = vesselsByChainPid.Count;
+            // Collect all vessels to destroy (chain + recording index)
+            var vessels = new List<Vessel>(chainCount + indexCount);
+            vessels.AddRange(vesselsByChainPid.Values);
+            vessels.AddRange(vesselsByRecordingIndex.Values);
 
-            // Copy values to avoid modifying during iteration
-            var vessels = new List<Vessel>(vesselsByChainPid.Values);
             foreach (var vessel in vessels)
             {
                 try
@@ -430,11 +439,129 @@ namespace Parsek
 
             ghostMapVesselPids.Clear();
             vesselsByChainPid.Clear();
+            vesselsByRecordingIndex.Clear();
 
             ParsekLog.Info(Tag,
                 string.Format(ic,
-                    "Removed all {0} ghost vessel(s) reason={1}",
-                    count, reason));
+                    "Removed all {0} ghost vessel(s) reason={1} (chain={2} index={3})",
+                    chainCount + indexCount, reason, chainCount, indexCount));
+        }
+
+        // ------------------------------------------------------------------
+        // Recording-index-based ghost map (for timeline playback ghosts)
+        // ------------------------------------------------------------------
+
+        /// <summary>
+        /// Create a ghost map ProtoVessel for a timeline playback ghost.
+        /// Called when the engine spawns a ghost (OnGhostCreated).
+        /// </summary>
+        internal static Vessel CreateGhostVesselForRecording(int recordingIndex, IPlaybackTrajectory traj)
+        {
+            if (traj == null || !HasOrbitData(traj))
+                return null;
+
+            // Already exists?
+            if (vesselsByRecordingIndex.ContainsKey(recordingIndex))
+                return vesselsByRecordingIndex[recordingIndex];
+
+            try
+            {
+                CelestialBody body = FlightGlobals.Bodies?.FirstOrDefault(
+                    b => b.name == traj.TerminalOrbitBody);
+                if (body == null)
+                {
+                    ParsekLog.Warn(Tag,
+                        string.Format(ic,
+                            "CreateGhostVesselForRecording: body '{0}' not found for index={1}",
+                            traj.TerminalOrbitBody, recordingIndex));
+                    return null;
+                }
+
+                Orbit orbit = new Orbit(
+                    traj.TerminalOrbitInclination,
+                    traj.TerminalOrbitEccentricity,
+                    traj.TerminalOrbitSemiMajorAxis,
+                    traj.TerminalOrbitLAN,
+                    traj.TerminalOrbitArgumentOfPeriapsis,
+                    traj.TerminalOrbitMeanAnomalyAtEpoch,
+                    traj.TerminalOrbitEpoch,
+                    body);
+
+                ConfigNode partNode = ProtoVessel.CreatePartNode("sensorBarometer", 0);
+                ConfigNode discovery = ProtoVessel.CreateDiscoveryNode(
+                    DiscoveryLevels.Owned, UntrackedObjectClass.C,
+                    double.PositiveInfinity, double.PositiveInfinity);
+
+                VesselType vtype = ResolveVesselType(traj.VesselSnapshot);
+                string vesselName = "Ghost: " + (traj.VesselName ?? "Unknown");
+
+                ConfigNode vesselNode = ProtoVessel.CreateVesselNode(
+                    vesselName, vtype, orbit, 0,
+                    new ConfigNode[] { partNode }, discovery);
+
+                vesselNode.SetValue("vesselSpawning", "False", true);
+                vesselNode.SetValue("prst", "True", true);
+                vesselNode.SetValue("cln", "False", true);
+
+                ProtoVessel pv = new ProtoVessel(vesselNode, HighLogic.CurrentGame);
+                ghostMapVesselPids.Add(pv.persistentId);
+                HighLogic.CurrentGame.flightState.protoVessels.Add(pv);
+                pv.Load(HighLogic.CurrentGame.flightState);
+
+                if (pv.vesselRef == null)
+                {
+                    ghostMapVesselPids.Remove(pv.persistentId);
+                    HighLogic.CurrentGame.flightState.protoVessels.Remove(pv);
+                    return null;
+                }
+
+                vesselsByRecordingIndex[recordingIndex] = pv.vesselRef;
+
+                ParsekLog.Info(Tag,
+                    string.Format(ic,
+                        "Created ghost map vessel for recording #{0} '{1}' ghostPid={2} body={3} sma={4:F0}",
+                        recordingIndex, vesselName, pv.vesselRef.persistentId,
+                        body.name, traj.TerminalOrbitSemiMajorAxis));
+
+                return pv.vesselRef;
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.Error(Tag,
+                    string.Format(ic,
+                        "CreateGhostVesselForRecording failed for index={0}: {1}",
+                        recordingIndex, ex.Message));
+                return null;
+            }
+        }
+
+        /// <summary>
+        /// Remove a ghost map ProtoVessel for a timeline playback ghost.
+        /// Called when the engine destroys a ghost (OnGhostDestroyed).
+        /// </summary>
+        internal static void RemoveGhostVesselForRecording(int recordingIndex, string reason)
+        {
+            if (!vesselsByRecordingIndex.TryGetValue(recordingIndex, out Vessel vessel))
+                return;
+
+            uint ghostPid = vessel.persistentId;
+
+            try { vessel.Die(); }
+            catch (Exception ex)
+            {
+                ParsekLog.Warn(Tag,
+                    string.Format(ic,
+                        "RemoveGhostVesselForRecording: Die() threw for index={0}: {1}",
+                        recordingIndex, ex.Message));
+            }
+
+            ghostMapVesselPids.Remove(ghostPid);
+            vesselsByRecordingIndex.Remove(recordingIndex);
+
+            ParsekLog.Verbose(Tag,
+                string.Format(ic,
+                    "Removed ghost map vessel for recording #{0} ghostPid={1} reason={2}",
+                    recordingIndex, ghostPid, reason));
         }
 
         /// <summary>
@@ -475,6 +602,7 @@ namespace Parsek
         {
             ghostMapVesselPids.Clear();
             vesselsByChainPid.Clear();
+            vesselsByRecordingIndex.Clear();
         }
 
         // ------------------------------------------------------------------

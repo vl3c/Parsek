@@ -41,6 +41,7 @@ namespace Parsek
 
             // Subscribe to engine events
             engine.OnPlaybackCompleted += HandlePlaybackCompleted;
+            engine.OnGhostCreated += HandleGhostCreated;
             engine.OnGhostDestroyed += HandleGhostDestroyed;
             engine.OnLoopRestarted += HandleLoopRestarted;
             engine.OnOverlapExpired += HandleOverlapExpired;
@@ -357,6 +358,27 @@ namespace Parsek
             return HeldGhostAction.RetrySpawn;
         }
 
+        private void HandleGhostCreated(GhostLifecycleEvent evt)
+        {
+            // Create ghost map ProtoVessel for orbit line / tracking station / targeting.
+            // Only for non-debris recordings that end in a stable orbit.
+            // Skip destroyed, suborbital, landed, splashed — their terminal orbit
+            // is misleading (orbit line shows trajectory that the vessel never completes).
+            if (evt.Trajectory == null || evt.Trajectory.IsDebris)
+                return;
+
+            // Only create for stable orbital terminal states.
+            // Skip destroyed/suborbital/landed/splashed/recovered/boarded —
+            // their terminal orbit is misleading or nonexistent.
+            var terminal = evt.Trajectory.TerminalStateValue;
+            if (terminal.HasValue
+                && terminal.Value != TerminalState.Orbiting
+                && terminal.Value != TerminalState.Docked)  // docked = still in orbit
+                return;
+
+            GhostMapPresence.CreateGhostVesselForRecording(evt.Index, evt.Trajectory);
+        }
+
         private void HandleGhostDestroyed(GhostLifecycleEvent evt)
         {
             string name = evt.State?.vesselName ?? evt.Trajectory?.VesselName ?? "Unknown";
@@ -367,14 +389,16 @@ namespace Parsek
             // remove it from the held set so we don't try to destroy it again
             heldGhosts.Remove(evt.Index);
 
-            // If this ghost had a map ProtoVessel (soft cap despawn), remove it.
-            // Map from recording index → VesselPersistentId → chain PID.
+            // Remove recording-index-based ghost map ProtoVessel
+            GhostMapPresence.RemoveGhostVesselForRecording(evt.Index, "ghost-destroyed");
+
+            // Also remove chain-based ghost map ProtoVessel if applicable
             var committed = RecordingStore.CommittedRecordings;
             if (committed != null && evt.Index >= 0 && evt.Index < committed.Count)
             {
                 uint vesselPid = committed[evt.Index].VesselPersistentId;
                 if (vesselPid != 0 && GhostMapPresence.GetGhostVessel(vesselPid) != null)
-                    GhostMapPresence.RemoveGhostVessel(vesselPid, "soft-cap-despawn");
+                    GhostMapPresence.RemoveGhostVessel(vesselPid, "ghost-destroyed");
             }
         }
 
@@ -405,6 +429,7 @@ namespace Parsek
         internal void Dispose()
         {
             engine.OnPlaybackCompleted -= HandlePlaybackCompleted;
+            engine.OnGhostCreated -= HandleGhostCreated;
             engine.OnGhostDestroyed -= HandleGhostDestroyed;
             engine.OnLoopRestarted -= HandleLoopRestarted;
             engine.OnOverlapExpired -= HandleOverlapExpired;

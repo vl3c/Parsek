@@ -3860,11 +3860,14 @@ namespace Parsek
 
                 activeChains[pid] = chain;
 
-                // Create ghost map vessel for non-terminated chains with orbital data
+                // Create ghost map vessel for non-terminated chains ending in stable orbit
                 if (!chain.IsTerminated && !string.IsNullOrEmpty(chain.TipRecordingId))
                 {
                     Recording tipRecording = FindTipRecordingById(chain.TipRecordingId);
-                    if (tipRecording != null)
+                    if (tipRecording != null
+                        && (!tipRecording.TerminalStateValue.HasValue
+                            || tipRecording.TerminalStateValue == TerminalState.Orbiting
+                            || tipRecording.TerminalStateValue == TerminalState.Docked))
                         GhostMapPresence.CreateGhostVessel(chain, tipRecording);
                 }
 
