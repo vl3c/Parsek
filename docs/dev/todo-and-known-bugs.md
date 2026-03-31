@@ -1636,9 +1636,11 @@ Not a crash or leak (explosions decay naturally), but 90 concurrent particle-emi
 
 The pure predicates (`ShouldAbandonSpawnDeathLoop`, `ShouldFlushDeferredSpawns`, `ShouldSkipDeferredSpawn`) are tested; only the integration through the policy event handlers is missing.
 
-**Priority:** Medium — edge case (rapid spawn-death cycles) not handled by new path
+**Investigation notes:** `FlushDeferredSpawns` works correctly in ParsekFlight — moving to policy is pure refactoring with heavy state dependency (`pendingSpawnRecordingIds`, `pendingWatchRecordingId`, `SpawnVesselOrChainTip`, `DeferredActivateVessel`). Low value, high risk. Spawn-death detection is genuinely absent: `SpawnDeathCount` is never read in the engine path, and no `onVesselTerminated` subscription exists to detect spawned vessel destruction. Implementing requires event subscription + PID-to-recording matching.
 
-**Status:** Open
+**Priority:** Low — edge case (rapid spawn-death cycles), FlushDeferredSpawns works via existing path
+
+**Status:** Open — deferred (spawn-death detection needs design, FlushDeferredSpawns move is low-value refactor)
 
 ## 133. Forwarding properties in ParsekFlight add ~500 lines of indirection
 
