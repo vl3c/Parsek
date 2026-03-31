@@ -6260,10 +6260,6 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Reindexes an int-keyed dictionary after a deletion: keys above removedIndex shift down by 1.
-        /// The entry at removedIndex (if any) is dropped.
-        /// </summary>
-        /// <summary>
         /// Returns true if the recording should be discarded as a pad failure:
         /// duration &lt; 10s AND max distance from launch &lt; 30m.
         /// </summary>
@@ -6272,6 +6268,10 @@ namespace Parsek
             return duration < 10.0 && maxDistanceFromLaunch < 30.0;
         }
 
+        /// <summary>
+        /// Reindexes an int-keyed dictionary after a deletion: keys above removedIndex shift down by 1.
+        /// The entry at removedIndex (if any) is dropped.
+        /// </summary>
         internal static void ReindexAfterDelete<T>(Dictionary<int, T> dict, int removedIndex)
         {
             var old = new Dictionary<int, T>(dict);
