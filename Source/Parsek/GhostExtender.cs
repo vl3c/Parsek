@@ -93,7 +93,7 @@ namespace Parsek
                     string.Format(CultureInfo.InvariantCulture,
                         "PropagateOrbital: unsupported orbit (ecc={0}, sma={1}) — returning epoch position",
                         ecc, sma));
-                return (0, 0, sma > 0 ? sma - bodyRadius : 0);
+                return (0, 0, sma > 0 ? Math.Max(0, sma - bodyRadius) : 0);
             }
 
             // Compute body-centered inertial position from orbital elements

@@ -63,6 +63,7 @@ All notable changes to Parsek are documented here.
 - **Fix #57: Boarding confirmation timeout too short.** Increased from 3 frames (~60ms) to 10 frames (~200ms).
 - **Fix #115/#116: Crew lost to Missing after rewind vessel strip.** New `RescueOrphanedCrew` sets orphaned Assigned crew to Available after vessel stripping, before KSP's validation marks them Missing.
 - **Fix #155: Orphaned recording lost on auto-record vessel switch.** `StartRecording` now commits the orphaned recorder's data before creating a new one.
+- **Fix #76: GhostExtender hyperbolic fallback negative altitude.** Added `Math.Max(0, ...)` to prevent ghost underground placement.
 
 ### Features
 
