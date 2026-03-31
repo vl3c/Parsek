@@ -4386,6 +4386,16 @@ namespace Parsek
             // this method is called, so a non-null value reliably indicates a continuation.
             bool isContinuation = chainManager.ActiveChainId != null;
 
+            // Commit orphaned CaptureAtStop from a previous recorder that was stopped
+            // by vessel switch but never committed (e.g., auto-record started on new
+            // vessel before scene change). Without this, the old recording data is lost.
+            if (recorder != null && !recorder.IsRecording && recorder.CaptureAtStop != null
+                && chainManager.ActiveChainId == null && activeTree == null)
+            {
+                FallbackCommitSplitRecorder(recorder);
+                ParsekLog.Info("Flight", "Committed orphaned recording before starting new one");
+            }
+
             recorder = new FlightRecorder();
             if (chainManager.PendingBoundaryAnchor.HasValue)
             {

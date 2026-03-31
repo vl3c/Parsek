@@ -1840,6 +1840,14 @@ After FF (fast-forward time jump) to a distant recording segment, Parsek transfe
 
 **Status:** Fixed — added 100km distance guard in `EnterWatchMode` (refuses watch + shows screen message when ghost is beyond rendering-safe distance). Also rate-limited `FindNextWatchTarget` logging during watch hold to eliminate ~200-line per-hold spam.
 
+## 155. Orphaned CaptureAtStop lost on auto-record vessel switch
+
+When recording stops due to vessel switch (non-chain, non-tree), `CaptureAtStop` is built but not committed. If auto-record triggers on the new vessel before a scene change, `StartRecording` overwrites `recorder`, silently losing the old recording data.
+
+**Priority:** Medium — recording data silently lost
+
+**Status:** Fixed — `StartRecording` now calls `FallbackCommitSplitRecorder` on the orphaned recorder before creating a new one. Only applies to non-chain, non-tree cases (chain/tree paths already commit properly).
+
 ## 152. GhostVesselSwitchPatch Harmony ambiguous match
 
 `GhostVesselSwitchPatch` (on `ghost-orbits-trajectories` branch) fails with "Ambiguous match for HarmonyMethod[(class=FlightGlobals, methodname=SetActiveVessel, type=Normal, args=undefined)]". `FlightGlobals.SetActiveVessel` has multiple overloads in KSP 1.12.5 and the `[HarmonyPatch]` attribute doesn't specify parameter types.
