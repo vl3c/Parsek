@@ -3338,6 +3338,8 @@ namespace Parsek
         /// Prefers KSP's timeWarpAltitudeLimits[4] (100x warp limit) when available — this is
         /// KSP's own definition of "close enough that fast warp is dangerous" and adapts to modded
         /// planets automatically. Falls back to body.Radius * 0.15 clamped to [5000, 200000].
+        /// WARNING: Callers must check body.atmosphere first — this method does not guard against
+        /// atmospheric bodies (which use atmosphere boundary splits instead).
         /// </summary>
         internal static double ComputeApproachAltitude(CelestialBody body)
         {
@@ -3482,6 +3484,7 @@ namespace Parsek
             if (!IsRecording || isOnRails) return;
             if (v == null || v.mainBody == null) return;
             if (v.mainBody.atmosphere) return; // atmospheric bodies use atmosphere boundary split
+            if (currentAltitudeThreshold <= 0) return; // no threshold computed (defensive)
 
             double altitude = v.altitude;
             double currentUT = Planetarium.GetUniversalTime();
