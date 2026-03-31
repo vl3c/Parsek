@@ -767,6 +767,16 @@ namespace Parsek
             var quicksavePids = RecordingStore.RewindQuicksaveVesselPids;
             if (quicksavePids != null)
             {
+                // Add Parsek-spawned vessel PIDs to the whitelist so they survive the strip.
+                // These were spawned by timeline playback AFTER the quicksave and are legitimate.
+                foreach (var rec in recordings)
+                    if (rec.SpawnedVesselPersistentId != 0)
+                        quicksavePids.Add(rec.SpawnedVesselPersistentId);
+                foreach (var tree in RecordingStore.CommittedTrees)
+                    foreach (var rec in tree.Recordings.Values)
+                        if (rec.SpawnedVesselPersistentId != 0)
+                            quicksavePids.Add(rec.SpawnedVesselPersistentId);
+
                 var fs = HighLogic.CurrentGame?.flightState;
                 if (fs != null)
                 {
