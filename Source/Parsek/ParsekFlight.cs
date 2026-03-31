@@ -6309,11 +6309,6 @@ namespace Parsek
             return null;
         }
 
-        void SpawnTimelineGhost(int index, Recording rec)
-        {
-            engine.SpawnGhost(index, rec);
-        }
-
         internal void DestroyTimelineGhost(int index)
         {
             engine.DestroyGhost(index);

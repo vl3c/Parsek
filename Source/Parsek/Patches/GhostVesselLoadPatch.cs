@@ -70,8 +70,12 @@ namespace Parsek.Patches
             int recIndex = GhostMapPresence.FindRecordingIndexByVesselPid(v.persistentId);
             if (recIndex < 0)
             {
-                ParsekLog.Verbose("GhostMap",
-                    $"Blocked SetActiveVessel for ghost '{v.vesselName}' pid={v.persistentId} — no recording index found");
+                // Chain ghost — not in the recording-index dict. Show message instead of silently blocking.
+                ScreenMessages.PostScreenMessage(
+                    $"<b>{v.vesselName}</b> is a ghost vessel — it will materialize when its timeline reaches the spawn point.",
+                    5f, ScreenMessageStyle.UPPER_CENTER);
+                ParsekLog.Info("GhostMap",
+                    $"Blocked SetActiveVessel for chain ghost '{v.vesselName}' pid={v.persistentId}");
                 return false;
             }
 
