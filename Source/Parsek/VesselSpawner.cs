@@ -358,7 +358,7 @@ namespace Parsek
 
         /// <summary>
         /// Resolve spawn position. EVA vessels always use the trajectory endpoint
-        /// (the snapshot position is from EVA start, not where the kerbal walked to).
+        /// (the snapshot position is from EVA start, not where the kerbal walked to — #175).
         /// Non-EVA vessels use the snapshot lat/lon/alt, falling back to the trajectory
         /// endpoint if snapshot lacks position data (#127).
         /// </summary>
@@ -367,14 +367,16 @@ namespace Parsek
         {
             lat = 0; lon = 0; alt = 0;
 
-            // EVA vessels: always use trajectory endpoint. The snapshot position is from
-            // EVA start (kerbal on the pod's ladder), not where they ended up.
+            // EVA vessels: always use trajectory endpoint (#175). The snapshot position is
+            // from EVA start (kerbal on the pod's ladder), not where they ended up.
             bool isEva = !string.IsNullOrEmpty(rec.EvaCrewName);
             if (isEva)
             {
                 lat = lastPt.latitude;
                 lon = lastPt.longitude;
                 alt = lastPt.altitude;
+                ParsekLog.Verbose("Spawner",
+                    $"EVA spawn #{index} ({rec.VesselName}): using trajectory endpoint for position");
                 return;
             }
 
@@ -773,6 +775,7 @@ namespace Parsek
 
             string oldLat = snapshot.GetValue("lat") ?? "?";
             string oldLon = snapshot.GetValue("lon") ?? "?";
+            string oldAlt = snapshot.GetValue("alt") ?? "?";
 
             string newLat = lat.ToString("R", CultureInfo.InvariantCulture);
             string newLon = lon.ToString("R", CultureInfo.InvariantCulture);
@@ -784,7 +787,7 @@ namespace Parsek
 
             ParsekLog.Info("Spawner",
                 $"EVA spawn position override for #{index} ({vesselName}): " +
-                $"({oldLat},{oldLon}) → ({newLat},{newLon}) alt={newAlt}");
+                $"({oldLat},{oldLon},{oldAlt}) → ({newLat},{newLon},{newAlt})");
         }
 
         /// <summary>
