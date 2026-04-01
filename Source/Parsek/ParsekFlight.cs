@@ -962,33 +962,34 @@ namespace Parsek
             if (!dockingInProgress.Contains(v.persistentId))
                 backgroundRecorder?.OnBackgroundVesselWillDestroy(v);
 
-            // Deferred destruction check for tree background vessels.
-            // Captures vessel state now (Phase 1) and defers the actual destruction confirmation
-            // by one frame (Phase 3) to distinguish real destruction from vessel unloading.
-            if (activeTree != null && ShouldDeferDestructionCheck(v.persistentId, true,
-                dockingInProgress, activeTree.BackgroundMap))
-            {
-                string recordingId = activeTree.BackgroundMap[v.persistentId];
-                var pending = CaptureVesselStateForTerminal(v, recordingId);
-                StartCoroutine(DeferredDestructionCheck(pending));
-            }
+            // Classify vessel destruction mode using extracted decision method.
+            bool shouldDefer = activeTree != null && ShouldDeferDestructionCheck(
+                v.persistentId, true, dockingInProgress, activeTree.BackgroundMap);
+            var destructionMode = ClassifyVesselDestruction(
+                hasActiveTree: activeTree != null,
+                isRecording: recorder != null && recorder.IsRecording,
+                vesselDestroyedDuringRecording: recorder != null && recorder.VesselDestroyedDuringRecording,
+                isActiveVessel: v == FlightGlobals.ActiveVessel,
+                shouldDeferForTree: shouldDefer,
+                treeDestructionDialogPending: treeDestructionDialogPending);
 
-            // Standalone mode: if the active recording vessel is destroyed, schedule a merge dialog.
-            // In tree mode, the deferred destruction check handles this already.
-            if (activeTree == null && recorder != null && recorder.IsRecording
-                && recorder.VesselDestroyedDuringRecording && v == FlightGlobals.ActiveVessel)
+            switch (destructionMode)
             {
-                StartCoroutine(ShowPostDestructionMergeDialog());
-            }
-
-            // Tree mode: if the active vessel is destroyed, check if all tree vessels are now dead
-            if (activeTree != null && recorder != null
-                && recorder.VesselDestroyedDuringRecording && v == FlightGlobals.ActiveVessel
-                && !treeDestructionDialogPending)
-            {
-                treeDestructionDialogPending = true;
-                ParsekLog.Info("Flight", "Active vessel destroyed in tree mode — scheduling tree destruction check");
-                StartCoroutine(ShowPostDestructionTreeMergeDialog());
+                case DestructionMode.TreeDeferred:
+                {
+                    string recordingId = activeTree.BackgroundMap[v.persistentId];
+                    var pending = CaptureVesselStateForTerminal(v, recordingId);
+                    StartCoroutine(DeferredDestructionCheck(pending));
+                    break;
+                }
+                case DestructionMode.StandaloneMerge:
+                    StartCoroutine(ShowPostDestructionMergeDialog());
+                    break;
+                case DestructionMode.TreeAllLeavesCheck:
+                    treeDestructionDialogPending = true;
+                    ParsekLog.Info("Flight", "Active vessel destroyed in tree mode — scheduling tree destruction check");
+                    StartCoroutine(ShowPostDestructionTreeMergeDialog());
+                    break;
             }
 
             // If the continuation vessel is destroyed, mark the recording and stop tracking
@@ -1189,6 +1190,27 @@ namespace Parsek
             RecordingStore.StashPendingTree(activeTree);
             ParsekLog.Info("Flight",
                 $"ShowPostDestructionTreeMergeDialog: stashed pending tree '{activeTree.TreeName}'");
+
+            // Auto-discard pad failures: if every recording in the tree is a pad failure
+            // (< 10s duration AND < 30m from launch), discard the whole tree.
+            if (IsTreePadFailure(activeTree))
+            {
+                ParsekLog.Info("Flight",
+                    $"ShowPostDestructionTreeMergeDialog: tree pad failure — auto-discarding");
+                ScreenMessage("Recording discarded — pad failure", 3f);
+                RecordingStore.DiscardPendingTree();
+                // Clean up flight state
+                recorder = null;
+                if (backgroundRecorder != null)
+                {
+                    backgroundRecorder.Shutdown();
+                    Patches.PhysicsFramePatch.BackgroundRecorderInstance = null;
+                    backgroundRecorder = null;
+                }
+                activeTree = null;
+                treeDestructionDialogPending = false;
+                yield break;
+            }
 
             // Clean up flight state
             recorder = null;
@@ -2794,6 +2816,42 @@ namespace Parsek
             return backgroundMap.ContainsKey(vesselPid);
         }
 
+        internal enum DestructionMode { None, TreeDeferred, StandaloneMerge, TreeAllLeavesCheck }
+
+        /// <summary>
+        /// Pure classification of vessel destruction handling mode.
+        /// Matches the branching order in OnVesselWillDestroy: TreeDeferred is checked first,
+        /// then StandaloneMerge (non-tree), then TreeAllLeavesCheck (tree with active vessel).
+        ///
+        /// The original code had three independent if-blocks, but the branches are mutually
+        /// exclusive by design: TreeDeferred requires shouldDeferForTree (vessel in BackgroundMap),
+        /// while StandaloneMerge/TreeAllLeavesCheck require isActiveVessel. The active vessel
+        /// is never in BackgroundMap, so at most one branch fires.
+        ///
+        /// TreeAllLeavesCheck intentionally does not require isRecording — the original checked
+        /// recorder != null (embedded in vesselDestroyedDuringRecording) but not IsRecording.
+        /// </summary>
+        internal static DestructionMode ClassifyVesselDestruction(
+            bool hasActiveTree,
+            bool isRecording,
+            bool vesselDestroyedDuringRecording,
+            bool isActiveVessel,
+            bool shouldDeferForTree,
+            bool treeDestructionDialogPending)
+        {
+            if (hasActiveTree && shouldDeferForTree)
+                return DestructionMode.TreeDeferred;
+
+            if (!hasActiveTree && isRecording && vesselDestroyedDuringRecording && isActiveVessel)
+                return DestructionMode.StandaloneMerge;
+
+            if (hasActiveTree && vesselDestroyedDuringRecording && isActiveVessel
+                && !treeDestructionDialogPending)
+                return DestructionMode.TreeAllLeavesCheck;
+
+            return DestructionMode.None;
+        }
+
         /// <summary>
         /// Pure decision method: determines whether a vessel is truly destroyed (not just unloaded
         /// or absorbed by docking) after the one-frame deferral.
@@ -3147,8 +3205,10 @@ namespace Parsek
 
                 double currentUT = Planetarium.GetUniversalTime();
                 double interval = GetLoopIntervalSeconds(rec);
+                double effectiveStart = GhostPlaybackEngine.EffectiveLoopStartUT(rec);
+                double effectiveEnd = GhostPlaybackEngine.EffectiveLoopEndUT(rec);
                 var (loopUT, cycleIndex, isInPause) = GhostPlaybackLogic.ComputeLoopPhaseFromUT(
-                    currentUT, rec.StartUT, rec.EndUT, interval);
+                    currentUT, effectiveStart, effectiveEnd, interval);
 
                 ParsekLog.Info("Loop",
                     $"Anchor vessel loaded: pid={pid}, rec #{i} '{rec.VesselName}' " +
@@ -4187,6 +4247,15 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Returns true if the current recording mode suppresses environment boundary
+        /// splits (tree mode does — chain mode does not).
+        /// </summary>
+        internal static bool ShouldSuppressBoundarySplit(RecordingTree activeTree)
+        {
+            return activeTree != null;
+        }
+
+        /// <summary>
         /// Handles atmosphere boundary auto-split when crossing the atmosphere edge.
         /// Commits the current segment, restarts recording in the new phase.
         /// </summary>
@@ -4198,7 +4267,7 @@ namespace Parsek
             // Bug #87: In tree mode, boundary splits must not commit standalone chain segments.
             // The recorder keeps accumulating data into the tree recording — just clear the
             // boundary flags so they don't re-trigger.
-            if (activeTree != null)
+            if (ShouldSuppressBoundarySplit(activeTree))
             {
                 string skipPhase = recorder.EnteredAtmosphere ? "atmo" : "exo";
                 string skipBody = FlightGlobals.ActiveVessel?.mainBody?.name ?? "Unknown";
@@ -4232,7 +4301,7 @@ namespace Parsek
             // Bug #87: In tree mode, boundary splits must not commit standalone chain segments.
             // The recorder keeps accumulating data into the tree recording — just clear the
             // boundary flags so they don't re-trigger.
-            if (activeTree != null)
+            if (ShouldSuppressBoundarySplit(activeTree))
             {
                 string skipFrom = recorder.SoiChangeFromBody ?? "Unknown";
                 string skipTo = FlightGlobals.ActiveVessel?.mainBody?.name ?? "Unknown";
@@ -4278,7 +4347,7 @@ namespace Parsek
                 return;
 
             // Bug #87: In tree mode, boundary splits must not commit standalone chain segments.
-            if (activeTree != null)
+            if (ShouldSuppressBoundarySplit(activeTree))
             {
                 string skipPhase = recorder.DescendedBelowThreshold ? "approach" : "exo";
                 string skipBody = FlightGlobals.ActiveVessel?.mainBody?.name ?? "Unknown";
@@ -5838,7 +5907,7 @@ namespace Parsek
                 bool hasData = rec.Points.Count >= 2 || rec.OrbitSegments.Count > 0 || rec.SurfacePos.HasValue;
 
                 bool isActiveChain = chainManager.ActiveChainId != null && rec.ChainId == chainManager.ActiveChainId;
-                bool chainLoopOrDisabled = rec.ChainId != null &&
+                bool chainLoopOrDisabled = rec.IsChainRecording &&
                     (RecordingStore.IsChainLooping(rec.ChainId)
                      || RecordingStore.IsChainFullyDisabled(rec.ChainId));
 
@@ -5855,7 +5924,7 @@ namespace Parsek
                 flags[i] = new TrajectoryPlaybackFlags
                 {
                     skipGhost = !hasData || !rec.PlaybackEnabled || externalVesselSuppressed,
-                    isStandalone = rec.TreeId == null,
+                    isStandalone = !rec.IsTreeRecording,
                     isMidChain = RecordingStore.IsChainMidSegment(rec),
                     chainEndUT = RecordingStore.GetChainEndUT(rec),
                     needsSpawn = spawnResult.needsSpawn && !chainSuppressed.suppressed,
@@ -5945,7 +6014,7 @@ namespace Parsek
             for (int i = 0; i < committed.Count; i++)
             {
                 var rec = committed[i];
-                if (rec.TreeId != null) continue; // tree recordings handle resources at tree level
+                if (!rec.ManagesOwnResources) continue; // tree recordings handle resources at tree level
                 if (currentUT > rec.EndUT || (currentUT >= rec.StartUT && currentUT <= rec.EndUT))
                     ApplyResourceDeltas(rec, currentUT);
             }
@@ -6059,7 +6128,7 @@ namespace Parsek
         // IsActiveTreeRecording stays in ParsekFlight (reads RecordingStore.CommittedTrees)
         private bool IsActiveTreeRecording(Recording rec)
         {
-            if (string.IsNullOrEmpty(rec.TreeId)) return false;
+            if (!rec.IsTreeRecording) return false;
             var trees = RecordingStore.CommittedTrees;
             for (int i = 0; i < trees.Count; i++)
             {
@@ -6414,6 +6483,24 @@ namespace Parsek
         internal static bool IsPadFailure(double duration, double maxDistanceFromLaunch)
         {
             return duration < 10.0 && maxDistanceFromLaunch < 30.0;
+        }
+
+        /// <summary>
+        /// Returns true if every recording in the tree qualifies as a pad failure.
+        /// A tree with any non-pad-failure recording is not discarded.
+        /// </summary>
+        internal static bool IsTreePadFailure(RecordingTree tree)
+        {
+            if (tree == null || tree.Recordings == null || tree.Recordings.Count == 0)
+                return false;
+
+            foreach (var rec in tree.Recordings.Values)
+            {
+                double duration = rec.EndUT - rec.StartUT;
+                if (!IsPadFailure(duration, rec.MaxDistanceFromLaunch))
+                    return false;
+            }
+            return true;
         }
 
         /// <summary>

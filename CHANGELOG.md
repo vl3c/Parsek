@@ -12,6 +12,9 @@ All notable changes to Parsek are documented here.
 - **T97: "approach" phase tagging.** Airless body segments below the threshold are tagged `"approach"` (sky blue in UI) instead of `"space"`. All phase tagging sites updated.
 - **T97: TrackSection altitude metadata.** Min/max altitude tracked per TrackSection during recording. Serialized as sparse keys, backward compatible with existing saves.
 - **T97: Recording optimization pass.** Automatic housekeeping merges redundant consecutive chain segments on save load (same phase, same body, no branch points, no ghosting triggers, no user-modified settings).
+- **T98: Per-phase looping for all recording modes.** Tree recordings are now split into per-phase segments after commit, matching chain mode's per-phase loop toggles. The optimizer's split pass (`FindSplitCandidatesForOptimizer`) breaks multi-environment recordings at environment boundaries without the conservative ghosting-trigger check. Each phase gets its own loop toggle in the UI. Auto loop range trims boring bookends (orbital coasts, surface idle) when loop is toggled on.
+- **T98: Loop range fields.** New `LoopStartUT`/`LoopEndUT` fields on Recording narrow the loop range. Engine (`TryComputeLoopPlaybackUT`, `ShouldLoopPlayback`), save/load (both paths), and `CanAutoMerge` updated. Backward compatible (NaN defaults = existing behavior).
+- **T98: Policy modularity refactor.** Migrated scattered `TreeId != null` / `ChainId != null` policy checks to `IsTreeRecording` / `IsChainRecording` / `ManagesOwnResources` query properties. Extracted `ClassifyVesselDestruction` and `ShouldSuppressBoundarySplit` as testable static methods.
 
 ### Bug Fixes
 
