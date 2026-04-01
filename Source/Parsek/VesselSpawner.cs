@@ -107,7 +107,8 @@ namespace Parsek
         public static uint SpawnAtPosition(ConfigNode vesselNode, CelestialBody body,
             double lat, double lon, double alt,
             Vector3d velocity, double ut,
-            HashSet<string> excludeCrew = null, bool preserveIdentity = false)
+            HashSet<string> excludeCrew = null, bool preserveIdentity = false,
+            TerminalState? terminalState = null)
         {
             try
             {
@@ -122,6 +123,22 @@ namespace Parsek
                 double orbitalSpeed = Math.Sqrt(body.gravParameter / (body.Radius + alt));
                 bool overWater = body.ocean && body.TerrainAltitude(lat, lon) < 0;
                 string sit = DetermineSituation(alt, overWater, velocity.magnitude, orbitalSpeed);
+
+                // Override: if terminal state says Orbiting but speed check returned FLYING,
+                // force ORBITING. The last trajectory point may be captured during ascent
+                // (suborbital velocity at that altitude) even though the vessel reached orbit.
+                // Without this, KSP's on-rails pressure check destroys the vessel (#176).
+                if (sit == "FLYING" && terminalState.HasValue
+                    && (terminalState.Value == TerminalState.Orbiting
+                        || terminalState.Value == TerminalState.Docked))
+                {
+                    ParsekLog.Info("Spawner",
+                        $"SpawnAtPosition: overriding sit FLYING → ORBITING " +
+                        $"(terminal={terminalState.Value}, speed={velocity.magnitude:F1}, " +
+                        $"orbitalSpeed={orbitalSpeed:F1}) — prevents on-rails pressure destruction (#176)");
+                    sit = "ORBITING";
+                }
+
                 ApplySituationToNode(spawnNode, sit);
                 ParsekLog.Verbose("Spawner",
                     $"SpawnAtPosition: determined sit={sit} (alt={alt:F0}, speed={velocity.magnitude:F1}, " +
@@ -354,7 +371,8 @@ namespace Parsek
                 Vector3d velocity = new Vector3d(lastPt.velocity.x, lastPt.velocity.y, lastPt.velocity.z);
                 double spawnUT = Planetarium.GetUniversalTime();
                 rec.SpawnedVesselPersistentId = SpawnAtPosition(
-                    rec.VesselSnapshot, body, spawnLat, spawnLon, spawnAlt, velocity, spawnUT, excludeCrew);
+                    rec.VesselSnapshot, body, spawnLat, spawnLon, spawnAlt, velocity, spawnUT, excludeCrew,
+                    terminalState: rec.TerminalStateValue);
                 rec.VesselSpawned = rec.SpawnedVesselPersistentId != 0;
                 if (rec.VesselSpawned)
                 {

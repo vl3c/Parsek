@@ -2154,6 +2154,20 @@ When an EVA recording completes and Parsek spawns the real kerbal, the kerbal ap
 
 **Status:** Fixed
 
+## ~~179. Orbital vessel destroyed by on-rails pressure check after SpawnAtPosition~~
+
+`SpawnAtPosition` calls `DetermineSituation(alt, overWater, speed, orbitalSpeed)` which returns FLYING when `speed < orbitalSpeed * 0.9`. For vessels whose last trajectory point was captured during ascent (suborbital velocity at that altitude), this returns FLYING even though the vessel reached orbit. KSP's on-rails atmospheric pressure check then destroys the vessel at 101.3 kPa.
+
+The `CorrectUnsafeSnapshotSituation` (#169) ran earlier and corrected the snapshot to ORBITING, but `SpawnAtPosition` recomputed the situation from altitude/speed and overwrote it.
+
+**Root cause:** `SpawnAtPosition` had no knowledge of the recording's terminal state. It blindly recomputed the situation, defeating the earlier correction.
+
+**Fix:** Added optional `terminalState` parameter to `SpawnAtPosition`. When the terminal state is `Orbiting` or `Docked` but `DetermineSituation` returns FLYING, the situation is overridden to ORBITING with a logged explanation. The call site in `SpawnOrRecoverIfTooClose` passes `rec.TerminalStateValue`.
+
+**Files:** `VesselSpawner.cs`
+
+**Status:** Fixed
+
 # In-Game Tests
 
 - [x] Vessels propagate naturally along orbits after FF (no position freezing)
