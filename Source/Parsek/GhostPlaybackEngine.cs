@@ -222,9 +222,6 @@ namespace Parsek
             }
 
             // Fire deferred events AFTER loop completes
-            if (deferredCreatedEvents.Count > 0)
-                ParsekLog.Verbose("Engine",
-                    $"Firing {deferredCreatedEvents.Count} OnGhostCreated event(s), subscribers={OnGhostCreated?.GetInvocationList()?.Length ?? 0}");
             for (int i = 0; i < deferredCreatedEvents.Count; i++)
                 OnGhostCreated?.Invoke(deferredCreatedEvents[i]);
 

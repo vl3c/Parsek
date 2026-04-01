@@ -522,34 +522,6 @@ namespace Parsek
                     lastMapOrbitByIndex[orbitUpdates[i].Key] = orbitUpdates[i].Value;
             }
 
-            // Diagnostic: compare ghost mesh position vs MapNode vessel position (#172)
-            if (engine != null)
-            {
-                foreach (var kvp in lastMapOrbitByIndex)
-                {
-                    int idx = kvp.Key;
-                    GhostPlaybackState ghostState;
-                    if (!engine.TryGetGhostState(idx, out ghostState)) continue;
-                    if (ghostState?.ghost == null || !ghostState.ghost.activeSelf) continue;
-                    if (!GhostMapPresence.HasGhostVesselForRecording(idx)) continue;
-
-                    Vector3d meshPos = ghostState.ghost.transform.position;
-                    var mapVessel = GhostMapPresence.GetMapVesselForRecording(idx);
-                    if (mapVessel == null) continue;
-
-                    Vector3d vesselPos = mapVessel.GetWorldPos3D();
-                    double offset = (meshPos - vesselPos).magnitude;
-
-                    ParsekLog.VerboseRateLimited("GhostMap", "map-icon-offset-" + idx,
-                        string.Format(System.Globalization.CultureInfo.InvariantCulture,
-                            "#{0} icon offset: {1:F1}m meshPos=({2:F0},{3:F0},{4:F0}) " +
-                            "vesselPos=({5:F0},{6:F0},{7:F0}) updateMode={8}",
-                            idx, offset,
-                            meshPos.x, meshPos.y, meshPos.z,
-                            vesselPos.x, vesselPos.y, vesselPos.z,
-                            mapVessel.orbitDriver?.updateMode));
-                }
-            }
 
         }
 

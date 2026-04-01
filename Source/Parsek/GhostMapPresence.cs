@@ -542,16 +542,6 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Get the ghost Vessel for a recording index, or null if none.
-        /// Used for diagnostics (position comparison).
-        /// </summary>
-        internal static Vessel GetMapVesselForRecording(int recordingIndex)
-        {
-            vesselsByRecordingIndex.TryGetValue(recordingIndex, out Vessel vessel);
-            return vessel;
-        }
-
-        /// <summary>
         /// Returns true if a ghost map ProtoVessel exists for the given recording index.
         /// Used by ParsekUI to suppress the green dot marker when the native KSP icon is active.
         /// </summary>
