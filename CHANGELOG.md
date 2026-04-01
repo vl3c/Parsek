@@ -15,6 +15,8 @@ All notable changes to Parsek are documented here.
 
 ### Bug Fixes
 
+- **Fix #168: Spawned vessels not re-spawned after rewind/revert.** After vessel stripping on revert, `SpawnedVesselPersistentId` was restored from the save but pointed to a stripped vessel — blocking re-spawn permanently. Added `ReconcileSpawnStateAfterStrip` that checks surviving PIDs in flightState after all strip operations and resets spawn tracking for recordings whose vessel no longer exists.
+
 - **Fix #72: GhostCommNetRelay antenna combination formula wrong for non-combinable strongest.** Extracted `ResolveCombinationExponent` pure method. When the overall strongest antenna is non-combinable, the combination exponent now comes from the strongest *combinable* antenna, matching KSP's actual formula.
 - **Fix #81: TrackSection struct shallow copy shares mutable list references.** Extracted `Recording.DeepCopyTrackSections` that creates independent `frames` and `checkpoints` lists for each copied TrackSection. Used in `ApplyPersistenceArtifactsFrom`.
 - **Fix #122: Dead->Dead crew status identity transitions logged as events.** Added `IsRealStatusChange` guard in `GameStateRecorder.OnKerbalStatusChange` to filter identity transitions before recording.
@@ -77,6 +79,7 @@ All notable changes to Parsek are documented here.
 - **Fix #163: KSC spawns vessels from the future after rewind.** `ShouldSpawnAtKscEnd` now checks `currentUT >= EndUT`.
 - **Fix #165: Engine flame flash on ignition.** Seed events for engines at zero throttle (staged but idle on the pad) are now skipped entirely — no plume at playback start. The first real throttle-up event starts the plume at the correct time. Playback retains `Math.Max(0.01f)` floor for backward compatibility with older recordings.
 - **Fix #164: Strip all future vessels on rewind, not just PRELAUNCH.** Flags, landed capsules, and other player-created vessels from the future now removed after rewind.
+- **Fix #167: Crew swap not executed for KSC-spawned vessels.** `SwapReservedCrewInFlight` only runs in flight scene — KSC spawns via `TrySpawnAtRecordingEnd` never swapped reserved crew. Added `SwapReservedCrewInSnapshot` to replace reserved crew names directly in the snapshot ConfigNode before spawning.
 - **DeferredActivateVessel timeout increased** from 10 frames to 5 seconds. Distant spawned vessels (37km+) couldn't load in 10 frames.
 - **ComputeTotal logging removed.** Eliminated 52% of all Parsek log output (pure computation was logging every UI frame).
 - **Status column widened** (95→120px) for longer T+ timestamps.
