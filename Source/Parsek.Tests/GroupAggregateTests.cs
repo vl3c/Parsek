@@ -111,11 +111,13 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void TotalDuration_SkipsNegativeDurations()
+        public void TotalDuration_SkipsZeroDurationRecordings()
         {
+            // MakeRec(100, 50) produces a single-point recording (endUT <= startUT),
+            // so StartUT == EndUT == 100, giving duration 0 which is excluded.
             var committed = new List<Recording>
             {
-                MakeRec(100, 50),   // -50s, skipped
+                MakeRec(100, 50),   // 0s (single point), skipped
                 MakeRec(200, 300)   // 100s
             };
             var descendants = new HashSet<int> { 0, 1 };
@@ -366,6 +368,39 @@ namespace Parsek.Tests
             double statusKey = ParsekUI.GetChainSortKey(members, committed,
                 ParsekUI.SortColumn.Status, 0);
             Assert.Equal(2, statusKey); // past (default)
+        }
+
+        // ── Name sort key (string path) ──
+
+        [Fact]
+        public void GroupSortKey_Name_ReturnsZero()
+        {
+            // For Name sort, the numeric key is unused (string comparison is used instead).
+            // GetGroupSortKey returns 0 for Name column.
+            var committed = new List<Recording> { MakeRec(100, 200) };
+            var descendants = new HashSet<int> { 0 };
+            double key = ParsekUI.GetGroupSortKey(descendants, committed,
+                ParsekUI.SortColumn.Name, 0);
+            Assert.Equal(0, key);
+        }
+
+        [Fact]
+        public void RecordingSortKey_Name_ReturnsRowFallback()
+        {
+            // For Name/Phase, numeric key falls back to row position
+            var rec = MakeRec(100, 200, "Zulu");
+            double key = ParsekUI.GetRecordingSortKey(rec, ParsekUI.SortColumn.Name, 0, 3);
+            Assert.Equal(3, key); // row fallback
+        }
+
+        [Fact]
+        public void ChainSortKey_Name_ReturnsZero()
+        {
+            var committed = new List<Recording> { MakeRec(100, 200) };
+            var members = new List<int> { 0 };
+            double key = ParsekUI.GetChainSortKey(members, committed,
+                ParsekUI.SortColumn.Name, 0);
+            Assert.Equal(0, key);
         }
     }
 }

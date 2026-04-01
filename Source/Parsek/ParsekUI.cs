@@ -127,15 +127,13 @@ namespace Parsek
         private bool sortAscending = true;
 
         // Root-level draw item for unified sorting of groups, chains, and standalone recordings
-        private const int RootItem_Group = 0;
-        private const int RootItem_Chain = 1;
-        private const int RootItem_Recording = 2;
+        private enum RootItemType { Group, Chain, Recording }
 
         private struct RootDrawItem
         {
             public double SortKey;
             public string SortName;
-            public int ItemType;       // RootItem_Group / RootItem_Chain / RootItem_Recording
+            public RootItemType ItemType;
             public string GroupName;   // for groups
             public string ChainId;     // for chains
             public int RecIdx;         // for standalone recordings
@@ -1181,7 +1179,7 @@ namespace Parsek
                     {
                         SortKey = GetGroupSortKey(desc, committed, sortColumn, now),
                         SortName = rootGrps[g],
-                        ItemType = RootItem_Group,
+                        ItemType = RootItemType.Group,
                         GroupName = rootGrps[g],
                         RecIdx = -1
                     });
@@ -1204,7 +1202,7 @@ namespace Parsek
                         {
                             SortKey = GetChainSortKey(members, committed, sortColumn, now),
                             SortName = members.Count > 0 ? committed[members[0]].VesselName : "",
-                            ItemType = RootItem_Chain,
+                            ItemType = RootItemType.Chain,
                             ChainId = rec.ChainId,
                             RecIdx = -1
                         });
@@ -1215,7 +1213,7 @@ namespace Parsek
                         {
                             SortKey = GetRecordingSortKey(rec, sortColumn, now, row),
                             SortName = string.IsNullOrEmpty(rec.VesselName) ? "Untitled" : rec.VesselName,
-                            ItemType = RootItem_Recording,
+                            ItemType = RootItemType.Recording,
                             RecIdx = ri
                         });
                     }
@@ -1243,15 +1241,15 @@ namespace Parsek
                     var item = rootItems[i];
                     switch (item.ItemType)
                     {
-                        case RootItem_Group:
+                        case RootItemType.Group:
                             deleted = DrawGroupTree(item.GroupName, 0, committed, now,
                                 grpToRecs, chainToRecs, grpChildren);
                             break;
-                        case RootItem_Chain:
+                        case RootItemType.Chain:
                             deleted = DrawChainBlock(item.ChainId,
                                 chainToRecs[item.ChainId], 0, committed, now);
                             break;
-                        case RootItem_Recording:
+                        case RootItemType.Recording:
                             deleted = DrawRecordingRow(item.RecIdx, committed, now, 0f);
                             break;
                     }
@@ -2682,7 +2680,10 @@ namespace Parsek
                 {
                     double total = 0;
                     for (int m = 0; m < members.Count; m++)
-                        total += committed[members[m]].EndUT - committed[members[m]].StartUT;
+                    {
+                        double dur = committed[members[m]].EndUT - committed[members[m]].StartUT;
+                        if (dur > 0) total += dur;
+                    }
                     return total;
                 }
                 case SortColumn.Status:
