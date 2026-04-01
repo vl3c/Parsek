@@ -2456,5 +2456,62 @@ namespace Parsek
         }
 
         #endregion
+
+        #region Auto Loop Range
+
+        /// <summary>
+        /// Returns true if the given environment is visually uninteresting for looping purposes.
+        /// ExoBallistic (orbital coasting) and SurfaceStationary (sitting on ground) are trimmed
+        /// from the loop range because they contain no visible action.
+        /// </summary>
+        internal static bool IsBoringEnvironment(SegmentEnvironment env)
+        {
+            return env == SegmentEnvironment.ExoBallistic || env == SegmentEnvironment.SurfaceStationary;
+        }
+
+        /// <summary>
+        /// Computes the automatic loop range for a recording by trimming leading and trailing
+        /// "boring" TrackSections (ExoBallistic, SurfaceStationary). Returns (NaN, NaN) if no
+        /// trimming is possible (recording has fewer than 2 sections, all sections are interesting,
+        /// or all sections are boring).
+        /// </summary>
+        internal static (double startUT, double endUT) ComputeAutoLoopRange(List<TrackSection> sections)
+        {
+            if (sections == null || sections.Count < 2)
+                return (double.NaN, double.NaN);
+
+            // Find first non-boring section
+            int first = -1;
+            for (int i = 0; i < sections.Count; i++)
+            {
+                if (!IsBoringEnvironment(sections[i].environment))
+                {
+                    first = i;
+                    break;
+                }
+            }
+
+            if (first < 0)
+                return (double.NaN, double.NaN); // all boring — loop the whole thing
+
+            // Find last non-boring section
+            int last = first;
+            for (int i = sections.Count - 1; i >= first; i--)
+            {
+                if (!IsBoringEnvironment(sections[i].environment))
+                {
+                    last = i;
+                    break;
+                }
+            }
+
+            // If nothing was trimmed, no range narrowing needed
+            if (first == 0 && last == sections.Count - 1)
+                return (double.NaN, double.NaN);
+
+            return (sections[first].startUT, sections[last].endUT);
+        }
+
+        #endregion
     }
 }

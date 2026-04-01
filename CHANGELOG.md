@@ -12,7 +12,7 @@ All notable changes to Parsek are documented here.
 - **T97: "approach" phase tagging.** Airless body segments below the threshold are tagged `"approach"` (sky blue in UI) instead of `"space"`. All phase tagging sites updated.
 - **T97: TrackSection altitude metadata.** Min/max altitude tracked per TrackSection during recording. Serialized as sparse keys, backward compatible with existing saves.
 - **T97: Recording optimization pass.** Automatic housekeeping merges redundant consecutive chain segments on save load (same phase, same body, no branch points, no ghosting triggers, no user-modified settings).
-- **T98: Per-phase loop range for tree recordings.** Tree recordings can now loop a specific flight phase (reentry, landing, docking approach) instead of the entire trajectory. New `LoopStartUT`/`LoopEndUT` fields on Recording narrow the loop range. Engine, save/load, and optimizer updated. Backward compatible (NaN defaults = existing behavior).
+- **T98: Per-phase loop range for tree recordings.** Tree recordings can now loop a specific flight phase (reentry, landing, docking approach) instead of the entire trajectory. New `LoopStartUT`/`LoopEndUT` fields on Recording narrow the loop range. Engine, save/load, and optimizer updated. Backward compatible (NaN defaults = existing behavior). Loop range auto-selected when loop is toggled on — trims boring bookends (orbital coasts, stationary) to keep the action.
 - **T98: Policy modularity refactor.** Migrated scattered `TreeId != null` / `ChainId != null` policy checks to `IsTreeRecording` / `IsChainRecording` / `ManagesOwnResources` query properties. Extracted `ClassifyVesselDestruction` and `ShouldSuppressBoundarySplit` as testable static methods.
 
 ### Bug Fixes

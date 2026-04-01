@@ -808,5 +808,173 @@ namespace Parsek.Tests
         }
 
         #endregion
+
+        #region ComputeAutoLoopRange
+
+        private static List<TrackSection> MakeSections(params (SegmentEnvironment env, double start, double end)[] entries)
+        {
+            var sections = new List<TrackSection>();
+            for (int i = 0; i < entries.Length; i++)
+            {
+                sections.Add(new TrackSection
+                {
+                    environment = entries[i].env,
+                    startUT = entries[i].start,
+                    endUT = entries[i].end,
+                });
+            }
+            return sections;
+        }
+
+        [Fact]
+        public void ComputeAutoLoopRange_NullSections_ReturnsNaN()
+        {
+            var (start, end) = GhostPlaybackLogic.ComputeAutoLoopRange(null);
+            Assert.True(double.IsNaN(start));
+            Assert.True(double.IsNaN(end));
+        }
+
+        [Fact]
+        public void ComputeAutoLoopRange_SingleSection_ReturnsNaN()
+        {
+            var sections = MakeSections((SegmentEnvironment.Atmospheric, 100, 200));
+            var (start, end) = GhostPlaybackLogic.ComputeAutoLoopRange(sections);
+            Assert.True(double.IsNaN(start));
+            Assert.True(double.IsNaN(end));
+        }
+
+        [Fact]
+        public void ComputeAutoLoopRange_AllInteresting_ReturnsNaN()
+        {
+            // Atmospheric + ExoPropulsive — both interesting, nothing to trim
+            var sections = MakeSections(
+                (SegmentEnvironment.Atmospheric, 100, 150),
+                (SegmentEnvironment.ExoPropulsive, 150, 200));
+            var (start, end) = GhostPlaybackLogic.ComputeAutoLoopRange(sections);
+            Assert.True(double.IsNaN(start));
+            Assert.True(double.IsNaN(end));
+        }
+
+        [Fact]
+        public void ComputeAutoLoopRange_AllBoring_ReturnsNaN()
+        {
+            var sections = MakeSections(
+                (SegmentEnvironment.ExoBallistic, 100, 200),
+                (SegmentEnvironment.SurfaceStationary, 200, 300));
+            var (start, end) = GhostPlaybackLogic.ComputeAutoLoopRange(sections);
+            Assert.True(double.IsNaN(start));
+            Assert.True(double.IsNaN(end));
+        }
+
+        [Fact]
+        public void ComputeAutoLoopRange_TrimsTrailingCoast()
+        {
+            // Launch: Atmospheric + ExoPropulsive + ExoBallistic
+            var sections = MakeSections(
+                (SegmentEnvironment.Atmospheric, 100, 150),
+                (SegmentEnvironment.ExoPropulsive, 150, 180),
+                (SegmentEnvironment.ExoBallistic, 180, 500));
+            var (start, end) = GhostPlaybackLogic.ComputeAutoLoopRange(sections);
+            Assert.Equal(100, start);
+            Assert.Equal(180, end);
+        }
+
+        [Fact]
+        public void ComputeAutoLoopRange_TrimsLeadingCoast()
+        {
+            // Landing: ExoBallistic + ExoPropulsive + SurfaceMobile
+            var sections = MakeSections(
+                (SegmentEnvironment.ExoBallistic, 100, 300),
+                (SegmentEnvironment.ExoPropulsive, 300, 350),
+                (SegmentEnvironment.SurfaceMobile, 350, 370));
+            var (start, end) = GhostPlaybackLogic.ComputeAutoLoopRange(sections);
+            Assert.Equal(300, start);
+            Assert.Equal(370, end);
+        }
+
+        [Fact]
+        public void ComputeAutoLoopRange_TrimsBothEnds()
+        {
+            // Coast → descent → landing → stationary
+            var sections = MakeSections(
+                (SegmentEnvironment.ExoBallistic, 100, 300),
+                (SegmentEnvironment.ExoPropulsive, 300, 350),
+                (SegmentEnvironment.SurfaceMobile, 350, 370),
+                (SegmentEnvironment.SurfaceStationary, 370, 1000));
+            var (start, end) = GhostPlaybackLogic.ComputeAutoLoopRange(sections);
+            Assert.Equal(300, start);
+            Assert.Equal(370, end);
+        }
+
+        [Fact]
+        public void ComputeAutoLoopRange_KeepsBoringMiddle()
+        {
+            // Launch → coast → reentry: trims nothing (first and last are interesting)
+            var sections = MakeSections(
+                (SegmentEnvironment.Atmospheric, 100, 150),
+                (SegmentEnvironment.ExoBallistic, 150, 400),
+                (SegmentEnvironment.Atmospheric, 400, 450));
+            var (start, end) = GhostPlaybackLogic.ComputeAutoLoopRange(sections);
+            Assert.True(double.IsNaN(start)); // nothing to trim — bookends are interesting
+            Assert.True(double.IsNaN(end));
+        }
+
+        [Fact]
+        public void IsBoringEnvironment_ClassifiesCorrectly()
+        {
+            Assert.False(GhostPlaybackLogic.IsBoringEnvironment(SegmentEnvironment.Atmospheric));
+            Assert.False(GhostPlaybackLogic.IsBoringEnvironment(SegmentEnvironment.ExoPropulsive));
+            Assert.True(GhostPlaybackLogic.IsBoringEnvironment(SegmentEnvironment.ExoBallistic));
+            Assert.False(GhostPlaybackLogic.IsBoringEnvironment(SegmentEnvironment.SurfaceMobile));
+            Assert.True(GhostPlaybackLogic.IsBoringEnvironment(SegmentEnvironment.SurfaceStationary));
+        }
+
+        #endregion
+
+        #region ApplyAutoLoopRange
+
+        [Fact]
+        public void ApplyAutoLoopRange_ToggleOn_SetsRange()
+        {
+            var rec = new Recording
+            {
+                TrackSections = MakeSections(
+                    (SegmentEnvironment.Atmospheric, 100, 150),
+                    (SegmentEnvironment.ExoPropulsive, 150, 180),
+                    (SegmentEnvironment.ExoBallistic, 180, 500))
+            };
+            ParsekUI.ApplyAutoLoopRange(rec, true);
+            Assert.Equal(100, rec.LoopStartUT);
+            Assert.Equal(180, rec.LoopEndUT);
+        }
+
+        [Fact]
+        public void ApplyAutoLoopRange_ToggleOff_ClearsRange()
+        {
+            var rec = new Recording
+            {
+                LoopStartUT = 100,
+                LoopEndUT = 200,
+            };
+            ParsekUI.ApplyAutoLoopRange(rec, false);
+            Assert.True(double.IsNaN(rec.LoopStartUT));
+            Assert.True(double.IsNaN(rec.LoopEndUT));
+        }
+
+        [Fact]
+        public void ApplyAutoLoopRange_NoTrimmableSections_LeavesNaN()
+        {
+            var rec = new Recording
+            {
+                TrackSections = MakeSections(
+                    (SegmentEnvironment.Atmospheric, 100, 200),
+                    (SegmentEnvironment.ExoPropulsive, 200, 300))
+            };
+            ParsekUI.ApplyAutoLoopRange(rec, true);
+            Assert.True(double.IsNaN(rec.LoopStartUT));
+            Assert.True(double.IsNaN(rec.LoopEndUT));
+        }
+
+        #endregion
     }
 }
