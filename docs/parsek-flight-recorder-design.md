@@ -764,6 +764,38 @@ A single Recording can be split at a TrackSection boundary where the environment
 
 The optimizer is wired into save/load (`ParsekScenario`), running split candidates first (to break up tree recordings that were exported to chains), then merge candidates (to clean up redundant same-environment boundaries).
 
+### 9A.6 Chain Mode vs Tree Mode — Architectural Distinction
+
+Chain mode and tree mode are two fundamentally different recording strategies that handle environment changes differently but converge on the same data format for playback.
+
+#### How they diverge
+
+| Concern | Chain Mode | Tree Mode |
+|---|---|---|
+| **Segmentation** | Eager — splits at every atmosphere/altitude/SOI boundary | Suppressed — all phases stay in one Recording with multiple TrackSections |
+| **Identity linkage** | `ChainId` + `ChainIndex` (linear sequence) | `TreeId` + `BranchPoints` DAG |
+| **Storage** | `CommittedRecordings` only | `CommittedRecordings` + `CommittedTrees` (dual) |
+| **Resources** | Per-recording delta summing | Lump-sum at tree level |
+| **Optimization** | `RecordingOptimizer` merge/split | `SessionMerger` highest-fidelity-wins |
+| **Save/load** | Flat `RECORDING` ConfigNodes | Nested `RECORDING_TREE` → `RECORDING` nodes |
+| **Per-phase loop** | Natural — each phase is its own Recording | Not yet supported — see Section 10.6 |
+
+#### How they converge
+
+Both modes produce `Recording` objects (same class, no subclasses) with the same playback-relevant fields: `TrackSections`, `Points`, `OrbitSegments`, `SegmentPhase`, `SegmentBodyName`, `GhostVisualSnapshot`. A consumer reading only trajectory data cannot distinguish them.
+
+The `GhostPlaybackEngine` is completely mode-agnostic — it receives `IPlaybackTrajectory` interface references and has zero knowledge of chains, trees, or policy. This clean abstraction boundary means the engine could be extracted as a standalone library.
+
+#### Why the difference
+
+Tree mode records multiple vessels simultaneously and needs to merge their overlapping data streams (active/background/checkpoint sources) via the session merger. Splitting at every environment boundary would fragment the data before the merge algorithm can see the full picture. So tree mode defers segmentation — it keeps everything together, merges by fidelity priority, and can split afterward if needed.
+
+Chain mode doesn't have this constraint (single vessel, no overlap resolution), so it splits eagerly at boundaries to give the player immediate per-phase control.
+
+#### Policy coupling
+
+Mode-specific behavior is implemented as inline conditionals checking `TreeId != null` / `ChainId != null` / `activeTree != null` across ~19 sites in 7 files. The main policy differences: resource skip guards (5 sites), boundary suppression (3 sites), save/load path selection (3 sites), vessel destruction handling (3 sites), and playback ghost filtering (2 sites). These are consolidated via query properties (`IsTreeRecording`, `IsChainRecording`, `ManagesOwnResources`) and extracted testable methods (`ShouldSuppressBoundarySplit`, `ClassifyVesselDestruction`) for clarity.
+
 ---
 
 ## 10. Looped Recordings
@@ -797,6 +829,14 @@ When a looped segment plays back, it uses the real anchor vessel's current posit
 ### 10.5 Validation on Spawn
 
 Before spawning a looped ghost, Parsek validates: does the anchor vessel still exist? Is it on the expected body? Is the docking port still available? If validation fails, the loop is marked as broken in the recordings manager.
+
+### 10.6 Loop Range for Tree Recordings
+
+Chain recordings naturally support per-phase looping because each phase is a separate Recording with its own `LoopPlayback` toggle. Tree recordings store all phases in one Recording with multiple TrackSections, so `LoopPlayback = true` loops the entire trajectory — the player cannot loop just the reentry or the docking approach.
+
+To close this gap, the Recording carries optional `LoopStartUT` and `LoopEndUT` fields (default `double.NaN` = loop entire recording). When set, the engine's loop math (`TryComputeLoopPlaybackUT`) uses these bounds instead of `StartUT`/`EndUT`. A phase picker in the UI (derived from TrackSections and their `SegmentEnvironment`) lets users select which phase(s) to loop.
+
+This design requires no changes to `IPlaybackTrajectory`, no modification to the `TrackSection` struct, and no change to the `GhostPlaybackEngine`'s core architecture — only the loop UT computation narrows its range.
 
 ---
 
