@@ -2158,6 +2158,13 @@ namespace Parsek
             if (currentUT < rec.EndUT)
                 return (false, $"current UT {currentUT:F0} before recording end {rec.EndUT:F0}");
 
+            // Orbiting/Docked vessels cannot survive pv.Load() in the Space Center scene —
+            // KSP crashes them through terrain within frames. Defer to flight scene spawn
+            // where SpawnAtPosition can place them correctly. (#171)
+            if (rec.TerminalStateValue == TerminalState.Orbiting
+                || rec.TerminalStateValue == TerminalState.Docked)
+                return (false, $"orbital vessel deferred to flight scene (terminal={rec.TerminalStateValue})");
+
             // At KSC, no chain is being built → isActiveChainMember = false
             bool isChainLoopingOrDisabled = !string.IsNullOrEmpty(rec.ChainId) &&
                 (RecordingStore.IsChainLooping(rec.ChainId) ||
