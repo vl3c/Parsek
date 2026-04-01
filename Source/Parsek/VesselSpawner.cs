@@ -206,6 +206,11 @@ namespace Parsek
                 }
             }
 
+            // Correct unsafe snapshot situation before spawning (#169).
+            // EVA vessels captured mid-flight have sit=FLYING but terminal state may be Landed.
+            // Without correction, KSP's on-rails pressure check destroys the vessel immediately.
+            CorrectUnsafeSnapshotSituation(rec.VesselSnapshot, rec.TerminalStateValue);
+
             // Build exclude set once for all spawn paths (EVA'd crew spawn via child recordings)
             HashSet<string> excludeCrew = BuildExcludeCrewSet(rec);
 
@@ -670,6 +675,64 @@ namespace Parsek
         {
             return rec.TerminalStateValue.HasValue
                 && rec.TerminalStateValue.Value == TerminalState.Destroyed;
+        }
+
+        /// <summary>
+        /// Pure decision: determines the corrected situation string when the snapshot's
+        /// situation is unsafe (FLYING/SUB_ORBITAL) but the terminal state indicates the
+        /// vessel safely reached the surface. Returns the corrected situation string, or
+        /// null if no correction is needed.
+        ///
+        /// Bug #169: EVA vessels captured with sit=FLYING but terminal state Landed are
+        /// destroyed by KSP's on-rails atmospheric pressure check when spawned outside
+        /// physics range. The snapshot's sit field must be corrected to match the terminal
+        /// state before spawning.
+        /// </summary>
+        internal static string ComputeCorrectedSituation(string snapshotSit, TerminalState? terminalState)
+        {
+            if (string.IsNullOrEmpty(snapshotSit))
+                return null;
+
+            bool isUnsafe = snapshotSit.Equals("FLYING", StringComparison.OrdinalIgnoreCase)
+                         || snapshotSit.Equals("SUB_ORBITAL", StringComparison.OrdinalIgnoreCase);
+            if (!isUnsafe)
+                return null;
+
+            if (!terminalState.HasValue)
+                return null;
+
+            switch (terminalState.Value)
+            {
+                case TerminalState.Landed:
+                    return "LANDED";
+                case TerminalState.Splashed:
+                    return "SPLASHED";
+                default:
+                    return null;
+            }
+        }
+
+        /// <summary>
+        /// Corrects the snapshot's situation field if it is FLYING/SUB_ORBITAL but the
+        /// terminal state indicates the vessel safely reached the surface (Landed/Splashed).
+        /// Modifies the snapshot in-place. Returns true if a correction was applied.
+        /// Bug #169: prevents KSP's on-rails pressure check from destroying spawned vessels.
+        /// </summary>
+        internal static bool CorrectUnsafeSnapshotSituation(ConfigNode snapshot, TerminalState? terminalState)
+        {
+            if (snapshot == null)
+                return false;
+
+            string currentSit = snapshot.GetValue("sit");
+            string corrected = ComputeCorrectedSituation(currentSit, terminalState);
+            if (corrected == null)
+                return false;
+
+            ApplySituationToNode(snapshot, corrected);
+            ParsekLog.Info("Spawner",
+                $"Corrected unsafe snapshot situation: {currentSit} -> {corrected} " +
+                $"(terminal={terminalState}) — prevents on-rails pressure destruction (#169)");
+            return true;
         }
 
         /// <summary>
