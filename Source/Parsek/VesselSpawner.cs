@@ -721,19 +721,22 @@ namespace Parsek
                 bool removedAny = false;
                 foreach (string name in crewNames)
                 {
-                    bool isDead = IsCrewDeadInRoster(name, roster);
+                    bool isDeadOrMissing = IsCrewDeadInRoster(name, roster);
 
                     // Reserved crew with Missing status are kept — Missing can be
                     // stale state from save manipulation (e.g. --clean-start).
                     // But Dead is permanent — a dead reserved crew member must be
                     // removed to avoid resurrecting them. (#170)
-                    if (reserved.ContainsKey(name) && !isDead)
+                    // Use Dead-only check: IsCrewDeadInRoster includes Missing,
+                    // which would incorrectly remove reserved+Missing crew.
+                    bool isStrictlyDead = IsCrewStrictlyDeadInRoster(name, roster);
+                    if (reserved.ContainsKey(name) && !isStrictlyDead)
                     {
                         keepNames.Add(name);
                         continue;
                     }
 
-                    if (isDead)
+                    if (isDeadOrMissing)
                     {
                         ParsekLog.Info("Spawner", $"Removed dead/missing crew '{name}' from vessel snapshot" +
                             (reserved.ContainsKey(name) ? " (was reserved but Dead overrides)" : ""));
@@ -771,6 +774,24 @@ namespace Parsek
                 if (pcm.name == crewName &&
                     (pcm.rosterStatus == ProtoCrewMember.RosterStatus.Dead ||
                      pcm.rosterStatus == ProtoCrewMember.RosterStatus.Missing))
+                {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// Checks whether a crew member is strictly Dead (not Missing) in the KSP crew roster.
+        /// Used by RemoveDeadCrewFromSnapshot for reserved crew: Missing is potentially stale
+        /// state from save manipulation, but Dead is permanent and must override reservation. (#170)
+        /// </summary>
+        private static bool IsCrewStrictlyDeadInRoster(string crewName, KerbalRoster roster)
+        {
+            foreach (ProtoCrewMember pcm in roster.Crew)
+            {
+                if (pcm.name == crewName &&
+                    pcm.rosterStatus == ProtoCrewMember.RosterStatus.Dead)
                 {
                     return true;
                 }
