@@ -1,7 +1,7 @@
 # Parsek — Game Actions & Resource System Design
 
-**Version:** 0.2 (all modules designed)
-**Status:** All resource modules designed. Contracts and Strategies may need further refinement during implementation.
+**Version:** 0.3 (post-implementation update — reflects Phases 1-5 actual code)
+**Status:** Core modules implemented and tested (4458 tests). Integration wired. Earning-side capture, per-subject science patching, contract deadline generation, and warp visual updates remain as future work.
 **Scope:** Everything the timeline tracks beyond vessel trajectories — science, funds, reputation, milestones, contracts, kerbals, facilities, strategies.
 **Out of scope:** Vessel recording system, DAG structure, ghost rendering, distance zones. See `parsek-recording-system-design.md` for those.
 
@@ -119,6 +119,18 @@ Modules remain isolated in logic — they don't call each other. The dependency 
 
 Events on the timeline are locked once committed — their immutable values never change. But the **derived** values are recomputed on every recalculation. Adding a new recording to the past can change derived values on future events (e.g. a retroactive science collection reduces a later collection's effective credit). The events themselves are fixed; only the interpretation changes.
 
+### 1.8.1 Implementation Notes (Post-Build)
+
+**Derived field reset:** Before each walk, the engine resets all derived fields on every action to defaults (`Effective=true`, `EffectiveScience=0`, `Affordable=false`, `EffectiveRep=0`, `TransformedFundsReward=FundsReward`, etc.). This prevents stale values from a previous recalculation from leaking into the next walk. Critical for idempotency — calling Recalculate twice on the same actions must produce identical results.
+
+**PrePass phase:** Between Reset and the walk, the engine calls `PrePass(actions)` on every module. `ScienceModule` and `FundsModule` use this to compute total committed spendings across the entire timeline (needed for the reservation formula). Other modules have no-op PrePass implementations.
+
+**Strategy transform mechanism:** Strategy transforms modify `TransformedFundsReward`, `TransformedScienceReward`, and `TransformedRepReward` derived fields — NOT the persisted `FundsReward`/`ScienceReward`/`RepReward`. Second-tier modules read the Transformed fields. This prevents data corruption if the ledger is saved between recalculations.
+
+**Orchestration:** `LedgerOrchestrator` (not in the original design) coordinates the full pipeline: creates module instances, registers them with the engine, converts `GameStateEvent` data to `GameAction` entries at commit time, and invokes the recalculate-then-patch sequence on all four triggers.
+
+**Event conversion bridge:** `GameStateEventConverter` maps `GameStateEvent` entries from `GameStateStore` to `GameAction` entries for the ledger. This replaces the design doc's "extract from sidecar" flow — game actions are captured by `GameStateRecorder` into `GameStateStore` during flight, then converted to `GameAction` entries at commit time. No sidecar involvement for game actions.
+
 ### 1.9 Spending reservation pattern
 
 Any resource that has both earnings and spendings requires a **spending reservation system** to prevent the player from adding new spendings that would create a deficit at any point on the timeline.
@@ -198,8 +210,9 @@ The game actions system persists its data in a **dedicated ledger file** on disk
 saves/
   savegame/
     persistent.sfs              ← KSP save file (ScenarioModule references the ledger file)
-    parsek/
-      ledger.dat                ← single file: all earnings + spendings, all resource types
+    Parsek/
+      GameState/
+        ledger.pgld             ← single file: all earnings + spendings, all resource types
       recordings/
         rec_001.dat             ← sidecar: trajectory + raw science events (rich, verbose)
         rec_002.dat
@@ -217,6 +230,8 @@ The ledger file contains all game actions across all resource modules — scienc
 **On recalculation:** The ledger file is the sole data source. All entries are loaded, sorted, and walked. No sidecar files are opened.
 
 **Spending actions (KSC):** Tech node unlocks, facility upgrades, kerbal hires — these happen outside any flight recording. They are written directly to the ledger file with no sidecar involvement.
+
+**Implementation divergence:** The actual data flow uses `GameStateRecorder` → `GameStateStore` (in-memory) → `GameStateEventConverter` → Ledger (at commit time). Raw events are NOT written to recording sidecar files — they are captured in memory during flight and converted to `GameAction` entries when the recording is committed. The sidecar retains trajectory/part event data only.
 
 ### 2.3 KSP load reconciliation
 
@@ -267,6 +282,10 @@ Each module has a corresponding KSP internal state that must agree with the ledg
 
 The Science Archive in the R&D building reads from `ResearchAndDevelopment.Instance`. Patching the per-subject collected totals ensures the Science Archive progress bars reflect the recalculated timeline, not KSP's stale state.
 
+**Implementation status (v0.3):** Science (balance only — per-subject totals not yet patched), Funds, Reputation, and Facilities are patched. Milestones (`ProgressTracking`) and Contracts (`ContractSystem`) are not yet patched. Kerbals are patched separately via `KerbalsModule.ApplyToRoster` (not through `KspStatePatcher`).
+
+**Critical: use `SetReputation`, NOT `AddReputation`.** KSP's `AddReputation` applies a nonlinear gain/loss curve. If the recalculation engine already computed the final reputation value through the curve simulation, calling `AddReputation` with a correction delta would apply the curve TWICE, causing significant distortion. `SetReputation` directly assigns the value. This was discovered via decompilation (see spike findings).
+
 ### 3.2 Two-phase pattern
 
 Every timeline change follows the same two phases:
@@ -287,6 +306,8 @@ Phase 2: PATCH
 The recalculation is pure — it reads the ledger and produces derived state. The patching is impure — it mutates KSP's runtime objects. Keeping these separate means the recalculation logic can be tested without KSP running, and the patching is a thin translation layer.
 
 ### 3.3 Warp cycle
+
+**Status: NOT YET IMPLEMENTED.** The warp model below is designed but the implementation (facility visual updates during warp, event queue) is future work. The warp exit recalculation trigger IS wired.
 
 During time warp (fast-forward), the player is not in control. KSP state mutation is deferred until the player exits warp. The warp cycle follows the same collect-during-warp, process-on-exit pattern used for vessel spawning.
 
@@ -611,6 +632,10 @@ FundsSpending (recording-associated or KSC spending action)
   fundsSpent:     float — amount spent (IMMUTABLE)
   source:         enum — VESSEL_BUILD | FACILITY_UPGRADE | FACILITY_REPAIR |
                          KERBAL_HIRE | CONTRACT_PENALTY | STRATEGY | OTHER
+
+FundsInitial (seed — created once at career start)
+  ut:             0 (always)
+  initialFunds:   float — extracted from the save file at career creation
 ```
 
 ### 5.6 Reservation system
@@ -677,6 +702,8 @@ RecalculateFunds():
 ```
 
 The `affordable` flag is defensive. With proper seeding and the reservation system preventing overspending, it should always be true. If it's false, it indicates a bug or data corruption.
+
+**Implementation handles more action types:** Beyond `FundsEarning` and `FundsSpending`, the walk also processes: `ContractAccept` (advance payment), `ContractComplete` (rewards, using TransformedFundsReward), `ContractFail`/`ContractCancel` (penalties), `FacilityUpgrade`/`FacilityRepair` (costs via FacilityCost field), `KerbalHire` (hiring cost), and `StrategyActivate` (setup cost). All spending-type actions are included in the reservation total.
 
 ### 5.9 UI patching
 
@@ -912,11 +939,10 @@ This is expected and harmless. There is no ledger-enforced invariant that depend
 
 The no-delete invariant still holds in a weaker sense: rep-affecting events are never removed from the timeline (only added), so the set of inputs to the curve is monotonically growing. But the output of the curve (final rep) is not monotonically stable — it can shift slightly with each retroactive commit.
 
-### 6.9 Open questions
+### 6.9 ~~Open questions~~ Resolved
 
-- **Exact curve formula:** Must be extracted from KSP's decompiled `Reputation` class. The grain system and gain/loss asymmetry need to be replicated precisely.
-- **Strategy interactions:** Strategies convert reputation to/from other resources as ongoing rates. This is a continuous modifier, not a point-in-time event. Deferred to the Strategies module.
-- **Reputation floor:** Can reputation go below -1000? What happens at the floor — does the loss curve diminish like the gain curve does near the ceiling?
+- **Exact curve formula:** RESOLVED. Extracted from decompiled `Reputation` class. Uses `addReputation_granular` with Hermite spline AnimationCurve. 5-key addition curve (gain ~2x at rep=-1000, ~1x at rep=0, ~0x at rep=+1000) and 4-key subtraction curve (loss ~0x at rep=-1000, ~1x at rep=0, ~2x at rep=+1000). Implemented in `ReputationModule.ApplyReputationCurve` with the exact keyframes. See `docs/dev/plans/game-actions-spike-findings.md` for full keyframe data.
+- **Reputation floor:** Loss curve multiplier approaches ~0.0x near rep=-1000 (symmetric with gain ceiling). No hard clamp in `AddReputation`, but `SetReputation` clamps to [-1000, 1000].
 
 ---
 
@@ -1154,6 +1180,8 @@ RecalculateContracts():
 
 ### 8.6 Deadline handling
 
+**Status: DEFERRED.** Deadline failure generation is not implemented. The code has a TODO comment.
+
 Contracts with deadlines generate an automatic failure event when the deadline UT is crossed. During the recalculation walk, if an accepted contract's deadline UT is reached without a prior completion or cancellation, the walk inserts a `ContractFail` event at the deadline UT.
 
 ```
@@ -1312,6 +1340,14 @@ The reservation is a single continuous block. There are no gaps. A kerbal is eit
 | MIA       | Permanent | UT=0 → INDEFINITE | Kerbal gone, KSP may make available for rehire later |
 
 STRANDED is temporary in principle even if long-lived in practice. The reservation stays open until a future recording rescues the kerbal (picks them up and recovers). If no rescue ever happens, it behaves like permanent reservation.
+
+**Implementation divergence:** The actual `KerbalEndState` enum uses different values:
+- `Aboard = 0` — kerbal is on a vessel that is still intact (covers design doc's STRANDED + active vessel states)
+- `Dead = 1` — kerbal was killed
+- `Recovered = 2` — kerbal was recovered with the vessel
+- `Unknown = 3` — end state could not be determined (legacy recording, missing data; covers design doc's MIA)
+
+The design doc's `STRANDED` is mapped to `Aboard` (crew still on vessel, open-ended reservation). `MIA` is mapped to `Unknown` (conservative: treated as open-ended temporary reservation).
 
 ### 9.4 Replacement system — temporary reservations
 
@@ -1592,9 +1628,19 @@ This means the total number of kerbals in KSP's roster can exceed the Astronaut 
 
 - **Rescue mechanics:** How does the ledger associate a rescue recording with a stranded kerbal? The rescue recording would need to reference the stranded kerbal by name and provide the recovery UT. This likely requires the recording system to detect when a vessel docks with or picks up a stranded kerbal.
 - **KSP's MIA respawn:** KSP can respawn MIA kerbals after a configurable delay. Should Parsek model this, or treat MIA as permanently gone and let KSP handle the respawn outside the ledger?
-- **Stand-in naming:** Should Parsek use KSP's procedural name generator, or maintain its own? KSP's generator avoids name collisions with existing roster members.
-- **Sandbox mode:** The reservation system applies (prevents duplicate kerbals), but replacement is trivial (free, unlimited). Does sandbox need the chain system at all, or just the reservation check?
+- **Stand-in naming:** Should Parsek use KSP's procedural name generator, or maintain its own? KSP's generator avoids name collisions with existing roster members. RESOLVED: stand-in names are persisted in KERBAL_SLOTS ConfigNode and reused across recalculations.
+- **Sandbox mode:** The reservation system applies (prevents duplicate kerbals), but replacement is trivial (free, unlimited). Does sandbox need the chain system at all, or just the reservation check? RESOLVED: sandbox uses the full chain system (prevents duplicate kerbals regardless of game mode).
 - **Retired kerbal cleanup:** Should there be a mechanism for the player to acknowledge and permanently remove retired kerbals from the roster (beyond blocking dismissal)? The retired pool could grow over a long career.
+
+### 9.15 Implementation Architecture (Post-Build)
+
+**The kerbals module does NOT participate in the unified recalculation walk.** Unlike all other modules, `KerbalsModule` is a separate static class with its own `Recalculate()` method that operates directly on `RecordingStore.CommittedRecordings` (vessel snapshots), not on `GameAction` entries from the ledger.
+
+**Why:** Kerbal reservation depends on crew presence in vessel snapshots (which crew members are on which vessel), not on discrete game actions. The design doc's `KerbalAssignment`, `KerbalRescue`, and `KerbalStandIn` action types exist in the `GameActionType` enum and have full serialization, but are NOT currently produced or consumed by any code path. `KerbalHire` IS produced by the `GameStateEventConverter` and consumed by the `FundsModule` (for hiring cost deduction).
+
+**Chain and reservation system:** Operates as designed (UT=0 reservation, replacement chains, retired pool, dismissal protection) but through its own `RecalculateAndApply()` method called separately from the ledger pipeline.
+
+**Future direction:** If kerbal data needs to participate in the unified walk (e.g., for kerbal-specific UI in the ledger actions list), the existing action types are ready. The migration path: generate `KerbalAssignment` actions at commit time from vessel snapshot crew, register `KerbalsModule` as an `IResourceModule`, and process kerbal actions in the walk.
 
 ---
 
@@ -1683,7 +1729,7 @@ The facility level at any UT is derivable by walking the action history: start a
 
 ### 10.6 Open questions
 
-- **Destruction detection:** How does Parsek detect building destruction during a recording? KSP fires events when buildings are hit, but the exact API for tracking destruction needs investigation.
+- **Destruction detection:** How does Parsek detect building destruction during a recording? KSP fires events when buildings are hit, but the exact API for tracking destruction needs investigation. RESOLVED: `DestructibleBuilding.IsDestroyed` polling and `GameStateRecorder` event capture are implemented.
 - **Partial destruction:** Can individual buildings be destroyed independently, or does KSP group them? The schema assumes per-facility tracking.
 - **CustomBarnKit interaction:** CustomBarnKit modifies facility costs and progression tiers. Does the ledger need to account for non-standard level counts or costs, or does it just record what KSP reports?
 
@@ -1768,6 +1814,8 @@ For each contract reward at this UT:
 The transform happens between the contracts first-tier resolution (which sets the effective flag) and the second-tier crediting (which adds effective values to funds/rep/science running balances). Only effective contract completions are transformed — non-effective duplicates produce zero rewards and therefore zero transforms.
 
 The conversion rate (how much target resource you get per unit of diverted source resource) is defined by KSP's strategy configuration. The coding agent should extract these rates from KSP's strategy definitions.
+
+**Implementation mechanism:** Strategy transforms write to `TransformedFundsReward`, `TransformedScienceReward`, and `TransformedRepReward` derived fields on the `GameAction` object — NOT the persisted fields. The `RecalculationEngine` resets these to the original values before each walk. Second-tier modules (`FundsModule`, `ReputationModule`) read the Transformed fields when processing `ContractComplete` actions.
 
 ### 11.5 What strategies do NOT affect
 
