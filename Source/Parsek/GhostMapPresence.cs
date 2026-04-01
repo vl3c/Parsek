@@ -541,6 +541,35 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Sync ghost map vessel's orbital position to the ghost's current playback UT.
+        /// Adjusts epoch + meanAnomalyAtEpoch so the vessel marker sits at the ghost's
+        /// position along the orbit, without changing the orbital shape (SMA/ECC/INC/LAN/argPe).
+        /// The orbit line stays identical — only the vessel icon moves along it. (#172)
+        /// </summary>
+        internal static void SyncMeanAnomalyToPlaybackUT(int recordingIndex, double playbackUT)
+        {
+            if (!vesselsByRecordingIndex.TryGetValue(recordingIndex, out Vessel vessel))
+                return;
+            if (vessel.orbitDriver == null) return;
+
+            Orbit orbit = vessel.orbitDriver.orbit;
+            if (orbit == null) return;
+
+            // Compute the mean anomaly at the ghost's playback UT on the existing orbit
+            double meanMotion = orbit.meanMotion;
+            double meanAnomalyAtPlayback = orbit.meanAnomalyAtEpoch
+                + meanMotion * (playbackUT - orbit.epoch);
+
+            // Set epoch = currentUT and MNA = computed value.
+            // When OrbitDriver evaluates at currentUT: M = MNA + n*(currentUT - epoch) = MNA.
+            // The vessel sits where the ghost is on this orbit.
+            double currentUT = Planetarium.GetUniversalTime();
+            orbit.meanAnomalyAtEpoch = meanAnomalyAtPlayback;
+            orbit.epoch = currentUT;
+            vessel.orbitDriver.updateFromParameters();
+        }
+
+        /// <summary>
         /// Reset all state for testing (avoids Debug.Log crash outside Unity).
         /// </summary>
         internal static void ResetForTesting()
