@@ -541,6 +541,35 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Sync recording-index ghost map vessel positions to their visual ghost positions.
+        /// Called per-frame after the engine update to keep the clickable MapNode aligned
+        /// with the visible ghost icon. Without this, Keplerian orbit propagation drifts
+        /// the ProtoVessel position away from the interpolated trajectory position (#172).
+        /// </summary>
+        internal static void SyncGhostMapPositions(Dictionary<int, GhostPlaybackState> ghostStates)
+        {
+            if (vesselsByRecordingIndex.Count == 0 || ghostStates == null)
+                return;
+
+            foreach (var kvp in vesselsByRecordingIndex)
+            {
+                int idx = kvp.Key;
+                Vessel vessel = kvp.Value;
+                if (vessel == null) continue;
+
+                GhostPlaybackState state;
+                if (!ghostStates.TryGetValue(idx, out state))
+                    continue;
+                if (state == null || state.ghost == null)
+                    continue;
+
+                // Move the ghost vessel's transform to the ghost mesh's world position.
+                // This keeps the MapNode click target aligned with the visible icon.
+                vessel.SetPosition(state.ghost.transform.position);
+            }
+        }
+
+        /// <summary>
         /// Reset all state for testing (avoids Debug.Log crash outside Unity).
         /// </summary>
         internal static void ResetForTesting()
