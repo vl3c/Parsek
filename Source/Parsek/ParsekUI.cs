@@ -3476,12 +3476,12 @@ namespace Parsek
                     GUILayout.Label("", GUILayout.Width(SpawnColW_State));
                 }
 
-                // Warp button: "Warp" for normal, "Warp to Dep." for departing ghosts
+                // Warp button: "FF-Depart" for departing, "FF-Spawn" for normal
                 if (cand.willDepart)
                 {
                     bool canWarpDep = cand.departureUT > currentUT;
                     GUI.enabled = canWarpDep;
-                    if (GUILayout.Button("Warp to Dep.", GUILayout.Width(SpawnColW_Warp)))
+                    if (GUILayout.Button("FF-Depart", GUILayout.Width(SpawnColW_Warp)))
                     {
                         ParsekLog.Info("UI",
                             string.Format(ic,
@@ -3494,7 +3494,7 @@ namespace Parsek
                 else
                 {
                     GUI.enabled = canWarp;
-                    if (GUILayout.Button("Warp", GUILayout.Width(SpawnColW_Warp)))
+                    if (GUILayout.Button("FF-Spawn", GUILayout.Width(SpawnColW_Warp)))
                     {
                         ParsekLog.Info("UI",
                             string.Format(ic,
