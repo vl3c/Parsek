@@ -413,5 +413,67 @@ namespace Parsek.Tests
         }
 
         #endregion
+
+        #region KSC spawn rejects orbital vessels (#171)
+
+        [Fact]
+        public void KscSpawn_OrbitingTerminal_DeferredToFlightScene()
+        {
+            var rec = MakeEligibleRecording("rec-orbit", "OrbitalShip");
+            rec.TerminalStateValue = TerminalState.Orbiting;
+
+            var (needsSpawn, reason) = GhostPlaybackLogic.ShouldSpawnAtKscEnd(rec, rec.EndUT + 1);
+
+            Assert.False(needsSpawn);
+            Assert.Contains("orbital vessel deferred to flight scene", reason);
+        }
+
+        [Fact]
+        public void KscSpawn_DockedTerminal_DeferredToFlightScene()
+        {
+            var rec = MakeEligibleRecording("rec-docked", "DockedStation");
+            rec.TerminalStateValue = TerminalState.Docked;
+
+            var (needsSpawn, reason) = GhostPlaybackLogic.ShouldSpawnAtKscEnd(rec, rec.EndUT + 1);
+
+            Assert.False(needsSpawn);
+            Assert.Contains("orbital vessel deferred to flight scene", reason);
+        }
+
+        [Fact]
+        public void KscSpawn_LandedTerminal_StillAllowed()
+        {
+            var rec = MakeEligibleRecording("rec-landed", "LandedVessel");
+            rec.TerminalStateValue = TerminalState.Landed;
+
+            var (needsSpawn, _) = GhostPlaybackLogic.ShouldSpawnAtKscEnd(rec, rec.EndUT + 1);
+
+            Assert.True(needsSpawn);
+        }
+
+        [Fact]
+        public void KscSpawn_SplashedTerminal_StillAllowed()
+        {
+            var rec = MakeEligibleRecording("rec-splashed", "SplashedVessel");
+            rec.TerminalStateValue = TerminalState.Splashed;
+            rec.VesselSnapshot.SetValue("sit", "SPLASHED", true);
+
+            var (needsSpawn, _) = GhostPlaybackLogic.ShouldSpawnAtKscEnd(rec, rec.EndUT + 1);
+
+            Assert.True(needsSpawn);
+        }
+
+        [Fact]
+        public void KscSpawn_NullTerminal_StillAllowed()
+        {
+            var rec = MakeEligibleRecording("rec-null", "NoTerminal");
+            rec.TerminalStateValue = null;
+
+            var (needsSpawn, _) = GhostPlaybackLogic.ShouldSpawnAtKscEnd(rec, rec.EndUT + 1);
+
+            Assert.True(needsSpawn);
+        }
+
+        #endregion
     }
 }
