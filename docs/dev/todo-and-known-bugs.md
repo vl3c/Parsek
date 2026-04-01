@@ -1864,20 +1864,17 @@ When a debris recording is set to "ghost-only" in the merge dialog, `ApplyVessel
 
 **Status:** Partially fixed
 
-## 158. Watch mode auto-follow picks debris instead of core vessel after separation
+## ~~158. Watch mode auto-follow picks debris instead of core vessel after separation~~
 
 When the recording vessel separates (e.g., SRB jettison), `FindNextWatchTarget` looks for a continuation recording at the branch point. If the continuation has only 1 trajectory point and 0 track sections (boundary seed with no real data), no ghost is spawned for it. The watch target finder falls through to the first debris child with an active ghost, causing the camera to follow a booster instead of the core vehicle.
 
-**Root cause:** The continuation recording created at breakup has insufficient trajectory data for ghost spawn. `FindNextWatchTarget` checks `HasActiveGhost` which returns false for the unspawned continuation, so it picks the first debris alternative.
+**Root cause:** `FindNextWatchTarget` requires `isGhostActive` for ALL candidates. PID-matched continuation with insufficient data (1 point → `hasData = false` → no ghost) is skipped, and the first active-ghost debris child is returned as fallback.
 
-**Fix options:**
-1. `FindNextWatchTarget` should look through the continuation's own children/successors when it has no active ghost (recursive descent)
-2. Ensure continuation recordings always have enough data to spawn (at least 2 points)
-3. Use vessel PID matching to prefer the continuation even without a ghost
+**Fix:** Modified `FindNextWatchTarget` Case 2 (tree branching): when a PID-matched child has no active ghost, recursively descends through its own `ChildBranchPointId` to find a deeper target. If PID match exists but neither it nor its descendants have an active ghost, returns -1 (suppresses debris fallback). The watch hold timer then expires naturally instead of following the wrong vessel. 4 unit tests.
 
-**Priority:** Medium — camera follows wrong vessel after staging
+**Files:** `GhostPlaybackLogic.cs` (`FindNextWatchTarget`)
 
-**Status:** Open
+**Status:** Fixed
 
 ## 161. EVA snapshot situation stale — spawn blocked by FLYING check
 

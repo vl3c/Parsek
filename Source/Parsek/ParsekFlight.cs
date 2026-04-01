@@ -5089,9 +5089,28 @@ namespace Parsek
                 }
             }
 
+            // Clean up branch points with no remaining children
+            int prunedBPs = 0;
+            for (int b = tree.BranchPoints.Count - 1; b >= 0; b--)
+            {
+                if (tree.BranchPoints[b].ChildRecordingIds.Count == 0)
+                {
+                    // Clear the parent recording's ChildBranchPointId reference
+                    string bpId = tree.BranchPoints[b].Id;
+                    foreach (var kvp in tree.Recordings)
+                    {
+                        if (kvp.Value.ChildBranchPointId == bpId)
+                            kvp.Value.ChildBranchPointId = null;
+                    }
+                    tree.BranchPoints.RemoveAt(b);
+                    prunedBPs++;
+                }
+            }
+
             ParsekLog.Info("Flight",
-                $"PruneZeroPointLeaves: removed {toPrune.Count} zero-point debris leaf recording(s) " +
-                $"from tree '{tree.TreeName}'");
+                $"PruneZeroPointLeaves: removed {toPrune.Count} zero-point debris leaf recording(s)" +
+                (prunedBPs > 0 ? $" and {prunedBPs} empty branch point(s)" : "") +
+                $" from tree '{tree.TreeName}'");
         }
 
         /// <summary>
