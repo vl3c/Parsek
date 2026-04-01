@@ -508,12 +508,6 @@ namespace Parsek
                     lastMapOrbitByIndex[orbitUpdates[i].Key] = orbitUpdates[i].Value;
             }
 
-            // 3. Sync vessel icon position along orbit to match ghost's playback UT (#172).
-            // Adjusts mean anomaly so the MapNode sits where the ghost mesh is on the orbit.
-            foreach (var kvp in lastMapOrbitByIndex)
-            {
-                GhostMapPresence.SyncMeanAnomalyToPlaybackUT(kvp.Key, currentUT);
-            }
         }
 
         /// <summary>
