@@ -2027,6 +2027,16 @@ Areas identified by code path simulation that lack unit tests:
 
 **Status:** Partially fixed — item 4 done (7 tests). Items 1-3 require Unity runtime, deferred to in-game testing.
 
+## ~~169. EVA vessel spawned FLYING in atmosphere destroyed by KSP on-rails pressure check~~
+
+EVA vessel spawned with `sit=FLYING` at low altitude is immediately destroyed by KSP's stock on-rails atmospheric pressure check (101.3 kPa at sea level). The vessel never loads into physics — destroyed the instant it exists on-rails. Crew member killed (Dead status). Data corruption.
+
+**Root cause:** EVA vessel snapshot captures `sit=FLYING` during recording (kerbal was mid-EVA). Terminal state is correctly set to `Landed` (kerbal landed safely). `ShouldSpawnAtRecordingEnd` has a `terminalOverridesUnsafe` path that allows the spawn to proceed when terminal state is Landed/Splashed, bypassing the `IsSnapshotSituationUnsafe` check. However, the snapshot's `sit` field is never corrected — `RespawnVessel` spawns the vessel with `sit=FLYING`. When the vessel is outside physics range (~2.3km from active vessel), KSP places it on-rails and its atmospheric pressure check destroys it.
+
+**Fix:** Added `VesselSpawner.CorrectUnsafeSnapshotSituation(snapshot, terminalState)` — corrects FLYING/SUB_ORBITAL to LANDED/SPLASHED when terminal state indicates the vessel safely reached the surface. Called before `RespawnVessel` in all three spawn paths: `SpawnOrRecoverIfTooClose` (Flight), `TrySpawnAtRecordingEnd` (KSC), and `SpawnTreeLeaves` (Flight). Pure decision logic extracted as `ComputeCorrectedSituation` for testability. 16 unit tests.
+
+**Status:** Fixed
+
 # In-Game Tests
 
 - [x] Vessels propagate naturally along orbits after FF (no position freezing)
