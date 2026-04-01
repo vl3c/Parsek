@@ -88,7 +88,9 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Pure: find the candidate with the earliest endUT in the future.
+        /// Pure: find the candidate with the earliest effective UT in the future.
+        /// For departing candidates, the effective UT is departureUT (when the ghost leaves).
+        /// For non-departing candidates, the effective UT is endUT (when it spawns).
         /// Returns null if no candidates qualify.
         /// </summary>
         internal static NearbySpawnCandidate? FindNextSpawnCandidate(
@@ -98,12 +100,15 @@ namespace Parsek
                 return null;
 
             NearbySpawnCandidate? best = null;
+            double bestUT = double.MaxValue;
             for (int i = 0; i < candidates.Count; i++)
             {
-                if (candidates[i].endUT > currentUT)
+                var c = candidates[i];
+                double effectiveUT = c.willDepart ? c.departureUT : c.endUT;
+                if (effectiveUT > currentUT && effectiveUT < bestUT)
                 {
-                    if (best == null || candidates[i].endUT < best.Value.endUT)
-                        best = candidates[i];
+                    best = c;
+                    bestUT = effectiveUT;
                 }
             }
             return best;

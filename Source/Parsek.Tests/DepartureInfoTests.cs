@@ -385,5 +385,97 @@ namespace Parsek.Tests
             Assert.True(info.willDepart);
             Assert.Equal("Mun", info.destination);
         }
+
+        [Fact]
+        public void ComputeDepartureInfo_SubOrbitalTerminalState_UsesLastSegmentFallback()
+        {
+            // SubOrbital is NOT a surface terminal — falls through to cascade
+            var segs = new List<OrbitSegment>
+            {
+                MakeSegment(0, 1000, body: "Kerbin", sma: 700000),
+                MakeSegment(1020, 2000, body: "Kerbin", sma: 2000000)
+            };
+            var info = SelectiveSpawnUI.ComputeDepartureInfo(
+                segs, 5000, null, 0, 0, 0, 0,
+                TerminalState.SubOrbital, 500);
+            // Last segment (transfer orbit) differs from current → departs
+            Assert.True(info.willDepart);
+            Assert.Equal("maneuver", info.destination);
+        }
+
+        // ════════════════════════════════════════════════════════════════
+        //  FindNextSpawnCandidate with departure awareness
+        // ════════════════════════════════════════════════════════════════
+
+        [Fact]
+        public void FindNextSpawnCandidate_DepartingCandidateHasEarlierEffectiveUT()
+        {
+            // Candidate A: departing, departureUT=1500 (earlier effective event)
+            // Candidate B: non-departing, endUT=2000
+            // Should pick A because 1500 < 2000
+            var candidates = new List<NearbySpawnCandidate>
+            {
+                new NearbySpawnCandidate
+                {
+                    recordingIndex = 0, vesselName = "A", endUT = 5000,
+                    willDepart = true, departureUT = 1500, destination = "Mun"
+                },
+                new NearbySpawnCandidate
+                {
+                    recordingIndex = 1, vesselName = "B", endUT = 2000,
+                    willDepart = false
+                }
+            };
+            var result = SelectiveSpawnUI.FindNextSpawnCandidate(candidates, 1000);
+            Assert.NotNull(result);
+            Assert.Equal("A", result.Value.vesselName);
+        }
+
+        [Fact]
+        public void FindNextSpawnCandidate_NonDepartingEarlierThanDeparting()
+        {
+            // Candidate A: departing, departureUT=3000
+            // Candidate B: non-departing, endUT=2000 (earlier)
+            // Should pick B
+            var candidates = new List<NearbySpawnCandidate>
+            {
+                new NearbySpawnCandidate
+                {
+                    recordingIndex = 0, vesselName = "A", endUT = 5000,
+                    willDepart = true, departureUT = 3000, destination = "Mun"
+                },
+                new NearbySpawnCandidate
+                {
+                    recordingIndex = 1, vesselName = "B", endUT = 2000,
+                    willDepart = false
+                }
+            };
+            var result = SelectiveSpawnUI.FindNextSpawnCandidate(candidates, 1000);
+            Assert.NotNull(result);
+            Assert.Equal("B", result.Value.vesselName);
+        }
+
+        [Fact]
+        public void FindNextSpawnCandidate_DepartureUtInPast_Skipped()
+        {
+            // Departing candidate with departureUT in the past — should be skipped
+            var candidates = new List<NearbySpawnCandidate>
+            {
+                new NearbySpawnCandidate
+                {
+                    recordingIndex = 0, vesselName = "A", endUT = 5000,
+                    willDepart = true, departureUT = 500, destination = "Mun"
+                },
+                new NearbySpawnCandidate
+                {
+                    recordingIndex = 1, vesselName = "B", endUT = 3000,
+                    willDepart = false
+                }
+            };
+            var result = SelectiveSpawnUI.FindNextSpawnCandidate(candidates, 1000);
+            Assert.NotNull(result);
+            Assert.Equal("B", result.Value.vesselName);
+        }
     }
 }
+
