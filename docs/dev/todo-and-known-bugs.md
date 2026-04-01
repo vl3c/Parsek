@@ -2154,6 +2154,20 @@ When an EVA recording completes and Parsek spawns the real kerbal, the kerbal ap
 
 **Status:** Fixed
 
+## ~~180. Clicking ghost vessel in tracking station traps user with input lock~~
+
+`GhostTrackingFlyPatch` blocks `FlyVessel` for ghost map ProtoVessels (they're lightweight sensor parts, not real vessels). But the original `FlyVessel` normally transitions to the flight scene, which implicitly clears UI state. By returning `false` from the prefix without dismissing the dialog, the tracking station's input lock remained active — trapping the user.
+
+Additionally, `GhostVesselSwitchPatch` used attribute-based `Type[]` overload targeting for `FlightGlobals.SetActiveVessel(Vessel)`, but Harmony's `CreateClassProcessor` didn't reliably disambiguate between the `(Vessel)` and `(Vessel, bool)` overloads.
+
+**Fix:**
+1. `GhostTrackingFlyPatch.Prefix` now calls `OnDialogDismiss` via Traverse after blocking `FlyVessel`, releasing the input lock.
+2. `GhostVesselSwitchPatch` uses explicit `TargetMethod()` instead of `HarmonyPatch` attribute `Type[]` for reliable overload targeting.
+
+**Files:** `GhostTrackingStationPatch.cs`, `GhostVesselLoadPatch.cs`
+
+**Status:** Fixed
+
 ## ~~179. Orbital vessel destroyed by on-rails pressure check after SpawnAtPosition~~
 
 `SpawnAtPosition` calls `DetermineSituation(alt, overWater, speed, orbitalSpeed)` which returns FLYING when `speed < orbitalSpeed * 0.9`. For vessels whose last trajectory point was captured during ascent (suborbital velocity at that altitude), this returns FLYING even though the vessel reached orbit. KSP's on-rails atmospheric pressure check then destroys the vessel at 101.3 kPa.
