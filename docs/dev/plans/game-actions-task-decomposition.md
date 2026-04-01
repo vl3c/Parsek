@@ -691,6 +691,138 @@ Functionality:
 
 ---
 
+## Phase 8: Non-Critical Improvements
+
+Lower-priority items from deferred list. None of these block Career mode functionality, but they improve correctness, mod compatibility, and edge case handling.
+
+### Task 31: Strategy Conversion Rate Extraction (D2)
+
+**Overview:** Extract actual conversion rates per strategy from KSP's strategy configuration files. Currently hardcoded to 1.0.
+
+**Modifies:** `StrategiesModule.cs`
+
+Functionality:
+- Read strategy definitions from KSP's `GameDatabase` or decompile `Strategy` subclasses
+- Map each `strategyId` to its actual conversion rate
+- Replace `const float conversionRate = 1.0f` with a lookup
+
+**Depends on:** Task 12 (StrategiesModule exists).
+**Done when:** Strategy transforms use KSP's actual rates. Verified against stock strategies.
+
+---
+
+### Task 32: Contract Deadline Failure Generation (D from design doc 8.6)
+
+**Overview:** During the recalculation walk, generate derived `ContractFail` actions for contracts whose deadline UT passes without resolution.
+
+**Modifies:** `ContractsModule.cs`
+
+Functionality:
+- During the walk, track accepted contracts and their `DeadlineUT`
+- If the walk reaches a UT past the deadline and the contract is still in `activeContracts`, generate a derived `ContractFail` event
+- Apply penalties, free the slot
+
+**Depends on:** Task 7 (ContractsModule exists).
+**Done when:** Contracts with deadlines auto-fail at the correct UT during the walk.
+
+---
+
+### Task 33: Contract and Milestone KSP State Patching (D3, design doc 3.1)
+
+**Overview:** Patch `ContractSystem.Instance` and `ProgressTracking.Instance` after recalculation.
+
+**Modifies:** `KspStatePatcher.cs`
+
+Functionality:
+- **Contracts:** Reconstruct contract objects from stored ConfigNode snapshots, set correct state (Active/Completed/Failed/Cancelled). Requires Spike B findings (type-registry subclass instantiation).
+- **Milestones:** Set `ProgressTracking` achieved flags from `MilestonesModule.IsMilestoneCredited()`.
+- Risk: Medium-High for contracts (Contract Configurator compatibility), Low for milestones.
+
+**Depends on:** Task 15b, Spike B findings.
+**Done when:** Tracking station and Mission Control reflect the recalculated timeline.
+
+---
+
+### Task 34: Rescue Contract Mechanics (D6)
+
+**Overview:** Associate a rescue recording with a stranded kerbal. Close the stranded kerbal's open-ended reservation when the rescue recording is committed.
+
+**Modifies:** `KerbalsModule.cs`, possibly `FlightRecorder.cs`
+
+Functionality:
+- Detect when a recording's vessel docks with or picks up a stranded kerbal
+- Create `KerbalRescue` action linking the rescue recording to the stranded kerbal
+- On recalculation, update the kerbal's reservation `endUT` from PositiveInfinity to the rescue recovery UT
+
+**Depends on:** Task 29 (kerbals in engine).
+**Done when:** Stranded kerbals become available after a rescue mission commits.
+
+---
+
+### Task 35: Warp Visual Updates for Facilities (D from design doc 3.3, 10.4)
+
+**Overview:** Update facility visual state (destroyed/repaired/upgraded) in real-time during time warp, not just on warp exit.
+
+**Modifies:** `ParsekFlight.cs`, `FacilitiesModule.cs`, `KspStatePatcher.cs`
+
+Functionality:
+- During warp, check which facility action UTs have been crossed
+- Apply visual-only facility state changes at the correct UT
+- Use `DestructibleBuilding` API for destruction/repair visuals
+
+**Depends on:** Tasks 11, 27.
+**Done when:** Buildings visually update during fast-forward at the correct UT.
+
+---
+
+### Task 36: KSP MIA Respawn Handling (D7)
+
+**Overview:** Handle the case where KSP respawns an MIA kerbal while Parsek has a permanent reservation.
+
+**Modifies:** `KerbalsModule.cs`
+
+Functionality:
+- Detect when KSP sets a permanently-reserved kerbal back to Available (respawn)
+- Decision: either override KSP's respawn (set back to Assigned) or accept it (close the reservation)
+- Current behavior: override on next `RecalculateAndApply()`. Document this explicitly.
+
+**Depends on:** Task 10a (kerbals reservation).
+**Done when:** MIA respawn behavior is explicitly handled and tested.
+
+---
+
+### Task 37: Retired Kerbal Cleanup UI (D10)
+
+**Overview:** Allow players to acknowledge and remove retired kerbals from the roster, preventing pool growth over long careers.
+
+**Modifies:** `ParsekUI.cs`, `KerbalsModule.cs`
+
+Functionality:
+- Add a "Retired Kerbals" section in the Game Actions window
+- Show retired kerbal names with a "Dismiss" button
+- On dismiss, remove from roster and retired tracking
+- Guard: only allow dismissal of kerbals with no active recording references
+
+**Depends on:** Task 19 (UI integration).
+**Done when:** Players can manage retired kerbal pool size.
+
+---
+
+### Task 38: Mod Compatibility Investigation (D12, D13)
+
+**Overview:** Test with CustomBarnKit (facility tiers) and Strategia (strategy replacement). Document compatibility status.
+
+Functionality:
+- Install CustomBarnKit, verify facility level tracking works with non-standard tiers
+- Install Strategia, verify strategy module gracefully handles modded strategies
+- Document findings in `docs/mods-references/`
+- Add guards or fallbacks where needed
+
+**Depends on:** All core tasks complete.
+**Done when:** Compatibility status documented. Critical incompatibilities fixed or documented as known limitations.
+
+---
+
 ## Summary
 
 | Phase | Tasks | Description | Status |
@@ -704,7 +836,8 @@ Functionality:
 | 5. Integration | 13-17 | Converter, patcher, orchestrator, commit/rewind/warp wiring | **Done** |
 | 6. Polish | 18-22 | KSC spendings, UI, old system deprecation, logging, end-to-end test | **Partial** (UI done) |
 | 7. Critical Gaps | 23-28 | Vessel cost/recovery, milestones, science/rep seeding, contract sci, facility/science patching | Pending |
-| 8. Architecture | 29-30 | KerbalsModule into engine, old code cleanup | Pending |
+| 8. Non-Critical | 31-38 | Strategy rates, deadline gen, contract/milestone patching, rescue, warp visuals, MIA, retired UI, mod compat | Pending |
+| 9. Architecture | 29-30 | KerbalsModule into engine, old code cleanup | Pending |
 
 **Parallelization opportunities:**
 - Tasks 4, 6, 7 are independent first-tier modules — can run in parallel
