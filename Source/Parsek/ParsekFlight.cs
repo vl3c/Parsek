@@ -7374,6 +7374,8 @@ namespace Parsek
             var segTarget = gs.cameraPivot ?? gs.ghost.transform;
             FlightCamera.fetch.SetTargetTransform(segTarget);
             InputLockManager.SetControlLock(WatchModeLockMask, WatchModeLockId);
+            ParsekLog.Verbose("CameraFollow",
+                $"InputLockManager control lock \"{WatchModeLockId}\" re-set after transfer");
 
             watchEndHoldUntilRealTime = -1;
 

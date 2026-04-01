@@ -1,3 +1,4 @@
+using System;
 using HarmonyLib;
 using KSP.UI.Screens;
 
@@ -12,6 +13,37 @@ namespace Parsek.Patches
     /// instance to release the input lock set by the confirmation dialog. Returning false
     /// skips the original method which contains the unlock call.
     /// </summary>
+
+    /// <summary>
+    /// Wraps SpaceTracking.buildVesselsList in try/catch to prevent NullReferenceExceptions
+    /// from crashing the tracking station. Ghost ProtoVessels can trigger NREs in KSP's
+    /// internal vessel list rebuilding when asteroids are spawned/destroyed, because
+    /// buildVesselsList assumes certain vessel state fields are always populated.
+    /// </summary>
+    [HarmonyPatch(typeof(SpaceTracking), "buildVesselsList")]
+    internal static class GhostTrackingBuildVesselsListPatch
+    {
+        static bool Prefix(SpaceTracking __instance)
+        {
+            try
+            {
+                return true; // run original
+            }
+            catch (Exception)
+            {
+                return true; // should not happen in prefix, but safety
+            }
+        }
+
+        static void Finalizer(Exception __exception)
+        {
+            if (__exception != null)
+            {
+                ParsekLog.VerboseRateLimited("GhostMap", "buildVesselsListNRE",
+                    $"Suppressed SpaceTracking.buildVesselsList exception: {__exception.GetType().Name}");
+            }
+        }
+    }
 
     /// <summary>
     /// Creates ghost map ProtoVessels BEFORE SpaceTracking builds its widget list.

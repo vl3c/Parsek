@@ -850,5 +850,83 @@ namespace Parsek.Tests
         }
 
         #endregion
+
+        #region StripEvaLadderState
+
+        [Fact]
+        public void StripEvaLadderState_ClearsLadderState()
+        {
+            var snapshot = new ConfigNode("VESSEL");
+            var part = snapshot.AddNode("PART");
+            var module = part.AddNode("MODULE");
+            module.AddValue("name", "KerbalEVA");
+            module.AddValue("state", "Ladder (Acquire)");
+            module.AddValue("OnALadder", "True");
+
+            VesselSpawner.StripEvaLadderState(snapshot, 0, "Jeb");
+
+            Assert.Equal("idle", module.GetValue("state"));
+            Assert.Equal("False", module.GetValue("OnALadder"));
+        }
+
+        [Fact]
+        public void StripEvaLadderState_IgnoresNonLadderState()
+        {
+            var snapshot = new ConfigNode("VESSEL");
+            var part = snapshot.AddNode("PART");
+            var module = part.AddNode("MODULE");
+            module.AddValue("name", "KerbalEVA");
+            module.AddValue("state", "idle");
+
+            VesselSpawner.StripEvaLadderState(snapshot, 0, "Jeb");
+
+            Assert.Equal("idle", module.GetValue("state"));
+        }
+
+        [Fact]
+        public void StripEvaLadderState_HandlesKerbalEVAFlight()
+        {
+            var snapshot = new ConfigNode("VESSEL");
+            var part = snapshot.AddNode("PART");
+            var module = part.AddNode("MODULE");
+            module.AddValue("name", "KerbalEVAFlight");
+            module.AddValue("state", "Ladder_Idle");
+
+            VesselSpawner.StripEvaLadderState(snapshot, 0, "Jeb");
+
+            Assert.Equal("idle", module.GetValue("state"));
+        }
+
+        [Fact]
+        public void StripEvaLadderState_NullSnapshot_NoThrow()
+        {
+            VesselSpawner.StripEvaLadderState(null, 0, "Jeb");
+        }
+
+        [Fact]
+        public void StripEvaLadderState_NoModules_NoThrow()
+        {
+            var snapshot = new ConfigNode("VESSEL");
+            snapshot.AddNode("PART");
+
+            VesselSpawner.StripEvaLadderState(snapshot, 0, "Jeb");
+        }
+
+        [Fact]
+        public void StripEvaLadderState_LogsWhenStripped()
+        {
+            var snapshot = new ConfigNode("VESSEL");
+            var part = snapshot.AddNode("PART");
+            var module = part.AddNode("MODULE");
+            module.AddValue("name", "KerbalEVA");
+            module.AddValue("state", "Ladder (Acquire)");
+
+            VesselSpawner.StripEvaLadderState(snapshot, 3, "Val");
+
+            Assert.Contains(logLines, l =>
+                l.Contains("[Spawner]") && l.Contains("ladder state stripped") && l.Contains("Val"));
+        }
+
+        #endregion
     }
 }

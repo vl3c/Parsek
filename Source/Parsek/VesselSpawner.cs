@@ -334,6 +334,7 @@ namespace Parsek
             {
                 OverrideSnapshotPosition(rec.VesselSnapshot, spawnLat, spawnLon, spawnAlt,
                     index, rec.VesselName);
+                StripEvaLadderState(rec.VesselSnapshot, index, rec.VesselName);
             }
 
             // Dead crew guard: if ALL crew in the snapshot are dead, abandon spawn.
@@ -835,6 +836,48 @@ namespace Parsek
             ParsekLog.Info("Spawner",
                 $"EVA spawn position override for #{index} ({vesselName}): " +
                 $"({oldLat},{oldLon},{oldAlt}) → ({newLat},{newLon},{newAlt})");
+        }
+
+        /// <summary>
+        /// Strips ladder-grab animation state from EVA kerbal snapshots.
+        /// KSP's KerbalEVA FSM stores the current state in MODULE data. If the snapshot
+        /// was captured while the kerbal was on a ladder (e.g., at EVA start), the spawned
+        /// kerbal initializes in ladder mode even when far from any ladder. KSP then
+        /// blocks all saves with "There are Kerbals on a ladder. Cannot save."
+        /// This clears the ladder state so the kerbal spawns idle on the ground.
+        /// Modifies the snapshot in-place. (#175 follow-up)
+        /// </summary>
+        internal static void StripEvaLadderState(ConfigNode snapshot, int index, string vesselName)
+        {
+            if (snapshot == null) return;
+
+            foreach (ConfigNode partNode in snapshot.GetNodes("PART"))
+            {
+                foreach (ConfigNode moduleNode in partNode.GetNodes("MODULE"))
+                {
+                    string moduleName = moduleNode.GetValue("name");
+                    if (moduleName != "KerbalEVA" && moduleName != "KerbalEVAFlight")
+                        continue;
+
+                    // Check and clear ladder-related FSM state
+                    string currentState = moduleNode.GetValue("state");
+                    if (currentState != null && currentState.IndexOf("ladder", System.StringComparison.OrdinalIgnoreCase) >= 0)
+                    {
+                        moduleNode.SetValue("state", "idle", true);
+                        ParsekLog.Info("Spawner",
+                            $"EVA ladder state stripped for #{index} ({vesselName}): '{currentState}' → 'idle'");
+                    }
+
+                    // Also clear any ladder-related boolean flags
+                    string onLadder = moduleNode.GetValue("OnALadder");
+                    if (onLadder != null && onLadder.ToLowerInvariant() == "true")
+                    {
+                        moduleNode.SetValue("OnALadder", "False", true);
+                        ParsekLog.Verbose("Spawner",
+                            $"EVA OnALadder flag cleared for #{index} ({vesselName})");
+                    }
+                }
+            }
         }
 
         /// <summary>
