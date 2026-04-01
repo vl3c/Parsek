@@ -402,5 +402,31 @@ namespace Parsek.Tests
                 ParsekUI.SortColumn.Name, 0);
             Assert.Equal(0, key);
         }
+
+        // ── Index sort key ──
+
+        [Fact]
+        public void GroupSortKey_Index_ReturnsNegativeOne()
+        {
+            // Groups get -1 for Index sort so they appear before recordings (row 0+)
+            var committed = new List<Recording> { MakeRec(17000, 17100) };
+            var descendants = new HashSet<int> { 0 };
+            double key = ParsekUI.GetGroupSortKey(descendants, committed,
+                ParsekUI.SortColumn.Index, 0);
+            Assert.Equal(-1, key);
+        }
+
+        [Fact]
+        public void IndexSort_GroupBeforeRecording()
+        {
+            // Groups (key=-1) should sort before recordings (key=row>=0)
+            var committed = new List<Recording> { MakeRec(17000, 17100) };
+            var descendants = new HashSet<int> { 0 };
+            double groupKey = ParsekUI.GetGroupSortKey(descendants, committed,
+                ParsekUI.SortColumn.Index, 0);
+            double recKey = ParsekUI.GetRecordingSortKey(committed[0],
+                ParsekUI.SortColumn.Index, 0, 0);
+            Assert.True(groupKey < recKey, "Group should sort before recording in Index sort");
+        }
     }
 }

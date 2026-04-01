@@ -2907,9 +2907,11 @@ namespace Parsek
                     return order;
                 }
                 case SortColumn.Name:
-                    return 0; // groups sort by name separately
+                case SortColumn.Phase:
+                    return 0; // sorted by string comparison externally
+                case SortColumn.Index:
                 default:
-                    return GetGroupEarliestStartUT(descendants, committed);
+                    return -1; // groups before recordings in insertion-order sort
             }
         }
 
