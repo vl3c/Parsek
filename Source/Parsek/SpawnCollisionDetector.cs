@@ -175,47 +175,63 @@ namespace Parsek
         /// <summary>KSC launch pad longitude in degrees.</summary>
         internal const double KscPadLongitude = -74.5575;
 
-        /// <summary>
-        /// Default exclusion radius in meters around the KSC launch pad.
-        /// The pad structure extends ~50-80m; 150m provides safety margin
-        /// against collisions with pad infrastructure. (#170)
-        /// </summary>
-        internal const double DefaultKscExclusionRadiusMeters = 150.0;
+        /// <summary>KSC runway start (west threshold) latitude in degrees.</summary>
+        internal const double KscRunwayLatitude = -0.0486;
+
+        /// <summary>KSC runway start (west threshold) longitude in degrees.</summary>
+        internal const double KscRunwayLongitude = -74.7222;
 
         /// <summary>
-        /// Pure decision: is the given lat/lon within the KSC launch pad exclusion zone?
-        /// Uses great-circle surface distance approximation (flat-Earth for short distances).
+        /// Default exclusion radius in meters around KSC infrastructure points.
+        /// 50m covers the immediate pad/runway structure without blocking
+        /// legitimate nearby spawns. (#170)
+        /// </summary>
+        internal const double DefaultKscExclusionRadiusMeters = 50.0;
+
+        /// <summary>
+        /// Pure decision: is the given lat/lon within any KSC exclusion zone?
+        /// Checks launch pad and runway start point.
+        /// Uses flat-Earth surface distance approximation (valid for short distances).
         /// Only meaningful on the home world (Kerbin) — caller must check body.isHomeWorld.
         /// </summary>
-        /// <param name="latitude">Spawn latitude in degrees.</param>
-        /// <param name="longitude">Spawn longitude in degrees.</param>
-        /// <param name="bodyRadius">Radius of the body in meters (e.g. 600000 for Kerbin).</param>
-        /// <param name="exclusionRadiusMeters">Exclusion radius in meters.</param>
-        /// <returns>True if the position is within the exclusion zone.</returns>
         internal static bool IsWithinKscExclusionZone(
             double latitude, double longitude, double bodyRadius, double exclusionRadiusMeters)
         {
-            double dLat = (latitude - KscPadLatitude) * Math.PI / 180.0;
-            double dLon = (longitude - KscPadLongitude) * Math.PI / 180.0;
-            double avgLat = (latitude + KscPadLatitude) * 0.5 * Math.PI / 180.0;
+            double padDist = SurfaceDistance(latitude, longitude, KscPadLatitude, KscPadLongitude, bodyRadius);
+            double runwayDist = SurfaceDistance(latitude, longitude, KscRunwayLatitude, KscRunwayLongitude, bodyRadius);
 
-            // Flat-Earth approximation: valid for distances << body radius
-            double dx = dLon * Math.Cos(avgLat) * bodyRadius;
-            double dy = dLat * bodyRadius;
-            double distanceMeters = Math.Sqrt(dx * dx + dy * dy);
+            bool withinPad = padDist < exclusionRadiusMeters;
+            bool withinRunway = runwayDist < exclusionRadiusMeters;
+            bool withinZone = withinPad || withinRunway;
 
-            bool withinZone = distanceMeters < exclusionRadiusMeters;
-
+            string nearest = withinPad ? "pad" : withinRunway ? "runway" : "none";
             ParsekLog.Verbose(Tag,
                 string.Format(IC,
-                    "IsWithinKscExclusionZone: lat={0} lon={1} distance={2}m radius={3}m → {4}",
+                    "IsWithinKscExclusionZone: lat={0} lon={1} padDist={2}m runwayDist={3}m radius={4}m nearest={5} → {6}",
                     latitude.ToString("F4", IC),
                     longitude.ToString("F4", IC),
-                    distanceMeters.ToString("F1", IC),
+                    padDist.ToString("F1", IC),
+                    runwayDist.ToString("F1", IC),
                     exclusionRadiusMeters.ToString("F0", IC),
+                    nearest,
                     withinZone));
 
             return withinZone;
+        }
+
+        /// <summary>
+        /// Flat-Earth surface distance between two lat/lon points on a sphere.
+        /// Valid for distances much smaller than body radius.
+        /// </summary>
+        internal static double SurfaceDistance(
+            double lat1, double lon1, double lat2, double lon2, double bodyRadius)
+        {
+            double dLat = (lat1 - lat2) * Math.PI / 180.0;
+            double dLon = (lon1 - lon2) * Math.PI / 180.0;
+            double avgLat = (lat1 + lat2) * 0.5 * Math.PI / 180.0;
+            double dx = dLon * Math.Cos(avgLat) * bodyRadius;
+            double dy = dLat * bodyRadius;
+            return Math.Sqrt(dx * dx + dy * dy);
         }
 
         // ────────────────────────────────────────────────────────────

@@ -60,10 +60,10 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void KscExclusion_100mFromPad_ReturnsTrue()
+        public void KscExclusion_30mFromPad_ReturnsTrue()
         {
-            // 100m from pad — still within 150m exclusion zone
-            double offsetDeg = 100.0 / (600000.0 * Math.PI / 180.0);
+            // 30m from pad — within 50m exclusion zone
+            double offsetDeg = 30.0 / (600000.0 * Math.PI / 180.0);
             bool result = SpawnCollisionDetector.IsWithinKscExclusionZone(
                 SpawnCollisionDetector.KscPadLatitude,
                 SpawnCollisionDetector.KscPadLongitude + offsetDeg,
@@ -74,13 +74,55 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void KscExclusion_200mFromPad_ReturnsFalse()
+        public void KscExclusion_60mFromPad_ReturnsFalse()
         {
-            // 200m from pad — outside the 150m exclusion zone
-            double offsetDeg = 200.0 / (600000.0 * Math.PI / 180.0);
+            // 60m from pad — outside the 50m exclusion zone
+            double offsetDeg = 60.0 / (600000.0 * Math.PI / 180.0);
             bool result = SpawnCollisionDetector.IsWithinKscExclusionZone(
                 SpawnCollisionDetector.KscPadLatitude + offsetDeg,
                 SpawnCollisionDetector.KscPadLongitude,
+                600000.0,
+                SpawnCollisionDetector.DefaultKscExclusionRadiusMeters);
+
+            Assert.False(result);
+        }
+
+        [Fact]
+        public void KscExclusion_AtRunway_ReturnsTrue()
+        {
+            // Exactly at the runway start point
+            bool result = SpawnCollisionDetector.IsWithinKscExclusionZone(
+                SpawnCollisionDetector.KscRunwayLatitude,
+                SpawnCollisionDetector.KscRunwayLongitude,
+                600000.0,
+                SpawnCollisionDetector.DefaultKscExclusionRadiusMeters);
+
+            Assert.True(result);
+            Assert.Contains(logLines, l => l.Contains("nearest=runway"));
+        }
+
+        [Fact]
+        public void KscExclusion_10mFromRunway_ReturnsTrue()
+        {
+            // 10m from runway start — within 50m exclusion zone
+            double offsetDeg = 10.0 / (600000.0 * Math.PI / 180.0);
+            bool result = SpawnCollisionDetector.IsWithinKscExclusionZone(
+                SpawnCollisionDetector.KscRunwayLatitude + offsetDeg,
+                SpawnCollisionDetector.KscRunwayLongitude,
+                600000.0,
+                SpawnCollisionDetector.DefaultKscExclusionRadiusMeters);
+
+            Assert.True(result);
+        }
+
+        [Fact]
+        public void KscExclusion_200mDownRunway_ReturnsFalse()
+        {
+            // 200m east along the runway — far from the start point, should be allowed
+            double offsetDeg = 200.0 / (600000.0 * Math.PI / 180.0);
+            bool result = SpawnCollisionDetector.IsWithinKscExclusionZone(
+                SpawnCollisionDetector.KscRunwayLatitude,
+                SpawnCollisionDetector.KscRunwayLongitude + offsetDeg,
                 600000.0,
                 SpawnCollisionDetector.DefaultKscExclusionRadiusMeters);
 
@@ -139,15 +181,15 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void KscExclusion_LogsDistance()
+        public void KscExclusion_LogsDistances()
         {
             SpawnCollisionDetector.IsWithinKscExclusionZone(
                 SpawnCollisionDetector.KscPadLatitude,
                 SpawnCollisionDetector.KscPadLongitude,
                 600000.0,
-                150.0);
+                50.0);
 
-            Assert.Contains(logLines, l => l.Contains("distance=") && l.Contains("radius="));
+            Assert.Contains(logLines, l => l.Contains("padDist=") && l.Contains("runwayDist=") && l.Contains("radius="));
         }
 
         // ────────────────────────────────────────────────────────────

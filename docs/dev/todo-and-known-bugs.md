@@ -2049,7 +2049,7 @@ Additionally, the spawned vessel had a dead crew member (Minidou Kerman, killed 
 3. Dead reserved crew spawned — `RemoveDeadCrewFromSnapshot` unconditionally kept reserved crew, even when Dead
 
 **Fix:**
-1. Added `IsWithinKscExclusionZone` pure static method to `SpawnCollisionDetector` — 150m radius surface distance check around KSC pad (lat=-0.0972, lon=-74.5575). Integrated into `SpawnOrRecoverIfTooClose` before bbox check; only active on `body.isHomeWorld`. Uses same collision-block-count / abandon pattern as bbox overlap.
+1. Added `IsWithinKscExclusionZone` pure static method to `SpawnCollisionDetector` — 50m radius surface distance check around KSC launch pad and runway start point. Integrated into `SpawnOrRecoverIfTooClose` before bbox check; only active on `body.isHomeWorld`. Uses same collision-block-count / abandon pattern as bbox overlap. Spawning further down the runway is allowed.
 2. Fixed `RemoveDeadCrewFromSnapshot` to remove reserved crew who are genuinely Dead (reservation bypass now only applies to non-Dead reserved crew). Dead status overrides reservation.
 3. Added `ShouldBlockSpawnForDeadCrew` guard — if ALL crew in the snapshot are dead, the spawn is abandoned entirely (prevents spawning empty command pods).
 
