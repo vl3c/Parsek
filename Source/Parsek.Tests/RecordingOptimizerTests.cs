@@ -40,13 +40,14 @@ namespace Parsek.Tests
         }
 
         private static Recording MakeRecordingWithSections(double startUT, double midUT, double endUT,
-            SegmentEnvironment env1, SegmentEnvironment env2)
+            SegmentEnvironment env1, SegmentEnvironment env2,
+            string body1 = "Kerbin", string body2 = "Kerbin")
         {
             var rec = new Recording();
-            rec.Points.Add(new TrajectoryPoint { ut = startUT, altitude = 80000 });
-            rec.Points.Add(new TrajectoryPoint { ut = midUT - 1, altitude = 40000 });
-            rec.Points.Add(new TrajectoryPoint { ut = midUT, altitude = 30000 });
-            rec.Points.Add(new TrajectoryPoint { ut = endUT, altitude = 100 });
+            rec.Points.Add(new TrajectoryPoint { ut = startUT, altitude = 80000, bodyName = body1 });
+            rec.Points.Add(new TrajectoryPoint { ut = midUT - 1, altitude = 40000, bodyName = body1 });
+            rec.Points.Add(new TrajectoryPoint { ut = midUT, altitude = 30000, bodyName = body2 });
+            rec.Points.Add(new TrajectoryPoint { ut = endUT, altitude = 100, bodyName = body2 });
 
             rec.TrackSections.Add(new TrackSection
             {
@@ -897,10 +898,6 @@ namespace Parsek.Tests
             var rec = MakeRecordingWithSections(17000, 17030, 17060,
                 SegmentEnvironment.Atmospheric, SegmentEnvironment.ExoBallistic);
             rec.RecordingId = "orig_id";
-            rec.Points[0].bodyName = "Kerbin";
-            rec.Points[1].bodyName = "Kerbin";
-            rec.Points[2].bodyName = "Kerbin";
-            rec.Points[3].bodyName = "Kerbin";
 
             var recordings = RecordingStore.CommittedRecordings;
             recordings.Add(rec);
@@ -926,10 +923,6 @@ namespace Parsek.Tests
                 SegmentEnvironment.Atmospheric, SegmentEnvironment.ExoBallistic);
             rec.RecordingId = "rec_in_tree";
             rec.TreeId = "tree_001";
-            rec.Points[0].bodyName = "Kerbin";
-            rec.Points[1].bodyName = "Kerbin";
-            rec.Points[2].bodyName = "Kerbin";
-            rec.Points[3].bodyName = "Kerbin";
 
             var tree = new RecordingTree
             {
@@ -961,12 +954,9 @@ namespace Parsek.Tests
             RecordingStore.ResetForTesting();
 
             var rec = MakeRecordingWithSections(17000, 17030, 17060,
-                SegmentEnvironment.Atmospheric, SegmentEnvironment.ExoBallistic);
+                SegmentEnvironment.Atmospheric, SegmentEnvironment.ExoBallistic,
+                body1: "Kerbin", body2: "Mun");
             rec.RecordingId = "body_test";
-            rec.Points[0].bodyName = "Kerbin";
-            rec.Points[1].bodyName = "Kerbin";
-            rec.Points[2].bodyName = "Mun";
-            rec.Points[3].bodyName = "Mun";
 
             var recordings = RecordingStore.CommittedRecordings;
             recordings.Add(rec);
@@ -991,10 +981,6 @@ namespace Parsek.Tests
             rec.RecordingId = "parent_rec";
             rec.TreeId = "tree_bp";
             rec.ChildBranchPointId = "bp_001";
-            rec.Points[0].bodyName = "Kerbin";
-            rec.Points[1].bodyName = "Kerbin";
-            rec.Points[2].bodyName = "Kerbin";
-            rec.Points[3].bodyName = "Kerbin";
 
             var bp = new BranchPoint
             {
@@ -1058,10 +1044,6 @@ namespace Parsek.Tests
             var rec = MakeRecordingWithSections(17000, 17030, 17060,
                 SegmentEnvironment.Atmospheric, SegmentEnvironment.ExoBallistic);
             rec.RecordingId = "idem_test";
-            rec.Points[0].bodyName = "Kerbin";
-            rec.Points[1].bodyName = "Kerbin";
-            rec.Points[2].bodyName = "Kerbin";
-            rec.Points[3].bodyName = "Kerbin";
 
             var recordings = RecordingStore.CommittedRecordings;
             recordings.Add(rec);
@@ -1093,10 +1075,6 @@ namespace Parsek.Tests
             rec.PreLaunchFunds = 100000;
             rec.PreLaunchScience = 50;
             rec.PreLaunchReputation = 25;
-            rec.Points[0].bodyName = "Kerbin";
-            rec.Points[1].bodyName = "Kerbin";
-            rec.Points[2].bodyName = "Kerbin";
-            rec.Points[3].bodyName = "Kerbin";
 
             var recordings = RecordingStore.CommittedRecordings;
             recordings.Add(rec);
@@ -1121,10 +1099,6 @@ namespace Parsek.Tests
                 SegmentEnvironment.Atmospheric, SegmentEnvironment.ExoBallistic);
             rec.RecordingId = "groups_test";
             rec.RecordingGroups = new List<string> { "Launches", "Mun Missions" };
-            rec.Points[0].bodyName = "Kerbin";
-            rec.Points[1].bodyName = "Kerbin";
-            rec.Points[2].bodyName = "Kerbin";
-            rec.Points[3].bodyName = "Kerbin";
 
             var recordings = RecordingStore.CommittedRecordings;
             recordings.Add(rec);
@@ -1150,10 +1124,6 @@ namespace Parsek.Tests
             var rec = MakeRecordingWithSections(17000, 17030, 17060,
                 SegmentEnvironment.Atmospheric, SegmentEnvironment.ExoBallistic);
             rec.RecordingId = "no_parent_test";
-            rec.Points[0].bodyName = "Kerbin";
-            rec.Points[1].bodyName = "Kerbin";
-            rec.Points[2].bodyName = "Kerbin";
-            rec.Points[3].bodyName = "Kerbin";
 
             var recordings = RecordingStore.CommittedRecordings;
             recordings.Add(rec);

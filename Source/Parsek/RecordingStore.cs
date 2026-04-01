@@ -865,10 +865,10 @@ namespace Parsek
             // part events are correctly partitioned by SplitAtSection.
             int splitCount = 0;
             const int maxSplitsPerPass = 50;
-            changed = true;
-            while (changed && splitCount < maxSplitsPerPass)
+            bool splitChanged = true;
+            while (splitChanged && splitCount < maxSplitsPerPass)
             {
-                changed = false;
+                splitChanged = false;
                 var splitCandidates = RecordingOptimizer.FindSplitCandidatesForOptimizer(recordings);
                 if (splitCandidates.Count == 0) break;
 
@@ -970,7 +970,7 @@ namespace Parsek
                 RecordingOptimizer.ReindexChain(recordings, original.ChainId);
 
                 splitCount++;
-                changed = true;
+                splitChanged = true;
                 ParsekLog.Info("RecordingStore",
                     $"Split recording '{original.VesselName}' at section {secIdx}: " +
                     $"'{original.SegmentPhase ?? "?"}' [{original.StartUT:F0}..{original.EndUT:F0}] + " +

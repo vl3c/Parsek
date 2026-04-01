@@ -296,6 +296,11 @@ namespace Parsek
             {
                 if (original.Points[i].ut >= splitUT) { splitPointIdx = i; break; }
             }
+            // Guard: if no point >= splitUT, keep all points in original (nothing to split)
+            if (splitPointIdx == 0 && original.Points.Count > 0 && original.Points[0].ut < splitUT)
+            {
+                splitPointIdx = original.Points.Count;
+            }
             second.Points = new List<TrajectoryPoint>(
                 original.Points.GetRange(splitPointIdx, original.Points.Count - splitPointIdx));
             original.Points.RemoveRange(splitPointIdx, original.Points.Count - splitPointIdx);
