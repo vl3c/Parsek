@@ -1924,6 +1924,18 @@ After rewind, the expanded strip (#164) correctly removes all non-quicksave vess
 
 **Status:** Fixed
 
+## 169. EVA vessel spawned FLYING destroyed by on-rails pressure
+
+EVA vessels captured mid-flight had `sit=FLYING` in their VesselSnapshot. When terminal state was Landed, the spawn proceeded but KSP's on-rails pressure check killed the vessel and crew instantly (101.3 kPa at sea level). The crew were set to Dead.
+
+**Root cause:** The snapshot situation was recorded at capture time (mid-air EVA) and never corrected before spawn. KSP applies atmospheric pressure to FLYING vessels on-rails, which is fatal at low altitude.
+
+**Fix:** Added `ComputeCorrectedSituation` (pure decision method) and `CorrectUnsafeSnapshotSituation` (applies correction) that override FLYING/SUB_ORBITAL to LANDED/SPLASHED when terminal state indicates safe surface contact. Applied at all three spawn paths: flight queue spawn, KSC spawn, and tree leaf spawn.
+
+**Priority:** Critical — spawned EVA crew killed instantly, set to Dead
+
+**Status:** Fixed
+
 ## 165. Engine seed event records throttle=0.00 at recording start
 
 When recording starts on the launchpad with staged engines, `CacheEngineModules` seeds `EngineIgnited` with `throttle=0.00` (the current value before the player throttles up). During playback, the ghost processes `EngineIgnited(0.00)` → plume off → then `EngineThrottle(1.00)` a few frames later → plume on. Creates a visible flame flash-off at the start of every playback cycle.
