@@ -2072,19 +2072,21 @@ Additionally, the spawned vessel had a dead crew member (Minidou Kerman, killed 
 
 Vessel recorded during ascent (snapshot `sit=FLYING`) achieves orbit (`terminal=Orbiting`), but spawn is rejected by `ShouldSpawnAtRecordingEnd`. The `terminalOverridesUnsafe` check only covered `Landed`/`Splashed`, not `Orbiting`. Additionally, `ComputeCorrectedSituation` only corrected FLYING to LANDED/SPLASHED, not to ORBITING. Furthermore, `ShouldSpawnAtKscEnd` allowed orbital vessels to spawn at KSC, where `pv.Load()` crashes them through terrain within frames — `VesselSpawned=true` persists, blocking flight-scene re-spawn.
 
-**Root cause:** Three issues: (1) `terminalOverridesUnsafe` missing `TerminalState.Orbiting`; (2) `ComputeCorrectedSituation` missing the Orbiting case; (3) `ShouldSpawnAtKscEnd` not rejecting orbital vessels (KSP's Space Center scene can't host orbital ProtoVessels — they crash through terrain immediately).
+**Root cause:** Four compounding issues: (1) `terminalOverridesUnsafe` missing `TerminalState.Orbiting`; (2) `ComputeCorrectedSituation` missing the Orbiting case; (3) `ShouldSpawnAtKscEnd` not rejecting orbital vessels (KSP's Space Center scene can't host orbital ProtoVessels — they crash through terrain immediately); (4) `SpawnOrRecoverIfTooClose` used `RespawnVessel` for all vessels — the raw snapshot orbit from ascent had periapsis in atmosphere, so KSP's 101.3 kPa on-rails pressure check destroyed the vessel immediately after spawn.
 
-**Fix:** Added `TerminalState.Orbiting` to `terminalOverridesUnsafe`. Added `case TerminalState.Orbiting: return "ORBITING"` to `ComputeCorrectedSituation`. Added Orbiting/Docked rejection in `ShouldSpawnAtKscEnd` to defer orbital vessels to flight scene where `SpawnAtPosition` can place them correctly. 15 new tests.
+**Fix:** Added `TerminalState.Orbiting` to `terminalOverridesUnsafe`. Added `case TerminalState.Orbiting: return "ORBITING"` to `ComputeCorrectedSituation`. Added Orbiting/Docked rejection in `ShouldSpawnAtKscEnd` to defer orbital vessels to flight scene. Changed `SpawnOrRecoverIfTooClose` to use `SpawnAtPosition` for Orbiting/Docked vessels — constructs correct Keplerian orbit from last trajectory point position+velocity. 20 new tests.
 
 **Status:** Fixed
 
-## 172. Ghost map icon click offset in tracking station
+## ~~172. Ghost map icon click offset in tracking station~~
 
-Ghost ProtoVessel's clickable MapNode position diverges from the visible orbit icon. The user must click next to the icon rather than on it. The click does register — `GhostVesselSwitchPatch` logs `Redirected SetActiveVessel to watch mode` — but the hit area is offset from the visual.
+Ghost ProtoVessel's clickable MapNode position diverges from the visible orbit icon. The user must click next to the icon rather than on it.
 
-**Root cause:** The ghost map ProtoVessel's position is computed by KSP's Keplerian orbit propagation from the last orbit segment update. The visible ghost mesh is positioned by Parsek's trajectory interpolation between recorded points. Orbit segment updates happen at coarse boundaries (e.g., when SMA changes), so between updates the two positions drift apart. The MapNode click target follows the ProtoVessel's orbit-computed position, not where the icon visually appears.
+**Root cause:** The ghost map ProtoVessel's OrbitDriver propagated from coarsely-updated Keplerian elements, placing the MapNode at a different point on the orbit than the ghost mesh. Additionally, `EnterWatchMode` had a hardcoded 100km distance limit ignoring the user's `ghostCameraCutoffKm` setting.
 
-**Status:** Open — position sync between ProtoVessel orbit and ghost trajectory needed
+**Fix:** Per-frame mean anomaly sync (`SyncMeanAnomalyToPlaybackUT`) adjusts `epoch` + `meanAnomalyAtEpoch` to place the vessel icon at the ghost's playback position along the orbit without changing orbital shape. Watch mode distance check now reads the user's setting.
+
+**Status:** Fixed
 
 ## ~~175. Orbital ghost disappears during 50x time warp~~
 
