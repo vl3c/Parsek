@@ -76,6 +76,28 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Same as CanAutoSplit but without the ghosting-trigger check.
+        /// Used by the optimizer split pass: both halves inherit the GhostVisualSnapshot
+        /// and part events are correctly partitioned by SplitAtSection, so ghosting
+        /// triggers do not block splitting (they DO block merging, where the snapshot
+        /// would be wrong for the merged recording).
+        /// </summary>
+        internal static bool CanAutoSplitIgnoringGhostTriggers(Recording rec, int sectionIndex)
+        {
+            if (rec == null) return false;
+            if (rec.TrackSections == null || rec.TrackSections.Count < 2) return false;
+            if (sectionIndex < 1 || sectionIndex >= rec.TrackSections.Count) return false;
+
+            // Both halves must be longer than 5 seconds
+            double splitUT = rec.TrackSections[sectionIndex].startUT;
+            double firstHalfDuration = splitUT - rec.StartUT;
+            double secondHalfDuration = rec.EndUT - splitUT;
+            if (firstHalfDuration < 5.0 || secondHalfDuration < 5.0) return false;
+
+            return true;
+        }
+
+        /// <summary>
         /// Scans committed recordings for consecutive chain segments that can be merged.
         /// Returns pairs of indices (a, b) where b can be merged into a.
         /// </summary>
@@ -140,6 +162,37 @@ namespace Parsek
                         continue;
 
                     if (CanAutoSplit(rec, s))
+                    {
+                        candidates.Add((i, s));
+                        break; // One split per recording per pass (re-scan after split)
+                    }
+                }
+            }
+
+            return candidates;
+        }
+
+        /// <summary>
+        /// Same as FindSplitCandidates but uses CanAutoSplitIgnoringGhostTriggers.
+        /// Used by the optimizer split pass where ghosting triggers don't block splitting.
+        /// </summary>
+        internal static List<(int, int)> FindSplitCandidatesForOptimizer(List<Recording> committed)
+        {
+            var candidates = new List<(int, int)>();
+            if (committed == null) return candidates;
+
+            for (int i = 0; i < committed.Count; i++)
+            {
+                var rec = committed[i];
+                if (rec.TrackSections == null || rec.TrackSections.Count < 2) continue;
+
+                for (int s = 1; s < rec.TrackSections.Count; s++)
+                {
+                    // Only split where environment changes
+                    if (rec.TrackSections[s].environment == rec.TrackSections[s - 1].environment)
+                        continue;
+
+                    if (CanAutoSplitIgnoringGhostTriggers(rec, s))
                     {
                         candidates.Add((i, s));
                         break; // One split per recording per pass (re-scan after split)
@@ -297,16 +350,57 @@ namespace Parsek
 
             second.SegmentBodyName = original.SegmentBodyName;
 
-            // 10. Invalidate ghost geometry on both
+            // 10. Transfer terminal-state fields to second half (represents end-of-recording state)
+            second.VesselSnapshot = original.VesselSnapshot;
+            original.VesselSnapshot = null;
+
+            second.TerminalStateValue = original.TerminalStateValue;
+            original.TerminalStateValue = null;
+
+            second.TerminalOrbitInclination = original.TerminalOrbitInclination;
+            second.TerminalOrbitEccentricity = original.TerminalOrbitEccentricity;
+            second.TerminalOrbitSemiMajorAxis = original.TerminalOrbitSemiMajorAxis;
+            second.TerminalOrbitLAN = original.TerminalOrbitLAN;
+            second.TerminalOrbitArgumentOfPeriapsis = original.TerminalOrbitArgumentOfPeriapsis;
+            second.TerminalOrbitMeanAnomalyAtEpoch = original.TerminalOrbitMeanAnomalyAtEpoch;
+            second.TerminalOrbitEpoch = original.TerminalOrbitEpoch;
+            second.TerminalOrbitBody = original.TerminalOrbitBody;
+            original.TerminalOrbitInclination = 0;
+            original.TerminalOrbitEccentricity = 0;
+            original.TerminalOrbitSemiMajorAxis = 0;
+            original.TerminalOrbitLAN = 0;
+            original.TerminalOrbitArgumentOfPeriapsis = 0;
+            original.TerminalOrbitMeanAnomalyAtEpoch = 0;
+            original.TerminalOrbitEpoch = 0;
+            original.TerminalOrbitBody = null;
+
+            second.TerminalPosition = original.TerminalPosition;
+            original.TerminalPosition = null;
+
+            second.TerrainHeightAtEnd = original.TerrainHeightAtEnd;
+            original.TerrainHeightAtEnd = double.NaN;
+
+            second.SurfacePos = original.SurfacePos;
+            original.SurfacePos = null;
+
+            // 11. Copy shared fields to both halves
+            second.Controllers = original.Controllers != null
+                ? new List<ControllerInfo>(original.Controllers) : null;
+            second.AntennaSpecs = original.AntennaSpecs != null
+                ? new List<AntennaSpec>(original.AntennaSpecs) : null;
+            second.IsDebris = original.IsDebris;
+            second.RecordingFormatVersion = original.RecordingFormatVersion;
+
+            // 12. Invalidate ghost geometry on both
             original.GhostGeometryAvailable = false;
             original.GhostGeometryRelativePath = null;
             second.GhostGeometryAvailable = false;
 
-            // 11. Invalidate cached stats
+            // 13. Invalidate cached stats
             original.CachedStats = null;
             original.CachedStatsPointCount = 0;
 
-            // 12. Clear explicit UT on both (Points define the range)
+            // 14. Clear explicit UT on both (Points define the range)
             original.ExplicitStartUT = double.NaN;
             original.ExplicitEndUT = double.NaN;
             second.ExplicitStartUT = double.NaN;

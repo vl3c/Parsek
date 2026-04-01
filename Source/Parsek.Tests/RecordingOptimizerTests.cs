@@ -65,6 +65,37 @@ namespace Parsek.Tests
             return rec;
         }
 
+        private static Recording MakeRecordingWith3Sections(
+            double ut0, double ut1, double ut2, double ut3,
+            SegmentEnvironment env1, SegmentEnvironment env2, SegmentEnvironment env3,
+            string body1 = "Kerbin", string body2 = "Kerbin", string body3 = "Mun")
+        {
+            var rec = new Recording();
+            rec.Points.Add(new TrajectoryPoint { ut = ut0, altitude = 80000, bodyName = body1 });
+            rec.Points.Add(new TrajectoryPoint { ut = ut1 - 1, altitude = 40000, bodyName = body1 });
+            rec.Points.Add(new TrajectoryPoint { ut = ut1, altitude = 30000, bodyName = body2 });
+            rec.Points.Add(new TrajectoryPoint { ut = ut2 - 1, altitude = 20000, bodyName = body2 });
+            rec.Points.Add(new TrajectoryPoint { ut = ut2, altitude = 10000, bodyName = body3 });
+            rec.Points.Add(new TrajectoryPoint { ut = ut3, altitude = 100, bodyName = body3 });
+
+            rec.TrackSections.Add(new TrackSection
+            {
+                environment = env1, startUT = ut0, endUT = ut1,
+                frames = new List<TrajectoryPoint>()
+            });
+            rec.TrackSections.Add(new TrackSection
+            {
+                environment = env2, startUT = ut1, endUT = ut2,
+                frames = new List<TrajectoryPoint>()
+            });
+            rec.TrackSections.Add(new TrackSection
+            {
+                environment = env3, startUT = ut2, endUT = ut3,
+                frames = new List<TrajectoryPoint>()
+            });
+            return rec;
+        }
+
         #endregion
 
         #region CanAutoMerge
@@ -642,6 +673,496 @@ namespace Parsek.Tests
 
             // Both chains should be merged independently → 2 recordings
             Assert.Equal(2, recordings.Count);
+
+            RecordingStore.ResetForTesting();
+        }
+
+        #endregion
+
+        #region CanAutoSplitIgnoringGhostTriggers
+
+        [Fact]
+        public void CanAutoSplitIgnoringGhostTriggers_AllowsEngineEvents()
+        {
+            var rec = MakeRecordingWithSections(17000, 17030, 17060,
+                SegmentEnvironment.ExoBallistic, SegmentEnvironment.Atmospheric);
+            rec.PartEvents.Add(new PartEvent { eventType = PartEventType.EngineIgnited, ut = 17010 });
+
+            Assert.False(RecordingOptimizer.CanAutoSplit(rec, 1));
+            Assert.True(RecordingOptimizer.CanAutoSplitIgnoringGhostTriggers(rec, 1));
+        }
+
+        [Fact]
+        public void CanAutoSplitIgnoringGhostTriggers_StillChecksMinDuration()
+        {
+            var rec = MakeRecordingWithSections(17000, 17057, 17060,
+                SegmentEnvironment.ExoBallistic, SegmentEnvironment.Atmospheric);
+            Assert.False(RecordingOptimizer.CanAutoSplitIgnoringGhostTriggers(rec, 1));
+        }
+
+        [Fact]
+        public void CanAutoSplitIgnoringGhostTriggers_StillChecksSectionCount()
+        {
+            var rec = new Recording();
+            rec.Points.Add(new TrajectoryPoint { ut = 17000 });
+            rec.Points.Add(new TrajectoryPoint { ut = 17060 });
+            rec.TrackSections.Add(new TrackSection
+            {
+                environment = SegmentEnvironment.Atmospheric,
+                startUT = 17000, endUT = 17060,
+                frames = new List<TrajectoryPoint>()
+            });
+            Assert.False(RecordingOptimizer.CanAutoSplitIgnoringGhostTriggers(rec, 1));
+        }
+
+        #endregion
+
+        #region FindSplitCandidatesForOptimizer
+
+        [Fact]
+        public void FindSplitCandidatesForOptimizer_FindsCandidatesWithGhostingEvents()
+        {
+            var rec = MakeRecordingWithSections(17000, 17030, 17060,
+                SegmentEnvironment.ExoBallistic, SegmentEnvironment.Atmospheric);
+            rec.PartEvents.Add(new PartEvent { eventType = PartEventType.EngineIgnited, ut = 17010 });
+            rec.PartEvents.Add(new PartEvent { eventType = PartEventType.RCSActivated, ut = 17015 });
+            var committed = new List<Recording> { rec };
+
+            Assert.Empty(RecordingOptimizer.FindSplitCandidates(committed));
+            var candidates = RecordingOptimizer.FindSplitCandidatesForOptimizer(committed);
+            Assert.Single(candidates);
+            Assert.Equal((0, 1), candidates[0]);
+        }
+
+        #endregion
+
+        #region SplitAtSection field transfers
+
+        [Fact]
+        public void SplitAtSection_TransfersVesselSnapshotToSecondHalf()
+        {
+            var rec = MakeRecordingWithSections(17000, 17030, 17060,
+                SegmentEnvironment.ExoBallistic, SegmentEnvironment.Atmospheric);
+            rec.VesselSnapshot = new ConfigNode("VESSEL");
+
+            var second = RecordingOptimizer.SplitAtSection(rec, 1);
+
+            Assert.Null(rec.VesselSnapshot);
+            Assert.NotNull(second.VesselSnapshot);
+        }
+
+        [Fact]
+        public void SplitAtSection_TransfersTerminalStateToSecondHalf()
+        {
+            var rec = MakeRecordingWithSections(17000, 17030, 17060,
+                SegmentEnvironment.ExoBallistic, SegmentEnvironment.Atmospheric);
+            rec.TerminalStateValue = TerminalState.Orbiting;
+            rec.TerminalOrbitInclination = 28.5;
+            rec.TerminalOrbitEccentricity = 0.01;
+            rec.TerminalOrbitSemiMajorAxis = 700000;
+            rec.TerminalOrbitLAN = 90.0;
+            rec.TerminalOrbitArgumentOfPeriapsis = 45.0;
+            rec.TerminalOrbitMeanAnomalyAtEpoch = 1.23;
+            rec.TerminalOrbitEpoch = 17050;
+            rec.TerminalOrbitBody = "Kerbin";
+            rec.TerminalPosition = new SurfacePosition { latitude = 1.0, longitude = 2.0 };
+            rec.TerrainHeightAtEnd = 123.4;
+            rec.SurfacePos = new SurfacePosition { latitude = 3.0, longitude = 4.0 };
+
+            var second = RecordingOptimizer.SplitAtSection(rec, 1);
+
+            Assert.Null(rec.TerminalStateValue);
+            Assert.Null(rec.TerminalOrbitBody);
+            Assert.Null(rec.TerminalPosition);
+            Assert.True(double.IsNaN(rec.TerrainHeightAtEnd));
+            Assert.Null(rec.SurfacePos);
+
+            Assert.Equal(TerminalState.Orbiting, second.TerminalStateValue);
+            Assert.Equal(28.5, second.TerminalOrbitInclination);
+            Assert.Equal(0.01, second.TerminalOrbitEccentricity);
+            Assert.Equal(700000, second.TerminalOrbitSemiMajorAxis);
+            Assert.Equal(90.0, second.TerminalOrbitLAN);
+            Assert.Equal(45.0, second.TerminalOrbitArgumentOfPeriapsis);
+            Assert.Equal(1.23, second.TerminalOrbitMeanAnomalyAtEpoch);
+            Assert.Equal(17050, second.TerminalOrbitEpoch);
+            Assert.Equal("Kerbin", second.TerminalOrbitBody);
+            Assert.NotNull(second.TerminalPosition);
+            Assert.Equal(123.4, second.TerrainHeightAtEnd);
+            Assert.NotNull(second.SurfacePos);
+        }
+
+        [Fact]
+        public void SplitAtSection_CopiesControllersToBoth()
+        {
+            var rec = MakeRecordingWithSections(17000, 17030, 17060,
+                SegmentEnvironment.ExoBallistic, SegmentEnvironment.Atmospheric);
+            rec.Controllers = new List<ControllerInfo>
+            {
+                new ControllerInfo { partPersistentId = 1, type = "ProbeCore" }
+            };
+
+            var second = RecordingOptimizer.SplitAtSection(rec, 1);
+
+            Assert.NotNull(rec.Controllers);
+            Assert.Single(rec.Controllers);
+            Assert.NotNull(second.Controllers);
+            Assert.Single(second.Controllers);
+            Assert.NotSame(rec.Controllers, second.Controllers);
+        }
+
+        [Fact]
+        public void SplitAtSection_CopiesAntennaSpecsToBoth()
+        {
+            var rec = MakeRecordingWithSections(17000, 17030, 17060,
+                SegmentEnvironment.ExoBallistic, SegmentEnvironment.Atmospheric);
+            rec.AntennaSpecs = new List<AntennaSpec>
+            {
+                new AntennaSpec { partName = "antenna1", antennaPower = 500000 }
+            };
+
+            var second = RecordingOptimizer.SplitAtSection(rec, 1);
+
+            Assert.NotNull(rec.AntennaSpecs);
+            Assert.Single(rec.AntennaSpecs);
+            Assert.NotNull(second.AntennaSpecs);
+            Assert.Single(second.AntennaSpecs);
+            Assert.NotSame(rec.AntennaSpecs, second.AntennaSpecs);
+        }
+
+        [Fact]
+        public void SplitAtSection_CopiesIsDebris()
+        {
+            var rec = MakeRecordingWithSections(17000, 17030, 17060,
+                SegmentEnvironment.ExoBallistic, SegmentEnvironment.Atmospheric);
+            rec.IsDebris = true;
+
+            var second = RecordingOptimizer.SplitAtSection(rec, 1);
+
+            Assert.True(rec.IsDebris);
+            Assert.True(second.IsDebris);
+        }
+
+        [Fact]
+        public void SplitAtSection_CopiesRecordingFormatVersion()
+        {
+            var rec = MakeRecordingWithSections(17000, 17030, 17060,
+                SegmentEnvironment.ExoBallistic, SegmentEnvironment.Atmospheric);
+            rec.RecordingFormatVersion = 7;
+
+            var second = RecordingOptimizer.SplitAtSection(rec, 1);
+
+            Assert.Equal(7, second.RecordingFormatVersion);
+        }
+
+        #endregion
+
+        #region RunOptimizationPass integration -- split
+
+        [Fact]
+        public void RunOptimizationPass_SplitsMultiEnvRecording()
+        {
+            RecordingStore.SuppressLogging = true;
+            RecordingStore.ResetForTesting();
+
+            var rec = MakeRecordingWith3Sections(
+                17000, 17030, 17060, 17090,
+                SegmentEnvironment.Atmospheric, SegmentEnvironment.ExoBallistic, SegmentEnvironment.SurfaceStationary,
+                body1: "Kerbin", body2: "Kerbin", body3: "Mun");
+            rec.RecordingId = "original_id";
+            rec.VesselName = "TestVessel";
+            rec.VesselPersistentId = 12345;
+
+            var recordings = RecordingStore.CommittedRecordings;
+            recordings.Add(rec);
+
+            RecordingStore.RunOptimizationPass();
+
+            Assert.Equal(3, recordings.Count);
+            Assert.NotNull(recordings[0].ChainId);
+            Assert.Equal(recordings[0].ChainId, recordings[1].ChainId);
+            Assert.Equal(recordings[0].ChainId, recordings[2].ChainId);
+            Assert.Equal("TestVessel", recordings[0].VesselName);
+            Assert.Equal("TestVessel", recordings[1].VesselName);
+            Assert.Equal("TestVessel", recordings[2].VesselName);
+
+            RecordingStore.ResetForTesting();
+        }
+
+        [Fact]
+        public void RunOptimizationPass_SplitAssignsChainIdAndIndexes()
+        {
+            RecordingStore.SuppressLogging = true;
+            RecordingStore.ResetForTesting();
+
+            var rec = MakeRecordingWithSections(17000, 17030, 17060,
+                SegmentEnvironment.Atmospheric, SegmentEnvironment.ExoBallistic);
+            rec.RecordingId = "orig_id";
+            rec.Points[0].bodyName = "Kerbin";
+            rec.Points[1].bodyName = "Kerbin";
+            rec.Points[2].bodyName = "Kerbin";
+            rec.Points[3].bodyName = "Kerbin";
+
+            var recordings = RecordingStore.CommittedRecordings;
+            recordings.Add(rec);
+
+            RecordingStore.RunOptimizationPass();
+
+            Assert.Equal(2, recordings.Count);
+            Assert.NotEmpty(recordings[0].ChainId);
+            Assert.Equal(recordings[0].ChainId, recordings[1].ChainId);
+            Assert.Equal(0, recordings[0].ChainIndex);
+            Assert.Equal(1, recordings[1].ChainIndex);
+
+            RecordingStore.ResetForTesting();
+        }
+
+        [Fact]
+        public void RunOptimizationPass_SplitPreservesTreeId()
+        {
+            RecordingStore.SuppressLogging = true;
+            RecordingStore.ResetForTesting();
+
+            var rec = MakeRecordingWithSections(17000, 17030, 17060,
+                SegmentEnvironment.Atmospheric, SegmentEnvironment.ExoBallistic);
+            rec.RecordingId = "rec_in_tree";
+            rec.TreeId = "tree_001";
+            rec.Points[0].bodyName = "Kerbin";
+            rec.Points[1].bodyName = "Kerbin";
+            rec.Points[2].bodyName = "Kerbin";
+            rec.Points[3].bodyName = "Kerbin";
+
+            var tree = new RecordingTree
+            {
+                Id = "tree_001",
+                Recordings = new System.Collections.Generic.Dictionary<string, Recording>
+                {
+                    { "rec_in_tree", rec }
+                }
+            };
+            RecordingStore.CommittedTrees.Add(tree);
+
+            var recordings = RecordingStore.CommittedRecordings;
+            recordings.Add(rec);
+
+            RecordingStore.RunOptimizationPass();
+
+            Assert.Equal(2, recordings.Count);
+            Assert.Equal("tree_001", recordings[0].TreeId);
+            Assert.Equal("tree_001", recordings[1].TreeId);
+            Assert.True(tree.Recordings.ContainsKey(recordings[1].RecordingId));
+
+            RecordingStore.ResetForTesting();
+        }
+
+        [Fact]
+        public void RunOptimizationPass_SplitDerivesSegmentBodyNameFromPoints()
+        {
+            RecordingStore.SuppressLogging = true;
+            RecordingStore.ResetForTesting();
+
+            var rec = MakeRecordingWithSections(17000, 17030, 17060,
+                SegmentEnvironment.Atmospheric, SegmentEnvironment.ExoBallistic);
+            rec.RecordingId = "body_test";
+            rec.Points[0].bodyName = "Kerbin";
+            rec.Points[1].bodyName = "Kerbin";
+            rec.Points[2].bodyName = "Mun";
+            rec.Points[3].bodyName = "Mun";
+
+            var recordings = RecordingStore.CommittedRecordings;
+            recordings.Add(rec);
+
+            RecordingStore.RunOptimizationPass();
+
+            Assert.Equal(2, recordings.Count);
+            Assert.Equal("Kerbin", recordings[0].SegmentBodyName);
+            Assert.Equal("Mun", recordings[1].SegmentBodyName);
+
+            RecordingStore.ResetForTesting();
+        }
+
+        [Fact]
+        public void RunOptimizationPass_SplitUpdatesBranchPointParentRecordingIds()
+        {
+            RecordingStore.SuppressLogging = true;
+            RecordingStore.ResetForTesting();
+
+            var rec = MakeRecordingWithSections(17000, 17030, 17060,
+                SegmentEnvironment.Atmospheric, SegmentEnvironment.ExoBallistic);
+            rec.RecordingId = "parent_rec";
+            rec.TreeId = "tree_bp";
+            rec.ChildBranchPointId = "bp_001";
+            rec.Points[0].bodyName = "Kerbin";
+            rec.Points[1].bodyName = "Kerbin";
+            rec.Points[2].bodyName = "Kerbin";
+            rec.Points[3].bodyName = "Kerbin";
+
+            var bp = new BranchPoint
+            {
+                Id = "bp_001",
+                UT = 17060,
+                Type = BranchPointType.Undock,
+                ParentRecordingIds = new List<string> { "parent_rec" }
+            };
+            var tree = new RecordingTree
+            {
+                Id = "tree_bp",
+                BranchPoints = new List<BranchPoint> { bp },
+                Recordings = new System.Collections.Generic.Dictionary<string, Recording>
+                {
+                    { "parent_rec", rec }
+                }
+            };
+            RecordingStore.CommittedTrees.Add(tree);
+
+            var recordings = RecordingStore.CommittedRecordings;
+            recordings.Add(rec);
+
+            RecordingStore.RunOptimizationPass();
+
+            Assert.Equal(2, recordings.Count);
+            Assert.Null(recordings[0].ChildBranchPointId);
+            Assert.Equal("bp_001", recordings[1].ChildBranchPointId);
+            Assert.Single(bp.ParentRecordingIds);
+            Assert.Equal(recordings[1].RecordingId, bp.ParentRecordingIds[0]);
+
+            RecordingStore.ResetForTesting();
+        }
+
+        [Fact]
+        public void RunOptimizationPass_SingleEnvNotSplit()
+        {
+            RecordingStore.SuppressLogging = true;
+            RecordingStore.ResetForTesting();
+
+            var rec = MakeRecordingWithSections(17000, 17030, 17060,
+                SegmentEnvironment.ExoBallistic, SegmentEnvironment.ExoBallistic);
+            rec.RecordingId = "single_env";
+
+            var recordings = RecordingStore.CommittedRecordings;
+            recordings.Add(rec);
+
+            RecordingStore.RunOptimizationPass();
+
+            Assert.Single(recordings);
+            Assert.Equal("single_env", recordings[0].RecordingId);
+
+            RecordingStore.ResetForTesting();
+        }
+
+        [Fact]
+        public void RunOptimizationPass_SplitIsIdempotent()
+        {
+            RecordingStore.SuppressLogging = true;
+            RecordingStore.ResetForTesting();
+
+            var rec = MakeRecordingWithSections(17000, 17030, 17060,
+                SegmentEnvironment.Atmospheric, SegmentEnvironment.ExoBallistic);
+            rec.RecordingId = "idem_test";
+            rec.Points[0].bodyName = "Kerbin";
+            rec.Points[1].bodyName = "Kerbin";
+            rec.Points[2].bodyName = "Kerbin";
+            rec.Points[3].bodyName = "Kerbin";
+
+            var recordings = RecordingStore.CommittedRecordings;
+            recordings.Add(rec);
+
+            RecordingStore.RunOptimizationPass();
+            Assert.Equal(2, recordings.Count);
+            string chainId = recordings[0].ChainId;
+            string id0 = recordings[0].RecordingId;
+            string id1 = recordings[1].RecordingId;
+
+            RecordingStore.RunOptimizationPass();
+            Assert.Equal(2, recordings.Count);
+            Assert.Equal(chainId, recordings[0].ChainId);
+            Assert.Equal(id0, recordings[0].RecordingId);
+            Assert.Equal(id1, recordings[1].RecordingId);
+
+            RecordingStore.ResetForTesting();
+        }
+
+        [Fact]
+        public void RunOptimizationPass_SplitCopiesPreLaunchBudget()
+        {
+            RecordingStore.SuppressLogging = true;
+            RecordingStore.ResetForTesting();
+
+            var rec = MakeRecordingWithSections(17000, 17030, 17060,
+                SegmentEnvironment.Atmospheric, SegmentEnvironment.ExoBallistic);
+            rec.RecordingId = "budget_test";
+            rec.PreLaunchFunds = 100000;
+            rec.PreLaunchScience = 50;
+            rec.PreLaunchReputation = 25;
+            rec.Points[0].bodyName = "Kerbin";
+            rec.Points[1].bodyName = "Kerbin";
+            rec.Points[2].bodyName = "Kerbin";
+            rec.Points[3].bodyName = "Kerbin";
+
+            var recordings = RecordingStore.CommittedRecordings;
+            recordings.Add(rec);
+
+            RecordingStore.RunOptimizationPass();
+
+            Assert.Equal(2, recordings.Count);
+            Assert.Equal(100000, recordings[1].PreLaunchFunds);
+            Assert.Equal(50, recordings[1].PreLaunchScience);
+            Assert.Equal(25, recordings[1].PreLaunchReputation);
+
+            RecordingStore.ResetForTesting();
+        }
+
+        [Fact]
+        public void RunOptimizationPass_SplitCopiesRecordingGroups()
+        {
+            RecordingStore.SuppressLogging = true;
+            RecordingStore.ResetForTesting();
+
+            var rec = MakeRecordingWithSections(17000, 17030, 17060,
+                SegmentEnvironment.Atmospheric, SegmentEnvironment.ExoBallistic);
+            rec.RecordingId = "groups_test";
+            rec.RecordingGroups = new List<string> { "Launches", "Mun Missions" };
+            rec.Points[0].bodyName = "Kerbin";
+            rec.Points[1].bodyName = "Kerbin";
+            rec.Points[2].bodyName = "Kerbin";
+            rec.Points[3].bodyName = "Kerbin";
+
+            var recordings = RecordingStore.CommittedRecordings;
+            recordings.Add(rec);
+
+            RecordingStore.RunOptimizationPass();
+
+            Assert.Equal(2, recordings.Count);
+            Assert.NotNull(recordings[1].RecordingGroups);
+            Assert.Equal(2, recordings[1].RecordingGroups.Count);
+            Assert.Contains("Launches", recordings[1].RecordingGroups);
+            Assert.Contains("Mun Missions", recordings[1].RecordingGroups);
+            Assert.NotSame(recordings[0].RecordingGroups, recordings[1].RecordingGroups);
+
+            RecordingStore.ResetForTesting();
+        }
+
+        [Fact]
+        public void RunOptimizationPass_DoesNotSetParentRecordingId()
+        {
+            RecordingStore.SuppressLogging = true;
+            RecordingStore.ResetForTesting();
+
+            var rec = MakeRecordingWithSections(17000, 17030, 17060,
+                SegmentEnvironment.Atmospheric, SegmentEnvironment.ExoBallistic);
+            rec.RecordingId = "no_parent_test";
+            rec.Points[0].bodyName = "Kerbin";
+            rec.Points[1].bodyName = "Kerbin";
+            rec.Points[2].bodyName = "Kerbin";
+            rec.Points[3].bodyName = "Kerbin";
+
+            var recordings = RecordingStore.CommittedRecordings;
+            recordings.Add(rec);
+
+            RecordingStore.RunOptimizationPass();
+
+            Assert.Equal(2, recordings.Count);
+            // MUST-FIX 1: ParentRecordingId should NOT be set on the second half
+            Assert.Null(recordings[1].ParentRecordingId);
 
             RecordingStore.ResetForTesting();
         }
