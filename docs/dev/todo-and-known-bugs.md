@@ -1916,11 +1916,11 @@ After rewind, the expanded strip (#164) correctly removes all non-quicksave vess
 1. `SpawnedVesselPersistentId` and `VesselSpawned` are not reset after the strip, so the spawn system thinks the vessel is already spawned and skips re-spawning.
 2. If a vessel IS re-spawned (e.g., at KSC), the next revert may strip it again because its new PID isn't in the quicksave whitelist.
 
-**Fix:** Added `ReconcileSpawnStateAfterStrip` that runs after all strip operations complete. It checks surviving vessel PIDs in flightState and resets `SpawnedVesselPersistentId` and `VesselSpawned` for any recording whose spawned vessel no longer exists. Pure `ShouldResetSpawnState` decision method extracted for testability. The PID dedup check in `ShouldSpawnAtRecordingEnd` no longer blocks re-spawn because the stale PID is cleared.
+**Fix:** (a) `ResetAllPlaybackState` (or a new post-strip reset) must clear `SpawnedVesselPersistentId` and `VesselSpawned` on all committed recordings after the rewind strip. (b) The strip must distinguish between "vessel from the future that shouldn't exist yet" vs "vessel legitimately spawned by timeline playback at the correct time."
 
 **Priority:** High — spawned vessels disappear permanently or are removed right after spawn
 
-**Status:** Fixed
+**Status:** Open
 
 ## 165. Engine seed event records throttle=0.00 at recording start
 
