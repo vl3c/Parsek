@@ -2061,63 +2061,49 @@ Additionally, the spawned vessel had a dead crew member (Minidou Kerman, killed 
 
 **Status:** Fixed
 
-## 171. Orbital ghost disappears during 50x time warp
+## ~~171. Orbital ghost disappears during 50x time warp~~
 
 During 50x time warp, the zone rendering system hides ghost meshes beyond 120km (Visual→Beyond boundary). The ghost's entire remaining trajectory plays out while hidden. Playback completes while in the Beyond zone, so the ghost is destroyed without being re-shown.
 
-**Observed in:** KSP.log (2026-04-01). Ghost #6 "GDLV3" spawned, reentry FX activated (Mach 3.01), zone transition Visual→Beyond at 120136m, ghost hidden, playback completed during warp while hidden.
+**Root cause:** Zone-based mesh hiding applied unconditionally. Orbital ghosts travel far from the player during warp, entering the Beyond zone (>120km) and being hidden. Playback continues and completes while the mesh is invisible.
 
-**Root cause:** Expected zone behavior combined with high time warp. The ghost has orbital segments (UT 87-733) so it should be visible as an orbit line during its orbital phase, but the visual mesh disappears when it exits visual range.
+**Fix:** Added `GhostPlaybackLogic.ShouldExemptFromZoneHide(warpRate, hasOrbitalSegments)` — during time warp >4x, ghosts with orbital segments are exempt from zone-based hiding in `ApplyZoneRenderingImpl`. Surface-only ghosts still zone-hide normally. 8 unit tests.
 
-**Impact:** Low — visual only, no data loss. UX gap rather than a bug.
+**Status:** Fixed
 
-**Fix options:**
-1. During time warp >4x, skip zone-based hiding for ghosts with orbital segments
-2. Accept as expected behavior — orbit line on map is the intended substitute
-
-**Status:** Open
-
-## 172. Ghost destruction reason logged as "unknown"
+## ~~172. Ghost destruction reason logged as "unknown"~~
 
 When held ghosts (warp-deferred spawn state) are released after successful vessel spawn, the `DestroyGhost` call lacks a reason string, producing `destroyed (unknown)` in the log.
 
-**Observed in:** KSP.log (2026-04-01). Ghost #2 "Jumping Flea", Ghost #6 "GDLV3", Ghost #24 "Minidou Kerman" all destroyed with reason "unknown".
-
-**Impact:** Cosmetic — logging only. Ghosts are correctly destroyed.
-
-**Fix:** Pass reason string `"held-spawn-released"` from `RetryHeldGhostSpawns` when destroying held ghosts after successful spawn.
+**Fix:** Changed `toRelease` from `List<int>` to `List<KeyValuePair<int, string>>` in `RetryHeldGhostSpawns` to track per-action destroy reasons. Each `HeldGhostAction` case now passes a specific reason: `"held-spawn-succeeded"`, `"held-already-spawned"`, `"held-spawn-timeout"`, or `"held-invalid-index"`.
 
 **Files:** `ParsekPlaybackPolicy.cs` (`RetryHeldGhostSpawns`)
 
-**Status:** Open
+**Status:** Fixed
 
-## 173. Zero-point debris leaf recordings saved from same-frame destruction
+## ~~173. Zero-point debris leaf recordings saved from same-frame destruction~~
 
 When a breakup creates debris fragments that are destroyed within the same physics frame, the resulting recordings have zero trajectory points. These create `.prec` sidecar files and tree nodes that serve no purpose.
 
-**Observed in:** KSP.log (2026-04-01). CRASH breakup at UT=107087.40 (GDLV3 pad explosion from bug #170) produced 7 debris pieces, 5 had `points=0` in `FinalizeTreeRecordings`.
+**Fix:** Added `PruneZeroPointLeaves` step in `FinalizeTreeRecordings` after individual recording finalization. Pure static helpers `IsZeroPointLeaf` and `CollectZeroPointLeafIds` identify leaf recordings with zero points, no orbit segments, and no surface position. Pruned recordings are removed from `tree.Recordings` and parent branch point `ChildRecordingIds`. Log summary reports count of pruned recordings. 8 unit tests.
 
-**Impact:** Low — storage waste and recording tree UI clutter.
+**Files:** `ParsekFlight.cs` (finalization path)
 
-**Fix:** Filter out 0-point leaf recordings during `FinalizeTreeRecordings` — don't save recordings with zero trajectory points and no vessel snapshot. Or mark them with a flag so the UI can hide them.
+**Status:** Fixed
 
-**Files:** `RecordingTree.cs` or `ParsekFlight.cs` (finalization path)
-
-**Status:** Open
-
-## 174. ChainWalker evaluates terminated chains every frame
+## ~~174. ChainWalker evaluates terminated chains every frame~~
 
 `GhostChainWalker.ComputeAllGhostChains` evaluates ~590 terminated chains per frame that can never produce a ghost (all vessels destroyed/recovered). While log output is rate-limited (suppressed counts logged every 5s), the computation still runs.
 
-**Observed in:** KSP.log (2026-04-01). Repeated chain walker messages every 5s with `suppressed=~590` for terminated Kerbal X Debris chains.
+**Fix:** Two-level filtering:
+1. Added `GhostChainWalker.IsTreeFullyTerminated(tree)` — skips scanning trees where every leaf recording has terminal state Destroyed or Recovered. Prevents chain link construction for fully-terminated trees.
+2. Added `chain.IsTerminated` filter in `EvaluateAndApplyGhostChains` — excludes terminated chains from `activeGhostChains`, preventing per-frame iteration in `PositionChainGhosts` and `DrawGhostLabels`.
 
-**Impact:** Low — performance. No visual or data impact.
+7 unit tests.
 
-**Fix:** Skip trees where all vessels are already terminated, or cache the "no chains possible" result per tree. Invalidate cache on recording commit/revert.
+**Files:** `GhostChainWalker.cs`, `ParsekFlight.cs`
 
-**Files:** `GhostChainWalker.cs`
-
-**Status:** Open
+**Status:** Fixed
 
 # In-Game Tests
 

@@ -36,6 +36,16 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Returns true if a ghost should be exempt from zone-based hiding during time warp.
+        /// Orbital ghosts travel far from the player during warp; hiding them at 120km causes
+        /// them to disappear and complete playback while invisible (#171).
+        /// </summary>
+        internal static bool ShouldExemptFromZoneHide(float currentWarpRate, bool hasOrbitalSegments)
+        {
+            return currentWarpRate > 4f && hasOrbitalSegments;
+        }
+
+        /// <summary>
         /// Returns true if a commit approval dialog should be shown instead of auto-committing (#88).
         /// Triggers when leaving Flight to KSC or Tracking Station with a landed/splashed vessel.
         /// </summary>

@@ -226,7 +226,7 @@ namespace Parsek
             float now = Time.time;
 
             // Collect indices to release and retry-time updates (cannot modify dict during iteration)
-            List<int> toRelease = null;
+            List<KeyValuePair<int, string>> toRelease = null;  // index + destroy reason
             List<KeyValuePair<int, float>> retryTimeUpdates = null;
 
             foreach (var kvp in heldGhosts)
@@ -259,8 +259,8 @@ namespace Parsek
                                     host.DeferredActivateVesselFromPolicy(spawnedPid);
                             }
 
-                            if (toRelease == null) toRelease = new List<int>();
-                            toRelease.Add(index);
+                            if (toRelease == null) toRelease = new List<KeyValuePair<int, string>>();
+                            toRelease.Add(new KeyValuePair<int, string>(index, "held-spawn-succeeded"));
                         }
                         break;
 
@@ -269,8 +269,8 @@ namespace Parsek
                         ParsekLog.Info("Policy",
                             $"Held ghost released (already spawned): #{index} \"{info.vesselName}\" " +
                             $"id={info.recordingId} held={now - info.holdStartTime:F1}s");
-                        if (toRelease == null) toRelease = new List<int>();
-                        toRelease.Add(index);
+                        if (toRelease == null) toRelease = new List<KeyValuePair<int, string>>();
+                        toRelease.Add(new KeyValuePair<int, string>(index, "held-already-spawned"));
                         break;
 
                     case HeldGhostAction.Timeout:
@@ -278,16 +278,16 @@ namespace Parsek
                             $"Held ghost timed out: #{index} \"{info.vesselName}\" " +
                             $"id={info.recordingId} held={now - info.holdStartTime:F1}s " +
                             $"— destroying ghost without spawn");
-                        if (toRelease == null) toRelease = new List<int>();
-                        toRelease.Add(index);
+                        if (toRelease == null) toRelease = new List<KeyValuePair<int, string>>();
+                        toRelease.Add(new KeyValuePair<int, string>(index, "held-spawn-timeout"));
                         break;
 
                     case HeldGhostAction.InvalidIndex:
                         ParsekLog.Warn("Policy",
                             $"Held ghost has invalid index: #{index} \"{info.vesselName}\" " +
                             $"id={info.recordingId} — releasing");
-                        if (toRelease == null) toRelease = new List<int>();
-                        toRelease.Add(index);
+                        if (toRelease == null) toRelease = new List<KeyValuePair<int, string>>();
+                        toRelease.Add(new KeyValuePair<int, string>(index, "held-invalid-index"));
                         break;
 
                     case HeldGhostAction.Hold:
@@ -314,8 +314,9 @@ namespace Parsek
             {
                 for (int i = 0; i < toRelease.Count; i++)
                 {
-                    int index = toRelease[i];
-                    engine.DestroyGhost(index);
+                    int index = toRelease[i].Key;
+                    string reason = toRelease[i].Value;
+                    engine.DestroyGhost(index, reason: reason);
                     heldGhosts.Remove(index);
                 }
             }
