@@ -5899,7 +5899,7 @@ namespace Parsek
             for (int i = 0; i < committed.Count; i++)
             {
                 var rec = committed[i];
-                if (rec.IsTreeRecording) continue; // tree recordings handle resources at tree level
+                if (!rec.ManagesOwnResources) continue; // tree recordings handle resources at tree level
                 if (currentUT > rec.EndUT || (currentUT >= rec.StartUT && currentUT <= rec.EndUT))
                     ApplyResourceDeltas(rec, currentUT);
             }
