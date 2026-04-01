@@ -104,6 +104,9 @@ namespace Parsek
             for (int i = 0; i < candidates.Count; i++)
             {
                 var c = candidates[i];
+                // Departing candidates use departureUT (when the ghost leaves its current orbit),
+                // non-departing use endUT (when the ghost spawns). The > currentUT filter also
+                // naturally skips departing candidates whose departure is already in the past.
                 double effectiveUT = c.willDepart ? c.departureUT : c.endUT;
                 if (effectiveUT > currentUT && effectiveUT < bestUT)
                 {
@@ -317,12 +320,10 @@ namespace Parsek
             // Resolution cascade for the final orbit
             OrbitSegment? finalSeg = TrajectoryMath.FindOrbitSegment(orbitSegments, endUT);
             OrbitSegment finalOrbit;
-            bool hasFinalOrbit;
 
             if (finalSeg.HasValue)
             {
                 finalOrbit = finalSeg.Value;
-                hasFinalOrbit = true;
             }
             else if (!string.IsNullOrEmpty(terminalOrbitBody) && terminalOrbitSMA != 0)
             {
@@ -335,7 +336,6 @@ namespace Parsek
                     inclination = terminalOrbitInc,
                     argumentOfPeriapsis = terminalOrbitArgPe
                 };
-                hasFinalOrbit = true;
             }
             else if (isSurfaceTerminal)
             {
@@ -351,11 +351,7 @@ namespace Parsek
             {
                 // Fallback: use last segment in list (recording ends in off-rails phase)
                 finalOrbit = orbitSegments[orbitSegments.Count - 1];
-                hasFinalOrbit = true;
             }
-
-            if (!hasFinalOrbit)
-                return noDeparture;
 
             if (OrbitsMatch(current, finalOrbit))
                 return noDeparture;
