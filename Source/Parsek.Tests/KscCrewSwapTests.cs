@@ -103,6 +103,8 @@ namespace Parsek.Tests
             var crew = CrewReservationManager.ExtractCrewFromSnapshot(snapshot);
             Assert.Single(crew);
             Assert.Equal("Kirrim Kerman", crew[0]);
+            Assert.Contains(logLines, l => l.Contains("[CrewReservation]") && l.Contains("Snapshot swap: 'Jebediah Kerman' -> 'Kirrim Kerman'"));
+            Assert.Contains(logLines, l => l.Contains("[CrewReservation]") && l.Contains("Snapshot crew swap complete: 1 name(s) replaced"));
         }
 
         [Fact]
@@ -175,6 +177,9 @@ namespace Parsek.Tests
             Assert.Equal("Kirrim Kerman", crew[0]);
             Assert.Equal("Agasel Kerman", crew[1]);
             Assert.Equal("Bill Kerman", crew[2]);
+            Assert.Contains(logLines, l => l.Contains("Snapshot swap:") && l.Contains("PART[0]"));
+            Assert.Contains(logLines, l => l.Contains("Snapshot swap:") && l.Contains("PART[1]"));
+            Assert.Contains(logLines, l => l.Contains("Snapshot crew swap complete: 2 name(s) replaced"));
         }
 
         [Fact]

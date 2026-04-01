@@ -561,11 +561,12 @@ namespace Parsek
                 return 0;
 
             int swapCount = 0;
+            int partIndex = 0;
 
             foreach (ConfigNode partNode in snapshot.GetNodes("PART"))
             {
                 string[] crewNames = partNode.GetValues("crew");
-                if (crewNames.Length == 0) continue;
+                if (crewNames.Length == 0) { partIndex++; continue; }
 
                 bool anySwapped = false;
                 var updated = new List<string>(crewNames.Length);
@@ -574,6 +575,8 @@ namespace Parsek
                 {
                     if (replacements.TryGetValue(crewNames[i], out string replacementName))
                     {
+                        ParsekLog.Verbose("CrewReservation",
+                            $"Snapshot swap: '{crewNames[i]}' -> '{replacementName}' in PART[{partIndex}]");
                         updated.Add(replacementName);
                         anySwapped = true;
                         swapCount++;
@@ -590,7 +593,13 @@ namespace Parsek
                     for (int i = 0; i < updated.Count; i++)
                         partNode.AddValue("crew", updated[i]);
                 }
+
+                partIndex++;
             }
+
+            if (swapCount > 0)
+                ParsekLog.Verbose("CrewReservation",
+                    $"Snapshot crew swap complete: {swapCount} name(s) replaced across {partIndex} part(s)");
 
             return swapCount;
         }
