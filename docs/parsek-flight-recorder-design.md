@@ -762,7 +762,9 @@ A single Recording can be split at a TrackSection boundary where the environment
 
 **`FindSplitCandidates`**: Scans each committed recording's `TrackSections` for adjacent sections with **different environments**. Tests each boundary with `CanAutoSplit`. Finds **at most one split per recording per pass** — the caller re-scans after each split because indices shift.
 
-The optimizer is wired into save/load (`ParsekScenario`), running split candidates first (to break up tree recordings that were exported to chains), then merge candidates (to clean up redundant same-environment boundaries).
+**`FindSplitCandidatesForOptimizer`**: Same as `FindSplitCandidates` but uses `CanAutoSplitIgnoringGhostTriggers` — does not require absence of ghosting-trigger events (engine ignitions, RCS activation, etc.). This is correct for the optimizer because both halves inherit the `GhostVisualSnapshot` and part events are correctly partitioned by `SplitAtSection`. The ghost rendering system handles part events over time. The conservative `HasGhostingTriggerEvents` check remains on `CanAutoSplit` for other callers (ghost chain walker).
+
+The optimizer is wired into save/load (`ParsekScenario`), running merge candidates first (to clean up redundant same-environment boundaries), then split candidates (to break multi-environment recordings into per-phase segments with individual loop toggles). Split recordings share a `ChainId` for UI grouping — they appear as expandable chain blocks in the recordings window.
 
 ### 9A.6 Chain Mode vs Tree Mode — Architectural Distinction
 
@@ -772,17 +774,19 @@ Chain mode and tree mode are two fundamentally different recording strategies th
 
 | Concern | Chain Mode | Tree Mode |
 |---|---|---|
-| **Segmentation** | Eager — splits at every atmosphere/altitude/SOI boundary | Suppressed — all phases stay in one Recording with multiple TrackSections |
-| **Identity linkage** | `ChainId` + `ChainIndex` (linear sequence) | `TreeId` + `BranchPoints` DAG |
+| **Segmentation** | Eager — splits at every atmosphere/altitude/SOI boundary during recording | Deferred — suppressed during recording, split post-commit by optimizer |
+| **Identity linkage** | `ChainId` + `ChainIndex` (linear sequence) | `TreeId` + `BranchPoints` DAG; split segments also get `ChainId` for UI grouping |
 | **Storage** | `CommittedRecordings` only | `CommittedRecordings` + `CommittedTrees` (dual) |
-| **Resources** | Per-recording delta summing | Lump-sum at tree level |
-| **Optimization** | `RecordingOptimizer` merge/split | `SessionMerger` highest-fidelity-wins |
+| **Resources** | Per-recording delta summing | Lump-sum at tree level (`ManagesOwnResources = false`) |
+| **Optimization** | `RecordingOptimizer` merge + split | `SessionMerger` highest-fidelity-wins, then optimizer merge + split |
 | **Save/load** | Flat `RECORDING` ConfigNodes | Nested `RECORDING_TREE` → `RECORDING` nodes |
-| **Per-phase loop** | Natural — each phase is its own Recording | Not yet supported — see Section 10.6 |
+| **Per-phase loop** | Natural — each phase is its own Recording | Same result after optimizer split pass |
 
 #### How they converge
 
 Both modes produce `Recording` objects (same class, no subclasses) with the same playback-relevant fields: `TrackSections`, `Points`, `OrbitSegments`, `SegmentPhase`, `SegmentBodyName`, `GhostVisualSnapshot`. A consumer reading only trajectory data cannot distinguish them.
+
+After the optimizer split pass, tree recordings are broken into per-phase segments — the same result as chain mode's eager splitting. The player sees identical UI in both modes: separate recording entries per flight phase, each with its own loop toggle. The difference is only timing: chain mode splits during recording, tree mode splits after commit+merge. Split tree recordings carry both `TreeId` (for tree-level resource tracking) and `ChainId` (for UI grouping as chain blocks).
 
 The `GhostPlaybackEngine` is completely mode-agnostic — it receives `IPlaybackTrajectory` interface references and has zero knowledge of chains, trees, or policy. This clean abstraction boundary means the engine could be extracted as a standalone library.
 
@@ -830,13 +834,15 @@ When a looped segment plays back, it uses the real anchor vessel's current posit
 
 Before spawning a looped ghost, Parsek validates: does the anchor vessel still exist? Is it on the expected body? Is the docking port still available? If validation fails, the loop is marked as broken in the recordings manager.
 
-### 10.6 Loop Range for Tree Recordings
+### 10.6 Per-Phase Looping (Mode-Independent)
 
-Chain recordings naturally support per-phase looping because each phase is a separate Recording with its own `LoopPlayback` toggle. Tree recordings store all phases in one Recording with multiple TrackSections, so `LoopPlayback = true` loops the entire trajectory — the player cannot loop just the reentry or the docking approach.
+Both chain and tree recordings support per-phase looping through the same UI. Chain mode splits eagerly during recording; tree mode splits post-commit via the optimizer split pass (Section 9A.5). The result is identical: separate Recording entries per flight phase, each with its own `LoopPlayback` toggle in the recordings window.
 
-To close this gap, the Recording carries optional `LoopStartUT` and `LoopEndUT` fields (default `double.NaN` = loop entire recording). When set, the engine's loop math (`TryComputeLoopPlaybackUT`) uses these bounds instead of `StartUT`/`EndUT`. A phase picker in the UI (derived from TrackSections and their `SegmentEnvironment`) lets users select which phase(s) to loop.
+**Auto loop range**: When a recording's loop toggle is enabled, `ComputeAutoLoopRange` trims boring bookends (`ExoBallistic` orbital coasts, `SurfaceStationary` idle) to auto-select the visually interesting portion. This narrows the loop to the action phase without user intervention.
 
-This design requires no changes to `IPlaybackTrajectory`, no modification to the `TrackSection` struct, and no change to the `GhostPlaybackEngine`'s core architecture — only the loop UT computation narrows its range.
+**Loop range fields**: The Recording carries optional `LoopStartUT` and `LoopEndUT` fields (default `double.NaN` = loop entire recording). When set, the engine's loop math (`TryComputeLoopPlaybackUT`) uses these bounds instead of `StartUT`/`EndUT`. The auto loop range sets these automatically; they are also available for manual customization.
+
+**Architecture**: The `LoopStartUT`/`LoopEndUT` fields are exposed via `IPlaybackTrajectory`. `EffectiveLoopStartUT`/`EffectiveLoopEndUT` static helpers provide cross-validated bounds with inverted-range fallback. No modification to the `TrackSection` struct or the `GhostPlaybackEngine`'s core architecture — only the loop UT computation narrows its range.
 
 ---
 
