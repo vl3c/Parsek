@@ -5,6 +5,31 @@ using UnityEngine;
 namespace Parsek.Patches
 {
     /// <summary>
+    /// Prevents ghost vessel orbit lines from being clickable in map view (#172).
+    /// Ghost orbit lines are visual-only — clicking them should not open the target
+    /// popup, because a real vessel might share the same orbit and the click would
+    /// be ambiguous. The ghost vessel ICON remains clickable via MapNode hover;
+    /// OrbitTargeter.TargetCastNodes detects the icon hover and opens the normal
+    /// "Set As Target / Switch To" popup. "Switch To" is redirected to watch mode
+    /// by GhostVesselSwitchPatch.
+    /// </summary>
+    [HarmonyPatch(typeof(OrbitRenderer), nameof(OrbitRenderer.OrbitCast))]
+    internal static class GhostOrbitCastPatch
+    {
+        static bool Prefix(OrbitRenderer __instance, ref bool __result)
+        {
+            if (__instance.vessel != null
+                && GhostMapPresence.IsGhostMapVessel(__instance.vessel.persistentId))
+            {
+                __result = false;
+                return false; // skip original — ghost orbit line not clickable
+            }
+            return true;
+        }
+    }
+
+
+    /// <summary>
     /// Prevents ghost map ProtoVessels from going off rails (becoming loaded physics vessels).
     /// Ghost vessels exist only for map presence (orbit lines, tracking station, targeting).
     /// They must remain unloaded — the ghost mesh provides the visual representation.

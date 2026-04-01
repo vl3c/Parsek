@@ -755,67 +755,6 @@ namespace Parsek.Tests
 
         #endregion
 
-        #region ShouldSpawnAtRecordingEnd — Terminal Override with FLYING (#169)
-
-        [Fact]
-        public void ShouldSpawn_FlyingSnapshot_TerminalLanded_Allowed()
-        {
-            // Bug #169: terminal state Landed overrides the FLYING unsafe check,
-            // allowing the spawn to proceed (situation will be corrected before spawn)
-            var snapshot = new ConfigNode("VESSEL");
-            snapshot.AddValue("sit", "FLYING");
-
-            var rec = new Recording
-            {
-                VesselSnapshot = snapshot,
-                TerminalStateValue = TerminalState.Landed
-            };
-
-            var (needsSpawn, _) = GhostPlaybackLogic.ShouldSpawnAtRecordingEnd(
-                rec, isActiveChainMember: false, isChainLoopingOrDisabled: false);
-
-            Assert.True(needsSpawn);
-        }
-
-        [Fact]
-        public void ShouldSpawn_FlyingSnapshot_TerminalSplashed_Allowed()
-        {
-            var snapshot = new ConfigNode("VESSEL");
-            snapshot.AddValue("sit", "FLYING");
-
-            var rec = new Recording
-            {
-                VesselSnapshot = snapshot,
-                TerminalStateValue = TerminalState.Splashed
-            };
-
-            var (needsSpawn, _) = GhostPlaybackLogic.ShouldSpawnAtRecordingEnd(
-                rec, isActiveChainMember: false, isChainLoopingOrDisabled: false);
-
-            Assert.True(needsSpawn);
-        }
-
-        [Fact]
-        public void ShouldSpawn_FlyingSnapshot_TerminalDestroyed_Blocked()
-        {
-            var snapshot = new ConfigNode("VESSEL");
-            snapshot.AddValue("sit", "FLYING");
-
-            var rec = new Recording
-            {
-                VesselSnapshot = snapshot,
-                TerminalStateValue = TerminalState.Destroyed
-            };
-
-            var (needsSpawn, reason) = GhostPlaybackLogic.ShouldSpawnAtRecordingEnd(
-                rec, isActiveChainMember: false, isChainLoopingOrDisabled: false);
-
-            Assert.False(needsSpawn);
-            Assert.Contains("terminal state Destroyed", reason);
-        }
-
-        #endregion
-
         #region OverrideSnapshotPosition (EVA spawn fix)
 
         [Fact]

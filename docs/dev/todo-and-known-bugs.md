@@ -2082,9 +2082,15 @@ Vessel recorded during ascent (snapshot `sit=FLYING`) achieves orbit (`terminal=
 
 Ghost ProtoVessel's clickable MapNode position diverges from the visible orbit icon. The user must click next to the icon rather than on it.
 
-**Root cause:** The ghost map ProtoVessel's OrbitDriver propagated from coarsely-updated Keplerian elements, placing the MapNode at a different point on the orbit than the ghost mesh. Additionally, `EnterWatchMode` had a hardcoded 100km distance limit ignoring the user's `ghostCameraCutoffKm` setting.
+**Root cause:** `ApplyOrbitToVessel` used `Orbit.UpdateFromOrbitAtUT()` which roundtrips through state vectors: Kepler elements -> pos/vel -> coordinate transforms -> re-derive Kepler elements. The `UpdateFromFixedVectors` step suffers catastrophic cancellation in the eccentricity vector computation for near-circular orbits (ecc ~0), producing significantly different `argumentOfPeriapsis` values. This shifts the vessel's position along the orbit relative to where the ghost mesh is (which uses a directly-constructed Orbit with the original elements). Additionally, `EnterWatchMode` had a hardcoded 100km distance limit ignoring the user's `ghostCameraCutoffKm` setting.
 
-**Fix:** Per-frame mean anomaly sync (`SyncMeanAnomalyToPlaybackUT`) adjusts `epoch` + `meanAnomalyAtEpoch` to place the vessel icon at the ghost's playback position along the orbit without changing orbital shape. Watch mode distance check now reads the user's setting.
+**Decompilation evidence:** MapNode position comes from `vessel.GetWorldPos3D()` (set by OrbitDriver's `updateFromParameters()`) while ghost mesh uses `orbit.getPositionAtUT()` on a direct-constructed Orbit. Both compute `body.position + orbitRelativePos.xzy`, but with different Orbit internal states due to the roundtrip. `OrbitDriver.UpdateMode.IDLE` was considered but won't work — ghost ProtoVessels have no Rigidbody, so IDLE mode exits early without updating the vessel position. See `docs/dev/research/ghost-map-icon-position-fix.md`.
+
+**Fix:** Replaced `UpdateFromOrbitAtUT` with `Orbit.SetOrbit()` in `ApplyOrbitToVessel`. `SetOrbit` directly assigns all 7 Keplerian elements + body and calls `Init()` — the same path as the Orbit constructor used by the ghost's cached orbit. Both Orbit objects now have identical internal state, eliminating the position divergence. Watch mode distance check now reads the user's `ghostCameraCutoffKm` setting.
+
+**Failed attempts:** (1) `vessel.SetPosition` per-frame — OrbitDriver UPDATE mode overwrites every FixedUpdate. (2) `UpdateFromStateVectors` per-frame — coordinate space mismatch corrupted OrbitDriver. (3) Mean anomaly sync per-frame — fought OrbitDriver's own UPDATE propagation; IDLE mode can't work for unloaded vessels.
+
+**Files:** `GhostMapPresence.cs` (`ApplyOrbitToVessel`), `ParsekFlight.cs` (`EnterWatchMode`)
 
 **Status:** Fixed
 

@@ -418,9 +418,24 @@ namespace Parsek
                 return;
             }
 
-            Orbit newOrbit = BuildOrbitFromSegment(segment, body);
-            vessel.orbitDriver.orbit.UpdateFromOrbitAtUT(
-                newOrbit, Planetarium.GetUniversalTime(), body);
+            // Direct element assignment via SetOrbit — bypasses the lossy
+            // state-vector roundtrip in UpdateFromOrbitAtUT (#172).
+            // UpdateFromOrbitAtUT converts elements → pos/vel → re-derives elements,
+            // which introduces floating-point error (especially argumentOfPeriapsis
+            // for near-circular orbits due to catastrophic cancellation in the
+            // eccentricity vector computation). SetOrbit sets elements directly
+            // and calls Init(), matching exactly how the ghost's cached Orbit
+            // is constructed. Both Orbit objects now share identical internal state,
+            // so the MapNode icon position matches the ghost mesh position.
+            vessel.orbitDriver.orbit.SetOrbit(
+                segment.inclination,
+                segment.eccentricity,
+                segment.semiMajorAxis,
+                segment.longitudeOfAscendingNode,
+                segment.argumentOfPeriapsis,
+                segment.meanAnomalyAtEpoch,
+                segment.epoch,
+                body);
 
             if (vessel.orbitDriver.celestialBody != body)
             {
@@ -431,25 +446,20 @@ namespace Parsek
 
             vessel.orbitDriver.updateFromParameters();
 
+            // Diagnostic logging: full element set + resulting vessel position (#172)
+            Orbit drv = vessel.orbitDriver.orbit;
             ParsekLog.Verbose(Tag,
-                string.Format(ic, "Orbit updated for {0} body={1} sma={2:F0}",
-                    logContext, body.name, segment.semiMajorAxis));
-        }
-
-        /// <summary>
-        /// Construct a KSP Orbit object from an OrbitSegment's Keplerian elements.
-        /// </summary>
-        private static Orbit BuildOrbitFromSegment(OrbitSegment segment, CelestialBody body)
-        {
-            return new Orbit(
-                segment.inclination,
-                segment.eccentricity,
-                segment.semiMajorAxis,
-                segment.longitudeOfAscendingNode,
-                segment.argumentOfPeriapsis,
-                segment.meanAnomalyAtEpoch,
-                segment.epoch,
-                body);
+                string.Format(ic,
+                    "Orbit updated for {0} body={1} sma={2:F0} ecc={3:F6} inc={4:F4} " +
+                    "lan={5:F4} argPe={6:F4} mna={7:F6} epoch={8:F1} " +
+                    "updateMode={9} vesselPos=({10:F1},{11:F1},{12:F1}) " +
+                    "drvPos=({13:F1},{14:F1},{15:F1})",
+                    logContext, body.name, segment.semiMajorAxis,
+                    drv.eccentricity, drv.inclination, drv.LAN,
+                    drv.argumentOfPeriapsis, drv.meanAnomalyAtEpoch, drv.epoch,
+                    vessel.orbitDriver.updateMode,
+                    vessel.GetWorldPos3D().x, vessel.GetWorldPos3D().y, vessel.GetWorldPos3D().z,
+                    vessel.orbitDriver.pos.x, vessel.orbitDriver.pos.y, vessel.orbitDriver.pos.z));
         }
 
         /// <summary>
@@ -529,6 +539,16 @@ namespace Parsek
             if (vesselPidToRecordingIndex.TryGetValue(vesselPid, out int index))
                 return index;
             return -1;
+        }
+
+        /// <summary>
+        /// Get the ghost Vessel for a recording index, or null if none.
+        /// Used for diagnostics (position comparison).
+        /// </summary>
+        internal static Vessel GetMapVesselForRecording(int recordingIndex)
+        {
+            vesselsByRecordingIndex.TryGetValue(recordingIndex, out Vessel vessel);
+            return vessel;
         }
 
         /// <summary>
@@ -642,13 +662,28 @@ namespace Parsek
                     return null;
                 }
 
+                // Log creation + OrbitDriver state for diagnostics (#172)
+                Vessel v = pv.vesselRef;
+                string driverState = "no-orbitDriver";
+                if (v.orbitDriver != null)
+                {
+                    Orbit drv = v.orbitDriver.orbit;
+                    driverState = string.Format(ic,
+                        "updateMode={0} sma={1:F0} ecc={2:F6} inc={3:F4} " +
+                        "argPe={4:F4} mna={5:F6} epoch={6:F1} vesselPos=({7:F1},{8:F1},{9:F1})",
+                        v.orbitDriver.updateMode,
+                        drv.semiMajorAxis, drv.eccentricity, drv.inclination,
+                        drv.argumentOfPeriapsis, drv.meanAnomalyAtEpoch, drv.epoch,
+                        v.GetWorldPos3D().x, v.GetWorldPos3D().y, v.GetWorldPos3D().z);
+                }
+
                 ParsekLog.Info(Tag,
                     string.Format(ic,
-                        "Created ghost vessel '{0}' ghostPid={1} type={2} body={3} sma={4:F0} for {5}",
-                        vesselName, pv.vesselRef.persistentId,
-                        vtype, body.name, traj.TerminalOrbitSemiMajorAxis, logContext));
+                        "Created ghost vessel '{0}' ghostPid={1} type={2} body={3} sma={4:F0} for {5} | {6}",
+                        vesselName, v.persistentId,
+                        vtype, body.name, traj.TerminalOrbitSemiMajorAxis, logContext, driverState));
 
-                return pv.vesselRef;
+                return v;
             }
             catch (Exception ex)
             {
