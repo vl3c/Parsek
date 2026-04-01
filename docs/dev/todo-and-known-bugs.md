@@ -1928,11 +1928,15 @@ After rewind, the expanded strip (#164) correctly removes all non-quicksave vess
 
 When recording starts on the launchpad with staged engines, `CacheEngineModules` seeds `EngineIgnited` with `throttle=0.00` (the current value before the player throttles up). During playback, the ghost processes `EngineIgnited(0.00)` → plume off → then `EngineThrottle(1.00)` a few frames later → plume on. Creates a visible flame flash-off at the start of every playback cycle.
 
-**Fix:** Seed events should either omit the throttle value (let playback start with default) or the playback engine should not suppress plumes for `EngineIgnited` events with `throttle=0`.
+**Root cause:** `PartStateSeeder.EmitEngineSeedEvents` unconditionally emitted `EngineIgnited` seed events for all active engines, including those at zero throttle (staged but idle). Playback then briefly showed a plume (via the `Math.Max(0.01f)` floor) before the next `EngineThrottle` event set the real level — or worse, for engines that never throttled up, showed a persistent ghost plume for an idle engine.
+
+**Fix (recording side):** `EmitEngineSeedEvents` now calls `ShouldSkipZeroThrottleEngineSeed(throttle)` to skip engines with throttle <= 0. These engines are staged but idle — no plume should appear at playback start. The first real `EngineIgnited` or `EngineThrottle` transition event from per-frame polling will correctly start the plume when the player actually throttles up. Skipped engines are logged individually and as a batch count summary.
+
+**Fix (playback side, prior):** `GhostPlaybackLogic` retains the `Math.Max(evt.value, 0.01f)` floor on `EngineIgnited` for backward compatibility with older recordings that already contain `throttle=0` seed events.
 
 **Priority:** Medium — visible flame flash at recording start
 
-**Status:** Open
+**Status:** Fixed
 
 ## 166. R buttons disabled after tree commit — rewind saves consumed
 
