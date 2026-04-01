@@ -129,13 +129,35 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void OrbitsMatch_ArgPeWrapAround360_ReturnsTrue()
+        public void OrbitsMatch_ArgPeWrapAround360_WithinTolerance_ReturnsTrue()
         {
-            // argPe 1° and 359° should be treated as 2° apart (< tolerance at 1° is false, but let's test wrap)
             var a = MakeSegment(0, 1000, sma: 700000, ecc: 0.3, argPe: 0.3);
             var b = MakeSegment(0, 1000, sma: 700000, ecc: 0.3, argPe: 359.8);
             // Diff = 359.5, wrapped = 0.5 < 1.0° tolerance
             Assert.True(SelectiveSpawnUI.OrbitsMatch(a, b));
+        }
+
+        [Fact]
+        public void OrbitsMatch_ArgPeWrapAround360_ExceedsTolerance_ReturnsFalse()
+        {
+            var a = MakeSegment(0, 1000, sma: 700000, ecc: 0.3, argPe: 5);
+            var b = MakeSegment(0, 1000, sma: 700000, ecc: 0.3, argPe: 355);
+            // Diff = 350, wrapped = 10 > 1.0° tolerance
+            Assert.False(SelectiveSpawnUI.OrbitsMatch(a, b));
+        }
+
+        [Fact]
+        public void ComputeDepartureInfo_CurrentUtAtSegmentBoundary_NoDeparture()
+        {
+            // currentUT exactly at segment endUT (inclusive for last segment)
+            var segs = new List<OrbitSegment>
+            {
+                MakeSegment(0, 5000, sma: 700000)
+            };
+            var info = SelectiveSpawnUI.ComputeDepartureInfo(
+                segs, 5000, null, 0, 0, 0, 0, null, 5000);
+            // currentUT = endUT = 5000, still in last segment (inclusive), matches itself
+            Assert.False(info.willDepart);
         }
 
         // ════════════════════════════════════════════════════════════════
