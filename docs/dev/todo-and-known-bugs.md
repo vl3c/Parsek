@@ -1916,11 +1916,13 @@ After rewind, the expanded strip (#164) correctly removes all non-quicksave vess
 1. `SpawnedVesselPersistentId` and `VesselSpawned` are not reset after the strip, so the spawn system thinks the vessel is already spawned and skips re-spawning.
 2. If a vessel IS re-spawned (e.g., at KSC), the next revert may strip it again because its new PID isn't in the quicksave whitelist.
 
-**Fix:** (a) `ResetAllPlaybackState` (or a new post-strip reset) must clear `SpawnedVesselPersistentId` and `VesselSpawned` on all committed recordings after the rewind strip. (b) The strip must distinguish between "vessel from the future that shouldn't exist yet" vs "vessel legitimately spawned by timeline playback at the correct time."
+**Root cause:** On normal revert, `RestoreStandaloneMutableState` restores `SpawnedVesselPersistentId` from the quicksave (line 1390), then `StripOrphanedSpawnedVessels` strips the vessel by name from flightState. The vessel is gone but the PID persists on the recording. `ShouldSpawnAtRecordingEnd` checks `SpawnedVesselPersistentId != 0` (line 2119) and blocks respawning with "already spawned (pid=...)". Same issue on second rewind: new PID assigned on respawn is not in original quicksave whitelist → stripped on next revert, but PID restored from save → blocked again.
+
+**Fix:** Added `ReconcileSpawnStateAfterStrip` in `ParsekScenario`. After all strip operations (both `StripOrphanedSpawnedVessels` and `StripFuturePrelaunchVessels`), collects surviving PIDs from remaining `flightState.protoVessels` and resets `SpawnedVesselPersistentId`, `VesselSpawned`, `SpawnAttempts`, and `SpawnDeathCount` for any recording whose PID is no longer in the surviving set. Called on both normal revert path (after restore + strip) and rewind path (defense-in-depth after `ResetAllPlaybackState` + strips). Pure decision method `ShouldResetSpawnState` extracted for testability.
 
 **Priority:** High — spawned vessels disappear permanently or are removed right after spawn
 
-**Status:** Open
+**Status:** Fixed
 
 ## 165. Engine seed event records throttle=0.00 at recording start
 
@@ -1946,7 +1948,11 @@ When a vessel is spawned at KSC (via `TrySpawnAtRecordingEnd`), the crew reserva
 
 **Priority:** Medium — spawned vessel has wrong crew
 
-**Status:** Open — swap needs to run at spawn time for KSC spawns, not just flight-ready
+**Root cause:** `SwapReservedCrewInFlight` operates on a loaded `Vessel` (FlightGlobals.ActiveVessel) which does not exist in KSC scene. KSC spawns via `TrySpawnAtRecordingEnd` call `RespawnVessel` directly, which unreserves crew but does not swap them with replacements.
+
+**Fix:** Added `CrewReservationManager.SwapReservedCrewInSnapshot` — a pure static method that replaces reserved crew names with their replacement names directly in the vessel snapshot ConfigNode. `TrySpawnAtRecordingEnd` now creates a snapshot copy, applies the swap, and passes the modified copy to `RespawnVessel`. This ensures KSC-spawned vessels have the correct (replacement) crew regardless of whether the player enters the flight scene.
+
+**Status:** Fixed
 
 ## 159. EVA auto-recordings have no rewind save — R button absent
 
