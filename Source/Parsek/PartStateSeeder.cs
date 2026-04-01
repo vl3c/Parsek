@@ -576,13 +576,18 @@ namespace Parsek
 
         /// <summary>
         /// Emits EngineIgnited seed events from activeEngineKeys with throttle values.
+        /// Engines with throttle=0 are skipped — they are staged but not yet producing
+        /// thrust, so no plume should be shown at playback start. The first real
+        /// EngineThrottle or EngineIgnited transition event from per-frame polling will
+        /// correctly start the plume when the player actually throttles up. (#165)
         /// </summary>
-        private static void EmitEngineSeedEvents(
+        internal static void EmitEngineSeedEvents(
             PartTrackingSets sets, List<PartEvent> events,
             double startUT, string logTag, System.Func<uint, string> NameFor)
         {
             if (sets.activeEngineKeys == null) return;
 
+            int skippedZeroThrottle = 0;
             foreach (ulong key in sets.activeEngineKeys)
             {
                 uint pid; int midx;
@@ -590,6 +595,18 @@ namespace Parsek
                 float throttle = 0f;
                 if (sets.lastThrottle != null)
                     sets.lastThrottle.TryGetValue(key, out throttle);
+
+                // Skip engines with zero throttle — they are staged but idle.
+                // Emitting EngineIgnited(0) causes a visible plume flash-off at
+                // playback start because playback briefly shows a plume then
+                // immediately suppresses it. (#165)
+                if (ShouldSkipZeroThrottleEngineSeed(throttle))
+                {
+                    skippedZeroThrottle++;
+                    ParsekLog.Verbose(logTag, $"Seed event skipped: EngineIgnited pid={pid} midx={midx} throttle={throttle.ToString("F2", CultureInfo.InvariantCulture)} (idle engine, #165) part='{NameFor(pid)}'");
+                    continue;
+                }
+
                 events.Add(new PartEvent
                 {
                     ut = startUT,
@@ -601,6 +618,20 @@ namespace Parsek
                 });
                 ParsekLog.Verbose(logTag, $"Seed event: EngineIgnited pid={pid} midx={midx} throttle={throttle.ToString("F2", CultureInfo.InvariantCulture)} part='{NameFor(pid)}'");
             }
+
+            if (skippedZeroThrottle > 0)
+                ParsekLog.Info(logTag, $"Skipped {skippedZeroThrottle} zero-throttle engine seed event(s) (#165)");
+        }
+
+        /// <summary>
+        /// Returns true if an engine seed event with the given throttle should be
+        /// skipped (not emitted). Engines at zero throttle are staged but idle —
+        /// emitting EngineIgnited(0) causes a visible plume flash-off at playback
+        /// start. Pure static method for testability. (#165)
+        /// </summary>
+        internal static bool ShouldSkipZeroThrottleEngineSeed(float throttle)
+        {
+            return throttle <= 0f;
         }
 
         /// <summary>

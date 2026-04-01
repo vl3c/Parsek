@@ -5108,6 +5108,9 @@ namespace Parsek
 
                 try
                 {
+                    // Correct unsafe snapshot situation before spawning (#169)
+                    VesselSpawner.CorrectUnsafeSnapshotSituation(leaf.VesselSnapshot, leaf.TerminalStateValue);
+
                     uint spawnedPid = VesselSpawner.RespawnVessel(leaf.VesselSnapshot);
                     if (spawnedPid != 0)
                     {

@@ -166,6 +166,75 @@ namespace Parsek
         }
 
         // ────────────────────────────────────────────────────────────
+        //  KSC exclusion zone (pure, unit-testable)
+        // ────────────────────────────────────────────────────────────
+
+        /// <summary>KSC launch pad latitude in degrees.</summary>
+        internal const double KscPadLatitude = -0.0972;
+
+        /// <summary>KSC launch pad longitude in degrees.</summary>
+        internal const double KscPadLongitude = -74.5575;
+
+        /// <summary>KSC runway start (west threshold) latitude in degrees.</summary>
+        internal const double KscRunwayLatitude = -0.0502;
+
+        /// <summary>KSC runway start (west threshold) longitude in degrees.</summary>
+        internal const double KscRunwayLongitude = -74.7300;
+
+        /// <summary>
+        /// Default exclusion radius in meters around KSC infrastructure points.
+        /// 50m covers the immediate pad/runway structure without blocking
+        /// legitimate nearby spawns. (#170)
+        /// </summary>
+        internal const double DefaultKscExclusionRadiusMeters = 50.0;
+
+        /// <summary>
+        /// Pure decision: is the given lat/lon within any KSC exclusion zone?
+        /// Checks launch pad and runway start point.
+        /// Uses flat-Earth surface distance approximation (valid for short distances).
+        /// Only meaningful on the home world (Kerbin) — caller must check body.isHomeWorld.
+        /// </summary>
+        internal static bool IsWithinKscExclusionZone(
+            double latitude, double longitude, double bodyRadius, double exclusionRadiusMeters)
+        {
+            double padDist = SurfaceDistance(latitude, longitude, KscPadLatitude, KscPadLongitude, bodyRadius);
+            double runwayDist = SurfaceDistance(latitude, longitude, KscRunwayLatitude, KscRunwayLongitude, bodyRadius);
+
+            bool withinPad = padDist < exclusionRadiusMeters;
+            bool withinRunway = runwayDist < exclusionRadiusMeters;
+            bool withinZone = withinPad || withinRunway;
+
+            string nearest = withinPad ? "pad" : withinRunway ? "runway" : "none";
+            ParsekLog.Verbose(Tag,
+                string.Format(IC,
+                    "IsWithinKscExclusionZone: lat={0} lon={1} padDist={2}m runwayDist={3}m radius={4}m nearest={5} → {6}",
+                    latitude.ToString("F4", IC),
+                    longitude.ToString("F4", IC),
+                    padDist.ToString("F1", IC),
+                    runwayDist.ToString("F1", IC),
+                    exclusionRadiusMeters.ToString("F0", IC),
+                    nearest,
+                    withinZone));
+
+            return withinZone;
+        }
+
+        /// <summary>
+        /// Flat-Earth surface distance between two lat/lon points on a sphere.
+        /// Valid for distances much smaller than body radius.
+        /// </summary>
+        internal static double SurfaceDistance(
+            double lat1, double lon1, double lat2, double lon2, double bodyRadius)
+        {
+            double dLat = (lat1 - lat2) * Math.PI / 180.0;
+            double dLon = (lon1 - lon2) * Math.PI / 180.0;
+            double avgLat = (lat1 + lat2) * 0.5 * Math.PI / 180.0;
+            double dx = dLon * Math.Cos(avgLat) * bodyRadius;
+            double dy = dLat * bodyRadius;
+            return Math.Sqrt(dx * dx + dy * dy);
+        }
+
+        // ────────────────────────────────────────────────────────────
         //  Trajectory walkback (pure, unit-testable)
         // ────────────────────────────────────────────────────────────
 

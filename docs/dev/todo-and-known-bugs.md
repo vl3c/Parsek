@@ -1926,21 +1926,27 @@ After rewind, the expanded strip (#164) correctly removes all non-quicksave vess
 1. `SpawnedVesselPersistentId` and `VesselSpawned` are not reset after the strip, so the spawn system thinks the vessel is already spawned and skips re-spawning.
 2. If a vessel IS re-spawned (e.g., at KSC), the next revert may strip it again because its new PID isn't in the quicksave whitelist.
 
-**Fix:** (a) `ResetAllPlaybackState` (or a new post-strip reset) must clear `SpawnedVesselPersistentId` and `VesselSpawned` on all committed recordings after the rewind strip. (b) The strip must distinguish between "vessel from the future that shouldn't exist yet" vs "vessel legitimately spawned by timeline playback at the correct time."
+**Root cause:** On normal revert, `RestoreStandaloneMutableState` restores `SpawnedVesselPersistentId` from the quicksave (line 1390), then `StripOrphanedSpawnedVessels` strips the vessel by name from flightState. The vessel is gone but the PID persists on the recording. `ShouldSpawnAtRecordingEnd` checks `SpawnedVesselPersistentId != 0` (line 2119) and blocks respawning with "already spawned (pid=...)". Same issue on second rewind: new PID assigned on respawn is not in original quicksave whitelist → stripped on next revert, but PID restored from save → blocked again.
+
+**Fix:** Added `ReconcileSpawnStateAfterStrip` in `ParsekScenario`. After all strip operations (both `StripOrphanedSpawnedVessels` and `StripFuturePrelaunchVessels`), collects surviving PIDs from remaining `flightState.protoVessels` and resets `SpawnedVesselPersistentId`, `VesselSpawned`, `SpawnAttempts`, and `SpawnDeathCount` for any recording whose PID is no longer in the surviving set. Called on both normal revert path (after restore + strip) and rewind path (defense-in-depth after `ResetAllPlaybackState` + strips). Pure decision method `ShouldResetSpawnState` extracted for testability.
 
 **Priority:** High — spawned vessels disappear permanently or are removed right after spawn
 
-**Status:** Open
+**Status:** Fixed
 
 ## 165. Engine seed event records throttle=0.00 at recording start
 
 When recording starts on the launchpad with staged engines, `CacheEngineModules` seeds `EngineIgnited` with `throttle=0.00` (the current value before the player throttles up). During playback, the ghost processes `EngineIgnited(0.00)` → plume off → then `EngineThrottle(1.00)` a few frames later → plume on. Creates a visible flame flash-off at the start of every playback cycle.
 
-**Fix:** Seed events should either omit the throttle value (let playback start with default) or the playback engine should not suppress plumes for `EngineIgnited` events with `throttle=0`.
+**Root cause:** `PartStateSeeder.EmitEngineSeedEvents` unconditionally emitted `EngineIgnited` seed events for all active engines, including those at zero throttle (staged but idle). Playback then briefly showed a plume (via the `Math.Max(0.01f)` floor) before the next `EngineThrottle` event set the real level — or worse, for engines that never throttled up, showed a persistent ghost plume for an idle engine.
+
+**Fix (recording side):** `EmitEngineSeedEvents` now calls `ShouldSkipZeroThrottleEngineSeed(throttle)` to skip engines with throttle <= 0. These engines are staged but idle — no plume should appear at playback start. The first real `EngineIgnited` or `EngineThrottle` transition event from per-frame polling will correctly start the plume when the player actually throttles up. Skipped engines are logged individually and as a batch count summary.
+
+**Fix (playback side, prior):** `GhostPlaybackLogic` retains the `Math.Max(evt.value, 0.01f)` floor on `EngineIgnited` for backward compatibility with older recordings that already contain `throttle=0` seed events.
 
 **Priority:** Medium — visible flame flash at recording start
 
-**Status:** Open
+**Status:** Fixed
 
 ## 166. R buttons disabled after tree commit — rewind saves consumed
 
@@ -1956,7 +1962,11 @@ When a vessel is spawned at KSC (via `TrySpawnAtRecordingEnd`), the crew reserva
 
 **Priority:** Medium — spawned vessel has wrong crew
 
-**Status:** Open — swap needs to run at spawn time for KSC spawns, not just flight-ready
+**Root cause:** `SwapReservedCrewInFlight` operates on a loaded `Vessel` (FlightGlobals.ActiveVessel) which does not exist in KSC scene. KSC spawns via `TrySpawnAtRecordingEnd` call `RespawnVessel` directly, which unreserves crew but does not swap them with replacements.
+
+**Fix:** Added `CrewReservationManager.SwapReservedCrewInSnapshot` — a pure static method that replaces reserved crew names with their replacement names directly in the vessel snapshot ConfigNode. `TrySpawnAtRecordingEnd` now creates a snapshot copy, applies the swap, and passes the modified copy to `RespawnVessel`. This ensures KSC-spawned vessels have the correct (replacement) crew regardless of whether the player enters the flight scene.
+
+**Status:** Fixed
 
 ## 159. EVA auto-recordings have no rewind save — R button absent
 
@@ -2030,6 +2040,36 @@ Areas identified by code path simulation that lack unit tests:
 **Priority:** Low — test infrastructure
 
 **Status:** Partially fixed — item 4 done (7 tests). Items 1-3 require Unity runtime, deferred to in-game testing.
+
+## ~~169. EVA vessel spawned FLYING in atmosphere destroyed by KSP on-rails pressure check~~
+
+EVA vessel spawned with `sit=FLYING` at low altitude is immediately destroyed by KSP's stock on-rails atmospheric pressure check (101.3 kPa at sea level). The vessel never loads into physics — destroyed the instant it exists on-rails. Crew member killed (Dead status). Data corruption.
+
+**Root cause:** EVA vessel snapshot captures `sit=FLYING` during recording (kerbal was mid-EVA). Terminal state is correctly set to `Landed` (kerbal landed safely). `ShouldSpawnAtRecordingEnd` has a `terminalOverridesUnsafe` path that allows the spawn to proceed when terminal state is Landed/Splashed, bypassing the `IsSnapshotSituationUnsafe` check. However, the snapshot's `sit` field is never corrected — `RespawnVessel` spawns the vessel with `sit=FLYING`. When the vessel is outside physics range (~2.3km from active vessel), KSP places it on-rails and its atmospheric pressure check destroys it.
+
+**Fix:** Added `VesselSpawner.CorrectUnsafeSnapshotSituation(snapshot, terminalState)` — corrects FLYING/SUB_ORBITAL to LANDED/SPLASHED when terminal state indicates the vessel safely reached the surface. Called before `RespawnVessel` in all three spawn paths: `SpawnOrRecoverIfTooClose` (Flight), `TrySpawnAtRecordingEnd` (KSC), and `SpawnTreeLeaves` (Flight). Pure decision logic extracted as `ComputeCorrectedSituation` for testability. 16 unit tests.
+
+**Status:** Fixed
+
+## 170. Vessel spawned 4m from launch pad collides with infrastructure, chain-explodes player's rocket
+
+A vessel (Jumping Flea) was spawned `sit=LANDED` at only 4m from the launch pad. The bounding box overlap check passed (small vessel bbox didn't overlap the GDLV3's bbox at 4m), but the vessel landed inside the launch pad's physical collider structure. Chain explosion destroyed both the spawned vessel and the player's active rocket.
+
+Additionally, the spawned vessel had a dead crew member (Minidou Kerman, killed by bug #169 moments earlier) because `RemoveDeadCrewFromSnapshot` skipped reserved crew regardless of death status.
+
+**Root cause:** Three compounding issues:
+1. No KSC infrastructure exclusion zone — `SpawnCollisionDetector` only checks against `FlightGlobals.Vessels`, not KSC structures
+2. Bbox check too permissive at short range — 4m passes the vessel-vs-vessel bbox check but is inside the launch pad collider mesh
+3. Dead reserved crew spawned — `RemoveDeadCrewFromSnapshot` unconditionally kept reserved crew, even when Dead
+
+**Fix:**
+1. Added `IsWithinKscExclusionZone` pure static method to `SpawnCollisionDetector` — 50m radius surface distance check around KSC launch pad and runway start point. Integrated into `SpawnOrRecoverIfTooClose` before bbox check; only active on `body.isHomeWorld`. Uses same collision-block-count / abandon pattern as bbox overlap. Spawning further down the runway is allowed.
+2. Fixed `RemoveDeadCrewFromSnapshot` to remove reserved crew who are genuinely Dead (reservation bypass now only applies to non-Dead reserved crew). Dead status overrides reservation.
+3. Added `ShouldBlockSpawnForDeadCrew` guard — if ALL crew in the snapshot are dead, the spawn is abandoned entirely (prevents spawning empty command pods).
+
+**Priority:** High — chain explosion destroys player's active rocket
+
+**Status:** Fixed
 
 # In-Game Tests
 

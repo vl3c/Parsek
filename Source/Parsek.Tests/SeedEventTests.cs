@@ -485,21 +485,106 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void EmitSeedEvents_ActiveEngine_NoThrottleEntry_DefaultsToZero()
+        public void EmitSeedEvents_ActiveEngine_NoThrottleEntry_SkippedAsZeroThrottle()
         {
+            // #165: engines with no throttle entry default to 0 and should be skipped
             var sets = MakeEmptySets();
             uint pid = 4100u;
             int midx = 0;
             ulong key = FlightRecorder.EncodeEngineKey(pid, midx);
             sets.activeEngineKeys.Add(key);
-            // No lastThrottle entry — should default to 0
+            // No lastThrottle entry — defaults to 0, should be skipped (#165)
             var names = new Dictionary<uint, string> { { pid, "solidBooster" } };
 
             var result = PartStateSeeder.EmitSeedEvents(sets, names, 19500.0, "Test");
 
+            Assert.DoesNotContain(result, e => e.eventType == PartEventType.EngineIgnited && e.partPersistentId == pid);
+            Assert.Contains(logLines, l => l.Contains("Seed event skipped") && l.Contains("pid=4100") && l.Contains("#165"));
+        }
+
+        [Fact]
+        public void EmitSeedEvents_ActiveEngine_ZeroThrottle_SkippedWithLog()
+        {
+            // #165: engine ignited at throttle=0 (staged but idle on pad) should NOT
+            // emit a seed event — prevents plume flash-off at playback start
+            var sets = MakeEmptySets();
+            uint pid = 4200u;
+            int midx = 0;
+            ulong key = FlightRecorder.EncodeEngineKey(pid, midx);
+            sets.activeEngineKeys.Add(key);
+            sets.lastThrottle[key] = 0f; // explicitly zero throttle
+            var names = new Dictionary<uint, string> { { pid, "liquidEngine" } };
+
+            var result = PartStateSeeder.EmitSeedEvents(sets, names, 19600.0, "Test");
+
+            Assert.DoesNotContain(result, e => e.eventType == PartEventType.EngineIgnited && e.partPersistentId == pid);
+            Assert.Contains(logLines, l => l.Contains("Seed event skipped") && l.Contains("pid=4200") && l.Contains("throttle=0") && l.Contains("#165"));
+            Assert.Contains(logLines, l => l.Contains("Skipped 1 zero-throttle engine seed"));
+        }
+
+        [Fact]
+        public void EmitSeedEvents_ActiveEngine_SmallPositiveThrottle_Emitted()
+        {
+            // #165: even a tiny positive throttle should emit the seed event
+            var sets = MakeEmptySets();
+            uint pid = 4300u;
+            int midx = 0;
+            ulong key = FlightRecorder.EncodeEngineKey(pid, midx);
+            sets.activeEngineKeys.Add(key);
+            sets.lastThrottle[key] = 0.01f;
+            var names = new Dictionary<uint, string> { { pid, "ionEngine" } };
+
+            var result = PartStateSeeder.EmitSeedEvents(sets, names, 19700.0, "Test");
+
             Assert.Single(result);
             Assert.Equal(PartEventType.EngineIgnited, result[0].eventType);
-            Assert.Equal(0f, result[0].value);
+            Assert.Equal(pid, result[0].partPersistentId);
+            Assert.Equal(0.01f, result[0].value);
+        }
+
+        [Fact]
+        public void EmitSeedEvents_MultipleEngines_MixedThrottle_OnlyNonZeroEmitted()
+        {
+            // #165: two engines — one at throttle=0 (skipped), one at throttle=0.5 (emitted)
+            var sets = MakeEmptySets();
+            uint pidA = 4400u;
+            uint pidB = 4500u;
+            ulong keyA = FlightRecorder.EncodeEngineKey(pidA, 0);
+            ulong keyB = FlightRecorder.EncodeEngineKey(pidB, 0);
+            sets.activeEngineKeys.Add(keyA);
+            sets.activeEngineKeys.Add(keyB);
+            sets.lastThrottle[keyA] = 0f;    // idle
+            sets.lastThrottle[keyB] = 0.5f;  // thrusting
+            var names = new Dictionary<uint, string>
+            {
+                { pidA, "boosterIdle" },
+                { pidB, "boosterActive" },
+            };
+
+            var result = PartStateSeeder.EmitSeedEvents(sets, names, 19800.0, "Test");
+
+            // Only the non-zero engine should have a seed event
+            Assert.Single(result.FindAll(e => e.eventType == PartEventType.EngineIgnited));
+            Assert.Equal(pidB, result.Find(e => e.eventType == PartEventType.EngineIgnited).partPersistentId);
+            Assert.Equal(0.5f, result.Find(e => e.eventType == PartEventType.EngineIgnited).value);
+            Assert.Contains(logLines, l => l.Contains("Skipped 1 zero-throttle engine seed"));
+        }
+
+        #endregion
+
+        #region ShouldSkipZeroThrottleEngineSeed — pure method (#165)
+
+        [Theory]
+        [InlineData(0f, true)]
+        [InlineData(-0.01f, true)]
+        [InlineData(-1f, true)]
+        [InlineData(0.001f, false)]
+        [InlineData(0.01f, false)]
+        [InlineData(0.5f, false)]
+        [InlineData(1f, false)]
+        public void ShouldSkipZeroThrottleEngineSeed_CorrectForThrottleValues(float throttle, bool expectedSkip)
+        {
+            Assert.Equal(expectedSkip, PartStateSeeder.ShouldSkipZeroThrottleEngineSeed(throttle));
         }
 
         [Fact]
