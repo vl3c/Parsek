@@ -1258,6 +1258,133 @@ namespace Parsek.Tests
                 rec, null, new List<RecordingTree>(), idx => true);
             Assert.Equal(-1, result);
         }
+
+        // --- #158: PID-matched continuation without ghost ---
+
+        [Fact]
+        public void TreeBranch_PidMatchNoGhost_SuppressesDebrisFallback()
+        {
+            // Continuation (PID=100) has no ghost, debris (PID=200) does.
+            // Should return -1, NOT the debris index.
+            var bp = new BranchPoint
+            {
+                Id = "bp1",
+                ChildRecordingIds = new List<string> { "child-main", "child-debris" }
+            };
+            var tree = new RecordingTree
+            {
+                Id = "t1",
+                TreeName = "Test",
+                BranchPoints = new List<BranchPoint> { bp }
+            };
+
+            var recs = new List<Recording>
+            {
+                MakeRec("root", vesselPid: 100, treeId: "t1", childBpId: "bp1"),
+                MakeRec("child-main", vesselPid: 100, treeId: "t1"),     // no ghost
+                MakeRec("child-debris", vesselPid: 200, treeId: "t1"),   // has ghost
+            };
+
+            // Only debris has a ghost
+            int result = GhostPlaybackLogic.FindNextWatchTarget(
+                recs[0], recs, new List<RecordingTree> { tree }, idx => idx == 2);
+            Assert.Equal(-1, result);
+        }
+
+        [Fact]
+        public void TreeBranch_PidMatchNoGhost_RecursiveDescentFindsDeeper()
+        {
+            // Continuation (PID=100) has no ghost but has a child BP leading to
+            // a deeper recording (PID=100) that DOES have a ghost.
+            var bp1 = new BranchPoint
+            {
+                Id = "bp1",
+                ChildRecordingIds = new List<string> { "child-main", "child-debris" }
+            };
+            var bp2 = new BranchPoint
+            {
+                Id = "bp2",
+                ChildRecordingIds = new List<string> { "grandchild-main" }
+            };
+            var tree = new RecordingTree
+            {
+                Id = "t1",
+                TreeName = "Test",
+                BranchPoints = new List<BranchPoint> { bp1, bp2 }
+            };
+
+            var recs = new List<Recording>
+            {
+                MakeRec("root", vesselPid: 100, treeId: "t1", childBpId: "bp1"),
+                MakeRec("child-main", vesselPid: 100, treeId: "t1", childBpId: "bp2"),     // no ghost, but has child BP
+                MakeRec("child-debris", vesselPid: 200, treeId: "t1"),                      // has ghost
+                MakeRec("grandchild-main", vesselPid: 100, treeId: "t1"),                   // has ghost
+            };
+
+            // Debris (idx=2) and grandchild (idx=3) have ghosts, continuation (idx=1) does not
+            int result = GhostPlaybackLogic.FindNextWatchTarget(
+                recs[0], recs, new List<RecordingTree> { tree },
+                idx => idx == 2 || idx == 3);
+            Assert.Equal(3, result); // recursive descent found grandchild
+        }
+
+        [Fact]
+        public void TreeBranch_PidMatchNoGhost_RecursiveDeadEnd_ReturnsMinusOne()
+        {
+            // Continuation (PID=100) has no ghost AND no children.
+            // Debris (PID=200) has ghost. Should return -1 (don't follow debris).
+            var bp = new BranchPoint
+            {
+                Id = "bp1",
+                ChildRecordingIds = new List<string> { "child-main", "child-debris" }
+            };
+            var tree = new RecordingTree
+            {
+                Id = "t1",
+                TreeName = "Test",
+                BranchPoints = new List<BranchPoint> { bp }
+            };
+
+            var recs = new List<Recording>
+            {
+                MakeRec("root", vesselPid: 100, treeId: "t1", childBpId: "bp1"),
+                MakeRec("child-main", vesselPid: 100, treeId: "t1"),     // no ghost, no children
+                MakeRec("child-debris", vesselPid: 200, treeId: "t1"),   // has ghost
+            };
+
+            int result = GhostPlaybackLogic.FindNextWatchTarget(
+                recs[0], recs, new List<RecordingTree> { tree },
+                idx => idx == 2);
+            Assert.Equal(-1, result);
+        }
+
+        [Fact]
+        public void TreeBranch_PidMatchWithGhost_StillPreferred()
+        {
+            // Both continuation and debris have ghosts — PID match wins as before.
+            var bp = new BranchPoint
+            {
+                Id = "bp1",
+                ChildRecordingIds = new List<string> { "child-debris", "child-main" }
+            };
+            var tree = new RecordingTree
+            {
+                Id = "t1",
+                TreeName = "Test",
+                BranchPoints = new List<BranchPoint> { bp }
+            };
+
+            var recs = new List<Recording>
+            {
+                MakeRec("root", vesselPid: 100, treeId: "t1", childBpId: "bp1"),
+                MakeRec("child-debris", vesselPid: 200, treeId: "t1"),
+                MakeRec("child-main", vesselPid: 100, treeId: "t1"),
+            };
+
+            int result = GhostPlaybackLogic.FindNextWatchTarget(
+                recs[0], recs, new List<RecordingTree> { tree }, idx => true);
+            Assert.Equal(2, result);
+        }
     }
 
     #endregion
