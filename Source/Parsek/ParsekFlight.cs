@@ -2801,6 +2801,14 @@ namespace Parsek
         /// Pure classification of vessel destruction handling mode.
         /// Matches the branching order in OnVesselWillDestroy: TreeDeferred is checked first,
         /// then StandaloneMerge (non-tree), then TreeAllLeavesCheck (tree with active vessel).
+        ///
+        /// The original code had three independent if-blocks, but the branches are mutually
+        /// exclusive by design: TreeDeferred requires shouldDeferForTree (vessel in BackgroundMap),
+        /// while StandaloneMerge/TreeAllLeavesCheck require isActiveVessel. The active vessel
+        /// is never in BackgroundMap, so at most one branch fires.
+        ///
+        /// TreeAllLeavesCheck intentionally does not require isRecording — the original checked
+        /// recorder != null (embedded in vesselDestroyedDuringRecording) but not IsRecording.
         /// </summary>
         internal static DestructionMode ClassifyVesselDestruction(
             bool hasActiveTree,
@@ -5784,7 +5792,7 @@ namespace Parsek
                 bool hasData = rec.Points.Count >= 2 || rec.OrbitSegments.Count > 0 || rec.SurfacePos.HasValue;
 
                 bool isActiveChain = chainManager.ActiveChainId != null && rec.ChainId == chainManager.ActiveChainId;
-                bool chainLoopOrDisabled = rec.ChainId != null &&
+                bool chainLoopOrDisabled = rec.IsChainRecording &&
                     (RecordingStore.IsChainLooping(rec.ChainId)
                      || RecordingStore.IsChainFullyDisabled(rec.ChainId));
 

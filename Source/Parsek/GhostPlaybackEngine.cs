@@ -24,6 +24,8 @@ namespace Parsek
         internal readonly Dictionary<int, GhostPlaybackState> ghostStates = new Dictionary<int, GhostPlaybackState>();
 
         // Overlap ghosts: older cycle ghosts still alive due to negative loop interval.
+        // NOTE: Overlap playback paths use raw StartUT/EndUT, not EffectiveLoop bounds.
+        // Loop range narrowing (LoopStartUT/LoopEndUT) only affects the primary loop path.
         internal readonly Dictionary<int, List<GhostPlaybackState>> overlapGhosts = new Dictionary<int, List<GhostPlaybackState>>();
 
         // Loop phase offsets: shifted loop phase for Watch mode targeting.
@@ -894,13 +896,17 @@ namespace Parsek
             out bool inPauseWindow,
             int recIdx = -1)
         {
-            loopUT = traj != null ? EffectiveLoopStartUT(traj) : 0;
             cycleIndex = 0;
             inPauseWindow = false;
-            if (traj == null || traj.Points == null || traj.Points.Count < 2) return false;
+            if (traj == null || traj.Points == null || traj.Points.Count < 2)
+            {
+                loopUT = 0;
+                return false;
+            }
 
             double loopStart = EffectiveLoopStartUT(traj);
             double loopEnd = EffectiveLoopEndUT(traj);
+            loopUT = loopStart;
             if (currentUT < loopStart) return false;
 
             double duration = loopEnd - loopStart;

@@ -172,6 +172,53 @@ namespace Parsek.Tests
             Assert.Equal(0u, loaded.LoopAnchorVesselId);
         }
 
+        [Fact]
+        public void LoopRange_Tree_SaveLoad_RoundTrip()
+        {
+            var source = new Recording
+            {
+                RecordingId = "tree-loop-range-test",
+                LoopStartUT = 150.0,
+                LoopEndUT = 200.0,
+            };
+            var node = new ConfigNode("RECORDING");
+            RecordingTree.SaveRecordingInto(node, source);
+
+            var loaded = new Recording();
+            RecordingTree.LoadRecordingFrom(node, loaded);
+
+            Assert.Equal(150.0, loaded.LoopStartUT);
+            Assert.Equal(200.0, loaded.LoopEndUT);
+        }
+
+        [Fact]
+        public void LoopRange_Tree_NaN_NotWritten()
+        {
+            var source = new Recording
+            {
+                RecordingId = "tree-no-loop-range",
+                LoopStartUT = double.NaN,
+                LoopEndUT = double.NaN,
+            };
+            var node = new ConfigNode("RECORDING");
+            RecordingTree.SaveRecordingInto(node, source);
+
+            Assert.Null(node.GetValue("loopStartUT"));
+            Assert.Null(node.GetValue("loopEndUT"));
+        }
+
+        [Fact]
+        public void LoopRange_Tree_BackwardCompat_MissingKey_DefaultsNaN()
+        {
+            var node = new ConfigNode("RECORDING");
+            node.AddValue("recordingId", "tree-compat-test");
+            var loaded = new Recording();
+            RecordingTree.LoadRecordingFrom(node, loaded);
+
+            Assert.True(double.IsNaN(loaded.LoopStartUT));
+            Assert.True(double.IsNaN(loaded.LoopEndUT));
+        }
+
         // --- ApplyPersistenceArtifactsFrom ---
 
         [Fact]

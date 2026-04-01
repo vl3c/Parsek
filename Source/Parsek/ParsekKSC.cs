@@ -669,13 +669,17 @@ namespace Parsek
             out long cycleIndex,
             out bool inPauseWindow)
         {
-            loopUT = rec != null ? GhostPlaybackEngine.EffectiveLoopStartUT(rec) : 0;
             cycleIndex = 0;
             inPauseWindow = false;
-            if (rec == null || rec.Points == null || rec.Points.Count < 2) return false;
+            if (rec == null || rec.Points == null || rec.Points.Count < 2)
+            {
+                loopUT = 0;
+                return false;
+            }
 
             double loopStart = GhostPlaybackEngine.EffectiveLoopStartUT(rec);
             double loopEnd = GhostPlaybackEngine.EffectiveLoopEndUT(rec);
+            loopUT = loopStart;
             if (currentUT < loopStart) return false;
 
             double duration = loopEnd - loopStart;
