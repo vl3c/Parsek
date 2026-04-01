@@ -810,6 +810,10 @@ namespace Parsek
                             $"no matches in snapshot for #{recIdx} \"{rec.VesselName}\"");
                 }
 
+                // Correct unsafe snapshot situation before spawning (#169).
+                // Same guard as SpawnOrRecoverIfTooClose — prevents on-rails pressure destruction.
+                VesselSpawner.CorrectUnsafeSnapshotSituation(spawnSnapshot, rec.TerminalStateValue);
+
                 uint spawnedPid = VesselSpawner.RespawnVessel(spawnSnapshot);
                 if (spawnedPid != 0)
                 {
