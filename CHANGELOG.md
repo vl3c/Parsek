@@ -4,6 +4,22 @@ All notable changes to Parsek are documented here.
 
 ---
 
+## 0.5.4
+
+### Features
+
+- **T98: Per-phase loop range for tree recordings.** Tree recordings can now loop a specific flight phase (reentry, landing, docking approach) instead of the entire trajectory. New `LoopStartUT`/`LoopEndUT` fields on Recording narrow the loop range. Engine, save/load, and optimizer updated. Backward compatible (NaN defaults = existing behavior).
+
+### Improvements
+
+- **T98: Policy modularity refactor.** Migrated all scattered `TreeId != null` / `ChainId != null` policy checks to `IsTreeRecording` / `IsChainRecording` / `ManagesOwnResources` query properties. Extracted `ClassifyVesselDestruction` pure static method from `OnVesselWillDestroy`. Added `ShouldSuppressBoundarySplit` named decision method.
+
+### Documentation
+
+- **T98: Chain vs tree mode architecture.** Added Section 9A.6 documenting how chain and tree modes diverge (segmentation, resources, save/load, optimization) and converge (same Recording class, IPlaybackTrajectory abstraction). Added Section 10.6 documenting the loop range design.
+
+---
+
 ## 0.5.3
 
 ### Features
