@@ -28,6 +28,8 @@ There is no deletion event. Parsek doesn't delete recordings. KSP load handles r
 - `GetAvailableResources(ut)` → current balances at a point in time
 - `GetRecordingDeltas(recordingId)` → list of game actions for UI display
 
+**Implementation (v0.3):** The actual API is `LedgerOrchestrator.OnRecordingCommitted(recordingId, startUT, endUT)` for the commit trigger. `GetAvailableResources` and `GetRecordingDeltas` are not yet implemented as named methods — module query methods (`FundsModule.GetAvailableFunds()`, `ScienceModule.GetAvailableScience()`, etc.) provide this data.
+
 ### 1.3 Three kinds of game actions
 
 **Earning actions** are associated with a recording ID. Science collected during a mission, funds from vessel recovery, reputation from milestones, kerbal assignments. Tagged with the recording that produced them. Removed from the timeline only if the recording is removed (which only happens via KSP load/hard reset — Parsek has no delete operation).
@@ -108,8 +110,9 @@ Each module owns its portion of the walk:
 
 | Tier | Modules | Role |
 |------|---------|------|
-| First (independent) | Science, Milestones, Contracts, Kerbals | Determine what was earned, achieved, or assigned. Compute effective values. |
+| First (independent) | Science, Milestones, Contracts | Determine what was earned, achieved, or assigned. Compute effective values. |
 | Transform | Strategies | Apply active strategy transforms to effective contract rewards before second-tier crediting. |
+| Separate | Kerbals | Reservation/chains from recording snapshots (see 9.15) |
 | Second (dependent) | Funds, Reputation | Aggregate effective (and transformed) earnings and spendings from first-tier modules. |
 | Parallel | Facilities | Derives building state and feeds repair/upgrade costs into Funds. |
 
@@ -223,9 +226,9 @@ The ledger file contains all game actions across all resource modules — scienc
 
 ### 2.2 Data flow
 
-**During flight:** KSP callbacks (e.g. `OnScienceReceived`) fire as events happen. Raw, rich event data is written to the recording's sidecar file in real time. The ledger file is not touched during flight.
+**During flight:** KSP callbacks (e.g. `OnScienceReceived`) fire as events happen. Event data is captured by `GameStateRecorder` into `GameStateStore` (in-memory). The ledger file is not touched during flight.
 
-**On commit:** Parsek extracts the fields relevant to the ledger from the sidecar (e.g. `scienceAwarded`, `subjectId`, `method`) and appends new earning entries to the ledger file. The sidecar retains its rich copy as a passive backup — never read during recalculation.
+**On commit:** `GameStateEventConverter` transforms `GameStateStore` events into `GameAction` entries and appends them to the ledger. The `GameStateStore` events are the source; no sidecar files are involved for game actions.
 
 **On recalculation:** The ledger file is the sole data source. All entries are loaded, sorted, and walked. No sidecar files are opened.
 
@@ -397,7 +400,7 @@ The `scienceAwarded` value already has the transmit scalar baked in. It is the p
 
 ```
 ScienceEarning
-  ut:                float — when it happened
+  ut:                double — when it happened
   recordingId:       string — which recording earned this
   subjectId:         string — full KSP subject string (e.g. "crewReport@MunSrfLandedMidlands")
   experimentId:      string — the experiment type (e.g. "crewReport")
@@ -410,7 +413,7 @@ ScienceEarning
   subjectMaxValue:   float — total science this subject can yield (scienceCap)
 ```
 
-`scienceAwarded` is immutable. Written once at recording time. What KSP reported. Never changes. Captured in the sidecar during flight, extracted into the ledger file on commit.
+`scienceAwarded` is immutable. Written once at recording time. What KSP reported. Never changes. Captured by `GameStateRecorder` during flight, converted to ledger entries on commit.
 
 `effectiveScience` is derived. Always computed, never stored. What the ledger actually credits to the budget after applying subject caps against other recordings on the timeline. Recalculated from scratch every time the timeline changes.
 
@@ -420,7 +423,7 @@ ScienceEarning
 
 ```
 ScienceSpending
-  ut:          float — frozen KSC time
+  ut:          double — frozen KSC time
   sequence:    int — order of unlock within that UT (0, 1, 2...)
   nodeId:      string — tech tree node ID (e.g. "survivability")
   cost:        float — science points spent
@@ -568,7 +571,7 @@ Player fast-forwards to UT=1100.
 
 **Hard cap vs KSP's diminishing curve.** The recalculation uses a hard cap (`scienceCap`) rather than simulating KSP's asymptotic diminishing returns curve. This is conservative — it may sometimes credit slightly more than KSP's curve would in a sequential playthrough, but never more than `scienceCap`. Simulating the exact curve would require replacing the clean hard-cap walk with curve simulation across recordings, adding significant complexity for marginal accuracy. The hard cap is correct in the way that matters: no overcredit, no paradox.
 
-**Science Archive (R&D building).** KSP's Research and Development building has a Science Archive tab that displays per-subject progress bars based on `ResearchAndDevelopment.Instance` state. After recalculation, Parsek patches the per-subject collected totals so the Science Archive reflects the recalculated timeline (see section 3.1). Without this patching, the player would see stale progress bars that don't account for retroactive recordings.
+**Science Archive (R&D building).** KSP's Research and Development building has a Science Archive tab that displays per-subject progress bars based on `ResearchAndDevelopment.Instance` state. After recalculation, Parsek should patch the per-subject collected totals so the Science Archive reflects the recalculated timeline. **Note (v0.3): per-subject patching is not yet implemented — only the total science balance is patched.** (see section 3.1). Without this patching, the player would see stale progress bars that don't account for retroactive recordings.
 
 ---
 
@@ -619,14 +622,14 @@ All earning values are immutable — what KSP reported at recording time. No cur
 
 ```
 FundsEarning (recording-associated or first-tier-derived)
-  ut:             float
+  ut:             double
   recordingId:    string or NULL — NULL if derived from milestone/contract action
   fundsAwarded:   float — amount earned (IMMUTABLE)
   source:         enum — CONTRACT_COMPLETE | CONTRACT_ADVANCE | RECOVERY |
                          MILESTONE | OTHER
 
 FundsSpending (recording-associated or KSC spending action)
-  ut:             float
+  ut:             double
   sequence:       int — order within same UT (for KSC spendings)
   recordingId:    string or NULL — non-NULL for vessel builds, NULL for KSC spendings
   fundsSpent:     float — amount spent (IMMUTABLE)
@@ -703,7 +706,7 @@ RecalculateFunds():
 
 The `affordable` flag is defensive. With proper seeding and the reservation system preventing overspending, it should always be true. If it's false, it indicates a bug or data corruption.
 
-**Implementation handles more action types:** Beyond `FundsEarning` and `FundsSpending`, the walk also processes: `ContractAccept` (advance payment), `ContractComplete` (rewards, using TransformedFundsReward), `ContractFail`/`ContractCancel` (penalties), `FacilityUpgrade`/`FacilityRepair` (costs via FacilityCost field), `KerbalHire` (hiring cost), and `StrategyActivate` (setup cost). All spending-type actions are included in the reservation total.
+**Implementation handles more action types:** Beyond `FundsEarning` and `FundsSpending`, the walk also processes: `ContractAccept` (advance payment), `ContractComplete` (rewards, using TransformedFundsReward, see section 11.4), `ContractFail`/`ContractCancel` (penalties), `FacilityUpgrade`/`FacilityRepair` (costs via FacilityCost field), `KerbalHire` (hiring cost), and `StrategyActivate` (setup cost). All spending-type actions are included in the reservation total.
 
 ### 5.9 UI patching
 
@@ -718,7 +721,7 @@ This means the KSP toolbar funds display always reflects what the player can act
 
 KSP deducts vessel cost at launch. The recording captures this:
 
-- The vessel cost is recorded in the sidecar during flight (at launch time).
+- The vessel cost is captured during flight (at launch time).
 - On commit, the cost is extracted into the ledger as a `FundsSpending` with `source=VESSEL_BUILD` and the recording's `recordingId`.
 - The spending UT is the recording's launch UT.
 
@@ -729,7 +732,7 @@ The player doesn't choose the cost — it's determined by the parts on the vesse
 When a vessel is recovered, KSP returns a percentage of the vessel's part costs based on distance from KSC (closer = higher percentage). The recovery value is:
 
 - Captured by KSP's `OnVesselRecoveryProcessing` callback.
-- Written to the sidecar during the recording.
+- Captured during the recording.
 - Extracted into the ledger as a `FundsEarning` with `source=RECOVERY` on commit.
 - The earning UT is the recovery UT.
 
@@ -859,13 +862,13 @@ If the ledger only stored and summed nominal values, per-event effective values 
 
 ```
 ReputationEarning (recording-associated or first-tier-derived)
-  ut:             float
+  ut:             double
   recordingId:    string or NULL — NULL if derived from a milestone/contract action
   nominalRep:     float — reward amount before curve (IMMUTABLE)
   source:         enum — CONTRACT_COMPLETE | MILESTONE | OTHER
 
 ReputationPenalty (recording-associated or spending action)
-  ut:             float
+  ut:             double
   recordingId:    string or NULL — NULL for KSC actions (contract decline)
   nominalPenalty: float — penalty amount before curve (IMMUTABLE)
   source:         enum — CONTRACT_FAIL | CONTRACT_DECLINE | KERBAL_DEATH | STRATEGY | OTHER
@@ -877,7 +880,7 @@ Milestone and contract rep values flow in from first-tier modules. The reputatio
 
 ### 6.5 Reputation recalculation
 
-Reputation is a second-tier module. It runs after first-tier modules (Milestones, Contracts, Kerbals) have set their effective flags.
+Reputation is a second-tier module. It runs after first-tier modules (Milestones, Contracts) have set their effective flags.
 
 ```
 RecalculateReputation():
@@ -962,7 +965,7 @@ Milestones are triggered automatically during flight by game events. The player 
 
 ```
 MilestoneAchievement (recording-associated action)
-  ut:             float — when it was achieved during flight
+  ut:             double — when it was achieved during flight
   recordingId:    string — which recording triggered it
   milestoneId:    string — e.g. "FirstOrbitKerbin" / "FirstMunLanding"
   fundsAwarded:   float — what KSP awarded (IMMUTABLE, career only, 0 in Science mode)
@@ -1115,7 +1118,7 @@ Effective completion rewards (funds, rep, science) flow into second-tier modules
 
 ```
 ContractAccept (KSC action — consumes a slot)
-  ut:             float — frozen KSC time
+  ut:             double — frozen KSC time
   sequence:       int — order within same UT
   contractId:     string — KSP's unique contract instance ID
   contractType:   string — e.g. "ExploreBody", "PartTest", "TourismContract"
@@ -1124,7 +1127,7 @@ ContractAccept (KSC action — consumes a slot)
   deadlineUT:     float or NULL — expiration UT, NULL if no deadline
 
 ContractComplete (recording-associated earning)
-  ut:             float — when completion conditions were met during flight
+  ut:             double — when completion conditions were met during flight
   recordingId:    string
   contractId:     string
   fundsReward:    float — IMMUTABLE
@@ -1132,14 +1135,14 @@ ContractComplete (recording-associated earning)
   scienceReward:  float — IMMUTABLE (some contracts award science)
 
 ContractFail (recording-associated or timeline event)
-  ut:             float — when failure occurred
+  ut:             double — when failure occurred
   recordingId:    string or NULL — NULL if deadline expiration
   contractId:     string
   fundsPenalty:   float — IMMUTABLE
   repPenalty:     float — IMMUTABLE (nominal, pre-curve)
 
 ContractCancel (KSC action)
-  ut:             float — frozen KSC time
+  ut:             double — frozen KSC time
   sequence:       int
   contractId:     string
   fundsPenalty:   float — IMMUTABLE
@@ -1433,7 +1436,7 @@ KerbalAssignment (recording-associated action — per kerbal per recording)
   xpGained:       float — XP earned during this recording
 
 KerbalHire (spending action — career only)
-  ut:             float — frozen KSC time
+  ut:             double — frozen KSC time
   sequence:       int — order within that UT
   kerbalName:     string
   cost:           float — funds spent
@@ -1670,19 +1673,19 @@ Upgrading costs funds. Buildings can also be destroyed (player crashes into KSC)
 
 ```
 FacilityUpgrade (spending action)
-  ut:           float — frozen KSC time
+  ut:           double — frozen KSC time
   sequence:     int — order within that UT
   facilityId:   string — "LaunchPad" / "VehicleAssemblyBuilding" / etc.
   toLevel:      int — target level (2 or 3)
   cost:         float — funds spent
 
 FacilityDestruction (recording-associated action)
-  ut:           float — when the building was destroyed during flight
+  ut:           double — when the building was destroyed during flight
   recordingId:  string — the recording that caused the destruction
   facilityId:   string
 
 FacilityRepair (spending action)
-  ut:           float — frozen KSC time (whenever the player repairs)
+  ut:           double — frozen KSC time (whenever the player repairs)
   sequence:     int — order within that UT
   facilityId:   string
   cost:         float — funds spent
@@ -1761,7 +1764,7 @@ Strategies only transform **contract rewards** — not milestone bonuses, not ex
 
 ```
 StrategyActivate (KSC action)
-  ut:             float — frozen KSC time
+  ut:             double — frozen KSC time
   sequence:       int — order within same UT
   strategyId:     string — e.g. "UnpaidResearch" / "PatentsLicensing"
   sourceResource: enum — FUNDS | SCIENCE | REPUTATION
@@ -1770,12 +1773,12 @@ StrategyActivate (KSC action)
   setupCost:      float — one-time cost in source resource (IMMUTABLE)
 
 StrategyDeactivate (KSC action)
-  ut:             float — frozen KSC time
+  ut:             double — frozen KSC time
   sequence:       int
   strategyId:     string
 ```
 
-The setup cost is a spending action that participates in the reservation system for its source resource. A strategy that costs reputation to activate has its setup cost reserved in the reputation module alongside other reputation spendings.
+The setup cost is deducted from funds by the `FundsModule` when processing `StrategyActivate` actions. **Note (v0.3): KSP stock strategies always cost funds for setup. Reputation-based setup costs are not implemented.**
 
 ### 11.3 Strategy reservation — UT=0 to deactivation
 
@@ -1810,6 +1813,8 @@ For each contract reward at this UT:
       rewardAmount -= diverted
       targetRewardAmount += diverted × conversionRate
 ```
+
+**Note (v0.3):** `conversionRate` is hardcoded to 1.0 (deferred item D2). Actual KSP strategy conversion rates need to be extracted from strategy definitions.
 
 The transform happens between the contracts first-tier resolution (which sets the effective flag) and the second-tier crediting (which adds effective values to funds/rep/science running balances). Only effective contract completions are transformed — non-effective duplicates produce zero rewards and therefore zero transforms.
 
@@ -1999,7 +2004,7 @@ Each resource module is independent:
 - Does not call other modules or depend on their internal state.
 - Shares only the sorted action stream and the `recordingId` key with other modules.
 
-Modules are isolated in logic but connected by **data flow dependency**. First-tier modules (Science, Milestones, Contracts, Kerbals) compute effective values on actions. Second-tier modules (Funds, Reputation) read those effective values during the same walk. This is one-directional data flow, not bidirectional communication — first-tier modules never read from second-tier modules.
+Modules are isolated in logic but connected by **data flow dependency**. First-tier modules (Science, Milestones, Contracts) compute effective values on actions. Second-tier modules (Funds, Reputation) read those effective values during the same walk. This is one-directional data flow, not bidirectional communication — first-tier modules never read from second-tier modules.
 
 This isolation means modules can be designed, tested, and debugged independently. Adding a new module (e.g. a future "ore" or "electric charge" module) requires no changes to existing modules — only a new handler in the walk dispatcher.
 
