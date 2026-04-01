@@ -37,7 +37,7 @@ namespace Parsek.Patches
     [HarmonyPatch(typeof(SpaceTracking), "FlyVessel")]
     internal static class GhostTrackingFlyPatch
     {
-        static bool Prefix(Vessel v)
+        static bool Prefix(SpaceTracking __instance, Vessel v)
         {
             if (v == null || !GhostMapPresence.IsGhostMapVessel(v.persistentId))
                 return true;
@@ -47,6 +47,12 @@ namespace Parsek.Patches
                 5f, ScreenMessageStyle.UPPER_CENTER);
             ParsekLog.Info("GhostMap",
                 $"Blocked FlyVessel for ghost '{v.vesselName}' pid={v.persistentId}");
+
+            // Release the input lock that selecting the vessel may have set.
+            // The original FlyVessel transitions to flight scene (clearing locks implicitly).
+            // Since we skip the original, we must dismiss ourselves to avoid trapping
+            // the user in tracking station with a stale input lock.
+            Traverse.Create(__instance).Method("OnDialogDismiss").GetValue();
             return false;
         }
     }

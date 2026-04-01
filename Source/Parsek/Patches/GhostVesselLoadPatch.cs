@@ -83,10 +83,20 @@ namespace Parsek.Patches
     /// Intercepts vessel switching to ghost map ProtoVessels (double-click in map view).
     /// Instead of switching to the ghost (a single barometer part), enters watch mode
     /// for the ghost's recording — following the ghost camera to its actual position.
+    /// Uses explicit method targeting because FlightGlobals.SetActiveVessel has two
+    /// overloads (Vessel) and (Vessel, bool); the Type[] attribute constructor doesn't
+    /// reliably disambiguate with Harmony's CreateClassProcessor.
     /// </summary>
-    [HarmonyPatch(typeof(FlightGlobals), nameof(FlightGlobals.SetActiveVessel), new[] { typeof(Vessel) })]
+    [HarmonyPatch]
     internal static class GhostVesselSwitchPatch
     {
+        static System.Reflection.MethodBase TargetMethod()
+        {
+            return typeof(FlightGlobals).GetMethod(
+                nameof(FlightGlobals.SetActiveVessel),
+                new[] { typeof(Vessel) });
+        }
+
         static bool Prefix(Vessel v)
         {
             if (v == null || !GhostMapPresence.IsGhostMapVessel(v.persistentId))
