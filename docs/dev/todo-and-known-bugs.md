@@ -2154,17 +2154,15 @@ When an EVA recording completes and Parsek spawns the real kerbal, the kerbal ap
 
 **Status:** Fixed
 
-## ~~180. Clicking ghost vessel in tracking station traps user with input lock~~
+## ~~176. Group hide checkbox misaligned when expanded stats columns visible~~
 
-`GhostTrackingFlyPatch` blocks `FlyVessel` for ghost map ProtoVessels (they're lightweight sensor parts, not real vessels). But the original `FlyVessel` normally transitions to the flight scene, which implicitly clears UI state. By returning `false` from the prefix without dismissing the dialog, the tracking station's input lock remained active — trapping the user.
+Group header rows in the recordings window were missing `GUILayout.Label` spacers for the expanded stats columns (MaxAlt, MaxSpd, Dist, Pts). When the Stats panel was toggled on, the group row had fewer layout elements than recording rows, causing Unity's horizontal layout to compress or shift the trailing Hide checkbox out of alignment — in some cases making it invisible or unclickable.
 
-Additionally, `GhostVesselSwitchPatch` used attribute-based `Type[]` overload targeting for `FlightGlobals.SetActiveVessel(Vessel)`, but Harmony's `CreateClassProcessor` didn't reliably disambiguate between the `(Vessel)` and `(Vessel, bool)` overloads.
+**Root cause:** `DrawGroupTree` emitted Phase→Name→G buttons→Loop→Period→Watch→Rewind→Hide but skipped the Phase/Launch/Duration/Stats/Status columns that recording rows include between Name and G. The expanded stats spacers (4 extra `GUILayout.Label` elements) were entirely absent.
 
-**Fix:**
-1. `GhostTrackingFlyPatch.Prefix` now calls `OnDialogDismiss` via Traverse after blocking `FlyVessel`, releasing the input lock.
-2. `GhostVesselSwitchPatch` uses explicit `TargetMethod()` instead of `HarmonyPatch` attribute `Type[]` for reliable overload targeting.
+**Fix:** Added Phase spacer, Launch (earliest descendant StartUT), Duration (sum of descendant durations), expanded stats spacers (conditional on `showExpandedStats`), and Status (closest active T- countdown) columns to `DrawGroupTree`, matching the recording row column layout exactly.
 
-**Files:** `GhostTrackingStationPatch.cs`, `GhostVesselLoadPatch.cs`
+**Files:** `ParsekUI.cs` (`DrawGroupTree`)
 
 **Status:** Fixed
 
@@ -2179,6 +2177,20 @@ The `CorrectUnsafeSnapshotSituation` (#169) ran earlier and corrected the snapsh
 **Fix:** Added optional `terminalState` parameter to `SpawnAtPosition`. When the terminal state is `Orbiting` or `Docked` but `DetermineSituation` returns FLYING, the situation is overridden to ORBITING with a logged explanation. The call site in `SpawnOrRecoverIfTooClose` passes `rec.TerminalStateValue`.
 
 **Files:** `VesselSpawner.cs`
+
+**Status:** Fixed
+
+## ~~180. Clicking ghost vessel in tracking station traps user with input lock~~
+
+`GhostTrackingFlyPatch` blocks `FlyVessel` for ghost map ProtoVessels (they're lightweight sensor parts, not real vessels). But the original `FlyVessel` normally transitions to the flight scene, which implicitly clears UI state. By returning `false` from the prefix without dismissing the dialog, the tracking station's input lock remained active — trapping the user.
+
+Additionally, `GhostVesselSwitchPatch` used attribute-based `Type[]` overload targeting for `FlightGlobals.SetActiveVessel(Vessel)`, but Harmony's `CreateClassProcessor` didn't reliably disambiguate between the `(Vessel)` and `(Vessel, bool)` overloads.
+
+**Fix:**
+1. `GhostTrackingFlyPatch.Prefix` now calls `OnDialogDismiss` via Traverse after blocking `FlyVessel`, releasing the input lock.
+2. `GhostVesselSwitchPatch` uses explicit `TargetMethod()` instead of `HarmonyPatch` attribute `Type[]` for reliable overload targeting.
+
+**Files:** `GhostTrackingStationPatch.cs`, `GhostVesselLoadPatch.cs`
 
 **Status:** Fixed
 

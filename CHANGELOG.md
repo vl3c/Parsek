@@ -35,6 +35,11 @@ Ghost vessels now appear in KSP's tracking station, show orbit lines in map view
 - **Merge dialog re-evaluation** — `MergeDialog.OnTreeCommitted` callback triggers chain re-evaluation so ghost ProtoVessels are created immediately after commit+revert.
 - **46 tests** — PID tracking, HasOrbitData, ComputeGhostDisplayInfo, ResolveVesselType, terminal state filtering, debris filtering, StartsInOrbit, orbit segment tracking, log assertions.
 
+### Group UI Enhancements
+
+- **Group header columns in recordings window.** Groups now display Launch (earliest member StartUT), Duration (sum of member durations), and Status (closest active T- countdown) columns. Groups participate in column-based sorting alongside chains and standalone recordings instead of always rendering first. Six `internal static` helpers extracted for testability with 27 unit tests.
+- **Fix #176: Group hide checkbox misaligned when expanded stats visible.** Group rows were missing spacers for the MaxAlt/MaxSpd/Dist/Pts columns, causing the trailing Hide checkbox to shift out of alignment when the Stats panel was open.
+
 ### Bug Fixes
 
 - **Fix #175: EVA kerbal spawns at recording start position instead of endpoint.** EVA vessel snapshots are captured at EVA start (kerbal on the pod's ladder), but the kerbal walks elsewhere during the recording. On spawn, the snapshot's baked-in lat/lon/alt placed the kerbal on top of the parent vessel, grabbing its ladder and triggering KSP's "Kerbals on a ladder — cannot save" error. `ResolveSpawnPosition` now routes EVA recordings to the trajectory endpoint; `OverrideSnapshotPosition` patches the snapshot before `RespawnVessel`.
