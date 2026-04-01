@@ -2070,23 +2070,21 @@ Additionally, the spawned vessel had a dead crew member (Minidou Kerman, killed 
 
 ## ~~171. Orbital vessel doesn't spawn after ghost playback ends~~
 
-Vessel recorded during ascent (snapshot `sit=FLYING`) achieves orbit (`terminal=Orbiting`), but spawn is rejected by `ShouldSpawnAtRecordingEnd`. The `terminalOverridesUnsafe` check only covered `Landed`/`Splashed`, not `Orbiting`. Additionally, `ComputeCorrectedSituation` only corrected FLYING to LANDED/SPLASHED, not to ORBITING.
+Vessel recorded during ascent (snapshot `sit=FLYING`) achieves orbit (`terminal=Orbiting`), but spawn is rejected by `ShouldSpawnAtRecordingEnd`. The `terminalOverridesUnsafe` check only covered `Landed`/`Splashed`, not `Orbiting`. Additionally, `ComputeCorrectedSituation` only corrected FLYING to LANDED/SPLASHED, not to ORBITING. Furthermore, `ShouldSpawnAtKscEnd` allowed orbital vessels to spawn at KSC, where `pv.Load()` crashes them through terrain within frames — `VesselSpawned=true` persists, blocking flight-scene re-spawn.
 
-**Root cause:** `terminalOverridesUnsafe` in `GhostPlaybackLogic.ShouldSpawnAtRecordingEnd` was missing `TerminalState.Orbiting`. `ComputeCorrectedSituation` in `VesselSpawner` also lacked the Orbiting case.
+**Root cause:** Three issues: (1) `terminalOverridesUnsafe` missing `TerminalState.Orbiting`; (2) `ComputeCorrectedSituation` missing the Orbiting case; (3) `ShouldSpawnAtKscEnd` not rejecting orbital vessels (KSP's Space Center scene can't host orbital ProtoVessels — they crash through terrain immediately).
 
-**Fix:** Added `TerminalState.Orbiting` to `terminalOverridesUnsafe` in `ShouldSpawnAtRecordingEnd`. Added `case TerminalState.Orbiting: return "ORBITING"` to `ComputeCorrectedSituation`. Extended to all three spawn paths (Flight, KSC, tree leaves). 15 new tests.
-
-**Status:** Fixed
-
-## ~~172. Ghost map icon not clickable in tracking station~~
-
-Ghost ProtoVessels appear in the tracking station sidebar and orbit lines are visible, but clicking the orbit map icon doesn't select the vessel or show the info panel. Delete/Fly actions from the sidebar work (and are correctly blocked by Harmony patches).
-
-**Root cause:** Ghost vessels were created in `ParsekTrackingStation.Start()`, which runs after `SpaceTracking` has already built its widget list and map node click callbacks during `SpaceTracking.Awake()`. Vessels added dynamically via `GameEvents.onVesselCreate` get sidebar widgets but not map icon click handlers.
-
-**Fix:** Added `GhostTrackingStationInitPatch` — Harmony prefix on `SpaceTracking.Awake` that creates ghost ProtoVessels before SpaceTracking iterates `FlightGlobals.Vessels`. Ghost vessels are now in the vessel list when SpaceTracking builds its widgets and click callbacks. `ParsekTrackingStation.Start()` retained as safety net (skips duplicates).
+**Fix:** Added `TerminalState.Orbiting` to `terminalOverridesUnsafe`. Added `case TerminalState.Orbiting: return "ORBITING"` to `ComputeCorrectedSituation`. Added Orbiting/Docked rejection in `ShouldSpawnAtKscEnd` to defer orbital vessels to flight scene where `SpawnAtPosition` can place them correctly. 15 new tests.
 
 **Status:** Fixed
+
+## 172. Ghost map icon click offset in tracking station
+
+Ghost ProtoVessel's clickable MapNode position diverges from the visible orbit icon. The user must click next to the icon rather than on it. The click does register — `GhostVesselSwitchPatch` logs `Redirected SetActiveVessel to watch mode` — but the hit area is offset from the visual.
+
+**Root cause:** The ghost map ProtoVessel's position is computed by KSP's Keplerian orbit propagation from the last orbit segment update. The visible ghost mesh is positioned by Parsek's trajectory interpolation between recorded points. Orbit segment updates happen at coarse boundaries (e.g., when SMA changes), so between updates the two positions drift apart. The MapNode click target follows the ProtoVessel's orbit-computed position, not where the icon visually appears.
+
+**Status:** Open — position sync between ProtoVessel orbit and ghost trajectory needed
 
 ## ~~175. Orbital ghost disappears during 50x time warp~~
 
