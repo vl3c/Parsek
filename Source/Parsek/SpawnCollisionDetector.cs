@@ -176,10 +176,10 @@ namespace Parsek
         internal const double KscPadLongitude = -74.5575;
 
         /// <summary>KSC runway start (west threshold) latitude in degrees.</summary>
-        internal const double KscRunwayLatitude = -0.0486;
+        internal const double KscRunwayLatitude = -0.0502;
 
         /// <summary>KSC runway start (west threshold) longitude in degrees.</summary>
-        internal const double KscRunwayLongitude = -74.7222;
+        internal const double KscRunwayLongitude = -74.7300;
 
         /// <summary>
         /// Default exclusion radius in meters around KSC infrastructure points.
