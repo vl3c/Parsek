@@ -58,16 +58,20 @@ namespace Parsek
         public float sampleRateHz;              // Actual recording sample rate
         public TrackSectionSource source;       // Data provenance (for diagnostics)
         public float boundaryDiscontinuityMeters; // Position gap at section start vs previous section end (0 = no gap)
+        public float minAltitude;              // Minimum altitude during this section (NaN = not set)
+        public float maxAltitude;              // Maximum altitude during this section (NaN = not set)
 
         public override string ToString()
         {
             var ic = CultureInfo.InvariantCulture;
             int frameCount = frames?.Count ?? 0;
             int checkpointCount = checkpoints?.Count ?? 0;
+            string altRange = !float.IsNaN(minAltitude) && !float.IsNaN(maxAltitude)
+                ? $" alt=[{minAltitude.ToString("F0", ic)},{maxAltitude.ToString("F0", ic)}]" : "";
             return $"TrackSection env={environment} ref={referenceFrame} " +
                    $"ut=[{startUT.ToString("F2", ic)},{endUT.ToString("F2", ic)}] frames={frameCount} " +
                    $"checkpoints={checkpointCount} " +
-                   $"src={source} bdisc={boundaryDiscontinuityMeters.ToString("F2", ic)}";
+                   $"src={source} bdisc={boundaryDiscontinuityMeters.ToString("F2", ic)}{altRange}";
         }
     }
 }

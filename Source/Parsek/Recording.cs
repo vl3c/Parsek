@@ -41,7 +41,7 @@ namespace Parsek
         public List<string> RecordingGroups;
 
         // Atmosphere segment metadata
-        public string SegmentPhase;      // "atmo" or "exo" (null = untagged/legacy)
+        public string SegmentPhase;      // "atmo", "exo", or "approach" (null = untagged/legacy)
         public string SegmentBodyName;   // body name at split point (e.g., "Kerbin", "Duna")
         public bool PlaybackEnabled = true;  // false = skip ghost during playback
         public bool Hidden;                  // true = hidden from recordings list (unless Show Hidden is on)

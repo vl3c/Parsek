@@ -644,6 +644,9 @@ namespace Parsek
                     ParsekLog.Info("Scenario", $"  {kvp.Key} -> replacement: {kvp.Value}");
             }
 
+            // Run recording optimization pass (merge redundant segments, split monolithic ones)
+            RecordingStore.RunOptimizationPass();
+
             // Auto-unreserve crew for recordings whose EndUT has already passed
             // but vessel was never spawned. Skip at SpaceCenter — ParsekKSC now
             // handles spawning there (bug #99), so nulling the snapshot here would
