@@ -628,6 +628,144 @@ After merge, each vessel has a single clean Recording with non-overlapping Track
 
 ---
 
+## 9A. Chain Segmentation and Recording Optimizer
+
+Section 4.4 defines segment boundaries within the recording tree (structural splits/merges only). This section covers the **chain segmentation** system — automatic environment-boundary splits for **non-tree (chain) recordings** — and the **RecordingOptimizer** that merges or splits committed chain segments at save/load time.
+
+### 9A.1 Motivation
+
+Chain recordings (the legacy single-vessel recording mode) produce one Recording per flight. A long flight that traverses multiple environments (atmosphere → vacuum → different SOI → landing) results in a single monolithic segment. This makes it impossible for the player to selectively loop or configure playback for individual flight phases (e.g., loop just the atmospheric ascent, or hide the boring transfer coast).
+
+Chain segmentation automatically splits the recording at environment boundaries so each flight phase becomes a separate, independently configurable Recording linked by a shared `ChainId`.
+
+Tree recordings do NOT use chain segmentation — they keep all data in a single Recording with multiple `TrackSections`. Environment changes are tracked internally via the TrackSection `environment` field and the session merger (Section 9) handles fidelity resolution.
+
+### 9A.2 Chain Segment Boundary Conditions
+
+Seven conditions trigger a chain segment commit-and-restart. The first three are environment boundaries; the rest are vessel lifecycle events.
+
+#### A. Atmosphere Boundary (atmospheric bodies only)
+
+Detected per-frame by `FlightRecorder.CheckAtmosphereBoundary()`. Fires when the vessel crosses the body's `atmosphereDepth` altitude.
+
+**Hysteresis** (prevents rapid toggling near the boundary):
+- **Time**: 3.0 seconds sustained on the new side
+- **Distance**: 1,000 meters past the boundary
+
+Both conditions must be met simultaneously. If the vessel drifts back before both thresholds are met, the pending detection resets.
+
+**Phase tags**: Outgoing segment tagged `"atmo"` (was in atmosphere) or `"exo"` (was above atmosphere).
+
+#### B. Altitude Boundary (airless bodies only)
+
+Detected per-frame by `FlightRecorder.CheckAltitudeBoundary()`. Only active when the body has no atmosphere. Fires when the vessel crosses the **approach altitude threshold**.
+
+**Threshold computation** (`FlightRecorder.ComputeApproachAltitude`):
+1. **Primary**: KSP's `timeWarpAltitudeLimits[4]` (the 100x warp limit) — this is KSP's own definition of "close enough that fast warp is dangerous" and adapts to modded planets automatically.
+2. **Fallback**: `body.Radius * 0.15`, clamped to `[5,000m, 200,000m]`.
+
+**Hysteresis**:
+- **Time**: 3.0 seconds sustained
+- **Distance**: `max(1000, threshold * 0.02)` meters past boundary
+
+**Phase tags**: `"approach"` (descended below threshold) or `"exo"` (ascended above).
+
+#### C. SOI Change
+
+Detected by `FlightRecorder.OnSoiChange()` when a vessel transitions between celestial bodies' spheres of influence. The current segment is committed immediately (no hysteresis — SOI changes are discrete events). Phase tag is derived from the **departing** body's environment at time of exit.
+
+#### D. EVA Exit (Vessel → EVA)
+
+When a Kerbal goes EVA, the vessel recording commits. The vessel continues being tracked via **adaptive continuation sampling** (`ChainSegmentManager.SampleContinuationVessel()`) — samples are taken on whichever triggers first: time interval (3.0s default), velocity direction change (2.0°), or speed change (5%). A new Recording starts on the EVA Kerbal.
+
+#### E. EVA Boarding (EVA → Vessel)
+
+When a Kerbal boards a vessel, the EVA segment commits and a new vessel recording begins.
+
+#### F. Dock/Undock
+
+Handled by `ParsekFlight.HandleDockUndockCommitRestart()` with four sub-scenarios (initiator dock, target dock, undock-stay, undock-switch). Each causes the current segment to commit. On undock, the sibling vessel gets a **ghost-only continuation** (`ChainBranch=1`) — it is adaptively sampled but never spawns as a real vessel at playback time.
+
+#### G. Vessel Switch During Active Chain
+
+If the player switches vessels while a chain is recording, the entire chain terminates (`HandleVesselSwitchChainTermination`). No continuation is possible because the focused vessel has changed.
+
+#### Not a Boundary
+
+Staging and part joint breaks are recorded as `PartEvents` within the continuing segment. They do **not** cause chain splits.
+
+### 9A.3 Tree Mode Suppression
+
+When recording in tree mode (`activeTree != null`), atmosphere, altitude, and SOI boundary splits are **suppressed**. The boundary flags on the FlightRecorder are cleared (`"Boundary flags cleared (tree mode bypass)"`), and the data stays in the single tree Recording. The environment changes are captured as TrackSection boundaries within that Recording instead.
+
+This is because tree recordings use the session merger (Section 9) for multi-source data and the RecordingOptimizer's split pass (Section 9A.5) post-hoc if the user later wants to break them apart.
+
+### 9A.4 Chain Structure
+
+Each chain segment is a separate `Recording` linked by:
+- **`ChainId`** — shared GUID identifying the chain
+- **`ChainIndex`** — 0-based sequential position (reindexed by `StartUT` after optimizer passes)
+- **`ChainBranch`** — 0 = primary (playable, spawnable), >0 = parallel ghost-only (e.g., undock continuation)
+
+The **boundary anchor** ensures seamless stitching: the first TrajectoryPoint of each new segment is copied from the previous segment's last point, guaranteeing zero positional discontinuity at chain boundaries.
+
+Mid-chain segments have their `VesselSnapshot` nulled (ghost-only playback) — only the final segment in the chain retains the full vessel snapshot for spawn-at-end.
+
+### 9A.5 Recording Optimizer
+
+`RecordingOptimizer.cs` contains pure static functions that merge or split committed chain segments at save/load time. This is a **post-hoc cleanup pass** — it operates on already-committed Recordings.
+
+#### Auto-Merge: `CanAutoMerge(a, b)`
+
+Two consecutive chain segments can be merged if **all** of these conditions hold:
+
+1. Neither is null
+2. Same `ChainId` (non-empty)
+3. Both have valid `ChainIndex` (≥ 0)
+4. Consecutive: `b.ChainIndex == a.ChainIndex + 1`
+5. Both on primary branch (`ChainBranch == 0`)
+6. No `ChildBranchPointId` on A (no branch point between them)
+7. Same `SegmentPhase`
+8. Same `SegmentBodyName`
+9. Neither has ghosting-trigger events (checked via `GhostingTriggerClassifier`)
+10. Neither has `LoopPlayback` enabled
+11. Both have `PlaybackEnabled == true`
+12. Neither is `Hidden`
+13. Both have default `LoopIntervalSeconds` (10.0)
+14. Both have default `LoopAnchorVesselId` (0)
+15. Same `RecordingGroups` (ordered list equality)
+
+The purpose: if two consecutive segments have the same environment, same body, and neither has been customized by the user, they are redundant splits and should be re-merged into one.
+
+**Merge operation** (`MergeInto`): Points concatenated, events merged and re-sorted by UT, TrackSections concatenated, VesselSnapshot and TerminalState inherited from the absorbed (later) segment. Ghost geometry cache invalidated on the result.
+
+#### Auto-Split: `CanAutoSplit(rec, sectionIndex)`
+
+A single Recording can be split at a TrackSection boundary where the environment changes, if:
+
+1. Recording has ≥ 2 TrackSections
+2. No ghosting-trigger events anywhere in the recording
+3. Both resulting halves are **≥ 5 seconds** long
+
+**Split operation** (`SplitAtSection`): Points partitioned by UT at the section boundary. Events partitioned (backward loop to avoid index shifting). TrackSections split at the section index. `GhostVisualSnapshot` cloned to both halves. Each half tagged with `SegmentPhase` derived from its first section's environment via `EnvironmentToPhase`:
+
+| SegmentEnvironment | Phase |
+|---|---|
+| Atmospheric | `"atmo"` |
+| SurfaceMobile | `"surface"` |
+| SurfaceStationary | `"surface"` |
+| All others | `"exo"` |
+
+#### Discovery Passes
+
+**`FindMergeCandidates`**: Groups committed recordings by `ChainId`, sorts each group by `ChainIndex`, tests all consecutive pairs with `CanAutoMerge`.
+
+**`FindSplitCandidates`**: Scans each committed recording's `TrackSections` for adjacent sections with **different environments**. Tests each boundary with `CanAutoSplit`. Finds **at most one split per recording per pass** — the caller re-scans after each split because indices shift.
+
+The optimizer is wired into save/load (`ParsekScenario`), running split candidates first (to break up tree recordings that were exported to chains), then merge candidates (to clean up redundant same-environment boundaries).
+
+---
+
 ## 10. Looped Recordings
 
 ### 10.1 Principle
