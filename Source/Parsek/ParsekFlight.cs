@@ -6977,18 +6977,18 @@ namespace Parsek
 
             // Distance guard: KSP rendering breaks when camera is far from the active vessel
             // (FloatingOrigin, terrain, atmosphere, skybox are all anchored to active vessel).
-            // Refuse watch if ghost is beyond the rendering-safe distance (#151).
-            const float MaxWatchDistanceKm = 100f;
+            // Refuse watch if ghost is beyond the user's camera cutoff distance setting.
+            float maxWatchKm = ParsekSettings.Current?.ghostCameraCutoffKm ?? 300f;
             if (FlightGlobals.ActiveVessel != null && gs.ghost != null)
             {
                 float distKm = (float)(Vector3d.Distance(
                     gs.ghost.transform.position, FlightGlobals.ActiveVessel.transform.position) / 1000.0);
-                if (distKm > MaxWatchDistanceKm)
+                if (distKm > maxWatchKm)
                 {
                     ParsekLog.Info("CameraFollow",
                         $"EnterWatchMode refused: ghost #{index} \"{committed[index].VesselName}\" " +
-                        $"is {distKm.ToString("F0", CultureInfo.InvariantCulture)}km from active vessel (max {MaxWatchDistanceKm}km)");
-                    ScreenMessage($"Ghost too far to watch ({distKm:F0}km)", 3f);
+                        $"is {distKm.ToString("F0", CultureInfo.InvariantCulture)}km from active vessel (max {maxWatchKm.ToString("F0", CultureInfo.InvariantCulture)}km)");
+                    ScreenMessage($"Ghost too far to watch ({distKm:F0}km, max {maxWatchKm:F0}km)", 3f);
                     return;
                 }
             }
