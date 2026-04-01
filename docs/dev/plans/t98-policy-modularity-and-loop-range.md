@@ -109,7 +109,7 @@ internal static bool ShouldSuppressBoundarySplit(RecordingTree activeTree)
 
 This is trivially simple, but makes the design decision named and searchable. The three call sites become `if (ShouldSuppressBoundarySplit(activeTree))`.
 
-**Tests**: 2 — null tree returns false, non-null returns true.
+**Tests**: Not individually tested — too trivial (single null check). Covered implicitly by existing boundary split tests.
 
 ### Phase 1C: Extract vessel destruction classification
 
@@ -159,38 +159,39 @@ public double LoopStartUT = double.NaN;  // NaN = use StartUT (loop entire recor
 public double LoopEndUT = double.NaN;    // NaN = use EndUT (loop entire recording)
 ```
 
-#### Engine changes
+#### Engine changes — three loop functions
 
-In `GhostPlaybackEngine.TryComputeLoopPlaybackUT`, replace:
-```csharp
-// Before:
-double duration = traj.EndUT - traj.StartUT;
-double elapsed = currentUT - traj.StartUT;
-loopUT = traj.StartUT + Math.Min(cycleTime, duration);
+There are three loop computation functions that all need range-aware updates:
 
-// After:
-double loopStart = EffectiveLoopStartUT(traj);
-double loopEnd = EffectiveLoopEndUT(traj);
-double duration = loopEnd - loopStart;
-double elapsed = currentUT - loopStart;
-loopUT = loopStart + Math.Min(cycleTime, duration);
-```
+1. **`GhostPlaybackEngine.TryComputeLoopPlaybackUT`** (line 846) — instance method, takes `IPlaybackTrajectory`. Uses `traj.StartUT`/`traj.EndUT`. Update to use `EffectiveLoopStartUT`/`EffectiveLoopEndUT`. Also fix pause window UT: `loopUT = traj.EndUT` (line 886) must become `loopUT = loopEnd`.
 
-Add two pure static helpers:
+2. **`GhostPlaybackLogic.TryComputeLoopPlaybackUT`** (line 96) — static method, takes raw `startUT`/`endUT` doubles. No signature change needed — callers pass effective loop bounds instead of `traj.StartUT`/`traj.EndUT`.
+
+3. **`GhostPlaybackLogic.ComputeLoopPhaseFromUT`** (line 278) — static method, takes raw `recordingStartUT`/`recordingEndUT`. Same approach — callers pass effective bounds.
+
+All callers of #2 and #3 must be audited to pass effective bounds. Key call sites:
+- `ParsekFlight.cs:3150` calls `ComputeLoopPhaseFromUT` — must pass effective bounds
+- Engine's instance method (#1) wraps #2 — update the wrapper
+
+Add two pure static helpers (on `GhostPlaybackEngine` or `GhostPlaybackLogic`):
 
 ```csharp
 internal static double EffectiveLoopStartUT(IPlaybackTrajectory traj)
 {
-    return !double.IsNaN(traj.LoopStartUT) && traj.LoopStartUT >= traj.StartUT
-        ? traj.LoopStartUT : traj.StartUT;
+    double loopStart = traj.LoopStartUT;
+    return !double.IsNaN(loopStart) && loopStart >= traj.StartUT && loopStart < traj.EndUT
+        ? loopStart : traj.StartUT;
 }
 
 internal static double EffectiveLoopEndUT(IPlaybackTrajectory traj)
 {
-    return !double.IsNaN(traj.LoopEndUT) && traj.LoopEndUT <= traj.EndUT
-        ? traj.LoopEndUT : traj.EndUT;
+    double loopEnd = traj.LoopEndUT;
+    return !double.IsNaN(loopEnd) && loopEnd <= traj.EndUT && loopEnd > traj.StartUT
+        ? loopEnd : traj.EndUT;
 }
 ```
+
+Cross-validation: if `EffectiveLoopStartUT >= EffectiveLoopEndUT` after clamping, both fall back to full range (StartUT/EndUT). This handles inverted ranges and degenerate cases.
 
 #### Interface changes
 
@@ -200,6 +201,10 @@ Add to `IPlaybackTrajectory`:
 double LoopStartUT { get; }
 double LoopEndUT { get; }
 ```
+
+**Both implementations must be updated:**
+- `Recording.cs` — add fields + explicit interface properties (~line 289)
+- `MockTrajectory.cs` (in `Parsek.Tests`) — add properties with NaN defaults
 
 #### ShouldLoopPlayback changes
 
@@ -218,13 +223,24 @@ internal static bool ShouldLoopPlayback(IPlaybackTrajectory traj)
 
 #### Save/load
 
-Add `LoopStartUT` and `LoopEndUT` to `ParsekScenario` save/load alongside existing loop fields. Default NaN = backward compatible (old recordings loop entire range).
+Add `LoopStartUT` and `LoopEndUT` to `ParsekScenario` save/load. Follow existing conditional-write pattern (like `LoopAnchorVesselId`): only write to save file when non-NaN, read with `double.TryParse` using NaN as fallback. Old saves without these keys load as NaN = full range. NaN serialization via `ToString("R")` produces `"NaN"` which round-trips correctly in .NET.
 
-#### Rendering behavior during non-looped portions
+#### RecordingOptimizer update
 
-When a loop range is set, the ghost renders the full trajectory once from StartUT to EndUT on the first pass (non-looped playback). After EndUT passes, looping engages using only the LoopStartUT→LoopEndUT range. This means the first playthrough shows the complete mission, and subsequent loops show just the interesting phase.
+`CanAutoMerge` (line 18) must block merge when either recording has non-NaN `LoopStartUT`/`LoopEndUT`, since these represent user customization. Add after the existing `LoopPlayback` check:
 
-Alternatively, if `LoopPlayback` is true from the start (no first-pass), the ghost immediately loops within the range. This matches how chain recordings work — they only play their segment range.
+```csharp
+if (!double.IsNaN(a.LoopStartUT) || !double.IsNaN(a.LoopEndUT)) return false;
+if (!double.IsNaN(b.LoopStartUT) || !double.IsNaN(b.LoopEndUT)) return false;
+```
+
+#### Loop phase offset interaction
+
+When loop range changes, clear `loopPhaseOffsets` for the affected recording index. Phase offsets were calibrated against the old elapsed calculation (relative to `traj.StartUT`); after a range change, stale offsets could push `elapsed` outside the loop range. The UI code that sets `LoopStartUT`/`LoopEndUT` should call `ClearLoopPhaseOffset(recIdx)` if exposed, or the engine detects range changes and auto-clears.
+
+#### Rendering behavior
+
+When a loop range is set and `LoopPlayback` is true, the ghost **immediately loops within the range** — it never renders trajectory outside `[LoopStartUT, LoopEndUT]`. This matches how chain recordings work (they only play their segment's time range). There is no "first pass" concept — `ShouldLoopPlayback` returns true on the first frame, and the engine enters the loop dispatch branch immediately.
 
 ### Phase 2A: UI — Phase Picker
 
@@ -249,7 +265,9 @@ internal static List<LoopPhaseOption> BuildLoopPhaseOptions(List<TrackSection> s
 
 Where `LoopPhaseOption` is a lightweight struct: `{ string label, double startUT, double endUT }`.
 
-**Tests**: Build options from synthetic TrackSection lists, verify grouping and labels.
+When loading a recording that already has `LoopStartUT`/`LoopEndUT` set, the UI reverse-maps the stored UT range to the closest matching phase option. If no phase matches exactly (e.g., TrackSections were modified by an optimizer pass), display "Custom Range" as the selected option.
+
+**Tests**: Build options from synthetic TrackSection lists, verify grouping and labels. Test reverse-mapping with exact match, no match (Custom), and empty sections.
 
 ---
 
@@ -274,7 +292,10 @@ Each phase is independently committable and testable. No phase depends on a late
 | Destruction classification changes behavior | Extract preserves exact condition order and short-circuit logic. Tests verify all 4 paths. |
 | Loop range breaks existing loop behavior | NaN defaults preserve current behavior. Existing loop tests remain unchanged. New tests cover range narrowing. |
 | Phase picker UI complexity | Pure static `BuildLoopPhaseOptions` — no UI framework coupling in the logic. UI is just a dropdown calling the static method. |
-| IPlaybackTrajectory interface change breaks implementations | Only `Recording` implements it. Add the two properties there with NaN defaults. |
+| IPlaybackTrajectory interface change breaks implementations | Two implementations: `Recording` and `MockTrajectory` (tests). Both get NaN defaults. |
+| Stale loop phase offsets after range change | Clear offsets when loop range is set. |
+| Inverted/degenerate loop range | `EffectiveLoopStartUT`/`EffectiveLoopEndUT` fall back to full range when start >= end. |
+| Auto-merge loses loop range data | `CanAutoMerge` blocks when LoopStartUT/LoopEndUT are non-NaN. |
 
 ---
 
@@ -285,10 +306,14 @@ Each phase is independently committable and testable. No phase depends on a late
 | 1A | `IsTreeRecording` | TreeId set → true, null → false |
 | 1A | `IsChainRecording` | ChainId set → true, null/empty → false |
 | 1A | `ManagesOwnResources` | Tree → false, standalone → true |
-| 1B | `ShouldSuppressBoundarySplit` | null tree → false, non-null → true |
 | 1C | `ClassifyVesselDestruction` | 4 cases: None, TreeDeferred, StandaloneMerge, TreeAllLeavesCheck |
 | 2 | `EffectiveLoopStartUT` | NaN → StartUT, valid → LoopStartUT, below StartUT → StartUT |
 | 2 | `EffectiveLoopEndUT` | NaN → EndUT, valid → LoopEndUT, above EndUT → EndUT |
+| 2 | `EffectiveLoop*` cross-validation | start >= end → fall back to full range |
 | 2 | `ShouldLoopPlayback` with range | Range too short → false, valid range → true |
 | 2 | `TryComputeLoopPlaybackUT` with range | Verify loopUT stays within [LoopStartUT, LoopEndUT] |
+| 2 | `TryComputeLoopPlaybackUT` pause window | Pause UT = loopEnd, not traj.EndUT |
+| 2 | `CanAutoMerge` with loop range | Non-NaN LoopStartUT/LoopEndUT blocks merge |
+| 2 | Save/load round-trip | NaN values and valid values serialize/deserialize correctly |
 | 2A | `BuildLoopPhaseOptions` | Empty sections, single section, multi-env grouping, consecutive same-env merge |
+| 2A | Phase reverse-mapping | Exact match, no match → "Custom Range" |
