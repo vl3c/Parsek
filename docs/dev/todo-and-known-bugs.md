@@ -2197,6 +2197,40 @@ Additionally, `GhostVesselSwitchPatch` used attribute-based `Type[]` overload ta
 
 **Status:** Fixed
 
+## 181. Watch mode camera freezes on mid-chain transition (childBpId=null)
+
+When a mid-chain recording completes during watch mode and `FindNextWatchTarget` returns -1 (next chain segment's ghost hasn't spawned yet), `HandlePlaybackCompleted` returns without setting a hold timer or retry mechanism. The camera stays locked on the stale ghost position indefinitely, with input lock held. Observed as 94-second freeze with 157+ suppressed FindNextWatchTarget attempts.
+
+**Root cause:** The mid-chain path in `HandlePlaybackCompleted` (line 81-98) only attempts `FindNextWatchTarget` once. If it returns -1, no hold timer is set — unlike the non-mid-chain path (line 196-210) which sets a 3-5 second hold timer that retries every frame.
+
+**Fix:** When `FindNextWatchTarget` returns -1 for a watched mid-chain segment, set a 30-second hold timer via `StartWatchHoldFromPolicy`. The `UpdateWatchCamera` hold-timer retry loop then calls `FindNextWatchTarget` every frame until the continuation ghost spawns, at which point it auto-follows.
+
+**Status:** Fixed
+
+## 182. Watch mode input lock log gap during TransferWatch
+
+`TransferWatchToNextSegment` calls `ExitWatchMode(skipCameraRestore: true)` which logs lock removal, then re-sets the lock via `InputLockManager.SetControlLock` without logging. The log shows "ParsekWatch removed" without a corresponding "ParsekWatch set", making it appear the lock is dropped.
+
+**Fix:** Added Verbose log after `SetControlLock` in `TransferWatchToNextSegment`.
+
+**Status:** Fixed
+
+## 183. SpaceTracking NullReferenceException from ghost ProtoVessels
+
+Ghost ProtoVessels created by `GhostMapPresence` trigger NullReferenceExceptions in KSP's internal `SpaceTracking.buildVesselsList()` when asteroids are spawned or destroyed. The NRE also fires during `SpaceTracking.Start()`. The crash is in KSP's code — ghost ProtoVessels may be missing fields that `buildVesselsList` assumes exist.
+
+**Fix:** Added Harmony `Finalizer` on `SpaceTracking.buildVesselsList` that catches and suppresses the NullReferenceException, preventing the tracking station from crashing.
+
+**Status:** Fixed
+
+## 184. EVA kerbal ladder-grab state persists in spawn snapshot
+
+Even with the position fix (#175), the EVA vessel snapshot captured at EVA start contains KerbalEVA FSM state indicating the kerbal is on a ladder (e.g., `state = Ladder (Acquire)`). When spawned at the correct endpoint position (far from any ladder), KSP initializes the kerbal in ladder mode. KSP then blocks all saves with "There are Kerbals on a ladder. Cannot save."
+
+**Fix:** Added `StripEvaLadderState` in `VesselSpawner`. Before spawning, scans the snapshot's MODULE nodes for `KerbalEVA`/`KerbalEVAFlight` modules and clears any ladder-related FSM state to `idle` and `OnALadder` flag to `False`.
+
+**Status:** Fixed
+
 # In-Game Tests
 
 - [x] Vessels propagate naturally along orbits after FF (no position freezing)

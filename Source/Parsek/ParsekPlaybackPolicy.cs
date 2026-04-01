@@ -93,6 +93,18 @@ namespace Parsek
                             ParsekLog.Info("Policy",
                                 $"Mid-chain auto-follow: #{evt.Index} → #{nextTarget}");
                         }
+                        else
+                        {
+                            // Next chain segment ghost hasn't spawned yet — set a hold timer
+                            // so UpdateWatchCamera retries FindNextWatchTarget every frame.
+                            // Without this, the camera stays stuck on the stale ghost position
+                            // indefinitely (no retry mechanism, no hold timer).
+                            float holdSeconds = 30f;
+                            host.StartWatchHoldFromPolicy(Time.time + holdSeconds);
+                            ParsekLog.Info("Policy",
+                                $"Mid-chain watch hold started for #{evt.Index}: " +
+                                $"next chain ghost not spawned yet, retrying for {holdSeconds:F0}s");
+                        }
                     }
                 }
                 return;
