@@ -332,6 +332,30 @@ namespace Parsek
 
             LogSpawnContext(rec, closestDist);
 
+            // Orbital vessels: use SpawnAtPosition to build a correct orbit from the last
+            // trajectory point's position+velocity. RespawnVessel uses the raw snapshot orbit
+            // which was captured during ascent (suborbital) — KSP's on-rails pressure check
+            // destroys the vessel at periapsis. SpawnAtPosition constructs a new orbit and
+            // sets the correct situation from altitude+speed. (#171)
+            if (rec.TerminalStateValue == TerminalState.Orbiting
+                || rec.TerminalStateValue == TerminalState.Docked)
+            {
+                Vector3d velocity = new Vector3d(lastPt.velocity.x, lastPt.velocity.y, lastPt.velocity.z);
+                double spawnUT = Planetarium.GetUniversalTime();
+                rec.SpawnedVesselPersistentId = SpawnAtPosition(
+                    rec.VesselSnapshot, body, spawnLat, spawnLon, spawnAlt, velocity, spawnUT, excludeCrew);
+                rec.VesselSpawned = rec.SpawnedVesselPersistentId != 0;
+                if (rec.VesselSpawned)
+                {
+                    ParsekLog.Info("Spawner",
+                        $"Orbital vessel spawn for recording #{index} ({rec.VesselName}) via SpawnAtPosition");
+                    ParsekLog.ScreenMessage($"Vessel '{rec.VesselName}' has appeared!", 4f);
+                }
+                else
+                    LogSpawnFailure(rec, index, maxSpawnAttempts);
+                return;
+            }
+
             rec.SpawnedVesselPersistentId = RespawnVessel(rec.VesselSnapshot, excludeCrew);
             rec.VesselSpawned = rec.SpawnedVesselPersistentId != 0;
             if (rec.VesselSpawned)
