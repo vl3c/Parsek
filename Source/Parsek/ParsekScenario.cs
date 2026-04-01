@@ -517,6 +517,16 @@ namespace Parsek
                     }
                 }
 
+                // Reconcile spawn state after all restore + strip operations (#168).
+                // If a recording's SpawnedVesselPersistentId points to a vessel that was
+                // stripped, reset the PID so the vessel can be re-spawned at the correct time.
+                if (isRevert)
+                {
+                    var flightStateForReconcile = HighLogic.CurrentGame?.flightState;
+                    if (flightStateForReconcile != null)
+                        ReconcileSpawnStateAfterStrip(flightStateForReconcile.protoVessels, recordings);
+                }
+
                 if (isRevert)
                 {
                     // Restore milestone mutable state from .sfs and increment epoch.
@@ -668,6 +678,9 @@ namespace Parsek
                     ParsekLog.Info("Scenario", $"  {kvp.Key} -> replacement: {kvp.Value}");
             }
 
+            // Run recording optimization pass (merge redundant segments, split monolithic ones)
+            RecordingStore.RunOptimizationPass();
+
             // Auto-unreserve crew for recordings whose EndUT has already passed
             // but vessel was never spawned. Skip at SpaceCenter — ParsekKSC now
             // handles spawning there (bug #99), so nulling the snapshot here would
@@ -816,6 +829,15 @@ namespace Parsek
                             $"Stripped {prelaunchStripped} future PRELAUNCH vessel(s)");
                 }
                 RecordingStore.RewindQuicksaveVesselPids = null;
+            }
+
+            // Defense-in-depth: reconcile spawn state after all strips (#168).
+            // ResetAllPlaybackState already zeroed spawn PIDs, so this should be a no-op,
+            // but guards against any future code path that restores PIDs before the strip.
+            {
+                var fsReconcile = HighLogic.CurrentGame?.flightState;
+                if (fsReconcile != null)
+                    ReconcileSpawnStateAfterStrip(fsReconcile.protoVessels, recordings);
             }
 
             // Rescue crew orphaned by vessel stripping (#116).
@@ -1516,8 +1538,8 @@ namespace Parsek
                     continue;
 
                 ParsekLog.Info("Scenario",
-                    $"Stripping future PRELAUNCH vessel '{pv.vesselName}' " +
-                    $"(pid={pv.persistentId}) — not in quicksave whitelist");
+                    $"Stripping future vessel '{pv.vesselName}' " +
+                    $"(pid={pv.persistentId}, sit={pv.situation}) — not in quicksave whitelist");
                 protoVessels.RemoveAt(i);
                 stripped++;
             }
@@ -1535,9 +1557,80 @@ namespace Parsek
         {
             if (quicksavePids == null)
                 return false;
-            if (situation != Vessel.Situations.PRELAUNCH)
-                return false;
+            // Strip ANY vessel not in the quicksave whitelist (#164).
+            // Previously only stripped PRELAUNCH; now catches flags, landed capsules,
+            // and other player-created vessels from the future after rewind.
             return !quicksavePids.Contains(persistentId);
+        }
+
+        /// <summary>
+        /// After vessel stripping, reconcile recording spawn state with the actual flightState.
+        /// If a recording's SpawnedVesselPersistentId points to a vessel that was stripped
+        /// (no longer in flightState), reset the spawn tracking so the vessel can be re-spawned
+        /// at the correct time. Without this, the PID dedup check in ShouldSpawnAtRecordingEnd
+        /// blocks respawning permanently (#168).
+        /// </summary>
+        internal static int ReconcileSpawnStateAfterStrip(
+            List<ProtoVessel> remainingVessels, List<Recording> recordings)
+        {
+            return ReconcileSpawnStateAfterStrip(CollectSurvivingPids(remainingVessels), recordings);
+        }
+
+        /// <summary>
+        /// Testable overload that takes pre-collected surviving PIDs.
+        /// </summary>
+        internal static int ReconcileSpawnStateAfterStrip(
+            HashSet<uint> survivingPids, List<Recording> recordings)
+        {
+            if (recordings == null || recordings.Count == 0)
+                return 0;
+
+            int reconciled = 0;
+            for (int i = 0; i < recordings.Count; i++)
+            {
+                if (ShouldResetSpawnState(recordings[i].SpawnedVesselPersistentId, survivingPids))
+                {
+                    uint oldPid = recordings[i].SpawnedVesselPersistentId;
+                    recordings[i].SpawnedVesselPersistentId = 0;
+                    recordings[i].VesselSpawned = false;
+                    recordings[i].SpawnAttempts = 0;
+                    recordings[i].SpawnDeathCount = 0;
+                    ParsekLog.Info("Scenario",
+                        $"Reconciled spawn state for recording #{i} \"{recordings[i].VesselName}\": " +
+                        $"pid={oldPid} no longer in flightState — reset for re-spawn");
+                    reconciled++;
+                }
+            }
+
+            if (reconciled > 0)
+                ParsekLog.Info("Scenario",
+                    $"ReconcileSpawnStateAfterStrip: reset {reconciled} recording(s) whose spawned vessel was stripped");
+
+            return reconciled;
+        }
+
+        /// <summary>
+        /// Pure decision: should this recording's spawn state be reset?
+        /// Returns true when spawnedPid is non-zero but not found in the surviving vessel set.
+        /// </summary>
+        internal static bool ShouldResetSpawnState(uint spawnedPid, HashSet<uint> survivingPids)
+        {
+            if (spawnedPid == 0)
+                return false;
+            return survivingPids == null || !survivingPids.Contains(spawnedPid);
+        }
+
+        /// <summary>
+        /// Collects persistent IDs from all remaining protoVessels.
+        /// </summary>
+        private static HashSet<uint> CollectSurvivingPids(List<ProtoVessel> protoVessels)
+        {
+            var pids = new HashSet<uint>();
+            if (protoVessels == null)
+                return pids;
+            for (int i = 0; i < protoVessels.Count; i++)
+                pids.Add(protoVessels[i].persistentId);
+            return pids;
         }
 
         private static void SaveStandaloneRecordings(ConfigNode node, List<Recording> recordings)

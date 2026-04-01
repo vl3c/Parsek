@@ -794,6 +794,76 @@ namespace Parsek
             return rec.SegmentPhase;
         }
 
+        // ─── Recording optimization ─────────────────────────────────────────
+
+        /// <summary>
+        /// Runs the optimization pass: find merge candidates among committed recordings,
+        /// execute merges, re-index chains. Called on save load after migrations.
+        /// Merge-only for now; split support deferred (requires file I/O for new sidecar files).
+        /// </summary>
+        internal static void RunOptimizationPass()
+        {
+            var recordings = CommittedRecordings;
+            if (recordings == null || recordings.Count < 2)
+            {
+                ParsekLog.Verbose("RecordingStore", "Optimization pass: skipped (< 2 recordings)");
+                return;
+            }
+
+            int mergeCount = 0;
+            const int maxMergesPerPass = 50;
+            // Iterate merge passes until no more candidates (merging may create new adjacent pairs)
+            bool changed = true;
+            while (changed && mergeCount < maxMergesPerPass)
+            {
+                changed = false;
+                var candidates = RecordingOptimizer.FindMergeCandidates(recordings);
+                if (candidates.Count == 0) break;
+
+                // Process first candidate only per pass (indices shift after removal)
+                var (idxA, idxB) = candidates[0];
+                var target = recordings[idxA];
+                var absorbed = recordings[idxB];
+
+                string absorbedId = RecordingOptimizer.MergeInto(target, absorbed);
+                string chainId = target.ChainId;
+
+                // Remove absorbed recording from committed list
+                recordings.RemoveAt(idxB);
+
+                // Delete absorbed recording's sidecar files
+                try { DeleteRecordingFiles(absorbed); }
+                catch (System.Exception ex)
+                {
+                    ParsekLog.Warn("RecordingStore",
+                        $"Optimization: failed to delete files for merged recording {absorbedId}: {ex.Message}");
+                }
+
+                // Save updated target recording files
+                try { SaveRecordingFiles(target); }
+                catch (System.Exception ex)
+                {
+                    ParsekLog.Warn("RecordingStore",
+                        $"Optimization: failed to save updated recording {target.RecordingId}: {ex.Message}");
+                }
+
+                // Re-index the chain
+                if (!string.IsNullOrEmpty(chainId))
+                    RecordingOptimizer.ReindexChain(recordings, chainId);
+
+                mergeCount++;
+                changed = true;
+            }
+
+            if (mergeCount >= maxMergesPerPass)
+                ParsekLog.Warn("RecordingStore",
+                    $"Optimization pass: hit merge cap ({maxMergesPerPass}), some candidates may remain");
+            else if (mergeCount > 0)
+                ParsekLog.Info("RecordingStore", $"Optimization pass: merged {mergeCount} segment pair(s)");
+            else
+                ParsekLog.Verbose("RecordingStore", "Optimization pass: no merge candidates found");
+        }
+
         // ─── Group management helpers ────────────────────────────────────────
 
         /// <summary>
@@ -2233,6 +2303,12 @@ namespace Parsek
                 if (track.boundaryDiscontinuityMeters > 0f)
                     tsNode.AddValue("bdisc", track.boundaryDiscontinuityMeters.ToString("R", ic));
 
+                // Altitude range: sparse — only write when tracked (non-NaN)
+                if (!float.IsNaN(track.minAltitude))
+                    tsNode.AddValue("minAlt", track.minAltitude.ToString("R", ic));
+                if (!float.IsNaN(track.maxAltitude))
+                    tsNode.AddValue("maxAlt", track.maxAltitude.ToString("R", ic));
+
                 if (track.anchorVesselId != 0)
                     tsNode.AddValue("anchorPid", track.anchorVesselId.ToString(ic));
 
@@ -2344,6 +2420,13 @@ namespace Parsek
                 float bdisc;
                 if (float.TryParse(tsNode.GetValue("bdisc"), ns, ic, out bdisc))
                     section.boundaryDiscontinuityMeters = bdisc;
+
+                // Altitude range: defaults to NaN when absent (legacy recordings)
+                float minAlt, maxAlt;
+                section.minAltitude = float.TryParse(tsNode.GetValue("minAlt"), ns, ic, out minAlt)
+                    ? minAlt : float.NaN;
+                section.maxAltitude = float.TryParse(tsNode.GetValue("maxAlt"), ns, ic, out maxAlt)
+                    ? maxAlt : float.NaN;
 
                 uint anchorPid;
                 if (uint.TryParse(tsNode.GetValue("anchorPid"), NumberStyles.Integer, ic, out anchorPid))

@@ -138,6 +138,9 @@ namespace Parsek
             AtmosphereBoundaryCrossed = false;
             EnteredAtmosphere = false;
             atmosphereBoundaryPending = false;
+            AltitudeBoundaryCrossed = false;
+            DescendedBelowThreshold = false;
+            altitudeBoundaryPending = false;
             SoiChangePending = false;
             SoiChangeFromBody = null;
             ParsekLog.Verbose("Recorder", "Boundary flags cleared (tree mode bypass)");
@@ -197,6 +200,14 @@ namespace Parsek
         private double atmosphereBoundaryPendingUT;
         public bool AtmosphereBoundaryCrossed { get; private set; }
         public bool EnteredAtmosphere { get; private set; }
+
+        // Altitude boundary detection (airless bodies)
+        private bool wasAboveAltitudeThreshold;
+        private bool altitudeBoundaryPending;
+        private double altitudeBoundaryPendingUT;
+        private double currentAltitudeThreshold;
+        public bool AltitudeBoundaryCrossed { get; private set; }
+        public bool DescendedBelowThreshold { get; private set; }
 
         // SOI change detection
         public bool SoiChangePending { get; private set; }
@@ -3323,6 +3334,71 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Returns the approach altitude threshold for an airless body.
+        /// Prefers KSP's timeWarpAltitudeLimits[4] (100x warp limit) when available — this is
+        /// KSP's own definition of "close enough that fast warp is dangerous" and adapts to modded
+        /// planets automatically. Falls back to body.Radius * 0.15 clamped to [5000, 200000].
+        /// WARNING: Callers must check body.atmosphere first — this method does not guard against
+        /// atmospheric bodies (which use atmosphere boundary splits instead).
+        /// </summary>
+        internal static double ComputeApproachAltitude(CelestialBody body)
+        {
+            if (body != null && body.timeWarpAltitudeLimits != null
+                && body.timeWarpAltitudeLimits.Length >= 5
+                && body.timeWarpAltitudeLimits[4] > 0)
+            {
+                return body.timeWarpAltitudeLimits[4];
+            }
+            return ComputeApproachAltitude(body != null ? body.Radius : 0);
+        }
+
+        /// <summary>
+        /// Radius-only fallback for tests and contexts without a CelestialBody reference.
+        /// body.Radius * 0.15, clamped to [5000, 200000] meters.
+        /// </summary>
+        internal static double ComputeApproachAltitude(double bodyRadius)
+        {
+            double raw = bodyRadius * 0.15;
+            if (raw < 5000.0) return 5000.0;
+            if (raw > 200000.0) return 200000.0;
+            return raw;
+        }
+
+        /// <summary>
+        /// Pure testable function: determines whether a recording should split at the altitude boundary
+        /// on an airless body. Mirrors ShouldSplitAtAtmosphereBoundary.
+        /// Requires both sustained time (hysteresisSeconds) AND distance beyond boundary.
+        /// If hysteresisMeters is negative, it is computed as max(1000, threshold * 0.02).
+        /// </summary>
+        internal static bool ShouldSplitAtAltitudeBoundary(
+            double altitude, double threshold, bool wasAbove,
+            bool pendingCross, double pendingUT, double currentUT,
+            double hysteresisSeconds = 3.0, double hysteresisMeters = -1.0)
+        {
+            if (threshold <= 0) return false;
+
+            if (hysteresisMeters < 0)
+                hysteresisMeters = Math.Max(1000.0, threshold * 0.02);
+
+            bool nowAbove = altitude >= threshold;
+            if (nowAbove == wasAbove)
+                return false; // no boundary crossed
+
+            // Check distance beyond boundary
+            double distBeyond = nowAbove
+                ? (altitude - threshold)
+                : (threshold - altitude);
+            if (distBeyond < hysteresisMeters)
+                return false; // not far enough past boundary
+
+            // Check sustained time
+            if (!pendingCross)
+                return false; // first detection — caller should start the timer
+
+            return (currentUT - pendingUT) >= hysteresisSeconds;
+        }
+
+        /// <summary>
         /// Called every physics frame to detect atmosphere boundary crossings.
         /// Sets AtmosphereBoundaryCrossed and EnteredAtmosphere when confirmed.
         /// </summary>
@@ -3395,6 +3471,89 @@ namespace Parsek
                     $"inAtmo={wasInAtmosphere} (was {oldState}), " +
                     $"hasAtmo={v.mainBody.atmosphere}, alt={v.altitude:F0}m" +
                     (v.mainBody.atmosphere ? $", atmoDepth={v.mainBody.atmosphereDepth:F0}m" : ""));
+            }
+        }
+
+        /// <summary>
+        /// Called every physics frame to detect altitude boundary crossings on airless bodies.
+        /// Sets AltitudeBoundaryCrossed and DescendedBelowThreshold when confirmed.
+        /// Mirrors CheckAtmosphereBoundary.
+        /// </summary>
+        public void CheckAltitudeBoundary(Vessel v)
+        {
+            if (!IsRecording || isOnRails) return;
+            if (v == null || v.mainBody == null) return;
+            if (v.mainBody.atmosphere) return; // atmospheric bodies use atmosphere boundary split
+            if (currentAltitudeThreshold <= 0) return; // no threshold computed (defensive)
+
+            double altitude = v.altitude;
+            double currentUT = Planetarium.GetUniversalTime();
+            bool nowAbove = altitude >= currentAltitudeThreshold;
+
+            if (nowAbove == wasAboveAltitudeThreshold)
+            {
+                // No boundary — reset pending if we drifted back
+                if (altitudeBoundaryPending)
+                    ParsekLog.Verbose("Recorder", $"Altitude boundary pending reset — drifted back to same side (above={nowAbove})");
+                altitudeBoundaryPending = false;
+                return;
+            }
+
+            // Boundary detected — check hysteresis
+            if (!altitudeBoundaryPending)
+            {
+                // Start the timer
+                altitudeBoundaryPending = true;
+                altitudeBoundaryPendingUT = currentUT;
+                ParsekLog.Verbose("Recorder", $"Altitude boundary detected — starting hysteresis timer " +
+                    $"(body={v.mainBody.name}, {(nowAbove ? "ascending" : "descending")}, alt={altitude:F0}m, threshold={currentAltitudeThreshold:F0}m)");
+                return;
+            }
+
+            if (ShouldSplitAtAltitudeBoundary(
+                altitude, currentAltitudeThreshold, wasAboveAltitudeThreshold,
+                altitudeBoundaryPending, altitudeBoundaryPendingUT, currentUT))
+            {
+                // Confirmed crossing — force-sample a boundary point to ensure >= 2 points
+                SamplePosition(v);
+
+                AltitudeBoundaryCrossed = true;
+                DescendedBelowThreshold = !nowAbove;
+                wasAboveAltitudeThreshold = nowAbove;
+                altitudeBoundaryPending = false;
+                ParsekLog.Info("Recorder", $"Altitude boundary confirmed: {(nowAbove ? "ascended above" : "descended below")} " +
+                    $"threshold on {v.mainBody.name} at alt {altitude:F0}m " +
+                    $"(threshold={currentAltitudeThreshold:F0}m, hysteresis: {(currentUT - altitudeBoundaryPendingUT):F1}s, " +
+                    $"{Math.Abs(altitude - currentAltitudeThreshold):F0}m past boundary)");
+            }
+        }
+
+        /// <summary>
+        /// Reseeds altitude state from current vessel. Call on SOI change, off-rails, and recording start.
+        /// Mirrors ReseedAtmosphereState.
+        /// </summary>
+        private void ReseedAltitudeState(Vessel v)
+        {
+            bool oldState = wasAboveAltitudeThreshold;
+            if (v == null || v.mainBody == null || v.mainBody.atmosphere)
+            {
+                // Atmospheric body or null — altitude split not applicable
+                wasAboveAltitudeThreshold = true;
+                currentAltitudeThreshold = 0;
+            }
+            else
+            {
+                currentAltitudeThreshold = ComputeApproachAltitude(v.mainBody);
+                wasAboveAltitudeThreshold = v.altitude >= currentAltitudeThreshold;
+            }
+            altitudeBoundaryPending = false;
+            AltitudeBoundaryCrossed = false;
+            DescendedBelowThreshold = false;
+            if (v?.mainBody != null)
+            {
+                ParsekLog.Verbose("Recorder", $"Altitude state reseeded: body={v.mainBody.name}, " +
+                    $"aboveThreshold={wasAboveAltitudeThreshold} (was {oldState}), " +
+                    $"threshold={currentAltitudeThreshold:F0}m, alt={v.altitude:F0}m");
             }
         }
 
@@ -3544,12 +3703,25 @@ namespace Parsek
                 startUT = ut,
                 source = source,
                 frames = new List<TrajectoryPoint>(),
-                checkpoints = new List<OrbitSegment>()
+                checkpoints = new List<OrbitSegment>(),
+                minAltitude = float.NaN,
+                maxAltitude = float.NaN
             };
             trackSectionActive = true;
             ParsekLog.Info("Recorder",
                 $"TrackSection started: env={env} ref={refFrame} source={source} " +
                 $"at UT={ut.ToString("F2", CultureInfo.InvariantCulture)}");
+        }
+
+        /// <summary>
+        /// Updates min/max altitude on the current TrackSection.
+        /// </summary>
+        private void UpdateTrackSectionAltitude(float altitude)
+        {
+            if (float.IsNaN(currentTrackSection.minAltitude) || altitude < currentTrackSection.minAltitude)
+                currentTrackSection.minAltitude = altitude;
+            if (float.IsNaN(currentTrackSection.maxAltitude) || altitude > currentTrackSection.maxAltitude)
+                currentTrackSection.maxAltitude = altitude;
         }
 
         /// <summary>
@@ -3832,8 +4004,13 @@ namespace Parsek
             EnteredAtmosphere = false;
             SoiChangePending = false;
             SoiChangeFromBody = null;
+
+            // Seed altitude boundary state (airless bodies)
+            ReseedAltitudeState(v);
+
             ParsekLog.Verbose("Recorder", $"Boundary detection initialized: body={v.mainBody?.name}, " +
-                $"inAtmo={wasInAtmosphere}, hasAtmo={v.mainBody?.atmosphere}, alt={v.altitude:F0}m");
+                $"inAtmo={wasInAtmosphere}, hasAtmo={v.mainBody?.atmosphere}, alt={v.altitude:F0}m" +
+                $", altThreshold={currentAltitudeThreshold:F0}m, aboveThreshold={wasAboveAltitudeThreshold}");
 
             // Initialize environment tracking (v6+)
             TrackSections.Clear();
@@ -4336,8 +4513,9 @@ namespace Parsek
                     return;
             }
 
-            // Check atmosphere boundary (before part state polling)
+            // Check atmosphere / altitude boundary (before part state polling)
             CheckAtmosphereBoundary(v);
+            CheckAltitudeBoundary(v);
 
             // Poll parachute, jettison, engine, RCS, and deployable state every physics frame (before adaptive sampling skip)
             CheckParachuteState(v);
@@ -4445,6 +4623,7 @@ namespace Parsek
             if (trackSectionActive && currentTrackSection.frames != null)
             {
                 currentTrackSection.frames.Add(point);
+                UpdateTrackSectionAltitude((float)point.altitude);
             }
 
             RefreshBackupSnapshot(v, "periodic");
@@ -4504,6 +4683,7 @@ namespace Parsek
             if (trackSectionActive && currentTrackSection.frames != null)
             {
                 currentTrackSection.frames.Add(point);
+                UpdateTrackSectionAltitude((float)point.altitude);
             }
         }
 
@@ -4683,8 +4863,9 @@ namespace Parsek
             // discontinuity in the ghost at this transition — acceptable.
             SamplePosition(v);
 
-            // Reseed atmosphere state for the current body
+            // Reseed atmosphere and altitude state for the current body
             ReseedAtmosphereState(v);
+            ReseedAltitudeState(v);
 
             ParsekLog.Verbose("Recorder", $"Vessel went off rails — orbit segment closed " +
                 $"(UT {currentOrbitSegment.startUT:F0}-{currentOrbitSegment.endUT:F0})");
@@ -4721,8 +4902,9 @@ namespace Parsek
             // A spinning vessel crossing an SOI boundary will use orbital-frame rotation (not spin-forward)
             // for the new segment. This is an acceptable v1 limitation.
 
-            // Reseed atmosphere state for the new body
+            // Reseed atmosphere and altitude state for the new body
             ReseedAtmosphereState(v);
+            ReseedAltitudeState(v);
 
             // Flag for ParsekFlight to trigger chain split in Update()
             SoiChangePending = true;

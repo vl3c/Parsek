@@ -386,6 +386,7 @@ namespace Parsek
             HandleVesselSwitchChainTermination();
 
             HandleAtmosphereBoundarySplit();
+            HandleAltitudeBoundarySplit();
             HandleSoiChangeSplit();
             HandleTreeBackgroundFlush();
 
@@ -1478,7 +1479,10 @@ namespace Parsek
                     if (v.mainBody.atmosphere)
                         pending.SegmentPhase = v.altitude < v.mainBody.atmosphereDepth ? "atmo" : "exo";
                     else
-                        pending.SegmentPhase = "space";
+                    {
+                        double threshold = FlightRecorder.ComputeApproachAltitude(v.mainBody);
+                        pending.SegmentPhase = v.altitude < threshold ? "approach" : "exo";
+                    }
                 }
             }
         }
@@ -4261,15 +4265,62 @@ namespace Parsek
 
             string fromBody = recorder.SoiChangeFromBody ?? "Unknown";
             string toBody = FlightGlobals.ActiveVessel?.mainBody?.name ?? "Unknown";
-            // Completed segment was at fromBody — tag as "exo" if it has atmosphere, "space" otherwise
+            // Completed segment was at fromBody — tag based on atmosphere/altitude
             CelestialBody fromCB = FlightGlobals.Bodies?.Find(b => b.name == fromBody);
-            string fromPhase = (fromCB != null && fromCB.atmosphere) ? "exo" : "space";
+            string fromPhase;
+            if (fromCB != null && fromCB.atmosphere)
+                fromPhase = "exo"; // was in space around atmospheric body
+            else if (fromCB != null)
+            {
+                double threshold = FlightRecorder.ComputeApproachAltitude(fromCB);
+                fromPhase = recorder.Recording.Count > 0 &&
+                    recorder.Recording[recorder.Recording.Count - 1].altitude < threshold
+                    ? "approach" : "exo";
+            }
+            else
+                fromPhase = "exo";
             ParsekLog.Info("Flight", $"SOI auto-split triggered: {fromBody} ({fromPhase}) \u2192 {toBody} " +
                 $"(chain={chainManager.ActiveChainId ?? "(new)"}, points={recorder.Recording.Count})");
             CommitBoundaryAndRestart(fromPhase, fromBody,
                 $"Recording continues after SOI change " +
                     $"({fromBody} \u2192 {toBody}, chain={chainManager.ActiveChainId}, idx={chainManager.ActiveChainNextIndex})",
                 $"Recording continues (entering {toBody} SOI)");
+        }
+
+        /// <summary>
+        /// Handles altitude boundary auto-split when crossing the approach altitude threshold
+        /// on an airless body. Commits the current segment, restarts recording in the new phase.
+        /// Mirrors HandleAtmosphereBoundarySplit.
+        /// </summary>
+        private void HandleAltitudeBoundarySplit()
+        {
+            if (recorder == null || !recorder.IsRecording || !recorder.AltitudeBoundaryCrossed)
+                return;
+
+            // Bug #87: In tree mode, boundary splits must not commit standalone chain segments.
+            if (activeTree != null)
+            {
+                string skipPhase = recorder.DescendedBelowThreshold ? "approach" : "exo";
+                string skipBody = FlightGlobals.ActiveVessel?.mainBody?.name ?? "Unknown";
+                ParsekLog.Info("Flight", $"Altitude boundary suppressed in tree mode: " +
+                    $"{skipBody} entering {skipPhase} (tree={activeTree.Id}, " +
+                    $"activeRec={activeTree.ActiveRecordingId})");
+                recorder.ClearBoundaryFlags();
+                return;
+            }
+
+            // Completed phase is the one we just left:
+            // descended below threshold = completed "exo" segment
+            // ascended above threshold = completed "approach" segment
+            string phase = recorder.DescendedBelowThreshold ? "exo" : "approach";
+            string newPhase = recorder.DescendedBelowThreshold ? "approach" : "exo";
+            string bodyName = FlightGlobals.ActiveVessel?.mainBody?.name ?? "Unknown";
+            ParsekLog.Info("Flight", $"Altitude auto-split triggered: {bodyName} {phase}\u2192{newPhase} " +
+                $"(chain={chainManager.ActiveChainId ?? "(new)"}, points={recorder.Recording.Count})");
+            CommitBoundaryAndRestart(phase, bodyName,
+                $"Recording continues after altitude boundary " +
+                    $"(chain={chainManager.ActiveChainId}, idx={chainManager.ActiveChainNextIndex}, {bodyName} {phase}\u2192{newPhase})",
+                $"Recording continues ({(newPhase == "approach" ? "entering approach zone" : "leaving approach zone")})");
         }
 
         /// <summary>
@@ -4593,7 +4644,10 @@ namespace Parsek
                     if (v.mainBody.atmosphere)
                         recorder.CaptureAtStop.SegmentPhase = v.altitude < v.mainBody.atmosphereDepth ? "atmo" : "exo";
                     else
-                        recorder.CaptureAtStop.SegmentPhase = "space";
+                    {
+                        double threshold = FlightRecorder.ComputeApproachAltitude(v.mainBody);
+                        recorder.CaptureAtStop.SegmentPhase = v.altitude < threshold ? "approach" : "exo";
+                    }
                     ParsekLog.Verbose("Flight", $"Final segment tagged (StopRecording): " +
                         $"{recorder.CaptureAtStop.SegmentBodyName} {recorder.CaptureAtStop.SegmentPhase}");
                 }
@@ -5045,6 +5099,9 @@ namespace Parsek
 
                 try
                 {
+                    // Correct unsafe snapshot situation before spawning (#169)
+                    VesselSpawner.CorrectUnsafeSnapshotSituation(leaf.VesselSnapshot, leaf.TerminalStateValue);
+
                     uint spawnedPid = VesselSpawner.RespawnVessel(leaf.VesselSnapshot);
                     if (spawnedPid != 0)
                     {
@@ -7079,19 +7136,23 @@ namespace Parsek
 
         IEnumerator DeferredActivateVessel(uint pid)
         {
-            for (int frame = 0; frame < 10; frame++)
+            // Wait up to 5 seconds for the vessel to appear and load.
+            // Distant vessels (e.g. splashdown site 37km away) take much longer
+            // than 10 frames to load — KSP must range-load them first.
+            float deadline = UnityEngine.Time.time + 5f;
+            while (UnityEngine.Time.time < deadline)
             {
                 yield return null;
                 Vessel v = FlightGlobals.Vessels?.Find(vessel => vessel.persistentId == pid);
-                if (v != null && v.loaded)
+                if (v != null)
                 {
                     v.IgnoreGForces(240);
                     FlightGlobals.ForceSetActiveVessel(v);
-                    Log($"Activated vessel pid={pid}");
+                    Log($"Activated vessel pid={pid} (loaded={v.loaded})");
                     yield break;
                 }
             }
-            Log($"WARNING: Could not activate vessel pid={pid} within 10 frames");
+            Log($"WARNING: Could not activate vessel pid={pid} within 5 seconds");
         }
 
         #region Zone Rendering (shared by normal, background, and looped ghosts)

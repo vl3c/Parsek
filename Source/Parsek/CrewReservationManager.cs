@@ -419,6 +419,7 @@ namespace Parsek
         /// </summary>
         internal static int RescueOrphanedCrew(List<ProtoVessel> survivingVessels)
         {
+            if (survivingVessels == null) return 0;
             var roster = HighLogic.CurrentGame?.CrewRoster;
             if (roster == null)
             {
@@ -544,6 +545,63 @@ namespace Parsek
                 }
             }
             return crew;
+        }
+
+        /// <summary>
+        /// Pure method: swaps reserved crew names in a vessel snapshot ConfigNode,
+        /// replacing each reserved original name with its replacement name.
+        /// Used for KSC spawns where SwapReservedCrewInFlight cannot run
+        /// (no loaded vessel / no flight scene). Bug #167.
+        /// Returns the number of crew names swapped.
+        /// </summary>
+        internal static int SwapReservedCrewInSnapshot(
+            ConfigNode snapshot, IReadOnlyDictionary<string, string> replacements)
+        {
+            if (snapshot == null || replacements == null || replacements.Count == 0)
+                return 0;
+
+            int swapCount = 0;
+            int partIndex = 0;
+
+            foreach (ConfigNode partNode in snapshot.GetNodes("PART"))
+            {
+                string[] crewNames = partNode.GetValues("crew");
+                if (crewNames.Length == 0) { partIndex++; continue; }
+
+                bool anySwapped = false;
+                var updated = new List<string>(crewNames.Length);
+
+                for (int i = 0; i < crewNames.Length; i++)
+                {
+                    if (replacements.TryGetValue(crewNames[i], out string replacementName))
+                    {
+                        ParsekLog.Verbose("CrewReservation",
+                            $"Snapshot swap: '{crewNames[i]}' -> '{replacementName}' in PART[{partIndex}]");
+                        updated.Add(replacementName);
+                        anySwapped = true;
+                        swapCount++;
+                    }
+                    else
+                    {
+                        updated.Add(crewNames[i]);
+                    }
+                }
+
+                if (anySwapped)
+                {
+                    partNode.RemoveValues("crew");
+                    for (int i = 0; i < updated.Count; i++)
+                        partNode.AddValue("crew", updated[i]);
+                }
+
+                partIndex++;
+            }
+
+            if (swapCount > 0)
+                ParsekLog.Verbose("CrewReservation",
+                    $"Snapshot crew swap complete: {swapCount} name(s) replaced across {partIndex} part(s)");
+
+            return swapCount;
         }
 
         #endregion
