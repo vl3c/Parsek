@@ -2041,6 +2041,26 @@ EVA vessel spawned with `sit=FLYING` at low altitude is immediately destroyed by
 
 **Status:** Fixed
 
+## 170. Vessel spawned 4m from launch pad collides with infrastructure, chain-explodes player's rocket
+
+A vessel (Jumping Flea) was spawned `sit=LANDED` at only 4m from the launch pad. The bounding box overlap check passed (small vessel bbox didn't overlap the GDLV3's bbox at 4m), but the vessel landed inside the launch pad's physical collider structure. Chain explosion destroyed both the spawned vessel and the player's active rocket.
+
+Additionally, the spawned vessel had a dead crew member (Minidou Kerman, killed by bug #169 moments earlier) because `RemoveDeadCrewFromSnapshot` skipped reserved crew regardless of death status.
+
+**Root cause:** Three compounding issues:
+1. No KSC infrastructure exclusion zone — `SpawnCollisionDetector` only checks against `FlightGlobals.Vessels`, not KSC structures
+2. Bbox check too permissive at short range — 4m passes the vessel-vs-vessel bbox check but is inside the launch pad collider mesh
+3. Dead reserved crew spawned — `RemoveDeadCrewFromSnapshot` unconditionally kept reserved crew, even when Dead
+
+**Fix:**
+1. Added `IsWithinKscExclusionZone` pure static method to `SpawnCollisionDetector` — 50m radius surface distance check around KSC launch pad and runway start point. Integrated into `SpawnOrRecoverIfTooClose` before bbox check; only active on `body.isHomeWorld`. Uses same collision-block-count / abandon pattern as bbox overlap. Spawning further down the runway is allowed.
+2. Fixed `RemoveDeadCrewFromSnapshot` to remove reserved crew who are genuinely Dead (reservation bypass now only applies to non-Dead reserved crew). Dead status overrides reservation.
+3. Added `ShouldBlockSpawnForDeadCrew` guard — if ALL crew in the snapshot are dead, the spawn is abandoned entirely (prevents spawning empty command pods).
+
+**Priority:** High — chain explosion destroys player's active rocket
+
+**Status:** Fixed
+
 # In-Game Tests
 
 - [x] Vessels propagate naturally along orbits after FF (no position freezing)

@@ -16,7 +16,7 @@ All notable changes to Parsek are documented here.
 ### Bug Fixes
 
 - **Fix #168: Spawned vessels not re-spawned after rewind/revert.** After vessel stripping on revert, `SpawnedVesselPersistentId` was restored from the save but pointed to a stripped vessel — blocking re-spawn permanently. Added `ReconcileSpawnStateAfterStrip` that checks surviving PIDs in flightState after all strip operations and resets spawn tracking for recordings whose vessel no longer exists.
-
+- **Fix #170: Vessel spawned near launch pad collides with infrastructure, chain-explodes player's rocket.** Added 50m KSC exclusion zones around launch pad and runway start point (`IsWithinKscExclusionZone` in `SpawnCollisionDetector`) to block spawns near infrastructure. Fixed `RemoveDeadCrewFromSnapshot` to remove reserved crew who are Dead (reservation no longer overrides death). Added `ShouldBlockSpawnForDeadCrew` guard to abandon spawn when all crew are dead.
 - **Fix #72: GhostCommNetRelay antenna combination formula wrong for non-combinable strongest.** Extracted `ResolveCombinationExponent` pure method. When the overall strongest antenna is non-combinable, the combination exponent now comes from the strongest *combinable* antenna, matching KSP's actual formula.
 - **Fix #81: TrackSection struct shallow copy shares mutable list references.** Extracted `Recording.DeepCopyTrackSections` that creates independent `frames` and `checkpoints` lists for each copied TrackSection. Used in `ApplyPersistenceArtifactsFrom`.
 - **Fix #122: Dead->Dead crew status identity transitions logged as events.** Added `IsRealStatusChange` guard in `GameStateRecorder.OnKerbalStatusChange` to filter identity transitions before recording.

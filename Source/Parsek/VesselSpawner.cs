@@ -244,11 +244,39 @@ namespace Parsek
 
             Vector3d spawnPos = body.GetWorldSurfacePosition(spawnLat, spawnLon, spawnAlt);
 
+            // KSC exclusion zone — block spawn near the launch pad to prevent collisions
+            // with KSC infrastructure that isn't in FlightGlobals.Vessels. (#170)
+            bool isEva = !string.IsNullOrEmpty(rec.EvaCrewName);
+            if (!isEva && body.isHomeWorld &&
+                SpawnCollisionDetector.IsWithinKscExclusionZone(
+                    spawnLat, spawnLon, body.Radius,
+                    SpawnCollisionDetector.DefaultKscExclusionRadiusMeters))
+            {
+                rec.CollisionBlockCount++;
+                if (ShouldAbandonCollisionBlockedSpawn(rec.CollisionBlockCount, MaxCollisionBlocks))
+                {
+                    rec.VesselSpawned = true;
+                    rec.SpawnAbandoned = true;
+                    ParsekLog.Warn("Spawner",
+                        $"Spawn ABANDONED for #{index} ({rec.VesselName}): within KSC exclusion zone " +
+                        $"(lat={spawnLat:F4}, lon={spawnLon:F4}) for {rec.CollisionBlockCount} consecutive frames — " +
+                        $"giving up (max={MaxCollisionBlocks})");
+                }
+                else
+                {
+                    ParsekLog.VerboseRateLimited("Spawner",
+                        "ksc-exclusion-" + index,
+                        $"Spawn blocked for #{index} ({rec.VesselName}): within KSC exclusion zone " +
+                        $"(lat={spawnLat:F4}, lon={spawnLon:F4}) — will retry next frame " +
+                        $"(block={rec.CollisionBlockCount}/{MaxCollisionBlocks})");
+                }
+                return;
+            }
+
             // Bounding box overlap check — block spawn if overlapping a loaded vessel.
             // Ghost continues at its last position; next frame retries via UpdateTimelinePlayback.
             // Same collision detection system used by chain-tip spawns (SpawnCollisionDetector).
             // EVA kerbals skip this (they spawn where recorded, too small to collide).
-            bool isEva = !string.IsNullOrEmpty(rec.EvaCrewName);
             if (!isEva)
             {
                 Bounds spawnBounds = SpawnCollisionDetector.ComputeVesselBounds(rec.VesselSnapshot);
@@ -279,6 +307,25 @@ namespace Parsek
 
             // Reset collision block counter on successful spawn path
             rec.CollisionBlockCount = 0;
+
+            // Dead crew guard: if ALL crew in the snapshot are dead, abandon spawn.
+            // Spawning a crewless command pod is worse than not spawning at all. (#170)
+            // Individual dead crew are already removed by RespawnVessel.RemoveDeadCrewFromSnapshot;
+            // this catches the case where the entire crew complement is dead.
+            if (!isEva && rec.VesselSnapshot != null)
+            {
+                var snapshotCrew = ExtractCrewNamesFromSnapshot(rec.VesselSnapshot);
+                var deadSet = BuildDeadCrewSet(snapshotCrew);
+                if (ShouldBlockSpawnForDeadCrew(snapshotCrew, deadSet))
+                {
+                    rec.VesselSpawned = true;
+                    rec.SpawnAbandoned = true;
+                    ParsekLog.Warn("Spawner",
+                        $"Spawn ABANDONED for #{index} ({rec.VesselName}): all {snapshotCrew.Count} crew " +
+                        $"are dead/missing — [{string.Join(", ", snapshotCrew)}]");
+                    return;
+                }
+            }
 
             // Find nearest vessel for spawn context logging
             double closestDist = FindNearestVesselDistance(spawnPos, body);
@@ -335,6 +382,25 @@ namespace Parsek
                     closestDist = dist;
             }
             return closestDist;
+        }
+
+        /// <summary>
+        /// Builds a set of crew names from the given list that are Dead or Missing
+        /// in the KSP crew roster. Runtime-only: accesses HighLogic.CurrentGame.CrewRoster.
+        /// Returns an empty set if the roster is unavailable. (#170)
+        /// </summary>
+        private static HashSet<string> BuildDeadCrewSet(List<string> crewNames)
+        {
+            var deadSet = new HashSet<string>();
+            var roster = HighLogic.CurrentGame?.CrewRoster;
+            if (roster == null) return deadSet;
+
+            for (int i = 0; i < crewNames.Count; i++)
+            {
+                if (IsCrewDeadInRoster(crewNames[i], roster))
+                    deadSet.Add(crewNames[i]);
+            }
+            return deadSet;
         }
 
         /// <summary>
@@ -718,33 +784,32 @@ namespace Parsek
                 bool removedAny = false;
                 foreach (string name in crewNames)
                 {
-                    // Reserved crew were alive at recording time — keep them
-                    // regardless of current roster status. Stale roster state
-                    // (e.g. Missing after --clean-start removed their vessel)
-                    // must not prevent them from spawning.
-                    if (reserved.ContainsKey(name))
+                    bool isDeadOrMissing = IsCrewDeadInRoster(name, roster);
+
+                    // Reserved crew with Missing status are kept — Missing can be
+                    // stale state from save manipulation (e.g. --clean-start).
+                    // But Dead is permanent — a dead reserved crew member must be
+                    // removed to avoid resurrecting them. (#170)
+                    // Use Dead-only check: IsCrewDeadInRoster includes Missing,
+                    // which would incorrectly remove reserved+Missing crew.
+                    bool isStrictlyDead = IsCrewStrictlyDeadInRoster(name, roster);
+                    if (reserved.ContainsKey(name) && !isStrictlyDead)
                     {
                         keepNames.Add(name);
                         continue;
                     }
 
-                    bool isDead = false;
-                    foreach (ProtoCrewMember pcm in roster.Crew)
+                    if (isDeadOrMissing)
                     {
-                        if (pcm.name == name &&
-                            (pcm.rosterStatus == ProtoCrewMember.RosterStatus.Dead ||
-                             pcm.rosterStatus == ProtoCrewMember.RosterStatus.Missing))
-                        {
-                            isDead = true;
-                            ParsekLog.Info("Spawner", $"Removed dead/missing crew '{name}' from vessel snapshot");
-                            removedCount++;
-                            break;
-                        }
-                    }
-                    if (isDead)
+                        ParsekLog.Info("Spawner", $"Removed dead/missing crew '{name}' from vessel snapshot" +
+                            (reserved.ContainsKey(name) ? " (was reserved but Dead overrides)" : ""));
+                        removedCount++;
                         removedAny = true;
+                    }
                     else
+                    {
                         keepNames.Add(name);
+                    }
                 }
 
                 if (removedAny)
@@ -757,6 +822,105 @@ namespace Parsek
 
             if (removedCount > 0)
                 ParsekLog.Info("Spawner", $"Spawn prep: removed {removedCount} dead/missing crew from snapshot");
+        }
+
+        /// <summary>
+        /// Checks whether a crew member is Dead or Missing in the KSP crew roster.
+        /// Returns false if the crew member is not found in the roster (unknown crew
+        /// are not considered dead — they may be from synthetic recordings).
+        /// Runtime-only: requires HighLogic.CurrentGame.CrewRoster via the roster parameter.
+        /// </summary>
+        private static bool IsCrewDeadInRoster(string crewName, KerbalRoster roster)
+        {
+            foreach (ProtoCrewMember pcm in roster.Crew)
+            {
+                if (pcm.name == crewName &&
+                    (pcm.rosterStatus == ProtoCrewMember.RosterStatus.Dead ||
+                     pcm.rosterStatus == ProtoCrewMember.RosterStatus.Missing))
+                {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// Checks whether a crew member is strictly Dead (not Missing) in the KSP crew roster.
+        /// Used by RemoveDeadCrewFromSnapshot for reserved crew: Missing is potentially stale
+        /// state from save manipulation, but Dead is permanent and must override reservation. (#170)
+        /// </summary>
+        private static bool IsCrewStrictlyDeadInRoster(string crewName, KerbalRoster roster)
+        {
+            foreach (ProtoCrewMember pcm in roster.Crew)
+            {
+                if (pcm.name == crewName &&
+                    pcm.rosterStatus == ProtoCrewMember.RosterStatus.Dead)
+                {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// Pure decision: should a spawn be blocked because all crew in the snapshot are dead?
+        /// Returns true when every crew member listed in the snapshot is in the dead names set.
+        /// A vessel with no crew at all returns false (crewless vessels can spawn).
+        /// Extracted for testability. (#170)
+        /// </summary>
+        /// <param name="crewNamesInSnapshot">Crew names from the vessel snapshot PART nodes.</param>
+        /// <param name="deadCrewNames">Set of crew names known to be dead/missing.</param>
+        internal static bool ShouldBlockSpawnForDeadCrew(
+            List<string> crewNamesInSnapshot, HashSet<string> deadCrewNames)
+        {
+            if (crewNamesInSnapshot == null || crewNamesInSnapshot.Count == 0)
+            {
+                ParsekLog.Verbose("Spawner", "ShouldBlockSpawnForDeadCrew: no crew in snapshot — not blocking");
+                return false;
+            }
+
+            if (deadCrewNames == null || deadCrewNames.Count == 0)
+            {
+                ParsekLog.Verbose("Spawner",
+                    $"ShouldBlockSpawnForDeadCrew: no dead crew — not blocking ({crewNamesInSnapshot.Count} crew alive)");
+                return false;
+            }
+
+            int deadCount = 0;
+            for (int i = 0; i < crewNamesInSnapshot.Count; i++)
+            {
+                if (deadCrewNames.Contains(crewNamesInSnapshot[i]))
+                    deadCount++;
+            }
+
+            bool allDead = deadCount == crewNamesInSnapshot.Count;
+
+            ParsekLog.Verbose("Spawner",
+                $"ShouldBlockSpawnForDeadCrew: {deadCount}/{crewNamesInSnapshot.Count} crew dead — " +
+                (allDead ? "blocking spawn (all crew dead)" : "allowing spawn (some crew alive)"));
+
+            return allDead;
+        }
+
+        /// <summary>
+        /// Extracts all crew names from a vessel snapshot's PART nodes.
+        /// Returns an empty list if the snapshot is null or has no crew.
+        /// </summary>
+        internal static List<string> ExtractCrewNamesFromSnapshot(ConfigNode snapshot)
+        {
+            var names = new List<string>();
+            if (snapshot == null) return names;
+
+            foreach (ConfigNode partNode in snapshot.GetNodes("PART"))
+            {
+                var crewNames = partNode.GetValues("crew");
+                for (int i = 0; i < crewNames.Length; i++)
+                {
+                    if (!string.IsNullOrEmpty(crewNames[i]))
+                        names.Add(crewNames[i]);
+                }
+            }
+            return names;
         }
 
         /// <summary>
