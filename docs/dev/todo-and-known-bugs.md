@@ -2118,6 +2118,18 @@ When an EVA recording completes and Parsek spawns the real kerbal, the kerbal ap
 
 **Status:** Fixed
 
+## ~~176. Group hide checkbox misaligned when expanded stats columns visible~~
+
+Group header rows in the recordings window were missing `GUILayout.Label` spacers for the expanded stats columns (MaxAlt, MaxSpd, Dist, Pts). When the Stats panel was toggled on, the group row had fewer layout elements than recording rows, causing Unity's horizontal layout to compress or shift the trailing Hide checkbox out of alignment — in some cases making it invisible or unclickable.
+
+**Root cause:** `DrawGroupTree` emitted Phase→Name→G buttons→Loop→Period→Watch→Rewind→Hide but skipped the Phase/Launch/Duration/Stats/Status columns that recording rows include between Name and G. The expanded stats spacers (4 extra `GUILayout.Label` elements) were entirely absent.
+
+**Fix:** Added Phase spacer, Launch (earliest descendant StartUT), Duration (sum of descendant durations), expanded stats spacers (conditional on `showExpandedStats`), and Status (closest active T- countdown) columns to `DrawGroupTree`, matching the recording row column layout exactly.
+
+**Files:** `ParsekUI.cs` (`DrawGroupTree`)
+
+**Status:** Fixed
+
 # In-Game Tests
 
 - [x] Vessels propagate naturally along orbits after FF (no position freezing)

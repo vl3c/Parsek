@@ -16,6 +16,9 @@ All notable changes to Parsek are documented here.
 - **T98: Loop range fields.** New `LoopStartUT`/`LoopEndUT` fields on Recording narrow the loop range. Engine (`TryComputeLoopPlaybackUT`, `ShouldLoopPlayback`), save/load (both paths), and `CanAutoMerge` updated. Backward compatible (NaN defaults = existing behavior).
 - **T98: Policy modularity refactor.** Migrated scattered `TreeId != null` / `ChainId != null` policy checks to `IsTreeRecording` / `IsChainRecording` / `ManagesOwnResources` query properties. Extracted `ClassifyVesselDestruction` and `ShouldSuppressBoundarySplit` as testable static methods.
 
+- **Group header columns in recordings window.** Groups now display Launch (earliest member StartUT), Duration (sum of member durations), and Status (closest active T- countdown) columns. Groups participate in column-based sorting alongside chains and standalone recordings instead of always rendering first. Six `internal static` helpers extracted for testability with 27 unit tests.
+- **Fix #176: Group hide checkbox misaligned when expanded stats visible.** Group rows were missing spacers for the MaxAlt/MaxSpd/Dist/Pts columns, causing the trailing Hide checkbox to shift out of alignment when the Stats panel was open.
+
 ### Bug Fixes
 
 - **Fix #175: EVA kerbal spawns at recording start position instead of endpoint.** EVA vessel snapshots are captured at EVA start (kerbal on the pod's ladder), but the kerbal walks elsewhere during the recording. On spawn, the snapshot's baked-in lat/lon/alt placed the kerbal on top of the parent vessel, grabbing its ladder and triggering KSP's "Kerbals on a ladder — cannot save" error. `ResolveSpawnPosition` now routes EVA recordings to the trajectory endpoint; `OverrideSnapshotPosition` patches the snapshot before `RespawnVessel`.
