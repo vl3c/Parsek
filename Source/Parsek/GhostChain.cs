@@ -37,6 +37,7 @@ namespace Parsek
         // null = no segment tracked yet (first frame, or no orbit data)
         public string LastMapOrbitBodyName;
         public double LastMapOrbitSma;
+        public double LastMapOrbitEcc;
 
         // Runtime state: spawn blocked by collision (not serialized)
         public bool SpawnBlocked;
