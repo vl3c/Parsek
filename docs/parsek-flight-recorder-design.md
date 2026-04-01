@@ -1125,7 +1125,7 @@ When a recording reaches its end UT, Parsek checks whether to spawn a real vesse
 
 - If the vessel doesn't exist in the game world, spawn it from the recording's snapshot.
 - If it already exists (from the quicksave), skip — the ghost just despawns.
-- On revert, the spawn tracking resets, so spawns re-trigger naturally when the ghost replays.
+- On revert, spawn state is reconciled after vessel stripping (see Section 13.11).
 
 Looping recordings spawn their vessel at the end of the **first** playthrough. Subsequent loop cycles are visual-only ghosts.
 
@@ -1222,6 +1222,25 @@ When a vessel must be ghosted:
 
 Safety: the quicksave is always available as a full backup. Ghost conversion is wrapped in error handling — if it fails at any step, the vessel is left untouched and current behavior applies (no paradox prevention, but no data loss).
 
+### 13.11 Spawn State Reconciliation After Revert
+
+Spawn tracking uses `SpawnedVesselPersistentId` on each Recording to prevent duplicate spawns — if the PID is non-zero, the spawn system treats the vessel as already spawned and skips it. This creates an edge case on revert:
+
+```
+1. Recording reaches EndUT → vessel spawns → SpawnedVesselPersistentId = X
+2. Game saves (PID = X persisted in .sfs)
+3. Player reverts/rewinds
+4. OnLoad restores SpawnedVesselPersistentId = X from save
+5. Vessel stripping removes the spawned vessel (PID = X no longer in flightState)
+6. PID is still X → dedup check blocks re-spawn permanently
+```
+
+The problem: spawn tracking is restored from the save *before* vessel stripping runs, but stripping removes the vessel the PID points to. The recording thinks it already spawned, but the vessel no longer exists.
+
+**Fix:** `ReconcileSpawnStateAfterStrip` runs after all vessel strip operations complete. It collects the set of surviving vessel PIDs from flightState, then iterates all recordings: any recording whose `SpawnedVesselPersistentId` is non-zero but absent from the surviving set has its spawn tracking reset (`SpawnedVesselPersistentId = 0`, `SpawnNeedsRecovery = false`). The ghost replays normally and re-triggers the spawn at EndUT.
+
+The reconciliation is called at both revert sites in ParsekScenario (OnLoad revert path and the rewind path) to cover all vessel stripping scenarios.
+
 ---
 
 ## 14. Rewind and Timeline Operations
@@ -1257,7 +1276,7 @@ The player is at UT=6000 and rewinds to Recording B's launch at UT=2000:
 
 ### 14.3 Spawn at Recording End
 
-At each recording's end UT: if the vessel doesn't exist in the game world, spawn it from the recording's snapshot. If it already exists (from the quicksave), skip. On revert, spawn tracking resets, so spawns re-trigger naturally.
+At each recording's end UT: if the vessel doesn't exist in the game world, spawn it from the recording's snapshot. If it already exists (from the quicksave), skip. On revert, spawn state is reconciled after vessel stripping (Section 13.11) to ensure re-spawn is not blocked by stale PID references.
 
 ### 14.4 Fast-Forward (Time Warp with Ghost Playback)
 
