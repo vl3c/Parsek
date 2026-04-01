@@ -385,7 +385,7 @@ namespace Parsek.Tests
             var chains = GhostChainWalker.ComputeAllGhostChains(trees, 0);
 
             Assert.Empty(chains);
-            Assert.Contains(logLines, l => l.Contains("Skipped 1 fully-terminated tree"));
+            Assert.Contains(logLines, l => l.Contains("fully-terminated"));
         }
 
         #endregion

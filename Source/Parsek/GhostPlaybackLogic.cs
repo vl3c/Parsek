@@ -2397,9 +2397,11 @@ namespace Parsek
             Recording currentRec,
             IList<Recording> committed,
             IReadOnlyList<RecordingTree> trees,
-            Func<int, bool> isGhostActive)
+            Func<int, bool> isGhostActive,
+            int depth = 0)
         {
-            if (currentRec == null || committed == null) return -1;
+            const int MaxRecursionDepth = 10;
+            if (currentRec == null || committed == null || depth > MaxRecursionDepth) return -1;
 
             // Case 1: Chain continuation (same chainId, next chainIndex, branch 0)
             if (!string.IsNullOrEmpty(currentRec.ChainId) && currentRec.ChainIndex >= 0
@@ -2469,7 +2471,7 @@ namespace Parsek
                                 // children to find a deeper target with an active ghost.
                                 pidMatchFound = true;
                                 int deeper = FindNextWatchTarget(
-                                    committed[j], committed, trees, isGhostActive);
+                                    committed[j], committed, trees, isGhostActive, depth + 1);
                                 if (deeper >= 0)
                                     return deeper;
                             }
