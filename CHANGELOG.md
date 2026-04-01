@@ -18,6 +18,7 @@ All notable changes to Parsek are documented here.
 
 ### Bug Fixes
 
+- **Fix #175: EVA kerbal spawns at recording start position instead of endpoint.** EVA vessel snapshots are captured at EVA start (kerbal on the pod's ladder), but the kerbal walks elsewhere during the recording. On spawn, the snapshot's baked-in lat/lon/alt placed the kerbal on top of the parent vessel, grabbing its ladder and triggering KSP's "Kerbals on a ladder — cannot save" error. `ResolveSpawnPosition` now routes EVA recordings to the trajectory endpoint; `OverrideSnapshotPosition` patches the snapshot before `RespawnVessel`.
 - **Fix #171: Orbital ghost disappears during 50x time warp.** During warp >4x, ghosts with orbital segments are now exempt from zone-based mesh hiding (`ShouldExemptFromZoneHide` in `GhostPlaybackLogic`). Prevents orbital ghosts from completing playback while invisible in the Beyond zone.
 - **Fix #172: Ghost destruction reason logged as "unknown".** `RetryHeldGhostSpawns` now passes per-action reason strings to `DestroyGhost`: `"held-spawn-succeeded"`, `"held-already-spawned"`, `"held-spawn-timeout"`, `"held-invalid-index"`.
 - **Fix #173: Zero-point debris leaf recordings saved from same-frame destruction.** Added `PruneZeroPointLeaves` step in `FinalizeTreeRecordings` — removes leaf recordings with zero trajectory points, no orbit segments, and no surface position. Prevents `.prec` sidecar files and tree nodes for instantly-destroyed debris.

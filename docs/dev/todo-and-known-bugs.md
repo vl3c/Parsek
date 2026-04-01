@@ -2102,6 +2102,22 @@ When a breakup creates debris fragments that are destroyed within the same physi
 
 **Status:** Fixed
 
+## ~~175. EVA kerbal spawns at recording start position instead of endpoint~~
+
+When an EVA recording completes and Parsek spawns the real kerbal, the kerbal appears at the snapshot's lat/lon/alt (captured at EVA start, MET=0.04s — kerbal still on the pod's ladder) instead of the trajectory endpoint (where they walked to). This places the kerbal on top of the parent vessel, causing it to grab the parent's ladder. KSP then blocks all saves with "There are Kerbals on a ladder. Cannot save."
+
+**Root cause:** `SpawnOrRecoverIfTooClose` calls `RespawnVessel(rec.VesselSnapshot)` which uses the snapshot's baked-in position. For non-EVA landed vessels the snapshot position equals the endpoint (vessel doesn't move), but for EVA kerbals the snapshot position is where they EVA'd from, not where they walked to.
+
+**Fix:** Two changes:
+1. `ResolveSpawnPosition` now routes EVA recordings (non-null `EvaCrewName`) to the trajectory endpoint unconditionally, bypassing the snapshot position.
+2. `OverrideSnapshotPosition` patches the snapshot's lat/lon/alt to the resolved endpoint before `RespawnVessel`, so the `ProtoVessel` constructor reads the correct coordinates.
+
+6 unit tests.
+
+**Files:** `VesselSpawner.cs`, `SpawnSafetyNetTests.cs`
+
+**Status:** Fixed
+
 # In-Game Tests
 
 - [x] Vessels propagate naturally along orbits after FF (no position freezing)
