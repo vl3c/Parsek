@@ -2091,6 +2091,50 @@ Ghost ProtoVessels appear in the tracking station sidebar and orbit lines are vi
 
 **Status:** Fixed
 
+## ~~175. Orbital ghost disappears during 50x time warp~~
+
+During 50x time warp, the zone rendering system hides ghost meshes beyond 120km (Visual→Beyond boundary). The ghost's entire remaining trajectory plays out while hidden. Playback completes while in the Beyond zone, so the ghost is destroyed without being re-shown.
+
+**Root cause:** Zone-based mesh hiding applied unconditionally. Orbital ghosts travel far from the player during warp, entering the Beyond zone (>120km) and being hidden. Playback continues and completes while the mesh is invisible.
+
+**Fix:** Added `GhostPlaybackLogic.ShouldExemptFromZoneHide(warpRate, hasOrbitalSegments)` — during time warp >4x, ghosts with orbital segments are exempt from zone-based hiding in `ApplyZoneRenderingImpl`. Surface-only ghosts still zone-hide normally. 8 unit tests.
+
+**Status:** Fixed
+
+## ~~176. Ghost destruction reason logged as "unknown"~~
+
+When held ghosts (warp-deferred spawn state) are released after successful vessel spawn, the `DestroyGhost` call lacks a reason string, producing `destroyed (unknown)` in the log.
+
+**Fix:** Changed `toRelease` from `List<int>` to `List<KeyValuePair<int, string>>` in `RetryHeldGhostSpawns` to track per-action destroy reasons. Each `HeldGhostAction` case now passes a specific reason: `"held-spawn-succeeded"`, `"held-already-spawned"`, `"held-spawn-timeout"`, or `"held-invalid-index"`.
+
+**Files:** `ParsekPlaybackPolicy.cs` (`RetryHeldGhostSpawns`)
+
+**Status:** Fixed
+
+## ~~177. Zero-point debris leaf recordings saved from same-frame destruction~~
+
+When a breakup creates debris fragments that are destroyed within the same physics frame, the resulting recordings have zero trajectory points. These create `.prec` sidecar files and tree nodes that serve no purpose.
+
+**Fix:** Added `PruneZeroPointLeaves` step in `FinalizeTreeRecordings` after individual recording finalization. Pure static helpers `IsZeroPointLeaf` and `CollectZeroPointLeafIds` identify leaf recordings with zero points, no orbit segments, and no surface position. Pruned recordings are removed from `tree.Recordings` and parent branch point `ChildRecordingIds`. Log summary reports count of pruned recordings. 8 unit tests.
+
+**Files:** `ParsekFlight.cs` (finalization path)
+
+**Status:** Fixed
+
+## ~~178. ChainWalker evaluates terminated chains every frame~~
+
+`GhostChainWalker.ComputeAllGhostChains` evaluates ~590 terminated chains per frame that can never produce a ghost (all vessels destroyed/recovered). While log output is rate-limited (suppressed counts logged every 5s), the computation still runs.
+
+**Fix:** Two-level filtering:
+1. Added `GhostChainWalker.IsTreeFullyTerminated(tree)` — skips scanning trees where every leaf recording has terminal state Destroyed or Recovered. Prevents chain link construction for fully-terminated trees.
+2. Added `chain.IsTerminated` filter in `EvaluateAndApplyGhostChains` — excludes terminated chains from `activeGhostChains`, preventing per-frame iteration in `PositionChainGhosts` and `DrawGhostLabels`.
+
+7 unit tests.
+
+**Files:** `GhostChainWalker.cs`, `ParsekFlight.cs`
+
+**Status:** Fixed
+
 # In-Game Tests
 
 - [x] Vessels propagate naturally along orbits after FF (no position freezing)

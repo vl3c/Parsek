@@ -3862,6 +3862,15 @@ namespace Parsek
                     continue;
                 }
 
+                // #174: Skip terminated chains — vessel destroyed/recovered, can never produce ghost
+                if (chain.IsTerminated)
+                {
+                    ParsekLog.Verbose("Ghoster",
+                        string.Format(CultureInfo.InvariantCulture,
+                            "Skipping terminated chain for pid={0}", pid));
+                    continue;
+                }
+
                 activeChains[pid] = chain;
 
                 // Create ghost map vessel for non-terminated chains ending in stable orbit
@@ -4975,6 +4984,10 @@ namespace Parsek
             foreach (var kvp in tree.Recordings)
                 FinalizeIndividualRecording(kvp.Value, commitUT, isSceneExit);
 
+            // 4. Prune zero-point debris leaves (#173) — removes recordings with no
+            // trajectory data that were created from same-frame destruction debris.
+            PruneZeroPointLeaves(tree);
+
             // Compute tree-level resource delta
             tree.DeltaFunds = ComputeTreeDeltaFunds(tree);
             tree.DeltaScience = ComputeTreeDeltaScience(tree);
@@ -5051,6 +5064,65 @@ namespace Parsek
                 $"points={rec.Points.Count} orbitSegs={rec.OrbitSegments.Count} " +
                 $"terminal={rec.TerminalStateValue?.ToString() ?? "none"} " +
                 $"snapshot={rec.VesselSnapshot != null} leaf={isLeaf}");
+        }
+
+        /// <summary>
+        /// Removes zero-point leaf recordings from the tree (#173). These are debris fragments
+        /// that were destroyed within the same physics frame as their creation — they have no
+        /// trajectory data, no snapshot, and serve no purpose.
+        /// </summary>
+        private static void PruneZeroPointLeaves(RecordingTree tree)
+        {
+            var toPrune = CollectZeroPointLeafIds(tree);
+            if (toPrune == null || toPrune.Count == 0)
+                return;
+
+            for (int i = 0; i < toPrune.Count; i++)
+            {
+                string id = toPrune[i];
+                tree.Recordings.Remove(id);
+
+                // Remove from parent branch point's children list
+                for (int b = 0; b < tree.BranchPoints.Count; b++)
+                {
+                    tree.BranchPoints[b].ChildRecordingIds.Remove(id);
+                }
+            }
+
+            ParsekLog.Info("Flight",
+                $"PruneZeroPointLeaves: removed {toPrune.Count} zero-point debris leaf recording(s) " +
+                $"from tree '{tree.TreeName}'");
+        }
+
+        /// <summary>
+        /// Pure static helper: collects IDs of leaf recordings with no playback data.
+        /// A leaf has no ChildBranchPointId and zero points + zero orbit segments + no surface pos.
+        /// </summary>
+        internal static List<string> CollectZeroPointLeafIds(RecordingTree tree)
+        {
+            List<string> result = null;
+            foreach (var kvp in tree.Recordings)
+            {
+                var rec = kvp.Value;
+                if (IsZeroPointLeaf(rec))
+                {
+                    if (result == null) result = new List<string>();
+                    result.Add(kvp.Key);
+                }
+            }
+            return result;
+        }
+
+        /// <summary>
+        /// Returns true if a recording is a leaf with no playback data (zero points,
+        /// no orbit segments, no surface position).
+        /// </summary>
+        internal static bool IsZeroPointLeaf(Recording rec)
+        {
+            if (rec.ChildBranchPointId != null) return false; // not a leaf
+            return rec.Points.Count == 0
+                && rec.OrbitSegments.Count == 0
+                && !rec.SurfacePos.HasValue;
         }
 
         internal static double ComputeTreeDeltaFunds(RecordingTree tree)
@@ -7293,6 +7365,18 @@ namespace Parsek
                         $"({ghostDistance.ToString("F0", CultureInfo.InvariantCulture)}m) but watched — exempt from zone hide",
                         5.0);
                 }
+            }
+
+            // #171: During warp, exempt orbital ghosts from zone hiding — they travel far
+            // from the player and would complete playback while invisible.
+            if (shouldHideMesh && GhostPlaybackLogic.ShouldExemptFromZoneHide(
+                    TimeWarp.CurrentRate, rec.OrbitSegments != null && rec.OrbitSegments.Count > 0))
+            {
+                shouldHideMesh = false;
+                ParsekLog.VerboseRateLimited("Zone", $"warp-zone-exempt-{recIdx}",
+                    $"Ghost #{recIdx} \"{rec.VesselName}\" beyond visual range " +
+                    $"({ghostDistance.ToString("F0", CultureInfo.InvariantCulture)}m) " +
+                    $"but exempt during warp (orbital ghost)", 5.0);
             }
 
             if (shouldHideMesh)

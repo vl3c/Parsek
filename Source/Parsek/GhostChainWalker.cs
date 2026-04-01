@@ -32,11 +32,27 @@ namespace Parsek
             var claimsByPid = new Dictionary<uint, List<ChainLink>>();
 
             // Step 2: Scan BranchPoints for claiming events
+            int skippedTerminated = 0;
             for (int t = 0; t < committedTrees.Count; t++)
             {
                 var tree = committedTrees[t];
+
+                // #174: Skip trees where all leaf recordings are terminated — no ghost
+                // can ever be produced from a fully-terminated tree.
+                if (IsTreeFullyTerminated(tree))
+                {
+                    skippedTerminated++;
+                    continue;
+                }
+
                 ScanBranchPointClaims(tree, claimsByPid);
                 ScanBackgroundEventClaims(tree, claimsByPid);
+            }
+
+            if (skippedTerminated > 0)
+            {
+                ParsekLog.Verbose(Tag,
+                    string.Format(ic, "Skipped {0} fully-terminated tree(s)", skippedTerminated));
             }
 
             if (claimsByPid.Count == 0)
@@ -653,5 +669,32 @@ namespace Parsek
         }
 
         #endregion
+
+        /// <summary>
+        /// Returns true if every leaf recording in the tree has a terminal state of
+        /// Destroyed or Recovered. Such trees can never produce a ghost (#174).
+        /// </summary>
+        internal static bool IsTreeFullyTerminated(RecordingTree tree)
+        {
+            if (tree.Recordings.Count == 0)
+                return true;
+
+            foreach (var kvp in tree.Recordings)
+            {
+                var rec = kvp.Value;
+                // Only check leaves (no child branch point)
+                if (rec.ChildBranchPointId != null)
+                    continue;
+
+                if (!rec.TerminalStateValue.HasValue)
+                    return false;
+
+                var ts = rec.TerminalStateValue.Value;
+                if (ts != TerminalState.Destroyed && ts != TerminalState.Recovered)
+                    return false;
+            }
+
+            return true;
+        }
     }
 }
