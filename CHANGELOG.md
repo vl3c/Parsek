@@ -16,12 +16,36 @@ All notable changes to Parsek are documented here.
 - **T98: Loop range fields.** New `LoopStartUT`/`LoopEndUT` fields on Recording narrow the loop range. Engine (`TryComputeLoopPlaybackUT`, `ShouldLoopPlayback`), save/load (both paths), and `CanAutoMerge` updated. Backward compatible (NaN defaults = existing behavior).
 - **T98: Policy modularity refactor.** Migrated scattered `TreeId != null` / `ChainId != null` policy checks to `IsTreeRecording` / `IsChainRecording` / `ManagesOwnResources` query properties. Extracted `ClassifyVesselDestruction` and `ShouldSuppressBoundarySplit` as testable static methods.
 
+### Ghost Map Presence (bug #60)
+
+Ghost vessels now appear in KSP's tracking station, show orbit lines in map view, and can be targeted for rendezvous planning. Works for both ghost chain vessels and timeline playback ghosts.
+
+- **ProtoVessel-based map integration** — lightweight ProtoVessel (single `sensorBarometer` part) per ghost provides automatic tracking station entry, orbit line (OrbitRenderer), clickable map icon (MapObject), and navigation targeting (ITargetable). Created on chain init or engine ghost spawn, removed on resolve/destroy/rewind/scene cleanup, stripped from saves.
+- **Timeline playback + chain ghosts** — both recording-index ghosts (from the playback engine) and chain ghosts (from `VesselGhoster`) get ProtoVessels. Parallel tracking dicts with unified cleanup via `RemoveAllGhostPresenceForIndex`.
+- **Deferred orbit line creation** — recordings that start pre-orbital (launch-to-orbit) don't show orbit lines during atmospheric ascent. ProtoVessel created when ghost enters first orbital segment, with the current segment's orbit (not terminal orbit).
+- **Per-frame orbit segment tracking** — ghost ProtoVessel orbit updates as the ghost traverses segments (Hohmann transfers, SOI transitions). Both chain and recording-index ghosts use `ApplyOrbitToVessel` with direct element assignment via `Orbit.SetOrbit()`.
+- **Terminal state filtering** — only Orbiting/Docked recordings get orbit lines. Destroyed, SubOrbital, Landed, Splashed skip (misleading orbit). Debris always skipped.
+- **30 guard rails** across 10 source files — `IsGhostMapVessel(pid)` checks on all `FlightGlobals.Vessels` iteration sites and vessel GameEvent handlers.
+- **6 Harmony patches** — `Vessel.GoOffRails` (prevent physics loading), `CommNetVessel.OnStart` (prevent duplicate CommNet nodes), `FlightGlobals.SetActiveVessel` (redirect to watch mode), `SpaceTracking.FlyVessel`/`OnVesselDeleteConfirm`/`OnRecoverConfirm` (block tracking station actions with screen message, release input lock via `OnDialogDismiss`).
+- **Tracking station scene support** — `ParsekTrackingStation` addon creates ghost ProtoVessels from committed recordings when visiting tracking station directly.
+- **Soft cap integration** — `Despawn` removes ProtoVessel; `ReduceFidelity` and `SimplifyToOrbitLine` keep it (orbit line stays visible when mesh is hidden).
+- **Target transfer** — if ghost was the navigation target when chain resolves, the spawned vessel becomes the new target.
+- **VesselType mirroring** — ghost uses the original vessel's type from snapshot for correct filter placement.
+- **Green dot suppression** — `DrawMapMarkers` skips the old GUI overlay dot when a native KSP map icon exists for that ghost.
+- **Merge dialog re-evaluation** — `MergeDialog.OnTreeCommitted` callback triggers chain re-evaluation so ghost ProtoVessels are created immediately after commit+revert.
+- **46 tests** — PID tracking, HasOrbitData, ComputeGhostDisplayInfo, ResolveVesselType, terminal state filtering, debris filtering, StartsInOrbit, orbit segment tracking, log assertions.
+
+### Group UI Enhancements
+
 - **Group header columns in recordings window.** Groups now display Launch (earliest member StartUT), Duration (sum of member durations), and Status (closest active T- countdown) columns. Groups participate in column-based sorting alongside chains and standalone recordings instead of always rendering first. Six `internal static` helpers extracted for testability with 27 unit tests.
 - **Fix #176: Group hide checkbox misaligned when expanded stats visible.** Group rows were missing spacers for the MaxAlt/MaxSpd/Dist/Pts columns, causing the trailing Hide checkbox to shift out of alignment when the Stats panel was open.
 
 ### Bug Fixes
 
 - **Fix #175: EVA kerbal spawns at recording start position instead of endpoint.** EVA vessel snapshots are captured at EVA start (kerbal on the pod's ladder), but the kerbal walks elsewhere during the recording. On spawn, the snapshot's baked-in lat/lon/alt placed the kerbal on top of the parent vessel, grabbing its ladder and triggering KSP's "Kerbals on a ladder — cannot save" error. `ResolveSpawnPosition` now routes EVA recordings to the trajectory endpoint; `OverrideSnapshotPosition` patches the snapshot before `RespawnVessel`.
+- **Fix #179: Orbital vessel destroyed by pressure on spawn.** Three-part fix: (1) `terminalOverridesUnsafe` includes `TerminalState.Orbiting`, allowing spawn eligibility. (2) KSC spawn defers orbital vessels to flight scene (Space Center `pv.Load()` crashes them through terrain). (3) Flight-scene spawn uses `SpawnAtPosition` for orbital vessels to construct correct Keplerian orbit from last trajectory point position+velocity — `RespawnVessel` used the raw ascent snapshot orbit whose periapsis was in atmosphere. Additionally, `SpawnAtPosition` now accepts an optional `terminalState` parameter: when the terminal state is Orbiting/Docked but `DetermineSituation` returns FLYING (last trajectory point captured during ascent at suborbital speed), the situation is overridden to ORBITING to prevent KSP's on-rails 101.3 kPa pressure check from destroying the vessel.
+- **Fix #172: Ghost map icon position + orbit lines not rendering + icon click menu.** Three-part fix: (1) Replaced `Orbit.UpdateFromOrbitAtUT()` with `Orbit.SetOrbit()` in `ApplyOrbitToVessel` — the old path roundtripped through state vectors, introducing floating-point drift in `argumentOfPeriapsis` for near-circular orbits (confirmed 0.0m offset after fix). (2) Added `deferredCreatedEvents.Add()` to `UpdateLoopingPlayback` and `UpdateOverlapPlayback` in `GhostPlaybackEngine` — only `RenderInRangeGhost` was firing `OnGhostCreated`, so looping ghosts never got ProtoVessels and orbit lines never rendered. (3) Added `GhostIconClickPatch` (postfix on `objectNode_OnClick`) showing a popup near cursor with "Set As Target" / "Watch" options. Ghost orbit lines are visual-only (not clickable via `GhostOrbitCastPatch`) to avoid ambiguity with real vessels sharing the same orbit. Watch mode entry distance now reads user's `ghostCameraCutoffKm` setting instead of hardcoded 100km.
+- **Fix #180: Clicking ghost vessel in tracking station traps user with input lock.** `GhostTrackingFlyPatch` blocked `FlyVessel` for ghost map vessels but didn't dismiss the dialog, leaving a stale input lock. Now calls `OnDialogDismiss` after blocking. Also fixed `GhostVesselSwitchPatch` overload targeting — replaced unreliable attribute-based `Type[]` with explicit `TargetMethod()` for `FlightGlobals.SetActiveVessel`.
 - **Fix #171: Orbital ghost disappears during 50x time warp.** During warp >4x, ghosts with orbital segments are now exempt from zone-based mesh hiding (`ShouldExemptFromZoneHide` in `GhostPlaybackLogic`). Prevents orbital ghosts from completing playback while invisible in the Beyond zone.
 - **Fix #172: Ghost destruction reason logged as "unknown".** `RetryHeldGhostSpawns` now passes per-action reason strings to `DestroyGhost`: `"held-spawn-succeeded"`, `"held-already-spawned"`, `"held-spawn-timeout"`, `"held-invalid-index"`.
 - **Fix #173: Zero-point debris leaf recordings saved from same-frame destruction.** Added `PruneZeroPointLeaves` step in `FinalizeTreeRecordings` — removes leaf recordings with zero trajectory points, no orbit segments, and no surface position. Prevents `.prec` sidecar files and tree nodes for instantly-destroyed debris.
@@ -165,6 +189,12 @@ Log spam audit and cleanup. Analyzed a 28,923-line KSP.log from a 70-second KSC 
 
 - Log audit report: `docs/dev/log-audit-2026-03-25.md`
 - CLAUDE.md: added batch counting convention to Logging Requirements, removed obsolete `ParsekLog.Log` reference
+
+### Design & Research
+
+- Ghost orbits & trajectories investigation document (12 scenarios, 37 edge cases)
+- KSP API decompilation reference (17 classes: ProtoVessel, OrbitRenderer, MapObject, SpaceTracking, etc.)
+- KSPTrajectories mod architecture analysis (rendering, coordinate transforms, NavBall integration)
 
 ---
 

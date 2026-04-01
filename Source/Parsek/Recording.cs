@@ -306,6 +306,14 @@ namespace Parsek
         SurfacePosition? IPlaybackTrajectory.SurfacePos => SurfacePos;
         bool IPlaybackTrajectory.PlaybackEnabled => PlaybackEnabled;
         bool IPlaybackTrajectory.IsDebris => IsDebris;
+        string IPlaybackTrajectory.TerminalOrbitBody => TerminalOrbitBody;
+        double IPlaybackTrajectory.TerminalOrbitSemiMajorAxis => TerminalOrbitSemiMajorAxis;
+        double IPlaybackTrajectory.TerminalOrbitEccentricity => TerminalOrbitEccentricity;
+        double IPlaybackTrajectory.TerminalOrbitInclination => TerminalOrbitInclination;
+        double IPlaybackTrajectory.TerminalOrbitLAN => TerminalOrbitLAN;
+        double IPlaybackTrajectory.TerminalOrbitArgumentOfPeriapsis => TerminalOrbitArgumentOfPeriapsis;
+        double IPlaybackTrajectory.TerminalOrbitMeanAnomalyAtEpoch => TerminalOrbitMeanAnomalyAtEpoch;
+        double IPlaybackTrajectory.TerminalOrbitEpoch => TerminalOrbitEpoch;
 
         #endregion
     }

@@ -32,6 +32,13 @@ namespace Parsek
         // Runtime state: cached trajectory index for O(1) amortized lookup (not serialized)
         public int CachedTrajectoryIndex;
 
+        // Runtime state: last orbit segment used for ghost map ProtoVessel (not serialized)
+        // Used to detect segment changes and update the ProtoVessel's orbit.
+        // null = no segment tracked yet (first frame, or no orbit data)
+        public string LastMapOrbitBodyName;
+        public double LastMapOrbitSma;
+        public double LastMapOrbitEcc;
+
         // Runtime state: spawn blocked by collision (not serialized)
         public bool SpawnBlocked;
         public double BlockedSinceUT;

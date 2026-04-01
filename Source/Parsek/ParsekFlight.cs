@@ -16,6 +16,8 @@ namespace Parsek
     [KSPAddon(KSPAddon.Startup.Flight, false)]
     public class ParsekFlight : MonoBehaviour, IGhostPositioner
     {
+        internal static ParsekFlight Instance { get; private set; }
+
         internal const string MODID = "Parsek_NS";
         internal const string MODNAME = "Parsek";
 
@@ -301,6 +303,7 @@ namespace Parsek
 
         void Start()
         {
+            Instance = this;
             Log("Parsek Flight loaded.");
 
             GameEvents.onGameSceneLoadRequested.Add(OnSceneChangeRequested);
@@ -320,6 +323,7 @@ namespace Parsek
             GameEvents.onGroundSciencePartRemoved.Add(OnGroundSciencePartRemoved);
             GameEvents.onVesselChange.Add(OnVesselSwitchComplete);
             GameEvents.onTimeWarpRateChanged.Add(OnTimeWarpRateChanged);
+            MergeDialog.OnTreeCommitted += OnTreeCommittedFromMergeDialog;
             GameEvents.afterFlagPlanted.Add(OnAfterFlagPlanted);
 
             ui = new ParsekUI(this);
@@ -644,6 +648,7 @@ namespace Parsek
 
         void OnDestroy()
         {
+            Instance = null;
             ParsekLog.Info("Flight", "OnDestroy: cleaning up ParsekFlight");
 
             if (toolbarControl != null)
@@ -672,6 +677,7 @@ namespace Parsek
             GameEvents.onGroundSciencePartRemoved.Remove(OnGroundSciencePartRemoved);
             GameEvents.onVesselChange.Remove(OnVesselSwitchComplete);
             GameEvents.onTimeWarpRateChanged.Remove(OnTimeWarpRateChanged);
+            MergeDialog.OnTreeCommitted -= OnTreeCommittedFromMergeDialog;
             GameEvents.afterFlagPlanted.Remove(OnAfterFlagPlanted);
 
             // Restore debris persistence if still overridden
@@ -710,6 +716,9 @@ namespace Parsek
             vesselGhoster?.CleanupAll();
             vesselGhoster = null;
             activeGhostChains = null;
+
+            // Remove ghost map ProtoVessels on scene teardown
+            GhostMapPresence.RemoveAllGhostVessels("scene-cleanup");
 
             // Unsubscribe camera events before policy/engine disposal
             if (engine != null)
@@ -932,6 +941,8 @@ namespace Parsek
 
         void OnVesselWillDestroy(Vessel v)
         {
+            if (v != null && GhostMapPresence.IsGhostMapVessel(v.persistentId)) return;
+
             // Watch mode: null out saved camera vessel if it's being destroyed
             if (watchedRecordingIndex >= 0 && savedCameraVessel != null && v == savedCameraVessel)
                 savedCameraVessel = null;
@@ -1244,6 +1255,8 @@ namespace Parsek
         /// </summary>
         void OnVesselSwitchComplete(Vessel newVessel)
         {
+            if (newVessel != null && GhostMapPresence.IsGhostMapVessel(newVessel.persistentId)) return;
+
             // Watch mode: re-target camera to ghost — KSP reparents pivot on vessel switch.
             // Don't early-return: tree vessel-switch logic below must still run so that
             // programmatic switches (e.g. docking absorbs a vessel) properly transition
@@ -2249,6 +2262,7 @@ namespace Parsek
                     {
                         Vessel v = FlightGlobals.Vessels[i];
                         if (v == null || v.persistentId == recordedPid) continue;
+                        if (GhostMapPresence.IsGhostMapVessel(v.persistentId)) continue;
 
                         // Only consider vessels that didn't exist before the break
                         if (preBreakVesselPids != null && preBreakVesselPids.Contains(v.persistentId))
@@ -3045,6 +3059,8 @@ namespace Parsek
 
         void OnVesselSituationChange(GameEvents.HostedFromToAction<Vessel, Vessel.Situations> data)
         {
+            if (data.host != null && GhostMapPresence.IsGhostMapVessel(data.host.persistentId)) return;
+
             // Track when the active vessel enters LANDED/SPLASHED for the settle timer
             if (data.host == FlightGlobals.ActiveVessel &&
                 (data.to == Vessel.Situations.LANDED || data.to == Vessel.Situations.SPLASHED))
@@ -3176,12 +3192,15 @@ namespace Parsek
 
         void OnVesselGoOnRails(Vessel v)
         {
+            if (v != null && GhostMapPresence.IsGhostMapVessel(v.persistentId)) return;
             recorder?.OnVesselGoOnRails(v);
             backgroundRecorder?.OnBackgroundVesselGoOnRails(v);
         }
 
         void OnVesselGoOffRails(Vessel v)
         {
+            if (v != null && GhostMapPresence.IsGhostMapVessel(v.persistentId)) return;
+
             recorder?.OnVesselGoOffRails(v);
             backgroundRecorder?.OnBackgroundVesselGoOffRails(v);
         }
@@ -3189,6 +3208,8 @@ namespace Parsek
         void OnVesselLoaded(Vessel v)
         {
             if (v == null) return;
+            if (GhostMapPresence.IsGhostMapVessel(v.persistentId)) return;
+
             uint pid = v.persistentId;
             loadedAnchorVessels.Add(pid);
 
@@ -3223,6 +3244,7 @@ namespace Parsek
         void OnVesselUnloaded(Vessel v)
         {
             if (v == null) return;
+            if (GhostMapPresence.IsGhostMapVessel(v.persistentId)) return;
             uint pid = v.persistentId;
             loadedAnchorVessels.Remove(pid);
 
@@ -3245,6 +3267,8 @@ namespace Parsek
 
         void OnVesselSOIChanged(GameEvents.HostedFromToAction<Vessel, CelestialBody> data)
         {
+            if (data.host != null && GhostMapPresence.IsGhostMapVessel(data.host.persistentId)) return;
+
             recorder?.OnVesselSOIChanged(data);
             backgroundRecorder?.OnBackgroundVesselSOIChanged(data.host, data.from);
         }
@@ -3839,6 +3863,16 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Called when the merge dialog commits a tree. Re-evaluates ghost chains
+        /// so newly committed recordings get ghost map ProtoVessels immediately.
+        /// </summary>
+        private void OnTreeCommittedFromMergeDialog()
+        {
+            ParsekLog.Info("GhostMap", "Tree committed from merge dialog — re-evaluating ghost chains");
+            EvaluateAndApplyGhostChains();
+        }
+
+        /// <summary>
         /// Evaluates ghost chains from committed trees and ghosts claimed vessels.
         /// Called during OnFlightReady after initialization/migration but before
         /// pending tree dialog. Ghost chain state is NOT persisted — it is re-derived
@@ -3898,6 +3932,17 @@ namespace Parsek
                 }
 
                 activeChains[pid] = chain;
+
+                // Create ghost map vessel for non-terminated chains ending in stable orbit
+                if (!chain.IsTerminated && !string.IsNullOrEmpty(chain.TipRecordingId))
+                {
+                    Recording tipRecording = FindTipRecordingById(chain.TipRecordingId);
+                    if (tipRecording != null
+                        && (!tipRecording.TerminalStateValue.HasValue
+                            || tipRecording.TerminalStateValue == TerminalState.Orbiting
+                            || tipRecording.TerminalStateValue == TerminalState.Docked))
+                        GhostMapPresence.CreateGhostVessel(chain, tipRecording);
+                }
 
                 // Only attempt ghosting if the vessel actually exists in the scene.
                 // Tree recordings may reference vessels that were never spawned (e.g.,
@@ -5268,6 +5313,7 @@ namespace Parsek
             {
                 var vessel = FlightGlobals.Vessels[i];
                 if (vessel.persistentId == activePid) continue;
+                if (GhostMapPresence.IsGhostMapVessel(vessel.persistentId)) continue;
 
                 bool matchByPid = hasPids && pids.Contains(vessel.persistentId);
                 bool matchByName = hasNames && names.Contains(Recording.ResolveLocalizedName(vessel.vesselName));
@@ -5732,6 +5778,9 @@ namespace Parsek
                         ref chain.CachedTrajectoryIndex, currentUT, (int)(chain.OriginalVesselPid * 10000),
                         out _, surfaceRelativeRotation: srfRel, skipOrbitSegments: surfaceSkip);
 
+                    // Update ghost map ProtoVessel orbit if segment changed
+                    UpdateChainGhostOrbitIfNeeded(chain, bgRec.OrbitSegments, currentUT);
+
                     ParsekLog.VerboseRateLimited("Flight", "chain-ghost-trajectory-" + chain.OriginalVesselPid,
                         string.Format(CultureInfo.InvariantCulture,
                             "Chain ghost positioned from trajectory: pid={0} rec={1} UT={2:F1}",
@@ -5754,6 +5803,7 @@ namespace Parsek
                             {
                                 PositionGhostFromOrbitOnly(info.ghostGO, rec, currentUT,
                                     (int)(chain.OriginalVesselPid * 10000));
+                                UpdateChainGhostOrbitIfNeeded(chain, rec.OrbitSegments, currentUT);
                                 positioned = true;
                                 ParsekLog.VerboseRateLimited("Flight",
                                     "chain-ghost-orbit-" + chain.OriginalVesselPid,
@@ -5791,15 +5841,59 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Check if the chain ghost's orbit segment changed and update the ghost map ProtoVessel.
+        /// Called each frame after positioning a chain ghost to keep the map orbit line in sync.
+        /// </summary>
+        private static void UpdateChainGhostOrbitIfNeeded(
+            GhostChain chain, List<OrbitSegment> segments, double currentUT)
+        {
+            if (segments == null || segments.Count == 0) return;
+
+            OrbitSegment? seg = TrajectoryMath.FindOrbitSegment(segments, currentUT);
+            if (!seg.HasValue) return;
+
+            // Detect change: body, SMA, or eccentricity shifted (covers SOI transitions,
+            // orbit changes, and inclination maneuvers at constant altitude).
+            // Exact equality is intentional: segment values are stored doubles that don't drift.
+            // A change means a different OrbitSegment was found, not floating-point accumulation.
+            if (seg.Value.bodyName == chain.LastMapOrbitBodyName
+                && seg.Value.semiMajorAxis == chain.LastMapOrbitSma
+                && seg.Value.eccentricity == chain.LastMapOrbitEcc)
+                return;
+
+            chain.LastMapOrbitBodyName = seg.Value.bodyName;
+            chain.LastMapOrbitSma = seg.Value.semiMajorAxis;
+            chain.LastMapOrbitEcc = seg.Value.eccentricity;
+
+            GhostMapPresence.UpdateGhostOrbit(chain.OriginalVesselPid, seg.Value);
+        }
+
+        /// <summary>
         /// Routes spawn through VesselGhoster for chain tips, or existing
         /// SpawnOrRecoverIfTooClose for normal recordings.
         /// Handles collision-blocked chains: if spawn is blocked, chain stays active.
         /// If chain was previously blocked, tries to spawn at propagated position.
+        /// Called by ParsekPlaybackPolicy when engine fires PlaybackCompleted with needsSpawn.
         /// </summary>
-        /// <summary>Called by ParsekPlaybackPolicy when engine fires PlaybackCompleted with needsSpawn.</summary>
         internal void SpawnVesselOrChainTipFromPolicy(Recording rec, int index)
         {
             SpawnVesselOrChainTip(rec, index);
+        }
+
+        /// <summary>
+        /// Remove the ghost map vessel for a chain on spawn and transfer nav target
+        /// to the newly spawned real vessel if the ghost was the current target.
+        /// </summary>
+        private void ResolveChainGhostOnSpawn(GhostChain chain, uint spawnedPid)
+        {
+            bool wasTarget = GhostMapPresence.RemoveGhostVessel(
+                chain.OriginalVesselPid, "chain-tip-spawn");
+            if (wasTarget)
+            {
+                Vessel spawned = FlightRecorder.FindVesselByPid(spawnedPid);
+                if (spawned != null)
+                    FlightGlobals.fetch?.SetVesselTarget(spawned);
+            }
         }
 
         /// <summary>Called by policy when a mid-chain segment ends while watched.</summary>
@@ -5855,7 +5949,8 @@ namespace Parsek
                         rec.SpawnedVesselPersistentId = spawnedPid;
                         rec.VesselSpawned = true;
                         activeGhostChains.Remove(chain.OriginalVesselPid);
-            
+                        ResolveChainGhostOnSpawn(chain, spawnedPid);
+
                         ParsekLog.Info("Flight",
                             $"Blocked chain tip spawn resolved: #{index} \"{rec.VesselName}\" pid={spawnedPid}");
                     }
@@ -5869,7 +5964,8 @@ namespace Parsek
                         rec.SpawnedVesselPersistentId = spawnedPid;
                         rec.VesselSpawned = true;
                         activeGhostChains.Remove(chain.OriginalVesselPid);
-            
+                        ResolveChainGhostOnSpawn(chain, spawnedPid);
+
                         ParsekLog.Info("Flight",
                             $"Chain tip spawn complete: #{index} \"{rec.VesselName}\" pid={spawnedPid}");
                     }
@@ -6005,6 +6101,9 @@ namespace Parsek
             // Retry held ghost spawns (#96): ghosts held at final position while
             // waiting for a blocked/deferred spawn to resolve
             policy.RetryHeldGhostSpawns();
+
+            // Create deferred ghost map ProtoVessels when ghosts enter orbital segments
+            policy.CheckPendingMapVessels(Planetarium.GetUniversalTime());
 
             // Per-frame resource deltas (policy concern, not engine).
             // Intentional: deltas accrue for both in-range AND past-end recordings
@@ -6361,9 +6460,31 @@ namespace Parsek
             return null;
         }
 
+        /// <summary>
+        /// Finds a committed recording by its RecordingId. Searches all committed recordings.
+        /// Used for ghost map vessel creation (looking up chain tip recordings).
+        /// </summary>
+        private static Recording FindTipRecordingById(string recordingId)
+        {
+            var committed = RecordingStore.CommittedRecordings;
+            for (int i = 0; i < committed.Count; i++)
+            {
+                if (committed[i].RecordingId == recordingId)
+                    return committed[i];
+            }
+            return null;
+        }
+
+        internal void DestroyTimelineGhost(int index)
+        {
+            engine.DestroyGhost(index);
+        }
 
         public void DestroyAllTimelineGhosts()
         {
+            // Remove ghost map ProtoVessels before engine cleanup
+            GhostMapPresence.RemoveAllGhostVessels("rewind");
+
             // Engine destroys all ghost GOs and clears engine-owned state.
             // Fires OnAllGhostsDestroying so policy clears its own state.
             engine.DestroyAllGhosts();
@@ -6913,6 +7034,7 @@ namespace Parsek
         }
 
         /// <summary>
+        /// <summary>
         /// Enter watch mode: point the camera at a ghost vessel.
         /// If already watching the same recording, toggles off (exits watch mode).
         /// If watching a different recording, switches to the new one (preserves camera state).
@@ -6942,18 +7064,18 @@ namespace Parsek
 
             // Distance guard: KSP rendering breaks when camera is far from the active vessel
             // (FloatingOrigin, terrain, atmosphere, skybox are all anchored to active vessel).
-            // Refuse watch if ghost is beyond the rendering-safe distance (#151).
-            const float MaxWatchDistanceKm = 100f;
+            // Refuse watch if ghost is beyond the user's camera cutoff distance setting.
+            float maxWatchKm = ParsekSettings.Current?.ghostCameraCutoffKm ?? 300f;
             if (FlightGlobals.ActiveVessel != null && gs.ghost != null)
             {
                 float distKm = (float)(Vector3d.Distance(
                     gs.ghost.transform.position, FlightGlobals.ActiveVessel.transform.position) / 1000.0);
-                if (distKm > MaxWatchDistanceKm)
+                if (distKm > maxWatchKm)
                 {
                     ParsekLog.Info("CameraFollow",
                         $"EnterWatchMode refused: ghost #{index} \"{committed[index].VesselName}\" " +
-                        $"is {distKm.ToString("F0", CultureInfo.InvariantCulture)}km from active vessel (max {MaxWatchDistanceKm}km)");
-                    ScreenMessage($"Ghost too far to watch ({distKm:F0}km)", 3f);
+                        $"is {distKm.ToString("F0", CultureInfo.InvariantCulture)}km from active vessel (max {maxWatchKm.ToString("F0", CultureInfo.InvariantCulture)}km)");
+                    ScreenMessage($"Ghost too far to watch ({distKm:F0}km, max {maxWatchKm:F0}km)", 3f);
                     return;
                 }
             }
@@ -7256,6 +7378,8 @@ namespace Parsek
             var segTarget = gs.cameraPivot ?? gs.ghost.transform;
             FlightCamera.fetch.SetTargetTransform(segTarget);
             InputLockManager.SetControlLock(WatchModeLockMask, WatchModeLockId);
+            ParsekLog.Verbose("CameraFollow",
+                $"InputLockManager control lock \"{WatchModeLockId}\" re-set after transfer");
 
             watchEndHoldUntilRealTime = -1;
 
@@ -7282,7 +7406,8 @@ namespace Parsek
             while (UnityEngine.Time.time < deadline)
             {
                 yield return null;
-                Vessel v = FlightGlobals.Vessels?.Find(vessel => vessel.persistentId == pid);
+                Vessel v = FlightGlobals.Vessels?.Find(vessel => vessel.persistentId == pid
+                    && !GhostMapPresence.IsGhostMapVessel(vessel.persistentId));
                 if (v != null)
                 {
                     v.IgnoreGForces(240);

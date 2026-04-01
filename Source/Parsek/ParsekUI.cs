@@ -3876,12 +3876,15 @@ namespace Parsek
                 DrawMapMarkerAt(cam, flight.PreviewGhost.transform.position, "Preview", Color.green);
             }
 
-            // Timeline ghosts
+            // Timeline ghosts — skip if a ghost map ProtoVessel exists for this index
+            // (the native KSP vessel icon replaces this dot and tracks the correct orbital position)
             var committed = RecordingStore.CommittedRecordings;
             Color ghostColor = new Color(0.2f, 1f, 0.4f, 0.9f);
             foreach (var kvp in flight.TimelineGhosts)
             {
                 if (kvp.Value == null) continue;
+                if (GhostMapPresence.HasGhostVesselForRecording(kvp.Key))
+                    continue;
                 string ghostName = kvp.Key < committed.Count ? committed[kvp.Key].VesselName : "Ghost";
                 DrawMapMarkerAt(cam, kvp.Value.transform.position, ghostName, ghostColor);
             }

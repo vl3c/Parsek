@@ -481,7 +481,8 @@ namespace Parsek
 
                 for (int i = 0; i < FlightGlobals.Vessels.Count; i++)
                 {
-                    if (FlightGlobals.Vessels[i] != null)
+                    if (FlightGlobals.Vessels[i] != null
+                        && !GhostMapPresence.IsGhostMapVessel(FlightGlobals.Vessels[i].persistentId))
                         cachedVesselPids.Add(FlightGlobals.Vessels[i].persistentId);
                 }
                 vesselCacheValid = true;
@@ -1084,6 +1085,7 @@ namespace Parsek
             {
                 Vessel v = FlightGlobals.Vessels[i];
                 if (v == null || v.vesselType != VesselType.Flag) continue;
+                if (GhostMapPresence.IsGhostMapVessel(v.persistentId)) continue;
                 if (v.mainBody != body) continue;
 
                 Vector3d flagPos = body.GetWorldSurfacePosition(v.latitude, v.longitude, v.altitude);
@@ -2117,10 +2119,13 @@ namespace Parsek
             // KSP's on-rails aero check (101.3 kPa) immediately destroys spawned vessels.
             // This catches cases where TerminalState is null/Landed but the snapshot was
             // captured mid-flight. (#114)
-            // Override: if terminal state is Landed/Splashed, the vessel DID land safely —
-            // the snapshot's sit field may be stale from recording start (Bug 2b). (#EVA-spawn)
+            // Override: if terminal state is Landed/Splashed/Orbiting, the vessel DID reach
+            // a safe state — the snapshot's sit field may be stale from recording start.
+            // Orbiting: vessel captured during ascent (FLYING) but achieved orbit. The spawn
+            // path corrects the snapshot situation before spawning. (#169, #EVA-spawn)
             bool terminalOverridesUnsafe = rec.TerminalStateValue == TerminalState.Landed ||
-                rec.TerminalStateValue == TerminalState.Splashed;
+                rec.TerminalStateValue == TerminalState.Splashed ||
+                rec.TerminalStateValue == TerminalState.Orbiting;
             if (!terminalOverridesUnsafe && IsSnapshotSituationUnsafe(rec.VesselSnapshot))
             {
                 return (false, "snapshot situation unsafe (FLYING/SUB_ORBITAL)");
@@ -2152,6 +2157,13 @@ namespace Parsek
             // Don't spawn vessels whose recording hasn't finished yet at the current UT (#rewind-persistence)
             if (currentUT < rec.EndUT)
                 return (false, $"current UT {currentUT:F0} before recording end {rec.EndUT:F0}");
+
+            // Orbiting/Docked vessels cannot survive pv.Load() in the Space Center scene —
+            // KSP crashes them through terrain within frames. Defer to flight scene spawn
+            // where SpawnAtPosition can place them correctly. (#171)
+            if (rec.TerminalStateValue == TerminalState.Orbiting
+                || rec.TerminalStateValue == TerminalState.Docked)
+                return (false, $"orbital vessel deferred to flight scene (terminal={rec.TerminalStateValue})");
 
             // At KSC, no chain is being built → isActiveChainMember = false
             bool isChainLoopingOrDisabled = !string.IsNullOrEmpty(rec.ChainId) &&

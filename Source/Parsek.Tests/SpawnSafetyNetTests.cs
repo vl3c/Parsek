@@ -305,6 +305,79 @@ namespace Parsek.Tests
             Assert.True(needsSpawn);
         }
 
+        [Fact]
+        public void ShouldSpawn_FlyingSnapshot_TerminalOrbiting_Allowed()
+        {
+            var snapshot = new ConfigNode("VESSEL");
+            snapshot.AddValue("sit", "FLYING");
+
+            var rec = new Recording
+            {
+                VesselSnapshot = snapshot,
+                TerminalStateValue = TerminalState.Orbiting
+            };
+
+            var (needsSpawn, _) = GhostPlaybackLogic.ShouldSpawnAtRecordingEnd(
+                rec, isActiveChainMember: false, isChainLoopingOrDisabled: false);
+
+            Assert.True(needsSpawn);
+        }
+
+        [Fact]
+        public void ShouldSpawn_FlyingSnapshot_TerminalLanded_Allowed()
+        {
+            var snapshot = new ConfigNode("VESSEL");
+            snapshot.AddValue("sit", "FLYING");
+
+            var rec = new Recording
+            {
+                VesselSnapshot = snapshot,
+                TerminalStateValue = TerminalState.Landed
+            };
+
+            var (needsSpawn, _) = GhostPlaybackLogic.ShouldSpawnAtRecordingEnd(
+                rec, isActiveChainMember: false, isChainLoopingOrDisabled: false);
+
+            Assert.True(needsSpawn);
+        }
+
+        [Fact]
+        public void ShouldSpawn_FlyingSnapshot_TerminalSplashed_Allowed()
+        {
+            var snapshot = new ConfigNode("VESSEL");
+            snapshot.AddValue("sit", "FLYING");
+
+            var rec = new Recording
+            {
+                VesselSnapshot = snapshot,
+                TerminalStateValue = TerminalState.Splashed
+            };
+
+            var (needsSpawn, _) = GhostPlaybackLogic.ShouldSpawnAtRecordingEnd(
+                rec, isActiveChainMember: false, isChainLoopingOrDisabled: false);
+
+            Assert.True(needsSpawn);
+        }
+
+        [Fact]
+        public void ShouldSpawn_FlyingSnapshot_TerminalDestroyed_Blocked()
+        {
+            var snapshot = new ConfigNode("VESSEL");
+            snapshot.AddValue("sit", "FLYING");
+
+            var rec = new Recording
+            {
+                VesselSnapshot = snapshot,
+                TerminalStateValue = TerminalState.Destroyed
+            };
+
+            var (needsSpawn, reason) = GhostPlaybackLogic.ShouldSpawnAtRecordingEnd(
+                rec, isActiveChainMember: false, isChainLoopingOrDisabled: false);
+
+            Assert.False(needsSpawn);
+            Assert.Contains("terminal state Destroyed", reason);
+        }
+
         #endregion
 
         #region ShouldSpawnAtRecordingEnd — Non-Leaf Safety Net
@@ -504,10 +577,11 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void ComputeCorrectedSituation_FlyingWithOrbiting_ReturnsNull()
+        public void ComputeCorrectedSituation_FlyingWithOrbiting_ReturnsOrbiting()
         {
+            // Vessel captured during ascent (FLYING) that achieved orbit — correct to ORBITING
             string result = VesselSpawner.ComputeCorrectedSituation("FLYING", TerminalState.Orbiting);
-            Assert.Null(result);
+            Assert.Equal("ORBITING", result);
         }
 
         [Fact]
@@ -681,67 +755,6 @@ namespace Parsek.Tests
 
         #endregion
 
-        #region ShouldSpawnAtRecordingEnd — Terminal Override with FLYING (#169)
-
-        [Fact]
-        public void ShouldSpawn_FlyingSnapshot_TerminalLanded_Allowed()
-        {
-            // Bug #169: terminal state Landed overrides the FLYING unsafe check,
-            // allowing the spawn to proceed (situation will be corrected before spawn)
-            var snapshot = new ConfigNode("VESSEL");
-            snapshot.AddValue("sit", "FLYING");
-
-            var rec = new Recording
-            {
-                VesselSnapshot = snapshot,
-                TerminalStateValue = TerminalState.Landed
-            };
-
-            var (needsSpawn, _) = GhostPlaybackLogic.ShouldSpawnAtRecordingEnd(
-                rec, isActiveChainMember: false, isChainLoopingOrDisabled: false);
-
-            Assert.True(needsSpawn);
-        }
-
-        [Fact]
-        public void ShouldSpawn_FlyingSnapshot_TerminalSplashed_Allowed()
-        {
-            var snapshot = new ConfigNode("VESSEL");
-            snapshot.AddValue("sit", "FLYING");
-
-            var rec = new Recording
-            {
-                VesselSnapshot = snapshot,
-                TerminalStateValue = TerminalState.Splashed
-            };
-
-            var (needsSpawn, _) = GhostPlaybackLogic.ShouldSpawnAtRecordingEnd(
-                rec, isActiveChainMember: false, isChainLoopingOrDisabled: false);
-
-            Assert.True(needsSpawn);
-        }
-
-        [Fact]
-        public void ShouldSpawn_FlyingSnapshot_TerminalDestroyed_Blocked()
-        {
-            var snapshot = new ConfigNode("VESSEL");
-            snapshot.AddValue("sit", "FLYING");
-
-            var rec = new Recording
-            {
-                VesselSnapshot = snapshot,
-                TerminalStateValue = TerminalState.Destroyed
-            };
-
-            var (needsSpawn, reason) = GhostPlaybackLogic.ShouldSpawnAtRecordingEnd(
-                rec, isActiveChainMember: false, isChainLoopingOrDisabled: false);
-
-            Assert.False(needsSpawn);
-            Assert.Contains("terminal state Destroyed", reason);
-        }
-
-        #endregion
-
         #region OverrideSnapshotPosition (EVA spawn fix)
 
         [Fact]
@@ -834,6 +847,84 @@ namespace Parsek.Tests
             Assert.Equal(1.0, lat);
             Assert.Equal(2.0, lon);
             Assert.Equal(3.0, alt);
+        }
+
+        #endregion
+
+        #region StripEvaLadderState
+
+        [Fact]
+        public void StripEvaLadderState_ClearsLadderState()
+        {
+            var snapshot = new ConfigNode("VESSEL");
+            var part = snapshot.AddNode("PART");
+            var module = part.AddNode("MODULE");
+            module.AddValue("name", "KerbalEVA");
+            module.AddValue("state", "Ladder (Acquire)");
+            module.AddValue("OnALadder", "True");
+
+            VesselSpawner.StripEvaLadderState(snapshot, 0, "Jeb");
+
+            Assert.Equal("idle", module.GetValue("state"));
+            Assert.Equal("False", module.GetValue("OnALadder"));
+        }
+
+        [Fact]
+        public void StripEvaLadderState_IgnoresNonLadderState()
+        {
+            var snapshot = new ConfigNode("VESSEL");
+            var part = snapshot.AddNode("PART");
+            var module = part.AddNode("MODULE");
+            module.AddValue("name", "KerbalEVA");
+            module.AddValue("state", "idle");
+
+            VesselSpawner.StripEvaLadderState(snapshot, 0, "Jeb");
+
+            Assert.Equal("idle", module.GetValue("state"));
+        }
+
+        [Fact]
+        public void StripEvaLadderState_HandlesKerbalEVAFlight()
+        {
+            var snapshot = new ConfigNode("VESSEL");
+            var part = snapshot.AddNode("PART");
+            var module = part.AddNode("MODULE");
+            module.AddValue("name", "KerbalEVAFlight");
+            module.AddValue("state", "Ladder_Idle");
+
+            VesselSpawner.StripEvaLadderState(snapshot, 0, "Jeb");
+
+            Assert.Equal("idle", module.GetValue("state"));
+        }
+
+        [Fact]
+        public void StripEvaLadderState_NullSnapshot_NoThrow()
+        {
+            VesselSpawner.StripEvaLadderState(null, 0, "Jeb");
+        }
+
+        [Fact]
+        public void StripEvaLadderState_NoModules_NoThrow()
+        {
+            var snapshot = new ConfigNode("VESSEL");
+            snapshot.AddNode("PART");
+
+            VesselSpawner.StripEvaLadderState(snapshot, 0, "Jeb");
+        }
+
+        [Fact]
+        public void StripEvaLadderState_LogsWhenStripped()
+        {
+            var snapshot = new ConfigNode("VESSEL");
+            var part = snapshot.AddNode("PART");
+            var module = part.AddNode("MODULE");
+            module.AddValue("name", "KerbalEVA");
+            module.AddValue("state", "Ladder (Acquire)");
+
+            VesselSpawner.StripEvaLadderState(snapshot, 3, "Val");
+
+            Assert.Contains(logLines, l =>
+                l.Contains("[Spawner]") && l.Contains("ladder state stripped") && l.Contains("Val"));
         }
 
         #endregion
