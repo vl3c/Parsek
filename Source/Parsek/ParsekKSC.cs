@@ -790,7 +790,31 @@ namespace Parsek
 
             try
             {
-                uint spawnedPid = VesselSpawner.RespawnVessel(rec.VesselSnapshot);
+                // Bug #167: Apply crew swap on a snapshot copy before spawning.
+                // In KSC scene, SwapReservedCrewInFlight cannot run (no loaded vessel),
+                // so we swap reserved crew names directly in the snapshot.
+                ConfigNode spawnSnapshot = rec.VesselSnapshot;
+                var replacements = CrewReservationManager.CrewReplacements;
+                if (replacements.Count > 0)
+                {
+                    spawnSnapshot = rec.VesselSnapshot.CreateCopy();
+                    int swapped = CrewReservationManager.SwapReservedCrewInSnapshot(
+                        spawnSnapshot, replacements);
+                    if (swapped > 0)
+                        ParsekLog.Info("KSCSpawn",
+                            $"Crew swap applied to snapshot for #{recIdx} \"{rec.VesselName}\": " +
+                            $"{swapped} crew replaced before spawn");
+                    else
+                        ParsekLog.Verbose("KSCSpawn",
+                            $"Crew swap: {replacements.Count} reservation(s) exist but " +
+                            $"no matches in snapshot for #{recIdx} \"{rec.VesselName}\"");
+                }
+
+                // Correct unsafe snapshot situation before spawning (#169).
+                // Same guard as SpawnOrRecoverIfTooClose — prevents on-rails pressure destruction.
+                VesselSpawner.CorrectUnsafeSnapshotSituation(spawnSnapshot, rec.TerminalStateValue);
+
+                uint spawnedPid = VesselSpawner.RespawnVessel(spawnSnapshot);
                 if (spawnedPid != 0)
                 {
                     rec.VesselSpawned = true;

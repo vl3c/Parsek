@@ -465,5 +465,281 @@ namespace Parsek.Tests
         }
 
         #endregion
+
+        #region ComputeCorrectedSituation (#169)
+
+        [Fact]
+        public void ComputeCorrectedSituation_FlyingWithLanded_ReturnsLanded()
+        {
+            string result = VesselSpawner.ComputeCorrectedSituation("FLYING", TerminalState.Landed);
+            Assert.Equal("LANDED", result);
+        }
+
+        [Fact]
+        public void ComputeCorrectedSituation_FlyingWithSplashed_ReturnsSplashed()
+        {
+            string result = VesselSpawner.ComputeCorrectedSituation("FLYING", TerminalState.Splashed);
+            Assert.Equal("SPLASHED", result);
+        }
+
+        [Fact]
+        public void ComputeCorrectedSituation_SubOrbitalWithLanded_ReturnsLanded()
+        {
+            string result = VesselSpawner.ComputeCorrectedSituation("SUB_ORBITAL", TerminalState.Landed);
+            Assert.Equal("LANDED", result);
+        }
+
+        [Fact]
+        public void ComputeCorrectedSituation_SubOrbitalWithSplashed_ReturnsSplashed()
+        {
+            string result = VesselSpawner.ComputeCorrectedSituation("SUB_ORBITAL", TerminalState.Splashed);
+            Assert.Equal("SPLASHED", result);
+        }
+
+        [Fact]
+        public void ComputeCorrectedSituation_FlyingWithDestroyed_ReturnsNull()
+        {
+            string result = VesselSpawner.ComputeCorrectedSituation("FLYING", TerminalState.Destroyed);
+            Assert.Null(result);
+        }
+
+        [Fact]
+        public void ComputeCorrectedSituation_FlyingWithOrbiting_ReturnsNull()
+        {
+            string result = VesselSpawner.ComputeCorrectedSituation("FLYING", TerminalState.Orbiting);
+            Assert.Null(result);
+        }
+
+        [Fact]
+        public void ComputeCorrectedSituation_FlyingWithNull_ReturnsNull()
+        {
+            string result = VesselSpawner.ComputeCorrectedSituation("FLYING", null);
+            Assert.Null(result);
+        }
+
+        [Fact]
+        public void ComputeCorrectedSituation_LandedWithLanded_ReturnsNull()
+        {
+            // Already safe — no correction needed
+            string result = VesselSpawner.ComputeCorrectedSituation("LANDED", TerminalState.Landed);
+            Assert.Null(result);
+        }
+
+        [Fact]
+        public void ComputeCorrectedSituation_OrbitingWithLanded_ReturnsNull()
+        {
+            // ORBITING is not unsafe — no correction needed
+            string result = VesselSpawner.ComputeCorrectedSituation("ORBITING", TerminalState.Landed);
+            Assert.Null(result);
+        }
+
+        [Fact]
+        public void ComputeCorrectedSituation_NullSit_ReturnsNull()
+        {
+            string result = VesselSpawner.ComputeCorrectedSituation(null, TerminalState.Landed);
+            Assert.Null(result);
+        }
+
+        [Fact]
+        public void ComputeCorrectedSituation_EmptySit_ReturnsNull()
+        {
+            string result = VesselSpawner.ComputeCorrectedSituation("", TerminalState.Landed);
+            Assert.Null(result);
+        }
+
+        [Fact]
+        public void ComputeCorrectedSituation_CaseInsensitive()
+        {
+            string result = VesselSpawner.ComputeCorrectedSituation("flying", TerminalState.Landed);
+            Assert.Equal("LANDED", result);
+        }
+
+        [Fact]
+        public void ComputeCorrectedSituation_FlyingWithSubOrbital_ReturnsNull()
+        {
+            // SubOrbital terminal state should not override — vessel is still in flight
+            string result = VesselSpawner.ComputeCorrectedSituation("FLYING", TerminalState.SubOrbital);
+            Assert.Null(result);
+        }
+
+        [Fact]
+        public void ComputeCorrectedSituation_FlyingWithDocked_ReturnsNull()
+        {
+            string result = VesselSpawner.ComputeCorrectedSituation("FLYING", TerminalState.Docked);
+            Assert.Null(result);
+        }
+
+        [Fact]
+        public void ComputeCorrectedSituation_FlyingWithBoarded_ReturnsNull()
+        {
+            string result = VesselSpawner.ComputeCorrectedSituation("FLYING", TerminalState.Boarded);
+            Assert.Null(result);
+        }
+
+        [Fact]
+        public void ComputeCorrectedSituation_FlyingWithRecovered_ReturnsNull()
+        {
+            string result = VesselSpawner.ComputeCorrectedSituation("FLYING", TerminalState.Recovered);
+            Assert.Null(result);
+        }
+
+        #endregion
+
+        #region CorrectUnsafeSnapshotSituation (#169)
+
+        [Fact]
+        public void CorrectUnsafeSnapshotSituation_FlyingToLanded_CorrectsSitAndFlags()
+        {
+            var snapshot = new ConfigNode("VESSEL");
+            snapshot.AddValue("sit", "FLYING");
+            snapshot.AddValue("landed", "False");
+            snapshot.AddValue("splashed", "False");
+
+            bool corrected = VesselSpawner.CorrectUnsafeSnapshotSituation(snapshot, TerminalState.Landed);
+
+            Assert.True(corrected);
+            Assert.Equal("LANDED", snapshot.GetValue("sit"));
+            Assert.Equal("True", snapshot.GetValue("landed"));
+            Assert.Equal("False", snapshot.GetValue("splashed"));
+        }
+
+        [Fact]
+        public void CorrectUnsafeSnapshotSituation_FlyingToSplashed_CorrectsSitAndFlags()
+        {
+            var snapshot = new ConfigNode("VESSEL");
+            snapshot.AddValue("sit", "FLYING");
+            snapshot.AddValue("landed", "False");
+            snapshot.AddValue("splashed", "False");
+
+            bool corrected = VesselSpawner.CorrectUnsafeSnapshotSituation(snapshot, TerminalState.Splashed);
+
+            Assert.True(corrected);
+            Assert.Equal("SPLASHED", snapshot.GetValue("sit"));
+            Assert.Equal("False", snapshot.GetValue("landed"));
+            Assert.Equal("True", snapshot.GetValue("splashed"));
+        }
+
+        [Fact]
+        public void CorrectUnsafeSnapshotSituation_LandedSnapshot_ReturnsFalse()
+        {
+            var snapshot = new ConfigNode("VESSEL");
+            snapshot.AddValue("sit", "LANDED");
+
+            bool corrected = VesselSpawner.CorrectUnsafeSnapshotSituation(snapshot, TerminalState.Landed);
+
+            Assert.False(corrected);
+            Assert.Equal("LANDED", snapshot.GetValue("sit"));
+        }
+
+        [Fact]
+        public void CorrectUnsafeSnapshotSituation_NullSnapshot_ReturnsFalse()
+        {
+            bool corrected = VesselSpawner.CorrectUnsafeSnapshotSituation(null, TerminalState.Landed);
+
+            Assert.False(corrected);
+        }
+
+        [Fact]
+        public void CorrectUnsafeSnapshotSituation_NullTerminal_ReturnsFalse()
+        {
+            var snapshot = new ConfigNode("VESSEL");
+            snapshot.AddValue("sit", "FLYING");
+
+            bool corrected = VesselSpawner.CorrectUnsafeSnapshotSituation(snapshot, null);
+
+            Assert.False(corrected);
+            Assert.Equal("FLYING", snapshot.GetValue("sit"));
+        }
+
+        [Fact]
+        public void CorrectUnsafeSnapshotSituation_Logs_Correction()
+        {
+            var snapshot = new ConfigNode("VESSEL");
+            snapshot.AddValue("sit", "FLYING");
+            snapshot.AddValue("landed", "False");
+            snapshot.AddValue("splashed", "False");
+
+            VesselSpawner.CorrectUnsafeSnapshotSituation(snapshot, TerminalState.Landed);
+
+            Assert.Contains(logLines, l =>
+                l.Contains("[Spawner]") &&
+                l.Contains("FLYING") &&
+                l.Contains("LANDED") &&
+                l.Contains("#169"));
+        }
+
+        [Fact]
+        public void CorrectUnsafeSnapshotSituation_NoLogWhenNotCorrected()
+        {
+            var snapshot = new ConfigNode("VESSEL");
+            snapshot.AddValue("sit", "LANDED");
+
+            VesselSpawner.CorrectUnsafeSnapshotSituation(snapshot, TerminalState.Landed);
+
+            Assert.DoesNotContain(logLines, l => l.Contains("#169"));
+        }
+
+        #endregion
+
+        #region ShouldSpawnAtRecordingEnd — Terminal Override with FLYING (#169)
+
+        [Fact]
+        public void ShouldSpawn_FlyingSnapshot_TerminalLanded_Allowed()
+        {
+            // Bug #169: terminal state Landed overrides the FLYING unsafe check,
+            // allowing the spawn to proceed (situation will be corrected before spawn)
+            var snapshot = new ConfigNode("VESSEL");
+            snapshot.AddValue("sit", "FLYING");
+
+            var rec = new Recording
+            {
+                VesselSnapshot = snapshot,
+                TerminalStateValue = TerminalState.Landed
+            };
+
+            var (needsSpawn, _) = GhostPlaybackLogic.ShouldSpawnAtRecordingEnd(
+                rec, isActiveChainMember: false, isChainLoopingOrDisabled: false);
+
+            Assert.True(needsSpawn);
+        }
+
+        [Fact]
+        public void ShouldSpawn_FlyingSnapshot_TerminalSplashed_Allowed()
+        {
+            var snapshot = new ConfigNode("VESSEL");
+            snapshot.AddValue("sit", "FLYING");
+
+            var rec = new Recording
+            {
+                VesselSnapshot = snapshot,
+                TerminalStateValue = TerminalState.Splashed
+            };
+
+            var (needsSpawn, _) = GhostPlaybackLogic.ShouldSpawnAtRecordingEnd(
+                rec, isActiveChainMember: false, isChainLoopingOrDisabled: false);
+
+            Assert.True(needsSpawn);
+        }
+
+        [Fact]
+        public void ShouldSpawn_FlyingSnapshot_TerminalDestroyed_Blocked()
+        {
+            var snapshot = new ConfigNode("VESSEL");
+            snapshot.AddValue("sit", "FLYING");
+
+            var rec = new Recording
+            {
+                VesselSnapshot = snapshot,
+                TerminalStateValue = TerminalState.Destroyed
+            };
+
+            var (needsSpawn, reason) = GhostPlaybackLogic.ShouldSpawnAtRecordingEnd(
+                rec, isActiveChainMember: false, isChainLoopingOrDisabled: false);
+
+            Assert.False(needsSpawn);
+            Assert.Contains("terminal state Destroyed", reason);
+        }
+
+        #endregion
     }
 }

@@ -843,9 +843,11 @@ namespace Parsek
                         }
                         break;
                     case PartEventType.EngineIgnited:
-                        // Use at least a minimum emission on ignition (#165) — seed events
-                        // may record throttle=0 when engines are staged but not yet throttled.
-                        // The next EngineThrottle event will set the correct level.
+                        // Use at least a minimum emission on ignition (#165) — older
+                        // recordings may contain seed events with throttle=0 from before
+                        // the recording-side fix. The 0.01 floor ensures plume visibility
+                        // for backward compatibility. New recordings skip zero-throttle
+                        // engine seeds entirely (PartStateSeeder.EmitEngineSeedEvents).
                         SetEngineEmission(state, evt, System.Math.Max(evt.value, 0.01f));
                         ApplyHeatState(state, evt, HeatLevel.Hot);
                         break;
