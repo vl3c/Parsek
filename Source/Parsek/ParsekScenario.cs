@@ -786,7 +786,7 @@ namespace Parsek
                     int prelaunchStripped = StripFuturePrelaunchVessels(fs.protoVessels, quicksavePids);
                     if (prelaunchStripped > 0)
                         ParsekLog.Info("Rewind",
-                            $"Stripped {prelaunchStripped} future PRELAUNCH vessel(s)");
+                            $"Stripped {prelaunchStripped} future vessel(s) not in quicksave whitelist");
                 }
                 RecordingStore.RewindQuicksaveVesselPids = null;
             }

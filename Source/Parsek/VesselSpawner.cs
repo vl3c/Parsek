@@ -308,6 +308,17 @@ namespace Parsek
             // Reset collision block counter on successful spawn path
             rec.CollisionBlockCount = 0;
 
+            // EVA spawn position fix: update the snapshot's lat/lon/alt to the recording
+            // endpoint. The snapshot was captured at EVA start (kerbal on the pod's ladder),
+            // but the kerbal walked to a different location during the recording. Without
+            // this override, the kerbal spawns on top of the parent vessel and grabs its
+            // ladder, triggering KSP's "Kerbals on a ladder — cannot save" error.
+            if (isEva && rec.VesselSnapshot != null)
+            {
+                OverrideSnapshotPosition(rec.VesselSnapshot, spawnLat, spawnLon, spawnAlt,
+                    index, rec.VesselName);
+            }
+
             // Dead crew guard: if ALL crew in the snapshot are dead, abandon spawn.
             // Spawning a crewless command pod is worse than not spawning at all. (#170)
             // Individual dead crew are already removed by RespawnVessel.RemoveDeadCrewFromSnapshot;
@@ -346,13 +357,29 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Resolve spawn position from vessel snapshot lat/lon/alt, falling back to
-        /// trajectory endpoint if snapshot lacks position data (#127).
+        /// Resolve spawn position. EVA vessels always use the trajectory endpoint
+        /// (the snapshot position is from EVA start, not where the kerbal walked to — #175).
+        /// Non-EVA vessels use the snapshot lat/lon/alt, falling back to the trajectory
+        /// endpoint if snapshot lacks position data (#127).
         /// </summary>
-        private static void ResolveSpawnPosition(Recording rec, int index,
+        internal static void ResolveSpawnPosition(Recording rec, int index,
             TrajectoryPoint lastPt, out double lat, out double lon, out double alt)
         {
             lat = 0; lon = 0; alt = 0;
+
+            // EVA vessels: always use trajectory endpoint (#175). The snapshot position is
+            // from EVA start (kerbal on the pod's ladder), not where they ended up.
+            bool isEva = !string.IsNullOrEmpty(rec.EvaCrewName);
+            if (isEva)
+            {
+                lat = lastPt.latitude;
+                lon = lastPt.longitude;
+                alt = lastPt.altitude;
+                ParsekLog.Verbose("Spawner",
+                    $"EVA spawn #{index} ({rec.VesselName}): using trajectory endpoint for position");
+                return;
+            }
+
             bool hasSnapshotPos = TryGetSnapshotDouble(rec.VesselSnapshot, "lat", out lat)
                                && TryGetSnapshotDouble(rec.VesselSnapshot, "lon", out lon)
                                && TryGetSnapshotDouble(rec.VesselSnapshot, "alt", out alt);
@@ -733,6 +760,34 @@ namespace Parsek
                 $"Corrected unsafe snapshot situation: {currentSit} -> {corrected} " +
                 $"(terminal={terminalState}) — prevents on-rails pressure destruction (#169)");
             return true;
+        }
+
+        /// <summary>
+        /// Overrides the snapshot's lat/lon/alt with the given endpoint coordinates.
+        /// Used for EVA vessels whose snapshot was captured at EVA start (on the pod's
+        /// ladder) but need to spawn at the recording endpoint (where the kerbal walked to).
+        /// Modifies the snapshot in-place.
+        /// </summary>
+        internal static void OverrideSnapshotPosition(ConfigNode snapshot,
+            double lat, double lon, double alt, int index, string vesselName)
+        {
+            if (snapshot == null) return;
+
+            string oldLat = snapshot.GetValue("lat") ?? "?";
+            string oldLon = snapshot.GetValue("lon") ?? "?";
+            string oldAlt = snapshot.GetValue("alt") ?? "?";
+
+            string newLat = lat.ToString("R", CultureInfo.InvariantCulture);
+            string newLon = lon.ToString("R", CultureInfo.InvariantCulture);
+            string newAlt = alt.ToString("R", CultureInfo.InvariantCulture);
+
+            snapshot.SetValue("lat", newLat, true);
+            snapshot.SetValue("lon", newLon, true);
+            snapshot.SetValue("alt", newAlt, true);
+
+            ParsekLog.Info("Spawner",
+                $"EVA spawn position override for #{index} ({vesselName}): " +
+                $"({oldLat},{oldLon},{oldAlt}) → ({newLat},{newLon},{newAlt})");
         }
 
         /// <summary>
