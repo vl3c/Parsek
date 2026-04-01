@@ -603,7 +603,7 @@ namespace Parsek
                 if (ShouldSkipZeroThrottleEngineSeed(throttle))
                 {
                     skippedZeroThrottle++;
-                    ParsekLog.Verbose(logTag, $"Seed event skipped: EngineIgnited pid={pid} midx={midx} throttle=0 (idle engine, #165) part='{NameFor(pid)}'");
+                    ParsekLog.Verbose(logTag, $"Seed event skipped: EngineIgnited pid={pid} midx={midx} throttle={throttle.ToString("F2", CultureInfo.InvariantCulture)} (idle engine, #165) part='{NameFor(pid)}'");
                     continue;
                 }
 
