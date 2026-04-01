@@ -659,5 +659,154 @@ namespace Parsek.Tests
             Assert.Equal(0, first);
             Assert.Equal(0, last);
         }
+
+        #region Phase 1A: Recording query properties
+
+        [Fact]
+        public void IsTreeRecording_WithTreeId_ReturnsTrue()
+        {
+            var rec = new Recording { TreeId = "tree-123" };
+            Assert.True(rec.IsTreeRecording);
+        }
+
+        [Fact]
+        public void IsTreeRecording_WithNullTreeId_ReturnsFalse()
+        {
+            var rec = new Recording { TreeId = null };
+            Assert.False(rec.IsTreeRecording);
+        }
+
+        [Fact]
+        public void IsChainRecording_WithChainId_ReturnsTrue()
+        {
+            var rec = new Recording { ChainId = "chain-abc" };
+            Assert.True(rec.IsChainRecording);
+        }
+
+        [Theory]
+        [InlineData(null)]
+        [InlineData("")]
+        public void IsChainRecording_WithNullOrEmptyChainId_ReturnsFalse(string chainId)
+        {
+            var rec = new Recording { ChainId = chainId };
+            Assert.False(rec.IsChainRecording);
+        }
+
+        [Fact]
+        public void ManagesOwnResources_Standalone_ReturnsTrue()
+        {
+            var rec = new Recording { TreeId = null };
+            Assert.True(rec.ManagesOwnResources);
+        }
+
+        [Fact]
+        public void ManagesOwnResources_TreeRecording_ReturnsFalse()
+        {
+            var rec = new Recording { TreeId = "tree-456" };
+            Assert.False(rec.ManagesOwnResources);
+        }
+
+        #endregion
+
+        #region Phase 1B: ShouldSuppressBoundarySplit
+
+        [Fact]
+        public void ShouldSuppressBoundarySplit_WithActiveTree_ReturnsTrue()
+        {
+            var tree = new RecordingTree();
+            Assert.True(ParsekFlight.ShouldSuppressBoundarySplit(tree));
+        }
+
+        [Fact]
+        public void ShouldSuppressBoundarySplit_WithNullTree_ReturnsFalse()
+        {
+            Assert.False(ParsekFlight.ShouldSuppressBoundarySplit(null));
+        }
+
+        #endregion
+
+        #region Phase 1C: ClassifyVesselDestruction
+
+        [Fact]
+        public void ClassifyVesselDestruction_TreeDeferred()
+        {
+            var mode = ParsekFlight.ClassifyVesselDestruction(
+                hasActiveTree: true,
+                isRecording: true,
+                vesselDestroyedDuringRecording: true,
+                isActiveVessel: true,
+                shouldDeferForTree: true,
+                treeDestructionDialogPending: false);
+            Assert.Equal(ParsekFlight.DestructionMode.TreeDeferred, mode);
+        }
+
+        [Fact]
+        public void ClassifyVesselDestruction_StandaloneMerge()
+        {
+            var mode = ParsekFlight.ClassifyVesselDestruction(
+                hasActiveTree: false,
+                isRecording: true,
+                vesselDestroyedDuringRecording: true,
+                isActiveVessel: true,
+                shouldDeferForTree: false,
+                treeDestructionDialogPending: false);
+            Assert.Equal(ParsekFlight.DestructionMode.StandaloneMerge, mode);
+        }
+
+        [Fact]
+        public void ClassifyVesselDestruction_TreeAllLeavesCheck()
+        {
+            var mode = ParsekFlight.ClassifyVesselDestruction(
+                hasActiveTree: true,
+                isRecording: false,
+                vesselDestroyedDuringRecording: true,
+                isActiveVessel: true,
+                shouldDeferForTree: false,
+                treeDestructionDialogPending: false);
+            Assert.Equal(ParsekFlight.DestructionMode.TreeAllLeavesCheck, mode);
+        }
+
+        [Fact]
+        public void ClassifyVesselDestruction_None_WhenNotActiveVessel()
+        {
+            var mode = ParsekFlight.ClassifyVesselDestruction(
+                hasActiveTree: false,
+                isRecording: true,
+                vesselDestroyedDuringRecording: true,
+                isActiveVessel: false,
+                shouldDeferForTree: false,
+                treeDestructionDialogPending: false);
+            Assert.Equal(ParsekFlight.DestructionMode.None, mode);
+        }
+
+        [Fact]
+        public void ClassifyVesselDestruction_None_WhenTreeDestructionDialogPending()
+        {
+            var mode = ParsekFlight.ClassifyVesselDestruction(
+                hasActiveTree: true,
+                isRecording: true,
+                vesselDestroyedDuringRecording: true,
+                isActiveVessel: true,
+                shouldDeferForTree: false,
+                treeDestructionDialogPending: true);
+            Assert.Equal(ParsekFlight.DestructionMode.None, mode);
+        }
+
+        [Fact]
+        public void ClassifyVesselDestruction_TreeDeferred_TakesPriorityOverAllLeavesCheck()
+        {
+            // When both TreeDeferred and TreeAllLeavesCheck conditions are met,
+            // TreeDeferred wins (checked first in branching order)
+            var mode = ParsekFlight.ClassifyVesselDestruction(
+                hasActiveTree: true,
+                isRecording: true,
+                vesselDestroyedDuringRecording: true,
+                isActiveVessel: true,
+                shouldDeferForTree: true,
+                treeDestructionDialogPending: false);
+            Assert.Equal(ParsekFlight.DestructionMode.TreeDeferred, mode);
+        }
+
+        #endregion
     }
 }
