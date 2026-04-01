@@ -1321,7 +1321,7 @@ namespace Parsek
             int standaloneCount = 0;
             for (int i = 0; i < committedRecordings.Count; i++)
             {
-                if (committedRecordings[i].TreeId == null)
+                if (!committedRecordings[i].IsTreeRecording)
                     standaloneCount++;
                 ResetRecordingPlaybackFields(committedRecordings[i]);
             }

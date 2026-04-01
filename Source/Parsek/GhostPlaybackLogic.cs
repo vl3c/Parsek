@@ -2165,7 +2165,7 @@ namespace Parsek
         /// </summary>
         internal static bool IsNonLeafInCommittedTree(Recording rec)
         {
-            if (string.IsNullOrEmpty(rec.TreeId) || string.IsNullOrEmpty(rec.RecordingId))
+            if (!rec.IsTreeRecording || string.IsNullOrEmpty(rec.RecordingId))
                 return false;
 
             var trees = RecordingStore.CommittedTrees;
@@ -2409,7 +2409,7 @@ namespace Parsek
 
             // Case 2: Tree branching via ChildBranchPointId
             if (!string.IsNullOrEmpty(currentRec.ChildBranchPointId)
-                && !string.IsNullOrEmpty(currentRec.TreeId)
+                && currentRec.IsTreeRecording
                 && trees != null)
             {
                 BranchPoint bp = null;

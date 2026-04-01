@@ -431,7 +431,7 @@ namespace Parsek
                 // On scene change, the reset is overwritten by the saved values below.
                 for (int i = 0; i < recordings.Count; i++)
                 {
-                    if (recordings[i].TreeId == null) continue;
+                    if (!recordings[i].IsTreeRecording) continue;
 
                     ClearPostSpawnTerminalState(recordings[i], "tree recording");
 
@@ -1353,7 +1353,7 @@ namespace Parsek
             for (int i = 0; i < recordings.Count; i++)
             {
                 // Skip tree recordings — their mutable state is restored from tree nodes
-                if (recordings[i].TreeId != null) continue;
+                if (recordings[i].IsTreeRecording) continue;
 
                 ClearPostSpawnTerminalState(recordings[i]);
 
@@ -1502,7 +1502,7 @@ namespace Parsek
                 var rec = recordings[r];
 
                 // Skip tree recordings — they are saved under RECORDING_TREE nodes below
-                if (rec.TreeId != null)
+                if (rec.IsTreeRecording)
                     continue;
                 count++;
                 totalPoints += rec.Points.Count;
@@ -1609,6 +1609,10 @@ namespace Parsek
             recNode.AddValue("recordingFormatVersion", rec.RecordingFormatVersion);
             recNode.AddValue("loopPlayback", rec.LoopPlayback);
             recNode.AddValue("loopIntervalSeconds", rec.LoopIntervalSeconds.ToString("R", CultureInfo.InvariantCulture));
+            if (!double.IsNaN(rec.LoopStartUT))
+                recNode.AddValue("loopStartUT", rec.LoopStartUT.ToString("R", CultureInfo.InvariantCulture));
+            if (!double.IsNaN(rec.LoopEndUT))
+                recNode.AddValue("loopEndUT", rec.LoopEndUT.ToString("R", CultureInfo.InvariantCulture));
             if (rec.LoopAnchorVesselId != 0)
                 recNode.AddValue("loopAnchorPid", rec.LoopAnchorVesselId.ToString(CultureInfo.InvariantCulture));
             if (!string.IsNullOrEmpty(rec.LoopAnchorBodyName))
@@ -1698,6 +1702,22 @@ namespace Parsek
                 LoopTimeUnit loopTimeUnit;
                 if (System.Enum.TryParse(loopTimeUnitStr, out loopTimeUnit))
                     rec.LoopTimeUnit = loopTimeUnit;
+            }
+
+            string loopStartUTStr = recNode.GetValue("loopStartUT");
+            if (loopStartUTStr != null)
+            {
+                double loopStartUT;
+                if (double.TryParse(loopStartUTStr, NumberStyles.Float, CultureInfo.InvariantCulture, out loopStartUT))
+                    rec.LoopStartUT = loopStartUT;
+            }
+
+            string loopEndUTStr = recNode.GetValue("loopEndUT");
+            if (loopEndUTStr != null)
+            {
+                double loopEndUT;
+                if (double.TryParse(loopEndUTStr, NumberStyles.Float, CultureInfo.InvariantCulture, out loopEndUT))
+                    rec.LoopEndUT = loopEndUT;
             }
 
             string loopAnchorPidStr = recNode.GetValue("loopAnchorPid");

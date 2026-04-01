@@ -206,7 +206,7 @@ namespace Parsek
             {
                 for (int i = 0; i < recordings.Count; i++)
                 {
-                    if (recordings[i].TreeId != null) continue; // handled by tree-level delta
+                    if (recordings[i].IsTreeRecording) continue; // handled by tree-level delta
                     result.reservedFunds += CommittedFundsCost(recordings[i]);
                     result.reservedScience += CommittedScienceCost(recordings[i]);
                     result.reservedReputation += CommittedReputationCost(recordings[i]);
@@ -361,7 +361,7 @@ namespace Parsek
             {
                 for (int i = 0; i < recordings.Count; i++)
                 {
-                    if (recordings[i].TreeId != null) continue;
+                    if (recordings[i].IsTreeRecording) continue;
                     result.reservedFunds += FullCommittedFundsCost(recordings[i]);
                     result.reservedScience += FullCommittedScienceCost(recordings[i]);
                     result.reservedReputation += FullCommittedReputationCost(recordings[i]);
