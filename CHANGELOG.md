@@ -6,6 +6,10 @@ All notable changes to Parsek are documented here.
 
 ## 0.5.3
 
+### Features
+
+- **Departure-aware Real Spawn Warp.** When a nearby ghost will leave its current orbit before spawn time (e.g., parking orbit → Mun transfer), the RSW window now shows a "Departs T-Xm Xs" state column and replaces the "Warp" button with "Warp to Dep." — an epoch-shifted warp to the departure moment that preserves rendezvous geometry. Orbit comparison uses SMA, eccentricity, inclination, and argument of periapsis (eccentric orbits only) with tight tolerances to detect any intentional maneuver. Handles SOI changes, surface terminal states, off-rails gaps, and return-trip scenarios.
+
 ### Bug Fixes
 
 - **Fix #168: Spawned vessels not re-spawned after rewind/revert.** After vessel stripping on revert, `SpawnedVesselPersistentId` was restored from the save but pointed to a stripped vessel — blocking re-spawn permanently. Added `ReconcileSpawnStateAfterStrip` that checks surviving PIDs in flightState after all strip operations and resets spawn tracking for recordings whose vessel no longer exists.

@@ -199,6 +199,7 @@ namespace Parsek
         // Cached sorted candidate list -- re-sorted only when source data or sort state changes
         private List<NearbySpawnCandidate> cachedSortedCandidates = new List<NearbySpawnCandidate>();
         private int cachedCandidateCount = -1;
+        private int cachedProximityGeneration = -1;
         private SpawnSortColumn cachedSortColumn = SpawnSortColumn.Distance;
         private bool cachedSortAscending = true;
 
@@ -3303,7 +3304,7 @@ namespace Parsek
             if (spawnControlWindowRect.width < 1f)
             {
                 float x = mainWindowRect.x + mainWindowRect.width + 10;
-                spawnControlWindowRect = new Rect(x, mainWindowRect.y, 528, 200);
+                spawnControlWindowRect = new Rect(x, mainWindowRect.y, 680, 200);
                 var ic = System.Globalization.CultureInfo.InvariantCulture;
                 ParsekLog.Verbose("UI",
                     $"Real Spawn Control window initial position: x={spawnControlWindowRect.x.ToString("F0", ic)} y={spawnControlWindowRect.y.ToString("F0", ic)}");
@@ -3350,7 +3351,8 @@ namespace Parsek
         private const float SpawnColW_Dist = 55f;
         private const float SpawnColW_SpawnTime = 100f;
         private const float SpawnColW_Countdown = 95f;
-        private const float SpawnColW_Warp = 50f;
+        private const float SpawnColW_State = 110f;
+        private const float SpawnColW_Warp = 85f;
 
         private void DrawSpawnSortableHeader(string label, SpawnSortColumn col, float width)
         {
@@ -3410,11 +3412,14 @@ namespace Parsek
             DrawSpawnSortableHeader("Dist", SpawnSortColumn.Distance, SpawnColW_Dist);
             DrawSpawnSortableHeader("Spawns at", SpawnSortColumn.SpawnTime, SpawnColW_SpawnTime);
             DrawSpawnSortableHeader("In T-", SpawnSortColumn.SpawnTime, SpawnColW_Countdown);
+            GUILayout.Label("State", GUILayout.Width(SpawnColW_State));
             GUILayout.Label("", GUILayout.Width(SpawnColW_Warp));
             GUILayout.EndHorizontal();
 
-            // Re-sort only when candidate list or sort state changes
+            // Re-sort when candidate list, sort state, or departure info changes
+            int gen = flight.ProximityCheckGeneration;
             if (candidates.Count != cachedCandidateCount
+                || gen != cachedProximityGeneration
                 || spawnSortColumn != cachedSortColumn
                 || spawnSortAscending != cachedSortAscending)
             {
@@ -3423,6 +3428,7 @@ namespace Parsek
                     cachedSortedCandidates.Add(candidates[ci]);
                 cachedSortedCandidates.Sort(CompareSpawnCandidates);
                 cachedCandidateCount = candidates.Count;
+                cachedProximityGeneration = gen;
                 cachedSortColumn = spawnSortColumn;
                 cachedSortAscending = spawnSortAscending;
             }
@@ -3448,16 +3454,56 @@ namespace Parsek
                     SelectiveSpawnUI.FormatCountdown(delta),
                     GUILayout.Width(SpawnColW_Countdown));
 
-                GUI.enabled = canWarp;
-                if (GUILayout.Button("Warp", GUILayout.Width(SpawnColW_Warp)))
+                // State column: departure info
+                if (cand.willDepart)
                 {
-                    ParsekLog.Info("UI",
-                        string.Format(ic,
-                            "Real Spawn Control: warp to '{0}' recording #{1}",
-                            cand.vesselName, cand.recordingIndex));
-                    flight.WarpToRecordingEnd(cand.recordingIndex);
+                    double depDelta = cand.departureUT - currentUT;
+                    string stateText;
+                    if (depDelta <= 0)
+                        stateText = string.Format(ic, "Departing \u2192 {0}", cand.destination ?? "?");
+                    else
+                        stateText = string.Format(ic, "Departs {0}",
+                            SelectiveSpawnUI.FormatCountdown(depDelta));
+                    var prevColor = GUI.contentColor;
+                    GUI.contentColor = depDelta <= 0
+                        ? new Color(1f, 0.65f, 0.2f) // orange
+                        : new Color(1f, 1f, 0.4f);    // yellow
+                    GUILayout.Label(stateText, GUILayout.Width(SpawnColW_State));
+                    GUI.contentColor = prevColor;
                 }
-                GUI.enabled = true;
+                else
+                {
+                    GUILayout.Label("", GUILayout.Width(SpawnColW_State));
+                }
+
+                // Warp button: "Warp" for normal, "Warp to Dep." for departing ghosts
+                if (cand.willDepart)
+                {
+                    bool canWarpDep = cand.departureUT > currentUT;
+                    GUI.enabled = canWarpDep;
+                    if (GUILayout.Button("Warp to Dep.", GUILayout.Width(SpawnColW_Warp)))
+                    {
+                        ParsekLog.Info("UI",
+                            string.Format(ic,
+                                "Real Spawn Control: warp to departure '{0}' recording #{1} depUT={2:F1}",
+                                cand.vesselName, cand.recordingIndex, cand.departureUT));
+                        flight.WarpToDeparture(cand.recordingIndex, cand.departureUT);
+                    }
+                    GUI.enabled = true;
+                }
+                else
+                {
+                    GUI.enabled = canWarp;
+                    if (GUILayout.Button("Warp", GUILayout.Width(SpawnColW_Warp)))
+                    {
+                        ParsekLog.Info("UI",
+                            string.Format(ic,
+                                "Real Spawn Control: warp to '{0}' recording #{1}",
+                                cand.vesselName, cand.recordingIndex));
+                        flight.WarpToRecordingEnd(cand.recordingIndex);
+                    }
+                    GUI.enabled = true;
+                }
                 GUILayout.EndHorizontal();
             }
             GUILayout.EndScrollView();
