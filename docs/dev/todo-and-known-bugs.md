@@ -2086,11 +2086,14 @@ Ghost ProtoVessel's clickable MapNode position diverges from the visible orbit i
 
 **Decompilation evidence:** MapNode position comes from `vessel.GetWorldPos3D()` (set by OrbitDriver's `updateFromParameters()`) while ghost mesh uses `orbit.getPositionAtUT()` on a direct-constructed Orbit. Both compute `body.position + orbitRelativePos.xzy`, but with different Orbit internal states due to the roundtrip. `OrbitDriver.UpdateMode.IDLE` was considered but won't work — ghost ProtoVessels have no Rigidbody, so IDLE mode exits early without updating the vessel position. See `docs/dev/research/ghost-map-icon-position-fix.md`.
 
-**Fix:** Replaced `UpdateFromOrbitAtUT` with `Orbit.SetOrbit()` in `ApplyOrbitToVessel`. `SetOrbit` directly assigns all 7 Keplerian elements + body and calls `Init()` — the same path as the Orbit constructor used by the ghost's cached orbit. Both Orbit objects now have identical internal state, eliminating the position divergence. Watch mode distance check now reads the user's `ghostCameraCutoffKm` setting.
+**Fix (three parts):**
+1. **Position fix:** Replaced `UpdateFromOrbitAtUT` with `Orbit.SetOrbit()` in `ApplyOrbitToVessel`. `SetOrbit` directly assigns all 7 Keplerian elements + body and calls `Init()` — the same path as the Orbit constructor used by the ghost's cached orbit. Both Orbit objects now have identical internal state (confirmed 0.0m offset via per-frame diagnostic). Watch mode distance check now reads the user's `ghostCameraCutoffKm` setting.
+2. **Orbit lines not rendering:** Added `deferredCreatedEvents.Add()` to `UpdateLoopingPlayback` and `UpdateOverlapPlayback` in `GhostPlaybackEngine`. Only `RenderInRangeGhost` was firing `OnGhostCreated`; looping ghosts (which take the loop path, not the in-range path) never got ProtoVessels, so orbit lines never rendered.
+3. **Icon click menu:** Added `GhostIconClickPatch` (Harmony postfix on `OrbitRendererBase.objectNode_OnClick`) — shows popup near cursor with "Set As Target" / "Watch" options. Ghost orbit lines are visual-only (not clickable via `GhostOrbitCastPatch`) to avoid ambiguity with real vessels sharing the same orbit.
 
 **Failed attempts:** (1) `vessel.SetPosition` per-frame — OrbitDriver UPDATE mode overwrites every FixedUpdate. (2) `UpdateFromStateVectors` per-frame — coordinate space mismatch corrupted OrbitDriver. (3) Mean anomaly sync per-frame — fought OrbitDriver's own UPDATE propagation; IDLE mode can't work for unloaded vessels.
 
-**Files:** `GhostMapPresence.cs` (`ApplyOrbitToVessel`), `ParsekFlight.cs` (`EnterWatchMode`)
+**Files:** `GhostMapPresence.cs`, `GhostPlaybackEngine.cs`, `ParsekFlight.cs`, `Patches/GhostVesselLoadPatch.cs`
 
 **Status:** Fixed
 
@@ -2154,17 +2157,15 @@ When an EVA recording completes and Parsek spawns the real kerbal, the kerbal ap
 
 **Status:** Fixed
 
-## ~~180. Clicking ghost vessel in tracking station traps user with input lock~~
+## ~~176. Group hide checkbox misaligned when expanded stats columns visible~~
 
-`GhostTrackingFlyPatch` blocks `FlyVessel` for ghost map ProtoVessels (they're lightweight sensor parts, not real vessels). But the original `FlyVessel` normally transitions to the flight scene, which implicitly clears UI state. By returning `false` from the prefix without dismissing the dialog, the tracking station's input lock remained active — trapping the user.
+Group header rows in the recordings window were missing `GUILayout.Label` spacers for the expanded stats columns (MaxAlt, MaxSpd, Dist, Pts). When the Stats panel was toggled on, the group row had fewer layout elements than recording rows, causing Unity's horizontal layout to compress or shift the trailing Hide checkbox out of alignment — in some cases making it invisible or unclickable.
 
-Additionally, `GhostVesselSwitchPatch` used attribute-based `Type[]` overload targeting for `FlightGlobals.SetActiveVessel(Vessel)`, but Harmony's `CreateClassProcessor` didn't reliably disambiguate between the `(Vessel)` and `(Vessel, bool)` overloads.
+**Root cause:** `DrawGroupTree` emitted Phase→Name→G buttons→Loop→Period→Watch→Rewind→Hide but skipped the Phase/Launch/Duration/Stats/Status columns that recording rows include between Name and G. The expanded stats spacers (4 extra `GUILayout.Label` elements) were entirely absent.
 
-**Fix:**
-1. `GhostTrackingFlyPatch.Prefix` now calls `OnDialogDismiss` via Traverse after blocking `FlyVessel`, releasing the input lock.
-2. `GhostVesselSwitchPatch` uses explicit `TargetMethod()` instead of `HarmonyPatch` attribute `Type[]` for reliable overload targeting.
+**Fix:** Added Phase spacer, Launch (earliest descendant StartUT), Duration (sum of descendant durations), expanded stats spacers (conditional on `showExpandedStats`), and Status (closest active T- countdown) columns to `DrawGroupTree`, matching the recording row column layout exactly.
 
-**Files:** `GhostTrackingStationPatch.cs`, `GhostVesselLoadPatch.cs`
+**Files:** `ParsekUI.cs` (`DrawGroupTree`)
 
 **Status:** Fixed
 
@@ -2179,6 +2180,20 @@ The `CorrectUnsafeSnapshotSituation` (#169) ran earlier and corrected the snapsh
 **Fix:** Added optional `terminalState` parameter to `SpawnAtPosition`. When the terminal state is `Orbiting` or `Docked` but `DetermineSituation` returns FLYING, the situation is overridden to ORBITING with a logged explanation. The call site in `SpawnOrRecoverIfTooClose` passes `rec.TerminalStateValue`.
 
 **Files:** `VesselSpawner.cs`
+
+**Status:** Fixed
+
+## ~~180. Clicking ghost vessel in tracking station traps user with input lock~~
+
+`GhostTrackingFlyPatch` blocks `FlyVessel` for ghost map ProtoVessels (they're lightweight sensor parts, not real vessels). But the original `FlyVessel` normally transitions to the flight scene, which implicitly clears UI state. By returning `false` from the prefix without dismissing the dialog, the tracking station's input lock remained active — trapping the user.
+
+Additionally, `GhostVesselSwitchPatch` used attribute-based `Type[]` overload targeting for `FlightGlobals.SetActiveVessel(Vessel)`, but Harmony's `CreateClassProcessor` didn't reliably disambiguate between the `(Vessel)` and `(Vessel, bool)` overloads.
+
+**Fix:**
+1. `GhostTrackingFlyPatch.Prefix` now calls `OnDialogDismiss` via Traverse after blocking `FlyVessel`, releasing the input lock.
+2. `GhostVesselSwitchPatch` uses explicit `TargetMethod()` instead of `HarmonyPatch` attribute `Type[]` for reliable overload targeting.
+
+**Files:** `GhostTrackingStationPatch.cs`, `GhostVesselLoadPatch.cs`
 
 **Status:** Fixed
 

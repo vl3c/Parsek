@@ -30,6 +30,61 @@ namespace Parsek.Patches
 
 
     /// <summary>
+    /// Handles left-click on ghost vessel icon in map view. Shows a popup with
+    /// "Set As Target" and "Watch" options. Ghost orbit lines are non-clickable
+    /// (GhostOrbitCastPatch), so the icon is the only interaction point.
+    /// </summary>
+    [HarmonyPatch(typeof(OrbitRendererBase), "objectNode_OnClick")]
+    internal static class GhostIconClickPatch
+    {
+        static void Postfix(OrbitRendererBase __instance)
+        {
+            if (__instance.vessel == null) return;
+            if (!GhostMapPresence.IsGhostMapVessel(__instance.vessel.persistentId)) return;
+            if (!HighLogic.LoadedSceneIsFlight || !MapView.MapIsEnabled) return;
+
+            Vessel v = __instance.vessel;
+            int recIndex = GhostMapPresence.FindRecordingIndexByVesselPid(v.persistentId);
+            string vesselName = v.vesselName ?? "Ghost";
+
+            var options = new DialogGUIBase[]
+            {
+                new DialogGUIButton("Set As Target", () =>
+                {
+                    FlightGlobals.fetch.SetVesselTarget(v);
+                    ParsekLog.Info("GhostMap", $"Ghost '{vesselName}' set as target via icon click");
+                }, dismissOnSelect: true),
+                new DialogGUIButton("Watch", () =>
+                {
+                    var flight = ParsekFlight.Instance;
+                    if (flight != null && recIndex >= 0)
+                        flight.EnterWatchMode(recIndex);
+                    else
+                        ScreenMessages.PostScreenMessage(
+                            $"<b>{vesselName}</b> is a ghost — it will materialize when its timeline reaches the spawn point.",
+                            5f, ScreenMessageStyle.UPPER_CENTER);
+                    ParsekLog.Info("GhostMap", $"Ghost '{vesselName}' watch requested via icon click (recIndex={recIndex})");
+                }, dismissOnSelect: true)
+            };
+
+            // Position popup near mouse cursor (convert screen pos to normalized anchor)
+            UnityEngine.Vector3 mousePos = UnityEngine.Input.mousePosition;
+            float anchorX = mousePos.x / UnityEngine.Screen.width;
+            float anchorY = mousePos.y / UnityEngine.Screen.height;
+            var anchor = new UnityEngine.Vector2(anchorX, anchorY);
+
+            PopupDialog.SpawnPopupDialog(
+                anchor, anchor,
+                new MultiOptionDialog("GhostIconMenu", "", vesselName,
+                    HighLogic.UISkin, 160f, options),
+                persistAcrossScenes: false, skin: HighLogic.UISkin);
+
+            ParsekLog.Verbose("GhostMap",
+                $"Ghost icon clicked: '{vesselName}' pid={v.persistentId} recIndex={recIndex}");
+        }
+    }
+
+    /// <summary>
     /// Prevents ghost map ProtoVessels from going off rails (becoming loaded physics vessels).
     /// Ghost vessels exist only for map presence (orbit lines, tracking station, targeting).
     /// They must remain unloaded — the ghost mesh provides the visual representation.

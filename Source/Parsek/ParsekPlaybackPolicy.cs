@@ -383,8 +383,8 @@ namespace Parsek
         /// Tracks the last orbit segment body+SMA per recording index for change detection.
         /// Used to update the ghost ProtoVessel orbit as the ghost traverses segments.
         /// </summary>
-        private readonly Dictionary<int, (string body, double sma)> lastMapOrbitByIndex =
-            new Dictionary<int, (string body, double sma)>();
+        private readonly Dictionary<int, (string body, double sma, double ecc)> lastMapOrbitByIndex =
+            new Dictionary<int, (string body, double sma, double ecc)>();
 
         private void HandleGhostCreated(GhostLifecycleEvent evt)
         {
@@ -421,7 +421,7 @@ namespace Parsek
                 // Seed segment tracking for per-frame orbit updates
                 OrbitSegment? seg = TrajectoryMath.FindOrbitSegment(evt.Trajectory.OrbitSegments, startUT);
                 if (seg.HasValue)
-                    lastMapOrbitByIndex[evt.Index] = (seg.Value.bodyName, seg.Value.semiMajorAxis);
+                    lastMapOrbitByIndex[evt.Index] = (seg.Value.bodyName, seg.Value.semiMajorAxis, seg.Value.eccentricity);
             }
             else
             {
@@ -472,7 +472,7 @@ namespace Parsek
                             GhostMapPresence.UpdateGhostOrbitForRecording(idx, initialSeg);
 
                             // Seed segment tracking from the already-found segment (no second lookup)
-                            lastMapOrbitByIndex[idx] = (initialSeg.bodyName, initialSeg.semiMajorAxis);
+                            lastMapOrbitByIndex[idx] = (initialSeg.bodyName, initialSeg.semiMajorAxis, initialSeg.eccentricity);
 
                             ParsekLog.Info("Policy",
                                 $"Created deferred ghost map vessel for #{idx} \"{traj.VesselName}\" " +
@@ -489,7 +489,7 @@ namespace Parsek
             if (committed == null) return;
 
             // Collect updates to apply after iteration (cannot modify dict during foreach)
-            List<KeyValuePair<int, (string body, double sma)>> orbitUpdates = null;
+            List<KeyValuePair<int, (string body, double sma, double ecc)>> orbitUpdates = null;
 
             foreach (var kvp in lastMapOrbitByIndex)
             {
@@ -504,14 +504,16 @@ namespace Parsek
 
                 // Exact equality is intentional: stored segment values don't drift.
                 // A change means a different OrbitSegment, not floating-point accumulation.
+                // Includes eccentricity to catch inclination-change maneuvers at constant SMA.
                 if (seg.Value.bodyName == kvp.Value.body
-                    && seg.Value.semiMajorAxis == kvp.Value.sma)
+                    && seg.Value.semiMajorAxis == kvp.Value.sma
+                    && seg.Value.eccentricity == kvp.Value.ecc)
                     continue;
 
                 GhostMapPresence.UpdateGhostOrbitForRecording(idx, seg.Value);
-                if (orbitUpdates == null) orbitUpdates = new List<KeyValuePair<int, (string, double)>>();
-                orbitUpdates.Add(new KeyValuePair<int, (string, double)>(
-                    idx, (seg.Value.bodyName, seg.Value.semiMajorAxis)));
+                if (orbitUpdates == null) orbitUpdates = new List<KeyValuePair<int, (string, double, double)>>();
+                orbitUpdates.Add(new KeyValuePair<int, (string, double, double)>(
+                    idx, (seg.Value.bodyName, seg.Value.semiMajorAxis, seg.Value.eccentricity)));
             }
 
             if (orbitUpdates != null)
@@ -623,7 +625,7 @@ namespace Parsek
             heldGhosts.Clear();
             pendingMapVessels.Clear();
             lastMapOrbitByIndex.Clear();
-            ParsekLog.Info("Policy", "ParsekPlaybackPolicy disposed and unsubscribed from 5 engine events");
+            ParsekLog.Info("Policy", "ParsekPlaybackPolicy disposed and unsubscribed from 6 engine events");
         }
     }
 

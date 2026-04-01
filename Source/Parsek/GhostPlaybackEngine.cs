@@ -613,6 +613,15 @@ namespace Parsek
                 ParsekLog.VerboseRateLimited("Engine", $"enter-{index}",
                     $"Ghost ENTERED range: #{index} \"{traj.VesselName}\" at UT {ctx.currentUT:F1} (loop cycle={cycleIndex})");
 
+                // Defer OnGhostCreated for policy (ghost map ProtoVessel creation)
+                if (OnGhostCreated != null)
+                {
+                    deferredCreatedEvents.Add(new GhostLifecycleEvent
+                    {
+                        Index = index, Trajectory = traj, State = state, Flags = flags
+                    });
+                }
+
                 // Fire camera event for retarget to new ghost
                 OnLoopCameraAction?.Invoke(new CameraActionEvent
                 {
@@ -737,6 +746,15 @@ namespace Parsek
                 primaryState.loopCycleIndex = lastCycle;
                 ParsekLog.VerboseRateLimited("Engine", $"enter-{index}",
                     $"Ghost ENTERED range: #{index} \"{traj.VesselName}\" cycle={lastCycle} at UT {ctx.currentUT:F1} (overlap)");
+
+                // Defer OnGhostCreated for policy (ghost map ProtoVessel creation)
+                if (OnGhostCreated != null)
+                {
+                    deferredCreatedEvents.Add(new GhostLifecycleEvent
+                    {
+                        Index = index, Trajectory = traj, State = primaryState, Flags = flags
+                    });
+                }
 
                 // Fire camera event for retarget
                 OnOverlapCameraAction?.Invoke(new CameraActionEvent

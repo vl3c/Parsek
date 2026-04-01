@@ -560,7 +560,6 @@ namespace Parsek
             return vesselsByRecordingIndex.ContainsKey(recordingIndex);
         }
 
-
         /// <summary>
         /// Reset all state for testing (avoids Debug.Log crash outside Unity).
         /// </summary>

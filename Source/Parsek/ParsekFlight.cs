@@ -5852,15 +5852,18 @@ namespace Parsek
             OrbitSegment? seg = TrajectoryMath.FindOrbitSegment(segments, currentUT);
             if (!seg.HasValue) return;
 
-            // Detect change: body or SMA shifted (covers SOI transitions and orbit changes).
+            // Detect change: body, SMA, or eccentricity shifted (covers SOI transitions,
+            // orbit changes, and inclination maneuvers at constant altitude).
             // Exact equality is intentional: segment values are stored doubles that don't drift.
             // A change means a different OrbitSegment was found, not floating-point accumulation.
             if (seg.Value.bodyName == chain.LastMapOrbitBodyName
-                && seg.Value.semiMajorAxis == chain.LastMapOrbitSma)
+                && seg.Value.semiMajorAxis == chain.LastMapOrbitSma
+                && seg.Value.eccentricity == chain.LastMapOrbitEcc)
                 return;
 
             chain.LastMapOrbitBodyName = seg.Value.bodyName;
             chain.LastMapOrbitSma = seg.Value.semiMajorAxis;
+            chain.LastMapOrbitEcc = seg.Value.eccentricity;
 
             GhostMapPresence.UpdateGhostOrbit(chain.OriginalVesselPid, seg.Value);
         }
@@ -7030,6 +7033,7 @@ namespace Parsek
             GUI.Label(new Rect(x, y + 27, boxW, 18f), "Press [ or ] to return to vessel", watchOverlayHintStyle);
         }
 
+        /// <summary>
         /// <summary>
         /// Enter watch mode: point the camera at a ghost vessel.
         /// If already watching the same recording, toggles off (exits watch mode).
