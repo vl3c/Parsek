@@ -1191,6 +1191,27 @@ namespace Parsek
             ParsekLog.Info("Flight",
                 $"ShowPostDestructionTreeMergeDialog: stashed pending tree '{activeTree.TreeName}'");
 
+            // Auto-discard pad failures: if every recording in the tree is a pad failure
+            // (< 10s duration AND < 30m from launch), discard the whole tree.
+            if (IsTreePadFailure(activeTree))
+            {
+                ParsekLog.Info("Flight",
+                    $"ShowPostDestructionTreeMergeDialog: tree pad failure — auto-discarding");
+                ScreenMessage("Recording discarded — pad failure", 3f);
+                RecordingStore.DiscardPendingTree();
+                // Clean up flight state
+                recorder = null;
+                if (backgroundRecorder != null)
+                {
+                    backgroundRecorder.Shutdown();
+                    Patches.PhysicsFramePatch.BackgroundRecorderInstance = null;
+                    backgroundRecorder = null;
+                }
+                activeTree = null;
+                treeDestructionDialogPending = false;
+                yield break;
+            }
+
             // Clean up flight state
             recorder = null;
             if (backgroundRecorder != null)
@@ -6368,6 +6389,24 @@ namespace Parsek
         internal static bool IsPadFailure(double duration, double maxDistanceFromLaunch)
         {
             return duration < 10.0 && maxDistanceFromLaunch < 30.0;
+        }
+
+        /// <summary>
+        /// Returns true if every recording in the tree qualifies as a pad failure.
+        /// A tree with any non-pad-failure recording is not discarded.
+        /// </summary>
+        internal static bool IsTreePadFailure(RecordingTree tree)
+        {
+            if (tree == null || tree.Recordings == null || tree.Recordings.Count == 0)
+                return false;
+
+            foreach (var rec in tree.Recordings.Values)
+            {
+                double duration = rec.EndUT - rec.StartUT;
+                if (!IsPadFailure(duration, rec.MaxDistanceFromLaunch))
+                    return false;
+            }
+            return true;
         }
 
         /// <summary>

@@ -809,6 +809,46 @@ namespace Parsek.Tests
 
         #endregion
 
+        #region IsTreePadFailure
+
+        [Fact]
+        public void IsTreePadFailure_AllShort_ReturnsTrue()
+        {
+            var tree = new RecordingTree();
+            tree.Recordings["a"] = new Recording
+            {
+                Points = MakePoints(100, 105),
+                MaxDistanceFromLaunch = 10
+            };
+            Assert.True(ParsekFlight.IsTreePadFailure(tree));
+        }
+
+        [Fact]
+        public void IsTreePadFailure_OneLongRecording_ReturnsFalse()
+        {
+            var tree = new RecordingTree();
+            tree.Recordings["a"] = new Recording
+            {
+                Points = MakePoints(100, 105),
+                MaxDistanceFromLaunch = 10
+            };
+            tree.Recordings["b"] = new Recording
+            {
+                Points = MakePoints(100, 200),
+                MaxDistanceFromLaunch = 5000
+            };
+            Assert.False(ParsekFlight.IsTreePadFailure(tree));
+        }
+
+        [Fact]
+        public void IsTreePadFailure_EmptyTree_ReturnsFalse()
+        {
+            var tree = new RecordingTree();
+            Assert.False(ParsekFlight.IsTreePadFailure(tree));
+        }
+
+        #endregion
+
         #region ComputeAutoLoopRange
 
         private static List<TrackSection> MakeSections(params (SegmentEnvironment env, double start, double end)[] entries)
