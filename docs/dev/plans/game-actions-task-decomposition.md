@@ -546,17 +546,165 @@ Functionality:
 
 ---
 
+## Phase 7: Earning-Side Capture and Critical Gaps
+
+These tasks address the critical functional gaps found during gameplay simulation (design doc section 13.1). Without these, Career mode cannot function correctly.
+
+### Task 23: Vessel Build Cost and Recovery Funds Capture (D17, D18)
+
+**Overview:** Inject vessel build cost and recovery funds into the ledger at commit time. These are the two main fund flows not yet captured.
+
+**Modifies:** `LedgerOrchestrator.cs`, possibly `FlightRecorder.cs` or `ParsekFlight.cs`
+
+Functionality:
+- **Vessel build cost:** At commit time, compute vessel cost from `Recording.PreLaunchFunds` delta or from the vessel snapshot part costs. Create `FundsSpending` with `source=VesselBuild` and `recordingId` at the recording's launch UT. Add to ledger.
+- **Vessel recovery funds:** Subscribe to `GameEvents.OnVesselRecoveryProcessing` in `GameStateRecorder`. Capture the recovery value. At commit time, convert to `FundsEarning` with `source=Recovery` and `recordingId`. The recovery UT is the recording's end UT.
+- Alternative approach: compute both from `Recording.PreLaunchFunds/Science/Rep` and the final trajectory point's resource values — the delta IS the net funds change including build cost and recovery.
+
+**Tests:** Commit a recording → verify FundsSpending(VesselBuild) and FundsEarning(Recovery) appear in ledger.
+
+**Depends on:** Tasks 14, 16 (commit path wired).
+**Done when:** Career vessel launch deducts funds, recovery credits funds in the ledger walk.
+
+---
+
+### Task 24: Milestone Achievement Capture (D5 from design doc section 7.6)
+
+**Overview:** Subscribe to `GameEvents.OnProgressComplete` in `GameStateRecorder`, capture milestone data, convert to `MilestoneAchievement` actions at commit time.
+
+**Modifies:** `GameStateRecorder.cs`, `GameStateEventConverter.cs`
+
+Functionality:
+- Subscribe to `GameEvents.OnProgressComplete` — capture `milestoneId`, `fundsAwarded`, `repAwarded`
+- Store as a new `GameStateEventType` or as a `PendingMilestone` list (similar to `PendingScienceSubjects`)
+- Convert to `MilestoneAchievement` actions in `GameStateEventConverter`
+
+**Tests:** Achieve a milestone → verify MilestoneAchievement in ledger, effective=true, funds/rep flow to second-tier.
+
+**Depends on:** Task 13 (converter exists).
+**Done when:** Milestones enter the ledger and credit funds/rep correctly.
+
+---
+
+### Task 25: Science and Reputation Initial Seeding (D19 — CRITICAL)
+
+**Overview:** Prevent science and reputation from being wiped to 0 on mid-career Parsek install. Add `ScienceInitial` and `ReputationInitial` action types.
+
+**Modifies:** `GameAction.cs`, `Ledger.cs`, `LedgerOrchestrator.cs`, `ScienceModule.cs`, `ReputationModule.cs`
+
+Functionality:
+- Add `GameActionType.ScienceInitial` and `GameActionType.ReputationInitial` to the enum
+- Add `Ledger.SeedInitialScience(float)` and `Ledger.SeedInitialReputation(float)` — same pattern as `SeedInitialFunds`
+- In `LedgerOrchestrator.RecalculateAndPatch`, seed science from `ResearchAndDevelopment.Instance.Science` and reputation from `Reputation.Instance.reputation` on first run (same guard as funds)
+- `ScienceModule` processes `ScienceInitial` to set baseline science balance
+- `ReputationModule` processes `ReputationInitial` to set baseline rep
+
+**Tests:** Empty ledger with existing science/rep → seed actions created → recalculation preserves values.
+
+**Depends on:** Tasks 4, 9 (modules exist).
+**Done when:** Mid-career install preserves existing science and reputation.
+
+---
+
+### Task 26: Contract Science Rewards in ScienceModule (D20)
+
+**Overview:** `ScienceModule` doesn't process `ContractComplete` actions. Contract science rewards are lost.
+
+**Modifies:** `ScienceModule.cs`
+
+Functionality:
+- Add `GameActionType.ContractComplete` handling in `ScienceModule.ProcessAction`
+- When `action.Effective == true` and `action.TransformedScienceReward > 0`: add to `runningScience` and `totalEffectiveEarnings`
+- This is a direct science pool addition (not subject-capped — contract science is a flat reward)
+
+**Tests:** ContractComplete with scienceReward=10 → science balance increases by 10.
+
+**Depends on:** Task 4 (ScienceModule exists).
+**Done when:** Contract science rewards flow into the science balance.
+
+---
+
+### Task 27: Facility Destroyed State Patching (D21)
+
+**Overview:** `KspStatePatcher.PatchFacilities` only patches levels, not destroyed/repaired state.
+
+**Modifies:** `KspStatePatcher.cs`
+
+Functionality:
+- Read `FacilitiesModule.GetAllFacilities()` for each facility's `Destroyed` flag
+- If `Destroyed == true`, set the building visual to destroyed state via `DestructibleBuilding` API
+- If `Destroyed == false`, ensure building is intact
+- Requires finding `DestructibleBuilding` objects by facility ID
+
+**Tests:** Manual in-game test — crash into KSC, rewind to before crash, verify buildings show as intact.
+
+**Depends on:** Task 15 (patcher exists), Task 11 (FacilitiesModule tracks state).
+**Done when:** Building destroyed/intact visual state matches the ledger's derived state.
+
+---
+
+### Task 28: Per-Subject Science Patching
+
+**Overview:** `KspStatePatcher.PatchScience` only patches the total balance, not per-subject collected totals. Science Archive progress bars and KSP's diminishing returns formula are stale after rewind.
+
+**Modifies:** `KspStatePatcher.cs`, `ScienceModule.cs`
+
+Functionality:
+- `ScienceModule.GetAllSubjects()` already returns per-subject credited totals
+- For each subject in the module's state, find the corresponding `ScienceSubject` via `ResearchAndDevelopment.GetSubjectByID(subjectId)`
+- Set `subject.science = creditedTotal` and `subject.scientificValue` accordingly
+- This replaces or supplements the existing `ScienceSubjectPatch` Harmony patch
+
+**Tests:** Two recordings collecting same subject → rewind → verify Science Archive shows correct per-subject progress.
+
+**Depends on:** Task 15a (patcher exists), Task 4 (ScienceModule tracks subjects).
+**Done when:** Science Archive reflects the recalculated timeline.
+
+---
+
+### Task 29: KerbalsModule Integration into RecalculationEngine
+
+**Overview:** Make KerbalsModule implement `IResourceModule` and participate in the unified walk, processing `KerbalAssignment`/`KerbalRescue`/`KerbalStandIn` actions from the ledger.
+
+**Modifies:** `KerbalsModule.cs`, `LedgerOrchestrator.cs`, `GameStateEventConverter.cs`
+
+Functionality:
+- Generate `KerbalAssignment` actions at commit time from vessel snapshot crew data
+- Register KerbalsModule as first-tier in RecalculationEngine
+- Process kerbal actions in the walk (reservation, chains, retired pool)
+- Keep the existing snapshot-based `RecalculateAndApply()` as a fallback/bridge during migration
+- Eventually remove the separate `RecalculateAndApply()` calls from commit/rewind paths
+
+**This is the largest remaining architectural task.** The existing KerbalsModule works well for sandbox; this task unifies it with the ledger for full Career mode support.
+
+**Depends on:** All Phase 5 tasks complete.
+**Done when:** Kerbal reservation and chains are driven by ledger actions, not recording snapshots.
+
+---
+
+### Task 30: Old System Code Cleanup
+
+**Overview:** Remove all `// DISABLED: replaced by LedgerOrchestrator` commented-out code. Delete dead code paths in `ResourceApplicator`, `ActionReplay`, `ResourceBudget`. Keep `MilestoneStore` and `GameStateStore` (still used by the converter bridge).
+
+**Depends on:** All other tasks complete and verified in-game.
+**Done when:** No commented-out old system code remains. Build clean.
+
+---
+
 ## Summary
 
-| Phase | Tasks | Description |
-|-------|-------|-------------|
-| 0. Risk Reduction | Spikes A-D | Reputation curve, contract patching, kerbal roster, KSC events |
-| 1. Foundation | 1-3 | Data types, ledger I/O (with seeding), recalculation engine |
-| 2. Simple Modules | 4-7 | Science (earnings + spending), milestones, contracts (first-tier) |
-| 3. Second-Tier | 8-9 | Funds (depends on milestones, contracts, kerbals), reputation |
-| 4. Complex Modules | 10a/b-12 | Kerbals (reservation → XP/hire), facilities, strategies |
-| 5. Integration | 13-17 | Event capture, commit, patching (15a resources, 15b rest), warp, rewind |
-| 6. Polish | 18-22 | KSC spendings, UI, old system deprecation/migration, logging/tests, end-to-end |
+| Phase | Tasks | Description | Status |
+|-------|-------|-------------|--------|
+| 0. Risk Reduction | Spikes A-D | Reputation curve, contract patching, kerbal roster, KSC events | **Done** |
+| Kerbals A | 10a/b + 3 tasks | End states, reservation chains, ApplyToRoster, dismissal | **Done** |
+| 1. Foundation | 1-3 | Data types, ledger I/O (with seeding), recalculation engine | **Done** |
+| 2. Simple Modules | 4-7 | Science (earnings + spending), milestones, contracts (first-tier) | **Done** |
+| 3. Second-Tier | 8-9 | Funds (depends on milestones, contracts, kerbals), reputation | **Done** |
+| 4. Complex Modules | 11-12 | Facilities, strategies | **Done** |
+| 5. Integration | 13-17 | Converter, patcher, orchestrator, commit/rewind/warp wiring | **Done** |
+| 6. Polish | 18-22 | KSC spendings, UI, old system deprecation, logging, end-to-end test | **Partial** (UI done) |
+| 7. Critical Gaps | 23-28 | Vessel cost/recovery, milestones, science/rep seeding, contract sci, facility/science patching | Pending |
+| 8. Architecture | 29-30 | KerbalsModule into engine, old code cleanup | Pending |
 
 **Parallelization opportunities:**
 - Tasks 4, 6, 7 are independent first-tier modules — can run in parallel
