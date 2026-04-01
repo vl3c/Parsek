@@ -139,11 +139,14 @@ namespace Parsek.Tests
             var r1 = MakeRecording("R1", 50, 1000, 1060, childBpId: "bp-dock");
             var r1Leaf = MakeRecording("R1-leaf", 100, 1060, 1120,
                 terminal: TerminalState.Destroyed, parentBpId: "bp-dock");
+            // Non-terminated leaf so tree isn't fully-terminated (#174 skip)
+            var r1LeafB = MakeRecording("R1-leafB", 200, 1060, 1120,
+                terminal: TerminalState.Landed, parentBpId: "bp-dock");
 
             var dockBp = MakeBranchPoint("bp-dock", BranchPointType.Dock,
-                1060, 100, new[] { "R1" }, new[] { "R1-leaf" });
+                1060, 100, new[] { "R1" }, new[] { "R1-leaf", "R1-leafB" });
 
-            var tree = MakeTree("tree-1", new[] { r1, r1Leaf },
+            var tree = MakeTree("tree-1", new[] { r1, r1Leaf, r1LeafB },
                 new[] { dockBp });
 
             var chains = GhostChainWalker.ComputeAllGhostChains(
@@ -392,11 +395,14 @@ namespace Parsek.Tests
             var r1 = MakeRecording("R1", 50, 1000, 1060, childBpId: "bp-dock");
             var r1Leaf = MakeRecording("R1-leaf", 100, 1060, 1120,
                 terminal: TerminalState.Recovered, parentBpId: "bp-dock");
+            // Non-terminated leaf so tree isn't fully-terminated (#174 skip)
+            var r1LeafB = MakeRecording("R1-leafB", 200, 1060, 1120,
+                terminal: TerminalState.Orbiting, parentBpId: "bp-dock");
 
             var dockBp = MakeBranchPoint("bp-dock", BranchPointType.Dock,
-                1060, 100, new[] { "R1" }, new[] { "R1-leaf" });
+                1060, 100, new[] { "R1" }, new[] { "R1-leaf", "R1-leafB" });
 
-            var tree = MakeTree("tree-1", new[] { r1, r1Leaf },
+            var tree = MakeTree("tree-1", new[] { r1, r1Leaf, r1LeafB },
                 new[] { dockBp });
 
             var chains = GhostChainWalker.ComputeAllGhostChains(

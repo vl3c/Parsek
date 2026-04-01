@@ -36,6 +36,16 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Returns true if a ghost should be exempt from zone-based hiding during time warp.
+        /// Orbital ghosts travel far from the player during warp; hiding them at 120km causes
+        /// them to disappear and complete playback while invisible (#171).
+        /// </summary>
+        internal static bool ShouldExemptFromZoneHide(float currentWarpRate, bool hasOrbitalSegments)
+        {
+            return currentWarpRate > 4f && hasOrbitalSegments;
+        }
+
+        /// <summary>
         /// Returns true if a commit approval dialog should be shown instead of auto-committing (#88).
         /// Triggers when leaving Flight to KSC or Tracking Station with a landed/splashed vessel.
         /// </summary>
@@ -2387,9 +2397,11 @@ namespace Parsek
             Recording currentRec,
             IList<Recording> committed,
             IReadOnlyList<RecordingTree> trees,
-            Func<int, bool> isGhostActive)
+            Func<int, bool> isGhostActive,
+            int depth = 0)
         {
-            if (currentRec == null || committed == null) return -1;
+            const int MaxRecursionDepth = 10;
+            if (currentRec == null || committed == null || depth > MaxRecursionDepth) return -1;
 
             // Case 1: Chain continuation (same chainId, next chainIndex, branch 0)
             if (!string.IsNullOrEmpty(currentRec.ChainId) && currentRec.ChainIndex >= 0
@@ -2433,22 +2445,43 @@ namespace Parsek
                 if (bp != null)
                 {
                     int fallbackIdx = -1;
+                    bool pidMatchFound = false;
                     for (int c = 0; c < bp.ChildRecordingIds.Count; c++)
                     {
                         string childId = bp.ChildRecordingIds[c];
                         for (int j = 0; j < committed.Count; j++)
                         {
                             if (committed[j].RecordingId != childId) continue;
-                            if (!isGhostActive(j)) continue;
 
-                            // Prefer child with same vessel PID (same vessel continues)
-                            if (committed[j].VesselPersistentId == currentRec.VesselPersistentId)
-                                return j;
+                            bool isPidMatch = committed[j].VesselPersistentId == currentRec.VesselPersistentId;
 
-                            if (fallbackIdx < 0)
-                                fallbackIdx = j;
+                            if (isGhostActive(j))
+                            {
+                                // Prefer child with same vessel PID (same vessel continues)
+                                if (isPidMatch)
+                                    return j;
+
+                                if (fallbackIdx < 0)
+                                    fallbackIdx = j;
+                            }
+                            else if (isPidMatch)
+                            {
+                                // #158: PID-matched continuation has no ghost (boundary seed
+                                // with insufficient data). Recursively descend through its
+                                // children to find a deeper target with an active ghost.
+                                pidMatchFound = true;
+                                int deeper = FindNextWatchTarget(
+                                    committed[j], committed, trees, isGhostActive, depth + 1);
+                                if (deeper >= 0)
+                                    return deeper;
+                            }
                         }
                     }
+                    // #158: If we found the PID-matched continuation but it (and its
+                    // descendants) have no ghost, don't fall through to debris — there's
+                    // no good target. The watch hold timer will expire naturally.
+                    if (pidMatchFound)
+                        return -1;
                     if (fallbackIdx >= 0)
                         return fallbackIdx;
                 }

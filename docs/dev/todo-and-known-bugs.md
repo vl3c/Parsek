@@ -1854,20 +1854,17 @@ When a debris recording is set to "ghost-only" in the merge dialog, `ApplyVessel
 
 **Status:** Partially fixed
 
-## 158. Watch mode auto-follow picks debris instead of core vessel after separation
+## ~~158. Watch mode auto-follow picks debris instead of core vessel after separation~~
 
 When the recording vessel separates (e.g., SRB jettison), `FindNextWatchTarget` looks for a continuation recording at the branch point. If the continuation has only 1 trajectory point and 0 track sections (boundary seed with no real data), no ghost is spawned for it. The watch target finder falls through to the first debris child with an active ghost, causing the camera to follow a booster instead of the core vehicle.
 
-**Root cause:** The continuation recording created at breakup has insufficient trajectory data for ghost spawn. `FindNextWatchTarget` checks `HasActiveGhost` which returns false for the unspawned continuation, so it picks the first debris alternative.
+**Root cause:** `FindNextWatchTarget` requires `isGhostActive` for ALL candidates. PID-matched continuation with insufficient data (1 point → `hasData = false` → no ghost) is skipped, and the first active-ghost debris child is returned as fallback.
 
-**Fix options:**
-1. `FindNextWatchTarget` should look through the continuation's own children/successors when it has no active ghost (recursive descent)
-2. Ensure continuation recordings always have enough data to spawn (at least 2 points)
-3. Use vessel PID matching to prefer the continuation even without a ghost
+**Fix:** Modified `FindNextWatchTarget` Case 2 (tree branching): when a PID-matched child has no active ghost, recursively descends through its own `ChildBranchPointId` to find a deeper target. If PID match exists but neither it nor its descendants have an active ghost, returns -1 (suppresses debris fallback). The watch hold timer then expires naturally instead of following the wrong vessel. 4 unit tests.
 
-**Priority:** Medium — camera follows wrong vessel after staging
+**Files:** `GhostPlaybackLogic.cs` (`FindNextWatchTarget`)
 
-**Status:** Open
+**Status:** Fixed
 
 ## 161. EVA snapshot situation stale — spawn blocked by FLYING check
 
@@ -2058,6 +2055,50 @@ Additionally, the spawned vessel had a dead crew member (Minidou Kerman, killed 
 3. Added `ShouldBlockSpawnForDeadCrew` guard — if ALL crew in the snapshot are dead, the spawn is abandoned entirely (prevents spawning empty command pods).
 
 **Priority:** High — chain explosion destroys player's active rocket
+
+**Status:** Fixed
+
+## ~~171. Orbital ghost disappears during 50x time warp~~
+
+During 50x time warp, the zone rendering system hides ghost meshes beyond 120km (Visual→Beyond boundary). The ghost's entire remaining trajectory plays out while hidden. Playback completes while in the Beyond zone, so the ghost is destroyed without being re-shown.
+
+**Root cause:** Zone-based mesh hiding applied unconditionally. Orbital ghosts travel far from the player during warp, entering the Beyond zone (>120km) and being hidden. Playback continues and completes while the mesh is invisible.
+
+**Fix:** Added `GhostPlaybackLogic.ShouldExemptFromZoneHide(warpRate, hasOrbitalSegments)` — during time warp >4x, ghosts with orbital segments are exempt from zone-based hiding in `ApplyZoneRenderingImpl`. Surface-only ghosts still zone-hide normally. 8 unit tests.
+
+**Status:** Fixed
+
+## ~~172. Ghost destruction reason logged as "unknown"~~
+
+When held ghosts (warp-deferred spawn state) are released after successful vessel spawn, the `DestroyGhost` call lacks a reason string, producing `destroyed (unknown)` in the log.
+
+**Fix:** Changed `toRelease` from `List<int>` to `List<KeyValuePair<int, string>>` in `RetryHeldGhostSpawns` to track per-action destroy reasons. Each `HeldGhostAction` case now passes a specific reason: `"held-spawn-succeeded"`, `"held-already-spawned"`, `"held-spawn-timeout"`, or `"held-invalid-index"`.
+
+**Files:** `ParsekPlaybackPolicy.cs` (`RetryHeldGhostSpawns`)
+
+**Status:** Fixed
+
+## ~~173. Zero-point debris leaf recordings saved from same-frame destruction~~
+
+When a breakup creates debris fragments that are destroyed within the same physics frame, the resulting recordings have zero trajectory points. These create `.prec` sidecar files and tree nodes that serve no purpose.
+
+**Fix:** Added `PruneZeroPointLeaves` step in `FinalizeTreeRecordings` after individual recording finalization. Pure static helpers `IsZeroPointLeaf` and `CollectZeroPointLeafIds` identify leaf recordings with zero points, no orbit segments, and no surface position. Pruned recordings are removed from `tree.Recordings` and parent branch point `ChildRecordingIds`. Log summary reports count of pruned recordings. 8 unit tests.
+
+**Files:** `ParsekFlight.cs` (finalization path)
+
+**Status:** Fixed
+
+## ~~174. ChainWalker evaluates terminated chains every frame~~
+
+`GhostChainWalker.ComputeAllGhostChains` evaluates ~590 terminated chains per frame that can never produce a ghost (all vessels destroyed/recovered). While log output is rate-limited (suppressed counts logged every 5s), the computation still runs.
+
+**Fix:** Two-level filtering:
+1. Added `GhostChainWalker.IsTreeFullyTerminated(tree)` — skips scanning trees where every leaf recording has terminal state Destroyed or Recovered. Prevents chain link construction for fully-terminated trees.
+2. Added `chain.IsTerminated` filter in `EvaluateAndApplyGhostChains` — excludes terminated chains from `activeGhostChains`, preventing per-frame iteration in `PositionChainGhosts` and `DrawGhostLabels`.
+
+7 unit tests.
+
+**Files:** `GhostChainWalker.cs`, `ParsekFlight.cs`
 
 **Status:** Fixed
 
