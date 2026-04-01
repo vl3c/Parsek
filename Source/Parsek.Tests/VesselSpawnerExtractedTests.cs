@@ -124,5 +124,79 @@ namespace Parsek.Tests
         }
 
         #endregion
+
+        #region ComputeCorrectedSituation
+
+        [Fact]
+        public void ComputeCorrectedSituation_FlyingToLanded()
+        {
+            string result = VesselSpawner.ComputeCorrectedSituation("FLYING", TerminalState.Landed);
+            Assert.Equal("LANDED", result);
+        }
+
+        [Fact]
+        public void ComputeCorrectedSituation_FlyingToSplashed()
+        {
+            string result = VesselSpawner.ComputeCorrectedSituation("FLYING", TerminalState.Splashed);
+            Assert.Equal("SPLASHED", result);
+        }
+
+        [Fact]
+        public void ComputeCorrectedSituation_FlyingToOrbiting()
+        {
+            string result = VesselSpawner.ComputeCorrectedSituation("FLYING", TerminalState.Orbiting);
+            Assert.Equal("ORBITING", result);
+        }
+
+        [Fact]
+        public void ComputeCorrectedSituation_SubOrbitalToOrbiting()
+        {
+            string result = VesselSpawner.ComputeCorrectedSituation("SUB_ORBITAL", TerminalState.Orbiting);
+            Assert.Equal("ORBITING", result);
+        }
+
+        [Fact]
+        public void ComputeCorrectedSituation_SubOrbitalToLanded()
+        {
+            string result = VesselSpawner.ComputeCorrectedSituation("SUB_ORBITAL", TerminalState.Landed);
+            Assert.Equal("LANDED", result);
+        }
+
+        [Fact]
+        public void ComputeCorrectedSituation_NoCorrection_SafeSituation()
+        {
+            Assert.Null(VesselSpawner.ComputeCorrectedSituation("LANDED", TerminalState.Landed));
+            Assert.Null(VesselSpawner.ComputeCorrectedSituation("ORBITING", TerminalState.Orbiting));
+            Assert.Null(VesselSpawner.ComputeCorrectedSituation("SPLASHED", TerminalState.Splashed));
+            Assert.Null(VesselSpawner.ComputeCorrectedSituation("PRELAUNCH", TerminalState.Landed));
+        }
+
+        [Fact]
+        public void ComputeCorrectedSituation_NoCorrection_DestroyedTerminal()
+        {
+            Assert.Null(VesselSpawner.ComputeCorrectedSituation("FLYING", TerminalState.Destroyed));
+        }
+
+        [Fact]
+        public void ComputeCorrectedSituation_NoCorrection_NullTerminal()
+        {
+            Assert.Null(VesselSpawner.ComputeCorrectedSituation("FLYING", null));
+        }
+
+        [Fact]
+        public void ComputeCorrectedSituation_NoCorrection_NullOrEmptySit()
+        {
+            Assert.Null(VesselSpawner.ComputeCorrectedSituation(null, TerminalState.Orbiting));
+            Assert.Null(VesselSpawner.ComputeCorrectedSituation("", TerminalState.Orbiting));
+        }
+
+        [Fact]
+        public void ComputeCorrectedSituation_CaseInsensitive()
+        {
+            Assert.Equal("ORBITING", VesselSpawner.ComputeCorrectedSituation("flying", TerminalState.Orbiting));
+            Assert.Equal("LANDED", VesselSpawner.ComputeCorrectedSituation("sub_orbital", TerminalState.Landed));
+        }
+
+        #endregion
     }
 }

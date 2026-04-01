@@ -34,6 +34,8 @@ namespace Parsek
         public bool LoopPlayback;
         public double LoopIntervalSeconds = 10.0;
         public LoopTimeUnit LoopTimeUnit = LoopTimeUnit.Sec;
+        public double LoopStartUT = double.NaN;  // NaN = use StartUT (loop entire recording)
+        public double LoopEndUT = double.NaN;    // NaN = use EndUT (loop entire recording)
         public uint LoopAnchorVesselId;  // Anchor vessel for relative loop playback (0 = no anchor, use absolute positioning)
         public string LoopAnchorBodyName;  // Body the anchor was on when loop was configured (null = not set)
 
@@ -152,6 +154,18 @@ namespace Parsek
         public double EndUT => Points.Count > 0 ? Points[Points.Count - 1].ut :
                                !double.IsNaN(ExplicitEndUT) ? ExplicitEndUT : 0.0;
 
+        /// <summary>True if this recording belongs to a RecordingTree.</summary>
+        internal bool IsTreeRecording => TreeId != null;
+
+        /// <summary>True if this recording belongs to a chain (has ChainId and valid ChainIndex).</summary>
+        internal bool IsChainRecording => !string.IsNullOrEmpty(ChainId);
+
+        /// <summary>
+        /// True if this recording's resources are tracked individually (per-recording deltas).
+        /// False for tree recordings, whose resources are tracked at tree level.
+        /// </summary>
+        internal bool ManagesOwnResources => !IsTreeRecording;
+
         /// <summary>
         /// Copies persistence/capture artifacts from a stop-time captured recording.
         /// Intentionally does NOT copy Points/OrbitSegments/VesselName, which are
@@ -181,6 +195,8 @@ namespace Parsek
             LoopPlayback = source.LoopPlayback;
             LoopIntervalSeconds = source.LoopIntervalSeconds;
             LoopTimeUnit = source.LoopTimeUnit;
+            LoopStartUT = source.LoopStartUT;
+            LoopEndUT = source.LoopEndUT;
             LoopAnchorVesselId = source.LoopAnchorVesselId;
             LoopAnchorBodyName = source.LoopAnchorBodyName;
             PreLaunchFunds = source.PreLaunchFunds;
@@ -288,10 +304,20 @@ namespace Parsek
         double IPlaybackTrajectory.LoopIntervalSeconds => LoopIntervalSeconds;
         LoopTimeUnit IPlaybackTrajectory.LoopTimeUnit => LoopTimeUnit;
         uint IPlaybackTrajectory.LoopAnchorVesselId => LoopAnchorVesselId;
+        double IPlaybackTrajectory.LoopStartUT => LoopStartUT;
+        double IPlaybackTrajectory.LoopEndUT => LoopEndUT;
         TerminalState? IPlaybackTrajectory.TerminalStateValue => TerminalStateValue;
         SurfacePosition? IPlaybackTrajectory.SurfacePos => SurfacePos;
         bool IPlaybackTrajectory.PlaybackEnabled => PlaybackEnabled;
         bool IPlaybackTrajectory.IsDebris => IsDebris;
+        string IPlaybackTrajectory.TerminalOrbitBody => TerminalOrbitBody;
+        double IPlaybackTrajectory.TerminalOrbitSemiMajorAxis => TerminalOrbitSemiMajorAxis;
+        double IPlaybackTrajectory.TerminalOrbitEccentricity => TerminalOrbitEccentricity;
+        double IPlaybackTrajectory.TerminalOrbitInclination => TerminalOrbitInclination;
+        double IPlaybackTrajectory.TerminalOrbitLAN => TerminalOrbitLAN;
+        double IPlaybackTrajectory.TerminalOrbitArgumentOfPeriapsis => TerminalOrbitArgumentOfPeriapsis;
+        double IPlaybackTrajectory.TerminalOrbitMeanAnomalyAtEpoch => TerminalOrbitMeanAnomalyAtEpoch;
+        double IPlaybackTrajectory.TerminalOrbitEpoch => TerminalOrbitEpoch;
 
         #endregion
     }

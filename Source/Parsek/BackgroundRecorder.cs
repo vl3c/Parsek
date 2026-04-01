@@ -320,7 +320,9 @@ namespace Parsek
                     for (int i = 0; i < FlightGlobals.Vessels.Count; i++)
                     {
                         Vessel v = FlightGlobals.Vessels[i];
-                        if (v != null) snapshot.Add(v.persistentId);
+                        if (v == null) continue;
+                        if (GhostMapPresence.IsGhostMapVessel(v.persistentId)) continue;
+                        snapshot.Add(v.persistentId);
                     }
                 }
                 preBreakVesselPidSnapshots[vesselPid] = snapshot;
@@ -393,6 +395,7 @@ namespace Parsek
                 {
                     Vessel v = FlightGlobals.Vessels[i];
                     if (v == null) continue;
+                    if (GhostMapPresence.IsGhostMapVessel(v.persistentId)) continue;
                     if (v.persistentId == parentPid) continue;
 
                     // Only consider vessels that didn't exist before the break

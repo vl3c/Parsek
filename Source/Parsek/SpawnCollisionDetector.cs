@@ -381,6 +381,7 @@ namespace Parsek
             {
                 Vessel other = FlightGlobals.Vessels[i];
                 if (!other.loaded) continue;
+                if (GhostMapPresence.IsGhostMapVessel(other.persistentId)) continue;
 
                 // Skip player's own vessel — shouldn't block spawns
                 if (other == FlightGlobals.ActiveVessel) continue;
@@ -448,6 +449,7 @@ namespace Parsek
             {
                 Vessel other = FlightGlobals.Vessels[i];
                 if (!other.loaded) continue;
+                if (GhostMapPresence.IsGhostMapVessel(other.persistentId)) continue;
                 if (other == activeVessel) continue;
 
                 // Skip non-significant vessel types (same filter as overlap check)

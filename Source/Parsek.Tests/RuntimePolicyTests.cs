@@ -659,5 +659,362 @@ namespace Parsek.Tests
             Assert.Equal(0, first);
             Assert.Equal(0, last);
         }
+
+        #region Phase 1A: Recording query properties
+
+        [Fact]
+        public void IsTreeRecording_WithTreeId_ReturnsTrue()
+        {
+            var rec = new Recording { TreeId = "tree-123" };
+            Assert.True(rec.IsTreeRecording);
+        }
+
+        [Fact]
+        public void IsTreeRecording_WithNullTreeId_ReturnsFalse()
+        {
+            var rec = new Recording { TreeId = null };
+            Assert.False(rec.IsTreeRecording);
+        }
+
+        [Fact]
+        public void IsChainRecording_WithChainId_ReturnsTrue()
+        {
+            var rec = new Recording { ChainId = "chain-abc" };
+            Assert.True(rec.IsChainRecording);
+        }
+
+        [Theory]
+        [InlineData(null)]
+        [InlineData("")]
+        public void IsChainRecording_WithNullOrEmptyChainId_ReturnsFalse(string chainId)
+        {
+            var rec = new Recording { ChainId = chainId };
+            Assert.False(rec.IsChainRecording);
+        }
+
+        [Fact]
+        public void ManagesOwnResources_Standalone_ReturnsTrue()
+        {
+            var rec = new Recording { TreeId = null };
+            Assert.True(rec.ManagesOwnResources);
+        }
+
+        [Fact]
+        public void ManagesOwnResources_TreeRecording_ReturnsFalse()
+        {
+            var rec = new Recording { TreeId = "tree-456" };
+            Assert.False(rec.ManagesOwnResources);
+        }
+
+        #endregion
+
+        #region Phase 1B: ShouldSuppressBoundarySplit
+
+        [Fact]
+        public void ShouldSuppressBoundarySplit_WithActiveTree_ReturnsTrue()
+        {
+            var tree = new RecordingTree();
+            Assert.True(ParsekFlight.ShouldSuppressBoundarySplit(tree));
+        }
+
+        [Fact]
+        public void ShouldSuppressBoundarySplit_WithNullTree_ReturnsFalse()
+        {
+            Assert.False(ParsekFlight.ShouldSuppressBoundarySplit(null));
+        }
+
+        #endregion
+
+        #region Phase 1C: ClassifyVesselDestruction
+
+        [Fact]
+        public void ClassifyVesselDestruction_TreeDeferred()
+        {
+            var mode = ParsekFlight.ClassifyVesselDestruction(
+                hasActiveTree: true,
+                isRecording: true,
+                vesselDestroyedDuringRecording: true,
+                isActiveVessel: true,
+                shouldDeferForTree: true,
+                treeDestructionDialogPending: false);
+            Assert.Equal(ParsekFlight.DestructionMode.TreeDeferred, mode);
+        }
+
+        [Fact]
+        public void ClassifyVesselDestruction_StandaloneMerge()
+        {
+            var mode = ParsekFlight.ClassifyVesselDestruction(
+                hasActiveTree: false,
+                isRecording: true,
+                vesselDestroyedDuringRecording: true,
+                isActiveVessel: true,
+                shouldDeferForTree: false,
+                treeDestructionDialogPending: false);
+            Assert.Equal(ParsekFlight.DestructionMode.StandaloneMerge, mode);
+        }
+
+        [Fact]
+        public void ClassifyVesselDestruction_TreeAllLeavesCheck()
+        {
+            var mode = ParsekFlight.ClassifyVesselDestruction(
+                hasActiveTree: true,
+                isRecording: false,
+                vesselDestroyedDuringRecording: true,
+                isActiveVessel: true,
+                shouldDeferForTree: false,
+                treeDestructionDialogPending: false);
+            Assert.Equal(ParsekFlight.DestructionMode.TreeAllLeavesCheck, mode);
+        }
+
+        [Fact]
+        public void ClassifyVesselDestruction_None_WhenNotActiveVessel()
+        {
+            var mode = ParsekFlight.ClassifyVesselDestruction(
+                hasActiveTree: false,
+                isRecording: true,
+                vesselDestroyedDuringRecording: true,
+                isActiveVessel: false,
+                shouldDeferForTree: false,
+                treeDestructionDialogPending: false);
+            Assert.Equal(ParsekFlight.DestructionMode.None, mode);
+        }
+
+        [Fact]
+        public void ClassifyVesselDestruction_None_WhenTreeDestructionDialogPending()
+        {
+            var mode = ParsekFlight.ClassifyVesselDestruction(
+                hasActiveTree: true,
+                isRecording: true,
+                vesselDestroyedDuringRecording: true,
+                isActiveVessel: true,
+                shouldDeferForTree: false,
+                treeDestructionDialogPending: true);
+            Assert.Equal(ParsekFlight.DestructionMode.None, mode);
+        }
+
+        [Fact]
+        public void ClassifyVesselDestruction_TreeDeferred_TakesPriorityOverAllLeavesCheck()
+        {
+            // When both TreeDeferred and TreeAllLeavesCheck conditions are met,
+            // TreeDeferred wins (checked first in branching order)
+            var mode = ParsekFlight.ClassifyVesselDestruction(
+                hasActiveTree: true,
+                isRecording: true,
+                vesselDestroyedDuringRecording: true,
+                isActiveVessel: true,
+                shouldDeferForTree: true,
+                treeDestructionDialogPending: false);
+            Assert.Equal(ParsekFlight.DestructionMode.TreeDeferred, mode);
+        }
+
+        #endregion
+
+        #region IsTreePadFailure
+
+        [Fact]
+        public void IsTreePadFailure_AllShort_ReturnsTrue()
+        {
+            var tree = new RecordingTree();
+            tree.Recordings["a"] = new Recording
+            {
+                Points = MakePoints(100, 105),
+                MaxDistanceFromLaunch = 10
+            };
+            Assert.True(ParsekFlight.IsTreePadFailure(tree));
+        }
+
+        [Fact]
+        public void IsTreePadFailure_OneLongRecording_ReturnsFalse()
+        {
+            var tree = new RecordingTree();
+            tree.Recordings["a"] = new Recording
+            {
+                Points = MakePoints(100, 105),
+                MaxDistanceFromLaunch = 10
+            };
+            tree.Recordings["b"] = new Recording
+            {
+                Points = MakePoints(100, 200),
+                MaxDistanceFromLaunch = 5000
+            };
+            Assert.False(ParsekFlight.IsTreePadFailure(tree));
+        }
+
+        [Fact]
+        public void IsTreePadFailure_EmptyTree_ReturnsFalse()
+        {
+            var tree = new RecordingTree();
+            Assert.False(ParsekFlight.IsTreePadFailure(tree));
+        }
+
+        #endregion
+
+        #region ComputeAutoLoopRange
+
+        private static List<TrackSection> MakeSections(params (SegmentEnvironment env, double start, double end)[] entries)
+        {
+            var sections = new List<TrackSection>();
+            for (int i = 0; i < entries.Length; i++)
+            {
+                sections.Add(new TrackSection
+                {
+                    environment = entries[i].env,
+                    startUT = entries[i].start,
+                    endUT = entries[i].end,
+                });
+            }
+            return sections;
+        }
+
+        [Fact]
+        public void ComputeAutoLoopRange_NullSections_ReturnsNaN()
+        {
+            var (start, end) = GhostPlaybackLogic.ComputeAutoLoopRange(null);
+            Assert.True(double.IsNaN(start));
+            Assert.True(double.IsNaN(end));
+        }
+
+        [Fact]
+        public void ComputeAutoLoopRange_SingleSection_ReturnsNaN()
+        {
+            var sections = MakeSections((SegmentEnvironment.Atmospheric, 100, 200));
+            var (start, end) = GhostPlaybackLogic.ComputeAutoLoopRange(sections);
+            Assert.True(double.IsNaN(start));
+            Assert.True(double.IsNaN(end));
+        }
+
+        [Fact]
+        public void ComputeAutoLoopRange_AllInteresting_ReturnsNaN()
+        {
+            // Atmospheric + ExoPropulsive — both interesting, nothing to trim
+            var sections = MakeSections(
+                (SegmentEnvironment.Atmospheric, 100, 150),
+                (SegmentEnvironment.ExoPropulsive, 150, 200));
+            var (start, end) = GhostPlaybackLogic.ComputeAutoLoopRange(sections);
+            Assert.True(double.IsNaN(start));
+            Assert.True(double.IsNaN(end));
+        }
+
+        [Fact]
+        public void ComputeAutoLoopRange_AllBoring_ReturnsNaN()
+        {
+            var sections = MakeSections(
+                (SegmentEnvironment.ExoBallistic, 100, 200),
+                (SegmentEnvironment.SurfaceStationary, 200, 300));
+            var (start, end) = GhostPlaybackLogic.ComputeAutoLoopRange(sections);
+            Assert.True(double.IsNaN(start));
+            Assert.True(double.IsNaN(end));
+        }
+
+        [Fact]
+        public void ComputeAutoLoopRange_TrimsTrailingCoast()
+        {
+            // Launch: Atmospheric + ExoPropulsive + ExoBallistic
+            var sections = MakeSections(
+                (SegmentEnvironment.Atmospheric, 100, 150),
+                (SegmentEnvironment.ExoPropulsive, 150, 180),
+                (SegmentEnvironment.ExoBallistic, 180, 500));
+            var (start, end) = GhostPlaybackLogic.ComputeAutoLoopRange(sections);
+            Assert.Equal(100, start);
+            Assert.Equal(180, end);
+        }
+
+        [Fact]
+        public void ComputeAutoLoopRange_TrimsLeadingCoast()
+        {
+            // Landing: ExoBallistic + ExoPropulsive + SurfaceMobile
+            var sections = MakeSections(
+                (SegmentEnvironment.ExoBallistic, 100, 300),
+                (SegmentEnvironment.ExoPropulsive, 300, 350),
+                (SegmentEnvironment.SurfaceMobile, 350, 370));
+            var (start, end) = GhostPlaybackLogic.ComputeAutoLoopRange(sections);
+            Assert.Equal(300, start);
+            Assert.Equal(370, end);
+        }
+
+        [Fact]
+        public void ComputeAutoLoopRange_TrimsBothEnds()
+        {
+            // Coast → descent → landing → stationary
+            var sections = MakeSections(
+                (SegmentEnvironment.ExoBallistic, 100, 300),
+                (SegmentEnvironment.ExoPropulsive, 300, 350),
+                (SegmentEnvironment.SurfaceMobile, 350, 370),
+                (SegmentEnvironment.SurfaceStationary, 370, 1000));
+            var (start, end) = GhostPlaybackLogic.ComputeAutoLoopRange(sections);
+            Assert.Equal(300, start);
+            Assert.Equal(370, end);
+        }
+
+        [Fact]
+        public void ComputeAutoLoopRange_KeepsBoringMiddle()
+        {
+            // Launch → coast → reentry: trims nothing (first and last are interesting)
+            var sections = MakeSections(
+                (SegmentEnvironment.Atmospheric, 100, 150),
+                (SegmentEnvironment.ExoBallistic, 150, 400),
+                (SegmentEnvironment.Atmospheric, 400, 450));
+            var (start, end) = GhostPlaybackLogic.ComputeAutoLoopRange(sections);
+            Assert.True(double.IsNaN(start)); // nothing to trim — bookends are interesting
+            Assert.True(double.IsNaN(end));
+        }
+
+        [Fact]
+        public void IsBoringEnvironment_ClassifiesCorrectly()
+        {
+            Assert.False(GhostPlaybackLogic.IsBoringEnvironment(SegmentEnvironment.Atmospheric));
+            Assert.False(GhostPlaybackLogic.IsBoringEnvironment(SegmentEnvironment.ExoPropulsive));
+            Assert.True(GhostPlaybackLogic.IsBoringEnvironment(SegmentEnvironment.ExoBallistic));
+            Assert.False(GhostPlaybackLogic.IsBoringEnvironment(SegmentEnvironment.SurfaceMobile));
+            Assert.True(GhostPlaybackLogic.IsBoringEnvironment(SegmentEnvironment.SurfaceStationary));
+        }
+
+        #endregion
+
+        #region ApplyAutoLoopRange
+
+        [Fact]
+        public void ApplyAutoLoopRange_ToggleOn_SetsRange()
+        {
+            var rec = new Recording
+            {
+                TrackSections = MakeSections(
+                    (SegmentEnvironment.Atmospheric, 100, 150),
+                    (SegmentEnvironment.ExoPropulsive, 150, 180),
+                    (SegmentEnvironment.ExoBallistic, 180, 500))
+            };
+            ParsekUI.ApplyAutoLoopRange(rec, true);
+            Assert.Equal(100, rec.LoopStartUT);
+            Assert.Equal(180, rec.LoopEndUT);
+        }
+
+        [Fact]
+        public void ApplyAutoLoopRange_ToggleOff_ClearsRange()
+        {
+            var rec = new Recording
+            {
+                LoopStartUT = 100,
+                LoopEndUT = 200,
+            };
+            ParsekUI.ApplyAutoLoopRange(rec, false);
+            Assert.True(double.IsNaN(rec.LoopStartUT));
+            Assert.True(double.IsNaN(rec.LoopEndUT));
+        }
+
+        [Fact]
+        public void ApplyAutoLoopRange_NoTrimmableSections_LeavesNaN()
+        {
+            var rec = new Recording
+            {
+                TrackSections = MakeSections(
+                    (SegmentEnvironment.Atmospheric, 100, 200),
+                    (SegmentEnvironment.ExoPropulsive, 200, 300))
+            };
+            ParsekUI.ApplyAutoLoopRange(rec, true);
+            Assert.True(double.IsNaN(rec.LoopStartUT));
+            Assert.True(double.IsNaN(rec.LoopEndUT));
+        }
+
+        #endregion
     }
 }

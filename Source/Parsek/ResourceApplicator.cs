@@ -21,7 +21,7 @@ namespace Parsek
             {
                 var rec = recordings[i];
 
-                if (rec.TreeId != null) continue;
+                if (!rec.ManagesOwnResources) continue;
                 if (rec.LoopPlayback) continue;
                 if (rec.Points.Count < 2) continue;
 

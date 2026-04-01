@@ -34,6 +34,8 @@ namespace Parsek
         double LoopIntervalSeconds { get; }
         LoopTimeUnit LoopTimeUnit { get; }
         uint LoopAnchorVesselId { get; }
+        double LoopStartUT { get; }
+        double LoopEndUT { get; }
 
         // === Terminal state (for explosion FX) ===
         TerminalState? TerminalStateValue { get; }
@@ -44,5 +46,15 @@ namespace Parsek
         // === Rendering hints ===
         bool PlaybackEnabled { get; }
         bool IsDebris { get; }
+
+        // === Terminal orbit (for ghost map presence) ===
+        string TerminalOrbitBody { get; }
+        double TerminalOrbitSemiMajorAxis { get; }
+        double TerminalOrbitEccentricity { get; }
+        double TerminalOrbitInclination { get; }
+        double TerminalOrbitLAN { get; }
+        double TerminalOrbitArgumentOfPeriapsis { get; }
+        double TerminalOrbitMeanAnomalyAtEpoch { get; }
+        double TerminalOrbitEpoch { get; }
     }
 }

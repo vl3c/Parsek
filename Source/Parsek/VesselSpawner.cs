@@ -107,7 +107,8 @@ namespace Parsek
         public static uint SpawnAtPosition(ConfigNode vesselNode, CelestialBody body,
             double lat, double lon, double alt,
             Vector3d velocity, double ut,
-            HashSet<string> excludeCrew = null, bool preserveIdentity = false)
+            HashSet<string> excludeCrew = null, bool preserveIdentity = false,
+            TerminalState? terminalState = null)
         {
             try
             {
@@ -122,6 +123,22 @@ namespace Parsek
                 double orbitalSpeed = Math.Sqrt(body.gravParameter / (body.Radius + alt));
                 bool overWater = body.ocean && body.TerrainAltitude(lat, lon) < 0;
                 string sit = DetermineSituation(alt, overWater, velocity.magnitude, orbitalSpeed);
+
+                // Override: if terminal state says Orbiting but speed check returned FLYING,
+                // force ORBITING. The last trajectory point may be captured during ascent
+                // (suborbital velocity at that altitude) even though the vessel reached orbit.
+                // Without this, KSP's on-rails pressure check destroys the vessel (#176).
+                if (sit == "FLYING" && terminalState.HasValue
+                    && (terminalState.Value == TerminalState.Orbiting
+                        || terminalState.Value == TerminalState.Docked))
+                {
+                    ParsekLog.Info("Spawner",
+                        $"SpawnAtPosition: overriding sit FLYING → ORBITING " +
+                        $"(terminal={terminalState.Value}, speed={velocity.magnitude:F1}, " +
+                        $"orbitalSpeed={orbitalSpeed:F1}) — prevents on-rails pressure destruction (#176)");
+                    sit = "ORBITING";
+                }
+
                 ApplySituationToNode(spawnNode, sit);
                 ParsekLog.Verbose("Spawner",
                     $"SpawnAtPosition: determined sit={sit} (alt={alt:F0}, speed={velocity.magnitude:F1}, " +
@@ -191,6 +208,11 @@ namespace Parsek
                 return;
             }
 
+            // Correct unsafe snapshot situation before spawning (#169).
+            // Vessels captured mid-flight have sit=FLYING but terminal state may be Landed/Orbiting.
+            // Without correction, KSP's on-rails pressure check destroys the vessel immediately.
+            CorrectUnsafeSnapshotSituation(rec.VesselSnapshot, rec.TerminalStateValue);
+
             // Crew protection: strip crew from spawn snapshot when recording ended in
             // destruction to prevent killing crew during spawn-death cycles (#114).
             // Modifies the snapshot in-place — acceptable for Destroyed recordings
@@ -205,11 +227,6 @@ namespace Parsek
                         $"#{index} ({rec.VesselName}) — prevents crew death on spawn");
                 }
             }
-
-            // Correct unsafe snapshot situation before spawning (#169).
-            // EVA vessels captured mid-flight have sit=FLYING but terminal state may be Landed.
-            // Without correction, KSP's on-rails pressure check destroys the vessel immediately.
-            CorrectUnsafeSnapshotSituation(rec.VesselSnapshot, rec.TerminalStateValue);
 
             // Build exclude set once for all spawn paths (EVA'd crew spawn via child recordings)
             HashSet<string> excludeCrew = BuildExcludeCrewSet(rec);
@@ -308,6 +325,18 @@ namespace Parsek
             // Reset collision block counter on successful spawn path
             rec.CollisionBlockCount = 0;
 
+            // EVA spawn position fix: update the snapshot's lat/lon/alt to the recording
+            // endpoint. The snapshot was captured at EVA start (kerbal on the pod's ladder),
+            // but the kerbal walked to a different location during the recording. Without
+            // this override, the kerbal spawns on top of the parent vessel and grabs its
+            // ladder, triggering KSP's "Kerbals on a ladder — cannot save" error.
+            if (isEva && rec.VesselSnapshot != null)
+            {
+                OverrideSnapshotPosition(rec.VesselSnapshot, spawnLat, spawnLon, spawnAlt,
+                    index, rec.VesselName);
+                StripEvaLadderState(rec.VesselSnapshot, index, rec.VesselName);
+            }
+
             // Dead crew guard: if ALL crew in the snapshot are dead, abandon spawn.
             // Spawning a crewless command pod is worse than not spawning at all. (#170)
             // Individual dead crew are already removed by RespawnVessel.RemoveDeadCrewFromSnapshot;
@@ -332,6 +361,31 @@ namespace Parsek
 
             LogSpawnContext(rec, closestDist);
 
+            // Orbital vessels: use SpawnAtPosition to build a correct orbit from the last
+            // trajectory point's position+velocity. RespawnVessel uses the raw snapshot orbit
+            // which was captured during ascent (suborbital) — KSP's on-rails pressure check
+            // destroys the vessel at periapsis. SpawnAtPosition constructs a new orbit and
+            // sets the correct situation from altitude+speed. (#171)
+            if (rec.TerminalStateValue == TerminalState.Orbiting
+                || rec.TerminalStateValue == TerminalState.Docked)
+            {
+                Vector3d velocity = new Vector3d(lastPt.velocity.x, lastPt.velocity.y, lastPt.velocity.z);
+                double spawnUT = Planetarium.GetUniversalTime();
+                rec.SpawnedVesselPersistentId = SpawnAtPosition(
+                    rec.VesselSnapshot, body, spawnLat, spawnLon, spawnAlt, velocity, spawnUT, excludeCrew,
+                    terminalState: rec.TerminalStateValue);
+                rec.VesselSpawned = rec.SpawnedVesselPersistentId != 0;
+                if (rec.VesselSpawned)
+                {
+                    ParsekLog.Info("Spawner",
+                        $"Orbital vessel spawn for recording #{index} ({rec.VesselName}) via SpawnAtPosition");
+                    ParsekLog.ScreenMessage($"Vessel '{rec.VesselName}' has appeared!", 4f);
+                }
+                else
+                    LogSpawnFailure(rec, index, maxSpawnAttempts);
+                return;
+            }
+
             rec.SpawnedVesselPersistentId = RespawnVessel(rec.VesselSnapshot, excludeCrew);
             rec.VesselSpawned = rec.SpawnedVesselPersistentId != 0;
             if (rec.VesselSpawned)
@@ -346,13 +400,29 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Resolve spawn position from vessel snapshot lat/lon/alt, falling back to
-        /// trajectory endpoint if snapshot lacks position data (#127).
+        /// Resolve spawn position. EVA vessels always use the trajectory endpoint
+        /// (the snapshot position is from EVA start, not where the kerbal walked to — #175).
+        /// Non-EVA vessels use the snapshot lat/lon/alt, falling back to the trajectory
+        /// endpoint if snapshot lacks position data (#127).
         /// </summary>
-        private static void ResolveSpawnPosition(Recording rec, int index,
+        internal static void ResolveSpawnPosition(Recording rec, int index,
             TrajectoryPoint lastPt, out double lat, out double lon, out double alt)
         {
             lat = 0; lon = 0; alt = 0;
+
+            // EVA vessels: always use trajectory endpoint (#175). The snapshot position is
+            // from EVA start (kerbal on the pod's ladder), not where they ended up.
+            bool isEva = !string.IsNullOrEmpty(rec.EvaCrewName);
+            if (isEva)
+            {
+                lat = lastPt.latitude;
+                lon = lastPt.longitude;
+                alt = lastPt.altitude;
+                ParsekLog.Verbose("Spawner",
+                    $"EVA spawn #{index} ({rec.VesselName}): using trajectory endpoint for position");
+                return;
+            }
+
             bool hasSnapshotPos = TryGetSnapshotDouble(rec.VesselSnapshot, "lat", out lat)
                                && TryGetSnapshotDouble(rec.VesselSnapshot, "lon", out lon)
                                && TryGetSnapshotDouble(rec.VesselSnapshot, "alt", out alt);
@@ -376,6 +446,7 @@ namespace Parsek
             for (int v = 0; v < FlightGlobals.Vessels.Count; v++)
             {
                 Vessel other = FlightGlobals.Vessels[v];
+                if (GhostMapPresence.IsGhostMapVessel(other.persistentId)) continue;
                 if (other.mainBody != body) continue;
                 double dist = Vector3d.Distance(spawnPos, other.GetWorldPos3D());
                 if (dist < closestDist)
@@ -599,6 +670,7 @@ namespace Parsek
 
             for (int v = 0; v < FlightGlobals.Vessels.Count; v++)
             {
+                if (GhostMapPresence.IsGhostMapVessel(FlightGlobals.Vessels[v].persistentId)) continue;
                 var crew = FlightGlobals.Vessels[v].GetVesselCrew();
                 for (int c = 0; c < crew.Count; c++)
                 {
@@ -680,13 +752,14 @@ namespace Parsek
         /// <summary>
         /// Pure decision: determines the corrected situation string when the snapshot's
         /// situation is unsafe (FLYING/SUB_ORBITAL) but the terminal state indicates the
-        /// vessel safely reached the surface. Returns the corrected situation string, or
+        /// vessel safely reached a stable state. Returns the corrected situation string, or
         /// null if no correction is needed.
         ///
         /// Bug #169: EVA vessels captured with sit=FLYING but terminal state Landed are
         /// destroyed by KSP's on-rails atmospheric pressure check when spawned outside
         /// physics range. The snapshot's sit field must be corrected to match the terminal
-        /// state before spawning.
+        /// state before spawning. Also handles Orbiting: vessels captured during ascent
+        /// (FLYING) that achieved orbit.
         /// </summary>
         internal static string ComputeCorrectedSituation(string snapshotSit, TerminalState? terminalState)
         {
@@ -707,6 +780,8 @@ namespace Parsek
                     return "LANDED";
                 case TerminalState.Splashed:
                     return "SPLASHED";
+                case TerminalState.Orbiting:
+                    return "ORBITING";
                 default:
                     return null;
             }
@@ -714,7 +789,7 @@ namespace Parsek
 
         /// <summary>
         /// Corrects the snapshot's situation field if it is FLYING/SUB_ORBITAL but the
-        /// terminal state indicates the vessel safely reached the surface (Landed/Splashed).
+        /// terminal state indicates the vessel safely reached a stable state (Landed/Splashed/Orbiting).
         /// Modifies the snapshot in-place. Returns true if a correction was applied.
         /// Bug #169: prevents KSP's on-rails pressure check from destroying spawned vessels.
         /// </summary>
@@ -733,6 +808,76 @@ namespace Parsek
                 $"Corrected unsafe snapshot situation: {currentSit} -> {corrected} " +
                 $"(terminal={terminalState}) — prevents on-rails pressure destruction (#169)");
             return true;
+        }
+
+        /// <summary>
+        /// Overrides the snapshot's lat/lon/alt with the given endpoint coordinates.
+        /// Used for EVA vessels whose snapshot was captured at EVA start (on the pod's
+        /// ladder) but need to spawn at the recording endpoint (where the kerbal walked to).
+        /// Modifies the snapshot in-place.
+        /// </summary>
+        internal static void OverrideSnapshotPosition(ConfigNode snapshot,
+            double lat, double lon, double alt, int index, string vesselName)
+        {
+            if (snapshot == null) return;
+
+            string oldLat = snapshot.GetValue("lat") ?? "?";
+            string oldLon = snapshot.GetValue("lon") ?? "?";
+            string oldAlt = snapshot.GetValue("alt") ?? "?";
+
+            string newLat = lat.ToString("R", CultureInfo.InvariantCulture);
+            string newLon = lon.ToString("R", CultureInfo.InvariantCulture);
+            string newAlt = alt.ToString("R", CultureInfo.InvariantCulture);
+
+            snapshot.SetValue("lat", newLat, true);
+            snapshot.SetValue("lon", newLon, true);
+            snapshot.SetValue("alt", newAlt, true);
+
+            ParsekLog.Info("Spawner",
+                $"EVA spawn position override for #{index} ({vesselName}): " +
+                $"({oldLat},{oldLon},{oldAlt}) → ({newLat},{newLon},{newAlt})");
+        }
+
+        /// <summary>
+        /// Strips ladder-grab animation state from EVA kerbal snapshots.
+        /// KSP's KerbalEVA FSM stores the current state in MODULE data. If the snapshot
+        /// was captured while the kerbal was on a ladder (e.g., at EVA start), the spawned
+        /// kerbal initializes in ladder mode even when far from any ladder. KSP then
+        /// blocks all saves with "There are Kerbals on a ladder. Cannot save."
+        /// This clears the ladder state so the kerbal spawns idle on the ground.
+        /// Modifies the snapshot in-place. (#175 follow-up)
+        /// </summary>
+        internal static void StripEvaLadderState(ConfigNode snapshot, int index, string vesselName)
+        {
+            if (snapshot == null) return;
+
+            foreach (ConfigNode partNode in snapshot.GetNodes("PART"))
+            {
+                foreach (ConfigNode moduleNode in partNode.GetNodes("MODULE"))
+                {
+                    string moduleName = moduleNode.GetValue("name");
+                    if (moduleName != "KerbalEVA" && moduleName != "KerbalEVAFlight")
+                        continue;
+
+                    // Check and clear ladder-related FSM state
+                    string currentState = moduleNode.GetValue("state");
+                    if (currentState != null && currentState.IndexOf("ladder", System.StringComparison.OrdinalIgnoreCase) >= 0)
+                    {
+                        moduleNode.SetValue("state", "idle", true);
+                        ParsekLog.Info("Spawner",
+                            $"EVA ladder state stripped for #{index} ({vesselName}): '{currentState}' → 'idle'");
+                    }
+
+                    // Also clear any ladder-related boolean flags
+                    string onLadder = moduleNode.GetValue("OnALadder");
+                    if (onLadder != null && onLadder.ToLowerInvariant() == "true")
+                    {
+                        moduleNode.SetValue("OnALadder", "False", true);
+                        ParsekLog.Verbose("Spawner",
+                            $"EVA OnALadder flag cleared for #{index} ({vesselName})");
+                    }
+                }
+            }
         }
 
         /// <summary>
@@ -979,7 +1124,10 @@ namespace Parsek
             for (int i = 0; i < FlightGlobals.Vessels.Count; i++)
             {
                 if (FlightGlobals.Vessels[i].persistentId == pid)
+                {
+                    if (GhostMapPresence.IsGhostMapVessel(pid)) return false;
                     return true;
+                }
             }
             return false;
         }

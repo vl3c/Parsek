@@ -36,6 +36,16 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Returns true if a ghost should be exempt from zone-based hiding during time warp.
+        /// Orbital ghosts travel far from the player during warp; hiding them at 120km causes
+        /// them to disappear and complete playback while invisible (#171).
+        /// </summary>
+        internal static bool ShouldExemptFromZoneHide(float currentWarpRate, bool hasOrbitalSegments)
+        {
+            return currentWarpRate > 4f && hasOrbitalSegments;
+        }
+
+        /// <summary>
         /// Returns true if a commit approval dialog should be shown instead of auto-committing (#88).
         /// Triggers when leaving Flight to KSC or Tracking Station with a landed/splashed vessel.
         /// </summary>
@@ -471,7 +481,8 @@ namespace Parsek
 
                 for (int i = 0; i < FlightGlobals.Vessels.Count; i++)
                 {
-                    if (FlightGlobals.Vessels[i] != null)
+                    if (FlightGlobals.Vessels[i] != null
+                        && !GhostMapPresence.IsGhostMapVessel(FlightGlobals.Vessels[i].persistentId))
                         cachedVesselPids.Add(FlightGlobals.Vessels[i].persistentId);
                 }
                 vesselCacheValid = true;
@@ -1074,6 +1085,7 @@ namespace Parsek
             {
                 Vessel v = FlightGlobals.Vessels[i];
                 if (v == null || v.vesselType != VesselType.Flag) continue;
+                if (GhostMapPresence.IsGhostMapVessel(v.persistentId)) continue;
                 if (v.mainBody != body) continue;
 
                 Vector3d flagPos = body.GetWorldSurfacePosition(v.latitude, v.longitude, v.altitude);
@@ -2107,10 +2119,13 @@ namespace Parsek
             // KSP's on-rails aero check (101.3 kPa) immediately destroys spawned vessels.
             // This catches cases where TerminalState is null/Landed but the snapshot was
             // captured mid-flight. (#114)
-            // Override: if terminal state is Landed/Splashed, the vessel DID land safely —
-            // the snapshot's sit field may be stale from recording start (Bug 2b). (#EVA-spawn)
+            // Override: if terminal state is Landed/Splashed/Orbiting, the vessel DID reach
+            // a safe state — the snapshot's sit field may be stale from recording start.
+            // Orbiting: vessel captured during ascent (FLYING) but achieved orbit. The spawn
+            // path corrects the snapshot situation before spawning. (#169, #EVA-spawn)
             bool terminalOverridesUnsafe = rec.TerminalStateValue == TerminalState.Landed ||
-                rec.TerminalStateValue == TerminalState.Splashed;
+                rec.TerminalStateValue == TerminalState.Splashed ||
+                rec.TerminalStateValue == TerminalState.Orbiting;
             if (!terminalOverridesUnsafe && IsSnapshotSituationUnsafe(rec.VesselSnapshot))
             {
                 return (false, "snapshot situation unsafe (FLYING/SUB_ORBITAL)");
@@ -2143,6 +2158,13 @@ namespace Parsek
             if (currentUT < rec.EndUT)
                 return (false, $"current UT {currentUT:F0} before recording end {rec.EndUT:F0}");
 
+            // Orbiting/Docked vessels cannot survive pv.Load() in the Space Center scene —
+            // KSP crashes them through terrain within frames. Defer to flight scene spawn
+            // where SpawnAtPosition can place them correctly. (#171)
+            if (rec.TerminalStateValue == TerminalState.Orbiting
+                || rec.TerminalStateValue == TerminalState.Docked)
+                return (false, $"orbital vessel deferred to flight scene (terminal={rec.TerminalStateValue})");
+
             // At KSC, no chain is being built → isActiveChainMember = false
             bool isChainLoopingOrDisabled = !string.IsNullOrEmpty(rec.ChainId) &&
                 (RecordingStore.IsChainLooping(rec.ChainId) ||
@@ -2167,7 +2189,7 @@ namespace Parsek
         /// </summary>
         internal static bool IsNonLeafInCommittedTree(Recording rec)
         {
-            if (string.IsNullOrEmpty(rec.TreeId) || string.IsNullOrEmpty(rec.RecordingId))
+            if (!rec.IsTreeRecording || string.IsNullOrEmpty(rec.RecordingId))
                 return false;
 
             var trees = RecordingStore.CommittedTrees;
@@ -2387,9 +2409,11 @@ namespace Parsek
             Recording currentRec,
             IList<Recording> committed,
             IReadOnlyList<RecordingTree> trees,
-            Func<int, bool> isGhostActive)
+            Func<int, bool> isGhostActive,
+            int depth = 0)
         {
-            if (currentRec == null || committed == null) return -1;
+            const int MaxRecursionDepth = 10;
+            if (currentRec == null || committed == null || depth > MaxRecursionDepth) return -1;
 
             // Case 1: Chain continuation (same chainId, next chainIndex, branch 0)
             if (!string.IsNullOrEmpty(currentRec.ChainId) && currentRec.ChainIndex >= 0
@@ -2411,7 +2435,7 @@ namespace Parsek
 
             // Case 2: Tree branching via ChildBranchPointId
             if (!string.IsNullOrEmpty(currentRec.ChildBranchPointId)
-                && !string.IsNullOrEmpty(currentRec.TreeId)
+                && currentRec.IsTreeRecording
                 && trees != null)
             {
                 BranchPoint bp = null;
@@ -2433,28 +2457,106 @@ namespace Parsek
                 if (bp != null)
                 {
                     int fallbackIdx = -1;
+                    bool pidMatchFound = false;
                     for (int c = 0; c < bp.ChildRecordingIds.Count; c++)
                     {
                         string childId = bp.ChildRecordingIds[c];
                         for (int j = 0; j < committed.Count; j++)
                         {
                             if (committed[j].RecordingId != childId) continue;
-                            if (!isGhostActive(j)) continue;
 
-                            // Prefer child with same vessel PID (same vessel continues)
-                            if (committed[j].VesselPersistentId == currentRec.VesselPersistentId)
-                                return j;
+                            bool isPidMatch = committed[j].VesselPersistentId == currentRec.VesselPersistentId;
 
-                            if (fallbackIdx < 0)
-                                fallbackIdx = j;
+                            if (isGhostActive(j))
+                            {
+                                // Prefer child with same vessel PID (same vessel continues)
+                                if (isPidMatch)
+                                    return j;
+
+                                if (fallbackIdx < 0)
+                                    fallbackIdx = j;
+                            }
+                            else if (isPidMatch)
+                            {
+                                // #158: PID-matched continuation has no ghost (boundary seed
+                                // with insufficient data). Recursively descend through its
+                                // children to find a deeper target with an active ghost.
+                                pidMatchFound = true;
+                                int deeper = FindNextWatchTarget(
+                                    committed[j], committed, trees, isGhostActive, depth + 1);
+                                if (deeper >= 0)
+                                    return deeper;
+                            }
                         }
                     }
+                    // #158: If we found the PID-matched continuation but it (and its
+                    // descendants) have no ghost, don't fall through to debris — there's
+                    // no good target. The watch hold timer will expire naturally.
+                    if (pidMatchFound)
+                        return -1;
                     if (fallbackIdx >= 0)
                         return fallbackIdx;
                 }
             }
 
             return -1;
+        }
+
+        #endregion
+
+        #region Auto Loop Range
+
+        /// <summary>
+        /// Returns true if the given environment is visually uninteresting for looping purposes.
+        /// ExoBallistic (orbital coasting) and SurfaceStationary (sitting on ground) are trimmed
+        /// from the loop range because they contain no visible action.
+        /// </summary>
+        internal static bool IsBoringEnvironment(SegmentEnvironment env)
+        {
+            return env == SegmentEnvironment.ExoBallistic || env == SegmentEnvironment.SurfaceStationary;
+        }
+
+        /// <summary>
+        /// Computes the automatic loop range for a recording by trimming leading and trailing
+        /// "boring" TrackSections (ExoBallistic, SurfaceStationary). Returns (NaN, NaN) if no
+        /// trimming is possible (recording has fewer than 2 sections, all sections are interesting,
+        /// or all sections are boring).
+        /// </summary>
+        internal static (double startUT, double endUT) ComputeAutoLoopRange(List<TrackSection> sections)
+        {
+            if (sections == null || sections.Count < 2)
+                return (double.NaN, double.NaN);
+
+            // Find first non-boring section
+            int first = -1;
+            for (int i = 0; i < sections.Count; i++)
+            {
+                if (!IsBoringEnvironment(sections[i].environment))
+                {
+                    first = i;
+                    break;
+                }
+            }
+
+            if (first < 0)
+                return (double.NaN, double.NaN); // all boring — loop the whole thing
+
+            // Find last non-boring section
+            int last = first;
+            for (int i = sections.Count - 1; i >= first; i--)
+            {
+                if (!IsBoringEnvironment(sections[i].environment))
+                {
+                    last = i;
+                    break;
+                }
+            }
+
+            // If nothing was trimmed, no range narrowing needed
+            if (first == 0 && last == sections.Count - 1)
+                return (double.NaN, double.NaN);
+
+            return (sections[first].startUT, sections[last].endUT);
         }
 
         #endregion

@@ -16,6 +16,8 @@ namespace Parsek
     [KSPAddon(KSPAddon.Startup.Flight, false)]
     public class ParsekFlight : MonoBehaviour, IGhostPositioner
     {
+        internal static ParsekFlight Instance { get; private set; }
+
         internal const string MODID = "Parsek_NS";
         internal const string MODNAME = "Parsek";
 
@@ -73,6 +75,8 @@ namespace Parsek
         private const float ProximityCheckIntervalSec = 1.5f;
         internal const double NearbySpawnRadius = 500.0;
         private readonly HashSet<string> notifiedSpawnRecordingIds = new HashSet<string>();
+        private int proximityCheckGeneration;
+        internal int ProximityCheckGeneration => proximityCheckGeneration;
         internal List<NearbySpawnCandidate> NearbySpawnCandidates => nearbySpawnCandidates;
 
         // --- Floating-origin correction ---
@@ -302,6 +306,7 @@ namespace Parsek
 
         void Start()
         {
+            Instance = this;
             Log("Parsek Flight loaded.");
 
             GameEvents.onGameSceneLoadRequested.Add(OnSceneChangeRequested);
@@ -321,6 +326,7 @@ namespace Parsek
             GameEvents.onGroundSciencePartRemoved.Add(OnGroundSciencePartRemoved);
             GameEvents.onVesselChange.Add(OnVesselSwitchComplete);
             GameEvents.onTimeWarpRateChanged.Add(OnTimeWarpRateChanged);
+            MergeDialog.OnTreeCommitted += OnTreeCommittedFromMergeDialog;
             GameEvents.afterFlagPlanted.Add(OnAfterFlagPlanted);
 
             ui = new ParsekUI(this);
@@ -645,6 +651,7 @@ namespace Parsek
 
         void OnDestroy()
         {
+            Instance = null;
             ParsekLog.Info("Flight", "OnDestroy: cleaning up ParsekFlight");
 
             if (toolbarControl != null)
@@ -673,6 +680,7 @@ namespace Parsek
             GameEvents.onGroundSciencePartRemoved.Remove(OnGroundSciencePartRemoved);
             GameEvents.onVesselChange.Remove(OnVesselSwitchComplete);
             GameEvents.onTimeWarpRateChanged.Remove(OnTimeWarpRateChanged);
+            MergeDialog.OnTreeCommitted -= OnTreeCommittedFromMergeDialog;
             GameEvents.afterFlagPlanted.Remove(OnAfterFlagPlanted);
 
             // Restore debris persistence if still overridden
@@ -711,6 +719,9 @@ namespace Parsek
             vesselGhoster?.CleanupAll();
             vesselGhoster = null;
             activeGhostChains = null;
+
+            // Remove ghost map ProtoVessels on scene teardown
+            GhostMapPresence.RemoveAllGhostVessels("scene-cleanup");
 
             // Unsubscribe camera events before policy/engine disposal
             if (engine != null)
@@ -933,6 +944,8 @@ namespace Parsek
 
         void OnVesselWillDestroy(Vessel v)
         {
+            if (v != null && GhostMapPresence.IsGhostMapVessel(v.persistentId)) return;
+
             // Watch mode: null out saved camera vessel if it's being destroyed
             if (watchedRecordingIndex >= 0 && savedCameraVessel != null && v == savedCameraVessel)
                 savedCameraVessel = null;
@@ -963,33 +976,34 @@ namespace Parsek
             if (!dockingInProgress.Contains(v.persistentId))
                 backgroundRecorder?.OnBackgroundVesselWillDestroy(v);
 
-            // Deferred destruction check for tree background vessels.
-            // Captures vessel state now (Phase 1) and defers the actual destruction confirmation
-            // by one frame (Phase 3) to distinguish real destruction from vessel unloading.
-            if (activeTree != null && ShouldDeferDestructionCheck(v.persistentId, true,
-                dockingInProgress, activeTree.BackgroundMap))
-            {
-                string recordingId = activeTree.BackgroundMap[v.persistentId];
-                var pending = CaptureVesselStateForTerminal(v, recordingId);
-                StartCoroutine(DeferredDestructionCheck(pending));
-            }
+            // Classify vessel destruction mode using extracted decision method.
+            bool shouldDefer = activeTree != null && ShouldDeferDestructionCheck(
+                v.persistentId, true, dockingInProgress, activeTree.BackgroundMap);
+            var destructionMode = ClassifyVesselDestruction(
+                hasActiveTree: activeTree != null,
+                isRecording: recorder != null && recorder.IsRecording,
+                vesselDestroyedDuringRecording: recorder != null && recorder.VesselDestroyedDuringRecording,
+                isActiveVessel: v == FlightGlobals.ActiveVessel,
+                shouldDeferForTree: shouldDefer,
+                treeDestructionDialogPending: treeDestructionDialogPending);
 
-            // Standalone mode: if the active recording vessel is destroyed, schedule a merge dialog.
-            // In tree mode, the deferred destruction check handles this already.
-            if (activeTree == null && recorder != null && recorder.IsRecording
-                && recorder.VesselDestroyedDuringRecording && v == FlightGlobals.ActiveVessel)
+            switch (destructionMode)
             {
-                StartCoroutine(ShowPostDestructionMergeDialog());
-            }
-
-            // Tree mode: if the active vessel is destroyed, check if all tree vessels are now dead
-            if (activeTree != null && recorder != null
-                && recorder.VesselDestroyedDuringRecording && v == FlightGlobals.ActiveVessel
-                && !treeDestructionDialogPending)
-            {
-                treeDestructionDialogPending = true;
-                ParsekLog.Info("Flight", "Active vessel destroyed in tree mode — scheduling tree destruction check");
-                StartCoroutine(ShowPostDestructionTreeMergeDialog());
+                case DestructionMode.TreeDeferred:
+                {
+                    string recordingId = activeTree.BackgroundMap[v.persistentId];
+                    var pending = CaptureVesselStateForTerminal(v, recordingId);
+                    StartCoroutine(DeferredDestructionCheck(pending));
+                    break;
+                }
+                case DestructionMode.StandaloneMerge:
+                    StartCoroutine(ShowPostDestructionMergeDialog());
+                    break;
+                case DestructionMode.TreeAllLeavesCheck:
+                    treeDestructionDialogPending = true;
+                    ParsekLog.Info("Flight", "Active vessel destroyed in tree mode — scheduling tree destruction check");
+                    StartCoroutine(ShowPostDestructionTreeMergeDialog());
+                    break;
             }
 
             // If the continuation vessel is destroyed, mark the recording and stop tracking
@@ -1191,6 +1205,27 @@ namespace Parsek
             ParsekLog.Info("Flight",
                 $"ShowPostDestructionTreeMergeDialog: stashed pending tree '{activeTree.TreeName}'");
 
+            // Auto-discard pad failures: if every recording in the tree is a pad failure
+            // (< 10s duration AND < 30m from launch), discard the whole tree.
+            if (IsTreePadFailure(activeTree))
+            {
+                ParsekLog.Info("Flight",
+                    $"ShowPostDestructionTreeMergeDialog: tree pad failure — auto-discarding");
+                ScreenMessage("Recording discarded — pad failure", 3f);
+                RecordingStore.DiscardPendingTree();
+                // Clean up flight state
+                recorder = null;
+                if (backgroundRecorder != null)
+                {
+                    backgroundRecorder.Shutdown();
+                    Patches.PhysicsFramePatch.BackgroundRecorderInstance = null;
+                    backgroundRecorder = null;
+                }
+                activeTree = null;
+                treeDestructionDialogPending = false;
+                yield break;
+            }
+
             // Clean up flight state
             recorder = null;
             if (backgroundRecorder != null)
@@ -1226,6 +1261,8 @@ namespace Parsek
         /// </summary>
         void OnVesselSwitchComplete(Vessel newVessel)
         {
+            if (newVessel != null && GhostMapPresence.IsGhostMapVessel(newVessel.persistentId)) return;
+
             // Watch mode: re-target camera to ghost — KSP reparents pivot on vessel switch.
             // Don't early-return: tree vessel-switch logic below must still run so that
             // programmatic switches (e.g. docking absorbs a vessel) properly transition
@@ -2241,6 +2278,7 @@ namespace Parsek
                     {
                         Vessel v = FlightGlobals.Vessels[i];
                         if (v == null || v.persistentId == recordedPid) continue;
+                        if (GhostMapPresence.IsGhostMapVessel(v.persistentId)) continue;
 
                         // Only consider vessels that didn't exist before the break
                         if (preBreakVesselPids != null && preBreakVesselPids.Contains(v.persistentId))
@@ -2808,6 +2846,42 @@ namespace Parsek
             return backgroundMap.ContainsKey(vesselPid);
         }
 
+        internal enum DestructionMode { None, TreeDeferred, StandaloneMerge, TreeAllLeavesCheck }
+
+        /// <summary>
+        /// Pure classification of vessel destruction handling mode.
+        /// Matches the branching order in OnVesselWillDestroy: TreeDeferred is checked first,
+        /// then StandaloneMerge (non-tree), then TreeAllLeavesCheck (tree with active vessel).
+        ///
+        /// The original code had three independent if-blocks, but the branches are mutually
+        /// exclusive by design: TreeDeferred requires shouldDeferForTree (vessel in BackgroundMap),
+        /// while StandaloneMerge/TreeAllLeavesCheck require isActiveVessel. The active vessel
+        /// is never in BackgroundMap, so at most one branch fires.
+        ///
+        /// TreeAllLeavesCheck intentionally does not require isRecording — the original checked
+        /// recorder != null (embedded in vesselDestroyedDuringRecording) but not IsRecording.
+        /// </summary>
+        internal static DestructionMode ClassifyVesselDestruction(
+            bool hasActiveTree,
+            bool isRecording,
+            bool vesselDestroyedDuringRecording,
+            bool isActiveVessel,
+            bool shouldDeferForTree,
+            bool treeDestructionDialogPending)
+        {
+            if (hasActiveTree && shouldDeferForTree)
+                return DestructionMode.TreeDeferred;
+
+            if (!hasActiveTree && isRecording && vesselDestroyedDuringRecording && isActiveVessel)
+                return DestructionMode.StandaloneMerge;
+
+            if (hasActiveTree && vesselDestroyedDuringRecording && isActiveVessel
+                && !treeDestructionDialogPending)
+                return DestructionMode.TreeAllLeavesCheck;
+
+            return DestructionMode.None;
+        }
+
         /// <summary>
         /// Pure decision method: determines whether a vessel is truly destroyed (not just unloaded
         /// or absorbed by docking) after the one-frame deferral.
@@ -3001,6 +3075,8 @@ namespace Parsek
 
         void OnVesselSituationChange(GameEvents.HostedFromToAction<Vessel, Vessel.Situations> data)
         {
+            if (data.host != null && GhostMapPresence.IsGhostMapVessel(data.host.persistentId)) return;
+
             // Track when the active vessel enters LANDED/SPLASHED for the settle timer
             if (data.host == FlightGlobals.ActiveVessel &&
                 (data.to == Vessel.Situations.LANDED || data.to == Vessel.Situations.SPLASHED))
@@ -3132,12 +3208,15 @@ namespace Parsek
 
         void OnVesselGoOnRails(Vessel v)
         {
+            if (v != null && GhostMapPresence.IsGhostMapVessel(v.persistentId)) return;
             recorder?.OnVesselGoOnRails(v);
             backgroundRecorder?.OnBackgroundVesselGoOnRails(v);
         }
 
         void OnVesselGoOffRails(Vessel v)
         {
+            if (v != null && GhostMapPresence.IsGhostMapVessel(v.persistentId)) return;
+
             recorder?.OnVesselGoOffRails(v);
             backgroundRecorder?.OnBackgroundVesselGoOffRails(v);
         }
@@ -3145,6 +3224,8 @@ namespace Parsek
         void OnVesselLoaded(Vessel v)
         {
             if (v == null) return;
+            if (GhostMapPresence.IsGhostMapVessel(v.persistentId)) return;
+
             uint pid = v.persistentId;
             loadedAnchorVessels.Add(pid);
 
@@ -3161,8 +3242,10 @@ namespace Parsek
 
                 double currentUT = Planetarium.GetUniversalTime();
                 double interval = GetLoopIntervalSeconds(rec);
+                double effectiveStart = GhostPlaybackEngine.EffectiveLoopStartUT(rec);
+                double effectiveEnd = GhostPlaybackEngine.EffectiveLoopEndUT(rec);
                 var (loopUT, cycleIndex, isInPause) = GhostPlaybackLogic.ComputeLoopPhaseFromUT(
-                    currentUT, rec.StartUT, rec.EndUT, interval);
+                    currentUT, effectiveStart, effectiveEnd, interval);
 
                 ParsekLog.Info("Loop",
                     $"Anchor vessel loaded: pid={pid}, rec #{i} '{rec.VesselName}' " +
@@ -3177,6 +3260,7 @@ namespace Parsek
         void OnVesselUnloaded(Vessel v)
         {
             if (v == null) return;
+            if (GhostMapPresence.IsGhostMapVessel(v.persistentId)) return;
             uint pid = v.persistentId;
             loadedAnchorVessels.Remove(pid);
 
@@ -3199,6 +3283,8 @@ namespace Parsek
 
         void OnVesselSOIChanged(GameEvents.HostedFromToAction<Vessel, CelestialBody> data)
         {
+            if (data.host != null && GhostMapPresence.IsGhostMapVessel(data.host.persistentId)) return;
+
             recorder?.OnVesselSOIChanged(data);
             backgroundRecorder?.OnBackgroundVesselSOIChanged(data.host, data.from);
         }
@@ -3808,6 +3894,16 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Called when the merge dialog commits a tree. Re-evaluates ghost chains
+        /// so newly committed recordings get ghost map ProtoVessels immediately.
+        /// </summary>
+        private void OnTreeCommittedFromMergeDialog()
+        {
+            ParsekLog.Info("GhostMap", "Tree committed from merge dialog — re-evaluating ghost chains");
+            EvaluateAndApplyGhostChains();
+        }
+
+        /// <summary>
         /// Evaluates ghost chains from committed trees and ghosts claimed vessels.
         /// Called during OnFlightReady after initialization/migration but before
         /// pending tree dialog. Ghost chain state is NOT persisted — it is re-derived
@@ -3857,7 +3953,27 @@ namespace Parsek
                     continue;
                 }
 
+                // #174: Skip terminated chains — vessel destroyed/recovered, can never produce ghost
+                if (chain.IsTerminated)
+                {
+                    ParsekLog.Verbose("Ghoster",
+                        string.Format(CultureInfo.InvariantCulture,
+                            "Skipping terminated chain for pid={0}", pid));
+                    continue;
+                }
+
                 activeChains[pid] = chain;
+
+                // Create ghost map vessel for non-terminated chains ending in stable orbit
+                if (!chain.IsTerminated && !string.IsNullOrEmpty(chain.TipRecordingId))
+                {
+                    Recording tipRecording = FindTipRecordingById(chain.TipRecordingId);
+                    if (tipRecording != null
+                        && (!tipRecording.TerminalStateValue.HasValue
+                            || tipRecording.TerminalStateValue == TerminalState.Orbiting
+                            || tipRecording.TerminalStateValue == TerminalState.Docked))
+                        GhostMapPresence.CreateGhostVessel(chain, tipRecording);
+                }
 
                 // Only attempt ghosting if the vessel actually exists in the scene.
                 // Tree recordings may reference vessels that were never spawned (e.g.,
@@ -4207,6 +4323,15 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Returns true if the current recording mode suppresses environment boundary
+        /// splits (tree mode does — chain mode does not).
+        /// </summary>
+        internal static bool ShouldSuppressBoundarySplit(RecordingTree activeTree)
+        {
+            return activeTree != null;
+        }
+
+        /// <summary>
         /// Handles atmosphere boundary auto-split when crossing the atmosphere edge.
         /// Commits the current segment, restarts recording in the new phase.
         /// </summary>
@@ -4218,7 +4343,7 @@ namespace Parsek
             // Bug #87: In tree mode, boundary splits must not commit standalone chain segments.
             // The recorder keeps accumulating data into the tree recording — just clear the
             // boundary flags so they don't re-trigger.
-            if (activeTree != null)
+            if (ShouldSuppressBoundarySplit(activeTree))
             {
                 string skipPhase = recorder.EnteredAtmosphere ? "atmo" : "exo";
                 string skipBody = FlightGlobals.ActiveVessel?.mainBody?.name ?? "Unknown";
@@ -4252,7 +4377,7 @@ namespace Parsek
             // Bug #87: In tree mode, boundary splits must not commit standalone chain segments.
             // The recorder keeps accumulating data into the tree recording — just clear the
             // boundary flags so they don't re-trigger.
-            if (activeTree != null)
+            if (ShouldSuppressBoundarySplit(activeTree))
             {
                 string skipFrom = recorder.SoiChangeFromBody ?? "Unknown";
                 string skipTo = FlightGlobals.ActiveVessel?.mainBody?.name ?? "Unknown";
@@ -4298,7 +4423,7 @@ namespace Parsek
                 return;
 
             // Bug #87: In tree mode, boundary splits must not commit standalone chain segments.
-            if (activeTree != null)
+            if (ShouldSuppressBoundarySplit(activeTree))
             {
                 string skipPhase = recorder.DescendedBelowThreshold ? "approach" : "exo";
                 string skipBody = FlightGlobals.ActiveVessel?.mainBody?.name ?? "Unknown";
@@ -4966,6 +5091,10 @@ namespace Parsek
             foreach (var kvp in tree.Recordings)
                 FinalizeIndividualRecording(kvp.Value, commitUT, isSceneExit);
 
+            // 4. Prune zero-point debris leaves (#173) — removes recordings with no
+            // trajectory data that were created from same-frame destruction debris.
+            PruneZeroPointLeaves(tree);
+
             // Compute tree-level resource delta
             tree.DeltaFunds = ComputeTreeDeltaFunds(tree);
             tree.DeltaScience = ComputeTreeDeltaScience(tree);
@@ -5042,6 +5171,84 @@ namespace Parsek
                 $"points={rec.Points.Count} orbitSegs={rec.OrbitSegments.Count} " +
                 $"terminal={rec.TerminalStateValue?.ToString() ?? "none"} " +
                 $"snapshot={rec.VesselSnapshot != null} leaf={isLeaf}");
+        }
+
+        /// <summary>
+        /// Removes zero-point leaf recordings from the tree (#173). These are debris fragments
+        /// that were destroyed within the same physics frame as their creation — they have no
+        /// trajectory data, no snapshot, and serve no purpose.
+        /// </summary>
+        private static void PruneZeroPointLeaves(RecordingTree tree)
+        {
+            var toPrune = CollectZeroPointLeafIds(tree);
+            if (toPrune == null || toPrune.Count == 0)
+                return;
+
+            for (int i = 0; i < toPrune.Count; i++)
+            {
+                string id = toPrune[i];
+                tree.Recordings.Remove(id);
+
+                // Remove from parent branch point's children list
+                for (int b = 0; b < tree.BranchPoints.Count; b++)
+                {
+                    tree.BranchPoints[b].ChildRecordingIds.Remove(id);
+                }
+            }
+
+            // Clean up branch points with no remaining children
+            int prunedBPs = 0;
+            for (int b = tree.BranchPoints.Count - 1; b >= 0; b--)
+            {
+                if (tree.BranchPoints[b].ChildRecordingIds.Count == 0)
+                {
+                    // Clear the parent recording's ChildBranchPointId reference
+                    string bpId = tree.BranchPoints[b].Id;
+                    foreach (var kvp in tree.Recordings)
+                    {
+                        if (kvp.Value.ChildBranchPointId == bpId)
+                            kvp.Value.ChildBranchPointId = null;
+                    }
+                    tree.BranchPoints.RemoveAt(b);
+                    prunedBPs++;
+                }
+            }
+
+            ParsekLog.Info("Flight",
+                $"PruneZeroPointLeaves: removed {toPrune.Count} zero-point debris leaf recording(s)" +
+                (prunedBPs > 0 ? $" and {prunedBPs} empty branch point(s)" : "") +
+                $" from tree '{tree.TreeName}'");
+        }
+
+        /// <summary>
+        /// Pure static helper: collects IDs of leaf recordings with no playback data.
+        /// A leaf has no ChildBranchPointId and zero points + zero orbit segments + no surface pos.
+        /// </summary>
+        internal static List<string> CollectZeroPointLeafIds(RecordingTree tree)
+        {
+            List<string> result = null;
+            foreach (var kvp in tree.Recordings)
+            {
+                var rec = kvp.Value;
+                if (IsZeroPointLeaf(rec))
+                {
+                    if (result == null) result = new List<string>();
+                    result.Add(kvp.Key);
+                }
+            }
+            return result;
+        }
+
+        /// <summary>
+        /// Returns true if a recording is a leaf with no playback data (zero points,
+        /// no orbit segments, no surface position).
+        /// </summary>
+        internal static bool IsZeroPointLeaf(Recording rec)
+        {
+            if (rec.ChildBranchPointId != null) return false; // not a leaf
+            return rec.Points.Count == 0
+                && rec.OrbitSegments.Count == 0
+                && !rec.SurfacePos.HasValue;
         }
 
         internal static double ComputeTreeDeltaFunds(RecordingTree tree)
@@ -5145,6 +5352,7 @@ namespace Parsek
             {
                 var vessel = FlightGlobals.Vessels[i];
                 if (vessel.persistentId == activePid) continue;
+                if (GhostMapPresence.IsGhostMapVessel(vessel.persistentId)) continue;
 
                 bool matchByPid = hasPids && pids.Contains(vessel.persistentId);
                 bool matchByName = hasNames && names.Contains(Recording.ResolveLocalizedName(vessel.vesselName));
@@ -5609,6 +5817,9 @@ namespace Parsek
                         ref chain.CachedTrajectoryIndex, currentUT, (int)(chain.OriginalVesselPid * 10000),
                         out _, surfaceRelativeRotation: srfRel, skipOrbitSegments: surfaceSkip);
 
+                    // Update ghost map ProtoVessel orbit if segment changed
+                    UpdateChainGhostOrbitIfNeeded(chain, bgRec.OrbitSegments, currentUT);
+
                     ParsekLog.VerboseRateLimited("Flight", "chain-ghost-trajectory-" + chain.OriginalVesselPid,
                         string.Format(CultureInfo.InvariantCulture,
                             "Chain ghost positioned from trajectory: pid={0} rec={1} UT={2:F1}",
@@ -5631,6 +5842,7 @@ namespace Parsek
                             {
                                 PositionGhostFromOrbitOnly(info.ghostGO, rec, currentUT,
                                     (int)(chain.OriginalVesselPid * 10000));
+                                UpdateChainGhostOrbitIfNeeded(chain, rec.OrbitSegments, currentUT);
                                 positioned = true;
                                 ParsekLog.VerboseRateLimited("Flight",
                                     "chain-ghost-orbit-" + chain.OriginalVesselPid,
@@ -5668,15 +5880,59 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Check if the chain ghost's orbit segment changed and update the ghost map ProtoVessel.
+        /// Called each frame after positioning a chain ghost to keep the map orbit line in sync.
+        /// </summary>
+        private static void UpdateChainGhostOrbitIfNeeded(
+            GhostChain chain, List<OrbitSegment> segments, double currentUT)
+        {
+            if (segments == null || segments.Count == 0) return;
+
+            OrbitSegment? seg = TrajectoryMath.FindOrbitSegment(segments, currentUT);
+            if (!seg.HasValue) return;
+
+            // Detect change: body, SMA, or eccentricity shifted (covers SOI transitions,
+            // orbit changes, and inclination maneuvers at constant altitude).
+            // Exact equality is intentional: segment values are stored doubles that don't drift.
+            // A change means a different OrbitSegment was found, not floating-point accumulation.
+            if (seg.Value.bodyName == chain.LastMapOrbitBodyName
+                && seg.Value.semiMajorAxis == chain.LastMapOrbitSma
+                && seg.Value.eccentricity == chain.LastMapOrbitEcc)
+                return;
+
+            chain.LastMapOrbitBodyName = seg.Value.bodyName;
+            chain.LastMapOrbitSma = seg.Value.semiMajorAxis;
+            chain.LastMapOrbitEcc = seg.Value.eccentricity;
+
+            GhostMapPresence.UpdateGhostOrbit(chain.OriginalVesselPid, seg.Value);
+        }
+
+        /// <summary>
         /// Routes spawn through VesselGhoster for chain tips, or existing
         /// SpawnOrRecoverIfTooClose for normal recordings.
         /// Handles collision-blocked chains: if spawn is blocked, chain stays active.
         /// If chain was previously blocked, tries to spawn at propagated position.
+        /// Called by ParsekPlaybackPolicy when engine fires PlaybackCompleted with needsSpawn.
         /// </summary>
-        /// <summary>Called by ParsekPlaybackPolicy when engine fires PlaybackCompleted with needsSpawn.</summary>
         internal void SpawnVesselOrChainTipFromPolicy(Recording rec, int index)
         {
             SpawnVesselOrChainTip(rec, index);
+        }
+
+        /// <summary>
+        /// Remove the ghost map vessel for a chain on spawn and transfer nav target
+        /// to the newly spawned real vessel if the ghost was the current target.
+        /// </summary>
+        private void ResolveChainGhostOnSpawn(GhostChain chain, uint spawnedPid)
+        {
+            bool wasTarget = GhostMapPresence.RemoveGhostVessel(
+                chain.OriginalVesselPid, "chain-tip-spawn");
+            if (wasTarget)
+            {
+                Vessel spawned = FlightRecorder.FindVesselByPid(spawnedPid);
+                if (spawned != null)
+                    FlightGlobals.fetch?.SetVesselTarget(spawned);
+            }
         }
 
         /// <summary>Called by policy when a mid-chain segment ends while watched.</summary>
@@ -5732,7 +5988,8 @@ namespace Parsek
                         rec.SpawnedVesselPersistentId = spawnedPid;
                         rec.VesselSpawned = true;
                         activeGhostChains.Remove(chain.OriginalVesselPid);
-            
+                        ResolveChainGhostOnSpawn(chain, spawnedPid);
+
                         ParsekLog.Info("Flight",
                             $"Blocked chain tip spawn resolved: #{index} \"{rec.VesselName}\" pid={spawnedPid}");
                     }
@@ -5746,7 +6003,8 @@ namespace Parsek
                         rec.SpawnedVesselPersistentId = spawnedPid;
                         rec.VesselSpawned = true;
                         activeGhostChains.Remove(chain.OriginalVesselPid);
-            
+                        ResolveChainGhostOnSpawn(chain, spawnedPid);
+
                         ParsekLog.Info("Flight",
                             $"Chain tip spawn complete: #{index} \"{rec.VesselName}\" pid={spawnedPid}");
                     }
@@ -5784,7 +6042,7 @@ namespace Parsek
                 bool hasData = rec.Points.Count >= 2 || rec.OrbitSegments.Count > 0 || rec.SurfacePos.HasValue;
 
                 bool isActiveChain = chainManager.ActiveChainId != null && rec.ChainId == chainManager.ActiveChainId;
-                bool chainLoopOrDisabled = rec.ChainId != null &&
+                bool chainLoopOrDisabled = rec.IsChainRecording &&
                     (RecordingStore.IsChainLooping(rec.ChainId)
                      || RecordingStore.IsChainFullyDisabled(rec.ChainId));
 
@@ -5801,7 +6059,7 @@ namespace Parsek
                 flags[i] = new TrajectoryPlaybackFlags
                 {
                     skipGhost = !hasData || !rec.PlaybackEnabled || externalVesselSuppressed,
-                    isStandalone = rec.TreeId == null,
+                    isStandalone = !rec.IsTreeRecording,
                     isMidChain = RecordingStore.IsChainMidSegment(rec),
                     chainEndUT = RecordingStore.GetChainEndUT(rec),
                     needsSpawn = spawnResult.needsSpawn && !chainSuppressed.suppressed,
@@ -5883,6 +6141,9 @@ namespace Parsek
             // waiting for a blocked/deferred spawn to resolve
             policy.RetryHeldGhostSpawns();
 
+            // Create deferred ghost map ProtoVessels when ghosts enter orbital segments
+            policy.CheckPendingMapVessels(Planetarium.GetUniversalTime());
+
             // Per-frame resource deltas (policy concern, not engine).
             // Intentional: deltas accrue for both in-range AND past-end recordings
             // regardless of whether a ghost is visually active. Resource replay must
@@ -5891,7 +6152,7 @@ namespace Parsek
             for (int i = 0; i < committed.Count; i++)
             {
                 var rec = committed[i];
-                if (rec.TreeId != null) continue; // tree recordings handle resources at tree level
+                if (!rec.ManagesOwnResources) continue; // tree recordings handle resources at tree level
                 if (currentUT > rec.EndUT || (currentUT >= rec.StartUT && currentUT <= rec.EndUT))
                     ApplyResourceDeltas(rec, currentUT);
             }
@@ -6005,7 +6266,7 @@ namespace Parsek
         // IsActiveTreeRecording stays in ParsekFlight (reads RecordingStore.CommittedTrees)
         private bool IsActiveTreeRecording(Recording rec)
         {
-            if (string.IsNullOrEmpty(rec.TreeId)) return false;
+            if (!rec.IsTreeRecording) return false;
             var trees = RecordingStore.CommittedTrees;
             for (int i = 0; i < trees.Count; i++)
             {
@@ -6240,9 +6501,31 @@ namespace Parsek
             return null;
         }
 
+        /// <summary>
+        /// Finds a committed recording by its RecordingId. Searches all committed recordings.
+        /// Used for ghost map vessel creation (looking up chain tip recordings).
+        /// </summary>
+        private static Recording FindTipRecordingById(string recordingId)
+        {
+            var committed = RecordingStore.CommittedRecordings;
+            for (int i = 0; i < committed.Count; i++)
+            {
+                if (committed[i].RecordingId == recordingId)
+                    return committed[i];
+            }
+            return null;
+        }
+
+        internal void DestroyTimelineGhost(int index)
+        {
+            engine.DestroyGhost(index);
+        }
 
         public void DestroyAllTimelineGhosts()
         {
+            // Remove ghost map ProtoVessels before engine cleanup
+            GhostMapPresence.RemoveAllGhostVessels("rewind");
+
             // Engine destroys all ghost GOs and clears engine-owned state.
             // Fires OnAllGhostsDestroying so policy clears its own state.
             engine.DestroyAllGhosts();
@@ -6362,6 +6645,24 @@ namespace Parsek
         internal static bool IsPadFailure(double duration, double maxDistanceFromLaunch)
         {
             return duration < 10.0 && maxDistanceFromLaunch < 30.0;
+        }
+
+        /// <summary>
+        /// Returns true if every recording in the tree qualifies as a pad failure.
+        /// A tree with any non-pad-failure recording is not discarded.
+        /// </summary>
+        internal static bool IsTreePadFailure(RecordingTree tree)
+        {
+            if (tree == null || tree.Recordings == null || tree.Recordings.Count == 0)
+                return false;
+
+            foreach (var rec in tree.Recordings.Values)
+            {
+                double duration = rec.EndUT - rec.StartUT;
+                if (!IsPadFailure(duration, rec.MaxDistanceFromLaunch))
+                    return false;
+            }
+            return true;
         }
 
         /// <summary>
@@ -6774,6 +7075,7 @@ namespace Parsek
         }
 
         /// <summary>
+        /// <summary>
         /// Enter watch mode: point the camera at a ghost vessel.
         /// If already watching the same recording, toggles off (exits watch mode).
         /// If watching a different recording, switches to the new one (preserves camera state).
@@ -6803,18 +7105,18 @@ namespace Parsek
 
             // Distance guard: KSP rendering breaks when camera is far from the active vessel
             // (FloatingOrigin, terrain, atmosphere, skybox are all anchored to active vessel).
-            // Refuse watch if ghost is beyond the rendering-safe distance (#151).
-            const float MaxWatchDistanceKm = 100f;
+            // Refuse watch if ghost is beyond the user's camera cutoff distance setting.
+            float maxWatchKm = ParsekSettings.Current?.ghostCameraCutoffKm ?? 300f;
             if (FlightGlobals.ActiveVessel != null && gs.ghost != null)
             {
                 float distKm = (float)(Vector3d.Distance(
                     gs.ghost.transform.position, FlightGlobals.ActiveVessel.transform.position) / 1000.0);
-                if (distKm > MaxWatchDistanceKm)
+                if (distKm > maxWatchKm)
                 {
                     ParsekLog.Info("CameraFollow",
                         $"EnterWatchMode refused: ghost #{index} \"{committed[index].VesselName}\" " +
-                        $"is {distKm.ToString("F0", CultureInfo.InvariantCulture)}km from active vessel (max {MaxWatchDistanceKm}km)");
-                    ScreenMessage($"Ghost too far to watch ({distKm:F0}km)", 3f);
+                        $"is {distKm.ToString("F0", CultureInfo.InvariantCulture)}km from active vessel (max {maxWatchKm.ToString("F0", CultureInfo.InvariantCulture)}km)");
+                    ScreenMessage($"Ghost too far to watch ({distKm:F0}km, max {maxWatchKm:F0}km)", 3f);
                     return;
                 }
             }
@@ -7117,6 +7419,8 @@ namespace Parsek
             var segTarget = gs.cameraPivot ?? gs.ghost.transform;
             FlightCamera.fetch.SetTargetTransform(segTarget);
             InputLockManager.SetControlLock(WatchModeLockMask, WatchModeLockId);
+            ParsekLog.Verbose("CameraFollow",
+                $"InputLockManager control lock \"{WatchModeLockId}\" re-set after transfer");
 
             watchEndHoldUntilRealTime = -1;
 
@@ -7143,7 +7447,8 @@ namespace Parsek
             while (UnityEngine.Time.time < deadline)
             {
                 yield return null;
-                Vessel v = FlightGlobals.Vessels?.Find(vessel => vessel.persistentId == pid);
+                Vessel v = FlightGlobals.Vessels?.Find(vessel => vessel.persistentId == pid
+                    && !GhostMapPresence.IsGhostMapVessel(vessel.persistentId));
                 if (v != null)
                 {
                     v.IgnoreGForces(240);
@@ -7213,6 +7518,18 @@ namespace Parsek
                         $"({ghostDistance.ToString("F0", CultureInfo.InvariantCulture)}m) but watched — exempt from zone hide",
                         5.0);
                 }
+            }
+
+            // #171: During warp, exempt orbital ghosts from zone hiding — they travel far
+            // from the player and would complete playback while invisible.
+            if (shouldHideMesh && GhostPlaybackLogic.ShouldExemptFromZoneHide(
+                    TimeWarp.CurrentRate, rec.OrbitSegments != null && rec.OrbitSegments.Count > 0))
+            {
+                shouldHideMesh = false;
+                ParsekLog.VerboseRateLimited("Zone", $"warp-zone-exempt-{recIdx}",
+                    $"Ghost #{recIdx} \"{rec.VesselName}\" beyond visual range " +
+                    $"({ghostDistance.ToString("F0", CultureInfo.InvariantCulture)}m) " +
+                    $"but exempt during warp (orbital ghost)", 5.0);
             }
 
             if (shouldHideMesh)
@@ -8165,18 +8482,23 @@ namespace Parsek
                 if (dist > NearbySpawnRadius)
                     continue;
 
+                var depInfo = SelectiveSpawnUI.ComputeDepartureInfo(rec, currentUT);
                 nearbySpawnCandidates.Add(new NearbySpawnCandidate
                 {
                     recordingIndex = i,
                     vesselName = rec.VesselName,
                     endUT = rec.EndUT,
                     distance = dist,
-                    recordingId = rec.RecordingId
+                    recordingId = rec.RecordingId,
+                    willDepart = depInfo.willDepart,
+                    departureUT = depInfo.departureUT,
+                    destination = depInfo.destination
                 });
             }
 
             // Sort by distance (closest first)
             nearbySpawnCandidates.Sort((a, b) => a.distance.CompareTo(b.distance));
+            proximityCheckGeneration++;
 
             // Notify for new candidates
             for (int c = 0; c < nearbySpawnCandidates.Count; c++)
@@ -8184,10 +8506,22 @@ namespace Parsek
                 var cand = nearbySpawnCandidates[c];
                 if (notifiedSpawnRecordingIds.Add(cand.recordingId))
                 {
-                    ParsekLog.ScreenMessage(
-                        string.Format(CultureInfo.InvariantCulture,
+                    string notifyMsg;
+                    if (cand.willDepart)
+                    {
+                        double depDelta = cand.departureUT - currentUT;
+                        notifyMsg = string.Format(CultureInfo.InvariantCulture,
+                            "Nearby craft: {0} (departs to {1} in {2}). Open Real Spawn Control.",
+                            cand.vesselName, cand.destination,
+                            SelectiveSpawnUI.FormatTimeDelta(depDelta));
+                    }
+                    else
+                    {
+                        notifyMsg = string.Format(CultureInfo.InvariantCulture,
                             "Nearby craft: {0}. Open the Real Spawn Control window to fast forward and interact.",
-                            cand.vesselName), 10f);
+                            cand.vesselName);
+                    }
+                    ParsekLog.ScreenMessage(notifyMsg, 10f);
                     ParsekLog.Info("Flight",
                         string.Format(CultureInfo.InvariantCulture,
                             "Proximity notification: '{0}' recording #{1} distance={2:F0}m endUT={3:F1}",
@@ -8239,6 +8573,49 @@ namespace Parsek
             TimeJumpManager.NotifyRecorder(recorder, currentUT, targetUT);
             // Pass null chains — let the engine playback loop handle spawn naturally
             TimeJumpManager.ExecuteJump(targetUT, null, vesselGhoster);
+        }
+
+        /// <summary>
+        /// Epoch-shifted warp to a ghost's departure UT (when it leaves its current orbit).
+        /// Used by Real Spawn Control when a ghost will depart before its EndUT.
+        /// Preserves rendezvous geometry — both player and ghost stay at current positions.
+        /// </summary>
+        internal void WarpToDeparture(int recordingIndex, double departureUT)
+        {
+            var committed = RecordingStore.CommittedRecordings;
+            if (recordingIndex < 0 || recordingIndex >= committed.Count)
+            {
+                ParsekLog.Warn("Flight",
+                    string.Format(CultureInfo.InvariantCulture,
+                        "WarpToDeparture: invalid index {0} — aborted", recordingIndex));
+                return;
+            }
+
+            Recording rec = committed[recordingIndex];
+            double currentUT = Planetarium.GetUniversalTime();
+
+            if (!TimeJumpManager.IsValidJump(currentUT, departureUT))
+            {
+                ParsekLog.Warn("Flight",
+                    string.Format(CultureInfo.InvariantCulture,
+                        "WarpToDeparture: invalid jump current={0:F1} target={1:F1} — aborted",
+                        currentUT, departureUT));
+                return;
+            }
+
+            ParsekLog.Info("Flight",
+                string.Format(CultureInfo.InvariantCulture,
+                    "WarpToDeparture: jumping to UT={0:F1} for '{1}' (delta={2:F1}s, endUT={3:F1})",
+                    departureUT, rec.VesselName, departureUT - currentUT, rec.EndUT));
+
+            TimeJumpManager.NotifyRecorder(recorder, currentUT, departureUT);
+            // Epoch-shifted jump: preserves rendezvous geometry
+            TimeJumpManager.ExecuteJump(departureUT, null, vesselGhoster);
+
+            ParsekLog.ScreenMessage(
+                string.Format(CultureInfo.InvariantCulture,
+                    "Warped to departure of \"{0}\" ({1:F0}s)",
+                    rec.VesselName, departureUT - currentUT), 5f);
         }
 
         /// <summary>
@@ -8308,7 +8685,8 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Warps to the earliest nearby spawn candidate's EndUT.
+        /// Warps to the earliest nearby spawn candidate.
+        /// If the candidate will depart, warps to departure UT instead of EndUT.
         /// </summary>
         internal void WarpToNextCraftSpawn()
         {
@@ -8319,7 +8697,10 @@ namespace Parsek
                 ParsekLog.Verbose("Flight", "WarpToNextCraftSpawn: no nearby candidates");
                 return;
             }
-            WarpToRecordingEnd(next.Value.recordingIndex);
+            if (next.Value.willDepart)
+                WarpToDeparture(next.Value.recordingIndex, next.Value.departureUT);
+            else
+                WarpToRecordingEnd(next.Value.recordingIndex);
         }
 
         void Log(string message) => ParsekLog.Verbose("Flight", message);

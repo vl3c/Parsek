@@ -141,6 +141,14 @@ namespace Parsek
             ParsekLog.Verbose("Scenario",
                 $"OnSave: wrote milestoneEpoch={MilestoneStore.CurrentEpoch}, budgetDeductionEpoch={budgetDeductionEpoch}");
 
+            // Strip ghost map ProtoVessels — they are transient and reconstructed on load
+            if (GhostMapPresence.ghostMapVesselPids.Count > 0)
+            {
+                var flightState = HighLogic.CurrentGame?.flightState;
+                if (flightState != null)
+                    GhostMapPresence.StripFromSave(flightState);
+            }
+
             lastOnSaveScene = HighLogic.LoadedScene;
         }
 
@@ -448,7 +456,7 @@ namespace Parsek
                 // On scene change, the reset is overwritten by the saved values below.
                 for (int i = 0; i < recordings.Count; i++)
                 {
-                    if (recordings[i].TreeId == null) continue;
+                    if (!recordings[i].IsTreeRecording) continue;
 
                     ClearPostSpawnTerminalState(recordings[i], "tree recording");
 
@@ -826,7 +834,7 @@ namespace Parsek
                     int prelaunchStripped = StripFuturePrelaunchVessels(fs.protoVessels, quicksavePids);
                     if (prelaunchStripped > 0)
                         ParsekLog.Info("Rewind",
-                            $"Stripped {prelaunchStripped} future PRELAUNCH vessel(s)");
+                            $"Stripped {prelaunchStripped} future vessel(s) not in quicksave whitelist");
                 }
                 RecordingStore.RewindQuicksaveVesselPids = null;
             }
@@ -1427,7 +1435,7 @@ namespace Parsek
             for (int i = 0; i < recordings.Count; i++)
             {
                 // Skip tree recordings — their mutable state is restored from tree nodes
-                if (recordings[i].TreeId != null) continue;
+                if (recordings[i].IsTreeRecording) continue;
 
                 ClearPostSpawnTerminalState(recordings[i]);
 
@@ -1489,6 +1497,7 @@ namespace Parsek
             for (int i = protoVessels.Count - 1; i >= 0; i--)
             {
                 var pv = protoVessels[i];
+                if (GhostMapPresence.IsGhostMapVessel(pv.persistentId)) continue;
                 if (!spawnedNames.Contains(Recording.ResolveLocalizedName(pv.vesselName)))
                     continue;
 
@@ -1646,7 +1655,7 @@ namespace Parsek
                 var rec = recordings[r];
 
                 // Skip tree recordings — they are saved under RECORDING_TREE nodes below
-                if (rec.TreeId != null)
+                if (rec.IsTreeRecording)
                     continue;
                 count++;
                 totalPoints += rec.Points.Count;
@@ -1756,6 +1765,10 @@ namespace Parsek
             recNode.AddValue("recordingFormatVersion", rec.RecordingFormatVersion);
             recNode.AddValue("loopPlayback", rec.LoopPlayback);
             recNode.AddValue("loopIntervalSeconds", rec.LoopIntervalSeconds.ToString("R", CultureInfo.InvariantCulture));
+            if (!double.IsNaN(rec.LoopStartUT))
+                recNode.AddValue("loopStartUT", rec.LoopStartUT.ToString("R", CultureInfo.InvariantCulture));
+            if (!double.IsNaN(rec.LoopEndUT))
+                recNode.AddValue("loopEndUT", rec.LoopEndUT.ToString("R", CultureInfo.InvariantCulture));
             if (rec.LoopAnchorVesselId != 0)
                 recNode.AddValue("loopAnchorPid", rec.LoopAnchorVesselId.ToString(CultureInfo.InvariantCulture));
             if (!string.IsNullOrEmpty(rec.LoopAnchorBodyName))
@@ -1845,6 +1858,22 @@ namespace Parsek
                 LoopTimeUnit loopTimeUnit;
                 if (System.Enum.TryParse(loopTimeUnitStr, out loopTimeUnit))
                     rec.LoopTimeUnit = loopTimeUnit;
+            }
+
+            string loopStartUTStr = recNode.GetValue("loopStartUT");
+            if (loopStartUTStr != null)
+            {
+                double loopStartUT;
+                if (double.TryParse(loopStartUTStr, NumberStyles.Float, CultureInfo.InvariantCulture, out loopStartUT))
+                    rec.LoopStartUT = loopStartUT;
+            }
+
+            string loopEndUTStr = recNode.GetValue("loopEndUT");
+            if (loopEndUTStr != null)
+            {
+                double loopEndUT;
+                if (double.TryParse(loopEndUTStr, NumberStyles.Float, CultureInfo.InvariantCulture, out loopEndUT))
+                    rec.LoopEndUT = loopEndUT;
             }
 
             string loopAnchorPidStr = recNode.GetValue("loopAnchorPid");
@@ -2011,6 +2040,7 @@ namespace Parsek
         private void OnVesselRecovered(ProtoVessel pv, bool fromTrackingStation)
         {
             if (pv == null) return;
+            if (GhostMapPresence.IsGhostMapVessel(pv.persistentId)) return;
 
             // During rewind, vessels are stripped from the save which fires onVesselRecovered.
             // Ignore these — the recordings must keep their snapshots for ghost playback and spawning.
@@ -2033,6 +2063,7 @@ namespace Parsek
         private void OnVesselTerminated(ProtoVessel pv)
         {
             if (pv == null) return;
+            if (GhostMapPresence.IsGhostMapVessel(pv.persistentId)) return;
             if (RecordingStore.IsRewinding) return;
             string vesselName = pv.vesselName;
             if (string.IsNullOrEmpty(vesselName)) return;

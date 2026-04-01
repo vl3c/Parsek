@@ -253,6 +253,10 @@ namespace Parsek
             recNode.AddValue("recordingFormatVersion", rec.RecordingFormatVersion);
             recNode.AddValue("loopPlayback", rec.LoopPlayback);
             recNode.AddValue("loopIntervalSeconds", rec.LoopIntervalSeconds.ToString("R", ic));
+            if (!double.IsNaN(rec.LoopStartUT))
+                recNode.AddValue("loopStartUT", rec.LoopStartUT.ToString("R", ic));
+            if (!double.IsNaN(rec.LoopEndUT))
+                recNode.AddValue("loopEndUT", rec.LoopEndUT.ToString("R", ic));
             if (rec.LoopAnchorVesselId != 0)
                 recNode.AddValue("loopAnchorPid", rec.LoopAnchorVesselId.ToString(ic));
             if (!string.IsNullOrEmpty(rec.LoopAnchorBodyName))
@@ -473,6 +477,22 @@ namespace Parsek
                 double loopIntervalSeconds;
                 if (double.TryParse(loopIntervalStr, inv, ic, out loopIntervalSeconds))
                     rec.LoopIntervalSeconds = loopIntervalSeconds;
+            }
+
+            string loopStartUTStr = recNode.GetValue("loopStartUT");
+            if (loopStartUTStr != null)
+            {
+                double loopStartUT;
+                if (double.TryParse(loopStartUTStr, inv, ic, out loopStartUT))
+                    rec.LoopStartUT = loopStartUT;
+            }
+
+            string loopEndUTStr = recNode.GetValue("loopEndUT");
+            if (loopEndUTStr != null)
+            {
+                double loopEndUT;
+                if (double.TryParse(loopEndUTStr, inv, ic, out loopEndUT))
+                    rec.LoopEndUT = loopEndUT;
             }
 
             string loopAnchorPidStr = recNode.GetValue("loopAnchorPid");

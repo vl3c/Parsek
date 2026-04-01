@@ -127,6 +127,19 @@ namespace Parsek
         internal enum SortColumn { Index, Phase, Name, LaunchTime, Duration, Status }
         private SortColumn sortColumn = SortColumn.Index;
         private bool sortAscending = true;
+
+        // Root-level draw item for unified sorting of groups, chains, and standalone recordings
+        private enum RootItemType { Group, Chain, Recording }
+
+        private struct RootDrawItem
+        {
+            public double SortKey;
+            public string SortName;
+            public RootItemType ItemType;
+            public string GroupName;   // for groups
+            public string ChainId;     // for chains
+            public int RecIdx;         // for standalone recordings
+        }
         private int[] sortedIndices; // maps display row → CommittedRecordings index
         private int lastSortedCount = -1;
 
@@ -188,6 +201,7 @@ namespace Parsek
         // Cached sorted candidate list -- re-sorted only when source data or sort state changes
         private List<NearbySpawnCandidate> cachedSortedCandidates = new List<NearbySpawnCandidate>();
         private int cachedCandidateCount = -1;
+        private int cachedProximityGeneration = -1;
         private SpawnSortColumn cachedSortColumn = SpawnSortColumn.Distance;
         private bool cachedSortAscending = true;
 
@@ -1201,37 +1215,91 @@ namespace Parsek
                     out grpToRecs, out chainToRecs, out grpChildren,
                     out rootGrps, out rootChainIds);
 
+                // ── Build unified sorted root items ──────────────────────
+                var rootItems = new List<RootDrawItem>();
+
+                // Add root groups
+                for (int g = 0; g < rootGrps.Count; g++)
+                {
+                    var desc = new HashSet<int>();
+                    CollectDescendantRecordings(rootGrps[g], grpToRecs, grpChildren, desc);
+                    rootItems.Add(new RootDrawItem
+                    {
+                        SortKey = GetGroupSortKey(desc, committed, sortColumn, now),
+                        SortName = rootGrps[g],
+                        ItemType = RootItemType.Group,
+                        GroupName = rootGrps[g],
+                        RecIdx = -1
+                    });
+                }
+
+                // Add root chains and standalone recordings from sortedIndices
+                var seenChains = new HashSet<string>();
+                for (int row = 0; row < sortedIndices.Length; row++)
+                {
+                    int ri = sortedIndices[row];
+                    var rec = committed[ri];
+                    // Skip recordings that belong to groups (drawn inside group trees)
+                    if (rec.RecordingGroups != null && rec.RecordingGroups.Count > 0) continue;
+
+                    if (!string.IsNullOrEmpty(rec.ChainId) && rootChainIds.Contains(rec.ChainId))
+                    {
+                        if (!seenChains.Add(rec.ChainId)) continue;
+                        var members = chainToRecs[rec.ChainId];
+                        rootItems.Add(new RootDrawItem
+                        {
+                            SortKey = GetChainSortKey(members, committed, sortColumn, now),
+                            SortName = members.Count > 0 ? committed[members[0]].VesselName : "",
+                            ItemType = RootItemType.Chain,
+                            ChainId = rec.ChainId,
+                            RecIdx = -1
+                        });
+                    }
+                    else if (string.IsNullOrEmpty(rec.ChainId))
+                    {
+                        rootItems.Add(new RootDrawItem
+                        {
+                            SortKey = GetRecordingSortKey(rec, sortColumn, now, row),
+                            SortName = string.IsNullOrEmpty(rec.VesselName) ? "Untitled" : rec.VesselName,
+                            ItemType = RootItemType.Recording,
+                            RecIdx = ri
+                        });
+                    }
+                }
+
+                // Sort root items
+                var col = sortColumn;
+                var asc = sortAscending;
+                rootItems.Sort((a, b) =>
+                {
+                    int cmp;
+                    if (col == SortColumn.Name || col == SortColumn.Phase)
+                        cmp = string.Compare(a.SortName, b.SortName,
+                            System.StringComparison.OrdinalIgnoreCase);
+                    else
+                        cmp = a.SortKey.CompareTo(b.SortKey);
+                    return asc ? cmp : -cmp;
+                });
+
                 // ── Draw tree ─────────────────────────────────────────────
                 bool deleted = false;
 
-                // Root groups
-                for (int g = 0; g < rootGrps.Count && !deleted; g++)
-                    deleted = DrawGroupTree(rootGrps[g], 0, committed, now,
-                        grpToRecs, chainToRecs, grpChildren);
-
-                // Root chains
-                var drawnRootChains = new HashSet<string>();
-                for (int row = 0; row < sortedIndices.Length && !deleted; row++)
+                for (int i = 0; i < rootItems.Count && !deleted; i++)
                 {
-                    int ri = sortedIndices[row];
-                    var rec = committed[ri];
-                    if (string.IsNullOrEmpty(rec.ChainId) || !rootChainIds.Contains(rec.ChainId))
-                        continue;
-                    if (!drawnRootChains.Add(rec.ChainId)) continue;
-                    deleted = DrawChainBlock(rec.ChainId, chainToRecs[rec.ChainId],
-                        0, committed, now);
-                }
-
-                // Standalone recordings (no groups, no chain)
-                for (int row = 0; row < sortedIndices.Length && !deleted; row++)
-                {
-                    int ri = sortedIndices[row];
-                    var rec = committed[ri];
-                    if ((rec.RecordingGroups == null || rec.RecordingGroups.Count == 0) &&
-                        string.IsNullOrEmpty(rec.ChainId))
+                    var item = rootItems[i];
+                    switch (item.ItemType)
                     {
-                        if (DrawRecordingRow(ri, committed, now, 0f))
-                        { deleted = true; break; }
+                        case RootItemType.Group:
+                            deleted = DrawGroupTree(item.GroupName, 0, committed, now,
+                                grpToRecs, chainToRecs, grpChildren);
+                            break;
+                        case RootItemType.Chain:
+                            deleted = DrawChainBlock(item.ChainId,
+                                chainToRecs[item.ChainId], 0, committed, now);
+                            break;
+                        case RootItemType.Recording:
+                            deleted = DrawRecordingRow(item.RecIdx, committed, now, 0f);
+                            break;
                     }
                 }
 
@@ -1405,6 +1473,7 @@ namespace Parsek
             if (loop != rec.LoopPlayback)
             {
                 rec.LoopPlayback = loop;
+                ApplyAutoLoopRange(rec, loop);
                 if (!loop && loopPeriodFocusedRi == ri)
                     loopPeriodFocusedRi = -1;
                 ParsekLog.Info("UI", $"Recording '{rec.VesselName}' loop playback set to {loop}");
@@ -1684,6 +1753,38 @@ namespace Parsek
                 }
             }
 
+            // Phase placeholder (groups have no phase)
+            GUILayout.Label("", GUILayout.Width(ColW_Phase));
+
+            // Launch time (earliest among descendants)
+            double grpEarliest = GetGroupEarliestStartUT(descendants, committed);
+            string grpLaunchText = (memberCount > 0 && grpEarliest < double.MaxValue)
+                ? KSPUtil.PrintDateCompact(grpEarliest, true)
+                : "-";
+            GUILayout.Label(grpLaunchText, GUILayout.Width(ColW_Launch));
+
+            // Duration (sum of descendant durations)
+            double grpTotalDur = GetGroupTotalDuration(descendants, committed);
+            GUILayout.Label(FormatDuration(grpTotalDur), GUILayout.Width(ColW_Dur));
+
+            // Expanded stats spacers
+            if (showExpandedStats)
+            {
+                GUILayout.Label("", GUILayout.Width(ColW_MaxAlt));
+                GUILayout.Label("", GUILayout.Width(ColW_MaxSpd));
+                GUILayout.Label("", GUILayout.Width(ColW_Dist));
+                GUILayout.Label("", GUILayout.Width(ColW_Pts));
+            }
+
+            // Status (closest active T- among descendants)
+            string grpStatusText;
+            int grpStatusOrder;
+            GetGroupStatus(descendants, committed, now, out grpStatusText, out grpStatusOrder);
+            GUIStyle grpStatusStyle = grpStatusOrder == 0 ? statusStyleFuture
+                : grpStatusOrder == 1 ? statusStyleActive
+                : statusStylePast;
+            GUILayout.Label(grpStatusText, grpStatusStyle, GUILayout.Width(ColW_Status));
+
             // Group management buttons: G (assign parent) + X (disband) — share ColW_Group width
             float halfGroup = (ColW_Group - 4f) * 0.5f; // 4px for spacing between buttons
             if (GUILayout.Button("G", GUILayout.Width(halfGroup)))
@@ -1880,7 +1981,10 @@ namespace Parsek
             if (chainNewLoop != chainAllLoop)
             {
                 for (int m = 0; m < members.Count; m++)
+                {
                     committed[members[m]].LoopPlayback = chainNewLoop;
+                    ApplyAutoLoopRange(committed[members[m]], chainNewLoop);
+                }
                 ParsekLog.Info("UI", $"Chain '{chainId}' loop set to {chainNewLoop} ({members.Count} segments)");
             }
             GUILayout.Label("", GUILayout.Width(ColW_Period));
@@ -2589,6 +2693,64 @@ namespace Parsek
             return 2;                          // past
         }
 
+        /// <summary>
+        /// Sort key for a single recording based on the current sort column.
+        /// For Index/Phase sort, uses the row position to preserve sortedIndices order.
+        /// </summary>
+        internal static double GetRecordingSortKey(Recording rec, SortColumn column, double now, int rowFallback)
+        {
+            switch (column)
+            {
+                case SortColumn.LaunchTime: return rec.StartUT;
+                case SortColumn.Duration: return rec.EndUT - rec.StartUT;
+                case SortColumn.Status: return GetStatusOrder(rec, now);
+                default: return rowFallback;
+            }
+        }
+
+        /// <summary>
+        /// Sort key for a chain based on the current sort column.
+        /// Uses earliest StartUT for launch, sum for duration, etc.
+        /// </summary>
+        internal static double GetChainSortKey(List<int> members, List<Recording> committed,
+            SortColumn column, double now)
+        {
+            switch (column)
+            {
+                case SortColumn.LaunchTime:
+                {
+                    double earliest = double.MaxValue;
+                    for (int m = 0; m < members.Count; m++)
+                        if (committed[members[m]].StartUT < earliest)
+                            earliest = committed[members[m]].StartUT;
+                    return earliest;
+                }
+                case SortColumn.Duration:
+                {
+                    double total = 0;
+                    for (int m = 0; m < members.Count; m++)
+                    {
+                        double dur = committed[members[m]].EndUT - committed[members[m]].StartUT;
+                        if (dur > 0) total += dur;
+                    }
+                    return total;
+                }
+                case SortColumn.Status:
+                {
+                    // Best (lowest) status order among members
+                    int best = 2;
+                    for (int m = 0; m < members.Count; m++)
+                    {
+                        int order = GetStatusOrder(committed[members[m]], now);
+                        if (order < best) best = order;
+                    }
+                    return best;
+                }
+                default:
+                    return 0; // Name/Phase/Index: handled via string comparison externally
+            }
+        }
+
         internal static int CompareRecordings(
             Recording ra, Recording rb,
             SortColumn column, bool ascending, double now)
@@ -2668,6 +2830,138 @@ namespace Parsek
             if (meters < 1000) return $"{(int)meters}m";
             if (meters < 1000000) return (meters / 1000).ToString("F1", System.Globalization.CultureInfo.InvariantCulture) + "km";
             return (meters / 1000000).ToString("F1", System.Globalization.CultureInfo.InvariantCulture) + "Mm";
+        }
+
+        /// <summary>
+        /// Returns the earliest StartUT among the given descendant recording indices.
+        /// Returns double.MaxValue if no descendants exist.
+        /// </summary>
+        internal static double GetGroupEarliestStartUT(HashSet<int> descendants, List<Recording> committed)
+        {
+            double earliest = double.MaxValue;
+            foreach (int idx in descendants)
+            {
+                double st = committed[idx].StartUT;
+                if (st < earliest) earliest = st;
+            }
+            return earliest;
+        }
+
+        /// <summary>
+        /// Returns the sum of durations (EndUT - StartUT) for all descendant recordings.
+        /// </summary>
+        internal static double GetGroupTotalDuration(HashSet<int> descendants, List<Recording> committed)
+        {
+            double total = 0;
+            foreach (int idx in descendants)
+            {
+                double dur = committed[idx].EndUT - committed[idx].StartUT;
+                if (dur > 0) total += dur;
+            }
+            return total;
+        }
+
+        /// <summary>
+        /// Returns the status text and style order (0=future, 1=active, 2=past) for a group,
+        /// based on the most relevant descendant: most recently activated (active with StartUT
+        /// closest to now) wins, then closest future, then past.
+        /// </summary>
+        internal static void GetGroupStatus(HashSet<int> descendants, List<Recording> committed,
+            double now, out string statusText, out int statusOrder)
+        {
+            // Find the best candidate: prefer active (closest T-), then future (closest), then past
+            double bestActiveDelta = double.MaxValue;   // smallest |now - StartUT| among active
+            double bestFutureDelta = double.MaxValue;   // smallest (StartUT - now) among future
+            int activeIdx = -1;
+            int futureIdx = -1;
+            bool anyPast = false;
+
+            foreach (int idx in descendants)
+            {
+                var rec = committed[idx];
+                if (now >= rec.StartUT && now <= rec.EndUT)
+                {
+                    // Active recording — prefer closest T- (= StartUT - now, which is negative;
+                    // we want the one closest to now, i.e., smallest |delta|)
+                    double delta = System.Math.Abs(rec.StartUT - now);
+                    if (delta < bestActiveDelta)
+                    {
+                        bestActiveDelta = delta;
+                        activeIdx = idx;
+                    }
+                }
+                else if (now < rec.StartUT)
+                {
+                    double delta = rec.StartUT - now;
+                    if (delta < bestFutureDelta)
+                    {
+                        bestFutureDelta = delta;
+                        futureIdx = idx;
+                    }
+                }
+                else
+                {
+                    anyPast = true;
+                }
+            }
+
+            if (activeIdx >= 0)
+            {
+                var rec = committed[activeIdx];
+                statusOrder = 1; // active
+                statusText = rec.Points.Count > 0
+                    ? SelectiveSpawnUI.FormatCountdown(rec.StartUT - now)
+                    : "active";
+            }
+            else if (futureIdx >= 0)
+            {
+                var rec = committed[futureIdx];
+                statusOrder = 0; // future
+                statusText = rec.Points.Count > 0
+                    ? SelectiveSpawnUI.FormatCountdown(rec.StartUT - now)
+                    : "future";
+            }
+            else if (anyPast)
+            {
+                statusOrder = 2;
+                statusText = "past";
+            }
+            else
+            {
+                statusOrder = 2;
+                statusText = "-";
+            }
+        }
+
+        /// <summary>
+        /// Computes a sort key for a group based on the current sort column.
+        /// Used to interleave groups with recordings in the sorted draw order.
+        /// </summary>
+        internal static double GetGroupSortKey(HashSet<int> descendants, List<Recording> committed,
+            SortColumn column, double now)
+        {
+            if (descendants.Count == 0) return double.MaxValue;
+
+            switch (column)
+            {
+                case SortColumn.LaunchTime:
+                    return GetGroupEarliestStartUT(descendants, committed);
+                case SortColumn.Duration:
+                    return GetGroupTotalDuration(descendants, committed);
+                case SortColumn.Status:
+                {
+                    string unused;
+                    int order;
+                    GetGroupStatus(descendants, committed, now, out unused, out order);
+                    return order;
+                }
+                case SortColumn.Name:
+                case SortColumn.Phase:
+                    return 0; // sorted by string comparison externally
+                case SortColumn.Index:
+                default:
+                    return -1; // groups before recordings in insertion-order sort
+            }
         }
 
         private RecordingStats GetOrComputeStats(Recording rec)
@@ -2790,6 +3084,38 @@ namespace Parsek
                 System.Globalization.CultureInfo.InvariantCulture, out intVal);
             value = intVal;
             return ok;
+        }
+
+        // --- Auto loop range ---
+
+        /// <summary>
+        /// Sets or clears LoopStartUT/LoopEndUT when the loop toggle changes.
+        /// On toggle-on: auto-selects the interesting portion (trims boring bookends).
+        /// On toggle-off: clears the range back to NaN (full recording).
+        /// </summary>
+        internal static void ApplyAutoLoopRange(Recording rec, bool loopEnabled)
+        {
+            if (loopEnabled)
+            {
+                var (start, end) = GhostPlaybackLogic.ComputeAutoLoopRange(rec.TrackSections);
+                if (!double.IsNaN(start))
+                {
+                    rec.LoopStartUT = start;
+                    rec.LoopEndUT = end;
+                    ParsekLog.Info("UI", $"Auto loop range: '{rec.VesselName}' " +
+                        $"narrowed to [{start:F1}..{end:F1}] " +
+                        $"(trimmed from [{rec.StartUT:F1}..{rec.EndUT:F1}])");
+                }
+            }
+            else
+            {
+                if (!double.IsNaN(rec.LoopStartUT) || !double.IsNaN(rec.LoopEndUT))
+                {
+                    rec.LoopStartUT = double.NaN;
+                    rec.LoopEndUT = double.NaN;
+                    ParsekLog.Info("UI", $"Loop range cleared for '{rec.VesselName}'");
+                }
+            }
         }
 
         // --- Loop period cell ---
@@ -3026,7 +3352,7 @@ namespace Parsek
             if (spawnControlWindowRect.width < 1f)
             {
                 float x = mainWindowRect.x + mainWindowRect.width + 10;
-                spawnControlWindowRect = new Rect(x, mainWindowRect.y, 528, 200);
+                spawnControlWindowRect = new Rect(x, mainWindowRect.y, 680, 200);
                 var ic = System.Globalization.CultureInfo.InvariantCulture;
                 ParsekLog.Verbose("UI",
                     $"Real Spawn Control window initial position: x={spawnControlWindowRect.x.ToString("F0", ic)} y={spawnControlWindowRect.y.ToString("F0", ic)}");
@@ -3073,7 +3399,8 @@ namespace Parsek
         private const float SpawnColW_Dist = 55f;
         private const float SpawnColW_SpawnTime = 100f;
         private const float SpawnColW_Countdown = 95f;
-        private const float SpawnColW_Warp = 50f;
+        private const float SpawnColW_State = 110f;
+        private const float SpawnColW_Warp = 85f;
 
         private void DrawSpawnSortableHeader(string label, SpawnSortColumn col, float width)
         {
@@ -3133,11 +3460,14 @@ namespace Parsek
             DrawSpawnSortableHeader("Dist", SpawnSortColumn.Distance, SpawnColW_Dist);
             DrawSpawnSortableHeader("Spawns at", SpawnSortColumn.SpawnTime, SpawnColW_SpawnTime);
             DrawSpawnSortableHeader("In T-", SpawnSortColumn.SpawnTime, SpawnColW_Countdown);
+            GUILayout.Label("State", GUILayout.Width(SpawnColW_State));
             GUILayout.Label("", GUILayout.Width(SpawnColW_Warp));
             GUILayout.EndHorizontal();
 
-            // Re-sort only when candidate list or sort state changes
+            // Re-sort when candidate list, sort state, or departure info changes
+            int gen = flight.ProximityCheckGeneration;
             if (candidates.Count != cachedCandidateCount
+                || gen != cachedProximityGeneration
                 || spawnSortColumn != cachedSortColumn
                 || spawnSortAscending != cachedSortAscending)
             {
@@ -3146,6 +3476,7 @@ namespace Parsek
                     cachedSortedCandidates.Add(candidates[ci]);
                 cachedSortedCandidates.Sort(CompareSpawnCandidates);
                 cachedCandidateCount = candidates.Count;
+                cachedProximityGeneration = gen;
                 cachedSortColumn = spawnSortColumn;
                 cachedSortAscending = spawnSortAscending;
             }
@@ -3171,16 +3502,56 @@ namespace Parsek
                     SelectiveSpawnUI.FormatCountdown(delta),
                     GUILayout.Width(SpawnColW_Countdown));
 
-                GUI.enabled = canWarp;
-                if (GUILayout.Button("Warp", GUILayout.Width(SpawnColW_Warp)))
+                // State column: departure info
+                if (cand.willDepart)
                 {
-                    ParsekLog.Info("UI",
-                        string.Format(ic,
-                            "Real Spawn Control: warp to '{0}' recording #{1}",
-                            cand.vesselName, cand.recordingIndex));
-                    flight.WarpToRecordingEnd(cand.recordingIndex);
+                    double depDelta = cand.departureUT - currentUT;
+                    string stateText;
+                    if (depDelta <= 0)
+                        stateText = string.Format(ic, "Departing \u2192 {0}", cand.destination ?? "?");
+                    else
+                        stateText = string.Format(ic, "Departs {0}",
+                            SelectiveSpawnUI.FormatCountdown(depDelta));
+                    var prevColor = GUI.contentColor;
+                    GUI.contentColor = depDelta <= 0
+                        ? new Color(1f, 0.65f, 0.2f) // orange
+                        : new Color(1f, 1f, 0.4f);    // yellow
+                    GUILayout.Label(stateText, GUILayout.Width(SpawnColW_State));
+                    GUI.contentColor = prevColor;
                 }
-                GUI.enabled = true;
+                else
+                {
+                    GUILayout.Label("", GUILayout.Width(SpawnColW_State));
+                }
+
+                // Warp button: "FF-Depart" for departing, "FF-Spawn" for normal
+                if (cand.willDepart)
+                {
+                    bool canWarpDep = cand.departureUT > currentUT;
+                    GUI.enabled = canWarpDep;
+                    if (GUILayout.Button("FF-Depart", GUILayout.Width(SpawnColW_Warp)))
+                    {
+                        ParsekLog.Info("UI",
+                            string.Format(ic,
+                                "Real Spawn Control: warp to departure '{0}' recording #{1} depUT={2:F1}",
+                                cand.vesselName, cand.recordingIndex, cand.departureUT));
+                        flight.WarpToDeparture(cand.recordingIndex, cand.departureUT);
+                    }
+                    GUI.enabled = true;
+                }
+                else
+                {
+                    GUI.enabled = canWarp;
+                    if (GUILayout.Button("FF-Spawn", GUILayout.Width(SpawnColW_Warp)))
+                    {
+                        ParsekLog.Info("UI",
+                            string.Format(ic,
+                                "Real Spawn Control: warp to '{0}' recording #{1}",
+                                cand.vesselName, cand.recordingIndex));
+                        flight.WarpToRecordingEnd(cand.recordingIndex);
+                    }
+                    GUI.enabled = true;
+                }
                 GUILayout.EndHorizontal();
             }
             GUILayout.EndScrollView();
@@ -3599,12 +3970,15 @@ namespace Parsek
                 DrawMapMarkerAt(cam, flight.PreviewGhost.transform.position, "Preview", Color.green);
             }
 
-            // Timeline ghosts
+            // Timeline ghosts — skip if a ghost map ProtoVessel exists for this index
+            // (the native KSP vessel icon replaces this dot and tracks the correct orbital position)
             var committed = RecordingStore.CommittedRecordings;
             Color ghostColor = new Color(0.2f, 1f, 0.4f, 0.9f);
             foreach (var kvp in flight.TimelineGhosts)
             {
                 if (kvp.Value == null) continue;
+                if (GhostMapPresence.HasGhostVesselForRecording(kvp.Key))
+                    continue;
                 string ghostName = kvp.Key < committed.Count ? committed[kvp.Key].VesselName : "Ghost";
                 DrawMapMarkerAt(cam, kvp.Value.transform.position, ghostName, ghostColor);
             }

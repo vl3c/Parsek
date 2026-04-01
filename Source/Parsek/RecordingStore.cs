@@ -798,15 +798,15 @@ namespace Parsek
 
         /// <summary>
         /// Runs the optimization pass: find merge candidates among committed recordings,
-        /// execute merges, re-index chains. Called on save load after migrations.
-        /// Merge-only for now; split support deferred (requires file I/O for new sidecar files).
+        /// execute merges, re-index chains, then split multi-environment recordings at
+        /// environment boundaries. Called on save load after migrations.
         /// </summary>
         internal static void RunOptimizationPass()
         {
             var recordings = CommittedRecordings;
-            if (recordings == null || recordings.Count < 2)
+            if (recordings == null || recordings.Count == 0)
             {
-                ParsekLog.Verbose("RecordingStore", "Optimization pass: skipped (< 2 recordings)");
+                ParsekLog.Verbose("RecordingStore", "Optimization pass: skipped (no recordings)");
                 return;
             }
 
@@ -862,6 +862,131 @@ namespace Parsek
                 ParsekLog.Info("RecordingStore", $"Optimization pass: merged {mergeCount} segment pair(s)");
             else
                 ParsekLog.Verbose("RecordingStore", "Optimization pass: no merge candidates found");
+
+            // Split pass: break multi-environment recordings at environment boundaries.
+            // Each split produces two recordings sharing a ChainId for UI grouping.
+            // Uses CanAutoSplitIgnoringGhostTriggers — ghosting triggers don't block
+            // optimizer splits because both halves inherit the GhostVisualSnapshot and
+            // part events are correctly partitioned by SplitAtSection.
+            int splitCount = 0;
+            const int maxSplitsPerPass = 50;
+            bool splitChanged = true;
+            while (splitChanged && splitCount < maxSplitsPerPass)
+            {
+                splitChanged = false;
+                var splitCandidates = RecordingOptimizer.FindSplitCandidatesForOptimizer(recordings);
+                if (splitCandidates.Count == 0) break;
+
+                var (recIdx, secIdx) = splitCandidates[0];
+                var original = recordings[recIdx];
+
+                var second = RecordingOptimizer.SplitAtSection(original, secIdx);
+
+                // Assign identity
+                second.RecordingId = Guid.NewGuid().ToString("N");
+                if (string.IsNullOrEmpty(original.ChainId))
+                    original.ChainId = Guid.NewGuid().ToString("N");
+                second.ChainId = original.ChainId;
+                second.TreeId = original.TreeId;
+                second.VesselName = original.VesselName;
+                second.VesselPersistentId = original.VesselPersistentId;
+                second.PreLaunchFunds = original.PreLaunchFunds;
+                second.PreLaunchScience = original.PreLaunchScience;
+                second.PreLaunchReputation = original.PreLaunchReputation;
+                second.RecordingGroups = original.RecordingGroups != null
+                    ? new List<string>(original.RecordingGroups) : null;
+
+                // Derive SegmentBodyName from trajectory points
+                if (original.Points != null && original.Points.Count > 0)
+                    original.SegmentBodyName = original.Points[0].bodyName;
+                if (second.Points != null && second.Points.Count > 0)
+                    second.SegmentBodyName = second.Points[0].bodyName;
+
+                // BranchPoint linkage: ChildBranchPointId moves to last half
+                second.ChildBranchPointId = original.ChildBranchPointId;
+                original.ChildBranchPointId = null;
+                // Do NOT set second.ParentRecordingId — that field is for EVA linkage only
+
+                // Update BranchPoint.ParentRecordingIds when ChildBranchPointId moves to new half
+                if (!string.IsNullOrEmpty(second.ChildBranchPointId) && !string.IsNullOrEmpty(original.TreeId))
+                {
+                    for (int t = 0; t < committedTrees.Count; t++)
+                    {
+                        if (committedTrees[t].Id != original.TreeId) continue;
+                        var tree = committedTrees[t];
+                        if (tree.BranchPoints != null)
+                        {
+                            for (int b = 0; b < tree.BranchPoints.Count; b++)
+                            {
+                                if (tree.BranchPoints[b].Id == second.ChildBranchPointId
+                                    && tree.BranchPoints[b].ParentRecordingIds != null)
+                                {
+                                    var parentIds = tree.BranchPoints[b].ParentRecordingIds;
+                                    for (int p = 0; p < parentIds.Count; p++)
+                                    {
+                                        if (parentIds[p] == original.RecordingId)
+                                        {
+                                            parentIds[p] = second.RecordingId;
+                                            ParsekLog.Verbose("RecordingStore",
+                                                $"Split: updated BranchPoint '{second.ChildBranchPointId}' " +
+                                                $"ParentRecordingIds: {original.RecordingId} → {second.RecordingId}");
+                                            break;
+                                        }
+                                    }
+                                    break;
+                                }
+                            }
+                        }
+                        break;
+                    }
+                }
+
+                // Add to committed recordings (after original)
+                recordings.Insert(recIdx + 1, second);
+
+                // Update tree dict if applicable
+                if (!string.IsNullOrEmpty(original.TreeId))
+                {
+                    for (int t = 0; t < committedTrees.Count; t++)
+                    {
+                        if (committedTrees[t].Id == original.TreeId)
+                        {
+                            committedTrees[t].Recordings[second.RecordingId] = second;
+                            break;
+                        }
+                    }
+                }
+
+                // Save sidecar files for both halves
+                try { SaveRecordingFiles(original); }
+                catch (System.Exception ex)
+                {
+                    ParsekLog.Warn("RecordingStore",
+                        $"Split: failed to save original {original.RecordingId}: {ex.Message}");
+                }
+                try { SaveRecordingFiles(second); }
+                catch (System.Exception ex)
+                {
+                    ParsekLog.Warn("RecordingStore",
+                        $"Split: failed to save new segment {second.RecordingId}: {ex.Message}");
+                }
+
+                // Reindex chain by StartUT
+                RecordingOptimizer.ReindexChain(recordings, original.ChainId);
+
+                splitCount++;
+                splitChanged = true;
+                ParsekLog.Info("RecordingStore",
+                    $"Split recording '{original.VesselName}' at section {secIdx}: " +
+                    $"'{original.SegmentPhase ?? "?"}' [{original.StartUT:F0}..{original.EndUT:F0}] + " +
+                    $"'{second.SegmentPhase ?? "?"}' [{second.StartUT:F0}..{second.EndUT:F0}]");
+            }
+
+            if (splitCount >= maxSplitsPerPass)
+                ParsekLog.Warn("RecordingStore",
+                    $"Optimization pass: hit split cap ({maxSplitsPerPass}), some candidates may remain");
+            else if (splitCount > 0)
+                ParsekLog.Info("RecordingStore", $"Optimization pass: split {splitCount} recording(s)");
         }
 
         // ─── Group management helpers ────────────────────────────────────────
@@ -1334,7 +1459,7 @@ namespace Parsek
             int standaloneCount = 0;
             for (int i = 0; i < committedRecordings.Count; i++)
             {
-                if (committedRecordings[i].TreeId == null)
+                if (!committedRecordings[i].IsTreeRecording)
                     standaloneCount++;
                 ResetRecordingPlaybackFields(committedRecordings[i]);
             }

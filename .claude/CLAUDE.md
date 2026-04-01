@@ -24,7 +24,7 @@ Key source files and what they do - read the relevant one before modifying:
 - `ParsekFlight.cs` - flight-scene controller (policy, recording, chain management, camera follow, input)
 - `GhostPlaybackEngine.cs` - ghost playback mechanics engine: owns ghostStates, per-frame positioning, loop/overlap playback, zone transitions, soft caps, reentry FX. Zero Recording references — accesses trajectories via IPlaybackTrajectory only. Future standalone mod core.
 - `ParsekPlaybackPolicy.cs` - event subscriber reacting to engine lifecycle events (spawn decisions, resource deltas, camera management, deferred spawn queue)
-- `IPlaybackTrajectory.cs` - interface exposing 19 trajectory/visual fields from Recording to the engine
+- `IPlaybackTrajectory.cs` - interface exposing 27 trajectory/visual/orbital fields from Recording to the engine
 - `IGhostPositioner.cs` - 8 positioning methods implemented by ParsekFlight, delegates world-space placement to the host scene
 - `GhostPlaybackEvents.cs` - lifecycle event types (PlaybackCompleted, LoopRestarted, OverlapExpired, CameraAction), TrajectoryPlaybackFlags, FrameContext
 - `ChainSegmentManager.cs` - chain segment state (active chain ID, continuation tracking, boundary anchors). Owns 16 fields previously scattered across ParsekFlight.
@@ -40,7 +40,8 @@ Key source files and what they do - read the relevant one before modifying:
 - `TrajectoryMath.cs` - pure static math (sampling, interpolation, orbit search)
 - `VesselSpawner.cs` - vessel spawn/recover/snapshot utilities
 - `MergeDialog.cs` - post-revert merge dialog
-- `ParsekHarmony.cs` + `Patches/` - Harmony patcher + postfix patches
+- `GhostMapPresence.cs` - ProtoVessel lifecycle for ghost map presence: creates/destroys lightweight vessels for tracking station, orbit lines, targeting. Manages ghostMapVesselPids HashSet for O(1) guard checks across codebase.
+- `ParsekHarmony.cs` + `Patches/` - Harmony patcher + patches (PhysicsFrame, GhostVesselLoad, GhostCommNetVessel, GhostTrackingStation, FacilityUpgrade, FlightResults, ScienceSubject, TechResearch)
 
 ## Worktree Workflow
 

@@ -14,6 +14,20 @@ namespace Parsek
         public double endUT;
         public double distance;
         public string recordingId;
+        public bool willDepart;        // ghost will leave current orbit before EndUT
+        public double departureUT;     // UT when ghost departs (0 if !willDepart)
+        public string destination;     // "Mun", "maneuver", etc.
+    }
+
+    /// <summary>
+    /// Result of departure analysis for a ghost craft.
+    /// Indicates whether the ghost will leave its current orbit before recording ends.
+    /// </summary>
+    internal struct DepartureInfo
+    {
+        public bool willDepart;
+        public double departureUT;     // endUT of the current orbit segment (0 if !willDepart)
+        public string destination;     // body name or "maneuver"
     }
 
     /// <summary>
@@ -74,7 +88,9 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Pure: find the candidate with the earliest endUT in the future.
+        /// Pure: find the candidate with the earliest effective UT in the future.
+        /// For departing candidates, the effective UT is departureUT (when the ghost leaves).
+        /// For non-departing candidates, the effective UT is endUT (when it spawns).
         /// Returns null if no candidates qualify.
         /// </summary>
         internal static NearbySpawnCandidate? FindNextSpawnCandidate(
@@ -84,12 +100,18 @@ namespace Parsek
                 return null;
 
             NearbySpawnCandidate? best = null;
+            double bestUT = double.MaxValue;
             for (int i = 0; i < candidates.Count; i++)
             {
-                if (candidates[i].endUT > currentUT)
+                var c = candidates[i];
+                // Departing candidates use departureUT (when the ghost leaves its current orbit),
+                // non-departing use endUT (when the ghost spawns). The > currentUT filter also
+                // naturally skips departing candidates whose departure is already in the past.
+                double effectiveUT = c.willDepart ? c.departureUT : c.endUT;
+                if (effectiveUT > currentUT && effectiveUT < bestUT)
                 {
-                    if (best == null || candidates[i].endUT < best.Value.endUT)
-                        best = candidates[i];
+                    best = c;
+                    bestUT = effectiveUT;
                 }
             }
             return best;
@@ -185,6 +207,7 @@ namespace Parsek
 
         /// <summary>
         /// Pure: format the tooltip for the "Warp to Next Spawn" button.
+        /// Adjusts text when the next candidate will depart before spawn.
         /// </summary>
         internal static string FormatNextSpawnTooltip(
             NearbySpawnCandidate? candidate, double currentUT)
@@ -192,10 +215,178 @@ namespace Parsek
             if (candidate == null)
                 return "No nearby craft to spawn";
 
-            double delta = candidate.Value.endUT - currentUT;
+            var c = candidate.Value;
+            if (c.willDepart)
+            {
+                double depDelta = c.departureUT - currentUT;
+                return string.Format(IC,
+                    "Warp to {0} departure (departs in {1})",
+                    c.vesselName, FormatTimeDelta(depDelta));
+            }
+
+            double delta = c.endUT - currentUT;
             return string.Format(IC,
                 "Warp to {0} (spawns in {1})",
-                candidate.Value.vesselName, FormatTimeDelta(delta));
+                c.vesselName, FormatTimeDelta(delta));
+        }
+
+        // ════════════════════════════════════════════════════════════════
+        //  Departure Detection
+        // ════════════════════════════════════════════════════════════════
+
+        // Tolerances for OrbitsMatch — tight enough that any intentional maneuver
+        // is detected, loose enough to handle float noise from re-captured orbits.
+        internal const double SmaRelativeTolerance = 0.001;      // 0.1%
+        internal const double EccAbsoluteTolerance = 0.0001;
+        internal const double IncDegreeTolerance = 0.01;
+        internal const double ArgPeDegreeTolerance = 1.0;
+        internal const double EccThresholdForArgPe = 0.01;       // skip argPe below this
+
+        /// <summary>
+        /// Pure: compare two orbit segments for functional equivalence.
+        /// Checks body, SMA, eccentricity, inclination, and argument of periapsis
+        /// (argPe only for eccentric orbits where it is physically meaningful).
+        /// LAN and mean anomaly are NOT compared — they are time-dependent.
+        /// </summary>
+        internal static bool OrbitsMatch(OrbitSegment a, OrbitSegment b)
+        {
+            // Body must match
+            if (a.bodyName != b.bodyName) return false;
+
+            // SMA: relative tolerance using absolute values (handles negative SMA for hyperbolic)
+            double absA = System.Math.Abs(a.semiMajorAxis);
+            double absB = System.Math.Abs(b.semiMajorAxis);
+            double maxAbs = System.Math.Max(absA, absB);
+            if (maxAbs > 0 && System.Math.Abs(a.semiMajorAxis - b.semiMajorAxis) / maxAbs > SmaRelativeTolerance)
+                return false;
+
+            // Eccentricity: absolute tolerance
+            if (System.Math.Abs(a.eccentricity - b.eccentricity) > EccAbsoluteTolerance)
+                return false;
+
+            // Inclination: degree tolerance
+            if (System.Math.Abs(a.inclination - b.inclination) > IncDegreeTolerance)
+                return false;
+
+            // Argument of periapsis: only for eccentric orbits (> 0.01) where it matters
+            if (System.Math.Max(a.eccentricity, b.eccentricity) > EccThresholdForArgPe)
+            {
+                double argPeDiff = System.Math.Abs(a.argumentOfPeriapsis - b.argumentOfPeriapsis);
+                // Wrap around 360 degrees
+                if (argPeDiff > 180.0) argPeDiff = 360.0 - argPeDiff;
+                if (argPeDiff > ArgPeDegreeTolerance)
+                    return false;
+            }
+
+            return true;
+        }
+
+        /// <summary>
+        /// Pure: determine whether a ghost will depart its current orbit before the recording ends.
+        /// Takes minimal data (not a full Recording) for testability and interface independence.
+        ///
+        /// Resolution cascade for the "final orbit" to compare against:
+        /// 1. Orbit segment covering endUT
+        /// 2. Terminal orbit fields (if body is non-empty and SMA != 0)
+        /// 3. Last orbit segment in the list (covers recordings ending in off-rails phase)
+        /// </summary>
+        internal static DepartureInfo ComputeDepartureInfo(
+            System.Collections.Generic.List<OrbitSegment> orbitSegments, double endUT,
+            string terminalOrbitBody, double terminalOrbitSMA,
+            double terminalOrbitEcc, double terminalOrbitInc,
+            double terminalOrbitArgPe,
+            TerminalState? terminalState,
+            double currentUT)
+        {
+            var noDeparture = new DepartureInfo { willDepart = false };
+
+            if (orbitSegments == null || orbitSegments.Count == 0)
+                return noDeparture;
+
+            // Find current orbit segment
+            OrbitSegment? currentSeg = TrajectoryMath.FindOrbitSegment(orbitSegments, currentUT);
+            if (!currentSeg.HasValue)
+                return noDeparture;  // off-rails / atmospheric — can't detect departure
+
+            OrbitSegment current = currentSeg.Value;
+
+            // Special case: terminal state is surface (Landed/Splashed/Destroyed) with no
+            // orbit segment covering EndUT → ghost is orbiting now but will land/crash
+            bool isSurfaceTerminal = terminalState.HasValue &&
+                (terminalState.Value == TerminalState.Landed ||
+                 terminalState.Value == TerminalState.Splashed ||
+                 terminalState.Value == TerminalState.Destroyed);
+
+            // Resolution cascade for the final orbit
+            OrbitSegment? finalSeg = TrajectoryMath.FindOrbitSegment(orbitSegments, endUT);
+            OrbitSegment finalOrbit;
+
+            if (finalSeg.HasValue)
+            {
+                finalOrbit = finalSeg.Value;
+            }
+            else if (!string.IsNullOrEmpty(terminalOrbitBody) && terminalOrbitSMA != 0)
+            {
+                // Build from terminal orbit fields
+                finalOrbit = new OrbitSegment
+                {
+                    bodyName = terminalOrbitBody,
+                    semiMajorAxis = terminalOrbitSMA,
+                    eccentricity = terminalOrbitEcc,
+                    inclination = terminalOrbitInc,
+                    argumentOfPeriapsis = terminalOrbitArgPe
+                };
+            }
+            else if (isSurfaceTerminal)
+            {
+                // Ghost will land/crash — definite departure from current orbit
+                return new DepartureInfo
+                {
+                    willDepart = true,
+                    departureUT = current.endUT,
+                    destination = current.bodyName ?? "surface"
+                };
+            }
+            else
+            {
+                // Fallback: use last segment in list (recording ends in off-rails phase)
+                finalOrbit = orbitSegments[orbitSegments.Count - 1];
+            }
+
+            if (OrbitsMatch(current, finalOrbit))
+                return noDeparture;
+
+            // Orbits differ — ghost will depart
+            string destination;
+            if (current.bodyName != finalOrbit.bodyName)
+                destination = finalOrbit.bodyName ?? "unknown";
+            else
+                destination = "maneuver";
+
+            return new DepartureInfo
+            {
+                willDepart = true,
+                departureUT = current.endUT,
+                destination = destination
+            };
+        }
+
+        /// <summary>
+        /// Convenience overload taking a Recording directly.
+        /// Extracts the minimal fields needed for ComputeDepartureInfo.
+        /// </summary>
+        internal static DepartureInfo ComputeDepartureInfo(Recording rec, double currentUT)
+        {
+            if (rec == null)
+                return new DepartureInfo { willDepart = false };
+
+            return ComputeDepartureInfo(
+                rec.OrbitSegments, rec.EndUT,
+                rec.TerminalOrbitBody, rec.TerminalOrbitSemiMajorAxis,
+                rec.TerminalOrbitEccentricity, rec.TerminalOrbitInclination,
+                rec.TerminalOrbitArgumentOfPeriapsis,
+                rec.TerminalStateValue,
+                currentUT);
         }
     }
 }

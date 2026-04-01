@@ -339,6 +339,7 @@ namespace Parsek
             {
                 Vessel vessel = allVessels[v];
                 if (vessel == FlightGlobals.ActiveVessel) continue;
+                if (GhostMapPresence.IsGhostMapVessel(vessel.persistentId)) continue;
                 if (!vessel.isEVA) continue;
 
                 string evaCrewName = GetEvaCrewName(vessel);

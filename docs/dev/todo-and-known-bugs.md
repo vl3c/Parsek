@@ -85,11 +85,9 @@ To implement properly: either rescale prefab Cap/Truss meshes from XSECTION data
 
 **Priority:** Low — cosmetic, only visible briefly after fairing jettison
 
-### T11. Ghost map presence KSP integration (bug #60)
+### ~~T11. Ghost map presence KSP integration (bug #60)~~ — DONE
 
-`GhostMapPresence` pure data layer is complete. 4 KSP integration points need in-game API investigation: tracking station registration, map orbit lines, nav target support, cleanup on despawn.
-
-**Priority:** Medium — improves ghost world presence
+Implemented via ProtoVessel-based approach. Ghost chains with orbital data get lightweight ProtoVessels that provide automatic tracking station entries, orbit lines, map icons, and navigation targeting. 27 guard rails across 9 files, 4 Harmony patches (GoOffRails, CommNetVessel, SpaceTracking Fly/Delete/Recover). Orbit segment updates on SOI transitions. Soft cap despawn integration. 23 tests.
 
 ### T12. EVA recording scope expansion (bug #56)
 
@@ -254,6 +252,18 @@ Currently every breakup piece (including tiny debris fragments) gets its own bac
 After stage separation, the ghost for the continuation stage is at 40-120km altitude — beyond visual range (120km) from the pad. The Watch (W) button is disabled because the `inRange` check rejects Beyond-zone ghosts. The user expects to be able to watch all stages in sequence. Watch mode should teleport the camera to the ghost's location instead of requiring the ghost to be within visual range of the active vessel.
 
 **Priority:** High — core user experience for multi-stage flights
+
+### T40. Ghost orbit line visual differentiation (Phase 4)
+
+Ghost orbit lines look identical to real vessel orbit lines. Should have a distinct visual treatment (different color, semi-transparent, or dashed) so the player can tell at a glance which orbits are ghosts. Reference: KSPTrajectories mod ribbon mesh technique for custom orbit rendering. Could also use Harmony patch on `OrbitRenderer.DrawOrbit` or `orbitColor` patching.
+
+**Priority:** Low — cosmetic, functional without it
+
+### T41. Ghost orbit line persists during non-orbital playback phases
+
+When a recording-index ghost exits an orbital segment (e.g., atmospheric re-entry), the ghost map ProtoVessel's orbit line remains at the last segment's orbit. It should either disappear during non-orbital phases or be removed and re-created when the ghost re-enters an orbital segment.
+
+**Priority:** Low — minor visual inconsistency, ghost mesh shows correct position
 
 ---
 
@@ -915,16 +925,16 @@ When the player stages/decouples parts, KSP may instantly destroy the separated 
 
 ## 60. Ghost map presence stubs not implemented (GhostMapPresence.cs)
 
-`GhostMapPresence` has the pure data layer complete (`HasOrbitData`, `ComputeGhostDisplayInfo`) but 4 KSP integration points are stubbed out as TODO comments (lines 108-128):
+Implemented via ProtoVessel-based approach on branch `claude/ghost-orbits-trajectories-JrKkc`. All 4 integration points resolved:
 
-1. **Register ghost in tracking station** — investigate whether KSP requires a `ProtoVessel` entry or if a custom `MapNode` can be created directly
-2. **Create map view orbit line** — distinct color/style to differentiate from real vessel orbits, needs `PlanetariumCamera` API research
-3. **Enable ghost as navigation target** — allow player to set ghost as rendezvous target for transfer planning, investigate `Vessel.SetTarget` compatibility
-4. **Remove tracking entry on despawn** — clean up when ghost is destroyed or chain tip spawns
+1. **Tracking station** — ProtoVessel auto-registers in FlightGlobals.Vessels → appears in tracking station
+2. **Map orbit lines** — OrbitDriver with Keplerian propagation → automatic OrbitRenderer
+3. **Navigation targeting** — Vessel implements ITargetable → targeting works natively
+4. **Cleanup on despawn** — vessel.Die() handles all deregistration; called on chain resolve, rewind, scene cleanup
 
-Tagged as Phase 6f-1 in code. Requires in-game API investigation.
+Guard rails: 27 `IsGhostMapVessel` checks across 9 source files. 4 Harmony patches: GoOffRails (prevent physics loading), CommNetVessel.OnStart (prevent duplicate CommNet nodes), SpaceTracking FlyVessel/DeleteConfirm/RecoverConfirm (block tracking station actions).
 
-**Status:** Open — deferred (Phase 6f)
+**Status:** Fixed
 
 ## 61. Controlled children have no recording segments after breakup
 
@@ -1229,7 +1239,7 @@ Recordings currently capture entire flights as monolithic units. For effective l
 
 **Priority:** Medium — quality-of-life for players building complex multi-mission scenes
 
-**Status:** Implemented — altitude-based chain splits for airless bodies using KSP's `timeWarpAltitudeLimits[4]` (100x warp limit) as the approach threshold. Recordings auto-split when crossing the threshold, creating separate chain segments with `"approach"` / `"exo"` phase tags. Each segment has its own ghost snapshot and loop toggle, enabling selective looping of interesting portions (landings, approaches) without looping orbital coasts. TrackSection altitude metadata (min/max) recorded for future heuristics. Automatic recording optimization pass merges redundant consecutive chain segments on save load (same phase, same body, no branch points, no user-modified settings). Phase 2 (bulk loop toggle on chain headers) was implemented separately in the settings-ui-polish branch.
+**Status:** Implemented — complete per-phase looping for both chain and tree modes. Chain recordings split eagerly during recording at atmosphere/altitude/SOI boundaries. Tree recordings split post-commit by the optimizer split pass (`FindSplitCandidatesForOptimizer`) at environment boundaries. Both produce the same UI: separate recording entries per phase, each with its own loop toggle. Auto loop range trims boring bookends (orbital coasts, surface idle) when loop is toggled on. `LoopStartUT`/`LoopEndUT` fields provide additional range narrowing. Policy modularity refactored: `IsTreeRecording`/`IsChainRecording`/`ManagesOwnResources` properties, `ClassifyVesselDestruction` and `ShouldSuppressBoundarySplit` extracted as testable methods.
 
 ## 98. Deleting and recreating a save with the same name leaks old recordings
 
@@ -1854,20 +1864,17 @@ When a debris recording is set to "ghost-only" in the merge dialog, `ApplyVessel
 
 **Status:** Partially fixed
 
-## 158. Watch mode auto-follow picks debris instead of core vessel after separation
+## ~~158. Watch mode auto-follow picks debris instead of core vessel after separation~~
 
 When the recording vessel separates (e.g., SRB jettison), `FindNextWatchTarget` looks for a continuation recording at the branch point. If the continuation has only 1 trajectory point and 0 track sections (boundary seed with no real data), no ghost is spawned for it. The watch target finder falls through to the first debris child with an active ghost, causing the camera to follow a booster instead of the core vehicle.
 
-**Root cause:** The continuation recording created at breakup has insufficient trajectory data for ghost spawn. `FindNextWatchTarget` checks `HasActiveGhost` which returns false for the unspawned continuation, so it picks the first debris alternative.
+**Root cause:** `FindNextWatchTarget` requires `isGhostActive` for ALL candidates. PID-matched continuation with insufficient data (1 point → `hasData = false` → no ghost) is skipped, and the first active-ghost debris child is returned as fallback.
 
-**Fix options:**
-1. `FindNextWatchTarget` should look through the continuation's own children/successors when it has no active ghost (recursive descent)
-2. Ensure continuation recordings always have enough data to spawn (at least 2 points)
-3. Use vessel PID matching to prefer the continuation even without a ghost
+**Fix:** Modified `FindNextWatchTarget` Case 2 (tree branching): when a PID-matched child has no active ghost, recursively descends through its own `ChildBranchPointId` to find a deeper target. If PID match exists but neither it nor its descendants have an active ghost, returns -1 (suppresses debris fallback). The watch hold timer then expires naturally instead of following the wrong vessel. 4 unit tests.
 
-**Priority:** Medium — camera follows wrong vessel after staging
+**Files:** `GhostPlaybackLogic.cs` (`FindNextWatchTarget`)
 
-**Status:** Open
+**Status:** Fixed
 
 ## 161. EVA snapshot situation stale — spawn blocked by FLYING check
 
@@ -2058,6 +2065,169 @@ Additionally, the spawned vessel had a dead crew member (Minidou Kerman, killed 
 3. Added `ShouldBlockSpawnForDeadCrew` guard — if ALL crew in the snapshot are dead, the spawn is abandoned entirely (prevents spawning empty command pods).
 
 **Priority:** High — chain explosion destroys player's active rocket
+
+**Status:** Fixed
+
+## ~~171. Orbital vessel doesn't spawn after ghost playback ends~~
+
+Vessel recorded during ascent (snapshot `sit=FLYING`) achieves orbit (`terminal=Orbiting`), but spawn is rejected by `ShouldSpawnAtRecordingEnd`. The `terminalOverridesUnsafe` check only covered `Landed`/`Splashed`, not `Orbiting`. Additionally, `ComputeCorrectedSituation` only corrected FLYING to LANDED/SPLASHED, not to ORBITING. Furthermore, `ShouldSpawnAtKscEnd` allowed orbital vessels to spawn at KSC, where `pv.Load()` crashes them through terrain within frames — `VesselSpawned=true` persists, blocking flight-scene re-spawn.
+
+**Root cause:** Four compounding issues: (1) `terminalOverridesUnsafe` missing `TerminalState.Orbiting`; (2) `ComputeCorrectedSituation` missing the Orbiting case; (3) `ShouldSpawnAtKscEnd` not rejecting orbital vessels (KSP's Space Center scene can't host orbital ProtoVessels — they crash through terrain immediately); (4) `SpawnOrRecoverIfTooClose` used `RespawnVessel` for all vessels — the raw snapshot orbit from ascent had periapsis in atmosphere, so KSP's 101.3 kPa on-rails pressure check destroyed the vessel immediately after spawn.
+
+**Fix:** Added `TerminalState.Orbiting` to `terminalOverridesUnsafe`. Added `case TerminalState.Orbiting: return "ORBITING"` to `ComputeCorrectedSituation`. Added Orbiting/Docked rejection in `ShouldSpawnAtKscEnd` to defer orbital vessels to flight scene. Changed `SpawnOrRecoverIfTooClose` to use `SpawnAtPosition` for Orbiting/Docked vessels — constructs correct Keplerian orbit from last trajectory point position+velocity. 20 new tests.
+
+**Status:** Fixed
+
+## ~~172. Ghost map icon click offset in tracking station~~
+
+Ghost ProtoVessel's clickable MapNode position diverges from the visible orbit icon. The user must click next to the icon rather than on it.
+
+**Root cause:** `ApplyOrbitToVessel` used `Orbit.UpdateFromOrbitAtUT()` which roundtrips through state vectors: Kepler elements -> pos/vel -> coordinate transforms -> re-derive Kepler elements. The `UpdateFromFixedVectors` step suffers catastrophic cancellation in the eccentricity vector computation for near-circular orbits (ecc ~0), producing significantly different `argumentOfPeriapsis` values. This shifts the vessel's position along the orbit relative to where the ghost mesh is (which uses a directly-constructed Orbit with the original elements). Additionally, `EnterWatchMode` had a hardcoded 100km distance limit ignoring the user's `ghostCameraCutoffKm` setting.
+
+**Decompilation evidence:** MapNode position comes from `vessel.GetWorldPos3D()` (set by OrbitDriver's `updateFromParameters()`) while ghost mesh uses `orbit.getPositionAtUT()` on a direct-constructed Orbit. Both compute `body.position + orbitRelativePos.xzy`, but with different Orbit internal states due to the roundtrip. `OrbitDriver.UpdateMode.IDLE` was considered but won't work — ghost ProtoVessels have no Rigidbody, so IDLE mode exits early without updating the vessel position. See `docs/dev/research/ghost-map-icon-position-fix.md`.
+
+**Fix (three parts):**
+1. **Position fix:** Replaced `UpdateFromOrbitAtUT` with `Orbit.SetOrbit()` in `ApplyOrbitToVessel`. `SetOrbit` directly assigns all 7 Keplerian elements + body and calls `Init()` — the same path as the Orbit constructor used by the ghost's cached orbit. Both Orbit objects now have identical internal state (confirmed 0.0m offset via per-frame diagnostic). Watch mode distance check now reads the user's `ghostCameraCutoffKm` setting.
+2. **Orbit lines not rendering:** Added `deferredCreatedEvents.Add()` to `UpdateLoopingPlayback` and `UpdateOverlapPlayback` in `GhostPlaybackEngine`. Only `RenderInRangeGhost` was firing `OnGhostCreated`; looping ghosts (which take the loop path, not the in-range path) never got ProtoVessels, so orbit lines never rendered.
+3. **Icon click menu:** Added `GhostIconClickPatch` (Harmony postfix on `OrbitRendererBase.objectNode_OnClick`) — shows popup near cursor with "Set As Target" / "Watch" options. Ghost orbit lines are visual-only (not clickable via `GhostOrbitCastPatch`) to avoid ambiguity with real vessels sharing the same orbit.
+
+**Failed attempts:** (1) `vessel.SetPosition` per-frame — OrbitDriver UPDATE mode overwrites every FixedUpdate. (2) `UpdateFromStateVectors` per-frame — coordinate space mismatch corrupted OrbitDriver. (3) Mean anomaly sync per-frame — fought OrbitDriver's own UPDATE propagation; IDLE mode can't work for unloaded vessels.
+
+**Files:** `GhostMapPresence.cs`, `GhostPlaybackEngine.cs`, `ParsekFlight.cs`, `Patches/GhostVesselLoadPatch.cs`
+
+**Status:** Fixed
+
+## ~~175. Orbital ghost disappears during 50x time warp~~
+
+During 50x time warp, the zone rendering system hides ghost meshes beyond 120km (Visual→Beyond boundary). The ghost's entire remaining trajectory plays out while hidden. Playback completes while in the Beyond zone, so the ghost is destroyed without being re-shown.
+
+**Root cause:** Zone-based mesh hiding applied unconditionally. Orbital ghosts travel far from the player during warp, entering the Beyond zone (>120km) and being hidden. Playback continues and completes while the mesh is invisible.
+
+**Fix:** Added `GhostPlaybackLogic.ShouldExemptFromZoneHide(warpRate, hasOrbitalSegments)` — during time warp >4x, ghosts with orbital segments are exempt from zone-based hiding in `ApplyZoneRenderingImpl`. Surface-only ghosts still zone-hide normally. 8 unit tests.
+
+**Status:** Fixed
+
+## ~~176. Ghost destruction reason logged as "unknown"~~
+
+When held ghosts (warp-deferred spawn state) are released after successful vessel spawn, the `DestroyGhost` call lacks a reason string, producing `destroyed (unknown)` in the log.
+
+**Fix:** Changed `toRelease` from `List<int>` to `List<KeyValuePair<int, string>>` in `RetryHeldGhostSpawns` to track per-action destroy reasons. Each `HeldGhostAction` case now passes a specific reason: `"held-spawn-succeeded"`, `"held-already-spawned"`, `"held-spawn-timeout"`, or `"held-invalid-index"`.
+
+**Files:** `ParsekPlaybackPolicy.cs` (`RetryHeldGhostSpawns`)
+
+**Status:** Fixed
+
+## ~~177. Zero-point debris leaf recordings saved from same-frame destruction~~
+
+When a breakup creates debris fragments that are destroyed within the same physics frame, the resulting recordings have zero trajectory points. These create `.prec` sidecar files and tree nodes that serve no purpose.
+
+**Fix:** Added `PruneZeroPointLeaves` step in `FinalizeTreeRecordings` after individual recording finalization. Pure static helpers `IsZeroPointLeaf` and `CollectZeroPointLeafIds` identify leaf recordings with zero points, no orbit segments, and no surface position. Pruned recordings are removed from `tree.Recordings` and parent branch point `ChildRecordingIds`. Log summary reports count of pruned recordings. 8 unit tests.
+
+**Files:** `ParsekFlight.cs` (finalization path)
+
+**Status:** Fixed
+
+## ~~178. ChainWalker evaluates terminated chains every frame~~
+
+`GhostChainWalker.ComputeAllGhostChains` evaluates ~590 terminated chains per frame that can never produce a ghost (all vessels destroyed/recovered). While log output is rate-limited (suppressed counts logged every 5s), the computation still runs.
+
+**Fix:** Two-level filtering:
+1. Added `GhostChainWalker.IsTreeFullyTerminated(tree)` — skips scanning trees where every leaf recording has terminal state Destroyed or Recovered. Prevents chain link construction for fully-terminated trees.
+2. Added `chain.IsTerminated` filter in `EvaluateAndApplyGhostChains` — excludes terminated chains from `activeGhostChains`, preventing per-frame iteration in `PositionChainGhosts` and `DrawGhostLabels`.
+
+7 unit tests.
+
+**Files:** `GhostChainWalker.cs`, `ParsekFlight.cs`
+
+**Status:** Fixed
+
+## ~~175. EVA kerbal spawns at recording start position instead of endpoint~~
+
+When an EVA recording completes and Parsek spawns the real kerbal, the kerbal appears at the snapshot's lat/lon/alt (captured at EVA start, MET=0.04s — kerbal still on the pod's ladder) instead of the trajectory endpoint (where they walked to). This places the kerbal on top of the parent vessel, causing it to grab the parent's ladder. KSP then blocks all saves with "There are Kerbals on a ladder. Cannot save."
+
+**Root cause:** `SpawnOrRecoverIfTooClose` calls `RespawnVessel(rec.VesselSnapshot)` which uses the snapshot's baked-in position. For non-EVA landed vessels the snapshot position equals the endpoint (vessel doesn't move), but for EVA kerbals the snapshot position is where they EVA'd from, not where they walked to.
+
+**Fix:** Two changes:
+1. `ResolveSpawnPosition` now routes EVA recordings (non-null `EvaCrewName`) to the trajectory endpoint unconditionally, bypassing the snapshot position.
+2. `OverrideSnapshotPosition` patches the snapshot's lat/lon/alt to the resolved endpoint before `RespawnVessel`, so the `ProtoVessel` constructor reads the correct coordinates.
+
+6 unit tests.
+
+**Files:** `VesselSpawner.cs`, `SpawnSafetyNetTests.cs`
+
+**Status:** Fixed
+
+## ~~176. Group hide checkbox misaligned when expanded stats columns visible~~
+
+Group header rows in the recordings window were missing `GUILayout.Label` spacers for the expanded stats columns (MaxAlt, MaxSpd, Dist, Pts). When the Stats panel was toggled on, the group row had fewer layout elements than recording rows, causing Unity's horizontal layout to compress or shift the trailing Hide checkbox out of alignment — in some cases making it invisible or unclickable.
+
+**Root cause:** `DrawGroupTree` emitted Phase→Name→G buttons→Loop→Period→Watch→Rewind→Hide but skipped the Phase/Launch/Duration/Stats/Status columns that recording rows include between Name and G. The expanded stats spacers (4 extra `GUILayout.Label` elements) were entirely absent.
+
+**Fix:** Added Phase spacer, Launch (earliest descendant StartUT), Duration (sum of descendant durations), expanded stats spacers (conditional on `showExpandedStats`), and Status (closest active T- countdown) columns to `DrawGroupTree`, matching the recording row column layout exactly.
+
+**Files:** `ParsekUI.cs` (`DrawGroupTree`)
+
+**Status:** Fixed
+
+## ~~179. Orbital vessel destroyed by on-rails pressure check after SpawnAtPosition~~
+
+`SpawnAtPosition` calls `DetermineSituation(alt, overWater, speed, orbitalSpeed)` which returns FLYING when `speed < orbitalSpeed * 0.9`. For vessels whose last trajectory point was captured during ascent (suborbital velocity at that altitude), this returns FLYING even though the vessel reached orbit. KSP's on-rails atmospheric pressure check then destroys the vessel at 101.3 kPa.
+
+The `CorrectUnsafeSnapshotSituation` (#169) ran earlier and corrected the snapshot to ORBITING, but `SpawnAtPosition` recomputed the situation from altitude/speed and overwrote it.
+
+**Root cause:** `SpawnAtPosition` had no knowledge of the recording's terminal state. It blindly recomputed the situation, defeating the earlier correction.
+
+**Fix:** Added optional `terminalState` parameter to `SpawnAtPosition`. When the terminal state is `Orbiting` or `Docked` but `DetermineSituation` returns FLYING, the situation is overridden to ORBITING with a logged explanation. The call site in `SpawnOrRecoverIfTooClose` passes `rec.TerminalStateValue`.
+
+**Files:** `VesselSpawner.cs`
+
+**Status:** Fixed
+
+## ~~180. Clicking ghost vessel in tracking station traps user with input lock~~
+
+`GhostTrackingFlyPatch` blocks `FlyVessel` for ghost map ProtoVessels (they're lightweight sensor parts, not real vessels). But the original `FlyVessel` normally transitions to the flight scene, which implicitly clears UI state. By returning `false` from the prefix without dismissing the dialog, the tracking station's input lock remained active — trapping the user.
+
+Additionally, `GhostVesselSwitchPatch` used attribute-based `Type[]` overload targeting for `FlightGlobals.SetActiveVessel(Vessel)`, but Harmony's `CreateClassProcessor` didn't reliably disambiguate between the `(Vessel)` and `(Vessel, bool)` overloads.
+
+**Fix:**
+1. `GhostTrackingFlyPatch.Prefix` now calls `OnDialogDismiss` via Traverse after blocking `FlyVessel`, releasing the input lock.
+2. `GhostVesselSwitchPatch` uses explicit `TargetMethod()` instead of `HarmonyPatch` attribute `Type[]` for reliable overload targeting.
+
+**Files:** `GhostTrackingStationPatch.cs`, `GhostVesselLoadPatch.cs`
+
+**Status:** Fixed
+
+## 181. Watch mode camera freezes on mid-chain transition (childBpId=null)
+
+When a mid-chain recording completes during watch mode and `FindNextWatchTarget` returns -1 (next chain segment's ghost hasn't spawned yet), `HandlePlaybackCompleted` returns without setting a hold timer or retry mechanism. The camera stays locked on the stale ghost position indefinitely, with input lock held. Observed as 94-second freeze with 157+ suppressed FindNextWatchTarget attempts.
+
+**Root cause:** The mid-chain path in `HandlePlaybackCompleted` (line 81-98) only attempts `FindNextWatchTarget` once. If it returns -1, no hold timer is set — unlike the non-mid-chain path (line 196-210) which sets a 3-5 second hold timer that retries every frame.
+
+**Fix:** When `FindNextWatchTarget` returns -1 for a watched mid-chain segment, set a 30-second hold timer via `StartWatchHoldFromPolicy`. The `UpdateWatchCamera` hold-timer retry loop then calls `FindNextWatchTarget` every frame until the continuation ghost spawns, at which point it auto-follows.
+
+**Status:** Fixed
+
+## 182. Watch mode input lock log gap during TransferWatch
+
+`TransferWatchToNextSegment` calls `ExitWatchMode(skipCameraRestore: true)` which logs lock removal, then re-sets the lock via `InputLockManager.SetControlLock` without logging. The log shows "ParsekWatch removed" without a corresponding "ParsekWatch set", making it appear the lock is dropped.
+
+**Fix:** Added Verbose log after `SetControlLock` in `TransferWatchToNextSegment`.
+
+**Status:** Fixed
+
+## 183. SpaceTracking NullReferenceException from ghost ProtoVessels
+
+Ghost ProtoVessels created by `GhostMapPresence` trigger NullReferenceExceptions in KSP's internal `SpaceTracking.buildVesselsList()` when asteroids are spawned or destroyed. The NRE also fires during `SpaceTracking.Start()`. The crash is in KSP's code — ghost ProtoVessels may be missing fields that `buildVesselsList` assumes exist.
+
+**Fix:** Added Harmony `Finalizer` on `SpaceTracking.buildVesselsList` that catches and suppresses the NullReferenceException, preventing the tracking station from crashing.
+
+**Status:** Fixed
+
+## 184. EVA kerbal ladder-grab state persists in spawn snapshot
+
+Even with the position fix (#175), the EVA vessel snapshot captured at EVA start contains KerbalEVA FSM state indicating the kerbal is on a ladder (e.g., `state = Ladder (Acquire)`). When spawned at the correct endpoint position (far from any ladder), KSP initializes the kerbal in ladder mode. KSP then blocks all saves with "There are Kerbals on a ladder. Cannot save."
+
+**Fix:** Added `StripEvaLadderState` in `VesselSpawner`. Before spawning, scans the snapshot's MODULE nodes for `KerbalEVA`/`KerbalEVAFlight` modules and clears any ladder-related FSM state to `idle` and `OnALadder` flag to `False`.
 
 **Status:** Fixed
 

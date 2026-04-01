@@ -3827,6 +3827,7 @@ namespace Parsek
             {
                 var vessel = FlightGlobals.Vessels[i];
                 if (vessel == null || !vessel.loaded) continue;
+                if (GhostMapPresence.IsGhostMapVessel(vessel.persistentId)) continue;
 
                 // Filter out non-docking-target vessel types: debris from staging,
                 // EVA kerbals, space objects, and flags are not valid anchor candidates.
@@ -5050,7 +5051,10 @@ namespace Parsek
             {
                 Vessel vessel = FlightGlobals.Vessels[i];
                 if (vessel != null && vessel.persistentId == pid)
+                {
+                    if (GhostMapPresence.IsGhostMapVessel(vessel.persistentId)) return null;
                     return vessel;
+                }
             }
             return null;
         }

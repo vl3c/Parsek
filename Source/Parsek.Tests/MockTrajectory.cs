@@ -24,10 +24,22 @@ namespace Parsek.Tests
         public double LoopIntervalSeconds { get; set; } = 10;
         public LoopTimeUnit LoopTimeUnit { get; set; }
         public uint LoopAnchorVesselId { get; set; }
+        public double LoopStartUT { get; set; } = double.NaN;
+        public double LoopEndUT { get; set; } = double.NaN;
         public TerminalState? TerminalStateValue { get; set; }
         public SurfacePosition? SurfacePos { get; set; }
         public bool PlaybackEnabled { get; set; } = true;
         public bool IsDebris { get; set; }
+
+        // Terminal orbit properties (for map presence)
+        public string TerminalOrbitBody { get; set; }
+        public double TerminalOrbitSemiMajorAxis { get; set; }
+        public double TerminalOrbitEccentricity { get; set; }
+        public double TerminalOrbitInclination { get; set; }
+        public double TerminalOrbitLAN { get; set; }
+        public double TerminalOrbitArgumentOfPeriapsis { get; set; }
+        public double TerminalOrbitMeanAnomalyAtEpoch { get; set; }
+        public double TerminalOrbitEpoch { get; set; }
 
         /// <summary>
         /// Helper: add two points spanning [startUT, endUT] for a minimal valid trajectory.
