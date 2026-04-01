@@ -1358,6 +1358,7 @@ namespace Parsek
             if (loop != rec.LoopPlayback)
             {
                 rec.LoopPlayback = loop;
+                ApplyAutoLoopRange(rec, loop);
                 if (!loop && loopPeriodFocusedRi == ri)
                     loopPeriodFocusedRi = -1;
                 ParsekLog.Info("UI", $"Recording '{rec.VesselName}' loop playback set to {loop}");
@@ -1833,7 +1834,10 @@ namespace Parsek
             if (chainNewLoop != chainAllLoop)
             {
                 for (int m = 0; m < members.Count; m++)
+                {
                     committed[members[m]].LoopPlayback = chainNewLoop;
+                    ApplyAutoLoopRange(committed[members[m]], chainNewLoop);
+                }
                 ParsekLog.Info("UI", $"Chain '{chainId}' loop set to {chainNewLoop} ({members.Count} segments)");
             }
             GUILayout.Label("", GUILayout.Width(ColW_Period));
@@ -2742,6 +2746,38 @@ namespace Parsek
                 System.Globalization.CultureInfo.InvariantCulture, out intVal);
             value = intVal;
             return ok;
+        }
+
+        // --- Auto loop range ---
+
+        /// <summary>
+        /// Sets or clears LoopStartUT/LoopEndUT when the loop toggle changes.
+        /// On toggle-on: auto-selects the interesting portion (trims boring bookends).
+        /// On toggle-off: clears the range back to NaN (full recording).
+        /// </summary>
+        internal static void ApplyAutoLoopRange(Recording rec, bool loopEnabled)
+        {
+            if (loopEnabled)
+            {
+                var (start, end) = GhostPlaybackLogic.ComputeAutoLoopRange(rec.TrackSections);
+                if (!double.IsNaN(start))
+                {
+                    rec.LoopStartUT = start;
+                    rec.LoopEndUT = end;
+                    ParsekLog.Info("UI", $"Auto loop range: '{rec.VesselName}' " +
+                        $"narrowed to [{start:F1}..{end:F1}] " +
+                        $"(trimmed from [{rec.StartUT:F1}..{rec.EndUT:F1}])");
+                }
+            }
+            else
+            {
+                if (!double.IsNaN(rec.LoopStartUT) || !double.IsNaN(rec.LoopEndUT))
+                {
+                    rec.LoopStartUT = double.NaN;
+                    rec.LoopEndUT = double.NaN;
+                    ParsekLog.Info("UI", $"Loop range cleared for '{rec.VesselName}'");
+                }
+            }
         }
 
         // --- Loop period cell ---

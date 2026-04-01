@@ -1239,7 +1239,7 @@ Recordings currently capture entire flights as monolithic units. For effective l
 
 **Priority:** Medium — quality-of-life for players building complex multi-mission scenes
 
-**Status:** Implemented — altitude-based chain splits for airless bodies using KSP's `timeWarpAltitudeLimits[4]` (100x warp limit) as the approach threshold. Recordings auto-split when crossing the threshold, creating separate chain segments with `"approach"` / `"exo"` phase tags. Each segment has its own ghost snapshot and loop toggle, enabling selective looping of interesting portions (landings, approaches) without looping orbital coasts. TrackSection altitude metadata (min/max) recorded for future heuristics. Automatic recording optimization pass merges redundant consecutive chain segments on save load (same phase, same body, no branch points, no user-modified settings). Phase 2 (bulk loop toggle on chain headers) was implemented separately in the settings-ui-polish branch.
+**Status:** Implemented — complete per-phase looping for both chain and tree modes. Chain recordings split eagerly during recording at atmosphere/altitude/SOI boundaries. Tree recordings split post-commit by the optimizer split pass (`FindSplitCandidatesForOptimizer`) at environment boundaries. Both produce the same UI: separate recording entries per phase, each with its own loop toggle. Auto loop range trims boring bookends (orbital coasts, surface idle) when loop is toggled on. `LoopStartUT`/`LoopEndUT` fields provide additional range narrowing. Policy modularity refactored: `IsTreeRecording`/`IsChainRecording`/`ManagesOwnResources` properties, `ClassifyVesselDestruction` and `ShouldSuppressBoundarySplit` extracted as testable methods.
 
 ## 98. Deleting and recreating a save with the same name leaks old recordings
 
@@ -2129,6 +2129,22 @@ When a breakup creates debris fragments that are destroyed within the same physi
 7 unit tests.
 
 **Files:** `GhostChainWalker.cs`, `ParsekFlight.cs`
+
+**Status:** Fixed
+
+## ~~175. EVA kerbal spawns at recording start position instead of endpoint~~
+
+When an EVA recording completes and Parsek spawns the real kerbal, the kerbal appears at the snapshot's lat/lon/alt (captured at EVA start, MET=0.04s — kerbal still on the pod's ladder) instead of the trajectory endpoint (where they walked to). This places the kerbal on top of the parent vessel, causing it to grab the parent's ladder. KSP then blocks all saves with "There are Kerbals on a ladder. Cannot save."
+
+**Root cause:** `SpawnOrRecoverIfTooClose` calls `RespawnVessel(rec.VesselSnapshot)` which uses the snapshot's baked-in position. For non-EVA landed vessels the snapshot position equals the endpoint (vessel doesn't move), but for EVA kerbals the snapshot position is where they EVA'd from, not where they walked to.
+
+**Fix:** Two changes:
+1. `ResolveSpawnPosition` now routes EVA recordings (non-null `EvaCrewName`) to the trajectory endpoint unconditionally, bypassing the snapshot position.
+2. `OverrideSnapshotPosition` patches the snapshot's lat/lon/alt to the resolved endpoint before `RespawnVessel`, so the `ProtoVessel` constructor reads the correct coordinates.
+
+6 unit tests.
+
+**Files:** `VesselSpawner.cs`, `SpawnSafetyNetTests.cs`
 
 **Status:** Fixed
 

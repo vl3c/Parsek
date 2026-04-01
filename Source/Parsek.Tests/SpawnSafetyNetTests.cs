@@ -755,7 +755,161 @@ namespace Parsek.Tests
 
         #endregion
 
-        // Terminal override tests (Landed/Splashed/Orbiting/Destroyed) moved to
-        // "Snapshot Situation Suppression" region above — consolidates all sit-related tests.
+        #region ShouldSpawnAtRecordingEnd — Terminal Override with FLYING (#169)
+
+        [Fact]
+        public void ShouldSpawn_FlyingSnapshot_TerminalLanded_Allowed()
+        {
+            // Bug #169: terminal state Landed overrides the FLYING unsafe check,
+            // allowing the spawn to proceed (situation will be corrected before spawn)
+            var snapshot = new ConfigNode("VESSEL");
+            snapshot.AddValue("sit", "FLYING");
+
+            var rec = new Recording
+            {
+                VesselSnapshot = snapshot,
+                TerminalStateValue = TerminalState.Landed
+            };
+
+            var (needsSpawn, _) = GhostPlaybackLogic.ShouldSpawnAtRecordingEnd(
+                rec, isActiveChainMember: false, isChainLoopingOrDisabled: false);
+
+            Assert.True(needsSpawn);
+        }
+
+        [Fact]
+        public void ShouldSpawn_FlyingSnapshot_TerminalSplashed_Allowed()
+        {
+            var snapshot = new ConfigNode("VESSEL");
+            snapshot.AddValue("sit", "FLYING");
+
+            var rec = new Recording
+            {
+                VesselSnapshot = snapshot,
+                TerminalStateValue = TerminalState.Splashed
+            };
+
+            var (needsSpawn, _) = GhostPlaybackLogic.ShouldSpawnAtRecordingEnd(
+                rec, isActiveChainMember: false, isChainLoopingOrDisabled: false);
+
+            Assert.True(needsSpawn);
+        }
+
+        [Fact]
+        public void ShouldSpawn_FlyingSnapshot_TerminalDestroyed_Blocked()
+        {
+            var snapshot = new ConfigNode("VESSEL");
+            snapshot.AddValue("sit", "FLYING");
+
+            var rec = new Recording
+            {
+                VesselSnapshot = snapshot,
+                TerminalStateValue = TerminalState.Destroyed
+            };
+
+            var (needsSpawn, reason) = GhostPlaybackLogic.ShouldSpawnAtRecordingEnd(
+                rec, isActiveChainMember: false, isChainLoopingOrDisabled: false);
+
+            Assert.False(needsSpawn);
+            Assert.Contains("terminal state Destroyed", reason);
+        }
+
+        #endregion
+
+        #region OverrideSnapshotPosition (EVA spawn fix)
+
+        [Fact]
+        public void OverrideSnapshotPosition_UpdatesLatLonAlt()
+        {
+            var snapshot = new ConfigNode("VESSEL");
+            snapshot.AddValue("lat", "1.0");
+            snapshot.AddValue("lon", "2.0");
+            snapshot.AddValue("alt", "3.0");
+
+            VesselSpawner.OverrideSnapshotPosition(snapshot, 10.5, 20.5, 30.5, 0, "Test");
+
+            Assert.Equal("10.5", snapshot.GetValue("lat"));
+            Assert.Equal("20.5", snapshot.GetValue("lon"));
+            Assert.Equal("30.5", snapshot.GetValue("alt"));
+        }
+
+        [Fact]
+        public void OverrideSnapshotPosition_CreatesValuesWhenMissing()
+        {
+            var snapshot = new ConfigNode("VESSEL");
+
+            VesselSpawner.OverrideSnapshotPosition(snapshot, 10.5, 20.5, 30.5, 0, "Test");
+
+            Assert.Equal("10.5", snapshot.GetValue("lat"));
+            Assert.Equal("20.5", snapshot.GetValue("lon"));
+            Assert.Equal("30.5", snapshot.GetValue("alt"));
+        }
+
+        [Fact]
+        public void OverrideSnapshotPosition_NullSnapshot_NoThrow()
+        {
+            VesselSpawner.OverrideSnapshotPosition(null, 10.5, 20.5, 30.5, 0, "Test");
+            // No exception = pass
+        }
+
+        [Fact]
+        public void OverrideSnapshotPosition_LogsOverride()
+        {
+            var snapshot = new ConfigNode("VESSEL");
+            snapshot.AddValue("lat", "1.0");
+            snapshot.AddValue("lon", "2.0");
+            snapshot.AddValue("alt", "3.0");
+
+            VesselSpawner.OverrideSnapshotPosition(snapshot, 10.5, 20.5, 30.5, 7, "Jeb");
+
+            Assert.Contains(logLines, l =>
+                l.Contains("[Spawner]") && l.Contains("EVA spawn position override") && l.Contains("Jeb"));
+        }
+
+        [Fact]
+        public void ResolveSpawnPosition_EvaVessel_UsesTrajectoryEndpoint()
+        {
+            var snapshot = new ConfigNode("VESSEL");
+            snapshot.AddValue("lat", "1.0");
+            snapshot.AddValue("lon", "2.0");
+            snapshot.AddValue("alt", "3.0");
+
+            var rec = new Recording
+            {
+                VesselSnapshot = snapshot,
+                EvaCrewName = "Jebediah Kerman"
+            };
+
+            var lastPt = new TrajectoryPoint { latitude = 10.0, longitude = 20.0, altitude = 30.0 };
+            VesselSpawner.ResolveSpawnPosition(rec, 0, lastPt, out double lat, out double lon, out double alt);
+
+            Assert.Equal(10.0, lat);
+            Assert.Equal(20.0, lon);
+            Assert.Equal(30.0, alt);
+        }
+
+        [Fact]
+        public void ResolveSpawnPosition_NonEvaVessel_UsesSnapshotPosition()
+        {
+            var snapshot = new ConfigNode("VESSEL");
+            snapshot.AddValue("lat", "1.0");
+            snapshot.AddValue("lon", "2.0");
+            snapshot.AddValue("alt", "3.0");
+
+            var rec = new Recording
+            {
+                VesselSnapshot = snapshot,
+                EvaCrewName = null
+            };
+
+            var lastPt = new TrajectoryPoint { latitude = 10.0, longitude = 20.0, altitude = 30.0 };
+            VesselSpawner.ResolveSpawnPosition(rec, 0, lastPt, out double lat, out double lon, out double alt);
+
+            Assert.Equal(1.0, lat);
+            Assert.Equal(2.0, lon);
+            Assert.Equal(3.0, alt);
+        }
+
+        #endregion
     }
 }

@@ -669,13 +669,20 @@ namespace Parsek
             out long cycleIndex,
             out bool inPauseWindow)
         {
-            loopUT = rec != null ? rec.StartUT : 0;
             cycleIndex = 0;
             inPauseWindow = false;
-            if (rec == null || rec.Points == null || rec.Points.Count < 2) return false;
-            if (currentUT < rec.StartUT) return false;
+            if (rec == null || rec.Points == null || rec.Points.Count < 2)
+            {
+                loopUT = 0;
+                return false;
+            }
 
-            double duration = rec.EndUT - rec.StartUT;
+            double loopStart = GhostPlaybackEngine.EffectiveLoopStartUT(rec);
+            double loopEnd = GhostPlaybackEngine.EffectiveLoopEndUT(rec);
+            loopUT = loopStart;
+            if (currentUT < loopStart) return false;
+
+            double duration = loopEnd - loopStart;
             if (duration <= GhostPlaybackLogic.MinLoopDurationSeconds) return false;
 
             double intervalSeconds = GetLoopIntervalSeconds(rec);
@@ -683,7 +690,7 @@ namespace Parsek
             if (cycleDuration <= GhostPlaybackLogic.MinLoopDurationSeconds)
                 cycleDuration = duration;
 
-            double elapsed = currentUT - rec.StartUT;
+            double elapsed = currentUT - loopStart;
             cycleIndex = (long)Math.Floor(elapsed / cycleDuration);
             if (cycleIndex < 0) cycleIndex = 0;
 
@@ -691,11 +698,11 @@ namespace Parsek
             if (intervalSeconds > 0 && cycleTime > duration)
             {
                 inPauseWindow = true;
-                loopUT = rec.EndUT;
+                loopUT = loopEnd;
                 return true;
             }
 
-            loopUT = rec.StartUT + Math.Min(cycleTime, duration);
+            loopUT = loopStart + Math.Min(cycleTime, duration);
             return true;
         }
 

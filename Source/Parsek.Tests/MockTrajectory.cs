@@ -24,6 +24,8 @@ namespace Parsek.Tests
         public double LoopIntervalSeconds { get; set; } = 10;
         public LoopTimeUnit LoopTimeUnit { get; set; }
         public uint LoopAnchorVesselId { get; set; }
+        public double LoopStartUT { get; set; } = double.NaN;
+        public double LoopEndUT { get; set; } = double.NaN;
         public TerminalState? TerminalStateValue { get; set; }
         public SurfacePosition? SurfacePos { get; set; }
         public bool PlaybackEnabled { get; set; } = true;

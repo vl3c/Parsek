@@ -24,6 +24,8 @@ namespace Parsek
         internal readonly Dictionary<int, GhostPlaybackState> ghostStates = new Dictionary<int, GhostPlaybackState>();
 
         // Overlap ghosts: older cycle ghosts still alive due to negative loop interval.
+        // NOTE: Overlap playback paths use raw StartUT/EndUT, not EffectiveLoop bounds.
+        // Loop range narrowing (LoopStartUT/LoopEndUT) only affects the primary loop path.
         internal readonly Dictionary<int, List<GhostPlaybackState>> overlapGhosts = new Dictionary<int, List<GhostPlaybackState>>();
 
         // Loop phase offsets: shifted loop phase for Watch mode targeting.
@@ -822,12 +824,54 @@ namespace Parsek
 
         #region Loop utilities
 
+        /// <summary>
+        /// Returns the effective loop start UT, falling back to traj.StartUT when
+        /// LoopStartUT is NaN or out of range.
+        /// </summary>
+        internal static double EffectiveLoopStartUT(IPlaybackTrajectory traj)
+        {
+            double loopStart = traj.LoopStartUT;
+            if (!double.IsNaN(loopStart) && loopStart >= traj.StartUT && loopStart < traj.EndUT)
+            {
+                // Cross-validate: effective start must be less than effective end
+                double loopEnd = traj.LoopEndUT;
+                double effectiveEnd = (!double.IsNaN(loopEnd) && loopEnd <= traj.EndUT && loopEnd > traj.StartUT)
+                    ? loopEnd : traj.EndUT;
+                if (loopStart >= effectiveEnd)
+                    return traj.StartUT;
+                return loopStart;
+            }
+            return traj.StartUT;
+        }
+
+        /// <summary>
+        /// Returns the effective loop end UT, falling back to traj.EndUT when
+        /// LoopEndUT is NaN or out of range.
+        /// </summary>
+        internal static double EffectiveLoopEndUT(IPlaybackTrajectory traj)
+        {
+            double loopEnd = traj.LoopEndUT;
+            if (!double.IsNaN(loopEnd) && loopEnd <= traj.EndUT && loopEnd > traj.StartUT)
+            {
+                // Cross-validate: effective end must be greater than effective start
+                double loopStart = traj.LoopStartUT;
+                double effectiveStart = (!double.IsNaN(loopStart) && loopStart >= traj.StartUT && loopStart < traj.EndUT)
+                    ? loopStart : traj.StartUT;
+                if (loopEnd <= effectiveStart)
+                    return traj.EndUT;
+                return loopEnd;
+            }
+            return traj.EndUT;
+        }
+
         /// <summary>Whether the trajectory should loop (has enough points and duration).</summary>
         internal static bool ShouldLoopPlayback(IPlaybackTrajectory traj)
         {
             if (traj == null || !traj.LoopPlayback || traj.Points == null || traj.Points.Count < 2)
                 return false;
-            return traj.EndUT - traj.StartUT > GhostPlaybackLogic.MinLoopDurationSeconds;
+            double start = EffectiveLoopStartUT(traj);
+            double end = EffectiveLoopEndUT(traj);
+            return end - start > GhostPlaybackLogic.MinLoopDurationSeconds;
         }
 
         /// <summary>Resolve the effective loop interval for a trajectory.</summary>
@@ -852,13 +896,20 @@ namespace Parsek
             out bool inPauseWindow,
             int recIdx = -1)
         {
-            loopUT = traj != null ? traj.StartUT : 0;
             cycleIndex = 0;
             inPauseWindow = false;
-            if (traj == null || traj.Points == null || traj.Points.Count < 2) return false;
-            if (currentUT < traj.StartUT) return false;
+            if (traj == null || traj.Points == null || traj.Points.Count < 2)
+            {
+                loopUT = 0;
+                return false;
+            }
 
-            double duration = traj.EndUT - traj.StartUT;
+            double loopStart = EffectiveLoopStartUT(traj);
+            double loopEnd = EffectiveLoopEndUT(traj);
+            loopUT = loopStart;
+            if (currentUT < loopStart) return false;
+
+            double duration = loopEnd - loopStart;
             if (duration <= GhostPlaybackLogic.MinLoopDurationSeconds) return false;
 
             double intervalSeconds = GetLoopIntervalSeconds(traj, autoLoopIntervalSeconds);
@@ -866,7 +917,7 @@ namespace Parsek
             if (cycleDuration <= GhostPlaybackLogic.MinLoopDurationSeconds)
                 cycleDuration = duration;
 
-            double elapsed = currentUT - traj.StartUT;
+            double elapsed = currentUT - loopStart;
 
             // Apply loop phase offset (set by Watch mode to reset ghost to recording start)
             double phaseOffset;
@@ -883,14 +934,14 @@ namespace Parsek
             if (intervalSeconds > 0 && cycleTime > duration)
             {
                 inPauseWindow = true;
-                loopUT = traj.EndUT;
+                loopUT = loopEnd;
                 if (ParsekLog.IsVerboseEnabled)
                     ParsekLog.VerboseRateLimited("Engine", "loop_pause_" + recIdx,
                         $"TryComputeLoopPlaybackUT: in pause window for recIdx={recIdx}, cycle={cycleIndex}");
                 return true;
             }
 
-            loopUT = traj.StartUT + Math.Min(cycleTime, duration);
+            loopUT = loopStart + Math.Min(cycleTime, duration);
             return true;
         }
 
