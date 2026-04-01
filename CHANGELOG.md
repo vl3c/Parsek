@@ -79,6 +79,7 @@ All notable changes to Parsek are documented here.
 - **Fix #163: KSC spawns vessels from the future after rewind.** `ShouldSpawnAtKscEnd` now checks `currentUT >= EndUT`.
 - **Fix #165: Engine flame flash on ignition.** `EngineIgnited` with throttle=0 now uses min 0.01 emission.
 - **Fix #164: Strip all future vessels on rewind, not just PRELAUNCH.** Flags, landed capsules, and other player-created vessels from the future now removed after rewind.
+- **Fix #167: Crew swap not executed for KSC-spawned vessels.** `SwapReservedCrewInFlight` only runs in flight scene — KSC spawns via `TrySpawnAtRecordingEnd` never swapped reserved crew. Added `SwapReservedCrewInSnapshot` to replace reserved crew names directly in the snapshot ConfigNode before spawning.
 - **DeferredActivateVessel timeout increased** from 10 frames to 5 seconds. Distant spawned vessels (37km+) couldn't load in 10 frames.
 - **ComputeTotal logging removed.** Eliminated 52% of all Parsek log output (pure computation was logging every UI frame).
 - **Status column widened** (95→120px) for longer T+ timestamps.
