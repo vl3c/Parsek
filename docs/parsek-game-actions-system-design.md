@@ -1947,6 +1947,42 @@ This recording is committed as a single unit. If the player then rewinds to UT=0
 
 ---
 
+## 13. Gameplay Simulation Findings (v0.3)
+
+Edge cases and gaps discovered by simulating concrete KSP gameplay scenarios against the implementation.
+
+### 13.1 Critical Gaps (Functional — Must Fix)
+
+**Vessel build cost not captured.** The `GameStateEventConverter` has no path for vessel launch costs. `FundsChanged` events are skipped (they're aggregate deltas, not discrete actions). The design doc (5.10) says vessel cost should produce a `FundsSpending` with `source=VESSEL_BUILD`, but no converter or commit-time code creates this action. Fix: inject vessel build cost directly at commit time from `Recording.PreLaunchFunds` delta, or add a dedicated `VesselLaunched` event type to `GameStateRecorder`.
+
+**Vessel recovery funds not captured.** Same issue — no converter path for recovery funds to `FundsEarning` with `source=RECOVERY`. The `OnVesselRecoveryProcessing` callback exists in KSP but is not subscribed by `GameStateRecorder` for ledger purposes. Fix: subscribe to recovery event, capture recovery value, convert to `FundsEarning` at commit time.
+
+**Science and reputation wiped on mid-career Parsek install.** When Parsek is installed on an existing career save, the ledger starts empty (no science or reputation actions). After recalculation, `ScienceModule.GetAvailableScience()` returns 0 and `ReputationModule.GetRunningRep()` returns 0. `KspStatePatcher` then patches KSP to these values, wiping the player's existing science and reputation. Funds are safe (seeded from current balance). Fix: add science and reputation seeding similar to `FundsInitial` — create `ScienceInitial` and `ReputationInitial` action types that capture the current balance when the ledger is first created.
+
+**Contract science rewards not credited.** `ContractComplete` actions have a `ScienceReward` field, but `ScienceModule` only processes `ScienceEarning` and `ScienceSpending` — it ignores `ContractComplete`. Contract science rewards are captured but never added to the science balance. Fix: add `ContractComplete` handling in `ScienceModule.ProcessAction` that reads `TransformedScienceReward` when `Effective=true`.
+
+### 13.2 Edge Cases Discovered
+
+**Facility destroyed state not patched.** `FacilitiesModule` correctly tracks the `Destroyed` flag per facility, but `KspStatePatcher.PatchFacilities` only patches facility levels via `SetLevel` — it does not set buildings as destroyed or repaired. After rewind past a crash, KSP buildings would show incorrect visual state.
+
+**Sequence numbers not assigned during event conversion.** `GameStateEventConverter` creates actions with `Sequence=0` for all KSC events at the same UT. If a player unlocks two tech nodes at the same frozen KSC time, their relative order is undefined. Benign for independent spendings but could matter if one spending's affordability depends on the order.
+
+**ContractAccept sorts with spendings, not earnings.** `ContractAccept` is not in `IsEarningType` (it's neither earning nor spending in the classifier). At the same UT, the advance payment processes after explicit earnings. Functionally harmless (the advance still adds to balance before spendings), but semantically inconsistent with "credits before debits."
+
+**Multiple strategy transforms stack multiplicatively.** If two strategies divert from different source resources on the same contract completion, each reads the previously-transformed value. Strategy A diverts 10% of funds, then Strategy B diverts 20% of the remaining funds = 28% total, not 30%. This may differ from KSP's actual multi-strategy behavior. Needs in-game verification.
+
+**Recording-associated spending survives reconciliation when recording is pruned.** If recording A has a vessel build cost (`FundsSpending` with `RecordingId=A`), and recording A is removed via KSP load, reconciliation prunes earnings by recording ID but spending pruning is by UT only. The spending persists even though its associated recording is gone. Acceptable since KSP load is authoritative and the loaded save's state accounts for the spending.
+
+**Empty ledger + mid-career = no replay of past events.** When Parsek is installed mid-career, only the funds seed is captured. All prior tech unlocks, facility upgrades, contract completions, and kerbal assignments are NOT in the ledger. The recalculation walk only knows about events captured by Parsek from this point forward. This is by design (the ledger starts fresh) but means the game actions list will be incomplete for the pre-Parsek period.
+
+### 13.3 Performance Notes
+
+The recalculation walk is O(n log n) sort + O(n × m) dispatch (n=actions, m=7 modules). For 500 actions, this completes in well under 1ms. The most expensive per-action operation is the reputation curve evaluation (integer-step loop per nominal rep value), but even with 50 rep actions this is trivially fast. LINQ `SortActions` allocates a new list each call — minor GC pressure, could be optimized to sort in-place if needed.
+
+No batching for rapid commits: 10 quick commits = 10 full recalculations. Acceptable for typical gameplay (commits are rare events, not per-frame).
+
+---
+
 ## Appendix A: Design Principles
 
 ### A.1 Timeline model — the Git analogy

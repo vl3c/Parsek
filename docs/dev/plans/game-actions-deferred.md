@@ -150,6 +150,51 @@ Items identified during design that are out of scope for the initial implementat
 
 ---
 
+### D17. Vessel Build Cost Capture
+
+**What:** No converter path creates `FundsSpending` with `source=VESSEL_BUILD` for vessel launch costs.
+**Why deferred:** `FundsChanged` events are aggregate deltas, not discrete actions. Needs either a `VesselLaunched` event type or commit-time injection from recording metadata.
+**Revisit when:** Implementing earning-side capture (remaining Phase 6 work).
+**Status:** Open
+
+---
+
+### D18. Vessel Recovery Funds Capture
+
+**What:** No converter path creates `FundsEarning` with `source=RECOVERY` for vessel recovery value.
+**Why deferred:** `OnVesselRecoveryProcessing` not yet subscribed for ledger purposes.
+**Revisit when:** Implementing earning-side capture.
+**Status:** Open
+
+---
+
+### D19. Science and Reputation Initial Seeding
+
+**What:** Mid-career Parsek install wipes science and reputation to 0. Need `ScienceInitial` and `ReputationInitial` action types.
+**Why deferred:** Only affects first-time install on existing saves. Funds seeding works correctly.
+**Revisit when:** Before first release to players.
+**Status:** Open — CRITICAL for release
+
+---
+
+### D20. Contract Science Rewards
+
+**What:** `ScienceModule` doesn't process `ContractComplete` actions. Science from contract completion is lost.
+**Why deferred:** Rare in stock KSP (few contracts award science). Easy fix.
+**Revisit when:** Before Career mode testing.
+**Status:** Open
+
+---
+
+### D21. Facility Destroyed State Patching
+
+**What:** `KspStatePatcher.PatchFacilities` only patches levels, not destroyed/repaired state.
+**Why deferred:** Requires `DestructibleBuilding` API investigation for programmatic destruction/repair.
+**Revisit when:** Implementing warp visual updates.
+**Status:** Open
+
+---
+
 ## Deferred from Implementation
 
 (Items will be added here as they surface during task implementation.)
