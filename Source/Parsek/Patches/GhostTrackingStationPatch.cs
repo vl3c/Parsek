@@ -95,7 +95,14 @@ namespace Parsek.Patches
         static bool Prefix(SpaceTracking __instance)
         {
             Vessel selected = Traverse.Create(__instance).Field("selectedVessel").GetValue<Vessel>();
-            if (selected == null || !GhostMapPresence.IsGhostMapVessel(selected.persistentId))
+            if (selected == null)
+            {
+                // Null here means either no vessel selected (normal) or the private field was
+                // renamed in a KSP update (Traverse failed silently). Log a warning so we notice.
+                ParsekLog.Warn("GhostMap", "GhostTrackingDeletePatch: selectedVessel is null — Traverse may have failed");
+                return true;
+            }
+            if (!GhostMapPresence.IsGhostMapVessel(selected.persistentId))
                 return true;
 
             ScreenMessages.PostScreenMessage(
@@ -119,7 +126,12 @@ namespace Parsek.Patches
         static bool Prefix(SpaceTracking __instance)
         {
             Vessel selected = Traverse.Create(__instance).Field("selectedVessel").GetValue<Vessel>();
-            if (selected == null || !GhostMapPresence.IsGhostMapVessel(selected.persistentId))
+            if (selected == null)
+            {
+                ParsekLog.Warn("GhostMap", "GhostTrackingRecoverPatch: selectedVessel is null — Traverse may have failed");
+                return true;
+            }
+            if (!GhostMapPresence.IsGhostMapVessel(selected.persistentId))
                 return true;
 
             ScreenMessages.PostScreenMessage(

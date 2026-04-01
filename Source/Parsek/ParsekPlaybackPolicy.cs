@@ -383,6 +383,9 @@ namespace Parsek
         /// Tracks the last orbit segment body+SMA per recording index for change detection.
         /// Used to update the ghost ProtoVessel orbit as the ghost traverses segments.
         /// </summary>
+        private const float MapOrbitUpdateIntervalSec = 0.5f;
+        private float nextMapOrbitUpdateTime;
+
         private readonly Dictionary<int, (string body, double sma, double ecc)> lastMapOrbitByIndex =
             new Dictionary<int, (string body, double sma, double ecc)>();
 
@@ -482,9 +485,11 @@ namespace Parsek
                 }
             }
 
-            // 2. Update orbits for existing recording-index ProtoVessels when segment changes
-            // Parallel pattern: see UpdateChainGhostOrbitIfNeeded in ParsekFlight.cs
-            // (same FindOrbitSegment + body/SMA comparison, but operates on chain fields instead of dict)
+            // 2. Update orbits for existing recording-index ProtoVessels when segment changes.
+            // Rate-limited: orbit segment boundaries are infrequent, no need to scan per-frame.
+            if (UnityEngine.Time.time < nextMapOrbitUpdateTime) return;
+            nextMapOrbitUpdateTime = UnityEngine.Time.time + MapOrbitUpdateIntervalSec;
+
             var committed = RecordingStore.CommittedRecordings;
             if (committed == null) return;
 

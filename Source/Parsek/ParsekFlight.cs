@@ -75,6 +75,8 @@ namespace Parsek
         private const float ProximityCheckIntervalSec = 1.5f;
         internal const double NearbySpawnRadius = 500.0;
         private readonly HashSet<string> notifiedSpawnRecordingIds = new HashSet<string>();
+        private int proximityCheckGeneration;
+        internal int ProximityCheckGeneration => proximityCheckGeneration;
         internal List<NearbySpawnCandidate> NearbySpawnCandidates => nearbySpawnCandidates;
 
         // --- Floating-origin correction ---
@@ -8424,18 +8426,23 @@ namespace Parsek
                 if (dist > NearbySpawnRadius)
                     continue;
 
+                var depInfo = SelectiveSpawnUI.ComputeDepartureInfo(rec, currentUT);
                 nearbySpawnCandidates.Add(new NearbySpawnCandidate
                 {
                     recordingIndex = i,
                     vesselName = rec.VesselName,
                     endUT = rec.EndUT,
                     distance = dist,
-                    recordingId = rec.RecordingId
+                    recordingId = rec.RecordingId,
+                    willDepart = depInfo.willDepart,
+                    departureUT = depInfo.departureUT,
+                    destination = depInfo.destination
                 });
             }
 
             // Sort by distance (closest first)
             nearbySpawnCandidates.Sort((a, b) => a.distance.CompareTo(b.distance));
+            proximityCheckGeneration++;
 
             // Notify for new candidates
             for (int c = 0; c < nearbySpawnCandidates.Count; c++)
@@ -8443,10 +8450,22 @@ namespace Parsek
                 var cand = nearbySpawnCandidates[c];
                 if (notifiedSpawnRecordingIds.Add(cand.recordingId))
                 {
-                    ParsekLog.ScreenMessage(
-                        string.Format(CultureInfo.InvariantCulture,
+                    string notifyMsg;
+                    if (cand.willDepart)
+                    {
+                        double depDelta = cand.departureUT - currentUT;
+                        notifyMsg = string.Format(CultureInfo.InvariantCulture,
+                            "Nearby craft: {0} (departs to {1} in {2}). Open Real Spawn Control.",
+                            cand.vesselName, cand.destination,
+                            SelectiveSpawnUI.FormatTimeDelta(depDelta));
+                    }
+                    else
+                    {
+                        notifyMsg = string.Format(CultureInfo.InvariantCulture,
                             "Nearby craft: {0}. Open the Real Spawn Control window to fast forward and interact.",
-                            cand.vesselName), 10f);
+                            cand.vesselName);
+                    }
+                    ParsekLog.ScreenMessage(notifyMsg, 10f);
                     ParsekLog.Info("Flight",
                         string.Format(CultureInfo.InvariantCulture,
                             "Proximity notification: '{0}' recording #{1} distance={2:F0}m endUT={3:F1}",
@@ -8498,6 +8517,49 @@ namespace Parsek
             TimeJumpManager.NotifyRecorder(recorder, currentUT, targetUT);
             // Pass null chains — let the engine playback loop handle spawn naturally
             TimeJumpManager.ExecuteJump(targetUT, null, vesselGhoster);
+        }
+
+        /// <summary>
+        /// Epoch-shifted warp to a ghost's departure UT (when it leaves its current orbit).
+        /// Used by Real Spawn Control when a ghost will depart before its EndUT.
+        /// Preserves rendezvous geometry — both player and ghost stay at current positions.
+        /// </summary>
+        internal void WarpToDeparture(int recordingIndex, double departureUT)
+        {
+            var committed = RecordingStore.CommittedRecordings;
+            if (recordingIndex < 0 || recordingIndex >= committed.Count)
+            {
+                ParsekLog.Warn("Flight",
+                    string.Format(CultureInfo.InvariantCulture,
+                        "WarpToDeparture: invalid index {0} — aborted", recordingIndex));
+                return;
+            }
+
+            Recording rec = committed[recordingIndex];
+            double currentUT = Planetarium.GetUniversalTime();
+
+            if (!TimeJumpManager.IsValidJump(currentUT, departureUT))
+            {
+                ParsekLog.Warn("Flight",
+                    string.Format(CultureInfo.InvariantCulture,
+                        "WarpToDeparture: invalid jump current={0:F1} target={1:F1} — aborted",
+                        currentUT, departureUT));
+                return;
+            }
+
+            ParsekLog.Info("Flight",
+                string.Format(CultureInfo.InvariantCulture,
+                    "WarpToDeparture: jumping to UT={0:F1} for '{1}' (delta={2:F1}s, endUT={3:F1})",
+                    departureUT, rec.VesselName, departureUT - currentUT, rec.EndUT));
+
+            TimeJumpManager.NotifyRecorder(recorder, currentUT, departureUT);
+            // Epoch-shifted jump: preserves rendezvous geometry
+            TimeJumpManager.ExecuteJump(departureUT, null, vesselGhoster);
+
+            ParsekLog.ScreenMessage(
+                string.Format(CultureInfo.InvariantCulture,
+                    "Warped to departure of \"{0}\" ({1:F0}s)",
+                    rec.VesselName, departureUT - currentUT), 5f);
         }
 
         /// <summary>
@@ -8567,7 +8629,8 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Warps to the earliest nearby spawn candidate's EndUT.
+        /// Warps to the earliest nearby spawn candidate.
+        /// If the candidate will depart, warps to departure UT instead of EndUT.
         /// </summary>
         internal void WarpToNextCraftSpawn()
         {
@@ -8578,7 +8641,10 @@ namespace Parsek
                 ParsekLog.Verbose("Flight", "WarpToNextCraftSpawn: no nearby candidates");
                 return;
             }
-            WarpToRecordingEnd(next.Value.recordingIndex);
+            if (next.Value.willDepart)
+                WarpToDeparture(next.Value.recordingIndex, next.Value.departureUT);
+            else
+                WarpToRecordingEnd(next.Value.recordingIndex);
         }
 
         void Log(string message) => ParsekLog.Verbose("Flight", message);
