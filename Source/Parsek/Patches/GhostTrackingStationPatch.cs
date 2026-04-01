@@ -13,6 +13,27 @@ namespace Parsek.Patches
     /// skips the original method which contains the unlock call.
     /// </summary>
 
+    /// <summary>
+    /// Creates ghost map ProtoVessels BEFORE SpaceTracking builds its widget list.
+    /// SpaceTracking.Awake iterates FlightGlobals.Vessels to create sidebar widgets
+    /// AND map node click callbacks. Ghost vessels created after this point appear
+    /// in the sidebar (via onVesselCreate) but their map icons are not clickable.
+    /// Running in a prefix ensures ghost vessels are in FlightGlobals.Vessels when
+    /// SpaceTracking processes the list, giving them full click interactivity.
+    /// </summary>
+    [HarmonyPatch(typeof(SpaceTracking), "Awake")]
+    internal static class GhostTrackingStationInitPatch
+    {
+        static void Prefix()
+        {
+            int created = GhostMapPresence.CreateGhostVesselsFromCommittedRecordings();
+            if (created > 0)
+                ParsekLog.Info("GhostMap",
+                    $"Pre-created {created} ghost vessel(s) before SpaceTracking.Awake — " +
+                    "ensures map icon click handlers are registered");
+        }
+    }
+
     [HarmonyPatch(typeof(SpaceTracking), "FlyVessel")]
     internal static class GhostTrackingFlyPatch
     {

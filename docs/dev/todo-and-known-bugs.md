@@ -2071,6 +2071,26 @@ Additionally, the spawned vessel had a dead crew member (Minidou Kerman, killed 
 
 **Status:** Fixed
 
+## ~~171. Orbital vessel doesn't spawn after ghost playback ends~~
+
+Vessel recorded during ascent (snapshot `sit=FLYING`) achieves orbit (`terminal=Orbiting`), but spawn is rejected by `ShouldSpawnAtRecordingEnd`. The `terminalOverridesUnsafe` check only covered `Landed`/`Splashed`, not `Orbiting`. Additionally, `ComputeCorrectedSituation` only corrected FLYING to LANDED/SPLASHED, not to ORBITING.
+
+**Root cause:** `terminalOverridesUnsafe` in `GhostPlaybackLogic.ShouldSpawnAtRecordingEnd` was missing `TerminalState.Orbiting`. `ComputeCorrectedSituation` in `VesselSpawner` also lacked the Orbiting case.
+
+**Fix:** Added `TerminalState.Orbiting` to `terminalOverridesUnsafe` in `ShouldSpawnAtRecordingEnd`. Added `case TerminalState.Orbiting: return "ORBITING"` to `ComputeCorrectedSituation`. Extended to all three spawn paths (Flight, KSC, tree leaves). 15 new tests.
+
+**Status:** Fixed
+
+## ~~172. Ghost map icon not clickable in tracking station~~
+
+Ghost ProtoVessels appear in the tracking station sidebar and orbit lines are visible, but clicking the orbit map icon doesn't select the vessel or show the info panel. Delete/Fly actions from the sidebar work (and are correctly blocked by Harmony patches).
+
+**Root cause:** Ghost vessels were created in `ParsekTrackingStation.Start()`, which runs after `SpaceTracking` has already built its widget list and map node click callbacks during `SpaceTracking.Awake()`. Vessels added dynamically via `GameEvents.onVesselCreate` get sidebar widgets but not map icon click handlers.
+
+**Fix:** Added `GhostTrackingStationInitPatch` — Harmony prefix on `SpaceTracking.Awake` that creates ghost ProtoVessels before SpaceTracking iterates `FlightGlobals.Vessels`. Ghost vessels are now in the vessel list when SpaceTracking builds its widgets and click callbacks. `ParsekTrackingStation.Start()` retained as safety net (skips duplicates).
+
+**Status:** Fixed
+
 # In-Game Tests
 
 - [x] Vessels propagate naturally along orbits after FF (no position freezing)

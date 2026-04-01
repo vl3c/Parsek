@@ -191,6 +191,11 @@ namespace Parsek
                 return;
             }
 
+            // Correct unsafe snapshot situation before spawning (#169).
+            // Vessels captured mid-flight have sit=FLYING but terminal state may be Landed/Orbiting.
+            // Without correction, KSP's on-rails pressure check destroys the vessel immediately.
+            CorrectUnsafeSnapshotSituation(rec.VesselSnapshot, rec.TerminalStateValue);
+
             // Crew protection: strip crew from spawn snapshot when recording ended in
             // destruction to prevent killing crew during spawn-death cycles (#114).
             // Modifies the snapshot in-place — acceptable for Destroyed recordings
@@ -205,11 +210,6 @@ namespace Parsek
                         $"#{index} ({rec.VesselName}) — prevents crew death on spawn");
                 }
             }
-
-            // Correct unsafe snapshot situation before spawning (#169).
-            // EVA vessels captured mid-flight have sit=FLYING but terminal state may be Landed.
-            // Without correction, KSP's on-rails pressure check destroys the vessel immediately.
-            CorrectUnsafeSnapshotSituation(rec.VesselSnapshot, rec.TerminalStateValue);
 
             // Build exclude set once for all spawn paths (EVA'd crew spawn via child recordings)
             HashSet<string> excludeCrew = BuildExcludeCrewSet(rec);
@@ -682,13 +682,14 @@ namespace Parsek
         /// <summary>
         /// Pure decision: determines the corrected situation string when the snapshot's
         /// situation is unsafe (FLYING/SUB_ORBITAL) but the terminal state indicates the
-        /// vessel safely reached the surface. Returns the corrected situation string, or
+        /// vessel safely reached a stable state. Returns the corrected situation string, or
         /// null if no correction is needed.
         ///
         /// Bug #169: EVA vessels captured with sit=FLYING but terminal state Landed are
         /// destroyed by KSP's on-rails atmospheric pressure check when spawned outside
         /// physics range. The snapshot's sit field must be corrected to match the terminal
-        /// state before spawning.
+        /// state before spawning. Also handles Orbiting: vessels captured during ascent
+        /// (FLYING) that achieved orbit.
         /// </summary>
         internal static string ComputeCorrectedSituation(string snapshotSit, TerminalState? terminalState)
         {
@@ -709,6 +710,8 @@ namespace Parsek
                     return "LANDED";
                 case TerminalState.Splashed:
                     return "SPLASHED";
+                case TerminalState.Orbiting:
+                    return "ORBITING";
                 default:
                     return null;
             }
@@ -716,7 +719,7 @@ namespace Parsek
 
         /// <summary>
         /// Corrects the snapshot's situation field if it is FLYING/SUB_ORBITAL but the
-        /// terminal state indicates the vessel safely reached the surface (Landed/Splashed).
+        /// terminal state indicates the vessel safely reached a stable state (Landed/Splashed/Orbiting).
         /// Modifies the snapshot in-place. Returns true if a correction was applied.
         /// Bug #169: prevents KSP's on-rails pressure check from destroying spawned vessels.
         /// </summary>
