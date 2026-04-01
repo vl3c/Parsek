@@ -139,6 +139,24 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void CanAutoMerge_LoopStartUTSet_ReturnsFalse()
+        {
+            var a = MakeChainSegment("chain1", 0);
+            var b = MakeChainSegment("chain1", 1);
+            a.LoopStartUT = 500;
+            Assert.False(RecordingOptimizer.CanAutoMerge(a, b));
+        }
+
+        [Fact]
+        public void CanAutoMerge_LoopEndUTSet_ReturnsFalse()
+        {
+            var a = MakeChainSegment("chain1", 0);
+            var b = MakeChainSegment("chain1", 1);
+            b.LoopEndUT = 600;
+            Assert.False(RecordingOptimizer.CanAutoMerge(a, b));
+        }
+
+        [Fact]
         public void CanAutoMerge_DifferentGroups_ReturnsFalse()
         {
             var a = MakeChainSegment("chain1", 0);

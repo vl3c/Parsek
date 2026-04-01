@@ -38,6 +38,8 @@ namespace Parsek
 
             // User intent: any non-default setting blocks merge
             if (a.LoopPlayback || b.LoopPlayback) return false;
+            if (!double.IsNaN(a.LoopStartUT) || !double.IsNaN(a.LoopEndUT)) return false;
+            if (!double.IsNaN(b.LoopStartUT) || !double.IsNaN(b.LoopEndUT)) return false;
             if (!a.PlaybackEnabled || !b.PlaybackEnabled) return false;
             if (a.Hidden || b.Hidden) return false;
             if (a.LoopIntervalSeconds != 10.0 || b.LoopIntervalSeconds != 10.0) return false;

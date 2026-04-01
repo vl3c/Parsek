@@ -78,6 +78,55 @@ namespace Parsek.Tests
             Assert.Equal(0u, loaded.LoopAnchorVesselId);
         }
 
+        // --- LoopStartUT / LoopEndUT save/load round-trip ---
+
+        [Fact]
+        public void LoopRange_Scenario_SaveLoad_RoundTrip_ValidValues()
+        {
+            var source = new Recording
+            {
+                RecordingId = "loop-range-test",
+                LoopStartUT = 130.5,
+                LoopEndUT = 170.25,
+            };
+            var node = new ConfigNode("RECORDING");
+            ParsekScenario.SaveRecordingMetadata(node, source);
+
+            var loaded = new Recording();
+            ParsekScenario.LoadRecordingMetadata(node, loaded);
+
+            Assert.Equal(130.5, loaded.LoopStartUT);
+            Assert.Equal(170.25, loaded.LoopEndUT);
+        }
+
+        [Fact]
+        public void LoopRange_Scenario_SaveLoad_NaN_NotWritten()
+        {
+            var source = new Recording
+            {
+                RecordingId = "loop-range-nan",
+                LoopStartUT = double.NaN,
+                LoopEndUT = double.NaN,
+            };
+            var node = new ConfigNode("RECORDING");
+            ParsekScenario.SaveRecordingMetadata(node, source);
+
+            Assert.Null(node.GetValue("loopStartUT"));
+            Assert.Null(node.GetValue("loopEndUT"));
+        }
+
+        [Fact]
+        public void LoopRange_Scenario_BackwardCompat_MissingKeys_DefaultsNaN()
+        {
+            var node = new ConfigNode("RECORDING");
+            // No loopStartUT / loopEndUT keys
+            var loaded = new Recording();
+            ParsekScenario.LoadRecordingMetadata(node, loaded);
+
+            Assert.True(double.IsNaN(loaded.LoopStartUT));
+            Assert.True(double.IsNaN(loaded.LoopEndUT));
+        }
+
         // --- RecordingTree serialization round-trip ---
 
         [Fact]

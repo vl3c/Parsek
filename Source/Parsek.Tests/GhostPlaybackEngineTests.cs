@@ -124,6 +124,126 @@ namespace Parsek.Tests
         #endregion
 
         // ===================================================================
+        // EffectiveLoopStartUT / EffectiveLoopEndUT — static helpers
+        // ===================================================================
+
+        #region EffectiveLoopStartUT
+
+        [Fact]
+        public void EffectiveLoopStartUT_NaN_ReturnsStartUT()
+        {
+            var traj = new MockTrajectory().WithTimeRange(100, 200);
+            traj.LoopStartUT = double.NaN;
+            Assert.Equal(100, GhostPlaybackEngine.EffectiveLoopStartUT(traj));
+        }
+
+        [Fact]
+        public void EffectiveLoopStartUT_ValidValue_ReturnsLoopStartUT()
+        {
+            var traj = new MockTrajectory().WithTimeRange(100, 200);
+            traj.LoopStartUT = 130;
+            Assert.Equal(130, GhostPlaybackEngine.EffectiveLoopStartUT(traj));
+        }
+
+        [Fact]
+        public void EffectiveLoopStartUT_BelowStartUT_ReturnsStartUT()
+        {
+            var traj = new MockTrajectory().WithTimeRange(100, 200);
+            traj.LoopStartUT = 50;
+            Assert.Equal(100, GhostPlaybackEngine.EffectiveLoopStartUT(traj));
+        }
+
+        [Fact]
+        public void EffectiveLoopStartUT_AtEndUT_ReturnsStartUT()
+        {
+            // LoopStartUT must be < EndUT
+            var traj = new MockTrajectory().WithTimeRange(100, 200);
+            traj.LoopStartUT = 200;
+            Assert.Equal(100, GhostPlaybackEngine.EffectiveLoopStartUT(traj));
+        }
+
+        [Fact]
+        public void EffectiveLoopStartUT_InvertedRange_FallsBackToFullRange()
+        {
+            // start=180, end=130 → start >= end → fall back
+            var traj = new MockTrajectory().WithTimeRange(100, 200);
+            traj.LoopStartUT = 180;
+            traj.LoopEndUT = 130;
+            Assert.Equal(100, GhostPlaybackEngine.EffectiveLoopStartUT(traj));
+        }
+
+        #endregion
+
+        #region EffectiveLoopEndUT
+
+        [Fact]
+        public void EffectiveLoopEndUT_NaN_ReturnsEndUT()
+        {
+            var traj = new MockTrajectory().WithTimeRange(100, 200);
+            traj.LoopEndUT = double.NaN;
+            Assert.Equal(200, GhostPlaybackEngine.EffectiveLoopEndUT(traj));
+        }
+
+        [Fact]
+        public void EffectiveLoopEndUT_ValidValue_ReturnsLoopEndUT()
+        {
+            var traj = new MockTrajectory().WithTimeRange(100, 200);
+            traj.LoopEndUT = 170;
+            Assert.Equal(170, GhostPlaybackEngine.EffectiveLoopEndUT(traj));
+        }
+
+        [Fact]
+        public void EffectiveLoopEndUT_AboveEndUT_ReturnsEndUT()
+        {
+            var traj = new MockTrajectory().WithTimeRange(100, 200);
+            traj.LoopEndUT = 250;
+            Assert.Equal(200, GhostPlaybackEngine.EffectiveLoopEndUT(traj));
+        }
+
+        [Fact]
+        public void EffectiveLoopEndUT_AtStartUT_ReturnsEndUT()
+        {
+            // LoopEndUT must be > StartUT
+            var traj = new MockTrajectory().WithTimeRange(100, 200);
+            traj.LoopEndUT = 100;
+            Assert.Equal(200, GhostPlaybackEngine.EffectiveLoopEndUT(traj));
+        }
+
+        [Fact]
+        public void EffectiveLoopEndUT_InvertedRange_FallsBackToFullRange()
+        {
+            var traj = new MockTrajectory().WithTimeRange(100, 200);
+            traj.LoopStartUT = 180;
+            traj.LoopEndUT = 130;
+            Assert.Equal(200, GhostPlaybackEngine.EffectiveLoopEndUT(traj));
+        }
+
+        #endregion
+
+        #region ShouldLoopPlayback with loop range
+
+        [Fact]
+        public void ShouldLoopPlayback_LoopRangeTooShort_ReturnsFalse()
+        {
+            // Full range is 100s but loop range is only 0.5s
+            var traj = new MockTrajectory().WithTimeRange(100, 200).WithLoop();
+            traj.LoopStartUT = 150;
+            traj.LoopEndUT = 150.5;
+            Assert.False(GhostPlaybackEngine.ShouldLoopPlayback(traj));
+        }
+
+        [Fact]
+        public void ShouldLoopPlayback_ValidLoopRange_ReturnsTrue()
+        {
+            var traj = new MockTrajectory().WithTimeRange(100, 200).WithLoop();
+            traj.LoopStartUT = 120;
+            traj.LoopEndUT = 180;
+            Assert.True(GhostPlaybackEngine.ShouldLoopPlayback(traj));
+        }
+
+        #endregion
+
+        // ===================================================================
         // TryComputeLoopPlaybackUT — instance, pure math
         // ===================================================================
 
@@ -337,6 +457,89 @@ namespace Parsek.Tests
             Assert.False(inPause);
             // No phase offset log
             Assert.DoesNotContain(logLines, l => l.Contains("phase offset"));
+        }
+
+        #endregion
+
+        #region TryComputeLoopPlaybackUT with loop range
+
+        [Fact]
+        public void TryComputeLoopPlaybackUT_WithLoopRange_StaysWithinRange()
+        {
+            var engine = new GhostPlaybackEngine(null);
+            // Full range 100-200, loop range 130-170 (40s duration)
+            var traj = new MockTrajectory().WithTimeRange(100, 200).WithLoop(10);
+            traj.LoopStartUT = 130;
+            traj.LoopEndUT = 170;
+
+            double loopUT;
+            long cycleIndex;
+            bool inPause;
+            // currentUT = 150 => elapsed from loopStart(130) = 20 => cycle 0, loopUT = 130 + 20 = 150
+            Assert.True(engine.TryComputeLoopPlaybackUT(traj, 150, 10,
+                out loopUT, out cycleIndex, out inPause));
+            Assert.Equal(0, cycleIndex);
+            Assert.False(inPause);
+            Assert.Equal(150, loopUT, 6);
+            // Verify within loop range
+            Assert.True(loopUT >= 130 && loopUT <= 170);
+        }
+
+        [Fact]
+        public void TryComputeLoopPlaybackUT_WithLoopRange_SecondCycle()
+        {
+            var engine = new GhostPlaybackEngine(null);
+            // Full range 100-200, loop range 130-170 (40s), interval 10s, cycleDuration = 50s
+            var traj = new MockTrajectory().WithTimeRange(100, 200).WithLoop(10);
+            traj.LoopStartUT = 130;
+            traj.LoopEndUT = 170;
+
+            double loopUT;
+            long cycleIndex;
+            bool inPause;
+            // currentUT = 180 => elapsed from 130 = 50 => cycle 1 (50/50 = 1), cycleTime = 0
+            Assert.True(engine.TryComputeLoopPlaybackUT(traj, 180, 10,
+                out loopUT, out cycleIndex, out inPause));
+            Assert.Equal(1, cycleIndex);
+            Assert.False(inPause);
+            Assert.Equal(130, loopUT, 6); // Back to loopStart
+        }
+
+        [Fact]
+        public void TryComputeLoopPlaybackUT_WithLoopRange_PauseWindow()
+        {
+            var engine = new GhostPlaybackEngine(null);
+            // Full range 100-200, loop range 130-170 (40s), interval 10s, cycleDuration = 50s
+            var traj = new MockTrajectory().WithTimeRange(100, 200).WithLoop(10);
+            traj.LoopStartUT = 130;
+            traj.LoopEndUT = 170;
+
+            double loopUT;
+            long cycleIndex;
+            bool inPause;
+            // currentUT = 175 => elapsed from 130 = 45 => cycle 0 (45/50 = 0), cycleTime = 45
+            // cycleTime (45) > duration (40) => pause window
+            Assert.True(engine.TryComputeLoopPlaybackUT(traj, 175, 10,
+                out loopUT, out cycleIndex, out inPause));
+            Assert.Equal(0, cycleIndex);
+            Assert.True(inPause);
+            Assert.Equal(170, loopUT, 6); // Pause at loopEnd, NOT traj.EndUT (200)
+        }
+
+        [Fact]
+        public void TryComputeLoopPlaybackUT_WithLoopRange_BeforeLoopStart_ReturnsFalse()
+        {
+            var engine = new GhostPlaybackEngine(null);
+            var traj = new MockTrajectory().WithTimeRange(100, 200).WithLoop(10);
+            traj.LoopStartUT = 130;
+            traj.LoopEndUT = 170;
+
+            double loopUT;
+            long cycleIndex;
+            bool inPause;
+            // currentUT = 120 is before loopStart (130)
+            Assert.False(engine.TryComputeLoopPlaybackUT(traj, 120, 10,
+                out loopUT, out cycleIndex, out inPause));
         }
 
         #endregion
