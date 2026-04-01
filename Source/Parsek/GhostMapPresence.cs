@@ -541,49 +541,6 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Sync recording-index ghost map vessel positions to their visual ghost positions.
-        /// Called per-frame after the engine update to keep the clickable MapNode aligned
-        /// with the visible ghost icon. Without this, Keplerian orbit propagation drifts
-        /// the ProtoVessel position away from the interpolated trajectory position (#172).
-        ///
-        /// For on-rails vessels, SetPosition alone doesn't work — OrbitDriver overrides it.
-        /// Instead, we update the orbit's state vectors from the ghost's world position,
-        /// keeping the existing orbital velocity. This repositions the vessel on its orbit
-        /// to match the ghost, and the MapNode/OrbitRenderer follow automatically.
-        /// </summary>
-        internal static void SyncGhostMapPositions(Dictionary<int, GhostPlaybackState> ghostStates)
-        {
-            if (vesselsByRecordingIndex.Count == 0 || ghostStates == null)
-                return;
-
-            double ut = Planetarium.GetUniversalTime();
-
-            foreach (var kvp in vesselsByRecordingIndex)
-            {
-                int idx = kvp.Key;
-                Vessel vessel = kvp.Value;
-                if (vessel == null || vessel.orbitDriver == null) continue;
-
-                GhostPlaybackState state;
-                if (!ghostStates.TryGetValue(idx, out state))
-                    continue;
-                if (state == null || state.ghost == null)
-                    continue;
-
-                // Update the orbit to pass through the ghost's current world position.
-                // Use the existing orbit velocity to preserve orbit shape as much as possible.
-                Vector3d ghostPos = state.ghost.transform.position;
-                Vector3d vel = vessel.orbit.GetVel();
-                CelestialBody body = vessel.orbitDriver.celestialBody;
-                if (body == null) continue;
-
-                vessel.orbit.UpdateFromStateVectors(ghostPos, vel, body, ut);
-                vessel.orbitDriver.pos = vessel.orbit.pos;
-                vessel.orbitDriver.vel = vessel.orbit.vel;
-            }
-        }
-
-        /// <summary>
         /// Reset all state for testing (avoids Debug.Log crash outside Unity).
         /// </summary>
         internal static void ResetForTesting()
