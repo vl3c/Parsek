@@ -88,17 +88,91 @@ namespace Parsek
             var costActions = CreateVesselCostActions(recordingId, startUT, endUT);
             actions.AddRange(costActions);
 
-            // 4. Add to ledger
+            // 4. Deduplicate: remove actions already in the ledger from KSC real-time writes.
+            // KSC events (tech, facility, hire, milestone) written via OnKscSpending may overlap
+            // with the recording's time range. Compare by type + UT + key to avoid double-adding.
+            int beforeDedup = actions.Count;
+            actions = DeduplicateAgainstLedger(actions);
+            int dedupRemoved = beforeDedup - actions.Count;
+
+            // 5. Add to ledger
             Ledger.AddActions(actions);
 
             ParsekLog.Info(Tag,
                 $"Committed recording '{recordingId}': {actions.Count} actions added to ledger " +
                 $"(events={events.Count}, science={scienceActions.Count}, cost={costActions.Count}, " +
-                $"startUT={startUT:F1}, endUT={endUT:F1})");
+                $"dedup={dedupRemoved}, startUT={startUT:F1}, endUT={endUT:F1})");
 
-            // 5. Recalculate + patch
+            // 6. Recalculate + patch
             RecalculateAndPatch();
         }
+
+        /// <summary>
+        /// Removes actions from the candidate list that already exist in the ledger.
+        /// Matches on Type + UT (within epsilon) + key field (SubjectId, NodeId, FacilityId,
+        /// MilestoneId, or ContractId depending on type). This prevents double-adding KSC
+        /// events that were written to the ledger in real-time via OnKscSpending but also
+        /// fall within a recording's time range.
+        /// </summary>
+        internal static List<GameAction> DeduplicateAgainstLedger(List<GameAction> candidates)
+        {
+            var existing = Ledger.Actions;
+            if (existing.Count == 0) return candidates;
+
+            var result = new List<GameAction>(candidates.Count);
+            for (int i = 0; i < candidates.Count; i++)
+            {
+                var c = candidates[i];
+                bool isDuplicate = false;
+
+                for (int j = 0; j < existing.Count; j++)
+                {
+                    var e = existing[j];
+                    if (e.Type != c.Type) continue;
+                    if (System.Math.Abs(e.UT - c.UT) > 0.1) continue;
+
+                    // Match on the type-specific key field
+                    if (GetActionKey(e) == GetActionKey(c))
+                    {
+                        isDuplicate = true;
+                        break;
+                    }
+                }
+
+                if (!isDuplicate)
+                    result.Add(c);
+            }
+
+            if (result.Count < candidates.Count)
+            {
+                ParsekLog.Verbose(Tag,
+                    $"DeduplicateAgainstLedger: removed {candidates.Count - result.Count} duplicates " +
+                    $"from {candidates.Count} candidates");
+            }
+
+            return result;
+        }
+
+        /// <summary>Returns the type-specific key field for deduplication matching.</summary>
+        private static string GetActionKey(GameAction a)
+        {
+            switch (a.Type)
+            {
+                case GameActionType.ScienceEarning: return a.SubjectId ?? "";
+                case GameActionType.ScienceSpending: return a.NodeId ?? "";
+                case GameActionType.MilestoneAchievement: return a.MilestoneId ?? "";
+                case GameActionType.FacilityUpgrade:
+                case GameActionType.FacilityDestruction:
+                case GameActionType.FacilityRepair: return a.FacilityId ?? "";
+                case GameActionType.ContractAccept:
+                case GameActionType.ContractComplete:
+                case GameActionType.ContractFail:
+                case GameActionType.ContractCancel: return a.ContractId ?? "";
+                case GameActionType.KerbalHire: return a.KerbalName ?? "";
+                default: return "";
+            }
+        }
+
 
         /// <summary>
         /// Creates FundsSpending (VesselBuild) and FundsEarning (Recovery) actions
