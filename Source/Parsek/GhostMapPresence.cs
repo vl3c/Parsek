@@ -685,11 +685,37 @@ namespace Parsek
                         v.GetWorldPos3D().x, v.GetWorldPos3D().y, v.GetWorldPos3D().z);
                 }
 
+                // Ensure OrbitRenderer is enabled — in Tracking Station, pv.Load()
+                // may create the renderer in a disabled state.
+                if (v.orbitRenderer != null)
+                {
+                    v.orbitRenderer.drawMode = OrbitRendererBase.DrawMode.REDRAW_AND_RECALCULATE;
+                    v.orbitRenderer.drawIcons = OrbitRendererBase.DrawIcons.ALL;
+                    if (!v.orbitRenderer.enabled)
+                    {
+                        v.orbitRenderer.enabled = true;
+                        ParsekLog.Verbose(Tag, string.Format(ic,
+                            "Force-enabled OrbitRenderer for ghost '{0}'", vesselName));
+                    }
+                }
+
+                // Force correct VesselType — KSP may override for single-part vessels
+                if (v.vesselType != vtype)
+                {
+                    ParsekLog.Verbose(Tag, string.Format(ic,
+                        "Ghost vessel type overridden by KSP: {0} → {1}, restoring to {2}",
+                        vtype, v.vesselType, vtype));
+                    v.vesselType = vtype;
+                }
+
                 ParsekLog.Info(Tag,
                     string.Format(ic,
-                        "Created ghost vessel '{0}' ghostPid={1} type={2} body={3} sma={4:F0} for {5} | {6}",
+                        "Created ghost vessel '{0}' ghostPid={1} type={2} body={3} sma={4:F0} for {5} | {6} " +
+                        "mapObj={7} orbitRenderer={8} scene={9}",
                         vesselName, v.persistentId,
-                        vtype, body.name, traj.TerminalOrbitSemiMajorAxis, logContext, driverState));
+                        vtype, body.name, traj.TerminalOrbitSemiMajorAxis, logContext, driverState,
+                        v.mapObject != null, v.orbitRenderer != null,
+                        HighLogic.LoadedScene));
 
                 return v;
             }
