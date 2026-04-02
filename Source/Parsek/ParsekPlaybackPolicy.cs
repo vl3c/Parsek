@@ -47,6 +47,10 @@ namespace Parsek
             engine.OnOverlapExpired += HandleOverlapExpired;
             engine.OnAllGhostsDestroying += HandleAllGhostsDestroying;
 
+            // Tell the engine how to check if a ghost is being held
+            engine.IsGhostHeld = idx =>
+                heldGhosts.ContainsKey(idx) || host.watchedRecordingIndex == idx;
+
             ParsekLog.Info("Policy", "ParsekPlaybackPolicy created and subscribed to engine events");
         }
 
