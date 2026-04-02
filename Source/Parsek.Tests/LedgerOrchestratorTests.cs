@@ -546,6 +546,110 @@ namespace Parsek.Tests
         }
 
         // ================================================================
+        // Dynamic slot limits (GetContractSlots / GetStrategySlots)
+        // ================================================================
+
+        [Fact]
+        public void GetContractSlots_Level1_Returns2()
+        {
+            Assert.Equal(2, LedgerOrchestrator.GetContractSlots(1));
+        }
+
+        [Fact]
+        public void GetContractSlots_Level2_Returns7()
+        {
+            Assert.Equal(7, LedgerOrchestrator.GetContractSlots(2));
+        }
+
+        [Fact]
+        public void GetContractSlots_Level3_Returns999()
+        {
+            Assert.Equal(999, LedgerOrchestrator.GetContractSlots(3));
+        }
+
+        [Fact]
+        public void GetStrategySlots_Level1_Returns1()
+        {
+            Assert.Equal(1, LedgerOrchestrator.GetStrategySlots(1));
+        }
+
+        [Fact]
+        public void GetStrategySlots_Level2_Returns3()
+        {
+            Assert.Equal(3, LedgerOrchestrator.GetStrategySlots(2));
+        }
+
+        [Fact]
+        public void GetStrategySlots_Level3_Returns5()
+        {
+            Assert.Equal(5, LedgerOrchestrator.GetStrategySlots(3));
+        }
+
+        [Fact]
+        public void RecalculateAndPatch_UpdatesContractSlotsFromFacilities()
+        {
+            LedgerOrchestrator.Initialize();
+
+            // Upgrade Mission Control to level 2
+            Ledger.AddAction(new GameAction
+            {
+                UT = 10.0,
+                Type = GameActionType.FacilityUpgrade,
+                FacilityId = "MissionControl",
+                ToLevel = 2
+            });
+
+            // First recalculate: processes the facility upgrade, but slot limits
+            // were set from prior state (level 1 -> 2 slots) before this walk.
+            LedgerOrchestrator.RecalculateAndPatch();
+
+            // Second recalculate: now the facility state shows level 2,
+            // so slot limits update to 7 before the walk.
+            LedgerOrchestrator.RecalculateAndPatch();
+
+            Assert.Equal(7 - 0, LedgerOrchestrator.Contracts.GetAvailableSlots());
+
+            Assert.Contains(logLines, l =>
+                l.Contains("[LedgerOrchestrator]") && l.Contains("7 contract slots"));
+        }
+
+        [Fact]
+        public void RecalculateAndPatch_UpdatesStrategySlotsFromFacilities()
+        {
+            LedgerOrchestrator.Initialize();
+
+            // Upgrade Administration to level 3
+            Ledger.AddAction(new GameAction
+            {
+                UT = 10.0,
+                Type = GameActionType.FacilityUpgrade,
+                FacilityId = "Administration",
+                ToLevel = 3
+            });
+
+            LedgerOrchestrator.RecalculateAndPatch();
+            LedgerOrchestrator.RecalculateAndPatch(); // second call picks up new level
+
+            Assert.Equal(5 - 0, LedgerOrchestrator.Strategies.GetAvailableSlots());
+
+            Assert.Contains(logLines, l =>
+                l.Contains("[LedgerOrchestrator]") && l.Contains("5 strategy slots"));
+        }
+
+        [Fact]
+        public void RecalculateAndPatch_DefaultSlotLimits_MatchLevel1()
+        {
+            LedgerOrchestrator.Initialize();
+
+            // No facility upgrades — default level 1
+            LedgerOrchestrator.RecalculateAndPatch();
+
+            // Default: 2 contract slots, 1 strategy slot
+            Assert.Equal(2, LedgerOrchestrator.Contracts.GetAvailableSlots());
+            Assert.Equal(1, LedgerOrchestrator.Strategies.GetAvailableSlots());
+        }
+
+        // ================================================================
         // ExtractCrewFromRecording
         // ================================================================
 

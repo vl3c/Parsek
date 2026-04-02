@@ -384,6 +384,15 @@ namespace Parsek
                 seedChecked = true;
             }
 
+            // Update contract and strategy slot limits based on facility levels
+            // from the previous recalculation walk. On the very first call, defaults
+            // (2 contracts / 1 strategy) apply — correct for unupgraded buildings.
+            // Subsequent calls use facility state derived from the prior walk,
+            // so slot limits are always one walk behind facility upgrades. This is
+            // acceptable because RecalculateAndPatch runs on every trigger (commit,
+            // rewind, warp exit, load), converging within two calls at most.
+            UpdateSlotLimitsFromFacilities();
+
             var actions = new List<GameAction>(Ledger.Actions);
             RecalculationEngine.Recalculate(actions);
 
@@ -587,6 +596,61 @@ namespace Parsek
         }
 
         // ================================================================
+        // Dynamic slot limits
+        // ================================================================
+
+        /// <summary>
+        /// Updates ContractsModule and StrategiesModule max slot counts based on
+        /// current facility levels tracked by FacilitiesModule. Called before each
+        /// recalculation walk so slot limits reflect the most recent facility state.
+        /// </summary>
+        private static void UpdateSlotLimitsFromFacilities()
+        {
+            if (facilitiesModule == null || contractsModule == null || strategiesModule == null)
+                return;
+
+            int missionControlLevel = facilitiesModule.GetFacilityLevel("MissionControl");
+            int contractSlots = GetContractSlots(missionControlLevel);
+            contractsModule.SetMaxSlots(contractSlots);
+
+            int adminLevel = facilitiesModule.GetFacilityLevel("Administration");
+            int strategySlots = GetStrategySlots(adminLevel);
+            strategiesModule.SetMaxSlots(strategySlots);
+
+            ParsekLog.Verbose(Tag,
+                $"UpdateSlotLimits: MissionControl level={missionControlLevel} -> {contractSlots} contract slots, " +
+                $"Administration level={adminLevel} -> {strategySlots} strategy slots");
+        }
+
+        /// <summary>
+        /// Maps Mission Control facility level to active contract slot count.
+        /// KSP stock values: Level 1 = 2, Level 2 = 7, Level 3 = unlimited (999).
+        /// </summary>
+        internal static int GetContractSlots(int level)
+        {
+            switch (level)
+            {
+                case 1: return 2;    // Level 1 (unupgraded)
+                case 2: return 7;    // Level 2
+                default: return 999; // Level 3+ (effectively unlimited)
+            }
+        }
+
+        /// <summary>
+        /// Maps Administration facility level to active strategy slot count.
+        /// KSP stock values: Level 1 = 1, Level 2 = 3, Level 3 = 5.
+        /// </summary>
+        internal static int GetStrategySlots(int level)
+        {
+            switch (level)
+            {
+                case 1: return 1;   // Level 1 (unupgraded)
+                case 2: return 3;   // Level 2
+                default: return 5;  // Level 3+
+            }
+        }
+
+        // ================================================================
         // Module accessors (for KspStatePatcher and tests)
         // ================================================================
 
@@ -610,6 +674,34 @@ namespace Parsek
             {
                 OnRecordingCommitted(rec.RecordingId, rec.StartUT, rec.EndUT);
             }
+        }
+
+        // ================================================================
+        // Warp facility visual helpers
+        // ================================================================
+
+        /// <summary>
+        /// Returns true if the ledger contains any facility-type actions
+        /// (FacilityUpgrade, FacilityDestruction, FacilityRepair) with UT
+        /// in the half-open range (fromUT, toUT].
+        /// Used by ParsekFlight to decide whether facility visuals need
+        /// patching when warp starts or ends.
+        /// </summary>
+        internal static bool HasFacilityActionsInRange(double fromUT, double toUT)
+        {
+            var actions = Ledger.Actions;
+            for (int i = 0; i < actions.Count; i++)
+            {
+                var a = actions[i];
+                if (a.UT > fromUT && a.UT <= toUT &&
+                    (a.Type == GameActionType.FacilityUpgrade ||
+                     a.Type == GameActionType.FacilityDestruction ||
+                     a.Type == GameActionType.FacilityRepair))
+                {
+                    return true;
+                }
+            }
+            return false;
         }
     }
 }

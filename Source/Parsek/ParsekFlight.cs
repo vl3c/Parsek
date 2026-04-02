@@ -234,6 +234,7 @@ namespace Parsek
         private string pendingWatchRecordingId = null;  // recording ID that was in watch mode when deferred
         private bool timelineResourceReplayPausedLogged = false;
         private bool wasWarpActive = false; // tracks previous warp state for exit detection
+        private double warpStartUT = 0.0;  // UT when warp began — used for facility visual updates
         // Camera follow (watch mode) — transient, never serialized
         private const string WatchModeLockId = "ParsekWatch";
         private const ControlTypes WatchModeLockMask =

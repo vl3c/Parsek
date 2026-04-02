@@ -722,6 +722,56 @@ namespace Parsek.Tests
                 l.Contains("[KerbalsModule]") && l.Contains("Saved 1 kerbal slot"));
         }
 
+        // ── MIA Respawn Override ──
+        // KSP has a built-in MIA respawn mechanic that transitions Dead kerbals
+        // to Available after a delay. Parsek overrides this: ApplyToRoster sets
+        // every reserved kerbal to Assigned, so even if KSP respawns a Dead
+        // kerbal, the next RecalculateAndApply resets them to reserved state.
+        // The tests below verify the reservation logic that underpins this override.
+
+        [Fact]
+        public void MiaRespawnOverride_DeadKerbal_StaysReservedAcrossRecalculations()
+        {
+            // A kerbal who died in a recording must remain permanently reserved.
+            // Even if KSP's MIA respawn changes their rosterStatus to Available
+            // between recalculation calls, Recalculate() re-derives the reservation
+            // as permanent (Dead -> IsPermanent=true), and ApplyToRoster would
+            // set them back to Assigned on the KSP roster.
+            var rec = MakeRecording("Doomed Ship", new[] { "Jeb" },
+                TerminalState.Destroyed, 1000);
+            RecordingStore.AddCommittedForTesting(rec);
+
+            // First recalculation
+            KerbalsModule.Recalculate();
+            Assert.True(KerbalsModule.Reservations["Jeb"].IsPermanent);
+            Assert.False(KerbalsModule.IsKerbalAvailable("Jeb"));
+
+            // Simulate passage of time / KSP MIA respawn by recalculating again.
+            // The reservation should still be permanent and active.
+            KerbalsModule.Recalculate();
+            Assert.True(KerbalsModule.Reservations["Jeb"].IsPermanent);
+            Assert.False(KerbalsModule.IsKerbalAvailable("Jeb"));
+
+            Assert.Contains(logLines, l =>
+                l.Contains("[KerbalsModule]") && l.Contains("'Jeb'") && l.Contains("RESERVED"));
+        }
+
+        [Fact]
+        public void MiaRespawnOverride_RecoveredKerbal_StaysReservedUntilEndUT()
+        {
+            // A recovered kerbal stays reserved until their recording's EndUT.
+            // KSP cannot override this because ApplyToRoster sets Assigned status.
+            var rec = MakeRecording("Safe Ship", new[] { "Val" },
+                TerminalState.Recovered, 5000);
+            RecordingStore.AddCommittedForTesting(rec);
+
+            KerbalsModule.Recalculate();
+
+            Assert.False(KerbalsModule.Reservations["Val"].IsPermanent);
+            Assert.Equal(5000.0, KerbalsModule.Reservations["Val"].ReservedUntilUT);
+            Assert.False(KerbalsModule.IsKerbalAvailable("Val"));
+        }
+
         // ── Reset ──
 
         [Fact]
