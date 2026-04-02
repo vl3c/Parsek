@@ -81,17 +81,38 @@ namespace Parsek.Patches
                 {
                     currentGhostMenu = null;
                     var flight = ParsekFlight.Instance;
-                    if (flight != null && recIndex >= 0)
-                    {
-                        flight.EnterWatchMode(recIndex);
-                        ParsekLog.Info("GhostMap", $"Ghost '{vesselName}' watch started via icon click (recIndex={recIndex})");
-                    }
-                    else
+                    if (flight == null || recIndex < 0)
                     {
                         ScreenMessages.PostScreenMessage(
                             $"<b>{vesselName}</b> is a ghost — it will materialize when its timeline reaches the spawn point.",
                             5f, ScreenMessageStyle.UPPER_CENTER);
                         ParsekLog.Info("GhostMap", $"Ghost '{vesselName}' watch unavailable (recIndex={recIndex})");
+                    }
+                    else if (!flight.HasActiveGhost(recIndex))
+                    {
+                        ScreenMessages.PostScreenMessage(
+                            $"<b>{vesselName}</b> — ghost not active yet (recording may be in the future).",
+                            5f, ScreenMessageStyle.UPPER_CENTER);
+                        ParsekLog.Info("GhostMap", $"Ghost '{vesselName}' watch refused — no active ghost (recIndex={recIndex})");
+                    }
+                    else if (!flight.IsGhostOnSameBody(recIndex))
+                    {
+                        ScreenMessages.PostScreenMessage(
+                            $"<b>{vesselName}</b> — ghost is on a different celestial body.",
+                            5f, ScreenMessageStyle.UPPER_CENTER);
+                        ParsekLog.Info("GhostMap", $"Ghost '{vesselName}' watch refused — different body (recIndex={recIndex})");
+                    }
+                    else if (!flight.IsGhostWithinVisualRange(recIndex))
+                    {
+                        ScreenMessages.PostScreenMessage(
+                            $"<b>{vesselName}</b> — ghost is too far away to watch.",
+                            5f, ScreenMessageStyle.UPPER_CENTER);
+                        ParsekLog.Info("GhostMap", $"Ghost '{vesselName}' watch refused — out of range (recIndex={recIndex})");
+                    }
+                    else
+                    {
+                        flight.EnterWatchMode(recIndex);
+                        ParsekLog.Info("GhostMap", $"Ghost '{vesselName}' watch started via icon click (recIndex={recIndex})");
                     }
                 }, dismissOnSelect: true)
             };
