@@ -123,7 +123,7 @@ namespace Parsek
 
         // Sort state
         internal enum SortColumn { Index, Phase, Name, LaunchTime, Duration, Status }
-        private SortColumn sortColumn = SortColumn.Index;
+        private SortColumn sortColumn = SortColumn.LaunchTime;
         private bool sortAscending = true;
 
         // Root-level draw item for unified sorting of groups, chains, and standalone recordings
