@@ -56,7 +56,7 @@ Items identified during design that are out of scope for the initial implementat
 **What:** How the ledger associates a rescue recording with a stranded kerbal. Requires the recording system to detect docking with or picking up a stranded kerbal.
 **Why deferred:** Requires cross-system integration between recording system and kerbals module. Complex edge case.
 **Revisit when:** Kerbals module basic reservation is working and stranded state is implemented.
-**Status:** Open
+**Status:** Scaffolded — requires recording system integration to detect docking with stranded kerbals. Placeholder added in GameStateEventConverter.cs (Phase 8, Task 34).
 
 ---
 

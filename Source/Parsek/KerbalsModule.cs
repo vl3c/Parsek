@@ -54,6 +54,17 @@ namespace Parsek
         internal static IReadOnlyDictionary<string, KerbalSlot> Slots => slots;
         internal static IReadOnlyCollection<string> RetiredKerbals => retiredKerbals;
 
+        /// <summary>
+        /// Returns the list of retired kerbal names for UI display.
+        /// Retired kerbals are stand-ins that were displaced by the original kerbal
+        /// returning. They remain in the roster but are blocked from dismissal.
+        /// Returns a snapshot — safe to enumerate while the module recalculates.
+        /// </summary>
+        internal static IReadOnlyList<string> GetRetiredKerbals()
+        {
+            return new List<string>(retiredKerbals);
+        }
+
         // ────────────────────────────────────────────────────────
         // Task 1: End-state inference
         // ────────────────────────────────────────────────────────

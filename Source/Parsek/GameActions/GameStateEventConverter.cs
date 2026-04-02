@@ -437,6 +437,17 @@ namespace Parsek
         }
 
         // ================================================================
+        // Deferred: Kerbal Rescue action generation (D6)
+        // ================================================================
+        // KerbalRescue actions would be generated here when a recording detects
+        // docking with or EVA pickup of a stranded kerbal. This requires:
+        //   1. Recording system integration to detect docking events with stranded vessels
+        //   2. Cross-referencing the docked vessel's crew against known stranded kerbals
+        //   3. A new GameActionType.KerbalRescue and corresponding event type
+        // Scaffolded — requires recording system integration to detect docking
+        // with stranded kerbals. See deferred item D6.
+
+        // ================================================================
         // Detail extraction helper
         // ================================================================
 

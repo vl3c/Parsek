@@ -1,5 +1,6 @@
 using System;
 using System.Globalization;
+using Contracts;
 
 namespace Parsek
 {
@@ -32,6 +33,8 @@ namespace Parsek
                 PatchFunds(funds);
                 PatchReputation(reputation);
                 PatchFacilities(facilities);
+                PatchMilestones(milestones);
+                PatchContracts();
 
                 ParsekLog.Info(Tag, "PatchAll complete");
             }
@@ -372,6 +375,60 @@ namespace Parsek
                 $"skipped={skippedSubjects.ToString(IC)}, " +
                 $"notFound={notFoundSubjects.ToString(IC)}, " +
                 $"totalSubjects={subjects.Count}");
+        }
+
+        /// <summary>
+        /// Scaffold for milestone state patching. Full implementation requires iterating
+        /// the ProgressNode tree and setting achieved flags based on MilestonesModule state,
+        /// which needs a mapping between MilestoneId strings and ProgressNode.Id values.
+        /// For now, logs the milestone count for diagnostics.
+        /// </summary>
+        internal static void PatchMilestones(MilestonesModule milestones)
+        {
+            if (milestones == null)
+            {
+                ParsekLog.Warn(Tag, "PatchMilestones: null module — skipping");
+                return;
+            }
+
+            if (ProgressTracking.Instance == null)
+            {
+                ParsekLog.Verbose(Tag, "PatchMilestones: ProgressTracking.Instance is null — skipping");
+                return;
+            }
+
+            // Note: ProgressTracking.Instance nodes represent milestones.
+            // Full milestone patching requires iterating ProgressNode tree and
+            // setting achieved flags based on MilestonesModule.IsMilestoneCredited().
+            // This is complex and requires mapping between MilestoneId strings and
+            // ProgressNode.Id values. For now, log the milestone count for diagnostics.
+            ParsekLog.Info(Tag,
+                $"PatchMilestones: {milestones.GetCreditedCount().ToString(IC)} milestones credited " +
+                $"(ProgressTracking patching deferred — requires ProgressNode tree mapping)");
+        }
+
+        /// <summary>
+        /// Scaffold for contract state patching. Full implementation requires
+        /// type-registry subclass instantiation per Spike B findings — contract types
+        /// are subclasses of Contract and cannot be generically recreated from ConfigNode.
+        /// Logs a diagnostic message. See deferred item D3.
+        /// </summary>
+        internal static void PatchContracts()
+        {
+            if (ContractSystem.Instance == null)
+            {
+                ParsekLog.Verbose(Tag,
+                    "PatchContracts: ContractSystem.Instance is null — skipping");
+                return;
+            }
+
+            int activeCount = ContractSystem.Instance.Contracts != null
+                ? ContractSystem.Instance.Contracts.Count
+                : 0;
+
+            ParsekLog.Info(Tag,
+                $"PatchContracts: {activeCount.ToString(IC)} active contracts in KSP " +
+                $"(contract patching deferred — requires type-registry subclass instantiation)");
         }
     }
 }

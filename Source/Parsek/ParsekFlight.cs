@@ -3294,12 +3294,41 @@ namespace Parsek
         {
             bool isWarpNow = IsAnyWarpActive();
 
+            // Detect warp start: was not warping, now warping — patch facility visuals
+            // so the player sees the correct state during warp. Full recalculation
+            // happens on warp exit; this is a lightweight visual-only update.
+            // NOTE: True real-time per-frame facility visual updates during warp would
+            // require a partial recalculation walk (processing actions only up to the
+            // current UT). The current approach patches to the final derived state at
+            // warp start and again at warp end, which covers the common case of warping
+            // past a facility event.
+            if (!wasWarpActive && isWarpNow)
+            {
+                warpStartUT = Planetarium.GetUniversalTime();
+                if (LedgerOrchestrator.IsInitialized)
+                {
+                    KspStatePatcher.PatchFacilities(LedgerOrchestrator.Facilities);
+                    ParsekLog.Info("WarpFacilities",
+                        $"Warp start at UT={warpStartUT:F2} — patched facility visuals");
+                }
+            }
+
             // Detect warp exit: was warping, now at 1x — recalculate ledger
             if (wasWarpActive && !isWarpNow)
             {
+                double warpEndUT = Planetarium.GetUniversalTime();
                 ParsekLog.Info("LedgerOrchestrator",
                     "Warp exit detected — recalculating ledger");
                 LedgerOrchestrator.RecalculateAndPatch();
+
+                // Log whether any facility actions were crossed during this warp session
+                if (LedgerOrchestrator.IsInitialized &&
+                    LedgerOrchestrator.HasFacilityActionsInRange(warpStartUT, warpEndUT))
+                {
+                    ParsekLog.Info("WarpFacilities",
+                        $"Warp exit at UT={warpEndUT:F2} — facility actions crossed " +
+                        $"in range ({warpStartUT:F2}, {warpEndUT:F2}]");
+                }
             }
             wasWarpActive = isWarpNow;
 

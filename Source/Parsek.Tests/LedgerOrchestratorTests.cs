@@ -737,5 +737,124 @@ namespace Parsek.Tests
 
             RecordingStore.ResetForTesting();
         }
+
+        // ================================================================
+        // HasFacilityActionsInRange
+        // ================================================================
+
+        [Fact]
+        public void HasFacilityActionsInRange_EmptyLedger_ReturnsFalse()
+        {
+            Assert.False(LedgerOrchestrator.HasFacilityActionsInRange(0, 1000));
+        }
+
+        [Fact]
+        public void HasFacilityActionsInRange_FacilityUpgradeInRange_ReturnsTrue()
+        {
+            Ledger.AddAction(new GameAction
+            {
+                UT = 500.0,
+                Type = GameActionType.FacilityUpgrade,
+                RecordingId = "rec-fac-1",
+                FacilityId = "SpaceCenter/LaunchPad",
+                ToLevel = 2
+            });
+
+            Assert.True(LedgerOrchestrator.HasFacilityActionsInRange(100, 600));
+        }
+
+        [Fact]
+        public void HasFacilityActionsInRange_FacilityDestructionInRange_ReturnsTrue()
+        {
+            Ledger.AddAction(new GameAction
+            {
+                UT = 300.0,
+                Type = GameActionType.FacilityDestruction,
+                RecordingId = "rec-fac-2",
+                FacilityId = "SpaceCenter/LaunchPad"
+            });
+
+            Assert.True(LedgerOrchestrator.HasFacilityActionsInRange(200, 400));
+        }
+
+        [Fact]
+        public void HasFacilityActionsInRange_FacilityRepairInRange_ReturnsTrue()
+        {
+            Ledger.AddAction(new GameAction
+            {
+                UT = 300.0,
+                Type = GameActionType.FacilityRepair,
+                RecordingId = "rec-fac-3",
+                FacilityId = "SpaceCenter/LaunchPad"
+            });
+
+            Assert.True(LedgerOrchestrator.HasFacilityActionsInRange(200, 400));
+        }
+
+        [Fact]
+        public void HasFacilityActionsInRange_ActionOutsideRange_ReturnsFalse()
+        {
+            Ledger.AddAction(new GameAction
+            {
+                UT = 500.0,
+                Type = GameActionType.FacilityUpgrade,
+                RecordingId = "rec-fac-4",
+                FacilityId = "SpaceCenter/LaunchPad",
+                ToLevel = 2
+            });
+
+            // Range entirely before the action
+            Assert.False(LedgerOrchestrator.HasFacilityActionsInRange(100, 400));
+            // Range entirely after the action
+            Assert.False(LedgerOrchestrator.HasFacilityActionsInRange(600, 900));
+        }
+
+        [Fact]
+        public void HasFacilityActionsInRange_NonFacilityActionInRange_ReturnsFalse()
+        {
+            Ledger.AddAction(new GameAction
+            {
+                UT = 500.0,
+                Type = GameActionType.ScienceEarning,
+                RecordingId = "rec-sci-1",
+                SubjectId = "mysteryGoo@KerbinSrfLanded",
+                ScienceAwarded = 10f,
+                SubjectMaxValue = 30f
+            });
+
+            Assert.False(LedgerOrchestrator.HasFacilityActionsInRange(100, 600));
+        }
+
+        [Fact]
+        public void HasFacilityActionsInRange_BoundaryExclusion_FromUTExcluded()
+        {
+            // Action exactly at fromUT — half-open range (fromUT, toUT] excludes fromUT
+            Ledger.AddAction(new GameAction
+            {
+                UT = 500.0,
+                Type = GameActionType.FacilityUpgrade,
+                RecordingId = "rec-fac-5",
+                FacilityId = "SpaceCenter/LaunchPad",
+                ToLevel = 2
+            });
+
+            Assert.False(LedgerOrchestrator.HasFacilityActionsInRange(500, 600));
+        }
+
+        [Fact]
+        public void HasFacilityActionsInRange_BoundaryInclusion_ToUTIncluded()
+        {
+            // Action exactly at toUT — half-open range (fromUT, toUT] includes toUT
+            Ledger.AddAction(new GameAction
+            {
+                UT = 600.0,
+                Type = GameActionType.FacilityUpgrade,
+                RecordingId = "rec-fac-6",
+                FacilityId = "SpaceCenter/LaunchPad",
+                ToLevel = 2
+            });
+
+            Assert.True(LedgerOrchestrator.HasFacilityActionsInRange(500, 600));
+        }
     }
 }
