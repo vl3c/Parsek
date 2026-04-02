@@ -551,7 +551,6 @@ namespace Parsek
         /// Checks whether a funds spending of the given cost is affordable under the
         /// current ledger reservation. Returns true if available funds >= cost.
         /// Not yet wired to FacilityUpgradePatch — scaffolding for future use.
-        /// Used by FacilityUpgradePatch to block unfunded facility upgrades.
         /// </summary>
         internal static bool CanAffordFundsSpending(float cost)
         {
