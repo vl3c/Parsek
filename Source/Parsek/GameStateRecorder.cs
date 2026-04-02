@@ -375,10 +375,6 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Pure: returns true if the status transition is a real change (not an identity
-        /// transition like Dead->Dead). Extracted for testability (Bug #122).
-        /// </summary>
-        /// <summary>
         /// Returns true if we're currently in the Flight scene. KSC spending actions
         /// should only be written directly to the ledger outside of flight (to avoid
         /// double-adding when the recording is committed).
@@ -388,6 +384,10 @@ namespace Parsek
             return HighLogic.LoadedScene == GameScenes.FLIGHT;
         }
 
+        /// <summary>
+        /// Pure: returns true if the status transition is a real change (not an identity
+        /// transition like Dead->Dead). Extracted for testability (Bug #122).
+        /// </summary>
         internal static bool IsRealStatusChange(ProtoCrewMember.RosterStatus oldStatus,
             ProtoCrewMember.RosterStatus newStatus)
         {
