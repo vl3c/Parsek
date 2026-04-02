@@ -446,6 +446,9 @@ namespace Parsek
         {
             if (sceneChangeInProgress) return;
 
+            // Ghost icon popup: check for outside clicks (runs after UI event processing)
+            Patches.GhostIconClickPatch.CheckOutsideClick();
+
             for (int i = 0; i < ghostPosEntries.Count; i++)
             {
                 var e = ghostPosEntries[i];

@@ -109,6 +109,9 @@ namespace Parsek.Patches
                     rt.position = Input.mousePosition;
             }
 
+            // Track when the menu was opened so outside-click check can skip a few frames
+            menuOpenFrame = Time.frameCount;
+
             ParsekLog.Verbose("GhostMap",
                 $"Ghost icon clicked: '{vesselName}' pid={v.persistentId} recIndex={recIndex}");
 
@@ -125,6 +128,32 @@ namespace Parsek.Patches
             {
                 currentGhostMenu.Dismiss();
                 currentGhostMenu = null;
+            }
+        }
+
+        /// <summary>
+        /// Frame count when menu was last opened. Outside-click dismissal is delayed
+        /// by a few frames to avoid eating the same click that opened the menu or
+        /// a button click inside the menu.
+        /// </summary>
+        private static int menuOpenFrame;
+
+        /// <summary>
+        /// Called from ParsekFlight.LateUpdate() to check for outside clicks.
+        /// Uses LateUpdate so it runs AFTER Unity UI event processing — by this point,
+        /// any button-click dismissal (via dismissOnSelect) has already fired and set
+        /// currentGhostMenu to null. If the menu is still alive, the click was outside.
+        /// </summary>
+        internal static void CheckOutsideClick()
+        {
+            if (currentGhostMenu == null) return;
+
+            // Grace period: skip the first 3 frames after opening
+            if (Time.frameCount - menuOpenFrame < 3) return;
+
+            if (Input.GetMouseButtonDown(0) || Input.GetMouseButtonDown(1))
+            {
+                DismissCurrentMenu();
             }
         }
     }
