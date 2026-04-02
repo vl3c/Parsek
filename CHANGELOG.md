@@ -149,6 +149,8 @@ Ghost vessels now appear in KSP's tracking station, show orbit lines in map view
 - **Fix #200: 128km trajectory gap at environment transitions.** Environment hysteresis transitions and anchor detection transitions called `CloseCurrentTrackSection` without sampling a boundary point. Added `SamplePosition(v)` before all 4 affected `CloseCurrentTrackSection` calls — matches the on-rails transition pattern.
 - **Fix #202: Spawned vessel deleted when switching to it.** Vessel switching triggers FLIGHT→FLIGHT scene reload, which was misidentified as a revert. The spawned vessel was stripped, re-spawned, then immediately deleted by the orphan cleanup. Added `vesselSwitchPending` flag via `onVesselSwitching` to distinguish vessel switches from reverts.
 - **Fix #201: Optimizer split creates temporal gap at section boundaries.** `SplitAtSection` now interpolates a synthetic boundary point at exactly `splitUT` when no trajectory point falls at the split time. Both halves share the boundary point, eliminating visible jumps during chain playback.
+- **Fix map marker camera in flight view.** `DrawMapMarkerAt` used `PlanetariumCamera` unconditionally — correct for map view but wrong for flight view. Now uses `FlightCamera` in flight view, `PlanetariumCamera` + ScaledSpace in map view.
+- **Default recordings sort: Launch time ascending.** Recordings window now defaults to chronological order (earliest launch at top) instead of index order.
 - **Ghost orbit lines for intermediate chain segments.** ProtoVessels and orbit lines now appear during every coast phase (transfer orbits, parking orbits), not just the terminal orbit. `CreateGhostVesselFromSegment` builds from OrbitSegment data when terminal orbit is unavailable.
 
 ### Features
