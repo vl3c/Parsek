@@ -1379,10 +1379,9 @@ namespace Parsek
             else if (now <= rec.EndUT)
             {
                 statusStyle = statusStyleActive;
-                statusText = rec.IsDebris ? "active"
-                    : rec.Points.Count > 0
-                        ? SelectiveSpawnUI.FormatCountdown(rec.StartUT - now)
-                        : "active";
+                statusText = rec.Points.Count > 0
+                    ? SelectiveSpawnUI.FormatCountdown(rec.StartUT - now)
+                    : "active";
             }
             else
             {
