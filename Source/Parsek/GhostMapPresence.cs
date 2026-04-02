@@ -444,17 +444,6 @@ namespace Parsek
 
             vessel.orbitDriver.updateFromParameters();
 
-            // Set orbit patch properties AFTER updateFromParameters (which may reset them).
-            // These control how far the OrbitRenderer draws the orbit line.
-            // FINAL transition = no SOI boundary, draw the full trajectory.
-            // For hyperbolic escape orbits (e>=1), extend EndUT far out.
-            // For elliptical, 1.5 periods gives a full orbit plus margin.
-            orb.StartUT = Planetarium.GetUniversalTime();
-            orb.EndUT = orb.StartUT + (segment.eccentricity >= 1.0 ? 1e8 : orb.period * 1.5);
-            orb.patchStartTransition = Orbit.PatchTransitionType.INITIAL;
-            orb.patchEndTransition = Orbit.PatchTransitionType.FINAL;
-            orb.activePatch = true;
-
             // After SOI change, force the orbit renderer to recalculate for the new body.
             // Without this, the orbit line stays clipped to the old body's SOI radius.
             // DrawOrbit is protected, so toggle the renderer off/on to force a full rebuild.
@@ -467,20 +456,26 @@ namespace Parsek
                     string.Format(ic, "Forced orbit renderer redraw for {0} after SOI change", logContext));
             }
 
-            // Diagnostic logging: full element set + resulting vessel position (#172)
+            // Diagnostic logging: orbit elements + hyperbola extent
             Orbit drv = vessel.orbitDriver.orbit;
+            double periapsis = drv.PeR;
+            double semiMinorAxis = drv.semiMinorAxis;
+            // For hyperbolic: max eccentric anomaly = acos(-1/e)
+            double maxE = drv.eccentricity >= 1.0
+                ? System.Math.Acos(-1.0 / drv.eccentricity) : System.Math.PI;
+            // Position at max eccentric anomaly = furthest point
+            Vector3d farPos = drv.eccentricity >= 1.0
+                ? drv.getPositionFromEccAnomaly(maxE * 0.99) : Vector3d.zero; // 0.99 to avoid singularity
+            double farDist = farPos.magnitude;
+
             ParsekLog.Verbose(Tag,
                 string.Format(ic,
-                    "Orbit updated for {0} body={1} sma={2:F0} ecc={3:F6} inc={4:F4} " +
-                    "lan={5:F4} argPe={6:F4} mna={7:F6} epoch={8:F1} " +
-                    "updateMode={9} vesselPos=({10:F1},{11:F1},{12:F1}) " +
-                    "drvPos=({13:F1},{14:F1},{15:F1})",
+                    "Orbit updated for {0} body={1} sma={2:F0} ecc={3:F6} " +
+                    "periapsis={4:F0} semiMinor={5:F0} maxE={6:F2}rad farDist={7:F0}m " +
+                    "rendererEnabled={8} rendererDrawMode={9}",
                     logContext, body.name, segment.semiMajorAxis,
-                    drv.eccentricity, drv.inclination, drv.LAN,
-                    drv.argumentOfPeriapsis, drv.meanAnomalyAtEpoch, drv.epoch,
-                    vessel.orbitDriver.updateMode,
-                    vessel.GetWorldPos3D().x, vessel.GetWorldPos3D().y, vessel.GetWorldPos3D().z,
-                    vessel.orbitDriver.pos.x, vessel.orbitDriver.pos.y, vessel.orbitDriver.pos.z));
+                    drv.eccentricity, periapsis, semiMinorAxis, maxE, farDist,
+                    vessel.orbitRenderer?.enabled, vessel.orbitRenderer?.drawMode));
         }
 
         /// <summary>
@@ -678,13 +673,6 @@ namespace Parsek
                 if (v.orbitDriver != null)
                 {
                     Orbit drv = v.orbitDriver.orbit;
-
-                    // Set orbit patch properties so the orbit line renders fully
-                    drv.StartUT = Planetarium.GetUniversalTime();
-                    drv.EndUT = drv.StartUT + (drv.eccentricity >= 1.0 ? 1e8 : drv.period * 1.5);
-                    drv.patchStartTransition = Orbit.PatchTransitionType.INITIAL;
-                    drv.patchEndTransition = Orbit.PatchTransitionType.FINAL;
-                    drv.activePatch = true;
 
                     driverState = string.Format(ic,
                         "updateMode={0} sma={1:F0} ecc={2:F6} inc={3:F4} " +
