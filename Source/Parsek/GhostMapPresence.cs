@@ -341,6 +341,31 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Create a ghost map ProtoVessel for a recording that has orbit segments but
+        /// no terminal orbit data (intermediate chain segments). Uses the provided
+        /// OrbitSegment for the initial orbit. Called from CheckPendingMapVessels when
+        /// the ghost enters its first orbital segment.
+        /// </summary>
+        internal static Vessel CreateGhostVesselFromSegment(
+            int recordingIndex, IPlaybackTrajectory traj, OrbitSegment segment)
+        {
+            if (traj == null) return null;
+
+            if (vesselsByRecordingIndex.ContainsKey(recordingIndex))
+                return vesselsByRecordingIndex[recordingIndex];
+
+            string logContext = string.Format(ic, "recording index={0} (from segment)", recordingIndex);
+            Vessel vessel = BuildAndLoadGhostProtoVessel(traj, segment, logContext);
+            if (vessel != null)
+            {
+                vesselsByRecordingIndex[recordingIndex] = vessel;
+                vesselPidToRecordingIndex[vessel.persistentId] = recordingIndex;
+            }
+
+            return vessel;
+        }
+
+        /// <summary>
         /// Remove a ghost map ProtoVessel for a timeline playback ghost.
         /// Called when the engine destroys a ghost (OnGhostDestroyed).
         /// </summary>
@@ -599,30 +624,67 @@ namespace Parsek
         /// creates ProtoVessel, pre-registers PID, loads into flightState.
         /// Returns the Vessel or null on failure. Handles full cleanup on error.
         /// </summary>
+        /// <summary>
+        /// Overload that creates a ProtoVessel using an OrbitSegment instead of terminal orbit data.
+        /// Used for intermediate chain segments that have orbit segments but no terminal orbit.
+        /// </summary>
+        private static Vessel BuildAndLoadGhostProtoVessel(
+            IPlaybackTrajectory traj, OrbitSegment segment, string logContext)
+        {
+            CelestialBody body = FindBodyByName(segment.bodyName);
+            if (body == null)
+            {
+                ParsekLog.Warn(Tag,
+                    string.Format(ic,
+                        "BuildAndLoadGhostProtoVessel(segment): body '{0}' not found for {1}",
+                        segment.bodyName, logContext));
+                return null;
+            }
+
+            Orbit orbit = new Orbit(
+                segment.inclination,
+                segment.eccentricity,
+                segment.semiMajorAxis,
+                segment.longitudeOfAscendingNode,
+                segment.argumentOfPeriapsis,
+                segment.meanAnomalyAtEpoch,
+                segment.epoch,
+                body);
+
+            return BuildAndLoadGhostProtoVesselCore(traj, orbit, body, logContext);
+        }
+
         private static Vessel BuildAndLoadGhostProtoVessel(IPlaybackTrajectory traj, string logContext)
+        {
+            CelestialBody body = FindBodyByName(traj.TerminalOrbitBody);
+            if (body == null)
+            {
+                ParsekLog.Warn(Tag,
+                    string.Format(ic,
+                        "BuildAndLoadGhostProtoVessel: body '{0}' not found for {1}",
+                        traj.TerminalOrbitBody, logContext));
+                return null;
+            }
+
+            Orbit orbit = new Orbit(
+                traj.TerminalOrbitInclination,
+                traj.TerminalOrbitEccentricity,
+                traj.TerminalOrbitSemiMajorAxis,
+                traj.TerminalOrbitLAN,
+                traj.TerminalOrbitArgumentOfPeriapsis,
+                traj.TerminalOrbitMeanAnomalyAtEpoch,
+                traj.TerminalOrbitEpoch,
+                body);
+
+            return BuildAndLoadGhostProtoVesselCore(traj, orbit, body, logContext);
+        }
+
+        private static Vessel BuildAndLoadGhostProtoVesselCore(
+            IPlaybackTrajectory traj, Orbit orbit, CelestialBody body, string logContext)
         {
             ProtoVessel pv = null;
             try
             {
-                CelestialBody body = FindBodyByName(traj.TerminalOrbitBody);
-                if (body == null)
-                {
-                    ParsekLog.Warn(Tag,
-                        string.Format(ic,
-                            "BuildAndLoadGhostProtoVessel: body '{0}' not found for {1}",
-                            traj.TerminalOrbitBody, logContext));
-                    return null;
-                }
-
-                Orbit orbit = new Orbit(
-                    traj.TerminalOrbitInclination,
-                    traj.TerminalOrbitEccentricity,
-                    traj.TerminalOrbitSemiMajorAxis,
-                    traj.TerminalOrbitLAN,
-                    traj.TerminalOrbitArgumentOfPeriapsis,
-                    traj.TerminalOrbitMeanAnomalyAtEpoch,
-                    traj.TerminalOrbitEpoch,
-                    body);
 
                 // Single antenna-free part (avoids CommNet conflict with GhostCommNetRelay)
                 ConfigNode partNode = ProtoVessel.CreatePartNode("sensorBarometer", 0);

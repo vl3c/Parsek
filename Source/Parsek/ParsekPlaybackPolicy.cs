@@ -403,7 +403,8 @@ namespace Parsek
                 return;
             }
 
-            // Only for stable orbital terminal states
+            // Skip recordings with non-orbital terminal states (Destroyed, SubOrbital, Landed, etc.)
+            // but allow: terminal=null (intermediate chain segments), Orbiting, Docked.
             var terminal = evt.Trajectory.TerminalStateValue;
             if (terminal.HasValue
                 && terminal.Value != TerminalState.Orbiting
@@ -414,7 +415,10 @@ namespace Parsek
                 return;
             }
 
-            if (!GhostMapPresence.HasOrbitData(evt.Trajectory))
+            // Accept recordings with terminal orbit data OR orbit segments (intermediate
+            // chain segments have no terminal orbit but do have orbit segments from on-rails periods)
+            if (!GhostMapPresence.HasOrbitData(evt.Trajectory)
+                && (evt.Trajectory.OrbitSegments == null || evt.Trajectory.OrbitSegments.Count == 0))
                 return;
 
             // Check if the ghost starts in an orbital segment (orbit-only recording
@@ -469,14 +473,16 @@ namespace Parsek
                         OrbitSegment initialSeg = toCreate[i].Value;
                         if (pendingMapVessels.TryGetValue(idx, out var traj))
                         {
-                            GhostMapPresence.CreateGhostVesselForRecording(idx, traj);
+                            // Use terminal orbit if available, otherwise create from segment
+                            // (intermediate chain segments have orbit segments but no terminal orbit)
+                            Vessel ghost = GhostMapPresence.HasOrbitData(traj)
+                                ? GhostMapPresence.CreateGhostVesselForRecording(idx, traj)
+                                : GhostMapPresence.CreateGhostVesselFromSegment(idx, traj, initialSeg);
                             pendingMapVessels.Remove(idx);
 
-                            // Immediately update to the triggering segment's orbit.
-                            // CreateGhostVesselForRecording uses terminal orbit (recording end),
-                            // but the ghost just entered an intermediate segment (e.g., first
-                            // circular orbit during ascent, not the final parking orbit).
-                            GhostMapPresence.UpdateGhostOrbitForRecording(idx, initialSeg);
+                            // Update to the triggering segment's orbit (may differ from terminal)
+                            if (ghost != null)
+                                GhostMapPresence.UpdateGhostOrbitForRecording(idx, initialSeg);
 
                             // Seed segment tracking from the already-found segment (no second lookup)
                             lastMapOrbitByIndex[idx] = (initialSeg.bodyName, initialSeg.semiMajorAxis, initialSeg.eccentricity);
