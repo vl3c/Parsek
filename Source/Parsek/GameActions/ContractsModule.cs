@@ -61,6 +61,8 @@ namespace Parsek
         /// <inheritdoc/>
         public void ProcessAction(GameAction action)
         {
+            CheckDeadlines(action.UT);
+
             switch (action.Type)
             {
                 case GameActionType.ContractAccept:
@@ -138,7 +140,41 @@ namespace Parsek
                 $"activeSlots={activeContracts.Count}/{maxSlots}");
         }
 
-        // TODO: deadline failure generation — deferred to future task
+        /// <summary>
+        /// Checks all active contracts for deadline expiration at the given UT.
+        /// Any contract whose DeadlineUT &lt;= currentUT (and is not NaN) is removed
+        /// from activeContracts (slot freed). Returns the list of expired contract IDs.
+        /// </summary>
+        internal List<string> CheckDeadlines(double currentUT)
+        {
+            List<string> expired = null;
+
+            foreach (var kvp in activeContracts)
+            {
+                float deadline = kvp.Value.DeadlineUT;
+                if (!float.IsNaN(deadline) && deadline <= currentUT)
+                {
+                    if (expired == null)
+                        expired = new List<string>();
+                    expired.Add(kvp.Key);
+                }
+            }
+
+            if (expired != null)
+            {
+                for (int i = 0; i < expired.Count; i++)
+                {
+                    string id = expired[i];
+                    activeContracts.Remove(id);
+
+                    ParsekLog.Info(Tag,
+                        $"DeadlineExpired: contractId='{id}' deadline passed at currentUT={currentUT}, " +
+                        $"slot freed, activeSlots={activeContracts.Count}/{maxSlots}");
+                }
+            }
+
+            return expired ?? new List<string>();
+        }
 
         private void ProcessFail(GameAction action)
         {
