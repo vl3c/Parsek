@@ -73,6 +73,10 @@ namespace Parsek
         private const float ColW_Rewind = 65f;
         private const float ColW_Hide = 50f;
 
+        // Reusable per-frame buffers (avoid allocation each frame)
+        private static readonly Dictionary<string, int> chainTipIndexBuffer = new Dictionary<string, int>();
+        private static readonly HashSet<int> chainStatusBuffer = new HashSet<int>();
+
         // Chain and group expansion state
         private HashSet<string> expandedChains = new HashSet<string>();
         private HashSet<string> expandedGroups = new HashSet<string>();
@@ -2937,8 +2941,10 @@ namespace Parsek
         private static void GetChainStatus(List<int> members, List<Recording> committed,
             double now, out string statusText, out int statusOrder)
         {
-            var set = new HashSet<int>(members);
-            GetGroupStatus(set, committed, now, out statusText, out statusOrder);
+            chainStatusBuffer.Clear();
+            for (int i = 0; i < members.Count; i++)
+                chainStatusBuffer.Add(members[i]);
+            GetGroupStatus(chainStatusBuffer, committed, now, out statusText, out statusOrder);
         }
 
         /// <summary>
@@ -3993,18 +3999,16 @@ namespace Parsek
             Color ghostColor = new Color(0.2f, 1f, 0.4f, 0.9f);
 
             // First pass: find the highest active index per chain
-            Dictionary<string, int> chainTipIndex = null;
+            chainTipIndexBuffer.Clear();
             foreach (var kvp in flight.TimelineGhosts)
             {
                 if (kvp.Value == null) continue;
                 if (kvp.Key >= committed.Count) continue;
                 string chainId = committed[kvp.Key].ChainId;
                 if (string.IsNullOrEmpty(chainId)) continue;
-                if (chainTipIndex == null)
-                    chainTipIndex = new Dictionary<string, int>();
                 int existing;
-                if (!chainTipIndex.TryGetValue(chainId, out existing) || kvp.Key > existing)
-                    chainTipIndex[chainId] = kvp.Key;
+                if (!chainTipIndexBuffer.TryGetValue(chainId, out existing) || kvp.Key > existing)
+                    chainTipIndexBuffer[chainId] = kvp.Key;
             }
 
             // Second pass: draw markers, skipping non-tip chain members
@@ -4016,8 +4020,8 @@ namespace Parsek
                 if (kvp.Key < committed.Count)
                 {
                     string chainId = committed[kvp.Key].ChainId;
-                    if (!string.IsNullOrEmpty(chainId) && chainTipIndex != null
-                        && chainTipIndex.TryGetValue(chainId, out int tip) && kvp.Key != tip)
+                    if (!string.IsNullOrEmpty(chainId) && chainTipIndexBuffer.Count > 0
+                        && chainTipIndexBuffer.TryGetValue(chainId, out int tip) && kvp.Key != tip)
                         continue; // not the tip — skip duplicate
                 }
                 string ghostName = kvp.Key < committed.Count ? committed[kvp.Key].VesselName : "Ghost";

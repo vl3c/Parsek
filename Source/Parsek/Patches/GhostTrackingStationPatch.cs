@@ -15,20 +15,16 @@ namespace Parsek.Patches
     /// </summary>
 
     /// <summary>
-    /// Wraps SpaceTracking.buildVesselsList in try/catch to prevent NullReferenceExceptions
-    /// from crashing the tracking station. Ghost ProtoVessels can trigger NREs in KSP's
-    /// internal vessel list rebuilding when asteroids are spawned/destroyed, because
-    /// buildVesselsList assumes certain vessel state fields are always populated.
-    /// </summary>
-    /// <summary>
     /// Suppresses NullReferenceException in SpaceTracking.buildVesselsList caused by
-    /// ghost ProtoVessels. The Finalizer returns null for the exception, which tells
-    /// Harmony to swallow it completely (the original method's caller never sees it).
-    /// Unlike the previous approach of hiding ghosts from FlightGlobals, this allows
-    /// the ghost to remain in the vessel list so its sidebar widget and map node are
-    /// created. The NRE typically occurs on a single ghost vessel iteration but the
-    /// method continues processing remaining vessels (KSP uses try/catch internally
-    /// for individual widget creation).
+    /// ghost ProtoVessels. Ghost ProtoVessels can trigger NREs in KSP's internal vessel
+    /// list rebuilding when asteroids are spawned/destroyed, because buildVesselsList
+    /// assumes certain vessel state fields are always populated. The Finalizer returns
+    /// null for the exception, which tells Harmony to swallow it completely (the original
+    /// method's caller never sees it). Unlike the previous approach of hiding ghosts from
+    /// FlightGlobals, this allows the ghost to remain in the vessel list so its sidebar
+    /// widget and map node are created. The NRE typically occurs on a single ghost vessel
+    /// iteration but the method continues processing remaining vessels (KSP uses try/catch
+    /// internally for individual widget creation).
     /// </summary>
     [HarmonyPatch(typeof(SpaceTracking), "buildVesselsList")]
     internal static class GhostTrackingBuildVesselsListPatch

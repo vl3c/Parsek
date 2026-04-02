@@ -300,17 +300,12 @@ namespace Parsek.Patches
     /// <summary>
     /// Prevents ghost vessels from appearing in OrbitTargeter's "Set as Target"
     /// popup (the second click path in map view). OrbitTargeter.TargetCastNodes
+    /// is a private method (returns OrbitDriver, out OrbitCastHit parameter) that
     /// checks MapNode hover state for all orbits and creates a MapContextMenu
     /// when it detects a hovered vessel. This postfix nulls the result for ghost
     /// vessels so OrbitTargeter never creates the default KSP target popup for them.
     /// Fixes: KSP's default popup appearing alongside Parsek's ghost menu when
     /// the ghost is in a different SOI from the camera's reference body (#192).
-    /// </summary>
-    /// <summary>
-    /// Prevents ghost vessels from appearing in OrbitTargeter's target popup.
-    /// OrbitTargeter.TargetCastNodes is a private method that returns OrbitDriver
-    /// and has an out OrbitCastHit parameter. We null the return for ghost vessels
-    /// so OrbitTargeter never creates the default KSP target popup for them.
     /// </summary>
     [HarmonyPatch]
     internal static class GhostTargetCastNodesPatch

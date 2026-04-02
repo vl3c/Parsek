@@ -313,6 +313,9 @@ namespace Parsek
                 {
                     double t = (splitUT - before.ut) / (after.ut - before.ut);
                     float tf = (float)t;
+                    // NOTE: Longitude is linearly lerped here. This does not handle the 360/0
+                    // wraparound edge case, but adjacent adaptive-sampled points should never
+                    // straddle the antimeridian — the sampling interval is far too short.
                     boundaryPoint = new TrajectoryPoint
                     {
                         ut = splitUT,
