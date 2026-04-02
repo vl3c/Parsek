@@ -78,10 +78,10 @@ namespace Parsek
             {
                 var tree = committedTrees[t];
 
-                // Write bulk data to external files for each recording in the tree
+                // Write bulk data to external files only for recordings whose data changed
                 foreach (var rec in tree.Recordings.Values)
                 {
-                    if (!RecordingStore.SaveRecordingFiles(rec))
+                    if (rec.FilesDirty && !RecordingStore.SaveRecordingFiles(rec))
                         ScenarioLog($"[Parsek Scenario] WARNING: File write failed for tree recording '{rec.VesselName}'");
                     treeRecCount++;
                     treeTotalPoints += rec.Points.Count;
@@ -1623,8 +1623,8 @@ namespace Parsek
 
                 ConfigNode recNode = node.AddNode("RECORDING");
 
-                // Write bulk data to external files
-                if (!RecordingStore.SaveRecordingFiles(rec))
+                // Write bulk data to external files (only if data changed)
+                if (rec.FilesDirty && !RecordingStore.SaveRecordingFiles(rec))
                     ScenarioLog($"[Parsek Scenario] WARNING: File write failed for '{rec.VesselName}'");
 
                 SaveRecordingMetadata(recNode, rec);

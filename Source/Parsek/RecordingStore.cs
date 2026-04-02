@@ -212,6 +212,7 @@ namespace Parsek
                 return;
             }
 
+            pendingRecording.FilesDirty = true;
             committedRecordings.Add(pendingRecording);
             Log($"[Parsek] Committed recording from {pendingRecording.VesselName} " +
                 $"({pendingRecording.Points.Count} points). Total committed: {committedRecordings.Count}");
@@ -422,6 +423,7 @@ namespace Parsek
             // Add all tree recordings to committedRecordings (enables ghost playback)
             foreach (var rec in tree.Recordings.Values)
             {
+                rec.FilesDirty = true;
                 committedRecordings.Add(rec);
             }
 
@@ -826,6 +828,7 @@ namespace Parsek
                 var absorbed = recordings[idxB];
 
                 string absorbedId = RecordingOptimizer.MergeInto(target, absorbed);
+                target.FilesDirty = true;
                 string chainId = target.ChainId;
 
                 // Remove absorbed recording from committed list
@@ -838,9 +841,6 @@ namespace Parsek
                     ParsekLog.Warn("RecordingStore",
                         $"Optimization: failed to delete files for merged recording {absorbedId}: {ex.Message}");
                 }
-
-                // File save deferred to next OnSave — serializing large trajectories
-                // during OnLoad causes AppHangB1 (main thread blocked on I/O).
 
                 // Re-index the chain
                 if (!string.IsNullOrEmpty(chainId))
@@ -952,8 +952,8 @@ namespace Parsek
                     }
                 }
 
-                // File save deferred to next OnSave — serializing large trajectories
-                // during OnLoad causes AppHangB1 (main thread blocked on I/O).
+                original.FilesDirty = true;
+                second.FilesDirty = true;
 
                 // Reindex chain by StartUT
                 RecordingOptimizer.ReindexChain(recordings, original.ChainId);
@@ -2637,6 +2637,7 @@ namespace Parsek
                         SafeWriteConfigNode(rec.GhostVisualSnapshot, ghostPath);
                 }
 
+                rec.FilesDirty = false;
                 return true;
             }
             catch (Exception ex)
