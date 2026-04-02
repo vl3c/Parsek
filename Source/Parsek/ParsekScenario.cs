@@ -24,6 +24,10 @@ namespace Parsek
         // Gates Update() resource ticking while coroutines reset resource baselines
         private bool resourceTickingSuspended = false;
 
+        // Vessel switch detection: FLIGHT→FLIGHT transitions from vessel switching
+        // are NOT reverts and must not trigger orphan strip/cleanup.
+        private static bool vesselSwitchPending;
+
         public override void OnSave(ConfigNode node)
         {
             // Safety net (defense-in-depth): if a pending recording still exists outside Flight
@@ -78,10 +82,10 @@ namespace Parsek
             {
                 var tree = committedTrees[t];
 
-                // Write bulk data to external files for each recording in the tree
+                // Write bulk data to external files only for recordings whose data changed
                 foreach (var rec in tree.Recordings.Values)
                 {
-                    if (!RecordingStore.SaveRecordingFiles(rec))
+                    if (rec.FilesDirty && !RecordingStore.SaveRecordingFiles(rec))
                         ScenarioLog($"[Parsek Scenario] WARNING: File write failed for tree recording '{rec.VesselName}'");
                     treeRecCount++;
                     treeTotalPoints += rec.Points.Count;
@@ -306,6 +310,8 @@ namespace Parsek
             GameEvents.onVesselRecovered.Add(OnVesselRecovered);
             GameEvents.onVesselTerminated.Remove(OnVesselTerminated);
             GameEvents.onVesselTerminated.Add(OnVesselTerminated);
+            GameEvents.onVesselSwitching.Remove(OnVesselSwitching);
+            GameEvents.onVesselSwitching.Add(OnVesselSwitching);
 
             // Capture initial baseline if none exist yet
             if (!initialLoadDone && GameStateStore.BaselineCount == 0)
@@ -348,18 +354,22 @@ namespace Parsek
                     savedTreeRecCount += savedTreeNodesForRevert[t].GetNodes("RECORDING").Length;
                 int totalSavedRecCount = savedRecNodes.Length + savedTreeRecCount;
 
-                // FLIGHT→FLIGHT is always a revert (Revert to Launch or quickload).
-                // KSP has no FLIGHT→FLIGHT path that isn't a revert.
+                // FLIGHT→FLIGHT is usually a revert (Revert to Launch or quickload),
+                // but vessel switching also triggers FLIGHT→FLIGHT scene reloads.
                 bool isFlightToFlight = lastOnSaveScene == GameScenes.FLIGHT
                                         && HighLogic.LoadedScene == GameScenes.FLIGHT;
-                bool isRevert = savedEpoch < MilestoneStore.CurrentEpoch
-                                || totalSavedRecCount < recordings.Count
-                                || isFlightToFlight;
+                bool isVesselSwitch = isFlightToFlight && vesselSwitchPending;
+                vesselSwitchPending = false; // consume the flag
+
+                bool isRevert = !isVesselSwitch
+                                && (savedEpoch < MilestoneStore.CurrentEpoch
+                                    || totalSavedRecCount < recordings.Count
+                                    || isFlightToFlight);
                 ParsekLog.Verbose("Scenario",
                     $"OnLoad: revert detection — savedEpoch={savedEpoch}, currentEpoch={MilestoneStore.CurrentEpoch}, " +
                     $"savedRecNodes={savedRecNodes.Length}, savedTreeRecs={savedTreeRecCount}, " +
                     $"memoryRecordings={recordings.Count}, lastOnSaveScene={lastOnSaveScene}, " +
-                    $"isFlightToFlight={isFlightToFlight}, isRevert={isRevert}");
+                    $"isFlightToFlight={isFlightToFlight}, isVesselSwitch={isVesselSwitch}, isRevert={isRevert}");
 
                 // Collect spawned vessel PIDs + names BEFORE restore resets them.
                 // Only on revert — on normal scene changes the spawned vessels are
@@ -587,6 +597,7 @@ namespace Parsek
                                 RecordingStore.CommitPendingTree();
                                 ScreenMessages.PostScreenMessage("[Parsek] Tree recording committed to timeline", 5f);
                             }
+                            RecordingStore.RunOptimizationPass();
                         }
                     }
                     else if ((RecordingStore.HasPending || RecordingStore.HasPendingTree) && !mergeDialogPending)
@@ -823,6 +834,7 @@ namespace Parsek
             // so the new scene's Funding/R&D/Reputation/Planetarium are initialized).
             // Setting UT before LoadScene does NOT work — scene transition overwrites it.
             resourceTickingSuspended = true;
+            RecordingStore.RewindUTAdjustmentPending = true;
             StartCoroutine(ApplyRewindResourceAdjustment());
             ParsekLog.Info("Rewind",
                 "OnLoad: resource + UT adjustment deferred (waiting for new scene singletons)");
@@ -869,11 +881,20 @@ namespace Parsek
                 RecordingStore.IsRewinding = false;
                 RecordingStore.RewindUT = 0;
                 RecordingStore.RewindAdjustedUT = 0;
+                RecordingStore.RewindUTAdjustmentPending = false;
                 RecordingStore.RewindReserved = default(BudgetSummary);
                 RecordingStore.RewindBaselineFunds = 0;
                 RecordingStore.RewindBaselineScience = 0;
                 RecordingStore.RewindBaselineRep = 0;
                 RecordingStore.RewindQuicksaveVesselPids = null;
+            }
+            // Defensive: clear stale UT adjustment flag even outside the rewind block.
+            // The flag may have been left set if the coroutine didn't complete (crash/exit).
+            if (RecordingStore.RewindUTAdjustmentPending)
+            {
+                ParsekLog.Warn("Scenario",
+                    "OnLoad initial: clearing stale RewindUTAdjustmentPending flag");
+                RecordingStore.RewindUTAdjustmentPending = false;
             }
         }
 
@@ -1083,6 +1104,7 @@ namespace Parsek
             {
                 double prePlanetariumUT = Planetarium.GetUniversalTime();
                 Planetarium.SetUniversalTime(adjustedUT);
+                RecordingStore.RewindUTAdjustmentPending = false;
                 ParsekLog.Info("Rewind",
                     $"UT adjustment: {prePlanetariumUT.ToString("F1", ic)} → {adjustedUT.ToString("F1", ic)} " +
                     $"(post-set check: {Planetarium.GetUniversalTime().ToString("F1", ic)})");
@@ -1611,8 +1633,8 @@ namespace Parsek
 
                 ConfigNode recNode = node.AddNode("RECORDING");
 
-                // Write bulk data to external files
-                if (!RecordingStore.SaveRecordingFiles(rec))
+                // Write bulk data to external files (only if data changed)
+                if (rec.FilesDirty && !RecordingStore.SaveRecordingFiles(rec))
                     ScenarioLog($"[Parsek Scenario] WARNING: File write failed for '{rec.VesselName}'");
 
                 SaveRecordingMetadata(recNode, rec);
@@ -2127,11 +2149,20 @@ namespace Parsek
             }
         }
 
+        private void OnVesselSwitching(Vessel from, Vessel to)
+        {
+            vesselSwitchPending = true;
+            ParsekLog.Info("Scenario",
+                $"Vessel switch detected: '{from?.vesselName}' → '{to?.vesselName}' — " +
+                "next FLIGHT→FLIGHT OnLoad will skip revert strip/cleanup");
+        }
+
         public void OnDestroy()
         {
             stateRecorder?.Unsubscribe();
             GameEvents.onVesselRecovered.Remove(OnVesselRecovered);
             GameEvents.onVesselTerminated.Remove(OnVesselTerminated);
+            GameEvents.onVesselSwitching.Remove(OnVesselSwitching);
         }
     }
 }

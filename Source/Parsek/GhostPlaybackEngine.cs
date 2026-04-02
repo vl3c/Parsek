@@ -79,6 +79,13 @@ namespace Parsek
         internal event Action<OverlapExpiredEvent> OnOverlapExpired;
         internal event Action OnAllGhostsDestroying;
 
+        /// <summary>
+        /// Delegate set by the policy to check if a ghost index is being held
+        /// (pending spawn, watched, etc.). Used by stale past-end cleanup to avoid
+        /// destroying ghosts that the policy is intentionally keeping alive.
+        /// </summary>
+        internal System.Func<int, bool> IsGhostHeld;
+
         // Camera events (engine detects cycle changes, host handles FlightCamera).
         internal event Action<CameraActionEvent> OnLoopCameraAction;
         internal event Action<CameraActionEvent> OnOverlapCameraAction;
@@ -204,6 +211,16 @@ namespace Parsek
                 // === Past end: fire completed event, optionally destroy ===
                 if ((pastEnd || pastEffectiveEnd) && !completedEventFired.Contains(i))
                     HandlePastEndGhost(i, traj, f, ctx, state, ghostActive, hasPoints);
+
+                // === Stale past-end ghost cleanup ===
+                // Ghost survived past-end (e.g. watch hold), completed event already fired,
+                // and not being held by the policy — destroy it. Prevents debris ghosts
+                // from freezing at their last trajectory point indefinitely.
+                if (ghostActive && completedEventFired.Contains(i)
+                    && (IsGhostHeld == null || !IsGhostHeld(i)))
+                {
+                    DestroyGhost(i, traj, f, reason: "stale past-end ghost (no longer held)");
+                }
             }
 
             // Post-loop: batch summary

@@ -36,7 +36,7 @@ namespace Parsek.Tests
         [InlineData(3600, "1h 0m")]
         [InlineData(5400, "1h 30m")]
         [InlineData(7200, "2h 0m")]
-        [InlineData(86400, "24h 0m")]
+        [InlineData(86400, "4d")]  // KSP calendar: 6h days → 86400s = 4 days
         public void FormatDuration_Hours(double seconds, string expected)
         {
             Assert.Equal(expected, ParsekUI.FormatDuration(seconds));

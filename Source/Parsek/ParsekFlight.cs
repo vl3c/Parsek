@@ -446,6 +446,9 @@ namespace Parsek
         {
             if (sceneChangeInProgress) return;
 
+            // Ghost icon popup: check for outside clicks (runs after UI event processing)
+            Patches.GhostIconClickPatch.CheckOutsideClick();
+
             for (int i = 0; i < ghostPosEntries.Count; i++)
             {
                 var e = ghostPosEntries[i];
@@ -922,7 +925,7 @@ namespace Parsek
                     var sit = FlightGlobals.ActiveVessel.situation;
                     RecordingStore.Pending.SceneExitSituation = (int)sit;
                     RecordingStore.Pending.TerminalStateValue =
-                        RecordingTree.DetermineTerminalState((int)sit);
+                        RecordingTree.DetermineTerminalState((int)sit, FlightGlobals.ActiveVessel);
                 }
 
                 // Fallback: if the vessel was destroyed during recording,
@@ -3282,7 +3285,7 @@ namespace Parsek
             double ut = Planetarium.GetUniversalTime();
             float warpRate = TimeWarp.CurrentRate;
 
-            ParsekLog.Info("Checkpoint",
+            ParsekLog.Verbose("Checkpoint",
                 $"Time warp rate changed to {warpRate.ToString("F1", System.Globalization.CultureInfo.InvariantCulture)}x " +
                 $"at UT={ut:F2} — checkpointing all background vessels");
 
@@ -5101,7 +5104,7 @@ namespace Parsek
 
                 if (vessel != null)
                 {
-                    rec.TerminalStateValue = RecordingTree.DetermineTerminalState((int)vessel.situation);
+                    rec.TerminalStateValue = RecordingTree.DetermineTerminalState((int)vessel.situation, vessel);
                     CaptureTerminalOrbit(rec, vessel);
                     CaptureTerminalPosition(rec, vessel);
 
@@ -5314,11 +5317,22 @@ namespace Parsek
             for (int i = FlightGlobals.Vessels.Count - 1; i >= 0; i--)
             {
                 var vessel = FlightGlobals.Vessels[i];
-                if (vessel.persistentId == activePid) continue;
-                if (GhostMapPresence.IsGhostMapVessel(vessel.persistentId)) continue;
+                if (vessel.persistentId == activePid)
+                {
+                    ParsekLog.Verbose("Flight",
+                        $"CleanupOrphanedSpawnedVessels: skipping active vessel '{vessel.vesselName}' pid={vessel.persistentId}");
+                    continue;
+                }
+                if (GhostMapPresence.IsGhostMapVessel(vessel.persistentId))
+                {
+                    ParsekLog.Verbose("Flight",
+                        $"CleanupOrphanedSpawnedVessels: skipping ghost map vessel pid={vessel.persistentId}");
+                    continue;
+                }
 
+                string resolvedName = Recording.ResolveLocalizedName(vessel.vesselName);
                 bool matchByPid = hasPids && pids.Contains(vessel.persistentId);
-                bool matchByName = hasNames && names.Contains(Recording.ResolveLocalizedName(vessel.vesselName));
+                bool matchByName = hasNames && names.Contains(resolvedName);
 
                 if (matchByPid || matchByName)
                 {
@@ -5329,6 +5343,12 @@ namespace Parsek
                     ShipConstruction.RecoverVesselFromFlight(
                         vessel.protoVessel, HighLogic.CurrentGame.flightState, true);
                     recovered++;
+                }
+                else
+                {
+                    ParsekLog.Verbose("Flight",
+                        $"CleanupOrphanedSpawnedVessels: no match for '{vessel.vesselName}' " +
+                        $"pid={vessel.persistentId} resolved='{resolvedName}'");
                 }
             }
 
@@ -8173,13 +8193,16 @@ namespace Parsek
                     // Layer 3: SMA sanity check — reject orbit segments where the orbit
                     // is mostly sub-surface (SMA < 90% of body radius). This catches
                     // old recordings that have invalid orbit segments for surface vessels.
+                    // Use absolute value: hyperbolic escape orbits have negative SMA but
+                    // are valid trajectories that should be rendered.
                     CelestialBody segBody = FlightGlobals.Bodies?.Find(b => b.name == seg.Value.bodyName);
                     double bodyRadius = segBody?.Radius ?? 600000;
-                    if (seg.Value.semiMajorAxis < bodyRadius * 0.9)
+                    double absSma = System.Math.Abs(seg.Value.semiMajorAxis);
+                    if (absSma < bodyRadius * 0.9)
                     {
                         int smaKey = ~orbitCacheBase; // bitwise complement — guaranteed no collision with positive cache keys
                         if (loggedOrbitSegments.Add(smaKey))
-                            Log($"Orbit segment rejected (sub-surface): sma={seg.Value.semiMajorAxis:F0} < " +
+                            Log($"Orbit segment rejected (sub-surface): |sma|={absSma:F0} < " +
                                 $"bodyRadius*0.9={bodyRadius * 0.9:F0}, falling through to point interpolation");
                     }
                     else

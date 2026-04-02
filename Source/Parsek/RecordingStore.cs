@@ -25,6 +25,11 @@ namespace Parsek
         internal static bool IsRewinding;
         internal static double RewindUT;
         internal static double RewindAdjustedUT;
+
+        // True while the deferred UT adjustment coroutine hasn't run yet.
+        // KSC spawn must not use Planetarium.GetUniversalTime() while this is set —
+        // it still reflects the pre-rewind future UT until the coroutine fires.
+        internal static bool RewindUTAdjustmentPending;
         internal static BudgetSummary RewindReserved;
 
         // Baseline resource values from the rewind-target recording's PreLaunch snapshot.
@@ -207,6 +212,7 @@ namespace Parsek
                 return;
             }
 
+            pendingRecording.FilesDirty = true;
             committedRecordings.Add(pendingRecording);
             Log($"[Parsek] Committed recording from {pendingRecording.VesselName} " +
                 $"({pendingRecording.Points.Count} points). Total committed: {committedRecordings.Count}");
@@ -417,6 +423,7 @@ namespace Parsek
             // Add all tree recordings to committedRecordings (enables ghost playback)
             foreach (var rec in tree.Recordings.Values)
             {
+                rec.FilesDirty = true;
                 committedRecordings.Add(rec);
             }
 
@@ -821,6 +828,7 @@ namespace Parsek
                 var absorbed = recordings[idxB];
 
                 string absorbedId = RecordingOptimizer.MergeInto(target, absorbed);
+                target.FilesDirty = true;
                 string chainId = target.ChainId;
 
                 // Remove absorbed recording from committed list
@@ -832,14 +840,6 @@ namespace Parsek
                 {
                     ParsekLog.Warn("RecordingStore",
                         $"Optimization: failed to delete files for merged recording {absorbedId}: {ex.Message}");
-                }
-
-                // Save updated target recording files
-                try { SaveRecordingFiles(target); }
-                catch (System.Exception ex)
-                {
-                    ParsekLog.Warn("RecordingStore",
-                        $"Optimization: failed to save updated recording {target.RecordingId}: {ex.Message}");
                 }
 
                 // Re-index the chain
@@ -952,19 +952,8 @@ namespace Parsek
                     }
                 }
 
-                // Save sidecar files for both halves
-                try { SaveRecordingFiles(original); }
-                catch (System.Exception ex)
-                {
-                    ParsekLog.Warn("RecordingStore",
-                        $"Split: failed to save original {original.RecordingId}: {ex.Message}");
-                }
-                try { SaveRecordingFiles(second); }
-                catch (System.Exception ex)
-                {
-                    ParsekLog.Warn("RecordingStore",
-                        $"Split: failed to save new segment {second.RecordingId}: {ex.Message}");
-                }
+                original.FilesDirty = true;
+                second.FilesDirty = true;
 
                 // Reindex chain by StartUT
                 RecordingOptimizer.ReindexChain(recordings, original.ChainId);
@@ -1241,6 +1230,7 @@ namespace Parsek
             IsRewinding = false;
             RewindUT = 0;
             RewindAdjustedUT = 0;
+            RewindUTAdjustmentPending = false;
             RewindReserved = default(BudgetSummary);
             RewindBaselineFunds = 0;
             RewindBaselineScience = 0;
@@ -2647,6 +2637,7 @@ namespace Parsek
                         SafeWriteConfigNode(rec.GhostVisualSnapshot, ghostPath);
                 }
 
+                rec.FilesDirty = false;
                 return true;
             }
             catch (Exception ex)

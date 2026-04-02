@@ -3870,6 +3870,9 @@ namespace Parsek
             if (onSurface && isRelativeMode)
             {
                 // Was flying in RELATIVE mode, just landed — exit RELATIVE
+                // Sample boundary point BEFORE closing — adaptive sampler may have
+                // skipped frames, so last recorded point could be far from here.
+                SamplePosition(v);
                 var ic = CultureInfo.InvariantCulture;
                 var oldAnchor = currentAnchorPid;
                 isRelativeMode = false;
@@ -3895,6 +3898,9 @@ namespace Parsek
                 if (shouldBeRelative && !isRelativeMode)
                 {
                     // Entering RELATIVE mode
+                    // Sample boundary point BEFORE closing — adaptive sampler may have
+                    // skipped frames, so last recorded point could be far from here.
+                    SamplePosition(v);
                     var ic = CultureInfo.InvariantCulture;
                     isRelativeMode = true;
                     currentAnchorPid = anchorPid;
@@ -3912,6 +3918,9 @@ namespace Parsek
                 else if (!shouldBeRelative && isRelativeMode)
                 {
                     // Exiting RELATIVE mode
+                    // Sample boundary point BEFORE closing — adaptive sampler may have
+                    // skipped frames, so last recorded point could be far from here.
+                    SamplePosition(v);
                     var ic = CultureInfo.InvariantCulture;
                     var oldAnchor = currentAnchorPid;
                     isRelativeMode = false;
@@ -4542,6 +4551,9 @@ namespace Parsek
                 {
                     // Environment changed — close current section, start new one.
                     // Preserve current reference frame (RELATIVE stays RELATIVE).
+                    // Sample boundary point BEFORE closing — adaptive sampler may have
+                    // skipped frames, so last recorded point could be far from here.
+                    SamplePosition(v);
                     var currentRef = isRelativeMode ? ReferenceFrame.Relative : ReferenceFrame.Absolute;
                     CloseCurrentTrackSection(Planetarium.GetUniversalTime());
                     StartNewTrackSection(environmentHysteresis.CurrentEnvironment, currentRef,

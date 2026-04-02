@@ -66,12 +66,16 @@ namespace Parsek
         private const float ColW_Index = 30f;
         private const float ColW_Launch = 110f;
         // ColW_Countdown removed (#98) — merged into Status column
-        private const float ColW_Dur = 65f;
+        private const float ColW_Dur = 80f;
         private const float ColW_Status = 120f;
         private const float ColW_Loop = 55f;
         private const float ColW_Watch = 50f;
         private const float ColW_Rewind = 65f;
         private const float ColW_Hide = 50f;
+
+        // Reusable per-frame buffers (avoid allocation each frame)
+        private static readonly Dictionary<string, int> chainTipIndexBuffer = new Dictionary<string, int>();
+        private static readonly HashSet<int> chainStatusBuffer = new HashSet<int>();
 
         // Chain and group expansion state
         private HashSet<string> expandedChains = new HashSet<string>();
@@ -123,7 +127,7 @@ namespace Parsek
 
         // Sort state
         internal enum SortColumn { Index, Phase, Name, LaunchTime, Duration, Status }
-        private SortColumn sortColumn = SortColumn.Index;
+        private SortColumn sortColumn = SortColumn.LaunchTime;
         private bool sortAscending = true;
 
         // Root-level draw item for unified sorting of groups, chains, and standalone recordings
@@ -1379,10 +1383,9 @@ namespace Parsek
             else if (now <= rec.EndUT)
             {
                 statusStyle = statusStyleActive;
-                statusText = rec.IsDebris ? "active"
-                    : rec.Points.Count > 0
-                        ? SelectiveSpawnUI.FormatCountdown(rec.StartUT - now)
-                        : "active";
+                statusText = rec.Points.Count > 0
+                    ? SelectiveSpawnUI.FormatCountdown(rec.StartUT - now)
+                    : "active";
             }
             else
             {
@@ -1905,7 +1908,7 @@ namespace Parsek
                 if (mr.EndUT > chainEnd) chainEnd = mr.EndUT;
             }
 
-            if (GUILayout.Button($"{arrow} {chainName} ({members.Count} segments, {FormatDuration(chainEnd - chainStart)})",
+            if (GUILayout.Button($"{arrow} {chainName} ({members.Count})",
                 GUI.skin.label, GUILayout.ExpandWidth(true)))
             {
                 if (expanded) expandedChains.Remove(chainId);
@@ -1913,13 +1916,44 @@ namespace Parsek
                 ParsekLog.Verbose("UI", $"Chain '{chainName}' {(expanded ? "collapsed" : "expanded")} ({members.Count} segments)");
             }
 
-            // Chain G button
-            if (GUILayout.Button("G", GUILayout.Width(ColW_Group)))
+            // Phase placeholder (chains have no single phase)
+            GUILayout.Label("", GUILayout.Width(ColW_Phase));
+
+            // Launch time (earliest among chain members)
+            GUILayout.Label(chainStart < double.MaxValue
+                ? KSPUtil.PrintDateCompact(chainStart, true) : "-",
+                GUILayout.Width(ColW_Launch));
+
+            // Duration (total span)
+            GUILayout.Label(FormatDuration(chainEnd - chainStart), GUILayout.Width(ColW_Dur));
+
+            // Expanded stats spacers
+            if (showExpandedStats)
+            {
+                GUILayout.Label("", GUILayout.Width(ColW_MaxAlt));
+                GUILayout.Label("", GUILayout.Width(ColW_MaxSpd));
+                GUILayout.Label("", GUILayout.Width(ColW_Dist));
+                GUILayout.Label("", GUILayout.Width(ColW_Pts));
+            }
+
+            // Status (closest active among chain members)
+            string chainStatusText;
+            int chainStatusOrder;
+            GetChainStatus(members, committed, now, out chainStatusText, out chainStatusOrder);
+            GUIStyle chainStatusStyle = chainStatusOrder == 0 ? statusStyleFuture
+                : chainStatusOrder == 1 ? statusStyleActive
+                : statusStylePast;
+            GUILayout.Label(chainStatusText, chainStatusStyle, GUILayout.Width(ColW_Status));
+
+            // Chain G button (share ColW_Group width with X placeholder)
+            float halfGroup = (ColW_Group - 4f) * 0.5f;
+            if (GUILayout.Button("G", GUILayout.Width(halfGroup)))
             {
                 groupPopupPosition = GUIUtility.GUIToScreenPoint(Event.current.mousePosition);
                 OpenGroupPopupForChain(chainId);
                 ParsekLog.Verbose("UI", $"Group popup opened for chain '{chainName}'");
             }
+            GUILayout.Space(halfGroup + 4f);
 
             // Loop checkbox (aggregate over chain members)
             int chainLoopCount = 0;
@@ -2761,7 +2795,22 @@ namespace Parsek
             int total = (int)seconds;
             if (total < 60) return $"{total}s";
             if (total < 3600) return $"{total / 60}m {total % 60}s";
-            return $"{total / 3600}h {(total % 3600) / 60}m";
+
+            // KSP calendar: 6-hour days, 426-day years
+            const int SecsPerHour = 3600;
+            const int SecsPerDay = 6 * SecsPerHour;   // 21600
+            const int SecsPerYear = 426 * SecsPerDay;  // 9201600
+
+            if (total < SecsPerDay) return $"{total / SecsPerHour}h {(total % SecsPerHour) / 60}m";
+            if (total < SecsPerYear)
+            {
+                int days = total / SecsPerDay;
+                int hours = (total % SecsPerDay) / SecsPerHour;
+                return hours > 0 ? $"{days}d {hours}h" : $"{days}d";
+            }
+            int years = total / SecsPerYear;
+            int remDays = (total % SecsPerYear) / SecsPerDay;
+            return remDays > 0 ? $"{years}y {remDays}d" : $"{years}y";
         }
 
         internal static string FormatAltitude(double meters)
@@ -2883,6 +2932,19 @@ namespace Parsek
                 statusOrder = 2;
                 statusText = "-";
             }
+        }
+
+        /// <summary>
+        /// Computes aggregate status for a chain block header.
+        /// Delegates to GetGroupStatus with a HashSet built from the member list.
+        /// </summary>
+        private static void GetChainStatus(List<int> members, List<Recording> committed,
+            double now, out string statusText, out int statusOrder)
+        {
+            chainStatusBuffer.Clear();
+            for (int i = 0; i < members.Count; i++)
+                chainStatusBuffer.Add(members[i]);
+            GetGroupStatus(chainStatusBuffer, committed, now, out statusText, out statusOrder);
         }
 
         /// <summary>
@@ -3911,28 +3973,59 @@ namespace Parsek
 
         public void DrawMapMarkers()
         {
-            Camera cam = PlanetariumCamera.Camera;
-            if (cam == null) return;
+            // Resolve camera for current view; bail if unavailable
+            if (MapView.MapIsEnabled)
+            {
+                if (PlanetariumCamera.Camera == null) return;
+            }
+            else
+            {
+                if (FlightCamera.fetch == null || FlightCamera.fetch.mainCamera == null) return;
+            }
 
             EnsureMapMarkerResources();
 
             // Manual preview ghost
             if (flight.IsPlaying && flight.PreviewGhost != null)
             {
-                DrawMapMarkerAt(cam, flight.PreviewGhost.transform.position, "Preview", Color.green);
+                DrawMapMarkerAt(flight.PreviewGhost.transform.position, "Preview", Color.green);
             }
 
             // Timeline ghosts — skip if a ghost map ProtoVessel exists for this index
-            // (the native KSP vessel icon replaces this dot and tracks the correct orbital position)
+            // (the native KSP vessel icon replaces this dot and tracks the correct orbital position).
+            // Deduplicate per chain: during warp, multiple chain segments can be active
+            // simultaneously. Only draw the marker for the highest-index (latest) ghost per chain.
             var committed = RecordingStore.CommittedRecordings;
             Color ghostColor = new Color(0.2f, 1f, 0.4f, 0.9f);
+
+            // First pass: find the highest active index per chain
+            chainTipIndexBuffer.Clear();
+            foreach (var kvp in flight.TimelineGhosts)
+            {
+                if (kvp.Value == null) continue;
+                if (kvp.Key >= committed.Count) continue;
+                string chainId = committed[kvp.Key].ChainId;
+                if (string.IsNullOrEmpty(chainId)) continue;
+                int existing;
+                if (!chainTipIndexBuffer.TryGetValue(chainId, out existing) || kvp.Key > existing)
+                    chainTipIndexBuffer[chainId] = kvp.Key;
+            }
+
+            // Second pass: draw markers, skipping non-tip chain members
             foreach (var kvp in flight.TimelineGhosts)
             {
                 if (kvp.Value == null) continue;
                 if (GhostMapPresence.HasGhostVesselForRecording(kvp.Key))
                     continue;
+                if (kvp.Key < committed.Count)
+                {
+                    string chainId = committed[kvp.Key].ChainId;
+                    if (!string.IsNullOrEmpty(chainId) && chainTipIndexBuffer.Count > 0
+                        && chainTipIndexBuffer.TryGetValue(chainId, out int tip) && kvp.Key != tip)
+                        continue; // not the tip — skip duplicate
+                }
                 string ghostName = kvp.Key < committed.Count ? committed[kvp.Key].VesselName : "Ghost";
-                DrawMapMarkerAt(cam, kvp.Value.transform.position, ghostName, ghostColor);
+                DrawMapMarkerAt(kvp.Value.transform.position, ghostName, ghostColor);
             }
         }
 
@@ -3954,10 +4047,18 @@ namespace Parsek
                 UnityEngine.Object.Destroy(mapMarkerTexture);
         }
 
-        private void DrawMapMarkerAt(Camera cam, Vector3 worldPos, string label, Color color)
+        private void DrawMapMarkerAt(Vector3 worldPos, string label, Color color)
         {
-            Vector3d scaledPos = ScaledSpace.LocalToScaledSpace(worldPos);
-            Vector3 screenPos = cam.WorldToScreenPoint(scaledPos);
+            Vector3 screenPos;
+            if (MapView.MapIsEnabled)
+            {
+                Vector3d scaledPos = ScaledSpace.LocalToScaledSpace(worldPos);
+                screenPos = PlanetariumCamera.Camera.WorldToScreenPoint(scaledPos);
+            }
+            else
+            {
+                screenPos = FlightCamera.fetch.mainCamera.WorldToScreenPoint(worldPos);
+            }
 
             // Behind camera
             if (screenPos.z < 0) return;

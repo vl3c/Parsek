@@ -2231,6 +2231,134 @@ Even with the position fix (#175), the EVA vessel snapshot captured at EVA start
 
 **Status:** Fixed
 
+## 185. Investigate spawning idle vessels earlier or trimming recording tail
+
+After an EVA, the vessel left behind is a static recording (ghost) right up to the moment the tree was committed, even though it stopped moving much earlier. Consider either:
+- Spawning the vessel as real when it enters its final resting state (no further events/movement), or
+- Trimming the end of the recording if nothing changes after the last meaningful event.
+
+**Status:** TODO — investigate later
+
+## 186. Initial launch recording shows T+ countdown instead of "past" status, missing Phase column
+
+In the Parsek recordings window, the initial launch recording (parent of a tree) shows "T+5m 23s" in the Status column while child recordings show "Landed". It may be more appropriate to show "past" or the terminal state. Additionally, these tree recordings have no Phase column value — investigate whether phase should be populated.
+
+**Status:** TODO — investigate later
+
+## 187. Centralize time conversion system
+
+All time formatting (FormatDuration, FormatCountdown, KSPUtil.PrintDateCompact) should use a centralized system that respects the game's calendar settings (day length, year length). KSP has a setting that changes how long a day is (Kerbin time vs Earth time). Currently FormatDuration hardcodes 6h days / 426d years. Audit all time conversion call sites and unify.
+
+**Status:** TODO — investigate later
+
+## 188. Spawned surface vessels clutter map view during ascent
+
+During ascent, map view shows green dot icons for past recordings' spawned vessels (Jumping Flea, Jebediah Kerman, etc.) sitting on the ground. These are real KSP vessels spawned by KSC spawn at recording end — they correctly show in map view because they're actual vessels. But they're distracting during flight. Consider options: defer surface vessel spawns until tracking station visit, add a map filter toggle, or mark spawned ground vessels as debris type to reduce visual clutter.
+
+**Status:** TODO — investigate
+
+## 189. Ghost orbit line truncated at Mun distance after SOI change to Sun
+
+When a ghost transitions SOI from Kerbin to Sun, the orbit line only renders up to the Mun's orbit distance. The orbit update log shows the first SOI change incorrectly sets body=Kerbin instead of Sun, then a second transition corrects it. The orbit cache key may not account for body changes, causing stale orbit rendering relative to the wrong body. Check `ApplyOrbitToVessel` and orbit cache invalidation on SOI transitions.
+
+**Status:** TODO — investigate
+
+## 190. Ghost icon popup menu appears at screen center instead of cursor
+
+`GhostVesselLoadPatch` converts mouse position to normalized anchor coordinates for `PopupDialog.SpawnPopupDialog`, but KSP's PopupDialog may interpret the anchor differently. The popup consistently appears at screen center. May need screen-space coordinates instead of normalized.
+
+**Status:** TODO — fix
+
+## 191. Ghost icon popup menu doesn't close on outside click
+
+The popup spawned via `PopupDialog.SpawnPopupDialog` for ghost icons has no outside-click detection. User must press Esc to dismiss. Need to implement click-outside dismissal.
+
+**Status:** TODO — fix
+
+## 192. KSP's default vessel menu appears alongside Parsek popup in solar orbit
+
+`GhostIconClickPatch` is a Harmony postfix on `OrbitRendererBase.objectNode_OnClick`, so it runs after KSP's original handler. Both KSP's "Set as Target / Switch To" menu and Parsek's custom menu appear. Fix: change to a prefix that returns false for ghost vessels to suppress KSP's handler.
+
+**Status:** TODO — fix
+
+## 193. Double-click ghost map icon should focus camera on it
+
+Add focus-on-double-click for ghost map icons. Also add "Focus" option to the ghost icon popup menu.
+
+**Status:** Fixed (0.5.3)
+
+## 189b. Ghost escape orbit line stops short of Kerbin SOI edge
+
+For hyperbolic escape orbits, KSP's `OrbitRendererBase.UpdateSpline` draws the geometric hyperbola from `-acos(-1/e)` to `+acos(-1/e)` using circular trig (cos/sin), which clips at a finite distance (~12,000 km for e=1.342). The active vessel shows the full escape trajectory to the SOI boundary because it uses `PatchedConicSolver` + `PatchRendering` (time-based sampling from StartUT to EndUT). Ghost ProtoVessels don't get a `PatchedConicSolver`.
+
+**Options:**
+1. Draw a custom LineRenderer through the recording's trajectory points (accurate but significant work)
+2. Extend the orbit line beyond the hyperbola asymptote with a straight-line segment to the SOI exit point
+3. Give the ghost a `PatchedConicSolver` (complex, may conflict with KSP internals)
+4. Use a very large negative SMA to make the hyperbola wider (distorts the orbit shape, incorrect for targeting)
+
+**Status:** TODO — needs custom rendering solution
+
+## 195. Ghost orbit not visible in tracking station
+
+Ghost ProtoVessels cause NRE in `SpaceTracking.buildVesselsList` — the ghost is missing internal state fields KSP expects. The NRE is suppressed by a Harmony Finalizer (returning null) but the ghost's mapObject and orbitRenderer are never created (`mapObj=False orbitRenderer=False`). Root cause: `pv.Load()` in tracking station doesn't create map objects — those are created by `buildVesselsList` which fails on the ghost. Need to either fix the ghost ProtoVessel to be fully compatible with `buildVesselsList`, or create the map objects manually after Load.
+
+**Status:** TODO — needs deeper investigation
+
+## 196. Ghost icon popup window should appear next to cursor
+
+The popup spawned via `PopupDialog.SpawnPopupDialog` consistently appears at screen center or offset despite attempts to reposition via `CanvasUtil.ScreenToUISpacePos`. KSP's `SpawnPopupDialog` forces `localPosition=Vector3.zero` after anchor setup. Need to use the same approach as KSP's `MapContextMenu`: anchor at (0,0), then set `localPosition` via `CanvasUtil.ScreenToUISpacePos` with `CanvasUtil.AnchorOffset`. May require accessing `PopupDialogController.PopupDialogCanvas` for the correct canvas RectTransform.
+
+**Status:** TODO — deferred
+
+## 194. W (watch) button stays enabled on one booster after separation
+
+After booster separation, 3 of 4 boosters correctly have W disabled, but one stays enabled. The watch eligibility check (`HasActiveGhost && sameBody && inRange`) doesn't check `IsDebris`. A debris recording can have an active timeline ghost but shouldn't be watchable.
+
+**Status:** TODO — fix
+
+## 197. Ghost ProtoVessel missing for vessels in stable orbit reported as SUB_ORBITAL
+
+KSP reports `Vessel.Situations.SUB_ORBITAL` for off-rails physics vessels near a body even when they have a bound (elliptical) orbit — e.g., stable Mun orbit. `DetermineTerminalState` trusted KSP's situation flag and classified these as `SubOrbital`, causing the ghost map filter to skip ProtoVessel creation (only creates for `Orbiting`/`Docked`).
+
+**Status:** Fixed (0.5.3) — added `DetermineTerminalState(int, Vessel)` overload that checks `orbit.eccentricity < 1.0 && orbit.PeR > body.Radius` to override SUB_ORBITAL to Orbiting.
+
+## 198. Duplicate green dot map markers during time warp
+
+During time warp, the playback engine can have multiple chain segments active simultaneously (short segments from optimizer splits all fall within the current UT window). Each active ghost gets its own green dot in `DrawMapMarkers`, showing multiple dots for the same vessel scattered along the trajectory.
+
+**Status:** Fixed (0.5.3) — added per-chain dedup in `DrawMapMarkers`: only the highest-index (latest) ghost per chain gets a marker.
+
+## 199. Checkpoint log spam: 8,800+ INFO lines per session
+
+`CheckpointAllVessels` and warp-rate-changed messages logged at INFO level on every time warp transition. A typical Mun mission produced 8,800+ lines of non-actionable diagnostic info.
+
+**Status:** Fixed (0.5.3) — downgraded to Verbose.
+
+## 202. Spawned vessel deleted when switching to it
+
+Switching to a Parsek-spawned vessel (e.g., EVA kerbal on the Mun) triggers a FLIGHT→FLIGHT scene reload. Parsek's revert detection assumed all FLIGHT→FLIGHT transitions were reverts, so it stripped the spawned vessel, re-spawned it, then `CleanupOrphanedSpawnedVessels` matched the re-spawned vessel by name and immediately deleted it.
+
+**Status:** Fixed (0.5.3) — added `vesselSwitchPending` flag via `GameEvents.onVesselSwitching`. FLIGHT→FLIGHT transitions with the flag set are recognized as vessel switches and skip the strip/cleanup path.
+
+## 203. Green dot ghost markers at wrong positions near Mun after scene reload
+
+Two compounding issues: (1) `TerminalOrbitBody` is null on all recordings at load time — `HasOrbitData(Recording)` returns false for all 62 recordings, preventing ProtoVessel creation from the initial scan. Orbit segments exist at runtime but the terminal orbit metadata fields are never populated. (2) After FLIGHT→FLIGHT scene reload, ghost map vessel positions jump from Mun-relative (~11M m) to world-frame (~2B m) — the coordinate frame shifts during scene reload and positions aren't corrected.
+
+**Status:** TODO — needs investigation into why TerminalOrbitBody is never set, and coordinate frame correction after scene reload.
+
+## 200. 128km trajectory discontinuity at environment transitions
+
+Environment hysteresis transitions (e.g., Atmospheric → ExoPropulsive at 70km) called `CloseCurrentTrackSection()` without first sampling a boundary point. The adaptive sampler may have skipped several seconds, leaving a multi-km gap between the last point of the old section and the first point of the new section. Same issue in `UpdateAnchorDetection` (3 sites). On-rails transitions were already correct.
+
+**Status:** Fixed (0.5.3) — added `SamplePosition(v)` before `CloseCurrentTrackSection` in all 4 affected sites.
+
+## 201. Optimizer split creates temporal gap at section boundaries
+
+`SplitAtSection` partitions trajectory points by `ut >= splitUT`. When no point falls exactly at `splitUT`, the last point of the first half and the first point of the second half have different UTs with no coverage in between (e.g., 2.92s gap in Mun mission data). The unsplit recording interpolates across this seamlessly, but once split into separate chain segments, the gap becomes a visible jump during playback.
+
+**Status:** Fixed (0.5.3) — `SplitAtSection` now interpolates a synthetic boundary point at exactly `splitUT` (position, velocity, rotation via lerp/slerp) and includes it in both halves.
+
 # In-Game Tests
 
 - [x] Vessels propagate naturally along orbits after FF (no position freezing)

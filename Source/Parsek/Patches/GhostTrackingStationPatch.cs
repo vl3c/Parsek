@@ -15,33 +15,28 @@ namespace Parsek.Patches
     /// </summary>
 
     /// <summary>
-    /// Wraps SpaceTracking.buildVesselsList in try/catch to prevent NullReferenceExceptions
-    /// from crashing the tracking station. Ghost ProtoVessels can trigger NREs in KSP's
-    /// internal vessel list rebuilding when asteroids are spawned/destroyed, because
-    /// buildVesselsList assumes certain vessel state fields are always populated.
+    /// Suppresses NullReferenceException in SpaceTracking.buildVesselsList caused by
+    /// ghost ProtoVessels. Ghost ProtoVessels can trigger NREs in KSP's internal vessel
+    /// list rebuilding when asteroids are spawned/destroyed, because buildVesselsList
+    /// assumes certain vessel state fields are always populated. The Finalizer returns
+    /// null for the exception, which tells Harmony to swallow it completely (the original
+    /// method's caller never sees it). Unlike the previous approach of hiding ghosts from
+    /// FlightGlobals, this allows the ghost to remain in the vessel list so its sidebar
+    /// widget and map node are created. The NRE typically occurs on a single ghost vessel
+    /// iteration but the method continues processing remaining vessels (KSP uses try/catch
+    /// internally for individual widget creation).
     /// </summary>
     [HarmonyPatch(typeof(SpaceTracking), "buildVesselsList")]
     internal static class GhostTrackingBuildVesselsListPatch
     {
-        static bool Prefix(SpaceTracking __instance)
-        {
-            try
-            {
-                return true; // run original
-            }
-            catch (Exception)
-            {
-                return true; // should not happen in prefix, but safety
-            }
-        }
-
-        static void Finalizer(Exception __exception)
+        static Exception Finalizer(Exception __exception)
         {
             if (__exception != null)
             {
                 ParsekLog.VerboseRateLimited("GhostMap", "buildVesselsListNRE",
                     $"Suppressed SpaceTracking.buildVesselsList exception: {__exception.GetType().Name}");
             }
+            return null; // swallow — return null tells Harmony to suppress the exception
         }
     }
 
@@ -116,6 +111,29 @@ namespace Parsek.Patches
             // The original OnVesselDeleteConfirm calls OnDialogDismiss which unlocks UI.
             // Since we skip the original, we must dismiss ourselves.
             Traverse.Create(__instance).Method("OnDialogDismiss").GetValue();
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Prevents SpaceTracking.SetVessel from crashing on ghost ProtoVessels.
+    /// Ghost vessels lack certain state fields that SetVessel assumes exist,
+    /// causing NullReferenceException when clicking a ghost in the tracking station.
+    /// Shows a screen message instead.
+    /// </summary>
+    [HarmonyPatch(typeof(SpaceTracking), "SetVessel")]
+    internal static class GhostTrackingSetVesselPatch
+    {
+        static bool Prefix(Vessel v)
+        {
+            if (v == null || !GhostMapPresence.IsGhostMapVessel(v.persistentId))
+                return true;
+
+            ScreenMessages.PostScreenMessage(
+                $"<b>{v.vesselName}</b> is a ghost — it shows the predicted orbit of a recorded vessel.",
+                5f, ScreenMessageStyle.UPPER_CENTER);
+            ParsekLog.Info("GhostMap",
+                $"Blocked SetVessel for ghost '{v.vesselName}' pid={v.persistentId} in Tracking Station");
             return false;
         }
     }
