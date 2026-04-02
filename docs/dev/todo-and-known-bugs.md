@@ -2245,6 +2245,54 @@ In the Parsek recordings window, the initial launch recording (parent of a tree)
 
 **Status:** TODO — investigate later
 
+## 187. Centralize time conversion system
+
+All time formatting (FormatDuration, FormatCountdown, KSPUtil.PrintDateCompact) should use a centralized system that respects the game's calendar settings (day length, year length). KSP has a setting that changes how long a day is (Kerbin time vs Earth time). Currently FormatDuration hardcodes 6h days / 426d years. Audit all time conversion call sites and unify.
+
+**Status:** TODO — investigate later
+
+## 188. Ghost map icons visible for non-orbital past recordings during ascent
+
+During a new ascent, map view shows ghost icons for past recordings (e.g., Jumping Flea, Jebediah Kerman) that are surface/suborbital. The terminal-state filter correctly skips them for ghost map ProtoVessel creation, but the icons still appear — possibly from timeline playback ghosts or a different code path. Investigate which system creates the visible icons.
+
+**Status:** TODO — investigate
+
+## 189. Ghost orbit line truncated at Mun distance after SOI change to Sun
+
+When a ghost transitions SOI from Kerbin to Sun, the orbit line only renders up to the Mun's orbit distance. The orbit update log shows the first SOI change incorrectly sets body=Kerbin instead of Sun, then a second transition corrects it. The orbit cache key may not account for body changes, causing stale orbit rendering relative to the wrong body. Check `ApplyOrbitToVessel` and orbit cache invalidation on SOI transitions.
+
+**Status:** TODO — investigate
+
+## 190. Ghost icon popup menu appears at screen center instead of cursor
+
+`GhostVesselLoadPatch` converts mouse position to normalized anchor coordinates for `PopupDialog.SpawnPopupDialog`, but KSP's PopupDialog may interpret the anchor differently. The popup consistently appears at screen center. May need screen-space coordinates instead of normalized.
+
+**Status:** TODO — fix
+
+## 191. Ghost icon popup menu doesn't close on outside click
+
+The popup spawned via `PopupDialog.SpawnPopupDialog` for ghost icons has no outside-click detection. User must press Esc to dismiss. Need to implement click-outside dismissal.
+
+**Status:** TODO — fix
+
+## 192. KSP's default vessel menu appears alongside Parsek popup in solar orbit
+
+`GhostIconClickPatch` is a Harmony postfix on `OrbitRendererBase.objectNode_OnClick`, so it runs after KSP's original handler. Both KSP's "Set as Target / Switch To" menu and Parsek's custom menu appear. Fix: change to a prefix that returns false for ghost vessels to suppress KSP's handler.
+
+**Status:** TODO — fix
+
+## 193. Double-click ghost map icon should focus camera on it
+
+Add focus-on-double-click for ghost map icons. Also add "Focus" option to the ghost icon popup menu.
+
+**Status:** TODO — feature request
+
+## 194. W (watch) button stays enabled on one booster after separation
+
+After booster separation, 3 of 4 boosters correctly have W disabled, but one stays enabled. The watch eligibility check (`HasActiveGhost && sameBody && inRange`) doesn't check `IsDebris`. A debris recording can have an active timeline ghost but shouldn't be watchable.
+
+**Status:** TODO — fix
+
 # In-Game Tests
 
 - [x] Vessels propagate naturally along orbits after FF (no position freezing)
