@@ -174,6 +174,78 @@ namespace Parsek
             }
         }
 
+        /// <summary>
+        /// Called when a KSC spending action occurs outside of a flight recording session.
+        /// Converts the event directly to a GameAction and adds to the ledger, then recalculates.
+        /// Used for tech unlocks, facility upgrades, and kerbal hires at KSC.
+        /// </summary>
+        /// <param name="evt">The GameStateEvent captured by GameStateRecorder.</param>
+        internal static void OnKscSpending(GameStateEvent evt)
+        {
+            Initialize();
+
+            var action = GameStateEventConverter.ConvertEvent(evt, null);
+            if (action == null)
+            {
+                ParsekLog.Verbose(Tag,
+                    $"OnKscSpending: event type {evt.eventType} produced no action, skipping");
+                return;
+            }
+
+            Ledger.AddAction(action);
+
+            ParsekLog.Info(Tag,
+                $"KSC spending recorded: type={action.Type}, UT={evt.ut:F1}, " +
+                $"key={evt.key ?? "(none)"}");
+
+            RecalculateAndPatch();
+        }
+
+        /// <summary>
+        /// Checks whether a science spending of the given cost is affordable under the
+        /// current ledger reservation. Returns true if available science >= cost.
+        /// Used by TechResearchPatch to block unfunded tech unlocks.
+        /// </summary>
+        internal static bool CanAffordScienceSpending(float cost)
+        {
+            Initialize();
+            if (scienceModule == null) return true;
+
+            // Run a recalculation to get current state (may already be current)
+            var actions = new System.Collections.Generic.List<GameAction>(Ledger.Actions);
+            RecalculationEngine.Recalculate(actions);
+
+            double available = scienceModule.GetAvailableScience();
+            bool affordable = available >= (double)cost;
+
+            ParsekLog.Verbose(Tag,
+                $"CanAffordScienceSpending: cost={cost:F1}, available={available:F1}, affordable={affordable}");
+
+            return affordable;
+        }
+
+        /// <summary>
+        /// Checks whether a funds spending of the given cost is affordable under the
+        /// current ledger reservation. Returns true if available funds >= cost.
+        /// Used by FacilityUpgradePatch to block unfunded facility upgrades.
+        /// </summary>
+        internal static bool CanAffordFundsSpending(float cost)
+        {
+            Initialize();
+            if (fundsModule == null) return true;
+
+            var actions = new System.Collections.Generic.List<GameAction>(Ledger.Actions);
+            RecalculationEngine.Recalculate(actions);
+
+            double available = fundsModule.GetAvailableFunds();
+            bool affordable = available >= (double)cost;
+
+            ParsekLog.Verbose(Tag,
+                $"CanAffordFundsSpending: cost={cost:F1}, available={available:F1}, affordable={affordable}");
+
+            return affordable;
+        }
+
         /// <summary>Reset all state for testing.</summary>
         internal static void ResetForTesting()
         {

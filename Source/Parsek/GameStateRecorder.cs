@@ -270,7 +270,7 @@ namespace Parsek
                 partList = string.Join(",", names);
             }
 
-            GameStateStore.AddEvent(new GameStateEvent
+            var evt = new GameStateEvent
             {
                 ut = Planetarium.GetUniversalTime(),
                 eventType = GameStateEventType.TechResearched,
@@ -282,8 +282,13 @@ namespace Parsek
                 valueAfter = ResearchAndDevelopment.Instance != null
                     ? ResearchAndDevelopment.Instance.Science
                     : 0
-            });
+            };
+            GameStateStore.AddEvent(evt);
             ParsekLog.Info("GameStateRecorder", $"Game state: TechResearched '{techId}' (cost={data.host.scienceCost})");
+
+            // Write directly to ledger when at KSC (not during flight recording)
+            if (!IsFlightScene())
+                LedgerOrchestrator.OnKscSpending(evt);
         }
 
         private void OnPartPurchased(AvailablePart part)
@@ -328,14 +333,18 @@ namespace Parsek
             if (crew == null) return;
             var name = crew.name ?? "";
 
-            GameStateStore.AddEvent(new GameStateEvent
+            var evt = new GameStateEvent
             {
                 ut = Planetarium.GetUniversalTime(),
                 eventType = GameStateEventType.CrewHired,
                 key = name,
                 detail = $"trait={crew.trait ?? ""}"
-            });
+            };
+            GameStateStore.AddEvent(evt);
             ParsekLog.Info("GameStateRecorder", $"Game state: CrewHired '{name}' ({crew.trait ?? "?"})");
+
+            if (!IsFlightScene())
+                LedgerOrchestrator.OnKscSpending(evt);
         }
 
         private void OnKerbalRemoved(ProtoCrewMember crew)
@@ -363,6 +372,16 @@ namespace Parsek
         /// Pure: returns true if the status transition is a real change (not an identity
         /// transition like Dead->Dead). Extracted for testability (Bug #122).
         /// </summary>
+        /// <summary>
+        /// Returns true if we're currently in the Flight scene. KSC spending actions
+        /// should only be written directly to the ledger outside of flight (to avoid
+        /// double-adding when the recording is committed).
+        /// </summary>
+        private static bool IsFlightScene()
+        {
+            return HighLogic.LoadedScene == GameScenes.FLIGHT;
+        }
+
         internal static bool IsRealStatusChange(ProtoCrewMember.RosterStatus oldStatus,
             ProtoCrewMember.RosterStatus newStatus)
         {
@@ -645,16 +664,20 @@ namespace Parsek
                                 ? GameStateEventType.FacilityUpgraded
                                 : GameStateEventType.FacilityDowngraded;
 
-                            GameStateStore.AddEvent(new GameStateEvent
+                            var evt = new GameStateEvent
                             {
                                 ut = ut,
                                 eventType = eventType,
                                 key = kvp.Key,
                                 valueBefore = cachedLevel,
                                 valueAfter = currentLevel
-                            });
+                            };
+                            GameStateStore.AddEvent(evt);
                             eventsEmitted++;
                             ParsekLog.Info("GameStateRecorder", $"Game state: {eventType} '{kvp.Key}' {cachedLevel:F2} → {currentLevel:F2}");
+
+                            if (!IsFlightScene() && eventType == GameStateEventType.FacilityUpgraded)
+                                LedgerOrchestrator.OnKscSpending(evt);
                         }
                     }
 
