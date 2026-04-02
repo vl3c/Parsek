@@ -2251,9 +2251,9 @@ All time formatting (FormatDuration, FormatCountdown, KSPUtil.PrintDateCompact) 
 
 **Status:** TODO — investigate later
 
-## 188. Ghost map icons visible for non-orbital past recordings during ascent
+## 188. Spawned surface vessels clutter map view during ascent
 
-During a new ascent, map view shows ghost icons for past recordings (e.g., Jumping Flea, Jebediah Kerman) that are surface/suborbital. The terminal-state filter correctly skips them for ghost map ProtoVessel creation, but the icons still appear — possibly from timeline playback ghosts or a different code path. Investigate which system creates the visible icons.
+During ascent, map view shows green dot icons for past recordings' spawned vessels (Jumping Flea, Jebediah Kerman, etc.) sitting on the ground. These are real KSP vessels spawned by KSC spawn at recording end — they correctly show in map view because they're actual vessels. But they're distracting during flight. Consider options: defer surface vessel spawns until tracking station visit, add a map filter toggle, or mark spawned ground vessels as debris type to reduce visual clutter.
 
 **Status:** TODO — investigate
 
