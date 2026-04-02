@@ -2285,7 +2285,13 @@ The popup spawned via `PopupDialog.SpawnPopupDialog` for ghost icons has no outs
 
 Add focus-on-double-click for ghost map icons. Also add "Focus" option to the ghost icon popup menu.
 
-**Status:** TODO — feature request
+**Status:** Fixed (0.5.3)
+
+## 195. Ghost icon popup window should appear next to cursor
+
+The popup spawned via `PopupDialog.SpawnPopupDialog` consistently appears at screen center or offset despite attempts to reposition via `CanvasUtil.ScreenToUISpacePos`. KSP's `SpawnPopupDialog` forces `localPosition=Vector3.zero` after anchor setup. Need to use the same approach as KSP's `MapContextMenu`: anchor at (0,0), then set `localPosition` via `CanvasUtil.ScreenToUISpacePos` with `CanvasUtil.AnchorOffset`. May require accessing `PopupDialogController.PopupDialogCanvas` for the correct canvas RectTransform.
+
+**Status:** TODO — deferred
 
 ## 194. W (watch) button stays enabled on one booster after separation
 

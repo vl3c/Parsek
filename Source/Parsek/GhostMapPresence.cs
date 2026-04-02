@@ -442,16 +442,18 @@ namespace Parsek
                 segment.epoch,
                 body);
 
-            // Ensure orbit patch covers the full trajectory so the orbit renderer
-            // draws the complete line (not clipped to a short time span).
-            // For hyperbolic escape orbits, extend EndUT far enough to reach the SOI edge.
-            // FINAL transition tells KSP this is the last patch — no SOI boundary.
-            orb.StartUT = segment.epoch;
-            orb.EndUT = segment.epoch + (segment.eccentricity >= 1.0 ? 1e8 : orb.period * 1.5);
+            vessel.orbitDriver.updateFromParameters();
+
+            // Set orbit patch properties AFTER updateFromParameters (which may reset them).
+            // These control how far the OrbitRenderer draws the orbit line.
+            // FINAL transition = no SOI boundary, draw the full trajectory.
+            // For hyperbolic escape orbits (e>=1), extend EndUT far out.
+            // For elliptical, 1.5 periods gives a full orbit plus margin.
+            orb.StartUT = Planetarium.GetUniversalTime();
+            orb.EndUT = orb.StartUT + (segment.eccentricity >= 1.0 ? 1e8 : orb.period * 1.5);
             orb.patchStartTransition = Orbit.PatchTransitionType.INITIAL;
             orb.patchEndTransition = Orbit.PatchTransitionType.FINAL;
-
-            vessel.orbitDriver.updateFromParameters();
+            orb.activePatch = true;
 
             // After SOI change, force the orbit renderer to recalculate for the new body.
             // Without this, the orbit line stays clipped to the old body's SOI radius.
@@ -676,6 +678,14 @@ namespace Parsek
                 if (v.orbitDriver != null)
                 {
                     Orbit drv = v.orbitDriver.orbit;
+
+                    // Set orbit patch properties so the orbit line renders fully
+                    drv.StartUT = Planetarium.GetUniversalTime();
+                    drv.EndUT = drv.StartUT + (drv.eccentricity >= 1.0 ? 1e8 : drv.period * 1.5);
+                    drv.patchStartTransition = Orbit.PatchTransitionType.INITIAL;
+                    drv.patchEndTransition = Orbit.PatchTransitionType.FINAL;
+                    drv.activePatch = true;
+
                     driverState = string.Format(ic,
                         "updateMode={0} sma={1:F0} ecc={2:F6} inc={3:F4} " +
                         "argPe={4:F4} mna={5:F6} epoch={6:F1} vesselPos=({7:F1},{8:F1},{9:F1})",

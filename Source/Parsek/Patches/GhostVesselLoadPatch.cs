@@ -98,9 +98,9 @@ namespace Parsek.Patches
                     else if (!flight.IsGhostOnSameBody(recIndex))
                     {
                         ScreenMessages.PostScreenMessage(
-                            $"<b>{vesselName}</b> — ghost is on a different celestial body.",
+                            $"<b>{vesselName}</b> — ghost is in a different SOI.",
                             5f, ScreenMessageStyle.UPPER_CENTER);
-                        ParsekLog.Info("GhostMap", $"Ghost '{vesselName}' watch refused — different body (recIndex={recIndex})");
+                        ParsekLog.Info("GhostMap", $"Ghost '{vesselName}' watch refused — different SOI (recIndex={recIndex})");
                     }
                     else if (!flight.IsGhostWithinVisualRange(recIndex))
                     {
