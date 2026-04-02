@@ -305,22 +305,20 @@ namespace Parsek.Tests
         [Fact]
         public void ResetForTesting_ClearsRewindAdjustedUT()
         {
-            RecordingStore.IsRewinding = true;
-            RecordingStore.RewindUT = 17000.0;
-            RecordingStore.RewindAdjustedUT = 16990.0;
-            RecordingStore.RewindReserved = new BudgetSummary
+            RewindContext.BeginRewind(17000.0, new BudgetSummary
             {
                 reservedFunds = 100, reservedScience = 10, reservedReputation = 5
-            };
+            }, 0, 0, 0);
+            RewindContext.SetAdjustedUT(16990.0);
 
             RecordingStore.ResetForTesting();
 
-            Assert.False(RecordingStore.IsRewinding);
-            Assert.Equal(0.0, RecordingStore.RewindUT);
-            Assert.Equal(0.0, RecordingStore.RewindAdjustedUT);
-            Assert.Equal(0.0, RecordingStore.RewindReserved.reservedFunds);
-            Assert.Equal(0.0, RecordingStore.RewindReserved.reservedScience);
-            Assert.Equal(0f, RecordingStore.RewindReserved.reservedReputation);
+            Assert.False(RewindContext.IsRewinding);
+            Assert.Equal(0.0, RewindContext.RewindUT);
+            Assert.Equal(0.0, RewindContext.RewindAdjustedUT);
+            Assert.Equal(0.0, RewindContext.RewindReserved.reservedFunds);
+            Assert.Equal(0.0, RewindContext.RewindReserved.reservedScience);
+            Assert.Equal(0f, RewindContext.RewindReserved.reservedReputation);
         }
 
         #endregion
@@ -622,27 +620,24 @@ namespace Parsek.Tests
 
             // We can't call InitiateRewind (needs KSP file I/O), but we can
             // verify the baseline fields are stored and cleared correctly.
-            RecordingStore.RewindBaselineFunds = rec.PreLaunchFunds;
-            RecordingStore.RewindBaselineScience = rec.PreLaunchScience;
-            RecordingStore.RewindBaselineRep = rec.PreLaunchReputation;
+            RewindContext.BeginRewind(0, default(BudgetSummary),
+                rec.PreLaunchFunds, rec.PreLaunchScience, rec.PreLaunchReputation);
 
-            Assert.Equal(25000.0, RecordingStore.RewindBaselineFunds);
-            Assert.Equal(5.0, RecordingStore.RewindBaselineScience);
-            Assert.Equal(1.5f, RecordingStore.RewindBaselineRep);
+            Assert.Equal(25000.0, RewindContext.RewindBaselineFunds);
+            Assert.Equal(5.0, RewindContext.RewindBaselineScience);
+            Assert.Equal(1.5f, RewindContext.RewindBaselineRep);
         }
 
         [Fact]
         public void ResetForTesting_ClearsBaselineFields()
         {
-            RecordingStore.RewindBaselineFunds = 99999.0;
-            RecordingStore.RewindBaselineScience = 42.0;
-            RecordingStore.RewindBaselineRep = 7.0f;
+            RewindContext.BeginRewind(0, default(BudgetSummary), 99999.0, 42.0, 7.0f);
 
             RecordingStore.ResetForTesting();
 
-            Assert.Equal(0.0, RecordingStore.RewindBaselineFunds);
-            Assert.Equal(0.0, RecordingStore.RewindBaselineScience);
-            Assert.Equal(0f, RecordingStore.RewindBaselineRep);
+            Assert.Equal(0.0, RewindContext.RewindBaselineFunds);
+            Assert.Equal(0.0, RewindContext.RewindBaselineScience);
+            Assert.Equal(0f, RewindContext.RewindBaselineRep);
         }
 
         [Fact]
@@ -680,7 +675,7 @@ namespace Parsek.Tests
             // Verifies the complete UT adjustment data flow:
             // 1. PreProcessRewindSave adjusts UT in save file
             // 2. GamePersistence.LoadGame parses adjusted UT into game.flightState.universalTime
-            // 3. RecordingStore.RewindAdjustedUT captures it
+            // 3. RewindContext.RewindAdjustedUT captures it
             // 4. Coroutine captures it before yielding, then calls Planetarium.SetUniversalTime
             //
             // Steps 2-4 happen in InitiateRewind + coroutine. This test verifies steps 1+3.
@@ -694,8 +689,8 @@ namespace Parsek.Tests
             Assert.Equal(16990.7, adjustedUT);
 
             // Simulate step 3: store in RewindAdjustedUT (as InitiateRewind does)
-            RecordingStore.RewindAdjustedUT = adjustedUT;
-            Assert.Equal(16990.7, RecordingStore.RewindAdjustedUT);
+            RewindContext.SetAdjustedUT(adjustedUT);
+            Assert.Equal(16990.7, RewindContext.RewindAdjustedUT);
 
             // Verify log records the adjustment
             Assert.Contains(logLines, l =>
@@ -723,20 +718,20 @@ namespace Parsek.Tests
             Assert.Equal(490.0, adjustedUT);
 
             // Simulate InitiateRewind storing the adjusted UT
-            RecordingStore.RewindAdjustedUT = adjustedUT;
-            Assert.True(RecordingStore.RewindAdjustedUT > 0,
+            RewindContext.SetAdjustedUT(adjustedUT);
+            Assert.True(RewindContext.RewindAdjustedUT > 0,
                 "Adjusted UT must be positive for Planetarium.SetUniversalTime");
 
             // Simulate coroutine capturing adjustedUT BEFORE flags are cleared
-            double coroutineCapturedUT = RecordingStore.RewindAdjustedUT;
+            double coroutineCapturedUT = RewindContext.RewindAdjustedUT;
             Assert.Equal(490.0, coroutineCapturedUT);
 
             // Simulate OnLoad clearing flags (happens AFTER coroutine captures)
-            RecordingStore.RewindAdjustedUT = 0;
+            RewindContext.EndRewind();
 
             // Coroutine's captured value survives the clearing
             Assert.Equal(490.0, coroutineCapturedUT);
-            Assert.Equal(0.0, RecordingStore.RewindAdjustedUT);
+            Assert.Equal(0.0, RewindContext.RewindAdjustedUT);
         }
 
         [Fact]

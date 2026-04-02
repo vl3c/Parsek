@@ -243,7 +243,7 @@ namespace Parsek
             // Load crew replacement mappings from the node (both initial and revert paths need this).
             // Skip during go-back: in-memory crewReplacements is the source of truth
             // (it has replacements for recordings committed after this quicksave).
-            if (!RecordingStore.IsRewinding)
+            if (!RewindContext.IsRewinding)
             {
                 CrewReservationManager.LoadCrewReplacements(node);
                 KerbalsModule.LoadSlots(node);
@@ -261,7 +261,7 @@ namespace Parsek
                 MilestoneStore.LoadMilestoneFile();
 
                 // Load ledger from external file (skip during rewind — in-memory ledger is source of truth)
-                if (!RecordingStore.IsRewinding)
+                if (!RewindContext.IsRewinding)
                     LedgerOrchestrator.OnLoad();
 
                 // Clean up stale parsek_rw_*.sfs temp files left by a crash during rewind
@@ -339,7 +339,7 @@ namespace Parsek
             {
                 // Go-back detection: must be BEFORE revert detection and BEFORE any
                 // .sfs data loading. In-memory state is the source of truth.
-                if (RecordingStore.IsRewinding)
+                if (RewindContext.IsRewinding)
                 {
                     HandleRewindOnLoad(node, recordings);
                     return;
@@ -823,7 +823,7 @@ namespace Parsek
             // StripOrphanedSpawnedVessels filters by name — unrecorded PRELAUNCH vessels
             // (e.g. a pad vessel from a later launch) fail the name check and survive.
             // Use the quicksave PID whitelist to identify and remove them.
-            var quicksavePids = RecordingStore.RewindQuicksaveVesselPids;
+            var quicksavePids = RewindContext.RewindQuicksaveVesselPids;
             if (quicksavePids != null)
             {
                 var fs = HighLogic.CurrentGame?.flightState;
@@ -834,7 +834,7 @@ namespace Parsek
                         ParsekLog.Info("Rewind",
                             $"Stripped {prelaunchStripped} future vessel(s) not in quicksave whitelist");
                 }
-                RecordingStore.RewindQuicksaveVesselPids = null;
+                RewindContext.SetQuicksaveVesselPids(null);
             }
 
             // Defense-in-depth: reconcile spawn state after all strips (#168).
@@ -868,15 +868,10 @@ namespace Parsek
             KerbalsModule.RecalculateAndApply();
 
             // Clear rewind flags — rewind loads into SpaceCenter, not Flight
-            RecordingStore.IsRewinding = false;
             ParsekLog.Info("Rewind",
-                $"OnLoad: rewind complete at UT {RecordingStore.RewindUT}. " +
+                $"OnLoad: rewind complete at UT {RewindContext.RewindUT}. " +
                 $"Timeline: {recordings.Count} recordings");
-            RecordingStore.RewindUT = 0;
-            RecordingStore.RewindAdjustedUT = 0;
-            RecordingStore.RewindBaselineFunds = 0;
-            RecordingStore.RewindBaselineScience = 0;
-            RecordingStore.RewindBaselineRep = 0;
+            RewindContext.EndRewind();
         }
 
         /// <summary>
@@ -899,18 +894,11 @@ namespace Parsek
                     "OnLoad initial: discarding pending tree from previous save");
                 RecordingStore.DiscardPendingTree();
             }
-            if (RecordingStore.IsRewinding)
+            if (RewindContext.IsRewinding)
             {
                 ParsekLog.Warn("Scenario",
                     "OnLoad initial: clearing stale rewind flags from previous save");
-                RecordingStore.IsRewinding = false;
-                RecordingStore.RewindUT = 0;
-                RecordingStore.RewindAdjustedUT = 0;
-                RecordingStore.RewindReserved = default(BudgetSummary);
-                RecordingStore.RewindBaselineFunds = 0;
-                RecordingStore.RewindBaselineScience = 0;
-                RecordingStore.RewindBaselineRep = 0;
-                RecordingStore.RewindQuicksaveVesselPids = null;
+                RewindContext.EndRewind();
             }
         }
 
@@ -1083,12 +1071,12 @@ namespace Parsek
         {
             // Capture rewind state before yielding — flags are cleared synchronously
             // in OnLoad after StartCoroutine returns.
-            var saved = RecordingStore.RewindReserved;
-            double rewindUT = RecordingStore.RewindUT;
-            double adjustedUT = RecordingStore.RewindAdjustedUT;
-            double baselineFunds = RecordingStore.RewindBaselineFunds;
-            double baselineScience = RecordingStore.RewindBaselineScience;
-            float baselineRep = RecordingStore.RewindBaselineRep;
+            var saved = RewindContext.RewindReserved;
+            double rewindUT = RewindContext.RewindUT;
+            double adjustedUT = RewindContext.RewindAdjustedUT;
+            double baselineFunds = RewindContext.RewindBaselineFunds;
+            double baselineScience = RewindContext.RewindBaselineScience;
+            float baselineRep = RewindContext.RewindBaselineRep;
 
             // CRITICAL: yield at least one frame before touching any singleton.
             // During OnLoad, singletons from the OLD scene may still be alive.
@@ -1967,7 +1955,7 @@ namespace Parsek
 
             // During rewind, vessels are stripped from the save which fires onVesselRecovered.
             // Ignore these — the recordings must keep their snapshots for ghost playback and spawning.
-            if (RecordingStore.IsRewinding)
+            if (RewindContext.IsRewinding)
             {
                 ParsekLog.Info("Scenario",
                     $"Ignoring recovery of '{pv.vesselName}' during rewind");
@@ -1987,7 +1975,7 @@ namespace Parsek
         {
             if (pv == null) return;
             if (GhostMapPresence.IsGhostMapVessel(pv.persistentId)) return;
-            if (RecordingStore.IsRewinding) return;
+            if (RewindContext.IsRewinding) return;
             string vesselName = pv.vesselName;
             if (string.IsNullOrEmpty(vesselName)) return;
 

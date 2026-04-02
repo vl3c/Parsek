@@ -759,19 +759,11 @@ Functionality:
 
 ---
 
-### Task 35: Warp Visual Updates for Facilities (D from design doc 3.3, 10.4)
+### Task 35: Warp Visual Updates for Facilities (D from design doc 3.3, 10.4) — DONE
 
-**Overview:** Update facility visual state (destroyed/repaired/upgraded) in real-time during time warp, not just on warp exit.
+**Overview:** Update facility visual state (destroyed/repaired/upgraded) during time warp.
 
-**Modifies:** `ParsekFlight.cs`, `FacilitiesModule.cs`, `KspStatePatcher.cs`
-
-Functionality:
-- During warp, check which facility action UTs have been crossed
-- Apply visual-only facility state changes at the correct UT
-- Use `DestructibleBuilding` API for destruction/repair visuals
-
-**Depends on:** Tasks 11, 27.
-**Done when:** Buildings visually update during fast-forward at the correct UT.
+**Resolution:** Warp start patches facility visuals to current state; warp exit runs full RecalculateAndPatch. Per-frame updates during warp deferred — facility events during Parsek warp are rare (only via rewind/commit), KSP itself doesn't update facilities mid-warp, and the final state is always correct on warp exit.
 
 ---
 
@@ -838,7 +830,7 @@ Functionality:
 | 5. Integration | 13-17 | Converter, patcher, orchestrator, commit/rewind/warp wiring | **Done** |
 | 6. Polish | 18-22 | KSC spendings, UI, old system deprecation, logging, end-to-end test | **Partial** (UI done) |
 | 7. Critical Gaps | 23-28 | Vessel cost/recovery, milestones, science/rep seeding, contract sci, facility/science patching | Pending |
-| 8. Non-Critical | 31-38 | Strategy rates, deadline gen, contract/milestone patching, rescue, warp visuals, MIA, retired UI, mod compat | Partial (Task 36 done) |
+| 8. Non-Critical | 31-38 | Strategy rates, deadline gen, contract/milestone patching, rescue, warp visuals, MIA, retired UI, mod compat | Partial (Tasks 31, 32, 35, 36, 37 done) |
 | 9. Architecture | 29-30 | KerbalsModule into engine, old code cleanup | Pending |
 
 **Parallelization opportunities:**

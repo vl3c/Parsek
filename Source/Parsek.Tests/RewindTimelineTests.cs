@@ -454,7 +454,7 @@ namespace Parsek.Tests
         [Fact]
         public void CanRewind_AlreadyRewinding_ReturnsFalse()
         {
-            RecordingStore.IsRewinding = true;
+            RewindContext.BeginRewind(0, default(BudgetSummary), 0, 0, 0);
             var rec = new Recording { RewindSaveFileName = "parsek_rw_test" };
 
             string reason;
@@ -526,7 +526,7 @@ namespace Parsek.Tests
         public void CanRewind_PriorityOrder_AlreadyRewindingFirst()
         {
             // Even with pending recording and isRecording, "already rewinding" should win
-            RecordingStore.IsRewinding = true;
+            RewindContext.BeginRewind(0, default(BudgetSummary), 0, 0, 0);
             var points = new List<TrajectoryPoint>
             {
                 new TrajectoryPoint { ut = 100 },

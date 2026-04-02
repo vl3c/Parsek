@@ -21,18 +21,16 @@ namespace Parsek
         // When true, suppresses logging calls (for unit testing outside Unity)
         internal static bool SuppressLogging;
 
-        // Rewind flags (survive scene change via static fields)
-        internal static bool IsRewinding;
-        internal static double RewindUT;
-        internal static double RewindAdjustedUT;
-        internal static BudgetSummary RewindReserved;
-
-        // Baseline resource values from the rewind-target recording's PreLaunch snapshot.
-        // Used by the deferred coroutine to compute absolute-target resource corrections
-        // (idempotent regardless of what Funding.OnLoad restores from the save).
-        internal static double RewindBaselineFunds;
-        internal static double RewindBaselineScience;
-        internal static float RewindBaselineRep;
+        // Rewind state is now encapsulated in RewindContext.
+        // These delegate properties preserve API compatibility for callers
+        // that read IsRewinding/RewindUT/etc. through RecordingStore.
+        internal static bool IsRewinding => RewindContext.IsRewinding;
+        internal static double RewindUT => RewindContext.RewindUT;
+        internal static double RewindAdjustedUT => RewindContext.RewindAdjustedUT;
+        internal static BudgetSummary RewindReserved => RewindContext.RewindReserved;
+        internal static double RewindBaselineFunds => RewindContext.RewindBaselineFunds;
+        internal static double RewindBaselineScience => RewindContext.RewindBaselineScience;
+        internal static float RewindBaselineRep => RewindContext.RewindBaselineRep;
 
         private const string LegacyPrefix = "[Parsek] ";
 
@@ -1231,17 +1229,10 @@ namespace Parsek
             committedRecordings.Clear();
             committedTrees.Clear();
             pendingTree = null;
-            IsRewinding = false;
-            RewindUT = 0;
-            RewindAdjustedUT = 0;
-            RewindReserved = default(BudgetSummary);
-            RewindBaselineFunds = 0;
-            RewindBaselineScience = 0;
-            RewindBaselineRep = 0;
+            RewindContext.ResetForTesting();
             GameStateRecorder.PendingScienceSubjects.Clear();
             PendingCleanupPids = null;
             PendingCleanupNames = null;
-            RewindQuicksaveVesselPids = null;
             PendingStashedThisTransition = false;
         }
 
@@ -1543,10 +1534,8 @@ namespace Parsek
         // Destination scene from last OnSceneChangeRequested — consumed in OnLoad (#88)
         internal static GameScenes? PendingDestinationScene { get; set; }
 
-        // PIDs of vessels that existed in the rewind quicksave.
-        // Used by StripFuturePrelaunchVessels to whitelist known-good PRELAUNCH vessels
-        // (e.g. the player's pad vessel) and strip only unknown ones from the future.
-        internal static HashSet<uint> RewindQuicksaveVesselPids { get; set; }
+        // Delegate property for RewindQuicksaveVesselPids — state now lives in RewindContext.
+        internal static HashSet<uint> RewindQuicksaveVesselPids => RewindContext.RewindQuicksaveVesselPids;
 
         /// <summary>
         /// Collects vessel names from ALL committed recordings (regardless of spawn state).
@@ -1746,14 +1735,7 @@ namespace Parsek
 
         private static void ResetRewindFlags()
         {
-            IsRewinding = false;
-            RewindUT = 0;
-            RewindAdjustedUT = 0;
-            RewindReserved = default(BudgetSummary);
-            RewindBaselineFunds = 0;
-            RewindBaselineScience = 0;
-            RewindBaselineRep = 0;
-            RewindQuicksaveVesselPids = null;
+            RewindContext.EndRewind();
         }
 
         /// <summary>
@@ -1763,9 +1745,7 @@ namespace Parsek
         /// </summary>
         internal static void InitiateRewind(Recording rec)
         {
-            IsRewinding = true;
-            RewindUT = rec.StartUT;
-            RewindReserved = new BudgetSummary
+            var reserved = new BudgetSummary
             {
                 reservedFunds = rec.RewindReservedFunds,
                 reservedScience = rec.RewindReservedScience,
@@ -1774,18 +1754,13 @@ namespace Parsek
 
             // Baseline resources from the recording's pre-launch snapshot.
             // The rewind save was captured at the same moment as PreLaunch values.
-            RewindBaselineFunds = rec.PreLaunchFunds;
-            RewindBaselineScience = rec.PreLaunchScience;
-            RewindBaselineRep = rec.PreLaunchReputation;
+            RewindContext.BeginRewind(rec.StartUT, reserved,
+                rec.PreLaunchFunds, rec.PreLaunchScience, rec.PreLaunchReputation);
 
             if (!SuppressLogging)
                 ParsekLog.Info("Rewind",
                     $"Rewind initiated to UT {rec.StartUT} " +
-                    $"(save: {rec.RewindSaveFileName}, " +
-                    $"baseline: funds={rec.PreLaunchFunds:F1}, sci={rec.PreLaunchScience:F1}, rep={rec.PreLaunchReputation:F1}, " +
-                    $"reservedFunds: {rec.RewindReservedFunds:F1}, " +
-                    $"reservedScience: {rec.RewindReservedScience:F1}, " +
-                    $"reservedRep: {rec.RewindReservedRep:F1})");
+                    $"(save: {rec.RewindSaveFileName})");
 
             string tempCopyName = null;
             try
@@ -1849,7 +1824,7 @@ namespace Parsek
                 }
 
                 // Capture the adjusted UT from the preprocessed save.
-                RewindAdjustedUT = game.flightState.universalTime;
+                RewindContext.SetAdjustedUT(game.flightState.universalTime);
 
                 if (!SuppressLogging)
                     ParsekLog.Info("Rewind",
@@ -1995,7 +1970,7 @@ namespace Parsek
                 if (uint.TryParse(survivingNodes[s].GetValue("persistentId"), out spid))
                     survivingPids.Add(spid);
             }
-            RewindQuicksaveVesselPids = survivingPids.Count > 0 ? survivingPids : null;
+            RewindContext.SetQuicksaveVesselPids(survivingPids.Count > 0 ? survivingPids : null);
             if (!SuppressLogging)
                 ParsekLog.Info("Rewind",
                     $"Captured {survivingPids.Count} surviving vessel PID(s) from quicksave");

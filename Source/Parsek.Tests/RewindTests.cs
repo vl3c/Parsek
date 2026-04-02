@@ -125,18 +125,16 @@ namespace Parsek.Tests
         [Fact]
         public void ResetForTesting_ClearsRewindFlags()
         {
-            RecordingStore.IsRewinding = true;
-            RecordingStore.RewindUT = 12345.0;
-            RecordingStore.RewindReserved = new BudgetSummary
+            RewindContext.BeginRewind(12345.0, new BudgetSummary
             {
                 reservedFunds = 100, reservedScience = 10, reservedReputation = 5
-            };
+            }, 0, 0, 0);
 
             RecordingStore.ResetForTesting();
 
-            Assert.False(RecordingStore.IsRewinding);
-            Assert.Equal(0.0, RecordingStore.RewindUT);
-            Assert.Equal(0.0, RecordingStore.RewindReserved.reservedFunds);
+            Assert.False(RewindContext.IsRewinding);
+            Assert.Equal(0.0, RewindContext.RewindUT);
+            Assert.Equal(0.0, RewindContext.RewindReserved.reservedFunds);
         }
 
         [Fact]
