@@ -4,8 +4,8 @@
 
 *Parsek is a KSP1 mod for time-rewind mission recording. Players fly missions, commit recordings to a timeline, rewind to earlier points, and see previously recorded missions play back as ghost vessels alongside new ones. This document specifies how the game's resource state (everything except vessel trajectories) is tracked, reconciled, and kept consistent across rewinds.*
 
-**Version:** 0.4 (post-implementation update — reflects Phases 1-5 actual code)
-**Status:** Core modules implemented and tested (4458 tests). Integration wired. Earning-side capture, per-subject science patching, vessel cost/recovery capture, and initial balance seeding (funds, science, reputation) are implemented. Contract deadline penalty generation, milestone/contract KSP state patching, and warp visual updates remain as future work.
+**Version:** 0.5 (Phases 1-8 complete)
+**Status:** All phases implemented and tested (4535+ tests). Full ledger-based recalculation engine with 7 resource modules (Science, Funds, Reputation, Milestones, Contracts, Facilities, Strategies). KSP state patching for all resource types including contract restoration from ConfigNode snapshots and milestone reversal via reflection. Kerbal lifecycle management with reservation chains, stand-in generation, and retirement. Contract deadline failure generation, rescue detection, warp facility patching, and MIA respawn override all complete. Remaining: mod compatibility testing (T43), KerbalsModule IResourceModule conversion (T42).
 **Out of scope:** Vessel recording system, DAG structure, ghost rendering, distance zones. See `parsek-recording-system-design.md` for those.
 
 ---
