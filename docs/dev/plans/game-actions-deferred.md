@@ -191,7 +191,7 @@ Items identified during design that are out of scope for the initial implementat
 **What:** `KspStatePatcher.PatchFacilities` only patches levels, not destroyed/repaired state.
 **Why deferred:** Requires `DestructibleBuilding` API investigation for programmatic destruction/repair.
 **Revisit when:** Implementing warp visual updates.
-**Status:** Open
+**Status:** Done — `PatchDestructionState` added to KspStatePatcher. Collects DestructibleBuilding objects once, matches by facility ID, calls Demolish()/Repair() as needed.
 
 ---
 
