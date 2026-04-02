@@ -3839,15 +3839,10 @@ namespace Parsek
         private void ClearSceneChangeTransientState()
         {
             // Clear dock/undock pending state
-            pendingDockMergedPid = 0;
-            pendingDockAsTarget = false;
-            dockConfirmFrames = 0;
-            pendingUndockOtherPid = 0;
-            undockConfirmFrames = 0;
+            ClearDockUndockState();
 
             // Clear merge event detection state
             pendingTreeDockMerge = false;
-            pendingDockAbsorbedPid = 0;
             pendingBoardingTargetInTree = false;
             dockingInProgress.Clear();
             treeDestructionDialogPending = false;
@@ -3909,15 +3904,10 @@ namespace Parsek
             pendingBoardingTargetPid = 0;
 
             // Clear dock/undock state
-            pendingDockMergedPid = 0;
-            pendingDockAsTarget = false;
-            dockConfirmFrames = 0;
-            pendingUndockOtherPid = 0;
-            undockConfirmFrames = 0;
+            ClearDockUndockState();
 
             // Clear merge event detection state
             pendingTreeDockMerge = false;
-            pendingDockAbsorbedPid = 0;
             pendingBoardingTargetInTree = false;
             dockingInProgress.Clear();
             treeDestructionDialogPending = false;
@@ -4088,6 +4078,39 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Zeros all dock/undock pending-transition fields.
+        /// Called from scene change, flight ready, and after dock/undock commit/restart.
+        /// </summary>
+        private void ClearDockUndockState()
+        {
+            pendingDockMergedPid = 0;
+            pendingDockAsTarget = false;
+            dockConfirmFrames = 0;
+            pendingUndockOtherPid = 0;
+            undockConfirmFrames = 0;
+            pendingDockAbsorbedPid = 0;
+        }
+
+        /// <summary>
+        /// Restarts recording after a dock/undock chain boundary: nulls the old recorder,
+        /// starts a new recording, sets UndockSiblingPid, and logs/screen-messages the result.
+        /// Optional <paramref name="onRecordingStarted"/> callback runs inside the IsRecording
+        /// guard before the sibling PID assignment (used by undock paths to start continuation).
+        /// </summary>
+        private void RestartRecordingAfterDockUndock(string logReason, string screenReason, Action onRecordingStarted = null)
+        {
+            recorder = null;
+            StartRecording();
+            if (IsRecording)
+            {
+                onRecordingStarted?.Invoke();
+                recorder.UndockSiblingPid = chainManager.UndockContinuationPid;
+                Log($"Recording continues after {logReason} (chain={chainManager.ActiveChainId}, idx={chainManager.ActiveChainNextIndex})");
+                ScreenMessage($"Recording continues ({screenReason})", 2f);
+            }
+        }
+
+        /// <summary>
         /// Handles tree dock merge: creates merge branch point when recorder is stopped
         /// and dock merge is pending. Consumes pending dock state.
         /// </summary>
@@ -4147,23 +4170,9 @@ namespace Parsek
                 !recorder.IsRecording && recorder.CaptureAtStop != null)
             {
                 if (!chainManager.CommitDockUndockSegment(recorder, PartEventType.Docked, pendingDockMergedPid))
-                {
-                    pendingDockMergedPid = 0;
-                    pendingDockAsTarget = false;
-                    pendingUndockOtherPid = 0;
-                }
-                recorder = null;
-                StartRecording();
-                if (IsRecording)
-                {
-                    // Pass undock continuation pid so OnPhysicsFrame can detect sibling switch
-                    recorder.UndockSiblingPid = chainManager.UndockContinuationPid;
-                    Log($"Recording continues after dock (chain={chainManager.ActiveChainId}, idx={chainManager.ActiveChainNextIndex})");
-                    ScreenMessage("Recording continues (docked)", 2f);
-                }
-                pendingDockMergedPid = 0;
-                pendingDockAsTarget = false;
-                dockConfirmFrames = 0;
+                    ClearDockUndockState();
+                RestartRecordingAfterDockUndock("dock", "docked");
+                ClearDockUndockState();
             }
 
             // Dock: target (pid unchanged, recorder already stopped by OnPartCouple)
@@ -4171,22 +4180,9 @@ namespace Parsek
                 !recorder.IsRecording && recorder.CaptureAtStop != null)
             {
                 if (!chainManager.CommitDockUndockSegment(recorder, PartEventType.Docked, pendingDockMergedPid))
-                {
-                    pendingDockMergedPid = 0;
-                    pendingDockAsTarget = false;
-                    pendingUndockOtherPid = 0;
-                }
-                recorder = null;
-                StartRecording();
-                if (IsRecording)
-                {
-                    recorder.UndockSiblingPid = chainManager.UndockContinuationPid;
-                    Log($"Recording continues after dock as target (chain={chainManager.ActiveChainId}, idx={chainManager.ActiveChainNextIndex})");
-                    ScreenMessage("Recording continues (docked)", 2f);
-                }
-                pendingDockAsTarget = false;
-                pendingDockMergedPid = 0;
-                dockConfirmFrames = 0;
+                    ClearDockUndockState();
+                RestartRecordingAfterDockUndock("dock as target", "docked");
+                ClearDockUndockState();
             }
 
             // Undock: player stays on remaining vessel (same pid, recorder stopped by StopRecordingForChainBoundary)
@@ -4195,22 +4191,11 @@ namespace Parsek
                 !recorder.UndockSwitchPending)
             {
                 if (!chainManager.CommitDockUndockSegment(recorder, PartEventType.Undocked, 0))
-                {
-                    pendingDockMergedPid = 0;
-                    pendingDockAsTarget = false;
-                    pendingUndockOtherPid = 0;
-                }
-                recorder = null;
-                StartRecording();
-                if (IsRecording)
-                {
-                    chainManager.StartUndockContinuation(pendingUndockOtherPid);
-                    recorder.UndockSiblingPid = chainManager.UndockContinuationPid;
-                    Log($"Recording continues after undock (chain={chainManager.ActiveChainId}, idx={chainManager.ActiveChainNextIndex})");
-                    ScreenMessage("Recording continues (undocked)", 2f);
-                }
-                pendingUndockOtherPid = 0;
-                undockConfirmFrames = 0;
+                    ClearDockUndockState();
+                uint undockPid = pendingUndockOtherPid;
+                RestartRecordingAfterDockUndock("undock", "undocked",
+                    () => chainManager.StartUndockContinuation(undockPid));
+                ClearDockUndockState();
             }
 
             // Undock: player switched to undocked vessel (pid changed, recorder stopped by OnPhysicsFrame)
@@ -4219,28 +4204,16 @@ namespace Parsek
             {
                 uint oldPid = recorder.RecordingVesselId;
                 if (!chainManager.CommitDockUndockSegment(recorder, PartEventType.Undocked, 0))
-                {
-                    pendingDockMergedPid = 0;
-                    pendingDockAsTarget = false;
-                    pendingUndockOtherPid = 0;
-                }
+                    ClearDockUndockState();
                 recorder = null;
 
                 // Stop existing undock continuation (we're switching roles)
                 if (chainManager.UndockContinuationPid != 0)
                     chainManager.StopUndockContinuation("sibling switch");
 
-                StartRecording();
-                if (IsRecording)
-                {
-                    // The "old" vessel (remaining) becomes continuation
-                    chainManager.StartUndockContinuation(oldPid);
-                    recorder.UndockSiblingPid = chainManager.UndockContinuationPid;
-                    Log($"Recording continues after undock switch (chain={chainManager.ActiveChainId}, idx={chainManager.ActiveChainNextIndex})");
-                    ScreenMessage("Recording continues (undocked)", 2f);
-                }
-                pendingUndockOtherPid = 0;
-                undockConfirmFrames = 0;
+                RestartRecordingAfterDockUndock("undock switch", "undocked",
+                    () => chainManager.StartUndockContinuation(oldPid));
+                ClearDockUndockState();
             }
         }
 
