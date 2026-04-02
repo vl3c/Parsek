@@ -1073,29 +1073,6 @@ namespace Parsek
             }
             budgetDeductionEpoch = MilestoneStore.CurrentEpoch;
 
-            // DISABLED: replaced by LedgerOrchestrator
-            // var budget = ResourceBudget.ComputeTotal(
-            //     RecordingStore.CommittedRecordings,
-            //     MilestoneStore.Milestones,
-            //     RecordingStore.CommittedTrees);
-            //
-            // if (budget.reservedFunds <= 0 && budget.reservedScience <= 0
-            //     && budget.reservedReputation <= 0)
-            // {
-            //     ParsekLog.Verbose("Scenario", "No committed budget to deduct on revert — all zero");
-            //     resourceTickingSuspended = false;
-            //     yield break;
-            // }
-            //
-            // ParsekLog.Info("Scenario",
-            //     $"Budget deduction starting for epoch {MilestoneStore.CurrentEpoch}: " +
-            //     $"funds={budget.reservedFunds:F0}, science={budget.reservedScience:F1}, rep={budget.reservedReputation:F1}");
-            //
-            // ResourceApplicator.DeductBudget(budget, RecordingStore.CommittedRecordings, RecordingStore.CommittedTrees);
-            //
-            // // Replay committed actions (tech, parts, facilities, crew) before resuming ticking
-            // ActionReplay.ReplayCommittedActions(MilestoneStore.Milestones);
-
             LedgerOrchestrator.RecalculateAndPatch();
             resourceTickingSuspended = false;
         }
@@ -1145,14 +1122,6 @@ namespace Parsek
                        || Reputation.Instance == null))
                 yield return null;
 
-            // DISABLED: replaced by LedgerOrchestrator
-            // ResourceApplicator.CorrectToBaseline(baselineFunds, baselineScience, baselineRep);
-            //
-            // // Replay committed actions (tech, parts, facilities, crew).
-            // // Always runs regardless of game mode — tech unlocks and facility upgrades
-            // // exist in science mode too. Pass rewindUT to skip events after the rewind point.
-            // ActionReplay.ReplayCommittedActions(MilestoneStore.Milestones, rewindUT);
-
             LedgerOrchestrator.RecalculateAndPatch();
 
             // Belt-and-suspenders epoch guard
@@ -1170,24 +1139,7 @@ namespace Parsek
         /// </summary>
         private void Update()
         {
-            if (HighLogic.LoadedScene == GameScenes.FLIGHT)
-                return;
-
-            if (resourceTickingSuspended)
-            {
-                ParsekLog.VerboseRateLimited("Scenario", "UpdateSuspended",
-                    "Update: resource ticking suspended (waiting for coroutine)");
-                return;
-            }
-
-            if (Funding.Instance == null && ResearchAndDevelopment.Instance == null
-                && Reputation.Instance == null)
-                return;
-
-            // DISABLED: replaced by LedgerOrchestrator
-            // double currentUT = Planetarium.GetUniversalTime();
-            // ResourceApplicator.TickStandalone(RecordingStore.CommittedRecordings, currentUT);
-            // ResourceApplicator.TickTrees(RecordingStore.CommittedTrees, currentUT);
+            // Resource ticking now handled by LedgerOrchestrator.RecalculateAndPatch()
         }
 
 

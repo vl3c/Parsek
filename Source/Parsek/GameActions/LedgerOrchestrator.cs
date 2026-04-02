@@ -135,8 +135,51 @@ namespace Parsek
         internal static void OnKspLoad(HashSet<string> validRecordingIds, double maxUT)
         {
             Initialize();
+
+            // Migration: if ledger is empty but committed recordings exist,
+            // this is an old save being loaded for the first time with the ledger system.
+            // Convert existing GameStateStore events from committed recordings into GameActions.
+            if (Ledger.Actions.Count == 0 && validRecordingIds != null && validRecordingIds.Count > 0)
+            {
+                MigrateOldSaveEvents(validRecordingIds);
+            }
+
             Ledger.Reconcile(validRecordingIds, maxUT);
             RecalculateAndPatch();
+        }
+
+        /// <summary>
+        /// Migration for old saves: converts existing GameStateStore events from committed
+        /// recordings into GameActions and adds them to the ledger. Called once when an old
+        /// save loads with committed recordings but no ledger file.
+        /// </summary>
+        private static void MigrateOldSaveEvents(HashSet<string> validRecordingIds)
+        {
+            var events = GameStateStore.Events;
+            if (events == null || events.Count == 0)
+            {
+                ParsekLog.Info(Tag, "MigrateOldSaveEvents: no events to migrate");
+                return;
+            }
+
+            // Convert events using the same converter path as normal commits.
+            // Use null recordingId since we can't reliably map old events to specific recordings.
+            double minUT = 0;
+            double maxUT = double.MaxValue;
+            var actions = GameStateEventConverter.ConvertEvents(events, null, minUT, maxUT);
+
+            if (actions.Count > 0)
+            {
+                Ledger.AddActions(actions);
+                ParsekLog.Info(Tag,
+                    $"MigrateOldSaveEvents: migrated {actions.Count} actions from {events.Count} events " +
+                    $"(committed recordings: {validRecordingIds.Count})");
+            }
+            else
+            {
+                ParsekLog.Info(Tag,
+                    $"MigrateOldSaveEvents: {events.Count} events produced 0 convertible actions");
+            }
         }
 
         /// <summary>

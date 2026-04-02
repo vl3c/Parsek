@@ -166,7 +166,7 @@ namespace Parsek
         /// Patches KSP's facility levels to match the module's derived state.
         /// Reads from ScenarioUpgradeableFacilities.protoUpgradeables and sets
         /// levels via UpgradeableFacility.SetLevel, following the same pattern
-        /// as ActionReplay.ReplayFacilityUpgrade.
+        /// as the old ActionReplay.ReplayFacilityUpgrade (now removed).
         /// No-op if protoUpgradeables is null.
         /// </summary>
         internal static void PatchFacilities(FacilitiesModule facilities)
