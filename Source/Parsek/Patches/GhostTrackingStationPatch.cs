@@ -23,25 +23,44 @@ namespace Parsek.Patches
     [HarmonyPatch(typeof(SpaceTracking), "buildVesselsList")]
     internal static class GhostTrackingBuildVesselsListPatch
     {
-        static bool Prefix(SpaceTracking __instance)
+        private static System.Collections.Generic.List<Vessel> hiddenGhosts;
+
+        /// <summary>
+        /// Temporarily remove ghost vessels from FlightGlobals.Vessels before
+        /// buildVesselsList runs. Ghost ProtoVessels lack internal state fields
+        /// that buildVesselsList assumes exist, causing NRE that corrupts the
+        /// tracking station UI (including the exit button).
+        /// </summary>
+        static void Prefix()
         {
-            try
+            hiddenGhosts = new System.Collections.Generic.List<Vessel>();
+            for (int i = FlightGlobals.Vessels.Count - 1; i >= 0; i--)
             {
-                return true; // run original
+                var v = FlightGlobals.Vessels[i];
+                if (v != null && GhostMapPresence.IsGhostMapVessel(v.persistentId))
+                {
+                    hiddenGhosts.Add(v);
+                    FlightGlobals.Vessels.RemoveAt(i);
+                }
             }
-            catch (Exception)
-            {
-                return true; // should not happen in prefix, but safety
-            }
+            if (hiddenGhosts.Count > 0)
+                ParsekLog.Verbose("GhostMap",
+                    $"buildVesselsList: temporarily hid {hiddenGhosts.Count} ghost vessel(s)");
         }
 
-        static void Finalizer(Exception __exception)
+        /// <summary>
+        /// Re-add ghost vessels after buildVesselsList completes (whether it succeeded or threw).
+        /// </summary>
+        static void Finalizer()
         {
-            if (__exception != null)
+            if (hiddenGhosts != null && hiddenGhosts.Count > 0)
             {
-                ParsekLog.VerboseRateLimited("GhostMap", "buildVesselsListNRE",
-                    $"Suppressed SpaceTracking.buildVesselsList exception: {__exception.GetType().Name}");
+                for (int i = 0; i < hiddenGhosts.Count; i++)
+                    FlightGlobals.Vessels.Add(hiddenGhosts[i]);
+                ParsekLog.Verbose("GhostMap",
+                    $"buildVesselsList: restored {hiddenGhosts.Count} ghost vessel(s)");
             }
+            hiddenGhosts = null;
         }
     }
 
