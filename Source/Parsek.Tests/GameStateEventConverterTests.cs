@@ -652,5 +652,37 @@ namespace Parsek.Tests
             Assert.Equal(GameActionType.MilestoneAchievement, actions[0].Type);
             Assert.Equal(GameActionType.ScienceSpending, actions[1].Type);
         }
+
+        // ================================================================
+        // KerbalRescued -> KerbalRescue
+        // ================================================================
+
+        [Fact]
+        public void ConvertKerbalRescued_ExtractsNameAndTrait()
+        {
+            var evt = MakeEvent(GameStateEventType.KerbalRescued, 12000.0,
+                key: "Valentina Kerman", detail: "trait=Pilot");
+            var action = GameStateEventConverter.ConvertEvent(evt, "rec13");
+
+            Assert.NotNull(action);
+            Assert.Equal(GameActionType.KerbalRescue, action.Type);
+            Assert.Equal("Valentina Kerman", action.KerbalName);
+            Assert.Equal("Pilot", action.KerbalRole);
+            Assert.Equal(12000.0, action.UT);
+            Assert.Equal("rec13", action.RecordingId);
+        }
+
+        [Fact]
+        public void ConvertKerbalRescued_MissingTrait_DefaultsEmpty()
+        {
+            var evt = MakeEvent(GameStateEventType.KerbalRescued, 13000.0,
+                key: "Bob Kerman", detail: "");
+            var action = GameStateEventConverter.ConvertEvent(evt, "rec14");
+
+            Assert.NotNull(action);
+            Assert.Equal(GameActionType.KerbalRescue, action.Type);
+            Assert.Equal("Bob Kerman", action.KerbalName);
+            Assert.Null(action.KerbalRole);
+        }
     }
 }

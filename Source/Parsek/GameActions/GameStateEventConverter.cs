@@ -115,6 +115,9 @@ namespace Parsek
                 case GameStateEventType.MilestoneAchieved:
                     return ConvertMilestoneAchieved(evt, recordingId);
 
+                case GameStateEventType.KerbalRescued:
+                    return ConvertKerbalRescued(evt, recordingId);
+
                 // Skipped event types — no GameAction equivalent
                 case GameStateEventType.FundsChanged:
                 case GameStateEventType.ScienceChanged:
@@ -478,16 +481,20 @@ namespace Parsek
             };
         }
 
-        // ================================================================
-        // Deferred: Kerbal Rescue action generation (D6)
-        // ================================================================
-        // KerbalRescue actions would be generated here when a recording detects
-        // docking with or EVA pickup of a stranded kerbal. This requires:
-        //   1. Recording system integration to detect docking events with stranded vessels
-        //   2. Cross-referencing the docked vessel's crew against known stranded kerbals
-        //   3. A new GameActionType.KerbalRescue and corresponding event type
-        // Scaffolded — requires recording system integration to detect docking
-        // with stranded kerbals. See deferred item D6.
+        /// <summary>KerbalRescued -> KerbalRescue (name=key, trait from detail).</summary>
+        private static GameAction ConvertKerbalRescued(GameStateEvent evt, string recordingId)
+        {
+            string trait = ExtractDetail(evt.detail, "trait");
+
+            return new GameAction
+            {
+                UT = evt.ut,
+                Type = GameActionType.KerbalRescue,
+                RecordingId = recordingId,
+                KerbalName = evt.key,
+                KerbalRole = trait
+            };
+        }
 
         // ================================================================
         // Detail extraction helper

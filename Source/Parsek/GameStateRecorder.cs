@@ -87,6 +87,7 @@ namespace Parsek
             GameEvents.onKerbalAdded.Add(OnKerbalAdded);
             GameEvents.onKerbalRemoved.Add(OnKerbalRemoved);
             GameEvents.onKerbalStatusChange.Add(OnKerbalStatusChange);
+            GameEvents.onKerbalTypeChange.Add(OnKerbalTypeChange);
 
             // Resources
             GameEvents.OnFundsChanged.Add(OnFundsChanged);
@@ -129,6 +130,7 @@ namespace Parsek
             GameEvents.onKerbalAdded.Remove(OnKerbalAdded);
             GameEvents.onKerbalRemoved.Remove(OnKerbalRemoved);
             GameEvents.onKerbalStatusChange.Remove(OnKerbalStatusChange);
+            GameEvents.onKerbalTypeChange.Remove(OnKerbalTypeChange);
 
             // Resources
             GameEvents.OnFundsChanged.Remove(OnFundsChanged);
@@ -465,6 +467,28 @@ namespace Parsek
             GameStateStore.AddEvent(evt);
             pendingCrewEvents[name] = new PendingCrewEvent { gameEvent = evt, from = oldStatus, to = newStatus };
             ParsekLog.Info("GameStateRecorder", $"Game state: CrewStatusChanged '{name}' {oldStatus} → {newStatus}");
+        }
+
+        private void OnKerbalTypeChange(ProtoCrewMember pcm, ProtoCrewMember.KerbalType fromType, ProtoCrewMember.KerbalType toType)
+        {
+            if (SuppressCrewEvents) return;
+
+            // Only care about Unowned -> Crew transitions (rescue pickup)
+            if (fromType != ProtoCrewMember.KerbalType.Unowned || toType != ProtoCrewMember.KerbalType.Crew)
+                return;
+
+            string name = pcm?.name ?? "";
+            string trait = pcm?.experienceTrait?.TypeName ?? "Pilot";
+
+            GameStateStore.AddEvent(new GameStateEvent
+            {
+                ut = Planetarium.GetUniversalTime(),
+                eventType = GameStateEventType.KerbalRescued,
+                key = name,
+                detail = $"trait={trait}"
+            });
+
+            ParsekLog.Info("GameStateRecorder", $"Game state: KerbalRescued '{name}' (trait={trait})");
         }
 
         #endregion

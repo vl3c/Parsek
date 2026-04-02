@@ -406,7 +406,7 @@ namespace Parsek
             KerbalsModule.RecalculateAndApply();
 
             KspStatePatcher.PatchAll(scienceModule, fundsModule, reputationModule,
-                milestonesModule, facilitiesModule);
+                milestonesModule, facilitiesModule, contractsModule);
 
             ParsekLog.Info(Tag,
                 $"RecalculateAndPatch complete: {actions.Count} actions walked");

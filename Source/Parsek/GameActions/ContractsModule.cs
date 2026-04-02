@@ -305,6 +305,15 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Returns the set of contract IDs currently active (accepted but not yet
+        /// resolved). Used by KspStatePatcher to determine which contracts to restore.
+        /// </summary>
+        internal IReadOnlyCollection<string> GetActiveContractIds()
+        {
+            return activeContracts.Keys;
+        }
+
+        /// <summary>
         /// Sets the max slot count. Used for testing and facility-level changes.
         /// </summary>
         internal void SetMaxSlots(int max)

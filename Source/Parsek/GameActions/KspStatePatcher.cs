@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Globalization;
 using Contracts;
 
@@ -23,7 +24,8 @@ namespace Parsek
         /// Wraps the entire operation in suppression flags.
         /// </summary>
         internal static void PatchAll(ScienceModule science, FundsModule funds,
-            ReputationModule reputation, MilestonesModule milestones, FacilitiesModule facilities)
+            ReputationModule reputation, MilestonesModule milestones, FacilitiesModule facilities,
+            ContractsModule contracts = null)
         {
             GameStateRecorder.SuppressResourceEvents = true;
             GameStateRecorder.IsReplayingActions = true;
@@ -34,7 +36,7 @@ namespace Parsek
                 PatchReputation(reputation);
                 PatchFacilities(facilities);
                 PatchMilestones(milestones);
-                PatchContracts();
+                PatchContracts(contracts);
 
                 ParsekLog.Info(Tag, "PatchAll complete");
             }
@@ -408,12 +410,18 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Scaffold for contract state patching. Full implementation requires
-        /// type-registry subclass instantiation per Spike B findings — contract types
-        /// are subclasses of Contract and cannot be generically recreated from ConfigNode.
-        /// Logs a diagnostic message. See deferred item D3.
+        /// Patches KSP's contract system to match the ledger's derived state.
+        /// Unregisters and clears all current contracts, then rebuilds from ConfigNode
+        /// snapshots stored in GameStateStore for each contract that should be active
+        /// according to the ContractsModule walk.
+        ///
+        /// Uses the Contract.Load path which sets state directly via enum parsing
+        /// without calling SetState — no rewards, penalties, or GameEvents are fired.
+        ///
+        /// CRITICAL: Contract.Load mutates the input ConfigNode by removing the "type"
+        /// value, so we always clone the snapshot before passing it to the load pipeline.
         /// </summary>
-        internal static void PatchContracts()
+        internal static void PatchContracts(ContractsModule contracts)
         {
             if (ContractSystem.Instance == null)
             {
@@ -422,13 +430,175 @@ namespace Parsek
                 return;
             }
 
-            int activeCount = ContractSystem.Instance.Contracts != null
+            if (contracts == null)
+            {
+                ParsekLog.Verbose(Tag,
+                    "PatchContracts: null ContractsModule — skipping");
+                return;
+            }
+
+            // Get the set of contract IDs that should be active after the ledger walk
+            var activeIds = contracts.GetActiveContractIds();
+
+            // If no active contracts in ledger, just log the current KSP state
+            int currentCount = ContractSystem.Instance.Contracts != null
                 ? ContractSystem.Instance.Contracts.Count
                 : 0;
 
+            ParsekLog.Verbose(Tag,
+                $"PatchContracts: ledger has {activeIds.Count.ToString(IC)} active contracts, " +
+                $"KSP has {currentCount.ToString(IC)} current contracts");
+
+            // 1. Unregister all currently active contracts to prevent stale event subscriptions
+            var currentContracts = ContractSystem.Instance.Contracts;
+            int unregistered = 0;
+            if (currentContracts != null)
+            {
+                for (int i = 0; i < currentContracts.Count; i++)
+                {
+                    if (currentContracts[i] != null &&
+                        currentContracts[i].ContractState == Contract.State.Active)
+                    {
+                        try
+                        {
+                            currentContracts[i].Unregister();
+                            unregistered++;
+                        }
+                        catch (Exception ex)
+                        {
+                            ParsekLog.Warn(Tag,
+                                $"PatchContracts: failed to unregister contract: {ex.Message}");
+                        }
+                    }
+                }
+            }
+
+            // 2. Clear both lists
+            if (currentContracts != null)
+                currentContracts.Clear();
+            ContractSystem.Instance.ContractsFinished.Clear();
+
+            ParsekLog.Verbose(Tag,
+                $"PatchContracts: cleared KSP contract lists (unregistered={unregistered.ToString(IC)})");
+
+            // 3. Rebuild active contracts from snapshots
+            int restored = 0;
+            int noSnapshot = 0;
+            int noType = 0;
+            int typeNotFound = 0;
+            int loadFailed = 0;
+            int registered = 0;
+
+            foreach (string contractId in activeIds)
+            {
+                ConfigNode snapshot = GameStateStore.GetContractSnapshot(contractId);
+                if (snapshot == null)
+                {
+                    noSnapshot++;
+                    ParsekLog.Verbose(Tag,
+                        $"PatchContracts: no snapshot for contractId='{contractId}' — skipping");
+                    continue;
+                }
+
+                // Clone the snapshot — Contract.Load mutates the input by removing "type"
+                ConfigNode cloned = snapshot.CreateCopy();
+
+                // Read and remove the type value (same pattern as ContractSystem.LoadContract)
+                string typeName = cloned.GetValue("type");
+                if (string.IsNullOrEmpty(typeName))
+                {
+                    noType++;
+                    ParsekLog.Warn(Tag,
+                        $"PatchContracts: snapshot for contractId='{contractId}' has no 'type' value — skipping");
+                    continue;
+                }
+
+                cloned.RemoveValues("type");
+
+                // Look up the contract type in KSP's type registry
+                Type contractType = ContractSystem.GetContractType(typeName);
+                if (contractType == null)
+                {
+                    typeNotFound++;
+                    ParsekLog.Warn(Tag,
+                        $"PatchContracts: type '{typeName}' not found in ContractSystem.ContractTypes " +
+                        $"for contractId='{contractId}' — skipping (mod removed?)");
+                    continue;
+                }
+
+                // Create instance and load state from ConfigNode
+                try
+                {
+                    Contract contract = (Contract)Activator.CreateInstance(contractType);
+                    contract = Contract.Load(contract, cloned);
+
+                    if (contract == null)
+                    {
+                        loadFailed++;
+                        ParsekLog.Warn(Tag,
+                            $"PatchContracts: Contract.Load returned null for contractId='{contractId}' " +
+                            $"type='{typeName}' — skipping");
+                        continue;
+                    }
+
+                    // Add to the appropriate list based on state
+                    if (contract.ContractState == Contract.State.Active)
+                    {
+                        currentContracts.Add(contract);
+
+                        // Re-register so parameters subscribe to GameEvents
+                        try
+                        {
+                            contract.Register();
+                            registered++;
+                        }
+                        catch (Exception ex)
+                        {
+                            ParsekLog.Warn(Tag,
+                                $"PatchContracts: failed to register contract '{contractId}' " +
+                                $"type='{typeName}': {ex.Message}");
+                        }
+                    }
+                    else if (contract.IsFinished())
+                    {
+                        ContractSystem.Instance.ContractsFinished.Add(contract);
+                    }
+                    else
+                    {
+                        // Offered or other non-terminal state — add to main list
+                        currentContracts.Add(contract);
+                    }
+
+                    restored++;
+                }
+                catch (Exception ex)
+                {
+                    loadFailed++;
+                    ParsekLog.Warn(Tag,
+                        $"PatchContracts: failed to create/load contract contractId='{contractId}' " +
+                        $"type='{typeName}': {ex.Message}");
+                }
+            }
+
+            // 4. Fire contracts loaded event so UI refreshes
+            try
+            {
+                GameEvents.Contract.onContractsLoaded.Fire();
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.Warn(Tag,
+                    $"PatchContracts: onContractsLoaded.Fire() threw: {ex.Message}");
+            }
+
             ParsekLog.Info(Tag,
-                $"PatchContracts: {activeCount.ToString(IC)} active contracts in KSP " +
-                $"(contract patching deferred — requires type-registry subclass instantiation)");
+                $"PatchContracts: restored={restored.ToString(IC)}, " +
+                $"registered={registered.ToString(IC)}, " +
+                $"noSnapshot={noSnapshot.ToString(IC)}, " +
+                $"noType={noType.ToString(IC)}, " +
+                $"typeNotFound={typeNotFound.ToString(IC)}, " +
+                $"loadFailed={loadFailed.ToString(IC)}, " +
+                $"ledgerActive={activeIds.Count.ToString(IC)}");
         }
     }
 }

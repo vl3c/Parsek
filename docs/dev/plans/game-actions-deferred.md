@@ -29,7 +29,7 @@ Items identified during design that are out of scope for the initial implementat
 **What:** Investigate how much of KSP's `Contract` internal state (completion conditions, parameters, waypoints) can be serialized and restored during patching.
 **Why deferred:** Complex investigation with unknown scope. Contract patching may require storing a serialized contract snapshot at accept time.
 **Revisit when:** Starting Contracts module KSP state patching.
-**Status:** Open
+**Status:** Done — Full contract restoration implemented in `KspStatePatcher.PatchContracts`. Uses `Contract.Load(contract, configNode)` which sets state directly via enum parsing (no `SetState` side effects). Contract snapshots captured at accept time via `GameStateStore.AddContractSnapshot`. Type lookup uses `ContractSystem.GetContractType(typeName)` + `Activator.CreateInstance`. ConfigNode cloned before load (Contract.Load mutates input). Active contracts re-registered for parameter event subscriptions. See research report `docs/dev/research/contract-type-registry-api.md`.
 
 ---
 
@@ -56,7 +56,7 @@ Items identified during design that are out of scope for the initial implementat
 **What:** How the ledger associates a rescue recording with a stranded kerbal. Requires the recording system to detect docking with or picking up a stranded kerbal.
 **Why deferred:** Requires cross-system integration between recording system and kerbals module. Complex edge case.
 **Revisit when:** Kerbals module basic reservation is working and stranded state is implemented.
-**Status:** Scaffolded — requires recording system integration to detect docking with stranded kerbals. Placeholder added in GameStateEventConverter.cs (Phase 8, Task 34).
+**Status:** Done — Detection via `GameEvents.onKerbalTypeChange` (Unowned->Crew transition). `KerbalRescued` event type added to `GameStateEventType`, converter produces `GameActionType.KerbalRescue` actions with kerbal name and trait.
 
 ---
 

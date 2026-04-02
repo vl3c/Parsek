@@ -23,7 +23,8 @@ namespace Parsek
         FundsChanged,        // 15
         ScienceChanged,      // 16
         ReputationChanged,   // 17
-        MilestoneAchieved    // 18
+        MilestoneAchieved,   // 18
+        KerbalRescued        // 19
     }
 
     public struct GameStateEvent
@@ -129,6 +130,7 @@ namespace Parsek
                 case GameStateEventType.CrewHired:
                 case GameStateEventType.CrewRemoved:
                 case GameStateEventType.CrewStatusChanged:
+                case GameStateEventType.KerbalRescued:
                     return "Crew";
                 case GameStateEventType.FacilityUpgraded:
                     return "Upgrade";
@@ -222,6 +224,11 @@ namespace Parsek
                 }
                 case GameStateEventType.MilestoneAchieved:
                     return $"\"{key}\" achieved";
+                case GameStateEventType.KerbalRescued:
+                {
+                    string trait = ExtractDetailField(detail, "trait");
+                    return trait != null ? $"Rescued {key} ({trait})" : $"Rescued {key}";
+                }
                 default:
                     return key;
             }
