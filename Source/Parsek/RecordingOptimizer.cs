@@ -468,7 +468,7 @@ namespace Parsek
         /// Checks if a part event represents a permanent one-way visual state change
         /// that must be seeded in subsequent segments after a split.
         /// </summary>
-        private static bool IsPermanentVisualStateEvent(PartEventType type)
+        internal static bool IsPermanentVisualStateEvent(PartEventType type)
         {
             switch (type)
             {
@@ -489,7 +489,7 @@ namespace Parsek
         /// second segment reflects the vessel's visual state at the split point
         /// (e.g., shroud already jettisoned, parts already decoupled).
         /// </summary>
-        private static void ForwardPermanentStateEvents(
+        internal static void ForwardPermanentStateEvents(
             List<PartEvent> firstHalf, List<PartEvent> secondHalf, double splitUT)
         {
             if (firstHalf == null || firstHalf.Count == 0) return;
