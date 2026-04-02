@@ -8190,13 +8190,16 @@ namespace Parsek
                     // Layer 3: SMA sanity check — reject orbit segments where the orbit
                     // is mostly sub-surface (SMA < 90% of body radius). This catches
                     // old recordings that have invalid orbit segments for surface vessels.
+                    // Use absolute value: hyperbolic escape orbits have negative SMA but
+                    // are valid trajectories that should be rendered.
                     CelestialBody segBody = FlightGlobals.Bodies?.Find(b => b.name == seg.Value.bodyName);
                     double bodyRadius = segBody?.Radius ?? 600000;
-                    if (seg.Value.semiMajorAxis < bodyRadius * 0.9)
+                    double absSma = System.Math.Abs(seg.Value.semiMajorAxis);
+                    if (absSma < bodyRadius * 0.9)
                     {
                         int smaKey = ~orbitCacheBase; // bitwise complement — guaranteed no collision with positive cache keys
                         if (loggedOrbitSegments.Add(smaKey))
-                            Log($"Orbit segment rejected (sub-surface): sma={seg.Value.semiMajorAxis:F0} < " +
+                            Log($"Orbit segment rejected (sub-surface): |sma|={absSma:F0} < " +
                                 $"bodyRadius*0.9={bodyRadius * 0.9:F0}, falling through to point interpolation");
                     }
                     else
