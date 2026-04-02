@@ -587,6 +587,7 @@ namespace Parsek
                                 RecordingStore.CommitPendingTree();
                                 ScreenMessages.PostScreenMessage("[Parsek] Tree recording committed to timeline", 5f);
                             }
+                            RecordingStore.RunOptimizationPass();
                         }
                     }
                     else if ((RecordingStore.HasPending || RecordingStore.HasPendingTree) && !mergeDialogPending)
@@ -870,11 +871,20 @@ namespace Parsek
                 RecordingStore.IsRewinding = false;
                 RecordingStore.RewindUT = 0;
                 RecordingStore.RewindAdjustedUT = 0;
+                RecordingStore.RewindUTAdjustmentPending = false;
                 RecordingStore.RewindReserved = default(BudgetSummary);
                 RecordingStore.RewindBaselineFunds = 0;
                 RecordingStore.RewindBaselineScience = 0;
                 RecordingStore.RewindBaselineRep = 0;
                 RecordingStore.RewindQuicksaveVesselPids = null;
+            }
+            // Defensive: clear stale UT adjustment flag even outside the rewind block.
+            // The flag may have been left set if the coroutine didn't complete (crash/exit).
+            if (RecordingStore.RewindUTAdjustmentPending)
+            {
+                ParsekLog.Warn("Scenario",
+                    "OnLoad initial: clearing stale RewindUTAdjustmentPending flag");
+                RecordingStore.RewindUTAdjustmentPending = false;
             }
         }
 
