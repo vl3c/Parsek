@@ -28,6 +28,14 @@ namespace Parsek
         private static bool seedChecked;
 
         /// <summary>
+        /// Monotonically increasing sequence counter for KSC events added individually
+        /// via <see cref="OnKscSpending"/>. Ensures stable ordering when multiple KSC
+        /// events occur at the same UT (e.g., rapid tech unlocks or facility upgrades).
+        /// Reset on <see cref="ResetForTesting"/>.
+        /// </summary>
+        private static int kscSequenceCounter;
+
+        /// <summary>
         /// Initialize modules and register with engine. Call once on game start.
         /// Idempotent — safe to call multiple times.
         /// </summary>
@@ -526,6 +534,11 @@ namespace Parsek
                 return;
             }
 
+            // Assign a sequence number so multiple KSC events at the same UT have
+            // deterministic ordering in the recalculation sort.
+            kscSequenceCounter++;
+            action.Sequence = kscSequenceCounter;
+
             Ledger.AddAction(action);
 
             ParsekLog.Info(Tag,
@@ -585,6 +598,7 @@ namespace Parsek
         {
             initialized = false;
             seedChecked = false;
+            kscSequenceCounter = 0;
             scienceModule = null;
             milestonesModule = null;
             contractsModule = null;

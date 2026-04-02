@@ -147,7 +147,16 @@ namespace Parsek
             // 2. Reset all modules
             ResetAllModules();
 
-            // 2b. Reset derived fields to defaults before walk (prevents stale values from previous recalculation)
+            // 2b. Reset derived fields to defaults before walk.
+            // These fields are written by modules during the walk and read by downstream
+            // modules within the same walk (e.g., FundsModule reads Effective set by
+            // MilestonesModule, ReputationModule reads TransformedRepReward set by
+            // StrategiesModule). They are NOT read outside the recalculation walk —
+            // no UI code or other consumers access them. This reset ensures idempotency:
+            // calling Recalculate twice on the same action list produces identical results,
+            // because stale derived values from a previous walk are cleared before the
+            // new walk begins. Transformed reward fields are seeded from their immutable
+            // source fields so the strategy transform can subtract from the correct base.
             for (int i = 0; i < sorted.Count; i++)
             {
                 sorted[i].Effective = true;

@@ -206,6 +206,7 @@ namespace Parsek
             int before = actions.Count;
             int prunedEarnings = 0;
             int prunedSpendings = 0;
+            int prunedOther = 0;
             int kept = 0;
 
             var surviving = new List<GameAction>(actions.Count);
@@ -235,6 +236,10 @@ namespace Parsek
                     else
                     {
                         prunedEarnings++;
+                        ParsekLog.Verbose("Ledger",
+                            $"Pruned earning: type={action.Type}, " +
+                            $"recordingId='{action.RecordingId ?? "(null)"}' not in validRecordingIds, " +
+                            $"UT={action.UT.ToString("R", CultureInfo.InvariantCulture)}");
                     }
                     continue;
                 }
@@ -245,6 +250,11 @@ namespace Parsek
                     if (action.UT > maxUT)
                     {
                         prunedSpendings++;
+                        ParsekLog.Verbose("Ledger",
+                            $"Pruned spending: type={action.Type}, " +
+                            $"UT={action.UT.ToString("R", CultureInfo.InvariantCulture)} > " +
+                            $"maxUT={maxUT.ToString("R", CultureInfo.InvariantCulture)}, " +
+                            $"recordingId='{action.RecordingId ?? "(null)"}'");
                     }
                     else
                     {
@@ -266,7 +276,11 @@ namespace Parsek
                     }
                     else
                     {
-                        prunedEarnings++;
+                        prunedOther++;
+                        ParsekLog.Verbose("Ledger",
+                            $"Pruned other: type={action.Type}, " +
+                            $"recordingId='{action.RecordingId}' not in validRecordingIds, " +
+                            $"UT={action.UT.ToString("R", CultureInfo.InvariantCulture)}");
                     }
                 }
                 else if (action.UT <= maxUT)
@@ -276,7 +290,12 @@ namespace Parsek
                 }
                 else
                 {
-                    prunedSpendings++;
+                    prunedOther++;
+                    ParsekLog.Verbose("Ledger",
+                        $"Pruned other: type={action.Type}, " +
+                        $"recordingId=(null), " +
+                        $"UT={action.UT.ToString("R", CultureInfo.InvariantCulture)} > " +
+                        $"maxUT={maxUT.ToString("R", CultureInfo.InvariantCulture)}");
                 }
             }
 
@@ -285,6 +304,7 @@ namespace Parsek
             ParsekLog.Info("Ledger",
                 $"Reconcile complete: before={before}, kept={kept}, " +
                 $"prunedEarnings={prunedEarnings}, prunedSpendings={prunedSpendings}, " +
+                $"prunedOther={prunedOther}, " +
                 $"maxUT={maxUT.ToString("R", CultureInfo.InvariantCulture)}, " +
                 $"validRecordingIds={validRecordingIds.Count}");
         }
