@@ -173,7 +173,7 @@ Items identified during design that are out of scope for the initial implementat
 **What:** Mid-career Parsek install wipes science and reputation to 0. Need `ScienceInitial` and `ReputationInitial` action types.
 **Why deferred:** Only affects first-time install on existing saves. Funds seeding works correctly.
 **Revisit when:** Before first release to players.
-**Status:** Open — CRITICAL for release
+**Status:** Done — `ScienceInitial` (enum 21) and `ReputationInitial` (enum 22) action types added. Seeded in `LedgerOrchestrator.RecalculateAndPatch` alongside funds. Processed by `ScienceModule.ProcessScienceInitial` and `ReputationModule.ProcessReputationInitial`. Preserved during reconciliation.
 
 ---
 
@@ -182,7 +182,7 @@ Items identified during design that are out of scope for the initial implementat
 **What:** `ScienceModule` doesn't process `ContractComplete` actions. Science from contract completion is lost.
 **Why deferred:** Rare in stock KSP (few contracts award science). Easy fix.
 **Revisit when:** Before Career mode testing.
-**Status:** Open
+**Status:** Done — `ScienceModule.ProcessContractScienceReward` added. Uses `TransformedScienceReward` (post-strategy), only processes when `Effective=true`.
 
 ---
 
