@@ -153,9 +153,11 @@ namespace Parsek
         /// the contract, diverts commitment% of that reward into the target resource:
         ///   diverted = rewardAmount * commitment
         ///   sourceReward -= diverted
-        ///   targetReward += diverted * conversionRate
+        ///   targetReward += diverted
         ///
-        /// conversionRate is 1.0 for Phase 4 (deferred item D2).
+        /// Uses the strategy's Commitment field (player's chosen commitment level,
+        /// 0.01 to 0.25) as the diversion fraction. Full per-strategy conversion
+        /// rates require KSP Strategy instances (deferred item D2).
         /// Modifies the action in place (derived fields, not persisted).
         /// </summary>
         internal void TransformContractReward(GameAction action)
@@ -164,12 +166,18 @@ namespace Parsek
                 return;
 
             if (!action.Effective)
+            {
+                ParsekLog.Verbose(Tag,
+                    $"TransformContractReward skipped (not effective): contractId='{action.ContractId ?? "(none)"}'");
                 return;
+            }
 
             if (activeStrategies.Count == 0)
+            {
+                ParsekLog.Verbose(Tag,
+                    $"TransformContractReward skipped (no active strategies): contractId='{action.ContractId ?? "(none)"}'");
                 return;
-
-            const float conversionRate = 1.0f;
+            }
 
             foreach (var kvp in activeStrategies)
             {
@@ -178,30 +186,42 @@ namespace Parsek
                 // Only transform if the contract UT is within the strategy's active window.
                 // The strategy is active from ActivateUT onward (until a Deactivate removes it).
                 if (action.UT < strategy.ActivateUT)
+                {
+                    ParsekLog.Verbose(Tag,
+                        $"TransformContractReward: strategy='{strategy.StrategyId}' skipped for " +
+                        $"contractId='{action.ContractId ?? "(none)"}' (contract UT={action.UT.ToString("F1", IC)} " +
+                        $"< activateUT={strategy.ActivateUT.ToString("F1", IC)})");
                     continue;
+                }
+
+                // Use the strategy's commitment level as the diversion fraction.
+                // Player-chosen commitment ranges from 0.01 to 0.25 (1% to 25%).
+                // Full per-strategy conversion rates require KSP Strategy instances
+                // which are unavailable during the pure recalculation walk (deferred D2).
+                float diversionFraction = strategy.Commitment;
 
                 float diverted;
                 switch (strategy.SourceResource)
                 {
                     case StrategyResource.Funds:
-                        diverted = action.TransformedFundsReward * strategy.Commitment;
+                        diverted = action.TransformedFundsReward * diversionFraction;
                         action.TransformedFundsReward -= diverted;
-                        AddToTargetResource(action, strategy.TargetResource, diverted * conversionRate);
-                        LogTransform(strategy, action, "FundsReward", diverted, conversionRate);
+                        AddToTargetResource(action, strategy.TargetResource, diverted);
+                        LogTransform(strategy, action, "FundsReward", diverted, diversionFraction);
                         break;
 
                     case StrategyResource.Science:
-                        diverted = action.TransformedScienceReward * strategy.Commitment;
+                        diverted = action.TransformedScienceReward * diversionFraction;
                         action.TransformedScienceReward -= diverted;
-                        AddToTargetResource(action, strategy.TargetResource, diverted * conversionRate);
-                        LogTransform(strategy, action, "ScienceReward", diverted, conversionRate);
+                        AddToTargetResource(action, strategy.TargetResource, diverted);
+                        LogTransform(strategy, action, "ScienceReward", diverted, diversionFraction);
                         break;
 
                     case StrategyResource.Reputation:
-                        diverted = action.TransformedRepReward * strategy.Commitment;
+                        diverted = action.TransformedRepReward * diversionFraction;
                         action.TransformedRepReward -= diverted;
-                        AddToTargetResource(action, strategy.TargetResource, diverted * conversionRate);
-                        LogTransform(strategy, action, "RepReward", diverted, conversionRate);
+                        AddToTargetResource(action, strategy.TargetResource, diverted);
+                        LogTransform(strategy, action, "RepReward", diverted, diversionFraction);
                         break;
                 }
             }
@@ -225,12 +245,13 @@ namespace Parsek
 
         private static void LogTransform(
             StrategyState strategy, GameAction action,
-            string sourceField, float diverted, float conversionRate)
+            string sourceField, float diverted, float diversionFraction)
         {
             ParsekLog.Verbose(Tag,
                 $"Transform: strategy='{strategy.StrategyId}' contractId='{action.ContractId}' " +
                 $"source={sourceField} diverted={diverted.ToString("F2", IC)} " +
-                $"target={strategy.TargetResource} added={( diverted * conversionRate ).ToString("F2", IC)} " +
+                $"diversionFraction={diversionFraction.ToString("F3", IC)} " +
+                $"target={strategy.TargetResource} added={diverted.ToString("F2", IC)} " +
                 $"ut={action.UT.ToString("F1", IC)}");
         }
 

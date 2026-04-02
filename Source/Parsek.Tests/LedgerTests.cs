@@ -654,5 +654,59 @@ namespace Parsek.Tests
             Assert.Contains("GameState", path);
             Assert.Contains("ledger.pgld", path);
         }
+
+        // ================================================================
+        // SeedInitialScience / SeedInitialReputation (D19)
+        // ================================================================
+
+        [Fact]
+        public void SeedInitialScience_CreatesActionOnce()
+        {
+            Ledger.ResetForTesting();
+
+            Ledger.SeedInitialScience(150f);
+            Assert.Single(Ledger.Actions);
+            Assert.Equal(GameActionType.ScienceInitial, Ledger.Actions[0].Type);
+            Assert.Equal(150f, Ledger.Actions[0].InitialScience);
+
+            // Second call should be no-op
+            Ledger.SeedInitialScience(200f);
+            Assert.Single(Ledger.Actions);
+            Assert.Equal(150f, Ledger.Actions[0].InitialScience);
+        }
+
+        [Fact]
+        public void SeedInitialReputation_CreatesActionOnce()
+        {
+            Ledger.ResetForTesting();
+
+            Ledger.SeedInitialReputation(87.5f);
+            Assert.Single(Ledger.Actions);
+            Assert.Equal(GameActionType.ReputationInitial, Ledger.Actions[0].Type);
+            Assert.Equal(87.5f, Ledger.Actions[0].InitialReputation);
+
+            // Second call should be no-op
+            Ledger.SeedInitialReputation(100f);
+            Assert.Single(Ledger.Actions);
+            Assert.Equal(87.5f, Ledger.Actions[0].InitialReputation);
+        }
+
+        [Fact]
+        public void Reconcile_PreservesSeedActions()
+        {
+            Ledger.ResetForTesting();
+
+            Ledger.SeedInitialFunds(10000);
+            Ledger.SeedInitialScience(50f);
+            Ledger.SeedInitialReputation(25f);
+
+            // Reconcile with no valid recordings and UT=0
+            Ledger.Reconcile(new System.Collections.Generic.HashSet<string>(), 0);
+
+            Assert.Equal(3, Ledger.Actions.Count);
+            Assert.Contains(Ledger.Actions, a => a.Type == GameActionType.FundsInitial);
+            Assert.Contains(Ledger.Actions, a => a.Type == GameActionType.ScienceInitial);
+            Assert.Contains(Ledger.Actions, a => a.Type == GameActionType.ReputationInitial);
+        }
     }
 }

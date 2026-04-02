@@ -54,6 +54,17 @@ namespace Parsek
         internal static IReadOnlyDictionary<string, KerbalSlot> Slots => slots;
         internal static IReadOnlyCollection<string> RetiredKerbals => retiredKerbals;
 
+        /// <summary>
+        /// Returns the list of retired kerbal names for UI display.
+        /// Retired kerbals are stand-ins that were displaced by the original kerbal
+        /// returning. They remain in the roster but are blocked from dismissal.
+        /// Returns a snapshot — safe to enumerate while the module recalculates.
+        /// </summary>
+        internal static IReadOnlyList<string> GetRetiredKerbals()
+        {
+            return new List<string>(retiredKerbals);
+        }
+
         // ────────────────────────────────────────────────────────
         // Task 1: End-state inference
         // ────────────────────────────────────────────────────────
@@ -509,6 +520,16 @@ namespace Parsek
         /// Apply derived kerbal state to the KSP roster. Creates stand-ins,
         /// removes unused displaced stand-ins, sets roster statuses, and
         /// populates crewReplacements dict for SwapReservedCrewInFlight.
+        ///
+        /// MIA Respawn Override: KSP has a built-in MIA respawn mechanic that
+        /// transitions Dead kerbals to Available after a configurable delay.
+        /// This method overrides that behavior for Parsek-managed kerbals:
+        /// Step 3 below sets every reserved kerbal's rosterStatus to Assigned,
+        /// regardless of what KSP may have changed it to between recalculations.
+        /// If KSP respawns a Dead kerbal to Available, the next RecalculateAndApply
+        /// call resets them to Assigned, keeping them reserved for ghost playback.
+        /// This ensures recording crew consistency — a kerbal who died in a
+        /// recording stays reserved until the recording is removed from the timeline.
         ///
         /// Must be called AFTER Recalculate().
         /// Wraps all mutations in SuppressCrewEvents.

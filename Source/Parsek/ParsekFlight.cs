@@ -234,6 +234,7 @@ namespace Parsek
         private string pendingWatchRecordingId = null;  // recording ID that was in watch mode when deferred
         private bool timelineResourceReplayPausedLogged = false;
         private bool wasWarpActive = false; // tracks previous warp state for exit detection
+        private double warpStartUT = 0.0;  // UT when warp began — used for facility visual updates
         // Camera follow (watch mode) — transient, never serialized
         private const string WatchModeLockId = "ParsekWatch";
         private const ControlTypes WatchModeLockMask =
@@ -1243,7 +1244,7 @@ namespace Parsek
                 ParsekLog.Info("Flight", "ShowPostDestructionTreeMergeDialog: auto-merge enabled — committing tree");
                 var treeToCommit = RecordingStore.PendingTree;
                 RecordingStore.CommitPendingTree();
-                NotifyLedgerTreeCommitted(treeToCommit);
+                LedgerOrchestrator.NotifyLedgerTreeCommitted(treeToCommit);
                 KerbalsModule.RecalculateAndApply();
                 MergeDialog.ReplayFlightResultsIfPending();
             }
@@ -3293,12 +3294,41 @@ namespace Parsek
         {
             bool isWarpNow = IsAnyWarpActive();
 
+            // Detect warp start: was not warping, now warping — patch facility visuals
+            // so the player sees the correct state during warp. Full recalculation
+            // happens on warp exit; this is a lightweight visual-only update.
+            // NOTE: True real-time per-frame facility visual updates during warp would
+            // require a partial recalculation walk (processing actions only up to the
+            // current UT). The current approach patches to the final derived state at
+            // warp start and again at warp end, which covers the common case of warping
+            // past a facility event.
+            if (!wasWarpActive && isWarpNow)
+            {
+                warpStartUT = Planetarium.GetUniversalTime();
+                if (LedgerOrchestrator.IsInitialized)
+                {
+                    KspStatePatcher.PatchFacilities(LedgerOrchestrator.Facilities);
+                    ParsekLog.Info("WarpFacilities",
+                        $"Warp start at UT={warpStartUT:F2} — patched facility visuals");
+                }
+            }
+
             // Detect warp exit: was warping, now at 1x — recalculate ledger
             if (wasWarpActive && !isWarpNow)
             {
+                double warpEndUT = Planetarium.GetUniversalTime();
                 ParsekLog.Info("LedgerOrchestrator",
                     "Warp exit detected — recalculating ledger");
                 LedgerOrchestrator.RecalculateAndPatch();
+
+                // Log whether any facility actions were crossed during this warp session
+                if (LedgerOrchestrator.IsInitialized &&
+                    LedgerOrchestrator.HasFacilityActionsInRange(warpStartUT, warpEndUT))
+                {
+                    ParsekLog.Info("WarpFacilities",
+                        $"Warp exit at UT={warpEndUT:F2} — facility actions crossed " +
+                        $"in range ({warpStartUT:F2}, {warpEndUT:F2}]");
+                }
             }
             wasWarpActive = isWarpNow;
 
@@ -5315,8 +5345,6 @@ namespace Parsek
                         leaf.VesselSpawned = true;
                         leaf.SpawnedVesselPersistentId = spawnedPid;
                         leaf.LastAppliedResourceIndex = leaf.Points.Count - 1;
-                        // DISABLED: replaced by LedgerOrchestrator
-                        // ResourceBudget.Invalidate();
                         ParsekLog.Info("Flight", $"SpawnTreeLeaves: spawned leaf '{leaf.VesselName}' pid={spawnedPid}");
                     }
                     else
@@ -6377,8 +6405,6 @@ namespace Parsek
                 }
 
                 rec.LastAppliedResourceIndex = targetIndex;
-                // DISABLED: replaced by LedgerOrchestrator
-                // ResourceBudget.Invalidate();
 
                 // Log summary when all resource deltas have been applied
                 if (targetIndex == points.Count - 1 && startIdx < targetIndex)
@@ -6485,8 +6511,6 @@ namespace Parsek
             }
 
             tree.ResourcesApplied = true;
-            // DISABLED: replaced by LedgerOrchestrator
-            // ResourceBudget.Invalidate();
             Log($"Tree resource lump sum applied for '{tree.TreeName}'");
         }
 
@@ -8277,18 +8301,6 @@ namespace Parsek
             {
                 Log($"Showing merge dialog for {pending.VesselName} ({pending.Points.Count} points)");
                 MergeDialog.Show(pending);
-            }
-        }
-
-        /// <summary>
-        /// Notifies the ledger orchestrator about each recording in a committed tree.
-        /// </summary>
-        static void NotifyLedgerTreeCommitted(RecordingTree tree)
-        {
-            if (tree == null) return;
-            foreach (var rec in tree.Recordings.Values)
-            {
-                LedgerOrchestrator.OnRecordingCommitted(rec.RecordingId, rec.StartUT, rec.EndUT);
             }
         }
 

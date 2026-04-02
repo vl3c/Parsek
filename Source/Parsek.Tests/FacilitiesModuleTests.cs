@@ -339,6 +339,34 @@ namespace Parsek.Tests
                 l.Contains("2"));
         }
 
+        [Fact]
+        public void UpgradeWhileDestroyed_LogsDestroyedFlag()
+        {
+            module.ProcessAction(MakeDestruction(500, "LaunchPad", recordingId: "recA"));
+            logLines.Clear();
+
+            module.ProcessAction(MakeUpgrade(600, "LaunchPad", 3));
+
+            Assert.Contains(logLines, l =>
+                l.Contains("[Facilities]") &&
+                l.Contains("Upgrade") &&
+                l.Contains("LaunchPad") &&
+                l.Contains("destroyed=True"));
+        }
+
+        [Fact]
+        public void Repair_NotDestroyed_LogsWasDestroyedFalse()
+        {
+            // Repair on a non-destroyed facility (edge case)
+            module.ProcessAction(MakeRepair(500, "LaunchPad"));
+
+            Assert.Contains(logLines, l =>
+                l.Contains("[Facilities]") &&
+                l.Contains("Repair") &&
+                l.Contains("LaunchPad") &&
+                l.Contains("wasDestroyed=False"));
+        }
+
         // ================================================================
         // Integration — works with RecalculationEngine
         // ================================================================

@@ -40,6 +40,7 @@ namespace Parsek
             int skipped = 0;
             int outOfRange = 0;
             int converted = 0;
+            int sequence = 1;
 
             for (int i = 0; i < events.Count; i++)
             {
@@ -54,6 +55,7 @@ namespace Parsek
                 var action = ConvertEvent(evt, recordingId);
                 if (action != null)
                 {
+                    action.Sequence = sequence++;
                     result.Add(action);
                     converted++;
                 }
@@ -110,6 +112,9 @@ namespace Parsek
                 case GameStateEventType.ContractCancelled:
                     return ConvertContractCancelled(evt, recordingId);
 
+                case GameStateEventType.MilestoneAchieved:
+                    return ConvertMilestoneAchieved(evt, recordingId);
+
                 // Skipped event types — no GameAction equivalent
                 case GameStateEventType.FundsChanged:
                 case GameStateEventType.ScienceChanged:
@@ -130,7 +135,7 @@ namespace Parsek
 
         /// <summary>
         /// Converts a list of PendingScienceSubjects into ScienceEarning GameActions.
-        /// Each subject becomes a minimal ScienceEarning action with subjectId and scienceAwarded.
+        /// Each subject becomes a ScienceEarning action with subjectId, scienceAwarded, and subjectMaxValue.
         /// </summary>
         /// <param name="subjects">Science subjects to convert.</param>
         /// <param name="recordingId">Recording that produced these subjects.</param>
@@ -146,6 +151,8 @@ namespace Parsek
                     "ConvertScienceSubjects: empty or null subjects list, returning 0 actions");
                 return result;
             }
+
+            int sequence = 1;
 
             for (int i = 0; i < subjects.Count; i++)
             {
@@ -172,7 +179,9 @@ namespace Parsek
                     Type = GameActionType.ScienceEarning,
                     RecordingId = recordingId,
                     SubjectId = subj.subjectId,
-                    ScienceAwarded = subj.science
+                    ScienceAwarded = subj.science,
+                    SubjectMaxValue = subj.subjectMaxValue,
+                    Sequence = sequence++
                 });
             }
 
@@ -398,6 +407,45 @@ namespace Parsek
                 RepPenalty = repPenalty
             };
         }
+
+        /// <summary>
+        /// MilestoneAchieved -> MilestoneAchievement (milestoneId=key, funds/rep from detail).
+        /// Funds and rep rewards may be 0 if not available from the ProgressNode.
+        /// </summary>
+        internal static GameAction ConvertMilestoneAchieved(GameStateEvent evt, string recordingId)
+        {
+            float fundsAwarded = 0f;
+            float repAwarded = 0f;
+
+            string fundsStr = ExtractDetail(evt.detail, "funds");
+            if (fundsStr != null)
+                float.TryParse(fundsStr, NumberStyles.Float, IC, out fundsAwarded);
+
+            string repStr = ExtractDetail(evt.detail, "rep");
+            if (repStr != null)
+                float.TryParse(repStr, NumberStyles.Float, IC, out repAwarded);
+
+            return new GameAction
+            {
+                UT = evt.ut,
+                Type = GameActionType.MilestoneAchievement,
+                RecordingId = recordingId,
+                MilestoneId = evt.key,
+                MilestoneFundsAwarded = fundsAwarded,
+                MilestoneRepAwarded = repAwarded
+            };
+        }
+
+        // ================================================================
+        // Deferred: Kerbal Rescue action generation (D6)
+        // ================================================================
+        // KerbalRescue actions would be generated here when a recording detects
+        // docking with or EVA pickup of a stranded kerbal. This requires:
+        //   1. Recording system integration to detect docking events with stranded vessels
+        //   2. Cross-referencing the docked vessel's crew against known stranded kerbals
+        //   3. A new GameActionType.KerbalRescue and corresponding event type
+        // Scaffolded — requires recording system integration to detect docking
+        // with stranded kerbals. See deferred item D6.
 
         // ================================================================
         // Detail extraction helper

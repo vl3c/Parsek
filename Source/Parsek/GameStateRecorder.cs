@@ -26,7 +26,7 @@ namespace Parsek
         internal static bool SuppressResourceEvents = false;
 
         /// <summary>
-        /// Set to true by ActionReplay during committed action replay to prevent
+        /// Set to true by KspStatePatcher during ledger-based state patching to prevent
         /// recording replayed actions as new game state events and to bypass
         /// blocking Harmony patches (TechResearchPatch, FacilityUpgradePatch)
         /// that normally prevent duplicate actions on committed items.
@@ -96,6 +96,9 @@ namespace Parsek
             // Science subjects (per-experiment tracking for duplication prevention)
             GameEvents.OnScienceRecieved.Add(OnScienceReceived);
 
+            // Progress milestones
+            GameEvents.OnProgressComplete.Add(OnProgressComplete);
+
             // Initialize resource tracking from current state
             SeedResourceState();
 
@@ -134,6 +137,9 @@ namespace Parsek
 
             // Science subjects
             GameEvents.OnScienceRecieved.Remove(OnScienceReceived);
+
+            // Progress milestones
+            GameEvents.OnProgressComplete.Remove(OnProgressComplete);
 
             ParsekLog.Info("GameStateRecorder", "GameStateRecorder unsubscribed");
         }
@@ -270,7 +276,7 @@ namespace Parsek
                 partList = string.Join(",", names);
             }
 
-            GameStateStore.AddEvent(new GameStateEvent
+            var evt = new GameStateEvent
             {
                 ut = Planetarium.GetUniversalTime(),
                 eventType = GameStateEventType.TechResearched,
@@ -282,8 +288,13 @@ namespace Parsek
                 valueAfter = ResearchAndDevelopment.Instance != null
                     ? ResearchAndDevelopment.Instance.Science
                     : 0
-            });
+            };
+            GameStateStore.AddEvent(evt);
             ParsekLog.Info("GameStateRecorder", $"Game state: TechResearched '{techId}' (cost={data.host.scienceCost})");
+
+            // Write directly to ledger when at KSC (not during flight recording)
+            if (!IsFlightScene())
+                LedgerOrchestrator.OnKscSpending(evt);
         }
 
         private void OnPartPurchased(AvailablePart part)
@@ -328,14 +339,26 @@ namespace Parsek
             if (crew == null) return;
             var name = crew.name ?? "";
 
-            GameStateStore.AddEvent(new GameStateEvent
+            // Capture hire cost from GameVariables if available (career mode)
+            float hireCost = 0f;
+            if (GameVariables.Instance != null && HighLogic.CurrentGame != null)
+            {
+                hireCost = (float)GameVariables.Instance.GetRecruitHireCost(
+                    HighLogic.CurrentGame.CrewRoster.GetActiveCrewCount());
+            }
+
+            var evt = new GameStateEvent
             {
                 ut = Planetarium.GetUniversalTime(),
                 eventType = GameStateEventType.CrewHired,
                 key = name,
-                detail = $"trait={crew.trait ?? ""}"
-            });
+                detail = $"trait={crew.trait ?? ""};cost={hireCost}"
+            };
+            GameStateStore.AddEvent(evt);
             ParsekLog.Info("GameStateRecorder", $"Game state: CrewHired '{name}' ({crew.trait ?? "?"})");
+
+            if (!IsFlightScene())
+                LedgerOrchestrator.OnKscSpending(evt);
         }
 
         private void OnKerbalRemoved(ProtoCrewMember crew)
@@ -357,6 +380,16 @@ namespace Parsek
                 detail = $"trait={crew.trait ?? ""}"
             });
             ParsekLog.Info("GameStateRecorder", $"Game state: CrewRemoved '{name}'");
+        }
+
+        /// <summary>
+        /// Returns true if we're currently in the Flight scene. KSC spending actions
+        /// should only be written directly to the ledger outside of flight (to avoid
+        /// double-adding when the recording is committed).
+        /// </summary>
+        private static bool IsFlightScene()
+        {
+            return HighLogic.LoadedScene == GameScenes.FLIGHT;
         }
 
         /// <summary>
@@ -561,11 +594,79 @@ namespace Parsek
             PendingScienceSubjects.Add(new PendingScienceSubject
             {
                 subjectId = subject.id,
-                science = subject.science
+                science = subject.science,
+                subjectMaxValue = subject.scienceCap
             });
 
             ParsekLog.Info("GameStateRecorder",
                 $"Science subject captured: {subject.id} amount={amount:F1} total={subject.science:F1}");
+        }
+
+        #endregion
+
+        #region Progress Milestone Handlers
+
+        private void OnProgressComplete(ProgressNode node)
+        {
+            if (IsReplayingActions)
+            {
+                ParsekLog.Verbose("GameStateRecorder", "Suppressed MilestoneAchieved event during action replay");
+                return;
+            }
+            if (node == null)
+            {
+                ParsekLog.Verbose("GameStateRecorder", "OnProgressComplete: null node — skipped");
+                return;
+            }
+
+            string milestoneId = node.Id ?? "";
+            if (string.IsNullOrEmpty(milestoneId))
+            {
+                ParsekLog.Verbose("GameStateRecorder", "OnProgressComplete: empty node Id — skipped");
+                return;
+            }
+
+            // Funds and rep rewards are not directly available on the ProgressNode.
+            // They are applied separately by KSP's ProgressTracking system via
+            // Funding/Reputation callbacks. We capture 0 here; the MilestonesModule
+            // sets Effective flags correctly regardless.
+            //
+            // OnProgressComplete fires AFTER KSP has already applied the reward via
+            // Funding.Instance.AddFunds / Reputation.Instance.AddReputation. In theory
+            // we could compute the delta by comparing pre/post values, but we don't have
+            // a pre-event snapshot (no prefix hook). The reward amounts come from
+            // GameVariables.Instance.GetProgressFunds/Rep/Science() which vary by
+            // body, milestone type, and difficulty settings — too fragile to replicate.
+            // See deferred items D17/D18 for earning-side capture plans.
+            var evt = new GameStateEvent
+            {
+                ut = Planetarium.GetUniversalTime(),
+                eventType = GameStateEventType.MilestoneAchieved,
+                key = milestoneId,
+                detail = ""
+            };
+            GameStateStore.AddEvent(evt);
+            ParsekLog.Info("GameStateRecorder", $"Game state: MilestoneAchieved '{milestoneId}'");
+
+            // Milestones can fire at KSC (e.g., facility-related) or in flight.
+            // Write directly to ledger when outside flight to avoid waiting for commit.
+            if (!IsFlightScene())
+                LedgerOrchestrator.OnKscSpending(evt);
+        }
+
+        /// <summary>
+        /// Pure: creates a MilestoneAchieved GameStateEvent from the given parameters.
+        /// Extracted for testability.
+        /// </summary>
+        internal static GameStateEvent CreateMilestoneEvent(string milestoneId, double ut)
+        {
+            return new GameStateEvent
+            {
+                ut = ut,
+                eventType = GameStateEventType.MilestoneAchieved,
+                key = milestoneId ?? "",
+                detail = ""
+            };
         }
 
         #endregion
@@ -644,16 +745,20 @@ namespace Parsek
                                 ? GameStateEventType.FacilityUpgraded
                                 : GameStateEventType.FacilityDowngraded;
 
-                            GameStateStore.AddEvent(new GameStateEvent
+                            var evt = new GameStateEvent
                             {
                                 ut = ut,
                                 eventType = eventType,
                                 key = kvp.Key,
                                 valueBefore = cachedLevel,
                                 valueAfter = currentLevel
-                            });
+                            };
+                            GameStateStore.AddEvent(evt);
                             eventsEmitted++;
                             ParsekLog.Info("GameStateRecorder", $"Game state: {eventType} '{kvp.Key}' {cachedLevel:F2} → {currentLevel:F2}");
+
+                            if (!IsFlightScene() && eventType == GameStateEventType.FacilityUpgraded)
+                                LedgerOrchestrator.OnKscSpending(evt);
                         }
                     }
 

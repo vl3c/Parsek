@@ -751,5 +751,145 @@ namespace Parsek.Tests
                 l.Contains("totalCommittedSpendings=0") &&
                 l.Contains("totalEffectiveEarnings=0"));
         }
+
+        // ================================================================
+        // ScienceInitial seeding tests (D19)
+        // ================================================================
+
+        [Fact]
+        public void ScienceInitial_SeedsRunningBalance()
+        {
+            var module = new ScienceModule();
+            module.Reset();
+            module.ProcessAction(new GameAction
+            {
+                UT = 0.0,
+                Type = GameActionType.ScienceInitial,
+                InitialScience = 250f
+            });
+
+            Assert.Equal(250.0, module.GetRunningScience());
+            Assert.Equal(250.0, module.GetTotalEffectiveEarnings());
+        }
+
+        [Fact]
+        public void ScienceInitial_PlusEarnings_Accumulates()
+        {
+            var module = new ScienceModule();
+            module.Reset();
+            module.ProcessAction(new GameAction
+            {
+                UT = 0.0,
+                Type = GameActionType.ScienceInitial,
+                InitialScience = 100f
+            });
+            module.ProcessAction(new GameAction
+            {
+                UT = 100.0,
+                Type = GameActionType.ScienceEarning,
+                SubjectId = "crewReport@KerbinSrfLanded",
+                ScienceAwarded = 5f,
+                SubjectMaxValue = 10f
+            });
+
+            Assert.Equal(105.0, module.GetRunningScience());
+            Assert.Equal(105.0, module.GetTotalEffectiveEarnings());
+        }
+
+        // ================================================================
+        // ContractComplete science reward tests (D20 fix)
+        // ================================================================
+
+        [Fact]
+        public void ContractComplete_AddsScienceReward_WhenEffective()
+        {
+            module.Reset();
+            module.ProcessAction(new GameAction
+            {
+                UT = 100.0,
+                Type = GameActionType.ContractComplete,
+                ContractId = "contract-1",
+                Effective = true,
+                TransformedScienceReward = 25f,
+                ScienceReward = 25f
+            });
+
+            Assert.Equal(25.0, module.GetRunningScience());
+            Assert.Equal(25.0, module.GetTotalEffectiveEarnings());
+        }
+
+        [Fact]
+        public void ContractComplete_SkipsScienceReward_WhenNotEffective()
+        {
+            module.Reset();
+            module.ProcessAction(new GameAction
+            {
+                UT = 100.0,
+                Type = GameActionType.ContractComplete,
+                ContractId = "contract-1",
+                Effective = false,
+                TransformedScienceReward = 25f,
+                ScienceReward = 25f
+            });
+
+            Assert.Equal(0.0, module.GetRunningScience());
+            Assert.Equal(0.0, module.GetTotalEffectiveEarnings());
+        }
+
+        [Fact]
+        public void ContractComplete_UsesTransformedReward_NotRawReward()
+        {
+            module.Reset();
+            module.ProcessAction(new GameAction
+            {
+                UT = 100.0,
+                Type = GameActionType.ContractComplete,
+                ContractId = "contract-1",
+                Effective = true,
+                ScienceReward = 50f,
+                TransformedScienceReward = 40f  // Strategy reduced it
+            });
+
+            Assert.Equal(40.0, module.GetRunningScience());
+        }
+
+        [Fact]
+        public void ContractComplete_ZeroReward_NoEffect()
+        {
+            module.Reset();
+            module.ProcessAction(new GameAction
+            {
+                UT = 100.0,
+                Type = GameActionType.ContractComplete,
+                ContractId = "contract-1",
+                Effective = true,
+                TransformedScienceReward = 0f,
+                ScienceReward = 0f
+            });
+
+            Assert.Equal(0.0, module.GetRunningScience());
+        }
+
+        [Fact]
+        public void ContractComplete_ScienceAddedToAvailable_ForSpending()
+        {
+            module.Reset();
+
+            // Pre-pass with no spendings
+            module.ComputeTotalSpendings(new List<GameAction>());
+
+            // Contract awards science
+            module.ProcessAction(new GameAction
+            {
+                UT = 50.0,
+                Type = GameActionType.ContractComplete,
+                ContractId = "contract-1",
+                Effective = true,
+                TransformedScienceReward = 30f,
+                ScienceReward = 30f
+            });
+
+            Assert.Equal(30.0, module.GetAvailableScience());
+        }
     }
 }

@@ -21,8 +21,6 @@ namespace Parsek
 
         #endregion
 
-        // Gates Update() resource ticking while coroutines reset resource baselines
-        private bool resourceTickingSuspended = false;
 
         public override void OnSave(ConfigNode node)
         {
@@ -48,7 +46,7 @@ namespace Parsek
                     AutoCommitTreeGhostOnly(RecordingStore.PendingTree);
                     var treeToCommit = RecordingStore.PendingTree;
                     RecordingStore.CommitPendingTree();
-                    NotifyLedgerTreeCommitted(treeToCommit);
+                    LedgerOrchestrator.NotifyLedgerTreeCommitted(treeToCommit);
                     KerbalsModule.RecalculateAndApply();
                     ParsekLog.Warn("Scenario",
                         "Safety net: committed pending tree on save outside Flight");
@@ -546,7 +544,7 @@ namespace Parsek
 
                     // Schedule committed resource deduction (singletons may not be ready yet)
                     ParsekLog.Verbose("Scenario", "Scheduling budget deduction coroutine (singletons may not be ready yet)");
-                    resourceTickingSuspended = true;
+
                     StartCoroutine(ApplyBudgetDeductionWhenReady());
                 }
                 else
@@ -607,7 +605,7 @@ namespace Parsek
                                 AutoCommitTreeGhostOnly(RecordingStore.PendingTree);
                                 var treeToCommit = RecordingStore.PendingTree;
                                 RecordingStore.CommitPendingTree();
-                                NotifyLedgerTreeCommitted(treeToCommit);
+                                LedgerOrchestrator.NotifyLedgerTreeCommitted(treeToCommit);
                                 ScreenMessages.PostScreenMessage("[Parsek] Tree recording committed to timeline", 5f);
                             }
                         }
@@ -743,7 +741,7 @@ namespace Parsek
                             rec.VesselSnapshot = null;
                         }
                         RecordingStore.CommitPendingTree();
-                        NotifyLedgerTreeCommitted(pt);
+                        LedgerOrchestrator.NotifyLedgerTreeCommitted(pt);
                         ScenarioLog($"[Parsek Scenario] Auto-committed pending tree outside Flight " +
                             $"(scene: {HighLogic.LoadedScene})");
                     }
@@ -862,7 +860,6 @@ namespace Parsek
             // scene may still be alive during OnLoad; we must yield at least one frame
             // so the new scene's Funding/R&D/Reputation/Planetarium are initialized).
             // Setting UT before LoadScene does NOT work — scene transition overwrites it.
-            resourceTickingSuspended = true;
             StartCoroutine(ApplyRewindResourceAdjustment());
             ParsekLog.Info("Rewind",
                 "OnLoad: resource + UT adjustment deferred (waiting for new scene singletons)");
@@ -1068,36 +1065,13 @@ namespace Parsek
             {
                 ParsekLog.Verbose("Scenario",
                     $"Budget deduction already applied for epoch {budgetDeductionEpoch} (current={MilestoneStore.CurrentEpoch})");
-                resourceTickingSuspended = false;
+    
                 yield break;
             }
             budgetDeductionEpoch = MilestoneStore.CurrentEpoch;
 
-            // DISABLED: replaced by LedgerOrchestrator
-            // var budget = ResourceBudget.ComputeTotal(
-            //     RecordingStore.CommittedRecordings,
-            //     MilestoneStore.Milestones,
-            //     RecordingStore.CommittedTrees);
-            //
-            // if (budget.reservedFunds <= 0 && budget.reservedScience <= 0
-            //     && budget.reservedReputation <= 0)
-            // {
-            //     ParsekLog.Verbose("Scenario", "No committed budget to deduct on revert — all zero");
-            //     resourceTickingSuspended = false;
-            //     yield break;
-            // }
-            //
-            // ParsekLog.Info("Scenario",
-            //     $"Budget deduction starting for epoch {MilestoneStore.CurrentEpoch}: " +
-            //     $"funds={budget.reservedFunds:F0}, science={budget.reservedScience:F1}, rep={budget.reservedReputation:F1}");
-            //
-            // ResourceApplicator.DeductBudget(budget, RecordingStore.CommittedRecordings, RecordingStore.CommittedTrees);
-            //
-            // // Replay committed actions (tech, parts, facilities, crew) before resuming ticking
-            // ActionReplay.ReplayCommittedActions(MilestoneStore.Milestones);
-
             LedgerOrchestrator.RecalculateAndPatch();
-            resourceTickingSuspended = false;
+
         }
 
         /// <summary>
@@ -1145,51 +1119,12 @@ namespace Parsek
                        || Reputation.Instance == null))
                 yield return null;
 
-            // DISABLED: replaced by LedgerOrchestrator
-            // ResourceApplicator.CorrectToBaseline(baselineFunds, baselineScience, baselineRep);
-            //
-            // // Replay committed actions (tech, parts, facilities, crew).
-            // // Always runs regardless of game mode — tech unlocks and facility upgrades
-            // // exist in science mode too. Pass rewindUT to skip events after the rewind point.
-            // ActionReplay.ReplayCommittedActions(MilestoneStore.Milestones, rewindUT);
-
             LedgerOrchestrator.RecalculateAndPatch();
 
             // Belt-and-suspenders epoch guard
             budgetDeductionEpoch = MilestoneStore.CurrentEpoch;
-            resourceTickingSuspended = false;
+
         }
-
-        #endregion
-
-        #region Resource Ticking
-
-        /// <summary>
-        /// Ticks resource deltas for committed recordings in non-Flight scenes.
-        /// Flight scene is handled by ParsekFlight.UpdateTimelinePlayback.
-        /// </summary>
-        private void Update()
-        {
-            if (HighLogic.LoadedScene == GameScenes.FLIGHT)
-                return;
-
-            if (resourceTickingSuspended)
-            {
-                ParsekLog.VerboseRateLimited("Scenario", "UpdateSuspended",
-                    "Update: resource ticking suspended (waiting for coroutine)");
-                return;
-            }
-
-            if (Funding.Instance == null && ResearchAndDevelopment.Instance == null
-                && Reputation.Instance == null)
-                return;
-
-            // DISABLED: replaced by LedgerOrchestrator
-            // double currentUT = Planetarium.GetUniversalTime();
-            // ResourceApplicator.TickStandalone(RecordingStore.CommittedRecordings, currentUT);
-            // ResourceApplicator.TickTrees(RecordingStore.CommittedTrees, currentUT);
-        }
-
 
         #endregion
 
@@ -1990,18 +1925,6 @@ namespace Parsek
         }
 
         #region Vessel Lifecycle Events
-
-        /// <summary>
-        /// Notifies the ledger orchestrator about each recording in a committed tree.
-        /// </summary>
-        private static void NotifyLedgerTreeCommitted(RecordingTree tree)
-        {
-            if (tree == null) return;
-            foreach (var rec in tree.Recordings.Values)
-            {
-                LedgerOrchestrator.OnRecordingCommitted(rec.RecordingId, rec.StartUT, rec.EndUT);
-            }
-        }
 
         /// <summary>
         /// Prepares a standalone pending recording for ghost-only commit (no vessel spawn).

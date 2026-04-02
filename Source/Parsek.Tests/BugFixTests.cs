@@ -747,51 +747,6 @@ namespace Parsek.Tests
 
     #endregion
 
-    #region Budget deduction clamping
-
-    public class ClampDeductionTests
-    {
-        [Fact]
-        public void ClampDeduction_ReservedLessThanAvailable_ReturnsReserved()
-        {
-            Assert.Equal(100.0, ResourceApplicator.ClampDeduction(100.0, 500.0));
-        }
-
-        [Fact]
-        public void ClampDeduction_ReservedExceedsAvailable_ClampsToAvailable()
-        {
-            // Bug: science 1.6 available, 5.0 reserved → should clamp to 1.6, not 5.0
-            Assert.Equal(1.6, ResourceApplicator.ClampDeduction(5.0, 1.6), precision: 10);
-        }
-
-        [Fact]
-        public void ClampDeduction_AvailableIsZero_ReturnsZero()
-        {
-            Assert.Equal(0.0, ResourceApplicator.ClampDeduction(100.0, 0.0));
-        }
-
-        [Fact]
-        public void ClampDeduction_AvailableIsNegative_ReturnsZero()
-        {
-            // If balance is already negative, don't deduct anything
-            Assert.Equal(0.0, ResourceApplicator.ClampDeduction(50.0, -10.0));
-        }
-
-        [Fact]
-        public void ClampDeduction_ReservedEqualsAvailable_ReturnsExact()
-        {
-            Assert.Equal(42.0, ResourceApplicator.ClampDeduction(42.0, 42.0));
-        }
-
-        [Fact]
-        public void ClampDeduction_ZeroReserved_ReturnsZero()
-        {
-            Assert.Equal(0.0, ResourceApplicator.ClampDeduction(0.0, 500.0));
-        }
-    }
-
-    #endregion
-
     #region Degraded tree detection
 
     public class DegradedTreeTests

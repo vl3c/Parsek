@@ -56,7 +56,7 @@ Items identified during design that are out of scope for the initial implementat
 **What:** How the ledger associates a rescue recording with a stranded kerbal. Requires the recording system to detect docking with or picking up a stranded kerbal.
 **Why deferred:** Requires cross-system integration between recording system and kerbals module. Complex edge case.
 **Revisit when:** Kerbals module basic reservation is working and stranded state is implemented.
-**Status:** Open
+**Status:** Scaffolded — requires recording system integration to detect docking with stranded kerbals. Placeholder added in GameStateEventConverter.cs (Phase 8, Task 34).
 
 ---
 
@@ -157,6 +157,8 @@ Items identified during design that are out of scope for the initial implementat
 **Revisit when:** Implementing earning-side capture (remaining Phase 6 work).
 **Status:** Open
 
+**Note (Phase 8):** Milestone fund/rep rewards also lack explicit capture. `OnProgressComplete` fires post-reward with no pre-event snapshot, so `MilestoneAchieved` events record 0 for funds/rep. The rewards flow through `FundsChanged`/`ReputationChanged` callbacks instead, which are aggregate deltas. Proper milestone reward capture requires either a Harmony prefix on the reward application method or a snapshot-delta approach around `OnProgressComplete`.
+
 ---
 
 ### D18. Vessel Recovery Funds Capture
@@ -173,7 +175,7 @@ Items identified during design that are out of scope for the initial implementat
 **What:** Mid-career Parsek install wipes science and reputation to 0. Need `ScienceInitial` and `ReputationInitial` action types.
 **Why deferred:** Only affects first-time install on existing saves. Funds seeding works correctly.
 **Revisit when:** Before first release to players.
-**Status:** Open — CRITICAL for release
+**Status:** Done — `ScienceInitial` (enum 21) and `ReputationInitial` (enum 22) action types added. Seeded in `LedgerOrchestrator.RecalculateAndPatch` alongside funds. Processed by `ScienceModule.ProcessScienceInitial` and `ReputationModule.ProcessReputationInitial`. Preserved during reconciliation.
 
 ---
 
@@ -182,7 +184,7 @@ Items identified during design that are out of scope for the initial implementat
 **What:** `ScienceModule` doesn't process `ContractComplete` actions. Science from contract completion is lost.
 **Why deferred:** Rare in stock KSP (few contracts award science). Easy fix.
 **Revisit when:** Before Career mode testing.
-**Status:** Open
+**Status:** Done — `ScienceModule.ProcessContractScienceReward` added. Uses `TransformedScienceReward` (post-strategy), only processes when `Effective=true`.
 
 ---
 
@@ -191,7 +193,7 @@ Items identified during design that are out of scope for the initial implementat
 **What:** `KspStatePatcher.PatchFacilities` only patches levels, not destroyed/repaired state.
 **Why deferred:** Requires `DestructibleBuilding` API investigation for programmatic destruction/repair.
 **Revisit when:** Implementing warp visual updates.
-**Status:** Open
+**Status:** Done — `PatchDestructionState` added to KspStatePatcher. Collects DestructibleBuilding objects once, matches by facility ID, calls Demolish()/Repair() as needed.
 
 ---
 

@@ -3639,14 +3639,6 @@ namespace Parsek
                 return;
             }
 
-            // DISABLED: replaced by LedgerOrchestrator
-            // var reserved = ResourceBudget.ComputeTotalFullCost(
-            //     RecordingStore.CommittedRecordings,
-            //     MilestoneStore.Milestones,
-            //     RecordingStore.CommittedTrees);
-            // RewindReservedFunds = reserved.reservedFunds;
-            // RewindReservedScience = reserved.reservedScience;
-            // RewindReservedRep = (float)reserved.reservedReputation;
             RewindReservedFunds = 0;
             RewindReservedScience = 0;
             RewindReservedRep = 0;

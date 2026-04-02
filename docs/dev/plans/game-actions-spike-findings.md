@@ -80,6 +80,8 @@ Same bug affects `TickStandalone` (line 58), `TickTrees` (line 146), `DeductBudg
 
 **Impact:** This is a pre-existing bug in the current system, not introduced by game actions work. Should be fixed independently.
 
+**Status:** Fixed — all 4 callsites in `ResourceApplicator` now use `SetReputation` with pre-computed target values instead of `AddReputation` with deltas.
+
 ### Proposed Pure Function
 
 ```csharp

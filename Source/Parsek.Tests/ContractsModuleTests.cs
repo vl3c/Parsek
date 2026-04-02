@@ -374,6 +374,216 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void Fail_LogsContractIdAndPenalty()
+        {
+            module.ProcessAction(MakeAccept("c1"));
+            logLines.Clear();
+
+            module.ProcessAction(MakeFail("c1", ut: 800,
+                fundsPenalty: 10000f, repPenalty: 5f));
+
+            Assert.Contains(logLines, l =>
+                l.Contains("[Contracts]") && l.Contains("Fail") &&
+                l.Contains("c1") && l.Contains("wasActive=True"));
+        }
+
+        [Fact]
+        public void Cancel_LogsContractIdAndPenalty()
+        {
+            module.ProcessAction(MakeAccept("c1"));
+            logLines.Clear();
+
+            module.ProcessAction(MakeCancel("c1", ut: 400,
+                fundsPenalty: 3000f, repPenalty: 2f));
+
+            Assert.Contains(logLines, l =>
+                l.Contains("[Contracts]") && l.Contains("Cancel") &&
+                l.Contains("c1") && l.Contains("wasActive=True"));
+        }
+
+        [Fact]
+        public void Accept_Duplicate_LogsWarning()
+        {
+            module.ProcessAction(MakeAccept("c1"));
+            logLines.Clear();
+
+            module.ProcessAction(MakeAccept("c1", ut: 200));
+
+            Assert.Contains(logLines, l =>
+                l.Contains("[Contracts]") &&
+                l.Contains("already active") &&
+                l.Contains("c1"));
+        }
+
+        [Fact]
+        public void Complete_LogsSlotFreed()
+        {
+            module.ProcessAction(MakeAccept("c1"));
+            logLines.Clear();
+
+            module.ProcessAction(MakeComplete("c1"));
+
+            Assert.Contains(logLines, l =>
+                l.Contains("[Contracts]") &&
+                l.Contains("slot freed") &&
+                l.Contains("c1") &&
+                l.Contains("wasActive=True"));
+        }
+
+        [Fact]
+        public void Reset_LogsClearedCounts()
+        {
+            module.ProcessAction(MakeAccept("c1"));
+            module.ProcessAction(MakeComplete("c1"));
+            logLines.Clear();
+
+            module.Reset();
+
+            Assert.Contains(logLines, l =>
+                l.Contains("[Contracts]") &&
+                l.Contains("Reset") &&
+                l.Contains("cleared") &&
+                l.Contains("1 credited"));
+        }
+
+        [Fact]
+        public void SetMaxSlots_LogsNewValue()
+        {
+            logLines.Clear();
+
+            module.SetMaxSlots(5);
+
+            Assert.Contains(logLines, l =>
+                l.Contains("[Contracts]") &&
+                l.Contains("SetMaxSlots") &&
+                l.Contains("maxSlots=5"));
+        }
+
+        // ================================================================
+        // Deadline failure generation tests
+        // ================================================================
+
+        [Fact]
+        public void DeadlineExpired_FreesSlot()
+        {
+            // Contract accepted at UT=100 with deadline at UT=500.
+            // Next action at UT=600 triggers deadline check — contract auto-expires.
+            module.SetMaxSlots(3);
+
+            var accept = MakeAccept("c1", ut: 100, deadlineUT: 500f);
+            module.ProcessAction(accept);
+
+            Assert.Equal(1, module.GetActiveContractCount());
+            Assert.Equal(2, module.GetAvailableSlots());
+
+            // Process any action past the deadline
+            module.ProcessAction(new GameAction
+            {
+                Type = GameActionType.FundsEarning,
+                UT = 600,
+                FundsAwarded = 1000f
+            });
+
+            Assert.Equal(0, module.GetActiveContractCount());
+            Assert.Equal(3, module.GetAvailableSlots());
+
+            Assert.Contains(logLines, l =>
+                l.Contains("[Contracts]") && l.Contains("DeadlineExpired") &&
+                l.Contains("c1") && l.Contains("slot freed"));
+        }
+
+        [Fact]
+        public void DeadlineNaN_NeverExpires()
+        {
+            // Contract with NaN deadline should never auto-expire.
+            module.SetMaxSlots(3);
+
+            var accept = MakeAccept("c1", ut: 100, deadlineUT: float.NaN);
+            module.ProcessAction(accept);
+
+            Assert.Equal(1, module.GetActiveContractCount());
+
+            // Process action at very high UT — contract should remain active
+            module.ProcessAction(new GameAction
+            {
+                Type = GameActionType.FundsEarning,
+                UT = 999999,
+                FundsAwarded = 1000f
+            });
+
+            Assert.Equal(1, module.GetActiveContractCount());
+        }
+
+        [Fact]
+        public void CompletedBeforeDeadline_NoExpiration()
+        {
+            // Contract completed before its deadline should not trigger expiration.
+            module.SetMaxSlots(3);
+
+            var accept = MakeAccept("c1", ut: 100, deadlineUT: 500f);
+            module.ProcessAction(accept);
+
+            var complete = MakeComplete("c1", ut: 400);
+            module.ProcessAction(complete);
+
+            Assert.True(complete.Effective);
+            Assert.Equal(0, module.GetActiveContractCount());
+
+            logLines.Clear();
+
+            // Process action past the deadline — no expiration should fire
+            module.ProcessAction(new GameAction
+            {
+                Type = GameActionType.FundsEarning,
+                UT = 600,
+                FundsAwarded = 1000f
+            });
+
+            Assert.Equal(0, module.GetActiveContractCount());
+            Assert.DoesNotContain(logLines, l => l.Contains("DeadlineExpired"));
+        }
+
+        [Fact]
+        public void DeadlineExpired_CheckDeadlinesReturnsExpiredIds()
+        {
+            // Verify CheckDeadlines returns the expired contract IDs.
+            module.SetMaxSlots(5);
+
+            module.ProcessAction(MakeAccept("c1", ut: 100, deadlineUT: 300f));
+            module.ProcessAction(MakeAccept("c2", ut: 100, deadlineUT: 400f));
+            module.ProcessAction(MakeAccept("c3", ut: 100, deadlineUT: 600f));
+
+            Assert.Equal(3, module.GetActiveContractCount());
+
+            var expired = module.CheckDeadlines(500);
+
+            Assert.Equal(2, expired.Count);
+            Assert.Contains("c1", expired);
+            Assert.Contains("c2", expired);
+            // c3 should still be active (deadline=600 > currentUT=500)
+            Assert.Equal(1, module.GetActiveContractCount());
+        }
+
+        [Fact]
+        public void DeadlineExpired_LogsExpiration()
+        {
+            module.SetMaxSlots(3);
+
+            module.ProcessAction(MakeAccept("orbit-mun", ut: 100, deadlineUT: 500f));
+            logLines.Clear();
+
+            module.CheckDeadlines(600);
+
+            Assert.Contains(logLines, l =>
+                l.Contains("[Contracts]") && l.Contains("DeadlineExpired") &&
+                l.Contains("orbit-mun") && l.Contains("currentUT=600"));
+        }
+
+        // ================================================================
+        // Log assertion tests (continued)
+        // ================================================================
+
+        [Fact]
         public void DuplicateComplete_LogsNotEffective()
         {
             module.ProcessAction(MakeAccept("c1"));

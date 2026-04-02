@@ -1,5 +1,6 @@
 using System;
 using System.Globalization;
+using Contracts;
 
 namespace Parsek
 {
@@ -32,6 +33,8 @@ namespace Parsek
                 PatchFunds(funds);
                 PatchReputation(reputation);
                 PatchFacilities(facilities);
+                PatchMilestones(milestones);
+                PatchContracts();
 
                 ParsekLog.Info(Tag, "PatchAll complete");
             }
@@ -69,17 +72,22 @@ namespace Parsek
             if (Math.Abs(delta) < 0.001f)
             {
                 ParsekLog.Verbose(Tag,
-                    $"PatchScience: no change needed (current={currentScience.ToString("F1", IC)}, " +
+                    $"PatchScience: balance unchanged (current={currentScience.ToString("F1", IC)}, " +
                     $"target={targetScience.ToString("F1", IC)})");
-                return;
+            }
+            else
+            {
+                ResearchAndDevelopment.Instance.AddScience(delta, TransactionReasons.None);
+
+                float afterScience = ResearchAndDevelopment.Instance.Science;
+                ParsekLog.Info(Tag,
+                    $"PatchScience: {currentScience.ToString("F1", IC)} -> {afterScience.ToString("F1", IC)} " +
+                    $"(delta={delta.ToString("F1", IC)}, target={targetScience.ToString("F1", IC)})");
             }
 
-            ResearchAndDevelopment.Instance.AddScience(delta, TransactionReasons.None);
-
-            float afterScience = ResearchAndDevelopment.Instance.Science;
-            ParsekLog.Info(Tag,
-                $"PatchScience: {currentScience.ToString("F1", IC)} -> {afterScience.ToString("F1", IC)} " +
-                $"(delta={delta.ToString("F1", IC)}, target={targetScience.ToString("F1", IC)})");
+            // Always patch per-subject credited totals — individual subjects may have changed
+            // even when the total balance is unchanged (e.g., one experiment reverted, another added)
+            PatchPerSubjectScience(science);
         }
 
         /// <summary>
@@ -166,7 +174,7 @@ namespace Parsek
         /// Patches KSP's facility levels to match the module's derived state.
         /// Reads from ScenarioUpgradeableFacilities.protoUpgradeables and sets
         /// levels via UpgradeableFacility.SetLevel, following the same pattern
-        /// as ActionReplay.ReplayFacilityUpgrade.
+        /// as the old ActionReplay.ReplayFacilityUpgrade (now removed).
         /// No-op if protoUpgradeables is null.
         /// </summary>
         internal static void PatchFacilities(FacilitiesModule facilities)
@@ -228,10 +236,199 @@ namespace Parsek
             }
 
             ParsekLog.Info(Tag,
-                $"PatchFacilities: patched={patchedCount.ToString(IC)}, " +
+                $"PatchFacilities: levels patched={patchedCount.ToString(IC)}, " +
                 $"skipped={skippedCount.ToString(IC)}, " +
                 $"notFound={notFoundCount.ToString(IC)}, " +
                 $"total={allFacilities.Count}");
+
+            // Patch destruction state via DestructibleBuilding components.
+            // Collect all destructibles once (expensive FindObjectsOfType call),
+            // then match against facility states that have destruction data.
+            PatchDestructionState(allFacilities);
+        }
+
+        /// <summary>
+        /// Patches DestructibleBuilding components to match the module's destroyed/intact state.
+        /// Collects all DestructibleBuilding objects once, then iterates facilities to find matches.
+        /// Uses exact ID matching between FacilityId and DestructibleBuilding.id.
+        /// No-op if no DestructibleBuilding objects are found (e.g. not in KSC scene).
+        /// </summary>
+        internal static void PatchDestructionState(
+            System.Collections.Generic.IReadOnlyDictionary<string, FacilitiesModule.FacilityState> allFacilities)
+        {
+            var destructibles = UnityEngine.Object.FindObjectsOfType<DestructibleBuilding>();
+            if (destructibles == null || destructibles.Length == 0)
+            {
+                ParsekLog.Verbose(Tag,
+                    "PatchDestructionState: no DestructibleBuilding objects found (not in KSC scene?) — skipping");
+                return;
+            }
+
+            // Build a lookup from building id to DestructibleBuilding for efficient matching
+            var buildingById = new System.Collections.Generic.Dictionary<string, DestructibleBuilding>(
+                destructibles.Length);
+            foreach (var db in destructibles)
+            {
+                if (db != null && !string.IsNullOrEmpty(db.id))
+                    buildingById[db.id] = db;
+            }
+
+            int demolishedCount = 0;
+            int repairedCount = 0;
+            int matchedCount = 0;
+            int noMatchCount = 0;
+
+            foreach (var kvp in allFacilities)
+            {
+                string facilityId = kvp.Key;
+                var state = kvp.Value;
+
+                DestructibleBuilding db;
+                if (buildingById.TryGetValue(facilityId, out db))
+                {
+                    matchedCount++;
+
+                    if (state.Destroyed && !db.IsDestroyed)
+                    {
+                        db.Demolish();
+                        demolishedCount++;
+                        ParsekLog.Verbose(Tag,
+                            $"PatchDestructionState: demolished '{db.id}'");
+                    }
+                    else if (!state.Destroyed && db.IsDestroyed)
+                    {
+                        db.Repair();
+                        repairedCount++;
+                        ParsekLog.Verbose(Tag,
+                            $"PatchDestructionState: repaired '{db.id}'");
+                    }
+                }
+                else
+                {
+                    noMatchCount++;
+                }
+            }
+
+            ParsekLog.Info(Tag,
+                $"PatchDestructionState: demolished={demolishedCount.ToString(IC)}, " +
+                $"repaired={repairedCount.ToString(IC)}, " +
+                $"matched={matchedCount.ToString(IC)}, " +
+                $"noMatch={noMatchCount.ToString(IC)}, " +
+                $"buildings={buildingById.Count}, " +
+                $"facilities={allFacilities.Count}");
+        }
+
+        /// <summary>
+        /// Patches per-subject credited totals in KSP's R&amp;D system to match the module's
+        /// derived state. After rewind, the Science Archive must show correct per-subject progress.
+        /// Updates both the credited science and the scientific value (diminishing returns factor).
+        /// No-op if ResearchAndDevelopment.Instance is null (sandbox mode).
+        /// </summary>
+        internal static void PatchPerSubjectScience(ScienceModule science)
+        {
+            if (science == null)
+            {
+                ParsekLog.Warn(Tag, "PatchPerSubjectScience: null ScienceModule — skipping");
+                return;
+            }
+
+            if (ResearchAndDevelopment.Instance == null)
+            {
+                ParsekLog.Verbose(Tag,
+                    "PatchPerSubjectScience: ResearchAndDevelopment.Instance is null — skipping");
+                return;
+            }
+
+            var subjects = science.GetAllSubjects();
+            int patchedSubjects = 0;
+            int skippedSubjects = 0;
+            int notFoundSubjects = 0;
+
+            foreach (var kvp in subjects)
+            {
+                var kspSubject = ResearchAndDevelopment.GetSubjectByID(kvp.Key);
+                if (kspSubject == null)
+                {
+                    notFoundSubjects++;
+                    continue;
+                }
+
+                float targetScience = (float)kvp.Value.CreditedTotal;
+                if (Math.Abs(kspSubject.science - targetScience) > 0.001f)
+                {
+                    kspSubject.science = targetScience;
+                    if (kspSubject.scienceCap > 0f)
+                        kspSubject.scientificValue = 1f - (targetScience / kspSubject.scienceCap);
+                    else
+                        kspSubject.scientificValue = 0f;
+                    if (kspSubject.scientificValue < 0f) kspSubject.scientificValue = 0f;
+                    patchedSubjects++;
+                }
+                else
+                {
+                    skippedSubjects++;
+                }
+            }
+
+            ParsekLog.Info(Tag,
+                $"PatchPerSubjectScience: patched={patchedSubjects.ToString(IC)}, " +
+                $"skipped={skippedSubjects.ToString(IC)}, " +
+                $"notFound={notFoundSubjects.ToString(IC)}, " +
+                $"totalSubjects={subjects.Count}");
+        }
+
+        /// <summary>
+        /// Scaffold for milestone state patching. Full implementation requires iterating
+        /// the ProgressNode tree and setting achieved flags based on MilestonesModule state,
+        /// which needs a mapping between MilestoneId strings and ProgressNode.Id values.
+        /// For now, logs the milestone count for diagnostics.
+        /// </summary>
+        internal static void PatchMilestones(MilestonesModule milestones)
+        {
+            if (milestones == null)
+            {
+                ParsekLog.Warn(Tag, "PatchMilestones: null module — skipping");
+                return;
+            }
+
+            if (ProgressTracking.Instance == null)
+            {
+                ParsekLog.Verbose(Tag, "PatchMilestones: ProgressTracking.Instance is null — skipping");
+                return;
+            }
+
+            // Note: ProgressTracking.Instance nodes represent milestones.
+            // Full milestone patching requires iterating ProgressNode tree and
+            // setting achieved flags based on MilestonesModule.IsMilestoneCredited().
+            // This is complex and requires mapping between MilestoneId strings and
+            // ProgressNode.Id values. For now, log the milestone count for diagnostics.
+            ParsekLog.Info(Tag,
+                $"PatchMilestones: {milestones.GetCreditedCount().ToString(IC)} milestones credited " +
+                $"(ProgressTracking patching deferred — requires ProgressNode tree mapping)");
+        }
+
+        /// <summary>
+        /// Scaffold for contract state patching. Full implementation requires
+        /// type-registry subclass instantiation per Spike B findings — contract types
+        /// are subclasses of Contract and cannot be generically recreated from ConfigNode.
+        /// Logs a diagnostic message. See deferred item D3.
+        /// </summary>
+        internal static void PatchContracts()
+        {
+            if (ContractSystem.Instance == null)
+            {
+                ParsekLog.Verbose(Tag,
+                    "PatchContracts: ContractSystem.Instance is null — skipping");
+                return;
+            }
+
+            int activeCount = ContractSystem.Instance.Contracts != null
+                ? ContractSystem.Instance.Contracts.Count
+                : 0;
+
+            ParsekLog.Info(Tag,
+                $"PatchContracts: {activeCount.ToString(IC)} active contracts in KSP " +
+                $"(contract patching deferred — requires type-registry subclass instantiation)");
         }
     }
 }
