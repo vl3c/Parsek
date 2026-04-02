@@ -102,13 +102,6 @@ namespace Parsek.Patches
                             5f, ScreenMessageStyle.UPPER_CENTER);
                         ParsekLog.Info("GhostMap", $"Ghost '{vesselName}' watch refused — different SOI (recIndex={recIndex})");
                     }
-                    else if (!flight.IsGhostWithinVisualRange(recIndex))
-                    {
-                        ScreenMessages.PostScreenMessage(
-                            $"<b>{vesselName}</b> — ghost is too far away to watch.",
-                            5f, ScreenMessageStyle.UPPER_CENTER);
-                        ParsekLog.Info("GhostMap", $"Ghost '{vesselName}' watch refused — out of range (recIndex={recIndex})");
-                    }
                     else
                     {
                         flight.EnterWatchMode(recIndex);

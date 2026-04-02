@@ -2287,7 +2287,13 @@ Add focus-on-double-click for ghost map icons. Also add "Focus" option to the gh
 
 **Status:** Fixed (0.5.3)
 
-## 195. Ghost icon popup window should appear next to cursor
+## 195. Ghost orbit not visible in tracking station
+
+Ghost ProtoVessels cause NRE in `SpaceTracking.buildVesselsList` — the ghost is missing internal state fields KSP expects. The NRE is suppressed by a Harmony Finalizer (returning null) but the ghost's mapObject and orbitRenderer are never created (`mapObj=False orbitRenderer=False`). Root cause: `pv.Load()` in tracking station doesn't create map objects — those are created by `buildVesselsList` which fails on the ghost. Need to either fix the ghost ProtoVessel to be fully compatible with `buildVesselsList`, or create the map objects manually after Load.
+
+**Status:** TODO — needs deeper investigation
+
+## 196. Ghost icon popup window should appear next to cursor
 
 The popup spawned via `PopupDialog.SpawnPopupDialog` consistently appears at screen center or offset despite attempts to reposition via `CanvasUtil.ScreenToUISpacePos`. KSP's `SpawnPopupDialog` forces `localPosition=Vector3.zero` after anchor setup. Need to use the same approach as KSP's `MapContextMenu`: anchor at (0,0), then set `localPosition` via `CanvasUtil.ScreenToUISpacePos` with `CanvasUtil.AnchorOffset`. May require accessing `PopupDialogController.PopupDialogCanvas` for the correct canvas RectTransform.
 
