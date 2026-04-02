@@ -231,5 +231,213 @@ namespace Parsek.Tests
 
             Assert.Equal(firstScience, secondScience, 5);
         }
+
+        // ================================================================
+        // CreateVesselCostActions
+        // ================================================================
+
+        [Fact]
+        public void CreateVesselCostActions_WithBuildCost_ProducesFundsSpendingAction()
+        {
+            var rec = new Recording
+            {
+                RecordingId = "rec-build-cost",
+                PreLaunchFunds = 50000.0
+            };
+            rec.Points.Add(new TrajectoryPoint { ut = 100.0, funds = 40000.0 });
+            rec.Points.Add(new TrajectoryPoint { ut = 200.0, funds = 39500.0 });
+            RecordingStore.ResetForTesting();
+            RecordingStore.AddCommittedForTesting(rec);
+
+            var actions = LedgerOrchestrator.CreateVesselCostActions("rec-build-cost", 100.0, 200.0);
+
+            Assert.Single(actions);
+            Assert.Equal(GameActionType.FundsSpending, actions[0].Type);
+            Assert.Equal(FundsSpendingSource.VesselBuild, actions[0].FundsSpendingSource);
+            Assert.Equal(10000f, actions[0].FundsSpent, 1);
+            Assert.Equal(100.0, actions[0].UT);
+            Assert.Equal("rec-build-cost", actions[0].RecordingId);
+
+            Assert.Contains(logLines, l =>
+                l.Contains("[LedgerOrchestrator]") && l.Contains("vessel build cost=10000"));
+
+            RecordingStore.ResetForTesting();
+        }
+
+        [Fact]
+        public void CreateVesselCostActions_WithRecovery_ProducesFundsEarningAction()
+        {
+            var rec = new Recording
+            {
+                RecordingId = "rec-recovery",
+                PreLaunchFunds = 50000.0,
+                TerminalStateValue = TerminalState.Recovered
+            };
+            rec.Points.Add(new TrajectoryPoint { ut = 100.0, funds = 40000.0 });
+            rec.Points.Add(new TrajectoryPoint { ut = 200.0, funds = 40000.0 });
+            rec.Points.Add(new TrajectoryPoint { ut = 300.0, funds = 47000.0 });
+            RecordingStore.ResetForTesting();
+            RecordingStore.AddCommittedForTesting(rec);
+
+            var actions = LedgerOrchestrator.CreateVesselCostActions("rec-recovery", 100.0, 300.0);
+
+            // Should produce both build cost (50000-40000=10000) and recovery (47000-40000=7000)
+            Assert.Equal(2, actions.Count);
+
+            var buildAction = actions[0];
+            Assert.Equal(GameActionType.FundsSpending, buildAction.Type);
+            Assert.Equal(FundsSpendingSource.VesselBuild, buildAction.FundsSpendingSource);
+            Assert.Equal(10000f, buildAction.FundsSpent, 1);
+
+            var recoveryAction = actions[1];
+            Assert.Equal(GameActionType.FundsEarning, recoveryAction.Type);
+            Assert.Equal(FundsEarningSource.Recovery, recoveryAction.FundsSource);
+            Assert.Equal(7000f, recoveryAction.FundsAwarded, 1);
+            Assert.Equal(300.0, recoveryAction.UT);
+            Assert.Equal("rec-recovery", recoveryAction.RecordingId);
+
+            Assert.Contains(logLines, l =>
+                l.Contains("[LedgerOrchestrator]") && l.Contains("recovery funds=7000"));
+
+            RecordingStore.ResetForTesting();
+        }
+
+        [Fact]
+        public void CreateVesselCostActions_NoResourceDelta_ProducesNoActions()
+        {
+            var rec = new Recording
+            {
+                RecordingId = "rec-no-delta",
+                PreLaunchFunds = 40000.0
+            };
+            rec.Points.Add(new TrajectoryPoint { ut = 100.0, funds = 40000.0 });
+            rec.Points.Add(new TrajectoryPoint { ut = 200.0, funds = 40000.0 });
+            RecordingStore.ResetForTesting();
+            RecordingStore.AddCommittedForTesting(rec);
+
+            var actions = LedgerOrchestrator.CreateVesselCostActions("rec-no-delta", 100.0, 200.0);
+
+            Assert.Empty(actions);
+
+            RecordingStore.ResetForTesting();
+        }
+
+        [Fact]
+        public void CreateVesselCostActions_RecordingNotFound_ReturnsEmpty()
+        {
+            RecordingStore.ResetForTesting();
+
+            var actions = LedgerOrchestrator.CreateVesselCostActions("nonexistent-id", 100.0, 200.0);
+
+            Assert.Empty(actions);
+            Assert.Contains(logLines, l =>
+                l.Contains("[LedgerOrchestrator]") && l.Contains("not found in CommittedRecordings"));
+        }
+
+        [Fact]
+        public void CreateVesselCostActions_EmptyPoints_ReturnsEmpty()
+        {
+            var rec = new Recording
+            {
+                RecordingId = "rec-empty-pts",
+                PreLaunchFunds = 50000.0
+            };
+            RecordingStore.ResetForTesting();
+            RecordingStore.AddCommittedForTesting(rec);
+
+            var actions = LedgerOrchestrator.CreateVesselCostActions("rec-empty-pts", 100.0, 200.0);
+
+            Assert.Empty(actions);
+            Assert.Contains(logLines, l =>
+                l.Contains("[LedgerOrchestrator]") && l.Contains("has no points"));
+
+            RecordingStore.ResetForTesting();
+        }
+
+        [Fact]
+        public void CreateVesselCostActions_NotRecovered_NoRecoveryAction()
+        {
+            var rec = new Recording
+            {
+                RecordingId = "rec-orbiting",
+                PreLaunchFunds = 50000.0,
+                TerminalStateValue = TerminalState.Orbiting
+            };
+            rec.Points.Add(new TrajectoryPoint { ut = 100.0, funds = 40000.0 });
+            rec.Points.Add(new TrajectoryPoint { ut = 200.0, funds = 40000.0 });
+            RecordingStore.ResetForTesting();
+            RecordingStore.AddCommittedForTesting(rec);
+
+            var actions = LedgerOrchestrator.CreateVesselCostActions("rec-orbiting", 100.0, 200.0);
+
+            // Build cost only, no recovery
+            Assert.Single(actions);
+            Assert.Equal(GameActionType.FundsSpending, actions[0].Type);
+            Assert.Equal(FundsSpendingSource.VesselBuild, actions[0].FundsSpendingSource);
+
+            RecordingStore.ResetForTesting();
+        }
+
+        [Fact]
+        public void CreateVesselCostActions_RecoveredSinglePoint_NoRecoveryAction()
+        {
+            // Recovery requires >= 2 points to compute delta
+            var rec = new Recording
+            {
+                RecordingId = "rec-single-pt",
+                PreLaunchFunds = 50000.0,
+                TerminalStateValue = TerminalState.Recovered
+            };
+            rec.Points.Add(new TrajectoryPoint { ut = 100.0, funds = 47000.0 });
+            RecordingStore.ResetForTesting();
+            RecordingStore.AddCommittedForTesting(rec);
+
+            var actions = LedgerOrchestrator.CreateVesselCostActions("rec-single-pt", 100.0, 100.0);
+
+            // Build cost only (50000-47000=3000), no recovery (need 2+ points)
+            Assert.Single(actions);
+            Assert.Equal(GameActionType.FundsSpending, actions[0].Type);
+            Assert.Equal(3000f, actions[0].FundsSpent, 1);
+
+            RecordingStore.ResetForTesting();
+        }
+
+        // ================================================================
+        // FindRecordingById
+        // ================================================================
+
+        [Fact]
+        public void FindRecordingById_NullId_ReturnsNull()
+        {
+            Assert.Null(LedgerOrchestrator.FindRecordingById(null));
+            Assert.Null(LedgerOrchestrator.FindRecordingById(""));
+        }
+
+        [Fact]
+        public void FindRecordingById_ExistingId_ReturnsRecording()
+        {
+            var rec = new Recording { RecordingId = "rec-find-test" };
+            RecordingStore.ResetForTesting();
+            RecordingStore.AddCommittedForTesting(rec);
+
+            var found = LedgerOrchestrator.FindRecordingById("rec-find-test");
+
+            Assert.NotNull(found);
+            Assert.Equal("rec-find-test", found.RecordingId);
+
+            RecordingStore.ResetForTesting();
+        }
+
+        [Fact]
+        public void FindRecordingById_NonexistentId_ReturnsNull()
+        {
+            RecordingStore.ResetForTesting();
+
+            var found = LedgerOrchestrator.FindRecordingById("does-not-exist");
+
+            Assert.Null(found);
+
+            RecordingStore.ResetForTesting();
+        }
     }
 }
