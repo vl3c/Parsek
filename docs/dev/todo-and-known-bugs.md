@@ -2341,6 +2341,12 @@ Switching to a Parsek-spawned vessel (e.g., EVA kerbal on the Mun) triggers a FL
 
 **Status:** Fixed (0.5.3) — added `vesselSwitchPending` flag via `GameEvents.onVesselSwitching`. FLIGHT→FLIGHT transitions with the flag set are recognized as vessel switches and skip the strip/cleanup path.
 
+## 203. Green dot ghost markers at wrong positions near Mun after scene reload
+
+Two compounding issues: (1) `TerminalOrbitBody` is null on all recordings at load time — `HasOrbitData(Recording)` returns false for all 62 recordings, preventing ProtoVessel creation from the initial scan. Orbit segments exist at runtime but the terminal orbit metadata fields are never populated. (2) After FLIGHT→FLIGHT scene reload, ghost map vessel positions jump from Mun-relative (~11M m) to world-frame (~2B m) — the coordinate frame shifts during scene reload and positions aren't corrected.
+
+**Status:** TODO — needs investigation into why TerminalOrbitBody is never set, and coordinate frame correction after scene reload.
+
 ## 200. 128km trajectory discontinuity at environment transitions
 
 Environment hysteresis transitions (e.g., Atmospheric → ExoPropulsive at 70km) called `CloseCurrentTrackSection()` without first sampling a boundary point. The adaptive sampler may have skipped several seconds, leaving a multi-km gap between the last point of the old section and the first point of the new section. Same issue in `UpdateAnchorDetection` (3 sites). On-rails transitions were already correct.
