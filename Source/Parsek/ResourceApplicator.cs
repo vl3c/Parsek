@@ -53,9 +53,10 @@ namespace Parsek
 
                     if (repDelta != 0 && Reputation.Instance != null)
                     {
-                        if (repDelta < 0 && Reputation.CurrentRep + repDelta < 0)
-                            repDelta = -Reputation.CurrentRep;
-                        Reputation.Instance.AddReputation(repDelta, TransactionReasons.None);
+                        float newRep = Reputation.CurrentRep + repDelta;
+                        if (newRep < -1000f) newRep = -1000f;
+                        else if (newRep > 1000f) newRep = 1000f;
+                        Reputation.Instance.SetReputation(newRep, TransactionReasons.None);
                     }
                 }
                 finally
@@ -140,13 +141,13 @@ namespace Parsek
 
                     if (tree.DeltaReputation != 0 && Reputation.Instance != null)
                     {
-                        float delta = tree.DeltaReputation;
-                        if (delta < 0 && Reputation.CurrentRep + delta < 0)
-                            delta = -Reputation.CurrentRep;
-                        Reputation.Instance.AddReputation(delta, TransactionReasons.None);
+                        float newRep = Reputation.CurrentRep + tree.DeltaReputation;
+                        if (newRep < -1000f) newRep = -1000f;
+                        else if (newRep > 1000f) newRep = 1000f;
+                        Reputation.Instance.SetReputation(newRep, TransactionReasons.None);
                         var ic = CultureInfo.InvariantCulture;
                         ParsekLog.Info("Scenario",
-                            $"Tree resource tick: reputation {delta.ToString("+0.0;-0.0", ic)} (tree '{tree.TreeName}')");
+                            $"Tree resource tick: reputation {tree.DeltaReputation.ToString("+0.0;-0.0", ic)} (tree '{tree.TreeName}')");
                     }
                 }
                 finally
@@ -205,7 +206,8 @@ namespace Parsek
                 {
                     float repBefore = Reputation.Instance.reputation;
                     float repDeduction = (float)ClampDeduction(budget.reservedReputation, repBefore);
-                    Reputation.Instance.AddReputation(-repDeduction, TransactionReasons.None);
+                    float newRep = repBefore - repDeduction;
+                    Reputation.Instance.SetReputation(newRep, TransactionReasons.None);
                     ParsekLog.Info("Scenario",
                         $"Budget deduction: reputation {repBefore:F1} → {Reputation.Instance.reputation:F1} " +
                         $"(reserved={budget.reservedReputation:F1}, clamped={repDeduction:F1})");
@@ -296,7 +298,7 @@ namespace Parsek
                     if (scienceCorrection != 0)
                         ResearchAndDevelopment.Instance.AddScience((float)scienceCorrection, TransactionReasons.None);
                     if (repCorrection != 0)
-                        Reputation.Instance.AddReputation((float)repCorrection, TransactionReasons.None);
+                        Reputation.Instance.SetReputation(baselineRep, TransactionReasons.None);
                 }
                 finally
                 {
