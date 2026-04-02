@@ -622,6 +622,14 @@ namespace Parsek
             // They are applied separately by KSP's ProgressTracking system via
             // Funding/Reputation callbacks. We capture 0 here; the MilestonesModule
             // sets Effective flags correctly regardless.
+            //
+            // OnProgressComplete fires AFTER KSP has already applied the reward via
+            // Funding.Instance.AddFunds / Reputation.Instance.AddReputation. In theory
+            // we could compute the delta by comparing pre/post values, but we don't have
+            // a pre-event snapshot (no prefix hook). The reward amounts come from
+            // GameVariables.Instance.GetProgressFunds/Rep/Science() which vary by
+            // body, milestone type, and difficulty settings — too fragile to replicate.
+            // See deferred items D17/D18 for earning-side capture plans.
             var evt = new GameStateEvent
             {
                 ut = Planetarium.GetUniversalTime(),
