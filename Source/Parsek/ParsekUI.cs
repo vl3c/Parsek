@@ -1905,7 +1905,7 @@ namespace Parsek
                 if (mr.EndUT > chainEnd) chainEnd = mr.EndUT;
             }
 
-            if (GUILayout.Button($"{arrow} {chainName} ({members.Count} segments, {FormatDuration(chainEnd - chainStart)})",
+            if (GUILayout.Button($"{arrow} {chainName} ({members.Count})",
                 GUI.skin.label, GUILayout.ExpandWidth(true)))
             {
                 if (expanded) expandedChains.Remove(chainId);
@@ -1913,13 +1913,44 @@ namespace Parsek
                 ParsekLog.Verbose("UI", $"Chain '{chainName}' {(expanded ? "collapsed" : "expanded")} ({members.Count} segments)");
             }
 
-            // Chain G button
-            if (GUILayout.Button("G", GUILayout.Width(ColW_Group)))
+            // Phase placeholder (chains have no single phase)
+            GUILayout.Label("", GUILayout.Width(ColW_Phase));
+
+            // Launch time (earliest among chain members)
+            GUILayout.Label(chainStart < double.MaxValue
+                ? KSPUtil.PrintDateCompact(chainStart, true) : "-",
+                GUILayout.Width(ColW_Launch));
+
+            // Duration (total span)
+            GUILayout.Label(FormatDuration(chainEnd - chainStart), GUILayout.Width(ColW_Dur));
+
+            // Expanded stats spacers
+            if (showExpandedStats)
+            {
+                GUILayout.Label("", GUILayout.Width(ColW_MaxAlt));
+                GUILayout.Label("", GUILayout.Width(ColW_MaxSpd));
+                GUILayout.Label("", GUILayout.Width(ColW_Dist));
+                GUILayout.Label("", GUILayout.Width(ColW_Pts));
+            }
+
+            // Status (closest active among chain members)
+            string chainStatusText;
+            int chainStatusOrder;
+            GetChainStatus(members, committed, now, out chainStatusText, out chainStatusOrder);
+            GUIStyle chainStatusStyle = chainStatusOrder == 0 ? statusStyleFuture
+                : chainStatusOrder == 1 ? statusStyleActive
+                : statusStylePast;
+            GUILayout.Label(chainStatusText, chainStatusStyle, GUILayout.Width(ColW_Status));
+
+            // Chain G button (share ColW_Group width with X placeholder)
+            float halfGroup = (ColW_Group - 4f) * 0.5f;
+            if (GUILayout.Button("G", GUILayout.Width(halfGroup)))
             {
                 groupPopupPosition = GUIUtility.GUIToScreenPoint(Event.current.mousePosition);
                 OpenGroupPopupForChain(chainId);
                 ParsekLog.Verbose("UI", $"Group popup opened for chain '{chainName}'");
             }
+            GUILayout.Space(halfGroup + 4f);
 
             // Loop checkbox (aggregate over chain members)
             int chainLoopCount = 0;
@@ -2883,6 +2914,17 @@ namespace Parsek
                 statusOrder = 2;
                 statusText = "-";
             }
+        }
+
+        /// <summary>
+        /// Computes aggregate status for a chain block header.
+        /// Delegates to GetGroupStatus with a HashSet built from the member list.
+        /// </summary>
+        private static void GetChainStatus(List<int> members, List<Recording> committed,
+            double now, out string statusText, out int statusOrder)
+        {
+            var set = new HashSet<int>(members);
+            GetGroupStatus(set, committed, now, out statusText, out statusOrder);
         }
 
         /// <summary>
