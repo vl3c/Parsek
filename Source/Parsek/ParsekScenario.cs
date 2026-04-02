@@ -24,6 +24,10 @@ namespace Parsek
         // Gates Update() resource ticking while coroutines reset resource baselines
         private bool resourceTickingSuspended = false;
 
+        // Vessel switch detection: FLIGHT→FLIGHT transitions from vessel switching
+        // are NOT reverts and must not trigger orphan strip/cleanup.
+        private static bool vesselSwitchPending;
+
         public override void OnSave(ConfigNode node)
         {
             // Safety net (defense-in-depth): if a pending recording still exists outside Flight
@@ -306,6 +310,8 @@ namespace Parsek
             GameEvents.onVesselRecovered.Add(OnVesselRecovered);
             GameEvents.onVesselTerminated.Remove(OnVesselTerminated);
             GameEvents.onVesselTerminated.Add(OnVesselTerminated);
+            GameEvents.onVesselSwitching.Remove(OnVesselSwitching);
+            GameEvents.onVesselSwitching.Add(OnVesselSwitching);
 
             // Capture initial baseline if none exist yet
             if (!initialLoadDone && GameStateStore.BaselineCount == 0)
@@ -348,18 +354,22 @@ namespace Parsek
                     savedTreeRecCount += savedTreeNodesForRevert[t].GetNodes("RECORDING").Length;
                 int totalSavedRecCount = savedRecNodes.Length + savedTreeRecCount;
 
-                // FLIGHT→FLIGHT is always a revert (Revert to Launch or quickload).
-                // KSP has no FLIGHT→FLIGHT path that isn't a revert.
+                // FLIGHT→FLIGHT is usually a revert (Revert to Launch or quickload),
+                // but vessel switching also triggers FLIGHT→FLIGHT scene reloads.
                 bool isFlightToFlight = lastOnSaveScene == GameScenes.FLIGHT
                                         && HighLogic.LoadedScene == GameScenes.FLIGHT;
-                bool isRevert = savedEpoch < MilestoneStore.CurrentEpoch
-                                || totalSavedRecCount < recordings.Count
-                                || isFlightToFlight;
+                bool isVesselSwitch = isFlightToFlight && vesselSwitchPending;
+                vesselSwitchPending = false; // consume the flag
+
+                bool isRevert = !isVesselSwitch
+                                && (savedEpoch < MilestoneStore.CurrentEpoch
+                                    || totalSavedRecCount < recordings.Count
+                                    || isFlightToFlight);
                 ParsekLog.Verbose("Scenario",
                     $"OnLoad: revert detection — savedEpoch={savedEpoch}, currentEpoch={MilestoneStore.CurrentEpoch}, " +
                     $"savedRecNodes={savedRecNodes.Length}, savedTreeRecs={savedTreeRecCount}, " +
                     $"memoryRecordings={recordings.Count}, lastOnSaveScene={lastOnSaveScene}, " +
-                    $"isFlightToFlight={isFlightToFlight}, isRevert={isRevert}");
+                    $"isFlightToFlight={isFlightToFlight}, isVesselSwitch={isVesselSwitch}, isRevert={isRevert}");
 
                 // Collect spawned vessel PIDs + names BEFORE restore resets them.
                 // Only on revert — on normal scene changes the spawned vessels are
@@ -2139,11 +2149,20 @@ namespace Parsek
             }
         }
 
+        private void OnVesselSwitching(Vessel from, Vessel to)
+        {
+            vesselSwitchPending = true;
+            ParsekLog.Info("Scenario",
+                $"Vessel switch detected: '{from?.vesselName}' → '{to?.vesselName}' — " +
+                "next FLIGHT→FLIGHT OnLoad will skip revert strip/cleanup");
+        }
+
         public void OnDestroy()
         {
             stateRecorder?.Unsubscribe();
             GameEvents.onVesselRecovered.Remove(OnVesselRecovered);
             GameEvents.onVesselTerminated.Remove(OnVesselTerminated);
+            GameEvents.onVesselSwitching.Remove(OnVesselSwitching);
         }
     }
 }
