@@ -1,21 +1,174 @@
 # Parsek — Game Actions & Resources System Design
 
+*Comprehensive design specification for Parsek's game resource tracking system — covering science, funds, reputation, milestones, contracts, kerbals, facilities, and strategies across the rewind timeline.*
+
+*Parsek is a KSP1 mod for time-rewind mission recording. Players fly missions, commit recordings to a timeline, rewind to earlier points, and see previously recorded missions play back as ghost vessels alongside new ones. This document specifies how the game's resource state (everything except vessel trajectories) is tracked, reconciled, and kept consistent across rewinds.*
+
 **Version:** 0.4 (post-implementation update — reflects Phases 1-5 actual code)
 **Status:** Core modules implemented and tested (4458 tests). Integration wired. Earning-side capture, per-subject science patching, vessel cost/recovery capture, and initial balance seeding (funds, science, reputation) are implemented. Contract deadline penalty generation, milestone/contract KSP state patching, and warp visual updates remain as future work.
-**Scope:** Everything the timeline tracks beyond vessel trajectories — science, funds, reputation, milestones, contracts, kerbals, facilities, strategies.
 **Out of scope:** Vessel recording system, DAG structure, ghost rendering, distance zones. See `parsek-recording-system-design.md` for those.
 
 ---
 
-## 1. Architecture Overview
+## 1. Introduction
+
+This document specifies how Parsek tracks everything on the timeline that is not a vessel trajectory: science experiments, funds, reputation, milestones, contracts, kerbals, KSC facilities, and strategies. It covers:
+
+- What happens to your science, funds, and reputation when you commit a recording and when you rewind
+- How the system prevents time-travel paradoxes (duplicate kerbals, overspending, double science credit)
+- The reservation system that locks resources committed to future recordings
+- Kerbal identity management across rewinds (replacement chains, stand-ins, retirement)
+- KSC spending (tech nodes, facility upgrades, kerbal hiring) and how it interacts with the timeline
+- Contract and strategy slot management across rewinds
+- How KSP's internal state is patched to stay consistent with the timeline
+
+### 1.1 What happens when you fly a mission
+
+During flight, Parsek silently captures every resource-relevant event: science experiments transmitted or recovered, milestone achievements, contract completions, and kerbal assignments. These events are held in memory — they don't affect the timeline yet.
+
+When you **commit** the recording, all captured events are added to the timeline's ledger. The system recalculates everything from the beginning of time: science subject caps are applied, fund balances are recomputed, milestone credit is assigned to whichever recording achieved it first, and KSP's internal state (R&D science, fund balance, reputation, facility levels, crew roster) is patched to match.
+
+### 1.2 What happens when you rewind
+
+Rewinding loads an earlier save state, but all committed recordings survive. The system recalculates the full timeline up to the rewind point. You may see different numbers than before — if you committed a new recording to the past, it gets chronological priority for science subjects and milestones, reducing credit for later recordings. Fund balances shift accordingly.
+
+Resources committed to future recordings are **reserved**. If you rewound to before a vessel launch, those funds are still spoken for — you can't spend them on a new vessel. Kerbals assigned to future missions are reserved and replaced by temporary stand-ins. Contract and strategy slots committed in the future are held from the start.
+
+### 1.3 What the player sees
+
+| Situation | What happens |
+|-----------|-------------|
+| Commit a recording | Science, funds, milestones, kerbal XP from that mission join the timeline. KSP state updates immediately. |
+| Rewind to earlier point | All committed data survives. Balances recalculated. Reserved resources reduce what you can spend. Stand-in kerbals fill reserved crew slots. |
+| Two recordings collect the same science | Chronologically first recording gets full credit. Later recording's effective science is reduced (subject cap). Total never exceeds the cap. |
+| Kerbal used in a committed recording | Reserved from the start of time until recovery. A free stand-in fills their roster slot. Original returns when their recording resolves. |
+| Tech node unlocked at KSC | Science cost is reserved against all future tech unlocks. Can't unlock if total committed spendings exceed available science. |
+| Facility upgraded at KSC | Fund cost reserved. Building visuals update during fast-forward. |
+| Contract accepted | Slot reserved from start of time. Can't over-accept after rewind. |
+| KSP load (hard reset) | Everything resets to the loaded save. Ledger is pruned to match. This is the only destructive operation. |
+
+### 1.4 The three layers of paradox prevention
+
+Parsek prevents time-travel paradoxes through three complementary layers, all working by prevention rather than detection:
+
+**Layer 1: No-delete invariant.** Recordings can only be added to the timeline, never removed. Total earnable resources never decrease. Existing spendings that were valid when committed cannot become invalid.
+
+**Layer 2: Spending reservation.** All committed spendings — past, present, and future — are reserved against available earnings. New spendings (vessel builds, tech nodes, facility upgrades, kerbal hires) are blocked if they would create a deficit at any point on the timeline. Applies to science and funds.
+
+**Layer 3: UT=0 reservation.** Identity and slot resources are locked from the start of time. Kerbals used in any recording are reserved as a continuous block — no gaps, no reuse until all recordings resolve. Contracts and strategies consume their slots from the start until resolved. This prevents duplicate kerbals, slot overflow, and resource diversion conflicts.
+
+The player never sees a broken state. If something goes truly wrong, KSP load (the hard reset) is always available.
+
+### 1.5 Resource modules at a glance
+
+| Game mode | Module | What it tracks | Earnings | Spendings |
+|-----------|--------|----------------|----------|-----------|
+| All modes | Kerbals | Crew identity, assignments, XP, death/rescue | Assignment, XP gain, death/MIA | Hiring cost (career only) |
+| Science+ | Science | Per-subject experiment credit, tech tree | Experiments (transmit/recover) | Tech node unlocks |
+| Career | Funds | Monetary balance | Contracts, recovery, milestones | Vessel builds, facility upgrades, hires |
+| Career | Reputation | Global score affecting contracts | Contracts, milestones | Contract failures, strategies |
+| Career | Milestones | World Firsts (once-ever per save) | Achievement triggers (fund + rep awards) | — |
+| Career | Contracts | Accept/complete/fail/cancel lifecycle | Advance payments, completion rewards | Penalties on fail/cancel |
+| Career | Facilities | KSC building levels and destruction state | — | Upgrade cost, repair cost |
+| Career | Strategies | Resource conversion policies | Ongoing contract reward transforms | Setup cost |
+
+### 1.6 Example: a career Mun landing
+
+A complete Mun landing and return in Career mode, showing every game action the ledger tracks:
+
+```
+UT=0 (KSC, frozen time)
+  CONTRACT    Accept "Explore the Mun"                      +0 funds advance
+  CONTRACT    Accept "Collect science from Mun surface"     +2,000 funds advance
+  FUNDS       Vessel build "Mun Lander I"                   -18,000 funds
+  KERBAL      Assign Jeb to command seat
+  KERBAL      Assign Bill to crew cabin
+
+UT=100 (launch)
+  MILESTONE   First launch (if first ever)                  +2,000 funds, +5 rep
+
+UT=300 (Kerbin orbit)
+  SCIENCE     crewReport@KerbinInSpaceLow                   earned 5
+  MILESTONE   First orbit of Kerbin (if first)              +5,000 funds, +10 rep
+
+UT=2000 (Mun SOI)
+  SCIENCE     evaReport@MunInSpaceHigh                      earned 8
+  MILESTONE   First flyby of the Mun                        +5,000 funds, +10 rep
+
+UT=5000 (Mun orbit)
+  SCIENCE     crewReport@MunInSpaceLow                      earned 8
+  MILESTONE   First orbit of the Mun                        +7,000 funds, +12 rep
+
+UT=8000 (Mun surface, Midlands)
+  SCIENCE     surfaceSample@MunSrfLandedMidlands            earned 30
+  SCIENCE     crewReport@MunSrfLandedMidlands               earned 10
+  SCIENCE     evaReport@MunSrfLandedMidlands                earned 8
+  MILESTONE   First landing on the Mun                      +10,000 funds, +15 rep
+  MILESTONE   First EVA on the Mun                          +5,000 funds, +8 rep
+  CONTRACT    "Explore the Mun" completed                   +40,000 funds, +15 rep
+  CONTRACT    "Collect Mun surface science" completed       +12,000 funds, +8 rep
+
+UT=15000 (Kerbin recovery)
+  SCIENCE     (onboard experiments returned at full value)
+  FUNDS       Vessel recovery (% of cost by distance)       +12,000 funds
+  MILESTONE   First Mun return (if tracked)                 +8,000 funds, +10 rep
+  KERBAL      Jeb gains XP (Mun landing + return)
+  KERBAL      Bill gains XP (Mun landing + return)
+
+UT=15000 (KSC, frozen time — post-recovery)
+  SCIENCE     Tech node "landing" seq=0                     -45 science
+  SCIENCE     Tech node "survivability" seq=1               -45 science
+  FACILITY    Upgrade tracking station lvl 2                -150,000 funds
+  KERBAL      Hire Valentina                                -25,000 funds
+```
+
+If you then rewind to UT=0 and fly a different mission, every action above participates in the recalculation — science subject caps, milestone once-ever flags, fund balance checks, kerbal reservations — all reconciled against whatever the new recording contributes.
+
+---
+
+## 2. Design Philosophy
+
+These principles govern every design decision in the game actions system. They are listed here because they inform every section that follows.
+
+### 2.1 Timeline Model
+
+1. **Commit is permanent.** Once a recording is committed, its resource data is part of the timeline. The timeline is additive — recordings can be added but never deleted through Parsek. Like a Git commit.
+
+2. **Rewind is non-destructive.** All committed data survives a rewind. Derived values (effective science, running balances, kerbal status) are recomputed from scratch. Like `git checkout` — you move the pointer, not the history.
+
+3. **KSP load is the hard reset.** Loading a save discards everything not in that save. The ledger is pruned to match. This is the only destructive operation, and it's KSP's native behavior — Parsek accepts it rather than fighting it. Like `git reset --hard`.
+
+4. **Immutable recordings, derived state.** Raw values from KSP (science awarded, fund amounts, milestone triggers) are written once and never changed. All computed values (effective science, running balances, affordability, kerbal status) are recomputed from scratch on every timeline change.
+
+### 2.2 Paradox Prevention
+
+5. **Prevention, not detection.** Every constraint works by making paradoxes structurally impossible, not by detecting them after the fact.
+
+6. **Spending reservation locks resources globally.** All committed spendings (past and future) are reserved against available earnings. The player can only add new spendings if the remaining balance covers them.
+
+7. **Identity reservation locks from UT=0.** Kerbals, contract slots, and strategy slots are reserved from the start of time as continuous blocks. No gaps, no reuse until resolved.
+
+8. **Conservative over precise.** Where Parsek's model diverges from KSP's exact mechanics (e.g., hard cap vs diminishing returns curve for science), it errs on the side that prevents overcredit.
+
+### 2.3 Player Experience
+
+9. **Commitment is the deliberate choice.** Recordings only affect the timeline when the player explicitly commits. The player can always revert to launch and discard. The harshness of permanent consequences (kerbal death, resource commitment) is mitigated by the player's control over what gets committed.
+
+10. **The player never sees a broken state.** No manual resolution needed, no unresolvable deficits, no duplicate kerbals. If something goes truly wrong, KSP load is the escape hatch.
+
+11. **Available balance shows what you can spend.** KSP's fund and science displays are patched to show the available balance (earnings minus all reservations), not the gross balance. No surprises at launch time.
+
+---
+
+## 3. Architecture Overview
 
 The game actions system is a **standalone module** that tracks every resource-related event on the timeline. It is completely separate from the vessel recording system. It does not know about trajectories, DAGs, ghosts, or flight recordings. The vessel recording system does not know about science, funds, or tech nodes.
 
-### 1.1 Coupling between systems
+### 3.1 Coupling between systems
 
 The coupling between the two systems is exactly one field: `recordingId` on earning actions. When a recording is committed, its associated earning actions join the timeline. The recording system doesn't know about science values. The ledger doesn't know about trajectories. They share a key.
 
-### 1.2 API between systems
+### 3.2 API between systems
 
 **Recording system → Ledger:**
 
@@ -30,7 +183,7 @@ There is no deletion event. Parsek doesn't delete recordings. KSP load handles r
 
 **Implementation (v0.4):** The actual API is `LedgerOrchestrator.OnRecordingCommitted(recordingId, startUT, endUT)` for the commit trigger, plus `NotifyLedgerTreeCommitted(RecordingTree)` for batch commits across a recording tree. `GetAvailableResources` and `GetRecordingDeltas` are not yet implemented as named methods — module query methods (`FundsModule.GetAvailableFunds()`, `ScienceModule.GetAvailableScience()`, etc.) provide this data. Additional API: `OnSave()`/`OnLoad()`, `OnKspLoad(HashSet<string>, double)`, `OnKscSpending(GameStateEvent)`, `CanAffordScienceSpending(float)`, `CanAffordFundsSpending(float)`, `HasFacilityActionsInRange(double, double)`.
 
-### 1.3 Three kinds of game actions
+### 3.3 Three kinds of game actions
 
 **Earning actions** are associated with a recording ID. Science collected during a mission, funds from vessel recovery, reputation from milestones, kerbal assignments. Tagged with the recording that produced them. Removed from the timeline only if the recording is removed (which only happens via KSP load/hard reset — Parsek has no delete operation).
 
@@ -38,7 +191,7 @@ There is no deletion event. Parsek doesn't delete recordings. KSP load handles r
 
 **System-generated actions** are created by Parsek itself in response to earning or spending actions. Kerbal stand-in generation is the primary example — when a kerbal is temporarily reserved by a committed recording, Parsek generates a replacement kerbal to maintain roster stability. These are not player actions and have no UT on the timeline, but they do modify KSP's game state (roster entries).
 
-### 1.4 Timeline operations
+### 3.4 Timeline operations
 
 | Operation | Effect on game actions |
 |-----------|----------------------|
@@ -50,15 +203,15 @@ There is no deletion event. Parsek doesn't delete recordings. KSP load handles r
 
 There is no delete button. No deficit system is needed. Load is the only destructive path.
 
-### 1.5 The no-delete invariant
+### 3.5 The no-delete invariant
 
 Because recordings can only be added to the timeline (never removed by the player through Parsek), the total earnable resources can only stay the same or increase over time. A retroactive commit can redistribute credit between recordings but cannot reduce the total credited amount for any capped resource. This means **existing** spending actions that were valid when created cannot be retroactively invalidated by normal play.
 
 However, the invariant does not prevent the player from adding **new** spendings after a rewind that would exceed the available budget. Each new recording adds a vessel build cost (funds), and the player can unlock new tech nodes (science) or hire kerbals (funds) at KSC. Without further protection, these new spendings could create a deficit downstream.
 
-The **reservation system** (sections 4.5 and 5.6) covers this gap: all committed spendings — past, present, and future — are reserved against total earnings. The player can only add new spendings if the available balance (earnings minus all reservations) is sufficient. Together, the no-delete invariant protects existing spendings, and the reservation system prevents new overspending.
+The **reservation system** (sections 6.5 and 7.6) covers this gap: all committed spendings — past, present, and future — are reserved against total earnings. The player can only add new spendings if the available balance (earnings minus all reservations) is sufficient. Together, the no-delete invariant protects existing spendings, and the reservation system prevents new overspending.
 
-### 1.6 Recalculation triggers
+### 3.6 Recalculation triggers
 
 | # | Trigger |
 |---|---------|
@@ -67,7 +220,7 @@ The **reservation system** (sections 4.5 and 5.6) covers this gap: all committed
 | 3 | Fast-forward crosses a game action |
 | 4 | Save loaded (KSP load — Parsek rebuilds from save contents) |
 
-### 1.7 Sort order for the unified walk
+### 3.7 Sort order for the unified walk
 
 All game actions across all resource modules are collected and sorted for the recalculation walk. The sort key is:
 
@@ -79,7 +232,7 @@ All game actions across all resource modules are collected and sorted for the re
 
 The sequence index is only meaningful for spending actions. Earnings at the same UT are additive and order-independent.
 
-### 1.8 Recalculation model
+### 3.8 Recalculation model
 
 On any timeline change (commit, rewind, fast-forward event, KSP load), every resource module recalculates its derived state from scratch by walking all actions from UT=0 forward. No module retains cached state between recalculations — the ledger file is the sole input, the derived state is the sole output.
 
@@ -121,7 +274,7 @@ Each module owns its portion of the walk:
 | Transform | Strategies | Apply active strategy transforms to effective contract rewards before second-tier crediting. |
 | Second (dependent) | Funds, Reputation | Aggregate effective (and transformed) earnings and spendings from first-tier modules. |
 | Parallel | Facilities | Derives building state and feeds repair/upgrade costs into Funds. |
-| Outside engine | Kerbals | Reservation/chains from recording snapshots, not from ledger actions. Called separately via `KerbalsModule.RecalculateAndApply()` after the engine walk (see 9.15). |
+| Outside engine | Kerbals | Reservation/chains from recording snapshots, not from ledger actions. Called separately via `KerbalsModule.RecalculateAndApply()` after the engine walk (see 11.15). |
 
 First-tier modules run their walk and produce effective values. Strategy transforms then modify contract rewards within their active windows. Once transforms are applied, the milestone and contract fund/reputation awards flow into the Funds and Reputation running balances in the second tier. This means a single recalculation pass walks all actions from UT=0 forward, but within each UT, first-tier modules resolve, then strategy transforms apply, then second-tier modules consume the results.
 
@@ -129,7 +282,7 @@ Modules remain isolated in logic — they don't call each other. The dependency 
 
 Events on the timeline are locked once committed — their immutable values never change. But the **derived** values are recomputed on every recalculation. Adding a new recording to the past can change derived values on future events (e.g. a retroactive science collection reduces a later collection's effective credit). The events themselves are fixed; only the interpretation changes.
 
-### 1.8.1 Implementation Notes (Post-Build)
+### 3.8.1 Implementation Notes (Post-Build)
 
 **Derived field reset:** Before each walk, the engine resets all derived fields on every action to defaults (`Effective=true`, `EffectiveScience=0`, `Affordable=false`, `EffectiveRep=0`, `TransformedFundsReward=FundsReward`, etc.). This prevents stale values from a previous recalculation from leaking into the next walk. Critical for idempotency — calling Recalculate twice on the same actions must produce identical results.
 
@@ -141,7 +294,7 @@ Events on the timeline are locked once committed — their immutable values neve
 
 **Event conversion bridge:** `GameStateEventConverter` maps `GameStateEvent` entries from `GameStateStore` to `GameAction` entries for the ledger. This replaces the design doc's "extract from sidecar" flow — game actions are captured by `GameStateRecorder` into `GameStateStore` during flight, then converted to `GameAction` entries at commit time. No sidecar involvement for game actions.
 
-### 1.9 Spending reservation pattern
+### 3.9 Spending reservation pattern
 
 Any resource that has both earnings and spendings requires a **spending reservation system** to prevent the player from adding new spendings that would create a deficit at any point on the timeline.
 
@@ -156,7 +309,7 @@ This applies to:
 - **Science**: available science = effective science earned up to current UT minus ALL committed tech node costs. Prevents unlocking tech nodes that would create a science deficit.
 - **Funds**: available funds = seed + fund earnings up to current UT minus ALL committed fund spendings (vessel builds, facility upgrades, hires, etc.). Prevents building vessels or upgrading facilities beyond the budget.
 
-**Reputation does NOT need a spending reservation.** Reputation can go negative without blocking any player action (unlike funds or science, where negative balance prevents launching or unlocking). The only reputation spending that requires a minimum balance is strategy activation — and strategies are already gated by UT=0 reservation (section 11.3), which blocks new strategy activations entirely while existing ones are on the timeline. Contract decline and failure penalties always apply regardless of current rep level.
+**Reputation does NOT need a spending reservation.** Reputation can go negative without blocking any player action (unlike funds or science, where negative balance prevents launching or unlocking). The only reputation spending that requires a minimum balance is strategy activation — and strategies are already gated by UT=0 reservation (section 13.3), which blocks new strategy activations entirely while existing ones are on the timeline. Contract decline and failure penalties always apply regardless of current rep level.
 
 The reservation pattern is analogous to the kerbal reservation system — future committed events lock resources retroactively.
 
@@ -166,7 +319,7 @@ The reservation pattern is analogous to the kerbal reservation system — future
 
 Together, the two mechanisms guarantee that the walk never shows a negative balance for science or funds. Reputation can go negative by design (penalties are unconditional).
 
-### 1.10 Three layers of paradox prevention
+### 3.10 Three layers of paradox prevention
 
 Parsek prevents time-travel paradoxes through three complementary design layers:
 
@@ -178,7 +331,7 @@ Parsek prevents time-travel paradoxes through three complementary design layers:
 
 **Core philosophy: conservative by design.** Every restriction exists to prevent a specific paradox. The tradeoff is reduced gameplay flexibility — kerbals can't be reused freely across rewinds, strategies can't be changed while existing ones are committed, available funds may show zero at early UTs because the budget is fully committed to future events. But the player never sees a broken timeline, never encounters an unresolvable deficit, and never needs to manually fix inconsistencies. If a situation becomes truly stuck, KSP load (the hard reset) is always available as the escape hatch.
 
-### 1.11 Resource modules
+### 3.11 Resource modules
 
 Each resource type is an independent module with its own earning/spending rules. All modules feed into the same unified timeline walk, which dispatches each action to its module. The modules are, ordered by game mode and increasing complexity:
 
@@ -195,7 +348,7 @@ Each resource type is an independent module with its own earning/spending rules.
 | Career | Facilities | — | Upgrade cost (funds), gates capabilities |
 | Career | Strategies | Ongoing resource conversion rates | — |
 
-### 1.12 Module documentation template
+### 3.12 Module documentation template
 
 Each resource module chapter should follow this structure when fully designed:
 
@@ -210,9 +363,9 @@ Each resource module chapter should follow this structure when fully designed:
 
 ---
 
-## 2. Persistence Architecture
+## 4. Persistence Architecture
 
-### 2.1 File layout
+### 4.1 File layout
 
 The game actions system persists its data in a **dedicated ledger file** on disk, separate from both the KSP save file and the recording sidecar files. The ScenarioModule in the .sfs save file holds a reference to this ledger file (same pattern as recording sidecar files).
 
@@ -231,7 +384,7 @@ saves/
 
 The ledger file contains all game actions across all resource modules — science earnings, science spendings, fund transactions, milestones, contracts, kerbal events, facility upgrades. One file, one source of truth for recalculation.
 
-### 2.2 Data flow
+### 4.2 Data flow
 
 **During flight:** KSP callbacks (e.g. `OnScienceReceived`) fire as events happen. Event data is captured by `GameStateRecorder` into `GameStateStore` (in-memory). The ledger file is not touched during flight.
 
@@ -247,7 +400,7 @@ The ledger file contains all game actions across all resource modules — scienc
 
 **KSP load migration:** `LedgerOrchestrator.OnKspLoad` includes a migration path — if the ledger is empty but committed recordings exist, old save events are converted to bootstrap the ledger.
 
-### 2.3 KSP load reconciliation
+### 4.3 KSP load reconciliation
 
 When KSP loads a save, the ScenarioModule provides the ledger file reference and the list of committed recording IDs. Parsek reconciles the ledger file against the loaded state:
 
@@ -258,7 +411,7 @@ When KSP loads a save, the ScenarioModule provides the ledger file reference and
 
 After reconciliation, the ledger file reflects the loaded save's state. The pruned entries are lost (the sidecar files still have the raw earning data as a passive backup, but Parsek never reads from them to restore ledger state).
 
-### 2.4 Why not ScenarioModule or sidecar-only
+### 4.4 Why not ScenarioModule or sidecar-only
 
 The ledger data was considered for storage inside the ScenarioModule (embedded in the .sfs save file) or solely within recording sidecar files. Both were rejected:
 
@@ -268,7 +421,7 @@ The ledger data was considered for storage inside the ScenarioModule (embedded i
 
 **Dedicated ledger file:** Self-contained for recalculation (no file system traversal), independent from recording internals (data is extracted at commit time and never read from sidecars again), inspectable on disk, and follows the same reference pattern already established for sidecar files.
 
-### 2.5 Initial state seeding
+### 4.5 Initial state seeding
 
 Some resources start at non-zero values when a career save is created. The ledger must be seeded with these initial values, extracted from the save file — not assumed from defaults, as the player may use custom difficulty settings or mods that change starting values.
 
@@ -278,11 +431,11 @@ The seeds are written to the ledger file once when Parsek first initializes on a
 
 ---
 
-## 3. KSP State Patching & Warp Model
+## 5. KSP State Patching & Warp Model
 
 After every recalculation, the ledger's derived state may differ from what KSP's internal systems believe is true. Parsek must patch KSP's state to match. This section describes what gets patched, when, and how the warp cycle works.
 
-### 3.1 What gets patched
+### 15.1 What gets patched
 
 Each module has a corresponding KSP internal state that must agree with the ledger's derived values at the current UT:
 
@@ -301,7 +454,7 @@ The Science Archive in the R&D building reads from `ResearchAndDevelopment.Insta
 
 **Critical: use `SetReputation`, NOT `AddReputation`.** KSP's `AddReputation` applies a nonlinear gain/loss curve. If the recalculation engine already computed the final reputation value through the curve simulation, calling `AddReputation` with a correction delta would apply the curve TWICE, causing significant distortion. `SetReputation` directly assigns the value. This was discovered via decompilation (see spike findings).
 
-### 3.2 Two-phase pattern
+### 15.2 Two-phase pattern
 
 Every timeline change follows the same two phases:
 
@@ -320,7 +473,7 @@ Phase 2: PATCH
 
 The recalculation is pure — it reads the ledger and produces derived state. The patching is impure — it mutates KSP's runtime objects. Keeping these separate means the recalculation logic can be tested without KSP running, and the patching is a thin translation layer.
 
-### 3.3 Warp cycle
+### 15.3 Warp cycle
 
 **Status: NOT YET IMPLEMENTED.** The warp model below is designed but the implementation (facility visual updates during warp, event queue) is future work. The warp exit recalculation trigger IS wired.
 
@@ -356,7 +509,7 @@ Key properties of this model:
 
 **Two parallel queues.** The vessel spawn queue and game action queue follow the same pattern — collect during warp, process on exit. The game action queue primarily serves as a trigger for recalculation and a source for the player feedback summary on exit ("During warp: 3 recordings completed, 45 science earned, First Mun Landing achieved, Jeb recovered").
 
-### 3.4 Patching after rewind
+### 15.4 Patching after rewind
 
 Rewind is a special case. KSP loads a quicksave, which restores KSP state to the moment the quicksave was taken. But the timeline may have recordings committed after that quicksave was created. The quicksave doesn't know about those recordings.
 
@@ -370,7 +523,7 @@ REWIND:
 
 The quicksave is the starting point, but Parsek overrides it with the ledger's truth. This is why per-subject science totals, fund balances, and kerbal roster may differ from what the quicksave contained — the ledger accounts for recordings that were committed after the quicksave was taken.
 
-### 3.5 Patching after KSP load
+### 15.5 Patching after KSP load
 
 KSP load is authoritative — the loaded save defines truth. Parsek reconciles the ledger (prunes entries not in the save), then recalculates and patches:
 
@@ -386,7 +539,7 @@ In most cases after a KSP load, the patched state will match what's already in t
 
 ---
 
-## 4. Science Module
+## 6. Science Module
 
 **Status:** Designed — earning/spending schemas, recalculation algorithm, reservation system, and verified scenarios complete.
 
@@ -394,7 +547,7 @@ Science is the simplest resource module and the first to be fully designed.
 
 **Game mode applicability:** Not applicable in sandbox (all tech unlocked, no science tracking). Active in Science mode and Career mode with identical behavior in both.
 
-### 4.1 KSP's science pipeline
+### 12.1 KSP's science pipeline
 
 1. Player uses a science instrument at a specific body + situation + biome.
 2. KSP generates a `ScienceData` with a subject ID (e.g. `crewReport@MunSrfLandedMidlands`).
@@ -402,13 +555,13 @@ Science is the simplest resource module and the first to be fully designed.
 4. KSP adds science via `ResearchAndDevelopment.Instance.SubmitScienceData()`.
 5. Value diminishes on repeat — the diminishing returns formula is roughly `nextValue = baseValue × subjectMultiplier × (1 − subjectScience / scienceCap)`.
 
-### 4.2 Single subject cap
+### 12.2 Single subject cap
 
 There is one `scienceCap` per subject. Both transmit and recover draw from the same pool. Transmitting depletes the subject by the awarded amount (post-scalar). Recovery depletes by the full awarded amount. There are no separate transmit and recovery budgets — all methods eat from the same cap.
 
 The `scienceAwarded` value already has the transmit scalar baked in. It is the post-method number. No raw pre-transmit value needs to be tracked.
 
-### 4.3 Science earning action schema
+### 12.3 Science earning action schema
 
 ```
 ScienceEarning
@@ -431,7 +584,7 @@ ScienceEarning
 
 `method` and `transmitScalar` serve the UI (showing the player "you transmitted this at 30% efficiency") but do not drive the recalculation math.
 
-### 4.4 Science spending action schema
+### 12.4 Science spending action schema
 
 ```
 ScienceSpending
@@ -441,9 +594,9 @@ ScienceSpending
   cost:        float — science points spent
 ```
 
-### 4.5 Science reservation system
+### 12.5 Science reservation system
 
-Science uses the same reservation system as funds (section 5.6). All committed science spendings (tech node unlocks) — past, present, and future — are reserved against total effective earnings. The player can only spend what remains after all reservations.
+Science uses the same reservation system as funds (section 7.6). All committed science spendings (tech node unlocks) — past, present, and future — are reserved against total effective earnings. The player can only spend what remains after all reservations.
 
 **Available science at any UT:**
 
@@ -472,7 +625,7 @@ With reservation:
 
 **UI patching:** Parsek patches KSP's R&D science balance to show `availableScience(currentUT)` clamped to 0, not the raw running balance. The player sees what they can actually spend. Parsek's own UI can show the full breakdown (earned, reserved, available).
 
-### 4.6 Science recalculation
+### 12.6 Science recalculation
 
 The timeline can have multiple recordings that collected science from the same subject. Each recording's `scienceAwarded` was computed by KSP in isolation (the player may have rewound to a fresh save state between recordings). The sum of `scienceAwarded` across recordings can exceed the subject's maximum. The recalculation prevents this.
 
@@ -500,9 +653,9 @@ RecalculateScienceTimeline():
 
 Chronological order on the timeline determines priority. Earlier recordings get full credit. Later recordings get the remainder. If a recording is added to the past (player rewinds and commits a new mission), the recalculation gives it priority and reduces later recordings' effective values.
 
-The `affordable` flag on spending actions is defensive — it should never be false in normal play because the reservation system (section 4.5) prevents new spendings from creating a deficit, and the no-delete invariant ensures total effective science never decreases, so existing spendings remain valid. If the flag is false, it indicates a bug or data corruption.
+The `affordable` flag on spending actions is defensive — it should never be false in normal play because the reservation system (section 6.5) prevents new spendings from creating a deficit, and the no-delete invariant ensures total effective science never decreases, so existing spendings remain valid. If the flag is false, it indicates a bug or data corruption.
 
-### 4.7 Verified scenarios
+### 12.7 Verified scenarios
 
 **Basic earning and retroactive priority:**
 
@@ -577,7 +730,7 @@ Player fast-forwards to UT=1100.
   Player can unlock a node costing up to 5. Correct.
 ```
 
-### 4.8 Edge cases
+### 12.8 Edge cases
 
 **Multiple collections within one recording.** A player transmits an experiment during a mission, then recovers the vessel with the same experiment still onboard (some instruments are rerunnable, or they ran the experiment again after transmitting). KSP treats these as separate `SubmitScienceData` calls with separate awards. The ledger captures them as two `ScienceEarning` rows with the same `subjectId` and `recordingId` but different UTs. The hard-cap walk handles this naturally — they're just two entries in the sort order.
 
@@ -587,7 +740,7 @@ Player fast-forwards to UT=1100.
 
 ---
 
-## 5. Funds Module
+## 7. Funds Module
 
 **Status:** Designed — seeded balance, reservation system, earning/spending schemas, and verified scenarios complete.
 
@@ -661,7 +814,7 @@ ReputationInitial (seed — handles mid-career Parsek install)
   initialRep:     float — extracted from Reputation.Instance.reputation
 ```
 
-### 5.6 Reservation system
+### 15.6 Reservation system
 
 Funds use a reservation system to prevent overspending when the player rewinds to an earlier UT. All committed spendings on the timeline — past, present, and future — are reserved against the total earnings. The player can only spend what remains after all reservations.
 
@@ -677,7 +830,7 @@ The key insight: spendings from the future (after the current UT) are included i
 
 **At KSC spending time:** the ledger checks `availableFunds(currentUT) >= cost` before allowing facility upgrades, kerbal hires, or other KSC purchases.
 
-### 5.7 Why available can appear low or zero at early UTs
+### 15.7 Why available can appear low or zero at early UTs
 
 After committing multiple recordings, the total committed spendings may exceed the earnings available at an early UT. This is not a bug — each spending was individually valid when committed (available >= cost at the time of commitment). But viewed from an earlier UT where earnings haven't accumulated yet, the available balance is low or zero.
 
@@ -699,7 +852,7 @@ Example:
 
 The available value is clamped to 0 in the KSP UI. The player sees "no funds available" rather than a negative number. Parsek's detail panel can show the full breakdown (balance, reserved, available) for players who want to understand why.
 
-### 5.8 Funds recalculation
+### 15.8 Funds recalculation
 
 Funds is a second-tier module. It runs after first-tier modules (Milestones, Contracts) have set their effective flags.
 
@@ -726,9 +879,9 @@ RecalculateFunds():
 
 The `affordable` flag is defensive. With proper seeding and the reservation system preventing overspending, it should always be true. If it's false, it indicates a bug or data corruption.
 
-**Implementation handles more action types:** Beyond `FundsEarning` and `FundsSpending`, the walk also processes: `ContractAccept` (advance payment), `ContractComplete` (rewards, using TransformedFundsReward, see section 11.4), `ContractFail`/`ContractCancel` (penalties), `FacilityUpgrade`/`FacilityRepair` (costs via FacilityCost field), `KerbalHire` (hiring cost), and `StrategyActivate` (setup cost). All spending-type actions are included in the reservation total.
+**Implementation handles more action types:** Beyond `FundsEarning` and `FundsSpending`, the walk also processes: `ContractAccept` (advance payment), `ContractComplete` (rewards, using TransformedFundsReward, see section 13.4), `ContractFail`/`ContractCancel` (penalties), `FacilityUpgrade`/`FacilityRepair` (costs via FacilityCost field), `KerbalHire` (hiring cost), and `StrategyActivate` (setup cost). All spending-type actions are included in the reservation total.
 
-### 5.9 UI patching
+### 15.9 UI patching
 
 On warp exit / rewind, Parsek patches KSP's fund display:
 
@@ -737,7 +890,7 @@ On warp exit / rewind, Parsek patches KSP's fund display:
 
 This means the KSP toolbar funds display always reflects what the player can actually spend on a new vessel or facility. No surprises.
 
-### 5.10 Vessel build cost — when and how
+### 15.10 Vessel build cost — when and how
 
 KSP deducts vessel cost at launch. The recording captures this:
 
@@ -747,7 +900,7 @@ KSP deducts vessel cost at launch. The recording captures this:
 
 The player doesn't choose the cost — it's determined by the parts on the vessel. KSP calculates it. The ledger stores it as immutable.
 
-### 5.11 Vessel recovery — earning on return
+### 15.11 Vessel recovery — earning on return
 
 When a vessel is recovered, KSP returns a percentage of the vessel's part costs based on distance from KSC (closer = higher percentage). The recovery value is:
 
@@ -758,7 +911,7 @@ When a vessel is recovered, KSP returns a percentage of the vessel's part costs 
 
 The recovery percentage formula is KSP's domain — the ledger stores only the final awarded amount.
 
-### 5.12 Verified scenarios
+### 15.12 Verified scenarios
 
 **Basic career with seeded balance:**
 
@@ -828,7 +981,7 @@ Player rewinds to UT=200, commits rec_B (earns 30k contract, vessel costs 15k):
   Net effect: +15,000 available (earned 30k, spent 15k).
 ```
 
-### 5.13 No-delete invariant for funds
+### 15.13 No-delete invariant for funds
 
 The no-delete invariant provides the same structural guarantee for funds as for other spendable resources:
 
@@ -837,9 +990,9 @@ The no-delete invariant provides the same structural guarantee for funds as for 
 - **Existing spendings are never invalidated.** Adding a recording may redistribute fund earnings (e.g. milestone credit shifting), but the total earned stays the same or increases. Spendings that were valid when committed remain valid.
 - **New spendings are gated by the reservation system.** The player cannot add a spending that would create a deficit at any point on the timeline.
 
-This is the same pattern as science (section 4.8). Both resources need the reservation system because the player can add new KSC spendings (tech nodes for science, facility upgrades and vessel builds for funds) that could create deficits without it.
+This is the same pattern as science (section 6.8). Both resources need the reservation system because the player can add new KSC spendings (tech nodes for science, facility upgrades and vessel builds for funds) that could create deficits without it.
 
-### 5.14 Open questions
+### 15.14 Open questions
 
 - **VAB/SPH editing sessions:** Does the ledger need to track vessel cost changes during editing (parts added/removed), or only the final cost at launch? Only the final cost at launch seems necessary — the ledger doesn't track what happened in the editor.
 - **Vessel cost with recoverable parts:** If a vessel is partially recovered (some stages survived), does the recovery value need to account for which parts were recovered? KSP handles this natively — the ledger just stores the awarded recovery amount.
@@ -847,7 +1000,7 @@ This is the same pattern as science (section 4.8). Both resources need the reser
 
 ---
 
-## 6. Reputation Module
+## 8. Reputation Module
 
 **Status:** Designed — schema, curve-dependent recalculation model, and dependency on first-tier modules specified. Exact curve formula TBD (requires decompilation).
 
@@ -966,14 +1119,14 @@ This is expected and harmless. There is no ledger-enforced invariant that depend
 
 The no-delete invariant still holds in a weaker sense: rep-affecting events are never removed from the timeline (only added), so the set of inputs to the curve is monotonically growing. But the output of the curve (final rep) is not monotonically stable — it can shift slightly with each retroactive commit.
 
-### 6.9 ~~Open questions~~ Resolved
+### 12.9 ~~Open questions~~ Resolved
 
 - **Exact curve formula:** RESOLVED. Extracted from decompiled `Reputation` class. Uses `addReputation_granular` with Hermite spline AnimationCurve. 5-key addition curve (gain ~2x at rep=-1000, ~1x at rep=0, ~0x at rep=+1000) and 4-key subtraction curve (loss ~0x at rep=-1000, ~1x at rep=0, ~2x at rep=+1000). Implemented in `ReputationModule.ApplyReputationCurve` with the exact keyframes. See `docs/dev/plans/game-actions-spike-findings.md` for full keyframe data.
 - **Reputation floor:** Loss curve multiplier approaches ~0.0x near rep=-1000 (symmetric with gain ceiling). No hard clamp in `AddReputation`, but `SetReputation` clamps to [-1000, 1000].
 
 ---
 
-## 7. Milestones Module
+## 9. Milestones Module
 
 **Status:** Designed — schema, recalculation logic, and verified scenarios complete.
 
@@ -1071,7 +1224,7 @@ The same no-delete safety applies: adding a recording can only shift which recor
 
 ---
 
-## 8. Contracts Module
+## 10. Contracts Module
 
 **Status:** Designed — state transitions, reservation system, once-ever completion, deadline handling, and KSP state patching specified.
 
@@ -1227,7 +1380,7 @@ During fast-forward, the deadline crossing is visual only — the actual failure
 
 Contract advance payments are fund earnings — they increase the balance on accept. Contract rewards are fund earnings on completion. Contract penalties are fund losses on failure/cancel.
 
-All of these participate in the funds reservation system (section 5.6). The advance payment increases available funds at the accept UT. Future rewards are not counted until the recording that completes the contract is committed (earnings are recording-associated).
+All of these participate in the funds reservation system (section 7.6). The advance payment increases available funds at the accept UT. Future rewards are not counted until the recording that completes the contract is committed (earnings are recording-associated).
 
 ### 8.8 KSP state patching
 
@@ -1247,7 +1400,7 @@ KSP generates contract offerings procedurally. After a rewind, KSP may generate 
 
 This means: if the player accepted "Orbit Mun" in a previous commit, it won't be re-offered after rewind because Parsek patches it as accepted. KSP generates other contracts instead. The player doesn't see duplicate contracts.
 
-### 8.10 Verified scenarios
+### 12.10 Verified scenarios
 
 **Basic accept and complete:**
 
@@ -1302,17 +1455,17 @@ Recalculate walk:
     Apply penalties. Slot freed.
 ```
 
-### 8.11 Open questions
+### 12.11 Open questions
 
 - **Contract parameter preservation:** KSP contracts have complex internal state (completion conditions, parameters, waypoints). How much of this can Parsek serialize and restore on patching? If contract objects can't be fully reconstructed, Parsek may need to store a serialized snapshot of the contract at accept time.
 - **Contract generation seeding:** KSP's procedural contract generation uses randomness. After a rewind, different contracts may be offered. Does Parsek need to seed the RNG to produce consistent offerings, or is divergence acceptable?
 - **Contracts that reference recordings:** Some contracts require specific conditions (reach orbit, land on body) that are met during recordings. If a recording is completed but the contract completion is tied to it, and then a second recording also meets the conditions, the once-ever flag handles the duplicate — but does the contract's internal condition-tracking agree with Parsek's state?
 - **Tourist contracts:** Tourist contracts place passenger kerbals on the vessel. These kerbals are temporary — they leave after recovery. The ledger does not need to track tourists as managed kerbals (no reservation, no replacement chain). They are purely a contract concern.
-- **Rescue contracts:** Rescue contracts spawn a stranded kerbal. Completing the rescue adds them to the roster for free. This overlaps with the kerbals module's `KerbalRescue` action (section 9.10). The contract module records the contract completion; the kerbals module records the kerbal's addition to the roster. Both are recording-associated actions on the same recording.
+- **Rescue contracts:** Rescue contracts spawn a stranded kerbal. Completing the rescue adds them to the roster for free. This overlaps with the kerbals module's `KerbalRescue` action (section 11.10). The contract module records the contract completion; the kerbals module records the kerbal's addition to the roster. Both are recording-associated actions on the same recording.
 
 ---
 
-## 9. Kerbals Module
+## 11. Kerbals Module
 
 **Status:** Designed — core reservation and replacement systems specified.
 
@@ -1659,7 +1812,7 @@ This means the total number of kerbals in KSP's roster can exceed the Astronaut 
 - **Sandbox mode:** The reservation system applies (prevents duplicate kerbals), but replacement is trivial (free, unlimited). Does sandbox need the chain system at all, or just the reservation check? RESOLVED: sandbox uses the full chain system (prevents duplicate kerbals regardless of game mode).
 - **Retired kerbal cleanup:** Should there be a mechanism for the player to acknowledge and permanently remove retired kerbals from the roster (beyond blocking dismissal)? The retired pool could grow over a long career.
 
-### 9.15 Implementation Architecture (Post-Build)
+### 15.15 Implementation Architecture (Post-Build)
 
 **The kerbals module does NOT participate in the unified recalculation walk.** Unlike all other modules, `KerbalsModule` is a separate static class with its own `Recalculate()` method that operates directly on `RecordingStore.CommittedRecordings` (vessel snapshots), not on `GameAction` entries from the ledger.
 
@@ -1671,7 +1824,7 @@ This means the total number of kerbals in KSP's roster can exceed the Astronaut 
 
 ---
 
-## 10. Facilities Module
+## 12. Facilities Module
 
 **Status:** Designed — spending schemas, visual state management, and destruction/repair lifecycle specified.
 
@@ -1727,7 +1880,7 @@ All three action types participate in the unified funds walk:
 
 ### 10.4 Visual state management
 
-Building visual state updates **in real time during warp**, following the same pattern as ghost vessel playback (see section 3.3). As the warp timeline crosses facility events, Parsek sets building visuals immediately — the player sees buildings upgrade, get destroyed, and get repaired at the correct UT. This is purely visual; KSP's actual facility state is patched on warp exit.
+Building visual state updates **in real time during warp**, following the same pattern as ghost vessel playback (see section 5.3). As the warp timeline crosses facility events, Parsek sets building visuals immediately — the player sees buildings upgrade, get destroyed, and get repaired at the correct UT. This is purely visual; KSP's actual facility state is patched on warp exit.
 
 ```
 For each facility, walk events in UT order:
@@ -1748,7 +1901,7 @@ UT=2000: Upgrade to level 3                 visual: level 3
 
 Ghost vessels whose recordings include launches during the destroyed window still replay normally — ghosts are rendered from sidecar trajectory data and don't interact with KSP's facility system.
 
-On warp exit, Parsek patches KSP's actual facility state to match the derived state at the current UT (see section 3.2).
+On warp exit, Parsek patches KSP's actual facility state to match the derived state at the current UT (see section 5.2).
 
 ### 10.5 Derived facility level
 
@@ -1762,7 +1915,7 @@ The facility level at any UT is derivable by walking the action history: start a
 
 ---
 
-## 11. Strategies Module
+## 13. Strategies Module
 
 **Status:** Designed — time-windowed transforms, reservation system, and interaction with contract rewards specified.
 
@@ -1917,61 +2070,7 @@ Conflict checking (same source resource) is KSP-native. Parsek ensures the corre
 
 ---
 
-## 12. Example: Full Career Mun Landing Timeline
-
-A complete Mun landing and return mission in Career mode, showing every game action the ledger would track across all resource modules.
-
-```
-UT=0 (KSC, frozen time)
-  CONTRACT    Accept "Explore the Mun"                      +0 funds advance
-  CONTRACT    Accept "Collect science from Mun surface"     +2,000 funds advance
-  FUNDS       Vessel build "Mun Lander I"                   -18,000 funds
-  KERBAL      Assign Jeb to command seat
-  KERBAL      Assign Bill to crew cabin
-
-UT=100 (launch)
-  MILESTONE   First launch (if first ever)                  +2,000 funds, +5 rep
-
-UT=300 (Kerbin orbit)
-  SCIENCE     crewReport@KerbinInSpaceLow                   earned 5
-  MILESTONE   First orbit of Kerbin (if first)              +5,000 funds, +10 rep
-
-UT=2000 (Mun SOI)
-  SCIENCE     evaReport@MunInSpaceHigh                      earned 8
-  MILESTONE   First flyby of the Mun                        +5,000 funds, +10 rep
-
-UT=5000 (Mun orbit)
-  SCIENCE     crewReport@MunInSpaceLow                      earned 8
-  MILESTONE   First orbit of the Mun                        +7,000 funds, +12 rep
-
-UT=8000 (Mun surface, Midlands)
-  SCIENCE     surfaceSample@MunSrfLandedMidlands            earned 30
-  SCIENCE     crewReport@MunSrfLandedMidlands               earned 10
-  SCIENCE     evaReport@MunSrfLandedMidlands                earned 8
-  MILESTONE   First landing on the Mun                      +10,000 funds, +15 rep
-  MILESTONE   First EVA on the Mun                          +5,000 funds, +8 rep
-  CONTRACT    "Explore the Mun" completed                   +40,000 funds, +15 rep
-  CONTRACT    "Collect Mun surface science" completed       +12,000 funds, +8 rep
-
-UT=15000 (Kerbin recovery)
-  SCIENCE     (onboard experiments returned at full value)
-  FUNDS       Vessel recovery (% of cost by distance)       +12,000 funds
-  MILESTONE   First Mun return (if tracked)                 +8,000 funds, +10 rep
-  KERBAL      Jeb gains XP (Mun landing + return)
-  KERBAL      Bill gains XP (Mun landing + return)
-
-UT=15000 (KSC, frozen time — post-recovery)
-  SCIENCE     Tech node "landing" seq=0                     -45 science
-  SCIENCE     Tech node "survivability" seq=1               -45 science
-  FACILITY    Upgrade tracking station lvl 2                -150,000 funds
-  KERBAL      Hire Valentina                                -25,000 funds
-```
-
-This recording is committed as a single unit. If the player then rewinds to UT=0 and flies a different mission, every action above participates in the recalculation walk — science subject caps, milestone once-ever flags, fund balance checks, kerbal state — all reconciled against whatever the new recording contributes.
-
----
-
-## 13. Gameplay Simulation Findings (v0.3)
+## 14. Gameplay Simulation Findings (v0.4)
 
 Edge cases and gaps discovered by simulating concrete KSP gameplay scenarios against the implementation.
 
@@ -1999,81 +2098,9 @@ Edge cases and gaps discovered by simulating concrete KSP gameplay scenarios aga
 
 **Empty ledger + mid-career = no replay of past events.** When Parsek is installed mid-career, only the funds seed is captured. All prior tech unlocks, facility upgrades, contract completions, and kerbal assignments are NOT in the ledger. The recalculation walk only knows about events captured by Parsek from this point forward. This is by design (the ledger starts fresh) but means the game actions list will be incomplete for the pre-Parsek period.
 
-### 13.3 Performance Notes
+### 14.3 Performance Notes
 
 The recalculation walk is O(n log n) sort + O(n × m) dispatch (n=actions, m=7 modules). For 500 actions, this completes in well under 1ms. The most expensive per-action operation is the reputation curve evaluation (integer-step loop per nominal rep value), but even with 50 rep actions this is trivially fast. LINQ `SortActions` allocates a new list each call — minor GC pressure, could be optimized to sort in-place if needed.
 
 No batching for rapid commits: 10 quick commits = 10 full recalculations. Acceptable for typical gameplay (commits are rare events, not per-frame).
 
----
-
-## Appendix A: Design Principles
-
-### A.1 Timeline model — the Git analogy
-
-Parsek's timeline operates on a model analogous to Git version control:
-
-**Commit** is permanent. Once a recording is committed to the timeline, it becomes part of the history. Its immutable data (science values, fund amounts, kerbal assignments) is fixed. The timeline is **additive** — recordings can be added but never deleted through Parsek.
-
-**Rewind is a soft operation — like `git checkout` or `git revert`.** The player jumps to an earlier point on the timeline. All committed recordings survive. No data is lost. The player can fly a new mission from that point and commit it, creating a new branch of activity on the same timeline. The recalculation walk adapts — derived values are recomputed to account for the new recording's presence alongside existing ones.
-
-**KSP load is a hard reset — like `git reset --hard`.** Loading a save discards everything that isn't in that save's state. Recordings not referenced in the loaded save are gone from the timeline. The ledger is pruned to match. This is the only destructive operation, and it's KSP's native behavior — Parsek accepts it rather than fighting it.
-
-**Loading without saving loses everything since the last save.** There is no undo for a KSP load. If the player commits recordings and then loads an earlier save without saving first, those recordings are gone. This is the same as losing uncommitted work after a `git reset --hard`.
-
-### A.2 No time-travel paradoxes
-
-The system is designed so that paradoxes are structurally impossible, not detected after the fact. Every constraint works by prevention:
-
-- **Science subject caps** prevent overcredit. Multiple recordings collecting from the same subject are reconciled by the hard-cap walk. Chronologically first recording gets priority.
-- **Spending reservation** prevents overspending. All committed spendings (past and future) are reserved against available earnings. The player can't add new spendings that would create a deficit. Applies to science (tech nodes) and funds (vessels, facilities, hires).
-- **Kerbal UT=0 reservation** prevents duplicate kerbals. A kerbal used in a committed recording is locked from UT=0 as a continuous block, making it impossible to assign them to an overlapping mission.
-- **Contract UT=0 reservation** prevents slot overflow. Accepted contracts consume Mission Control slots from UT=0, preventing the player from over-accepting after rewind.
-- **Strategy UT=0 reservation** prevents resource diversion conflicts. Active strategies hold Administration building slots from UT=0, blocking new strategies that could reduce effective earnings and break downstream spendings.
-- **Once-ever flags** prevent duplicate credit. Milestones and contract completions are credited to the chronologically first recording only. Later duplicates are zeroed out.
-- **Seeded balance** prevents false negatives. The funds walk starts from the career starting balance extracted from the save, not from zero.
-
-The player never sees a broken state that needs manual resolution. If something goes wrong (bugs, corruption), KSP load is the escape hatch.
-
-### A.3 Additive timeline, adaptive on add
-
-The recording system is additive — new recordings join the timeline alongside existing ones. The timeline adapts when a recording is added:
-
-- Derived values are recomputed from scratch (the recalculation walk from UT=0).
-- Earlier recordings get chronological priority (first in time = full credit).
-- Later recordings get the remainder (reduced effective values if caps apply).
-- Future events are locked on the timeline — their immutable values don't change — but their derived values are recalculated on every trigger.
-
-Deletion is not available through Parsek. The player cannot remove individual recordings. They can:
-
-- **Rewind** — non-destructive, all recordings survive, just jump to an earlier point.
-- **KSP load** — destructive, resets everything to the loaded save's state. Effectively deletes all timeline state from the loaded point forward, including any recordings and spendings not in that save.
-
-### A.4 Immutable recordings, derived state
-
-Raw values from KSP (`scienceAwarded`, fund amounts, milestone triggers, kerbal end states) are written once at recording time and never changed. They are stored in the ledger file as immutable facts.
-
-All computed values (`effectiveScience`, running balances, affordability flags, kerbal reservation status, facility visual state) are derived from a full recalculation pass. Nothing is cached between recalculations. The ledger file is the sole input; derived state is the sole output.
-
-### A.5 Modular and isolated subsystems
-
-Each resource module is independent:
-
-- Has its own earning/spending rules, caps, and constraints.
-- Owns its portion of the recalculation walk.
-- Does not call other modules or depend on their internal state.
-- Shares only the sorted action stream and the `recordingId` key with other modules.
-
-Modules are isolated in logic but connected by **data flow dependency**. First-tier modules (Science, Milestones, Contracts) compute effective values on actions. Second-tier modules (Funds, Reputation) read those effective values during the same walk. This is one-directional data flow, not bidirectional communication — first-tier modules never read from second-tier modules.
-
-This isolation means modules can be designed, tested, and debugged independently. Adding a new module (e.g. a future "ore" or "electric charge" module) requires no changes to existing modules — only a new handler in the walk dispatcher.
-
-The coupling between the recording system and the game actions system is exactly one field: `recordingId`. The recording system doesn't know about science, funds, or kerbals. The ledger doesn't know about trajectories, DAGs, or ghosts. They share a key and nothing else.
-
-### A.6 Conservative over precise
-
-Where Parsek's model diverges from KSP's exact mechanics (e.g. hard cap vs diminishing returns curve), it errs on the side that prevents overcredit rather than the side that maximizes accuracy. A slightly generous credit that stays under the cap is acceptable. A credit that exceeds the cap is not.
-
-### A.7 Commitment is the deliberate choice
-
-Recordings only affect the timeline when the player explicitly commits. The player can always revert to launch and discard a recording. The harshness of permanent consequences (kerbal death, resource commitment) is mitigated by the player's control over what gets committed. Parsek never forces a recording onto the timeline.
