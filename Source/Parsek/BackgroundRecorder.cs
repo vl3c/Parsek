@@ -1317,7 +1317,7 @@ namespace Parsek
                 checkpointed++;
             }
 
-            ParsekLog.Info("BgRecorder",
+            ParsekLog.Verbose("BgRecorder",
                 $"CheckpointAllVessels at UT={ut:F2}: checkpointed={checkpointed}, " +
                 $"skippedNotOrbital={skippedNotOrbital}, skippedNoVessel={skippedNoVessel}");
         }

@@ -3285,7 +3285,7 @@ namespace Parsek
             double ut = Planetarium.GetUniversalTime();
             float warpRate = TimeWarp.CurrentRate;
 
-            ParsekLog.Info("Checkpoint",
+            ParsekLog.Verbose("Checkpoint",
                 $"Time warp rate changed to {warpRate.ToString("F1", System.Globalization.CultureInfo.InvariantCulture)}x " +
                 $"at UT={ut:F2} — checkpointing all background vessels");
 
