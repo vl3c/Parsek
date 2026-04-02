@@ -2335,6 +2335,12 @@ During time warp, the playback engine can have multiple chain segments active si
 
 **Status:** Fixed (0.5.3) — downgraded to Verbose.
 
+## 202. Spawned vessel deleted when switching to it
+
+Switching to a Parsek-spawned vessel (e.g., EVA kerbal on the Mun) triggers a FLIGHT→FLIGHT scene reload. Parsek's revert detection assumed all FLIGHT→FLIGHT transitions were reverts, so it stripped the spawned vessel, re-spawned it, then `CleanupOrphanedSpawnedVessels` matched the re-spawned vessel by name and immediately deleted it.
+
+**Status:** Fixed (0.5.3) — added `vesselSwitchPending` flag via `GameEvents.onVesselSwitching`. FLIGHT→FLIGHT transitions with the flag set are recognized as vessel switches and skip the strip/cleanup path.
+
 ## 200. 128km trajectory discontinuity at environment transitions
 
 Environment hysteresis transitions (e.g., Atmospheric → ExoPropulsive at 70km) called `CloseCurrentTrackSection()` without first sampling a boundary point. The adaptive sampler may have skipped several seconds, leaving a multi-km gap between the last point of the old section and the first point of the new section. Same issue in `UpdateAnchorDetection` (3 sites). On-rails transitions were already correct.
