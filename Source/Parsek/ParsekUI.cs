@@ -3979,14 +3979,40 @@ namespace Parsek
             }
 
             // Timeline ghosts — skip if a ghost map ProtoVessel exists for this index
-            // (the native KSP vessel icon replaces this dot and tracks the correct orbital position)
+            // (the native KSP vessel icon replaces this dot and tracks the correct orbital position).
+            // Deduplicate per chain: during warp, multiple chain segments can be active
+            // simultaneously. Only draw the marker for the highest-index (latest) ghost per chain.
             var committed = RecordingStore.CommittedRecordings;
             Color ghostColor = new Color(0.2f, 1f, 0.4f, 0.9f);
+
+            // First pass: find the highest active index per chain
+            Dictionary<string, int> chainTipIndex = null;
+            foreach (var kvp in flight.TimelineGhosts)
+            {
+                if (kvp.Value == null) continue;
+                if (kvp.Key >= committed.Count) continue;
+                string chainId = committed[kvp.Key].ChainId;
+                if (string.IsNullOrEmpty(chainId)) continue;
+                if (chainTipIndex == null)
+                    chainTipIndex = new Dictionary<string, int>();
+                int existing;
+                if (!chainTipIndex.TryGetValue(chainId, out existing) || kvp.Key > existing)
+                    chainTipIndex[chainId] = kvp.Key;
+            }
+
+            // Second pass: draw markers, skipping non-tip chain members
             foreach (var kvp in flight.TimelineGhosts)
             {
                 if (kvp.Value == null) continue;
                 if (GhostMapPresence.HasGhostVesselForRecording(kvp.Key))
                     continue;
+                if (kvp.Key < committed.Count)
+                {
+                    string chainId = committed[kvp.Key].ChainId;
+                    if (!string.IsNullOrEmpty(chainId) && chainTipIndex != null
+                        && chainTipIndex.TryGetValue(chainId, out int tip) && kvp.Key != tip)
+                        continue; // not the tip — skip duplicate
+                }
                 string ghostName = kvp.Key < committed.Count ? committed[kvp.Key].VesselName : "Ghost";
                 DrawMapMarkerAt(cam, kvp.Value.transform.position, ghostName, ghostColor);
             }

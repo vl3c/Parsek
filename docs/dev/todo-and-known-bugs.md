@@ -2317,6 +2317,24 @@ After booster separation, 3 of 4 boosters correctly have W disabled, but one sta
 
 **Status:** TODO — fix
 
+## 197. Ghost ProtoVessel missing for vessels in stable orbit reported as SUB_ORBITAL
+
+KSP reports `Vessel.Situations.SUB_ORBITAL` for off-rails physics vessels near a body even when they have a bound (elliptical) orbit — e.g., stable Mun orbit. `DetermineTerminalState` trusted KSP's situation flag and classified these as `SubOrbital`, causing the ghost map filter to skip ProtoVessel creation (only creates for `Orbiting`/`Docked`).
+
+**Status:** Fixed (0.5.3) — added `DetermineTerminalState(int, Vessel)` overload that checks `orbit.eccentricity < 1.0 && orbit.PeR > body.Radius` to override SUB_ORBITAL to Orbiting.
+
+## 198. Duplicate green dot map markers during time warp
+
+During time warp, the playback engine can have multiple chain segments active simultaneously (short segments from optimizer splits all fall within the current UT window). Each active ghost gets its own green dot in `DrawMapMarkers`, showing multiple dots for the same vessel scattered along the trajectory.
+
+**Status:** Fixed (0.5.3) — added per-chain dedup in `DrawMapMarkers`: only the highest-index (latest) ghost per chain gets a marker.
+
+## 199. Checkpoint log spam: 8,800+ INFO lines per session
+
+`CheckpointAllVessels` and warp-rate-changed messages logged at INFO level on every time warp transition. A typical Mun mission produced 8,800+ lines of non-actionable diagnostic info.
+
+**Status:** Fixed (0.5.3) — downgraded to Verbose.
+
 # In-Game Tests
 
 - [x] Vessels propagate naturally along orbits after FF (no position freezing)

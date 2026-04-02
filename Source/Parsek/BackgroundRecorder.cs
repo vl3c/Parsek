@@ -724,7 +724,7 @@ namespace Parsek
                 }
                 else
                 {
-                    rec.TerminalStateValue = RecordingTree.DetermineTerminalState((int)v.situation);
+                    rec.TerminalStateValue = RecordingTree.DetermineTerminalState((int)v.situation, v);
                 }
             }
 

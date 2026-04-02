@@ -141,6 +141,11 @@ Ghost vessels now appear in KSP's tracking station, show orbit lines in map view
 - **ComputeTotal logging removed.** Eliminated 52% of all Parsek log output (pure computation was logging every UI frame).
 - **Status column widened** (95→120px) for longer T+ timestamps.
 - **R/FF button state transition logging** for debugging enable/disable issues.
+- **Fix #197: Ghost ProtoVessel missing for stable orbits reported as SUB_ORBITAL.** KSP reports `SUB_ORBITAL` for off-rails vessels in stable orbits (e.g., Mun orbit). Added `DetermineTerminalState(int, Vessel)` overload that checks `orbit.eccentricity < 1.0 && orbit.PeR > body.Radius` to override to Orbiting, enabling ghost ProtoVessel creation and orbit line rendering.
+- **Fix #198: Duplicate green dot map markers during time warp.** During warp, multiple chain segments can be active simultaneously (short segments from optimizer splits). Added per-chain dedup in `DrawMapMarkers` — only the highest-index (latest) ghost per chain draws a marker.
+- **Fix #199: Checkpoint log spam.** Downgraded `CheckpointAllVessels` and warp-rate-changed messages from Info to Verbose (~8,800 lines per Mun mission).
+- **Fix: Recording optimizer hang on save load.** `RunOptimizationPass` called `SaveRecordingFiles` synchronously during OnLoad for every merge/split — with 400k+ trajectory points this blocked the main thread long enough for Windows to kill KSP as not responding. File saves now deferred to OnSave.
+- **Fix: OnSave re-serializing unchanged recordings.** Added `FilesDirty` flag on Recording — OnSave skips `SaveRecordingFiles` for recordings whose sidecar data hasn't changed. Eliminates ~80 seconds of redundant I/O per session for large saves.
 
 ### Features
 

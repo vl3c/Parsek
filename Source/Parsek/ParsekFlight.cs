@@ -925,7 +925,7 @@ namespace Parsek
                     var sit = FlightGlobals.ActiveVessel.situation;
                     RecordingStore.Pending.SceneExitSituation = (int)sit;
                     RecordingStore.Pending.TerminalStateValue =
-                        RecordingTree.DetermineTerminalState((int)sit);
+                        RecordingTree.DetermineTerminalState((int)sit, FlightGlobals.ActiveVessel);
                 }
 
                 // Fallback: if the vessel was destroyed during recording,
@@ -5104,7 +5104,7 @@ namespace Parsek
 
                 if (vessel != null)
                 {
-                    rec.TerminalStateValue = RecordingTree.DetermineTerminalState((int)vessel.situation);
+                    rec.TerminalStateValue = RecordingTree.DetermineTerminalState((int)vessel.situation, vessel);
                     CaptureTerminalOrbit(rec, vessel);
                     CaptureTerminalPosition(rec, vessel);
 

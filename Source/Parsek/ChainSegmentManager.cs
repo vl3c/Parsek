@@ -605,7 +605,7 @@ namespace Parsek
 
                         pending.SceneExitSituation = (int)recordedVessel.situation;
                         pending.TerminalStateValue =
-                            RecordingTree.DetermineTerminalState((int)recordedVessel.situation);
+                            RecordingTree.DetermineTerminalState((int)recordedVessel.situation, recordedVessel);
                     }
                     // Final chain segment keeps VesselSnapshot for spawning (not ghost-only)
                 },
