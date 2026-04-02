@@ -399,6 +399,7 @@ namespace Parsek
                     if (av != null && av.persistentId != 0)
                         MarkForceSpawnOnTreeRecordings(tree, av.persistentId);
                     RecordingStore.CommitPendingTree();
+                    RecordingStore.RunOptimizationPass();
                     CrewReservationManager.ReserveSnapshotCrew();
                     CrewReservationManager.SwapReservedCrewInFlight();
                     ClearPendingFlag();
@@ -818,6 +819,7 @@ namespace Parsek
                         MarkForceSpawnOnTreeRecordings(capturedTree, av.persistentId);
                     ApplyVesselDecisions(capturedTree, capturedDecisions);
                     RecordingStore.CommitPendingTree();
+                    RecordingStore.RunOptimizationPass();
                     CrewReservationManager.ReserveSnapshotCrew();
                     CrewReservationManager.SwapReservedCrewInFlight();
                     ClearPendingFlag();

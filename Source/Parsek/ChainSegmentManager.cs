@@ -412,6 +412,7 @@ namespace Parsek
             preCommitCustomization?.Invoke(RecordingStore.Pending);
 
             RecordingStore.CommitPending();
+            RecordingStore.RunOptimizationPass();
             CrewReservationManager.ReserveSnapshotCrew();
             CrewReservationManager.SwapReservedCrewInFlight();
 
