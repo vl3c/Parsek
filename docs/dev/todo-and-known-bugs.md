@@ -2287,6 +2287,18 @@ Add focus-on-double-click for ghost map icons. Also add "Focus" option to the gh
 
 **Status:** Fixed (0.5.3)
 
+## 189b. Ghost escape orbit line stops short of Kerbin SOI edge
+
+For hyperbolic escape orbits, KSP's `OrbitRendererBase.UpdateSpline` draws the geometric hyperbola from `-acos(-1/e)` to `+acos(-1/e)` using circular trig (cos/sin), which clips at a finite distance (~12,000 km for e=1.342). The active vessel shows the full escape trajectory to the SOI boundary because it uses `PatchedConicSolver` + `PatchRendering` (time-based sampling from StartUT to EndUT). Ghost ProtoVessels don't get a `PatchedConicSolver`.
+
+**Options:**
+1. Draw a custom LineRenderer through the recording's trajectory points (accurate but significant work)
+2. Extend the orbit line beyond the hyperbola asymptote with a straight-line segment to the SOI exit point
+3. Give the ghost a `PatchedConicSolver` (complex, may conflict with KSP internals)
+4. Use a very large negative SMA to make the hyperbola wider (distorts the orbit shape, incorrect for targeting)
+
+**Status:** TODO — needs custom rendering solution
+
 ## 195. Ghost orbit not visible in tracking station
 
 Ghost ProtoVessels cause NRE in `SpaceTracking.buildVesselsList` — the ghost is missing internal state fields KSP expects. The NRE is suppressed by a Harmony Finalizer (returning null) but the ghost's mapObject and orbitRenderer are never created (`mapObj=False orbitRenderer=False`). Root cause: `pv.Load()` in tracking station doesn't create map objects — those are created by `buildVesselsList` which fails on the ghost. Need to either fix the ghost ProtoVessel to be fully compatible with `buildVesselsList`, or create the map objects manually after Load.
