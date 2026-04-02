@@ -247,8 +247,7 @@ namespace Parsek
         /// <summary>
         /// Patches DestructibleBuilding components to match the module's destroyed/intact state.
         /// Collects all DestructibleBuilding objects once, then iterates facilities to find matches.
-        /// Uses Contains matching because FacilityId in destruction actions stores the building ID
-        /// (e.g. "%.%.%.%.%.%.%.%") which matches DestructibleBuilding.id strings.
+        /// Uses exact ID matching between FacilityId and DestructibleBuilding.id.
         /// No-op if no DestructibleBuilding objects are found (e.g. not in KSC scene).
         /// </summary>
         internal static void PatchDestructionState(
@@ -355,7 +354,10 @@ namespace Parsek
                 if (Math.Abs(kspSubject.science - targetScience) > 0.001f)
                 {
                     kspSubject.science = targetScience;
-                    kspSubject.scientificValue = 1f - (targetScience / kspSubject.scienceCap);
+                    if (kspSubject.scienceCap > 0f)
+                        kspSubject.scientificValue = 1f - (targetScience / kspSubject.scienceCap);
+                    else
+                        kspSubject.scientificValue = 0f;
                     if (kspSubject.scientificValue < 0f) kspSubject.scientificValue = 0f;
                     patchedSubjects++;
                 }
