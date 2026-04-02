@@ -36,7 +36,7 @@ namespace Parsek.Patches
     [HarmonyPatch(typeof(OrbitRendererBase), "objectNode_OnClick")]
     internal static class GhostIconClickPatch
     {
-        // Track current popup so we can dismiss on outside-click or re-click
+        // Track current popup so we can dismiss on re-click
         private static PopupDialog currentGhostMenu;
 
         static bool Prefix(OrbitRendererBase __instance)
@@ -56,55 +56,68 @@ namespace Parsek.Patches
             {
                 new DialogGUIButton("Focus", () =>
                 {
+                    currentGhostMenu = null;
                     if (PlanetariumCamera.fetch != null && MapView.MapIsEnabled && v.mapObject != null)
                     {
                         PlanetariumCamera.fetch.SetTarget(v.mapObject);
                         ParsekLog.Info("GhostMap", $"Ghost '{vesselName}' focused via menu (recIndex={recIndex})");
                     }
+                    else
+                    {
+                        ParsekLog.Warn("GhostMap", $"Focus failed: camera={PlanetariumCamera.fetch != null} map={MapView.MapIsEnabled} mapObj={v.mapObject != null}");
+                    }
                 }, dismissOnSelect: true),
                 new DialogGUIButton("Set As Target", () =>
                 {
-                    FlightGlobals.fetch.SetVesselTarget(v);
-                    ParsekLog.Info("GhostMap", $"Ghost '{vesselName}' set as target via icon click");
+                    currentGhostMenu = null;
+                    if (FlightGlobals.fetch != null)
+                    {
+                        FlightGlobals.fetch.SetVesselTarget(v);
+                        ParsekLog.Info("GhostMap", $"Ghost '{vesselName}' set as target via icon click");
+                    }
                 }, dismissOnSelect: true),
                 new DialogGUIButton("Watch", () =>
                 {
+                    currentGhostMenu = null;
                     var flight = ParsekFlight.Instance;
                     if (flight != null && recIndex >= 0)
+                    {
                         flight.EnterWatchMode(recIndex);
+                        ParsekLog.Info("GhostMap", $"Ghost '{vesselName}' watch started via icon click (recIndex={recIndex})");
+                    }
                     else
+                    {
                         ScreenMessages.PostScreenMessage(
                             $"<b>{vesselName}</b> is a ghost — it will materialize when its timeline reaches the spawn point.",
                             5f, ScreenMessageStyle.UPPER_CENTER);
-                    ParsekLog.Info("GhostMap", $"Ghost '{vesselName}' watch requested via icon click (recIndex={recIndex})");
+                        ParsekLog.Info("GhostMap", $"Ghost '{vesselName}' watch unavailable (recIndex={recIndex})");
+                    }
                 }, dismissOnSelect: true)
             };
 
-            // Position popup near mouse cursor using normalized screen anchors
-            Vector3 mousePos = Input.mousePosition;
-            float anchorX = mousePos.x / Screen.width;
-            float anchorY = mousePos.y / Screen.height;
-            var anchor = new Vector2(anchorX, anchorY);
-
             currentGhostMenu = PopupDialog.SpawnPopupDialog(
-                anchor, anchor,
+                new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f),
                 new MultiOptionDialog("GhostIconMenu", "", vesselName,
                     HighLogic.UISkin, 160f, options),
                 persistAcrossScenes: false, skin: HighLogic.UISkin);
 
+            // Reposition to mouse cursor after spawn
+            if (currentGhostMenu != null)
+            {
+                var rt = currentGhostMenu.GetComponent<RectTransform>();
+                if (rt != null)
+                    rt.position = Input.mousePosition;
+            }
+
             ParsekLog.Verbose("GhostMap",
                 $"Ghost icon clicked: '{vesselName}' pid={v.persistentId} recIndex={recIndex}");
-
-            // Start monitoring for outside clicks via HighLogic (always available)
-            if (HighLogic.fetch != null)
-                HighLogic.fetch.StartCoroutine(MonitorOutsideClick());
 
             return false; // skip original — prevent KSP's default context menu
         }
 
         /// <summary>
         /// Dismisses the current ghost popup menu if one is open.
-        /// Called before opening a new menu and from the outside-click monitor.
+        /// Called before opening a new menu and on scene changes.
         /// </summary>
         internal static void DismissCurrentMenu()
         {
@@ -112,33 +125,6 @@ namespace Parsek.Patches
             {
                 currentGhostMenu.Dismiss();
                 currentGhostMenu = null;
-            }
-        }
-
-        /// <summary>
-        /// Monitors for mouse clicks outside the popup and dismisses it.
-        /// Uses a simple delay + any-click approach: after a short grace period,
-        /// any mouse click dismisses the menu (KSP popups are small enough that
-        /// clicking a button inside triggers dismissOnSelect before this fires).
-        /// </summary>
-        private static System.Collections.IEnumerator MonitorOutsideClick()
-        {
-            // Wait a few frames so the click that opened the menu doesn't close it
-            yield return null;
-            yield return null;
-
-            while (currentGhostMenu != null)
-            {
-                yield return null;
-
-                if (currentGhostMenu == null) break;
-
-                // Any mouse click dismisses the menu
-                if (Input.GetMouseButtonDown(0) || Input.GetMouseButtonDown(1))
-                {
-                    DismissCurrentMenu();
-                    break;
-                }
             }
         }
     }
