@@ -727,19 +727,21 @@ Functionality:
 
 ---
 
-### Task 33: Contract and Milestone KSP State Patching (D3, design doc 3.1)
+### Task 33: Contract and Milestone KSP State Patching (D3, design doc 3.1) — DONE (milestones)
 
 **Overview:** Patch `ContractSystem.Instance` and `ProgressTracking.Instance` after recalculation.
 
-**Modifies:** `KspStatePatcher.cs`
+**Modifies:** `KspStatePatcher.cs`, `GameStateRecorder.cs`, `MilestonesModule.cs`
 
 Functionality:
-- **Contracts:** Reconstruct contract objects from stored ConfigNode snapshots, set correct state (Active/Completed/Failed/Cancelled). Requires Spike B findings (type-registry subclass instantiation).
-- **Milestones:** Set `ProgressTracking` achieved flags from `MilestonesModule.IsMilestoneCredited()`.
+- **Contracts:** Reconstruct contract objects from stored ConfigNode snapshots, set correct state (Active/Completed/Failed/Cancelled). Done — see `KspStatePatcher.PatchContracts`.
+- **Milestones:** Set `ProgressTracking` achieved flags from `MilestonesModule.IsMilestoneCredited()`. Done — `PatchMilestones` iterates the `ProgressNode` tree recursively, matching path-qualified IDs ("Mun/Landing") and setting/clearing `reached`/`complete` flags via reflection. Milestone ID capture in `GameStateRecorder.OnProgressComplete` now uses `QualifyMilestoneId` to path-qualify body-specific milestones via reflection on the private `CelestialBody body` field. Old recordings with bare IDs have a fallback match against `node.Id` but may be ambiguous across bodies (see D22).
 - Risk: Medium-High for contracts (Contract Configurator compatibility), Low for milestones.
 
 **Depends on:** Task 15b, Spike B findings.
 **Done when:** Tracking station and Mission Control reflect the recalculated timeline.
+
+**Resolution (milestones):** `PatchMilestones` replaces the scaffold with full implementation. Uses `ProgressNode` private field reflection (`reached`, `complete`) and protected property reflection (`IsCompleteManned`, `IsCompleteUnmanned`). Tree iteration uses `ProgressTree.Count` + index access + `node.Subtree` recursion. `QualifyMilestoneId` added as internal static method on `GameStateRecorder` for testability. `GetCreditedMilestoneIds` added to `MilestonesModule` to expose credited set for patching. 12 tests in `MilestonePatchingTests.cs`.
 
 ---
 
@@ -830,7 +832,7 @@ Functionality:
 | 5. Integration | 13-17 | Converter, patcher, orchestrator, commit/rewind/warp wiring | **Done** |
 | 6. Polish | 18-22 | KSC spendings, UI, old system deprecation, logging, end-to-end test | **Partial** (UI done) |
 | 7. Critical Gaps | 23-28 | Vessel cost/recovery, milestones, science/rep seeding, contract sci, facility/science patching | Pending |
-| 8. Non-Critical | 31-38 | Strategy rates, deadline gen, contract/milestone patching, rescue, warp visuals, MIA, retired UI, mod compat | Partial (Tasks 31, 32, 35, 36, 37 done) |
+| 8. Non-Critical | 31-38 | Strategy rates, deadline gen, contract/milestone patching, rescue, warp visuals, MIA, retired UI, mod compat | Partial (Tasks 31, 32, 33, 35, 36, 37 done) |
 | 9. Architecture | 29-30 | KerbalsModule into engine, old code cleanup | Pending |
 
 **Parallelization opportunities:**

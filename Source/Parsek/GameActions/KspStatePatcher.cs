@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.Reflection;
 using Contracts;
 
 namespace Parsek
@@ -380,10 +381,20 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Scaffold for milestone state patching. Full implementation requires iterating
-        /// the ProgressNode tree and setting achieved flags based on MilestonesModule state,
-        /// which needs a mapping between MilestoneId strings and ProgressNode.Id values.
-        /// For now, logs the milestone count for diagnostics.
+        /// Patches KSP's ProgressNode achievement tree to match the module's credited milestones.
+        /// Iterates the tree recursively, setting reached/complete flags via reflection for
+        /// nodes that should be achieved, and clearing them for nodes that should not be.
+        ///
+        /// Body-specific nodes (under CelestialBodySubtree) are matched using path-qualified
+        /// IDs ("Mun/Landing"), while top-level nodes use bare IDs ("FirstLaunch").
+        /// Old recordings with bare body-specific IDs ("Landing" instead of "Mun/Landing")
+        /// will not match and are logged for diagnostics.
+        ///
+        /// Note: After clearing a node, KSP's ProgressTracking.Update() may immediately
+        /// re-trigger it if conditions are still met (e.g., a vessel is in orbit). This is
+        /// correct behavior — milestones whose conditions are still satisfied SHOULD remain
+        /// achieved. The IsReplayingActions flag suppresses GameStateRecorder from capturing
+        /// re-triggered milestones as new events.
         /// </summary>
         internal static void PatchMilestones(MilestonesModule milestones)
         {
@@ -399,14 +410,137 @@ namespace Parsek
                 return;
             }
 
-            // Note: ProgressTracking.Instance nodes represent milestones.
-            // Full milestone patching requires iterating ProgressNode tree and
-            // setting achieved flags based on MilestonesModule.IsMilestoneCredited().
-            // This is complex and requires mapping between MilestoneId strings and
-            // ProgressNode.Id values. For now, log the milestone count for diagnostics.
+            var tree = ProgressTracking.Instance.achievementTree;
+            if (tree == null)
+            {
+                ParsekLog.Warn(Tag, "PatchMilestones: achievementTree is null — skipping");
+                return;
+            }
+
+            // Cache reflection FieldInfo/PropertyInfo once for the private/protected fields
+            var reachedField = typeof(ProgressNode).GetField("reached",
+                BindingFlags.NonPublic | BindingFlags.Instance);
+            var completeField = typeof(ProgressNode).GetField("complete",
+                BindingFlags.NonPublic | BindingFlags.Instance);
+            var mannedProp = typeof(ProgressNode).GetProperty("IsCompleteManned",
+                BindingFlags.Public | BindingFlags.Instance);
+            var unmannedProp = typeof(ProgressNode).GetProperty("IsCompleteUnmanned",
+                BindingFlags.Public | BindingFlags.Instance);
+
+            if (reachedField == null || completeField == null)
+            {
+                ParsekLog.Warn(Tag,
+                    "PatchMilestones: could not find reached/complete fields via reflection " +
+                    $"(reached={reachedField != null}, complete={completeField != null}) — skipping");
+                return;
+            }
+
+            if (mannedProp == null || unmannedProp == null)
+            {
+                ParsekLog.Warn(Tag,
+                    "PatchMilestones: could not find IsCompleteManned/IsCompleteUnmanned properties " +
+                    $"(manned={mannedProp != null}, unmanned={unmannedProp != null}) — will skip manned/unmanned flags");
+            }
+
+            int credited = 0, unreached = 0, skipped = 0;
+
+            PatchProgressNodeTree(tree, milestones, reachedField, completeField,
+                mannedProp, unmannedProp,
+                "", ref credited, ref unreached, ref skipped);
+
             ParsekLog.Info(Tag,
-                $"PatchMilestones: {milestones.GetCreditedCount().ToString(IC)} milestones credited " +
-                $"(ProgressTracking patching deferred — requires ProgressNode tree mapping)");
+                $"PatchMilestones: credited={credited.ToString(IC)}, " +
+                $"unreached={unreached.ToString(IC)}, " +
+                $"skipped={skipped.ToString(IC)}, " +
+                $"moduleCredited={milestones.GetCreditedCount().ToString(IC)}");
+        }
+
+        /// <summary>
+        /// Recursively patches a ProgressTree's nodes to match credited milestone state.
+        /// For each node, computes a qualified ID (body nodes get "BodyName/NodeId"),
+        /// checks whether it should be achieved, and sets/clears flags via reflection.
+        ///
+        /// Matching logic: tries qualified path first ("Mun/Landing"), then falls back to
+        /// bare node.Id ("Landing") for backward compat with old recordings. The bare-Id
+        /// fallback only fires for top-level nodes (empty pathPrefix) to avoid false matches
+        /// on body subtree children.
+        ///
+        /// Internal static for testability — the reflection FieldInfos are passed in.
+        /// </summary>
+        internal static void PatchProgressNodeTree(
+            ProgressTree tree, MilestonesModule milestones,
+            FieldInfo reachedField, FieldInfo completeField,
+            PropertyInfo mannedProp, PropertyInfo unmannedProp,
+            string pathPrefix,
+            ref int credited, ref int unreached, ref int skipped)
+        {
+            for (int i = 0; i < tree.Count; i++)
+            {
+                var node = tree[i];
+                if (node == null) continue;
+
+                string nodeId = node.Id ?? "";
+                string qualifiedId = string.IsNullOrEmpty(pathPrefix)
+                    ? nodeId
+                    : pathPrefix + "/" + nodeId;
+
+                // Check if this milestone should be achieved.
+                // Try qualified path first, then bare Id for backward compat on top-level nodes.
+                bool shouldBeAchieved = milestones.IsMilestoneCredited(qualifiedId);
+                if (!shouldBeAchieved && string.IsNullOrEmpty(pathPrefix))
+                {
+                    // Top-level node — bare Id is already the qualified path, no fallback needed
+                }
+                else if (!shouldBeAchieved && !string.IsNullOrEmpty(pathPrefix))
+                {
+                    // Body subtree child — try bare Id for backward compat with old recordings
+                    // that stored "Landing" instead of "Mun/Landing"
+                    if (milestones.IsMilestoneCredited(nodeId))
+                    {
+                        shouldBeAchieved = true;
+                        ParsekLog.Verbose(Tag,
+                            $"PatchMilestones: bare-Id fallback match for '{nodeId}' " +
+                            $"(qualified='{qualifiedId}' not found — old recording?)");
+                    }
+                }
+
+                bool isCurrentlyAchieved = node.IsComplete;
+
+                if (shouldBeAchieved && !isCurrentlyAchieved)
+                {
+                    // Set achieved via reflection (avoid Complete() which fires GameEvents)
+                    reachedField.SetValue(node, true);
+                    completeField.SetValue(node, true);
+                    credited++;
+
+                    ParsekLog.Verbose(Tag,
+                        $"PatchMilestones: set achieved '{qualifiedId}'");
+                }
+                else if (!shouldBeAchieved && isCurrentlyAchieved)
+                {
+                    // Un-achieve via reflection (no public setters available)
+                    reachedField.SetValue(node, false);
+                    completeField.SetValue(node, false);
+                    if (mannedProp != null) mannedProp.SetValue(node, false, null);
+                    if (unmannedProp != null) unmannedProp.SetValue(node, false, null);
+                    unreached++;
+
+                    ParsekLog.Verbose(Tag,
+                        $"PatchMilestones: cleared achieved '{qualifiedId}'");
+                }
+                else
+                {
+                    skipped++;
+                }
+
+                // Recurse into subtree children
+                if (node.Subtree != null && node.Subtree.Count > 0)
+                {
+                    PatchProgressNodeTree(node.Subtree, milestones,
+                        reachedField, completeField, mannedProp, unmannedProp,
+                        qualifiedId, ref credited, ref unreached, ref skipped);
+                }
+            }
         }
 
         /// <summary>

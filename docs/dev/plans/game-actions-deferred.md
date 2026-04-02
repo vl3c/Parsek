@@ -141,6 +141,15 @@ Items identified during design that are out of scope for the initial implementat
 
 ---
 
+### D22. Milestone ID Backward Compatibility
+
+**What:** Old recordings store bare milestone IDs ("Landing" instead of "Mun/Landing") for body-specific milestones. These cannot be unambiguously matched during patching.
+**Why deferred:** Old recordings are a minority case. The bare-ID fallback in `PatchProgressNodeTree` handles simple cases (matching against bare `node.Id`), but cannot distinguish "Mun/Landing" from "Minmus/Landing" if both bodies appear in the tree. Affected recordings would need manual correction or re-recording.
+**Revisit when:** Player reports of incorrect milestone state after rewind on old recordings.
+**Status:** Open — accepted limitation. New recordings use path-qualified IDs.
+
+---
+
 ### D16. VAB/SPH Editing Sessions
 
 **What:** Whether the ledger needs to track vessel cost changes during editing (parts added/removed), or only the final cost at launch.

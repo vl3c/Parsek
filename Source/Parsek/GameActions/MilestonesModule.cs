@@ -85,5 +85,14 @@ namespace Parsek
         {
             return creditedMilestones.Count;
         }
+
+        /// <summary>
+        /// Returns a copy of the credited milestone IDs for patching use.
+        /// The returned set can be iterated without affecting module state.
+        /// </summary>
+        internal HashSet<string> GetCreditedMilestoneIds()
+        {
+            return new HashSet<string>(creditedMilestones);
+        }
     }
 }

@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Reflection;
 using Contracts;
 using UnityEngine;
 
@@ -659,7 +660,7 @@ namespace Parsek
                 return;
             }
 
-            string milestoneId = node.Id ?? "";
+            string milestoneId = QualifyMilestoneId(node);
             if (string.IsNullOrEmpty(milestoneId))
             {
                 ParsekLog.Verbose("GameStateRecorder", "OnProgressComplete: empty node Id — skipped");
@@ -707,6 +708,44 @@ namespace Parsek
                 key = milestoneId ?? "",
                 detail = ""
             };
+        }
+
+        /// <summary>
+        /// Path-qualifies body-specific milestone IDs to avoid ambiguity.
+        /// Body-specific achievement classes (CelestialBodyLanding, CelestialBodyOrbit, etc.)
+        /// all have a private CelestialBody body field. The bare node.Id (e.g. "Landing")
+        /// is non-unique across bodies, so we qualify as "Mun/Landing", "Kerbin/Landing", etc.
+        ///
+        /// Top-level nodes (FirstLaunch, ReachSpace, RecordsAltitude, etc.) have unique IDs
+        /// and are returned as-is.
+        ///
+        /// Internal static for testability.
+        /// </summary>
+        internal static string QualifyMilestoneId(ProgressNode node)
+        {
+            if (node == null) return "";
+
+            string bareId = node.Id ?? "";
+            if (string.IsNullOrEmpty(bareId)) return "";
+
+            // Try reflection to get the private "body" field present on all
+            // CelestialBody* achievement subclasses (Landing, Orbit, Flyby, etc.)
+            var bodyField = node.GetType().GetField("body",
+                BindingFlags.NonPublic | BindingFlags.Instance);
+            if (bodyField != null)
+            {
+                var celestialBody = bodyField.GetValue(node) as CelestialBody;
+                if (celestialBody != null)
+                {
+                    string qualified = celestialBody.name + "/" + bareId;
+                    ParsekLog.Verbose("GameStateRecorder",
+                        $"QualifyMilestoneId: qualified '{bareId}' -> '{qualified}' (body={celestialBody.name})");
+                    return qualified;
+                }
+            }
+
+            // No body field — top-level node with unique ID (FirstLaunch, ReachSpace, etc.)
+            return bareId;
         }
 
         #endregion
