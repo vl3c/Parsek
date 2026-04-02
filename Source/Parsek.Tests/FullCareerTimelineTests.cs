@@ -301,10 +301,10 @@ namespace Parsek.Tests
                     && a.RecordingId == "rec-1");
 
             // Assert: rec-2 (UT=200) gets full credit since it's earlier
-            Assert.Equal(5.0f, rec2Action.EffectiveScience, 1);
+            Assert.Equal(5.0f, rec2Action.EffectiveScience, (float)0.1);
 
             // Assert: rec-1 (UT=500) is capped to 0 — subject already at max
-            Assert.Equal(0.0f, rec1Action.EffectiveScience, 1);
+            Assert.Equal(0.0f, rec1Action.EffectiveScience, (float)0.1);
 
             // Assert: Total credited for subject is still 5 (max)
             Assert.Equal(5.0, LedgerOrchestrator.Science.GetSubjectCredited("crewReport@KerbinSrfLandedLaunchpad"), 1);

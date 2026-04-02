@@ -159,8 +159,11 @@ namespace Parsek
                 sorted[i].TransformedRepReward = sorted[i].RepReward;
             }
 
-            // 2c. Pre-pass: let modules compute aggregate data before the walk
+            // 2c. Pre-pass: let modules compute aggregate data before the walk.
+            // Modules may inject synthetic actions (e.g., ContractsModule injects
+            // ContractFail for expired deadlines), so we re-sort afterward.
             PrePassAllModules(sorted);
+            sorted = SortActions(sorted);
 
             // 3. Walk sorted actions
             int firstTierDispatches = 0;

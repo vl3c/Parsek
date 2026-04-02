@@ -50,6 +50,7 @@ namespace Parsek
         private bool isResizingActionsWindow;
         private bool actionsWindowHasInputLock;
         private const string ActionsInputLockId = "Parsek_ActionsWindow";
+        private int lastRetiredKerbalCount = -1; // for change-based logging
 
         // Cached styles for actions window
         private GUIStyle actionsGrayStyle;
@@ -704,6 +705,32 @@ namespace Parsek
             {
                 GUILayout.Space(5);
                 GUILayout.Label("No actions recorded.");
+            }
+
+            // Retired Kerbals section
+            var retiredKerbals = KerbalsModule.GetRetiredKerbals();
+            if (retiredKerbals.Count > 0)
+            {
+                if (retiredKerbals.Count != lastRetiredKerbalCount)
+                {
+                    ParsekLog.Verbose("UI",
+                        $"Retired kerbals count changed: {lastRetiredKerbalCount} -> {retiredKerbals.Count}");
+                    lastRetiredKerbalCount = retiredKerbals.Count;
+                }
+
+                GUILayout.Space(5);
+                GUILayout.Label($"Retired Stand-ins ({retiredKerbals.Count})", GUI.skin.box);
+                GUILayout.BeginVertical(GUI.skin.box);
+                for (int i = 0; i < retiredKerbals.Count; i++)
+                {
+                    GUILayout.Label(retiredKerbals[i], actionsGrayStyle);
+                }
+                GUILayout.EndVertical();
+            }
+            else if (lastRetiredKerbalCount > 0)
+            {
+                ParsekLog.Verbose("UI", "Retired kerbals list cleared");
+                lastRetiredKerbalCount = 0;
             }
 
             // C. Bottom Bar — pinned to window bottom

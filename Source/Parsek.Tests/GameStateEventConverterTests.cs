@@ -510,6 +510,86 @@ namespace Parsek.Tests
         }
 
         // ================================================================
+        // ContractAccepted — structured format (new)
+        // ================================================================
+
+        [Fact]
+        public void ConvertContractAccepted_NewFormat_ExtractsDeadlineAndPenalties()
+        {
+            var evt = MakeEvent(GameStateEventType.ContractAccepted, 8000.0,
+                key: "guid-1234",
+                detail: "title=Orbit the Mun;deadline=50000;failFunds=12000;failRep=5");
+            var action = GameStateEventConverter.ConvertEvent(evt, "rec9");
+
+            Assert.NotNull(action);
+            Assert.Equal(GameActionType.ContractAccept, action.Type);
+            Assert.Equal("guid-1234", action.ContractId);
+            Assert.Equal("Orbit the Mun", action.ContractTitle);
+            Assert.Equal(50000f, action.DeadlineUT);
+            Assert.Equal(12000f, action.FundsPenalty);
+            Assert.Equal(5f, action.RepPenalty);
+        }
+
+        [Fact]
+        public void ConvertContractAccepted_NewFormat_DeadlineNaN()
+        {
+            var evt = MakeEvent(GameStateEventType.ContractAccepted, 8000.0,
+                key: "guid-5678",
+                detail: "title=Test Part;deadline=NaN;failFunds=3000;failRep=1");
+            var action = GameStateEventConverter.ConvertEvent(evt, "rec10");
+
+            Assert.NotNull(action);
+            Assert.Equal("Test Part", action.ContractTitle);
+            Assert.True(float.IsNaN(action.DeadlineUT));
+            Assert.Equal(3000f, action.FundsPenalty);
+            Assert.Equal(1f, action.RepPenalty);
+        }
+
+        [Fact]
+        public void ConvertContractAccepted_OldFormat_TreatsDetailAsTitle()
+        {
+            // Legacy format: plain title, no semicolons
+            var evt = MakeEvent(GameStateEventType.ContractAccepted, 8000.0,
+                key: "guid-9999", detail: "Explore the Mun");
+            var action = GameStateEventConverter.ConvertEvent(evt, "rec11");
+
+            Assert.NotNull(action);
+            Assert.Equal(GameActionType.ContractAccept, action.Type);
+            Assert.Equal("guid-9999", action.ContractId);
+            Assert.Equal("Explore the Mun", action.ContractTitle);
+            Assert.True(float.IsNaN(action.DeadlineUT));
+            Assert.Equal(0f, action.FundsPenalty);
+            Assert.Equal(0f, action.RepPenalty);
+        }
+
+        [Fact]
+        public void ConvertContractAccepted_NewFormat_LogsStructuredParsing()
+        {
+            var evt = MakeEvent(GameStateEventType.ContractAccepted, 8000.0,
+                key: "guid-1234",
+                detail: "title=Test;deadline=50000;failFunds=1000;failRep=2");
+            GameStateEventConverter.ConvertEvent(evt, "rec");
+
+            Assert.Contains(logLines, l =>
+                l.Contains("[GameStateEventConverter]") &&
+                l.Contains("structured format") &&
+                l.Contains("guid-1234"));
+        }
+
+        [Fact]
+        public void ConvertContractAccepted_OldFormat_LogsLegacy()
+        {
+            var evt = MakeEvent(GameStateEventType.ContractAccepted, 8000.0,
+                key: "guid-old", detail: "Some Old Title");
+            GameStateEventConverter.ConvertEvent(evt, "rec");
+
+            Assert.Contains(logLines, l =>
+                l.Contains("[GameStateEventConverter]") &&
+                l.Contains("legacy format") &&
+                l.Contains("guid-old"));
+        }
+
+        // ================================================================
         // MilestoneAchieved -> MilestoneAchievement
         // ================================================================
 

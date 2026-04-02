@@ -308,18 +308,60 @@ namespace Parsek
             };
         }
 
-        /// <summary>ContractAccepted -> ContractAccept (contractId=key, title from detail).</summary>
+        /// <summary>
+        /// ContractAccepted -> ContractAccept (contractId=key, title/deadline/penalties from detail).
+        /// New format (v2): "title=...;deadline=...;failFunds=...;failRep=..."
+        /// Old format (v1): plain title string (no semicolons). Backward compatible.
+        /// </summary>
         private static GameAction ConvertContractAccepted(GameStateEvent evt, string recordingId)
         {
-            // Contract accepted events store the title directly in detail (not key=value format)
-            // per GameStateRecorder.OnContractAccepted
+            string title;
+            float deadlineUT = float.NaN;
+            float fundsPenalty = 0f;
+            float repPenalty = 0f;
+
+            // Detect structured vs legacy format by checking for semicolons
+            if (evt.detail != null && evt.detail.Contains(";"))
+            {
+                // Structured format: extract fields
+                title = ExtractDetail(evt.detail, "title") ?? "";
+
+                string deadlineStr = ExtractDetail(evt.detail, "deadline");
+                if (deadlineStr != null && deadlineStr != "NaN")
+                    float.TryParse(deadlineStr, NumberStyles.Float, IC, out deadlineUT);
+                // else remains NaN
+
+                string failFundsStr = ExtractDetail(evt.detail, "failFunds");
+                if (failFundsStr != null)
+                    float.TryParse(failFundsStr, NumberStyles.Float, IC, out fundsPenalty);
+
+                string failRepStr = ExtractDetail(evt.detail, "failRep");
+                if (failRepStr != null)
+                    float.TryParse(failRepStr, NumberStyles.Float, IC, out repPenalty);
+
+                ParsekLog.Verbose(Tag,
+                    $"ConvertContractAccepted: structured format contractId='{evt.key}' " +
+                    $"title='{title}' deadline={deadlineUT} failFunds={fundsPenalty} failRep={repPenalty}");
+            }
+            else
+            {
+                // Legacy format: entire detail is the title
+                title = evt.detail ?? "";
+
+                ParsekLog.Verbose(Tag,
+                    $"ConvertContractAccepted: legacy format contractId='{evt.key}' title='{title}'");
+            }
+
             return new GameAction
             {
                 UT = evt.ut,
                 Type = GameActionType.ContractAccept,
                 RecordingId = recordingId,
                 ContractId = evt.key,
-                ContractTitle = evt.detail
+                ContractTitle = title,
+                DeadlineUT = deadlineUT,
+                FundsPenalty = fundsPenalty,
+                RepPenalty = repPenalty
             };
         }
 

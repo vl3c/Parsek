@@ -129,6 +129,9 @@ Redesign milestone capture, resource budgeting, and action replay validated per 
 
 **Priority:** High — correctness across game modes
 
+**Phase 8 subtask progress:**
+- Task 36 (KSP MIA Respawn Handling, D7): DONE — `KerbalsModule.ApplyToRoster()` Step 3 sets every reserved kerbal to `Assigned` on each recalculation, overriding KSP's MIA respawn. 5 tests in `KerbalReservationTests.MiaRespawnOverride_*`.
+
 ### T18. Log contract checker error whitelist (bug #63)
 
 `ParsekLogContractChecker` has no whitelist for intentional error-path test scenarios. Currently no tests need this.
@@ -264,6 +267,12 @@ Ghost orbit lines look identical to real vessel orbit lines. Should have a disti
 When a recording-index ghost exits an orbital segment (e.g., atmospheric re-entry), the ghost map ProtoVessel's orbit line remains at the last segment's orbit. It should either disappear during non-orbital phases or be removed and re-created when the ghost re-enters an orbital segment.
 
 **Priority:** Low — minor visual inconsistency, ghost mesh shows correct position
+
+### T42. Convert KerbalsModule to IResourceModule
+
+KerbalsModule currently operates as a bridge outside the RecalculationEngine — it iterates recordings directly instead of consuming GameAction objects via the IResourceModule interface. The ledger already captures kerbal data as KerbalAssignment/KerbalHire/KerbalRescue/KerbalStandIn actions, but KerbalsModule ignores them and re-derives everything from recordings. Converting requires: (1) making KerbalsModule non-static (currently static class, can't implement interface), (2) rewriting Recalculate to consume actions instead of recordings, (3) routing 16+ direct `KerbalsModule.RecalculateAndApply()` call sites through `LedgerOrchestrator.RecalculateAndPatch()`. Wide blast radius, no functional gain — the bridge pattern works fine. Do this when there's already a reason to restructure KerbalsModule.
+
+**Priority:** Low — architectural cleanup, bridge pattern is functionally correct
 
 ---
 

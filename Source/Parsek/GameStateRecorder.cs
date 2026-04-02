@@ -168,12 +168,25 @@ namespace Parsek
             string guid = contract.ContractGuid.ToString();
 
             var title = contract.Title ?? "";
+            double deadline = contract.TimeDeadline;
+            float failFunds = (float)contract.FundsFailure;
+            float failRep = (float)contract.ReputationFailure;
+
+            // Structured detail: title + deadline + failure penalties for deadline expiration generation
+            // deadline=0 means no deadline (KSP convention) — store as NaN
+            string deadlineStr = deadline > 0
+                ? deadline.ToString("R", System.Globalization.CultureInfo.InvariantCulture)
+                : "NaN";
+            var detail = $"title={title};deadline={deadlineStr}" +
+                $";failFunds={failFunds.ToString("R", System.Globalization.CultureInfo.InvariantCulture)}" +
+                $";failRep={failRep.ToString("R", System.Globalization.CultureInfo.InvariantCulture)}";
+
             GameStateStore.AddEvent(new GameStateEvent
             {
                 ut = Planetarium.GetUniversalTime(),
                 eventType = GameStateEventType.ContractAccepted,
                 key = guid,
-                detail = title
+                detail = detail
             });
 
             // Store full contract snapshot for reversal
@@ -182,11 +195,14 @@ namespace Parsek
                 var contractNode = new ConfigNode("CONTRACT");
                 contract.Save(contractNode);
                 GameStateStore.AddContractSnapshot(guid, contractNode);
-                ParsekLog.Info("GameStateRecorder", $"Game state: ContractAccepted '{title}' (snapshot saved)");
+                ParsekLog.Info("GameStateRecorder",
+                    $"Game state: ContractAccepted '{title}' deadline={deadlineStr} " +
+                    $"failFunds={failFunds} failRep={failRep} (snapshot saved)");
             }
             catch (Exception ex)
             {
-                ParsekLog.Warn("GameStateRecorder", $"Game state: ContractAccepted '{title}' (snapshot FAILED: {ex.Message})");
+                ParsekLog.Warn("GameStateRecorder",
+                    $"Game state: ContractAccepted '{title}' (snapshot FAILED: {ex.Message})");
             }
         }
 

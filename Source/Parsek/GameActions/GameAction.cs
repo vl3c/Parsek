@@ -622,6 +622,10 @@ namespace Parsek
             n.AddValue("advanceFunds", AdvanceFunds.ToString("R", IC));
             if (!float.IsNaN(DeadlineUT))
                 n.AddValue("deadlineUT", DeadlineUT.ToString("R", IC));
+            if (FundsPenalty != 0f)
+                n.AddValue("fundsPenalty", FundsPenalty.ToString("R", IC));
+            if (RepPenalty != 0f)
+                n.AddValue("repPenalty", RepPenalty.ToString("R", IC));
         }
 
         private static void DeserializeContractAccept(ConfigNode n, GameAction a)
@@ -632,6 +636,8 @@ namespace Parsek
             TryParseFloat(n, "advanceFunds", out a.AdvanceFunds);
             if (!TryParseFloat(n, "deadlineUT", out a.DeadlineUT))
                 a.DeadlineUT = float.NaN;
+            TryParseFloat(n, "fundsPenalty", out a.FundsPenalty);
+            TryParseFloat(n, "repPenalty", out a.RepPenalty);
         }
 
         private void SerializeContractComplete(ConfigNode n)

@@ -53,9 +53,78 @@ namespace Parsek
         }
 
         /// <inheritdoc/>
+        /// <remarks>
+        /// Scans for ContractAccept actions with deadlines that expire before the end
+        /// of the timeline without a resolution (Complete/Fail/Cancel). Injects synthetic
+        /// ContractFail actions at the deadline UT so the recalculation walk applies
+        /// failure penalties (funds + reputation).
+        /// </remarks>
         public void PrePass(List<GameAction> actions)
         {
-            // No pre-pass needed for contracts
+            if (actions == null || actions.Count == 0)
+                return;
+
+            // Track accepted contracts with deadlines: contractId -> accept action
+            var tracked = new Dictionary<string, GameAction>();
+
+            // Walk all actions to find unresolved contracts with deadlines
+            for (int i = 0; i < actions.Count; i++)
+            {
+                var action = actions[i];
+                switch (action.Type)
+                {
+                    case GameActionType.ContractAccept:
+                        if (!float.IsNaN(action.DeadlineUT) && action.ContractId != null)
+                            tracked[action.ContractId] = action;
+                        break;
+
+                    case GameActionType.ContractComplete:
+                    case GameActionType.ContractFail:
+                    case GameActionType.ContractCancel:
+                        if (action.ContractId != null)
+                            tracked.Remove(action.ContractId);
+                        break;
+                }
+            }
+
+            // For any tracked contract whose deadline is within the timeline, inject a synthetic fail
+            double lastUT = actions[actions.Count - 1].UT;
+            int injected = 0;
+
+            foreach (var kvp in tracked)
+            {
+                var accept = kvp.Value;
+                if (accept.DeadlineUT <= lastUT)
+                {
+                    var syntheticFail = new GameAction
+                    {
+                        Type = GameActionType.ContractFail,
+                        UT = accept.DeadlineUT,
+                        ContractId = accept.ContractId,
+                        FundsPenalty = accept.FundsPenalty,
+                        RepPenalty = accept.RepPenalty,
+                        RecordingId = accept.RecordingId
+                    };
+                    actions.Add(syntheticFail);
+                    injected++;
+
+                    ParsekLog.Info(Tag,
+                        $"PrePass: injected synthetic ContractFail for contractId='{accept.ContractId}' " +
+                        $"at deadlineUT={accept.DeadlineUT} fundsPenalty={accept.FundsPenalty} " +
+                        $"repPenalty={accept.RepPenalty}");
+                }
+            }
+
+            if (injected > 0)
+            {
+                ParsekLog.Info(Tag,
+                    $"PrePass: injected {injected} synthetic ContractFail action(s) for expired deadlines");
+            }
+            else
+            {
+                ParsekLog.Verbose(Tag,
+                    $"PrePass: no expired deadline contracts found (tracked={tracked.Count})");
+            }
         }
 
         /// <inheritdoc/>

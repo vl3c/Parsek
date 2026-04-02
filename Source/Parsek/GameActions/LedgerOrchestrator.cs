@@ -381,8 +381,8 @@ namespace Parsek
                     Ledger.SeedInitialFunds(Funding.Instance.Funds);
                 if (ResearchAndDevelopment.Instance != null)
                     Ledger.SeedInitialScience(ResearchAndDevelopment.Instance.Science);
-                if (Reputation.Instance != null)
-                    Ledger.SeedInitialReputation(Reputation.Instance.reputation);
+                if (global::Reputation.Instance != null)
+                    Ledger.SeedInitialReputation(global::Reputation.Instance.reputation);
                 seedChecked = true;
             }
 
@@ -402,7 +402,7 @@ namespace Parsek
             // The kerbals system still operates on recording snapshots, not ledger actions.
             // This ensures crew reservations are updated on every recalculate trigger
             // (commit, rewind, warp exit, KSP load).
-            // TODO(Task 29): Convert to full IResourceModule when refactoring KerbalsModule.
+            // Bridge pattern — see T42 for future IResourceModule conversion.
             KerbalsModule.RecalculateAndApply();
 
             KspStatePatcher.PatchAll(scienceModule, fundsModule, reputationModule,

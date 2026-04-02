@@ -775,7 +775,7 @@ Functionality:
 
 ---
 
-### Task 36: KSP MIA Respawn Handling (D7)
+### Task 36: KSP MIA Respawn Handling (D7) — DONE
 
 **Overview:** Handle the case where KSP respawns an MIA kerbal while Parsek has a permanent reservation.
 
@@ -788,6 +788,8 @@ Functionality:
 
 **Depends on:** Task 10a (kerbals reservation).
 **Done when:** MIA respawn behavior is explicitly handled and tested.
+
+**Resolution:** Already handled by `ApplyToRoster()` Step 3 — every reserved kerbal's `rosterStatus` is unconditionally set to `Assigned` on each `RecalculateAndApply` call. If KSP respawns a Dead kerbal to Available between calls, the next recalculation resets them. Tested by 5 `MiaRespawnOverride_*` tests in `KerbalReservationTests.cs`.
 
 ---
 
@@ -836,7 +838,7 @@ Functionality:
 | 5. Integration | 13-17 | Converter, patcher, orchestrator, commit/rewind/warp wiring | **Done** |
 | 6. Polish | 18-22 | KSC spendings, UI, old system deprecation, logging, end-to-end test | **Partial** (UI done) |
 | 7. Critical Gaps | 23-28 | Vessel cost/recovery, milestones, science/rep seeding, contract sci, facility/science patching | Pending |
-| 8. Non-Critical | 31-38 | Strategy rates, deadline gen, contract/milestone patching, rescue, warp visuals, MIA, retired UI, mod compat | Pending |
+| 8. Non-Critical | 31-38 | Strategy rates, deadline gen, contract/milestone patching, rescue, warp visuals, MIA, retired UI, mod compat | Partial (Task 36 done) |
 | 9. Architecture | 29-30 | KerbalsModule into engine, old code cleanup | Pending |
 
 **Parallelization opportunities:**

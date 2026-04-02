@@ -772,6 +772,101 @@ namespace Parsek.Tests
             Assert.False(KerbalsModule.IsKerbalAvailable("Val"));
         }
 
+        [Fact]
+        public void MiaRespawnOverride_NonReservedKerbal_NotAffected()
+        {
+            // Kerbals not in any recording must NOT be affected by the MIA override.
+            // ApplyToRoster only iterates reservations dict — non-reserved kerbals
+            // are never touched.
+            var rec = MakeRecording("Ship", new[] { "Jeb" },
+                TerminalState.Destroyed, 1000);
+            RecordingStore.AddCommittedForTesting(rec);
+
+            KerbalsModule.Recalculate();
+
+            // Jeb is reserved (dead), but Val/Bill/Bob are not in any recording
+            Assert.True(KerbalsModule.IsKerbalAvailable("Val"));
+            Assert.True(KerbalsModule.IsKerbalAvailable("Bill"));
+            Assert.True(KerbalsModule.IsKerbalAvailable("Bob"));
+
+            // Second recalculation should not introduce spurious reservations
+            KerbalsModule.Recalculate();
+            Assert.True(KerbalsModule.IsKerbalAvailable("Val"));
+            Assert.True(KerbalsModule.IsKerbalAvailable("Bill"));
+            Assert.True(KerbalsModule.IsKerbalAvailable("Bob"));
+        }
+
+        [Fact]
+        public void MiaRespawnOverride_DeadKerbal_SurvivesMultipleRecalculations()
+        {
+            // Simulate KSP repeatedly respawning a dead kerbal by running
+            // Recalculate many times. The reservation must remain permanent
+            // every time — ApplyToRoster would reset rosterStatus to Assigned
+            // on each cycle, preventing KSP's MIA respawn from taking effect.
+            var rec = MakeRecording("Doomed", new[] { "Jeb" },
+                TerminalState.Destroyed, 1000);
+            RecordingStore.AddCommittedForTesting(rec);
+
+            for (int i = 0; i < 5; i++)
+            {
+                KerbalsModule.Recalculate();
+                Assert.True(KerbalsModule.Reservations.ContainsKey("Jeb"),
+                    $"Jeb should be reserved on recalculation {i}");
+                Assert.True(KerbalsModule.Reservations["Jeb"].IsPermanent,
+                    $"Jeb should be permanently reserved on recalculation {i}");
+                Assert.False(KerbalsModule.IsKerbalAvailable("Jeb"),
+                    $"Jeb should not be available on recalculation {i}");
+            }
+        }
+
+        [Fact]
+        public void MiaRespawnOverride_MixedCrew_OnlyReservedAffected()
+        {
+            // When a recording has multiple crew and some die while others are
+            // recovered, only the dead ones get permanent reservation. All crew
+            // in the recording are reserved, but non-recording kerbals are free.
+            var snapshot = new ConfigNode("VESSEL");
+            var part = snapshot.AddNode("PART");
+            part.AddValue("crew", "Jeb");
+            part.AddValue("crew", "Val");
+
+            // End snapshot only has Val (Jeb EVA'd and is presumed dead for Landed)
+            var endSnapshot = new ConfigNode("VESSEL");
+            var endPart = endSnapshot.AddNode("PART");
+            endPart.AddValue("crew", "Val");
+
+            var rec = new Recording
+            {
+                VesselName = "Mixed",
+                VesselSnapshot = snapshot,
+                GhostVisualSnapshot = snapshot,
+                TerminalStateValue = TerminalState.Landed,
+                ExplicitStartUT = 0,
+                ExplicitEndUT = 2000,
+            };
+
+            // Manually set end states: Jeb=Dead (not in end snapshot), Val=Aboard
+            rec.CrewEndStates = new Dictionary<string, KerbalEndState>
+            {
+                { "Jeb", KerbalEndState.Dead },
+                { "Val", KerbalEndState.Aboard }
+            };
+            RecordingStore.AddCommittedForTesting(rec);
+
+            KerbalsModule.Recalculate();
+
+            // Jeb: permanent reservation (dead)
+            Assert.True(KerbalsModule.Reservations["Jeb"].IsPermanent);
+
+            // Val: open-ended but not permanent (aboard)
+            Assert.False(KerbalsModule.Reservations["Val"].IsPermanent);
+            Assert.Equal(double.PositiveInfinity, KerbalsModule.Reservations["Val"].ReservedUntilUT);
+
+            // Bill: not in any recording, completely free
+            Assert.True(KerbalsModule.IsKerbalAvailable("Bill"));
+            Assert.False(KerbalsModule.Reservations.ContainsKey("Bill"));
+        }
+
         // ── Reset ──
 
         [Fact]

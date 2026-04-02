@@ -599,5 +599,162 @@ namespace Parsek.Tests
                 l.Contains("[Contracts]") && l.Contains("Complete") &&
                 l.Contains("effective=false"));
         }
+
+        // ================================================================
+        // PrePass — synthetic ContractFail injection for expired deadlines
+        // ================================================================
+
+        [Fact]
+        public void PrePass_InjectsFailForExpiredDeadline()
+        {
+            // Contract accepted at UT=100 with deadline at UT=500.
+            // Last action at UT=600 — deadline has passed, no resolution.
+            // PrePass should inject a synthetic ContractFail at UT=500.
+            var actions = new List<GameAction>
+            {
+                MakeAccept("c1", ut: 100, deadlineUT: 500f),
+                new GameAction { Type = GameActionType.FundsEarning, UT = 600, FundsAwarded = 1000f }
+            };
+            actions[0].FundsPenalty = 8000f;
+            actions[0].RepPenalty = 3f;
+            actions[0].RecordingId = "rec-1";
+
+            module.PrePass(actions);
+
+            // Should have injected one action
+            Assert.Equal(3, actions.Count);
+            var injected = actions[2];
+            Assert.Equal(GameActionType.ContractFail, injected.Type);
+            Assert.Equal("c1", injected.ContractId);
+            Assert.Equal(500f, (float)injected.UT);
+            Assert.Equal(8000f, injected.FundsPenalty);
+            Assert.Equal(3f, injected.RepPenalty);
+            Assert.Equal("rec-1", injected.RecordingId);
+
+            Assert.Contains(logLines, l =>
+                l.Contains("[Contracts]") && l.Contains("PrePass") &&
+                l.Contains("synthetic ContractFail") && l.Contains("c1"));
+        }
+
+        [Fact]
+        public void PrePass_NoInjectionWhenResolved()
+        {
+            // Contract accepted at UT=100 with deadline at UT=500,
+            // but completed at UT=300 — no injection needed.
+            var actions = new List<GameAction>
+            {
+                MakeAccept("c1", ut: 100, deadlineUT: 500f),
+                MakeComplete("c1", ut: 300),
+                new GameAction { Type = GameActionType.FundsEarning, UT = 600, FundsAwarded = 1000f }
+            };
+            actions[0].FundsPenalty = 8000f;
+            actions[0].RepPenalty = 3f;
+
+            module.PrePass(actions);
+
+            // No injection — list unchanged
+            Assert.Equal(3, actions.Count);
+            Assert.DoesNotContain(logLines, l => l.Contains("synthetic ContractFail"));
+        }
+
+        [Fact]
+        public void PrePass_NoInjectionWhenDeadlineNaN()
+        {
+            // Contract with no deadline (NaN) — should never inject.
+            var actions = new List<GameAction>
+            {
+                MakeAccept("c1", ut: 100, deadlineUT: float.NaN),
+                new GameAction { Type = GameActionType.FundsEarning, UT = 600, FundsAwarded = 1000f }
+            };
+
+            module.PrePass(actions);
+
+            Assert.Equal(2, actions.Count);
+            Assert.DoesNotContain(logLines, l => l.Contains("synthetic ContractFail"));
+        }
+
+        [Fact]
+        public void PrePass_NoInjectionWhenDeadlineInFuture()
+        {
+            // Contract accepted at UT=100 with deadline at UT=900.
+            // Last action at UT=600 — deadline is in the future.
+            var actions = new List<GameAction>
+            {
+                MakeAccept("c1", ut: 100, deadlineUT: 900f),
+                new GameAction { Type = GameActionType.FundsEarning, UT = 600, FundsAwarded = 1000f }
+            };
+            actions[0].FundsPenalty = 8000f;
+
+            module.PrePass(actions);
+
+            Assert.Equal(2, actions.Count);
+            Assert.DoesNotContain(logLines, l => l.Contains("synthetic ContractFail"));
+        }
+
+        [Fact]
+        public void PrePass_NoInjectionWhenFailed()
+        {
+            // Contract already has an explicit fail — no duplicate injection.
+            var actions = new List<GameAction>
+            {
+                MakeAccept("c1", ut: 100, deadlineUT: 500f),
+                MakeFail("c1", ut: 400),
+                new GameAction { Type = GameActionType.FundsEarning, UT = 600, FundsAwarded = 1000f }
+            };
+            actions[0].FundsPenalty = 8000f;
+
+            module.PrePass(actions);
+
+            Assert.Equal(3, actions.Count);
+            Assert.DoesNotContain(logLines, l => l.Contains("synthetic ContractFail"));
+        }
+
+        [Fact]
+        public void PrePass_NoInjectionWhenCancelled()
+        {
+            // Contract cancelled before deadline — no injection.
+            var actions = new List<GameAction>
+            {
+                MakeAccept("c1", ut: 100, deadlineUT: 500f),
+                MakeCancel("c1", ut: 300),
+                new GameAction { Type = GameActionType.FundsEarning, UT = 600, FundsAwarded = 1000f }
+            };
+            actions[0].FundsPenalty = 8000f;
+
+            module.PrePass(actions);
+
+            Assert.Equal(3, actions.Count);
+            Assert.DoesNotContain(logLines, l => l.Contains("synthetic ContractFail"));
+        }
+
+        [Fact]
+        public void PrePass_EmptyActions_NoException()
+        {
+            module.PrePass(new List<GameAction>());
+            module.PrePass(null);
+            // Should not throw
+        }
+
+        [Fact]
+        public void PrePass_LogsInjectionCount()
+        {
+            var actions = new List<GameAction>
+            {
+                MakeAccept("c1", ut: 100, deadlineUT: 300f),
+                MakeAccept("c2", ut: 100, deadlineUT: 400f),
+                new GameAction { Type = GameActionType.FundsEarning, UT = 600, FundsAwarded = 1000f }
+            };
+            actions[0].FundsPenalty = 5000f;
+            actions[0].RepPenalty = 2f;
+            actions[1].FundsPenalty = 3000f;
+            actions[1].RepPenalty = 1f;
+
+            module.PrePass(actions);
+
+            Assert.Equal(5, actions.Count); // 3 original + 2 injected
+            Assert.Contains(logLines, l =>
+                l.Contains("[Contracts]") && l.Contains("PrePass") &&
+                l.Contains("injected 2"));
+        }
     }
 }

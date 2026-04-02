@@ -65,7 +65,7 @@ Items identified during design that are out of scope for the initial implementat
 **What:** KSP can respawn MIA kerbals after a configurable delay. Determine whether Parsek should model this or treat MIA as permanently gone.
 **Why deferred:** Edge case. Most players don't rely on MIA respawn. Can let KSP handle it outside the ledger.
 **Revisit when:** Kerbals module is complete. Player feedback.
-**Status:** Open
+**Status:** Done — handled by `KerbalsModule.ApplyToRoster()` Step 3. Every reserved kerbal's `rosterStatus` is unconditionally set to `Assigned` on each `RecalculateAndApply` call. If KSP respawns a Dead kerbal to Available between calls, the next recalculation resets them to Assigned. Tested in `KerbalReservationTests.MiaRespawnOverride_*` (5 tests).
 
 ---
 

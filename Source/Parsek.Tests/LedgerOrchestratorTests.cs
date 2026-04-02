@@ -254,7 +254,7 @@ namespace Parsek.Tests
             Assert.Single(actions);
             Assert.Equal(GameActionType.FundsSpending, actions[0].Type);
             Assert.Equal(FundsSpendingSource.VesselBuild, actions[0].FundsSpendingSource);
-            Assert.Equal(10000f, actions[0].FundsSpent, 1);
+            Assert.Equal(10000.0, (double)actions[0].FundsSpent, 1);
             Assert.Equal(100.0, actions[0].UT);
             Assert.Equal("rec-build-cost", actions[0].RecordingId);
 
@@ -287,12 +287,12 @@ namespace Parsek.Tests
             var buildAction = actions[0];
             Assert.Equal(GameActionType.FundsSpending, buildAction.Type);
             Assert.Equal(FundsSpendingSource.VesselBuild, buildAction.FundsSpendingSource);
-            Assert.Equal(10000f, buildAction.FundsSpent, 1);
+            Assert.Equal(10000.0, (double)buildAction.FundsSpent, 1);
 
             var recoveryAction = actions[1];
             Assert.Equal(GameActionType.FundsEarning, recoveryAction.Type);
             Assert.Equal(FundsEarningSource.Recovery, recoveryAction.FundsSource);
-            Assert.Equal(7000f, recoveryAction.FundsAwarded, 1);
+            Assert.Equal(7000.0, (double)recoveryAction.FundsAwarded, 1);
             Assert.Equal(300.0, recoveryAction.UT);
             Assert.Equal("rec-recovery", recoveryAction.RecordingId);
 
@@ -397,7 +397,7 @@ namespace Parsek.Tests
             // Build cost only (50000-47000=3000), no recovery (need 2+ points)
             Assert.Single(actions);
             Assert.Equal(GameActionType.FundsSpending, actions[0].Type);
-            Assert.Equal(3000f, actions[0].FundsSpent, 1);
+            Assert.Equal(3000.0, (double)actions[0].FundsSpent, 1);
 
             RecordingStore.ResetForTesting();
         }
