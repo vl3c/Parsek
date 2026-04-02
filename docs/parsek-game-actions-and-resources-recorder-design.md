@@ -1,7 +1,7 @@
-# Parsek — Game Actions & Resource System Design
+# Parsek — Game Actions & Resources System Design
 
-**Version:** 0.3 (post-implementation update — reflects Phases 1-5 actual code)
-**Status:** Core modules implemented and tested (4458 tests). Integration wired. Earning-side capture, per-subject science patching, contract deadline generation, and warp visual updates remain as future work.
+**Version:** 0.4 (post-implementation update — reflects Phases 1-5 actual code)
+**Status:** Core modules implemented and tested (4458 tests). Integration wired. Earning-side capture, per-subject science patching, vessel cost/recovery capture, and initial balance seeding (funds, science, reputation) are implemented. Contract deadline penalty generation, milestone/contract KSP state patching, and warp visual updates remain as future work.
 **Scope:** Everything the timeline tracks beyond vessel trajectories — science, funds, reputation, milestones, contracts, kerbals, facilities, strategies.
 **Out of scope:** Vessel recording system, DAG structure, ghost rendering, distance zones. See `parsek-recording-system-design.md` for those.
 
@@ -28,7 +28,7 @@ There is no deletion event. Parsek doesn't delete recordings. KSP load handles r
 - `GetAvailableResources(ut)` → current balances at a point in time
 - `GetRecordingDeltas(recordingId)` → list of game actions for UI display
 
-**Implementation (v0.3):** The actual API is `LedgerOrchestrator.OnRecordingCommitted(recordingId, startUT, endUT)` for the commit trigger. `GetAvailableResources` and `GetRecordingDeltas` are not yet implemented as named methods — module query methods (`FundsModule.GetAvailableFunds()`, `ScienceModule.GetAvailableScience()`, etc.) provide this data.
+**Implementation (v0.4):** The actual API is `LedgerOrchestrator.OnRecordingCommitted(recordingId, startUT, endUT)` for the commit trigger, plus `NotifyLedgerTreeCommitted(RecordingTree)` for batch commits across a recording tree. `GetAvailableResources` and `GetRecordingDeltas` are not yet implemented as named methods — module query methods (`FundsModule.GetAvailableFunds()`, `ScienceModule.GetAvailableScience()`, etc.) provide this data. Additional API: `OnSave()`/`OnLoad()`, `OnKspLoad(HashSet<string>, double)`, `OnKscSpending(GameStateEvent)`, `CanAffordScienceSpending(float)`, `CanAffordFundsSpending(float)`, `HasFacilityActionsInRange(double, double)`.
 
 ### 1.3 Three kinds of game actions
 
@@ -86,7 +86,12 @@ On any timeline change (commit, rewind, fast-forward event, KSP load), every res
 The general pattern is:
 
 ```
-Recalculate():
+RecalculateAndPatch():
+  0. Seed initial balances (once per session):
+     - SeedInitialFunds from Funding.Instance.Funds
+     - SeedInitialScience from ResearchAndDevelopment.Instance.Science
+     - SeedInitialReputation from Reputation.Instance.reputation
+     Update slot limits from current facility levels.
   1. Reset all derived state to zero/default.
   2. Collect all game actions from the ledger file.
   3. Sort by (UT, type, sequence).
@@ -95,6 +100,8 @@ Recalculate():
        Dispatch to the appropriate module.
        Module updates its derived state (running balances, caps, reservations, visual state).
   5. Derived state at the end of the walk = current state.
+  6. Patch KSP state to match derived state.
+  7. Recalculate kerbals separately (KerbalsModule.RecalculateAndApply).
 ```
 
 Each module owns its portion of the walk:
@@ -112,9 +119,9 @@ Each module owns its portion of the walk:
 |------|---------|------|
 | First (independent) | Science, Milestones, Contracts | Determine what was earned, achieved, or assigned. Compute effective values. |
 | Transform | Strategies | Apply active strategy transforms to effective contract rewards before second-tier crediting. |
-| Separate | Kerbals | Reservation/chains from recording snapshots (see 9.15) |
 | Second (dependent) | Funds, Reputation | Aggregate effective (and transformed) earnings and spendings from first-tier modules. |
 | Parallel | Facilities | Derives building state and feeds repair/upgrade costs into Funds. |
+| Outside engine | Kerbals | Reservation/chains from recording snapshots, not from ledger actions. Called separately via `KerbalsModule.RecalculateAndApply()` after the engine walk (see 9.15). |
 
 First-tier modules run their walk and produce effective values. Strategy transforms then modify contract rewards within their active windows. Once transforms are applied, the milestone and contract fund/reputation awards flow into the Funds and Reputation running balances in the second tier. This means a single recalculation pass walks all actions from UT=0 forward, but within each UT, first-tier modules resolve, then strategy transforms apply, then second-tier modules consume the results.
 
@@ -126,7 +133,7 @@ Events on the timeline are locked once committed — their immutable values neve
 
 **Derived field reset:** Before each walk, the engine resets all derived fields on every action to defaults (`Effective=true`, `EffectiveScience=0`, `Affordable=false`, `EffectiveRep=0`, `TransformedFundsReward=FundsReward`, etc.). This prevents stale values from a previous recalculation from leaking into the next walk. Critical for idempotency — calling Recalculate twice on the same actions must produce identical results.
 
-**PrePass phase:** Between Reset and the walk, the engine calls `PrePass(actions)` on every module. `ScienceModule` and `FundsModule` use this to compute total committed spendings across the entire timeline (needed for the reservation formula). Other modules have no-op PrePass implementations.
+**PrePass phase:** Between Reset and the walk, the engine calls `PrePass(actions)` on every module. `ScienceModule` and `FundsModule` use this to compute total committed spendings across the entire timeline (needed for the reservation formula). Other modules (`ContractsModule`, `MilestonesModule`, `FacilitiesModule`, `ReputationModule`, `StrategiesModule`) have no-op PrePass implementations.
 
 **Strategy transform mechanism:** Strategy transforms modify `TransformedFundsReward`, `TransformedScienceReward`, and `TransformedRepReward` derived fields — NOT the persisted `FundsReward`/`ScienceReward`/`RepReward`. Second-tier modules read the Transformed fields. This prevents data corruption if the ledger is saved between recalculations.
 
@@ -236,13 +243,18 @@ The ledger file contains all game actions across all resource modules — scienc
 
 **Implementation divergence:** The actual data flow uses `GameStateRecorder` → `GameStateStore` (in-memory) → `GameStateEventConverter` → Ledger (at commit time). Raw events are NOT written to recording sidecar files — they are captured in memory during flight and converted to `GameAction` entries when the recording is committed. The sidecar retains trajectory/part event data only.
 
+**Commit pipeline (v0.4):** At commit time, `LedgerOrchestrator.OnRecordingCommitted` runs a multi-step pipeline: (1) convert `GameStateStore` events to `GameAction` entries, (2) deduplicate against existing ledger entries (`DeduplicateAgainstLedger` — prevents double-adding KSC events like tech unlocks, facility upgrades, and hires that may overlap with the recording's time range), (3) create vessel cost actions from `Recording.PreLaunchFunds` delta, (4) create `KerbalAssignment` actions from crew snapshot data, (5) append to ledger, (6) recalculate and patch.
+
+**KSP load migration:** `LedgerOrchestrator.OnKspLoad` includes a migration path — if the ledger is empty but committed recordings exist, old save events are converted to bootstrap the ledger.
+
 ### 2.3 KSP load reconciliation
 
 When KSP loads a save, the ScenarioModule provides the ledger file reference and the list of committed recording IDs. Parsek reconciles the ledger file against the loaded state:
 
-1. **Earning actions:** Any entry whose `recordingId` is not in the loaded save's recording list is pruned from the ledger file.
-2. **Spending actions:** Any entry whose UT is after the loaded save's current UT is pruned.
-3. **Recalculation** runs on the pruned dataset.
+1. **Seed actions** (`FundsInitial`, `ScienceInitial`, `ReputationInitial`) are never pruned — they represent the career starting state.
+2. **Earning actions:** Any entry whose `recordingId` is not in the loaded save's recording list is pruned from the ledger file.
+3. **Spending actions:** Any entry whose UT is after the loaded save's current UT is pruned.
+4. **Recalculation** runs on the pruned dataset.
 
 After reconciliation, the ledger file reflects the loaded save's state. The pruned entries are lost (the sidecar files still have the raw earning data as a passive backup, but Parsek never reads from them to restore ledger state).
 
@@ -260,9 +272,9 @@ The ledger data was considered for storage inside the ScenarioModule (embedded i
 
 Some resources start at non-zero values when a career save is created. The ledger must be seeded with these initial values, extracted from the save file — not assumed from defaults, as the player may use custom difficulty settings or mods that change starting values.
 
-Currently, only **funds** requires seeding (career starting funds vary by difficulty). Science and reputation start at 0 in all difficulty presets. If future modules require non-zero initial values, the same extraction-from-save pattern applies.
+All three core resources are seeded: **funds** (career starting funds vary by difficulty), **science**, and **reputation**. While science and reputation typically start at 0 in stock difficulty presets, seeding them is necessary to handle mid-career Parsek installation — without seeding, installing Parsek on an existing career save would wipe the player's accumulated science and reputation balances to 0 during recalculation.
 
-The seed is written to the ledger file once when Parsek first initializes on a career save. It is immutable.
+The seeds are written to the ledger file once when Parsek first initializes on a career save. They are immutable. Action types: `FundsInitial`, `ScienceInitial`, `ReputationInitial`.
 
 ---
 
@@ -285,7 +297,7 @@ Each module has a corresponding KSP internal state that must agree with the ledg
 
 The Science Archive in the R&D building reads from `ResearchAndDevelopment.Instance`. Patching the per-subject collected totals ensures the Science Archive progress bars reflect the recalculated timeline, not KSP's stale state.
 
-**Implementation status (v0.3):** Science (balance only — per-subject totals not yet patched), Funds, Reputation, and Facilities are patched. Milestones (`ProgressTracking`) and Contracts (`ContractSystem`) are not yet patched. Kerbals are patched separately via `KerbalsModule.ApplyToRoster` (not through `KspStatePatcher`).
+**Implementation status (v0.4):** Science (balance + per-subject collected totals), Funds, Reputation, and Facilities (level + destruction/repair visual state) are fully patched. Milestones (`ProgressTracking`) and Contracts (`ContractSystem`) have scaffolded patcher methods but are not yet functional — they log diagnostics only. Kerbals are patched separately via `KerbalsModule.RecalculateAndApply()` (not through `KspStatePatcher`).
 
 **Critical: use `SetReputation`, NOT `AddReputation`.** KSP's `AddReputation` applies a nonlinear gain/loss curve. If the recalculation engine already computed the final reputation value through the curve simulation, calling `AddReputation` with a correction delta would apply the curve TWICE, causing significant distortion. `SetReputation` directly assigns the value. This was discovered via decompilation (see spike findings).
 
@@ -571,7 +583,7 @@ Player fast-forwards to UT=1100.
 
 **Hard cap vs KSP's diminishing curve.** The recalculation uses a hard cap (`scienceCap`) rather than simulating KSP's asymptotic diminishing returns curve. This is conservative — it may sometimes credit slightly more than KSP's curve would in a sequential playthrough, but never more than `scienceCap`. Simulating the exact curve would require replacing the clean hard-cap walk with curve simulation across recordings, adding significant complexity for marginal accuracy. The hard cap is correct in the way that matters: no overcredit, no paradox.
 
-**Science Archive (R&D building).** KSP's Research and Development building has a Science Archive tab that displays per-subject progress bars based on `ResearchAndDevelopment.Instance` state. After recalculation, Parsek should patch the per-subject collected totals so the Science Archive reflects the recalculated timeline. **Note (v0.3): per-subject patching is not yet implemented — only the total science balance is patched.** (see section 3.1). Without this patching, the player would see stale progress bars that don't account for retroactive recordings.
+**Science Archive (R&D building).** KSP's Research and Development building has a Science Archive tab that displays per-subject progress bars based on `ResearchAndDevelopment.Instance` state. After recalculation, Parsek patches the per-subject collected totals via `KspStatePatcher.PatchPerSubjectScience` so the Science Archive reflects the recalculated timeline — progress bars correctly account for retroactive recordings.
 
 ---
 
@@ -639,6 +651,14 @@ FundsSpending (recording-associated or KSC spending action)
 FundsInitial (seed — created once at career start)
   ut:             0 (always)
   initialFunds:   float — extracted from the save file at career creation
+
+ScienceInitial (seed — handles mid-career Parsek install)
+  ut:             0 (always)
+  initialScience: float — extracted from ResearchAndDevelopment.Instance.Science
+
+ReputationInitial (seed — handles mid-career Parsek install)
+  ut:             0 (always)
+  initialRep:     float — extracted from Reputation.Instance.reputation
 ```
 
 ### 5.6 Reservation system
@@ -887,9 +907,13 @@ RecalculateReputation():
   runningRep = 0
   For each rep-affecting action in UT order:
 
+    if REPUTATION_INITIAL (seed):
+      runningRep = action.initialRep
+
     if MILESTONE (from milestones module):
       if action.effective:
         effectiveGain = applyGainCurve(action.repAwarded, runningRep)
+        action.effectiveRep = effectiveGain
         runningRep += effectiveGain
 
     if CONTRACT_COMPLETE (from contracts module):
@@ -900,8 +924,8 @@ RecalculateReputation():
 
     if PENALTY (contract fail, kerbal death, etc.):
       effectiveLoss = applyLossCurve(action.nominalPenalty, runningRep)
-      action.effectivePenalty = effectiveLoss
-      runningRep -= effectiveLoss
+      action.effectiveRep = effectiveLoss  // negative value
+      runningRep += effectiveLoss          // effectiveLoss is negative
 ```
 
 `applyGainCurve(nominal, currentRep)` and `applyLossCurve(nominal, currentRep)` must replicate KSP's internal curve. These are the functions that need to be extracted from decompiled code.
@@ -1039,10 +1063,10 @@ Rewind to UT=500. Recording B at UT=700: "First Mun Landing" only. Commit.
 
 The same no-delete safety applies: adding a recording can only shift which recording gets credit for a milestone, never reduce the total number of milestones achieved. If milestone X was effective on any recording before, it's still effective on some recording after adding a new one. Total milestone rewards are monotonically stable.
 
-### 7.6 Open questions
+### 7.6 ~~Open questions~~ Resolved
 
-- **Milestone detection during recording:** How does Parsek capture milestone triggers? KSP fires `OnProgressComplete` events during flight. The sidecar captures these, and the ledger extracts milestone data on commit — same pattern as science.
-- **Science mode milestones:** In Science mode, milestones track progression but award nothing. Does the ledger need to track them at all, or is KSP's native Progress Tracking sufficient? If milestones gate contract availability (even indirectly), the ledger may need them for consistency.
+- **Milestone detection during recording:** RESOLVED. `GameStateRecorder` subscribes to `GameEvents.OnProgressComplete`. Events are converted to `MilestoneAchievement` actions via `GameStateEventConverter.ConvertMilestoneAchieved` at commit time. Known limitation: `OnProgressComplete` provides the progress node but not the associated fund/rep reward values — reward amounts must be extracted from the World Firsts contract strategy configuration (deferred item D17).
+- **Science mode milestones:** In Science mode, milestones track progression but award nothing. The ledger tracks them for progression gating consistency. KSP's native Progress Tracking remains the authoritative source for milestone state.
 - **Milestone list:** The ledger only tracks achieved milestones. It does not maintain a list of all possible milestones — that's KSP's domain.
 
 ---
@@ -1183,7 +1207,7 @@ RecalculateContracts():
 
 ### 8.6 Deadline handling
 
-**Status: DEFERRED.** Deadline failure generation is not implemented. The code has a TODO comment.
+**Status: PARTIALLY IMPLEMENTED.** Deadline slot-freeing is implemented: `ContractsModule.CheckDeadlines` runs on every `ProcessAction` dispatch and removes expired contracts from `activeContracts` when the deadline UT is crossed. However, penalty application on deadline expiry is NOT implemented — the slot is freed silently without generating a synthetic `ContractFail` action with fund/rep penalties.
 
 Contracts with deadlines generate an automatic failure event when the deadline UT is crossed. During the recalculation walk, if an accepted contract's deadline UT is reached without a prior completion or cancellation, the walk inserts a `ContractFail` event at the deadline UT.
 
@@ -1639,11 +1663,11 @@ This means the total number of kerbals in KSP's roster can exceed the Astronaut 
 
 **The kerbals module does NOT participate in the unified recalculation walk.** Unlike all other modules, `KerbalsModule` is a separate static class with its own `Recalculate()` method that operates directly on `RecordingStore.CommittedRecordings` (vessel snapshots), not on `GameAction` entries from the ledger.
 
-**Why:** Kerbal reservation depends on crew presence in vessel snapshots (which crew members are on which vessel), not on discrete game actions. The design doc's `KerbalAssignment`, `KerbalRescue`, and `KerbalStandIn` action types exist in the `GameActionType` enum and have full serialization, but are NOT currently produced or consumed by any code path. `KerbalHire` IS produced by the `GameStateEventConverter` and consumed by the `FundsModule` (for hiring cost deduction).
+**Why:** Kerbal reservation depends on crew presence in vessel snapshots (which crew members are on which vessel), not on discrete game actions. `KerbalAssignment` actions ARE now generated at commit time via `LedgerOrchestrator.CreateKerbalAssignmentActions` (from crew snapshot data), but they are not yet consumed by any module in the recalculation walk. `KerbalRescue` and `KerbalStandIn` action types exist in the `GameActionType` enum with full serialization but are not currently produced. `KerbalHire` IS produced by `GameStateEventConverter` and consumed by `FundsModule` (for hiring cost deduction).
 
 **Chain and reservation system:** Operates as designed (UT=0 reservation, replacement chains, retired pool, dismissal protection) but through its own `RecalculateAndApply()` method called separately from the ledger pipeline.
 
-**Future direction:** If kerbal data needs to participate in the unified walk (e.g., for kerbal-specific UI in the ledger actions list), the existing action types are ready. The migration path: generate `KerbalAssignment` actions at commit time from vessel snapshot crew, register `KerbalsModule` as an `IResourceModule`, and process kerbal actions in the walk.
+**Future direction:** `KerbalAssignment` actions are already produced and persisted in the ledger. To complete the migration: register `KerbalsModule` as an `IResourceModule` and process kerbal actions in the walk (for kerbal-specific UI in the ledger actions list). The `KerbalRescue` and `KerbalStandIn` action types are ready for the same treatment when needed.
 
 ---
 
@@ -1677,7 +1701,7 @@ FacilityUpgrade (spending action)
   sequence:     int — order within that UT
   facilityId:   string — "LaunchPad" / "VehicleAssemblyBuilding" / etc.
   toLevel:      int — target level (2 or 3)
-  cost:         float — funds spent
+  facilityCost: float — funds spent (code field: FacilityCost)
 
 FacilityDestruction (recording-associated action)
   ut:           double — when the building was destroyed during flight
@@ -1688,7 +1712,7 @@ FacilityRepair (spending action)
   ut:           double — frozen KSC time (whenever the player repairs)
   sequence:     int — order within that UT
   facilityId:   string
-  cost:         float — funds spent
+  facilityCost: float — funds spent (code field: FacilityCost)
 ```
 
 Upgrades and repairs are KSC spending actions (frozen UT, sequenced). Destruction is recording-associated — it happened during a specific flight. If that recording is removed by a KSP load, the destruction and any associated repair cost are pruned from the timeline.
@@ -1756,7 +1780,7 @@ Strategies are policies set in the Administration building that divert a percent
 Strategies only transform **contract rewards** — not milestone bonuses, not experiment science, not vessel recovery funds. Milestones pass through unaffected.
 
 **Constraints:**
-- Limited active strategy slots (Administration building level: 1 at level 1, 2 at level 2, 3 at level 3).
+- Limited active strategy slots (Administration building level: 1 at level 1, 3 at level 2, 5 at level 3).
 - Conflicting strategies (same source resource) cannot be active simultaneously. KSP enforces this natively.
 - Strategies are activated and deactivated at KSC (frozen UT).
 
@@ -1951,19 +1975,19 @@ This recording is committed as a single unit. If the player then rewinds to UT=0
 
 Edge cases and gaps discovered by simulating concrete KSP gameplay scenarios against the implementation.
 
-### 13.1 Critical Gaps (Functional — Must Fix)
+### 13.1 ~~Critical Gaps~~ Resolved
 
-**Vessel build cost not captured.** The `GameStateEventConverter` has no path for vessel launch costs. `FundsChanged` events are skipped (they're aggregate deltas, not discrete actions). The design doc (5.10) says vessel cost should produce a `FundsSpending` with `source=VESSEL_BUILD`, but no converter or commit-time code creates this action. Fix: inject vessel build cost directly at commit time from `Recording.PreLaunchFunds` delta, or add a dedicated `VesselLaunched` event type to `GameStateRecorder`.
+**~~Vessel build cost not captured.~~** FIXED (v0.4). `LedgerOrchestrator.CreateVesselCostActions` injects vessel build cost at commit time from `Recording.PreLaunchFunds` delta as a `FundsSpending` with `source=VESSEL_BUILD`.
 
-**Vessel recovery funds not captured.** Same issue — no converter path for recovery funds to `FundsEarning` with `source=RECOVERY`. The `OnVesselRecoveryProcessing` callback exists in KSP but is not subscribed by `GameStateRecorder` for ledger purposes. Fix: subscribe to recovery event, capture recovery value, convert to `FundsEarning` at commit time.
+**~~Vessel recovery funds not captured.~~** FIXED (v0.4). `CreateVesselCostActions` also handles recovery — when `rec.TerminalStateValue == TerminalState.Recovered`, recovery funds are created from trajectory data.
 
-**Science and reputation wiped on mid-career Parsek install.** When Parsek is installed on an existing career save, the ledger starts empty (no science or reputation actions). After recalculation, `ScienceModule.GetAvailableScience()` returns 0 and `ReputationModule.GetRunningRep()` returns 0. `KspStatePatcher` then patches KSP to these values, wiping the player's existing science and reputation. Funds are safe (seeded from current balance). Fix: add science and reputation seeding similar to `FundsInitial` — create `ScienceInitial` and `ReputationInitial` action types that capture the current balance when the ledger is first created.
+**~~Science and reputation wiped on mid-career Parsek install.~~** FIXED (v0.4). `Ledger.SeedInitialScience` and `Ledger.SeedInitialReputation` are called in `RecalculateAndPatch`, creating `ScienceInitial` and `ReputationInitial` seed actions alongside the existing `FundsInitial`.
 
-**Contract science rewards not credited.** `ContractComplete` actions have a `ScienceReward` field, but `ScienceModule` only processes `ScienceEarning` and `ScienceSpending` — it ignores `ContractComplete`. Contract science rewards are captured but never added to the science balance. Fix: add `ContractComplete` handling in `ScienceModule.ProcessAction` that reads `TransformedScienceReward` when `Effective=true`.
+**Contract science rewards not credited.** Status unclear — `ScienceModule.ProcessAction` may need to handle `ContractComplete` actions by reading `TransformedScienceReward` when `Effective=true`. Needs verification.
 
 ### 13.2 Edge Cases Discovered
 
-**Facility destroyed state not patched.** `FacilitiesModule` correctly tracks the `Destroyed` flag per facility, but `KspStatePatcher.PatchFacilities` only patches facility levels via `SetLevel` — it does not set buildings as destroyed or repaired. After rewind past a crash, KSP buildings would show incorrect visual state.
+**~~Facility destroyed state not patched.~~** FIXED (v0.4). `KspStatePatcher.PatchDestructionState` is fully implemented — iterates `DestructibleBuilding` objects and calls `db.Demolish()` / `db.Repair()` to sync visual state with the ledger's derived destruction state.
 
 **Sequence numbers not assigned during event conversion.** `GameStateEventConverter` creates actions with `Sequence=0` for all KSC events at the same UT. If a player unlocks two tech nodes at the same frozen KSC time, their relative order is undefined. Benign for independent spendings but could matter if one spending's affordability depends on the order.
 
