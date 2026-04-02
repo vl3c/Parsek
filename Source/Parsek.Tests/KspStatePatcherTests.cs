@@ -115,6 +115,98 @@ namespace Parsek.Tests
         // PatchAll — suppression flags
         // ================================================================
 
+        // ================================================================
+        // PatchScience — per-subject patching with null singleton
+        // ================================================================
+
+        [Fact]
+        public void PatchScience_NullSingleton_SkipsPerSubjectPatching()
+        {
+            // ResearchAndDevelopment.Instance is null in test environment.
+            // PatchScience should skip entirely (including per-subject patching) without crashing.
+            var module = new ScienceModule();
+            module.ProcessAction(new GameAction
+            {
+                Type = GameActionType.ScienceEarning,
+                SubjectId = "crewReport@KerbinSrfLanded",
+                ScienceAwarded = 5f,
+                SubjectMaxValue = 10f
+            });
+            module.ProcessAction(new GameAction
+            {
+                Type = GameActionType.ScienceEarning,
+                SubjectId = "temperatureScan@KerbinSrfLanded",
+                ScienceAwarded = 8f,
+                SubjectMaxValue = 16f
+            });
+
+            Assert.Equal(2, module.SubjectCount);
+
+            KspStatePatcher.PatchScience(module);
+
+            // Should log that R&D is null — per-subject patching is not reached
+            Assert.Contains(logLines, l =>
+                l.Contains("[KspStatePatcher]") && l.Contains("ResearchAndDevelopment.Instance is null"));
+        }
+
+        [Fact]
+        public void PatchPerSubjectScience_NullModule_LogsWarning()
+        {
+            KspStatePatcher.PatchPerSubjectScience(null);
+
+            Assert.Contains(logLines, l =>
+                l.Contains("[KspStatePatcher]") && l.Contains("null ScienceModule"));
+        }
+
+        [Fact]
+        public void PatchPerSubjectScience_NullSingleton_SkipsGracefully()
+        {
+            // ResearchAndDevelopment.Instance is null in test environment
+            var module = new ScienceModule();
+            module.ProcessAction(new GameAction
+            {
+                Type = GameActionType.ScienceEarning,
+                SubjectId = "test@subject",
+                ScienceAwarded = 10f,
+                SubjectMaxValue = 50f
+            });
+
+            KspStatePatcher.PatchPerSubjectScience(module);
+
+            Assert.Contains(logLines, l =>
+                l.Contains("[KspStatePatcher]") && l.Contains("ResearchAndDevelopment.Instance is null"));
+        }
+
+        // ================================================================
+        // PatchFacilities — destruction state with null DestructibleBuildings
+        // (Full integration testing of Demolish/Repair requires in-game verification
+        //  since DestructibleBuilding is a Unity MonoBehaviour unavailable in tests)
+        // ================================================================
+
+        [Fact]
+        public void PatchFacilities_NullProtoUpgradeables_SkipsDestructionPatching()
+        {
+            // ScenarioUpgradeableFacilities.protoUpgradeables is null in test environment.
+            // PatchFacilities should skip entirely (including destruction patching) without crashing.
+            var module = new FacilitiesModule();
+            module.ProcessAction(new GameAction
+            {
+                Type = GameActionType.FacilityDestruction,
+                FacilityId = "SpaceCenter/LaunchPad/%.%.%.%"
+            });
+
+            Assert.True(module.IsFacilityDestroyed("SpaceCenter/LaunchPad/%.%.%.%"));
+
+            KspStatePatcher.PatchFacilities(module);
+
+            Assert.Contains(logLines, l =>
+                l.Contains("[KspStatePatcher]") && l.Contains("protoUpgradeables is null"));
+        }
+
+        // ================================================================
+        // PatchAll — suppression flags
+        // ================================================================
+
         [Fact]
         public void PatchAll_SetsSuppressFlagsAndRestores()
         {
