@@ -339,12 +339,20 @@ namespace Parsek
             if (crew == null) return;
             var name = crew.name ?? "";
 
+            // Capture hire cost from GameVariables if available (career mode)
+            float hireCost = 0f;
+            if (GameVariables.Instance != null && HighLogic.CurrentGame != null)
+            {
+                hireCost = (float)GameVariables.Instance.GetRecruitHireCost(
+                    HighLogic.CurrentGame.CrewRoster.GetActiveCrewCount());
+            }
+
             var evt = new GameStateEvent
             {
                 ut = Planetarium.GetUniversalTime(),
                 eventType = GameStateEventType.CrewHired,
                 key = name,
-                detail = $"trait={crew.trait ?? ""}"
+                detail = $"trait={crew.trait ?? ""};cost={hireCost}"
             };
             GameStateStore.AddEvent(evt);
             ParsekLog.Info("GameStateRecorder", $"Game state: CrewHired '{name}' ({crew.trait ?? "?"})");

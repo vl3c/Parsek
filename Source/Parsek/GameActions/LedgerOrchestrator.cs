@@ -164,6 +164,8 @@ namespace Parsek
             {
                 case GameActionType.ScienceEarning: return a.SubjectId ?? "";
                 case GameActionType.ScienceSpending: return a.NodeId ?? "";
+                case GameActionType.FundsEarning: return a.RecordingId ?? "";
+                case GameActionType.FundsSpending: return a.RecordingId ?? "";
                 case GameActionType.MilestoneAchievement: return a.MilestoneId ?? "";
                 case GameActionType.FacilityUpgrade:
                 case GameActionType.FacilityDestruction:
