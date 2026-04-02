@@ -839,13 +839,8 @@ namespace Parsek
                         $"Optimization: failed to delete files for merged recording {absorbedId}: {ex.Message}");
                 }
 
-                // Save updated target recording files
-                try { SaveRecordingFiles(target); }
-                catch (System.Exception ex)
-                {
-                    ParsekLog.Warn("RecordingStore",
-                        $"Optimization: failed to save updated recording {target.RecordingId}: {ex.Message}");
-                }
+                // File save deferred to next OnSave — serializing large trajectories
+                // during OnLoad causes AppHangB1 (main thread blocked on I/O).
 
                 // Re-index the chain
                 if (!string.IsNullOrEmpty(chainId))
@@ -957,19 +952,8 @@ namespace Parsek
                     }
                 }
 
-                // Save sidecar files for both halves
-                try { SaveRecordingFiles(original); }
-                catch (System.Exception ex)
-                {
-                    ParsekLog.Warn("RecordingStore",
-                        $"Split: failed to save original {original.RecordingId}: {ex.Message}");
-                }
-                try { SaveRecordingFiles(second); }
-                catch (System.Exception ex)
-                {
-                    ParsekLog.Warn("RecordingStore",
-                        $"Split: failed to save new segment {second.RecordingId}: {ex.Message}");
-                }
+                // File save deferred to next OnSave — serializing large trajectories
+                // during OnLoad causes AppHangB1 (main thread blocked on I/O).
 
                 // Reindex chain by StartUT
                 RecordingOptimizer.ReindexChain(recordings, original.ChainId);
