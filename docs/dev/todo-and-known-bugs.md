@@ -2335,6 +2335,18 @@ During time warp, the playback engine can have multiple chain segments active si
 
 **Status:** Fixed (0.5.3) — downgraded to Verbose.
 
+## 200. 128km trajectory discontinuity at environment transitions
+
+Environment hysteresis transitions (e.g., Atmospheric → ExoPropulsive at 70km) called `CloseCurrentTrackSection()` without first sampling a boundary point. The adaptive sampler may have skipped several seconds, leaving a multi-km gap between the last point of the old section and the first point of the new section. Same issue in `UpdateAnchorDetection` (3 sites). On-rails transitions were already correct.
+
+**Status:** Fixed (0.5.3) — added `SamplePosition(v)` before `CloseCurrentTrackSection` in all 4 affected sites.
+
+## 201. Optimizer split creates temporal gap at section boundaries
+
+`SplitAtSection` partitions trajectory points by `ut >= splitUT`. When no point falls exactly at `splitUT`, the last point of the first half and the first point of the second half have different UTs with no coverage in between (e.g., 2.92s gap in Mun mission data). The unsplit recording interpolates across this seamlessly, but once split into separate chain segments, the gap becomes a visible jump during playback.
+
+**Status:** Fixed (0.5.3) — `SplitAtSection` now interpolates a synthetic boundary point at exactly `splitUT` (position, velocity, rotation via lerp/slerp) and includes it in both halves.
+
 # In-Game Tests
 
 - [x] Vessels propagate naturally along orbits after FF (no position freezing)

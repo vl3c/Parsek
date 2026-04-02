@@ -146,6 +146,9 @@ Ghost vessels now appear in KSP's tracking station, show orbit lines in map view
 - **Fix #199: Checkpoint log spam.** Downgraded `CheckpointAllVessels` and warp-rate-changed messages from Info to Verbose (~8,800 lines per Mun mission).
 - **Fix: Recording optimizer hang on save load.** `RunOptimizationPass` called `SaveRecordingFiles` synchronously during OnLoad for every merge/split — with 400k+ trajectory points this blocked the main thread long enough for Windows to kill KSP as not responding. File saves now deferred to OnSave.
 - **Fix: OnSave re-serializing unchanged recordings.** Added `FilesDirty` flag on Recording — OnSave skips `SaveRecordingFiles` for recordings whose sidecar data hasn't changed. Eliminates ~80 seconds of redundant I/O per session for large saves.
+- **Fix #200: 128km trajectory gap at environment transitions.** Environment hysteresis transitions and anchor detection transitions called `CloseCurrentTrackSection` without sampling a boundary point. Added `SamplePosition(v)` before all 4 affected `CloseCurrentTrackSection` calls — matches the on-rails transition pattern.
+- **Fix #201: Optimizer split creates temporal gap at section boundaries.** `SplitAtSection` now interpolates a synthetic boundary point at exactly `splitUT` when no trajectory point falls at the split time. Both halves share the boundary point, eliminating visible jumps during chain playback.
+- **Ghost orbit lines for intermediate chain segments.** ProtoVessels and orbit lines now appear during every coast phase (transfer orbits, parking orbits), not just the terminal orbit. `CreateGhostVesselFromSegment` builds from OrbitSegment data when terminal orbit is unavailable.
 
 ### Features
 

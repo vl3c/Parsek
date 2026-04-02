@@ -301,9 +301,51 @@ namespace Parsek
             {
                 splitPointIdx = original.Points.Count;
             }
+
+            // If there's a gap at the split boundary (no point at exactly splitUT),
+            // interpolate a synthetic boundary point so both halves have continuous coverage.
+            TrajectoryPoint? boundaryPoint = null;
+            if (splitPointIdx > 0 && splitPointIdx < original.Points.Count)
+            {
+                var before = original.Points[splitPointIdx - 1];
+                var after = original.Points[splitPointIdx];
+                if (before.ut < splitUT && after.ut > splitUT)
+                {
+                    double t = (splitUT - before.ut) / (after.ut - before.ut);
+                    float tf = (float)t;
+                    boundaryPoint = new TrajectoryPoint
+                    {
+                        ut = splitUT,
+                        latitude = before.latitude + (after.latitude - before.latitude) * t,
+                        longitude = before.longitude + (after.longitude - before.longitude) * t,
+                        altitude = before.altitude + (after.altitude - before.altitude) * t,
+                        rotation = UnityEngine.Quaternion.Slerp(before.rotation, after.rotation, tf),
+                        velocity = UnityEngine.Vector3.Lerp(before.velocity, after.velocity, tf),
+                        bodyName = after.bodyName,
+                        funds = before.funds + (after.funds - before.funds) * t,
+                        science = before.science + (after.science - before.science) * tf,
+                        reputation = before.reputation + (after.reputation - before.reputation) * tf
+                    };
+                    // Insert as last point of first half (at splitPointIdx, before the second half starts)
+                    original.Points.Insert(splitPointIdx, boundaryPoint.Value);
+                    splitPointIdx++; // Advance so second half still starts at the original after-point
+
+                    ParsekLog.Verbose("Optimizer",
+                        $"SplitAtSection: interpolated boundary point at UT={splitUT:F2} " +
+                        $"(between UT={before.ut:F2} and UT={after.ut:F2}, t={t:F4})");
+                }
+            }
+
             second.Points = new List<TrajectoryPoint>(
                 original.Points.GetRange(splitPointIdx, original.Points.Count - splitPointIdx));
             original.Points.RemoveRange(splitPointIdx, original.Points.Count - splitPointIdx);
+
+            // If we interpolated a boundary point, prepend it to the second half as well
+            // so it starts exactly at splitUT with no gap
+            if (boundaryPoint.HasValue && (second.Points.Count == 0 || second.Points[0].ut > splitUT))
+            {
+                second.Points.Insert(0, boundaryPoint.Value);
+            }
 
             // 3. Partition PartEvents by UT
             PartitionPartEvents(original.PartEvents, second.PartEvents, splitUT);
