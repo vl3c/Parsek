@@ -66,7 +66,7 @@ namespace Parsek
         private const float ColW_Index = 30f;
         private const float ColW_Launch = 110f;
         // ColW_Countdown removed (#98) — merged into Status column
-        private const float ColW_Dur = 65f;
+        private const float ColW_Dur = 80f;
         private const float ColW_Status = 120f;
         private const float ColW_Loop = 55f;
         private const float ColW_Watch = 50f;
@@ -2792,7 +2792,22 @@ namespace Parsek
             int total = (int)seconds;
             if (total < 60) return $"{total}s";
             if (total < 3600) return $"{total / 60}m {total % 60}s";
-            return $"{total / 3600}h {(total % 3600) / 60}m";
+
+            // KSP calendar: 6-hour days, 426-day years
+            const int SecsPerHour = 3600;
+            const int SecsPerDay = 6 * SecsPerHour;   // 21600
+            const int SecsPerYear = 426 * SecsPerDay;  // 9201600
+
+            if (total < SecsPerDay) return $"{total / SecsPerHour}h {(total % SecsPerHour) / 60}m";
+            if (total < SecsPerYear)
+            {
+                int days = total / SecsPerDay;
+                int hours = (total % SecsPerDay) / SecsPerHour;
+                return hours > 0 ? $"{days}d {hours}h" : $"{days}d";
+            }
+            int years = total / SecsPerYear;
+            int remDays = (total % SecsPerYear) / SecsPerDay;
+            return remDays > 0 ? $"{years}y {remDays}d" : $"{years}y";
         }
 
         internal static string FormatAltitude(double meters)
