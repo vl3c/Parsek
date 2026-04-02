@@ -34,18 +34,31 @@ namespace Parsek.Patches
         static void Prefix()
         {
             hiddenGhosts = new System.Collections.Generic.List<Vessel>();
-            for (int i = FlightGlobals.Vessels.Count - 1; i >= 0; i--)
+            if (FlightGlobals.Vessels == null) return;
+            try
             {
-                var v = FlightGlobals.Vessels[i];
-                if (v != null && GhostMapPresence.IsGhostMapVessel(v.persistentId))
+                for (int i = FlightGlobals.Vessels.Count - 1; i >= 0; i--)
                 {
-                    hiddenGhosts.Add(v);
-                    FlightGlobals.Vessels.RemoveAt(i);
+                    var v = FlightGlobals.Vessels[i];
+                    if (v != null && GhostMapPresence.IsGhostMapVessel(v.persistentId))
+                    {
+                        hiddenGhosts.Add(v);
+                        FlightGlobals.Vessels.RemoveAt(i);
+                    }
                 }
+                if (hiddenGhosts.Count > 0)
+                    ParsekLog.Verbose("GhostMap",
+                        $"buildVesselsList: temporarily hid {hiddenGhosts.Count} ghost vessel(s)");
             }
-            if (hiddenGhosts.Count > 0)
-                ParsekLog.Verbose("GhostMap",
-                    $"buildVesselsList: temporarily hid {hiddenGhosts.Count} ghost vessel(s)");
+            catch (Exception ex)
+            {
+                // Rollback: restore any ghosts already removed
+                for (int i = 0; i < hiddenGhosts.Count; i++)
+                    FlightGlobals.Vessels.Add(hiddenGhosts[i]);
+                hiddenGhosts.Clear();
+                ParsekLog.Warn("GhostMap",
+                    $"buildVesselsList Prefix failed, rolled back: {ex.Message}");
+            }
         }
 
         /// <summary>
