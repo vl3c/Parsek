@@ -308,6 +308,11 @@ namespace Parsek
             // 3. Partition PartEvents by UT
             PartitionPartEvents(original.PartEvents, second.PartEvents, splitUT);
 
+            // 3b. Forward permanent visual state events as seeds in the second half.
+            // Events like ShroudJettisoned/FairingJettisoned in the first half represent
+            // state at the split point — the second half's ghost needs them to render correctly.
+            ForwardPermanentStateEvents(original.PartEvents, second.PartEvents, splitUT);
+
             // 4. Partition SegmentEvents by UT
             PartitionSegmentEvents(original.SegmentEvents, second.SegmentEvents, splitUT);
 
@@ -457,6 +462,52 @@ namespace Parsek
                 case SegmentEnvironment.SurfaceStationary: return "surface";
                 default: return "exo";
             }
+        }
+
+        /// <summary>
+        /// Checks if a part event represents a permanent one-way visual state change
+        /// that must be seeded in subsequent segments after a split.
+        /// </summary>
+        private static bool IsPermanentVisualStateEvent(PartEventType type)
+        {
+            switch (type)
+            {
+                case PartEventType.ShroudJettisoned:
+                case PartEventType.FairingJettisoned:
+                case PartEventType.Decoupled:
+                case PartEventType.Destroyed:
+                case PartEventType.ParachuteDestroyed:
+                    return true;
+                default:
+                    return false;
+            }
+        }
+
+        /// <summary>
+        /// Copies permanent visual state events from the first half to the start of
+        /// the second half as seed events at splitUT. This ensures the ghost for the
+        /// second segment reflects the vessel's visual state at the split point
+        /// (e.g., shroud already jettisoned, parts already decoupled).
+        /// </summary>
+        private static void ForwardPermanentStateEvents(
+            List<PartEvent> firstHalf, List<PartEvent> secondHalf, double splitUT)
+        {
+            if (firstHalf == null || firstHalf.Count == 0) return;
+
+            int forwarded = 0;
+            for (int i = 0; i < firstHalf.Count; i++)
+            {
+                if (!IsPermanentVisualStateEvent(firstHalf[i].eventType)) continue;
+
+                var seed = firstHalf[i];
+                seed.ut = splitUT;
+                secondHalf.Insert(forwarded, seed);
+                forwarded++;
+            }
+
+            if (forwarded > 0)
+                ParsekLog.Info("Optimizer",
+                    $"Forwarded {forwarded} permanent state event(s) as seeds at UT={splitUT:F1}");
         }
 
         private static void PartitionPartEvents(List<PartEvent> source,
