@@ -374,6 +374,92 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void Fail_LogsContractIdAndPenalty()
+        {
+            module.ProcessAction(MakeAccept("c1"));
+            logLines.Clear();
+
+            module.ProcessAction(MakeFail("c1", ut: 800,
+                fundsPenalty: 10000f, repPenalty: 5f));
+
+            Assert.Contains(logLines, l =>
+                l.Contains("[Contracts]") && l.Contains("Fail") &&
+                l.Contains("c1") && l.Contains("wasActive=True"));
+        }
+
+        [Fact]
+        public void Cancel_LogsContractIdAndPenalty()
+        {
+            module.ProcessAction(MakeAccept("c1"));
+            logLines.Clear();
+
+            module.ProcessAction(MakeCancel("c1", ut: 400,
+                fundsPenalty: 3000f, repPenalty: 2f));
+
+            Assert.Contains(logLines, l =>
+                l.Contains("[Contracts]") && l.Contains("Cancel") &&
+                l.Contains("c1") && l.Contains("wasActive=True"));
+        }
+
+        [Fact]
+        public void Accept_Duplicate_LogsWarning()
+        {
+            module.ProcessAction(MakeAccept("c1"));
+            logLines.Clear();
+
+            module.ProcessAction(MakeAccept("c1", ut: 200));
+
+            Assert.Contains(logLines, l =>
+                l.Contains("[Contracts]") &&
+                l.Contains("already active") &&
+                l.Contains("c1"));
+        }
+
+        [Fact]
+        public void Complete_LogsSlotFreed()
+        {
+            module.ProcessAction(MakeAccept("c1"));
+            logLines.Clear();
+
+            module.ProcessAction(MakeComplete("c1"));
+
+            Assert.Contains(logLines, l =>
+                l.Contains("[Contracts]") &&
+                l.Contains("slot freed") &&
+                l.Contains("c1") &&
+                l.Contains("wasActive=True"));
+        }
+
+        [Fact]
+        public void Reset_LogsClearedCounts()
+        {
+            module.ProcessAction(MakeAccept("c1"));
+            module.ProcessAction(MakeComplete("c1"));
+            logLines.Clear();
+
+            module.Reset();
+
+            Assert.Contains(logLines, l =>
+                l.Contains("[Contracts]") &&
+                l.Contains("Reset") &&
+                l.Contains("cleared") &&
+                l.Contains("1 credited"));
+        }
+
+        [Fact]
+        public void SetMaxSlots_LogsNewValue()
+        {
+            logLines.Clear();
+
+            module.SetMaxSlots(5);
+
+            Assert.Contains(logLines, l =>
+                l.Contains("[Contracts]") &&
+                l.Contains("SetMaxSlots") &&
+                l.Contains("maxSlots=5"));
+        }
+
+        [Fact]
         public void DuplicateComplete_LogsNotEffective()
         {
             module.ProcessAction(MakeAccept("c1"));

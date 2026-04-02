@@ -564,6 +564,91 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void Activate_Duplicate_LogsWarning()
+        {
+            module.ProcessAction(MakeActivate("S1", 100.0,
+                StrategyResource.Reputation, StrategyResource.Science,
+                commitment: 0.10f));
+
+            logLines.Clear();
+
+            module.ProcessAction(MakeActivate("S1", 200.0,
+                StrategyResource.Reputation, StrategyResource.Science,
+                commitment: 0.20f));
+
+            Assert.Contains(logLines, l =>
+                l.Contains("[Strategies]") &&
+                l.Contains("already active") &&
+                l.Contains("S1"));
+        }
+
+        [Fact]
+        public void Transform_NonEffective_LogsSkip()
+        {
+            module.ProcessAction(MakeActivate("RepToSci", 100.0,
+                StrategyResource.Reputation, StrategyResource.Science,
+                commitment: 0.10f));
+
+            logLines.Clear();
+
+            var contract = MakeContractComplete("c1", 200.0,
+                repReward: 50f, scienceReward: 0f, effective: false);
+            module.ProcessAction(contract);
+
+            Assert.Contains(logLines, l =>
+                l.Contains("[Strategies]") &&
+                l.Contains("skipped (not effective)") &&
+                l.Contains("c1"));
+        }
+
+        [Fact]
+        public void Transform_BeforeActivationUT_LogsSkip()
+        {
+            module.ProcessAction(MakeActivate("LateStrat", 500.0,
+                StrategyResource.Reputation, StrategyResource.Science,
+                commitment: 0.10f));
+
+            logLines.Clear();
+
+            var contract = MakeContractComplete("c1", 300.0,
+                repReward: 100f, scienceReward: 0f);
+            module.ProcessAction(contract);
+
+            Assert.Contains(logLines, l =>
+                l.Contains("[Strategies]") &&
+                l.Contains("skipped for") &&
+                l.Contains("LateStrat") &&
+                l.Contains("c1"));
+        }
+
+        [Fact]
+        public void Transform_NoActiveStrategies_LogsSkip()
+        {
+            // No strategies activated — transform should log skip
+            var contract = MakeContractComplete("c1", 200.0,
+                fundsReward: 10000f, repReward: 50f, scienceReward: 0f);
+            module.ProcessAction(contract);
+
+            Assert.Contains(logLines, l =>
+                l.Contains("[Strategies]") &&
+                l.Contains("skipped (no active strategies)") &&
+                l.Contains("c1"));
+        }
+
+        [Fact]
+        public void SetMaxSlots_LogsNewValue()
+        {
+            logLines.Clear();
+
+            module.SetMaxSlots(3);
+
+            Assert.Contains(logLines, l =>
+                l.Contains("[Strategies]") &&
+                l.Contains("SetMaxSlots") &&
+                l.Contains("maxSlots=3"));
+        }
+
+        [Fact]
         public void Reset_LogsClearedCount()
         {
             module.ProcessAction(MakeActivate("S1", 100.0));

@@ -130,10 +130,11 @@ namespace Parsek
             }
 
             // Slot freed regardless of effective status
-            activeContracts.Remove(id);
+            bool wasActive = activeContracts.Remove(id);
 
             ParsekLog.Verbose(Tag,
                 $"Complete: slot freed for contractId='{id}', " +
+                $"wasActive={wasActive}, " +
                 $"activeSlots={activeContracts.Count}/{maxSlots}");
         }
 
@@ -144,11 +145,12 @@ namespace Parsek
             string id = action.ContractId ?? "";
 
             // Penalties apply unconditionally
-            activeContracts.Remove(id);
+            bool wasActive = activeContracts.Remove(id);
 
             ParsekLog.Info(Tag,
                 $"Fail: contractId='{id}' fundsPenalty={action.FundsPenalty} " +
                 $"repPenalty={action.RepPenalty} " +
+                $"wasActive={wasActive} " +
                 $"activeSlots={activeContracts.Count}/{maxSlots}");
         }
 
@@ -157,11 +159,12 @@ namespace Parsek
             string id = action.ContractId ?? "";
 
             // Penalties apply unconditionally
-            activeContracts.Remove(id);
+            bool wasActive = activeContracts.Remove(id);
 
             ParsekLog.Info(Tag,
                 $"Cancel: contractId='{id}' fundsPenalty={action.FundsPenalty} " +
                 $"repPenalty={action.RepPenalty} " +
+                $"wasActive={wasActive} " +
                 $"activeSlots={activeContracts.Count}/{maxSlots}");
         }
 

@@ -164,10 +164,18 @@ namespace Parsek
                 return;
 
             if (!action.Effective)
+            {
+                ParsekLog.Verbose(Tag,
+                    $"TransformContractReward skipped (not effective): contractId='{action.ContractId ?? "(none)"}'");
                 return;
+            }
 
             if (activeStrategies.Count == 0)
+            {
+                ParsekLog.Verbose(Tag,
+                    $"TransformContractReward skipped (no active strategies): contractId='{action.ContractId ?? "(none)"}'");
                 return;
+            }
 
             const float conversionRate = 1.0f;
 
@@ -178,7 +186,13 @@ namespace Parsek
                 // Only transform if the contract UT is within the strategy's active window.
                 // The strategy is active from ActivateUT onward (until a Deactivate removes it).
                 if (action.UT < strategy.ActivateUT)
+                {
+                    ParsekLog.Verbose(Tag,
+                        $"TransformContractReward: strategy='{strategy.StrategyId}' skipped for " +
+                        $"contractId='{action.ContractId ?? "(none)"}' (contract UT={action.UT.ToString("F1", IC)} " +
+                        $"< activateUT={strategy.ActivateUT.ToString("F1", IC)})");
                     continue;
+                }
 
                 float diverted;
                 switch (strategy.SourceResource)
