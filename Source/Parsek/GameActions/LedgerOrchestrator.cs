@@ -84,16 +84,116 @@ namespace Parsek
                 GameStateRecorder.PendingScienceSubjects, recordingId, endUT);
             actions.AddRange(scienceActions);
 
-            // 3. Add to ledger
+            // 3. Inject vessel build cost and recovery funds from recording data
+            var costActions = CreateVesselCostActions(recordingId, startUT, endUT);
+            actions.AddRange(costActions);
+
+            // 4. Add to ledger
             Ledger.AddActions(actions);
 
             ParsekLog.Info(Tag,
                 $"Committed recording '{recordingId}': {actions.Count} actions added to ledger " +
-                $"(events={events.Count}, science={scienceActions.Count}, " +
+                $"(events={events.Count}, science={scienceActions.Count}, cost={costActions.Count}, " +
                 $"startUT={startUT:F1}, endUT={endUT:F1})");
 
-            // 4. Recalculate + patch
+            // 5. Recalculate + patch
             RecalculateAndPatch();
+        }
+
+        /// <summary>
+        /// Creates FundsSpending (VesselBuild) and FundsEarning (Recovery) actions
+        /// from the recording's resource data. Looks up the recording by ID from
+        /// CommittedRecordings (it has already been committed before this is called).
+        /// </summary>
+        /// <param name="recordingId">Recording ID to look up.</param>
+        /// <param name="startUT">Start UT of the recording.</param>
+        /// <param name="endUT">End UT of the recording.</param>
+        /// <returns>List of 0–2 actions (build cost and/or recovery).</returns>
+        internal static List<GameAction> CreateVesselCostActions(string recordingId, double startUT, double endUT)
+        {
+            var result = new List<GameAction>();
+
+            var rec = FindRecordingById(recordingId);
+            if (rec == null)
+            {
+                ParsekLog.Verbose(Tag,
+                    $"CreateVesselCostActions: recording '{recordingId}' not found in CommittedRecordings — skipping");
+                return result;
+            }
+
+            if (rec.Points.Count == 0)
+            {
+                ParsekLog.Verbose(Tag,
+                    $"CreateVesselCostActions: recording '{recordingId}' has no points — skipping");
+                return result;
+            }
+
+            // Vessel build cost = PreLaunchFunds - first point's funds
+            // (KSP deducts vessel cost before the first frame is recorded)
+            double firstFunds = rec.Points[0].funds;
+            double buildCost = rec.PreLaunchFunds - firstFunds;
+
+            if (buildCost > 0)
+            {
+                result.Add(new GameAction
+                {
+                    UT = startUT,
+                    Type = GameActionType.FundsSpending,
+                    RecordingId = recordingId,
+                    FundsSpent = (float)buildCost,
+                    FundsSpendingSource = FundsSpendingSource.VesselBuild
+                });
+
+                ParsekLog.Verbose(Tag,
+                    $"CreateVesselCostActions: vessel build cost={buildCost:F0} " +
+                    $"(preLaunch={rec.PreLaunchFunds:F0}, first={firstFunds:F0}) for '{recordingId}'");
+            }
+
+            // Recovery funds = last point's funds - second-to-last point's funds
+            // Only if the recording ended with vessel recovery.
+            if (rec.TerminalStateValue == TerminalState.Recovered && rec.Points.Count >= 2)
+            {
+                double lastFunds = rec.Points[rec.Points.Count - 1].funds;
+                double penultimateFunds = rec.Points[rec.Points.Count - 2].funds;
+                double recoveryAmount = lastFunds - penultimateFunds;
+
+                if (recoveryAmount > 0)
+                {
+                    result.Add(new GameAction
+                    {
+                        UT = endUT,
+                        Type = GameActionType.FundsEarning,
+                        RecordingId = recordingId,
+                        FundsAwarded = (float)recoveryAmount,
+                        FundsSource = FundsEarningSource.Recovery
+                    });
+
+                    ParsekLog.Verbose(Tag,
+                        $"CreateVesselCostActions: recovery funds={recoveryAmount:F0} " +
+                        $"(last={lastFunds:F0}, penultimate={penultimateFunds:F0}) for '{recordingId}'");
+                }
+            }
+
+            return result;
+        }
+
+        /// <summary>
+        /// Finds a committed recording by its ID. Returns null if not found.
+        /// </summary>
+        internal static Recording FindRecordingById(string recordingId)
+        {
+            if (string.IsNullOrEmpty(recordingId)) return null;
+
+            var recordings = RecordingStore.CommittedRecordings;
+            if (recordings == null) return null;
+
+            for (int i = 0; i < recordings.Count; i++)
+            {
+                if (recordings[i].RecordingId == recordingId)
+                    return recordings[i];
+            }
+
+            return null;
         }
 
         /// <summary>

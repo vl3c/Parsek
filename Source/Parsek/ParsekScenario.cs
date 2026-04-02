@@ -21,8 +21,6 @@ namespace Parsek
 
         #endregion
 
-        // Gates Update() resource ticking while coroutines reset resource baselines
-        private bool resourceTickingSuspended = false;
 
         public override void OnSave(ConfigNode node)
         {
@@ -546,7 +544,7 @@ namespace Parsek
 
                     // Schedule committed resource deduction (singletons may not be ready yet)
                     ParsekLog.Verbose("Scenario", "Scheduling budget deduction coroutine (singletons may not be ready yet)");
-                    resourceTickingSuspended = true;
+
                     StartCoroutine(ApplyBudgetDeductionWhenReady());
                 }
                 else
@@ -862,7 +860,6 @@ namespace Parsek
             // scene may still be alive during OnLoad; we must yield at least one frame
             // so the new scene's Funding/R&D/Reputation/Planetarium are initialized).
             // Setting UT before LoadScene does NOT work — scene transition overwrites it.
-            resourceTickingSuspended = true;
             StartCoroutine(ApplyRewindResourceAdjustment());
             ParsekLog.Info("Rewind",
                 "OnLoad: resource + UT adjustment deferred (waiting for new scene singletons)");
@@ -1068,13 +1065,13 @@ namespace Parsek
             {
                 ParsekLog.Verbose("Scenario",
                     $"Budget deduction already applied for epoch {budgetDeductionEpoch} (current={MilestoneStore.CurrentEpoch})");
-                resourceTickingSuspended = false;
+    
                 yield break;
             }
             budgetDeductionEpoch = MilestoneStore.CurrentEpoch;
 
             LedgerOrchestrator.RecalculateAndPatch();
-            resourceTickingSuspended = false;
+
         }
 
         /// <summary>
@@ -1126,22 +1123,8 @@ namespace Parsek
 
             // Belt-and-suspenders epoch guard
             budgetDeductionEpoch = MilestoneStore.CurrentEpoch;
-            resourceTickingSuspended = false;
+
         }
-
-        #endregion
-
-        #region Resource Ticking
-
-        /// <summary>
-        /// Ticks resource deltas for committed recordings in non-Flight scenes.
-        /// Flight scene is handled by ParsekFlight.UpdateTimelinePlayback.
-        /// </summary>
-        private void Update()
-        {
-            // Resource ticking now handled by LedgerOrchestrator.RecalculateAndPatch()
-        }
-
 
         #endregion
 
