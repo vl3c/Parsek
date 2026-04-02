@@ -1,3 +1,4 @@
+using System.Reflection;
 using CommNet;
 using HarmonyLib;
 using UnityEngine;
@@ -95,18 +96,30 @@ namespace Parsek.Patches
                 }, dismissOnSelect: true)
             };
 
+            // Anchor at (0,0) so localPosition maps to canvas-center-relative coords.
+            // SpawnPopupDialog forces localPosition=zero after setting anchors, so we
+            // reposition AFTER via CanvasUtil (same method KSP's MapContextMenu uses).
             currentGhostMenu = PopupDialog.SpawnPopupDialog(
-                new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f),
+                Vector2.zero, Vector2.zero,
                 new MultiOptionDialog("GhostIconMenu", "", vesselName,
                     HighLogic.UISkin, 160f, options),
                 persistAcrossScenes: false, skin: HighLogic.UISkin);
 
-            // Reposition to mouse cursor after spawn
+            // Reposition to mouse cursor using KSP's canvas coordinate conversion
             if (currentGhostMenu != null)
             {
                 var rt = currentGhostMenu.GetComponent<RectTransform>();
                 if (rt != null)
-                    rt.position = Input.mousePosition;
+                {
+                    var canvas = rt.parent as RectTransform;
+                    if (canvas != null)
+                    {
+                        bool zPositive;
+                        Vector3 uiPos = CanvasUtil.ScreenToUISpacePos(
+                            Input.mousePosition, canvas, out zPositive);
+                        rt.localPosition = uiPos;
+                    }
+                }
             }
 
             // Track when the menu was opened so outside-click check can skip a few frames
@@ -140,18 +153,19 @@ namespace Parsek.Patches
 
         /// <summary>
         /// Called from ParsekFlight.LateUpdate() to check for outside clicks.
-        /// Uses LateUpdate so it runs AFTER Unity UI event processing — by this point,
-        /// any button-click dismissal (via dismissOnSelect) has already fired and set
-        /// currentGhostMenu to null. If the menu is still alive, the click was outside.
+        /// Uses GetMouseButtonUp instead of GetMouseButtonDown: button callbacks fire
+        /// on mouse-down (and dismiss the dialog via dismissOnSelect, clearing
+        /// currentGhostMenu). By the time mouse-up arrives, the menu is already null
+        /// if a button was clicked — so we only dismiss on genuinely outside clicks.
         /// </summary>
         internal static void CheckOutsideClick()
         {
             if (currentGhostMenu == null) return;
 
-            // Grace period: skip the first 3 frames after opening
-            if (Time.frameCount - menuOpenFrame < 3) return;
+            // Grace period: skip the first 5 frames after opening
+            if (Time.frameCount - menuOpenFrame < 5) return;
 
-            if (Input.GetMouseButtonDown(0) || Input.GetMouseButtonDown(1))
+            if (Input.GetMouseButtonUp(0) || Input.GetMouseButtonUp(1))
             {
                 DismissCurrentMenu();
             }
@@ -259,6 +273,36 @@ namespace Parsek.Patches
             }
 
             return false;
+        }
+    }
+
+    /// <summary>
+    /// Prevents ghost vessels from appearing in OrbitTargeter's "Set as Target"
+    /// popup (the second click path in map view). OrbitTargeter.TargetCastNodes
+    /// checks MapNode hover state for all orbits and creates a MapContextMenu
+    /// when it detects a hovered vessel. This postfix nulls the result for ghost
+    /// vessels so OrbitTargeter never creates the default KSP target popup for them.
+    /// Fixes: KSP's default popup appearing alongside Parsek's ghost menu when
+    /// the ghost is in a different SOI from the camera's reference body (#192).
+    /// </summary>
+    [HarmonyPatch]
+    internal static class GhostTargetCastNodesPatch
+    {
+        static MethodBase TargetMethod()
+        {
+            return typeof(OrbitTargeter).GetMethod("TargetCastNodes",
+                BindingFlags.NonPublic | BindingFlags.Instance);
+        }
+
+        static void Postfix(ref OrbitDriver __result)
+        {
+            if (__result != null && __result.vessel != null
+                && GhostMapPresence.IsGhostMapVessel(__result.vessel.persistentId))
+            {
+                ParsekLog.Verbose("GhostMap",
+                    $"Suppressed OrbitTargeter.TargetCastNodes for ghost '{__result.vessel.vesselName}'");
+                __result = null;
+            }
         }
     }
 }
