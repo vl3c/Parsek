@@ -431,7 +431,8 @@ namespace Parsek
 
             // Direct element assignment via SetOrbit — bypasses the lossy
             // state-vector roundtrip in UpdateFromOrbitAtUT (#172).
-            vessel.orbitDriver.orbit.SetOrbit(
+            Orbit orb = vessel.orbitDriver.orbit;
+            orb.SetOrbit(
                 segment.inclination,
                 segment.eccentricity,
                 segment.semiMajorAxis,
@@ -440,6 +441,15 @@ namespace Parsek
                 segment.meanAnomalyAtEpoch,
                 segment.epoch,
                 body);
+
+            // Ensure orbit patch covers the full trajectory so the orbit renderer
+            // draws the complete line (not clipped to a short time span).
+            // For hyperbolic escape orbits, extend EndUT far enough to reach the SOI edge.
+            // FINAL transition tells KSP this is the last patch — no SOI boundary.
+            orb.StartUT = segment.epoch;
+            orb.EndUT = segment.epoch + (segment.eccentricity >= 1.0 ? 1e8 : orb.period * 1.5);
+            orb.patchStartTransition = Orbit.PatchTransitionType.INITIAL;
+            orb.patchEndTransition = Orbit.PatchTransitionType.FINAL;
 
             vessel.orbitDriver.updateFromParameters();
 
