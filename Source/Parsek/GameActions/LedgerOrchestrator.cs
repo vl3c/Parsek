@@ -310,15 +310,20 @@ namespace Parsek
         {
             Initialize();
 
-            // Migration: if ledger is empty but committed recordings exist,
+            // Reconcile first — prunes orphaned actions from the existing ledger.
+            // On empty ledger (old save), this is a no-op.
+            Ledger.Reconcile(validRecordingIds, maxUT);
+
+            // Migration: if ledger is still empty after reconcile but committed recordings exist,
             // this is an old save being loaded for the first time with the ledger system.
-            // Convert existing GameStateStore events from committed recordings into GameActions.
+            // Convert existing GameStateStore events into GameActions.
+            // Done AFTER reconcile so migrated actions are not pruned (they have null recordingId
+            // which would be pruned for earning types if reconcile ran after).
             if (Ledger.Actions.Count == 0 && validRecordingIds != null && validRecordingIds.Count > 0)
             {
                 MigrateOldSaveEvents(validRecordingIds);
             }
 
-            Ledger.Reconcile(validRecordingIds, maxUT);
             RecalculateAndPatch();
         }
 
