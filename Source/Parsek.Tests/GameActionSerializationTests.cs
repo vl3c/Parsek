@@ -600,6 +600,40 @@ namespace Parsek.Tests
             Assert.Equal(25000.0f, result.InitialFunds);
         }
 
+        [Fact]
+        public void ScienceInitial_RoundTrips()
+        {
+            var action = new GameAction
+            {
+                UT = 0.0,
+                Type = GameActionType.ScienceInitial,
+                InitialScience = 142.5f
+            };
+
+            var deserialized = RoundTrip(action);
+
+            Assert.Equal(GameActionType.ScienceInitial, deserialized.Type);
+            Assert.Equal(0.0, deserialized.UT);
+            Assert.Equal(142.5f, deserialized.InitialScience);
+        }
+
+        [Fact]
+        public void ReputationInitial_RoundTrips()
+        {
+            var action = new GameAction
+            {
+                UT = 0.0,
+                Type = GameActionType.ReputationInitial,
+                InitialReputation = 87.3f
+            };
+
+            var deserialized = RoundTrip(action);
+
+            Assert.Equal(GameActionType.ReputationInitial, deserialized.Type);
+            Assert.Equal(0.0, deserialized.UT);
+            Assert.Equal(87.3f, deserialized.InitialReputation);
+        }
+
         // ================================================================
         // Derived fields are NOT serialized
         // ================================================================

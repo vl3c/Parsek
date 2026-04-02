@@ -650,5 +650,48 @@ namespace Parsek.Tests
                 l.Contains("Reset") &&
                 l.Contains("-> 0"));
         }
+
+        // ================================================================
+        // ReputationInitial seeding tests (D19)
+        // ================================================================
+
+        [Fact]
+        public void ReputationInitial_SeedsRunningRep()
+        {
+            var module = new ReputationModule();
+            module.Reset();
+            module.ProcessAction(new GameAction
+            {
+                UT = 0.0,
+                Type = GameActionType.ReputationInitial,
+                InitialReputation = 150f
+            });
+
+            Assert.Equal(150f, module.GetRunningRep(), 0.01f);
+        }
+
+        [Fact]
+        public void ReputationInitial_PlusEarnings_Accumulates()
+        {
+            var module = new ReputationModule();
+            module.Reset();
+            module.ProcessAction(new GameAction
+            {
+                UT = 0.0,
+                Type = GameActionType.ReputationInitial,
+                InitialReputation = 100f
+            });
+            module.ProcessAction(new GameAction
+            {
+                UT = 100.0,
+                Type = GameActionType.ReputationEarning,
+                NominalRep = 10f,
+                RepSource = ReputationSource.Other
+            });
+
+            // With seed of 100, gain curve at 100/1000=0.1 should give multiplier ~1.0
+            // Exact value depends on curve, but rep should be > 100
+            Assert.True(module.GetRunningRep() > 100f);
+        }
     }
 }

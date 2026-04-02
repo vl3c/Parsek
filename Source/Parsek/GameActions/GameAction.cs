@@ -29,7 +29,9 @@ namespace Parsek
         FacilityRepair        = 17,
         StrategyActivate      = 18,
         StrategyDeactivate    = 19,
-        FundsInitial          = 20
+        FundsInitial          = 20,
+        ScienceInitial        = 21,
+        ReputationInitial     = 22
     }
 
     /// <summary>How science was collected — transmitted from orbit or recovered on the ground.</summary>
@@ -290,10 +292,16 @@ namespace Parsek
         /// <summary>One-time cost in source resource on activation.</summary>
         public float SetupCost;
 
-        // ---- Funds initial (seed) ----
+        // ---- Initial seed fields ----
 
         /// <summary>Career starting funds, extracted from save file.</summary>
         public float InitialFunds;
+
+        /// <summary>Existing science balance when Parsek is first installed mid-career.</summary>
+        public float InitialScience;
+
+        /// <summary>Existing reputation when Parsek is first installed mid-career.</summary>
+        public float InitialReputation;
 
         // ================================================================
         // Derived fields — set during recalculation walk, NOT serialized
@@ -412,6 +420,12 @@ namespace Parsek
                 case GameActionType.FundsInitial:
                     SerializeFundsInitial(node);
                     break;
+                case GameActionType.ScienceInitial:
+                    SerializeScienceInitial(node);
+                    break;
+                case GameActionType.ReputationInitial:
+                    SerializeReputationInitial(node);
+                    break;
             }
         }
 
@@ -510,6 +524,12 @@ namespace Parsek
                     break;
                 case GameActionType.FundsInitial:
                     DeserializeFundsInitial(node, a);
+                    break;
+                case GameActionType.ScienceInitial:
+                    DeserializeScienceInitial(node, a);
+                    break;
+                case GameActionType.ReputationInitial:
+                    DeserializeReputationInitial(node, a);
                     break;
             }
 
@@ -814,6 +834,26 @@ namespace Parsek
         private static void DeserializeFundsInitial(ConfigNode n, GameAction a)
         {
             TryParseFloat(n, "initialFunds", out a.InitialFunds);
+        }
+
+        private void SerializeScienceInitial(ConfigNode n)
+        {
+            n.AddValue("initialScience", InitialScience.ToString("R", IC));
+        }
+
+        private static void DeserializeScienceInitial(ConfigNode n, GameAction a)
+        {
+            TryParseFloat(n, "initialScience", out a.InitialScience);
+        }
+
+        private void SerializeReputationInitial(ConfigNode n)
+        {
+            n.AddValue("initialReputation", InitialReputation.ToString("R", IC));
+        }
+
+        private static void DeserializeReputationInitial(ConfigNode n, GameAction a)
+        {
+            TryParseFloat(n, "initialReputation", out a.InitialReputation);
         }
 
         // ---- Parse helpers ----

@@ -627,5 +627,29 @@ namespace Parsek.Tests
             Assert.Contains(logLines, l =>
                 l.Contains("[RecalcEngine]") && l.Contains("ClearModules") && l.Contains("removed=2"));
         }
+
+        // ================================================================
+        // SortActions — seed types treated as earnings (D19)
+        // ================================================================
+
+        [Fact]
+        public void SortActions_SeedTypesAreTreatedAsEarnings()
+        {
+            var actions = new List<GameAction>
+            {
+                new GameAction { UT = 0, Type = GameActionType.ScienceSpending, Sequence = 1 },
+                new GameAction { UT = 0, Type = GameActionType.ScienceInitial },
+                new GameAction { UT = 0, Type = GameActionType.ReputationInitial },
+                new GameAction { UT = 0, Type = GameActionType.FundsInitial }
+            };
+
+            var sorted = RecalculationEngine.SortActions(actions);
+
+            // Seed types are earnings → sorted before spendings at same UT
+            Assert.True(RecalculationEngine.IsEarningType(sorted[0].Type));
+            Assert.True(RecalculationEngine.IsEarningType(sorted[1].Type));
+            Assert.True(RecalculationEngine.IsEarningType(sorted[2].Type));
+            Assert.Equal(GameActionType.ScienceSpending, sorted[3].Type);
+        }
     }
 }

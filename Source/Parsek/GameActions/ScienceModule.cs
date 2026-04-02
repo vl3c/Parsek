@@ -99,6 +99,12 @@ namespace Parsek
                 case GameActionType.ScienceSpending:
                     ProcessSpending(action);
                     break;
+                case GameActionType.ContractComplete:
+                    ProcessContractScienceReward(action);
+                    break;
+                case GameActionType.ScienceInitial:
+                    ProcessScienceInitial(action);
+                    break;
                 // All other action types: ignore silently
             }
         }
@@ -237,6 +243,61 @@ namespace Parsek
                     $"Spending NOT affordable: nodeId={action.NodeId ?? "(none)"}, cost={cost.ToString("R", IC)}, " +
                     $"runningScience={runningScience.ToString("R", IC)} — possible bug or data corruption");
             }
+        }
+
+        // ================================================================
+        // Science initial seed
+        // ================================================================
+
+        /// <summary>
+        /// Processes a ScienceInitial action: sets baseline science balance for mid-career install.
+        /// Adds the initial science to both the running balance and effective earnings total.
+        /// </summary>
+        internal void ProcessScienceInitial(GameAction action)
+        {
+            double initial = (double)action.InitialScience;
+            runningScience += initial;
+            totalEffectiveEarnings += initial;
+
+            ParsekLog.Info("ScienceModule",
+                $"ScienceInitial: seed={initial.ToString("R", IC)}, " +
+                $"runningScience={runningScience.ToString("R", IC)}, " +
+                $"totalEffectiveEarnings={totalEffectiveEarnings.ToString("R", IC)}");
+        }
+
+        // ================================================================
+        // Contract science reward
+        // ================================================================
+
+        /// <summary>
+        /// Processes a ContractComplete action's science reward. Contract science is a flat
+        /// reward added directly to the running balance — it is NOT subject-capped (unlike
+        /// experiment science which goes through the per-subject hard cap).
+        /// Only processes when Effective == true (chronologically first completion gets credit).
+        /// Uses TransformedScienceReward (post-strategy-transform value).
+        /// </summary>
+        internal void ProcessContractScienceReward(GameAction action)
+        {
+            if (!action.Effective)
+            {
+                ParsekLog.Verbose("ScienceModule",
+                    $"ContractComplete science skipped (not effective): contractId={action.ContractId ?? "(none)"}, " +
+                    $"scienceReward={action.ScienceReward.ToString("R", IC)}");
+                return;
+            }
+
+            float reward = action.TransformedScienceReward;
+            if (reward <= 0f)
+                return;
+
+            runningScience += (double)reward;
+            totalEffectiveEarnings += (double)reward;
+
+            ParsekLog.Verbose("ScienceModule",
+                $"ContractComplete science: contractId={action.ContractId ?? "(none)"}, " +
+                $"reward={reward.ToString("R", IC)}, " +
+                $"runningScience={runningScience.ToString("R", IC)}, " +
+                $"totalEffectiveEarnings={totalEffectiveEarnings.ToString("R", IC)}");
         }
 
         // ================================================================

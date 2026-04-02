@@ -254,6 +254,8 @@ namespace Parsek
                 case GameActionType.ReputationEarning:
                 case GameActionType.KerbalRescue:
                 case GameActionType.FundsInitial:
+                case GameActionType.ScienceInitial:
+                case GameActionType.ReputationInitial:
                     return true;
                 default:
                     return false;

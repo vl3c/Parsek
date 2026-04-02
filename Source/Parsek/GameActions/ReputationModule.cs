@@ -73,6 +73,10 @@ namespace Parsek
                     ProcessContractPenaltyRep(action);
                     break;
 
+                case GameActionType.ReputationInitial:
+                    ProcessReputationInitial(action);
+                    break;
+
                 default:
                     // Not a rep-affecting action — skip silently
                     return;
@@ -180,6 +184,25 @@ namespace Parsek
                 $"contractId={action.ContractId ?? "null"}, " +
                 $"nominalPenalty={action.RepPenalty.ToString("F2", IC)}, effective={result.actualDelta.ToString("F2", IC)}, " +
                 $"runningRep={runningRep.ToString("F2", IC)}");
+        }
+
+        // ================================================================
+        // Reputation initial seed
+        // ================================================================
+
+        /// <summary>
+        /// Processes a ReputationInitial action: sets baseline reputation for mid-career install.
+        /// Directly sets the running reputation without applying the curve — the initial value
+        /// is the actual reputation the player has, not a nominal delta.
+        /// </summary>
+        internal void ProcessReputationInitial(GameAction action)
+        {
+            float initial = action.InitialReputation;
+            runningRep += initial;
+
+            ParsekLog.Info(Tag,
+                $"ReputationInitial: seed={initial.ToString("R", IC)}, " +
+                $"runningRep={runningRep.ToString("R", IC)}");
         }
 
         // ================================================================

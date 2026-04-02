@@ -25,7 +25,7 @@ namespace Parsek
         private static FacilitiesModule facilitiesModule;
         private static StrategiesModule strategiesModule;
         private static bool initialized;
-        private static bool fundsSeedChecked;
+        private static bool seedChecked;
 
         /// <summary>
         /// Initialize modules and register with engine. Call once on game start.
@@ -104,11 +104,16 @@ namespace Parsek
         {
             Initialize();
 
-            // Seed initial funds for career mode (once, idempotent)
-            if (!fundsSeedChecked && Funding.Instance != null)
+            // Seed initial balances for career mode (once per session, idempotent)
+            if (!seedChecked)
             {
-                Ledger.SeedInitialFunds(Funding.Instance.Funds);
-                fundsSeedChecked = true;
+                if (Funding.Instance != null)
+                    Ledger.SeedInitialFunds(Funding.Instance.Funds);
+                if (ResearchAndDevelopment.Instance != null)
+                    Ledger.SeedInitialScience(ResearchAndDevelopment.Instance.Science);
+                if (Reputation.Instance != null)
+                    Ledger.SeedInitialReputation(Reputation.Instance.reputation);
+                seedChecked = true;
             }
 
             var actions = new List<GameAction>(Ledger.Actions);
@@ -173,7 +178,7 @@ namespace Parsek
         internal static void ResetForTesting()
         {
             initialized = false;
-            fundsSeedChecked = false;
+            seedChecked = false;
             scienceModule = null;
             milestonesModule = null;
             contractsModule = null;

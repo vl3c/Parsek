@@ -214,8 +214,10 @@ namespace Parsek
             {
                 var action = actions[i];
 
-                // FundsInitial is always kept — it's the seed, not an earning or spending
-                if (action.Type == GameActionType.FundsInitial)
+                // Seed actions are always kept — they're immutable initial balances, not earnings or spendings
+                if (action.Type == GameActionType.FundsInitial ||
+                    action.Type == GameActionType.ScienceInitial ||
+                    action.Type == GameActionType.ReputationInitial)
                 {
                     surviving.Add(action);
                     kept++;
@@ -340,6 +342,66 @@ namespace Parsek
             actions.Add(seed);
             ParsekLog.Info("Ledger",
                 $"Seeded initial funds: amount={initialFunds.ToString("R", CultureInfo.InvariantCulture)}, total={actions.Count}");
+        }
+
+        /// <summary>
+        /// Creates a ScienceInitial action if none exists in the current ledger.
+        /// Called once when Parsek first initializes on a save with existing science.
+        /// The seed is immutable — subsequent calls are no-ops.
+        /// </summary>
+        internal static void SeedInitialScience(float initialScience)
+        {
+            for (int i = 0; i < actions.Count; i++)
+            {
+                if (actions[i].Type == GameActionType.ScienceInitial)
+                {
+                    ParsekLog.Verbose("Ledger",
+                        $"SeedInitialScience: ScienceInitial already exists (amount={actions[i].InitialScience.ToString("R", CultureInfo.InvariantCulture)}), " +
+                        $"ignoring new seed amount={initialScience.ToString("R", CultureInfo.InvariantCulture)}");
+                    return;
+                }
+            }
+
+            var seed = new GameAction
+            {
+                UT = 0.0,
+                Type = GameActionType.ScienceInitial,
+                InitialScience = initialScience
+            };
+
+            actions.Add(seed);
+            ParsekLog.Info("Ledger",
+                $"Seeded initial science: amount={initialScience.ToString("R", CultureInfo.InvariantCulture)}, total={actions.Count}");
+        }
+
+        /// <summary>
+        /// Creates a ReputationInitial action if none exists in the current ledger.
+        /// Called once when Parsek first initializes on a save with existing reputation.
+        /// The seed is immutable — subsequent calls are no-ops.
+        /// </summary>
+        internal static void SeedInitialReputation(float initialReputation)
+        {
+            for (int i = 0; i < actions.Count; i++)
+            {
+                if (actions[i].Type == GameActionType.ReputationInitial)
+                {
+                    ParsekLog.Verbose("Ledger",
+                        $"SeedInitialReputation: ReputationInitial already exists (amount={actions[i].InitialReputation.ToString("R", CultureInfo.InvariantCulture)}), " +
+                        $"ignoring new seed amount={initialReputation.ToString("R", CultureInfo.InvariantCulture)}");
+                    return;
+                }
+            }
+
+            var seed = new GameAction
+            {
+                UT = 0.0,
+                Type = GameActionType.ReputationInitial,
+                InitialReputation = initialReputation
+            };
+
+            actions.Add(seed);
+            ParsekLog.Info("Ledger",
+                $"Seeded initial reputation: amount={initialReputation.ToString("R", CultureInfo.InvariantCulture)}, total={actions.Count}");
         }
 
         // ================================================================
