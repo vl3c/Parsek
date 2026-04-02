@@ -112,6 +112,9 @@ namespace Parsek
                 case GameStateEventType.ContractCancelled:
                     return ConvertContractCancelled(evt, recordingId);
 
+                case GameStateEventType.MilestoneAchieved:
+                    return ConvertMilestoneAchieved(evt, recordingId);
+
                 // Skipped event types — no GameAction equivalent
                 case GameStateEventType.FundsChanged:
                 case GameStateEventType.ScienceChanged:
@@ -402,6 +405,34 @@ namespace Parsek
                 ContractId = evt.key,
                 FundsPenalty = fundsPenalty,
                 RepPenalty = repPenalty
+            };
+        }
+
+        /// <summary>
+        /// MilestoneAchieved -> MilestoneAchievement (milestoneId=key, funds/rep from detail).
+        /// Funds and rep rewards may be 0 if not available from the ProgressNode.
+        /// </summary>
+        internal static GameAction ConvertMilestoneAchieved(GameStateEvent evt, string recordingId)
+        {
+            float fundsAwarded = 0f;
+            float repAwarded = 0f;
+
+            string fundsStr = ExtractDetail(evt.detail, "funds");
+            if (fundsStr != null)
+                float.TryParse(fundsStr, NumberStyles.Float, IC, out fundsAwarded);
+
+            string repStr = ExtractDetail(evt.detail, "rep");
+            if (repStr != null)
+                float.TryParse(repStr, NumberStyles.Float, IC, out repAwarded);
+
+            return new GameAction
+            {
+                UT = evt.ut,
+                Type = GameActionType.MilestoneAchievement,
+                RecordingId = recordingId,
+                MilestoneId = evt.key,
+                MilestoneFundsAwarded = fundsAwarded,
+                MilestoneRepAwarded = repAwarded
             };
         }
 

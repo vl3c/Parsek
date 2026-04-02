@@ -508,5 +508,69 @@ namespace Parsek.Tests
             Assert.Equal(10.0f, actions[0].SubjectMaxValue);
             Assert.Equal(24.0f, actions[1].SubjectMaxValue);
         }
+
+        // ================================================================
+        // MilestoneAchieved -> MilestoneAchievement
+        // ================================================================
+
+        [Fact]
+        public void ConvertEvent_MilestoneAchieved_ReturnsMilestoneAchievement()
+        {
+            var evt = MakeEvent(GameStateEventType.MilestoneAchieved, 2000.0,
+                key: "FirstOrbitKerbin", detail: "funds=5000;rep=10");
+            var action = GameStateEventConverter.ConvertEvent(evt, "rec1");
+
+            Assert.NotNull(action);
+            Assert.Equal(GameActionType.MilestoneAchievement, action.Type);
+            Assert.Equal("FirstOrbitKerbin", action.MilestoneId);
+            Assert.Equal(5000f, action.MilestoneFundsAwarded);
+            Assert.Equal(10f, action.MilestoneRepAwarded);
+            Assert.Equal(2000.0, action.UT);
+            Assert.Equal("rec1", action.RecordingId);
+        }
+
+        [Fact]
+        public void ConvertEvent_MilestoneAchieved_NoRewards_DefaultsToZero()
+        {
+            var evt = MakeEvent(GameStateEventType.MilestoneAchieved, 3000.0,
+                key: "ReachSpace", detail: "");
+            var action = GameStateEventConverter.ConvertEvent(evt, "rec2");
+
+            Assert.NotNull(action);
+            Assert.Equal(GameActionType.MilestoneAchievement, action.Type);
+            Assert.Equal("ReachSpace", action.MilestoneId);
+            Assert.Equal(0f, action.MilestoneFundsAwarded);
+            Assert.Equal(0f, action.MilestoneRepAwarded);
+        }
+
+        [Fact]
+        public void ConvertEvent_MilestoneAchieved_PartialRewards()
+        {
+            var evt = MakeEvent(GameStateEventType.MilestoneAchieved, 4000.0,
+                key: "FirstLaunch", detail: "funds=1000");
+            var action = GameStateEventConverter.ConvertEvent(evt, "rec3");
+
+            Assert.NotNull(action);
+            Assert.Equal(1000f, action.MilestoneFundsAwarded);
+            Assert.Equal(0f, action.MilestoneRepAwarded);
+        }
+
+        [Fact]
+        public void ConvertEvents_IncludesMilestoneAchieved()
+        {
+            var events = new List<GameStateEvent>
+            {
+                MakeEvent(GameStateEventType.MilestoneAchieved, 100.0,
+                    key: "FirstLaunch", detail: ""),
+                MakeEvent(GameStateEventType.TechResearched, 150.0,
+                    key: "basicRocketry", detail: "cost=5"),
+            };
+
+            var actions = GameStateEventConverter.ConvertEvents(events, "rec", 0.0, 200.0);
+
+            Assert.Equal(2, actions.Count);
+            Assert.Equal(GameActionType.MilestoneAchievement, actions[0].Type);
+            Assert.Equal(GameActionType.ScienceSpending, actions[1].Type);
+        }
     }
 }

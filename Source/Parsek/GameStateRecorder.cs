@@ -96,6 +96,9 @@ namespace Parsek
             // Science subjects (per-experiment tracking for duplication prevention)
             GameEvents.OnScienceRecieved.Add(OnScienceReceived);
 
+            // Progress milestones
+            GameEvents.OnProgressComplete.Add(OnProgressComplete);
+
             // Initialize resource tracking from current state
             SeedResourceState();
 
@@ -134,6 +137,9 @@ namespace Parsek
 
             // Science subjects
             GameEvents.OnScienceRecieved.Remove(OnScienceReceived);
+
+            // Progress milestones
+            GameEvents.OnProgressComplete.Remove(OnProgressComplete);
 
             ParsekLog.Info("GameStateRecorder", "GameStateRecorder unsubscribed");
         }
@@ -586,6 +592,65 @@ namespace Parsek
 
             ParsekLog.Info("GameStateRecorder",
                 $"Science subject captured: {subject.id} amount={amount:F1} total={subject.science:F1}");
+        }
+
+        #endregion
+
+        #region Progress Milestone Handlers
+
+        private void OnProgressComplete(ProgressNode node)
+        {
+            if (IsReplayingActions)
+            {
+                ParsekLog.Verbose("GameStateRecorder", "Suppressed MilestoneAchieved event during action replay");
+                return;
+            }
+            if (node == null)
+            {
+                ParsekLog.Verbose("GameStateRecorder", "OnProgressComplete: null node — skipped");
+                return;
+            }
+
+            string milestoneId = node.Id ?? "";
+            if (string.IsNullOrEmpty(milestoneId))
+            {
+                ParsekLog.Verbose("GameStateRecorder", "OnProgressComplete: empty node Id — skipped");
+                return;
+            }
+
+            // Funds and rep rewards are not directly available on the ProgressNode.
+            // They are applied separately by KSP's ProgressTracking system via
+            // Funding/Reputation callbacks. We capture 0 here; the MilestonesModule
+            // sets Effective flags correctly regardless.
+            var evt = new GameStateEvent
+            {
+                ut = Planetarium.GetUniversalTime(),
+                eventType = GameStateEventType.MilestoneAchieved,
+                key = milestoneId,
+                detail = ""
+            };
+            GameStateStore.AddEvent(evt);
+            ParsekLog.Info("GameStateRecorder", $"Game state: MilestoneAchieved '{milestoneId}'");
+
+            // Milestones can fire at KSC (e.g., facility-related) or in flight.
+            // Write directly to ledger when outside flight to avoid waiting for commit.
+            if (!IsFlightScene())
+                LedgerOrchestrator.OnKscSpending(evt);
+        }
+
+        /// <summary>
+        /// Pure: creates a MilestoneAchieved GameStateEvent from the given parameters.
+        /// Extracted for testability.
+        /// </summary>
+        internal static GameStateEvent CreateMilestoneEvent(string milestoneId, double ut)
+        {
+            return new GameStateEvent
+            {
+                ut = ut,
+                eventType = GameStateEventType.MilestoneAchieved,
+                key = milestoneId ?? "",
+                detail = ""
+            };
         }
 
         #endregion
