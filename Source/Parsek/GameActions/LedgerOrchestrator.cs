@@ -88,6 +88,10 @@ namespace Parsek
             var costActions = CreateVesselCostActions(recordingId, startUT, endUT);
             actions.AddRange(costActions);
 
+            // 3b. Generate KerbalAssignment actions from vessel crew data
+            var kerbalActions = CreateKerbalAssignmentActions(recordingId, startUT, endUT);
+            actions.AddRange(kerbalActions);
+
             // 4. Deduplicate: remove actions already in the ledger from KSC real-time writes.
             // KSC events (tech, facility, hire, milestone) written via OnKscSpending may overlap
             // with the recording's time range. Compare by type + UT + key to avoid double-adding.
@@ -101,7 +105,7 @@ namespace Parsek
             ParsekLog.Info(Tag,
                 $"Committed recording '{recordingId}': {actions.Count} actions added to ledger " +
                 $"(events={events.Count}, science={scienceActions.Count}, cost={costActions.Count}, " +
-                $"dedup={dedupRemoved}, startUT={startUT:F1}, endUT={endUT:F1})");
+                $"kerbals={kerbalActions.Count}, dedup={dedupRemoved}, startUT={startUT:F1}, endUT={endUT:F1})");
 
             // 6. Recalculate + patch
             RecalculateAndPatch();
@@ -252,6 +256,96 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Creates KerbalAssignment actions from the recording's vessel crew data.
+        /// Each crew member in the vessel snapshot becomes a KerbalAssignment action
+        /// recording their role, mission start/end UT, and end state.
+        /// This populates the ledger for future full KerbalsModule integration.
+        /// </summary>
+        internal static List<GameAction> CreateKerbalAssignmentActions(
+            string recordingId, double startUT, double endUT)
+        {
+            var result = new List<GameAction>();
+
+            var rec = FindRecordingById(recordingId);
+            if (rec == null) return result;
+
+            // Extract crew from vessel snapshot (same source KerbalsModule.Recalculate uses)
+            var crew = ExtractCrewFromRecording(rec);
+            if (crew == null || crew.Count == 0) return result;
+
+            for (int i = 0; i < crew.Count; i++)
+            {
+                var member = crew[i];
+                result.Add(new GameAction
+                {
+                    UT = startUT,
+                    Type = GameActionType.KerbalAssignment,
+                    RecordingId = recordingId,
+                    KerbalName = member.Name,
+                    KerbalRole = member.Role,
+                    StartUT = (float)startUT,
+                    EndUT = (float)endUT,
+                    KerbalEndStateField = member.EndState,
+                    Sequence = i + 1
+                });
+            }
+
+            if (result.Count > 0)
+            {
+                ParsekLog.Info(Tag,
+                    $"CreateKerbalAssignmentActions: {result.Count} crew members from '{recordingId}'");
+            }
+
+            return result;
+        }
+
+        /// <summary>
+        /// Holds extracted crew member info for KerbalAssignment action creation.
+        /// </summary>
+        internal struct CrewInfo
+        {
+            public string Name;
+            public string Role;
+            public KerbalEndState EndState;
+        }
+
+        /// <summary>
+        /// Extracts crew members from a recording's vessel snapshot data,
+        /// mirroring the crew extraction logic in KerbalsModule.Recalculate.
+        /// Uses GhostVisualSnapshot (recording-start state) as the primary source
+        /// for crew names (same as PopulateCrewEndStates), falls back to VesselSnapshot.
+        /// Roles come from KerbalsModule.FindTraitForKerbal (KSP roster lookup).
+        /// End states come from rec.CrewEndStates if populated.
+        /// </summary>
+        internal static List<CrewInfo> ExtractCrewFromRecording(Recording rec)
+        {
+            var result = new List<CrewInfo>();
+            if (rec == null) return result;
+
+            // Prefer GhostVisualSnapshot (recording-start crew), fall back to VesselSnapshot
+            var snapshot = rec.GhostVisualSnapshot ?? rec.VesselSnapshot;
+            var names = CrewReservationManager.ExtractCrewFromSnapshot(snapshot);
+            if (names.Count == 0) return result;
+
+            for (int i = 0; i < names.Count; i++)
+            {
+                string name = names[i];
+                KerbalEndState endState = KerbalEndState.Unknown;
+                if (rec.CrewEndStates != null)
+                    rec.CrewEndStates.TryGetValue(name, out endState);
+
+                result.Add(new CrewInfo
+                {
+                    Name = name,
+                    Role = KerbalsModule.FindTraitForKerbal(name),
+                    EndState = endState
+                });
+            }
+
+            return result;
+        }
+
+        /// <summary>
         /// Finds a committed recording by its ID. Returns null if not found.
         /// </summary>
         internal static Recording FindRecordingById(string recordingId)
@@ -292,6 +386,13 @@ namespace Parsek
 
             var actions = new List<GameAction>(Ledger.Actions);
             RecalculationEngine.Recalculate(actions);
+
+            // Bridge: run KerbalsModule's snapshot-based recalculation alongside the ledger walk.
+            // The kerbals system still operates on recording snapshots, not ledger actions.
+            // This ensures crew reservations are updated on every recalculate trigger
+            // (commit, rewind, warp exit, KSP load).
+            // TODO(Task 29): Convert to full IResourceModule when refactoring KerbalsModule.
+            KerbalsModule.RecalculateAndApply();
 
             KspStatePatcher.PatchAll(scienceModule, fundsModule, reputationModule,
                 milestonesModule, facilitiesModule);
