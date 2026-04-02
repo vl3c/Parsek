@@ -418,15 +418,19 @@ namespace Parsek
                 return;
             }
 
+            // SOI transition: update celestialBody BEFORE SetOrbit so that
+            // orbitDriver and orbit.referenceBody are consistent when
+            // updateFromParameters recalculates the orbit line (#189).
+            bool soiChanged = vessel.orbitDriver.celestialBody != body;
+            if (soiChanged)
+            {
+                vessel.orbitDriver.celestialBody = body;
+                ParsekLog.Info(Tag,
+                    string.Format(ic, "SOI change for {0} — new body={1}", logContext, body.name));
+            }
+
             // Direct element assignment via SetOrbit — bypasses the lossy
             // state-vector roundtrip in UpdateFromOrbitAtUT (#172).
-            // UpdateFromOrbitAtUT converts elements → pos/vel → re-derives elements,
-            // which introduces floating-point error (especially argumentOfPeriapsis
-            // for near-circular orbits due to catastrophic cancellation in the
-            // eccentricity vector computation). SetOrbit sets elements directly
-            // and calls Init(), matching exactly how the ghost's cached Orbit
-            // is constructed. Both Orbit objects now share identical internal state,
-            // so the MapNode icon position matches the ghost mesh position.
             vessel.orbitDriver.orbit.SetOrbit(
                 segment.inclination,
                 segment.eccentricity,
@@ -437,14 +441,19 @@ namespace Parsek
                 segment.epoch,
                 body);
 
-            if (vessel.orbitDriver.celestialBody != body)
-            {
-                vessel.orbitDriver.celestialBody = body;
-                ParsekLog.Info(Tag,
-                    string.Format(ic, "SOI change for {0} — new body={1}", logContext, body.name));
-            }
-
             vessel.orbitDriver.updateFromParameters();
+
+            // After SOI change, force the orbit renderer to recalculate for the new body.
+            // Without this, the orbit line stays clipped to the old body's SOI radius.
+            // DrawOrbit is protected, so toggle the renderer off/on to force a full rebuild.
+            if (soiChanged && vessel.orbitRenderer != null)
+            {
+                vessel.orbitRenderer.drawMode = OrbitRendererBase.DrawMode.REDRAW_AND_RECALCULATE;
+                vessel.orbitRenderer.enabled = false;
+                vessel.orbitRenderer.enabled = true;
+                ParsekLog.Verbose(Tag,
+                    string.Format(ic, "Forced orbit renderer redraw for {0} after SOI change", logContext));
+            }
 
             // Diagnostic logging: full element set + resulting vessel position (#172)
             Orbit drv = vessel.orbitDriver.orbit;
