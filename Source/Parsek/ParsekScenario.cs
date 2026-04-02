@@ -823,6 +823,7 @@ namespace Parsek
             // so the new scene's Funding/R&D/Reputation/Planetarium are initialized).
             // Setting UT before LoadScene does NOT work — scene transition overwrites it.
             resourceTickingSuspended = true;
+            RecordingStore.RewindUTAdjustmentPending = true;
             StartCoroutine(ApplyRewindResourceAdjustment());
             ParsekLog.Info("Rewind",
                 "OnLoad: resource + UT adjustment deferred (waiting for new scene singletons)");
@@ -1083,6 +1084,7 @@ namespace Parsek
             {
                 double prePlanetariumUT = Planetarium.GetUniversalTime();
                 Planetarium.SetUniversalTime(adjustedUT);
+                RecordingStore.RewindUTAdjustmentPending = false;
                 ParsekLog.Info("Rewind",
                     $"UT adjustment: {prePlanetariumUT.ToString("F1", ic)} → {adjustedUT.ToString("F1", ic)} " +
                     $"(post-set check: {Planetarium.GetUniversalTime().ToString("F1", ic)})");

@@ -405,7 +405,7 @@ namespace Parsek
                 && terminal.Value != TerminalState.Orbiting
                 && terminal.Value != TerminalState.Docked)
             {
-                ParsekLog.Verbose("Policy",
+                ParsekLog.VerboseRateLimited("Policy", $"skip-map-terminal-{evt.Index}",
                     $"Skipped ghost map for #{evt.Index} \"{evt.Trajectory.VesselName}\" — terminal={terminal.Value}");
                 return;
             }

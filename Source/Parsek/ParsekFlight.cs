@@ -5314,11 +5314,22 @@ namespace Parsek
             for (int i = FlightGlobals.Vessels.Count - 1; i >= 0; i--)
             {
                 var vessel = FlightGlobals.Vessels[i];
-                if (vessel.persistentId == activePid) continue;
-                if (GhostMapPresence.IsGhostMapVessel(vessel.persistentId)) continue;
+                if (vessel.persistentId == activePid)
+                {
+                    ParsekLog.Verbose("Flight",
+                        $"CleanupOrphanedSpawnedVessels: skipping active vessel '{vessel.vesselName}' pid={vessel.persistentId}");
+                    continue;
+                }
+                if (GhostMapPresence.IsGhostMapVessel(vessel.persistentId))
+                {
+                    ParsekLog.Verbose("Flight",
+                        $"CleanupOrphanedSpawnedVessels: skipping ghost map vessel pid={vessel.persistentId}");
+                    continue;
+                }
 
+                string resolvedName = Recording.ResolveLocalizedName(vessel.vesselName);
                 bool matchByPid = hasPids && pids.Contains(vessel.persistentId);
-                bool matchByName = hasNames && names.Contains(Recording.ResolveLocalizedName(vessel.vesselName));
+                bool matchByName = hasNames && names.Contains(resolvedName);
 
                 if (matchByPid || matchByName)
                 {
@@ -5329,6 +5340,12 @@ namespace Parsek
                     ShipConstruction.RecoverVesselFromFlight(
                         vessel.protoVessel, HighLogic.CurrentGame.flightState, true);
                     recovered++;
+                }
+                else
+                {
+                    ParsekLog.Verbose("Flight",
+                        $"CleanupOrphanedSpawnedVessels: no match for '{vessel.vesselName}' " +
+                        $"pid={vessel.persistentId} resolved='{resolvedName}'");
                 }
             }
 

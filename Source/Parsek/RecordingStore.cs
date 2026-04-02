@@ -25,6 +25,11 @@ namespace Parsek
         internal static bool IsRewinding;
         internal static double RewindUT;
         internal static double RewindAdjustedUT;
+
+        // True while the deferred UT adjustment coroutine hasn't run yet.
+        // KSC spawn must not use Planetarium.GetUniversalTime() while this is set —
+        // it still reflects the pre-rewind future UT until the coroutine fires.
+        internal static bool RewindUTAdjustmentPending;
         internal static BudgetSummary RewindReserved;
 
         // Baseline resource values from the rewind-target recording's PreLaunch snapshot.
@@ -1241,6 +1246,7 @@ namespace Parsek
             IsRewinding = false;
             RewindUT = 0;
             RewindAdjustedUT = 0;
+            RewindUTAdjustmentPending = false;
             RewindReserved = default(BudgetSummary);
             RewindBaselineFunds = 0;
             RewindBaselineScience = 0;

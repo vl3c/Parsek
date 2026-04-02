@@ -2149,6 +2149,12 @@ namespace Parsek
         /// </summary>
         internal static (bool needsSpawn, string reason) ShouldSpawnAtKscEnd(Recording rec)
         {
+            // During rewind, Planetarium UT is still the pre-rewind future value until
+            // the deferred coroutine fires. Block all spawns to prevent future vessels
+            // from being re-created before the clock is wound back.
+            if (RecordingStore.RewindUTAdjustmentPending)
+                return (false, "rewind UT adjustment pending — Planetarium UT not yet corrected");
+
             return ShouldSpawnAtKscEnd(rec, Planetarium.GetUniversalTime());
         }
 

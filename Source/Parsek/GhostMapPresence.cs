@@ -97,12 +97,12 @@ namespace Parsek
             bool hasOrbit = !string.IsNullOrEmpty(traj.TerminalOrbitBody)
                 && traj.TerminalOrbitSemiMajorAxis > 0;
 
-            ParsekLog.Verbose(Tag,
-                string.Format(ic,
-                    "HasOrbitData(IPlaybackTrajectory): body={0} sma={1} result={2}",
-                    traj.TerminalOrbitBody ?? "(null)",
-                    traj.TerminalOrbitSemiMajorAxis,
-                    hasOrbit));
+            if (hasOrbit)
+                ParsekLog.Verbose(Tag,
+                    string.Format(ic,
+                        "HasOrbitData(IPlaybackTrajectory): body={0} sma={1} result=True",
+                        traj.TerminalOrbitBody,
+                        traj.TerminalOrbitSemiMajorAxis));
 
             return hasOrbit;
         }

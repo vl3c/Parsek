@@ -2231,6 +2231,20 @@ Even with the position fix (#175), the EVA vessel snapshot captured at EVA start
 
 **Status:** Fixed
 
+## 185. Investigate spawning idle vessels earlier or trimming recording tail
+
+After an EVA, the vessel left behind is a static recording (ghost) right up to the moment the tree was committed, even though it stopped moving much earlier. Consider either:
+- Spawning the vessel as real when it enters its final resting state (no further events/movement), or
+- Trimming the end of the recording if nothing changes after the last meaningful event.
+
+**Status:** TODO — investigate later
+
+## 186. Initial launch recording shows T+ countdown instead of "past" status, missing Phase column
+
+In the Parsek recordings window, the initial launch recording (parent of a tree) shows "T+5m 23s" in the Status column while child recordings show "Landed". It may be more appropriate to show "past" or the terminal state. Additionally, these tree recordings have no Phase column value — investigate whether phase should be populated.
+
+**Status:** TODO — investigate later
+
 # In-Game Tests
 
 - [x] Vessels propagate naturally along orbits after FF (no position freezing)
