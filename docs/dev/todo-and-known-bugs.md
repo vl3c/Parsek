@@ -274,6 +274,12 @@ KerbalsModule currently operates as a bridge outside the RecalculationEngine —
 
 **Priority:** Low — architectural cleanup, bridge pattern is functionally correct
 
+### T43. Mod compatibility testing (CustomBarnKit, Strategia, Contract Configurator)
+
+Test game actions system with popular mods: CustomBarnKit (non-standard facility tiers may break level conversion formula), Strategia (different strategy IDs/transform mechanics), Contract Configurator (contract snapshot round-trip across CC versions). Requires KSP runtime with mods installed. Investigation notes in `docs/dev/mod-compatibility-notes.md`.
+
+**Priority:** Low — v1 targets stock only, mod compat is best-effort
+
 ---
 
 # Known Bugs
