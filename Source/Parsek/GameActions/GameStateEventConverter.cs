@@ -132,7 +132,7 @@ namespace Parsek
 
         /// <summary>
         /// Converts a list of PendingScienceSubjects into ScienceEarning GameActions.
-        /// Each subject becomes a minimal ScienceEarning action with subjectId and scienceAwarded.
+        /// Each subject becomes a ScienceEarning action with subjectId, scienceAwarded, and subjectMaxValue.
         /// </summary>
         /// <param name="subjects">Science subjects to convert.</param>
         /// <param name="recordingId">Recording that produced these subjects.</param>
@@ -177,6 +177,7 @@ namespace Parsek
                     RecordingId = recordingId,
                     SubjectId = subj.subjectId,
                     ScienceAwarded = subj.science,
+                    SubjectMaxValue = subj.subjectMaxValue,
                     Sequence = sequence++
                 });
             }

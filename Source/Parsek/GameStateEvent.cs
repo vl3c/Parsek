@@ -298,5 +298,6 @@ namespace Parsek
     {
         public string subjectId;
         public float science;
+        public float subjectMaxValue;
     }
 }

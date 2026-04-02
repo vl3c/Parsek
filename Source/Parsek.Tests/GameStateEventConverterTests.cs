@@ -492,5 +492,21 @@ namespace Parsek.Tests
             Assert.Equal(1, actions[0].Sequence);
             Assert.Equal(2, actions[1].Sequence);
         }
+
+        [Fact]
+        public void ConvertScienceSubjects_PropagatesSubjectMaxValue()
+        {
+            var subjects = new List<PendingScienceSubject>
+            {
+                new PendingScienceSubject { subjectId = "crewReport@KerbinSrfLanded", science = 5.0f, subjectMaxValue = 10.0f },
+                new PendingScienceSubject { subjectId = "evaReport@MunSrfLanded", science = 8.0f, subjectMaxValue = 24.0f },
+            };
+
+            var actions = GameStateEventConverter.ConvertScienceSubjects(subjects, "rec", 1000.0);
+
+            Assert.Equal(2, actions.Count);
+            Assert.Equal(10.0f, actions[0].SubjectMaxValue);
+            Assert.Equal(24.0f, actions[1].SubjectMaxValue);
+        }
     }
 }

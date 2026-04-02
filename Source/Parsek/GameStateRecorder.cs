@@ -561,7 +561,8 @@ namespace Parsek
             PendingScienceSubjects.Add(new PendingScienceSubject
             {
                 subjectId = subject.id,
-                science = subject.science
+                science = subject.science,
+                subjectMaxValue = subject.scienceCap
             });
 
             ParsekLog.Info("GameStateRecorder",
