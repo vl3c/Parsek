@@ -20,60 +20,27 @@ namespace Parsek.Patches
     /// internal vessel list rebuilding when asteroids are spawned/destroyed, because
     /// buildVesselsList assumes certain vessel state fields are always populated.
     /// </summary>
+    /// <summary>
+    /// Suppresses NullReferenceException in SpaceTracking.buildVesselsList caused by
+    /// ghost ProtoVessels. The Finalizer returns null for the exception, which tells
+    /// Harmony to swallow it completely (the original method's caller never sees it).
+    /// Unlike the previous approach of hiding ghosts from FlightGlobals, this allows
+    /// the ghost to remain in the vessel list so its sidebar widget and map node are
+    /// created. The NRE typically occurs on a single ghost vessel iteration but the
+    /// method continues processing remaining vessels (KSP uses try/catch internally
+    /// for individual widget creation).
+    /// </summary>
     [HarmonyPatch(typeof(SpaceTracking), "buildVesselsList")]
     internal static class GhostTrackingBuildVesselsListPatch
     {
-        private static System.Collections.Generic.List<Vessel> hiddenGhosts;
-
-        /// <summary>
-        /// Temporarily remove ghost vessels from FlightGlobals.Vessels before
-        /// buildVesselsList runs. Ghost ProtoVessels lack internal state fields
-        /// that buildVesselsList assumes exist, causing NRE that corrupts the
-        /// tracking station UI (including the exit button).
-        /// </summary>
-        static void Prefix()
+        static Exception Finalizer(Exception __exception)
         {
-            hiddenGhosts = new System.Collections.Generic.List<Vessel>();
-            if (FlightGlobals.Vessels == null) return;
-            try
+            if (__exception != null)
             {
-                for (int i = FlightGlobals.Vessels.Count - 1; i >= 0; i--)
-                {
-                    var v = FlightGlobals.Vessels[i];
-                    if (v != null && GhostMapPresence.IsGhostMapVessel(v.persistentId))
-                    {
-                        hiddenGhosts.Add(v);
-                        FlightGlobals.Vessels.RemoveAt(i);
-                    }
-                }
-                if (hiddenGhosts.Count > 0)
-                    ParsekLog.Verbose("GhostMap",
-                        $"buildVesselsList: temporarily hid {hiddenGhosts.Count} ghost vessel(s)");
+                ParsekLog.VerboseRateLimited("GhostMap", "buildVesselsListNRE",
+                    $"Suppressed SpaceTracking.buildVesselsList exception: {__exception.GetType().Name}");
             }
-            catch (Exception ex)
-            {
-                // Rollback: restore any ghosts already removed
-                for (int i = 0; i < hiddenGhosts.Count; i++)
-                    FlightGlobals.Vessels.Add(hiddenGhosts[i]);
-                hiddenGhosts.Clear();
-                ParsekLog.Warn("GhostMap",
-                    $"buildVesselsList Prefix failed, rolled back: {ex.Message}");
-            }
-        }
-
-        /// <summary>
-        /// Re-add ghost vessels after buildVesselsList completes (whether it succeeded or threw).
-        /// </summary>
-        static void Finalizer()
-        {
-            if (hiddenGhosts != null && hiddenGhosts.Count > 0)
-            {
-                for (int i = 0; i < hiddenGhosts.Count; i++)
-                    FlightGlobals.Vessels.Add(hiddenGhosts[i]);
-                ParsekLog.Verbose("GhostMap",
-                    $"buildVesselsList: restored {hiddenGhosts.Count} ghost vessel(s)");
-            }
-            hiddenGhosts = null;
+            return null; // swallow — return null tells Harmony to suppress the exception
         }
     }
 
