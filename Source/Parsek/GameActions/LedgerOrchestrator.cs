@@ -599,5 +599,18 @@ namespace Parsek
         internal static ContractsModule Contracts => contractsModule;
         internal static StrategiesModule Strategies => strategiesModule;
         internal static bool IsInitialized => initialized;
+
+        /// <summary>
+        /// Notifies the ledger orchestrator about each recording in a committed tree.
+        /// Calls OnRecordingCommitted for each recording in the tree.
+        /// </summary>
+        internal static void NotifyLedgerTreeCommitted(RecordingTree tree)
+        {
+            if (tree == null) return;
+            foreach (var rec in tree.Recordings.Values)
+            {
+                OnRecordingCommitted(rec.RecordingId, rec.StartUT, rec.EndUT);
+            }
+        }
     }
 }

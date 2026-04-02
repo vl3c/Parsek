@@ -1243,7 +1243,7 @@ namespace Parsek
                 ParsekLog.Info("Flight", "ShowPostDestructionTreeMergeDialog: auto-merge enabled — committing tree");
                 var treeToCommit = RecordingStore.PendingTree;
                 RecordingStore.CommitPendingTree();
-                NotifyLedgerTreeCommitted(treeToCommit);
+                LedgerOrchestrator.NotifyLedgerTreeCommitted(treeToCommit);
                 KerbalsModule.RecalculateAndApply();
                 MergeDialog.ReplayFlightResultsIfPending();
             }
@@ -5315,8 +5315,6 @@ namespace Parsek
                         leaf.VesselSpawned = true;
                         leaf.SpawnedVesselPersistentId = spawnedPid;
                         leaf.LastAppliedResourceIndex = leaf.Points.Count - 1;
-                        // DISABLED: replaced by LedgerOrchestrator
-                        // ResourceBudget.Invalidate();
                         ParsekLog.Info("Flight", $"SpawnTreeLeaves: spawned leaf '{leaf.VesselName}' pid={spawnedPid}");
                     }
                     else
@@ -6377,8 +6375,6 @@ namespace Parsek
                 }
 
                 rec.LastAppliedResourceIndex = targetIndex;
-                // DISABLED: replaced by LedgerOrchestrator
-                // ResourceBudget.Invalidate();
 
                 // Log summary when all resource deltas have been applied
                 if (targetIndex == points.Count - 1 && startIdx < targetIndex)
@@ -6485,8 +6481,6 @@ namespace Parsek
             }
 
             tree.ResourcesApplied = true;
-            // DISABLED: replaced by LedgerOrchestrator
-            // ResourceBudget.Invalidate();
             Log($"Tree resource lump sum applied for '{tree.TreeName}'");
         }
 
@@ -8277,18 +8271,6 @@ namespace Parsek
             {
                 Log($"Showing merge dialog for {pending.VesselName} ({pending.Points.Count} points)");
                 MergeDialog.Show(pending);
-            }
-        }
-
-        /// <summary>
-        /// Notifies the ledger orchestrator about each recording in a committed tree.
-        /// </summary>
-        static void NotifyLedgerTreeCommitted(RecordingTree tree)
-        {
-            if (tree == null) return;
-            foreach (var rec in tree.Recordings.Values)
-            {
-                LedgerOrchestrator.OnRecordingCommitted(rec.RecordingId, rec.StartUT, rec.EndUT);
             }
         }
 

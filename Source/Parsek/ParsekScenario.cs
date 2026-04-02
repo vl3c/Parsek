@@ -46,7 +46,7 @@ namespace Parsek
                     AutoCommitTreeGhostOnly(RecordingStore.PendingTree);
                     var treeToCommit = RecordingStore.PendingTree;
                     RecordingStore.CommitPendingTree();
-                    NotifyLedgerTreeCommitted(treeToCommit);
+                    LedgerOrchestrator.NotifyLedgerTreeCommitted(treeToCommit);
                     KerbalsModule.RecalculateAndApply();
                     ParsekLog.Warn("Scenario",
                         "Safety net: committed pending tree on save outside Flight");
@@ -605,7 +605,7 @@ namespace Parsek
                                 AutoCommitTreeGhostOnly(RecordingStore.PendingTree);
                                 var treeToCommit = RecordingStore.PendingTree;
                                 RecordingStore.CommitPendingTree();
-                                NotifyLedgerTreeCommitted(treeToCommit);
+                                LedgerOrchestrator.NotifyLedgerTreeCommitted(treeToCommit);
                                 ScreenMessages.PostScreenMessage("[Parsek] Tree recording committed to timeline", 5f);
                             }
                         }
@@ -741,7 +741,7 @@ namespace Parsek
                             rec.VesselSnapshot = null;
                         }
                         RecordingStore.CommitPendingTree();
-                        NotifyLedgerTreeCommitted(pt);
+                        LedgerOrchestrator.NotifyLedgerTreeCommitted(pt);
                         ScenarioLog($"[Parsek Scenario] Auto-committed pending tree outside Flight " +
                             $"(scene: {HighLogic.LoadedScene})");
                     }
@@ -1925,18 +1925,6 @@ namespace Parsek
         }
 
         #region Vessel Lifecycle Events
-
-        /// <summary>
-        /// Notifies the ledger orchestrator about each recording in a committed tree.
-        /// </summary>
-        private static void NotifyLedgerTreeCommitted(RecordingTree tree)
-        {
-            if (tree == null) return;
-            foreach (var rec in tree.Recordings.Values)
-            {
-                LedgerOrchestrator.OnRecordingCommitted(rec.RecordingId, rec.StartUT, rec.EndUT);
-            }
-        }
 
         /// <summary>
         /// Prepares a standalone pending recording for ghost-only commit (no vessel spawn).

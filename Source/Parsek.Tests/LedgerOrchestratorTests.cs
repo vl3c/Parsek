@@ -403,6 +403,200 @@ namespace Parsek.Tests
         }
 
         // ================================================================
+        // CreateKerbalAssignmentActions
+        // ================================================================
+
+        [Fact]
+        public void CreateKerbalAssignmentActions_RecordingNotFound_ReturnsEmpty()
+        {
+            RecordingStore.ResetForTesting();
+
+            var actions = LedgerOrchestrator.CreateKerbalAssignmentActions("nonexistent", 100.0, 200.0);
+
+            Assert.Empty(actions);
+
+            RecordingStore.ResetForTesting();
+        }
+
+        [Fact]
+        public void CreateKerbalAssignmentActions_NullId_ReturnsEmpty()
+        {
+            var actions = LedgerOrchestrator.CreateKerbalAssignmentActions(null, 100.0, 200.0);
+
+            Assert.Empty(actions);
+        }
+
+        [Fact]
+        public void CreateKerbalAssignmentActions_NoCrew_ReturnsEmpty()
+        {
+            var rec = new Recording
+            {
+                RecordingId = "rec-no-crew",
+                VesselName = "NoCrew Ship"
+            };
+            // No snapshot -> no crew
+            RecordingStore.ResetForTesting();
+            RecordingStore.AddCommittedForTesting(rec);
+
+            var actions = LedgerOrchestrator.CreateKerbalAssignmentActions("rec-no-crew", 100.0, 200.0);
+
+            Assert.Empty(actions);
+
+            RecordingStore.ResetForTesting();
+        }
+
+        [Fact]
+        public void CreateKerbalAssignmentActions_WithCrew_ProducesActions()
+        {
+            var snapshot = new ConfigNode("VESSEL");
+            var part = new ConfigNode("PART");
+            part.AddValue("crew", "Jeb Kerman");
+            part.AddValue("crew", "Bill Kerman");
+            snapshot.AddNode(part);
+
+            var rec = new Recording
+            {
+                RecordingId = "rec-crew-test",
+                VesselName = "Crew Ship",
+                GhostVisualSnapshot = snapshot
+            };
+            rec.CrewEndStates = new Dictionary<string, KerbalEndState>
+            {
+                { "Jeb Kerman", KerbalEndState.Recovered },
+                { "Bill Kerman", KerbalEndState.Aboard }
+            };
+            RecordingStore.ResetForTesting();
+            RecordingStore.AddCommittedForTesting(rec);
+
+            var actions = LedgerOrchestrator.CreateKerbalAssignmentActions("rec-crew-test", 100.0, 500.0);
+
+            Assert.Equal(2, actions.Count);
+
+            Assert.Equal(GameActionType.KerbalAssignment, actions[0].Type);
+            Assert.Equal("Jeb Kerman", actions[0].KerbalName);
+            Assert.Equal("rec-crew-test", actions[0].RecordingId);
+            Assert.Equal(100.0, actions[0].UT);
+            Assert.Equal(100f, actions[0].StartUT);
+            Assert.Equal(500f, actions[0].EndUT);
+            Assert.Equal(KerbalEndState.Recovered, actions[0].KerbalEndStateField);
+            Assert.Equal(1, actions[0].Sequence);
+
+            Assert.Equal("Bill Kerman", actions[1].KerbalName);
+            Assert.Equal(KerbalEndState.Aboard, actions[1].KerbalEndStateField);
+            Assert.Equal(2, actions[1].Sequence);
+
+            Assert.Contains(logLines, l =>
+                l.Contains("[LedgerOrchestrator]") && l.Contains("2 crew members"));
+
+            RecordingStore.ResetForTesting();
+        }
+
+        [Fact]
+        public void CreateKerbalAssignmentActions_NoCrewEndStates_DefaultsToUnknown()
+        {
+            var snapshot = new ConfigNode("VESSEL");
+            var part = new ConfigNode("PART");
+            part.AddValue("crew", "Val Kerman");
+            snapshot.AddNode(part);
+
+            var rec = new Recording
+            {
+                RecordingId = "rec-no-endstates",
+                VesselName = "Unknown State Ship",
+                GhostVisualSnapshot = snapshot
+                // CrewEndStates intentionally null
+            };
+            RecordingStore.ResetForTesting();
+            RecordingStore.AddCommittedForTesting(rec);
+
+            var actions = LedgerOrchestrator.CreateKerbalAssignmentActions("rec-no-endstates", 50.0, 150.0);
+
+            Assert.Single(actions);
+            Assert.Equal("Val Kerman", actions[0].KerbalName);
+            Assert.Equal(KerbalEndState.Unknown, actions[0].KerbalEndStateField);
+
+            RecordingStore.ResetForTesting();
+        }
+
+        [Fact]
+        public void CreateKerbalAssignmentActions_FallsBackToVesselSnapshot()
+        {
+            // No GhostVisualSnapshot, but VesselSnapshot has crew
+            var snapshot = new ConfigNode("VESSEL");
+            var part = new ConfigNode("PART");
+            part.AddValue("crew", "Bob Kerman");
+            snapshot.AddNode(part);
+
+            var rec = new Recording
+            {
+                RecordingId = "rec-fallback",
+                VesselName = "Fallback Ship",
+                VesselSnapshot = snapshot
+                // GhostVisualSnapshot intentionally null
+            };
+            RecordingStore.ResetForTesting();
+            RecordingStore.AddCommittedForTesting(rec);
+
+            var actions = LedgerOrchestrator.CreateKerbalAssignmentActions("rec-fallback", 10.0, 90.0);
+
+            Assert.Single(actions);
+            Assert.Equal("Bob Kerman", actions[0].KerbalName);
+
+            RecordingStore.ResetForTesting();
+        }
+
+        // ================================================================
+        // ExtractCrewFromRecording
+        // ================================================================
+
+        [Fact]
+        public void ExtractCrewFromRecording_NullRecording_ReturnsEmpty()
+        {
+            var result = LedgerOrchestrator.ExtractCrewFromRecording(null);
+
+            Assert.Empty(result);
+        }
+
+        [Fact]
+        public void ExtractCrewFromRecording_NoSnapshot_ReturnsEmpty()
+        {
+            var rec = new Recording { RecordingId = "rec-empty" };
+
+            var result = LedgerOrchestrator.ExtractCrewFromRecording(rec);
+
+            Assert.Empty(result);
+        }
+
+        [Fact]
+        public void ExtractCrewFromRecording_WithCrewEndStates_MapsCorrectly()
+        {
+            var snapshot = new ConfigNode("VESSEL");
+            var part = new ConfigNode("PART");
+            part.AddValue("crew", "Jeb Kerman");
+            part.AddValue("crew", "Bill Kerman");
+            snapshot.AddNode(part);
+
+            var rec = new Recording
+            {
+                RecordingId = "rec-extract",
+                GhostVisualSnapshot = snapshot
+            };
+            rec.CrewEndStates = new Dictionary<string, KerbalEndState>
+            {
+                { "Jeb Kerman", KerbalEndState.Dead },
+                { "Bill Kerman", KerbalEndState.Recovered }
+            };
+
+            var result = LedgerOrchestrator.ExtractCrewFromRecording(rec);
+
+            Assert.Equal(2, result.Count);
+            Assert.Equal("Jeb Kerman", result[0].Name);
+            Assert.Equal(KerbalEndState.Dead, result[0].EndState);
+            Assert.Equal("Bill Kerman", result[1].Name);
+            Assert.Equal(KerbalEndState.Recovered, result[1].EndState);
+        }
+
+        // ================================================================
         // FindRecordingById
         // ================================================================
 

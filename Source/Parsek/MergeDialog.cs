@@ -295,18 +295,6 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Notifies the ledger orchestrator about each recording in a committed tree.
-        /// </summary>
-        static void NotifyLedgerTreeCommitted(RecordingTree tree)
-        {
-            if (tree == null) return;
-            foreach (var rec in tree.Recordings.Values)
-            {
-                LedgerOrchestrator.OnRecordingCommitted(rec.RecordingId, rec.StartUT, rec.EndUT);
-            }
-        }
-
-        /// <summary>
         /// Unreserves crew and nulls VesselSnapshot on siblings without granting recovery funds.
         /// Used by the Merge-to-Timeline path (ghost-only, no vessel persistence).
         /// </summary>
@@ -429,7 +417,7 @@ namespace Parsek
                     if (av != null && av.persistentId != 0)
                         MarkForceSpawnOnTreeRecordings(tree, av.persistentId);
                     RecordingStore.CommitPendingTree();
-                    NotifyLedgerTreeCommitted(tree);
+                    LedgerOrchestrator.NotifyLedgerTreeCommitted(tree);
                     KerbalsModule.RecalculateAndApply();
                     CrewReservationManager.SwapReservedCrewInFlight();
                     ClearPendingFlag();
@@ -849,7 +837,7 @@ namespace Parsek
                         MarkForceSpawnOnTreeRecordings(capturedTree, av.persistentId);
                     ApplyVesselDecisions(capturedTree, capturedDecisions);
                     RecordingStore.CommitPendingTree();
-                    NotifyLedgerTreeCommitted(capturedTree);
+                    LedgerOrchestrator.NotifyLedgerTreeCommitted(capturedTree);
                     KerbalsModule.RecalculateAndApply();
                     CrewReservationManager.SwapReservedCrewInFlight();
                     ClearPendingFlag();
