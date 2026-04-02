@@ -3967,15 +3967,22 @@ namespace Parsek
 
         public void DrawMapMarkers()
         {
-            Camera cam = PlanetariumCamera.Camera;
-            if (cam == null) return;
+            // Resolve camera for current view; bail if unavailable
+            if (MapView.MapIsEnabled)
+            {
+                if (PlanetariumCamera.Camera == null) return;
+            }
+            else
+            {
+                if (FlightCamera.fetch == null || FlightCamera.fetch.mainCamera == null) return;
+            }
 
             EnsureMapMarkerResources();
 
             // Manual preview ghost
             if (flight.IsPlaying && flight.PreviewGhost != null)
             {
-                DrawMapMarkerAt(cam, flight.PreviewGhost.transform.position, "Preview", Color.green);
+                DrawMapMarkerAt(flight.PreviewGhost.transform.position, "Preview", Color.green);
             }
 
             // Timeline ghosts — skip if a ghost map ProtoVessel exists for this index
@@ -4014,7 +4021,7 @@ namespace Parsek
                         continue; // not the tip — skip duplicate
                 }
                 string ghostName = kvp.Key < committed.Count ? committed[kvp.Key].VesselName : "Ghost";
-                DrawMapMarkerAt(cam, kvp.Value.transform.position, ghostName, ghostColor);
+                DrawMapMarkerAt(kvp.Value.transform.position, ghostName, ghostColor);
             }
         }
 
@@ -4036,10 +4043,18 @@ namespace Parsek
                 UnityEngine.Object.Destroy(mapMarkerTexture);
         }
 
-        private void DrawMapMarkerAt(Camera cam, Vector3 worldPos, string label, Color color)
+        private void DrawMapMarkerAt(Vector3 worldPos, string label, Color color)
         {
-            Vector3d scaledPos = ScaledSpace.LocalToScaledSpace(worldPos);
-            Vector3 screenPos = cam.WorldToScreenPoint(scaledPos);
+            Vector3 screenPos;
+            if (MapView.MapIsEnabled)
+            {
+                Vector3d scaledPos = ScaledSpace.LocalToScaledSpace(worldPos);
+                screenPos = PlanetariumCamera.Camera.WorldToScreenPoint(scaledPos);
+            }
+            else
+            {
+                screenPos = FlightCamera.fetch.mainCamera.WorldToScreenPoint(worldPos);
+            }
 
             // Behind camera
             if (screenPos.z < 0) return;
