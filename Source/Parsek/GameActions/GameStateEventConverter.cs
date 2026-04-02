@@ -40,6 +40,7 @@ namespace Parsek
             int skipped = 0;
             int outOfRange = 0;
             int converted = 0;
+            int sequence = 1;
 
             for (int i = 0; i < events.Count; i++)
             {
@@ -54,6 +55,7 @@ namespace Parsek
                 var action = ConvertEvent(evt, recordingId);
                 if (action != null)
                 {
+                    action.Sequence = sequence++;
                     result.Add(action);
                     converted++;
                 }
@@ -147,6 +149,8 @@ namespace Parsek
                 return result;
             }
 
+            int sequence = 1;
+
             for (int i = 0; i < subjects.Count; i++)
             {
                 var subj = subjects[i];
@@ -172,7 +176,8 @@ namespace Parsek
                     Type = GameActionType.ScienceEarning,
                     RecordingId = recordingId,
                     SubjectId = subj.subjectId,
-                    ScienceAwarded = subj.science
+                    ScienceAwarded = subj.science,
+                    Sequence = sequence++
                 });
             }
 

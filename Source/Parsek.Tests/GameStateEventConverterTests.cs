@@ -400,5 +400,97 @@ namespace Parsek.Tests
 
             Assert.Equal(90f, action.Cost);
         }
+
+        // ================================================================
+        // Sequence number assignment
+        // ================================================================
+
+        [Fact]
+        public void ConvertEvents_AssignsIncrementingSequenceNumbers()
+        {
+            var events = new List<GameStateEvent>
+            {
+                MakeEvent(GameStateEventType.TechResearched, 100.0, key: "tech1", detail: "cost=5"),
+                MakeEvent(GameStateEventType.TechResearched, 100.0, key: "tech2", detail: "cost=10"),
+                MakeEvent(GameStateEventType.CrewHired, 100.0, key: "Jeb", detail: "trait=Pilot"),
+            };
+
+            var actions = GameStateEventConverter.ConvertEvents(events, "rec", 0.0, 200.0);
+
+            Assert.Equal(3, actions.Count);
+            Assert.Equal(1, actions[0].Sequence);
+            Assert.Equal(2, actions[1].Sequence);
+            Assert.Equal(3, actions[2].Sequence);
+        }
+
+        [Fact]
+        public void ConvertEvents_SequenceSkipsNonConvertibleEvents()
+        {
+            var events = new List<GameStateEvent>
+            {
+                MakeEvent(GameStateEventType.TechResearched, 100.0, key: "tech1", detail: "cost=5"),
+                MakeEvent(GameStateEventType.FundsChanged, 100.0, key: "None"),
+                MakeEvent(GameStateEventType.TechResearched, 100.0, key: "tech2", detail: "cost=10"),
+            };
+
+            var actions = GameStateEventConverter.ConvertEvents(events, "rec", 0.0, 200.0);
+
+            Assert.Equal(2, actions.Count);
+            Assert.Equal(1, actions[0].Sequence);
+            Assert.Equal(2, actions[1].Sequence);
+        }
+
+        [Fact]
+        public void ConvertEvents_SequenceSkipsOutOfRangeEvents()
+        {
+            var events = new List<GameStateEvent>
+            {
+                MakeEvent(GameStateEventType.TechResearched, 50.0, key: "early", detail: "cost=5"),
+                MakeEvent(GameStateEventType.TechResearched, 100.0, key: "first", detail: "cost=10"),
+                MakeEvent(GameStateEventType.TechResearched, 150.0, key: "second", detail: "cost=15"),
+            };
+
+            var actions = GameStateEventConverter.ConvertEvents(events, "rec", 100.0, 200.0);
+
+            Assert.Equal(2, actions.Count);
+            Assert.Equal(1, actions[0].Sequence);
+            Assert.Equal(2, actions[1].Sequence);
+        }
+
+        [Fact]
+        public void ConvertScienceSubjects_AssignsIncrementingSequenceNumbers()
+        {
+            var subjects = new List<PendingScienceSubject>
+            {
+                new PendingScienceSubject { subjectId = "crewReport@KerbinSrfLanded", science = 5.0f },
+                new PendingScienceSubject { subjectId = "evaReport@MunSrfLanded", science = 8.0f },
+                new PendingScienceSubject { subjectId = "temperatureScan@KerbinFlyingLow", science = 3.0f },
+            };
+
+            var actions = GameStateEventConverter.ConvertScienceSubjects(subjects, "rec", 1000.0);
+
+            Assert.Equal(3, actions.Count);
+            Assert.Equal(1, actions[0].Sequence);
+            Assert.Equal(2, actions[1].Sequence);
+            Assert.Equal(3, actions[2].Sequence);
+        }
+
+        [Fact]
+        public void ConvertScienceSubjects_SequenceSkipsInvalidSubjects()
+        {
+            var subjects = new List<PendingScienceSubject>
+            {
+                new PendingScienceSubject { subjectId = "valid1@subject", science = 5.0f },
+                new PendingScienceSubject { subjectId = "", science = 3.0f },
+                new PendingScienceSubject { subjectId = "zero@subject", science = 0.0f },
+                new PendingScienceSubject { subjectId = "valid2@subject", science = 8.0f },
+            };
+
+            var actions = GameStateEventConverter.ConvertScienceSubjects(subjects, "rec", 1000.0);
+
+            Assert.Equal(2, actions.Count);
+            Assert.Equal(1, actions[0].Sequence);
+            Assert.Equal(2, actions[1].Sequence);
+        }
     }
 }
