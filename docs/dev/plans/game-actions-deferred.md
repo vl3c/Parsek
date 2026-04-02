@@ -157,6 +157,8 @@ Items identified during design that are out of scope for the initial implementat
 **Revisit when:** Implementing earning-side capture (remaining Phase 6 work).
 **Status:** Open
 
+**Note (Phase 8):** Milestone fund/rep rewards also lack explicit capture. `OnProgressComplete` fires post-reward with no pre-event snapshot, so `MilestoneAchieved` events record 0 for funds/rep. The rewards flow through `FundsChanged`/`ReputationChanged` callbacks instead, which are aggregate deltas. Proper milestone reward capture requires either a Harmony prefix on the reward application method or a snapshot-delta approach around `OnProgressComplete`.
+
 ---
 
 ### D18. Vessel Recovery Funds Capture
