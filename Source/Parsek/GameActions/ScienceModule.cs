@@ -84,7 +84,8 @@ namespace Parsek
 
         /// <summary>
         /// Processes a single game action during the recalculation walk.
-        /// Handles ScienceEarning and ScienceSpending; ignores all other action types.
+        /// Handles ScienceEarning, ScienceSpending, ContractComplete (science reward),
+        /// and ScienceInitial (mid-career seed); ignores all other action types.
         /// </summary>
         public void ProcessAction(GameAction action)
         {
