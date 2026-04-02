@@ -285,13 +285,32 @@ namespace Parsek.Patches
     /// Fixes: KSP's default popup appearing alongside Parsek's ghost menu when
     /// the ghost is in a different SOI from the camera's reference body (#192).
     /// </summary>
+    /// <summary>
+    /// Prevents ghost vessels from appearing in OrbitTargeter's target popup.
+    /// OrbitTargeter.TargetCastNodes is a private method that returns OrbitDriver
+    /// and has an out OrbitCastHit parameter. We null the return for ghost vessels
+    /// so OrbitTargeter never creates the default KSP target popup for them.
+    /// </summary>
     [HarmonyPatch]
     internal static class GhostTargetCastNodesPatch
     {
         static MethodBase TargetMethod()
         {
-            return typeof(OrbitTargeter).GetMethod("TargetCastNodes",
+            // TargetCastNodes has signature: OrbitDriver TargetCastNodes(out OrbitCastHit)
+            // Must search all methods since GetMethod with out params is fragile
+            var methods = typeof(OrbitTargeter).GetMethods(
                 BindingFlags.NonPublic | BindingFlags.Instance);
+            for (int i = 0; i < methods.Length; i++)
+            {
+                if (methods[i].Name == "TargetCastNodes")
+                {
+                    ParsekLog.Info("GhostMap",
+                        $"GhostTargetCastNodesPatch: found TargetCastNodes with {methods[i].GetParameters().Length} params");
+                    return methods[i];
+                }
+            }
+            ParsekLog.Warn("GhostMap", "GhostTargetCastNodesPatch: TargetCastNodes not found — patch will not apply");
+            return null;
         }
 
         static void Postfix(ref OrbitDriver __result)

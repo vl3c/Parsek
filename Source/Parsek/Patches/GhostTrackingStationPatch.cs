@@ -120,6 +120,29 @@ namespace Parsek.Patches
         }
     }
 
+    /// <summary>
+    /// Prevents SpaceTracking.SetVessel from crashing on ghost ProtoVessels.
+    /// Ghost vessels lack certain state fields that SetVessel assumes exist,
+    /// causing NullReferenceException when clicking a ghost in the tracking station.
+    /// Shows a screen message instead.
+    /// </summary>
+    [HarmonyPatch(typeof(SpaceTracking), "SetVessel")]
+    internal static class GhostTrackingSetVesselPatch
+    {
+        static bool Prefix(Vessel v)
+        {
+            if (v == null || !GhostMapPresence.IsGhostMapVessel(v.persistentId))
+                return true;
+
+            ScreenMessages.PostScreenMessage(
+                $"<b>{v.vesselName}</b> is a ghost — it shows the predicted orbit of a recorded vessel.",
+                5f, ScreenMessageStyle.UPPER_CENTER);
+            ParsekLog.Info("GhostMap",
+                $"Blocked SetVessel for ghost '{v.vesselName}' pid={v.persistentId} in Tracking Station");
+            return false;
+        }
+    }
+
     [HarmonyPatch(typeof(SpaceTracking), "OnRecoverConfirm")]
     internal static class GhostTrackingRecoverPatch
     {
