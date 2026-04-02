@@ -26,7 +26,7 @@ namespace Parsek
         internal static bool SuppressResourceEvents = false;
 
         /// <summary>
-        /// Set to true by ActionReplay during committed action replay to prevent
+        /// Set to true by KspStatePatcher during ledger-based state patching to prevent
         /// recording replayed actions as new game state events and to bypass
         /// blocking Harmony patches (TechResearchPatch, FacilityUpgradePatch)
         /// that normally prevent duplicate actions on committed items.
