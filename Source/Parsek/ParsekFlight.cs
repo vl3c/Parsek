@@ -2639,6 +2639,13 @@ namespace Parsek
             Vessel activeVessel = FlightGlobals.ActiveVessel;
             ConfigNode activeSnapshot = VesselSpawner.TryBackupSnapshot(activeVessel);
 
+            // 4b. Chain the root and continuation so the full launch is one loopable chain.
+            // The breakup creates debris side-branches, but the main vessel's trajectory
+            // is continuous: root (pre-breakup) → continuation (post-breakup).
+            string mainChainId = Guid.NewGuid().ToString("N");
+            rootRec.ChainId = mainChainId;
+            rootRec.ChainIndex = 0;
+
             // 5. Create continuation recording (active vessel post-split)
             string contRecId = Guid.NewGuid().ToString("N");
             var contRec = new Recording
@@ -2650,7 +2657,9 @@ namespace Parsek
                 ParentBranchPointId = breakupBp.Id,
                 ExplicitStartUT = breakupBp.UT,
                 GhostVisualSnapshot = activeSnapshot,
-                VesselSnapshot = activeSnapshot != null ? activeSnapshot.CreateCopy() : null
+                VesselSnapshot = activeSnapshot != null ? activeSnapshot.CreateCopy() : null,
+                ChainId = mainChainId,
+                ChainIndex = 1
             };
             // Seed continuation with post-breakup points from root recording.
             // The root's Points extend ~0.5s past breakupBp.UT (coalescing window).
