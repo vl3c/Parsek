@@ -5108,7 +5108,8 @@ namespace Parsek
                 {
                     if (activeRec.TerminalStateValue.HasValue)
                     {
-                        Log($"FinalizeTreeRecordings: active recording '{activeRec.RecordingId}' " +
+                        ParsekLog.Verbose("Flight",
+                            $"FinalizeTreeRecordings: active recording '{activeRec.RecordingId}' " +
                             $"already has terminalState={activeRec.TerminalStateValue} — skipping");
                     }
                     else
