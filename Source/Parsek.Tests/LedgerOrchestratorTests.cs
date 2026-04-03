@@ -858,5 +858,166 @@ namespace Parsek.Tests
 
             Assert.True(LedgerOrchestrator.HasFacilityActionsInRange(500, 600));
         }
+
+        // ================================================================
+        // BuildChainEndUtMap
+        // ================================================================
+
+        [Fact]
+        public void BuildChainEndUtMap_EmptyTree_ReturnsEmptyMap()
+        {
+            var tree = new RecordingTree { Id = "tree-1" };
+
+            var map = LedgerOrchestrator.BuildChainEndUtMap(tree);
+
+            Assert.Empty(map);
+        }
+
+        [Fact]
+        public void BuildChainEndUtMap_NonChainRecordings_ReturnsEmptyMap()
+        {
+            var tree = new RecordingTree { Id = "tree-1" };
+            var rec = new Recording { RecordingId = "rec-1" };
+            rec.Points.Add(new TrajectoryPoint { ut = 10.0 });
+            rec.Points.Add(new TrajectoryPoint { ut = 100.0 });
+            tree.Recordings["rec-1"] = rec;
+
+            var map = LedgerOrchestrator.BuildChainEndUtMap(tree);
+
+            Assert.Empty(map);
+        }
+
+        [Fact]
+        public void BuildChainEndUtMap_ChainRecordings_MapsAllSegments()
+        {
+            var tree = new RecordingTree { Id = "tree-1" };
+
+            var rec0 = new Recording { RecordingId = "rec-0", ChainId = "chain-A", ChainIndex = 0 };
+            rec0.Points.Add(new TrajectoryPoint { ut = 10.0 });
+            rec0.Points.Add(new TrajectoryPoint { ut = 142.2 });
+            tree.Recordings["rec-0"] = rec0;
+
+            var rec1 = new Recording { RecordingId = "rec-1", ChainId = "chain-A", ChainIndex = 1 };
+            rec1.Points.Add(new TrajectoryPoint { ut = 142.9 });
+            rec1.Points.Add(new TrajectoryPoint { ut = 2270.4 });
+            tree.Recordings["rec-1"] = rec1;
+
+            var map = LedgerOrchestrator.BuildChainEndUtMap(tree);
+
+            Assert.Equal(2, map.Count);
+            Assert.Equal(142.2, map["chain-A:0"]);
+            Assert.Equal(2270.4, map["chain-A:1"]);
+        }
+
+        // ================================================================
+        // AdjustStartUtForChainGap
+        // ================================================================
+
+        [Fact]
+        public void AdjustStartUtForChainGap_NullRecording_ReturnsUnchanged()
+        {
+            var map = new Dictionary<string, double>();
+            Assert.Equal(100.0, LedgerOrchestrator.AdjustStartUtForChainGap(null, 100.0, map));
+        }
+
+        [Fact]
+        public void AdjustStartUtForChainGap_NonChainRecording_ReturnsUnchanged()
+        {
+            var rec = new Recording { RecordingId = "rec-1" };
+            var map = new Dictionary<string, double>();
+
+            Assert.Equal(100.0, LedgerOrchestrator.AdjustStartUtForChainGap(rec, 100.0, map));
+        }
+
+        [Fact]
+        public void AdjustStartUtForChainGap_ChainIndex0_ReturnsUnchanged()
+        {
+            var rec = new Recording { RecordingId = "rec-0", ChainId = "chain-A", ChainIndex = 0 };
+            var map = new Dictionary<string, double> { { "chain-A:0", 142.2 } };
+
+            Assert.Equal(10.0, LedgerOrchestrator.AdjustStartUtForChainGap(rec, 10.0, map));
+        }
+
+        [Fact]
+        public void AdjustStartUtForChainGap_ChainContinuation_ExtendsToGap()
+        {
+            // Simulates the real bug: predecessor ends at 142.2, this segment starts at 142.9
+            var rec = new Recording { RecordingId = "rec-1", ChainId = "chain-A", ChainIndex = 1 };
+            var map = new Dictionary<string, double> { { "chain-A:0", 142.2 } };
+
+            double adjusted = LedgerOrchestrator.AdjustStartUtForChainGap(rec, 142.9, map);
+
+            Assert.Equal(142.2, adjusted);
+            Assert.Contains(logLines, l =>
+                l.Contains("[LedgerOrchestrator]") && l.Contains("Chain gap closure") &&
+                l.Contains("142.9") && l.Contains("142.2"));
+        }
+
+        [Fact]
+        public void AdjustStartUtForChainGap_NoGap_ReturnsUnchanged()
+        {
+            // Predecessor ends at exactly startUT — no gap to close
+            var rec = new Recording { RecordingId = "rec-1", ChainId = "chain-A", ChainIndex = 1 };
+            var map = new Dictionary<string, double> { { "chain-A:0", 142.9 } };
+
+            Assert.Equal(142.9, LedgerOrchestrator.AdjustStartUtForChainGap(rec, 142.9, map));
+        }
+
+        [Fact]
+        public void AdjustStartUtForChainGap_PredecessorAfterStart_ReturnsUnchanged()
+        {
+            // Predecessor endUT > startUT — overlapping segments, no backward extension needed
+            var rec = new Recording { RecordingId = "rec-1", ChainId = "chain-A", ChainIndex = 1 };
+            var map = new Dictionary<string, double> { { "chain-A:0", 150.0 } };
+
+            Assert.Equal(142.9, LedgerOrchestrator.AdjustStartUtForChainGap(rec, 142.9, map));
+        }
+
+        [Fact]
+        public void AdjustStartUtForChainGap_PredecessorMissing_ReturnsUnchanged()
+        {
+            // Chain index 1 but no index 0 in map
+            var rec = new Recording { RecordingId = "rec-1", ChainId = "chain-A", ChainIndex = 1 };
+            var map = new Dictionary<string, double>();
+
+            Assert.Equal(142.9, LedgerOrchestrator.AdjustStartUtForChainGap(rec, 142.9, map));
+        }
+
+        [Fact]
+        public void AdjustStartUtForChainGap_MultipleChainSegments_ClosesEachGap()
+        {
+            // 4-segment chain with gaps between each pair
+            var map = new Dictionary<string, double>
+            {
+                { "chain-A:0", 142.2 },
+                { "chain-A:1", 2270.4 },
+                { "chain-A:2", 2585.5 }
+            };
+
+            var rec1 = new Recording { RecordingId = "rec-1", ChainId = "chain-A", ChainIndex = 1 };
+            Assert.Equal(142.2, LedgerOrchestrator.AdjustStartUtForChainGap(rec1, 142.9, map));
+
+            var rec2 = new Recording { RecordingId = "rec-2", ChainId = "chain-A", ChainIndex = 2 };
+            Assert.Equal(2270.4, LedgerOrchestrator.AdjustStartUtForChainGap(rec2, 2270.6, map));
+
+            var rec3 = new Recording { RecordingId = "rec-3", ChainId = "chain-A", ChainIndex = 3 };
+            Assert.Equal(2585.5, LedgerOrchestrator.AdjustStartUtForChainGap(rec3, 2586.1, map));
+        }
+
+        [Fact]
+        public void AdjustStartUtForChainGap_DifferentChains_IndependentGaps()
+        {
+            var map = new Dictionary<string, double>
+            {
+                { "chain-A:0", 100.0 },
+                { "chain-B:0", 500.0 }
+            };
+
+            var recA1 = new Recording { RecordingId = "recA-1", ChainId = "chain-A", ChainIndex = 1 };
+            Assert.Equal(100.0, LedgerOrchestrator.AdjustStartUtForChainGap(recA1, 103.0, map));
+
+            var recB1 = new Recording { RecordingId = "recB-1", ChainId = "chain-B", ChainIndex = 1 };
+            Assert.Equal(500.0, LedgerOrchestrator.AdjustStartUtForChainGap(recB1, 505.0, map));
+        }
     }
 }

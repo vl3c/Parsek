@@ -225,10 +225,12 @@ namespace Parsek
                     continue;
                 }
 
-                // Earning actions: classified by type, validated by recordingId
+                // Earning actions: classified by type, validated by recordingId.
+                // Null recordingId is valid for KSC spending actions (milestones achieved
+                // outside any recording, e.g. FirstCrewToSurvive at recovery).
                 if (RecalculationEngine.IsEarningType(action.Type))
                 {
-                    if (action.RecordingId != null && validRecordingIds.Contains(action.RecordingId))
+                    if (action.RecordingId == null || validRecordingIds.Contains(action.RecordingId))
                     {
                         surviving.Add(action);
                         kept++;
@@ -238,7 +240,7 @@ namespace Parsek
                         prunedEarnings++;
                         ParsekLog.Verbose("Ledger",
                             $"Pruned earning: type={action.Type}, " +
-                            $"recordingId='{action.RecordingId ?? "(null)"}' not in validRecordingIds, " +
+                            $"recordingId='{action.RecordingId}' not in validRecordingIds, " +
                             $"UT={action.UT.ToString("R", CultureInfo.InvariantCulture)}");
                     }
                     continue;

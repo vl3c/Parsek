@@ -3677,9 +3677,12 @@ namespace Parsek
                 }
             }
 
+            double approachAlt = (!hasAtmosphere && v.mainBody != null)
+                ? currentAltitudeThreshold : 0;
+
             return EnvironmentDetector.Classify(
                 hasAtmosphere, v.altitude, atmosphereDepth,
-                (int)v.situation, v.srfSpeed, hasActiveThrust);
+                (int)v.situation, v.srfSpeed, hasActiveThrust, approachAlt);
         }
 
         /// <summary>

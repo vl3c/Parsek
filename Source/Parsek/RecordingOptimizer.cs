@@ -157,8 +157,10 @@ namespace Parsek
 
                 for (int s = 1; s < rec.TrackSections.Count; s++)
                 {
-                    // Only split where environment changes
-                    if (rec.TrackSections[s].environment == rec.TrackSections[s - 1].environment)
+                    // Only split where coarse environment class changes
+                    // (ExoPropulsive/ExoBallistic are the same class — engine on/off is too granular)
+                    if (SplitEnvironmentClass(rec.TrackSections[s].environment)
+                        == SplitEnvironmentClass(rec.TrackSections[s - 1].environment))
                         continue;
 
                     if (CanAutoSplit(rec, s))
@@ -188,8 +190,9 @@ namespace Parsek
 
                 for (int s = 1; s < rec.TrackSections.Count; s++)
                 {
-                    // Only split where environment changes
-                    if (rec.TrackSections[s].environment == rec.TrackSections[s - 1].environment)
+                    // Only split where coarse environment class changes
+                    if (SplitEnvironmentClass(rec.TrackSections[s].environment)
+                        == SplitEnvironmentClass(rec.TrackSections[s - 1].environment))
                         continue;
 
                     if (CanAutoSplitIgnoringGhostTriggers(rec, s))
@@ -495,6 +498,27 @@ namespace Parsek
         #region Private helpers
 
         /// <summary>
+        /// Returns a coarse environment class for split decisions. ExoPropulsive and
+        /// ExoBallistic are treated as the same class ("exo") — engine on/off cycles
+        /// happen too frequently to be meaningful split boundaries. The optimizer splits
+        /// at Atmospheric↔Exo, Exo↔Approach, Approach↔Surface transitions.
+        /// Approach is its own class so landing/takeoff on airless bodies can be looped.
+        /// </summary>
+        internal static int SplitEnvironmentClass(SegmentEnvironment env)
+        {
+            switch (env)
+            {
+                case SegmentEnvironment.Atmospheric: return 0;
+                case SegmentEnvironment.ExoPropulsive: return 1;
+                case SegmentEnvironment.ExoBallistic: return 1;
+                case SegmentEnvironment.SurfaceMobile: return 2;
+                case SegmentEnvironment.SurfaceStationary: return 2;
+                case SegmentEnvironment.Approach: return 3;
+                default: return (int)env;
+            }
+        }
+
+        /// <summary>
         /// Maps a SegmentEnvironment to a phase tag for post-split recordings.
         /// Only used by SplitAtSection — not a general-purpose mapping.
         /// </summary>
@@ -505,6 +529,7 @@ namespace Parsek
                 case SegmentEnvironment.Atmospheric: return "atmo";
                 case SegmentEnvironment.SurfaceMobile: return "surface";
                 case SegmentEnvironment.SurfaceStationary: return "surface";
+                case SegmentEnvironment.Approach: return "approach";
                 default: return "exo";
             }
         }
@@ -597,6 +622,36 @@ namespace Parsek
             }
         }
 
+        private static void StripEventsPastUT(List<PartEvent> events, double ut)
+        {
+            if (events == null) return;
+            for (int i = events.Count - 1; i >= 0; i--)
+            {
+                if (events[i].ut > ut) events.RemoveAt(i);
+                else break;
+            }
+        }
+
+        private static void StripEventsPastUT(List<SegmentEvent> events, double ut)
+        {
+            if (events == null) return;
+            for (int i = events.Count - 1; i >= 0; i--)
+            {
+                if (events[i].ut > ut) events.RemoveAt(i);
+                else break;
+            }
+        }
+
+        private static void StripEventsPastUT(List<FlagEvent> events, double ut)
+        {
+            if (events == null) return;
+            for (int i = events.Count - 1; i >= 0; i--)
+            {
+                if (events[i].ut > ut) events.RemoveAt(i);
+                else break;
+            }
+        }
+
         private static bool GroupsEqual(List<string> a, List<string> b)
         {
             bool aEmpty = a == null || a.Count == 0;
@@ -609,6 +664,197 @@ namespace Parsek
             {
                 if (a[i] != b[i]) return false;
             }
+            return true;
+        }
+
+        #endregion
+
+        #region Boring tail trimming
+
+        /// <summary>
+        /// Default buffer to keep past the last interesting activity when trimming.
+        /// </summary>
+        internal const double DefaultTailBufferSeconds = 10.0;
+
+        /// <summary>
+        /// Minimum recording duration to be eligible for tail trimming.
+        /// Recordings shorter than this are left untouched.
+        /// </summary>
+        internal const double MinDurationForTrimSeconds = 30.0;
+
+        /// <summary>
+        /// Returns true if the recording is a leaf — no child branch point and
+        /// not a mid-chain segment with a successor.
+        /// </summary>
+        internal static bool IsLeafRecording(Recording rec, List<Recording> allRecordings)
+        {
+            if (rec.ChildBranchPointId != null) return false;
+
+            if (!string.IsNullOrEmpty(rec.ChainId) && rec.ChainIndex >= 0)
+            {
+                for (int i = 0; i < allRecordings.Count; i++)
+                {
+                    var other = allRecordings[i];
+                    if (other == rec) continue;
+                    if (other.ChainId == rec.ChainId && other.ChainBranch == 0
+                        && other.ChainIndex > rec.ChainIndex)
+                        return false;
+                }
+            }
+
+            return true;
+        }
+
+        /// <summary>
+        /// Finds the UT of the last interesting activity in a recording.
+        /// Interesting = last non-boring TrackSection end, last PartEvent, last SegmentEvent,
+        /// or last FlagEvent — whichever is latest. Returns NaN if nothing interesting found.
+        /// </summary>
+        internal static double FindLastInterestingUT(Recording rec)
+        {
+            double lastUT = double.NaN;
+
+            // Last non-boring TrackSection
+            if (rec.TrackSections != null)
+            {
+                for (int i = rec.TrackSections.Count - 1; i >= 0; i--)
+                {
+                    if (!GhostPlaybackLogic.IsBoringEnvironment(rec.TrackSections[i].environment))
+                    {
+                        lastUT = rec.TrackSections[i].endUT;
+                        break;
+                    }
+                }
+            }
+
+            // Last PartEvent
+            if (rec.PartEvents != null && rec.PartEvents.Count > 0)
+            {
+                double evtUT = rec.PartEvents[rec.PartEvents.Count - 1].ut;
+                if (double.IsNaN(lastUT) || evtUT > lastUT) lastUT = evtUT;
+            }
+
+            // Last SegmentEvent
+            if (rec.SegmentEvents != null && rec.SegmentEvents.Count > 0)
+            {
+                double evtUT = rec.SegmentEvents[rec.SegmentEvents.Count - 1].ut;
+                if (double.IsNaN(lastUT) || evtUT > lastUT) lastUT = evtUT;
+            }
+
+            // Last FlagEvent
+            if (rec.FlagEvents != null && rec.FlagEvents.Count > 0)
+            {
+                double evtUT = rec.FlagEvents[rec.FlagEvents.Count - 1].ut;
+                if (double.IsNaN(lastUT) || evtUT > lastUT) lastUT = evtUT;
+            }
+
+            return lastUT;
+        }
+
+        /// <summary>
+        /// Trims the boring tail of a leaf recording. If the recording ends with a long
+        /// idle period (ExoBallistic or SurfaceStationary), removes trailing points and
+        /// sections past bufferSeconds after the last interesting activity.
+        /// Returns true if the recording was trimmed.
+        /// </summary>
+        internal static bool TrimBoringTail(Recording rec, List<Recording> allRecordings,
+            double bufferSeconds = DefaultTailBufferSeconds)
+        {
+            if (rec == null || rec.Points.Count < 2) return false;
+
+            // Only trim leaf recordings
+            if (!IsLeafRecording(rec, allRecordings)) return false;
+
+            // Recording must be long enough to warrant trimming
+            double duration = rec.EndUT - rec.StartUT;
+            if (duration <= MinDurationForTrimSeconds) return false;
+
+            // Must have TrackSections to detect boring tails
+            if (rec.TrackSections == null || rec.TrackSections.Count == 0) return false;
+
+            // Last section must be boring
+            var lastSection = rec.TrackSections[rec.TrackSections.Count - 1];
+            if (!GhostPlaybackLogic.IsBoringEnvironment(lastSection.environment)) return false;
+
+            double lastInterestingUT = FindLastInterestingUT(rec);
+            if (double.IsNaN(lastInterestingUT)) return false; // entire recording is boring — no reference point
+
+            double trimUT = lastInterestingUT + bufferSeconds;
+            if (trimUT >= rec.EndUT) return false; // boring tail is shorter than buffer
+
+            double originalEndUT = rec.EndUT;
+            int originalPointCount = rec.Points.Count;
+
+            // Trim Points — find first point past trimUT, keep everything before it
+            int keepCount = 0;
+            for (int i = 0; i < rec.Points.Count; i++)
+            {
+                if (rec.Points[i].ut > trimUT)
+                {
+                    keepCount = i;
+                    break;
+                }
+            }
+            // No points past trimUT — nothing to trim
+            if (keepCount == 0) return false;
+            // Must keep at least 2 points for valid interpolation
+            if (keepCount < 2) return false;
+            rec.Points.RemoveRange(keepCount, rec.Points.Count - keepCount);
+
+            // Trim TrackSections — remove trailing sections past trimUT, shorten spanning section
+            for (int i = rec.TrackSections.Count - 1; i >= 0; i--)
+            {
+                var sec = rec.TrackSections[i];
+                if (sec.startUT >= trimUT)
+                {
+                    rec.TrackSections.RemoveAt(i);
+                }
+                else if (sec.endUT > trimUT)
+                {
+                    sec.endUT = trimUT;
+                    rec.TrackSections[i] = sec;
+                    break;
+                }
+                else break;
+            }
+
+            // Trim OrbitSegments past trimUT
+            if (rec.OrbitSegments != null)
+            {
+                for (int i = rec.OrbitSegments.Count - 1; i >= 0; i--)
+                {
+                    var os = rec.OrbitSegments[i];
+                    if (os.startUT >= trimUT)
+                    {
+                        rec.OrbitSegments.RemoveAt(i);
+                    }
+                    else if (os.endUT > trimUT)
+                    {
+                        os.endUT = trimUT;
+                        rec.OrbitSegments[i] = os;
+                        break;
+                    }
+                    else break;
+                }
+            }
+
+            // Strip events past the new EndUT (they're inert during playback but
+            // waste memory and disk space in serialized sidecar files)
+            double newEndUT = rec.EndUT;
+            StripEventsPastUT(rec.PartEvents, newEndUT);
+            StripEventsPastUT(rec.SegmentEvents, newEndUT);
+            StripEventsPastUT(rec.FlagEvents, newEndUT);
+
+            // Invalidate cached stats
+            rec.CachedStats = null;
+            rec.CachedStatsPointCount = 0;
+
+            double removedSeconds = originalEndUT - newEndUT;
+            int removedPoints = originalPointCount - rec.Points.Count;
+            ParsekLog.Info("Optimizer",
+                $"TrimBoringTail: trimmed '{rec.VesselName}' ({rec.RecordingId}) " +
+                $"from endUT={originalEndUT:F1} to {rec.EndUT:F1} " +
+                $"(removed {removedSeconds:F0}s, {removedPoints} points)");
             return true;
         }
 

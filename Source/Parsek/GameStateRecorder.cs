@@ -421,22 +421,39 @@ namespace Parsek
             return oldStatus != newStatus;
         }
 
+        /// <summary>
+        /// Returns true if a crew status change event should be suppressed.
+        /// Suppresses when: (1) bulk mutation in progress, (2) crew is managed by Parsek
+        /// (reserved/stand-in — KSP oscillates their status as noise), (3) identity
+        /// transition (same status, e.g. Dead→Dead).
+        /// Pure static for testability — no KSP state access.
+        /// </summary>
+        internal static bool ShouldSuppressCrewStatusChange(
+            string crewName, bool suppressFlag, bool isIdentity)
+        {
+            if (suppressFlag) return true;
+            if (crewName != null && KerbalsModule.IsManaged(crewName)) return true;
+            if (isIdentity) return true;
+            return false;
+        }
+
         private void OnKerbalStatusChange(ProtoCrewMember crew,
             ProtoCrewMember.RosterStatus oldStatus, ProtoCrewMember.RosterStatus newStatus)
         {
-            if (SuppressCrewEvents)
-            {
-                ParsekLog.VerboseRateLimited("GameStateRecorder", "suppress-crew-status",
-                    "Suppressed CrewStatusChanged event while Parsek mutates crew state", 5.0);
-                return;
-            }
             if (crew == null) return;
 
-            // Filter identity transitions (Bug #122: Dead->Dead, Available->Available, etc.)
-            if (!IsRealStatusChange(oldStatus, newStatus))
+            bool isIdentity = !IsRealStatusChange(oldStatus, newStatus);
+            if (ShouldSuppressCrewStatusChange(crew.name, SuppressCrewEvents, isIdentity))
             {
-                ParsekLog.Verbose("GameStateRecorder",
-                    $"Filtered identity crew status transition for '{crew.name ?? ""}': {oldStatus} -> {newStatus}");
+                if (SuppressCrewEvents)
+                    ParsekLog.VerboseRateLimited("GameStateRecorder", "suppress-crew-status",
+                        "Suppressed CrewStatusChanged event while Parsek mutates crew state", 5.0);
+                else if (isIdentity)
+                    ParsekLog.Verbose("GameStateRecorder",
+                        $"Filtered identity crew status transition for '{crew.name}': {oldStatus} -> {newStatus}");
+                else
+                    ParsekLog.VerboseRateLimited("GameStateRecorder", "suppress-managed-crew",
+                        $"Suppressed CrewStatusChanged for managed kerbal '{crew.name}': {oldStatus} -> {newStatus}", 5.0);
                 return;
             }
 

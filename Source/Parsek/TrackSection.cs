@@ -24,7 +24,8 @@ namespace Parsek
         ExoPropulsive = 1,      // Above atmosphere, engine producing thrust
         ExoBallistic = 2,       // Above atmosphere, no thrust (Keplerian)
         SurfaceMobile = 3,      // Landed/splashed, moving (>0.1 m/s)
-        SurfaceStationary = 4   // Landed/splashed, stationary (<0.1 m/s for >3s)
+        SurfaceStationary = 4,  // Landed/splashed, stationary (<0.1 m/s for >3s)
+        Approach = 5            // Below approach altitude on airless body (not on surface)
     }
 
     /// <summary>
