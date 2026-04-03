@@ -74,6 +74,7 @@
     <MakeDir Directories="$(KSPDir)\GameData\Parsek\Plugins" />
     <Copy SourceFiles="$(OutputPath)Parsek.dll" DestinationFolder="$(KSPDir)\GameData\Parsek\Plugins" ContinueOnError="true" />
     <Copy SourceFiles="$(OutputPath)Parsek.pdb" DestinationFolder="$(KSPDir)\GameData\Parsek\Plugins" Condition="Exists('$(OutputPath)Parsek.pdb')" ContinueOnError="true" />
+    <Copy SourceFiles="$(MSBuildProjectDirectory)\..\..\GameData\Parsek\Parsek.version" DestinationFolder="$(KSPDir)\GameData\Parsek" ContinueOnError="true" />
     <Message Text="Copied to $(KSPDir)\GameData\Parsek\Plugins" Importance="high" />
   </Target>
 

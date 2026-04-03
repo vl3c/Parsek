@@ -4,28 +4,13 @@
 
 ## TODO — Release & Distribution
 
-### T1. Add Parsek.version file (KSP mod convention)
+### ~~T1. Add Parsek.version file (KSP mod convention)~~ DONE
 
-Standard `.version` file enables AVC (Add-on Version Checker) and CKAN to detect available updates. Place in `GameData/Parsek/Parsek.version`.
+Added `GameData/Parsek/Parsek.version` (v0.6.0) with AVC/CKAN fields. Post-build copies it to KSP GameData alongside the DLL.
 
-```json
-{
-    "NAME": "Parsek",
-    "URL": "https://raw.githubusercontent.com/vl3c/Parsek/main/GameData/Parsek/Parsek.version",
-    "VERSION": { "MAJOR": 0, "MINOR": 5, "PATCH": 0 },
-    "KSP_VERSION": { "MAJOR": 1, "MINOR": 12, "PATCH": 5 },
-    "KSP_VERSION_MIN": { "MAJOR": 1, "MINOR": 12, "PATCH": 0 },
-    "KSP_VERSION_MAX": { "MAJOR": 1, "MINOR": 12, "PATCH": 99 }
-}
-```
+### ~~T2. UI version display~~ DONE
 
-**Priority:** Should-do for 0.5.1
-
-### T2. UI version display
-
-Show "Parsek v0.5.0" somewhere in the main Parsek window (title bar or footer). Currently the version is only in `AssemblyInfo.cs` and not visible to the player.
-
-**Priority:** Should-do for 0.5.1
+Right-aligned "v0.6.0" label at the bottom of the main Parsek window, read from AssemblyVersion at runtime. Subtle 40% opacity, 10pt font.
 
 ### T3. CKAN metadata
 
