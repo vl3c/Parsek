@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
+using System.Reflection;
 using ClickThroughFix;
+using KSP.UI.Screens.Mapview;
 using UnityEngine;
 
 namespace Parsek
@@ -23,7 +25,9 @@ namespace Parsek
 
         // Map view markers
         private GUIStyle mapMarkerStyle;
-        private Texture2D mapMarkerDiamond;
+        private Texture2D mapMarkerDiamond; // fallback when atlas unavailable
+        private static Texture2D vesselIconAtlas;
+        private static Dictionary<VesselType, Rect> vesselIconUVs;
 
         // Recordings window
         private bool showRecordingsWindow;
@@ -4104,7 +4108,10 @@ namespace Parsek
 
                 string ghostName = kvp.Key < committed.Count ? committed[kvp.Key].VesselName : "Ghost";
                 Color markerColor = GetGhostMarkerColor(kvp.Key, committed);
-                DrawMapMarkerAt(kvp.Value.transform.position, ghostName, markerColor);
+                VesselType vtype = kvp.Key < committed.Count
+                    ? GhostMapPresence.ResolveVesselType(committed[kvp.Key].VesselSnapshot)
+                    : VesselType.Ship;
+                DrawMapMarkerAt(kvp.Value.transform.position, ghostName, markerColor, vtype);
             }
         }
 
@@ -4151,7 +4158,8 @@ namespace Parsek
             }
         }
 
-        private void DrawMapMarkerAt(Vector3 worldPos, string label, Color color)
+        private void DrawMapMarkerAt(Vector3 worldPos, string label, Color color,
+            VesselType vtype = VesselType.Ship)
         {
             Vector3 screenPos;
             if (MapView.MapIsEnabled)
@@ -4171,11 +4179,24 @@ namespace Parsek
             float x = screenPos.x;
             float y = Screen.height - screenPos.y;
 
-            // Draw diamond marker (matches KSP's orbit icon shape)
+            // Draw vessel type icon from KSP atlas, or diamond fallback
             Color prevColor = GUI.color;
             GUI.color = color;
-            int iconSize = 16;
-            GUI.DrawTexture(new Rect(x - iconSize / 2, y - iconSize / 2, iconSize, iconSize), mapMarkerDiamond);
+            int iconSize = 20;
+            Rect uvRect;
+            if (vesselIconAtlas != null && vesselIconUVs != null
+                && vesselIconUVs.TryGetValue(vtype, out uvRect))
+            {
+                GUI.DrawTextureWithTexCoords(
+                    new Rect(x - iconSize / 2, y - iconSize / 2, iconSize, iconSize),
+                    vesselIconAtlas, uvRect);
+            }
+            else
+            {
+                GUI.DrawTexture(
+                    new Rect(x - iconSize / 2, y - iconSize / 2, iconSize, iconSize),
+                    mapMarkerDiamond);
+            }
             GUI.color = prevColor;
 
             // Draw vessel name label
@@ -4185,18 +4206,21 @@ namespace Parsek
 
         private void EnsureMapMarkerResources()
         {
+            // Try to load KSP's stock vessel icon atlas from the MapView prefab
+            if (vesselIconAtlas == null && MapView.fetch != null)
+                InitVesselTypeIcons();
+
+            // Fallback diamond texture (used when atlas unavailable)
             if (mapMarkerDiamond == null)
             {
-                // Generate a diamond (rotated square) texture matching KSP's orbit icon style
                 int size = 16;
                 mapMarkerDiamond = new Texture2D(size, size, TextureFormat.ARGB32, false);
                 float center = size / 2f;
-                float halfDiag = size / 2f - 1f; // diamond extends to 1px from edge
+                float halfDiag = size / 2f - 1f;
                 for (int py = 0; py < size; py++)
                 {
                     for (int px = 0; px < size; px++)
                     {
-                        // Diamond: |x - center| + |y - center| <= halfDiag
                         float manhattan = Mathf.Abs(px - center + 0.5f) + Mathf.Abs(py - center + 0.5f);
                         mapMarkerDiamond.SetPixel(px, py, manhattan <= halfDiag ? Color.white : Color.clear);
                     }
@@ -4211,6 +4235,62 @@ namespace Parsek
                 mapMarkerStyle.fontStyle = FontStyle.Bold;
                 mapMarkerStyle.alignment = TextAnchor.UpperCenter;
             }
+        }
+
+        private static void InitVesselTypeIcons()
+        {
+            vesselIconAtlas = MapView.OrbitIconsMap;
+            if (vesselIconAtlas == null) return;
+
+            var prefab = MapView.UINodePrefab;
+            if (prefab == null) return;
+
+            var fi = typeof(MapNode).GetField("iconSprites",
+                BindingFlags.Instance | BindingFlags.NonPublic);
+            if (fi == null)
+            {
+                ParsekLog.Warn("UI", "InitVesselTypeIcons: iconSprites field not found on MapNode");
+                vesselIconAtlas = null;
+                return;
+            }
+
+            var sprites = fi.GetValue(prefab) as Sprite[];
+            if (sprites == null || sprites.Length == 0)
+            {
+                ParsekLog.Warn("UI", "InitVesselTypeIcons: iconSprites is null or empty");
+                vesselIconAtlas = null;
+                return;
+            }
+
+            // VesselType → sprite index mapping from decompiled MapNode.GetIconIndex
+            var mapping = new Dictionary<VesselType, int>
+            {
+                { VesselType.Ship,        20 }, { VesselType.Probe,    18 },
+                { VesselType.Rover,       19 }, { VesselType.Station,   0 },
+                { VesselType.Plane,       23 }, { VesselType.Lander,   14 },
+                { VesselType.Base,         5 }, { VesselType.EVA,      13 },
+                { VesselType.Relay,       24 }, { VesselType.Debris,    7 },
+                { VesselType.SpaceObject, 21 },
+            };
+
+            float atlasW = vesselIconAtlas.width;
+            float atlasH = vesselIconAtlas.height;
+            vesselIconUVs = new Dictionary<VesselType, Rect>();
+
+            foreach (var kvp in mapping)
+            {
+                if (kvp.Value < sprites.Length && sprites[kvp.Value] != null)
+                {
+                    Rect texRect = sprites[kvp.Value].textureRect;
+                    vesselIconUVs[kvp.Key] = new Rect(
+                        texRect.x / atlasW, texRect.y / atlasH,
+                        texRect.width / atlasW, texRect.height / atlasH);
+                }
+            }
+
+            ParsekLog.Info("UI",
+                $"InitVesselTypeIcons: loaded {vesselIconUVs.Count} vessel type icons from atlas " +
+                $"({atlasW}x{atlasH}, {sprites.Length} sprites)");
         }
 
         /// <summary>
