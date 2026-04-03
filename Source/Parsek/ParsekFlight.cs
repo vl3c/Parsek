@@ -2602,7 +2602,11 @@ namespace Parsek
                 $"PromoteToTreeForBreakup: tree created: id={treeId}, name='{activeTree.TreeName}', " +
                 $"vesselPid={splitRecorder.RecordingVesselId}");
 
-            // 3. Create root recording from CaptureAtStop
+            // 3. Create single recording from CaptureAtStop — serves as both root and
+            // active recording. The main vessel's trajectory is continuous through breakups;
+            // Decoupled part events handle visual changes (booster detach) during playback.
+            // This matches how ProcessBreakupEvent handles subsequent breakups (same recording
+            // keeps accumulating data, debris branch off as children).
             var cap = splitRecorder.CaptureAtStop;
             var rootRec = new Recording
             {
@@ -2610,7 +2614,6 @@ namespace Parsek
                 TreeId = treeId,
                 VesselPersistentId = splitRecorder.RecordingVesselId,
                 VesselName = cap.VesselName ?? "Unknown",
-                ExplicitEndUT = breakupBp.UT
             };
 
             rootRec.Points = new List<TrajectoryPoint>(cap.Points);
@@ -2619,6 +2622,8 @@ namespace Parsek
             rootRec.TrackSections = new List<TrackSection>(cap.TrackSections);
             rootRec.FlagEvents = new List<FlagEvent>(cap.FlagEvents);
             rootRec.SegmentEvents = new List<SegmentEvent>(cap.SegmentEvents);
+            // Use the pre-breakup snapshot — shows full vessel with boosters.
+            // Decoupled part events at breakupUT hide detached parts during playback.
             rootRec.GhostVisualSnapshot = cap.GhostVisualSnapshot;
             rootRec.VesselSnapshot = cap.VesselSnapshot;
             rootRec.RewindSaveFileName = cap.RewindSaveFileName;
@@ -2629,60 +2634,16 @@ namespace Parsek
                 rootRec.ExplicitStartUT = rootRec.Points[0].ut;
 
             activeTree.Recordings[rootRecId] = rootRec;
+            activeTree.ActiveRecordingId = rootRecId;
 
             ParsekLog.Info("Coalescer",
                 $"PromoteToTreeForBreakup: root recording created: id={rootRecId}, " +
                 $"points={rootRec.Points.Count}, partEvents={rootRec.PartEvents.Count}, " +
-                $"endUT={breakupBp.UT:F2}, rewind={!string.IsNullOrEmpty(rootRec.RewindSaveFileName)}");
+                $"rewind={!string.IsNullOrEmpty(rootRec.RewindSaveFileName)}");
 
-            // 4. Capture active vessel snapshot for continuation
-            Vessel activeVessel = FlightGlobals.ActiveVessel;
-            ConfigNode activeSnapshot = VesselSpawner.TryBackupSnapshot(activeVessel);
-
-            // 4b. Chain the root and continuation so the full launch is one loopable chain.
-            // The breakup creates debris side-branches, but the main vessel's trajectory
-            // is continuous: root (pre-breakup) → continuation (post-breakup).
-            string mainChainId = Guid.NewGuid().ToString("N");
-            rootRec.ChainId = mainChainId;
-            rootRec.ChainIndex = 0;
-
-            // 5. Create continuation recording (active vessel post-split)
-            string contRecId = Guid.NewGuid().ToString("N");
-            var contRec = new Recording
-            {
-                RecordingId = contRecId,
-                TreeId = treeId,
-                VesselPersistentId = splitRecorder.RecordingVesselId,
-                VesselName = Recording.ResolveLocalizedName(activeVessel?.vesselName) ?? cap.VesselName ?? "Unknown",
-                ParentBranchPointId = breakupBp.Id,
-                ExplicitStartUT = breakupBp.UT,
-                GhostVisualSnapshot = activeSnapshot,
-                VesselSnapshot = activeSnapshot != null ? activeSnapshot.CreateCopy() : null,
-                ChainId = mainChainId,
-                ChainIndex = 1
-            };
-            // Seed continuation with post-breakup points from root recording.
-            // The root's Points extend ~0.5s past breakupBp.UT (coalescing window).
-            // Without this, the continuation has 0 points if the vessel is destroyed
-            // before FlushRecorderToTreeRecording runs — causing ghost spawn skip
-            // and watch mode camera falling back to a debris child (#106).
-            double breakupUT = breakupBp.UT;
-            for (int i = 0; i < rootRec.Points.Count; i++)
-            {
-                if (rootRec.Points[i].ut >= breakupUT)
-                    contRec.Points.Add(rootRec.Points[i]);
-            }
-
-            activeTree.Recordings[contRecId] = contRec;
-
-            ParsekLog.Info("Coalescer",
-                $"PromoteToTreeForBreakup: continuation recording created: id={contRecId}, " +
-                $"vesselPid={contRec.VesselPersistentId}, snapshot={activeSnapshot != null}, " +
-                $"seededPoints={contRec.Points.Count}");
-
-            // 6. Wire BREAKUP into tree
+            // 4. Wire BREAKUP into tree — root is the parent, debris are children.
+            // No separate continuation recording — the root continues accumulating data.
             breakupBp.ParentRecordingIds.Add(rootRecId);
-            breakupBp.ChildRecordingIds.Add(contRecId);
             activeTree.BranchPoints.Add(breakupBp);
             rootRec.ChildBranchPointId = breakupBp.Id;
 
@@ -2775,9 +2736,8 @@ namespace Parsek
                 }
             }
 
-            // 9. Set ActiveRecordingId BEFORE RebuildBackgroundMap so the continuation
-            // is excluded from BackgroundMap (it's the active vessel, not a background one).
-            activeTree.ActiveRecordingId = contRecId;
+            // 9. ActiveRecordingId already set to rootRecId above (step 3).
+            // RebuildBackgroundMap excludes the active recording from BackgroundMap.
 
             // Create BackgroundRecorder
             activeTree.RebuildBackgroundMap();
@@ -2834,7 +2794,7 @@ namespace Parsek
             }
             ParsekLog.Info("Coalescer",
                 $"PromoteToTreeForBreakup: standalone recording promoted to tree. " +
-                $"tree={treeId}, root={rootRecId}, continuation={contRecId}, " +
+                $"tree={treeId}, root={rootRecId}, " +
                 $"debris={debrisPids?.Count ?? 0} (alive={debrisAlive}), " +
                 $"controlled={controlledPids?.Count ?? 0}, " +
                 $"breakup={breakupBp.Id}");
