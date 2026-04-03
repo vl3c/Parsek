@@ -642,6 +642,7 @@ namespace Parsek
             if (committed == null || committed.Count == 0) return 0;
 
             int created = 0;
+            double currentUT = Planetarium.GetUniversalTime();
             for (int i = 0; i < committed.Count; i++)
             {
                 var rec = committed[i];
@@ -655,15 +656,14 @@ namespace Parsek
                     && terminal.Value != TerminalState.Docked)
                     continue;
 
-                // Skip recordings whose orbit segments are all in the past —
-                // the vessel is no longer in orbit (landed, crashed, etc.).
-                // Same logic as the T41 flight-scene fix, applied at creation time.
+                // Skip recordings where currentUT is outside all orbit segments —
+                // either before the vessel reached orbit or after it left orbit.
                 // For null-terminal recordings this is the only guard against stale orbits.
-                double currentUT = Planetarium.GetUniversalTime();
                 if (rec.OrbitSegments != null && rec.OrbitSegments.Count > 0)
                 {
+                    var firstSeg = rec.OrbitSegments[0];
                     var lastSeg = rec.OrbitSegments[rec.OrbitSegments.Count - 1];
-                    if (currentUT > lastSeg.endUT)
+                    if (currentUT < firstSeg.startUT || currentUT > lastSeg.endUT)
                         continue;
                 }
                 // No orbit segments and no terminal orbit → nothing to show
