@@ -647,11 +647,26 @@ namespace Parsek
                 var rec = committed[i];
                 if (rec.IsDebris) continue;
 
+                // Whitelist: only Orbiting and Docked get orbit lines in tracking station.
+                // Null terminal state (unfinished/legacy recordings) is excluded — orbit
+                // data may be stale or suborbital. Flight-scene playback handles those
+                // dynamically via CheckPendingMapVessels.
                 var terminal = rec.TerminalStateValue;
-                if (terminal.HasValue
-                    && terminal.Value != TerminalState.Orbiting
-                    && terminal.Value != TerminalState.Docked)
+                if (!terminal.HasValue
+                    || (terminal.Value != TerminalState.Orbiting
+                        && terminal.Value != TerminalState.Docked))
                     continue;
+
+                // Skip recordings whose orbit segments are all in the past —
+                // the vessel is no longer in orbit (landed, crashed, etc.).
+                // Same logic as the T41 flight-scene fix, applied at creation time.
+                double currentUT = Planetarium.GetUniversalTime();
+                if (rec.OrbitSegments != null && rec.OrbitSegments.Count > 0)
+                {
+                    var lastSeg = rec.OrbitSegments[rec.OrbitSegments.Count - 1];
+                    if (currentUT > lastSeg.endUT)
+                        continue;
+                }
 
                 // Use terminal orbit data if available; otherwise fall back to
                 // the last orbit segment (intermediate chain segments and recordings
