@@ -212,6 +212,11 @@ namespace Parsek
 
         private BudgetSummary cachedBudget = default(BudgetSummary);
 
+        private static readonly string VersionLabel = "v" +
+            System.Reflection.Assembly.GetExecutingAssembly().GetName().Version.ToString(3);
+
+        private GUIStyle versionStyle;
+
         public ParsekUI(ParsekFlight flight)
         {
             this.flight = flight;
@@ -289,6 +294,19 @@ namespace Parsek
                 showSettingsWindow = !showSettingsWindow;
                 ParsekLog.Verbose("UI", $"Settings window toggled: {(showSettingsWindow ? "open" : "closed")}");
             }
+
+            // --- Version footer ---
+            GUILayout.Space(SpacingSmall);
+            if (versionStyle == null)
+            {
+                versionStyle = new GUIStyle(GUI.skin.label)
+                {
+                    fontSize = 10,
+                    alignment = TextAnchor.MiddleRight,
+                    normal = { textColor = new Color(1f, 1f, 1f, 0.4f) }
+                };
+            }
+            GUILayout.Label(VersionLabel, versionStyle);
 
             GUILayout.EndVertical();
 

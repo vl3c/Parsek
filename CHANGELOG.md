@@ -6,6 +6,11 @@ All notable changes to Parsek are documented here.
 
 ## 0.6.0
 
+### Release & Distribution
+
+- **Parsek.version file (T1).** Added `GameData/Parsek/Parsek.version` for AVC and CKAN version detection. Auto-copied to KSP GameData on build.
+- **UI version display (T2).** Version label ("v0.6.0") shown at the bottom of the main Parsek window, read from AssemblyVersion at runtime.
+
 ### Game Actions & Resources System
 
 Full career-mode resource tracking across the rewind timeline. Science, funds, reputation, milestones, contracts, kerbals, facilities, and strategies are now recorded, reconciled on rewind, and patched back into KSP's singletons.
