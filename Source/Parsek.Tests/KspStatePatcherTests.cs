@@ -188,7 +188,7 @@ namespace Parsek.Tests
         // ================================================================
 
         [Fact]
-        public void PatchFacilities_WithFacilities_SkipsDestructionPatchingInTests()
+        public void PatchFacilities_EmptyProtoUpgradeables_CompletesWithoutCrash()
         {
             // protoUpgradeables is an empty dict in the test environment (not null),
             // so the level loop runs but finds nothing. Destruction patching is suppressed
