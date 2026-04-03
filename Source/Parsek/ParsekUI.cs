@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
+using System.Reflection;
 using ClickThroughFix;
+using KSP.UI.Screens.Mapview;
 using UnityEngine;
 
 namespace Parsek
@@ -23,7 +25,9 @@ namespace Parsek
 
         // Map view markers
         private GUIStyle mapMarkerStyle;
-        private Texture2D mapMarkerTexture;
+        private Texture2D mapMarkerDiamond; // fallback when atlas unavailable
+        private static Texture2D vesselIconAtlas;
+        private static Dictionary<VesselType, Rect> vesselIconUVs;
 
         // Recordings window
         private bool showRecordingsWindow;
@@ -4162,15 +4166,15 @@ namespace Parsek
             // Manual preview ghost
             if (flight.IsPlaying && flight.PreviewGhost != null)
             {
-                DrawMapMarkerAt(flight.PreviewGhost.transform.position, "Preview", Color.green);
+                DrawMapMarkerAt(flight.PreviewGhost.transform.position, "Preview",
+                    new Color(0.2f, 1f, 0.4f, 0.9f));
             }
 
             // Timeline ghosts — skip if a ghost map ProtoVessel exists for this index
-            // (the native KSP vessel icon replaces this dot and tracks the correct orbital position).
+            // (the native KSP vessel icon replaces this marker and tracks the correct orbital position).
             // Deduplicate per chain: during warp, multiple chain segments can be active
             // simultaneously. Only draw the marker for the highest-index (latest) ghost per chain.
             var committed = RecordingStore.CommittedRecordings;
-            Color ghostColor = new Color(0.2f, 1f, 0.4f, 0.9f);
 
             // First pass: find the highest active index per chain
             chainTipIndexBuffer.Clear();
@@ -4185,21 +4189,35 @@ namespace Parsek
                     chainTipIndexBuffer[chainId] = kvp.Key;
             }
 
-            // Second pass: draw markers, skipping non-tip chain members
+            // Second pass: draw markers, skipping non-tip chain members and debris
             foreach (var kvp in flight.TimelineGhosts)
             {
                 if (kvp.Value == null) continue;
+                // Skip if native KSP icon is active (ProtoVessel exists and icon not suppressed).
+                // When the Harmony patch suppresses the icon (below atmosphere), we draw
+                // our custom marker at the ghost mesh position instead.
                 if (GhostMapPresence.HasGhostVesselForRecording(kvp.Key))
-                    continue;
+                {
+                    uint ghostPid = GhostMapPresence.GetGhostVesselPidForRecording(kvp.Key);
+                    if (ghostPid == 0 || !GhostMapPresence.ghostsWithSuppressedIcon.Contains(ghostPid))
+                        continue; // native icon is active — skip our marker
+                }
                 if (kvp.Key < committed.Count)
                 {
+                    if (committed[kvp.Key].IsDebris)
+                        continue;
                     string chainId = committed[kvp.Key].ChainId;
                     if (!string.IsNullOrEmpty(chainId) && chainTipIndexBuffer.Count > 0
                         && chainTipIndexBuffer.TryGetValue(chainId, out int tip) && kvp.Key != tip)
                         continue; // not the tip — skip duplicate
                 }
+
                 string ghostName = kvp.Key < committed.Count ? committed[kvp.Key].VesselName : "Ghost";
-                DrawMapMarkerAt(kvp.Value.transform.position, ghostName, ghostColor);
+                VesselType vtype = kvp.Key < committed.Count
+                    ? GhostMapPresence.ResolveVesselType(committed[kvp.Key].VesselSnapshot)
+                    : VesselType.Ship;
+                Color markerColor = GetGhostMarkerColorForType(vtype);
+                DrawMapMarkerAt(kvp.Value.transform.position, ghostName, markerColor, vtype);
             }
         }
 
@@ -4217,11 +4235,33 @@ namespace Parsek
             ReleaseActionsInputLock();
             ReleaseSettingsInputLock();
             ReleaseSpawnControlInputLock();
-            if (mapMarkerTexture != null)
-                UnityEngine.Object.Destroy(mapMarkerTexture);
+            if (mapMarkerDiamond != null)
+                UnityEngine.Object.Destroy(mapMarkerDiamond);
         }
 
-        private void DrawMapMarkerAt(Vector3 worldPos, string label, Color color)
+        /// <summary>
+        /// Returns the orbit color for a ghost marker by vessel type.
+        /// Matches KSP's own orbit color scheme.
+        /// </summary>
+        private static Color GetGhostMarkerColorForType(VesselType vtype)
+        {
+            switch (vtype)
+            {
+                case VesselType.Ship:    return new Color(0.78f, 0.78f, 0.0f);  // yellow
+                case VesselType.Probe:   return new Color(0.84f, 0.46f, 0.0f);  // orange
+                case VesselType.Relay:   return new Color(0.41f, 0.67f, 0.0f);  // green
+                case VesselType.Rover:   return new Color(0.55f, 0.78f, 0.22f); // lime
+                case VesselType.Station: return new Color(0.0f, 0.63f, 0.90f);  // blue
+                case VesselType.Plane:   return new Color(0.63f, 0.46f, 0.78f); // purple
+                case VesselType.Lander:  return new Color(0.78f, 0.67f, 0.0f);  // gold
+                case VesselType.Base:    return new Color(0.22f, 0.67f, 0.67f); // teal
+                case VesselType.EVA:     return new Color(0.78f, 0.78f, 0.78f); // light grey
+                default:                 return new Color(0.63f, 0.63f, 0.63f); // grey
+            }
+        }
+
+        private void DrawMapMarkerAt(Vector3 worldPos, string label, Color color,
+            VesselType vtype = VesselType.Ship)
         {
             Vector3 screenPos;
             if (MapView.MapIsEnabled)
@@ -4241,34 +4281,54 @@ namespace Parsek
             float x = screenPos.x;
             float y = Screen.height - screenPos.y;
 
-            // Draw marker dot
+            // Draw vessel type icon from KSP atlas (untinted — original icon colors)
             Color prevColor = GUI.color;
-            GUI.color = color;
-            GUI.DrawTexture(new Rect(x - 5, y - 5, 10, 10), mapMarkerTexture);
+            int iconSize = 20;
+            Rect uvRect;
+            if (vesselIconAtlas != null && vesselIconUVs != null
+                && vesselIconUVs.TryGetValue(vtype, out uvRect))
+            {
+                GUI.color = Color.white;
+                GUI.DrawTextureWithTexCoords(
+                    new Rect(x - iconSize / 2, y - iconSize / 2, iconSize, iconSize),
+                    vesselIconAtlas, uvRect);
+            }
+            else
+            {
+                GUI.color = color;
+                GUI.DrawTexture(
+                    new Rect(x - iconSize / 2, y - iconSize / 2, iconSize, iconSize),
+                    mapMarkerDiamond);
+            }
             GUI.color = prevColor;
 
             // Draw vessel name label
             mapMarkerStyle.normal.textColor = color;
-            GUI.Label(new Rect(x - 75, y + 7, 150, 20), label, mapMarkerStyle);
+            GUI.Label(new Rect(x - 75, y + iconSize / 2 + 2, 150, 20), "Ghost: " + label, mapMarkerStyle);
         }
 
         private void EnsureMapMarkerResources()
         {
-            if (mapMarkerTexture == null)
+            // Try to load KSP's stock vessel icon atlas from the MapView prefab
+            if (vesselIconAtlas == null && MapView.fetch != null)
+                InitVesselTypeIcons();
+
+            // Fallback diamond texture (used when atlas unavailable)
+            if (mapMarkerDiamond == null)
             {
-                int size = 10;
-                mapMarkerTexture = new Texture2D(size, size, TextureFormat.ARGB32, false);
+                int size = 16;
+                mapMarkerDiamond = new Texture2D(size, size, TextureFormat.ARGB32, false);
                 float center = size / 2f;
-                float radius = size / 2f - 1f;
+                float halfDiag = size / 2f - 1f;
                 for (int py = 0; py < size; py++)
                 {
                     for (int px = 0; px < size; px++)
                     {
-                        float dist = Mathf.Sqrt((px - center) * (px - center) + (py - center) * (py - center));
-                        mapMarkerTexture.SetPixel(px, py, dist <= radius ? Color.white : Color.clear);
+                        float manhattan = Mathf.Abs(px - center + 0.5f) + Mathf.Abs(py - center + 0.5f);
+                        mapMarkerDiamond.SetPixel(px, py, manhattan <= halfDiag ? Color.white : Color.clear);
                     }
                 }
-                mapMarkerTexture.Apply();
+                mapMarkerDiamond.Apply();
             }
 
             if (mapMarkerStyle == null)
@@ -4278,6 +4338,64 @@ namespace Parsek
                 mapMarkerStyle.fontStyle = FontStyle.Bold;
                 mapMarkerStyle.alignment = TextAnchor.UpperCenter;
             }
+        }
+
+        private static void InitVesselTypeIcons()
+        {
+            vesselIconAtlas = MapView.OrbitIconsMap;
+            if (vesselIconAtlas == null) return;
+
+            var prefab = MapView.UINodePrefab;
+            if (prefab == null) return;
+
+            var fi = typeof(MapNode).GetField("iconSprites",
+                BindingFlags.Instance | BindingFlags.NonPublic);
+            if (fi == null)
+            {
+                ParsekLog.Warn("UI", "InitVesselTypeIcons: iconSprites field not found on MapNode");
+                vesselIconAtlas = null;
+                return;
+            }
+
+            var sprites = fi.GetValue(prefab) as Sprite[];
+            if (sprites == null || sprites.Length == 0)
+            {
+                ParsekLog.Warn("UI", "InitVesselTypeIcons: iconSprites is null or empty");
+                vesselIconAtlas = null;
+                return;
+            }
+
+            // VesselType → sprite index mapping from decompiled MapNode.GetIconIndex.
+            // KSP-version-dependent: indices may change if the atlas is reordered.
+            // Failure is graceful — falls back to diamond texture.
+            var mapping = new Dictionary<VesselType, int>
+            {
+                { VesselType.Ship,        20 }, { VesselType.Probe,    18 },
+                { VesselType.Rover,       19 }, { VesselType.Station,   0 },
+                { VesselType.Plane,       23 }, { VesselType.Lander,   14 },
+                { VesselType.Base,         5 }, { VesselType.EVA,      13 },
+                { VesselType.Relay,       24 }, { VesselType.Debris,    7 },
+                { VesselType.SpaceObject, 21 },
+            };
+
+            float atlasW = vesselIconAtlas.width;
+            float atlasH = vesselIconAtlas.height;
+            vesselIconUVs = new Dictionary<VesselType, Rect>();
+
+            foreach (var kvp in mapping)
+            {
+                if (kvp.Value < sprites.Length && sprites[kvp.Value] != null)
+                {
+                    Rect texRect = sprites[kvp.Value].textureRect;
+                    vesselIconUVs[kvp.Key] = new Rect(
+                        texRect.x / atlasW, texRect.y / atlasH,
+                        texRect.width / atlasW, texRect.height / atlasH);
+                }
+            }
+
+            ParsekLog.Info("UI",
+                $"InitVesselTypeIcons: loaded {vesselIconUVs.Count} vessel type icons from atlas " +
+                $"({atlasW}x{atlasH}, {sprites.Length} sprites)");
         }
 
         /// <summary>

@@ -892,5 +892,123 @@ namespace Parsek.Tests
         }
 
         #endregion
+
+        #region State-vector orbit thresholds
+
+        [Theory]
+        [InlineData(2000, 100, 0, true)]       // Airless body, above thresholds
+        [InlineData(1500.1, 60.1, 0, true)]    // Airless, just above thresholds
+        [InlineData(1500, 60, 0, false)]       // Airless, at thresholds (not above)
+        [InlineData(1000, 100, 0, false)]      // Airless, below altitude threshold
+        [InlineData(2000, 50, 0, false)]       // Airless, below speed threshold
+        [InlineData(0, 0, 0, false)]           // On the ground
+        [InlineData(80000, 2000, 70000, true)] // Kerbin, above atmosphere (70km)
+        [InlineData(60000, 2000, 70000, false)]// Kerbin, IN atmosphere — rejected
+        [InlineData(71000, 60.1, 70000, true)] // Kerbin, just above atmosphere
+        public void ShouldCreateStateVectorOrbit_ThresholdBehavior(double alt, double speed, double atmos, bool expected)
+        {
+            Assert.Equal(expected, ParsekPlaybackPolicy.ShouldCreateStateVectorOrbit(alt, speed, atmos));
+        }
+
+        [Theory]
+        [InlineData(100, 10, 0, true)]         // Airless, below both thresholds
+        [InlineData(499, 100, 0, true)]        // Airless, below altitude (OR logic)
+        [InlineData(2000, 29, 0, true)]        // Airless, below speed (OR logic)
+        [InlineData(500, 30, 0, false)]        // Airless, at thresholds (not below)
+        [InlineData(1000, 60, 0, false)]       // Airless, above both removal thresholds
+        [InlineData(60000, 2000, 70000, true)] // Kerbin, IN atmosphere — immediate remove
+        [InlineData(80000, 2000, 70000, false)]// Kerbin, above atmosphere — keep
+        public void ShouldRemoveStateVectorOrbit_ThresholdBehavior(double alt, double speed, double atmos, bool expected)
+        {
+            Assert.Equal(expected, ParsekPlaybackPolicy.ShouldRemoveStateVectorOrbit(alt, speed, atmos));
+        }
+
+        [Fact]
+        public void StateVectorThresholds_HysteresisGap_AirlessBody()
+        {
+            // Airless body: vessel at 1000m and 50 m/s — in hysteresis dead zone
+            Assert.False(ParsekPlaybackPolicy.ShouldCreateStateVectorOrbit(1000, 50, 0));
+            Assert.False(ParsekPlaybackPolicy.ShouldRemoveStateVectorOrbit(1000, 50, 0));
+        }
+
+        [Fact]
+        public void StateVectorThresholds_AtmosphereOverridesAltitude()
+        {
+            // At 50km on Kerbin (atmos=70km): high speed, but IN atmosphere → no create
+            Assert.False(ParsekPlaybackPolicy.ShouldCreateStateVectorOrbit(50000, 2000, 70000));
+            // Same point triggers removal
+            Assert.True(ParsekPlaybackPolicy.ShouldRemoveStateVectorOrbit(50000, 2000, 70000));
+        }
+
+        #endregion
+
+        #region RELATIVE frame guard
+
+        [Fact]
+        public void IsInRelativeFrame_NullTrackSections_ReturnsFalse()
+        {
+            var traj = new Recording { TrackSections = null };
+            Assert.False(ParsekPlaybackPolicy.IsInRelativeFrame(traj, 100));
+        }
+
+        [Fact]
+        public void IsInRelativeFrame_EmptyTrackSections_ReturnsFalse()
+        {
+            var traj = new Recording { TrackSections = new List<TrackSection>() };
+            Assert.False(ParsekPlaybackPolicy.IsInRelativeFrame(traj, 100));
+        }
+
+        [Fact]
+        public void IsInRelativeFrame_AbsoluteSection_ReturnsFalse()
+        {
+            var traj = new Recording
+            {
+                TrackSections = new List<TrackSection>
+                {
+                    new TrackSection
+                    {
+                        referenceFrame = ReferenceFrame.Absolute,
+                        startUT = 50, endUT = 200
+                    }
+                }
+            };
+            Assert.False(ParsekPlaybackPolicy.IsInRelativeFrame(traj, 100));
+        }
+
+        [Fact]
+        public void IsInRelativeFrame_RelativeSection_ReturnsTrue()
+        {
+            var traj = new Recording
+            {
+                TrackSections = new List<TrackSection>
+                {
+                    new TrackSection
+                    {
+                        referenceFrame = ReferenceFrame.Relative,
+                        startUT = 50, endUT = 200
+                    }
+                }
+            };
+            Assert.True(ParsekPlaybackPolicy.IsInRelativeFrame(traj, 100));
+        }
+
+        [Fact]
+        public void IsInRelativeFrame_UTOutsideSection_ReturnsFalse()
+        {
+            var traj = new Recording
+            {
+                TrackSections = new List<TrackSection>
+                {
+                    new TrackSection
+                    {
+                        referenceFrame = ReferenceFrame.Relative,
+                        startUT = 50, endUT = 200
+                    }
+                }
+            };
+            Assert.False(ParsekPlaybackPolicy.IsInRelativeFrame(traj, 300));
+        }
+
+        #endregion
     }
 }

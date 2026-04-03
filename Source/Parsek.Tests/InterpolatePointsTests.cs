@@ -488,5 +488,111 @@ namespace Parsek.Tests
         }
 
         #endregion
+
+        #region BracketPointAtUT
+
+        [Fact]
+        public void BracketPointAtUT_EmptyList_ReturnsNull()
+        {
+            var points = new List<TrajectoryPoint>();
+            int cached = -1;
+            Assert.Null(TrajectoryMath.BracketPointAtUT(points, 100, ref cached));
+        }
+
+        [Fact]
+        public void BracketPointAtUT_NullList_ReturnsNull()
+        {
+            int cached = -1;
+            Assert.Null(TrajectoryMath.BracketPointAtUT(null, 100, ref cached));
+        }
+
+        [Fact]
+        public void BracketPointAtUT_BeforeStart_ReturnsNull()
+        {
+            var points = new List<TrajectoryPoint>
+            {
+                MakePoint(100, alt: 500),
+                MakePoint(200, alt: 1000)
+            };
+            int cached = -1;
+            Assert.Null(TrajectoryMath.BracketPointAtUT(points, 50, ref cached));
+        }
+
+        [Fact]
+        public void BracketPointAtUT_MidRange_ReturnsBracketPoint()
+        {
+            var points = new List<TrajectoryPoint>
+            {
+                MakePoint(100, alt: 500),
+                MakePoint(200, alt: 1000),
+                MakePoint(300, alt: 1500)
+            };
+            int cached = -1;
+            var result = TrajectoryMath.BracketPointAtUT(points, 150, ref cached);
+            Assert.NotNull(result);
+            // Returns the lower bracket point (ut=100, alt=500)
+            Assert.Equal(100.0, result.Value.ut);
+            Assert.Equal(500.0, result.Value.altitude);
+        }
+
+        [Fact]
+        public void BracketPointAtUT_ExactPoint_ReturnsThatPoint()
+        {
+            var points = new List<TrajectoryPoint>
+            {
+                MakePoint(100, alt: 500),
+                MakePoint(200, alt: 1000),
+                MakePoint(300, alt: 1500)
+            };
+            int cached = -1;
+            var result = TrajectoryMath.BracketPointAtUT(points, 200, ref cached);
+            Assert.NotNull(result);
+            Assert.Equal(200.0, result.Value.ut);
+            Assert.Equal(1000.0, result.Value.altitude);
+        }
+
+        [Fact]
+        public void BracketPointAtUT_PastEnd_ReturnsLastPoint()
+        {
+            var points = new List<TrajectoryPoint>
+            {
+                MakePoint(100, alt: 500),
+                MakePoint(200, alt: 1000)
+            };
+            int cached = -1;
+            var result = TrajectoryMath.BracketPointAtUT(points, 999, ref cached);
+            Assert.NotNull(result);
+            // Past end: t >= 1, returns upper bracket (last point)
+            Assert.Equal(200.0, result.Value.ut);
+            Assert.Equal(1000.0, result.Value.altitude);
+        }
+
+        [Fact]
+        public void BracketPointAtUT_SinglePoint_ReturnsNull()
+        {
+            // Single point → FindWaypointIndex returns -1 (needs at least 2 points)
+            var points = new List<TrajectoryPoint>
+            {
+                MakePoint(100, alt: 500)
+            };
+            int cached = -1;
+            Assert.Null(TrajectoryMath.BracketPointAtUT(points, 100, ref cached));
+        }
+
+        [Fact]
+        public void BracketPointAtUT_PreservesBodyName()
+        {
+            var points = new List<TrajectoryPoint>
+            {
+                new TrajectoryPoint { ut = 100, altitude = 500, bodyName = "Mun", rotation = Quaternion.identity },
+                new TrajectoryPoint { ut = 200, altitude = 1000, bodyName = "Mun", rotation = Quaternion.identity }
+            };
+            int cached = -1;
+            var result = TrajectoryMath.BracketPointAtUT(points, 150, ref cached);
+            Assert.NotNull(result);
+            Assert.Equal("Mun", result.Value.bodyName);
+        }
+
+        #endregion
     }
 }

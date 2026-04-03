@@ -247,11 +247,17 @@ Ghost orbit lines look identical to real vessel orbit lines. Should have a disti
 
 **Priority:** Low — cosmetic, functional without it
 
-### T41. Ghost orbit line persists during non-orbital playback phases
+### T41. Ghost orbit line for suborbital recordings
 
-When a recording-index ghost exits an orbital segment (e.g., atmospheric re-entry), the ghost map ProtoVessel's orbit line remains at the last segment's orbit. It should either disappear during non-orbital phases or be removed and re-created when the ghost re-enters an orbital segment.
+Suborbital recordings were excluded from ghost map presence — no orbit line during playback. Now relaxed: HandleGhostCreated allows SubOrbital terminal state through. Two paths: (1) recordings with orbit segments use the existing deferred mechanism, (2) physics-only recordings construct the orbit from interpolated state vectors when altitude > 1500m and speed > 60 m/s. Hysteresis thresholds (remove at alt < 500m or speed < 30 m/s) prevent create/destroy churn. RELATIVE-frame recordings are guarded against. Tracking station still excludes SubOrbital.
 
-**Priority:** Low — minor visual inconsistency, ghost mesh shows correct position
+**Status:** Fixed (0.6.0)
+
+### T41b. Skip orbit segment recording during in-atmosphere on-rails
+
+When the player time-warps during atmospheric reentry, KSP puts the vessel on-rails and the recorder creates an orbit segment with Keplerian elements (no drag). During playback, the ghost follows this dragless arc instead of the real trajectory. Surface clamp (PR #113) prevents underground tunneling, but the position is approximate. Fix: in FlightRecorder's `onVesselGoOnRails` handler, check `v.mainBody.atmosphere && v.altitude < v.mainBody.atmosphereDepth` — if below atmosphere, skip orbit segment creation. Point interpolation will lerp across the gap during playback.
+
+**Priority:** Medium — affects any recording where the player warped through atmospheric flight
 
 ### T42. Convert KerbalsModule to IResourceModule
 
@@ -2414,6 +2420,14 @@ When a vessel goes on-rails (time warp) during atmospheric flight — typically 
 **Root cause:** `OnVesselGoOnRails` and `InitializeOnRailsState` had a surface-vessel guard (LANDED/SPLASHED/PRELAUNCH) but no atmosphere guard. Any vessel with `situation=FLYING` or `SUB_ORBITAL` below `atmosphereDepth` would get an orbit segment.
 
 **Status:** Fixed (0.6.0, PR #116) — added `ShouldSkipOrbitSegmentForAtmosphere` check in FlightRecorder (`OnVesselGoOnRails` + `StartRecording` on-rails init) and BackgroundRecorder (`InitializeOnRailsState`). When below atmosphere, orbit segment creation is skipped. Point interpolation lerps across the gap, which is visually correct. No physics frame samples during on-rails (PhysicsFramePatch only fires for unpacked vessels), so the gap is expected.
+
+## 211. Ghost ProtoVessel destroyed by on-rails atmospheric pressure (planet disappears)
+
+KSP's `Vessel.CheckKill()` destroys on-rails vessels at > 1 kPa atmospheric pressure. Ghost ProtoVessels with deorbit orbits (periapsis below surface) pass through the atmosphere, triggering this check. If the `PlanetariumCamera` was focused on the ghost, `Die()` nulled the camera target → cascade of 174K+ NullReferenceExceptions in `ScaledSpaceFader`, `AtmosphereFromGround`, `Sun.LateUpdate` → planet rendering broke, game became unresponsive, exit screen stuck.
+
+**Root cause:** Ghost ProtoVessels were not protected against `Vessel.CheckKill()`. The existing `GhostVesselLoadPatch` prevented `GoOffRails` but not the separate pressure destruction path.
+
+**Status:** Fixed (0.6.0, PR #113) — new `GhostCheckKillPatch` Harmony prefix on `Vessel.CheckKill` returns false for ghost vessels, skipping the pressure check entirely.
 
 # In-Game Tests
 

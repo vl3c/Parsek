@@ -6,6 +6,15 @@ All notable changes to Parsek are documented here.
 
 ## 0.6.0
 
+### Ghost Playback
+
+- **Suborbital orbit line (T41).** Ghost orbit lines are now visible during suborbital coasting phases. Recordings with orbit segments show the ballistic arc when the ghost enters a coast phase; pure-physics recordings (no time warp) construct the orbit from interpolated state vectors once above the atmosphere. Orbit line is atmosphere-aware: hidden below `body.atmosphereDepth` (70km on Kerbin) to avoid wild/flickering lines from atmospheric drag. On airless bodies, orbit line appears above 1500m. Hysteresis thresholds prevent flicker. Tracking station orbit lines remain restricted to stable orbital recordings.
+- **Ghost orbit line suppression (Harmony).** New `GhostOrbitLinePatch` postfix on `OrbitRendererBase.LateUpdate` hides the orbit line for ghost ProtoVessels below atmosphere while keeping the native KSP map icon visible. Also hides Ap/Pe/AN/DN markers when orbit line is hidden.
+- **Debris map markers hidden.** Debris ghost recordings no longer show green dot markers in map view.
+- **Stock vessel type icons for ghost markers.** Ghost map markers now use KSP's actual vessel type icons (Ship, Probe, Rover, Station, Plane, etc.) from the orbit icon atlas instead of a plain green dot. Icons are color-tinted per vessel type. Falls back to a diamond shape before MapView initialization.
+- **Ghost ProtoVessel pressure protection.** New `GhostCheckKillPatch` prevents KSP from destroying ghost ProtoVessels due to on-rails atmospheric pressure. Deorbit orbits pass through the atmosphere, triggering KSP's stock vessel destruction — if the map camera was focused on the ghost, this caused a NullRef cascade that broke scaled space rendering (planet disappeared, stuck exit).
+- **Ghost surface clamp.** Ghost mesh clamped to body surface when Keplerian orbit goes underground (deorbit orbits with sub-surface periapsis). Prevents ghost tunneling through the planet during orbit-only recording sections.
+
 ### Format Reset
 
 - **Recording format reset to version 0 (PR #114).** Clean break: reset `CurrentRecordingFormatVersion` from 7 to 0. Removed all legacy format migration code (v4→v5 rotation conversion, `SyncVersionFromPrecFile`, `CorrectForBodyRotation`), the `surfaceRelativeRotation` version-branching (all rotation is now unconditionally surface-relative), ghost geometry legacy fields (`GhostGeometryVersion`, `GhostGeometryCaptureStrategy`, `GhostGeometryProbeStatus`), and the `loopPauseSeconds` field-rename fallback. -500 lines. No behavioral change — all removed code paths were already dead (no users with old-format recordings exist).

@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using UnityEngine;
 
 namespace Parsek
@@ -393,6 +394,29 @@ namespace Parsek
         private readonly Dictionary<int, (string body, double sma, double ecc)> lastMapOrbitByIndex =
             new Dictionary<int, (string body, double sma, double ecc)>();
 
+        /// <summary>
+        /// State-vector orbit tracking: recording indices with physics-only suborbital
+        /// orbit lines (no orbit segments). Maps index → trajectory for re-defer.
+        /// </summary>
+        private readonly Dictionary<int, IPlaybackTrajectory> stateVectorOrbitTrajectories =
+            new Dictionary<int, IPlaybackTrajectory>();
+
+        /// <summary>
+        /// Per-recording cached waypoint indices for InterpolateAtUT calls (avoids
+        /// O(n) scan on every 0.5s orbit update).
+        /// </summary>
+        private readonly Dictionary<int, int> stateVectorCachedIndices =
+            new Dictionary<int, int>();
+
+        // Hysteresis thresholds for state-vector orbit creation/removal.
+        // Higher thresholds to create, lower to remove — prevents churn for borderline altitudes.
+        // On bodies with atmosphere, the atmosphere depth overrides these (orbit lines are
+        // only meaningful in vacuum — atmospheric drag makes the Keplerian approximation wild).
+        internal const double StateVectorCreateAltitude = 1500;   // meters (airless bodies only)
+        internal const double StateVectorCreateSpeed = 60;        // m/s
+        internal const double StateVectorRemoveAltitude = 500;    // meters (airless bodies only)
+        internal const double StateVectorRemoveSpeed = 30;        // m/s
+
         private void HandleGhostCreated(GhostLifecycleEvent evt)
         {
             if (evt.Trajectory == null || evt.Trajectory.IsDebris)
@@ -403,22 +427,26 @@ namespace Parsek
                 return;
             }
 
-            // Skip recordings with non-orbital terminal states (Destroyed, SubOrbital, Landed, etc.)
-            // but allow: terminal=null (intermediate chain segments), Orbiting, Docked.
+            // Skip recordings with non-orbital terminal states (Destroyed, Landed, etc.)
+            // but allow: terminal=null (intermediate chain segments), Orbiting, Docked,
+            // SubOrbital (ballistic arc orbit line during coast phases).
             var terminal = evt.Trajectory.TerminalStateValue;
             if (terminal.HasValue
                 && terminal.Value != TerminalState.Orbiting
-                && terminal.Value != TerminalState.Docked)
+                && terminal.Value != TerminalState.Docked
+                && terminal.Value != TerminalState.SubOrbital)
             {
                 ParsekLog.VerboseRateLimited("Policy", $"skip-map-terminal-{evt.Index}",
                     $"Skipped ghost map for #{evt.Index} \"{evt.Trajectory.VesselName}\" — terminal={terminal.Value}");
                 return;
             }
 
-            // Accept recordings with terminal orbit data OR orbit segments (intermediate
-            // chain segments have no terminal orbit but do have orbit segments from on-rails periods)
-            if (!GhostMapPresence.HasOrbitData(evt.Trajectory)
-                && (evt.Trajectory.OrbitSegments == null || evt.Trajectory.OrbitSegments.Count == 0))
+            // Accept recordings with terminal orbit data, orbit segments, or trajectory
+            // points (physics-only suborbital recordings have points but no orbit data).
+            bool hasOrbitData = GhostMapPresence.HasOrbitData(evt.Trajectory);
+            bool hasOrbitSegments = evt.Trajectory.OrbitSegments != null && evt.Trajectory.OrbitSegments.Count > 0;
+            bool hasPoints = evt.Trajectory.Points != null && evt.Trajectory.Points.Count > 0;
+            if (!hasOrbitData && !hasOrbitSegments && !hasPoints)
                 return;
 
             // Check if the ghost starts in an orbital segment (orbit-only recording
@@ -444,47 +472,128 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Per-frame check for ghost map ProtoVessels. Handles two responsibilities:
+        /// Pure: should we create a state-vector orbit ProtoVessel at this altitude/speed?
+        /// On bodies with atmosphere, requires altitude above atmosphere (Keplerian orbits
+        /// are meaningless during atmospheric flight — drag makes them wild/flickering).
+        /// On airless bodies, uses the fixed altitude threshold.
+        /// </summary>
+        internal static bool ShouldCreateStateVectorOrbit(double altitude, double speed, double atmosphereDepth)
+        {
+            double minAltitude = atmosphereDepth > 0 ? atmosphereDepth : StateVectorCreateAltitude;
+            return altitude > minAltitude && speed > StateVectorCreateSpeed;
+        }
+
+        /// <summary>
+        /// Pure: should we remove a state-vector orbit ProtoVessel at this altitude/speed?
+        /// On bodies with atmosphere, removes immediately when descending into atmosphere.
+        /// On airless bodies, uses lower hysteresis thresholds.
+        /// </summary>
+        internal static bool ShouldRemoveStateVectorOrbit(double altitude, double speed, double atmosphereDepth)
+        {
+            if (atmosphereDepth > 0 && altitude < atmosphereDepth)
+                return true;
+            return altitude < StateVectorRemoveAltitude || speed < StateVectorRemoveSpeed;
+        }
+
+        /// <summary>
+        /// Look up atmosphere depth for a body by name. Returns 0 for airless bodies or if
+        /// FlightGlobals is unavailable (test environment).
+        /// </summary>
+        internal static double GetAtmosphereDepth(string bodyName)
+        {
+            var bodies = FlightGlobals.Bodies;
+            if (bodies == null) return 0;
+            for (int i = 0; i < bodies.Count; i++)
+            {
+                if (bodies[i].name == bodyName && bodies[i].atmosphere)
+                    return bodies[i].atmosphereDepth;
+            }
+            return 0;
+        }
+
+        /// <summary>
+        /// Pure: is the recording in a RELATIVE reference frame at the given UT?
+        /// RELATIVE frames store dx/dy/dz offsets, not lat/lon/alt — state-vector
+        /// orbit construction would produce nonsense.
+        /// </summary>
+        internal static bool IsInRelativeFrame(IPlaybackTrajectory traj, double ut)
+        {
+            if (traj.TrackSections == null || traj.TrackSections.Count == 0)
+                return false;
+            int sectionIdx = TrajectoryMath.FindTrackSectionForUT(traj.TrackSections, ut);
+            return sectionIdx >= 0
+                && traj.TrackSections[sectionIdx].referenceFrame == ReferenceFrame.Relative;
+        }
+
+        /// <summary>
+        /// Per-frame check for ghost map ProtoVessels. Handles three responsibilities:
         /// 1. Creates deferred ProtoVessels when ghosts enter their first orbital segment
-        /// 2. Updates existing ProtoVessel orbits when ghosts traverse segment boundaries
+        /// 2. Creates state-vector orbit ProtoVessels for physics-only suborbital recordings
+        /// 3. Updates existing ProtoVessel orbits (segment-based and state-vector-based)
         /// </summary>
         internal void CheckPendingMapVessels(double currentUT)
         {
             // 1. Create deferred ProtoVessels for ghosts that just entered an orbital segment
+            //    OR for physics-only recordings that crossed the state-vector threshold.
             if (pendingMapVessels.Count > 0)
             {
-                // Capture index + segment together to avoid a second FindOrbitSegment call
-                List<KeyValuePair<int, OrbitSegment>> toCreate = null;
+                List<KeyValuePair<int, OrbitSegment>> toCreateFromSegment = null;
+                List<KeyValuePair<int, TrajectoryPoint>> toCreateFromStateVectors = null;
+
                 foreach (var kvp in pendingMapVessels)
                 {
-                    OrbitSegment? seg = TrajectoryMath.FindOrbitSegment(kvp.Value.OrbitSegments, currentUT);
+                    int idx = kvp.Key;
+                    IPlaybackTrajectory traj = kvp.Value;
+
+                    // Path A: orbit-segment-based (existing)
+                    OrbitSegment? seg = TrajectoryMath.FindOrbitSegment(traj.OrbitSegments, currentUT);
                     if (seg.HasValue)
                     {
-                        if (toCreate == null) toCreate = new List<KeyValuePair<int, OrbitSegment>>();
-                        toCreate.Add(new KeyValuePair<int, OrbitSegment>(kvp.Key, seg.Value));
+                        if (toCreateFromSegment == null)
+                            toCreateFromSegment = new List<KeyValuePair<int, OrbitSegment>>();
+                        toCreateFromSegment.Add(new KeyValuePair<int, OrbitSegment>(idx, seg.Value));
+                        continue;
+                    }
+
+                    // Path B: state-vector-based (new — physics-only suborbital)
+                    if (traj.OrbitSegments == null || traj.OrbitSegments.Count == 0)
+                    {
+                        if (traj.Points == null || traj.Points.Count == 0) continue;
+                        if (IsInRelativeFrame(traj, currentUT)) continue;
+
+                        if (!stateVectorCachedIndices.ContainsKey(idx))
+                            stateVectorCachedIndices[idx] = -1;
+                        int cached = stateVectorCachedIndices[idx];
+                        TrajectoryPoint? pt = TrajectoryMath.BracketPointAtUT(traj.Points, currentUT, ref cached);
+                        stateVectorCachedIndices[idx] = cached;
+
+                        double atmosCreate = pt.HasValue ? GetAtmosphereDepth(pt.Value.bodyName) : 0;
+                        if (pt.HasValue && ShouldCreateStateVectorOrbit(pt.Value.altitude, pt.Value.velocity.magnitude, atmosCreate))
+                        {
+                            if (toCreateFromStateVectors == null)
+                                toCreateFromStateVectors = new List<KeyValuePair<int, TrajectoryPoint>>();
+                            toCreateFromStateVectors.Add(new KeyValuePair<int, TrajectoryPoint>(idx, pt.Value));
+                        }
                     }
                 }
 
-                if (toCreate != null)
+                // Apply segment-based creations
+                if (toCreateFromSegment != null)
                 {
-                    for (int i = 0; i < toCreate.Count; i++)
+                    for (int i = 0; i < toCreateFromSegment.Count; i++)
                     {
-                        int idx = toCreate[i].Key;
-                        OrbitSegment initialSeg = toCreate[i].Value;
+                        int idx = toCreateFromSegment[i].Key;
+                        OrbitSegment initialSeg = toCreateFromSegment[i].Value;
                         if (pendingMapVessels.TryGetValue(idx, out var traj))
                         {
-                            // Use terminal orbit if available, otherwise create from segment
-                            // (intermediate chain segments have orbit segments but no terminal orbit)
                             Vessel ghost = GhostMapPresence.HasOrbitData(traj)
                                 ? GhostMapPresence.CreateGhostVesselForRecording(idx, traj)
                                 : GhostMapPresence.CreateGhostVesselFromSegment(idx, traj, initialSeg);
                             pendingMapVessels.Remove(idx);
 
-                            // Update to the triggering segment's orbit (may differ from terminal)
                             if (ghost != null)
                                 GhostMapPresence.UpdateGhostOrbitForRecording(idx, initialSeg);
 
-                            // Seed segment tracking from the already-found segment (no second lookup)
                             lastMapOrbitByIndex[idx] = (initialSeg.bodyName, initialSeg.semiMajorAxis, initialSeg.eccentricity);
 
                             ParsekLog.Info("Policy",
@@ -493,17 +602,36 @@ namespace Parsek
                         }
                     }
                 }
+
+                // Apply state-vector-based creations
+                if (toCreateFromStateVectors != null)
+                {
+                    for (int i = 0; i < toCreateFromStateVectors.Count; i++)
+                    {
+                        int idx = toCreateFromStateVectors[i].Key;
+                        TrajectoryPoint pt = toCreateFromStateVectors[i].Value;
+                        if (pendingMapVessels.TryGetValue(idx, out var traj))
+                        {
+                            Vessel ghost = GhostMapPresence.CreateGhostVesselFromStateVectors(idx, traj, pt, currentUT);
+                            pendingMapVessels.Remove(idx);
+                            stateVectorOrbitTrajectories[idx] = traj;
+
+                            ParsekLog.Info("Policy", string.Format(CultureInfo.InvariantCulture,
+                                "Created state-vector ghost map vessel for #{0} \"{1}\" — alt={2:F0} speed={3:F1}",
+                                idx, traj.VesselName, pt.altitude, pt.velocity.magnitude));
+                        }
+                    }
+                }
             }
 
-            // 2. Update orbits for existing recording-index ProtoVessels when segment changes.
-            // Rate-limited: orbit segment boundaries are infrequent, no need to scan per-frame.
+            // 2. Rate-limited orbit updates for existing ProtoVessels.
             if (UnityEngine.Time.time < nextMapOrbitUpdateTime) return;
             nextMapOrbitUpdateTime = UnityEngine.Time.time + MapOrbitUpdateIntervalSec;
 
             var committed = RecordingStore.CommittedRecordings;
             if (committed == null) return;
 
-            // Collect updates to apply after iteration (cannot modify dict during foreach)
+            // 2a. Segment-based orbit updates (existing)
             List<KeyValuePair<int, (string body, double sma, double ecc)>> orbitUpdates = null;
 
             foreach (var kvp in lastMapOrbitByIndex)
@@ -517,9 +645,6 @@ namespace Parsek
                 OrbitSegment? seg = TrajectoryMath.FindOrbitSegment(rec.OrbitSegments, currentUT);
                 if (!seg.HasValue) continue;
 
-                // Exact equality is intentional: stored segment values don't drift.
-                // A change means a different OrbitSegment, not floating-point accumulation.
-                // Includes eccentricity to catch inclination-change maneuvers at constant SMA.
                 if (seg.Value.bodyName == kvp.Value.body
                     && seg.Value.semiMajorAxis == kvp.Value.sma
                     && seg.Value.eccentricity == kvp.Value.ecc)
@@ -537,7 +662,52 @@ namespace Parsek
                     lastMapOrbitByIndex[orbitUpdates[i].Key] = orbitUpdates[i].Value;
             }
 
+            // 2b. State-vector orbit updates (new — physics-only suborbital)
+            if (stateVectorOrbitTrajectories.Count > 0)
+            {
+                List<int> toReDefer = null;
 
+                foreach (var kvp in stateVectorOrbitTrajectories)
+                {
+                    int idx = kvp.Key;
+                    IPlaybackTrajectory traj = kvp.Value;
+
+                    if (!stateVectorCachedIndices.ContainsKey(idx))
+                        stateVectorCachedIndices[idx] = -1;
+                    int cached = stateVectorCachedIndices[idx];
+                    TrajectoryPoint? pt = TrajectoryMath.BracketPointAtUT(traj.Points, currentUT, ref cached);
+                    stateVectorCachedIndices[idx] = cached;
+
+                    if (!pt.HasValue) continue;
+
+                    double atmosRemove = GetAtmosphereDepth(pt.Value.bodyName);
+                    if (ShouldRemoveStateVectorOrbit(pt.Value.altitude, pt.Value.velocity.magnitude, atmosRemove))
+                    {
+                        GhostMapPresence.RemoveGhostVesselForRecording(idx, "below-state-vector-threshold");
+                        if (toReDefer == null) toReDefer = new List<int>();
+                        toReDefer.Add(idx);
+                        ParsekLog.Info("Policy", string.Format(CultureInfo.InvariantCulture,
+                            "Removed state-vector ghost map vessel for #{0} — alt={1:F0} speed={2:F1} below threshold",
+                            idx, pt.Value.altitude, pt.Value.velocity.magnitude));
+                        continue;
+                    }
+
+                    GhostMapPresence.UpdateGhostOrbitFromStateVectors(idx, pt.Value, currentUT);
+                }
+
+                if (toReDefer != null)
+                {
+                    for (int i = 0; i < toReDefer.Count; i++)
+                    {
+                        int idx = toReDefer[i];
+                        if (stateVectorOrbitTrajectories.TryGetValue(idx, out var traj))
+                            pendingMapVessels[idx] = traj;
+                        stateVectorOrbitTrajectories.Remove(idx);
+                        // stateVectorCachedIndices[idx] intentionally kept — avoids
+                        // O(n) re-scan if the ghost re-ascends above threshold.
+                    }
+                }
+            }
         }
 
         /// <summary>
@@ -565,6 +735,8 @@ namespace Parsek
             heldGhosts.Remove(evt.Index);
             pendingMapVessels.Remove(evt.Index);
             lastMapOrbitByIndex.Remove(evt.Index);
+            stateVectorOrbitTrajectories.Remove(evt.Index);
+            stateVectorCachedIndices.Remove(evt.Index);
 
             // Remove both recording-index and chain-based ghost map ProtoVessels
             var committed = RecordingStore.CommittedRecordings;
@@ -596,6 +768,8 @@ namespace Parsek
             heldGhosts.Clear();
             pendingMapVessels.Clear();
             lastMapOrbitByIndex.Clear();
+            stateVectorOrbitTrajectories.Clear();
+            stateVectorCachedIndices.Clear();
         }
 
         /// <summary>
@@ -612,6 +786,8 @@ namespace Parsek
             heldGhosts.Clear();
             pendingMapVessels.Clear();
             lastMapOrbitByIndex.Clear();
+            stateVectorOrbitTrajectories.Clear();
+            stateVectorCachedIndices.Clear();
             ParsekLog.Info("Policy", "ParsekPlaybackPolicy disposed and unsubscribed from 6 engine events");
         }
     }
