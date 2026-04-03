@@ -4213,10 +4213,10 @@ namespace Parsek
                 }
 
                 string ghostName = kvp.Key < committed.Count ? committed[kvp.Key].VesselName : "Ghost";
-                Color markerColor = GetGhostMarkerColor(kvp.Key, committed);
                 VesselType vtype = kvp.Key < committed.Count
                     ? GhostMapPresence.ResolveVesselType(committed[kvp.Key].VesselSnapshot)
                     : VesselType.Ship;
+                Color markerColor = GetGhostMarkerColorForType(vtype);
                 DrawMapMarkerAt(kvp.Value.transform.position, ghostName, markerColor, vtype);
             }
         }
@@ -4240,15 +4240,11 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Returns the orbit color for a ghost marker based on vessel type from the
-        /// recording snapshot. Matches KSP's own orbit color scheme.
+        /// Returns the orbit color for a ghost marker by vessel type.
+        /// Matches KSP's own orbit color scheme.
         /// </summary>
-        private static Color GetGhostMarkerColor(int index, System.Collections.Generic.IReadOnlyList<Recording> committed)
+        private static Color GetGhostMarkerColorForType(VesselType vtype)
         {
-            if (index < 0 || index >= committed.Count)
-                return new Color(0.63f, 0.63f, 0.63f); // grey fallback
-
-            VesselType vtype = GhostMapPresence.ResolveVesselType(committed[index].VesselSnapshot);
             switch (vtype)
             {
                 case VesselType.Ship:    return new Color(0.78f, 0.78f, 0.0f);  // yellow
@@ -4369,7 +4365,9 @@ namespace Parsek
                 return;
             }
 
-            // VesselType → sprite index mapping from decompiled MapNode.GetIconIndex
+            // VesselType → sprite index mapping from decompiled MapNode.GetIconIndex.
+            // KSP-version-dependent: indices may change if the atlas is reordered.
+            // Failure is graceful — falls back to diamond texture.
             var mapping = new Dictionary<VesselType, int>
             {
                 { VesselType.Ship,        20 }, { VesselType.Probe,    18 },

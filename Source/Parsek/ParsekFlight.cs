@@ -7805,18 +7805,15 @@ namespace Parsek
             Vector3d worldPos = orbit.getPositionAtUT(ut);
 
             // Surface clamp: if the Keplerian orbit goes underground (e.g., deorbit
-            // orbit with periapsis below surface), clamp to surface altitude. Prevents
-            // the ghost mesh from tunneling through the planet during atmospheric
-            // portions of orbit-only recording sections where no trajectory points exist.
-            if (body.atmosphere)
+            // orbit with periapsis below surface, or impact trajectory on airless body),
+            // clamp to surface altitude. Prevents the ghost mesh from tunneling through
+            // the planet during orbit-only recording sections where no trajectory points exist.
+            double orbitAlt = body.GetAltitude(worldPos);
+            if (orbitAlt < 0)
             {
-                double orbitAlt = body.GetAltitude(worldPos);
-                if (orbitAlt < 0)
-                {
-                    double lat = body.GetLatitude(worldPos);
-                    double lon = body.GetLongitude(worldPos);
-                    worldPos = body.GetWorldSurfacePosition(lat, lon, 0);
-                }
+                double lat = body.GetLatitude(worldPos);
+                double lon = body.GetLongitude(worldPos);
+                worldPos = body.GetWorldSurfacePosition(lat, lon, 0);
             }
 
             ghost.transform.position = worldPos;
