@@ -8,7 +8,9 @@ All notable changes to Parsek are documented here.
 
 ### Ghost Playback
 
-- **Suborbital orbit line (T41).** Ghost orbit lines are now visible during suborbital coasting phases. Recordings with orbit segments show the ballistic arc when the ghost enters a coast phase; pure-physics recordings (no time warp) construct the orbit from interpolated state vectors once above 1500m altitude and 60 m/s. Hysteresis thresholds prevent orbit line flicker near threshold boundaries. Tracking station orbit lines remain restricted to stable orbital recordings.
+- **Suborbital orbit line (T41).** Ghost orbit lines are now visible during suborbital coasting phases. Recordings with orbit segments show the ballistic arc when the ghost enters a coast phase; pure-physics recordings (no time warp) construct the orbit from interpolated state vectors once above the atmosphere. Orbit line is atmosphere-aware: hidden below `body.atmosphereDepth` (70km on Kerbin) to avoid wild/flickering lines from atmospheric drag. On airless bodies, orbit line appears above 1500m. Hysteresis thresholds prevent flicker. Tracking station orbit lines remain restricted to stable orbital recordings.
+- **Ghost orbit line suppression (Harmony).** New `GhostOrbitLinePatch` postfix on `OrbitRendererBase.LateUpdate` hides the orbit line for ghost ProtoVessels below atmosphere while keeping the native KSP map icon visible. Also hides Ap/Pe/AN/DN markers when orbit line is hidden.
+- **Debris map markers hidden.** Debris ghost recordings no longer show green dot markers in map view.
 
 ### Release & Distribution
 
