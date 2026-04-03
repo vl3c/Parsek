@@ -23,7 +23,7 @@ namespace Parsek
 
         // Map view markers
         private GUIStyle mapMarkerStyle;
-        private Texture2D mapMarkerTexture;
+        private Texture2D mapMarkerDiamond;
 
         // Recordings window
         private bool showRecordingsWindow;
@@ -4063,15 +4063,15 @@ namespace Parsek
             // Manual preview ghost
             if (flight.IsPlaying && flight.PreviewGhost != null)
             {
-                DrawMapMarkerAt(flight.PreviewGhost.transform.position, "Preview", Color.green);
+                DrawMapMarkerAt(flight.PreviewGhost.transform.position, "Preview",
+                    new Color(0.2f, 1f, 0.4f, 0.9f));
             }
 
             // Timeline ghosts — skip if a ghost map ProtoVessel exists for this index
-            // (the native KSP vessel icon replaces this dot and tracks the correct orbital position).
+            // (the native KSP vessel icon replaces this marker and tracks the correct orbital position).
             // Deduplicate per chain: during warp, multiple chain segments can be active
             // simultaneously. Only draw the marker for the highest-index (latest) ghost per chain.
             var committed = RecordingStore.CommittedRecordings;
-            Color ghostColor = new Color(0.2f, 1f, 0.4f, 0.9f);
 
             // First pass: find the highest active index per chain
             chainTipIndexBuffer.Clear();
@@ -4101,8 +4101,10 @@ namespace Parsek
                         && chainTipIndexBuffer.TryGetValue(chainId, out int tip) && kvp.Key != tip)
                         continue; // not the tip — skip duplicate
                 }
+
                 string ghostName = kvp.Key < committed.Count ? committed[kvp.Key].VesselName : "Ghost";
-                DrawMapMarkerAt(kvp.Value.transform.position, ghostName, ghostColor);
+                Color markerColor = GetGhostMarkerColor(kvp.Key, committed);
+                DrawMapMarkerAt(kvp.Value.transform.position, ghostName, markerColor);
             }
         }
 
@@ -4120,8 +4122,33 @@ namespace Parsek
             ReleaseActionsInputLock();
             ReleaseSettingsInputLock();
             ReleaseSpawnControlInputLock();
-            if (mapMarkerTexture != null)
-                UnityEngine.Object.Destroy(mapMarkerTexture);
+            if (mapMarkerDiamond != null)
+                UnityEngine.Object.Destroy(mapMarkerDiamond);
+        }
+
+        /// <summary>
+        /// Returns the orbit color for a ghost marker based on vessel type from the
+        /// recording snapshot. Matches KSP's own orbit color scheme.
+        /// </summary>
+        private static Color GetGhostMarkerColor(int index, System.Collections.Generic.IReadOnlyList<Recording> committed)
+        {
+            if (index < 0 || index >= committed.Count)
+                return new Color(0.63f, 0.63f, 0.63f); // grey fallback
+
+            VesselType vtype = GhostMapPresence.ResolveVesselType(committed[index].VesselSnapshot);
+            switch (vtype)
+            {
+                case VesselType.Ship:    return new Color(0.78f, 0.78f, 0.0f);  // yellow
+                case VesselType.Probe:   return new Color(0.84f, 0.46f, 0.0f);  // orange
+                case VesselType.Relay:   return new Color(0.41f, 0.67f, 0.0f);  // green
+                case VesselType.Rover:   return new Color(0.55f, 0.78f, 0.22f); // lime
+                case VesselType.Station: return new Color(0.0f, 0.63f, 0.90f);  // blue
+                case VesselType.Plane:   return new Color(0.63f, 0.46f, 0.78f); // purple
+                case VesselType.Lander:  return new Color(0.78f, 0.67f, 0.0f);  // gold
+                case VesselType.Base:    return new Color(0.22f, 0.67f, 0.67f); // teal
+                case VesselType.EVA:     return new Color(0.78f, 0.78f, 0.78f); // light grey
+                default:                 return new Color(0.63f, 0.63f, 0.63f); // grey
+            }
         }
 
         private void DrawMapMarkerAt(Vector3 worldPos, string label, Color color)
@@ -4144,34 +4171,37 @@ namespace Parsek
             float x = screenPos.x;
             float y = Screen.height - screenPos.y;
 
-            // Draw marker dot
+            // Draw diamond marker (matches KSP's orbit icon shape)
             Color prevColor = GUI.color;
             GUI.color = color;
-            GUI.DrawTexture(new Rect(x - 5, y - 5, 10, 10), mapMarkerTexture);
+            int iconSize = 16;
+            GUI.DrawTexture(new Rect(x - iconSize / 2, y - iconSize / 2, iconSize, iconSize), mapMarkerDiamond);
             GUI.color = prevColor;
 
             // Draw vessel name label
             mapMarkerStyle.normal.textColor = color;
-            GUI.Label(new Rect(x - 75, y + 7, 150, 20), label, mapMarkerStyle);
+            GUI.Label(new Rect(x - 75, y + iconSize / 2 + 2, 150, 20), label, mapMarkerStyle);
         }
 
         private void EnsureMapMarkerResources()
         {
-            if (mapMarkerTexture == null)
+            if (mapMarkerDiamond == null)
             {
-                int size = 10;
-                mapMarkerTexture = new Texture2D(size, size, TextureFormat.ARGB32, false);
+                // Generate a diamond (rotated square) texture matching KSP's orbit icon style
+                int size = 16;
+                mapMarkerDiamond = new Texture2D(size, size, TextureFormat.ARGB32, false);
                 float center = size / 2f;
-                float radius = size / 2f - 1f;
+                float halfDiag = size / 2f - 1f; // diamond extends to 1px from edge
                 for (int py = 0; py < size; py++)
                 {
                     for (int px = 0; px < size; px++)
                     {
-                        float dist = Mathf.Sqrt((px - center) * (px - center) + (py - center) * (py - center));
-                        mapMarkerTexture.SetPixel(px, py, dist <= radius ? Color.white : Color.clear);
+                        // Diamond: |x - center| + |y - center| <= halfDiag
+                        float manhattan = Mathf.Abs(px - center + 0.5f) + Mathf.Abs(py - center + 0.5f);
+                        mapMarkerDiamond.SetPixel(px, py, manhattan <= halfDiag ? Color.white : Color.clear);
                     }
                 }
-                mapMarkerTexture.Apply();
+                mapMarkerDiamond.Apply();
             }
 
             if (mapMarkerStyle == null)
