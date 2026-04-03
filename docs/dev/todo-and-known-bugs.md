@@ -12,8 +12,6 @@ Added `GameData/Parsek/Parsek.version` (v0.6.0) with AVC/CKAN fields. Post-build
 
 Right-aligned "v0.6.0" label at the bottom of the main Parsek window, read from AssemblyVersion at runtime. Subtle 40% opacity, 10pt font.
 
-**Priority:** Should-do for 0.5.1
-
 ### T3. CKAN metadata
 
 Create a `.netkan` file or submit to CKAN indexer so users can install Parsek via CKAN. Requires a stable release URL pattern.
