@@ -253,6 +253,12 @@ Suborbital recordings were excluded from ghost map presence — no orbit line du
 
 **Status:** Fixed (0.6.0)
 
+### T41b. Skip orbit segment recording during in-atmosphere on-rails
+
+When the player time-warps during atmospheric reentry, KSP puts the vessel on-rails and the recorder creates an orbit segment with Keplerian elements (no drag). During playback, the ghost follows this dragless arc instead of the real trajectory. Surface clamp (PR #113) prevents underground tunneling, but the position is approximate. Fix: in FlightRecorder's `onVesselGoOnRails` handler, check `v.mainBody.atmosphere && v.altitude < v.mainBody.atmosphereDepth` — if below atmosphere, skip orbit segment creation. Point interpolation will lerp across the gap during playback.
+
+**Priority:** Medium — affects any recording where the player warped through atmospheric flight
+
 ### T42. Convert KerbalsModule to IResourceModule
 
 KerbalsModule currently operates as a bridge outside the RecalculationEngine — it iterates recordings directly instead of consuming GameAction objects via the IResourceModule interface. The ledger already captures kerbal data as KerbalAssignment/KerbalHire/KerbalRescue/KerbalStandIn actions, but KerbalsModule ignores them and re-derives everything from recordings. Converting requires: (1) making KerbalsModule non-static (currently static class, can't implement interface), (2) rewriting Recalculate to consume actions instead of recordings, (3) routing 16+ direct `KerbalsModule.RecalculateAndApply()` call sites through `LedgerOrchestrator.RecalculateAndPatch()`. Wide blast radius, no functional gain — the bridge pattern works fine. Do this when there's already a reason to restructure KerbalsModule.
