@@ -161,6 +161,11 @@ namespace Parsek
                 ((from == SegmentEnvironment.ExoBallistic || from == SegmentEnvironment.ExoPropulsive) && to == SegmentEnvironment.Approach))
                 return ApproachDebounceSeconds;
 
+            // Approach/surface bounce on airless bodies (rough landings, hopping)
+            if ((from == SegmentEnvironment.Approach && (to == SegmentEnvironment.SurfaceMobile || to == SegmentEnvironment.SurfaceStationary)) ||
+                ((from == SegmentEnvironment.SurfaceMobile || from == SegmentEnvironment.SurfaceStationary) && to == SegmentEnvironment.Approach))
+                return SurfaceAtmosphericDebounceSeconds;
+
             // All other transitions: no debounce (immediate)
             return 0.0;
         }

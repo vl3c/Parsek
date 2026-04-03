@@ -973,6 +973,14 @@ namespace Parsek
         /// UT range covers the debris's StartUT and sets LoopSyncParentIdx to its
         /// committed index. This enables the engine to replay debris ghosts on the
         /// parent's loop clock.
+        ///
+        /// ORDERING: Must run AFTER all optimizer splits are complete — indices are
+        /// into the final committed recordings list and would be stale if splits
+        /// happened afterward.
+        ///
+        /// When the optimizer splits a parent, the split boundary point appears in
+        /// both halves. The first match is used — both segments belong to the same
+        /// vessel and loop with the same cycle, so either is correct.
         /// </summary>
         internal static void PopulateLoopSyncParentIndices(List<Recording> recordings)
         {

@@ -1385,5 +1385,135 @@ namespace Parsek.Tests
         //   6. Verify: funds/science/reputation are interpolated
 
         #endregion
+
+        #region PopulateLoopSyncParentIndices
+
+        [Fact]
+        public void PopulateLoopSync_LinksDebrisToParent()
+        {
+            var parent = new Recording
+            {
+                RecordingId = "parent1",
+                TreeId = "tree1",
+                VesselPersistentId = 100,
+                IsDebris = false
+            };
+            parent.Points.Add(new TrajectoryPoint { ut = 10 });
+            parent.Points.Add(new TrajectoryPoint { ut = 50 });
+
+            var debris = new Recording
+            {
+                RecordingId = "debris1",
+                TreeId = "tree1",
+                VesselPersistentId = 200, // different vessel (detached part)
+                IsDebris = true
+            };
+            debris.Points.Add(new TrajectoryPoint { ut = 30 });
+            debris.Points.Add(new TrajectoryPoint { ut = 35 });
+
+            var recordings = new List<Recording> { parent, debris };
+            RecordingStore.PopulateLoopSyncParentIndices(recordings);
+
+            Assert.Equal(0, debris.LoopSyncParentIdx);
+            Assert.Equal(-1, parent.LoopSyncParentIdx);
+        }
+
+        [Fact]
+        public void PopulateLoopSync_NonDebrisGetsMinusOne()
+        {
+            var rec = new Recording
+            {
+                RecordingId = "rec1",
+                TreeId = "tree1",
+                VesselPersistentId = 100,
+                IsDebris = false
+            };
+            rec.Points.Add(new TrajectoryPoint { ut = 10 });
+            rec.Points.Add(new TrajectoryPoint { ut = 50 });
+
+            var recordings = new List<Recording> { rec };
+            RecordingStore.PopulateLoopSyncParentIndices(recordings);
+
+            Assert.Equal(-1, rec.LoopSyncParentIdx);
+        }
+
+        [Fact]
+        public void PopulateLoopSync_DebrisWithoutMatchingParent_GetsMinusOne()
+        {
+            var debris = new Recording
+            {
+                RecordingId = "debris1",
+                TreeId = "tree1",
+                VesselPersistentId = 200,
+                IsDebris = true
+            };
+            debris.Points.Add(new TrajectoryPoint { ut = 30 });
+            debris.Points.Add(new TrajectoryPoint { ut = 35 });
+
+            // No parent recording in the list
+            var recordings = new List<Recording> { debris };
+            RecordingStore.PopulateLoopSyncParentIndices(recordings);
+
+            Assert.Equal(-1, debris.LoopSyncParentIdx);
+        }
+
+        [Fact]
+        public void PopulateLoopSync_DebrisWithoutTreeId_GetsMinusOne()
+        {
+            var debris = new Recording
+            {
+                RecordingId = "debris1",
+                TreeId = null,
+                VesselPersistentId = 200,
+                IsDebris = true
+            };
+            debris.Points.Add(new TrajectoryPoint { ut = 30 });
+            debris.Points.Add(new TrajectoryPoint { ut = 35 });
+
+            var recordings = new List<Recording> { debris };
+            RecordingStore.PopulateLoopSyncParentIndices(recordings);
+
+            Assert.Equal(-1, debris.LoopSyncParentIdx);
+        }
+
+        [Fact]
+        public void PopulateLoopSync_MultipleDebris_LinkToCorrectParents()
+        {
+            var parent1 = new Recording
+            {
+                RecordingId = "p1", TreeId = "tree1", VesselPersistentId = 100, IsDebris = false
+            };
+            parent1.Points.Add(new TrajectoryPoint { ut = 10 });
+            parent1.Points.Add(new TrajectoryPoint { ut = 50 });
+
+            var parent2 = new Recording
+            {
+                RecordingId = "p2", TreeId = "tree1", VesselPersistentId = 100, IsDebris = false
+            };
+            parent2.Points.Add(new TrajectoryPoint { ut = 50 });
+            parent2.Points.Add(new TrajectoryPoint { ut = 100 });
+
+            var debris1 = new Recording
+            {
+                RecordingId = "d1", TreeId = "tree1", VesselPersistentId = 300, IsDebris = true
+            };
+            debris1.Points.Add(new TrajectoryPoint { ut = 30 });
+            debris1.Points.Add(new TrajectoryPoint { ut = 35 });
+
+            var debris2 = new Recording
+            {
+                RecordingId = "d2", TreeId = "tree1", VesselPersistentId = 400, IsDebris = true
+            };
+            debris2.Points.Add(new TrajectoryPoint { ut = 70 });
+            debris2.Points.Add(new TrajectoryPoint { ut = 75 });
+
+            var recordings = new List<Recording> { parent1, parent2, debris1, debris2 };
+            RecordingStore.PopulateLoopSyncParentIndices(recordings);
+
+            Assert.Equal(0, debris1.LoopSyncParentIdx); // parent1 covers UT 30
+            Assert.Equal(1, debris2.LoopSyncParentIdx); // parent2 covers UT 70
+        }
+
+        #endregion
     }
 }

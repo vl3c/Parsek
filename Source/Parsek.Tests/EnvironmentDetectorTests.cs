@@ -730,6 +730,20 @@ namespace Parsek.Tests
                 SegmentEnvironment.ExoPropulsive, SegmentEnvironment.Approach));
         }
 
+        [Fact]
+        public void GetDebounceFor_ApproachToSurface_ReturnsSurfaceAtmosphericDebounce()
+        {
+            // Rough Mun landing can bounce between LANDED and SUB_ORBITAL
+            Assert.Equal(EnvironmentHysteresis.SurfaceAtmosphericDebounceSeconds, EnvironmentHysteresis.GetDebounceFor(
+                SegmentEnvironment.Approach, SegmentEnvironment.SurfaceMobile));
+            Assert.Equal(EnvironmentHysteresis.SurfaceAtmosphericDebounceSeconds, EnvironmentHysteresis.GetDebounceFor(
+                SegmentEnvironment.Approach, SegmentEnvironment.SurfaceStationary));
+            Assert.Equal(EnvironmentHysteresis.SurfaceAtmosphericDebounceSeconds, EnvironmentHysteresis.GetDebounceFor(
+                SegmentEnvironment.SurfaceMobile, SegmentEnvironment.Approach));
+            Assert.Equal(EnvironmentHysteresis.SurfaceAtmosphericDebounceSeconds, EnvironmentHysteresis.GetDebounceFor(
+                SegmentEnvironment.SurfaceStationary, SegmentEnvironment.Approach));
+        }
+
         #endregion
 
         #region Hysteresis — Log assertions
