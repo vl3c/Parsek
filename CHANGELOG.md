@@ -49,9 +49,13 @@ Full career-mode resource tracking across the rewind timeline. Science, funds, r
 - **Removed ActionReplay.** Legacy action replay system (499 lines) replaced by ledger-based recalculation.
 - **Removed ResourceApplicator.** Legacy resource delta application (318 lines) replaced by KspStatePatcher.
 
+### Bug Fixes
+
+- **Fix #195: Ghost orbit lines not visible in tracking station.** Ghost ProtoVessels created in `SpaceTracking.Awake` prefix had null `orbitRenderer` because `MapView.fetch` wasn't set yet (Unity Awake ordering is undefined). `buildVesselsList` line 751 unconditionally accesses `vessel.orbitRenderer.onVesselIconClicked` with no try/catch — single NRE aborted the entire method including `ConstructUIList()`. Fix: added Prefix on `buildVesselsList` calling `EnsureGhostOrbitRenderers()` which uses Traverse to invoke private `AddOrbitRenderer()` on ghosts with null renderer. Also added defensive FLIGHTPLAN/CTRLSTATE/VESSELMODULES ConfigNode children to ghost ProtoVessel.
+
 ### Tests
 
-- **4605 tests** (up from 2419 on main). 20 new test classes covering all game action modules, serialization round-trips, recalculation engine, kerbal reservation lifecycle, milestone patching, contract deadline injection, and ChainSegmentManager state management.
+- **4607 tests** (up from 2419 on main). 20 new test classes covering all game action modules, serialization round-trips, recalculation engine, kerbal reservation lifecycle, milestone patching, contract deadline injection, and ChainSegmentManager state management.
 
 ### Research & Documentation
 
@@ -189,7 +193,6 @@ Ghost vessels now appear in KSP's tracking station, show orbit lines in map view
 - **Fix #201: Optimizer split creates temporal gap at section boundaries.** `SplitAtSection` now interpolates a synthetic boundary point at exactly `splitUT` when no trajectory point falls at the split time. Both halves share the boundary point, eliminating visible jumps during chain playback.
 - **Fix map marker camera in flight view.** `DrawMapMarkerAt` used `PlanetariumCamera` unconditionally — correct for map view but wrong for flight view. Now uses `FlightCamera` in flight view, `PlanetariumCamera` + ScaledSpace in map view.
 - **Default recordings sort: Launch time ascending.** Recordings window now defaults to chronological order (earliest launch at top) instead of index order.
-- **Fix #195: Ghost orbit lines not visible in tracking station.** Ghost ProtoVessels created in `SpaceTracking.Awake` prefix had null `orbitRenderer` because `MapView.fetch` wasn't set yet (Unity Awake ordering is undefined). `buildVesselsList` line 751 unconditionally accesses `vessel.orbitRenderer.onVesselIconClicked` with no try/catch — single NRE aborted the entire method including `ConstructUIList()`. Fix: added Prefix on `buildVesselsList` calling `EnsureGhostOrbitRenderers()` which uses Traverse to invoke private `AddOrbitRenderer()` on ghosts with null renderer. Also added defensive FLIGHTPLAN/CTRLSTATE/VESSELMODULES ConfigNode children to ghost ProtoVessel.
 - **Ghost orbit lines for intermediate chain segments.** ProtoVessels and orbit lines now appear during every coast phase (transfer orbits, parking orbits), not just the terminal orbit. `CreateGhostVesselFromSegment` builds from OrbitSegment data when terminal orbit is unavailable.
 - **Fix: 10 tests failing due to FindObjectsOfType in KspStatePatcher.** `PatchDestructionState` called `UnityEngine.Object.FindObjectsOfType<DestructibleBuilding>()` which throws `SecurityException` outside Unity. `protoUpgradeables` is an empty dict (not null) in the test env, so `PatchFacilities` fell through to the Unity call. Added `SuppressUnityCallsForTesting` guard.
 
