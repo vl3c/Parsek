@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Globalization;
 
 namespace Parsek
 {
@@ -682,14 +683,79 @@ namespace Parsek
         /// <summary>
         /// Notifies the ledger orchestrator about each recording in a committed tree.
         /// Calls OnRecordingCommitted for each recording in the tree.
+        /// Chain continuations (ChainIndex > 0) have their startUT extended backward
+        /// to the predecessor segment's EndUT, closing inter-segment gaps created by
+        /// the optimizer's TrackSection splits so that events in those gaps are not lost.
         /// </summary>
         internal static void NotifyLedgerTreeCommitted(RecordingTree tree)
         {
             if (tree == null) return;
+
+            // Build predecessor EndUT lookup for chain gap closure.
+            // Key: "chainId:chainIndex", Value: EndUT of that segment.
+            var chainEndUTs = BuildChainEndUtMap(tree);
+
+            int gapsClosed = 0;
             foreach (var rec in tree.Recordings.Values)
             {
-                OnRecordingCommitted(rec.RecordingId, rec.StartUT, rec.EndUT);
+                double startUT = rec.StartUT;
+                double endUT = rec.EndUT;
+
+                // Close chain segment gap: extend startUT backward to predecessor's EndUT
+                double adjusted = AdjustStartUtForChainGap(rec, startUT, chainEndUTs);
+                if (adjusted < startUT) gapsClosed++;
+                startUT = adjusted;
+
+                OnRecordingCommitted(rec.RecordingId, startUT, endUT);
             }
+
+            ParsekLog.Verbose(Tag,
+                $"NotifyLedgerTreeCommitted: tree='{tree.TreeName}' " +
+                $"recordings={tree.Recordings.Count}, chainSegments={chainEndUTs.Count}, " +
+                $"gapsClosed={gapsClosed}");
+        }
+
+        /// <summary>
+        /// Builds a lookup of chain segment EndUTs from a recording tree.
+        /// Returns a dictionary keyed by "chainId:chainIndex" for O(1) predecessor lookup.
+        /// </summary>
+        internal static Dictionary<string, double> BuildChainEndUtMap(RecordingTree tree)
+        {
+            var map = new Dictionary<string, double>();
+            foreach (var rec in tree.Recordings.Values)
+            {
+                if (rec.IsChainRecording && rec.ChainIndex >= 0)
+                {
+                    map[$"{rec.ChainId}:{rec.ChainIndex}"] = rec.EndUT;
+                }
+            }
+            return map;
+        }
+
+        /// <summary>
+        /// If the recording is a chain continuation (ChainIndex > 0) and the predecessor
+        /// segment's EndUT is earlier than this recording's startUT, returns the predecessor's
+        /// EndUT to close the inter-segment gap. Otherwise returns startUT unchanged.
+        /// </summary>
+        internal static double AdjustStartUtForChainGap(
+            Recording rec, double startUT, Dictionary<string, double> chainEndUTs)
+        {
+            if (rec == null || !rec.IsChainRecording || rec.ChainIndex <= 0)
+                return startUT;
+
+            string predKey = $"{rec.ChainId}:{rec.ChainIndex - 1}";
+            if (chainEndUTs.TryGetValue(predKey, out double predEndUT) && predEndUT < startUT)
+            {
+                ParsekLog.Verbose(Tag,
+                    $"Chain gap closure: extended startUT from " +
+                    $"{startUT.ToString("F1", CultureInfo.InvariantCulture)} to " +
+                    $"{predEndUT.ToString("F1", CultureInfo.InvariantCulture)} " +
+                    $"for recording '{rec.RecordingId}' " +
+                    $"(chain={rec.ChainId}, idx={rec.ChainIndex})");
+                return predEndUT;
+            }
+
+            return startUT;
         }
 
         // ================================================================

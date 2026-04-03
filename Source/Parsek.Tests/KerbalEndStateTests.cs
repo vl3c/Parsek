@@ -337,5 +337,105 @@ namespace Parsek.Tests
         }
 
         #endregion
+
+        #region Looping chain reservation guard
+
+        [Fact]
+        public void Recalculate_LoopingChain_RecoveredCrew_StaysInfinite()
+        {
+            // Setup: chain with 2 segments. Index 0 loops, index 1 is the tip with crew.
+            RecordingStore.ResetForTesting();
+
+            var loop = new Recording
+            {
+                RecordingId = "rec-loop",
+                ChainId = "chain-A",
+                ChainIndex = 0,
+                LoopPlayback = true
+            };
+            loop.Points.Add(new TrajectoryPoint { ut = 10.0 });
+            loop.Points.Add(new TrajectoryPoint { ut = 142.0 });
+            RecordingStore.AddCommittedForTesting(loop);
+
+            var tip = new Recording
+            {
+                RecordingId = "rec-tip",
+                ChainId = "chain-A",
+                ChainIndex = 1,
+                VesselSnapshot = BuildSnapshotWithCrew("Jeb"),
+                TerminalStateValue = TerminalState.Splashed
+            };
+            tip.Points.Add(new TrajectoryPoint { ut = 142.0 });
+            tip.Points.Add(new TrajectoryPoint { ut = 200.0 });
+            // Populate CrewEndStates (normally done by PopulateCrewEndStates)
+            tip.CrewEndStates = new Dictionary<string, KerbalEndState>
+            {
+                { "Jeb", KerbalEndState.Recovered }
+            };
+            RecordingStore.AddCommittedForTesting(tip);
+
+            KerbalsModule.ResetForTesting();
+            KerbalsModule.Recalculate();
+
+            // Crew should be reserved with Infinity endUT because chain has a looping segment
+            var reservations = KerbalsModule.Reservations;
+            Assert.True(reservations.ContainsKey("Jeb"),
+                "Jeb should be reserved");
+            Assert.True(double.IsPositiveInfinity(reservations["Jeb"].ReservedUntilUT),
+                "endUT should be Infinity for looping chain despite Recovered endState");
+
+            Assert.Contains(logLines, l =>
+                l.Contains("[KerbalsModule]") && l.Contains("Reservation") && l.Contains("Jeb")
+                && l.Contains("chainHasLoop"));
+
+            KerbalsModule.ResetForTesting();
+            RecordingStore.ResetForTesting();
+        }
+
+        [Fact]
+        public void Recalculate_NonLoopingChain_RecoveredCrew_UsesFiniteEndUT()
+        {
+            // Same chain but no loop — crew should have finite endUT
+            RecordingStore.ResetForTesting();
+
+            var seg0 = new Recording
+            {
+                RecordingId = "rec-seg0",
+                ChainId = "chain-B",
+                ChainIndex = 0,
+                LoopPlayback = false  // NOT looping
+            };
+            seg0.Points.Add(new TrajectoryPoint { ut = 10.0 });
+            seg0.Points.Add(new TrajectoryPoint { ut = 142.0 });
+            RecordingStore.AddCommittedForTesting(seg0);
+
+            var tip = new Recording
+            {
+                RecordingId = "rec-tip-b",
+                ChainId = "chain-B",
+                ChainIndex = 1,
+                VesselSnapshot = BuildSnapshotWithCrew("Val"),
+                TerminalStateValue = TerminalState.Splashed
+            };
+            tip.Points.Add(new TrajectoryPoint { ut = 142.0 });
+            tip.Points.Add(new TrajectoryPoint { ut = 200.0 });
+            tip.CrewEndStates = new Dictionary<string, KerbalEndState>
+            {
+                { "Val", KerbalEndState.Recovered }
+            };
+            RecordingStore.AddCommittedForTesting(tip);
+
+            KerbalsModule.ResetForTesting();
+            KerbalsModule.Recalculate();
+
+            var reservations = KerbalsModule.Reservations;
+            Assert.True(reservations.ContainsKey("Val"));
+            Assert.Equal(200.0, reservations["Val"].ReservedUntilUT);
+
+            KerbalsModule.ResetForTesting();
+            RecordingStore.ResetForTesting();
+        }
+
+        #endregion
     }
 }
