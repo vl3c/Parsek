@@ -8205,34 +8205,6 @@ namespace Parsek
                         // Use segment index as cache key offset
                         int segIdx = segments.IndexOf(seg.Value);
                         int cacheKey = orbitCacheBase + segIdx;
-
-                        // Atmosphere check: if the Keplerian orbit position at this UT
-                        // is below the body's atmosphere, fall through to point interpolation.
-                        // Keplerian propagation ignores drag, so the orbit position diverges
-                        // from the recorded trajectory during atmospheric reentry.
-                        if (segBody != null && segBody.atmosphere)
-                        {
-                            Orbit atmoCheck;
-                            if (!orbitCache.TryGetValue(cacheKey, out atmoCheck))
-                            {
-                                atmoCheck = new Orbit(
-                                    seg.Value.inclination, seg.Value.eccentricity, seg.Value.semiMajorAxis,
-                                    seg.Value.longitudeOfAscendingNode, seg.Value.argumentOfPeriapsis,
-                                    seg.Value.meanAnomalyAtEpoch, seg.Value.epoch, segBody);
-                                orbitCache[cacheKey] = atmoCheck;
-                            }
-                            double orbitAlt = segBody.GetAltitude(atmoCheck.getPositionAtUT(targetUT));
-                            if (orbitAlt < segBody.atmosphereDepth)
-                            {
-                                int atmoKey = ~cacheKey;
-                                if (loggedOrbitSegments.Add(atmoKey))
-                                    Log($"Orbit segment skipped (below atmosphere): alt={orbitAlt:F0} < " +
-                                        $"atmoDepth={segBody.atmosphereDepth:F0}, falling through to point interpolation");
-                                // Fall through to point interpolation below
-                                goto pointInterpolation;
-                            }
-                        }
-
                         if (loggedOrbitSegments.Add(cacheKey))
                             Log($"Orbit segment activated: cache={cacheKey}, body={seg.Value.bodyName}, " +
                                 $"sma={seg.Value.semiMajorAxis:F0}, UT {seg.Value.startUT:F0}-{seg.Value.endUT:F0}");
@@ -8249,7 +8221,6 @@ namespace Parsek
             }
 
             // Fall through to point-based interpolation
-            pointInterpolation:
             InterpolateAndPosition(ghost, points, ref cachedIndex, targetUT, out interpResult);
         }
 
