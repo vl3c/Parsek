@@ -434,6 +434,39 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void Classify_AirlessOrbitingBelowApproach_ReturnsExoBallistic()
+        {
+            // Stable low orbit on Mun at 15km (below 25km approach altitude)
+            // ORBITING is Keplerian, not an approach — should NOT be classified as Approach
+            var result = EnvironmentDetector.Classify(
+                hasAtmosphere: false,
+                altitude: 15000,
+                atmosphereDepth: 0,
+                situation: 32, // ORBITING
+                srfSpeed: 500,
+                hasActiveThrust: false,
+                approachAltitude: 25000);
+
+            Assert.Equal(SegmentEnvironment.ExoBallistic, result);
+        }
+
+        [Fact]
+        public void Classify_AirlessOrbitingBelowApproachWithThrust_ReturnsExoPropulsive()
+        {
+            // Thrusting in a low orbit — still not Approach
+            var result = EnvironmentDetector.Classify(
+                hasAtmosphere: false,
+                altitude: 15000,
+                atmosphereDepth: 0,
+                situation: 32, // ORBITING
+                srfSpeed: 500,
+                hasActiveThrust: true,
+                approachAltitude: 25000);
+
+            Assert.Equal(SegmentEnvironment.ExoPropulsive, result);
+        }
+
+        [Fact]
         public void Classify_LandedOnAirlessBelowApproach_ReturnsSurface()
         {
             // Landed takes priority over approach

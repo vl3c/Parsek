@@ -44,7 +44,9 @@ namespace Parsek
             // Intentionally above the thrust check — a powered descent on the Mun is still
             // "approach" for splitting purposes (we don't want engine on/off to fragment the
             // landing segment). Thrust distinction only matters in high orbit.
-            if (!hasAtmosphere && approachAltitude > 0 && altitude < approachAltitude)
+            // Exclude ORBITING (32) — a stable low orbit is Keplerian, not an approach.
+            if (!hasAtmosphere && approachAltitude > 0 && altitude < approachAltitude
+                && situation != 32)
                 return SegmentEnvironment.Approach;
 
             if (hasActiveThrust)
