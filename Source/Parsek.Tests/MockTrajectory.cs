@@ -14,7 +14,7 @@ namespace Parsek.Tests
         public List<TrackSection> TrackSections { get; set; } = new List<TrackSection>();
         public double StartUT => Points.Count > 0 ? Points[0].ut : 0;
         public double EndUT => Points.Count > 0 ? Points[Points.Count - 1].ut : 0;
-        public int RecordingFormatVersion { get; set; } = 6;
+        public int RecordingFormatVersion { get; set; } = 0;
         public List<PartEvent> PartEvents { get; set; } = new List<PartEvent>();
         public List<FlagEvent> FlagEvents { get; set; } = new List<FlagEvent>();
         public ConfigNode GhostVisualSnapshot { get; set; }

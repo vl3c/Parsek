@@ -12,6 +12,10 @@ All notable changes to Parsek are documented here.
 - **Ghost orbit line suppression (Harmony).** New `GhostOrbitLinePatch` postfix on `OrbitRendererBase.LateUpdate` hides the orbit line for ghost ProtoVessels below atmosphere while keeping the native KSP map icon visible. Also hides Ap/Pe/AN/DN markers when orbit line is hidden.
 - **Debris map markers hidden.** Debris ghost recordings no longer show green dot markers in map view.
 
+### Format Reset
+
+- **Recording format reset to version 0 (PR #114).** Clean break: reset `CurrentRecordingFormatVersion` from 7 to 0. Removed all legacy format migration code (v4→v5 rotation conversion, `SyncVersionFromPrecFile`, `CorrectForBodyRotation`), the `surfaceRelativeRotation` version-branching (all rotation is now unconditionally surface-relative), ghost geometry legacy fields (`GhostGeometryVersion`, `GhostGeometryCaptureStrategy`, `GhostGeometryProbeStatus`), and the `loopPauseSeconds` field-rename fallback. -500 lines. No behavioral change — all removed code paths were already dead (no users with old-format recordings exist).
+
 ### Release & Distribution
 
 - **Parsek.version file (T1).** Added `GameData/Parsek/Parsek.version` for AVC and CKAN version detection. Auto-copied to KSP GameData on build.

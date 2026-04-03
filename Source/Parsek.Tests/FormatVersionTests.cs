@@ -5,8 +5,7 @@ using Xunit;
 namespace Parsek.Tests
 {
     /// <summary>
-    /// Tests for recording format version 6 bump and the backward compatibility
-    /// playback gate (TrackSections present in v6, absent in v5).
+    /// Tests for recording format version and the TrackSections playback gate.
     /// </summary>
     [Collection("Sequential")]
     public class FormatVersionTests
@@ -25,9 +24,9 @@ namespace Parsek.Tests
         #region Version constants
 
         [Fact]
-        public void CurrentRecordingFormatVersion_Is7()
+        public void CurrentRecordingFormatVersion_Is0()
         {
-            Assert.Equal(7, RecordingStore.CurrentRecordingFormatVersion);
+            Assert.Equal(0, RecordingStore.CurrentRecordingFormatVersion);
         }
 
         [Fact]
@@ -39,50 +38,17 @@ namespace Parsek.Tests
 
         #endregion
 
-        #region v5 backward compat: loads with empty TrackSections and SegmentEvents
+        #region Recording with TrackSections loads correctly
 
         [Fact]
-        public void V5Recording_PointsOnly_LoadsWithEmptyTrackSectionsAndSegmentEvents()
-        {
-            // Simulate a v5 .prec file: POINT nodes only, no TRACK_SECTION or SEGMENT_EVENT
-            var precNode = new ConfigNode("PARSEK_RECORDING");
-            precNode.AddValue("version", "5");
-            precNode.AddValue("recordingId", "v5_legacy_test");
-
-            AddMinimalPoint(precNode, 17000.0);
-            AddMinimalPoint(precNode, 17010.0);
-            AddMinimalPoint(precNode, 17020.0);
-
-            var rec = new Recording();
-            rec.RecordingId = "v5_legacy_test";
-            rec.RecordingFormatVersion = 5;
-            RecordingStore.DeserializeTrajectoryFrom(precNode, rec);
-
-            // Points loaded normally
-            Assert.Equal(3, rec.Points.Count);
-            Assert.Equal(17000.0, rec.Points[0].ut);
-            Assert.Equal(17020.0, rec.Points[2].ut);
-
-            // No TrackSections or SegmentEvents in v5
-            Assert.Empty(rec.TrackSections);
-            Assert.Empty(rec.SegmentEvents);
-        }
-
-        #endregion
-
-        #region v6 recording: loads with populated TrackSections
-
-        [Fact]
-        public void V6Recording_WithTrackSections_LoadsPopulatedTrackSections()
+        public void Recording_WithTrackSections_LoadsPopulatedTrackSections()
         {
             var precNode = new ConfigNode("PARSEK_RECORDING");
-            precNode.AddValue("version", "6");
-            precNode.AddValue("recordingId", "v6_track_test");
+            precNode.AddValue("version", "0");
+            precNode.AddValue("recordingId", "track_test");
 
-            // Legacy points (may coexist with TrackSections during transition)
             AddMinimalPoint(precNode, 17000.0);
 
-            // Add a TRACK_SECTION node
             var tsNode = precNode.AddNode("TRACK_SECTION");
             tsNode.AddValue("env", "0");  // Atmospheric
             tsNode.AddValue("ref", "0");  // Absolute
@@ -90,7 +56,6 @@ namespace Parsek.Tests
             tsNode.AddValue("endUT", "17050");
             tsNode.AddValue("sampleRate", "10");
 
-            // Add a frame inside the track section
             var frameNode = tsNode.AddNode("POINT");
             frameNode.AddValue("ut", "17000");
             frameNode.AddValue("lat", "-0.097");
@@ -104,18 +69,15 @@ namespace Parsek.Tests
             frameNode.AddValue("funds", "0"); frameNode.AddValue("science", "0");
             frameNode.AddValue("rep", "0");
 
-            // Add a SEGMENT_EVENT
             var seNode = precNode.AddNode("SEGMENT_EVENT");
             seNode.AddValue("ut", "17030");
             seNode.AddValue("type", "0");  // ControllerChange
             seNode.AddValue("details", "stage 1 sep");
 
             var rec = new Recording();
-            rec.RecordingId = "v6_track_test";
-            rec.RecordingFormatVersion = 6;
+            rec.RecordingId = "track_test";
             RecordingStore.DeserializeTrajectoryFrom(precNode, rec);
 
-            // TrackSections populated
             Assert.Single(rec.TrackSections);
             Assert.Equal(SegmentEnvironment.Atmospheric, rec.TrackSections[0].environment);
             Assert.Equal(ReferenceFrame.Absolute, rec.TrackSections[0].referenceFrame);
@@ -123,7 +85,6 @@ namespace Parsek.Tests
             Assert.Equal(17050.0, rec.TrackSections[0].endUT);
             Assert.Single(rec.TrackSections[0].frames);
 
-            // SegmentEvents populated
             Assert.Single(rec.SegmentEvents);
             Assert.Equal(17030.0, rec.SegmentEvents[0].ut);
             Assert.Equal(SegmentEventType.ControllerChange, rec.SegmentEvents[0].type);
@@ -132,36 +93,32 @@ namespace Parsek.Tests
 
         #endregion
 
-        #region Playback gate: TrackSections.Count distinguishes v5 from v6
+        #region Playback gate: TrackSections.Count > 0
 
         [Fact]
-        public void PlaybackGate_V5Recording_TrackSectionsEmpty()
+        public void PlaybackGate_NoTrackSections_False()
         {
-            // Build a v5 recording with only Points
             var precNode = new ConfigNode("PARSEK_RECORDING");
-            precNode.AddValue("version", "5");
-            precNode.AddValue("recordingId", "v5_gate_test");
+            precNode.AddValue("version", "0");
+            precNode.AddValue("recordingId", "gate_test");
 
             AddMinimalPoint(precNode, 17000.0);
             AddMinimalPoint(precNode, 17010.0);
 
             var rec = new Recording();
-            rec.RecordingId = "v5_gate_test";
-            rec.RecordingFormatVersion = 5;
+            rec.RecordingId = "gate_test";
             RecordingStore.DeserializeTrajectoryFrom(precNode, rec);
 
-            // Playback gate: v5 recordings have no TrackSections
             bool useTrackSections = rec.TrackSections.Count > 0;
             Assert.False(useTrackSections);
         }
 
         [Fact]
-        public void PlaybackGate_V6Recording_WithTrackSections_True()
+        public void PlaybackGate_WithTrackSections_True()
         {
-            // Build a v6 recording with a TrackSection
             var precNode = new ConfigNode("PARSEK_RECORDING");
-            precNode.AddValue("version", "6");
-            precNode.AddValue("recordingId", "v6_gate_test");
+            precNode.AddValue("version", "0");
+            precNode.AddValue("recordingId", "gate_test_ts");
 
             var tsNode = precNode.AddNode("TRACK_SECTION");
             tsNode.AddValue("env", "0");
@@ -171,11 +128,9 @@ namespace Parsek.Tests
             tsNode.AddValue("sampleRate", "10");
 
             var rec = new Recording();
-            rec.RecordingId = "v6_gate_test";
-            rec.RecordingFormatVersion = 6;
+            rec.RecordingId = "gate_test_ts";
             RecordingStore.DeserializeTrajectoryFrom(precNode, rec);
 
-            // Playback gate: v6 recordings have TrackSections
             bool useTrackSections = rec.TrackSections.Count > 0;
             Assert.True(useTrackSections);
         }
@@ -185,7 +140,7 @@ namespace Parsek.Tests
         #region RecordingBuilder version default
 
         [Fact]
-        public void RecordingBuilder_DefaultVersion_Is7()
+        public void RecordingBuilder_DefaultVersion_Is0()
         {
             var builder = new Parsek.Tests.Generators.RecordingBuilder("TestVessel");
             builder.AddPoint(17000, 0, 0, 100);
@@ -193,24 +148,24 @@ namespace Parsek.Tests
 
             var trajectoryNode = builder.BuildTrajectoryNode();
             string version = trajectoryNode.GetValue("version");
-            Assert.Equal("7", version);
+            Assert.Equal("0", version);
         }
 
         [Fact]
-        public void RecordingBuilder_WithFormatVersion5_WritesVersion5()
+        public void RecordingBuilder_WithCustomFormatVersion_WritesCustomVersion()
         {
             var builder = new Parsek.Tests.Generators.RecordingBuilder("TestVessel");
-            builder.WithFormatVersion(5);
+            builder.WithFormatVersion(42);
             builder.AddPoint(17000, 0, 0, 100);
             builder.AddPoint(17010, 0, 0, 200);
 
             var trajectoryNode = builder.BuildTrajectoryNode();
             string version = trajectoryNode.GetValue("version");
-            Assert.Equal("5", version);
+            Assert.Equal("42", version);
 
             var metadataNode = builder.BuildV3Metadata();
             string metaVersion = metadataNode.GetValue("recordingFormatVersion");
-            Assert.Equal("5", metaVersion);
+            Assert.Equal("42", metaVersion);
         }
 
         #endregion

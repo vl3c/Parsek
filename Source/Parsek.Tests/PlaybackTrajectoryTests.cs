@@ -118,9 +118,9 @@ namespace Parsek.Tests
         public void Recording_RecordingFormatVersion_Matches()
         {
             var rec = new Recording();
-            rec.RecordingFormatVersion = 6;
+            rec.RecordingFormatVersion = 0;
             IPlaybackTrajectory traj = rec;
-            Assert.Equal(6, traj.RecordingFormatVersion);
+            Assert.Equal(0, traj.RecordingFormatVersion);
         }
 
         [Fact]
@@ -312,7 +312,7 @@ namespace Parsek.Tests
         {
             var mock = new MockTrajectory
             {
-                RecordingFormatVersion = 5,
+                RecordingFormatVersion = 0,
                 VesselName = "Probe",
                 LoopPlayback = true,
                 LoopIntervalSeconds = -15,
@@ -327,7 +327,7 @@ namespace Parsek.Tests
             };
 
             IPlaybackTrajectory traj = mock;
-            Assert.Equal(5, traj.RecordingFormatVersion);
+            Assert.Equal(0, traj.RecordingFormatVersion);
             Assert.Equal("Probe", traj.VesselName);
             Assert.True(traj.LoopPlayback);
             Assert.Equal(-15, traj.LoopIntervalSeconds, 6);
