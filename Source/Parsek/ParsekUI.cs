@@ -4086,7 +4086,7 @@ namespace Parsek
                     chainTipIndexBuffer[chainId] = kvp.Key;
             }
 
-            // Second pass: draw markers, skipping non-tip chain members
+            // Second pass: draw markers, skipping non-tip chain members and debris
             foreach (var kvp in flight.TimelineGhosts)
             {
                 if (kvp.Value == null) continue;
@@ -4094,6 +4094,8 @@ namespace Parsek
                     continue;
                 if (kvp.Key < committed.Count)
                 {
+                    if (committed[kvp.Key].IsDebris)
+                        continue;
                     string chainId = committed[kvp.Key].ChainId;
                     if (!string.IsNullOrEmpty(chainId) && chainTipIndexBuffer.Count > 0
                         && chainTipIndexBuffer.TryGetValue(chainId, out int tip) && kvp.Key != tip)
