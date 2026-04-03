@@ -422,6 +422,104 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Create a ghost map ProtoVessel from interpolated trajectory state vectors.
+        /// Used for physics-only suborbital recordings that have no orbit segments.
+        /// Constructs a Keplerian orbit from position + velocity at the given UT.
+        /// </summary>
+        internal static Vessel CreateGhostVesselFromStateVectors(
+            int recordingIndex, IPlaybackTrajectory traj,
+            TrajectoryPoint point, double ut)
+        {
+            if (traj == null) return null;
+
+            if (vesselsByRecordingIndex.ContainsKey(recordingIndex))
+                return vesselsByRecordingIndex[recordingIndex];
+
+            CelestialBody body = FindBodyByName(point.bodyName);
+            if (body == null)
+            {
+                ParsekLog.Warn(Tag,
+                    string.Format(ic,
+                        "CreateGhostVesselFromStateVectors: body '{0}' not found for recording #{1}",
+                        point.bodyName, recordingIndex));
+                return null;
+            }
+
+            Vector3d worldPos = body.GetWorldSurfacePosition(point.latitude, point.longitude, point.altitude);
+            Vector3d vel = new Vector3d(point.velocity.x, point.velocity.y, point.velocity.z);
+
+            Orbit orbit = new Orbit();
+            orbit.UpdateFromStateVectors(worldPos, vel, body, ut);
+
+            string logContext = string.Format(ic,
+                "recording #{0} (state vectors alt={1:F0} spd={2:F1})",
+                recordingIndex, point.altitude, point.velocity.magnitude);
+            Vessel vessel = BuildAndLoadGhostProtoVesselCore(traj, orbit, body, logContext);
+            if (vessel != null)
+            {
+                vesselsByRecordingIndex[recordingIndex] = vessel;
+                vesselPidToRecordingIndex[vessel.persistentId] = recordingIndex;
+            }
+
+            return vessel;
+        }
+
+        /// <summary>
+        /// Update a ghost map ProtoVessel's orbit from interpolated trajectory state vectors.
+        /// Used for per-frame orbit updates of physics-only suborbital ghosts.
+        /// Handles SOI transitions (body change + orbit renderer rebuild).
+        /// </summary>
+        internal static void UpdateGhostOrbitFromStateVectors(
+            int recordingIndex, TrajectoryPoint point, double ut)
+        {
+            if (!vesselsByRecordingIndex.TryGetValue(recordingIndex, out Vessel vessel))
+                return;
+
+            if (vessel.orbitDriver == null)
+            {
+                ParsekLog.Warn(Tag,
+                    string.Format(ic,
+                        "UpdateGhostOrbitFromStateVectors: no OrbitDriver for recording #{0}",
+                        recordingIndex));
+                return;
+            }
+
+            CelestialBody body = FindBodyByName(point.bodyName);
+            if (body == null)
+            {
+                ParsekLog.Warn(Tag,
+                    string.Format(ic,
+                        "UpdateGhostOrbitFromStateVectors: body '{0}' not found for recording #{1}",
+                        point.bodyName, recordingIndex));
+                return;
+            }
+
+            // SOI transition handling (same pattern as ApplyOrbitToVessel)
+            bool soiChanged = vessel.orbitDriver.celestialBody != body;
+            if (soiChanged)
+            {
+                vessel.orbitDriver.celestialBody = body;
+                ParsekLog.Info(Tag,
+                    string.Format(ic,
+                        "SOI change for state-vector ghost #{0} — new body={1}",
+                        recordingIndex, body.name));
+            }
+
+            Vector3d worldPos = body.GetWorldSurfacePosition(point.latitude, point.longitude, point.altitude);
+            Vector3d vel = new Vector3d(point.velocity.x, point.velocity.y, point.velocity.z);
+
+            vessel.orbitDriver.orbit.UpdateFromStateVectors(worldPos, vel, body, ut);
+            vessel.orbitDriver.updateFromParameters();
+
+            if (soiChanged && vessel.orbitRenderer != null)
+            {
+                vessel.orbitRenderer.drawMode = OrbitRendererBase.DrawMode.REDRAW_AND_RECALCULATE;
+                vessel.orbitRenderer.enabled = false;
+                vessel.orbitRenderer.enabled = true;
+            }
+        }
+
+        /// <summary>
         /// Shared: apply an OrbitSegment's Keplerian elements to a ghost vessel's OrbitDriver.
         /// Handles body resolution, orbit construction, SOI transitions, and logging.
         /// </summary>

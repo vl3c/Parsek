@@ -563,11 +563,13 @@ namespace Parsek.Tests
         }
 
         /// <summary>
-        /// SubOrbital terminal state should NOT get a ProtoVessel.
-        /// Suborbital trajectories show misleading orbit lines.
+        /// SubOrbital terminal state has valid orbit data (CaptureTerminalOrbit captures
+        /// it for SUB_ORBITAL/FLYING situations). This data is used for state-vector orbit
+        /// line display during flight playback. Tracking station filter (in
+        /// CreateGhostVesselsFromCommittedRecordings) separately excludes SubOrbital.
         /// </summary>
         [Fact]
-        public void TerminalFilter_SubOrbital_ShouldNotGetProtoVessel()
+        public void SubOrbital_HasOrbitData_ReturnsTrue()
         {
             var rec = new Recording
             {

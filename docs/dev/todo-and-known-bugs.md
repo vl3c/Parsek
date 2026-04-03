@@ -247,11 +247,11 @@ Ghost orbit lines look identical to real vessel orbit lines. Should have a disti
 
 **Priority:** Low — cosmetic, functional without it
 
-### T41. Ghost orbit line persists during non-orbital playback phases
+### T41. Ghost orbit line for suborbital recordings
 
-When a recording-index ghost exits an orbital segment (e.g., atmospheric re-entry), the ghost map ProtoVessel's orbit line remains at the last segment's orbit. It should either disappear during non-orbital phases or be removed and re-created when the ghost re-enters an orbital segment.
+Suborbital recordings were excluded from ghost map presence — no orbit line during playback. Now relaxed: HandleGhostCreated allows SubOrbital terminal state through. Two paths: (1) recordings with orbit segments use the existing deferred mechanism, (2) physics-only recordings construct the orbit from interpolated state vectors when altitude > 1500m and speed > 60 m/s. Hysteresis thresholds (remove at alt < 500m or speed < 30 m/s) prevent create/destroy churn. RELATIVE-frame recordings are guarded against. Tracking station still excludes SubOrbital.
 
-**Priority:** Low — minor visual inconsistency, ghost mesh shows correct position
+**Status:** Fixed (0.6.0)
 
 ### T42. Convert KerbalsModule to IResourceModule
 

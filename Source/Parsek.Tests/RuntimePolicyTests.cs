@@ -892,5 +892,110 @@ namespace Parsek.Tests
         }
 
         #endregion
+
+        #region State-vector orbit thresholds
+
+        [Theory]
+        [InlineData(2000, 100, true)]    // Above both thresholds
+        [InlineData(1500.1, 60.1, true)] // Just above both thresholds
+        [InlineData(1500, 60, false)]    // At thresholds (not above)
+        [InlineData(1000, 100, false)]   // Below altitude threshold
+        [InlineData(2000, 50, false)]    // Below speed threshold
+        [InlineData(0, 0, false)]        // On the ground
+        public void ShouldCreateStateVectorOrbit_ThresholdBehavior(double alt, double speed, bool expected)
+        {
+            Assert.Equal(expected, ParsekPlaybackPolicy.ShouldCreateStateVectorOrbit(alt, speed));
+        }
+
+        [Theory]
+        [InlineData(100, 10, true)]      // Below both thresholds
+        [InlineData(499, 100, true)]     // Below altitude (OR logic)
+        [InlineData(2000, 29, true)]     // Below speed (OR logic)
+        [InlineData(500, 30, false)]     // At thresholds (not below)
+        [InlineData(1000, 60, false)]    // Above both removal thresholds
+        public void ShouldRemoveStateVectorOrbit_ThresholdBehavior(double alt, double speed, bool expected)
+        {
+            Assert.Equal(expected, ParsekPlaybackPolicy.ShouldRemoveStateVectorOrbit(alt, speed));
+        }
+
+        [Fact]
+        public void StateVectorThresholds_HysteresisGap_Exists()
+        {
+            // A vessel at 1000m and 50 m/s should NOT trigger create or remove
+            // (in the hysteresis dead zone between removal and creation thresholds)
+            Assert.False(ParsekPlaybackPolicy.ShouldCreateStateVectorOrbit(1000, 50));
+            Assert.False(ParsekPlaybackPolicy.ShouldRemoveStateVectorOrbit(1000, 50));
+        }
+
+        #endregion
+
+        #region RELATIVE frame guard
+
+        [Fact]
+        public void IsInRelativeFrame_NullTrackSections_ReturnsFalse()
+        {
+            var traj = new Recording { TrackSections = null };
+            Assert.False(ParsekPlaybackPolicy.IsInRelativeFrame(traj, 100));
+        }
+
+        [Fact]
+        public void IsInRelativeFrame_EmptyTrackSections_ReturnsFalse()
+        {
+            var traj = new Recording { TrackSections = new List<TrackSection>() };
+            Assert.False(ParsekPlaybackPolicy.IsInRelativeFrame(traj, 100));
+        }
+
+        [Fact]
+        public void IsInRelativeFrame_AbsoluteSection_ReturnsFalse()
+        {
+            var traj = new Recording
+            {
+                TrackSections = new List<TrackSection>
+                {
+                    new TrackSection
+                    {
+                        referenceFrame = ReferenceFrame.Absolute,
+                        startUT = 50, endUT = 200
+                    }
+                }
+            };
+            Assert.False(ParsekPlaybackPolicy.IsInRelativeFrame(traj, 100));
+        }
+
+        [Fact]
+        public void IsInRelativeFrame_RelativeSection_ReturnsTrue()
+        {
+            var traj = new Recording
+            {
+                TrackSections = new List<TrackSection>
+                {
+                    new TrackSection
+                    {
+                        referenceFrame = ReferenceFrame.Relative,
+                        startUT = 50, endUT = 200
+                    }
+                }
+            };
+            Assert.True(ParsekPlaybackPolicy.IsInRelativeFrame(traj, 100));
+        }
+
+        [Fact]
+        public void IsInRelativeFrame_UTOutsideSection_ReturnsFalse()
+        {
+            var traj = new Recording
+            {
+                TrackSections = new List<TrackSection>
+                {
+                    new TrackSection
+                    {
+                        referenceFrame = ReferenceFrame.Relative,
+                        startUT = 50, endUT = 200
+                    }
+                }
+            };
+            Assert.False(ParsekPlaybackPolicy.IsInRelativeFrame(traj, 300));
+        }
+
+        #endregion
     }
 }

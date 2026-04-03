@@ -6,6 +6,10 @@ All notable changes to Parsek are documented here.
 
 ## 0.6.0
 
+### Ghost Playback
+
+- **Suborbital orbit line (T41).** Ghost orbit lines are now visible during suborbital coasting phases. Recordings with orbit segments show the ballistic arc when the ghost enters a coast phase; pure-physics recordings (no time warp) construct the orbit from interpolated state vectors once above 1500m altitude and 60 m/s. Hysteresis thresholds prevent orbit line flicker near threshold boundaries. Tracking station orbit lines remain restricted to stable orbital recordings.
+
 ### Release & Distribution
 
 - **Parsek.version file (T1).** Added `GameData/Parsek/Parsek.version` for AVC and CKAN version detection. Auto-copied to KSP GameData on build.
