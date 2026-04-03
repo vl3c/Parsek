@@ -91,7 +91,7 @@ namespace Parsek.Tests
         // Reentry South:     +0s   to +90s   (90s looped ghost, reentry FX)
 
         // Approximate "upright on surface" rotation at KSC for UT ~17000.
-        // Surface-relative rotation for upright vessel at KSC pad (v5 format).
+        // Surface-relative rotation for upright vessel at KSC pad.
         // Captured empirically from v.srfRelRotation in KSP runtime.
         private const float KscRotX = -0.7009714f, KscRotY = -0.09230039f, KscRotZ = -0.09728389f, KscRotW = 0.7004681f;
 
@@ -2908,7 +2908,7 @@ namespace Parsek.Tests
             // Has metadata
             Assert.Equal("Test Vessel", v3Node.GetValue("vesselName"));
             Assert.Equal("abc123", v3Node.GetValue("recordingId"));
-            Assert.Equal("7", v3Node.GetValue("recordingFormatVersion"));
+            Assert.Equal("0", v3Node.GetValue("recordingFormatVersion"));
             Assert.Equal("2", v3Node.GetValue("pointCount"));
 
             // No inline bulk data
@@ -2946,7 +2946,7 @@ namespace Parsek.Tests
             var trajNode = builder.BuildTrajectoryNode();
 
             Assert.Equal("PARSEK_RECORDING", trajNode.name);
-            Assert.Equal("7", trajNode.GetValue("version"));
+            Assert.Equal("0", trajNode.GetValue("version"));
             Assert.Equal("abc123", trajNode.GetValue("recordingId"));
             Assert.Equal(2, trajNode.GetNodes("POINT").Length);
             Assert.Single(trajNode.GetNodes("ORBIT_SEGMENT"));
@@ -2954,19 +2954,19 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void RecordingBuilder_WithFormatVersion4_PreservesV4()
+        public void RecordingBuilder_WithCustomFormatVersion_PreservesVersion()
         {
-            var builder = new RecordingBuilder("V4 Test")
-                .WithRecordingId("v4test")
-                .WithFormatVersion(4)
+            var builder = new RecordingBuilder("Custom Version Test")
+                .WithRecordingId("customvertest")
+                .WithFormatVersion(42)
                 .AddPoint(100, 0, 0, 0)
                 .AddPoint(103, 0.1, 0.1, 100);
 
             var trajNode = builder.BuildTrajectoryNode();
-            Assert.Equal("4", trajNode.GetValue("version"));
+            Assert.Equal("42", trajNode.GetValue("version"));
 
             var metaNode = builder.BuildV3Metadata();
-            Assert.Equal("4", metaNode.GetValue("recordingFormatVersion"));
+            Assert.Equal("42", metaNode.GetValue("recordingFormatVersion"));
         }
 
         [Fact]
@@ -2978,7 +2978,7 @@ namespace Parsek.Tests
             var scenarioNode = writer.BuildScenarioNode();
             var recNode = scenarioNode.GetNodes("RECORDING")[0];
 
-            Assert.Equal("7", recNode.GetValue("recordingFormatVersion"));
+            Assert.Equal("0", recNode.GetValue("recordingFormatVersion"));
             Assert.Equal("KSC Hopper", recNode.GetValue("vesselName"));
             Assert.Empty(recNode.GetNodes("POINT"));
             Assert.Null(recNode.GetNode("VESSEL_SNAPSHOT"));
@@ -5527,7 +5527,7 @@ namespace Parsek.Tests
 
                     // v3: no inline trajectory POINT data in .sfs
                     // (BRANCH_POINT nodes in RECORDING_TREE are expected)
-                    Assert.Contains("recordingFormatVersion = 7", content);
+                    Assert.Contains("recordingFormatVersion = 0", content);
                     var scenarioSection = content.Substring(
                         content.IndexOf("name = ParsekScenario"),
                         content.IndexOf("FLIGHTSTATE") - content.IndexOf("name = ParsekScenario"));

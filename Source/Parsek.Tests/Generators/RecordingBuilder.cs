@@ -42,7 +42,7 @@ namespace Parsek.Tests.Generators
         private float defaultRotX, defaultRotY, defaultRotZ;
         private float defaultRotW = 1;
         private bool hasDefaultRotation;
-        private int formatVersion = 7;
+        private int formatVersion = 0;
 
         public RecordingBuilder(string vesselName)
         {

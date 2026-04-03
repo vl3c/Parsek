@@ -33,7 +33,7 @@ namespace Parsek
         public List<SegmentEvent> SegmentEvents { get; } = new List<SegmentEvent>();
         public List<TrackSection> TrackSections { get; } = new List<TrackSection>();
 
-        // Environment tracking (v6+)
+        // Environment tracking
         private EnvironmentHysteresis environmentHysteresis;
         private TrackSection currentTrackSection;
         private bool trackSectionActive;
@@ -4017,7 +4017,7 @@ namespace Parsek
                 $"inAtmo={wasInAtmosphere}, hasAtmo={v.mainBody?.atmosphere}, alt={v.altitude:F0}m" +
                 $", altThreshold={currentAltitudeThreshold:F0}m, aboveThreshold={wasAboveAltitudeThreshold}");
 
-            // Initialize environment tracking (v6+)
+            // Initialize environment tracking
             TrackSections.Clear();
             var initialEnv = ClassifyCurrentEnvironment(v);
             environmentHysteresis = new EnvironmentHysteresis(initialEnv);
@@ -4280,7 +4280,7 @@ namespace Parsek
                 }
             }
 
-            // Close final TrackSection (v6+)
+            // Close final TrackSection
             CloseCurrentTrackSection(Planetarium.GetUniversalTime());
 
             // Clear RELATIVE mode state
@@ -4541,7 +4541,7 @@ namespace Parsek
             CheckFairingState(v);
             CheckRoboticState(v);
 
-            // Environment tracking (v6+) — runs every physics frame regardless of adaptive sampling
+            // Environment tracking — runs every physics frame regardless of adaptive sampling
             if (environmentHysteresis != null)
             {
                 var rawEnv = ClassifyCurrentEnvironment(v);
@@ -4627,7 +4627,7 @@ namespace Parsek
             lastRecordedUT = point.ut;
             lastRecordedVelocity = point.velocity;
 
-            // Dual-write: flat Points list (backward compat) + current TrackSection (v6+)
+            // Dual-write: flat Points list + current TrackSection
             if (trackSectionActive && currentTrackSection.frames != null)
             {
                 currentTrackSection.frames.Add(point);
@@ -4687,7 +4687,7 @@ namespace Parsek
             lastRecordedVelocity = point.velocity;
             ParsekLog.Verbose("Recorder", $"Boundary point sampled at UT={point.ut:F1}");
 
-            // Dual-write: flat Points list (backward compat) + current TrackSection (v6+)
+            // Dual-write: flat Points list + current TrackSection
             if (trackSectionActive && currentTrackSection.frames != null)
             {
                 currentTrackSection.frames.Add(point);
@@ -5004,7 +5004,7 @@ namespace Parsek
                 isOnRails = false;
             }
 
-            // Close current TrackSection before backgrounding (v6+)
+            // Close current TrackSection before backgrounding
             CloseCurrentTrackSection(Planetarium.GetUniversalTime());
 
             // Start a new orbit segment for the background phase.

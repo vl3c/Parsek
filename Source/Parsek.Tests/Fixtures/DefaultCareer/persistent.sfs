@@ -1651,7 +1651,7 @@ GAME
 		RECORDING
 		{
 			recordingId = a8d8257d67074fb5a3019835ad98b940
-			recordingFormatVersion = 5
+			recordingFormatVersion = 0
 			loopPlayback = True
 			loopIntervalSeconds = -11
 			preLaunchFunds = 167663.56045532227
@@ -1672,7 +1672,7 @@ GAME
 		RECORDING
 		{
 			recordingId = 27453fa1bb54418d88c66a4c37ac353e
-			recordingFormatVersion = 5
+			recordingFormatVersion = 0
 			loopPlayback = True
 			loopIntervalSeconds = -10
 			preLaunchFunds = 167663.55947875977
@@ -1693,7 +1693,7 @@ GAME
 		RECORDING
 		{
 			recordingId = 19af059a51f54e5a8ec50a51d4fef5de
-			recordingFormatVersion = 5
+			recordingFormatVersion = 0
 			loopPlayback = True
 			loopIntervalSeconds = -20
 			preLaunchFunds = 167663.55947875977
@@ -1714,7 +1714,7 @@ GAME
 		RECORDING
 		{
 			recordingId = 0529a6dc73e84bc5b1363b339ed6ae41
-			recordingFormatVersion = 5
+			recordingFormatVersion = 0
 			loopPlayback = True
 			loopIntervalSeconds = 10
 			preLaunchFunds = 153663.55947875977
@@ -1735,7 +1735,7 @@ GAME
 		RECORDING
 		{
 			recordingId = b5c17c46e61b4ae8bee24c84ace61e80
-			recordingFormatVersion = 5
+			recordingFormatVersion = 0
 			loopPlayback = True
 			loopIntervalSeconds = 10
 			preLaunchFunds = 167663.55947875977
@@ -1756,7 +1756,7 @@ GAME
 		RECORDING
 		{
 			recordingId = a20373eea78e4475883bf918d0bdf782
-			recordingFormatVersion = 5
+			recordingFormatVersion = 0
 			loopPlayback = True
 			loopIntervalSeconds = 10
 			preLaunchFunds = 161868.42633056641
@@ -1777,7 +1777,7 @@ GAME
 		RECORDING
 		{
 			recordingId = 7cf806dc28614815bae23b8ed141da90
-			recordingFormatVersion = 5
+			recordingFormatVersion = 0
 			loopPlayback = True
 			loopIntervalSeconds = 10
 			preLaunchFunds = 150828.42535400391
@@ -1798,7 +1798,7 @@ GAME
 		RECORDING
 		{
 			recordingId = 74449492df524d89a44bec5370a4a6d8
-			recordingFormatVersion = 5
+			recordingFormatVersion = 0
 			loopPlayback = True
 			loopIntervalSeconds = 10
 			preLaunchFunds = 139788.42437744141
@@ -1819,7 +1819,7 @@ GAME
 		RECORDING
 		{
 			recordingId = 99724b73424c4189a1a6242b598af957
-			recordingFormatVersion = 5
+			recordingFormatVersion = 0
 			loopPlayback = True
 			loopIntervalSeconds = 10
 			preLaunchFunds = 128748.42340087891
