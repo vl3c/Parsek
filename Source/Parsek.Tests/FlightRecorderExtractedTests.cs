@@ -426,5 +426,36 @@ namespace Parsek.Tests
         }
 
         #endregion
+
+        #region ShouldSkipOrbitSegmentForAtmosphere
+
+        [Fact]
+        public void ShouldSkipOrbitSegment_BelowAtmosphere_ReturnsTrue()
+        {
+            // Kerbin: atmosphereDepth = 70000
+            Assert.True(FlightRecorder.ShouldSkipOrbitSegmentForAtmosphere(true, 50000, 70000));
+        }
+
+        [Fact]
+        public void ShouldSkipOrbitSegment_AboveAtmosphere_ReturnsFalse()
+        {
+            Assert.False(FlightRecorder.ShouldSkipOrbitSegmentForAtmosphere(true, 80000, 70000));
+        }
+
+        [Fact]
+        public void ShouldSkipOrbitSegment_NoAtmosphere_ReturnsFalse()
+        {
+            // Mun has no atmosphere
+            Assert.False(FlightRecorder.ShouldSkipOrbitSegmentForAtmosphere(false, 5000, 0));
+        }
+
+        [Fact]
+        public void ShouldSkipOrbitSegment_ExactlyAtBoundary_ReturnsFalse()
+        {
+            // At exactly atmosphereDepth, altitude is NOT below — no skip
+            Assert.False(FlightRecorder.ShouldSkipOrbitSegmentForAtmosphere(true, 70000, 70000));
+        }
+
+        #endregion
     }
 }
