@@ -128,15 +128,16 @@ namespace Parsek.Patches
     }
 
     /// <summary>
-    /// Prevents SpaceTracking.SetVessel from crashing on ghost ProtoVessels.
-    /// Ghost vessels lack certain state fields that SetVessel assumes exist,
-    /// causing NullReferenceException when clicking a ghost in the tracking station.
-    /// Shows a screen message instead.
+    /// Prevents SpaceTracking.SetVessel from selecting ghost ProtoVessels.
+    /// SetVessel enables the Fly/Delete/Recover buttons for the selected vessel.
+    /// If we only block SetVessel, the buttons stay enabled from the previous
+    /// selection — clicking Fly would then fly to the wrong vessel (e.g., an
+    /// asteroid). We must also lock the buttons after blocking.
     /// </summary>
     [HarmonyPatch(typeof(SpaceTracking), "SetVessel")]
     internal static class GhostTrackingSetVesselPatch
     {
-        static bool Prefix(Vessel v)
+        static bool Prefix(SpaceTracking __instance, Vessel v)
         {
             if (v == null || !GhostMapPresence.IsGhostMapVessel(v.persistentId))
                 return true;
@@ -144,6 +145,13 @@ namespace Parsek.Patches
             ScreenMessages.PostScreenMessage(
                 $"<b>{v.vesselName}</b> is a ghost — it shows the predicted orbit of a recorded vessel.",
                 5f, ScreenMessageStyle.UPPER_CENTER);
+
+            // Disable Fly/Delete/Recover buttons so the user can't accidentally
+            // act on whatever vessel was previously selected internally.
+            __instance.FlyButton.interactable = false;
+            __instance.DeleteButton.interactable = false;
+            __instance.RecoverButton.interactable = false;
+
             ParsekLog.Info("GhostMap",
                 $"Blocked SetVessel for ghost '{v.vesselName}' pid={v.persistentId} in Tracking Station");
             return false;
