@@ -1893,7 +1893,7 @@ namespace Parsek
                 var mainRec = committed[mainIdx];
                 bool isFuture = now < mainRec.StartUT;
                 bool hasRewindSave = !string.IsNullOrEmpty(mainRec.RewindSaveFileName);
-                bool isRecording = InFlight && flight != null && flight.IsRecording;
+                bool isRecording = InFlight && flight.IsRecording;
 
                 if (isFuture)
                 {
