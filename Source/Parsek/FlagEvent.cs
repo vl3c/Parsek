@@ -10,7 +10,7 @@ namespace Parsek
         public double latitude;
         public double longitude;
         public double altitude;
-        public float rotX, rotY, rotZ, rotW; // surface-relative rotation (v5)
+        public float rotX, rotY, rotZ, rotW; // surface-relative rotation
         public string bodyName;       // body the flag is on
 
         public override string ToString()

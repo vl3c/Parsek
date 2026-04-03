@@ -6,6 +6,10 @@ All notable changes to Parsek are documented here.
 
 ## 0.6.0
 
+### Format Reset
+
+- **Recording format reset to version 0 (PR #114).** Clean break: reset `CurrentRecordingFormatVersion` from 7 to 0. Removed all legacy format migration code (v4→v5 rotation conversion, `SyncVersionFromPrecFile`, `CorrectForBodyRotation`), the `surfaceRelativeRotation` version-branching (all rotation is now unconditionally surface-relative), ghost geometry legacy fields (`GhostGeometryVersion`, `GhostGeometryCaptureStrategy`, `GhostGeometryProbeStatus`), and the `loopPauseSeconds` field-rename fallback. -500 lines. No behavioral change — all removed code paths were already dead (no users with old-format recordings exist).
+
 ### Release & Distribution
 
 - **Parsek.version file (T1).** Added `GameData/Parsek/Parsek.version` for AVC and CKAN version detection. Auto-copied to KSP GameData on build.
@@ -487,6 +491,7 @@ Spawn safety hardening, ghost visual improvements, booster/debris tree recording
 - **Spawn abandon status** — spawn warnings show "walkback exhausted" / "spawn abandoned" status instead of silently retrying
 - **Watch exit key** — changed from Backspace (conflicts with KSP Abort action group) to `[` or `]` bracket keys (#124)
 - **Watch button guards** — disabled for out-of-range ghosts (tooltip: "Ghost is beyond visual range") and past recordings (#89, #90)
+- **Group-level W and R/FF buttons** — recording group headers now show Watch and Rewind/FastForward buttons targeting the group's main recording (earliest non-debris descendant), no need to expand groups to access these controls (#115)
 - **Watch overlay repositioned** — moved to left half of screen to avoid altimeter overlap
 
 ### Performance & Logging

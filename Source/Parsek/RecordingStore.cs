@@ -14,9 +14,8 @@ namespace Parsek
     /// </summary>
     public static class RecordingStore
     {
-        public const int CurrentRecordingFormatVersion = 7;
-        // v7: Added TerrainHeightAtEnd for surface spawn terrain correction
-        // v6: Added SegmentEvents, TrackSections, ControllerInfo, extended BranchPoint types
+        public const int CurrentRecordingFormatVersion = 0;
+        // v0: initial release format
 
         // When true, suppresses logging calls (for unit testing outside Unity)
         internal static bool SuppressLogging;
@@ -2809,11 +2808,6 @@ namespace Parsek
                     return false;
                 }
 
-                // Sync format version from .prec file (authoritative for data format).
-                // Prevents double-migration when .sfs metadata is stale (e.g., quicksave
-                // made before an in-flight v4→v5 migration updated the persistent save).
-                SyncVersionFromPrecFile(precNode, rec);
-
                 DeserializeTrajectoryFrom(precNode, rec);
 
                 // Load _vessel.craft — ConfigNode.Load returns the snapshot directly
@@ -2847,79 +2841,6 @@ namespace Parsek
                 Log($"[Parsek] Failed to load recording files for {rec.RecordingId}: {ex.Message}");
                 return false;
             }
-        }
-
-        /// <summary>
-        /// Syncs RecordingFormatVersion from the .prec file's version field.
-        /// The .prec file is authoritative for data format; if its version is higher
-        /// than the .sfs metadata, the recording's version is updated to match.
-        /// </summary>
-        internal static void SyncVersionFromPrecFile(ConfigNode precNode, Recording rec)
-        {
-            string fileVersion = precNode.GetValue("version");
-            if (fileVersion == null) return;
-
-            int precVersion;
-            if (int.TryParse(fileVersion, NumberStyles.Integer,
-                    CultureInfo.InvariantCulture, out precVersion)
-                && precVersion > rec.RecordingFormatVersion)
-            {
-                Log($"Version sync: {rec.RecordingId} .sfs says v{rec.RecordingFormatVersion} but .prec says v{precVersion} — updating");
-                rec.RecordingFormatVersion = precVersion;
-            }
-        }
-
-        /// <summary>
-        /// Migrates a v4 recording's rotation data from world-space to surface-relative (v5).
-        /// Must be called when CelestialBody data is available (flight scene).
-        /// KSP's world frame co-rotates with the parent body, so bodyTransform.rotation
-        /// represents axial tilt only (time-invariant). Migration is simply
-        /// surfaceRelRot = Inverse(bodyRot) * worldRot — no time delta needed.
-        /// </summary>
-        internal static bool MigrateV4ToV5(Recording rec)
-        {
-            if (rec == null || rec.RecordingFormatVersion >= 5 || rec.Points.Count == 0)
-                return false;
-
-            string lastBody = null;
-            CelestialBody body = null;
-            Quaternion invBodyRot = Quaternion.identity;
-
-            int converted = 0;
-            for (int i = 0; i < rec.Points.Count; i++)
-            {
-                var pt = rec.Points[i];
-
-                // Cache body lookup
-                if (pt.bodyName != lastBody)
-                {
-                    body = FlightGlobals.Bodies.Find(b => b.name == pt.bodyName);
-                    lastBody = pt.bodyName;
-                    if (body != null)
-                    {
-                        // KSP's world frame co-rotates with the body surface.
-                        // body.bodyTransform.rotation represents axial tilt only,
-                        // NOT spin — so it's essentially constant over time.
-                        // surfaceRelRot = Inverse(bodyRot) * worldRot. No time delta needed.
-                        invBodyRot = Quaternion.Inverse(body.bodyTransform.rotation);
-                    }
-                }
-
-                if (body == null) continue;
-
-                pt.rotation = invBodyRot * pt.rotation;
-                rec.Points[i] = pt;
-                converted++;
-            }
-
-            if (converted == 0) return false;
-
-            rec.RecordingFormatVersion = 5;
-
-            // Save the migrated .prec file
-            bool saved = SaveRecordingFiles(rec);
-            Log($"Migrated recording {rec.RecordingId} from v4→v5: {converted} points converted, saved={saved}");
-            return saved;
         }
 
         private static void SafeWriteConfigNode(ConfigNode node, string path)

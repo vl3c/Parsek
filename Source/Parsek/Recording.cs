@@ -18,7 +18,6 @@ namespace Parsek
     {
         public string RecordingId = Guid.NewGuid().ToString("N");
         public int RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion;
-        public int GhostGeometryVersion = 1; // Legacy field, kept for deserialization backward compat
         public List<TrajectoryPoint> Points = new List<TrajectoryPoint>();
         public List<OrbitSegment> OrbitSegments = new List<OrbitSegment>();
         public List<PartEvent> PartEvents = new List<PartEvent>();
@@ -27,7 +26,7 @@ namespace Parsek
         public List<TrackSection> TrackSections = new List<TrackSection>();
 
         // Controller parts at segment start (for identity tracking)
-        public List<ControllerInfo> Controllers;  // null = not set (legacy recording)
+        public List<ControllerInfo> Controllers;  // null = not set (no controller data)
 
         // True if vessel has no controller parts (debris). Minimal recording only.
         public bool IsDebris;
@@ -71,8 +70,6 @@ namespace Parsek
         public string GhostGeometryRelativePath;
         public bool GhostGeometryAvailable;
         public string GhostGeometryCaptureError;
-        public string GhostGeometryCaptureStrategy; // Legacy field, kept for deserialization
-        public string GhostGeometryProbeStatus;    // Legacy field, kept for deserialization
 
         // --- Tree linkage (null for legacy/standalone recordings) ---
         public string TreeId;                          // null = standalone (pre-tree recording)
@@ -96,7 +93,7 @@ namespace Parsek
         public SurfacePosition? TerminalPosition;      // null if not landed/splashed
 
         // Terrain height at recording end (for terrain correction on spawn)
-        // NaN = not set (pre-v7 recording or non-surface terminal state)
+        // NaN = not set (non-surface terminal state)
         public double TerrainHeightAtEnd = double.NaN;
 
         // Antenna specifications for CommNet ghost relay registration (Phase 6f)
