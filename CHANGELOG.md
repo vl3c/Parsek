@@ -17,6 +17,7 @@ All notable changes to Parsek are documented here.
 - **Approach environment for airless bodies.** New `SegmentEnvironment.Approach` (=5) classifies vessels below approach altitude on airless bodies (Mun, Minmus). Enables the optimizer to split landing/takeoff recordings so they can be looped independently. A typical Kerbin→Mun landing now produces ~4 segments (atmo, exo, approach, surface) instead of 10+.
 - **Unified tree root recording.** `PromoteToTreeForBreakup` no longer creates separate root and continuation recordings. The main vessel gets one continuous recording through all breakups. Decoupled part events handle ghost visual updates (booster detach) during playback. Eliminates the 14s root fragment that couldn't show later staging events.
 - **Debris loop sync.** Debris ghosts (separated boosters, fairings) now replay in sync with the parent recording's loop cycle. New `LoopSyncParentIdx` field links debris to the parent recording whose loop clock drives their playback. Boosters visibly separate and fly away on each loop iteration.
+- **Boring tail trimming.** Leaf recordings that end with a long idle period (surface stationary or orbital coasting) are automatically trimmed to ~10 seconds past the last meaningful activity. Prevents ghosts from sitting motionless for extended periods before the real vessel spawns. Only applies to leaf recordings (no child branches or chain continuations).
 
 ### Game Actions & Resources System
 
