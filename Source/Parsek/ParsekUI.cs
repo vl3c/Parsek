@@ -1851,10 +1851,85 @@ namespace Parsek
             // Period placeholder
             GUILayout.Label("", GUILayout.Width(ColW_Period));
 
-            // Spacers for Watch
-            if (InFlight) GUILayout.Label("", GUILayout.Width(ColW_Watch));
+            // Find the "main" (earliest non-debris) recording for group-level W and R/FF buttons
+            int mainIdx = FindGroupMainRecordingIndex(descendants, committed);
 
-            GUILayout.Label("", GUILayout.Width(ColW_Rewind));
+            // Watch button (flight only) — targets main recording's ghost
+            if (InFlight)
+            {
+                if (mainIdx >= 0)
+                {
+                    bool hasGhost = flight.HasActiveGhost(mainIdx);
+                    bool sameBody = flight.IsGhostOnSameBody(mainIdx);
+                    bool inRange = flight.IsGhostWithinVisualRange(mainIdx);
+                    bool isWatching = flight.WatchedRecordingIndex == mainIdx;
+                    bool canWatch = hasGhost && sameBody && inRange;
+
+                    GUI.enabled = canWatch;
+                    string watchLabel = isWatching ? "W*" : "W";
+                    string watchTooltip = (hasGhost && !sameBody) ? "Ghost is on a different body"
+                        : (hasGhost && !inRange) ? "Ghost is beyond visual range"
+                        : "";
+                    if (GUILayout.Button(new GUIContent(watchLabel, watchTooltip), GUILayout.Width(ColW_Watch)))
+                    {
+                        if (isWatching)
+                            flight.ExitWatchMode();
+                        else
+                            flight.EnterWatchMode(mainIdx);
+                        ParsekLog.Info("UI", $"Group '{groupName}' W button: {(isWatching ? "exit" : "enter")} watch on #{mainIdx} \"{committed[mainIdx].VesselName}\"");
+                    }
+                    GUI.enabled = true;
+                }
+                else
+                {
+                    GUILayout.Label("", GUILayout.Width(ColW_Watch));
+                }
+            }
+
+            // Rewind / Fast-forward button — targets main recording
+            // (per-recording row already logs enable/disable transitions for the same recording)
+            if (mainIdx >= 0)
+            {
+                var mainRec = committed[mainIdx];
+                bool isFuture = now < mainRec.StartUT;
+                bool hasRewindSave = !string.IsNullOrEmpty(mainRec.RewindSaveFileName);
+                bool isRecording = InFlight && flight != null && flight.IsRecording;
+
+                if (isFuture)
+                {
+                    string ffReason;
+                    bool canFF = RecordingStore.CanFastForward(mainRec, out ffReason, isRecording: isRecording);
+                    GUI.enabled = canFF;
+                    string tooltip = canFF ? "Fast-forward to this launch" : ffReason;
+                    if (GUILayout.Button(new GUIContent("FF", tooltip), GUILayout.Width(ColW_Rewind)))
+                    {
+                        ParsekLog.Info("UI", $"Group '{groupName}' FF button: #{mainIdx} \"{mainRec.VesselName}\"");
+                        ShowFastForwardConfirmation(mainRec);
+                    }
+                    GUI.enabled = true;
+                }
+                else if (hasRewindSave)
+                {
+                    string rewindReason;
+                    bool canRewind = RecordingStore.CanRewind(mainRec, out rewindReason, isRecording: isRecording);
+                    GUI.enabled = canRewind;
+                    string tooltip = canRewind ? "Rewind to this launch" : rewindReason;
+                    if (GUILayout.Button(new GUIContent("R", tooltip), GUILayout.Width(ColW_Rewind)))
+                    {
+                        ParsekLog.Info("UI", $"Group '{groupName}' R button: #{mainIdx} \"{mainRec.VesselName}\"");
+                        ShowRewindConfirmation(mainRec);
+                    }
+                    GUI.enabled = true;
+                }
+                else
+                {
+                    GUILayout.Label("", GUILayout.Width(ColW_Rewind));
+                }
+            }
+            else
+            {
+                GUILayout.Label("", GUILayout.Width(ColW_Rewind));
+            }
 
             // Hide group checkbox
             bool groupHidden = GroupHierarchyStore.IsGroupHidden(groupName);
@@ -2935,6 +3010,30 @@ namespace Parsek
                 if (dur > 0) total += dur;
             }
             return total;
+        }
+
+        /// <summary>
+        /// Returns the committed-list index of the "main" recording in a group:
+        /// the earliest non-debris descendant by StartUT.  Returns -1 when
+        /// the group is empty or contains only debris.
+        /// </summary>
+        internal static int FindGroupMainRecordingIndex(
+            HashSet<int> descendants, List<Recording> committed)
+        {
+            int bestIdx = -1;
+            double bestUT = double.MaxValue;
+            foreach (int idx in descendants)
+            {
+                if (idx < 0 || idx >= committed.Count) continue;
+                var rec = committed[idx];
+                if (rec.IsDebris) continue;
+                if (rec.StartUT < bestUT)
+                {
+                    bestUT = rec.StartUT;
+                    bestIdx = idx;
+                }
+            }
+            return bestIdx;
         }
 
         /// <summary>
