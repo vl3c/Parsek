@@ -25,10 +25,14 @@ namespace Parsek.Tests
             // Ensure suppression flags start clean
             GameStateRecorder.SuppressResourceEvents = false;
             GameStateRecorder.IsReplayingActions = false;
+
+            // FindObjectsOfType crashes outside Unity
+            KspStatePatcher.SuppressUnityCallsForTesting = true;
         }
 
         public void Dispose()
         {
+            KspStatePatcher.ResetForTesting();
             ParsekLog.ResetTestOverrides();
             ParsekLog.SuppressLogging = true;
             GameStateRecorder.SuppressResourceEvents = false;
@@ -178,16 +182,17 @@ namespace Parsek.Tests
         }
 
         // ================================================================
-        // PatchFacilities — destruction state with null DestructibleBuildings
+        // PatchFacilities — destruction state with no DestructibleBuildings
         // (Full integration testing of Demolish/Repair requires in-game verification
         //  since DestructibleBuilding is a Unity MonoBehaviour unavailable in tests)
         // ================================================================
 
         [Fact]
-        public void PatchFacilities_NullProtoUpgradeables_SkipsDestructionPatching()
+        public void PatchFacilities_WithFacilities_SkipsDestructionPatchingInTests()
         {
-            // ScenarioUpgradeableFacilities.protoUpgradeables is null in test environment.
-            // PatchFacilities should skip entirely (including destruction patching) without crashing.
+            // protoUpgradeables is an empty dict in the test environment (not null),
+            // so the level loop runs but finds nothing. Destruction patching is suppressed
+            // via SuppressUnityCallsForTesting (FindObjectsOfType crashes outside Unity).
             var module = new FacilitiesModule();
             module.ProcessAction(new GameAction
             {
@@ -200,7 +205,7 @@ namespace Parsek.Tests
             KspStatePatcher.PatchFacilities(module);
 
             Assert.Contains(logLines, l =>
-                l.Contains("[KspStatePatcher]") && l.Contains("protoUpgradeables is null"));
+                l.Contains("[KspStatePatcher]") && l.Contains("SuppressUnityCallsForTesting"));
         }
 
         // ================================================================
