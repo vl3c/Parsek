@@ -374,15 +374,27 @@ namespace Parsek.Tests
         #region FindSplitCandidates
 
         [Fact]
-        public void FindSplitCandidates_EnvironmentChange_ReturnsSplit()
+        public void FindSplitCandidates_CoarseEnvironmentChange_ReturnsSplit()
         {
+            // Atmospheric → ExoBallistic is a real environment class change
             var rec = MakeRecordingWithSections(17000, 17030, 17060,
-                SegmentEnvironment.ExoBallistic, SegmentEnvironment.ExoPropulsive);
+                SegmentEnvironment.Atmospheric, SegmentEnvironment.ExoBallistic);
             var committed = new List<Recording> { rec };
 
             var candidates = RecordingOptimizer.FindSplitCandidates(committed);
             Assert.Single(candidates);
             Assert.Equal((0, 1), candidates[0]);
+        }
+
+        [Fact]
+        public void FindSplitCandidates_ExoToExo_ReturnsEmpty()
+        {
+            // ExoBallistic → ExoPropulsive is the same coarse class — no split
+            var rec = MakeRecordingWithSections(17000, 17030, 17060,
+                SegmentEnvironment.ExoBallistic, SegmentEnvironment.ExoPropulsive);
+            var committed = new List<Recording> { rec };
+
+            Assert.Empty(RecordingOptimizer.FindSplitCandidates(committed));
         }
 
         [Fact]
@@ -393,6 +405,28 @@ namespace Parsek.Tests
             var committed = new List<Recording> { rec };
 
             Assert.Empty(RecordingOptimizer.FindSplitCandidates(committed));
+        }
+
+        [Fact]
+        public void FindSplitCandidates_SurfaceMobileToStationary_ReturnsEmpty()
+        {
+            // SurfaceMobile → SurfaceStationary is the same coarse class
+            var rec = MakeRecordingWithSections(17000, 17030, 17060,
+                SegmentEnvironment.SurfaceMobile, SegmentEnvironment.SurfaceStationary);
+            var committed = new List<Recording> { rec };
+
+            Assert.Empty(RecordingOptimizer.FindSplitCandidates(committed));
+        }
+
+        [Fact]
+        public void FindSplitCandidates_ExoToSurface_ReturnsSplit()
+        {
+            var rec = MakeRecordingWithSections(17000, 17030, 17060,
+                SegmentEnvironment.ExoBallistic, SegmentEnvironment.SurfaceMobile);
+            var committed = new List<Recording> { rec };
+
+            var candidates = RecordingOptimizer.FindSplitCandidates(committed);
+            Assert.Single(candidates);
         }
 
         #endregion
@@ -733,6 +767,80 @@ namespace Parsek.Tests
             var candidates = RecordingOptimizer.FindSplitCandidatesForOptimizer(committed);
             Assert.Single(candidates);
             Assert.Equal((0, 1), candidates[0]);
+        }
+
+        [Fact]
+        public void FindSplitCandidatesForOptimizer_SkipsExoToExo()
+        {
+            // ExoPropulsive → ExoBallistic in same coarse class — no split even for optimizer
+            var rec = MakeRecordingWithSections(17000, 17030, 17060,
+                SegmentEnvironment.ExoPropulsive, SegmentEnvironment.ExoBallistic);
+            var committed = new List<Recording> { rec };
+
+            Assert.Empty(RecordingOptimizer.FindSplitCandidatesForOptimizer(committed));
+        }
+
+        #endregion
+
+        #region SplitEnvironmentClass
+
+        [Fact]
+        public void SplitEnvironmentClass_ExoTypesAreSameClass()
+        {
+            Assert.Equal(
+                RecordingOptimizer.SplitEnvironmentClass(SegmentEnvironment.ExoPropulsive),
+                RecordingOptimizer.SplitEnvironmentClass(SegmentEnvironment.ExoBallistic));
+        }
+
+        [Fact]
+        public void SplitEnvironmentClass_SurfaceTypesAreSameClass()
+        {
+            Assert.Equal(
+                RecordingOptimizer.SplitEnvironmentClass(SegmentEnvironment.SurfaceMobile),
+                RecordingOptimizer.SplitEnvironmentClass(SegmentEnvironment.SurfaceStationary));
+        }
+
+        [Fact]
+        public void SplitEnvironmentClass_AtmoAndExoAreDifferent()
+        {
+            Assert.NotEqual(
+                RecordingOptimizer.SplitEnvironmentClass(SegmentEnvironment.Atmospheric),
+                RecordingOptimizer.SplitEnvironmentClass(SegmentEnvironment.ExoBallistic));
+        }
+
+        [Fact]
+        public void SplitEnvironmentClass_ExoAndSurfaceAreDifferent()
+        {
+            Assert.NotEqual(
+                RecordingOptimizer.SplitEnvironmentClass(SegmentEnvironment.ExoBallistic),
+                RecordingOptimizer.SplitEnvironmentClass(SegmentEnvironment.SurfaceMobile));
+        }
+
+        [Fact]
+        public void SplitEnvironmentClass_ApproachIsDistinctFromExo()
+        {
+            Assert.NotEqual(
+                RecordingOptimizer.SplitEnvironmentClass(SegmentEnvironment.Approach),
+                RecordingOptimizer.SplitEnvironmentClass(SegmentEnvironment.ExoBallistic));
+        }
+
+        [Fact]
+        public void SplitEnvironmentClass_ApproachIsDistinctFromSurface()
+        {
+            Assert.NotEqual(
+                RecordingOptimizer.SplitEnvironmentClass(SegmentEnvironment.Approach),
+                RecordingOptimizer.SplitEnvironmentClass(SegmentEnvironment.SurfaceMobile));
+        }
+
+        [Fact]
+        public void FindSplitCandidates_ExoToApproach_ReturnsSplit()
+        {
+            var rec = MakeRecordingWithSections(17000, 17030, 17060,
+                SegmentEnvironment.ExoBallistic, SegmentEnvironment.Approach);
+            var committed = new List<Recording> { rec };
+
+            var candidates = RecordingOptimizer.FindSplitCandidates(committed);
+            Assert.Single(candidates);
         }
 
         #endregion

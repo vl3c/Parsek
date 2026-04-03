@@ -157,8 +157,10 @@ namespace Parsek
 
                 for (int s = 1; s < rec.TrackSections.Count; s++)
                 {
-                    // Only split where environment changes
-                    if (rec.TrackSections[s].environment == rec.TrackSections[s - 1].environment)
+                    // Only split where coarse environment class changes
+                    // (ExoPropulsive/ExoBallistic are the same class — engine on/off is too granular)
+                    if (SplitEnvironmentClass(rec.TrackSections[s].environment)
+                        == SplitEnvironmentClass(rec.TrackSections[s - 1].environment))
                         continue;
 
                     if (CanAutoSplit(rec, s))
@@ -188,8 +190,9 @@ namespace Parsek
 
                 for (int s = 1; s < rec.TrackSections.Count; s++)
                 {
-                    // Only split where environment changes
-                    if (rec.TrackSections[s].environment == rec.TrackSections[s - 1].environment)
+                    // Only split where coarse environment class changes
+                    if (SplitEnvironmentClass(rec.TrackSections[s].environment)
+                        == SplitEnvironmentClass(rec.TrackSections[s - 1].environment))
                         continue;
 
                     if (CanAutoSplitIgnoringGhostTriggers(rec, s))
@@ -495,6 +498,27 @@ namespace Parsek
         #region Private helpers
 
         /// <summary>
+        /// Returns a coarse environment class for split decisions. ExoPropulsive and
+        /// ExoBallistic are treated as the same class ("exo") — engine on/off cycles
+        /// happen too frequently to be meaningful split boundaries. The optimizer splits
+        /// at Atmospheric↔Exo, Exo↔Approach, Approach↔Surface transitions.
+        /// Approach is its own class so landing/takeoff on airless bodies can be looped.
+        /// </summary>
+        internal static int SplitEnvironmentClass(SegmentEnvironment env)
+        {
+            switch (env)
+            {
+                case SegmentEnvironment.Atmospheric: return 0;
+                case SegmentEnvironment.ExoPropulsive: return 1;
+                case SegmentEnvironment.ExoBallistic: return 1;
+                case SegmentEnvironment.SurfaceMobile: return 2;
+                case SegmentEnvironment.SurfaceStationary: return 2;
+                case SegmentEnvironment.Approach: return 3;
+                default: return (int)env;
+            }
+        }
+
+        /// <summary>
         /// Maps a SegmentEnvironment to a phase tag for post-split recordings.
         /// Only used by SplitAtSection — not a general-purpose mapping.
         /// </summary>
@@ -505,6 +529,7 @@ namespace Parsek
                 case SegmentEnvironment.Atmospheric: return "atmo";
                 case SegmentEnvironment.SurfaceMobile: return "surface";
                 case SegmentEnvironment.SurfaceStationary: return "surface";
+                case SegmentEnvironment.Approach: return "approach";
                 default: return "exo";
             }
         }

@@ -18,13 +18,15 @@ namespace Parsek
         /// <param name="situation">(int)vessel.situation (LANDED=1, SPLASHED=2, PRELAUNCH=4, FLYING=8, etc.)</param>
         /// <param name="srfSpeed">vessel.srfSpeed</param>
         /// <param name="hasActiveThrust">any engine with currentThrust > 0</param>
+        /// <param name="approachAltitude">approach altitude threshold for airless bodies (0 = not applicable)</param>
         internal static SegmentEnvironment Classify(
             bool hasAtmosphere,
             double altitude,
             double atmosphereDepth,
             int situation,
             double srfSpeed,
-            bool hasActiveThrust)
+            bool hasActiveThrust,
+            double approachAltitude = 0)
         {
             // Landed/Splashed/Prelaunch -> surface states
             // situation == 1 (LANDED) or situation == 2 (SPLASHED) or situation == 4 (PRELAUNCH)
@@ -37,6 +39,10 @@ namespace Parsek
 
             if (hasAtmosphere && altitude < atmosphereDepth)
                 return SegmentEnvironment.Atmospheric;
+
+            // Airless body: below approach altitude = Approach zone
+            if (!hasAtmosphere && approachAltitude > 0 && altitude < approachAltitude)
+                return SegmentEnvironment.Approach;
 
             if (hasActiveThrust)
                 return SegmentEnvironment.ExoPropulsive;
@@ -129,7 +135,7 @@ namespace Parsek
         /// </summary>
         internal static double GetDebounceFor(SegmentEnvironment from, SegmentEnvironment to)
         {
-            // Thrust toggle: 1s debounce
+            // Thrust toggle: 1s debounce (within same altitude zone)
             if ((from == SegmentEnvironment.ExoPropulsive && to == SegmentEnvironment.ExoBallistic) ||
                 (from == SegmentEnvironment.ExoBallistic && to == SegmentEnvironment.ExoPropulsive))
                 return ThrustDebounceSeconds;
@@ -145,6 +151,11 @@ namespace Parsek
                 (from == SegmentEnvironment.Atmospheric && to == SegmentEnvironment.SurfaceMobile) ||
                 (from == SegmentEnvironment.Atmospheric && to == SegmentEnvironment.SurfaceStationary))
                 return SurfaceAtmosphericDebounceSeconds;
+
+            // Approach zone: reuse altitude boundary hysteresis (3s matches FlightRecorder default)
+            if ((from == SegmentEnvironment.Approach && (to == SegmentEnvironment.ExoBallistic || to == SegmentEnvironment.ExoPropulsive)) ||
+                ((from == SegmentEnvironment.ExoBallistic || from == SegmentEnvironment.ExoPropulsive) && to == SegmentEnvironment.Approach))
+                return 3.0;
 
             // All other transitions: no debounce (immediate)
             return 0.0;
