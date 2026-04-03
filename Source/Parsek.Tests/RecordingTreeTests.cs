@@ -902,63 +902,6 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void RecordingTree_SaveRecordingInto_DoesNotWriteGhostGeometryFields()
-        {
-            var rec = new Recording
-            {
-                RecordingId = "rec_no_geom",
-                VesselName = "TestShip",
-                RecordingFormatVersion = 5,
-                // Simulate legacy fields being populated (e.g., from deserialization)
-                GhostGeometryVersion = 8,
-                GhostGeometryRelativePath = "Parsek/Recordings/rec_no_geom.pcrf",
-                GhostGeometryAvailable = true,
-                GhostGeometryCaptureError = "none",
-                GhostGeometryCaptureStrategy = "live_hierarchy_probe_v1",
-                GhostGeometryProbeStatus = "ready_for_hierarchy_clone",
-            };
-
-            var node = new ConfigNode("RECORDING");
-            RecordingTree.SaveRecordingInto(node, rec);
-
-            // Ghost geometry fields must NOT be written
-            Assert.Null(node.GetValue("ghostGeometryVersion"));
-            Assert.Null(node.GetValue("ghostGeometryStrategy"));
-            Assert.Null(node.GetValue("ghostGeometryProbeStatus"));
-            Assert.Null(node.GetValue("ghostGeometryPath"));
-            Assert.Null(node.GetValue("ghostGeometryAvailable"));
-            Assert.Null(node.GetValue("ghostGeometryError"));
-
-            // Core fields should still be written
-            Assert.Equal("rec_no_geom", node.GetValue("recordingId"));
-            Assert.Equal("5", node.GetValue("recordingFormatVersion"));
-        }
-
-        [Fact]
-        public void RecordingTree_LoadRecordingFrom_StillReadsLegacyGhostGeometryFields()
-        {
-            // Legacy tree save files may contain ghost geometry fields — backward compat
-            var node = new ConfigNode("RECORDING");
-            node.AddValue("recordingId", "legacy_tree_rec");
-            node.AddValue("vesselName", "LegacyShip");
-            node.AddValue("ghostGeometryVersion", "3");
-            node.AddValue("ghostGeometryStrategy", "live_hierarchy_probe_v1");
-            node.AddValue("ghostGeometryProbeStatus", "ready_for_hierarchy_clone");
-            node.AddValue("ghostGeometryPath", "Parsek/Recordings/legacy.pcrf");
-            node.AddValue("ghostGeometryAvailable", "True");
-            node.AddValue("ghostGeometryError", "none");
-
-            var rec = new Recording();
-            RecordingTree.LoadRecordingFrom(node, rec);
-
-            // Fields should be populated from the legacy data
-            Assert.Equal(3, rec.GhostGeometryVersion);
-            Assert.Equal("Parsek/Recordings/legacy.pcrf", rec.GhostGeometryRelativePath);
-            Assert.True(rec.GhostGeometryAvailable);
-            Assert.Equal("none", rec.GhostGeometryCaptureError);
-        }
-
-        [Fact]
         public void BranchPoint_EmptyParentChildLists_HandleGracefully()
         {
             var bp = new BranchPoint
@@ -1137,13 +1080,9 @@ namespace Parsek.Tests
             recNode.AddValue("recordingId", "rec_fwd");
             recNode.AddValue("vesselName", "Future Ship");
             recNode.AddValue("vesselPersistentId", "999");
-            recNode.AddValue("recordingFormatVersion", "4");
-            recNode.AddValue("ghostGeometryVersion", "1");
+            recNode.AddValue("recordingFormatVersion", "0");
             recNode.AddValue("loopPlayback", "False");
             recNode.AddValue("loopIntervalSeconds", "10");
-            recNode.AddValue("ghostGeometryStrategy", "stub_v1");
-            recNode.AddValue("ghostGeometryProbeStatus", "unknown");
-            recNode.AddValue("ghostGeometryAvailable", "False");
             recNode.AddValue("lastResIdx", "-1");
             recNode.AddValue("pointCount", "0");
 

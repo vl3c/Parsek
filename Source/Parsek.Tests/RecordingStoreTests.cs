@@ -241,11 +241,11 @@ namespace Parsek.Tests
                 points,
                 "Ship",
                 recordingId: "fixedid",
-                recordingFormatVersion: 7);
+                recordingFormatVersion: 0);
 
             Assert.True(RecordingStore.HasPending);
             Assert.Equal("fixedid", RecordingStore.Pending.RecordingId);
-            Assert.Equal(7, RecordingStore.Pending.RecordingFormatVersion);
+            Assert.Equal(0, RecordingStore.Pending.RecordingFormatVersion);
         }
 
         [Fact]
@@ -258,7 +258,7 @@ namespace Parsek.Tests
             var source = new Recording
             {
                 RecordingId = "abc",
-                RecordingFormatVersion = 9,
+                RecordingFormatVersion = 0,
                 VesselSnapshot = vesselSnapshot,
                 GhostVisualSnapshot = ghostSnapshot,
                 DistanceFromLaunch = 123,
@@ -279,7 +279,7 @@ namespace Parsek.Tests
             target.ApplyPersistenceArtifactsFrom(source);
 
             Assert.Equal("abc", target.RecordingId);
-            Assert.Equal(9, target.RecordingFormatVersion);
+            Assert.Equal(0, target.RecordingFormatVersion);
             Assert.NotNull(target.VesselSnapshot);
             Assert.NotNull(target.GhostVisualSnapshot);
             Assert.Equal("Vessel A", target.VesselSnapshot.GetValue("name"));
@@ -296,46 +296,13 @@ namespace Parsek.Tests
             Assert.Equal("Mun", target.OrbitSegments[0].bodyName);
         }
 
-        /// <summary>
-        /// Verifies that legacy ghost geometry fields populated on the source recording
-        /// are NOT propagated to the target. Catches regressions if someone re-adds
-        /// ghost geometry copying to ApplyPersistenceArtifactsFrom.
-        /// </summary>
-        [Fact]
-        public void ApplyPersistenceArtifactsFrom_DoesNotCopyLegacyGhostGeometryFields()
-        {
-            var source = new Recording
-            {
-                RecordingId = "src",
-                // Simulate a legacy recording that had ghost geometry fields populated
-                GhostGeometryRelativePath = "Parsek/Recordings/src.pcrf",
-                GhostGeometryAvailable = true,
-                GhostGeometryCaptureError = "none",
-                GhostGeometryCaptureStrategy = "live_hierarchy_probe_v1",
-                GhostGeometryProbeStatus = "ready_for_hierarchy_clone",
-                GhostGeometryVersion = 5,
-            };
-            source.Points.AddRange(MakePoints(3));
-
-            var target = new Recording { VesselName = "Target", Points = MakePoints(2) };
-            target.ApplyPersistenceArtifactsFrom(source);
-
-            // Ghost geometry fields must NOT transfer — they are dead legacy fields
-            Assert.Null(target.GhostGeometryRelativePath);
-            Assert.False(target.GhostGeometryAvailable);
-            Assert.Null(target.GhostGeometryCaptureError);
-            Assert.Null(target.GhostGeometryCaptureStrategy);
-            Assert.Null(target.GhostGeometryProbeStatus);
-            Assert.Equal(1, target.GhostGeometryVersion); // default, not copied from source
-        }
-
         [Fact]
         public void RecordingMetadata_SaveLoad_RoundTrip()
         {
             var source = new Recording
             {
                 RecordingId = "meta123",
-                RecordingFormatVersion = 12,
+                RecordingFormatVersion = 0,
                 LoopPlayback = true,
                 LoopIntervalSeconds = 2.5,
             };
@@ -347,15 +314,10 @@ namespace Parsek.Tests
             ParsekScenario.LoadRecordingMetadata(node, loaded);
 
             Assert.Equal("meta123", loaded.RecordingId);
-            Assert.Equal(12, loaded.RecordingFormatVersion);
+            Assert.Equal(0, loaded.RecordingFormatVersion);
             Assert.True(loaded.LoopPlayback);
             Assert.Equal(2.5, loaded.LoopIntervalSeconds);
 
-            // Ghost geometry fields are no longer serialized on save
-            Assert.Null(node.GetValue("ghostGeometryVersion"));
-            Assert.Null(node.GetValue("ghostGeometryStrategy"));
-            Assert.Null(node.GetValue("ghostGeometryPath"));
-            Assert.Null(node.GetValue("ghostGeometryAvailable"));
         }
 
         [Fact]
@@ -431,29 +393,6 @@ namespace Parsek.Tests
             ParsekScenario.LoadRecordingMetadata(node, loaded);
 
             Assert.False(loaded.Hidden);
-        }
-
-        [Fact]
-        public void RecordingMetadata_BackwardCompat_LoadsLegacyGhostGeometryFields()
-        {
-            // Legacy save files may contain ghost geometry fields — verify they deserialize
-            // without error (backward compat) even though they're no longer written.
-            var node = new ConfigNode("RECORDING");
-            node.AddValue("recordingId", "legacy-rec");
-            node.AddValue("ghostGeometryVersion", "8");
-            node.AddValue("ghostGeometryStrategy", "live_hierarchy_probe_v1");
-            node.AddValue("ghostGeometryProbeStatus", "ready_for_hierarchy_clone");
-            node.AddValue("ghostGeometryPath", "Parsek/Recordings/legacy.pcrf");
-            node.AddValue("ghostGeometryAvailable", "True");
-            node.AddValue("ghostGeometryError", "none");
-
-            var loaded = new Recording();
-            ParsekScenario.LoadRecordingMetadata(node, loaded);
-
-            Assert.Equal("legacy-rec", loaded.RecordingId);
-            Assert.Equal(8, loaded.GhostGeometryVersion);
-            Assert.Equal("Parsek/Recordings/legacy.pcrf", loaded.GhostGeometryRelativePath);
-            Assert.True(loaded.GhostGeometryAvailable);
         }
 
         [Fact]
@@ -1139,56 +1078,6 @@ namespace Parsek.Tests
             // Duration is locale-formatted ("45.3" or "45,3"), just check it contains "45"
             Assert.Contains("45", msg);
             Assert.Contains("Duration:", msg);
-        }
-
-        [Fact]
-        public void SyncVersionFromPrecFile_UpgradesStaleMetadata()
-        {
-            var rec = new Recording
-            {
-                RecordingId = "synctest",
-                RecordingFormatVersion = 4
-            };
-
-            var precNode = new ConfigNode("PARSEK_RECORDING");
-            precNode.AddValue("version", "5");
-
-            RecordingStore.SyncVersionFromPrecFile(precNode, rec);
-
-            Assert.Equal(5, rec.RecordingFormatVersion);
-        }
-
-        [Fact]
-        public void SyncVersionFromPrecFile_DoesNotDowngrade()
-        {
-            var rec = new Recording
-            {
-                RecordingId = "synctest",
-                RecordingFormatVersion = 5
-            };
-
-            var precNode = new ConfigNode("PARSEK_RECORDING");
-            precNode.AddValue("version", "4");
-
-            RecordingStore.SyncVersionFromPrecFile(precNode, rec);
-
-            Assert.Equal(5, rec.RecordingFormatVersion);
-        }
-
-        [Fact]
-        public void SyncVersionFromPrecFile_NoVersionField_NoChange()
-        {
-            var rec = new Recording
-            {
-                RecordingId = "synctest",
-                RecordingFormatVersion = 4
-            };
-
-            var precNode = new ConfigNode("PARSEK_RECORDING");
-
-            RecordingStore.SyncVersionFromPrecFile(precNode, rec);
-
-            Assert.Equal(4, rec.RecordingFormatVersion);
         }
 
         // --- Stationary point trimming tests ---

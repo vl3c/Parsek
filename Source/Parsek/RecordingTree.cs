@@ -223,7 +223,7 @@ namespace Parsek
                 SurfacePosition.SaveInto(tpNode, rec.TerminalPosition.Value);
             }
 
-            // Terrain height at recording end (v7+)
+            // Terrain height at recording end
             if (!double.IsNaN(rec.TerrainHeightAtEnd))
                 recNode.AddValue("terrainHeightAtEnd", rec.TerrainHeightAtEnd.ToString("R", ic));
 
@@ -325,7 +325,7 @@ namespace Parsek
                 for (int g = 0; g < rec.RecordingGroups.Count; g++)
                     recNode.AddValue("recordingGroup", rec.RecordingGroups[g]);
 
-            // Controller info (v6+)
+            // Controller info
             if (rec.Controllers != null)
             {
                 for (int i = 0; i < rec.Controllers.Count; i++)
@@ -407,7 +407,7 @@ namespace Parsek
             if (tpNode != null)
                 rec.TerminalPosition = SurfacePosition.LoadFrom(tpNode);
 
-            // Terrain height at recording end (v7+)
+            // Terrain height at recording end
             string thtStr = recNode.GetValue("terrainHeightAtEnd");
             if (thtStr != null)
             {
@@ -454,14 +454,6 @@ namespace Parsek
                     rec.RecordingFormatVersion = formatVersion;
             }
 
-            string geomVersionStr = recNode.GetValue("ghostGeometryVersion");
-            if (geomVersionStr != null)
-            {
-                int geomVersion;
-                if (int.TryParse(geomVersionStr, NumberStyles.Integer, ic, out geomVersion))
-                    rec.GhostGeometryVersion = geomVersion;
-            }
-
             string loopPlaybackStr = recNode.GetValue("loopPlayback");
             if (loopPlaybackStr != null)
             {
@@ -470,8 +462,7 @@ namespace Parsek
                     rec.LoopPlayback = loopPlayback;
             }
 
-            string loopIntervalStr = recNode.GetValue("loopIntervalSeconds")
-                                   ?? recNode.GetValue("loopPauseSeconds"); // migration fallback
+            string loopIntervalStr = recNode.GetValue("loopIntervalSeconds");
             if (loopIntervalStr != null)
             {
                 double loopIntervalSeconds;
@@ -607,12 +598,6 @@ namespace Parsek
 
             // Ghost geometry metadata
             rec.GhostGeometryRelativePath = recNode.GetValue("ghostGeometryPath");
-            string strategy = recNode.GetValue("ghostGeometryStrategy");
-            if (!string.IsNullOrEmpty(strategy))
-                rec.GhostGeometryCaptureStrategy = strategy;
-            string probeStatus = recNode.GetValue("ghostGeometryProbeStatus");
-            if (!string.IsNullOrEmpty(probeStatus))
-                rec.GhostGeometryProbeStatus = probeStatus;
             string geomAvailableStr = recNode.GetValue("ghostGeometryAvailable");
             if (geomAvailableStr != null)
             {
@@ -655,7 +640,7 @@ namespace Parsek
                 rec.RecordingGroups = new List<string>(recGroups);
             }
 
-            // Controller info (v6+)
+            // Controller info
             ConfigNode[] ctrlNodes = recNode.GetNodes("CONTROLLER");
             if (ctrlNodes.Length > 0)
             {

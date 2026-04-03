@@ -956,11 +956,11 @@ namespace Parsek.Tests
         {
             var rec = MakeRecordingWithSections(17000, 17030, 17060,
                 SegmentEnvironment.ExoBallistic, SegmentEnvironment.Atmospheric);
-            rec.RecordingFormatVersion = 7;
+            rec.RecordingFormatVersion = 0;
 
             var second = RecordingOptimizer.SplitAtSection(rec, 1);
 
-            Assert.Equal(7, second.RecordingFormatVersion);
+            Assert.Equal(0, second.RecordingFormatVersion);
         }
 
         #endregion

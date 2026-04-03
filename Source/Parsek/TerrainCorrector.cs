@@ -70,7 +70,7 @@ namespace Parsek
         /// 2. recordedTerrainHeight is a valid number (not NaN).
         ///
         /// Returns false for orbital/sub-orbital recordings, destroyed/recovered
-        /// vessels, or recordings that lack terrain height data (pre-v7, NaN default).
+        /// vessels, or recordings that lack terrain height data (NaN default).
         /// </summary>
         internal static bool ShouldCorrectTerrain(
             TerminalState? terminalState,

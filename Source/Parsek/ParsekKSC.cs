@@ -253,8 +253,7 @@ namespace Parsek
 
                 InterpolateAndPositionKsc(
                     state.ghost, rec.Points,
-                    ref state.playbackIndex, targetUT,
-                    rec.RecordingFormatVersion >= 5);
+                    ref state.playbackIndex, targetUT);
 
                 // Distance culling: skip expensive part events for ghosts too far from camera
                 if (IsGhostInCullRange(state.ghost))
@@ -339,8 +338,6 @@ namespace Parsek
                 kscOverlapGhosts[recIdx] = overlaps;
             }
 
-            bool srfRel = rec.RecordingFormatVersion >= 5;
-
             // --- Primary ghost = newest cycle (lastCycle) ---
             // primaryActive already guarantees primaryState != null && ghost != null
             bool primaryCycleChanged = !primaryActive
@@ -375,7 +372,7 @@ namespace Parsek
                 double loopUT = rec.StartUT + phase;
 
                 InterpolateAndPositionKsc(primaryState.ghost, rec.Points,
-                    ref primaryState.playbackIndex, loopUT, srfRel);
+                    ref primaryState.playbackIndex, loopUT);
 
                 if (IsGhostInCullRange(primaryState.ghost))
                 {
@@ -410,7 +407,7 @@ namespace Parsek
                     // Cycle expired — position at end, explode, destroy
                     if (rec.Points.Count > 0)
                         PositionGhostAtPoint(ovState.ghost,
-                            rec.Points[rec.Points.Count - 1], srfRel);
+                            rec.Points[rec.Points.Count - 1]);
                     TriggerExplosionIfDestroyed(ovState, rec, recIdx);
                     ParsekLog.Verbose("KSCGhost",
                         $"Ghost #{recIdx} overlap cycle={cycle} expired, destroying");
@@ -423,7 +420,7 @@ namespace Parsek
                 double loopUT = rec.StartUT + phase;
 
                 InterpolateAndPositionKsc(ovState.ghost, rec.Points,
-                    ref ovState.playbackIndex, loopUT, srfRel);
+                    ref ovState.playbackIndex, loopUT);
 
                 if (IsGhostInCullRange(ovState.ghost))
                 {
@@ -531,8 +528,7 @@ namespace Parsek
         /// </summary>
         internal void InterpolateAndPositionKsc(
             GameObject ghost, List<TrajectoryPoint> points,
-            ref int cachedIndex, double targetUT,
-            bool surfaceRelativeRotation)
+            ref int cachedIndex, double targetUT)
         {
             TrajectoryPoint before, after;
             float t;
@@ -547,14 +543,14 @@ namespace Parsek
                     ghost.SetActive(false);
                     return;
                 }
-                PositionGhostAtPoint(ghost, before, surfaceRelativeRotation);
+                PositionGhostAtPoint(ghost, before);
                 return;
             }
 
             // Degenerate segment (t == 0 from zero-duration segment)
             if (t == 0f && before.ut == after.ut)
             {
-                PositionGhostAtPoint(ghost, before, surfaceRelativeRotation);
+                PositionGhostAtPoint(ghost, before);
                 return;
             }
 
@@ -592,18 +588,13 @@ namespace Parsek
             }
 
             ghost.transform.position = interpolatedPos;
-            // Uses bodyBefore's transform for rotation (not interpolated between bodies).
-            // Negligible for KSC: both points are Kerbin, body rotation is constant.
-            ghost.transform.rotation = surfaceRelativeRotation
-                ? bodyBefore.bodyTransform.rotation * interpolatedRot
-                : interpolatedRot;
+            ghost.transform.rotation = bodyBefore.bodyTransform.rotation * interpolatedRot;
         }
 
         /// <summary>
         /// Position ghost at a single trajectory point (no interpolation).
         /// </summary>
-        void PositionGhostAtPoint(GameObject ghost, TrajectoryPoint point,
-            bool surfaceRelativeRotation)
+        void PositionGhostAtPoint(GameObject ghost, TrajectoryPoint point)
         {
             if (point.bodyName != "Kerbin")
             {
@@ -619,9 +610,7 @@ namespace Parsek
 
             Quaternion sanitized = TrajectoryMath.SanitizeQuaternion(point.rotation);
             ghost.transform.position = worldPos;
-            ghost.transform.rotation = surfaceRelativeRotation
-                ? body.bodyTransform.rotation * sanitized
-                : sanitized;
+            ghost.transform.rotation = body.bodyTransform.rotation * sanitized;
 
             if (!ghost.activeSelf) ghost.SetActive(true);
         }
