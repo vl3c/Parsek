@@ -5104,20 +5104,27 @@ namespace Parsek
             if (!string.IsNullOrEmpty(tree.ActiveRecordingId))
             {
                 Recording activeRec;
-                if (tree.Recordings.TryGetValue(tree.ActiveRecordingId, out activeRec)
-                    && !activeRec.TerminalStateValue.HasValue)
+                if (tree.Recordings.TryGetValue(tree.ActiveRecordingId, out activeRec))
                 {
-                    Vessel v = activeRec.VesselPersistentId != 0
-                        ? FlightRecorder.FindVesselByPid(activeRec.VesselPersistentId)
-                        : null;
-                    if (v != null)
+                    if (activeRec.TerminalStateValue.HasValue)
                     {
-                        activeRec.TerminalStateValue =
-                            RecordingTree.DetermineTerminalState((int)v.situation, v);
-                        ParsekLog.Info("Flight",
-                            $"FinalizeTreeRecordings: set terminalState=" +
-                            $"{activeRec.TerminalStateValue} on active recording " +
-                            $"'{activeRec.RecordingId}' (non-leaf, vessel situation={v.situation})");
+                        Log($"FinalizeTreeRecordings: active recording '{activeRec.RecordingId}' " +
+                            $"already has terminalState={activeRec.TerminalStateValue} — skipping");
+                    }
+                    else
+                    {
+                        Vessel v = activeRec.VesselPersistentId != 0
+                            ? FlightRecorder.FindVesselByPid(activeRec.VesselPersistentId)
+                            : null;
+                        if (v != null)
+                        {
+                            activeRec.TerminalStateValue =
+                                RecordingTree.DetermineTerminalState((int)v.situation, v);
+                            ParsekLog.Info("Flight",
+                                $"FinalizeTreeRecordings: set terminalState=" +
+                                $"{activeRec.TerminalStateValue} on active recording " +
+                                $"'{activeRec.RecordingId}' (non-leaf, vessel situation={v.situation})");
+                        }
                     }
                 }
             }

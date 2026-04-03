@@ -324,7 +324,8 @@ namespace Parsek
 
             ParsekLog.Verbose(Tag,
                 $"Reservation scan: {recordings.Count} recordings, " +
-                $"{processed} processed, {skippedLoop} loop, {skippedDisabled} disabled, {skippedNoCrew} no-crew");
+                $"{processed} processed, {skippedLoop} loop, {skippedDisabled} disabled, " +
+                $"{skippedNoCrew} no-crew, {loopingChains.Count} looping chains");
 
             // 3. Build/update chains for temporary reservations
             foreach (var kvp in reservations)

@@ -421,6 +421,22 @@ namespace Parsek
             return oldStatus != newStatus;
         }
 
+        /// <summary>
+        /// Returns true if a crew status change event should be suppressed.
+        /// Suppresses when: (1) bulk mutation in progress, (2) crew is managed by Parsek
+        /// (reserved/stand-in — KSP oscillates their status as noise), (3) identity
+        /// transition (same status, e.g. Dead→Dead).
+        /// Pure static for testability — no KSP state access.
+        /// </summary>
+        internal static bool ShouldSuppressCrewStatusChange(
+            string crewName, bool suppressFlag, bool isIdentity)
+        {
+            if (suppressFlag) return true;
+            if (crewName != null && KerbalsModule.IsManaged(crewName)) return true;
+            if (isIdentity) return true;
+            return false;
+        }
+
         private void OnKerbalStatusChange(ProtoCrewMember crew,
             ProtoCrewMember.RosterStatus oldStatus, ProtoCrewMember.RosterStatus newStatus)
         {

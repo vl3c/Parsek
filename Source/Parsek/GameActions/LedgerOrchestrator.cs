@@ -695,16 +695,24 @@ namespace Parsek
             // Key: "chainId:chainIndex", Value: EndUT of that segment.
             var chainEndUTs = BuildChainEndUtMap(tree);
 
+            int gapsClosed = 0;
             foreach (var rec in tree.Recordings.Values)
             {
                 double startUT = rec.StartUT;
                 double endUT = rec.EndUT;
 
                 // Close chain segment gap: extend startUT backward to predecessor's EndUT
-                startUT = AdjustStartUtForChainGap(rec, startUT, chainEndUTs);
+                double adjusted = AdjustStartUtForChainGap(rec, startUT, chainEndUTs);
+                if (adjusted < startUT) gapsClosed++;
+                startUT = adjusted;
 
                 OnRecordingCommitted(rec.RecordingId, startUT, endUT);
             }
+
+            ParsekLog.Verbose(Tag,
+                $"NotifyLedgerTreeCommitted: tree='{tree.TreeName}' " +
+                $"recordings={tree.Recordings.Count}, chainSegments={chainEndUTs.Count}, " +
+                $"gapsClosed={gapsClosed}");
         }
 
         /// <summary>
