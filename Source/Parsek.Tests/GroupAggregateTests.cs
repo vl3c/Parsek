@@ -428,5 +428,63 @@ namespace Parsek.Tests
                 ParsekUI.SortColumn.Index, 0, 0);
             Assert.True(groupKey < recKey, "Group should sort before recording in Index sort");
         }
+
+        // ── FindGroupMainRecordingIndex ──
+
+        [Fact]
+        public void MainRecording_EmptyDescendants_ReturnsNegativeOne()
+        {
+            var descendants = new HashSet<int>();
+            var committed = new List<Recording>();
+            Assert.Equal(-1, ParsekUI.FindGroupMainRecordingIndex(descendants, committed));
+        }
+
+        [Fact]
+        public void MainRecording_SingleNonDebris_ReturnsThatIndex()
+        {
+            var committed = new List<Recording> { MakeRec(17000, 17100, "Vessel") };
+            var descendants = new HashSet<int> { 0 };
+            Assert.Equal(0, ParsekUI.FindGroupMainRecordingIndex(descendants, committed));
+        }
+
+        [Fact]
+        public void MainRecording_SingleDebris_ReturnsNegativeOne()
+        {
+            var rec = MakeRec(17000, 17100, "Stage");
+            rec.IsDebris = true;
+            var committed = new List<Recording> { rec };
+            var descendants = new HashSet<int> { 0 };
+            Assert.Equal(-1, ParsekUI.FindGroupMainRecordingIndex(descendants, committed));
+        }
+
+        [Fact]
+        public void MainRecording_AllDebris_ReturnsNegativeOne()
+        {
+            var d1 = MakeRec(17000, 17100, "Stage1"); d1.IsDebris = true;
+            var d2 = MakeRec(17050, 17150, "Stage2"); d2.IsDebris = true;
+            var committed = new List<Recording> { d1, d2 };
+            var descendants = new HashSet<int> { 0, 1 };
+            Assert.Equal(-1, ParsekUI.FindGroupMainRecordingIndex(descendants, committed));
+        }
+
+        [Fact]
+        public void MainRecording_MixedEarliestIsDebris_SkipsDebrisReturnsEarliestNonDebris()
+        {
+            var debris = MakeRec(17000, 17100, "Booster"); debris.IsDebris = true;
+            var main = MakeRec(17050, 17200, "Rocket");
+            var committed = new List<Recording> { debris, main };
+            var descendants = new HashSet<int> { 0, 1 };
+            Assert.Equal(1, ParsekUI.FindGroupMainRecordingIndex(descendants, committed));
+        }
+
+        [Fact]
+        public void MainRecording_MultipleNonDebris_ReturnsEarliest()
+        {
+            var later = MakeRec(17100, 17300, "Second");
+            var earlier = MakeRec(17000, 17200, "First");
+            var committed = new List<Recording> { later, earlier };
+            var descendants = new HashSet<int> { 0, 1 };
+            Assert.Equal(1, ParsekUI.FindGroupMainRecordingIndex(descendants, committed));
+        }
     }
 }
