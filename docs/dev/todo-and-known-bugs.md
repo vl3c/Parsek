@@ -247,11 +247,11 @@ Ghost orbit lines look identical to real vessel orbit lines. Should have a disti
 
 **Priority:** Low — cosmetic, functional without it
 
-### T41. Suborbital recordings missing from ghost map presence
+### T41. Ghost orbit line for suborbital recordings
 
-Suborbital recordings (e.g., sounding rockets, ballistic hops) are entirely skipped from ghost map presence. During suborbital coasting phases (engine off), orbit lines SHOULD be visible showing the current ballistic arc. The ghost map presence system currently requires a full orbital segment to create a ProtoVessel, so any recording that never reaches stable orbit gets no map icon or orbit line at all.
+Suborbital recordings were excluded from ghost map presence — no orbit line during playback. Now relaxed: HandleGhostCreated allows SubOrbital terminal state through. Two paths: (1) recordings with orbit segments use the existing deferred mechanism, (2) physics-only recordings construct the orbit from interpolated state vectors when altitude > 1500m and speed > 60 m/s. Hysteresis thresholds (remove at alt < 500m or speed < 30 m/s) prevent create/destroy churn. RELATIVE-frame recordings are guarded against. Tracking station still excludes SubOrbital.
 
-**Priority:** Medium — suborbital flights are common early-career; missing orbit lines during coast is a real usability gap
+**Status:** Fixed (0.6.0)
 
 ### T42. Convert KerbalsModule to IResourceModule
 
