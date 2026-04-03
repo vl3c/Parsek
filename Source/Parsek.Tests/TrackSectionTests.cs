@@ -40,10 +40,16 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void SegmentEnvironment_Approach_IsFive()
+        {
+            Assert.Equal(5, (int)SegmentEnvironment.Approach);
+        }
+
+        [Fact]
         public void SegmentEnvironment_ValuesAreContiguous()
         {
             var values = Enum.GetValues(typeof(SegmentEnvironment)).Cast<int>().OrderBy(v => v).ToList();
-            Assert.Equal(5, values.Count);
+            Assert.Equal(6, values.Count);
             for (int i = 0; i < values.Count; i++)
             {
                 Assert.Equal(i, values[i]);

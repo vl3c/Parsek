@@ -825,9 +825,11 @@ namespace Parsek
             {
                 bool hasAtmo = bgVessel.mainBody != null && bgVessel.mainBody.atmosphere;
                 double atmoDepth = hasAtmo ? bgVessel.mainBody.atmosphereDepth : 0;
+                double approachAlt = (!hasAtmo && bgVessel.mainBody != null)
+                    ? FlightRecorder.ComputeApproachAltitude(bgVessel.mainBody) : 0;
                 var rawEnv = ClassifyBackgroundEnvironment(
                     hasAtmo, bgVessel.altitude, atmoDepth,
-                    (int)bgVessel.situation, bgVessel.srfSpeed, state.cachedEngines);
+                    (int)bgVessel.situation, bgVessel.srfSpeed, state.cachedEngines, approachAlt);
                 if (state.environmentHysteresis.Update(rawEnv, ut))
                 {
                     var newEnv = state.environmentHysteresis.CurrentEnvironment;
@@ -1449,9 +1451,11 @@ namespace Parsek
             double ut = Planetarium.GetUniversalTime();
             bool hasAtmo = v.mainBody != null && v.mainBody.atmosphere;
             double atmoDepth = hasAtmo ? v.mainBody.atmosphereDepth : 0;
+            double approachAlt = (!hasAtmo && v.mainBody != null)
+                ? FlightRecorder.ComputeApproachAltitude(v.mainBody) : 0;
             var initialEnv = ClassifyBackgroundEnvironment(
                 hasAtmo, v.altitude, atmoDepth,
-                (int)v.situation, v.srfSpeed, state.cachedEngines);
+                (int)v.situation, v.srfSpeed, state.cachedEngines, approachAlt);
             state.environmentHysteresis = new EnvironmentHysteresis(initialEnv);
             StartBackgroundTrackSection(state, initialEnv, ReferenceFrame.Absolute, ut);
 
@@ -1611,7 +1615,8 @@ namespace Parsek
         internal static SegmentEnvironment ClassifyBackgroundEnvironment(
             bool hasAtmosphere, double altitude, double atmosphereDepth,
             int situation, double srfSpeed,
-            List<(Part part, ModuleEngines engine, int moduleIndex)> cachedEngines)
+            List<(Part part, ModuleEngines engine, int moduleIndex)> cachedEngines,
+            double approachAltitude = 0)
         {
             bool hasActiveThrust = false;
             if (cachedEngines != null)
@@ -1630,7 +1635,7 @@ namespace Parsek
 
             return EnvironmentDetector.Classify(
                 hasAtmosphere, altitude, atmosphereDepth,
-                situation, srfSpeed, hasActiveThrust);
+                situation, srfSpeed, hasActiveThrust, approachAltitude);
         }
 
         /// <summary>

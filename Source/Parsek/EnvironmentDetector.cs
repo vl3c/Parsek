@@ -18,13 +18,15 @@ namespace Parsek
         /// <param name="situation">(int)vessel.situation (LANDED=1, SPLASHED=2, PRELAUNCH=4, FLYING=8, etc.)</param>
         /// <param name="srfSpeed">vessel.srfSpeed</param>
         /// <param name="hasActiveThrust">any engine with currentThrust > 0</param>
+        /// <param name="approachAltitude">approach altitude threshold for airless bodies (0 = not applicable)</param>
         internal static SegmentEnvironment Classify(
             bool hasAtmosphere,
             double altitude,
             double atmosphereDepth,
             int situation,
             double srfSpeed,
-            bool hasActiveThrust)
+            bool hasActiveThrust,
+            double approachAltitude = 0)
         {
             // Landed/Splashed/Prelaunch -> surface states
             // situation == 1 (LANDED) or situation == 2 (SPLASHED) or situation == 4 (PRELAUNCH)
@@ -37,6 +39,15 @@ namespace Parsek
 
             if (hasAtmosphere && altitude < atmosphereDepth)
                 return SegmentEnvironment.Atmospheric;
+
+            // Airless body: below approach altitude = Approach zone.
+            // Intentionally above the thrust check — a powered descent on the Mun is still
+            // "approach" for splitting purposes (we don't want engine on/off to fragment the
+            // landing segment). Thrust distinction only matters in high orbit.
+            // Exclude ORBITING (32) — a stable low orbit is Keplerian, not an approach.
+            if (!hasAtmosphere && approachAltitude > 0 && altitude < approachAltitude
+                && situation != 32)
+                return SegmentEnvironment.Approach;
 
             if (hasActiveThrust)
                 return SegmentEnvironment.ExoPropulsive;
@@ -54,6 +65,7 @@ namespace Parsek
         internal const double ThrustDebounceSeconds = 1.0;
         internal const double SurfaceSpeedDebounceSeconds = 3.0;
         internal const double SurfaceAtmosphericDebounceSeconds = 0.5;
+        internal const double ApproachDebounceSeconds = 3.0;
 
         private SegmentEnvironment lastConfirmedEnvironment;
         private SegmentEnvironment pendingEnvironment;
@@ -129,7 +141,7 @@ namespace Parsek
         /// </summary>
         internal static double GetDebounceFor(SegmentEnvironment from, SegmentEnvironment to)
         {
-            // Thrust toggle: 1s debounce
+            // Thrust toggle: 1s debounce (within same altitude zone)
             if ((from == SegmentEnvironment.ExoPropulsive && to == SegmentEnvironment.ExoBallistic) ||
                 (from == SegmentEnvironment.ExoBallistic && to == SegmentEnvironment.ExoPropulsive))
                 return ThrustDebounceSeconds;
@@ -144,6 +156,16 @@ namespace Parsek
                 (from == SegmentEnvironment.SurfaceStationary && to == SegmentEnvironment.Atmospheric) ||
                 (from == SegmentEnvironment.Atmospheric && to == SegmentEnvironment.SurfaceMobile) ||
                 (from == SegmentEnvironment.Atmospheric && to == SegmentEnvironment.SurfaceStationary))
+                return SurfaceAtmosphericDebounceSeconds;
+
+            // Approach zone boundary on airless bodies
+            if ((from == SegmentEnvironment.Approach && (to == SegmentEnvironment.ExoBallistic || to == SegmentEnvironment.ExoPropulsive)) ||
+                ((from == SegmentEnvironment.ExoBallistic || from == SegmentEnvironment.ExoPropulsive) && to == SegmentEnvironment.Approach))
+                return ApproachDebounceSeconds;
+
+            // Approach/surface bounce on airless bodies (rough landings, hopping)
+            if ((from == SegmentEnvironment.Approach && (to == SegmentEnvironment.SurfaceMobile || to == SegmentEnvironment.SurfaceStationary)) ||
+                ((from == SegmentEnvironment.SurfaceMobile || from == SegmentEnvironment.SurfaceStationary) && to == SegmentEnvironment.Approach))
                 return SurfaceAtmosphericDebounceSeconds;
 
             // All other transitions: no debounce (immediate)
