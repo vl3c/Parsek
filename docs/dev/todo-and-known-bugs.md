@@ -253,6 +253,12 @@ Suborbital recordings were excluded from ghost map presence — no orbit line du
 
 **Status:** Fixed (0.6.0)
 
+### T41b. Skip orbit segment recording during in-atmosphere on-rails
+
+When the player time-warps during atmospheric reentry, KSP puts the vessel on-rails and the recorder creates an orbit segment with Keplerian elements (no drag). During playback, the ghost follows this dragless arc instead of the real trajectory. Surface clamp (PR #113) prevents underground tunneling, but the position is approximate. Fix: in FlightRecorder's `onVesselGoOnRails` handler, check `v.mainBody.atmosphere && v.altitude < v.mainBody.atmosphereDepth` — if below atmosphere, skip orbit segment creation. Point interpolation will lerp across the gap during playback.
+
+**Priority:** Medium — affects any recording where the player warped through atmospheric flight
+
 ### T42. Convert KerbalsModule to IResourceModule
 
 KerbalsModule currently operates as a bridge outside the RecalculationEngine — it iterates recordings directly instead of consuming GameAction objects via the IResourceModule interface. The ledger already captures kerbal data as KerbalAssignment/KerbalHire/KerbalRescue/KerbalStandIn actions, but KerbalsModule ignores them and re-derives everything from recordings. Converting requires: (1) making KerbalsModule non-static (currently static class, can't implement interface), (2) rewriting Recalculate to consume actions instead of recordings, (3) routing 16+ direct `KerbalsModule.RecalculateAndApply()` call sites through `LedgerOrchestrator.RecalculateAndPatch()`. Wide blast radius, no functional gain — the bridge pattern works fine. Do this when there's already a reason to restructure KerbalsModule.
@@ -2414,6 +2420,22 @@ With bug #208 fixed, the chain tip gets `terminalState=Splashed` → `endState=R
 **Root cause:** Reservation endUT doesn't account for looping segments elsewhere in the chain.
 
 **Status:** Fixed (0.6.0) — `KerbalsModule.Recalculate` pre-scans for `loopingChains` set. When computing endUT for a Recovered crew member on a chain with any looping segment, endUT stays Infinity. Disabling the loop correctly releases them.
+
+## 210. Ghost tunnels underground when vessel goes on-rails in atmosphere
+
+When a vessel goes on-rails (time warp) during atmospheric flight — typically during reentry — FlightRecorder and BackgroundRecorder created Keplerian orbit segments. Keplerian orbits ignore drag, so the recorded trajectory curves through the planet's surface. During playback, the ghost follows this underground arc instead of the actual atmospheric path.
+
+**Root cause:** `OnVesselGoOnRails` and `InitializeOnRailsState` had a surface-vessel guard (LANDED/SPLASHED/PRELAUNCH) but no atmosphere guard. Any vessel with `situation=FLYING` or `SUB_ORBITAL` below `atmosphereDepth` would get an orbit segment.
+
+**Status:** Fixed (0.6.0, PR #116) — added `ShouldSkipOrbitSegmentForAtmosphere` check in FlightRecorder (`OnVesselGoOnRails` + `StartRecording` on-rails init) and BackgroundRecorder (`InitializeOnRailsState`). When below atmosphere, orbit segment creation is skipped. Point interpolation lerps across the gap, which is visually correct. No physics frame samples during on-rails (PhysicsFramePatch only fires for unpacked vessels), so the gap is expected.
+
+## 211. Ghost ProtoVessel destroyed by on-rails atmospheric pressure (planet disappears)
+
+KSP's `Vessel.CheckKill()` destroys on-rails vessels at > 1 kPa atmospheric pressure. Ghost ProtoVessels with deorbit orbits (periapsis below surface) pass through the atmosphere, triggering this check. If the `PlanetariumCamera` was focused on the ghost, `Die()` nulled the camera target → cascade of 174K+ NullReferenceExceptions in `ScaledSpaceFader`, `AtmosphereFromGround`, `Sun.LateUpdate` → planet rendering broke, game became unresponsive, exit screen stuck.
+
+**Root cause:** Ghost ProtoVessels were not protected against `Vessel.CheckKill()`. The existing `GhostVesselLoadPatch` prevented `GoOffRails` but not the separate pressure destruction path.
+
+**Status:** Fixed (0.6.0, PR #113) — new `GhostCheckKillPatch` Harmony prefix on `Vessel.CheckKill` returns false for ghost vessels, skipping the pressure check entirely.
 
 # In-Game Tests
 

@@ -12,6 +12,8 @@ All notable changes to Parsek are documented here.
 - **Ghost orbit line suppression (Harmony).** New `GhostOrbitLinePatch` postfix on `OrbitRendererBase.LateUpdate` hides the orbit line for ghost ProtoVessels below atmosphere while keeping the native KSP map icon visible. Also hides Ap/Pe/AN/DN markers when orbit line is hidden.
 - **Debris map markers hidden.** Debris ghost recordings no longer show green dot markers in map view.
 - **Stock vessel type icons for ghost markers.** Ghost map markers now use KSP's actual vessel type icons (Ship, Probe, Rover, Station, Plane, etc.) from the orbit icon atlas instead of a plain green dot. Icons are color-tinted per vessel type. Falls back to a diamond shape before MapView initialization.
+- **Ghost ProtoVessel pressure protection.** New `GhostCheckKillPatch` prevents KSP from destroying ghost ProtoVessels due to on-rails atmospheric pressure. Deorbit orbits pass through the atmosphere, triggering KSP's stock vessel destruction — if the map camera was focused on the ghost, this caused a NullRef cascade that broke scaled space rendering (planet disappeared, stuck exit).
+- **Ghost surface clamp.** Ghost mesh clamped to body surface when Keplerian orbit goes underground (deorbit orbits with sub-surface periapsis). Prevents ghost tunneling through the planet during orbit-only recording sections.
 
 ### Format Reset
 
@@ -74,6 +76,7 @@ Full career-mode resource tracking across the rewind timeline. Science, funds, r
 - **Duplicate CrewStatusChanged events (#207).** KSP's delayed `onKerbalStatusChange` callbacks fired after the crew mutation suppression window closed, producing redundant `Assigned->Missing` events on every save cycle. Added `KerbalsModule.IsManaged` check to suppress status change noise for reserved/stand-in kerbals.
 - **Chain tip missing terminalState (#208).** In tree mode, the active recording is non-leaf (has debris branches) so `FinalizeIndividualRecording` skipped its terminalState. Added explicit terminalState determination for the active recording in `FinalizeTreeRecordings`, which the optimizer propagates to the chain tip via `SplitAtSection`.
 - **Looping chain crew release (#209).** Fixing the terminalState alone would free crew at the tip's EndUT while the ghost still loops. Added a `loopingChains` pre-scan in `KerbalsModule.Recalculate`: Recovered crews on chains with any looping segment keep `endUT=Infinity`. Disabling the loop correctly releases them.
+- **Ghost tunnels underground during atmospheric on-rails (#210, PR #116).** When a vessel went on-rails during atmospheric flight (e.g. reentry time warp), Keplerian orbit segments were recorded that ignore drag — the ghost dove through the planet. Added `ShouldSkipOrbitSegmentForAtmosphere` check: orbit segment creation is skipped when `altitude < atmosphereDepth`. Point interpolation lerps across the gap instead. Applies to FlightRecorder and BackgroundRecorder.
 
 ### Code Quality & Refactoring
 

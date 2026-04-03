@@ -3305,6 +3305,17 @@ namespace Parsek
         #region Atmosphere Boundary Detection
 
         /// <summary>
+        /// Pure testable function: determines whether an orbit segment should be skipped
+        /// because the vessel is below the atmosphere. Keplerian orbits ignore drag, so
+        /// an orbit segment recorded during atmospheric flight produces underground ghost paths.
+        /// </summary>
+        internal static bool ShouldSkipOrbitSegmentForAtmosphere(
+            bool bodyHasAtmosphere, double altitude, double atmosphereDepth)
+        {
+            return bodyHasAtmosphere && altitude < atmosphereDepth;
+        }
+
+        /// <summary>
         /// Pure testable function: determines whether a recording should split at the atmosphere boundary.
         /// Requires both sustained time (hysteresisSeconds) AND distance beyond boundary (hysteresisMeters).
         /// </summary>
@@ -4065,7 +4076,17 @@ namespace Parsek
                 // Take one boundary point first
                 SamplePosition(v);
 
-                InitializeOnRailsOrbitSegment(v, initialEnv);
+                // Skip orbit segment if below atmosphere — Keplerian orbit ignores drag
+                if (ShouldSkipOrbitSegmentForAtmosphere(v.mainBody.atmosphere, v.altitude, v.mainBody.atmosphereDepth))
+                {
+                    ParsekLog.Info("Recorder",
+                        $"Recording started on rails in atmosphere — skipping orbit segment " +
+                        $"(alt={v.altitude:F0}, atmoDepth={v.mainBody.atmosphereDepth:F0})");
+                }
+                else
+                {
+                    InitializeOnRailsOrbitSegment(v, initialEnv);
+                }
             }
 
             // Register the Harmony patch to call us each physics frame
@@ -4765,6 +4786,16 @@ namespace Parsek
             {
                 ParsekLog.Info("Recorder",
                     $"Vessel went on rails (surface, sit={v.situation}) — skipping orbit segment, position unchanged");
+                return;
+            }
+
+            // Layer 2: Vessels below atmosphere — Keplerian orbit ignores drag, producing
+            // underground trajectories during reentry/descent. Skip orbit segment; point
+            // interpolation will lerp across the gap, which is far better than an underground arc.
+            if (ShouldSkipOrbitSegmentForAtmosphere(v.mainBody.atmosphere, v.altitude, v.mainBody.atmosphereDepth))
+            {
+                ParsekLog.Info("Recorder",
+                    $"Vessel went on rails in atmosphere (alt={v.altitude:F0}, atmoDepth={v.mainBody.atmosphereDepth:F0}) — skipping orbit segment");
                 return;
             }
 
