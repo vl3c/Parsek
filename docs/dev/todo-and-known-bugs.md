@@ -2407,6 +2407,14 @@ With bug #208 fixed, the chain tip gets `terminalState=Splashed` → `endState=R
 
 **Status:** Fixed (0.6.0) — `KerbalsModule.Recalculate` pre-scans for `loopingChains` set. When computing endUT for a Recovered crew member on a chain with any looping segment, endUT stays Infinity. Disabling the loop correctly releases them.
 
+## 210. Ghost tunnels underground when vessel goes on-rails in atmosphere
+
+When a vessel goes on-rails (time warp) during atmospheric flight — typically during reentry — FlightRecorder and BackgroundRecorder created Keplerian orbit segments. Keplerian orbits ignore drag, so the recorded trajectory curves through the planet's surface. During playback, the ghost follows this underground arc instead of the actual atmospheric path.
+
+**Root cause:** `OnVesselGoOnRails` and `InitializeOnRailsState` had a surface-vessel guard (LANDED/SPLASHED/PRELAUNCH) but no atmosphere guard. Any vessel with `situation=FLYING` or `SUB_ORBITAL` below `atmosphereDepth` would get an orbit segment.
+
+**Status:** Fixed (0.6.0, PR #116) — added `ShouldSkipOrbitSegmentForAtmosphere` check in FlightRecorder (`OnVesselGoOnRails` + `StartRecording` on-rails init) and BackgroundRecorder (`InitializeOnRailsState`). When below atmosphere, orbit segment creation is skipped. Point interpolation lerps across the gap, which is visually correct. No physics frame samples during on-rails (PhysicsFramePatch only fires for unpacked vessels), so the gap is expected.
+
 # In-Game Tests
 
 - [x] Vessels propagate naturally along orbits after FF (no position freezing)

@@ -67,6 +67,7 @@ Full career-mode resource tracking across the rewind timeline. Science, funds, r
 - **Duplicate CrewStatusChanged events (#207).** KSP's delayed `onKerbalStatusChange` callbacks fired after the crew mutation suppression window closed, producing redundant `Assigned->Missing` events on every save cycle. Added `KerbalsModule.IsManaged` check to suppress status change noise for reserved/stand-in kerbals.
 - **Chain tip missing terminalState (#208).** In tree mode, the active recording is non-leaf (has debris branches) so `FinalizeIndividualRecording` skipped its terminalState. Added explicit terminalState determination for the active recording in `FinalizeTreeRecordings`, which the optimizer propagates to the chain tip via `SplitAtSection`.
 - **Looping chain crew release (#209).** Fixing the terminalState alone would free crew at the tip's EndUT while the ghost still loops. Added a `loopingChains` pre-scan in `KerbalsModule.Recalculate`: Recovered crews on chains with any looping segment keep `endUT=Infinity`. Disabling the loop correctly releases them.
+- **Ghost tunnels underground during atmospheric on-rails (#210, PR #116).** When a vessel went on-rails during atmospheric flight (e.g. reentry time warp), Keplerian orbit segments were recorded that ignore drag — the ghost dove through the planet. Added `ShouldSkipOrbitSegmentForAtmosphere` check: orbit segment creation is skipped when `altitude < atmosphereDepth`. Point interpolation lerps across the gap instead. Applies to FlightRecorder and BackgroundRecorder.
 
 ### Code Quality & Refactoring
 
