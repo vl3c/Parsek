@@ -262,11 +262,11 @@ Ghost orbit lines look identical to real vessel orbit lines. Should have a disti
 
 **Priority:** Low — cosmetic, functional without it
 
-### T41. Ghost orbit line persists during non-orbital playback phases
+### T41. Suborbital recordings missing from ghost map presence
 
-When a recording-index ghost exits an orbital segment (e.g., atmospheric re-entry), the ghost map ProtoVessel's orbit line remains at the last segment's orbit. It should either disappear during non-orbital phases or be removed and re-created when the ghost re-enters an orbital segment.
+Suborbital recordings (e.g., sounding rockets, ballistic hops) are entirely skipped from ghost map presence. During suborbital coasting phases (engine off), orbit lines SHOULD be visible showing the current ballistic arc. The ghost map presence system currently requires a full orbital segment to create a ProtoVessel, so any recording that never reaches stable orbit gets no map icon or orbit line at all.
 
-**Priority:** Low — minor visual inconsistency, ghost mesh shows correct position
+**Priority:** Medium — suborbital flights are common early-career; missing orbit lines during coast is a real usability gap
 
 ### T42. Convert KerbalsModule to IResourceModule
 
@@ -2276,25 +2276,25 @@ During ascent, map view shows green dot icons for past recordings' spawned vesse
 
 When a ghost transitions SOI from Kerbin to Sun, the orbit line only renders up to the Mun's orbit distance. The orbit update log shows the first SOI change incorrectly sets body=Kerbin instead of Sun, then a second transition corrects it. The orbit cache key may not account for body changes, causing stale orbit rendering relative to the wrong body. Check `ApplyOrbitToVessel` and orbit cache invalidation on SOI transitions.
 
-**Status:** TODO — investigate
+**Status:** Fixed (0.5.3) — celestialBody was being set AFTER SetOrbit, so orbitDriver still referenced the old body during updateFromParameters. Fix sets celestialBody BEFORE SetOrbit and toggles the orbit renderer off/on after SOI change to force a full recalculation.
 
 ## 190. Ghost icon popup menu appears at screen center instead of cursor
 
 `GhostVesselLoadPatch` converts mouse position to normalized anchor coordinates for `PopupDialog.SpawnPopupDialog`, but KSP's PopupDialog may interpret the anchor differently. The popup consistently appears at screen center. May need screen-space coordinates instead of normalized.
 
-**Status:** TODO — fix
+**Status:** Fixed (0.5.3) — popup now uses (0.5,0.5) anchors and offsets localPosition from canvas center using mouse-to-canvas-relative coordinates after spawn.
 
 ## 191. Ghost icon popup menu doesn't close on outside click
 
 The popup spawned via `PopupDialog.SpawnPopupDialog` for ghost icons has no outside-click detection. User must press Esc to dismiss. Need to implement click-outside dismissal.
 
-**Status:** TODO — fix
+**Status:** Fixed (0.5.3) — outside-click dismissal via LateUpdate check using GetMouseButtonUp with a frame-count grace period to avoid eating the same click that opened the menu.
 
 ## 192. KSP's default vessel menu appears alongside Parsek popup in solar orbit
 
 `GhostIconClickPatch` is a Harmony postfix on `OrbitRendererBase.objectNode_OnClick`, so it runs after KSP's original handler. Both KSP's "Set as Target / Switch To" menu and Parsek's custom menu appear. Fix: change to a prefix that returns false for ghost vessels to suppress KSP's handler.
 
-**Status:** TODO — fix
+**Status:** Fixed (0.5.3) — changed GhostIconClickPatch from Postfix to Prefix, returns false for ghost vessels so KSP's original objectNode_OnClick never fires.
 
 ## 193. Double-click ghost map icon should focus camera on it
 
