@@ -335,6 +335,155 @@ namespace Parsek.Tests
 
         #endregion
 
+        #region Classify — Approach (airless body near surface)
+
+        [Fact]
+        public void Classify_AirlessBelowApproachNoThrust_ReturnsApproach()
+        {
+            // Mun: no atmosphere, below approach altitude, coasting
+            var result = EnvironmentDetector.Classify(
+                hasAtmosphere: false,
+                altitude: 15000,
+                atmosphereDepth: 0,
+                situation: 16, // SUB_ORBITAL
+                srfSpeed: 500,
+                hasActiveThrust: false,
+                approachAltitude: 25000);
+
+            Assert.Equal(SegmentEnvironment.Approach, result);
+        }
+
+        [Fact]
+        public void Classify_AirlessBelowApproachWithThrust_ReturnsApproach()
+        {
+            // Powered descent on Mun — still Approach, not ExoPropulsive
+            var result = EnvironmentDetector.Classify(
+                hasAtmosphere: false,
+                altitude: 10000,
+                atmosphereDepth: 0,
+                situation: 16, // SUB_ORBITAL
+                srfSpeed: 200,
+                hasActiveThrust: true,
+                approachAltitude: 25000);
+
+            Assert.Equal(SegmentEnvironment.Approach, result);
+        }
+
+        [Fact]
+        public void Classify_AirlessAboveApproach_ReturnsExoBallistic()
+        {
+            // Above approach altitude — normal exo classification
+            var result = EnvironmentDetector.Classify(
+                hasAtmosphere: false,
+                altitude: 30000,
+                atmosphereDepth: 0,
+                situation: 32, // ORBITING
+                srfSpeed: 500,
+                hasActiveThrust: false,
+                approachAltitude: 25000);
+
+            Assert.Equal(SegmentEnvironment.ExoBallistic, result);
+        }
+
+        [Fact]
+        public void Classify_AirlessAtExactApproachAltitude_ReturnsExoBallistic()
+        {
+            // Altitude == approachAltitude is NOT < approachAltitude (strict <)
+            var result = EnvironmentDetector.Classify(
+                hasAtmosphere: false,
+                altitude: 25000,
+                atmosphereDepth: 0,
+                situation: 32, // ORBITING
+                srfSpeed: 500,
+                hasActiveThrust: false,
+                approachAltitude: 25000);
+
+            Assert.Equal(SegmentEnvironment.ExoBallistic, result);
+        }
+
+        [Fact]
+        public void Classify_AtmosphericBodyWithApproachAltitude_StillReturnsAtmospheric()
+        {
+            // Kerbin with approachAltitude passed — atmosphere check wins
+            var result = EnvironmentDetector.Classify(
+                hasAtmosphere: true,
+                altitude: 5000,
+                atmosphereDepth: 70000,
+                situation: 8, // FLYING
+                srfSpeed: 200,
+                hasActiveThrust: false,
+                approachAltitude: 25000);
+
+            Assert.Equal(SegmentEnvironment.Atmospheric, result);
+        }
+
+        [Fact]
+        public void Classify_AirlessZeroApproachAltitude_ReturnsExo()
+        {
+            // approachAltitude=0 disables approach classification (backward compat)
+            var result = EnvironmentDetector.Classify(
+                hasAtmosphere: false,
+                altitude: 50,
+                atmosphereDepth: 0,
+                situation: 8, // FLYING
+                srfSpeed: 100,
+                hasActiveThrust: false,
+                approachAltitude: 0);
+
+            Assert.Equal(SegmentEnvironment.ExoBallistic, result);
+        }
+
+        [Fact]
+        public void Classify_AirlessOrbitingBelowApproach_ReturnsExoBallistic()
+        {
+            // Stable low orbit on Mun at 15km (below 25km approach altitude)
+            // ORBITING is Keplerian, not an approach — should NOT be classified as Approach
+            var result = EnvironmentDetector.Classify(
+                hasAtmosphere: false,
+                altitude: 15000,
+                atmosphereDepth: 0,
+                situation: 32, // ORBITING
+                srfSpeed: 500,
+                hasActiveThrust: false,
+                approachAltitude: 25000);
+
+            Assert.Equal(SegmentEnvironment.ExoBallistic, result);
+        }
+
+        [Fact]
+        public void Classify_AirlessOrbitingBelowApproachWithThrust_ReturnsExoPropulsive()
+        {
+            // Thrusting in a low orbit — still not Approach
+            var result = EnvironmentDetector.Classify(
+                hasAtmosphere: false,
+                altitude: 15000,
+                atmosphereDepth: 0,
+                situation: 32, // ORBITING
+                srfSpeed: 500,
+                hasActiveThrust: true,
+                approachAltitude: 25000);
+
+            Assert.Equal(SegmentEnvironment.ExoPropulsive, result);
+        }
+
+        [Fact]
+        public void Classify_LandedOnAirlessBelowApproach_ReturnsSurface()
+        {
+            // Landed takes priority over approach
+            var result = EnvironmentDetector.Classify(
+                hasAtmosphere: false,
+                altitude: 0,
+                atmosphereDepth: 0,
+                situation: 1, // LANDED
+                srfSpeed: 0.0,
+                hasActiveThrust: false,
+                approachAltitude: 25000);
+
+            Assert.Equal(SegmentEnvironment.SurfaceStationary, result);
+        }
+
+        #endregion
+
         #region Classify — Surface takes priority over atmosphere
 
         [Fact]
@@ -594,6 +743,38 @@ namespace Parsek.Tests
                 SegmentEnvironment.ExoBallistic, SegmentEnvironment.SurfaceStationary));
             Assert.Equal(0.0, EnvironmentHysteresis.GetDebounceFor(
                 SegmentEnvironment.ExoPropulsive, SegmentEnvironment.SurfaceMobile));
+        }
+
+        [Fact]
+        public void GetDebounceFor_ApproachToExo_ReturnsApproachDebounce()
+        {
+            Assert.Equal(EnvironmentHysteresis.ApproachDebounceSeconds, EnvironmentHysteresis.GetDebounceFor(
+                SegmentEnvironment.Approach, SegmentEnvironment.ExoBallistic));
+            Assert.Equal(EnvironmentHysteresis.ApproachDebounceSeconds, EnvironmentHysteresis.GetDebounceFor(
+                SegmentEnvironment.Approach, SegmentEnvironment.ExoPropulsive));
+        }
+
+        [Fact]
+        public void GetDebounceFor_ExoToApproach_ReturnsApproachDebounce()
+        {
+            Assert.Equal(EnvironmentHysteresis.ApproachDebounceSeconds, EnvironmentHysteresis.GetDebounceFor(
+                SegmentEnvironment.ExoBallistic, SegmentEnvironment.Approach));
+            Assert.Equal(EnvironmentHysteresis.ApproachDebounceSeconds, EnvironmentHysteresis.GetDebounceFor(
+                SegmentEnvironment.ExoPropulsive, SegmentEnvironment.Approach));
+        }
+
+        [Fact]
+        public void GetDebounceFor_ApproachToSurface_ReturnsSurfaceAtmosphericDebounce()
+        {
+            // Rough Mun landing can bounce between LANDED and SUB_ORBITAL
+            Assert.Equal(EnvironmentHysteresis.SurfaceAtmosphericDebounceSeconds, EnvironmentHysteresis.GetDebounceFor(
+                SegmentEnvironment.Approach, SegmentEnvironment.SurfaceMobile));
+            Assert.Equal(EnvironmentHysteresis.SurfaceAtmosphericDebounceSeconds, EnvironmentHysteresis.GetDebounceFor(
+                SegmentEnvironment.Approach, SegmentEnvironment.SurfaceStationary));
+            Assert.Equal(EnvironmentHysteresis.SurfaceAtmosphericDebounceSeconds, EnvironmentHysteresis.GetDebounceFor(
+                SegmentEnvironment.SurfaceMobile, SegmentEnvironment.Approach));
+            Assert.Equal(EnvironmentHysteresis.SurfaceAtmosphericDebounceSeconds, EnvironmentHysteresis.GetDebounceFor(
+                SegmentEnvironment.SurfaceStationary, SegmentEnvironment.Approach));
         }
 
         #endregion

@@ -1241,6 +1241,8 @@ Recordings currently capture entire flights as monolithic units. For effective l
 
 **Status:** Implemented — complete per-phase looping for both chain and tree modes. Chain recordings split eagerly during recording at atmosphere/altitude/SOI boundaries. Tree recordings split post-commit by the optimizer split pass (`FindSplitCandidatesForOptimizer`) at environment boundaries. Both produce the same UI: separate recording entries per phase, each with its own loop toggle. Auto loop range trims boring bookends (orbital coasts, surface idle) when loop is toggled on. `LoopStartUT`/`LoopEndUT` fields provide additional range narrowing. Policy modularity refactored: `IsTreeRecording`/`IsChainRecording`/`ManagesOwnResources` properties, `ClassifyVesselDestruction` and `ShouldSuppressBoundarySplit` extracted as testable methods.
 
+**Follow-up (PR #111):** Optimizer was over-splitting at every ExoPropulsive↔ExoBallistic boundary (engine on/off), creating 10+ segments for multi-burn missions. Fixed via `SplitEnvironmentClass` that coarsens the split decision: ExoPropulsive/ExoBallistic → same class ("exo"), SurfaceMobile/SurfaceStationary → same class ("surface"). Added `SegmentEnvironment.Approach` (=5) for airless body landings below approach altitude, enabling the optimizer to split approach/landing recordings for independent looping on non-atmospheric bodies. Unified tree root recording — `PromoteToTreeForBreakup` no longer creates separate root/continuation, eliminating the short root fragment that couldn't show later staging events. Debris loop sync — `LoopSyncParentIdx` links debris recordings to the parent's loop clock so boosters replay on each loop cycle. Boring tail trimming — leaf recordings ending with long idle tails (SurfaceStationary, ExoBallistic) are automatically trimmed to ~10s past the last meaningful activity, so the real vessel spawns promptly instead of waiting through minutes of motionless ghost.
+
 ## 98. Deleting and recreating a save with the same name leaks old recordings
 
 `initialLoadDone` is a static bool that gates whether `OnLoad` clears and reloads recordings from the `.sfs` (initial load) or keeps in-memory state (revert/scene-change). A save-folder-change check at line 227 resets it when the save name differs. But deleting a career and creating a new one with the same name produces an identical `HighLogic.SaveFolder` — `initialLoadDone` stays `true`, so the new save inherits the old save's in-memory recordings. The `Parsek/Recordings/` sidecar files also persist on disk since KSP's save deletion doesn't know about the Parsek subdirectory.
@@ -2327,7 +2329,7 @@ KSP reports `Vessel.Situations.SUB_ORBITAL` for off-rails physics vessels near a
 
 During time warp, the playback engine can have multiple chain segments active simultaneously (short segments from optimizer splits all fall within the current UT window). Each active ghost gets its own green dot in `DrawMapMarkers`, showing multiple dots for the same vessel scattered along the trajectory.
 
-**Status:** Fixed (0.5.3) — added per-chain dedup in `DrawMapMarkers`: only the highest-index (latest) ghost per chain gets a marker.
+**Status:** Fixed (0.5.3) — added per-chain dedup in `DrawMapMarkers`: only the highest-index (latest) ghost per chain gets a marker. Root cause (excessive optimizer splits at engine on/off boundaries) also fixed in PR #111.
 
 ## 199. Checkpoint log spam: 8,800+ INFO lines per session
 

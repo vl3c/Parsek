@@ -11,6 +11,14 @@ All notable changes to Parsek are documented here.
 - **Parsek.version file (T1).** Added `GameData/Parsek/Parsek.version` for AVC and CKAN version detection. Auto-copied to KSP GameData on build.
 - **UI version display (T2).** Version label ("v0.6.0") shown at the bottom of the main Parsek window, read from AssemblyVersion at runtime.
 
+### Recording Optimizer
+
+- **Fix optimizer over-splitting (PR #111).** The optimizer was splitting recordings at every ExoPropulsive↔ExoBallistic boundary (engine on/off), creating 10+ chain segments for multi-burn missions. Introduced `SplitEnvironmentClass` to coarsen split decisions: ExoPropulsive/ExoBallistic are the same class ("exo"), SurfaceMobile/SurfaceStationary are the same class ("surface"). Splits now only happen at meaningful boundaries: atmo↔exo, exo↔approach, approach↔surface.
+- **Approach environment for airless bodies.** New `SegmentEnvironment.Approach` (=5) classifies vessels below approach altitude on airless bodies (Mun, Minmus). Enables the optimizer to split landing/takeoff recordings so they can be looped independently. A typical Kerbin→Mun landing now produces ~4 segments (atmo, exo, approach, surface) instead of 10+.
+- **Unified tree root recording.** `PromoteToTreeForBreakup` no longer creates separate root and continuation recordings. The main vessel gets one continuous recording through all breakups. Decoupled part events handle ghost visual updates (booster detach) during playback. Eliminates the 14s root fragment that couldn't show later staging events.
+- **Debris loop sync.** Debris ghosts (separated boosters, fairings) now replay in sync with the parent recording's loop cycle. New `LoopSyncParentIdx` field links debris to the parent recording whose loop clock drives their playback. Boosters visibly separate and fly away on each loop iteration.
+- **Boring tail trimming.** Leaf recordings that end with a long idle period (surface stationary or orbital coasting) are automatically trimmed to ~10 seconds past the last meaningful activity. Prevents ghosts from sitting motionless for extended periods before the real vessel spawns. Only applies to leaf recordings (no child branches or chain continuations).
+
 ### Game Actions & Resources System
 
 Full career-mode resource tracking across the rewind timeline. Science, funds, reputation, milestones, contracts, kerbals, facilities, and strategies are now recorded, reconciled on rewind, and patched back into KSP's singletons.
