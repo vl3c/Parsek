@@ -2421,6 +2421,14 @@ When a vessel goes on-rails (time warp) during atmospheric flight — typically 
 
 **Status:** Fixed (0.6.0, PR #116) — added `ShouldSkipOrbitSegmentForAtmosphere` check in FlightRecorder (`OnVesselGoOnRails` + `StartRecording` on-rails init) and BackgroundRecorder (`InitializeOnRailsState`). When below atmosphere, orbit segment creation is skipped. Point interpolation lerps across the gap, which is visually correct. No physics frame samples during on-rails (PhysicsFramePatch only fires for unpacked vessels), so the gap is expected.
 
+## 211. Ghost ProtoVessel destroyed by on-rails atmospheric pressure (planet disappears)
+
+KSP's `Vessel.CheckKill()` destroys on-rails vessels at > 1 kPa atmospheric pressure. Ghost ProtoVessels with deorbit orbits (periapsis below surface) pass through the atmosphere, triggering this check. If the `PlanetariumCamera` was focused on the ghost, `Die()` nulled the camera target → cascade of 174K+ NullReferenceExceptions in `ScaledSpaceFader`, `AtmosphereFromGround`, `Sun.LateUpdate` → planet rendering broke, game became unresponsive, exit screen stuck.
+
+**Root cause:** Ghost ProtoVessels were not protected against `Vessel.CheckKill()`. The existing `GhostVesselLoadPatch` prevented `GoOffRails` but not the separate pressure destruction path.
+
+**Status:** Fixed (0.6.0, PR #113) — new `GhostCheckKillPatch` Harmony prefix on `Vessel.CheckKill` returns false for ghost vessels, skipping the pressure check entirely.
+
 # In-Game Tests
 
 - [x] Vessels propagate naturally along orbits after FF (no position freezing)

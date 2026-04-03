@@ -12,6 +12,8 @@ All notable changes to Parsek are documented here.
 - **Ghost orbit line suppression (Harmony).** New `GhostOrbitLinePatch` postfix on `OrbitRendererBase.LateUpdate` hides the orbit line for ghost ProtoVessels below atmosphere while keeping the native KSP map icon visible. Also hides Ap/Pe/AN/DN markers when orbit line is hidden.
 - **Debris map markers hidden.** Debris ghost recordings no longer show green dot markers in map view.
 - **Stock vessel type icons for ghost markers.** Ghost map markers now use KSP's actual vessel type icons (Ship, Probe, Rover, Station, Plane, etc.) from the orbit icon atlas instead of a plain green dot. Icons are color-tinted per vessel type. Falls back to a diamond shape before MapView initialization.
+- **Ghost ProtoVessel pressure protection.** New `GhostCheckKillPatch` prevents KSP from destroying ghost ProtoVessels due to on-rails atmospheric pressure. Deorbit orbits pass through the atmosphere, triggering KSP's stock vessel destruction — if the map camera was focused on the ghost, this caused a NullRef cascade that broke scaled space rendering (planet disappeared, stuck exit).
+- **Ghost surface clamp.** Ghost mesh clamped to body surface when Keplerian orbit goes underground (deorbit orbits with sub-surface periapsis). Prevents ghost tunneling through the planet during orbit-only recording sections.
 
 ### Format Reset
 
