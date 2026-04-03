@@ -963,6 +963,24 @@ namespace Parsek
             else if (splitCount > 0)
                 ParsekLog.Info("RecordingStore", $"Optimization pass: split {splitCount} recording(s)");
 
+            // Boring tail trim pass: remove trailing idle tails from leaf recordings
+            // so the real vessel spawns promptly instead of waiting through minutes of
+            // ghost sitting motionless on the surface or coasting in orbit.
+            // ORDERING: after splits (which may create new leaf recordings) and before
+            // PopulateLoopSyncParentIndices (which uses list indices).
+            int trimCount = 0;
+            for (int i = 0; i < recordings.Count; i++)
+            {
+                if (RecordingOptimizer.TrimBoringTail(recordings[i], recordings))
+                {
+                    recordings[i].FilesDirty = true;
+                    trimCount++;
+                }
+            }
+            if (trimCount > 0)
+                ParsekLog.Info("RecordingStore",
+                    $"Optimization pass: trimmed boring tails from {trimCount} recording(s)");
+
             // Loop sync pass: link debris recordings to their parent recording
             // so debris ghosts replay in sync with the parent's loop cycle.
             PopulateLoopSyncParentIndices(recordings);

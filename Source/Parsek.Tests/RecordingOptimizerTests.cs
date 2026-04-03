@@ -1515,5 +1515,411 @@ namespace Parsek.Tests
         }
 
         #endregion
+
+        #region FindLastInterestingUT
+
+        [Fact]
+        public void FindLastInterestingUT_LastNonBoringSectionEnd()
+        {
+            var rec = new Recording();
+            rec.TrackSections.Add(new TrackSection
+                { environment = SegmentEnvironment.Atmospheric, startUT = 100, endUT = 200 });
+            rec.TrackSections.Add(new TrackSection
+                { environment = SegmentEnvironment.SurfaceStationary, startUT = 200, endUT = 800 });
+
+            Assert.Equal(200, RecordingOptimizer.FindLastInterestingUT(rec));
+        }
+
+        [Fact]
+        public void FindLastInterestingUT_PartEventAfterBoringSectionStart()
+        {
+            var rec = new Recording();
+            rec.TrackSections.Add(new TrackSection
+                { environment = SegmentEnvironment.Atmospheric, startUT = 100, endUT = 200 });
+            rec.TrackSections.Add(new TrackSection
+                { environment = SegmentEnvironment.SurfaceStationary, startUT = 200, endUT = 800 });
+            rec.PartEvents.Add(new PartEvent { ut = 205, eventType = PartEventType.ParachuteDeployed });
+
+            Assert.Equal(205, RecordingOptimizer.FindLastInterestingUT(rec));
+        }
+
+        [Fact]
+        public void FindLastInterestingUT_SegmentEventTakesMaximum()
+        {
+            var rec = new Recording();
+            rec.TrackSections.Add(new TrackSection
+                { environment = SegmentEnvironment.SurfaceMobile, startUT = 100, endUT = 150 });
+            rec.TrackSections.Add(new TrackSection
+                { environment = SegmentEnvironment.SurfaceStationary, startUT = 150, endUT = 800 });
+            rec.SegmentEvents.Add(new SegmentEvent { ut = 160 });
+
+            Assert.Equal(160, RecordingOptimizer.FindLastInterestingUT(rec));
+        }
+
+        [Fact]
+        public void FindLastInterestingUT_FlagEventTakesMaximum()
+        {
+            var rec = new Recording();
+            rec.TrackSections.Add(new TrackSection
+                { environment = SegmentEnvironment.Atmospheric, startUT = 100, endUT = 200 });
+            rec.TrackSections.Add(new TrackSection
+                { environment = SegmentEnvironment.ExoBallistic, startUT = 200, endUT = 800 });
+            rec.FlagEvents.Add(new FlagEvent { ut = 250 });
+
+            Assert.Equal(250, RecordingOptimizer.FindLastInterestingUT(rec));
+        }
+
+        [Fact]
+        public void FindLastInterestingUT_AllBoring_ReturnsNaN()
+        {
+            var rec = new Recording();
+            rec.TrackSections.Add(new TrackSection
+                { environment = SegmentEnvironment.SurfaceStationary, startUT = 100, endUT = 800 });
+
+            Assert.True(double.IsNaN(RecordingOptimizer.FindLastInterestingUT(rec)));
+        }
+
+        [Fact]
+        public void FindLastInterestingUT_NoSections_ReturnsNaN()
+        {
+            var rec = new Recording();
+            Assert.True(double.IsNaN(RecordingOptimizer.FindLastInterestingUT(rec)));
+        }
+
+        [Fact]
+        public void FindLastInterestingUT_NoBoringTail_ReturnsLastSectionEnd()
+        {
+            var rec = new Recording();
+            rec.TrackSections.Add(new TrackSection
+                { environment = SegmentEnvironment.Atmospheric, startUT = 100, endUT = 200 });
+            rec.TrackSections.Add(new TrackSection
+                { environment = SegmentEnvironment.SurfaceMobile, startUT = 200, endUT = 300 });
+
+            Assert.Equal(300, RecordingOptimizer.FindLastInterestingUT(rec));
+        }
+
+        #endregion
+
+        #region IsLeafRecording
+
+        [Fact]
+        public void IsLeafRecording_Standalone_ReturnsTrue()
+        {
+            var rec = new Recording();
+            Assert.True(RecordingOptimizer.IsLeafRecording(rec, new List<Recording> { rec }));
+        }
+
+        [Fact]
+        public void IsLeafRecording_HasChildBranch_ReturnsFalse()
+        {
+            var rec = new Recording { ChildBranchPointId = "bp1" };
+            Assert.False(RecordingOptimizer.IsLeafRecording(rec, new List<Recording> { rec }));
+        }
+
+        [Fact]
+        public void IsLeafRecording_MidChain_ReturnsFalse()
+        {
+            var rec1 = new Recording { ChainId = "c1", ChainIndex = 0, ChainBranch = 0 };
+            var rec2 = new Recording { ChainId = "c1", ChainIndex = 1, ChainBranch = 0 };
+            Assert.False(RecordingOptimizer.IsLeafRecording(rec1, new List<Recording> { rec1, rec2 }));
+        }
+
+        [Fact]
+        public void IsLeafRecording_LastInChain_ReturnsTrue()
+        {
+            var rec1 = new Recording { ChainId = "c1", ChainIndex = 0, ChainBranch = 0 };
+            var rec2 = new Recording { ChainId = "c1", ChainIndex = 1, ChainBranch = 0 };
+            Assert.True(RecordingOptimizer.IsLeafRecording(rec2, new List<Recording> { rec1, rec2 }));
+        }
+
+        [Fact]
+        public void IsLeafRecording_BranchNonZero_ReturnsTrue()
+        {
+            // Branch > 0 recordings are ghost-only parallel paths — no successor
+            var rec1 = new Recording { ChainId = "c1", ChainIndex = 0, ChainBranch = 0 };
+            var rec2 = new Recording { ChainId = "c1", ChainIndex = 1, ChainBranch = 1 };
+            // rec1 has a branch-0 successor (rec2 is branch 1, doesn't count)
+            // but actually rec2 is branch 1 so it does NOT make rec1 a non-leaf
+            // Wait: the check looks for ChainBranch == 0 && higher index — rec2 is branch 1
+            Assert.True(RecordingOptimizer.IsLeafRecording(rec1, new List<Recording> { rec1, rec2 }));
+        }
+
+        #endregion
+
+        #region TrimBoringTail
+
+        private static Recording MakeRecordingWithBoringTail(
+            double startUT, double midUT, double endUT,
+            SegmentEnvironment activeEnv, SegmentEnvironment boringEnv,
+            int activePointCount = 5, int boringPointCount = 20)
+        {
+            var rec = new Recording();
+            // Active phase points
+            for (int i = 0; i < activePointCount; i++)
+            {
+                double t = startUT + (midUT - startUT) * i / (activePointCount - 1);
+                rec.Points.Add(new TrajectoryPoint { ut = t });
+            }
+            // Boring tail points
+            for (int i = 0; i < boringPointCount; i++)
+            {
+                double t = midUT + (endUT - midUT) * (i + 1) / boringPointCount;
+                rec.Points.Add(new TrajectoryPoint { ut = t });
+            }
+            rec.TrackSections.Add(new TrackSection
+                { environment = activeEnv, startUT = startUT, endUT = midUT });
+            rec.TrackSections.Add(new TrackSection
+                { environment = boringEnv, startUT = midUT, endUT = endUT });
+            return rec;
+        }
+
+        [Fact]
+        public void TrimBoringTail_TrimsLongSurfaceStationaryTail()
+        {
+            // 30s atmospheric + 600s SurfaceStationary → should trim to ~10s past midUT
+            var rec = MakeRecordingWithBoringTail(17000, 17030, 17630,
+                SegmentEnvironment.Atmospheric, SegmentEnvironment.SurfaceStationary);
+            var recordings = new List<Recording> { rec };
+
+            Assert.True(RecordingOptimizer.TrimBoringTail(rec, recordings));
+            // EndUT should be ~10s past last interesting (17030)
+            Assert.True(rec.EndUT <= 17030 + RecordingOptimizer.DefaultTailBufferSeconds + 1);
+            Assert.True(rec.EndUT >= 17030);
+        }
+
+        [Fact]
+        public void TrimBoringTail_TrimsExoBallisticTail()
+        {
+            var rec = MakeRecordingWithBoringTail(17000, 17060, 17660,
+                SegmentEnvironment.Atmospheric, SegmentEnvironment.ExoBallistic);
+            var recordings = new List<Recording> { rec };
+
+            Assert.True(RecordingOptimizer.TrimBoringTail(rec, recordings));
+            Assert.True(rec.EndUT <= 17060 + RecordingOptimizer.DefaultTailBufferSeconds + 1);
+        }
+
+        [Fact]
+        public void TrimBoringTail_PreservesBufferSeconds()
+        {
+            var rec = MakeRecordingWithBoringTail(17000, 17050, 17650,
+                SegmentEnvironment.SurfaceMobile, SegmentEnvironment.SurfaceStationary,
+                activePointCount: 5, boringPointCount: 60);
+            var recordings = new List<Recording> { rec };
+
+            RecordingOptimizer.TrimBoringTail(rec, recordings);
+            // Last point should be at or just before trimUT = 17050 + 10 = 17060
+            Assert.True(rec.EndUT >= 17050);
+            Assert.True(rec.EndUT <= 17060);
+        }
+
+        [Fact]
+        public void TrimBoringTail_NoBoringTail_ReturnsFalse()
+        {
+            var rec = new Recording();
+            for (int i = 0; i < 10; i++)
+                rec.Points.Add(new TrajectoryPoint { ut = 17000 + i * 10 });
+            rec.TrackSections.Add(new TrackSection
+                { environment = SegmentEnvironment.Atmospheric, startUT = 17000, endUT = 17090 });
+            var recordings = new List<Recording> { rec };
+
+            Assert.False(RecordingOptimizer.TrimBoringTail(rec, recordings));
+        }
+
+        [Fact]
+        public void TrimBoringTail_ShortRecording_ReturnsFalse()
+        {
+            // Duration < MinDurationForTrimSeconds → skip
+            var rec = MakeRecordingWithBoringTail(17000, 17010, 17025,
+                SegmentEnvironment.Atmospheric, SegmentEnvironment.SurfaceStationary,
+                activePointCount: 3, boringPointCount: 3);
+            var recordings = new List<Recording> { rec };
+
+            Assert.False(RecordingOptimizer.TrimBoringTail(rec, recordings));
+        }
+
+        [Fact]
+        public void TrimBoringTail_Idempotent()
+        {
+            var rec = MakeRecordingWithBoringTail(17000, 17050, 17650,
+                SegmentEnvironment.Atmospheric, SegmentEnvironment.SurfaceStationary);
+            var recordings = new List<Recording> { rec };
+
+            Assert.True(RecordingOptimizer.TrimBoringTail(rec, recordings));
+            double endAfterFirst = rec.EndUT;
+            Assert.False(RecordingOptimizer.TrimBoringTail(rec, recordings));
+            Assert.Equal(endAfterFirst, rec.EndUT);
+        }
+
+        [Fact]
+        public void TrimBoringTail_HasChildBranch_ReturnsFalse()
+        {
+            var rec = MakeRecordingWithBoringTail(17000, 17050, 17650,
+                SegmentEnvironment.Atmospheric, SegmentEnvironment.SurfaceStationary);
+            rec.ChildBranchPointId = "bp1";
+            var recordings = new List<Recording> { rec };
+
+            Assert.False(RecordingOptimizer.TrimBoringTail(rec, recordings));
+        }
+
+        [Fact]
+        public void TrimBoringTail_MidChain_ReturnsFalse()
+        {
+            var rec1 = MakeRecordingWithBoringTail(17000, 17050, 17650,
+                SegmentEnvironment.Atmospheric, SegmentEnvironment.SurfaceStationary);
+            rec1.ChainId = "c1";
+            rec1.ChainIndex = 0;
+            rec1.ChainBranch = 0;
+            var rec2 = new Recording { ChainId = "c1", ChainIndex = 1, ChainBranch = 0 };
+            rec2.Points.Add(new TrajectoryPoint { ut = 17650 });
+            rec2.Points.Add(new TrajectoryPoint { ut = 17700 });
+            var recordings = new List<Recording> { rec1, rec2 };
+
+            Assert.False(RecordingOptimizer.TrimBoringTail(rec1, recordings));
+        }
+
+        [Fact]
+        public void TrimBoringTail_TrimsOrbitSegments()
+        {
+            var rec = MakeRecordingWithBoringTail(17000, 17050, 17650,
+                SegmentEnvironment.Atmospheric, SegmentEnvironment.ExoBallistic);
+            rec.OrbitSegments.Add(new OrbitSegment { startUT = 17050, endUT = 17650 });
+            var recordings = new List<Recording> { rec };
+
+            RecordingOptimizer.TrimBoringTail(rec, recordings);
+            Assert.Single(rec.OrbitSegments);
+            Assert.True(rec.OrbitSegments[0].endUT <= 17060 + 1);
+        }
+
+        [Fact]
+        public void TrimBoringTail_ShortensMidSpanTrackSection()
+        {
+            var rec = MakeRecordingWithBoringTail(17000, 17050, 17650,
+                SegmentEnvironment.Atmospheric, SegmentEnvironment.SurfaceStationary);
+            var recordings = new List<Recording> { rec };
+
+            RecordingOptimizer.TrimBoringTail(rec, recordings);
+            // The boring section should be shortened, not removed (trimUT falls within it)
+            Assert.Equal(2, rec.TrackSections.Count);
+            Assert.True(rec.TrackSections[1].endUT <= 17060 + 1);
+        }
+
+        [Fact]
+        public void TrimBoringTail_DoesNotTouchEvents()
+        {
+            var rec = MakeRecordingWithBoringTail(17000, 17050, 17650,
+                SegmentEnvironment.Atmospheric, SegmentEnvironment.SurfaceStationary);
+            rec.PartEvents.Add(new PartEvent { ut = 17020, eventType = PartEventType.Decoupled });
+            rec.SegmentEvents.Add(new SegmentEvent { ut = 17025 });
+            rec.FlagEvents.Add(new FlagEvent { ut = 17030 });
+            var recordings = new List<Recording> { rec };
+
+            RecordingOptimizer.TrimBoringTail(rec, recordings);
+            Assert.Single(rec.PartEvents);
+            Assert.Single(rec.SegmentEvents);
+            Assert.Single(rec.FlagEvents);
+        }
+
+        [Fact]
+        public void TrimBoringTail_AllBoringSections_ReturnsFalse()
+        {
+            var rec = new Recording();
+            for (int i = 0; i < 10; i++)
+                rec.Points.Add(new TrajectoryPoint { ut = 17000 + i * 100 });
+            rec.TrackSections.Add(new TrackSection
+                { environment = SegmentEnvironment.ExoBallistic, startUT = 17000, endUT = 17900 });
+            var recordings = new List<Recording> { rec };
+
+            Assert.False(RecordingOptimizer.TrimBoringTail(rec, recordings));
+        }
+
+        [Fact]
+        public void TrimBoringTail_InvalidatesCachedStats()
+        {
+            var rec = MakeRecordingWithBoringTail(17000, 17050, 17650,
+                SegmentEnvironment.Atmospheric, SegmentEnvironment.SurfaceStationary);
+            rec.CachedStats = new RecordingStats();
+            rec.CachedStatsPointCount = 25;
+            var recordings = new List<Recording> { rec };
+
+            RecordingOptimizer.TrimBoringTail(rec, recordings);
+            Assert.Null(rec.CachedStats);
+            Assert.Equal(0, rec.CachedStatsPointCount);
+        }
+
+        [Fact]
+        public void TrimBoringTail_PartEventInBoringTail_ExtendsBuffer()
+        {
+            // Part event at UT 200 (in boring section) pushes last-interesting past section boundary
+            var rec = MakeRecordingWithBoringTail(17000, 17050, 17650,
+                SegmentEnvironment.Atmospheric, SegmentEnvironment.SurfaceStationary);
+            rec.PartEvents.Add(new PartEvent { ut = 17200, eventType = PartEventType.ParachuteDeployed });
+            var recordings = new List<Recording> { rec };
+
+            RecordingOptimizer.TrimBoringTail(rec, recordings);
+            // Should trim based on event at 17200, not section end at 17050
+            Assert.True(rec.EndUT >= 17200);
+            Assert.True(rec.EndUT <= 17210 + 1);
+        }
+
+        [Fact]
+        public void TrimBoringTail_MultipleTrailingBoringSections()
+        {
+            // Atmospheric 100-200, SurfaceStationary 200-400, ExoBallistic 400-800
+            var rec = new Recording();
+            for (int i = 0; i < 5; i++)
+                rec.Points.Add(new TrajectoryPoint { ut = 17000 + i * 50 }); // 17000-17200
+            for (int i = 1; i <= 30; i++)
+                rec.Points.Add(new TrajectoryPoint { ut = 17200 + i * 20 }); // 17220-17800
+            rec.TrackSections.Add(new TrackSection
+                { environment = SegmentEnvironment.Atmospheric, startUT = 17000, endUT = 17200 });
+            rec.TrackSections.Add(new TrackSection
+                { environment = SegmentEnvironment.SurfaceStationary, startUT = 17200, endUT = 17400 });
+            rec.TrackSections.Add(new TrackSection
+                { environment = SegmentEnvironment.ExoBallistic, startUT = 17400, endUT = 17800 });
+            var recordings = new List<Recording> { rec };
+
+            Assert.True(RecordingOptimizer.TrimBoringTail(rec, recordings));
+            // Last interesting = 17200 (Atmospheric endUT), trim at 17210
+            Assert.True(rec.EndUT <= 17210 + 1);
+            // ExoBallistic section entirely removed, SurfaceStationary shortened
+            Assert.Equal(2, rec.TrackSections.Count);
+        }
+
+        [Fact]
+        public void TrimBoringTail_CustomBufferSeconds()
+        {
+            var rec = MakeRecordingWithBoringTail(17000, 17050, 17650,
+                SegmentEnvironment.Atmospheric, SegmentEnvironment.SurfaceStationary,
+                activePointCount: 5, boringPointCount: 60);
+            var recordings = new List<Recording> { rec };
+
+            RecordingOptimizer.TrimBoringTail(rec, recordings, bufferSeconds: 5.0);
+            // Buffer is 5s instead of 10s, so trim at 17055
+            Assert.True(rec.EndUT >= 17050);
+            Assert.True(rec.EndUT <= 17055 + 1);
+        }
+
+        [Fact]
+        public void TrimBoringTail_AllPointsPastTrimUT_ReturnsFalse()
+        {
+            // Construct a recording where the non-boring section has no points
+            // but the boring section has all the points — trimUT falls before first point
+            var rec = new Recording();
+            // All points are in the boring tail, well past the section boundary
+            for (int i = 0; i < 10; i++)
+                rec.Points.Add(new TrajectoryPoint { ut = 17500 + i * 50 });
+            rec.TrackSections.Add(new TrackSection
+                { environment = SegmentEnvironment.Atmospheric, startUT = 17000, endUT = 17050 });
+            rec.TrackSections.Add(new TrackSection
+                { environment = SegmentEnvironment.SurfaceStationary, startUT = 17050, endUT = 17950 });
+            var recordings = new List<Recording> { rec };
+
+            // lastInteresting=17050, trimUT=17060, but all points are at 17500+
+            // keepCount would be 0 (< 2), so returns false
+            Assert.False(RecordingOptimizer.TrimBoringTail(rec, recordings));
+            Assert.Equal(10, rec.Points.Count); // untouched
+        }
+
+        #endregion
     }
 }
