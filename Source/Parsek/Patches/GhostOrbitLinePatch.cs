@@ -1,7 +1,26 @@
 using HarmonyLib;
+using UnityEngine;
 
 namespace Parsek.Patches
 {
+    /// <summary>
+    /// Prevents KSP from destroying ghost ProtoVessels due to on-rails atmospheric
+    /// pressure. Ghost ProtoVessels orbit through the atmosphere (e.g., deorbit orbit
+    /// with sub-surface periapsis). KSP's Vessel.CheckKill() destroys on-rails vessels
+    /// at > 1 kPa pressure. If the PlanetariumCamera is focused on the ghost, Die()
+    /// nulls the camera target → cascade of NullRefs → planet disappears.
+    /// </summary>
+    [HarmonyPatch(typeof(Vessel), "CheckKill")]
+    internal static class GhostCheckKillPatch
+    {
+        static bool Prefix(Vessel __instance)
+        {
+            if (GhostMapPresence.IsGhostMapVessel(__instance.persistentId))
+                return false; // skip CheckKill entirely for ghost vessels
+            return true;
+        }
+    }
+
     /// <summary>
     /// Suppresses the orbit line AND native icon for ghost map ProtoVessels when
     /// below atmosphere. The orbit line is meaningless during atmospheric flight
