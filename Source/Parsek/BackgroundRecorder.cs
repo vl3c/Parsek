@@ -1379,6 +1379,22 @@ namespace Parsek
                 ParsekLog.Verbose("BgRecorder", $"On-rails state initialized (landed): pid={vesselPid} " +
                     $"body={v.mainBody?.name} sit={v.situation}");
             }
+            else if (v.mainBody != null &&
+                     FlightRecorder.ShouldSkipOrbitSegmentForAtmosphere(
+                         v.mainBody.atmosphere, v.altitude, v.mainBody.atmosphereDepth))
+            {
+                // In atmosphere — Keplerian orbit ignores drag, skip orbit segment
+                state.hasOpenOrbitSegment = false;
+
+                Recording treeRec;
+                if (tree.Recordings.TryGetValue(recordingId, out treeRec))
+                {
+                    treeRec.ExplicitEndUT = ut;
+                }
+
+                ParsekLog.Verbose("BgRecorder", $"On-rails state initialized (atmosphere, skip orbit): pid={vesselPid} " +
+                    $"body={v.mainBody?.name} alt={v.altitude:F0} atmoDepth={v.mainBody.atmosphereDepth:F0}");
+            }
             else if (v.orbit != null)
             {
                 // Open orbit segment
