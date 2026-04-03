@@ -599,6 +599,14 @@ namespace Parsek
                 // guard inside AddOrbitRenderer passes. The method is idempotent.
                 Traverse.Create(v).Method("AddOrbitRenderer").GetValue();
 
+                if (v.orbitRenderer == null && needsRenderer)
+                {
+                    ParsekLog.Warn(Tag, string.Format(ic,
+                        "EnsureGhostOrbitRenderers: AddOrbitRenderer via Traverse had no effect on '{0}' pid={1} — " +
+                        "method may have been renamed in a KSP update",
+                        v.vesselName, v.persistentId));
+                }
+
                 // Configure rendering (same as post-Load block)
                 if (v.orbitRenderer != null)
                 {

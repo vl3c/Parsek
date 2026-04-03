@@ -19,11 +19,11 @@ namespace Parsek
 
             // Ensure orbit renderers exist — MapView.fetch may have been null during Awake
             // prefix, causing AddOrbitRenderer to bail. By Start, all Awakes are complete. (#195)
-            int fixed2 = GhostMapPresence.EnsureGhostOrbitRenderers();
+            int renderersFixed = GhostMapPresence.EnsureGhostOrbitRenderers();
 
             ParsekLog.Info("TrackingStation",
                 $"ParsekTrackingStation initialized: created {created} ghost vessel(s), " +
-                $"fixed {fixed2} orbit renderer(s)");
+                $"fixed {renderersFixed} orbit renderer(s)");
         }
 
         void OnDestroy()
