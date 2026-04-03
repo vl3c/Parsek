@@ -52,6 +52,9 @@ Full career-mode resource tracking across the rewind timeline. Science, funds, r
 ### Bug Fixes
 
 - **Fix #195: Ghost orbit lines not visible in tracking station.** Ghost ProtoVessels created in `SpaceTracking.Awake` prefix had null `orbitRenderer` because `MapView.fetch` wasn't set yet (Unity Awake ordering is undefined). `buildVesselsList` line 751 unconditionally accesses `vessel.orbitRenderer.onVesselIconClicked` with no try/catch — single NRE aborted the entire method including `ConstructUIList()`. Fix: added Prefix on `buildVesselsList` calling `EnsureGhostOrbitRenderers()` which uses Traverse to invoke private `AddOrbitRenderer()` on ghosts with null renderer. Also added defensive FLIGHTPLAN/CTRLSTATE/VESSELMODULES ConfigNode children to ghost ProtoVessel.
+- **Fix: Ghost map missing in tracking station when TerminalOrbit fields empty.** `CreateGhostVesselsFromCommittedRecordings` only checked `HasOrbitData()` (terminal orbit fields) which returned false for all recordings. Now falls back to the last `OrbitSegment` — same pattern used by the flight scene's deferred creation path.
+- **Fix: Duplicate ghost orbit lines during time warp across chain segments.** Multiple chain segments each created their own ghost map ProtoVessel during fast time warp. Added per-chain dedup via `chainMapOwner` dict — when a new chain segment creates a ghost map vessel, the previous segment's is removed.
+- **Fix T41: Ghost orbit line persists after landing.** `CheckPendingMapVessels` skipped with `continue` when `FindOrbitSegment` returned null (ghost past all orbit segments). The stale orbit line remained indefinitely. Now removes the ghost map ProtoVessel when UT exits all orbit segments.
 
 ### Tests
 

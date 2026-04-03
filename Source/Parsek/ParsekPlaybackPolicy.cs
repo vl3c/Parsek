@@ -393,6 +393,13 @@ namespace Parsek
         private readonly Dictionary<int, (string body, double sma, double ecc)> lastMapOrbitByIndex =
             new Dictionary<int, (string body, double sma, double ecc)>();
 
+        /// <summary>
+        /// Per-chain dedup: maps chainId → recording index that currently owns the ghost map vessel.
+        /// When a new chain segment creates a ghost map vessel, the previous segment's is removed.
+        /// Prevents duplicate orbit lines during fast time warp across chain boundaries.
+        /// </summary>
+        private readonly Dictionary<string, int> chainMapOwner = new Dictionary<string, int>();
+
         private void HandleGhostCreated(GhostLifecycleEvent evt)
         {
             if (evt.Trajectory == null || evt.Trajectory.IsDebris)
@@ -420,6 +427,11 @@ namespace Parsek
             if (!GhostMapPresence.HasOrbitData(evt.Trajectory)
                 && (evt.Trajectory.OrbitSegments == null || evt.Trajectory.OrbitSegments.Count == 0))
                 return;
+
+            // Per-chain dedup: if another segment from the same chain already has a ghost
+            // map vessel, remove it before creating the new one. Prevents duplicate orbit
+            // lines during fast time warp across chain boundaries.
+            RemovePreviousChainMapVessel(evt.Index);
 
             // Check if the ghost starts in an orbital segment (orbit-only recording
             // or UT is already within an orbital segment). If so, create immediately.
@@ -473,6 +485,9 @@ namespace Parsek
                         OrbitSegment initialSeg = toCreate[i].Value;
                         if (pendingMapVessels.TryGetValue(idx, out var traj))
                         {
+                            // Per-chain dedup before deferred creation
+                            RemovePreviousChainMapVessel(idx);
+
                             // Use terminal orbit if available, otherwise create from segment
                             // (intermediate chain segments have orbit segments but no terminal orbit)
                             Vessel ghost = GhostMapPresence.HasOrbitData(traj)
@@ -505,6 +520,7 @@ namespace Parsek
 
             // Collect updates to apply after iteration (cannot modify dict during foreach)
             List<KeyValuePair<int, (string body, double sma, double ecc)>> orbitUpdates = null;
+            List<int> toRemoveFromMap = null;
 
             foreach (var kvp in lastMapOrbitByIndex)
             {
@@ -515,7 +531,16 @@ namespace Parsek
                 if (rec.OrbitSegments == null || rec.OrbitSegments.Count == 0) continue;
 
                 OrbitSegment? seg = TrajectoryMath.FindOrbitSegment(rec.OrbitSegments, currentUT);
-                if (!seg.HasValue) continue;
+
+                // UT is past all orbit segments — ghost is no longer orbital (landed, destroyed, etc.).
+                // Remove the ghost map ProtoVessel so the stale orbit line disappears.
+                if (!seg.HasValue)
+                {
+                    GhostMapPresence.RemoveGhostVesselForRecording(idx, "left-orbit-segments");
+                    if (toRemoveFromMap == null) toRemoveFromMap = new List<int>();
+                    toRemoveFromMap.Add(idx);
+                    continue;
+                }
 
                 // Exact equality is intentional: stored segment values don't drift.
                 // A change means a different OrbitSegment, not floating-point accumulation.
@@ -536,6 +561,11 @@ namespace Parsek
                 for (int i = 0; i < orbitUpdates.Count; i++)
                     lastMapOrbitByIndex[orbitUpdates[i].Key] = orbitUpdates[i].Value;
             }
+            if (toRemoveFromMap != null)
+            {
+                for (int i = 0; i < toRemoveFromMap.Count; i++)
+                    lastMapOrbitByIndex.Remove(toRemoveFromMap[i]);
+            }
 
 
         }
@@ -552,6 +582,30 @@ namespace Parsek
             if (traj.Points == null || traj.Points.Count == 0)
                 return true;
             return TrajectoryMath.FindOrbitSegment(traj.OrbitSegments, ut) != null;
+        }
+
+        /// <summary>
+        /// If the recording at the given index belongs to a chain and another segment
+        /// from the same chain currently owns a ghost map vessel, remove the old one.
+        /// Updates chainMapOwner to track the new owner.
+        /// </summary>
+        private void RemovePreviousChainMapVessel(int newIndex)
+        {
+            var committed = RecordingStore.CommittedRecordings;
+            if (committed == null || newIndex < 0 || newIndex >= committed.Count) return;
+
+            string chainId = committed[newIndex].ChainId;
+            if (string.IsNullOrEmpty(chainId)) return;
+
+            if (chainMapOwner.TryGetValue(chainId, out int oldIndex) && oldIndex != newIndex)
+            {
+                GhostMapPresence.RemoveGhostVesselForRecording(oldIndex, "chain-segment-replaced");
+                lastMapOrbitByIndex.Remove(oldIndex);
+                ParsekLog.Verbose("Policy",
+                    $"Chain dedup: removed ghost map for #{oldIndex} (replaced by #{newIndex} in chain {chainId})");
+            }
+
+            chainMapOwner[chainId] = newIndex;
         }
 
         private void HandleGhostDestroyed(GhostLifecycleEvent evt)
@@ -596,6 +650,7 @@ namespace Parsek
             heldGhosts.Clear();
             pendingMapVessels.Clear();
             lastMapOrbitByIndex.Clear();
+            chainMapOwner.Clear();
         }
 
         /// <summary>
@@ -612,6 +667,7 @@ namespace Parsek
             heldGhosts.Clear();
             pendingMapVessels.Clear();
             lastMapOrbitByIndex.Clear();
+            chainMapOwner.Clear();
             ParsekLog.Info("Policy", "ParsekPlaybackPolicy disposed and unsubscribed from 6 engine events");
         }
     }

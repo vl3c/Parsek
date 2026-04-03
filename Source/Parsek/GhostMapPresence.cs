@@ -547,9 +547,20 @@ namespace Parsek
                     && terminal.Value != TerminalState.Docked)
                     continue;
 
-                if (!HasOrbitData(rec)) continue;
+                // Use terminal orbit data if available; otherwise fall back to
+                // the last orbit segment (intermediate chain segments and recordings
+                // without terminal orbit fields still have orbit segment data).
+                Vessel v = null;
+                if (HasOrbitData(rec))
+                {
+                    v = CreateGhostVesselForRecording(i, rec);
+                }
+                else if (rec.OrbitSegments != null && rec.OrbitSegments.Count > 0)
+                {
+                    var lastSeg = rec.OrbitSegments[rec.OrbitSegments.Count - 1];
+                    v = CreateGhostVesselFromSegment(i, rec, lastSeg);
+                }
 
-                Vessel v = CreateGhostVesselForRecording(i, rec);
                 if (v != null) created++;
             }
 
