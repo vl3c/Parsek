@@ -47,6 +47,15 @@ Full career-mode resource tracking across the rewind timeline. Science, funds, r
 - **Retirement tracking.** When a stand-in is displaced by the original returning, the stand-in becomes "retired" — kept in roster (may appear in recordings) but blocked from dismissal.
 - **MIA respawn override.** KSP's respawn mechanic (Dead-to-Available after delay) is overridden on every recalculation — reserved kerbals stay Assigned regardless.
 
+### Bug Fixes
+
+- **Chain segment gap event loss (#204).** When the optimizer splits a recording into chain segments at TrackSection boundaries, events falling in the UT gap between consecutive segments (e.g., `RecordsAltitude` at the atmosphere/space transition) were silently lost. `NotifyLedgerTreeCommitted` now extends each chain continuation's event window backward to the predecessor's EndUT. In career mode, this prevented milestone rewards from being credited.
+- **Ledger reconcile pruning KSC milestones (#205).** `Ledger.Reconcile` pruned earning-type actions with null `recordingId`, incorrectly removing legitimate KSC spending milestones like `FirstCrewToSurvive` that are not associated with any recording. Fixed condition to allow null-recordingId earnings through.
+- **KerbalDismissalPatch Harmony failure (#206).** The patch targeting `KerbalRoster.Remove` failed with "Ambiguous match" because the method has multiple overloads. Switched to `TargetMethod()` with explicit parameter types `new[] { typeof(ProtoCrewMember) }`.
+- **Duplicate CrewStatusChanged events (#207).** KSP's delayed `onKerbalStatusChange` callbacks fired after the crew mutation suppression window closed, producing redundant `Assigned->Missing` events on every save cycle. Added `KerbalsModule.IsManaged` check to suppress status change noise for reserved/stand-in kerbals.
+- **Chain tip missing terminalState (#208).** In tree mode, the active recording is non-leaf (has debris branches) so `FinalizeIndividualRecording` skipped its terminalState. Added explicit terminalState determination for the active recording in `FinalizeTreeRecordings`, which the optimizer propagates to the chain tip via `SplitAtSection`.
+- **Looping chain crew release (#209).** Fixing the terminalState alone would free crew at the tip's EndUT while the ghost still loops. Added a `loopingChains` pre-scan in `KerbalsModule.Recalculate`: Recovered crews on chains with any looping segment keep `endUT=Infinity`. Disabling the loop correctly releases them.
+
 ### Code Quality & Refactoring
 
 - **RewindContext encapsulation (R3-3).** Extracted 8 scattered static rewind fields from `RecordingStore` into `RewindContext` static class with controlled `BeginRewind()`/`EndRewind()` mutation API.
@@ -56,7 +65,7 @@ Full career-mode resource tracking across the rewind timeline. Science, funds, r
 
 ### Tests
 
-- **4605 tests** (up from 2419 on main). 20 new test classes covering all game action modules, serialization round-trips, recalculation engine, kerbal reservation lifecycle, milestone patching, contract deadline injection, and ChainSegmentManager state management.
+- **4621 tests** (up from 2419 on main). 20 new test classes covering all game action modules, serialization round-trips, recalculation engine, kerbal reservation lifecycle, milestone patching, contract deadline injection, and ChainSegmentManager state management.
 
 ### Research & Documentation
 

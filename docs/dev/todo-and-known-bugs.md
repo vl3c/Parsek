@@ -2359,6 +2359,52 @@ Environment hysteresis transitions (e.g., Atmospheric → ExoPropulsive at 70km)
 
 **Status:** Fixed (0.5.3) — `SplitAtSection` now interpolates a synthetic boundary point at exactly `splitUT` (position, velocity, rotation via lerp/slerp) and includes it in both halves.
 
+## 204. Chain segment gap causes game state event loss
+
+When the optimizer splits a recording into chain segments at TrackSection boundaries (atmo/exo/surface), the resulting segments have a UT gap between consecutive trajectory endpoints. `GameStateEventConverter.ConvertEvents` uses the recording's `StartUT`/`EndUT` (derived from trajectory points) as the event attribution window, so events in the gap are silently classified as `outOfRange`. Observed: `RecordsAltitude` at UT=142.85 fell between atmo segment endUT=142.2 and exo segment startUT=142.9 — never converted to a ledger action, never credited. In career mode, this loses milestone rewards.
+
+**Root cause:** `NotifyLedgerTreeCommitted` passes raw `rec.StartUT`/`rec.EndUT` to `OnRecordingCommitted` without accounting for inter-segment gaps.
+
+**Status:** Fixed (0.6.0) — `NotifyLedgerTreeCommitted` builds a chain predecessor EndUT map and extends each continuation's startUT backward to close the gap via `AdjustStartUtForChainGap`.
+
+## 205. Ledger reconcile prunes null-recordingId KSC milestones
+
+`Ledger.Reconcile` classifies earning-type actions by `recordingId`: if `recordingId` is null or not in `validRecordingIds`, the action is pruned. KSC spending milestones like `FirstCrewToSurvive` have null `recordingId` (they occur outside any recording's time range) and were incorrectly pruned on every load. Manifested as ledger loading 18 actions but saving 17.
+
+**Root cause:** The condition `action.RecordingId != null && validRecordingIds.Contains(...)` rejects null recordingId.
+
+**Status:** Fixed (0.6.0) — changed to `action.RecordingId == null || validRecordingIds.Contains(...)`.
+
+## 206. KerbalDismissalPatch Harmony ambiguous match
+
+Harmony error: "Ambiguous match for HarmonyMethod[(class=KerbalRoster, methodname=Remove, type=Normal, args=undefined)]". `KerbalRoster.Remove` has multiple overloads and the attribute-based patch didn't specify which one.
+
+**Status:** Fixed (0.6.0) — switched to `TargetMethod()` with `GetMethod(nameof(KerbalRoster.Remove), new[] { typeof(ProtoCrewMember) })`.
+
+## 207. Duplicate CrewStatusChanged events for reserved kerbals
+
+KSP's `GameEvents.onKerbalStatusChange` callbacks fire asynchronously after the `SuppressCrewEvents` flag is cleared in the `finally` block of `ApplyToRoster`. This produces redundant `Assigned→Missing` transitions on every save cycle (6+ duplicate triplets per crew member per epoch). Events are idempotent but waste storage and create confusing audit trails.
+
+**Root cause:** KSP oscillates reserved kerbals between Assigned and Missing because they aren't aboard any real vessel. Each oscillation fires a delayed event after suppression ends.
+
+**Status:** Fixed (0.6.0) — added `KerbalsModule.IsManaged(crew.name)` check in `OnKerbalStatusChange`. Managed kerbals' status changes are Parsek-internal noise, not game events. Initial crew boarding (Available→Assigned) is not affected because crew is not yet managed at that point.
+
+## 208. Chain tip missing terminalState in tree mode
+
+In tree mode, the active recording spans the entire flight and has debris branch points (non-leaf). `FinalizeIndividualRecording` only sets `terminalState` on leaf recordings, so the active recording's terminalState stays null. When the optimizer splits it into chain segments, null propagates to the tip via `SplitAtSection`. `InferCrewEndState` maps null to `Unknown`, setting crew reservations to `endUT=Infinity` even for successfully recovered vessels.
+
+**Root cause:** `FinalizeIndividualRecording` guards with `isLeaf && !rec.TerminalStateValue.HasValue`, skipping non-leaf recordings.
+
+**Status:** Fixed (0.6.0) — `FinalizeTreeRecordings` now explicitly determines terminalState on the active recording after `FinalizeIndividualRecording`, using `DetermineTerminalState` from the vessel's current situation.
+
+## 209. Looping chain releases crew at tip EndUT after terminalState fix
+
+With bug #208 fixed, the chain tip gets `terminalState=Splashed` → `endState=Recovered` → `endUT=tip.EndUT` (finite). But the ghost replays past that UT via the loop on chain index 0, so crew would be freed while their ghost is still flying.
+
+**Root cause:** Reservation endUT doesn't account for looping segments elsewhere in the chain.
+
+**Status:** Fixed (0.6.0) — `KerbalsModule.Recalculate` pre-scans for `loopingChains` set. When computing endUT for a Recovered crew member on a chain with any looping segment, endUT stays Infinity. Disabling the loop correctly releases them.
+
 # In-Game Tests
 
 - [x] Vessels propagate naturally along orbits after FF (no position freezing)

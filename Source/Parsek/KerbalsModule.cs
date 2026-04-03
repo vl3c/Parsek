@@ -239,7 +239,17 @@ namespace Parsek
             var recordings = RecordingStore.CommittedRecordings;
             int skippedLoop = 0, skippedDisabled = 0, skippedNoCrew = 0, processed = 0;
 
-            // 2. Build reservations and allRecordingCrew set from all committed recordings
+            // 2a. Pre-scan: identify chains that contain looping segments.
+            // Used below to keep crew reserved for the full loop lifetime even when
+            // the chain tip has a finite endState (e.g. Recovered after splashdown).
+            var loopingChains = new HashSet<string>();
+            for (int i = 0; i < recordings.Count; i++)
+            {
+                if (recordings[i].LoopPlayback && recordings[i].IsChainRecording)
+                    loopingChains.Add(recordings[i].ChainId);
+            }
+
+            // 2b. Build reservations and allRecordingCrew set from all committed recordings
             for (int i = 0; i < recordings.Count; i++)
             {
                 var rec = recordings[i];
@@ -279,8 +289,13 @@ namespace Parsek
                     //   Recovered -> temporary, endUT = rec.EndUT
                     //   Aboard    -> open-ended temporary, endUT = infinity (crew still on vessel)
                     //   Unknown   -> open-ended temporary (conservative)
+                    // Override: if this recording belongs to a chain with a looping segment,
+                    // keep endUT = infinity regardless of Recovered state — the ghost replays
+                    // past the tip's EndUT via the loop.
                     bool permanent = (endState == KerbalEndState.Dead);
-                    double endUT = (endState == KerbalEndState.Recovered) ? rec.EndUT : double.PositiveInfinity;
+                    bool chainHasLoop = rec.IsChainRecording && loopingChains.Contains(rec.ChainId);
+                    double endUT = (endState == KerbalEndState.Recovered && !chainHasLoop)
+                        ? rec.EndUT : double.PositiveInfinity;
 
                     KerbalReservation existing;
                     if (reservations.TryGetValue(name, out existing))
@@ -302,7 +317,7 @@ namespace Parsek
                         };
                         ParsekLog.Verbose(Tag,
                             $"Reservation: '{name}' endUT={( permanent ? "INDEFINITE" : endUT.ToString("F1") )} " +
-                            $"({endState}), recording '{rec.RecordingId}'");
+                            $"({endState}{(chainHasLoop ? ", chainHasLoop" : "")}), recording '{rec.RecordingId}'");
                     }
                 }
             }

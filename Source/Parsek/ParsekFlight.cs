@@ -5097,6 +5097,31 @@ namespace Parsek
             foreach (var kvp in tree.Recordings)
                 FinalizeIndividualRecording(kvp.Value, commitUT, isSceneExit);
 
+            // 3b. Ensure active recording has terminalState even if non-leaf.
+            // In tree mode, the active recording may have debris branches (non-leaf)
+            // so FinalizeIndividualRecording skips its terminalState. The optimizer
+            // will propagate this to the chain tip via SplitAtSection.
+            if (!string.IsNullOrEmpty(tree.ActiveRecordingId))
+            {
+                Recording activeRec;
+                if (tree.Recordings.TryGetValue(tree.ActiveRecordingId, out activeRec)
+                    && !activeRec.TerminalStateValue.HasValue)
+                {
+                    Vessel v = activeRec.VesselPersistentId != 0
+                        ? FlightRecorder.FindVesselByPid(activeRec.VesselPersistentId)
+                        : null;
+                    if (v != null)
+                    {
+                        activeRec.TerminalStateValue =
+                            RecordingTree.DetermineTerminalState((int)v.situation, v);
+                        ParsekLog.Info("Flight",
+                            $"FinalizeTreeRecordings: set terminalState=" +
+                            $"{activeRec.TerminalStateValue} on active recording " +
+                            $"'{activeRec.RecordingId}' (non-leaf, vessel situation={v.situation})");
+                    }
+                }
+            }
+
             // 4. Prune zero-point debris leaves (#173) — removes recordings with no
             // trajectory data that were created from same-frame destruction debris.
             PruneZeroPointLeaves(tree);

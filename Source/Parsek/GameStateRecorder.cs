@@ -432,6 +432,17 @@ namespace Parsek
             }
             if (crew == null) return;
 
+            // Suppress status change noise for Parsek-managed kerbals (reserved/stand-ins).
+            // KSP oscillates reserved kerbals between Assigned and Missing each frame
+            // because they are not aboard any real vessel. These transitions are purely
+            // internal and should not pollute the events file.
+            if (KerbalsModule.IsManaged(crew.name))
+            {
+                ParsekLog.VerboseRateLimited("GameStateRecorder", "suppress-managed-crew",
+                    $"Suppressed CrewStatusChanged for managed kerbal '{crew.name}': {oldStatus} -> {newStatus}", 5.0);
+                return;
+            }
+
             // Filter identity transitions (Bug #122: Dead->Dead, Available->Available, etc.)
             if (!IsRealStatusChange(oldStatus, newStatus))
             {
