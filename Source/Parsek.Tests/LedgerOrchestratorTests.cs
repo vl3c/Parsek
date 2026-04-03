@@ -16,12 +16,14 @@ namespace Parsek.Tests
             ParsekLog.TestSinkForTesting = line => logLines.Add(line);
 
             RecordingStore.SuppressLogging = true;
+            KspStatePatcher.SuppressUnityCallsForTesting = true;
             LedgerOrchestrator.ResetForTesting();
         }
 
         public void Dispose()
         {
             LedgerOrchestrator.ResetForTesting();
+            KspStatePatcher.ResetForTesting();
             RecordingStore.SuppressLogging = false;
             ParsekLog.ResetTestOverrides();
             ParsekLog.SuppressLogging = true;

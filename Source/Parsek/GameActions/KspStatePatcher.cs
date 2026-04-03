@@ -21,6 +21,12 @@ namespace Parsek
         private static readonly CultureInfo IC = CultureInfo.InvariantCulture;
 
         /// <summary>
+        /// When true, skips Unity-only API calls (FindObjectsOfType etc.) that crash outside the engine.
+        /// Set by test fixtures; reset via <see cref="ResetForTesting"/>.
+        /// </summary>
+        internal static bool SuppressUnityCallsForTesting;
+
+        /// <summary>
         /// Patches all KSP singletons from the given module states.
         /// Wraps the entire operation in suppression flags.
         /// </summary>
@@ -259,6 +265,13 @@ namespace Parsek
         internal static void PatchDestructionState(
             System.Collections.Generic.IReadOnlyDictionary<string, FacilitiesModule.FacilityState> allFacilities)
         {
+            if (SuppressUnityCallsForTesting)
+            {
+                ParsekLog.Verbose(Tag,
+                    "PatchDestructionState: SuppressUnityCallsForTesting — skipping");
+                return;
+            }
+
             var destructibles = UnityEngine.Object.FindObjectsOfType<DestructibleBuilding>();
             if (destructibles == null || destructibles.Length == 0)
             {
@@ -733,6 +746,11 @@ namespace Parsek
                 $"typeNotFound={typeNotFound.ToString(IC)}, " +
                 $"loadFailed={loadFailed.ToString(IC)}, " +
                 $"ledgerActive={activeIds.Count.ToString(IC)}");
+        }
+
+        internal static void ResetForTesting()
+        {
+            SuppressUnityCallsForTesting = false;
         }
     }
 }
