@@ -415,6 +415,7 @@ namespace Parsek
             double startUT = RecordingStore.Pending.StartUT;
             double endUT = RecordingStore.Pending.EndUT;
             RecordingStore.CommitPending();
+            RecordingStore.RunOptimizationPass();
             LedgerOrchestrator.OnRecordingCommitted(recId, startUT, endUT);
             KerbalsModule.RecalculateAndApply();
             CrewReservationManager.SwapReservedCrewInFlight();
@@ -608,7 +609,7 @@ namespace Parsek
 
                         pending.SceneExitSituation = (int)recordedVessel.situation;
                         pending.TerminalStateValue =
-                            RecordingTree.DetermineTerminalState((int)recordedVessel.situation);
+                            RecordingTree.DetermineTerminalState((int)recordedVessel.situation, recordedVessel);
                     }
                     // Final chain segment keeps VesselSnapshot for spawning (not ghost-only)
                 },

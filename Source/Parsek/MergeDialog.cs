@@ -417,6 +417,7 @@ namespace Parsek
                     if (av != null && av.persistentId != 0)
                         MarkForceSpawnOnTreeRecordings(tree, av.persistentId);
                     RecordingStore.CommitPendingTree();
+                    RecordingStore.RunOptimizationPass();
                     LedgerOrchestrator.NotifyLedgerTreeCommitted(tree);
                     KerbalsModule.RecalculateAndApply();
                     CrewReservationManager.SwapReservedCrewInFlight();
@@ -837,6 +838,7 @@ namespace Parsek
                         MarkForceSpawnOnTreeRecordings(capturedTree, av.persistentId);
                     ApplyVesselDecisions(capturedTree, capturedDecisions);
                     RecordingStore.CommitPendingTree();
+                    RecordingStore.RunOptimizationPass();
                     LedgerOrchestrator.NotifyLedgerTreeCommitted(capturedTree);
                     KerbalsModule.RecalculateAndApply();
                     CrewReservationManager.SwapReservedCrewInFlight();

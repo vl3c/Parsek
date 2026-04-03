@@ -198,6 +198,17 @@ Ghost vessels now appear in KSP's tracking station, show orbit lines in map view
 - **ComputeTotal logging removed.** Eliminated 52% of all Parsek log output (pure computation was logging every UI frame).
 - **Status column widened** (95→120px) for longer T+ timestamps.
 - **R/FF button state transition logging** for debugging enable/disable issues.
+- **Fix #197: Ghost ProtoVessel missing for stable orbits reported as SUB_ORBITAL.** KSP reports `SUB_ORBITAL` for off-rails vessels in stable orbits (e.g., Mun orbit). Added `DetermineTerminalState(int, Vessel)` overload that checks `orbit.eccentricity < 1.0 && orbit.PeR > body.Radius` to override to Orbiting, enabling ghost ProtoVessel creation and orbit line rendering.
+- **Fix #198: Duplicate green dot map markers during time warp.** During warp, multiple chain segments can be active simultaneously (short segments from optimizer splits). Added per-chain dedup in `DrawMapMarkers` — only the highest-index (latest) ghost per chain draws a marker.
+- **Fix #199: Checkpoint log spam.** Downgraded `CheckpointAllVessels` and warp-rate-changed messages from Info to Verbose (~8,800 lines per Mun mission).
+- **Fix: Recording optimizer hang on save load.** `RunOptimizationPass` called `SaveRecordingFiles` synchronously during OnLoad for every merge/split — with 400k+ trajectory points this blocked the main thread long enough for Windows to kill KSP as not responding. File saves now deferred to OnSave.
+- **Fix: OnSave re-serializing unchanged recordings.** Added `FilesDirty` flag on Recording — OnSave skips `SaveRecordingFiles` for recordings whose sidecar data hasn't changed. Eliminates ~80 seconds of redundant I/O per session for large saves.
+- **Fix #200: 128km trajectory gap at environment transitions.** Environment hysteresis transitions and anchor detection transitions called `CloseCurrentTrackSection` without sampling a boundary point. Added `SamplePosition(v)` before all 4 affected `CloseCurrentTrackSection` calls — matches the on-rails transition pattern.
+- **Fix #202: Spawned vessel deleted when switching to it.** Vessel switching triggers FLIGHT→FLIGHT scene reload, which was misidentified as a revert. The spawned vessel was stripped, re-spawned, then immediately deleted by the orphan cleanup. Added `vesselSwitchPending` flag via `onVesselSwitching` to distinguish vessel switches from reverts.
+- **Fix #201: Optimizer split creates temporal gap at section boundaries.** `SplitAtSection` now interpolates a synthetic boundary point at exactly `splitUT` when no trajectory point falls at the split time. Both halves share the boundary point, eliminating visible jumps during chain playback.
+- **Fix map marker camera in flight view.** `DrawMapMarkerAt` used `PlanetariumCamera` unconditionally — correct for map view but wrong for flight view. Now uses `FlightCamera` in flight view, `PlanetariumCamera` + ScaledSpace in map view.
+- **Default recordings sort: Launch time ascending.** Recordings window now defaults to chronological order (earliest launch at top) instead of index order.
+- **Ghost orbit lines for intermediate chain segments.** ProtoVessels and orbit lines now appear during every coast phase (transfer orbits, parking orbits), not just the terminal orbit. `CreateGhostVesselFromSegment` builds from OrbitSegment data when terminal orbit is unavailable.
 
 ### Features
 

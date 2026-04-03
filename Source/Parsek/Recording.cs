@@ -42,6 +42,10 @@ namespace Parsek
         // UI grouping tags (e.g. "Synthetic", "Part Showcase") — multi-group membership
         public List<string> RecordingGroups;
 
+        // Dirty flag: true when sidecar file data (trajectory, events, sections) has changed
+        // since last SaveRecordingFiles call. Checked in OnSave to skip unchanged recordings.
+        [NonSerialized] public bool FilesDirty;
+
         // Atmosphere segment metadata
         public string SegmentPhase;      // "atmo", "exo", or "approach" (null = untagged/legacy)
         public string SegmentBodyName;   // body name at split point (e.g., "Kerbin", "Duna")

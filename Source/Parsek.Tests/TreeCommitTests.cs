@@ -798,5 +798,73 @@ namespace Parsek.Tests
             Assert.Equal(beforeRecordings, RecordingStore.CommittedRecordings.Count);
             Assert.Equal(beforeTrees, RecordingStore.CommittedTrees.Count);
         }
+
+        // ============================================================
+        // DetermineTerminalState(int, Vessel) overload tests
+        // ============================================================
+
+        [Theory]
+        [InlineData(32, TerminalState.Orbiting)]   // ORBITING
+        [InlineData(1, TerminalState.Landed)]       // LANDED
+        [InlineData(2, TerminalState.Splashed)]     // SPLASHED
+        [InlineData(16, TerminalState.SubOrbital)]  // SUB_ORBITAL
+        [InlineData(8, TerminalState.SubOrbital)]   // FLYING
+        [InlineData(64, TerminalState.SubOrbital)]  // ESCAPING
+        [InlineData(4, TerminalState.Landed)]       // PRELAUNCH
+        [InlineData(128, TerminalState.Docked)]     // DOCKED
+        public void DetermineTerminalState_IntOverload_BackwardCompat(int situation, TerminalState expected)
+        {
+            // The single-argument (int) overload must continue to work as before
+            var result = RecordingTree.DetermineTerminalState(situation);
+            Assert.Equal(expected, result);
+        }
+
+        [Theory]
+        [InlineData(32, TerminalState.Orbiting)]
+        [InlineData(1, TerminalState.Landed)]
+        [InlineData(2, TerminalState.Splashed)]
+        [InlineData(16, TerminalState.SubOrbital)]
+        [InlineData(8, TerminalState.SubOrbital)]
+        [InlineData(64, TerminalState.SubOrbital)]
+        [InlineData(4, TerminalState.Landed)]
+        [InlineData(128, TerminalState.Docked)]
+        public void DetermineTerminalState_VesselOverload_NullVessel_FallsThrough(int situation, TerminalState expected)
+        {
+            // When vessel is null, the (int, Vessel) overload should produce
+            // the same result as the (int) overload — the orbit check is skipped.
+            var result = RecordingTree.DetermineTerminalState(situation, null);
+            Assert.Equal(expected, result);
+        }
+
+        [Fact]
+        public void DetermineTerminalState_UnexpectedSituation_DefaultsToSubOrbital()
+        {
+            // Both overloads should default to SubOrbital for unknown situation values
+            var resultInt = RecordingTree.DetermineTerminalState(999);
+            Assert.Equal(TerminalState.SubOrbital, resultInt);
+
+            var resultVessel = RecordingTree.DetermineTerminalState(999, null);
+            Assert.Equal(TerminalState.SubOrbital, resultVessel);
+        }
+
+        // NOTE: The orbit-aware override path in DetermineTerminalState(int, Vessel)
+        // — where SUB_ORBITAL is corrected to Orbiting when vessel.orbit shows a
+        // bound orbit above the surface — requires a real KSP Vessel object with
+        // populated orbit data. This cannot be unit tested without Unity/KSP runtime.
+        // Verify via in-game testing: record near a body (e.g. Mun) where KSP reports
+        // SUB_ORBITAL but the vessel has eccentricity < 1 and PeR > body radius.
+
+        // ============================================================
+        // vesselSwitchPending flag — integration test placeholder
+        // ============================================================
+
+        // NOTE: vesselSwitchPending is a private static field in ParsekScenario.
+        // It is set by OnVesselSwitching (GameEvents callback) and consumed in
+        // OnLoad to distinguish vessel-switch FLIGHT->FLIGHT reloads from reverts.
+        // Testing this requires:
+        //   1. A running KSP instance with GameEvents wired up
+        //   2. Triggering OnVesselSwitching (vessel switch in flight)
+        //   3. Verifying that the subsequent OnLoad does NOT run revert cleanup
+        // This must be verified via in-game integration testing, not unit tests.
     }
 }

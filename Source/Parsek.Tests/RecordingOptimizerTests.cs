@@ -1138,5 +1138,144 @@ namespace Parsek.Tests
         }
 
         #endregion
+
+        #region SplitAtSection boundary interpolation
+
+        [Fact]
+        public void SplitAtSection_PointExactlyAtSplitUT_NoExtraPointCreated()
+        {
+            // MakeRecordingWithSections places a point at exactly midUT (17030),
+            // so the interpolation path should NOT be triggered.
+            var rec = MakeRecordingWithSections(17000, 17030, 17060,
+                SegmentEnvironment.ExoBallistic, SegmentEnvironment.ExoPropulsive);
+            int originalPointCount = rec.Points.Count;
+
+            var second = RecordingOptimizer.SplitAtSection(rec, 1);
+
+            // Total points should equal original count (no interpolation added)
+            Assert.Equal(originalPointCount, rec.Points.Count + second.Points.Count);
+
+            // The split boundary point (UT=17030) should end up in the second half
+            // (since splitPointIdx is the first point >= splitUT)
+            Assert.True(second.Points[0].ut <= 17030.0);
+        }
+
+        [Fact]
+        public void SplitAtSection_PointExactlyAtSplitUT_FirstHalfEndsBeforeBoundary()
+        {
+            // When a point exists at exactly splitUT, the first half should contain
+            // points strictly before splitUT, and the second half starts at splitUT.
+            var rec = MakeRecordingWithSections(17000, 17030, 17060,
+                SegmentEnvironment.ExoBallistic, SegmentEnvironment.ExoPropulsive);
+
+            var second = RecordingOptimizer.SplitAtSection(rec, 1);
+
+            // First half's last point should be before splitUT
+            Assert.True(rec.Points[rec.Points.Count - 1].ut < 17030.0);
+
+            // Second half's first point should be at splitUT
+            Assert.Equal(17030.0, second.Points[0].ut);
+        }
+
+        [Fact]
+        public void SplitAtSection_ZeroPoints_HandlesGracefully()
+        {
+            // Recording with 0 points but valid track sections (degenerate case)
+            var rec = new Recording();
+            rec.TrackSections.Add(new TrackSection
+            {
+                environment = SegmentEnvironment.Atmospheric,
+                startUT = 17000, endUT = 17030,
+                frames = new List<TrajectoryPoint>()
+            });
+            rec.TrackSections.Add(new TrackSection
+            {
+                environment = SegmentEnvironment.ExoBallistic,
+                startUT = 17030, endUT = 17060,
+                frames = new List<TrajectoryPoint>()
+            });
+
+            var second = RecordingOptimizer.SplitAtSection(rec, 1);
+
+            // Both halves should have 0 points (no crash)
+            Assert.Empty(rec.Points);
+            Assert.Empty(second.Points);
+
+            // Sections should still be partitioned correctly
+            Assert.Single(rec.TrackSections);
+            Assert.Single(second.TrackSections);
+        }
+
+        [Fact]
+        public void SplitAtSection_ZeroPoints_PreservesEnvironmentTags()
+        {
+            // Even with zero points, section environment should be preserved
+            var rec = new Recording();
+            rec.TrackSections.Add(new TrackSection
+            {
+                environment = SegmentEnvironment.Atmospheric,
+                startUT = 17000, endUT = 17030,
+                frames = new List<TrajectoryPoint>()
+            });
+            rec.TrackSections.Add(new TrackSection
+            {
+                environment = SegmentEnvironment.SurfaceStationary,
+                startUT = 17030, endUT = 17060,
+                frames = new List<TrajectoryPoint>()
+            });
+
+            var second = RecordingOptimizer.SplitAtSection(rec, 1);
+
+            Assert.Equal(SegmentEnvironment.Atmospheric, rec.TrackSections[0].environment);
+            Assert.Equal(SegmentEnvironment.SurfaceStationary, second.TrackSections[0].environment);
+            Assert.Equal("atmo", rec.SegmentPhase);
+            Assert.Equal("surface", second.SegmentPhase);
+        }
+
+        [Fact]
+        public void SplitAtSection_AllPointsBeforeSplitUT_SecondHalfEmpty()
+        {
+            // All points are before splitUT — second half gets no points.
+            // (No gap to interpolate because splitPointIdx ends up at Points.Count)
+            var rec = new Recording();
+            rec.Points.Add(new TrajectoryPoint { ut = 17010, bodyName = "Kerbin" });
+            rec.Points.Add(new TrajectoryPoint { ut = 17020, bodyName = "Kerbin" });
+
+            rec.TrackSections.Add(new TrackSection
+            {
+                environment = SegmentEnvironment.Atmospheric,
+                startUT = 17010, endUT = 17030,
+                frames = new List<TrajectoryPoint>()
+            });
+            rec.TrackSections.Add(new TrackSection
+            {
+                environment = SegmentEnvironment.ExoBallistic,
+                startUT = 17030, endUT = 17060,
+                frames = new List<TrajectoryPoint>()
+            });
+
+            var second = RecordingOptimizer.SplitAtSection(rec, 1);
+
+            // All points stay in first half, second half is empty
+            Assert.Equal(2, rec.Points.Count);
+            Assert.Empty(second.Points);
+        }
+
+        // NOTE: The boundary interpolation path in SplitAtSection (lines 308-336 in
+        // RecordingOptimizer.cs) — which creates a synthetic point via Quaternion.Slerp
+        // and Vector3.Lerp when no trajectory point falls at exactly splitUT — cannot
+        // be unit tested because Quaternion.Slerp and Vector3.Lerp are Unity native
+        // methods that throw SecurityException outside the engine runtime.
+        //
+        // Integration test checklist for boundary interpolation:
+        //   1. Record a trajectory with sparse sampling across a TrackSection boundary
+        //      (e.g., points at UT=100 and UT=200, section boundary at UT=150)
+        //   2. Trigger an optimization split at that boundary
+        //   3. Verify: interpolated point appears at UT=150 in BOTH halves
+        //   4. Verify: lat/lon/alt are linearly interpolated (t=0.5 in above example)
+        //   5. Verify: rotation is slerped, velocity is lerped
+        //   6. Verify: funds/science/reputation are interpolated
+
+        #endregion
     }
 }

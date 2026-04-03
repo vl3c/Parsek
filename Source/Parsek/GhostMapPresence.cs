@@ -97,12 +97,12 @@ namespace Parsek
             bool hasOrbit = !string.IsNullOrEmpty(traj.TerminalOrbitBody)
                 && traj.TerminalOrbitSemiMajorAxis > 0;
 
-            ParsekLog.Verbose(Tag,
-                string.Format(ic,
-                    "HasOrbitData(IPlaybackTrajectory): body={0} sma={1} result={2}",
-                    traj.TerminalOrbitBody ?? "(null)",
-                    traj.TerminalOrbitSemiMajorAxis,
-                    hasOrbit));
+            if (hasOrbit)
+                ParsekLog.Verbose(Tag,
+                    string.Format(ic,
+                        "HasOrbitData(IPlaybackTrajectory): body={0} sma={1} result=True",
+                        traj.TerminalOrbitBody,
+                        traj.TerminalOrbitSemiMajorAxis));
 
             return hasOrbit;
         }
@@ -341,6 +341,31 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Create a ghost map ProtoVessel for a recording that has orbit segments but
+        /// no terminal orbit data (intermediate chain segments). Uses the provided
+        /// OrbitSegment for the initial orbit. Called from CheckPendingMapVessels when
+        /// the ghost enters its first orbital segment.
+        /// </summary>
+        internal static Vessel CreateGhostVesselFromSegment(
+            int recordingIndex, IPlaybackTrajectory traj, OrbitSegment segment)
+        {
+            if (traj == null) return null;
+
+            if (vesselsByRecordingIndex.ContainsKey(recordingIndex))
+                return vesselsByRecordingIndex[recordingIndex];
+
+            string logContext = string.Format(ic, "recording index={0} (from segment)", recordingIndex);
+            Vessel vessel = BuildAndLoadGhostProtoVessel(traj, segment, logContext);
+            if (vessel != null)
+            {
+                vesselsByRecordingIndex[recordingIndex] = vessel;
+                vesselPidToRecordingIndex[vessel.persistentId] = recordingIndex;
+            }
+
+            return vessel;
+        }
+
+        /// <summary>
         /// Remove a ghost map ProtoVessel for a timeline playback ghost.
         /// Called when the engine destroys a ghost (OnGhostDestroyed).
         /// </summary>
@@ -418,16 +443,21 @@ namespace Parsek
                 return;
             }
 
+            // SOI transition: update celestialBody BEFORE SetOrbit so that
+            // orbitDriver and orbit.referenceBody are consistent when
+            // updateFromParameters recalculates the orbit line (#189).
+            bool soiChanged = vessel.orbitDriver.celestialBody != body;
+            if (soiChanged)
+            {
+                vessel.orbitDriver.celestialBody = body;
+                ParsekLog.Info(Tag,
+                    string.Format(ic, "SOI change for {0} — new body={1}", logContext, body.name));
+            }
+
             // Direct element assignment via SetOrbit — bypasses the lossy
             // state-vector roundtrip in UpdateFromOrbitAtUT (#172).
-            // UpdateFromOrbitAtUT converts elements → pos/vel → re-derives elements,
-            // which introduces floating-point error (especially argumentOfPeriapsis
-            // for near-circular orbits due to catastrophic cancellation in the
-            // eccentricity vector computation). SetOrbit sets elements directly
-            // and calls Init(), matching exactly how the ghost's cached Orbit
-            // is constructed. Both Orbit objects now share identical internal state,
-            // so the MapNode icon position matches the ghost mesh position.
-            vessel.orbitDriver.orbit.SetOrbit(
+            Orbit orb = vessel.orbitDriver.orbit;
+            orb.SetOrbit(
                 segment.inclination,
                 segment.eccentricity,
                 segment.semiMajorAxis,
@@ -437,29 +467,40 @@ namespace Parsek
                 segment.epoch,
                 body);
 
-            if (vessel.orbitDriver.celestialBody != body)
-            {
-                vessel.orbitDriver.celestialBody = body;
-                ParsekLog.Info(Tag,
-                    string.Format(ic, "SOI change for {0} — new body={1}", logContext, body.name));
-            }
-
             vessel.orbitDriver.updateFromParameters();
 
-            // Diagnostic logging: full element set + resulting vessel position (#172)
+            // After SOI change, force the orbit renderer to recalculate for the new body.
+            // Without this, the orbit line stays clipped to the old body's SOI radius.
+            // DrawOrbit is protected, so toggle the renderer off/on to force a full rebuild.
+            if (soiChanged && vessel.orbitRenderer != null)
+            {
+                vessel.orbitRenderer.drawMode = OrbitRendererBase.DrawMode.REDRAW_AND_RECALCULATE;
+                vessel.orbitRenderer.enabled = false;
+                vessel.orbitRenderer.enabled = true;
+                ParsekLog.Verbose(Tag,
+                    string.Format(ic, "Forced orbit renderer redraw for {0} after SOI change", logContext));
+            }
+
+            // Diagnostic logging: orbit elements + hyperbola extent
             Orbit drv = vessel.orbitDriver.orbit;
+            double periapsis = drv.PeR;
+            double semiMinorAxis = drv.semiMinorAxis;
+            // For hyperbolic: max eccentric anomaly = acos(-1/e)
+            double maxE = drv.eccentricity >= 1.0
+                ? System.Math.Acos(-1.0 / drv.eccentricity) : System.Math.PI;
+            // Position at max eccentric anomaly = furthest point
+            Vector3d farPos = drv.eccentricity >= 1.0
+                ? drv.getPositionFromEccAnomaly(maxE * 0.99) : Vector3d.zero; // 0.99 to avoid singularity
+            double farDist = farPos.magnitude;
+
             ParsekLog.Verbose(Tag,
                 string.Format(ic,
-                    "Orbit updated for {0} body={1} sma={2:F0} ecc={3:F6} inc={4:F4} " +
-                    "lan={5:F4} argPe={6:F4} mna={7:F6} epoch={8:F1} " +
-                    "updateMode={9} vesselPos=({10:F1},{11:F1},{12:F1}) " +
-                    "drvPos=({13:F1},{14:F1},{15:F1})",
+                    "Orbit updated for {0} body={1} sma={2:F0} ecc={3:F6} " +
+                    "periapsis={4:F0} semiMinor={5:F0} maxE={6:F2}rad farDist={7:F0}m " +
+                    "rendererEnabled={8} rendererDrawMode={9}",
                     logContext, body.name, segment.semiMajorAxis,
-                    drv.eccentricity, drv.inclination, drv.LAN,
-                    drv.argumentOfPeriapsis, drv.meanAnomalyAtEpoch, drv.epoch,
-                    vessel.orbitDriver.updateMode,
-                    vessel.GetWorldPos3D().x, vessel.GetWorldPos3D().y, vessel.GetWorldPos3D().z,
-                    vessel.orbitDriver.pos.x, vessel.orbitDriver.pos.y, vessel.orbitDriver.pos.z));
+                    drv.eccentricity, periapsis, semiMinorAxis, maxE, farDist,
+                    vessel.orbitRenderer?.enabled, vessel.orbitRenderer?.drawMode));
         }
 
         /// <summary>
@@ -583,30 +624,67 @@ namespace Parsek
         /// creates ProtoVessel, pre-registers PID, loads into flightState.
         /// Returns the Vessel or null on failure. Handles full cleanup on error.
         /// </summary>
+        /// <summary>
+        /// Overload that creates a ProtoVessel using an OrbitSegment instead of terminal orbit data.
+        /// Used for intermediate chain segments that have orbit segments but no terminal orbit.
+        /// </summary>
+        private static Vessel BuildAndLoadGhostProtoVessel(
+            IPlaybackTrajectory traj, OrbitSegment segment, string logContext)
+        {
+            CelestialBody body = FindBodyByName(segment.bodyName);
+            if (body == null)
+            {
+                ParsekLog.Warn(Tag,
+                    string.Format(ic,
+                        "BuildAndLoadGhostProtoVessel(segment): body '{0}' not found for {1}",
+                        segment.bodyName, logContext));
+                return null;
+            }
+
+            Orbit orbit = new Orbit(
+                segment.inclination,
+                segment.eccentricity,
+                segment.semiMajorAxis,
+                segment.longitudeOfAscendingNode,
+                segment.argumentOfPeriapsis,
+                segment.meanAnomalyAtEpoch,
+                segment.epoch,
+                body);
+
+            return BuildAndLoadGhostProtoVesselCore(traj, orbit, body, logContext);
+        }
+
         private static Vessel BuildAndLoadGhostProtoVessel(IPlaybackTrajectory traj, string logContext)
+        {
+            CelestialBody body = FindBodyByName(traj.TerminalOrbitBody);
+            if (body == null)
+            {
+                ParsekLog.Warn(Tag,
+                    string.Format(ic,
+                        "BuildAndLoadGhostProtoVessel: body '{0}' not found for {1}",
+                        traj.TerminalOrbitBody, logContext));
+                return null;
+            }
+
+            Orbit orbit = new Orbit(
+                traj.TerminalOrbitInclination,
+                traj.TerminalOrbitEccentricity,
+                traj.TerminalOrbitSemiMajorAxis,
+                traj.TerminalOrbitLAN,
+                traj.TerminalOrbitArgumentOfPeriapsis,
+                traj.TerminalOrbitMeanAnomalyAtEpoch,
+                traj.TerminalOrbitEpoch,
+                body);
+
+            return BuildAndLoadGhostProtoVesselCore(traj, orbit, body, logContext);
+        }
+
+        private static Vessel BuildAndLoadGhostProtoVesselCore(
+            IPlaybackTrajectory traj, Orbit orbit, CelestialBody body, string logContext)
         {
             ProtoVessel pv = null;
             try
             {
-                CelestialBody body = FindBodyByName(traj.TerminalOrbitBody);
-                if (body == null)
-                {
-                    ParsekLog.Warn(Tag,
-                        string.Format(ic,
-                            "BuildAndLoadGhostProtoVessel: body '{0}' not found for {1}",
-                            traj.TerminalOrbitBody, logContext));
-                    return null;
-                }
-
-                Orbit orbit = new Orbit(
-                    traj.TerminalOrbitInclination,
-                    traj.TerminalOrbitEccentricity,
-                    traj.TerminalOrbitSemiMajorAxis,
-                    traj.TerminalOrbitLAN,
-                    traj.TerminalOrbitArgumentOfPeriapsis,
-                    traj.TerminalOrbitMeanAnomalyAtEpoch,
-                    traj.TerminalOrbitEpoch,
-                    body);
 
                 // Single antenna-free part (avoids CommNet conflict with GhostCommNetRelay)
                 ConfigNode partNode = ProtoVessel.CreatePartNode("sensorBarometer", 0);
@@ -657,6 +735,7 @@ namespace Parsek
                 if (v.orbitDriver != null)
                 {
                     Orbit drv = v.orbitDriver.orbit;
+
                     driverState = string.Format(ic,
                         "updateMode={0} sma={1:F0} ecc={2:F6} inc={3:F4} " +
                         "argPe={4:F4} mna={5:F6} epoch={6:F1} vesselPos=({7:F1},{8:F1},{9:F1})",
@@ -666,11 +745,37 @@ namespace Parsek
                         v.GetWorldPos3D().x, v.GetWorldPos3D().y, v.GetWorldPos3D().z);
                 }
 
+                // Ensure OrbitRenderer is enabled — in Tracking Station, pv.Load()
+                // may create the renderer in a disabled state.
+                if (v.orbitRenderer != null)
+                {
+                    v.orbitRenderer.drawMode = OrbitRendererBase.DrawMode.REDRAW_AND_RECALCULATE;
+                    v.orbitRenderer.drawIcons = OrbitRendererBase.DrawIcons.ALL;
+                    if (!v.orbitRenderer.enabled)
+                    {
+                        v.orbitRenderer.enabled = true;
+                        ParsekLog.Verbose(Tag, string.Format(ic,
+                            "Force-enabled OrbitRenderer for ghost '{0}'", vesselName));
+                    }
+                }
+
+                // Force correct VesselType — KSP may override for single-part vessels
+                if (v.vesselType != vtype)
+                {
+                    ParsekLog.Verbose(Tag, string.Format(ic,
+                        "Ghost vessel type overridden by KSP: {0} → {1}, restoring to {2}",
+                        vtype, v.vesselType, vtype));
+                    v.vesselType = vtype;
+                }
+
                 ParsekLog.Info(Tag,
                     string.Format(ic,
-                        "Created ghost vessel '{0}' ghostPid={1} type={2} body={3} sma={4:F0} for {5} | {6}",
+                        "Created ghost vessel '{0}' ghostPid={1} type={2} body={3} sma={4:F0} for {5} | {6} " +
+                        "mapObj={7} orbitRenderer={8} scene={9}",
                         vesselName, v.persistentId,
-                        vtype, body.name, traj.TerminalOrbitSemiMajorAxis, logContext, driverState));
+                        vtype, body.name, traj.TerminalOrbitSemiMajorAxis, logContext, driverState,
+                        v.mapObject != null, v.orbitRenderer != null,
+                        HighLogic.LoadedScene));
 
                 return v;
             }

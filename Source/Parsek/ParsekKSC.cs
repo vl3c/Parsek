@@ -117,6 +117,11 @@ namespace Parsek
 
         void Update()
         {
+            // During rewind, Planetarium UT is still the pre-rewind future value until
+            // the deferred coroutine sets the correct UT. Skip all playback + spawn logic
+            // to prevent future ghosts and premature vessel spawns.
+            if (RecordingStore.RewindUTAdjustmentPending) return;
+
             var committed = RecordingStore.CommittedRecordings;
             if (committed.Count == 0) return;
 

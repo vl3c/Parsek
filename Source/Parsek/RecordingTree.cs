@@ -923,6 +923,34 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Assigns terminal state based on vessel situation, with orbit-aware override.
+        /// KSP reports SUB_ORBITAL for off-rails physics vessels even when they have a
+        /// bound (elliptical) orbit above the surface. This overload checks the vessel's
+        /// actual orbit to correct the classification.
+        /// </summary>
+        internal static TerminalState DetermineTerminalState(int situation, Vessel vessel)
+        {
+            TerminalState baseState = DetermineTerminalState(situation);
+
+            // Override SUB_ORBITAL to Orbiting when the vessel actually has a bound orbit
+            // above the body surface. KSP reports SUB_ORBITAL for off-rails vessels near
+            // a body (e.g., Mun orbit) even when eccentricity < 1 and periapsis is above
+            // the surface.
+            if (situation == 16 && vessel?.orbit != null
+                && vessel.orbit.eccentricity < 1.0
+                && vessel.orbit.PeR > vessel.orbit.referenceBody.Radius)
+            {
+                ParsekLog.Info("RecordingTree",
+                    $"DetermineTerminalState: overriding SUB_ORBITAL to Orbiting — vessel has bound orbit " +
+                    $"(ecc={vessel.orbit.eccentricity:F4}, PeR={vessel.orbit.PeR:F0}, " +
+                    $"bodyR={vessel.orbit.referenceBody.Radius:F0})");
+                return TerminalState.Orbiting;
+            }
+
+            return baseState;
+        }
+
+        /// <summary>
         /// Pure decision method: checks whether all leaf recordings in a tree have
         /// non-spawnable terminal states (Destroyed, Recovered, Docked, Boarded).
         /// A recording is a leaf if it has no ChildBranchPointId.
