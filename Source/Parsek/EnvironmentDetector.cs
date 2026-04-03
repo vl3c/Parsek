@@ -40,7 +40,10 @@ namespace Parsek
             if (hasAtmosphere && altitude < atmosphereDepth)
                 return SegmentEnvironment.Atmospheric;
 
-            // Airless body: below approach altitude = Approach zone
+            // Airless body: below approach altitude = Approach zone.
+            // Intentionally above the thrust check — a powered descent on the Mun is still
+            // "approach" for splitting purposes (we don't want engine on/off to fragment the
+            // landing segment). Thrust distinction only matters in high orbit.
             if (!hasAtmosphere && approachAltitude > 0 && altitude < approachAltitude)
                 return SegmentEnvironment.Approach;
 
@@ -60,6 +63,7 @@ namespace Parsek
         internal const double ThrustDebounceSeconds = 1.0;
         internal const double SurfaceSpeedDebounceSeconds = 3.0;
         internal const double SurfaceAtmosphericDebounceSeconds = 0.5;
+        internal const double ApproachDebounceSeconds = 3.0;
 
         private SegmentEnvironment lastConfirmedEnvironment;
         private SegmentEnvironment pendingEnvironment;
@@ -152,10 +156,10 @@ namespace Parsek
                 (from == SegmentEnvironment.Atmospheric && to == SegmentEnvironment.SurfaceStationary))
                 return SurfaceAtmosphericDebounceSeconds;
 
-            // Approach zone: reuse altitude boundary hysteresis (3s matches FlightRecorder default)
+            // Approach zone boundary on airless bodies
             if ((from == SegmentEnvironment.Approach && (to == SegmentEnvironment.ExoBallistic || to == SegmentEnvironment.ExoPropulsive)) ||
                 ((from == SegmentEnvironment.ExoBallistic || from == SegmentEnvironment.ExoPropulsive) && to == SegmentEnvironment.Approach))
-                return 3.0;
+                return ApproachDebounceSeconds;
 
             // All other transitions: no debounce (immediate)
             return 0.0;
