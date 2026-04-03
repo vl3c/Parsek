@@ -4094,8 +4094,15 @@ namespace Parsek
             foreach (var kvp in flight.TimelineGhosts)
             {
                 if (kvp.Value == null) continue;
+                // Skip if native KSP icon is active (ProtoVessel exists and icon not suppressed).
+                // When the Harmony patch suppresses the icon (below atmosphere), we draw
+                // our custom marker at the ghost mesh position instead.
                 if (GhostMapPresence.HasGhostVesselForRecording(kvp.Key))
-                    continue;
+                {
+                    uint ghostPid = GhostMapPresence.GetGhostVesselPidForRecording(kvp.Key);
+                    if (ghostPid == 0 || !GhostMapPresence.ghostsWithSuppressedIcon.Contains(ghostPid))
+                        continue; // native icon is active — skip our marker
+                }
                 if (kvp.Key < committed.Count)
                 {
                     if (committed[kvp.Key].IsDebris)
@@ -4179,20 +4186,21 @@ namespace Parsek
             float x = screenPos.x;
             float y = Screen.height - screenPos.y;
 
-            // Draw vessel type icon from KSP atlas, or diamond fallback
+            // Draw vessel type icon from KSP atlas (untinted — original icon colors)
             Color prevColor = GUI.color;
-            GUI.color = color;
             int iconSize = 20;
             Rect uvRect;
             if (vesselIconAtlas != null && vesselIconUVs != null
                 && vesselIconUVs.TryGetValue(vtype, out uvRect))
             {
+                GUI.color = Color.white;
                 GUI.DrawTextureWithTexCoords(
                     new Rect(x - iconSize / 2, y - iconSize / 2, iconSize, iconSize),
                     vesselIconAtlas, uvRect);
             }
             else
             {
+                GUI.color = color;
                 GUI.DrawTexture(
                     new Rect(x - iconSize / 2, y - iconSize / 2, iconSize, iconSize),
                     mapMarkerDiamond);
@@ -4201,7 +4209,7 @@ namespace Parsek
 
             // Draw vessel name label
             mapMarkerStyle.normal.textColor = color;
-            GUI.Label(new Rect(x - 75, y + iconSize / 2 + 2, 150, 20), label, mapMarkerStyle);
+            GUI.Label(new Rect(x - 75, y + iconSize / 2 + 2, 150, 20), "Ghost: " + label, mapMarkerStyle);
         }
 
         private void EnsureMapMarkerResources()

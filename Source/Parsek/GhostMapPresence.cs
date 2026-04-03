@@ -26,6 +26,13 @@ namespace Parsek
         internal static readonly HashSet<uint> ghostMapVesselPids = new HashSet<uint>();
 
         /// <summary>
+        /// Ghost ProtoVessels whose native icon is currently suppressed by
+        /// GhostOrbitLinePatch (below atmosphere). DrawMapMarkers checks this
+        /// to draw our custom icon at the ghost mesh position instead.
+        /// </summary>
+        internal static readonly HashSet<uint> ghostsWithSuppressedIcon = new HashSet<uint>();
+
+        /// <summary>
         /// Map from chain PID (OriginalVesselPid) to the ghost Vessel object.
         /// Used for orbit updates, cleanup, and target transfer.
         /// </summary>
@@ -302,6 +309,7 @@ namespace Parsek
             }
 
             ghostMapVesselPids.Clear();
+            ghostsWithSuppressedIcon.Clear();
             vesselsByChainPid.Clear();
             vesselsByRecordingIndex.Clear();
             vesselPidToRecordingIndex.Clear();
@@ -690,11 +698,23 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Returns the persistentId of the ghost map vessel for a recording index, or 0 if none.
+        /// Used to check ghostsWithSuppressedIcon for the below-atmosphere icon handoff.
+        /// </summary>
+        internal static uint GetGhostVesselPidForRecording(int recordingIndex)
+        {
+            if (vesselsByRecordingIndex.TryGetValue(recordingIndex, out Vessel v))
+                return v.persistentId;
+            return 0;
+        }
+
+        /// <summary>
         /// Reset all state for testing (avoids Debug.Log crash outside Unity).
         /// </summary>
         internal static void ResetForTesting()
         {
             ghostMapVesselPids.Clear();
+            ghostsWithSuppressedIcon.Clear();
             vesselsByChainPid.Clear();
             vesselsByRecordingIndex.Clear();
             vesselPidToRecordingIndex.Clear();
