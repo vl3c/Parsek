@@ -4,6 +4,63 @@ All notable changes to Parsek are documented here.
 
 ---
 
+## 0.6.0
+
+### Game Actions & Resources System
+
+Full career-mode resource tracking across the rewind timeline. Science, funds, reputation, milestones, contracts, kerbals, facilities, and strategies are now recorded, reconciled on rewind, and patched back into KSP's singletons.
+
+- **Ledger-based recalculation engine.** All game state changes are stored as `GameAction` entries in a chronological ledger. On every commit, rewind, warp exit, or load, the engine walks the full action list from UT=0 forward, recomputing derived state from scratch. Deterministic — same actions always produce the same result.
+- **7 resource modules** participate in the recalculation walk:
+  - **Science** — per-subject credited totals with diminishing returns, once-ever semantics, tech tree cost tracking
+  - **Funds** — earnings, spendings, advance payments, affordability checks, hire costs, facility costs
+  - **Reputation** — raw accumulation with KSP's diminishing-returns curve applied during the walk
+  - **Milestones** — once-ever achievement tracking with path-qualified IDs for body-specific milestones
+  - **Contracts** — full lifecycle (accept/complete/fail/cancel), slot management, deadline expiration with synthetic failure generation, once-ever completion semantics
+  - **Facilities** — upgrade level and destruction/repair state tracking per KSC building
+  - **Strategies** — activation/deactivation tracking with commitment-based contract reward diversion
+- **KSP state patching.** After recalculation, `KspStatePatcher` syncs KSP singletons to match the ledger's computed state:
+  - Science pool balance and per-subject credited totals (Science Archive)
+  - Funds balance
+  - Reputation (direct set, no double curve)
+  - Facility levels via `UpgradeableFacility.SetLevel` and destruction state via `DestructibleBuilding.Demolish/Repair`
+  - Milestone achievement flags via reflection on private `reached`/`complete` fields (no public reversal API)
+  - Active contracts restored from ConfigNode snapshots via `Activator.CreateInstance` + `Contract.Load`
+- **Contract deadline failures.** Accepted contracts with deadlines are tracked. If a deadline expires before the contract is resolved, the engine injects a synthetic `ContractFail` action at the deadline UT with the contract's failure penalties. Deadline and penalty data captured at accept time with backward-compatible structured detail format.
+- **Kerbal rescue detection.** Subscribes to `GameEvents.onKerbalTypeChange` to detect Unowned-to-Crew transitions (rescue pickup). Covers all rescue scenarios: EVA boarding, docking, claw grab, crew transfer.
+- **Game state event recording.** `GameStateRecorder` subscribes to 15+ KSP GameEvents (contract lifecycle, crew changes, facility upgrades, tech research, milestones, science experiments, kerbal type changes). Events stored in `GameStateStore` per recording, converted to ledger actions at commit time.
+- **Milestone ID path qualification.** Body-specific milestones now captured as `"Mun/Landing"` instead of ambiguous bare `"Landing"`. Uses reflection to read the private `CelestialBody body` field on KSPAchievements subclasses.
+- **Strategy commitment rates.** Strategy reward diversion uses the player's chosen commitment level (0.01-0.25) instead of a hardcoded 1.0.
+- **Warp facility patching.** Facility visuals patched at warp start and full recalculation on warp exit.
+- **Retired Stand-ins UI.** Game Actions window shows retired kerbals (stand-ins displaced by returning originals) with count header. Section hidden when empty.
+
+### Kerbal Lifecycle Management
+
+- **Crew end-state inference.** Each crew member's fate is inferred from the recording's terminal state and end-of-recording vessel snapshot (Aboard, Dead, Recovered, Unknown).
+- **Reservation system.** Reserved kerbals (appearing in committed recordings) are set to Assigned status, preventing KSP from assigning them to new missions. Permanent reservations for dead crew, temporary for recovered.
+- **Stand-in chain system.** When a reserved kerbal needs to fly again, a stand-in is hired with the same trait. Chains can go multiple levels deep. Stand-in names persisted in KERBAL_SLOTS ConfigNode.
+- **Retirement tracking.** When a stand-in is displaced by the original returning, the stand-in becomes "retired" — kept in roster (may appear in recordings) but blocked from dismissal.
+- **MIA respawn override.** KSP's respawn mechanic (Dead-to-Available after delay) is overridden on every recalculation — reserved kerbals stay Assigned regardless.
+
+### Code Quality & Refactoring
+
+- **RewindContext encapsulation (R3-3).** Extracted 8 scattered static rewind fields from `RecordingStore` into `RewindContext` static class with controlled `BeginRewind()`/`EndRewind()` mutation API.
+- **Dock/undock state dedup (R3-5).** Extracted `ClearDockUndockState()` and `RestartRecordingAfterDockUndock()` from ParsekFlight, eliminating 4x duplicated cleanup and restart blocks.
+- **Removed ActionReplay.** Legacy action replay system (499 lines) replaced by ledger-based recalculation.
+- **Removed ResourceApplicator.** Legacy resource delta application (318 lines) replaced by KspStatePatcher.
+
+### Tests
+
+- **4535+ tests** (up from 2419 on main). 20 new test classes covering all game action modules, serialization round-trips, recalculation engine, kerbal reservation lifecycle, milestone patching, contract deadline injection, and ChainSegmentManager state management.
+
+### Research & Documentation
+
+- **3 API investigation reports** in `docs/dev/research/`: milestone ProgressNode tree, contract type registry, rescue docking detection.
+- **Design document** updated to v0.5 (Phases 1-8 complete).
+- **Recording format version 6** (v5-to-v6: SegmentEvents, TrackSections, ControllerInfo, extended BranchPoint types).
+
+---
+
 ## 0.5.3
 
 ### Features

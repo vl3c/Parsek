@@ -21,8 +21,6 @@ namespace Parsek
 
         #endregion
 
-        // Gates Update() resource ticking while coroutines reset resource baselines
-        private bool resourceTickingSuspended = false;
 
         // Vessel switch detection: FLIGHT→FLIGHT transitions from vessel switching
         // are NOT reverts and must not trigger orphan strip/cleanup.
@@ -38,14 +36,22 @@ namespace Parsek
                 if (RecordingStore.HasPending)
                 {
                     AutoCommitGhostOnly(RecordingStore.Pending);
+                    string recId = RecordingStore.Pending.RecordingId;
+                    double startUT = RecordingStore.Pending.StartUT;
+                    double endUT = RecordingStore.Pending.EndUT;
                     RecordingStore.CommitPending();
+                    LedgerOrchestrator.OnRecordingCommitted(recId, startUT, endUT);
+                    KerbalsModule.RecalculateAndApply();
                     ParsekLog.Warn("Scenario",
                         "Safety net: committed pending recording on save outside Flight");
                 }
                 if (RecordingStore.HasPendingTree)
                 {
                     AutoCommitTreeGhostOnly(RecordingStore.PendingTree);
+                    var treeToCommit = RecordingStore.PendingTree;
                     RecordingStore.CommitPendingTree();
+                    LedgerOrchestrator.NotifyLedgerTreeCommitted(treeToCommit);
+                    KerbalsModule.RecalculateAndApply();
                     ParsekLog.Warn("Scenario",
                         "Safety net: committed pending tree on save outside Flight");
                 }
@@ -104,7 +110,8 @@ namespace Parsek
                     $"{treeTotalOrbitSegments} orbit segments, {treeTotalPartEvents} part events, " +
                     $"{treeWithTrackSections} with track sections, {treeWithSnapshots} with snapshots");
 
-            // Persist crew replacement mappings
+            // Persist kerbal slots (new format) and crew replacements (backward compat)
+            KerbalsModule.SaveSlots(node);
             CrewReservationManager.SaveCrewReplacements(node);
 
             // Persist group hierarchy and hidden groups
@@ -127,6 +134,9 @@ namespace Parsek
             // Save milestones to external file + mutable state to .sfs
             MilestoneStore.SaveMilestoneFile();
             MilestoneStore.SaveMutableState(node);
+
+            // Save ledger to external file
+            LedgerOrchestrator.OnSave();
             node.AddValue("milestoneEpoch", MilestoneStore.CurrentEpoch);
             node.AddValue("budgetDeductionEpoch",
                 budgetDeductionEpoch.ToString(CultureInfo.InvariantCulture));
@@ -237,9 +247,10 @@ namespace Parsek
             // Load crew replacement mappings from the node (both initial and revert paths need this).
             // Skip during go-back: in-memory crewReplacements is the source of truth
             // (it has replacements for recordings committed after this quicksave).
-            if (!RecordingStore.IsRewinding)
+            if (!RewindContext.IsRewinding)
             {
                 CrewReservationManager.LoadCrewReplacements(node);
+                KerbalsModule.LoadSlots(node);
                 GroupHierarchyStore.LoadGroupHierarchy(node);
                 GroupHierarchyStore.LoadHiddenGroups(node);
             }
@@ -252,6 +263,10 @@ namespace Parsek
                 GameStateStore.LoadEventFile();
                 GameStateStore.LoadBaselines();
                 MilestoneStore.LoadMilestoneFile();
+
+                // Load ledger from external file (skip during rewind — in-memory ledger is source of truth)
+                if (!RewindContext.IsRewinding)
+                    LedgerOrchestrator.OnLoad();
 
                 // Clean up stale parsek_rw_*.sfs temp files left by a crash during rewind
                 try
@@ -330,7 +345,7 @@ namespace Parsek
             {
                 // Go-back detection: must be BEFORE revert detection and BEFORE any
                 // .sfs data loading. In-memory state is the source of truth.
-                if (RecordingStore.IsRewinding)
+                if (RewindContext.IsRewinding)
                 {
                     HandleRewindOnLoad(node, recordings);
                     return;
@@ -539,7 +554,7 @@ namespace Parsek
 
                     // Schedule committed resource deduction (singletons may not be ready yet)
                     ParsekLog.Verbose("Scenario", "Scheduling budget deduction coroutine (singletons may not be ready yet)");
-                    resourceTickingSuspended = true;
+
                     StartCoroutine(ApplyBudgetDeductionWhenReady());
                 }
                 else
@@ -588,17 +603,24 @@ namespace Parsek
                             if (RecordingStore.HasPending)
                             {
                                 AutoCommitGhostOnly(RecordingStore.Pending);
+                                string recId = RecordingStore.Pending.RecordingId;
+                                double startUT = RecordingStore.Pending.StartUT;
+                                double endUT = RecordingStore.Pending.EndUT;
                                 RecordingStore.CommitPending();
+                                LedgerOrchestrator.OnRecordingCommitted(recId, startUT, endUT);
                                 ScreenMessages.PostScreenMessage("[Parsek] Recording committed to timeline", 5f);
                             }
                             if (RecordingStore.HasPendingTree)
                             {
                                 AutoCommitTreeGhostOnly(RecordingStore.PendingTree);
+                                var treeToCommit = RecordingStore.PendingTree;
                                 RecordingStore.CommitPendingTree();
+                                LedgerOrchestrator.NotifyLedgerTreeCommitted(treeToCommit);
                                 ScreenMessages.PostScreenMessage("[Parsek] Tree recording committed to timeline", 5f);
                             }
                             RecordingStore.RunOptimizationPass();
                         }
+                        KerbalsModule.RecalculateAndApply();
                     }
                     else if ((RecordingStore.HasPending || RecordingStore.HasPendingTree) && !mergeDialogPending)
                     {
@@ -608,7 +630,7 @@ namespace Parsek
                     }
                 }
 
-                CrewReservationManager.ReserveSnapshotCrew();
+                KerbalsModule.RecalculateAndApply();
                 ParsekLog.Info("Scenario", $"{(isRevert ? "Revert" : "Scene change")} — preserving {recordings.Count} session recordings");
                 return;
             }
@@ -635,7 +657,17 @@ namespace Parsek
             // Restore milestone mutable state (LastReplayedEventIndex) from .sfs
             MilestoneStore.RestoreMutableState(node);
 
-            CrewReservationManager.ReserveSnapshotCrew();
+            // Reconcile ledger against loaded recordings (prunes orphaned actions, recalculates)
+            var validIds = new System.Collections.Generic.HashSet<string>();
+            for (int v = 0; v < recordings.Count; v++)
+            {
+                if (!string.IsNullOrEmpty(recordings[v].RecordingId))
+                    validIds.Add(recordings[v].RecordingId);
+            }
+            double reconcileUT = Planetarium.GetUniversalTime();
+            LedgerOrchestrator.OnKspLoad(validIds, reconcileUT);
+
+            KerbalsModule.RecalculateAndApply();
 
             // Diagnostic summary of loaded recordings with UT context
             double loadUT = Planetarium.GetUniversalTime();
@@ -702,7 +734,11 @@ namespace Parsek
                         if (pending.VesselSnapshot != null)
                             CrewReservationManager.UnreserveCrewInSnapshot(pending.VesselSnapshot);
                         pending.VesselSnapshot = null;
+                        string recId = pending.RecordingId;
+                        double startUT = pending.StartUT;
+                        double endUT = pending.EndUT;
                         RecordingStore.CommitPending();
+                        LedgerOrchestrator.OnRecordingCommitted(recId, startUT, endUT);
                         ScenarioLog($"[Parsek Scenario] Auto-committed pending recording outside Flight " +
                             $"(scene: {HighLogic.LoadedScene})");
                     }
@@ -716,9 +752,11 @@ namespace Parsek
                             rec.VesselSnapshot = null;
                         }
                         RecordingStore.CommitPendingTree();
+                        LedgerOrchestrator.NotifyLedgerTreeCommitted(pt);
                         ScenarioLog($"[Parsek Scenario] Auto-committed pending tree outside Flight " +
                             $"(scene: {HighLogic.LoadedScene})");
                     }
+                    KerbalsModule.RecalculateAndApply();
                 }
                 else if (!mergeDialogPending)
                 {
@@ -796,7 +834,7 @@ namespace Parsek
             // StripOrphanedSpawnedVessels filters by name — unrecorded PRELAUNCH vessels
             // (e.g. a pad vessel from a later launch) fail the name check and survive.
             // Use the quicksave PID whitelist to identify and remove them.
-            var quicksavePids = RecordingStore.RewindQuicksaveVesselPids;
+            var quicksavePids = RewindContext.RewindQuicksaveVesselPids;
             if (quicksavePids != null)
             {
                 var fs = HighLogic.CurrentGame?.flightState;
@@ -807,7 +845,7 @@ namespace Parsek
                         ParsekLog.Info("Rewind",
                             $"Stripped {prelaunchStripped} future vessel(s) not in quicksave whitelist");
                 }
-                RecordingStore.RewindQuicksaveVesselPids = null;
+                RewindContext.SetQuicksaveVesselPids(null);
             }
 
             // Defense-in-depth: reconcile spawn state after all strips (#168).
@@ -833,25 +871,19 @@ namespace Parsek
             // scene may still be alive during OnLoad; we must yield at least one frame
             // so the new scene's Funding/R&D/Reputation/Planetarium are initialized).
             // Setting UT before LoadScene does NOT work — scene transition overwrites it.
-            resourceTickingSuspended = true;
             RecordingStore.RewindUTAdjustmentPending = true;
             StartCoroutine(ApplyRewindResourceAdjustment());
             ParsekLog.Info("Rewind",
                 "OnLoad: resource + UT adjustment deferred (waiting for new scene singletons)");
 
             // Re-reserve crew from all recording snapshots
-            CrewReservationManager.ReserveSnapshotCrew();
+            KerbalsModule.RecalculateAndApply();
 
             // Clear rewind flags — rewind loads into SpaceCenter, not Flight
-            RecordingStore.IsRewinding = false;
             ParsekLog.Info("Rewind",
-                $"OnLoad: rewind complete at UT {RecordingStore.RewindUT}. " +
+                $"OnLoad: rewind complete at UT {RewindContext.RewindUT}. " +
                 $"Timeline: {recordings.Count} recordings");
-            RecordingStore.RewindUT = 0;
-            RecordingStore.RewindAdjustedUT = 0;
-            RecordingStore.RewindBaselineFunds = 0;
-            RecordingStore.RewindBaselineScience = 0;
-            RecordingStore.RewindBaselineRep = 0;
+            RewindContext.EndRewind();
         }
 
         /// <summary>
@@ -874,19 +906,12 @@ namespace Parsek
                     "OnLoad initial: discarding pending tree from previous save");
                 RecordingStore.DiscardPendingTree();
             }
-            if (RecordingStore.IsRewinding)
+            if (RewindContext.IsRewinding)
             {
                 ParsekLog.Warn("Scenario",
                     "OnLoad initial: clearing stale rewind flags from previous save");
-                RecordingStore.IsRewinding = false;
-                RecordingStore.RewindUT = 0;
-                RecordingStore.RewindAdjustedUT = 0;
+                RewindContext.EndRewind();
                 RecordingStore.RewindUTAdjustmentPending = false;
-                RecordingStore.RewindReserved = default(BudgetSummary);
-                RecordingStore.RewindBaselineFunds = 0;
-                RecordingStore.RewindBaselineScience = 0;
-                RecordingStore.RewindBaselineRep = 0;
-                RecordingStore.RewindQuicksaveVesselPids = null;
             }
             // Defensive: clear stale UT adjustment flag even outside the rewind block.
             // The flag may have been left set if the coroutine didn't complete (crash/exit).
@@ -993,7 +1018,12 @@ namespace Parsek
                 {
                     ParsekLog.Info("Scenario",
                         $"Deferred merge: auto-committing EVA child recording (parent={RecordingStore.Pending.ParentRecordingId})");
+                    string recId = RecordingStore.Pending.RecordingId;
+                    double startUT = RecordingStore.Pending.StartUT;
+                    double endUT = RecordingStore.Pending.EndUT;
                     RecordingStore.CommitPending();
+                    LedgerOrchestrator.OnRecordingCommitted(recId, startUT, endUT);
+                    KerbalsModule.RecalculateAndApply();
                     mergeDialogPending = false;
                     yield break;
                 }
@@ -1044,33 +1074,13 @@ namespace Parsek
             {
                 ParsekLog.Verbose("Scenario",
                     $"Budget deduction already applied for epoch {budgetDeductionEpoch} (current={MilestoneStore.CurrentEpoch})");
-                resourceTickingSuspended = false;
+    
                 yield break;
             }
             budgetDeductionEpoch = MilestoneStore.CurrentEpoch;
 
-            var budget = ResourceBudget.ComputeTotal(
-                RecordingStore.CommittedRecordings,
-                MilestoneStore.Milestones,
-                RecordingStore.CommittedTrees);
+            LedgerOrchestrator.RecalculateAndPatch();
 
-            if (budget.reservedFunds <= 0 && budget.reservedScience <= 0
-                && budget.reservedReputation <= 0)
-            {
-                ParsekLog.Verbose("Scenario", "No committed budget to deduct on revert — all zero");
-                resourceTickingSuspended = false;
-                yield break;
-            }
-
-            ParsekLog.Info("Scenario",
-                $"Budget deduction starting for epoch {MilestoneStore.CurrentEpoch}: " +
-                $"funds={budget.reservedFunds:F0}, science={budget.reservedScience:F1}, rep={budget.reservedReputation:F1}");
-
-            ResourceApplicator.DeductBudget(budget, RecordingStore.CommittedRecordings, RecordingStore.CommittedTrees);
-
-            // Replay committed actions (tech, parts, facilities, crew) before resuming ticking
-            ActionReplay.ReplayCommittedActions(MilestoneStore.Milestones);
-            resourceTickingSuspended = false;
         }
 
         /// <summary>
@@ -1082,12 +1092,12 @@ namespace Parsek
         {
             // Capture rewind state before yielding — flags are cleared synchronously
             // in OnLoad after StartCoroutine returns.
-            var saved = RecordingStore.RewindReserved;
-            double rewindUT = RecordingStore.RewindUT;
-            double adjustedUT = RecordingStore.RewindAdjustedUT;
-            double baselineFunds = RecordingStore.RewindBaselineFunds;
-            double baselineScience = RecordingStore.RewindBaselineScience;
-            float baselineRep = RecordingStore.RewindBaselineRep;
+            var saved = RewindContext.RewindReserved;
+            double rewindUT = RewindContext.RewindUT;
+            double adjustedUT = RewindContext.RewindAdjustedUT;
+            double baselineFunds = RewindContext.RewindBaselineFunds;
+            double baselineScience = RewindContext.RewindBaselineScience;
+            float baselineRep = RewindContext.RewindBaselineRep;
 
             // CRITICAL: yield at least one frame before touching any singleton.
             // During OnLoad, singletons from the OLD scene may still be alive.
@@ -1119,47 +1129,12 @@ namespace Parsek
                        || Reputation.Instance == null))
                 yield return null;
 
-            ResourceApplicator.CorrectToBaseline(baselineFunds, baselineScience, baselineRep);
-
-            // Replay committed actions (tech, parts, facilities, crew).
-            // Always runs regardless of game mode — tech unlocks and facility upgrades
-            // exist in science mode too. Pass rewindUT to skip events after the rewind point.
-            ActionReplay.ReplayCommittedActions(MilestoneStore.Milestones, rewindUT);
+            LedgerOrchestrator.RecalculateAndPatch();
 
             // Belt-and-suspenders epoch guard
             budgetDeductionEpoch = MilestoneStore.CurrentEpoch;
-            resourceTickingSuspended = false;
+
         }
-
-        #endregion
-
-        #region Resource Ticking
-
-        /// <summary>
-        /// Ticks resource deltas for committed recordings in non-Flight scenes.
-        /// Flight scene is handled by ParsekFlight.UpdateTimelinePlayback.
-        /// </summary>
-        private void Update()
-        {
-            if (HighLogic.LoadedScene == GameScenes.FLIGHT)
-                return;
-
-            if (resourceTickingSuspended)
-            {
-                ParsekLog.VerboseRateLimited("Scenario", "UpdateSuspended",
-                    "Update: resource ticking suspended (waiting for coroutine)");
-                return;
-            }
-
-            if (Funding.Instance == null && ResearchAndDevelopment.Instance == null
-                && Reputation.Instance == null)
-                return;
-
-            double currentUT = Planetarium.GetUniversalTime();
-            ResourceApplicator.TickStandalone(RecordingStore.CommittedRecordings, currentUT);
-            ResourceApplicator.TickTrees(RecordingStore.CommittedTrees, currentUT);
-        }
-
 
         #endregion
 
@@ -1305,6 +1280,9 @@ namespace Parsek
                     }
                     ScenarioLog($"[Parsek Scenario] Loaded {rec.AntennaSpecs.Count} antenna spec(s) for '{rec.VesselName}'");
                 }
+
+                // Restore crew end states (kerbals module)
+                RecordingStore.DeserializeCrewEndStates(recNode, rec);
 
                 // Restore resource application index
                 string resIdxStr = recNode.GetValue("lastResIdx");
@@ -1688,6 +1666,9 @@ namespace Parsek
                     }
                 }
 
+                // Persist crew end states (kerbals module)
+                RecordingStore.SerializeCrewEndStates(recNode, rec);
+
                 // Persist resource index so quickload doesn't re-apply deltas
                 recNode.AddValue("lastResIdx", rec.LastAppliedResourceIndex);
 
@@ -1996,7 +1977,7 @@ namespace Parsek
 
             // During rewind, vessels are stripped from the save which fires onVesselRecovered.
             // Ignore these — the recordings must keep their snapshots for ghost playback and spawning.
-            if (RecordingStore.IsRewinding)
+            if (RewindContext.IsRewinding)
             {
                 ParsekLog.Info("Scenario",
                     $"Ignoring recovery of '{pv.vesselName}' during rewind");
@@ -2016,7 +1997,7 @@ namespace Parsek
         {
             if (pv == null) return;
             if (GhostMapPresence.IsGhostMapVessel(pv.persistentId)) return;
-            if (RecordingStore.IsRewinding) return;
+            if (RewindContext.IsRewinding) return;
             string vesselName = pv.vesselName;
             if (string.IsNullOrEmpty(vesselName)) return;
 

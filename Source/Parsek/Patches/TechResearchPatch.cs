@@ -25,6 +25,23 @@ namespace Parsek.Patches
             var committedTechs = MilestoneStore.GetCommittedTechIds();
             if (!committedTechs.Contains(techId))
             {
+                // Check ledger reservation: can the player afford this tech?
+                float sciCostCheck = __instance.scienceCost;
+                if (sciCostCheck > 0 && !LedgerOrchestrator.CanAffordScienceSpending(sciCostCheck))
+                {
+                    ParsekLog.Info("TechResearchPatch",
+                        $"Blocking tech research: '{techId}' ({__instance.title ?? techId}) — " +
+                        $"insufficient science (cost={sciCostCheck:F1})");
+
+                    CommittedActionDialog.ShowBlocked(
+                        "Cannot research \"" + (__instance.title ?? techId) + "\"",
+                        "Insufficient science. Other committed tech unlocks have reserved " +
+                        "your science budget.",
+                        $"{sciCostCheck:F1} science required");
+
+                    return false;
+                }
+
                 ParsekLog.Verbose("TechResearchPatch",
                     $"Allowing tech research: '{techId}' ({__instance.title ?? techId}) — not in committed set ({committedTechs.Count} committed)");
                 return true;

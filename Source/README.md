@@ -27,7 +27,6 @@ Parsek/
 ├── MergeDialog.cs             # Post-revert merge dialog
 ├── RecordingPaths.cs          # Save-scoped path resolution for external recording files
 ├── ParsekToolbarRegistration.cs # ToolbarControl registration
-├── ActionReplay.cs            # Replays committed game actions (tech, parts, facilities) after rewind
 ├── CommittedActionDialog.cs   # Popup dialog for blocked actions
 ├── GameStateEvent.cs          # Career event struct (tech, parts, facilities, contracts, crew, resources)
 ├── GameStateRecorder.cs       # Subscribes to KSP career GameEvents, records into GameStateStore
@@ -61,7 +60,6 @@ Parsek.Tests/
 ├── RuntimePolicyTests.cs            # Runtime decision logic tests
 ├── RecordingsManagerTests.cs        # Recordings Manager UI logic tests
 ├── SyntheticRecordingTests.cs       # Synthetic recording generation + save file injection
-├── ActionReplayTests.cs             # Action replay tests
 ├── AtmosphereSplitTests.cs          # Atmosphere boundary split tests
 ├── BackgroundRecorderTests.cs       # Background recorder tests
 ├── BackwardCompatTests.cs           # Backward compatibility tests

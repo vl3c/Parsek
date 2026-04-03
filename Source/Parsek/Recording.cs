@@ -97,6 +97,10 @@ namespace Parsek
         // null = not extracted (legacy recording or no antennas).
         internal List<AntennaSpec> AntennaSpecs;
 
+        // Per-crew end state (inferred at commit time from terminal state + snapshot)
+        // null = not yet populated (legacy recording or pre-commit).
+        public Dictionary<string, KerbalEndState> CrewEndStates;
+
         // Background recording: surface position for landed/splashed vessels
         public SurfacePosition? SurfacePos;            // null if not a background landed vessel
 

@@ -411,9 +411,13 @@ namespace Parsek
             // Apply caller-specific customization
             preCommitCustomization?.Invoke(RecordingStore.Pending);
 
+            string recId = RecordingStore.Pending.RecordingId;
+            double startUT = RecordingStore.Pending.StartUT;
+            double endUT = RecordingStore.Pending.EndUT;
             RecordingStore.CommitPending();
             RecordingStore.RunOptimizationPass();
-            CrewReservationManager.ReserveSnapshotCrew();
+            LedgerOrchestrator.OnRecordingCommitted(recId, startUT, endUT);
+            KerbalsModule.RecalculateAndApply();
             CrewReservationManager.SwapReservedCrewInFlight();
 
             if (advanceChain)

@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Reflection;
 using Contracts;
 using UnityEngine;
 
@@ -26,7 +27,7 @@ namespace Parsek
         internal static bool SuppressResourceEvents = false;
 
         /// <summary>
-        /// Set to true by ActionReplay during committed action replay to prevent
+        /// Set to true by KspStatePatcher during ledger-based state patching to prevent
         /// recording replayed actions as new game state events and to bypass
         /// blocking Harmony patches (TechResearchPatch, FacilityUpgradePatch)
         /// that normally prevent duplicate actions on committed items.
@@ -87,6 +88,7 @@ namespace Parsek
             GameEvents.onKerbalAdded.Add(OnKerbalAdded);
             GameEvents.onKerbalRemoved.Add(OnKerbalRemoved);
             GameEvents.onKerbalStatusChange.Add(OnKerbalStatusChange);
+            GameEvents.onKerbalTypeChange.Add(OnKerbalTypeChange);
 
             // Resources
             GameEvents.OnFundsChanged.Add(OnFundsChanged);
@@ -95,6 +97,9 @@ namespace Parsek
 
             // Science subjects (per-experiment tracking for duplication prevention)
             GameEvents.OnScienceRecieved.Add(OnScienceReceived);
+
+            // Progress milestones
+            GameEvents.OnProgressComplete.Add(OnProgressComplete);
 
             // Initialize resource tracking from current state
             SeedResourceState();
@@ -126,6 +131,7 @@ namespace Parsek
             GameEvents.onKerbalAdded.Remove(OnKerbalAdded);
             GameEvents.onKerbalRemoved.Remove(OnKerbalRemoved);
             GameEvents.onKerbalStatusChange.Remove(OnKerbalStatusChange);
+            GameEvents.onKerbalTypeChange.Remove(OnKerbalTypeChange);
 
             // Resources
             GameEvents.OnFundsChanged.Remove(OnFundsChanged);
@@ -134,6 +140,9 @@ namespace Parsek
 
             // Science subjects
             GameEvents.OnScienceRecieved.Remove(OnScienceReceived);
+
+            // Progress milestones
+            GameEvents.OnProgressComplete.Remove(OnProgressComplete);
 
             ParsekLog.Info("GameStateRecorder", "GameStateRecorder unsubscribed");
         }
@@ -162,12 +171,25 @@ namespace Parsek
             string guid = contract.ContractGuid.ToString();
 
             var title = contract.Title ?? "";
+            double deadline = contract.TimeDeadline;
+            float failFunds = (float)contract.FundsFailure;
+            float failRep = (float)contract.ReputationFailure;
+
+            // Structured detail: title + deadline + failure penalties for deadline expiration generation
+            // deadline=0 means no deadline (KSP convention) — store as NaN
+            string deadlineStr = deadline > 0
+                ? deadline.ToString("R", System.Globalization.CultureInfo.InvariantCulture)
+                : "NaN";
+            var detail = $"title={title};deadline={deadlineStr}" +
+                $";failFunds={failFunds.ToString("R", System.Globalization.CultureInfo.InvariantCulture)}" +
+                $";failRep={failRep.ToString("R", System.Globalization.CultureInfo.InvariantCulture)}";
+
             GameStateStore.AddEvent(new GameStateEvent
             {
                 ut = Planetarium.GetUniversalTime(),
                 eventType = GameStateEventType.ContractAccepted,
                 key = guid,
-                detail = title
+                detail = detail
             });
 
             // Store full contract snapshot for reversal
@@ -176,11 +198,14 @@ namespace Parsek
                 var contractNode = new ConfigNode("CONTRACT");
                 contract.Save(contractNode);
                 GameStateStore.AddContractSnapshot(guid, contractNode);
-                ParsekLog.Info("GameStateRecorder", $"Game state: ContractAccepted '{title}' (snapshot saved)");
+                ParsekLog.Info("GameStateRecorder",
+                    $"Game state: ContractAccepted '{title}' deadline={deadlineStr} " +
+                    $"failFunds={failFunds} failRep={failRep} (snapshot saved)");
             }
             catch (Exception ex)
             {
-                ParsekLog.Warn("GameStateRecorder", $"Game state: ContractAccepted '{title}' (snapshot FAILED: {ex.Message})");
+                ParsekLog.Warn("GameStateRecorder",
+                    $"Game state: ContractAccepted '{title}' (snapshot FAILED: {ex.Message})");
             }
         }
 
@@ -188,42 +213,45 @@ namespace Parsek
         {
             if (contract == null) return;
             var title = contract.Title ?? "";
+            var detail = $"title={title};fundsReward={contract.FundsCompletion};repReward={contract.ReputationCompletion};sciReward={contract.ScienceCompletion}";
             GameStateStore.AddEvent(new GameStateEvent
             {
                 ut = Planetarium.GetUniversalTime(),
                 eventType = GameStateEventType.ContractCompleted,
                 key = contract.ContractGuid.ToString(),
-                detail = title
+                detail = detail
             });
-            ParsekLog.Info("GameStateRecorder", $"Game state: ContractCompleted '{title}'");
+            ParsekLog.Info("GameStateRecorder", $"Game state: ContractCompleted '{title}' (funds={contract.FundsCompletion}, rep={contract.ReputationCompletion}, sci={contract.ScienceCompletion})");
         }
 
         private void OnContractFailed(Contract contract)
         {
             if (contract == null) return;
             var title = contract.Title ?? "";
+            var detail = $"title={title};fundsPenalty={contract.FundsFailure};repPenalty={contract.ReputationFailure}";
             GameStateStore.AddEvent(new GameStateEvent
             {
                 ut = Planetarium.GetUniversalTime(),
                 eventType = GameStateEventType.ContractFailed,
                 key = contract.ContractGuid.ToString(),
-                detail = title
+                detail = detail
             });
-            ParsekLog.Info("GameStateRecorder", $"Game state: ContractFailed '{title}'");
+            ParsekLog.Info("GameStateRecorder", $"Game state: ContractFailed '{title}' (fundsPenalty={contract.FundsFailure}, repPenalty={contract.ReputationFailure})");
         }
 
         private void OnContractCancelled(Contract contract)
         {
             if (contract == null) return;
             var title = contract.Title ?? "";
+            var detail = $"title={title};fundsPenalty={contract.FundsFailure};repPenalty={contract.ReputationFailure}";
             GameStateStore.AddEvent(new GameStateEvent
             {
                 ut = Planetarium.GetUniversalTime(),
                 eventType = GameStateEventType.ContractCancelled,
                 key = contract.ContractGuid.ToString(),
-                detail = title
+                detail = detail
             });
-            ParsekLog.Info("GameStateRecorder", $"Game state: ContractCancelled '{title}'");
+            ParsekLog.Info("GameStateRecorder", $"Game state: ContractCancelled '{title}' (fundsPenalty={contract.FundsFailure}, repPenalty={contract.ReputationFailure})");
         }
 
         private void OnContractDeclined(Contract contract)
@@ -267,7 +295,7 @@ namespace Parsek
                 partList = string.Join(",", names);
             }
 
-            GameStateStore.AddEvent(new GameStateEvent
+            var evt = new GameStateEvent
             {
                 ut = Planetarium.GetUniversalTime(),
                 eventType = GameStateEventType.TechResearched,
@@ -279,8 +307,13 @@ namespace Parsek
                 valueAfter = ResearchAndDevelopment.Instance != null
                     ? ResearchAndDevelopment.Instance.Science
                     : 0
-            });
+            };
+            GameStateStore.AddEvent(evt);
             ParsekLog.Info("GameStateRecorder", $"Game state: TechResearched '{techId}' (cost={data.host.scienceCost})");
+
+            // Write directly to ledger when at KSC (not during flight recording)
+            if (!IsFlightScene())
+                LedgerOrchestrator.OnKscSpending(evt);
         }
 
         private void OnPartPurchased(AvailablePart part)
@@ -325,14 +358,26 @@ namespace Parsek
             if (crew == null) return;
             var name = crew.name ?? "";
 
-            GameStateStore.AddEvent(new GameStateEvent
+            // Capture hire cost from GameVariables if available (career mode)
+            float hireCost = 0f;
+            if (GameVariables.Instance != null && HighLogic.CurrentGame != null)
+            {
+                hireCost = (float)GameVariables.Instance.GetRecruitHireCost(
+                    HighLogic.CurrentGame.CrewRoster.GetActiveCrewCount());
+            }
+
+            var evt = new GameStateEvent
             {
                 ut = Planetarium.GetUniversalTime(),
                 eventType = GameStateEventType.CrewHired,
                 key = name,
-                detail = $"trait={crew.trait ?? ""}"
-            });
+                detail = $"trait={crew.trait ?? ""};cost={hireCost}"
+            };
+            GameStateStore.AddEvent(evt);
             ParsekLog.Info("GameStateRecorder", $"Game state: CrewHired '{name}' ({crew.trait ?? "?"})");
+
+            if (!IsFlightScene())
+                LedgerOrchestrator.OnKscSpending(evt);
         }
 
         private void OnKerbalRemoved(ProtoCrewMember crew)
@@ -354,6 +399,16 @@ namespace Parsek
                 detail = $"trait={crew.trait ?? ""}"
             });
             ParsekLog.Info("GameStateRecorder", $"Game state: CrewRemoved '{name}'");
+        }
+
+        /// <summary>
+        /// Returns true if we're currently in the Flight scene. KSC spending actions
+        /// should only be written directly to the ledger outside of flight (to avoid
+        /// double-adding when the recording is committed).
+        /// </summary>
+        private static bool IsFlightScene()
+        {
+            return HighLogic.LoadedScene == GameScenes.FLIGHT;
         }
 
         /// <summary>
@@ -413,6 +468,28 @@ namespace Parsek
             GameStateStore.AddEvent(evt);
             pendingCrewEvents[name] = new PendingCrewEvent { gameEvent = evt, from = oldStatus, to = newStatus };
             ParsekLog.Info("GameStateRecorder", $"Game state: CrewStatusChanged '{name}' {oldStatus} → {newStatus}");
+        }
+
+        private void OnKerbalTypeChange(ProtoCrewMember pcm, ProtoCrewMember.KerbalType fromType, ProtoCrewMember.KerbalType toType)
+        {
+            if (SuppressCrewEvents) return;
+
+            // Only care about Unowned -> Crew transitions (rescue pickup)
+            if (fromType != ProtoCrewMember.KerbalType.Unowned || toType != ProtoCrewMember.KerbalType.Crew)
+                return;
+
+            string name = pcm?.name ?? "";
+            string trait = pcm?.experienceTrait?.TypeName ?? "Pilot";
+
+            GameStateStore.AddEvent(new GameStateEvent
+            {
+                ut = Planetarium.GetUniversalTime(),
+                eventType = GameStateEventType.KerbalRescued,
+                key = name,
+                detail = $"trait={trait}"
+            });
+
+            ParsekLog.Info("GameStateRecorder", $"Game state: KerbalRescued '{name}' (trait={trait})");
         }
 
         #endregion
@@ -558,11 +635,117 @@ namespace Parsek
             PendingScienceSubjects.Add(new PendingScienceSubject
             {
                 subjectId = subject.id,
-                science = subject.science
+                science = subject.science,
+                subjectMaxValue = subject.scienceCap
             });
 
             ParsekLog.Info("GameStateRecorder",
                 $"Science subject captured: {subject.id} amount={amount:F1} total={subject.science:F1}");
+        }
+
+        #endregion
+
+        #region Progress Milestone Handlers
+
+        private void OnProgressComplete(ProgressNode node)
+        {
+            if (IsReplayingActions)
+            {
+                ParsekLog.Verbose("GameStateRecorder", "Suppressed MilestoneAchieved event during action replay");
+                return;
+            }
+            if (node == null)
+            {
+                ParsekLog.Verbose("GameStateRecorder", "OnProgressComplete: null node — skipped");
+                return;
+            }
+
+            string milestoneId = QualifyMilestoneId(node);
+            if (string.IsNullOrEmpty(milestoneId))
+            {
+                ParsekLog.Verbose("GameStateRecorder", "OnProgressComplete: empty node Id — skipped");
+                return;
+            }
+
+            // Funds and rep rewards are not directly available on the ProgressNode.
+            // They are applied separately by KSP's ProgressTracking system via
+            // Funding/Reputation callbacks. We capture 0 here; the MilestonesModule
+            // sets Effective flags correctly regardless.
+            //
+            // OnProgressComplete fires AFTER KSP has already applied the reward via
+            // Funding.Instance.AddFunds / Reputation.Instance.AddReputation. In theory
+            // we could compute the delta by comparing pre/post values, but we don't have
+            // a pre-event snapshot (no prefix hook). The reward amounts come from
+            // GameVariables.Instance.GetProgressFunds/Rep/Science() which vary by
+            // body, milestone type, and difficulty settings — too fragile to replicate.
+            // See deferred items D17/D18 for earning-side capture plans.
+            var evt = new GameStateEvent
+            {
+                ut = Planetarium.GetUniversalTime(),
+                eventType = GameStateEventType.MilestoneAchieved,
+                key = milestoneId,
+                detail = ""
+            };
+            GameStateStore.AddEvent(evt);
+            ParsekLog.Info("GameStateRecorder", $"Game state: MilestoneAchieved '{milestoneId}'");
+
+            // Milestones can fire at KSC (e.g., facility-related) or in flight.
+            // Write directly to ledger when outside flight to avoid waiting for commit.
+            if (!IsFlightScene())
+                LedgerOrchestrator.OnKscSpending(evt);
+        }
+
+        /// <summary>
+        /// Pure: creates a MilestoneAchieved GameStateEvent from the given parameters.
+        /// Extracted for testability.
+        /// </summary>
+        internal static GameStateEvent CreateMilestoneEvent(string milestoneId, double ut)
+        {
+            return new GameStateEvent
+            {
+                ut = ut,
+                eventType = GameStateEventType.MilestoneAchieved,
+                key = milestoneId ?? "",
+                detail = ""
+            };
+        }
+
+        /// <summary>
+        /// Path-qualifies body-specific milestone IDs to avoid ambiguity.
+        /// Body-specific achievement classes (CelestialBodyLanding, CelestialBodyOrbit, etc.)
+        /// all have a private CelestialBody body field. The bare node.Id (e.g. "Landing")
+        /// is non-unique across bodies, so we qualify as "Mun/Landing", "Kerbin/Landing", etc.
+        ///
+        /// Top-level nodes (FirstLaunch, ReachSpace, RecordsAltitude, etc.) have unique IDs
+        /// and are returned as-is.
+        ///
+        /// Internal static for testability.
+        /// </summary>
+        internal static string QualifyMilestoneId(ProgressNode node)
+        {
+            if (node == null) return "";
+
+            string bareId = node.Id ?? "";
+            if (string.IsNullOrEmpty(bareId)) return "";
+
+            // Try reflection to get the private "body" field present on all
+            // CelestialBody* achievement subclasses (Landing, Orbit, Flyby, etc.)
+            var bodyField = node.GetType().GetField("body",
+                BindingFlags.NonPublic | BindingFlags.Instance);
+            if (bodyField != null)
+            {
+                var celestialBody = bodyField.GetValue(node) as CelestialBody;
+                if (celestialBody != null)
+                {
+                    string qualified = celestialBody.name + "/" + bareId;
+                    ParsekLog.Verbose("GameStateRecorder",
+                        $"QualifyMilestoneId: qualified '{bareId}' -> '{qualified}' (body={celestialBody.name})");
+                    return qualified;
+                }
+            }
+
+            // No body field — top-level node with unique ID (FirstLaunch, ReachSpace, etc.)
+            return bareId;
         }
 
         #endregion
@@ -641,16 +824,20 @@ namespace Parsek
                                 ? GameStateEventType.FacilityUpgraded
                                 : GameStateEventType.FacilityDowngraded;
 
-                            GameStateStore.AddEvent(new GameStateEvent
+                            var evt = new GameStateEvent
                             {
                                 ut = ut,
                                 eventType = eventType,
                                 key = kvp.Key,
                                 valueBefore = cachedLevel,
                                 valueAfter = currentLevel
-                            });
+                            };
+                            GameStateStore.AddEvent(evt);
                             eventsEmitted++;
                             ParsekLog.Info("GameStateRecorder", $"Game state: {eventType} '{kvp.Key}' {cachedLevel:F2} → {currentLevel:F2}");
+
+                            if (!IsFlightScene() && eventType == GameStateEventType.FacilityUpgraded)
+                                LedgerOrchestrator.OnKscSpending(evt);
                         }
                     }
 

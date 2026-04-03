@@ -21,23 +21,21 @@ namespace Parsek
         // When true, suppresses logging calls (for unit testing outside Unity)
         internal static bool SuppressLogging;
 
-        // Rewind flags (survive scene change via static fields)
-        internal static bool IsRewinding;
-        internal static double RewindUT;
-        internal static double RewindAdjustedUT;
+        // Rewind state is now encapsulated in RewindContext.
+        // These delegate properties preserve API compatibility for callers
+        // that read IsRewinding/RewindUT/etc. through RecordingStore.
+        internal static bool IsRewinding => RewindContext.IsRewinding;
+        internal static double RewindUT => RewindContext.RewindUT;
+        internal static double RewindAdjustedUT => RewindContext.RewindAdjustedUT;
+        internal static BudgetSummary RewindReserved => RewindContext.RewindReserved;
+        internal static double RewindBaselineFunds => RewindContext.RewindBaselineFunds;
+        internal static double RewindBaselineScience => RewindContext.RewindBaselineScience;
+        internal static float RewindBaselineRep => RewindContext.RewindBaselineRep;
 
         // True while the deferred UT adjustment coroutine hasn't run yet.
         // KSC spawn must not use Planetarium.GetUniversalTime() while this is set —
         // it still reflects the pre-rewind future UT until the coroutine fires.
         internal static bool RewindUTAdjustmentPending;
-        internal static BudgetSummary RewindReserved;
-
-        // Baseline resource values from the rewind-target recording's PreLaunch snapshot.
-        // Used by the deferred coroutine to compute absolute-target resource corrections
-        // (idempotent regardless of what Funding.OnLoad restores from the save).
-        internal static double RewindBaselineFunds;
-        internal static double RewindBaselineScience;
-        internal static float RewindBaselineRep;
 
         private const string LegacyPrefix = "[Parsek] ";
 
@@ -225,8 +223,6 @@ namespace Parsek
             double endUT = pendingRecording.EndUT;
             pendingRecording = null;
 
-            ResourceBudget.Invalidate();
-
             // Capture a game state baseline at each commit (single funnel point)
             GameStateStore.CaptureBaselineIfNeeded();
 
@@ -247,7 +243,6 @@ namespace Parsek
 
             Log($"[Parsek] Discarded pending recording from {pendingRecording.VesselName}");
             pendingRecording = null;
-            ResourceBudget.Invalidate();
         }
 
         public static void ClearCommitted()
@@ -258,7 +253,6 @@ namespace Parsek
             committedRecordings.Clear();
             committedTrees.Clear();
             GameStateRecorder.PendingScienceSubjects.Clear();
-            ResourceBudget.Invalidate();
             Log($"[Parsek] Cleared {count} committed recordings and all trees");
         }
 
@@ -440,8 +434,6 @@ namespace Parsek
             Log($"[Parsek] Committed tree '{tree.TreeName}' ({tree.Recordings.Count} recordings). " +
                 $"Total committed: {committedRecordings.Count} recordings, {committedTrees.Count} trees");
 
-            ResourceBudget.Invalidate();
-
             // Capture a game state baseline at each commit
             GameStateStore.CaptureBaselineIfNeeded();
 
@@ -499,7 +491,6 @@ namespace Parsek
             GameStateRecorder.PendingScienceSubjects.Clear();
             Log($"[Parsek] Discarded pending tree '{pendingTree.TreeName}'");
             pendingTree = null;
-            ResourceBudget.Invalidate();
         }
 
         /// <summary>
@@ -1227,18 +1218,11 @@ namespace Parsek
             committedRecordings.Clear();
             committedTrees.Clear();
             pendingTree = null;
-            IsRewinding = false;
-            RewindUT = 0;
-            RewindAdjustedUT = 0;
+            RewindContext.ResetForTesting();
             RewindUTAdjustmentPending = false;
-            RewindReserved = default(BudgetSummary);
-            RewindBaselineFunds = 0;
-            RewindBaselineScience = 0;
-            RewindBaselineRep = 0;
             GameStateRecorder.PendingScienceSubjects.Clear();
             PendingCleanupPids = null;
             PendingCleanupNames = null;
-            RewindQuicksaveVesselPids = null;
             PendingStashedThisTransition = false;
         }
 
@@ -1247,6 +1231,14 @@ namespace Parsek
         /// bypasses StashPending/CommitPending flow to set up pre-existing state.
         /// </summary>
         internal static void CommitPendingForTesting(Recording rec)
+        {
+            committedRecordings.Add(rec);
+        }
+
+        /// <summary>
+        /// Adds a recording directly to committed list. For unit tests only.
+        /// </summary>
+        internal static void AddCommittedForTesting(Recording rec)
         {
             committedRecordings.Add(rec);
         }
@@ -1448,8 +1440,6 @@ namespace Parsek
                     ResetRecordingPlaybackFields(rec);
             }
 
-            ResourceBudget.Invalidate();
-
             if (!SuppressLogging)
                 ParsekLog.Info("Rewind",
                     $"Playback state reset: {standaloneCount} standalone recording(s), {committedTrees.Count} tree(s)");
@@ -1534,10 +1524,8 @@ namespace Parsek
         // Destination scene from last OnSceneChangeRequested — consumed in OnLoad (#88)
         internal static GameScenes? PendingDestinationScene { get; set; }
 
-        // PIDs of vessels that existed in the rewind quicksave.
-        // Used by StripFuturePrelaunchVessels to whitelist known-good PRELAUNCH vessels
-        // (e.g. the player's pad vessel) and strip only unknown ones from the future.
-        internal static HashSet<uint> RewindQuicksaveVesselPids { get; set; }
+        // Delegate property for RewindQuicksaveVesselPids — state now lives in RewindContext.
+        internal static HashSet<uint> RewindQuicksaveVesselPids => RewindContext.RewindQuicksaveVesselPids;
 
         /// <summary>
         /// Collects vessel names from ALL committed recordings (regardless of spawn state).
@@ -1602,8 +1590,6 @@ namespace Parsek
                     mileCount++;
                 }
             }
-
-            ResourceBudget.Invalidate();
 
             if (!SuppressLogging)
                 ParsekLog.Info("Rewind",
@@ -1739,14 +1725,7 @@ namespace Parsek
 
         private static void ResetRewindFlags()
         {
-            IsRewinding = false;
-            RewindUT = 0;
-            RewindAdjustedUT = 0;
-            RewindReserved = default(BudgetSummary);
-            RewindBaselineFunds = 0;
-            RewindBaselineScience = 0;
-            RewindBaselineRep = 0;
-            RewindQuicksaveVesselPids = null;
+            RewindContext.EndRewind();
         }
 
         /// <summary>
@@ -1756,9 +1735,7 @@ namespace Parsek
         /// </summary>
         internal static void InitiateRewind(Recording rec)
         {
-            IsRewinding = true;
-            RewindUT = rec.StartUT;
-            RewindReserved = new BudgetSummary
+            var reserved = new BudgetSummary
             {
                 reservedFunds = rec.RewindReservedFunds,
                 reservedScience = rec.RewindReservedScience,
@@ -1767,18 +1744,13 @@ namespace Parsek
 
             // Baseline resources from the recording's pre-launch snapshot.
             // The rewind save was captured at the same moment as PreLaunch values.
-            RewindBaselineFunds = rec.PreLaunchFunds;
-            RewindBaselineScience = rec.PreLaunchScience;
-            RewindBaselineRep = rec.PreLaunchReputation;
+            RewindContext.BeginRewind(rec.StartUT, reserved,
+                rec.PreLaunchFunds, rec.PreLaunchScience, rec.PreLaunchReputation);
 
             if (!SuppressLogging)
                 ParsekLog.Info("Rewind",
                     $"Rewind initiated to UT {rec.StartUT} " +
-                    $"(save: {rec.RewindSaveFileName}, " +
-                    $"baseline: funds={rec.PreLaunchFunds:F1}, sci={rec.PreLaunchScience:F1}, rep={rec.PreLaunchReputation:F1}, " +
-                    $"reservedFunds: {rec.RewindReservedFunds:F1}, " +
-                    $"reservedScience: {rec.RewindReservedScience:F1}, " +
-                    $"reservedRep: {rec.RewindReservedRep:F1})");
+                    $"(save: {rec.RewindSaveFileName})");
 
             string tempCopyName = null;
             try
@@ -1842,7 +1814,7 @@ namespace Parsek
                 }
 
                 // Capture the adjusted UT from the preprocessed save.
-                RewindAdjustedUT = game.flightState.universalTime;
+                RewindContext.SetAdjustedUT(game.flightState.universalTime);
 
                 if (!SuppressLogging)
                     ParsekLog.Info("Rewind",
@@ -1988,7 +1960,7 @@ namespace Parsek
                 if (uint.TryParse(survivingNodes[s].GetValue("persistentId"), out spid))
                     survivingPids.Add(spid);
             }
-            RewindQuicksaveVesselPids = survivingPids.Count > 0 ? survivingPids : null;
+            RewindContext.SetQuicksaveVesselPids(survivingPids.Count > 0 ? survivingPids : null);
             if (!SuppressLogging)
                 ParsekLog.Info("Rewind",
                     $"Captured {survivingPids.Count} surviving vessel PID(s) from quicksave");
@@ -2557,6 +2529,79 @@ namespace Parsek
 
                 tracks.Add(section);
             }
+        }
+
+        #endregion
+
+        #region Crew End States Serialization
+
+        /// <summary>
+        /// Serializes CrewEndStates dictionary into CREW_END_STATES ConfigNode children
+        /// on the given parent node. Each entry becomes an ENTRY subnode with "name" and "state" keys.
+        /// No-op if CrewEndStates is null or empty.
+        /// </summary>
+        internal static void SerializeCrewEndStates(ConfigNode parent, Recording rec)
+        {
+            if (rec.CrewEndStates == null || rec.CrewEndStates.Count == 0)
+                return;
+
+            ConfigNode cesNode = parent.AddNode("CREW_END_STATES");
+            int count = 0;
+            foreach (var kvp in rec.CrewEndStates)
+            {
+                ConfigNode entry = cesNode.AddNode("ENTRY");
+                entry.AddValue("name", kvp.Key ?? "");
+                entry.AddValue("state", ((int)kvp.Value).ToString(CultureInfo.InvariantCulture));
+                count++;
+            }
+            ParsekLog.Verbose("RecordingStore",
+                $"SerializeCrewEndStates: wrote {count} entries for recording={rec.RecordingId}");
+        }
+
+        /// <summary>
+        /// Deserializes CrewEndStates from a CREW_END_STATES ConfigNode on the given parent.
+        /// Sets rec.CrewEndStates to a new dictionary if entries are found, or leaves it null
+        /// if the node is absent (backward compatible with legacy recordings).
+        /// </summary>
+        internal static void DeserializeCrewEndStates(ConfigNode parent, Recording rec)
+        {
+            ConfigNode cesNode = parent.GetNode("CREW_END_STATES");
+            if (cesNode == null)
+                return;
+
+            ConfigNode[] entries = cesNode.GetNodes("ENTRY");
+            if (entries.Length == 0)
+                return;
+
+            rec.CrewEndStates = new Dictionary<string, KerbalEndState>();
+            int loaded = 0;
+            int skipped = 0;
+
+            for (int i = 0; i < entries.Length; i++)
+            {
+                string name = entries[i].GetValue("name");
+                string stateStr = entries[i].GetValue("state");
+
+                if (string.IsNullOrEmpty(name))
+                {
+                    skipped++;
+                    continue;
+                }
+
+                int stateInt;
+                if (!int.TryParse(stateStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out stateInt)
+                    || !Enum.IsDefined(typeof(KerbalEndState), stateInt))
+                {
+                    skipped++;
+                    continue;
+                }
+
+                rec.CrewEndStates[name] = (KerbalEndState)stateInt;
+                loaded++;
+            }
+
+            ParsekLog.Verbose("RecordingStore",
+                $"DeserializeCrewEndStates: loaded={loaded} skipped={skipped} for recording={rec.RecordingId}");
         }
 
         #endregion

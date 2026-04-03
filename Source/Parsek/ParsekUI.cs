@@ -50,10 +50,13 @@ namespace Parsek
         private bool isResizingActionsWindow;
         private bool actionsWindowHasInputLock;
         private const string ActionsInputLockId = "Parsek_ActionsWindow";
+        private int lastRetiredKerbalCount = -1; // for change-based logging
 
         // Cached styles for actions window
         private GUIStyle actionsGrayStyle;
         private GUIStyle actionsWhiteStyle;
+        private GUIStyle actionsGreenStyle;
+        private GUIStyle actionsRedStyle;
 
         // Actions table sort state
         private enum ActionsSortColumn { Time, Type, Description, Status }
@@ -207,10 +210,7 @@ namespace Parsek
         private SpawnSortColumn cachedSortColumn = SpawnSortColumn.Distance;
         private bool cachedSortAscending = true;
 
-        // Per-frame cached resource budget — avoids duplicate ComputeTotal calls
-        // when both DrawCompactBudgetLine (main window) and DrawResourceBudget (actions window) run
-        private BudgetSummary cachedBudget;
-        private int cachedBudgetFrame = -1;
+        private BudgetSummary cachedBudget = default(BudgetSummary);
 
         public ParsekUI(ParsekFlight flight)
         {
@@ -228,22 +228,10 @@ namespace Parsek
         private const float SpacingLarge = 10f;
 
         /// <summary>
-        /// Returns the resource budget, cached once per frame. Avoids duplicate
-        /// ComputeTotal calls when both the main window and actions window render.
+        /// Returns the resource budget.
         /// </summary>
         private BudgetSummary GetCachedBudget()
         {
-            int currentFrame = Time.frameCount;
-            if (cachedBudgetFrame != currentFrame)
-            {
-                cachedBudget = ResourceBudget.ComputeTotal(
-                    RecordingStore.CommittedRecordings,
-                    MilestoneStore.Milestones,
-                    RecordingStore.CommittedTrees);
-                cachedBudgetFrame = currentFrame;
-                ParsekLog.VerboseRateLimited("UI", "budget-recompute",
-                    $"GetCachedBudget: recomputed budget (frame {currentFrame})");
-            }
             return cachedBudget;
         }
 
@@ -555,6 +543,12 @@ namespace Parsek
 
             actionsWhiteStyle = new GUIStyle(GUI.skin.label);
             actionsWhiteStyle.normal.textColor = Color.white;
+
+            actionsGreenStyle = new GUIStyle(GUI.skin.label);
+            actionsGreenStyle.normal.textColor = new Color(0.5f, 1f, 0.5f);
+
+            actionsRedStyle = new GUIStyle(GUI.skin.label);
+            actionsRedStyle.normal.textColor = new Color(1f, 0.5f, 0.5f);
         }
 
         private void DrawActionsWindow(int windowID)
@@ -570,11 +564,13 @@ namespace Parsek
             BuildSortedActionEvents(actionsSortColumn, actionsSortAscending,
                 out allEvents, out uncommittedEvents);
 
-            // Single scroll view for both sections
+            // Single scroll view for all sections
             bool hasCommitted = allEvents.Count > 0;
             bool hasUncommitted = uncommittedEvents.Count > 0;
+            var ledgerActions = Ledger.Actions;
+            bool hasLedger = ledgerActions.Count > 0;
 
-            if (hasCommitted || hasUncommitted)
+            if (hasLedger || hasCommitted || hasUncommitted)
             {
                 GUILayout.Space(5);
 
@@ -596,8 +592,44 @@ namespace Parsek
 
                 actionsScrollPos = GUILayout.BeginScrollView(actionsScrollPos, GUILayout.ExpandHeight(true));
 
+                // --- Ledger Actions (new game actions system) ---
+                if (hasLedger)
+                {
+                    GUILayout.Label($"Ledger Actions ({ledgerActions.Count})", GUI.skin.box);
+
+                    // Sorted by UT descending (newest first)
+                    for (int i = ledgerActions.Count - 1; i >= 0; i--)
+                    {
+                        var action = ledgerActions[i];
+                        Color color = GameActionDisplay.GetColor(action.Type);
+                        GUIStyle style;
+                        if (color.g > 0.9f && color.r < 0.6f)
+                            style = actionsGreenStyle;
+                        else if (color.r > 0.9f && color.g < 0.6f)
+                            style = actionsRedStyle;
+                        else
+                            style = actionsWhiteStyle;
+
+                        GUILayout.BeginHorizontal();
+
+                        string time = KSPUtil.PrintDateCompact(action.UT, true);
+                        GUILayout.Label(time, style, GUILayout.Width(90));
+
+                        string category = GameActionDisplay.GetCategory(action.Type);
+                        GUILayout.Label(category, style, GUILayout.Width(65));
+
+                        string desc = GameActionDisplay.GetDescription(action);
+                        GUILayout.Label(desc, style, GUILayout.ExpandWidth(true));
+
+                        GUILayout.EndHorizontal();
+                    }
+                }
+
+                // --- Recorded Actions (legacy game state events) ---
                 if (hasCommitted)
                 {
+                    if (hasLedger)
+                        GUILayout.Space(5);
                     GUILayout.Label("Recorded Actions", GUI.skin.box);
 
                     for (int i = 0; i < allEvents.Count; i++)
@@ -629,7 +661,7 @@ namespace Parsek
 
                 if (hasUncommitted)
                 {
-                    if (hasCommitted)
+                    if (hasCommitted || hasLedger)
                         GUILayout.Space(5);
                     GUILayout.Label("Uncommitted", GUI.skin.box);
 
@@ -677,6 +709,32 @@ namespace Parsek
             {
                 GUILayout.Space(5);
                 GUILayout.Label("No actions recorded.");
+            }
+
+            // Retired Kerbals section
+            var retiredKerbals = KerbalsModule.GetRetiredKerbals();
+            if (retiredKerbals.Count > 0)
+            {
+                if (retiredKerbals.Count != lastRetiredKerbalCount)
+                {
+                    ParsekLog.Verbose("UI",
+                        $"Retired kerbals count changed: {lastRetiredKerbalCount} -> {retiredKerbals.Count}");
+                    lastRetiredKerbalCount = retiredKerbals.Count;
+                }
+
+                GUILayout.Space(5);
+                GUILayout.Label($"Retired Stand-ins ({retiredKerbals.Count})", GUI.skin.box);
+                GUILayout.BeginVertical(GUI.skin.box);
+                for (int i = 0; i < retiredKerbals.Count; i++)
+                {
+                    GUILayout.Label(retiredKerbals[i], actionsGrayStyle);
+                }
+                GUILayout.EndVertical();
+            }
+            else if (lastRetiredKerbalCount > 0)
+            {
+                ParsekLog.Verbose("UI", "Retired kerbals list cleared");
+                lastRetiredKerbalCount = 0;
             }
 
             // C. Bottom Bar — pinned to window bottom
@@ -2599,7 +2657,6 @@ namespace Parsek
                     new DialogGUIButton("Wipe All", () =>
                     {
                         MilestoneStore.ClearAll();
-                        ResourceBudget.Invalidate();
                         ParsekLog.Info("UI", "All game actions wiped");
                         ParsekLog.ScreenMessage("All game actions wiped", 2f);
                     }),

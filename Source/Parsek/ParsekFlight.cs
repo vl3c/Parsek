@@ -233,6 +233,8 @@ namespace Parsek
         private HashSet<string> pendingSpawnRecordingIds = new HashSet<string>();
         private string pendingWatchRecordingId = null;  // recording ID that was in watch mode when deferred
         private bool timelineResourceReplayPausedLogged = false;
+        private bool wasWarpActive = false; // tracks previous warp state for exit detection
+        private double warpStartUT = 0.0;  // UT when warp began — used for facility visual updates
         // Camera follow (watch mode) — transient, never serialized
         private const string WatchModeLockId = "ParsekWatch";
         private const ControlTypes WatchModeLockMask =
@@ -1243,7 +1245,10 @@ namespace Parsek
             if (ParsekScenario.IsAutoMerge)
             {
                 ParsekLog.Info("Flight", "ShowPostDestructionTreeMergeDialog: auto-merge enabled — committing tree");
+                var treeToCommit = RecordingStore.PendingTree;
                 RecordingStore.CommitPendingTree();
+                LedgerOrchestrator.NotifyLedgerTreeCommitted(treeToCommit);
+                KerbalsModule.RecalculateAndApply();
                 MergeDialog.ReplayFlightResultsIfPending();
             }
             else
@@ -1992,7 +1997,12 @@ namespace Parsek
                     }
                     if (ParsekScenario.IsAutoMerge)
                     {
+                        string amRecId = RecordingStore.Pending.RecordingId;
+                        double amStart = RecordingStore.Pending.StartUT;
+                        double amEnd = RecordingStore.Pending.EndUT;
                         RecordingStore.CommitPending();
+                        LedgerOrchestrator.OnRecordingCommitted(amRecId, amStart, amEnd);
+                        KerbalsModule.RecalculateAndApply();
                         ParsekLog.Info("Flight",
                             $"Vessel destroyed during split — auto-merged ({dur:F1}s)");
                     }
@@ -2006,7 +2016,12 @@ namespace Parsek
                     return;
                 }
 
+                string recId = RecordingStore.Pending.RecordingId;
+                double sUT = RecordingStore.Pending.StartUT;
+                double eUT = RecordingStore.Pending.EndUT;
                 RecordingStore.CommitPending();
+                LedgerOrchestrator.OnRecordingCommitted(recId, sUT, eUT);
+                KerbalsModule.RecalculateAndApply();
                 string chainInfo = chainManager.ActiveChainId != null
                     ? $" (chain={chainManager.ActiveChainId}, idx={chainManager.ActiveChainNextIndex})"
                     : " (standalone)";
@@ -3280,6 +3295,46 @@ namespace Parsek
 
         void OnTimeWarpRateChanged()
         {
+            bool isWarpNow = IsAnyWarpActive();
+
+            // Detect warp start: was not warping, now warping — patch facility visuals
+            // so the player sees the correct state during warp. Full recalculation
+            // happens on warp exit; this is a lightweight visual-only update.
+            // NOTE: True real-time per-frame facility visual updates during warp would
+            // require a partial recalculation walk (processing actions only up to the
+            // current UT). The current approach patches to the final derived state at
+            // warp start and again at warp end, which covers the common case of warping
+            // past a facility event.
+            if (!wasWarpActive && isWarpNow)
+            {
+                warpStartUT = Planetarium.GetUniversalTime();
+                if (LedgerOrchestrator.IsInitialized)
+                {
+                    KspStatePatcher.PatchFacilities(LedgerOrchestrator.Facilities);
+                    ParsekLog.Info("WarpFacilities",
+                        $"Warp start at UT={warpStartUT:F2} — patched facility visuals");
+                }
+            }
+
+            // Detect warp exit: was warping, now at 1x — recalculate ledger
+            if (wasWarpActive && !isWarpNow)
+            {
+                double warpEndUT = Planetarium.GetUniversalTime();
+                ParsekLog.Info("LedgerOrchestrator",
+                    "Warp exit detected — recalculating ledger");
+                LedgerOrchestrator.RecalculateAndPatch();
+
+                // Log whether any facility actions were crossed during this warp session
+                if (LedgerOrchestrator.IsInitialized &&
+                    LedgerOrchestrator.HasFacilityActionsInRange(warpStartUT, warpEndUT))
+                {
+                    ParsekLog.Info("WarpFacilities",
+                        $"Warp exit at UT={warpEndUT:F2} — facility actions crossed " +
+                        $"in range ({warpStartUT:F2}, {warpEndUT:F2}]");
+                }
+            }
+            wasWarpActive = isWarpNow;
+
             if (activeTree == null || backgroundRecorder == null) return;
 
             double ut = Planetarium.GetUniversalTime();
@@ -3706,8 +3761,12 @@ namespace Parsek
                     if (parentFound)
                     {
                         Log($"Auto-committing EVA child recording (parent={pending.ParentRecordingId}, crew={pending.EvaCrewName})");
+                        string recId = pending.RecordingId;
+                        double startUT = pending.StartUT;
+                        double endUT = pending.EndUT;
                         RecordingStore.CommitPending();
-                        CrewReservationManager.ReserveSnapshotCrew();
+                        LedgerOrchestrator.OnRecordingCommitted(recId, startUT, endUT);
+                        KerbalsModule.RecalculateAndApply();
                     }
                     else
                     {
@@ -3783,15 +3842,10 @@ namespace Parsek
         private void ClearSceneChangeTransientState()
         {
             // Clear dock/undock pending state
-            pendingDockMergedPid = 0;
-            pendingDockAsTarget = false;
-            dockConfirmFrames = 0;
-            pendingUndockOtherPid = 0;
-            undockConfirmFrames = 0;
+            ClearDockUndockState();
 
             // Clear merge event detection state
             pendingTreeDockMerge = false;
-            pendingDockAbsorbedPid = 0;
             pendingBoardingTargetInTree = false;
             dockingInProgress.Clear();
             treeDestructionDialogPending = false;
@@ -3853,15 +3907,10 @@ namespace Parsek
             pendingBoardingTargetPid = 0;
 
             // Clear dock/undock state
-            pendingDockMergedPid = 0;
-            pendingDockAsTarget = false;
-            dockConfirmFrames = 0;
-            pendingUndockOtherPid = 0;
-            undockConfirmFrames = 0;
+            ClearDockUndockState();
 
             // Clear merge event detection state
             pendingTreeDockMerge = false;
-            pendingDockAbsorbedPid = 0;
             pendingBoardingTargetInTree = false;
             dockingInProgress.Clear();
             treeDestructionDialogPending = false;
@@ -4032,6 +4081,39 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Zeros all dock/undock pending-transition fields.
+        /// Called from scene change, flight ready, and after dock/undock commit/restart.
+        /// </summary>
+        private void ClearDockUndockState()
+        {
+            pendingDockMergedPid = 0;
+            pendingDockAsTarget = false;
+            dockConfirmFrames = 0;
+            pendingUndockOtherPid = 0;
+            undockConfirmFrames = 0;
+            pendingDockAbsorbedPid = 0;
+        }
+
+        /// <summary>
+        /// Restarts recording after a dock/undock chain boundary: nulls the old recorder,
+        /// starts a new recording, sets UndockSiblingPid, and logs/screen-messages the result.
+        /// Optional <paramref name="onRecordingStarted"/> callback runs inside the IsRecording
+        /// guard before the sibling PID assignment (used by undock paths to start continuation).
+        /// </summary>
+        private void RestartRecordingAfterDockUndock(string logReason, string screenReason, Action onRecordingStarted = null)
+        {
+            recorder = null;
+            StartRecording();
+            if (IsRecording)
+            {
+                onRecordingStarted?.Invoke();
+                recorder.UndockSiblingPid = chainManager.UndockContinuationPid;
+                Log($"Recording continues after {logReason} (chain={chainManager.ActiveChainId}, idx={chainManager.ActiveChainNextIndex})");
+                ScreenMessage($"Recording continues ({screenReason})", 2f);
+            }
+        }
+
+        /// <summary>
         /// Handles tree dock merge: creates merge branch point when recorder is stopped
         /// and dock merge is pending. Consumes pending dock state.
         /// </summary>
@@ -4091,23 +4173,9 @@ namespace Parsek
                 !recorder.IsRecording && recorder.CaptureAtStop != null)
             {
                 if (!chainManager.CommitDockUndockSegment(recorder, PartEventType.Docked, pendingDockMergedPid))
-                {
-                    pendingDockMergedPid = 0;
-                    pendingDockAsTarget = false;
-                    pendingUndockOtherPid = 0;
-                }
-                recorder = null;
-                StartRecording();
-                if (IsRecording)
-                {
-                    // Pass undock continuation pid so OnPhysicsFrame can detect sibling switch
-                    recorder.UndockSiblingPid = chainManager.UndockContinuationPid;
-                    Log($"Recording continues after dock (chain={chainManager.ActiveChainId}, idx={chainManager.ActiveChainNextIndex})");
-                    ScreenMessage("Recording continues (docked)", 2f);
-                }
-                pendingDockMergedPid = 0;
-                pendingDockAsTarget = false;
-                dockConfirmFrames = 0;
+                    ClearDockUndockState();
+                RestartRecordingAfterDockUndock("dock", "docked");
+                ClearDockUndockState();
             }
 
             // Dock: target (pid unchanged, recorder already stopped by OnPartCouple)
@@ -4115,22 +4183,9 @@ namespace Parsek
                 !recorder.IsRecording && recorder.CaptureAtStop != null)
             {
                 if (!chainManager.CommitDockUndockSegment(recorder, PartEventType.Docked, pendingDockMergedPid))
-                {
-                    pendingDockMergedPid = 0;
-                    pendingDockAsTarget = false;
-                    pendingUndockOtherPid = 0;
-                }
-                recorder = null;
-                StartRecording();
-                if (IsRecording)
-                {
-                    recorder.UndockSiblingPid = chainManager.UndockContinuationPid;
-                    Log($"Recording continues after dock as target (chain={chainManager.ActiveChainId}, idx={chainManager.ActiveChainNextIndex})");
-                    ScreenMessage("Recording continues (docked)", 2f);
-                }
-                pendingDockAsTarget = false;
-                pendingDockMergedPid = 0;
-                dockConfirmFrames = 0;
+                    ClearDockUndockState();
+                RestartRecordingAfterDockUndock("dock as target", "docked");
+                ClearDockUndockState();
             }
 
             // Undock: player stays on remaining vessel (same pid, recorder stopped by StopRecordingForChainBoundary)
@@ -4139,22 +4194,11 @@ namespace Parsek
                 !recorder.UndockSwitchPending)
             {
                 if (!chainManager.CommitDockUndockSegment(recorder, PartEventType.Undocked, 0))
-                {
-                    pendingDockMergedPid = 0;
-                    pendingDockAsTarget = false;
-                    pendingUndockOtherPid = 0;
-                }
-                recorder = null;
-                StartRecording();
-                if (IsRecording)
-                {
-                    chainManager.StartUndockContinuation(pendingUndockOtherPid);
-                    recorder.UndockSiblingPid = chainManager.UndockContinuationPid;
-                    Log($"Recording continues after undock (chain={chainManager.ActiveChainId}, idx={chainManager.ActiveChainNextIndex})");
-                    ScreenMessage("Recording continues (undocked)", 2f);
-                }
-                pendingUndockOtherPid = 0;
-                undockConfirmFrames = 0;
+                    ClearDockUndockState();
+                uint undockPid = pendingUndockOtherPid;
+                RestartRecordingAfterDockUndock("undock", "undocked",
+                    () => chainManager.StartUndockContinuation(undockPid));
+                ClearDockUndockState();
             }
 
             // Undock: player switched to undocked vessel (pid changed, recorder stopped by OnPhysicsFrame)
@@ -4163,28 +4207,16 @@ namespace Parsek
             {
                 uint oldPid = recorder.RecordingVesselId;
                 if (!chainManager.CommitDockUndockSegment(recorder, PartEventType.Undocked, 0))
-                {
-                    pendingDockMergedPid = 0;
-                    pendingDockAsTarget = false;
-                    pendingUndockOtherPid = 0;
-                }
+                    ClearDockUndockState();
                 recorder = null;
 
                 // Stop existing undock continuation (we're switching roles)
                 if (chainManager.UndockContinuationPid != 0)
                     chainManager.StopUndockContinuation("sibling switch");
 
-                StartRecording();
-                if (IsRecording)
-                {
-                    // The "old" vessel (remaining) becomes continuation
-                    chainManager.StartUndockContinuation(oldPid);
-                    recorder.UndockSiblingPid = chainManager.UndockContinuationPid;
-                    Log($"Recording continues after undock switch (chain={chainManager.ActiveChainId}, idx={chainManager.ActiveChainNextIndex})");
-                    ScreenMessage("Recording continues (undocked)", 2f);
-                }
-                pendingUndockOtherPid = 0;
-                undockConfirmFrames = 0;
+                RestartRecordingAfterDockUndock("undock switch", "undocked",
+                    () => chainManager.StartUndockContinuation(oldPid));
+                ClearDockUndockState();
             }
         }
 
@@ -4844,7 +4876,12 @@ namespace Parsek
             pending.LastAppliedResourceIndex = pending.Points.Count - 1;
 
             // Commit to timeline
+            string recId = pending.RecordingId;
+            double startUT = pending.StartUT;
+            double endUT = pending.EndUT;
             RecordingStore.CommitPending();
+            LedgerOrchestrator.OnRecordingCommitted(recId, startUT, endUT);
+            KerbalsModule.RecalculateAndApply();
 
             // Clear recorder state
             recorder = null;
@@ -4907,12 +4944,14 @@ namespace Parsek
             ParsekLog.Info("Flight",
                 $"CommitTreeFlight: ResourcesApplied=true, marked {markedCount}/{activeTree.Recordings.Count} recordings as fully applied");
 
-            // Reserve crew for all leaf vessels (except active vessel)
+            // Get spawnable leaves before commit (tree is consumed by CommitTree)
             var spawnableLeaves = activeTree.GetSpawnableLeaves();
-            ReserveCrewForLeaves(spawnableLeaves);
 
             // Commit tree to storage
             RecordingStore.CommitTree(activeTree);
+
+            // Recalculate crew reservations (replaces ReserveCrewForLeaves)
+            KerbalsModule.RecalculateAndApply();
 
             // Spawn all non-active leaf vessels
             SpawnTreeLeaves(activeTree, activeRecId);
@@ -5282,7 +5321,6 @@ namespace Parsek
                         leaf.VesselSpawned = true;
                         leaf.SpawnedVesselPersistentId = spawnedPid;
                         leaf.LastAppliedResourceIndex = leaf.Points.Count - 1;
-                        ResourceBudget.Invalidate();
                         ParsekLog.Info("Flight", $"SpawnTreeLeaves: spawned leaf '{leaf.VesselName}' pid={spawnedPid}");
                     }
                     else
@@ -6360,7 +6398,6 @@ namespace Parsek
                 }
 
                 rec.LastAppliedResourceIndex = targetIndex;
-                ResourceBudget.Invalidate();
 
                 // Log summary when all resource deltas have been applied
                 if (targetIndex == points.Count - 1 && startIdx < targetIndex)
@@ -6467,7 +6504,6 @@ namespace Parsek
             }
 
             tree.ResourcesApplied = true;
-            ResourceBudget.Invalidate();
             Log($"Tree resource lump sum applied for '{tree.TreeName}'");
         }
 
@@ -8249,7 +8285,12 @@ namespace Parsek
         {
             if (ParsekScenario.IsAutoMerge)
             {
+                string recId = pending.RecordingId;
+                double startUT = pending.StartUT;
+                double endUT = pending.EndUT;
                 RecordingStore.CommitPending();
+                LedgerOrchestrator.OnRecordingCommitted(recId, startUT, endUT);
+                KerbalsModule.RecalculateAndApply();
                 Log($"Auto-merged recording from {pending.VesselName} ({pending.Points.Count} points)");
             }
             else

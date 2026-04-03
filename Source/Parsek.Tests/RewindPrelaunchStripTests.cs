@@ -116,12 +116,12 @@ namespace Parsek.Tests
         [Fact]
         public void RewindQuicksaveVesselPids_ClearedInResetForTesting()
         {
-            RecordingStore.RewindQuicksaveVesselPids = new HashSet<uint> { 1, 2, 3 };
-            Assert.NotNull(RecordingStore.RewindQuicksaveVesselPids);
+            RewindContext.SetQuicksaveVesselPids(new HashSet<uint> { 1, 2, 3 });
+            Assert.NotNull(RewindContext.RewindQuicksaveVesselPids);
 
             RecordingStore.ResetForTesting();
 
-            Assert.Null(RecordingStore.RewindQuicksaveVesselPids);
+            Assert.Null(RewindContext.RewindQuicksaveVesselPids);
         }
 
         [Fact]
@@ -129,22 +129,22 @@ namespace Parsek.Tests
         {
             // Verify the property round-trips correctly
             var pids = new HashSet<uint> { 42, 77, 999 };
-            RecordingStore.RewindQuicksaveVesselPids = pids;
+            RewindContext.SetQuicksaveVesselPids(pids);
 
-            Assert.Equal(pids, RecordingStore.RewindQuicksaveVesselPids);
-            Assert.Contains(42u, RecordingStore.RewindQuicksaveVesselPids);
-            Assert.Contains(77u, RecordingStore.RewindQuicksaveVesselPids);
-            Assert.Contains(999u, RecordingStore.RewindQuicksaveVesselPids);
-            Assert.DoesNotContain(100u, RecordingStore.RewindQuicksaveVesselPids);
+            Assert.Equal(pids, RewindContext.RewindQuicksaveVesselPids);
+            Assert.Contains(42u, RewindContext.RewindQuicksaveVesselPids);
+            Assert.Contains(77u, RewindContext.RewindQuicksaveVesselPids);
+            Assert.Contains(999u, RewindContext.RewindQuicksaveVesselPids);
+            Assert.DoesNotContain(100u, RewindContext.RewindQuicksaveVesselPids);
         }
 
         [Fact]
         public void RewindQuicksaveVesselPids_NullAfterSetToNull()
         {
-            RecordingStore.RewindQuicksaveVesselPids = new HashSet<uint> { 1 };
-            RecordingStore.RewindQuicksaveVesselPids = null;
+            RewindContext.SetQuicksaveVesselPids(new HashSet<uint> { 1 });
+            RewindContext.SetQuicksaveVesselPids(null);
 
-            Assert.Null(RecordingStore.RewindQuicksaveVesselPids);
+            Assert.Null(RewindContext.RewindQuicksaveVesselPids);
         }
     }
 }

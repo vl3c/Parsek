@@ -22,7 +22,9 @@ namespace Parsek
         BuildingRepaired,    // 14
         FundsChanged,        // 15
         ScienceChanged,      // 16
-        ReputationChanged    // 17
+        ReputationChanged,   // 17
+        MilestoneAchieved,   // 18
+        KerbalRescued        // 19
     }
 
     public struct GameStateEvent
@@ -128,6 +130,7 @@ namespace Parsek
                 case GameStateEventType.CrewHired:
                 case GameStateEventType.CrewRemoved:
                 case GameStateEventType.CrewStatusChanged:
+                case GameStateEventType.KerbalRescued:
                     return "Crew";
                 case GameStateEventType.FacilityUpgraded:
                     return "Upgrade";
@@ -142,6 +145,8 @@ namespace Parsek
                     return "Science";
                 case GameStateEventType.ReputationChanged:
                     return "Reputation";
+                case GameStateEventType.MilestoneAchieved:
+                    return "Milestone";
                 default:
                     return "Event";
             }
@@ -216,6 +221,13 @@ namespace Parsek
                     double delta = e.valueAfter - e.valueBefore;
                     string sign = delta >= 0 ? "+" : "";
                     return $"{sign}{delta.ToString("N0", ic)} ({e.valueBefore.ToString("N0", ic)} \u2192 {e.valueAfter.ToString("N0", ic)})";
+                }
+                case GameStateEventType.MilestoneAchieved:
+                    return $"\"{key}\" achieved";
+                case GameStateEventType.KerbalRescued:
+                {
+                    string trait = ExtractDetailField(detail, "trait");
+                    return trait != null ? $"Rescued {key} ({trait})" : $"Rescued {key}";
                 }
                 default:
                     return key;
@@ -298,5 +310,6 @@ namespace Parsek
     {
         public string subjectId;
         public float science;
+        public float subjectMaxValue;
     }
 }

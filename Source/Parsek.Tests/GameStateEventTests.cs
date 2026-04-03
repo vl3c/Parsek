@@ -39,6 +39,7 @@ namespace Parsek.Tests
         [InlineData(GameStateEventType.FundsChanged, "ContractReward", "", 5000, 15000)]
         [InlineData(GameStateEventType.ScienceChanged, "ExperimentSubmit", "", 50, 75)]
         [InlineData(GameStateEventType.ReputationChanged, "ContractComplete", "", 100, 125)]
+        [InlineData(GameStateEventType.MilestoneAchieved, "FirstOrbitKerbin", "", 0, 0)]
         public void GameStateEvent_SerializationRoundtrip(GameStateEventType type,
             string key, string detail, double valBefore, double valAfter)
         {
@@ -1749,6 +1750,64 @@ namespace Parsek.Tests
 
         #endregion
 
+        #region Milestone Capture (CreateMilestoneEvent)
+
+        [Fact]
+        public void CreateMilestoneEvent_PopulatesFieldsCorrectly()
+        {
+            var evt = GameStateRecorder.CreateMilestoneEvent("FirstOrbitKerbin", 12345.0);
+
+            Assert.Equal(GameStateEventType.MilestoneAchieved, evt.eventType);
+            Assert.Equal("FirstOrbitKerbin", evt.key);
+            Assert.Equal(12345.0, evt.ut);
+            Assert.Equal("", evt.detail);
+        }
+
+        [Fact]
+        public void CreateMilestoneEvent_NullId_DefaultsToEmpty()
+        {
+            var evt = GameStateRecorder.CreateMilestoneEvent(null, 100.0);
+
+            Assert.Equal(GameStateEventType.MilestoneAchieved, evt.eventType);
+            Assert.Equal("", evt.key);
+        }
+
+        [Fact]
+        public void CreateMilestoneEvent_ConvertsToMilestoneAchievement()
+        {
+            var evt = GameStateRecorder.CreateMilestoneEvent("ReachSpace", 5000.0);
+            var action = GameStateEventConverter.ConvertEvent(evt, "rec-abc");
+
+            Assert.NotNull(action);
+            Assert.Equal(GameActionType.MilestoneAchievement, action.Type);
+            Assert.Equal("ReachSpace", action.MilestoneId);
+            Assert.Equal("rec-abc", action.RecordingId);
+            Assert.Equal(5000.0, action.UT);
+            Assert.Equal(0f, action.MilestoneFundsAwarded);
+            Assert.Equal(0f, action.MilestoneRepAwarded);
+        }
+
+        [Fact]
+        public void MilestoneAchieved_DisplayDescription_ShowsAchieved()
+        {
+            var evt = new GameStateEvent
+            {
+                eventType = GameStateEventType.MilestoneAchieved,
+                key = "FirstLaunch"
+            };
+
+            string desc = GameStateEventDisplay.GetDisplayDescription(evt);
+            Assert.Equal("\"FirstLaunch\" achieved", desc);
+        }
+
+        [Fact]
+        public void MilestoneAchieved_DisplayCategory_IsMilestone()
+        {
+            Assert.Equal("Milestone", GameStateEventDisplay.GetDisplayCategory(GameStateEventType.MilestoneAchieved));
+        }
+
+        #endregion
+
         public void Dispose()
         {
             RecordingStore.ResetForTesting();
@@ -1757,6 +1816,7 @@ namespace Parsek.Tests
             ParsekLog.ResetTestOverrides();
             GameStateRecorder.SuppressCrewEvents = false;
             GameStateRecorder.SuppressResourceEvents = false;
+            GameStateRecorder.IsReplayingActions = false;
         }
     }
 }

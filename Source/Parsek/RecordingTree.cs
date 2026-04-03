@@ -340,6 +340,9 @@ namespace Parsek
             }
             if (rec.IsDebris)
                 recNode.AddValue("isDebris", rec.IsDebris.ToString());
+
+            // Crew end states (kerbals module)
+            RecordingStore.SerializeCrewEndStates(recNode, rec);
         }
 
         internal static void LoadRecordingFrom(ConfigNode recNode, Recording rec)
@@ -678,6 +681,9 @@ namespace Parsek
                 if (bool.TryParse(isDebrisStr, out isDebris))
                     rec.IsDebris = isDebris;
             }
+
+            // Crew end states (kerbals module)
+            RecordingStore.DeserializeCrewEndStates(recNode, rec);
         }
 
         #endregion

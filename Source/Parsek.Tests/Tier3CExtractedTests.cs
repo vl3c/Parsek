@@ -25,64 +25,6 @@ namespace Parsek.Tests
             ParsekLog.ResetTestOverrides();
         }
 
-        #region AccumulateReplayResult
-
-        [Fact]
-        public void AccumulateReplayResult_Success_IncrementsSuccessCount()
-        {
-            int success = 0, skip = 0, fail = 0;
-            ActionReplay.AccumulateReplayResult(true, false, ref success, ref skip, ref fail);
-            Assert.Equal(1, success);
-            Assert.Equal(0, skip);
-            Assert.Equal(0, fail);
-        }
-
-        [Fact]
-        public void AccumulateReplayResult_Skipped_IncrementsSkipCount()
-        {
-            int success = 0, skip = 0, fail = 0;
-            ActionReplay.AccumulateReplayResult(true, true, ref success, ref skip, ref fail);
-            Assert.Equal(0, success);
-            Assert.Equal(1, skip);
-            Assert.Equal(0, fail);
-        }
-
-        [Fact]
-        public void AccumulateReplayResult_Failed_IncrementsFailCount()
-        {
-            int success = 0, skip = 0, fail = 0;
-            ActionReplay.AccumulateReplayResult(false, false, ref success, ref skip, ref fail);
-            Assert.Equal(0, success);
-            Assert.Equal(0, skip);
-            Assert.Equal(1, fail);
-        }
-
-        [Fact]
-        public void AccumulateReplayResult_FailedButSkipped_IncrementsSkipNotFail()
-        {
-            // When wasSkipped=true, the skip path takes priority regardless of success
-            int success = 0, skip = 0, fail = 0;
-            ActionReplay.AccumulateReplayResult(false, true, ref success, ref skip, ref fail);
-            Assert.Equal(0, success);
-            Assert.Equal(1, skip);
-            Assert.Equal(0, fail);
-        }
-
-        [Fact]
-        public void AccumulateReplayResult_MultipleCallsAccumulate()
-        {
-            int success = 0, skip = 0, fail = 0;
-            ActionReplay.AccumulateReplayResult(true, false, ref success, ref skip, ref fail);
-            ActionReplay.AccumulateReplayResult(true, false, ref success, ref skip, ref fail);
-            ActionReplay.AccumulateReplayResult(false, false, ref success, ref skip, ref fail);
-            ActionReplay.AccumulateReplayResult(true, true, ref success, ref skip, ref fail);
-            Assert.Equal(2, success);
-            Assert.Equal(1, skip);
-            Assert.Equal(1, fail);
-        }
-
-        #endregion
-
         #region BuildStateMap
 
         [Fact]

@@ -36,6 +36,11 @@ namespace Parsek.Patches
             var committedFacilities = MilestoneStore.GetCommittedFacilityUpgrades();
             if (!committedFacilities.Contains(facilityId))
             {
+                // Note: funds reservation check (LedgerOrchestrator.CanAffordFundsSpending)
+                // is not wired here because UpgradeableFacility.SetLevel does not receive
+                // the upgrade cost as a parameter. Querying GameVariables per-facility cost
+                // functions is complex and fragile. KSP's own funds check prevents the
+                // upgrade if insufficient. The ledger captures the cost after the fact.
                 ParsekLog.Verbose("FacilityUpgradePatch",
                     $"Allowing facility upgrade: '{facilityId}' level {currentLevel} → {lvl} — not in committed set ({committedFacilities.Count} committed)");
                 return true;

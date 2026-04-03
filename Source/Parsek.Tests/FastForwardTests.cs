@@ -57,7 +57,7 @@ namespace Parsek.Tests
         public void CanFastForward_AlreadyRewinding_ReturnsFalse()
         {
             var rec = MakeFutureRecording();
-            RecordingStore.IsRewinding = true;
+            RewindContext.BeginRewind(0, default(BudgetSummary), 0, 0, 0);
             string reason;
             Assert.False(RecordingStore.CanFastForward(rec, out reason, isRecording: false));
             Assert.Equal("Rewind already in progress", reason);
@@ -126,7 +126,7 @@ namespace Parsek.Tests
             // check requires KSP runtime and can't be tested here.
             var rec = MakeFutureRecording();
             Assert.Null(rec.RewindSaveFileName);
-            Assert.False(RecordingStore.IsRewinding);
+            Assert.False(RewindContext.IsRewinding);
             Assert.False(RecordingStore.HasPending);
             Assert.False(RecordingStore.HasPendingTree);
             // If we get past all testable guards, the next call would be

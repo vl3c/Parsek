@@ -103,7 +103,12 @@ namespace Parsek
                             if (pending.VesselSnapshot != null)
                                 CrewReservationManager.UnreserveCrewInSnapshot(pending.VesselSnapshot);
                             pending.VesselSnapshot = null;
+                            string recId = pending.RecordingId;
+                            double startUT = pending.StartUT;
+                            double endUT = pending.EndUT;
                             RecordingStore.CommitPending();
+                            LedgerOrchestrator.OnRecordingCommitted(recId, startUT, endUT);
+                            KerbalsModule.RecalculateAndApply();
                             ClearPendingFlag();
                             ReplayFlightResultsIfPending();
                             ParsekLog.ScreenMessage("Recording merged to timeline!", 3f);
@@ -128,8 +133,12 @@ namespace Parsek
                         new DialogGUIButton("Merge to Timeline", () =>
                         {
                             // Defer spawn — vessel appears when ghost finishes at EndUT
+                            string recId = pending.RecordingId;
+                            double startUT = pending.StartUT;
+                            double endUT = pending.EndUT;
                             RecordingStore.CommitPending();
-                            CrewReservationManager.ReserveSnapshotCrew();
+                            LedgerOrchestrator.OnRecordingCommitted(recId, startUT, endUT);
+                            KerbalsModule.RecalculateAndApply();
                             CrewReservationManager.SwapReservedCrewInFlight();
                             ClearPendingFlag();
                             ReplayFlightResultsIfPending();
@@ -190,8 +199,12 @@ namespace Parsek
                 {
                     new DialogGUIButton("Merge to Timeline", () =>
                     {
+                        string recId = pending.RecordingId;
+                        double startUT = pending.StartUT;
+                        double endUT = pending.EndUT;
                         RecordingStore.CommitPending();
-                        CrewReservationManager.ReserveSnapshotCrew();
+                        LedgerOrchestrator.OnRecordingCommitted(recId, startUT, endUT);
+                        KerbalsModule.RecalculateAndApply();
                         CrewReservationManager.SwapReservedCrewInFlight();
                         ClearPendingFlag();
                         ReplayFlightResultsIfPending();
@@ -219,7 +232,12 @@ namespace Parsek
                             CrewReservationManager.UnreserveCrewInSnapshot(pending.VesselSnapshot);
                         pending.VesselSnapshot = null;
                         NullChainSiblingSnapshots(chainSiblings);
+                        string recId = pending.RecordingId;
+                        double startUT = pending.StartUT;
+                        double endUT = pending.EndUT;
                         RecordingStore.CommitPending();
+                        LedgerOrchestrator.OnRecordingCommitted(recId, startUT, endUT);
+                        KerbalsModule.RecalculateAndApply();
                         ClearPendingFlag();
                         ReplayFlightResultsIfPending();
                         ParsekLog.ScreenMessage($"Mission chain ({totalSegments} segments) merged!", 3f);
@@ -400,7 +418,8 @@ namespace Parsek
                         MarkForceSpawnOnTreeRecordings(tree, av.persistentId);
                     RecordingStore.CommitPendingTree();
                     RecordingStore.RunOptimizationPass();
-                    CrewReservationManager.ReserveSnapshotCrew();
+                    LedgerOrchestrator.NotifyLedgerTreeCommitted(tree);
+                    KerbalsModule.RecalculateAndApply();
                     CrewReservationManager.SwapReservedCrewInFlight();
                     ClearPendingFlag();
                     ReplayFlightResultsIfPending();
@@ -820,7 +839,8 @@ namespace Parsek
                     ApplyVesselDecisions(capturedTree, capturedDecisions);
                     RecordingStore.CommitPendingTree();
                     RecordingStore.RunOptimizationPass();
-                    CrewReservationManager.ReserveSnapshotCrew();
+                    LedgerOrchestrator.NotifyLedgerTreeCommitted(capturedTree);
+                    KerbalsModule.RecalculateAndApply();
                     CrewReservationManager.SwapReservedCrewInFlight();
                     ClearPendingFlag();
                     ReplayFlightResultsIfPending();
