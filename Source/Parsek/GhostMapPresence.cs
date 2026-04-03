@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using HarmonyLib;
 
 namespace Parsek
 {
@@ -562,6 +563,70 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Ensure all tracked ghost vessels have mapObject and orbitRenderer.
+        /// During SpaceTracking.Awake prefix, MapView.fetch may not be initialized yet
+        /// (Unity doesn't guarantee Awake ordering), causing Vessel.AddOrbitRenderer()
+        /// to silently skip creation. This method calls AddOrbitRenderer via Traverse
+        /// on ghosts missing their renderer. Must be called after all Awake methods
+        /// complete (e.g., from a buildVesselsList Prefix or from Start). (#195)
+        /// </summary>
+        internal static int EnsureGhostOrbitRenderers()
+        {
+            if (MapView.fetch == null)
+            {
+                ParsekLog.Warn(Tag, "EnsureGhostOrbitRenderers: MapView.fetch is null — cannot create orbit renderers");
+                return 0;
+            }
+
+            // Collect unique ghost vessels from both dictionaries
+            var ghosts = new HashSet<Vessel>();
+            foreach (var v in vesselsByChainPid.Values)
+                if (v != null) ghosts.Add(v);
+            foreach (var v in vesselsByRecordingIndex.Values)
+                if (v != null) ghosts.Add(v);
+
+            int fixedCount = 0;
+            foreach (var v in ghosts)
+            {
+                bool needsMapObj = v.mapObject == null;
+                bool needsRenderer = v.orbitRenderer == null;
+
+                if (!needsMapObj && !needsRenderer)
+                    continue;
+
+                // Call the private AddOrbitRenderer — it creates both mapObject and
+                // orbitRenderer if missing. Now that MapView.fetch is available, the
+                // guard inside AddOrbitRenderer passes. The method is idempotent.
+                Traverse.Create(v).Method("AddOrbitRenderer").GetValue();
+
+                // Configure rendering (same as post-Load block)
+                if (v.orbitRenderer != null)
+                {
+                    v.orbitRenderer.drawMode = OrbitRendererBase.DrawMode.REDRAW_AND_RECALCULATE;
+                    v.orbitRenderer.drawIcons = OrbitRendererBase.DrawIcons.ALL;
+                    if (!v.orbitRenderer.enabled)
+                        v.orbitRenderer.enabled = true;
+                }
+
+                fixedCount++;
+                ParsekLog.Info(Tag, string.Format(ic,
+                    "EnsureGhostOrbitRenderers: fixed ghost '{0}' pid={1} (mapObj was null={2}, renderer was null={3}, " +
+                    "now mapObj={4} renderer={5})",
+                    v.vesselName, v.persistentId, needsMapObj, needsRenderer,
+                    v.mapObject != null, v.orbitRenderer != null));
+            }
+
+            if (fixedCount > 0)
+                ParsekLog.Info(Tag, string.Format(ic,
+                    "EnsureGhostOrbitRenderers: fixed {0} of {1} ghost vessel(s)", fixedCount, ghosts.Count));
+            else if (ghosts.Count > 0)
+                ParsekLog.Verbose(Tag, string.Format(ic,
+                    "EnsureGhostOrbitRenderers: all {0} ghost vessel(s) already have orbit renderers", ghosts.Count));
+
+            return fixedCount;
+        }
+
+        /// <summary>
         /// Get the ghost Vessel for a chain PID, or null if none exists.
         /// Used for target transfer when chain resolves.
         /// </summary>
@@ -705,6 +770,16 @@ namespace Parsek
                 vesselNode.SetValue("vesselSpawning", "False", true);
                 vesselNode.SetValue("prst", "True", true);
                 vesselNode.SetValue("cln", "False", true);
+
+                // Defensive: ensure sub-nodes that SpaceTracking.buildVesselsList and other
+                // KSP internals assume exist. CreateVesselNode adds ACTIONGROUPS but omits
+                // these three. Missing nodes can cause NREs in tracking station code paths.
+                if (vesselNode.GetNode("FLIGHTPLAN") == null)
+                    vesselNode.AddNode("FLIGHTPLAN");
+                if (vesselNode.GetNode("CTRLSTATE") == null)
+                    vesselNode.AddNode("CTRLSTATE");
+                if (vesselNode.GetNode("VESSELMODULES") == null)
+                    vesselNode.AddNode("VESSELMODULES");
 
                 pv = new ProtoVessel(vesselNode, HighLogic.CurrentGame);
 

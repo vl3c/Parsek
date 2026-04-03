@@ -11,6 +11,22 @@ dotnet test --filter InjectAllRecordings  # inject 8 synthetic recordings into t
 
 Post-build copy uses `ContinueOnError="true"` - builds succeed when KSP has DLL locked.
 
+## KSP Decompilation
+
+To investigate KSP internals, decompile `Assembly-CSharp.dll` using `ilspycmd`:
+
+```bash
+# Install (once)
+dotnet tool install -g ilspycmd
+
+# Decompile a specific type
+ilspycmd "Kerbal Space Program/KSP_x64_Data/Managed/Assembly-CSharp.dll" -t KSP.UI.Screens.SpaceTracking -o /tmp/ksp-decompile/
+ilspycmd "Kerbal Space Program/KSP_x64_Data/Managed/Assembly-CSharp.dll" -t Vessel -o /tmp/ksp-decompile/
+ilspycmd "Kerbal Space Program/KSP_x64_Data/Managed/Assembly-CSharp.dll" -t MapView -o /tmp/ksp-decompile/
+```
+
+Decompiled output has obfuscation artifacts (spurious `while(true) switch` blocks) — ignore those. Also search the web and other KSP mods (Trajectories, Principia, KSPCommunityFixes, VesselMover) for patterns when investigating KSP API behavior.
+
 ## Project Layout
 
 ```

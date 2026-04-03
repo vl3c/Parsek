@@ -852,5 +852,53 @@ namespace Parsek.Tests
         }
 
         #endregion
+
+        #region DefensiveConfigNodes
+
+        [Fact]
+        public void DefensiveNodes_AddedToVesselNodeMissingThem()
+        {
+            // Simulate what ProtoVessel.CreateVesselNode produces:
+            // ACTIONGROUPS is added by CreateVesselNode, but FLIGHTPLAN/CTRLSTATE/VESSELMODULES are not.
+            var vesselNode = new ConfigNode("VESSEL");
+            vesselNode.AddNode("ACTIONGROUPS");
+
+            // Apply the same defensive logic as BuildAndLoadGhostProtoVesselCore
+            if (vesselNode.GetNode("FLIGHTPLAN") == null)
+                vesselNode.AddNode("FLIGHTPLAN");
+            if (vesselNode.GetNode("CTRLSTATE") == null)
+                vesselNode.AddNode("CTRLSTATE");
+            if (vesselNode.GetNode("VESSELMODULES") == null)
+                vesselNode.AddNode("VESSELMODULES");
+
+            Assert.NotNull(vesselNode.GetNode("ACTIONGROUPS"));
+            Assert.NotNull(vesselNode.GetNode("FLIGHTPLAN"));
+            Assert.NotNull(vesselNode.GetNode("CTRLSTATE"));
+            Assert.NotNull(vesselNode.GetNode("VESSELMODULES"));
+        }
+
+        [Fact]
+        public void DefensiveNodes_IdempotentWhenAlreadyPresent()
+        {
+            var vesselNode = new ConfigNode("VESSEL");
+            vesselNode.AddNode("ACTIONGROUPS");
+            vesselNode.AddNode("FLIGHTPLAN");
+            vesselNode.AddNode("CTRLSTATE");
+            vesselNode.AddNode("VESSELMODULES");
+
+            // Apply defensive logic again — should not add duplicates
+            if (vesselNode.GetNode("FLIGHTPLAN") == null)
+                vesselNode.AddNode("FLIGHTPLAN");
+            if (vesselNode.GetNode("CTRLSTATE") == null)
+                vesselNode.AddNode("CTRLSTATE");
+            if (vesselNode.GetNode("VESSELMODULES") == null)
+                vesselNode.AddNode("VESSELMODULES");
+
+            Assert.Single(vesselNode.GetNodes("FLIGHTPLAN"));
+            Assert.Single(vesselNode.GetNodes("CTRLSTATE"));
+            Assert.Single(vesselNode.GetNodes("VESSELMODULES"));
+        }
+
+        #endregion
     }
 }

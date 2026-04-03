@@ -14,13 +14,16 @@ namespace Parsek
         void Start()
         {
             // Ghost vessels are pre-created in GhostTrackingStationInitPatch (Harmony prefix
-            // on SpaceTracking.Awake) to ensure map icon click handlers are registered.
-            // This call is a no-op if they already exist (CreateGhostVesselForRecording skips
-            // duplicates), but acts as a safety net if the Harmony patch didn't run.
+            // on SpaceTracking.Awake). This call is a safety net if Harmony didn't run.
             int created = GhostMapPresence.CreateGhostVesselsFromCommittedRecordings();
+
+            // Ensure orbit renderers exist — MapView.fetch may have been null during Awake
+            // prefix, causing AddOrbitRenderer to bail. By Start, all Awakes are complete. (#195)
+            int fixed2 = GhostMapPresence.EnsureGhostOrbitRenderers();
+
             ParsekLog.Info("TrackingStation",
-                $"ParsekTrackingStation initialized, created {created} ghost map vessel(s)" +
-                (created == 0 ? " (already pre-created by Harmony prefix)" : ""));
+                $"ParsekTrackingStation initialized: created {created} ghost vessel(s), " +
+                $"fixed {fixed2} orbit renderer(s)");
         }
 
         void OnDestroy()

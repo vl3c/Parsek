@@ -2314,11 +2314,19 @@ For hyperbolic escape orbits, KSP's `OrbitRendererBase.UpdateSpline` draws the g
 
 **Status:** TODO — needs custom rendering solution
 
-## 195. Ghost orbit not visible in tracking station
+## ~~195. Ghost orbit not visible in tracking station~~
 
-Ghost ProtoVessels cause NRE in `SpaceTracking.buildVesselsList` — the ghost is missing internal state fields KSP expects. The NRE is suppressed by a Harmony Finalizer (returning null) but the ghost's mapObject and orbitRenderer are never created (`mapObj=False orbitRenderer=False`). Root cause: `pv.Load()` in tracking station doesn't create map objects — those are created by `buildVesselsList` which fails on the ghost. Need to either fix the ghost ProtoVessel to be fully compatible with `buildVesselsList`, or create the map objects manually after Load.
+Ghost ProtoVessels had null `orbitRenderer` in the tracking station, causing NRE at `SpaceTracking.buildVesselsList` line 751: `vessel.orbitRenderer.onVesselIconClicked.Add(...)`. No try/catch in the for loop — a single NRE aborted the entire method including `ConstructUIList()`.
 
-**Status:** TODO — needs deeper investigation
+**Root cause (confirmed via decompilation):** Ghost vessels are created in a Harmony Prefix on `SpaceTracking.Awake`. Inside `pv.Load()`, KSP calls `Vessel.AddOrbitRenderer()` which guards on `MapView.fetch == null`. Unity doesn't guarantee Awake ordering — if `MapView.Awake` hasn't set `fetch = this` yet, `AddOrbitRenderer` silently returns, leaving `orbitRenderer` null.
+
+**Fix (two parts):**
+1. Added Prefix on `SpaceTracking.buildVesselsList` that calls `GhostMapPresence.EnsureGhostOrbitRenderers()` — uses Traverse to invoke private `Vessel.AddOrbitRenderer()` on ghosts with null renderer. By the time buildVesselsList runs (from Start), all Awakes are complete and `MapView.fetch` is available.
+2. Added defensive FLIGHTPLAN/CTRLSTATE/VESSELMODULES empty ConfigNode children to ghost ProtoVessel creation (defense-in-depth for other KSP code paths).
+
+**Files:** `GhostMapPresence.cs`, `GhostTrackingStationPatch.cs`, `ParsekTrackingStation.cs`
+
+**Status:** Fixed
 
 ## 196. Ghost icon popup window should appear next to cursor
 
