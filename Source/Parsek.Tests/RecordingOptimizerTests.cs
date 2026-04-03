@@ -1804,7 +1804,7 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void TrimBoringTail_DoesNotTouchEvents()
+        public void TrimBoringTail_PreservesEventsBeforeTrimUT()
         {
             var rec = MakeRecordingWithBoringTail(17000, 17050, 17650,
                 SegmentEnvironment.Atmospheric, SegmentEnvironment.SurfaceStationary);
@@ -1817,6 +1817,26 @@ namespace Parsek.Tests
             Assert.Single(rec.PartEvents);
             Assert.Single(rec.SegmentEvents);
             Assert.Single(rec.FlagEvents);
+        }
+
+        [Fact]
+        public void TrimBoringTail_StripsEventsPastNewEndUT()
+        {
+            // Sparse boring points (every 100s) with an event between them.
+            // The event at 17080 defines lastInterestingUT → trimUT=17090,
+            // but the last kept point is at 17050 (next point 17150 is past trimUT).
+            // So newEndUT=17050 and the event at 17080 > 17050 gets stripped.
+            var rec = MakeRecordingWithBoringTail(17000, 17050, 17650,
+                SegmentEnvironment.Atmospheric, SegmentEnvironment.SurfaceStationary,
+                activePointCount: 5, boringPointCount: 6); // sparse: ~100s spacing
+            rec.PartEvents.Add(new PartEvent { ut = 17020, eventType = PartEventType.Decoupled });
+            rec.PartEvents.Add(new PartEvent { ut = 17080, eventType = PartEventType.LightOn });
+            var recordings = new List<Recording> { rec };
+
+            RecordingOptimizer.TrimBoringTail(rec, recordings);
+            // Event at 17020 survives (before newEndUT), event at 17080 stripped
+            Assert.Single(rec.PartEvents);
+            Assert.Equal(17020, rec.PartEvents[0].ut);
         }
 
         [Fact]

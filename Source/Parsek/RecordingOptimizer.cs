@@ -622,6 +622,36 @@ namespace Parsek
             }
         }
 
+        private static void StripEventsPastUT(List<PartEvent> events, double ut)
+        {
+            if (events == null) return;
+            for (int i = events.Count - 1; i >= 0; i--)
+            {
+                if (events[i].ut > ut) events.RemoveAt(i);
+                else break;
+            }
+        }
+
+        private static void StripEventsPastUT(List<SegmentEvent> events, double ut)
+        {
+            if (events == null) return;
+            for (int i = events.Count - 1; i >= 0; i--)
+            {
+                if (events[i].ut > ut) events.RemoveAt(i);
+                else break;
+            }
+        }
+
+        private static void StripEventsPastUT(List<FlagEvent> events, double ut)
+        {
+            if (events == null) return;
+            for (int i = events.Count - 1; i >= 0; i--)
+            {
+                if (events[i].ut > ut) events.RemoveAt(i);
+                else break;
+            }
+        }
+
         private static bool GroupsEqual(List<string> a, List<string> b)
         {
             bool aEmpty = a == null || a.Count == 0;
@@ -755,20 +785,20 @@ namespace Parsek
             double originalEndUT = rec.EndUT;
             int originalPointCount = rec.Points.Count;
 
-            // Trim Points — keep last point at or before trimUT
-            int keepCount = rec.Points.Count;
-            for (int i = rec.Points.Count - 1; i >= 0; i--)
+            // Trim Points — find first point past trimUT, keep everything before it
+            int keepCount = 0;
+            for (int i = 0; i < rec.Points.Count; i++)
             {
-                if (rec.Points[i].ut <= trimUT)
+                if (rec.Points[i].ut > trimUT)
                 {
-                    keepCount = i + 1;
+                    keepCount = i;
                     break;
                 }
             }
+            // No points past trimUT — nothing to trim
+            if (keepCount == 0) return false;
             // Must keep at least 2 points for valid interpolation
             if (keepCount < 2) return false;
-            // No points to trim — all points are within the buffer
-            if (keepCount >= rec.Points.Count) return false;
             rec.Points.RemoveRange(keepCount, rec.Points.Count - keepCount);
 
             // Trim TrackSections — remove trailing sections past trimUT, shorten spanning section
@@ -808,11 +838,18 @@ namespace Parsek
                 }
             }
 
+            // Strip events past the new EndUT (they're inert during playback but
+            // waste memory and disk space in serialized sidecar files)
+            double newEndUT = rec.EndUT;
+            StripEventsPastUT(rec.PartEvents, newEndUT);
+            StripEventsPastUT(rec.SegmentEvents, newEndUT);
+            StripEventsPastUT(rec.FlagEvents, newEndUT);
+
             // Invalidate cached stats
             rec.CachedStats = null;
             rec.CachedStatsPointCount = 0;
 
-            double removedSeconds = originalEndUT - rec.EndUT;
+            double removedSeconds = originalEndUT - newEndUT;
             int removedPoints = originalPointCount - rec.Points.Count;
             ParsekLog.Info("Optimizer",
                 $"TrimBoringTail: trimmed '{rec.VesselName}' ({rec.RecordingId}) " +

@@ -33,7 +33,9 @@ namespace Parsek
         public bool IsDebris;
 
         // Loop sync: debris follows parent recording's loop clock (-1 = independent).
-        // Populated at commit/load time from tree BranchPoint linkage.
+        // Index into CommittedRecordings / engine trajectories list. Recomputed on every
+        // RunOptimizationPass call (after every commit and at load). The list is stable
+        // between passes because commits always trigger a full recompute. Not serialized.
         public int LoopSyncParentIdx { get; set; } = -1;
 
         public bool LoopPlayback;
