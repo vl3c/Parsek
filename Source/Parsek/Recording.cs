@@ -31,6 +31,11 @@ namespace Parsek
 
         // True if vessel has no controller parts (debris). Minimal recording only.
         public bool IsDebris;
+
+        // Loop sync: debris follows parent recording's loop clock (-1 = independent).
+        // Populated at commit/load time from tree BranchPoint linkage.
+        public int LoopSyncParentIdx { get; set; } = -1;
+
         public bool LoopPlayback;
         public double LoopIntervalSeconds = 10.0;
         public LoopTimeUnit LoopTimeUnit = LoopTimeUnit.Sec;

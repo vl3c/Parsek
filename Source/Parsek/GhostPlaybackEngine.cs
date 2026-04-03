@@ -191,6 +191,61 @@ namespace Parsek
                     overlapGhosts.Remove(i);
                 }
 
+                // === Loop-synced debris: use parent's loop clock ===
+                if (traj.LoopSyncParentIdx >= 0 && traj.LoopSyncParentIdx < trajectories.Count)
+                {
+                    var parent = trajectories[traj.LoopSyncParentIdx];
+                    if (ShouldLoopPlayback(parent))
+                    {
+                        double parentLoopUT;
+                        long parentCycle;
+                        bool parentPaused;
+                        if (!TryComputeLoopPlaybackUT(parent, ctx.currentUT, ctx.autoLoopIntervalSeconds,
+                                out parentLoopUT, out parentCycle, out parentPaused, traj.LoopSyncParentIdx))
+                        {
+                            if (ghostActive)
+                                DestroyGhost(i, traj, f, reason: "parent loop sync failed");
+                            continue;
+                        }
+
+                        if (parentPaused || suppressGhosts)
+                        {
+                            if (ghostActive)
+                                DestroyGhost(i, traj, f, reason: "parent loop paused/warp");
+                            continue;
+                        }
+
+                        // Cycle change: rebuild ghost for clean visual state
+                        if (ghostActive && state != null && state.loopCycleIndex != parentCycle)
+                        {
+                            DestroyGhost(i, traj, f, reason: "parent loop cycle change");
+                            ghostActive = false;
+                            state = null;
+                            // Clear completed-event flag so the debris can play again
+                            completedEventFired.Remove(i);
+                        }
+
+                        bool debrisInRange = parentLoopUT >= traj.StartUT && parentLoopUT <= traj.EndUT;
+                        if (debrisInRange)
+                        {
+                            // Override UT for positioning — use parent's loop clock
+                            var syncCtx = ctx;
+                            syncCtx.currentUT = parentLoopUT;
+                            if (RenderInRangeGhost(i, traj, f, syncCtx, suppressVisualFx,
+                                    hasPoints, hasSurfaceData, hasOrbitData, ref state, ref ghostActive))
+                            {
+                                if (state != null)
+                                    state.loopCycleIndex = parentCycle;
+                            }
+                        }
+                        else if (ghostActive)
+                        {
+                            DestroyGhost(i, traj, f, reason: "outside debris UT range in parent loop");
+                        }
+                        continue;
+                    }
+                }
+
                 // === Warp suppression: hide ghost during high warp ===
                 if (suppressGhosts && ghostActive)
                 {

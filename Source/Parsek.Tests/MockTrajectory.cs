@@ -30,6 +30,7 @@ namespace Parsek.Tests
         public SurfacePosition? SurfacePos { get; set; }
         public bool PlaybackEnabled { get; set; } = true;
         public bool IsDebris { get; set; }
+        public int LoopSyncParentIdx { get; set; } = -1;
 
         // Terminal orbit properties (for map presence)
         public string TerminalOrbitBody { get; set; }
