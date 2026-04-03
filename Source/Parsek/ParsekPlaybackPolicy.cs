@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using UnityEngine;
 
 namespace Parsek
@@ -539,7 +540,7 @@ namespace Parsek
                         if (!stateVectorCachedIndices.ContainsKey(idx))
                             stateVectorCachedIndices[idx] = -1;
                         int cached = stateVectorCachedIndices[idx];
-                        TrajectoryPoint? pt = TrajectoryMath.InterpolateAtUT(traj.Points, currentUT, ref cached);
+                        TrajectoryPoint? pt = TrajectoryMath.BracketPointAtUT(traj.Points, currentUT, ref cached);
                         stateVectorCachedIndices[idx] = cached;
 
                         if (pt.HasValue && ShouldCreateStateVectorOrbit(pt.Value.altitude, pt.Value.velocity.magnitude))
@@ -590,9 +591,9 @@ namespace Parsek
                             pendingMapVessels.Remove(idx);
                             stateVectorOrbitTrajectories[idx] = traj;
 
-                            ParsekLog.Info("Policy",
-                                $"Created state-vector ghost map vessel for #{idx} \"{traj.VesselName}\" " +
-                                $"— alt={pt.altitude:F0} speed={pt.velocity.magnitude:F1}");
+                            ParsekLog.Info("Policy", string.Format(CultureInfo.InvariantCulture,
+                                "Created state-vector ghost map vessel for #{0} \"{1}\" — alt={2:F0} speed={3:F1}",
+                                idx, traj.VesselName, pt.altitude, pt.velocity.magnitude));
                         }
                     }
                 }
@@ -649,7 +650,7 @@ namespace Parsek
                     if (!stateVectorCachedIndices.ContainsKey(idx))
                         stateVectorCachedIndices[idx] = -1;
                     int cached = stateVectorCachedIndices[idx];
-                    TrajectoryPoint? pt = TrajectoryMath.InterpolateAtUT(traj.Points, currentUT, ref cached);
+                    TrajectoryPoint? pt = TrajectoryMath.BracketPointAtUT(traj.Points, currentUT, ref cached);
                     stateVectorCachedIndices[idx] = cached;
 
                     if (!pt.HasValue) continue;
@@ -659,9 +660,9 @@ namespace Parsek
                         GhostMapPresence.RemoveGhostVesselForRecording(idx, "below-state-vector-threshold");
                         if (toReDefer == null) toReDefer = new List<int>();
                         toReDefer.Add(idx);
-                        ParsekLog.Info("Policy",
-                            $"Removed state-vector ghost map vessel for #{idx} — " +
-                            $"alt={pt.Value.altitude:F0} speed={pt.Value.velocity.magnitude:F1} below threshold");
+                        ParsekLog.Info("Policy", string.Format(CultureInfo.InvariantCulture,
+                            "Removed state-vector ghost map vessel for #{0} — alt={1:F0} speed={2:F1} below threshold",
+                            idx, pt.Value.altitude, pt.Value.velocity.magnitude));
                         continue;
                     }
 
@@ -676,6 +677,8 @@ namespace Parsek
                         if (stateVectorOrbitTrajectories.TryGetValue(idx, out var traj))
                             pendingMapVessels[idx] = traj;
                         stateVectorOrbitTrajectories.Remove(idx);
+                        // stateVectorCachedIndices[idx] intentionally kept — avoids
+                        // O(n) re-scan if the ghost re-ascends above threshold.
                     }
                 }
             }

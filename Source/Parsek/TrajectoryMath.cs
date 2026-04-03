@@ -408,16 +408,16 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Returns the lower-bracket TrajectoryPoint at the given UT, or null if the
-        /// point list is empty or UT is before recording start. For UT past recording
-        /// end, returns the last valid bracket point (clamped).
+        /// Returns the nearest recorded TrajectoryPoint at the given UT, or null if the
+        /// point list is empty/null or UT is before recording start. For UT past recording
+        /// end, returns the last point. For mid-range UT, returns the lower bracket point.
         ///
         /// Uses the bracket point's recorded values directly (no interpolation) for
         /// orbit accuracy — same pattern as VesselSpawner. The bracket point represents
         /// the last sampled physics state, which produces a more physically correct orbit
         /// than interpolated values.
         /// </summary>
-        internal static TrajectoryPoint? InterpolateAtUT(
+        internal static TrajectoryPoint? BracketPointAtUT(
             List<TrajectoryPoint> points, double ut, ref int cachedIndex)
         {
             if (points == null || points.Count == 0)
@@ -433,8 +433,9 @@ namespace Parsek
                 return null;
             }
 
-            // Return the lower bracket point directly (not interpolated).
-            return before;
+            // Past end: t is clamped to 1 — return the upper bracket (last point).
+            // Mid-range: return the lower bracket (most recent sampled state).
+            return t >= 1f ? after : before;
         }
 
         internal static double InterpolateAltitude(double altBefore, double altAfter, float t)

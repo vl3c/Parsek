@@ -489,25 +489,25 @@ namespace Parsek.Tests
 
         #endregion
 
-        #region InterpolateAtUT
+        #region BracketPointAtUT
 
         [Fact]
-        public void InterpolateAtUT_EmptyList_ReturnsNull()
+        public void BracketPointAtUT_EmptyList_ReturnsNull()
         {
             var points = new List<TrajectoryPoint>();
             int cached = -1;
-            Assert.Null(TrajectoryMath.InterpolateAtUT(points, 100, ref cached));
+            Assert.Null(TrajectoryMath.BracketPointAtUT(points, 100, ref cached));
         }
 
         [Fact]
-        public void InterpolateAtUT_NullList_ReturnsNull()
+        public void BracketPointAtUT_NullList_ReturnsNull()
         {
             int cached = -1;
-            Assert.Null(TrajectoryMath.InterpolateAtUT(null, 100, ref cached));
+            Assert.Null(TrajectoryMath.BracketPointAtUT(null, 100, ref cached));
         }
 
         [Fact]
-        public void InterpolateAtUT_BeforeStart_ReturnsNull()
+        public void BracketPointAtUT_BeforeStart_ReturnsNull()
         {
             var points = new List<TrajectoryPoint>
             {
@@ -515,11 +515,11 @@ namespace Parsek.Tests
                 MakePoint(200, alt: 1000)
             };
             int cached = -1;
-            Assert.Null(TrajectoryMath.InterpolateAtUT(points, 50, ref cached));
+            Assert.Null(TrajectoryMath.BracketPointAtUT(points, 50, ref cached));
         }
 
         [Fact]
-        public void InterpolateAtUT_MidRange_ReturnsBracketPoint()
+        public void BracketPointAtUT_MidRange_ReturnsBracketPoint()
         {
             var points = new List<TrajectoryPoint>
             {
@@ -528,7 +528,7 @@ namespace Parsek.Tests
                 MakePoint(300, alt: 1500)
             };
             int cached = -1;
-            var result = TrajectoryMath.InterpolateAtUT(points, 150, ref cached);
+            var result = TrajectoryMath.BracketPointAtUT(points, 150, ref cached);
             Assert.NotNull(result);
             // Returns the lower bracket point (ut=100, alt=500)
             Assert.Equal(100.0, result.Value.ut);
@@ -536,7 +536,7 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void InterpolateAtUT_ExactPoint_ReturnsThatPoint()
+        public void BracketPointAtUT_ExactPoint_ReturnsThatPoint()
         {
             var points = new List<TrajectoryPoint>
             {
@@ -545,14 +545,14 @@ namespace Parsek.Tests
                 MakePoint(300, alt: 1500)
             };
             int cached = -1;
-            var result = TrajectoryMath.InterpolateAtUT(points, 200, ref cached);
+            var result = TrajectoryMath.BracketPointAtUT(points, 200, ref cached);
             Assert.NotNull(result);
             Assert.Equal(200.0, result.Value.ut);
             Assert.Equal(1000.0, result.Value.altitude);
         }
 
         [Fact]
-        public void InterpolateAtUT_PastEnd_ReturnsLastBracketPoint()
+        public void BracketPointAtUT_PastEnd_ReturnsLastPoint()
         {
             var points = new List<TrajectoryPoint>
             {
@@ -560,14 +560,15 @@ namespace Parsek.Tests
                 MakePoint(200, alt: 1000)
             };
             int cached = -1;
-            var result = TrajectoryMath.InterpolateAtUT(points, 999, ref cached);
+            var result = TrajectoryMath.BracketPointAtUT(points, 999, ref cached);
             Assert.NotNull(result);
-            // Past end: FindWaypointIndex returns Count-2=0, before = points[0]
-            Assert.Equal(100.0, result.Value.ut);
+            // Past end: t >= 1, returns upper bracket (last point)
+            Assert.Equal(200.0, result.Value.ut);
+            Assert.Equal(1000.0, result.Value.altitude);
         }
 
         [Fact]
-        public void InterpolateAtUT_SinglePoint_ReturnsNull()
+        public void BracketPointAtUT_SinglePoint_ReturnsNull()
         {
             // Single point → FindWaypointIndex returns -1 (needs at least 2 points)
             var points = new List<TrajectoryPoint>
@@ -575,11 +576,11 @@ namespace Parsek.Tests
                 MakePoint(100, alt: 500)
             };
             int cached = -1;
-            Assert.Null(TrajectoryMath.InterpolateAtUT(points, 100, ref cached));
+            Assert.Null(TrajectoryMath.BracketPointAtUT(points, 100, ref cached));
         }
 
         [Fact]
-        public void InterpolateAtUT_PreservesBodyName()
+        public void BracketPointAtUT_PreservesBodyName()
         {
             var points = new List<TrajectoryPoint>
             {
@@ -587,7 +588,7 @@ namespace Parsek.Tests
                 new TrajectoryPoint { ut = 200, altitude = 1000, bodyName = "Mun", rotation = Quaternion.identity }
             };
             int cached = -1;
-            var result = TrajectoryMath.InterpolateAtUT(points, 150, ref cached);
+            var result = TrajectoryMath.BracketPointAtUT(points, 150, ref cached);
             Assert.NotNull(result);
             Assert.Equal("Mun", result.Value.bodyName);
         }
