@@ -11,6 +11,14 @@ All notable changes to Parsek are documented here.
 - **Parsek.version file (T1).** Added `GameData/Parsek/Parsek.version` for AVC and CKAN version detection. Auto-copied to KSP GameData on build.
 - **UI version display (T2).** Version label ("v0.6.0") shown at the bottom of the main Parsek window, read from AssemblyVersion at runtime.
 
+### Recording Optimizer
+
+- **Fix optimizer over-splitting (PR #111).** The optimizer was splitting recordings at every ExoPropulsive↔ExoBallistic boundary (engine on/off), creating 10+ chain segments for multi-burn missions. Introduced `SplitEnvironmentClass` to coarsen split decisions: ExoPropulsive/ExoBallistic are the same class ("exo"), SurfaceMobile/SurfaceStationary are the same class ("surface"). Splits now only happen at meaningful boundaries: atmo↔exo, exo↔approach, approach↔surface.
+- **Approach environment for airless bodies.** New `SegmentEnvironment.Approach` (=5) classifies vessels below approach altitude on airless bodies (Mun, Minmus). Enables the optimizer to split landing/takeoff recordings so they can be looped independently. A typical Kerbin→Mun landing now produces ~4 segments (atmo, exo, approach, surface) instead of 10+.
+- **Unified tree root recording.** `PromoteToTreeForBreakup` no longer creates separate root and continuation recordings. The main vessel gets one continuous recording through all breakups. Decoupled part events handle ghost visual updates (booster detach) during playback. Eliminates the 14s root fragment that couldn't show later staging events.
+- **Debris loop sync.** Debris ghosts (separated boosters, fairings) now replay in sync with the parent recording's loop cycle. New `LoopSyncParentIdx` field links debris to the parent recording whose loop clock drives their playback. Boosters visibly separate and fly away on each loop iteration.
+- **Boring tail trimming.** Leaf recordings that end with a long idle period (surface stationary or orbital coasting) are automatically trimmed to ~10 seconds past the last meaningful activity. Prevents ghosts from sitting motionless for extended periods before the real vessel spawns. Only applies to leaf recordings (no child branches or chain continuations).
+
 ### Game Actions & Resources System
 
 Full career-mode resource tracking across the rewind timeline. Science, funds, reputation, milestones, contracts, kerbals, facilities, and strategies are now recorded, reconciled on rewind, and patched back into KSP's singletons.
@@ -47,6 +55,15 @@ Full career-mode resource tracking across the rewind timeline. Science, funds, r
 - **Retirement tracking.** When a stand-in is displaced by the original returning, the stand-in becomes "retired" — kept in roster (may appear in recordings) but blocked from dismissal.
 - **MIA respawn override.** KSP's respawn mechanic (Dead-to-Available after delay) is overridden on every recalculation — reserved kerbals stay Assigned regardless.
 
+### Bug Fixes
+
+- **Chain segment gap event loss (#204).** When the optimizer splits a recording into chain segments at TrackSection boundaries, events falling in the UT gap between consecutive segments (e.g., `RecordsAltitude` at the atmosphere/space transition) were silently lost. `NotifyLedgerTreeCommitted` now extends each chain continuation's event window backward to the predecessor's EndUT. In career mode, this prevented milestone rewards from being credited.
+- **Ledger reconcile pruning KSC milestones (#205).** `Ledger.Reconcile` pruned earning-type actions with null `recordingId`, incorrectly removing legitimate KSC spending milestones like `FirstCrewToSurvive` that are not associated with any recording. Fixed condition to allow null-recordingId earnings through.
+- **KerbalDismissalPatch Harmony failure (#206).** The patch targeting `KerbalRoster.Remove` failed with "Ambiguous match" because the method has multiple overloads. Switched to `TargetMethod()` with explicit parameter types `new[] { typeof(ProtoCrewMember) }`.
+- **Duplicate CrewStatusChanged events (#207).** KSP's delayed `onKerbalStatusChange` callbacks fired after the crew mutation suppression window closed, producing redundant `Assigned->Missing` events on every save cycle. Added `KerbalsModule.IsManaged` check to suppress status change noise for reserved/stand-in kerbals.
+- **Chain tip missing terminalState (#208).** In tree mode, the active recording is non-leaf (has debris branches) so `FinalizeIndividualRecording` skipped its terminalState. Added explicit terminalState determination for the active recording in `FinalizeTreeRecordings`, which the optimizer propagates to the chain tip via `SplitAtSection`.
+- **Looping chain crew release (#209).** Fixing the terminalState alone would free crew at the tip's EndUT while the ghost still loops. Added a `loopingChains` pre-scan in `KerbalsModule.Recalculate`: Recovered crews on chains with any looping segment keep `endUT=Infinity`. Disabling the loop correctly releases them.
+
 ### Code Quality & Refactoring
 
 - **RewindContext encapsulation (R3-3).** Extracted 8 scattered static rewind fields from `RecordingStore` into `RewindContext` static class with controlled `BeginRewind()`/`EndRewind()` mutation API.
@@ -63,7 +80,7 @@ Full career-mode resource tracking across the rewind timeline. Science, funds, r
 
 ### Tests
 
-- **4607 tests** (up from 2419 on main). 20 new test classes covering all game action modules, serialization round-trips, recalculation engine, kerbal reservation lifecycle, milestone patching, contract deadline injection, and ChainSegmentManager state management.
+- **4621 tests** (up from 2419 on main). 20 new test classes covering all game action modules, serialization round-trips, recalculation engine, kerbal reservation lifecycle, milestone patching, contract deadline injection, and ChainSegmentManager state management.
 
 ### Research & Documentation
 

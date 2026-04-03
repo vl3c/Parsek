@@ -47,6 +47,9 @@ namespace Parsek
         bool PlaybackEnabled { get; }
         bool IsDebris { get; }
 
+        // === Loop sync (debris follows parent's loop clock) ===
+        int LoopSyncParentIdx { get; set; }
+
         // === Terminal orbit (for ghost map presence) ===
         string TerminalOrbitBody { get; }
         double TerminalOrbitSemiMajorAxis { get; }

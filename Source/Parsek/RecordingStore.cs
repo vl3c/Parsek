@@ -962,6 +962,82 @@ namespace Parsek
                     $"Optimization pass: hit split cap ({maxSplitsPerPass}), some candidates may remain");
             else if (splitCount > 0)
                 ParsekLog.Info("RecordingStore", $"Optimization pass: split {splitCount} recording(s)");
+
+            // Boring tail trim pass: remove trailing idle tails from leaf recordings
+            // so the real vessel spawns promptly instead of waiting through minutes of
+            // ghost sitting motionless on the surface or coasting in orbit.
+            // ORDERING: after splits (which may create new leaf recordings) and before
+            // PopulateLoopSyncParentIndices (which uses list indices).
+            int trimCount = 0;
+            for (int i = 0; i < recordings.Count; i++)
+            {
+                if (RecordingOptimizer.TrimBoringTail(recordings[i], recordings))
+                {
+                    recordings[i].FilesDirty = true;
+                    trimCount++;
+                }
+            }
+            if (trimCount > 0)
+                ParsekLog.Info("RecordingStore",
+                    $"Optimization pass: trimmed boring tails from {trimCount} recording(s)");
+
+            // Loop sync pass: link debris recordings to their parent recording
+            // so debris ghosts replay in sync with the parent's loop cycle.
+            PopulateLoopSyncParentIndices(recordings);
+        }
+
+        /// <summary>
+        /// For each debris recording in a tree, finds the non-debris recording whose
+        /// UT range covers the debris's StartUT and sets LoopSyncParentIdx to its
+        /// committed index. This enables the engine to replay debris ghosts on the
+        /// parent's loop clock.
+        ///
+        /// ORDERING: Must run AFTER all optimizer splits are complete — indices are
+        /// into the final committed recordings list and would be stale if splits
+        /// happened afterward.
+        ///
+        /// When the optimizer splits a parent, the split boundary point appears in
+        /// both halves. The first match is used — both segments belong to the same
+        /// vessel and loop with the same cycle, so either is correct.
+        /// </summary>
+        internal static void PopulateLoopSyncParentIndices(List<Recording> recordings)
+        {
+            if (recordings == null) return;
+
+            int linked = 0;
+            for (int i = 0; i < recordings.Count; i++)
+            {
+                var rec = recordings[i];
+                if (!rec.IsDebris || string.IsNullOrEmpty(rec.TreeId))
+                {
+                    rec.LoopSyncParentIdx = -1;
+                    continue;
+                }
+
+                // Find the non-debris recording in the same tree whose UT range covers this debris's start
+                double debrisStart = rec.StartUT;
+                int parentIdx = -1;
+                for (int j = 0; j < recordings.Count; j++)
+                {
+                    if (j == i) continue;
+                    var candidate = recordings[j];
+                    if (candidate.IsDebris) continue;
+                    if (candidate.TreeId != rec.TreeId) continue;
+                    if (candidate.VesselPersistentId != rec.VesselPersistentId
+                        && debrisStart >= candidate.StartUT && debrisStart <= candidate.EndUT)
+                    {
+                        parentIdx = j;
+                        break;
+                    }
+                }
+
+                rec.LoopSyncParentIdx = parentIdx;
+                if (parentIdx >= 0) linked++;
+            }
+
+            if (linked > 0)
+                ParsekLog.Info("RecordingStore",
+                    $"Loop sync: linked {linked} debris recording(s) to parent recordings");
         }
 
         // ─── Group management helpers ────────────────────────────────────────

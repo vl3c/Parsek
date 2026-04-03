@@ -1241,6 +1241,8 @@ Recordings currently capture entire flights as monolithic units. For effective l
 
 **Status:** Implemented — complete per-phase looping for both chain and tree modes. Chain recordings split eagerly during recording at atmosphere/altitude/SOI boundaries. Tree recordings split post-commit by the optimizer split pass (`FindSplitCandidatesForOptimizer`) at environment boundaries. Both produce the same UI: separate recording entries per phase, each with its own loop toggle. Auto loop range trims boring bookends (orbital coasts, surface idle) when loop is toggled on. `LoopStartUT`/`LoopEndUT` fields provide additional range narrowing. Policy modularity refactored: `IsTreeRecording`/`IsChainRecording`/`ManagesOwnResources` properties, `ClassifyVesselDestruction` and `ShouldSuppressBoundarySplit` extracted as testable methods.
 
+**Follow-up (PR #111):** Optimizer was over-splitting at every ExoPropulsive↔ExoBallistic boundary (engine on/off), creating 10+ segments for multi-burn missions. Fixed via `SplitEnvironmentClass` that coarsens the split decision: ExoPropulsive/ExoBallistic → same class ("exo"), SurfaceMobile/SurfaceStationary → same class ("surface"). Added `SegmentEnvironment.Approach` (=5) for airless body landings below approach altitude, enabling the optimizer to split approach/landing recordings for independent looping on non-atmospheric bodies. Unified tree root recording — `PromoteToTreeForBreakup` no longer creates separate root/continuation, eliminating the short root fragment that couldn't show later staging events. Debris loop sync — `LoopSyncParentIdx` links debris recordings to the parent's loop clock so boosters replay on each loop cycle. Boring tail trimming — leaf recordings ending with long idle tails (SurfaceStationary, ExoBallistic) are automatically trimmed to ~10s past the last meaningful activity, so the real vessel spawns promptly instead of waiting through minutes of motionless ghost.
+
 ## 98. Deleting and recreating a save with the same name leaks old recordings
 
 `initialLoadDone` is a static bool that gates whether `OnLoad` clears and reloads recordings from the `.sfs` (initial load) or keeps in-memory state (revert/scene-change). A save-folder-change check at line 227 resets it when the save name differs. But deleting a career and creating a new one with the same name produces an identical `HighLogic.SaveFolder` — `initialLoadDone` stays `true`, so the new save inherits the old save's in-memory recordings. The `Parsek/Recordings/` sidecar files also persist on disk since KSP's save deletion doesn't know about the Parsek subdirectory.
@@ -2335,7 +2337,7 @@ KSP reports `Vessel.Situations.SUB_ORBITAL` for off-rails physics vessels near a
 
 During time warp, the playback engine can have multiple chain segments active simultaneously (short segments from optimizer splits all fall within the current UT window). Each active ghost gets its own green dot in `DrawMapMarkers`, showing multiple dots for the same vessel scattered along the trajectory.
 
-**Status:** Fixed (0.5.3) — added per-chain dedup in `DrawMapMarkers`: only the highest-index (latest) ghost per chain gets a marker.
+**Status:** Fixed (0.5.3) — added per-chain dedup in `DrawMapMarkers`: only the highest-index (latest) ghost per chain gets a marker. Root cause (excessive optimizer splits at engine on/off boundaries) also fixed in PR #111.
 
 ## 199. Checkpoint log spam: 8,800+ INFO lines per session
 
@@ -2366,6 +2368,52 @@ Environment hysteresis transitions (e.g., Atmospheric → ExoPropulsive at 70km)
 `SplitAtSection` partitions trajectory points by `ut >= splitUT`. When no point falls exactly at `splitUT`, the last point of the first half and the first point of the second half have different UTs with no coverage in between (e.g., 2.92s gap in Mun mission data). The unsplit recording interpolates across this seamlessly, but once split into separate chain segments, the gap becomes a visible jump during playback.
 
 **Status:** Fixed (0.5.3) — `SplitAtSection` now interpolates a synthetic boundary point at exactly `splitUT` (position, velocity, rotation via lerp/slerp) and includes it in both halves.
+
+## 204. Chain segment gap causes game state event loss
+
+When the optimizer splits a recording into chain segments at TrackSection boundaries (atmo/exo/surface), the resulting segments have a UT gap between consecutive trajectory endpoints. `GameStateEventConverter.ConvertEvents` uses the recording's `StartUT`/`EndUT` (derived from trajectory points) as the event attribution window, so events in the gap are silently classified as `outOfRange`. Observed: `RecordsAltitude` at UT=142.85 fell between atmo segment endUT=142.2 and exo segment startUT=142.9 — never converted to a ledger action, never credited. In career mode, this loses milestone rewards.
+
+**Root cause:** `NotifyLedgerTreeCommitted` passes raw `rec.StartUT`/`rec.EndUT` to `OnRecordingCommitted` without accounting for inter-segment gaps.
+
+**Status:** Fixed (0.6.0) — `NotifyLedgerTreeCommitted` builds a chain predecessor EndUT map and extends each continuation's startUT backward to close the gap via `AdjustStartUtForChainGap`.
+
+## 205. Ledger reconcile prunes null-recordingId KSC milestones
+
+`Ledger.Reconcile` classifies earning-type actions by `recordingId`: if `recordingId` is null or not in `validRecordingIds`, the action is pruned. KSC spending milestones like `FirstCrewToSurvive` have null `recordingId` (they occur outside any recording's time range) and were incorrectly pruned on every load. Manifested as ledger loading 18 actions but saving 17.
+
+**Root cause:** The condition `action.RecordingId != null && validRecordingIds.Contains(...)` rejects null recordingId.
+
+**Status:** Fixed (0.6.0) — changed to `action.RecordingId == null || validRecordingIds.Contains(...)`.
+
+## 206. KerbalDismissalPatch Harmony ambiguous match
+
+Harmony error: "Ambiguous match for HarmonyMethod[(class=KerbalRoster, methodname=Remove, type=Normal, args=undefined)]". `KerbalRoster.Remove` has multiple overloads and the attribute-based patch didn't specify which one.
+
+**Status:** Fixed (0.6.0) — switched to `TargetMethod()` with `GetMethod(nameof(KerbalRoster.Remove), new[] { typeof(ProtoCrewMember) })`.
+
+## 207. Duplicate CrewStatusChanged events for reserved kerbals
+
+KSP's `GameEvents.onKerbalStatusChange` callbacks fire asynchronously after the `SuppressCrewEvents` flag is cleared in the `finally` block of `ApplyToRoster`. This produces redundant `Assigned→Missing` transitions on every save cycle (6+ duplicate triplets per crew member per epoch). Events are idempotent but waste storage and create confusing audit trails.
+
+**Root cause:** KSP oscillates reserved kerbals between Assigned and Missing because they aren't aboard any real vessel. Each oscillation fires a delayed event after suppression ends.
+
+**Status:** Fixed (0.6.0) — added `KerbalsModule.IsManaged(crew.name)` check in `OnKerbalStatusChange`. Managed kerbals' status changes are Parsek-internal noise, not game events. Initial crew boarding (Available→Assigned) is not affected because crew is not yet managed at that point.
+
+## 208. Chain tip missing terminalState in tree mode
+
+In tree mode, the active recording spans the entire flight and has debris branch points (non-leaf). `FinalizeIndividualRecording` only sets `terminalState` on leaf recordings, so the active recording's terminalState stays null. When the optimizer splits it into chain segments, null propagates to the tip via `SplitAtSection`. `InferCrewEndState` maps null to `Unknown`, setting crew reservations to `endUT=Infinity` even for successfully recovered vessels.
+
+**Root cause:** `FinalizeIndividualRecording` guards with `isLeaf && !rec.TerminalStateValue.HasValue`, skipping non-leaf recordings.
+
+**Status:** Fixed (0.6.0) — `FinalizeTreeRecordings` now explicitly determines terminalState on the active recording after `FinalizeIndividualRecording`, using `DetermineTerminalState` from the vessel's current situation.
+
+## 209. Looping chain releases crew at tip EndUT after terminalState fix
+
+With bug #208 fixed, the chain tip gets `terminalState=Splashed` → `endState=Recovered` → `endUT=tip.EndUT` (finite). But the ghost replays past that UT via the loop on chain index 0, so crew would be freed while their ghost is still flying.
+
+**Root cause:** Reservation endUT doesn't account for looping segments elsewhere in the chain.
+
+**Status:** Fixed (0.6.0) — `KerbalsModule.Recalculate` pre-scans for `loopingChains` set. When computing endUT for a Recovered crew member on a chain with any looping segment, endUT stays Infinity. Disabling the loop correctly releases them.
 
 # In-Game Tests
 

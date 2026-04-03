@@ -708,5 +708,57 @@ namespace Parsek.Tests
             Assert.Contains(Ledger.Actions, a => a.Type == GameActionType.ScienceInitial);
             Assert.Contains(Ledger.Actions, a => a.Type == GameActionType.ReputationInitial);
         }
+
+        // ================================================================
+        // Reconcile — Null recordingId earnings (KSC milestones)
+        // ================================================================
+
+        [Fact]
+        public void Reconcile_KeepsNullRecordingIdEarnings()
+        {
+            // KSC spending milestones (e.g. FirstCrewToSurvive) have null recordingId
+            Ledger.AddAction(new GameAction
+            {
+                UT = 35940.0,
+                Type = GameActionType.MilestoneAchievement,
+                RecordingId = null,
+                MilestoneId = "FirstCrewToSurvive"
+            });
+
+            var valid = new HashSet<string> { "rec_001" };
+            Ledger.Reconcile(valid, 99999.0);
+
+            Assert.Equal(1, Ledger.Actions.Count);
+            Assert.Equal("FirstCrewToSurvive", Ledger.Actions[0].MilestoneId);
+        }
+
+        [Fact]
+        public void Reconcile_StillPrunesOrphanedNonNullEarnings()
+        {
+            // Earnings WITH a recordingId that doesn't match should still be pruned
+            Ledger.AddAction(new GameAction
+            {
+                UT = 100.0,
+                Type = GameActionType.MilestoneAchievement,
+                RecordingId = "rec_deleted",
+                MilestoneId = "FirstLaunch"
+            });
+            // Null recordingId should survive
+            Ledger.AddAction(new GameAction
+            {
+                UT = 200.0,
+                Type = GameActionType.MilestoneAchievement,
+                RecordingId = null,
+                MilestoneId = "FirstCrewToSurvive"
+            });
+
+            var valid = new HashSet<string> { "rec_001" };
+            Ledger.Reconcile(valid, 99999.0);
+
+            Assert.Equal(1, Ledger.Actions.Count);
+            Assert.Equal("FirstCrewToSurvive", Ledger.Actions[0].MilestoneId);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Ledger]") && l.Contains("prunedEarnings=1"));
+        }
     }
 }
