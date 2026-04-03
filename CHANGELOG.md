@@ -491,6 +491,7 @@ Spawn safety hardening, ghost visual improvements, booster/debris tree recording
 - **Spawn abandon status** — spawn warnings show "walkback exhausted" / "spawn abandoned" status instead of silently retrying
 - **Watch exit key** — changed from Backspace (conflicts with KSP Abort action group) to `[` or `]` bracket keys (#124)
 - **Watch button guards** — disabled for out-of-range ghosts (tooltip: "Ghost is beyond visual range") and past recordings (#89, #90)
+- **Group-level W and R/FF buttons** — recording group headers now show Watch and Rewind/FastForward buttons targeting the group's main recording (earliest non-debris descendant), no need to expand groups to access these controls (#115)
 - **Watch overlay repositioned** — moved to left half of screen to avoid altimeter overlap
 
 ### Performance & Logging
