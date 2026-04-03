@@ -896,35 +896,48 @@ namespace Parsek.Tests
         #region State-vector orbit thresholds
 
         [Theory]
-        [InlineData(2000, 100, true)]    // Above both thresholds
-        [InlineData(1500.1, 60.1, true)] // Just above both thresholds
-        [InlineData(1500, 60, false)]    // At thresholds (not above)
-        [InlineData(1000, 100, false)]   // Below altitude threshold
-        [InlineData(2000, 50, false)]    // Below speed threshold
-        [InlineData(0, 0, false)]        // On the ground
-        public void ShouldCreateStateVectorOrbit_ThresholdBehavior(double alt, double speed, bool expected)
+        [InlineData(2000, 100, 0, true)]       // Airless body, above thresholds
+        [InlineData(1500.1, 60.1, 0, true)]    // Airless, just above thresholds
+        [InlineData(1500, 60, 0, false)]       // Airless, at thresholds (not above)
+        [InlineData(1000, 100, 0, false)]      // Airless, below altitude threshold
+        [InlineData(2000, 50, 0, false)]       // Airless, below speed threshold
+        [InlineData(0, 0, 0, false)]           // On the ground
+        [InlineData(80000, 2000, 70000, true)] // Kerbin, above atmosphere (70km)
+        [InlineData(60000, 2000, 70000, false)]// Kerbin, IN atmosphere — rejected
+        [InlineData(71000, 60.1, 70000, true)] // Kerbin, just above atmosphere
+        public void ShouldCreateStateVectorOrbit_ThresholdBehavior(double alt, double speed, double atmos, bool expected)
         {
-            Assert.Equal(expected, ParsekPlaybackPolicy.ShouldCreateStateVectorOrbit(alt, speed));
+            Assert.Equal(expected, ParsekPlaybackPolicy.ShouldCreateStateVectorOrbit(alt, speed, atmos));
         }
 
         [Theory]
-        [InlineData(100, 10, true)]      // Below both thresholds
-        [InlineData(499, 100, true)]     // Below altitude (OR logic)
-        [InlineData(2000, 29, true)]     // Below speed (OR logic)
-        [InlineData(500, 30, false)]     // At thresholds (not below)
-        [InlineData(1000, 60, false)]    // Above both removal thresholds
-        public void ShouldRemoveStateVectorOrbit_ThresholdBehavior(double alt, double speed, bool expected)
+        [InlineData(100, 10, 0, true)]         // Airless, below both thresholds
+        [InlineData(499, 100, 0, true)]        // Airless, below altitude (OR logic)
+        [InlineData(2000, 29, 0, true)]        // Airless, below speed (OR logic)
+        [InlineData(500, 30, 0, false)]        // Airless, at thresholds (not below)
+        [InlineData(1000, 60, 0, false)]       // Airless, above both removal thresholds
+        [InlineData(60000, 2000, 70000, true)] // Kerbin, IN atmosphere — immediate remove
+        [InlineData(80000, 2000, 70000, false)]// Kerbin, above atmosphere — keep
+        public void ShouldRemoveStateVectorOrbit_ThresholdBehavior(double alt, double speed, double atmos, bool expected)
         {
-            Assert.Equal(expected, ParsekPlaybackPolicy.ShouldRemoveStateVectorOrbit(alt, speed));
+            Assert.Equal(expected, ParsekPlaybackPolicy.ShouldRemoveStateVectorOrbit(alt, speed, atmos));
         }
 
         [Fact]
-        public void StateVectorThresholds_HysteresisGap_Exists()
+        public void StateVectorThresholds_HysteresisGap_AirlessBody()
         {
-            // A vessel at 1000m and 50 m/s should NOT trigger create or remove
-            // (in the hysteresis dead zone between removal and creation thresholds)
-            Assert.False(ParsekPlaybackPolicy.ShouldCreateStateVectorOrbit(1000, 50));
-            Assert.False(ParsekPlaybackPolicy.ShouldRemoveStateVectorOrbit(1000, 50));
+            // Airless body: vessel at 1000m and 50 m/s — in hysteresis dead zone
+            Assert.False(ParsekPlaybackPolicy.ShouldCreateStateVectorOrbit(1000, 50, 0));
+            Assert.False(ParsekPlaybackPolicy.ShouldRemoveStateVectorOrbit(1000, 50, 0));
+        }
+
+        [Fact]
+        public void StateVectorThresholds_AtmosphereOverridesAltitude()
+        {
+            // At 50km on Kerbin (atmos=70km): high speed, but IN atmosphere → no create
+            Assert.False(ParsekPlaybackPolicy.ShouldCreateStateVectorOrbit(50000, 2000, 70000));
+            // Same point triggers removal
+            Assert.True(ParsekPlaybackPolicy.ShouldRemoveStateVectorOrbit(50000, 2000, 70000));
         }
 
         #endregion

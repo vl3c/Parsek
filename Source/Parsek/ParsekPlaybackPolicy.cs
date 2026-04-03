@@ -410,9 +410,11 @@ namespace Parsek
 
         // Hysteresis thresholds for state-vector orbit creation/removal.
         // Higher thresholds to create, lower to remove — prevents churn for borderline altitudes.
-        internal const double StateVectorCreateAltitude = 1500;   // meters
+        // On bodies with atmosphere, the atmosphere depth overrides these (orbit lines are
+        // only meaningful in vacuum — atmospheric drag makes the Keplerian approximation wild).
+        internal const double StateVectorCreateAltitude = 1500;   // meters (airless bodies only)
         internal const double StateVectorCreateSpeed = 60;        // m/s
-        internal const double StateVectorRemoveAltitude = 500;    // meters
+        internal const double StateVectorRemoveAltitude = 500;    // meters (airless bodies only)
         internal const double StateVectorRemoveSpeed = 30;        // m/s
 
         private void HandleGhostCreated(GhostLifecycleEvent evt)
@@ -471,20 +473,42 @@ namespace Parsek
 
         /// <summary>
         /// Pure: should we create a state-vector orbit ProtoVessel at this altitude/speed?
-        /// Uses higher thresholds than removal to prevent create/destroy churn (hysteresis).
+        /// On bodies with atmosphere, requires altitude above atmosphere (Keplerian orbits
+        /// are meaningless during atmospheric flight — drag makes them wild/flickering).
+        /// On airless bodies, uses the fixed altitude threshold.
         /// </summary>
-        internal static bool ShouldCreateStateVectorOrbit(double altitude, double speed)
+        internal static bool ShouldCreateStateVectorOrbit(double altitude, double speed, double atmosphereDepth)
         {
-            return altitude > StateVectorCreateAltitude && speed > StateVectorCreateSpeed;
+            double minAltitude = atmosphereDepth > 0 ? atmosphereDepth : StateVectorCreateAltitude;
+            return altitude > minAltitude && speed > StateVectorCreateSpeed;
         }
 
         /// <summary>
         /// Pure: should we remove a state-vector orbit ProtoVessel at this altitude/speed?
-        /// Uses lower thresholds than creation (hysteresis) — OR logic so either condition triggers.
+        /// On bodies with atmosphere, removes immediately when descending into atmosphere.
+        /// On airless bodies, uses lower hysteresis thresholds.
         /// </summary>
-        internal static bool ShouldRemoveStateVectorOrbit(double altitude, double speed)
+        internal static bool ShouldRemoveStateVectorOrbit(double altitude, double speed, double atmosphereDepth)
         {
+            if (atmosphereDepth > 0 && altitude < atmosphereDepth)
+                return true;
             return altitude < StateVectorRemoveAltitude || speed < StateVectorRemoveSpeed;
+        }
+
+        /// <summary>
+        /// Look up atmosphere depth for a body by name. Returns 0 for airless bodies or if
+        /// FlightGlobals is unavailable (test environment).
+        /// </summary>
+        internal static double GetAtmosphereDepth(string bodyName)
+        {
+            var bodies = FlightGlobals.Bodies;
+            if (bodies == null) return 0;
+            for (int i = 0; i < bodies.Count; i++)
+            {
+                if (bodies[i].name == bodyName && bodies[i].atmosphere)
+                    return bodies[i].atmosphereDepth;
+            }
+            return 0;
         }
 
         /// <summary>
@@ -543,7 +567,8 @@ namespace Parsek
                         TrajectoryPoint? pt = TrajectoryMath.BracketPointAtUT(traj.Points, currentUT, ref cached);
                         stateVectorCachedIndices[idx] = cached;
 
-                        if (pt.HasValue && ShouldCreateStateVectorOrbit(pt.Value.altitude, pt.Value.velocity.magnitude))
+                        double atmosCreate = pt.HasValue ? GetAtmosphereDepth(pt.Value.bodyName) : 0;
+                        if (pt.HasValue && ShouldCreateStateVectorOrbit(pt.Value.altitude, pt.Value.velocity.magnitude, atmosCreate))
                         {
                             if (toCreateFromStateVectors == null)
                                 toCreateFromStateVectors = new List<KeyValuePair<int, TrajectoryPoint>>();
@@ -655,7 +680,8 @@ namespace Parsek
 
                     if (!pt.HasValue) continue;
 
-                    if (ShouldRemoveStateVectorOrbit(pt.Value.altitude, pt.Value.velocity.magnitude))
+                    double atmosRemove = GetAtmosphereDepth(pt.Value.bodyName);
+                    if (ShouldRemoveStateVectorOrbit(pt.Value.altitude, pt.Value.velocity.magnitude, atmosRemove))
                     {
                         GhostMapPresence.RemoveGhostVesselForRecording(idx, "below-state-vector-threshold");
                         if (toReDefer == null) toReDefer = new List<int>();
