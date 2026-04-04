@@ -833,7 +833,7 @@ Functionality:
 | 6. Polish | 18-22 | KSC spendings, UI, old system deprecation, logging, end-to-end test | **Partial** (UI done) |
 | 7. Critical Gaps | 23-28 | Vessel cost/recovery, milestones, science/rep seeding, contract sci, facility/science patching | Pending |
 | 8. Non-Critical | 31-38 | Strategy rates, deadline gen, contract/milestone patching, rescue, warp visuals, MIA, retired UI, mod compat | **Done** (T38 mod testing deferred to T43 — needs KSP runtime) |
-| 9. Architecture | 29-30 | KerbalsModule into engine, old code cleanup | Deferred (T42 — low priority, bridge pattern works) |
+| 9. Architecture | 29-30 | KerbalsModule into engine, old code cleanup | **Done** (T42 — KerbalsModule converted to IResourceModule) |
 
 **Parallelization opportunities:**
 - Tasks 4, 6, 7 are independent first-tier modules — can run in parallel

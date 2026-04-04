@@ -292,5 +292,7 @@ namespace Parsek
             maxSlots = slots;
             ParsekLog.Verbose(Tag, $"SetMaxSlots: maxSlots={maxSlots}");
         }
+
+        public void PostWalk() { }
     }
 }

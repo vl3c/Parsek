@@ -49,7 +49,7 @@ Key source files and what they do - read the relevant one before modifying:
 - `SelectiveSpawnUI.cs` - pure static methods for Real Spawn Control (proximity candidates, countdown formatting)
 - `ParsekScenario.cs` - ScenarioModule for save/load, coroutine hosting, scene transitions
 - `CrewReservationManager.cs` - crew reservation lifecycle (reserve/unreserve/swap/clear)
-- `GameActions/` - ledger-based game actions system (GameAction, Ledger, RecalculationEngine, 7 resource modules, KspStatePatcher, LedgerOrchestrator, GameStateEventConverter)
+- `GameActions/` - ledger-based game actions system (GameAction, Ledger, RecalculationEngine, 8 resource modules including KerbalsModule, KspStatePatcher, LedgerOrchestrator, GameStateEventConverter)
 - `GroupHierarchyStore.cs` - UI recording group hierarchy and visibility state
 - `RecordingStore.cs` - static recording storage surviving scene changes
 - `GhostVisualBuilder.cs` - ghost mesh building from vessel snapshots

@@ -41,7 +41,6 @@ namespace Parsek
                     double endUT = RecordingStore.Pending.EndUT;
                     RecordingStore.CommitPending();
                     LedgerOrchestrator.OnRecordingCommitted(recId, startUT, endUT);
-                    KerbalsModule.RecalculateAndApply();
                     ParsekLog.Warn("Scenario",
                         "Safety net: committed pending recording on save outside Flight");
                 }
@@ -51,7 +50,6 @@ namespace Parsek
                     var treeToCommit = RecordingStore.PendingTree;
                     RecordingStore.CommitPendingTree();
                     LedgerOrchestrator.NotifyLedgerTreeCommitted(treeToCommit);
-                    KerbalsModule.RecalculateAndApply();
                     ParsekLog.Warn("Scenario",
                         "Safety net: committed pending tree on save outside Flight");
                 }
@@ -111,7 +109,7 @@ namespace Parsek
                     $"{treeWithTrackSections} with track sections, {treeWithSnapshots} with snapshots");
 
             // Persist kerbal slots (new format) and crew replacements (backward compat)
-            KerbalsModule.SaveSlots(node);
+            LedgerOrchestrator.Kerbals?.SaveSlots(node);
             CrewReservationManager.SaveCrewReplacements(node);
 
             // Persist group hierarchy and hidden groups
@@ -250,7 +248,7 @@ namespace Parsek
             if (!RewindContext.IsRewinding)
             {
                 CrewReservationManager.LoadCrewReplacements(node);
-                KerbalsModule.LoadSlots(node);
+                LedgerOrchestrator.Kerbals?.LoadSlots(node);
                 GroupHierarchyStore.LoadGroupHierarchy(node);
                 GroupHierarchyStore.LoadHiddenGroups(node);
             }
@@ -620,7 +618,6 @@ namespace Parsek
                             }
                             RecordingStore.RunOptimizationPass();
                         }
-                        KerbalsModule.RecalculateAndApply();
                     }
                     else if ((RecordingStore.HasPending || RecordingStore.HasPendingTree) && !mergeDialogPending)
                     {
@@ -630,7 +627,7 @@ namespace Parsek
                     }
                 }
 
-                KerbalsModule.RecalculateAndApply();
+                LedgerOrchestrator.RecalculateAndPatch();
                 ParsekLog.Info("Scenario", $"{(isRevert ? "Revert" : "Scene change")} — preserving {recordings.Count} session recordings");
                 return;
             }
@@ -666,8 +663,6 @@ namespace Parsek
             }
             double reconcileUT = Planetarium.GetUniversalTime();
             LedgerOrchestrator.OnKspLoad(validIds, reconcileUT);
-
-            KerbalsModule.RecalculateAndApply();
 
             // Diagnostic summary of loaded recordings with UT context
             double loadUT = Planetarium.GetUniversalTime();
@@ -756,7 +751,6 @@ namespace Parsek
                         ScenarioLog($"[Parsek Scenario] Auto-committed pending tree outside Flight " +
                             $"(scene: {HighLogic.LoadedScene})");
                     }
-                    KerbalsModule.RecalculateAndApply();
                 }
                 else if (!mergeDialogPending)
                 {
@@ -877,7 +871,7 @@ namespace Parsek
                 "OnLoad: resource + UT adjustment deferred (waiting for new scene singletons)");
 
             // Re-reserve crew from all recording snapshots
-            KerbalsModule.RecalculateAndApply();
+            LedgerOrchestrator.RecalculateAndPatch();
 
             // Clear rewind flags — rewind loads into SpaceCenter, not Flight
             ParsekLog.Info("Rewind",
@@ -1023,7 +1017,6 @@ namespace Parsek
                     double endUT = RecordingStore.Pending.EndUT;
                     RecordingStore.CommitPending();
                     LedgerOrchestrator.OnRecordingCommitted(recId, startUT, endUT);
-                    KerbalsModule.RecalculateAndApply();
                     mergeDialogPending = false;
                     yield break;
                 }

@@ -49,6 +49,12 @@ namespace Parsek.Tests
             {
                 ProcessedActions.Add(action);
             }
+
+            public int PostWalkCount;
+            public void PostWalk()
+            {
+                PostWalkCount++;
+            }
         }
 
         // ================================================================

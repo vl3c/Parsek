@@ -13,7 +13,7 @@ namespace Parsek.Tests
         {
             RecordingStore.SuppressLogging = true;
             RecordingStore.ResetForTesting();
-            KerbalsModule.ResetForTesting();
+            LedgerOrchestrator.SetKerbalsForTesting(null);
             ParsekLog.ResetTestOverrides();
             ParsekLog.SuppressLogging = false;
             ParsekLog.TestSinkForTesting = line => logLines.Add(line);
@@ -21,7 +21,7 @@ namespace Parsek.Tests
 
         public void Dispose()
         {
-            KerbalsModule.ResetForTesting();
+            LedgerOrchestrator.SetKerbalsForTesting(null);
             RecordingStore.ResetForTesting();
             RecordingStore.SuppressLogging = false;
             ParsekLog.ResetTestOverrides();
@@ -60,9 +60,12 @@ namespace Parsek.Tests
                 { "Jeb", KerbalEndState.Aboard }
             };
             RecordingStore.AddCommittedForTesting(rec);
-            KerbalsModule.Recalculate();
+            var kerbals = KerbalsTestHelper.RecalculateFromStore();
 
-            Assert.True(KerbalsModule.IsManaged("Jeb"), "Jeb should be managed");
+            // Inject the module so ShouldSuppressCrewStatusChange can find it
+            LedgerOrchestrator.SetKerbalsForTesting(kerbals);
+
+            Assert.True(kerbals.IsManaged("Jeb"), "Jeb should be managed");
             Assert.True(GameStateRecorder.ShouldSuppressCrewStatusChange(
                 "Jeb", suppressFlag: false, isIdentity: false));
         }
@@ -71,7 +74,8 @@ namespace Parsek.Tests
         public void ShouldSuppress_UnmanagedKerbal_ReturnsFalse()
         {
             // No recordings, no reservations — "Val" is not managed
-            Assert.False(KerbalsModule.IsManaged("Val"));
+            var kerbals = new KerbalsModule();
+            Assert.False(kerbals.IsManaged("Val"));
             Assert.False(GameStateRecorder.ShouldSuppressCrewStatusChange(
                 "Val", suppressFlag: false, isIdentity: false));
         }
@@ -101,7 +105,8 @@ namespace Parsek.Tests
             // At this point they are NOT managed — the Available->Assigned
             // event must NOT be suppressed.
             // No recordings committed = no reservations
-            Assert.False(KerbalsModule.IsManaged("Jeb"),
+            var kerbals = new KerbalsModule();
+            Assert.False(kerbals.IsManaged("Jeb"),
                 "Jeb should not be managed before reservation");
             Assert.False(GameStateRecorder.ShouldSuppressCrewStatusChange(
                 "Jeb", suppressFlag: false, isIdentity: false),

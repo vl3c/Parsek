@@ -44,7 +44,7 @@ namespace Parsek.Tests
         }
 
         /// <summary>
-        /// Destroyed terminal state → all crew are Dead regardless of snapshot.
+        /// Destroyed terminal state -> all crew are Dead regardless of snapshot.
         /// Guards: vessel destruction always kills all aboard crew.
         /// </summary>
         [Fact]
@@ -57,7 +57,7 @@ namespace Parsek.Tests
         }
 
         /// <summary>
-        /// Recovered terminal state → all crew are Recovered regardless of snapshot.
+        /// Recovered terminal state -> all crew are Recovered regardless of snapshot.
         /// Guards: vessel recovery always recovers all aboard crew.
         /// </summary>
         [Fact]
@@ -70,7 +70,7 @@ namespace Parsek.Tests
         }
 
         /// <summary>
-        /// Intact terminal state (Orbiting) with crew in snapshot → Aboard.
+        /// Intact terminal state (Orbiting) with crew in snapshot -> Aboard.
         /// Guards: crew still aboard an orbiting vessel are marked Aboard.
         /// </summary>
         [Fact]
@@ -83,7 +83,7 @@ namespace Parsek.Tests
         }
 
         /// <summary>
-        /// Intact terminal state (Landed) with crew NOT in snapshot → Dead (EVA'd and lost).
+        /// Intact terminal state (Landed) with crew NOT in snapshot -> Dead (EVA'd and lost).
         /// Guards: crew missing from a landed vessel snapshot means they EVA'd and are presumed lost.
         /// </summary>
         [Fact]
@@ -96,7 +96,7 @@ namespace Parsek.Tests
         }
 
         /// <summary>
-        /// Boarded terminal state with crew in snapshot → Aboard.
+        /// Boarded terminal state with crew in snapshot -> Aboard.
         /// Guards: crew still in vessel when it was boarded remain aboard.
         /// </summary>
         [Fact]
@@ -109,7 +109,7 @@ namespace Parsek.Tests
         }
 
         /// <summary>
-        /// Docked terminal state with crew NOT in snapshot → Unknown (transferred to other vessel).
+        /// Docked terminal state with crew NOT in snapshot -> Unknown (transferred to other vessel).
         /// Guards: crew missing from a docked vessel means they transferred — unknown destination.
         /// </summary>
         [Fact]
@@ -122,7 +122,7 @@ namespace Parsek.Tests
         }
 
         /// <summary>
-        /// Null snapshot crew set with intact terminal state → Dead (no snapshot = EVA'd).
+        /// Null snapshot crew set with intact terminal state -> Dead (no snapshot = EVA'd).
         /// Guards: null snapshotCrew is handled gracefully, treated as empty.
         /// </summary>
         [Fact]
@@ -167,7 +167,7 @@ namespace Parsek.Tests
         }
 
         /// <summary>
-        /// No crew in ghost snapshot → CrewEndStates stays null.
+        /// No crew in ghost snapshot -> CrewEndStates stays null.
         /// Guards: crewless vessels (probes) don't get spurious end states.
         /// </summary>
         [Fact]
@@ -189,7 +189,7 @@ namespace Parsek.Tests
         }
 
         /// <summary>
-        /// Null recording → no crash, just logs and skips.
+        /// Null recording -> no crash, just logs and skips.
         /// Guards: defensive null handling.
         /// </summary>
         [Fact]
@@ -290,7 +290,7 @@ namespace Parsek.Tests
         }
 
         /// <summary>
-        /// Missing CREW_END_STATES node → CrewEndStates stays null (backward compat).
+        /// Missing CREW_END_STATES node -> CrewEndStates stays null (backward compat).
         /// Guards: legacy recordings without crew data don't crash on load.
         /// </summary>
         [Fact]
@@ -305,7 +305,7 @@ namespace Parsek.Tests
         }
 
         /// <summary>
-        /// Null/empty CrewEndStates → no CREW_END_STATES node written (compact save).
+        /// Null/empty CrewEndStates -> no CREW_END_STATES node written (compact save).
         /// Guards: recordings without crew data don't pollute the save file.
         /// </summary>
         [Fact]
@@ -374,11 +374,10 @@ namespace Parsek.Tests
             };
             RecordingStore.AddCommittedForTesting(tip);
 
-            KerbalsModule.ResetForTesting();
-            KerbalsModule.Recalculate();
+            var kerbals = KerbalsTestHelper.RecalculateFromStore();
 
             // Crew should be reserved with Infinity endUT because chain has a looping segment
-            var reservations = KerbalsModule.Reservations;
+            var reservations = kerbals.Reservations;
             Assert.True(reservations.ContainsKey("Jeb"),
                 "Jeb should be reserved");
             Assert.True(double.IsPositiveInfinity(reservations["Jeb"].ReservedUntilUT),
@@ -388,7 +387,6 @@ namespace Parsek.Tests
                 l.Contains("[KerbalsModule]") && l.Contains("Reservation") && l.Contains("Jeb")
                 && l.Contains("chainHasLoop"));
 
-            KerbalsModule.ResetForTesting();
             RecordingStore.ResetForTesting();
         }
 
@@ -425,14 +423,12 @@ namespace Parsek.Tests
             };
             RecordingStore.AddCommittedForTesting(tip);
 
-            KerbalsModule.ResetForTesting();
-            KerbalsModule.Recalculate();
+            var kerbals = KerbalsTestHelper.RecalculateFromStore();
 
-            var reservations = KerbalsModule.Reservations;
+            var reservations = kerbals.Reservations;
             Assert.True(reservations.ContainsKey("Val"));
             Assert.Equal(200.0, reservations["Val"].ReservedUntilUT);
 
-            KerbalsModule.ResetForTesting();
             RecordingStore.ResetForTesting();
         }
 

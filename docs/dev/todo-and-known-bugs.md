@@ -226,17 +226,37 @@ Suborbital recordings were excluded from ghost map presence — no orbit line du
 
 Fixed in v0.6.0 (PR #116). Added `ShouldSkipOrbitSegmentForAtmosphere` check in FlightRecorder (`OnVesselGoOnRails` + `StartRecording` on-rails init) and BackgroundRecorder (`InitializeOnRailsState`). When below atmosphere, orbit segment creation is skipped. Point interpolation lerps across the gap.
 
-### T42. Convert KerbalsModule to IResourceModule
+### T42. Convert KerbalsModule to IResourceModule — DONE
 
-KerbalsModule currently operates as a bridge outside the RecalculationEngine — it iterates recordings directly instead of consuming GameAction objects via the IResourceModule interface. The ledger already captures kerbal data as KerbalAssignment/KerbalHire/KerbalRescue/KerbalStandIn actions, but KerbalsModule ignores them and re-derives everything from recordings. Converting requires: (1) making KerbalsModule non-static (currently static class, can't implement interface), (2) rewriting Recalculate to consume actions instead of recordings, (3) routing 16+ direct `KerbalsModule.RecalculateAndApply()` call sites through `LedgerOrchestrator.RecalculateAndPatch()`. Wide blast radius, no functional gain — the bridge pattern works fine. Do this when there's already a reason to restructure KerbalsModule.
-
-**Priority:** Low — architectural cleanup, bridge pattern is functionally correct
+Converted KerbalsModule from static bridge class to IResourceModule instance participating in the RecalculationEngine walk lifecycle. Key changes: (1) added PostWalk() to IResourceModule interface, (2) KerbalsModule implements Reset/PrePass/ProcessAction/PostWalk consuming KerbalAssignment actions, (3) PrePass reads RecordingStore for mutable recording metadata (loop/chain/disabled status), (4) removed 19 redundant RecalculateAndApply calls, replaced 3 standalone calls with RecalculateAndPatch, (5) added old-save migration for KerbalAssignment actions, (6) fixed latent bug where dead crew (absent from VesselSnapshot) weren't reserved.
 
 ### T43. Mod compatibility testing (CustomBarnKit, Strategia, Contract Configurator)
 
 Test game actions system with popular mods: CustomBarnKit (non-standard facility tiers may break level conversion formula), Strategia (different strategy IDs/transform mechanics), Contract Configurator (contract snapshot round-trip across CC versions). Requires KSP runtime with mods installed. Investigation notes in `docs/dev/mod-compatibility-notes.md`.
 
 **Priority:** Low — v1 targets stock only, mod compat is best-effort
+
+### T44. Refactor kerbal reservation to not use rosterStatus = Assigned
+
+Currently `KerbalsModule.ApplyToRoster` Step 3 sets reserved kerbals to `rosterStatus = Assigned` to prevent KSP from offering them for new flights and to override MIA respawn. But KSP expects Assigned to mean "on a vessel crew manifest," causing two problems that require Harmony workarounds:
+
+1. **ValidateAssignments tug-of-war:** `KerbalRoster.ValidateAssignments(Game)` runs on every scene load, iterates all Assigned kerbals, checks `flightState.protoVessels[i].GetVesselCrew().Contains(pcm)`, and sets any unattached ones to Missing via `StartRespawnPeriod(2000.0)`. Our `KerbalAssignmentValidationPatch` postfix re-applies Assigned after each validation. Produces ~27 KSP warnings per session.
+
+2. **Astronaut Complex count mismatch:** `KerbalRoster.GetAssignedCrewCount()` counts by `rosterStatus == Assigned`, but `AstronautComplex.CreateAssignedList()` builds the list from `protoVessel.GetVesselCrew()` only. Our `AssignedCrewCountPatch` postfix subtracts managed kerbals from the count.
+
+**Current workaround files:** `Patches/KerbalAssignmentValidationPatch.cs` (both patches)
+
+**Proposed refactor:** Leave reserved kerbals as `Available` and use Parsek-internal state for reservation:
+
+1. **Crew dialog filtering:** Harmony patch on `KSP.UI.CrewAssignmentDialog` (or `CrewHatchDialog`) to grey-out or hide `IsManaged()` kerbals in the crew selection list. This prevents assignment without rosterStatus manipulation. Need to decompile `CrewAssignmentDialog` to find the right method (likely `Fill%.` or `%.Create%.` that populates the available crew list).
+
+2. **Keep SwapReservedCrewInFlight as fallback:** If a managed kerbal is assigned to a vessel despite the dialog filter (e.g., from a quicksave), the existing swap mechanism replaces them on flight start.
+
+3. **MIA respawn override:** Currently relies on re-setting Dead kerbals to Assigned on every recalculation. Without Assigned status, need a different mechanism. Options: (a) Harmony prefix on `ProtoCrewMember.%.RespawnPeriod%.` to block respawn for managed kerbals, (b) prefix on the roster's respawn timer check, (c) just accept KSP's respawn and re-reserve the kerbal (they'd appear Available briefly then get re-reserved on next recalculation — functionally equivalent).
+
+4. **Remove patches:** Delete both `KerbalAssignmentValidationPatch` and `AssignedCrewCountPatch`. Remove Step 3 from `ApplyToRoster` (the `pcm.rosterStatus = Assigned` loop) and Step 4 (retired kerbals Assigned). The dismissal patch (`KerbalDismissalPatch`) stays — it's independent of rosterStatus.
+
+**Priority:** Low — current workaround is functional, refactor only if touching crew reservation system
 
 ---
 
@@ -2429,6 +2449,40 @@ The orbit **line** was correctly clipped by `GhostOrbitArcPatch`, but the vessel
 **Fix:** Rewrote `CreateGhostVesselsFromCommittedRecordings` to be chain-aware. New `FindSupersededRecordingIds` builds a set of recording IDs that have a child recording (intermediate chain segments). New `ShouldCreateTrackingStationGhost` evaluates each recording: skips debris, superseded, and non-orbital terminal states. Only chain tips with orbital data get ghost ProtoVessels. Uses `FindOrbitSegment(currentUT)` instead of blindly using the last segment.
 
 **Files:** `GhostMapPresence.cs`, `GhostMapPresenceTests.cs`
+
+## 216. Astronaut Complex "Assigned" tab shows count but empty list
+
+Parsek reserves kerbals by setting `rosterStatus = Assigned` in `ApplyToRoster`, but KSP expects `Assigned` to mean "on a vessel crew manifest." KSP's `ProtoCrewMember` validation fires on every scene load and sets unattached Assigned kerbals to Missing ("Crewmember X found assigned but no vessels reference him"). This creates a tug-of-war: Parsek sets Assigned → KSP sets Missing → next recalculation sets Assigned again. The Astronaut Complex "Assigned" tab counts them in the header but can't find them in any vessel crew, so the list is empty. 27 KSP warnings per session.
+
+**Fix:** Two Harmony postfixes in `KerbalAssignmentValidationPatch.cs`:
+1. `KerbalRoster.ValidateAssignments` postfix: re-applies `Assigned` status to managed kerbals after KSP demotes them to Missing.
+2. `KerbalRoster.GetAssignedCrewCount` postfix: subtracts Parsek-managed kerbals not on a vessel from the count, so the tab number matches the displayed list.
+
+**Future refactor (T44):** The root cause is using `rosterStatus = Assigned` for reservation — KSP expects Assigned to mean "on a vessel." A cleaner approach would be a dedicated reservation mechanism that doesn't conflict with KSP's semantics (e.g., crew dialog filtering patch + internal Parsek reservation state, without changing rosterStatus). This would eliminate both the ValidateAssignments tug-of-war and the GetAssignedCrewCount correction.
+
+## 217. Settings window GUILayout exception (Layout/Repaint mismatch)
+
+`DrawSettingsWindow` throws `ArgumentException: Getting control N's position in a group with only N controls when doing repaint`. This is a Unity IMGUI bug caused by the Layout pass creating a different number of controls than the Repaint pass (conditional `GUILayout` calls whose condition changes between passes). The window is stuck at 10px height and non-functional. 72 exceptions per session when the settings window is opened.
+
+**Fix:** Ensure all `GUILayout` calls in `DrawSettingsWindow` execute identically in both Layout and Repaint passes. Wrap conditionals around content only (not layout elements), or use `GUILayout.BeginVertical`/`EndVertical` to isolate conditional sections.
+
+## 218. Crash breakup debris not recorded when recorder tears down before coalescer
+
+When a vessel crashes during an active recording, the recorder is stopped and committed before the coalescer's 0.5s window elapses. By the time the coalescer emits the BREAKUP event, there is no active tree or recorder to attach it to (`ProcessBreakupEvent: no active tree and no active recorder`). The main vessel recording is saved but the crash debris tree structure is lost. Observed with Acapello crash: 28 debris fragments orphaned, no debris ghosts during playback.
+
+**Priority:** Low — the vessel recording itself is preserved; only debris ghosts are missing.
+
+## 219. Ghost creation fails for orbital debris chain ("no orbit data")
+
+`CreateGhostVessel` repeatedly fails for certain orbital debris chains with `no orbit data for chain pid=NNNN`. The orbit segment data exists in the recording (e.g., `Orbit segment closed: pid=2007561296 UT=2225.4-2245.6 body=Kerbin`) but the ghost system cannot access it at creation time. Fires on every flight scene entry.
+
+**Priority:** Low — only affects debris ghost visibility in orbit.
+
+## 220. PopulateCrewEndStates called repeatedly for 0-point intermediate recordings
+
+Intermediate tree recordings with 0 trajectory points but non-null VesselSnapshot trigger `PopulateCrewEndStates` on every recalculation walk (36 times in a typical session). These recordings can never have crew. The safety net in `PopulateUnpopulatedCrewEndStates` and the PrePass metadata scan both iterate all committed recordings including these zero-point intermediates.
+
+**Priority:** Low — performance optimization, no functional impact.
 
 # In-Game Tests
 

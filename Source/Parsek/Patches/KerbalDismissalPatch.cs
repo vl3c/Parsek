@@ -32,7 +32,7 @@ namespace Parsek.Patches
             if (GameStateRecorder.SuppressCrewEvents) return true;
             if (GameStateRecorder.IsReplayingActions) return true;
 
-            if (KerbalsModule.IsManaged(crew.name))
+            if (LedgerOrchestrator.Kerbals?.IsManaged(crew.name) ?? false)
             {
                 ParsekLog.Info("KerbalDismissal",
                     $"Blocked dismissal of '{crew.name}' — managed by Parsek");

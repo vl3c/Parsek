@@ -492,5 +492,7 @@ namespace Parsek
         {
             return totalCommittedSpendings;
         }
+
+        public void PostWalk() { }
     }
 }

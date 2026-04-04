@@ -432,7 +432,7 @@ namespace Parsek
             string crewName, bool suppressFlag, bool isIdentity)
         {
             if (suppressFlag) return true;
-            if (crewName != null && KerbalsModule.IsManaged(crewName)) return true;
+            if (crewName != null && (LedgerOrchestrator.Kerbals?.IsManaged(crewName) ?? false)) return true;
             if (isIdentity) return true;
             return false;
         }

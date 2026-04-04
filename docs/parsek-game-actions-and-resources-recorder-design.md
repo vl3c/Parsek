@@ -5,7 +5,7 @@
 *Parsek is a KSP1 mod for time-rewind mission recording. Players fly missions, commit recordings to a timeline, rewind to earlier points, and see previously recorded missions play back as ghost vessels alongside new ones. This document specifies how the game's resource state (everything except vessel trajectories) is tracked, reconciled, and kept consistent across rewinds.*
 
 **Version:** 0.5 (Phases 1-8 complete)
-**Status:** All phases implemented and tested (4535+ tests). Full ledger-based recalculation engine with 7 resource modules (Science, Funds, Reputation, Milestones, Contracts, Facilities, Strategies). KSP state patching for all resource types including contract restoration from ConfigNode snapshots and milestone reversal via reflection. Kerbal lifecycle management with reservation chains, stand-in generation, and retirement. Contract deadline failure generation, rescue detection, warp facility patching, and MIA respawn override all complete. Remaining: mod compatibility testing (T43), KerbalsModule IResourceModule conversion (T42).
+**Status:** All phases implemented and tested (4700+ tests). Full ledger-based recalculation engine with 8 resource modules (Science, Funds, Reputation, Milestones, Contracts, Facilities, Strategies, Kerbals). KSP state patching for all resource types including contract restoration from ConfigNode snapshots and milestone reversal via reflection. Kerbal lifecycle management with reservation chains, stand-in generation, and retirement — fully integrated into the engine walk via IResourceModule (T42 complete). Contract deadline failure generation, rescue detection, warp facility patching, and MIA respawn override all complete. Remaining: mod compatibility testing (T43).
 **Out of scope:** Vessel recording system, DAG structure, ghost rendering, distance zones. See `parsek-recording-system-design.md` for those.
 
 ---
@@ -254,7 +254,7 @@ RecalculateAndPatch():
        Module updates its derived state (running balances, caps, reservations, visual state).
   5. Derived state at the end of the walk = current state.
   6. Patch KSP state to match derived state.
-  7. Recalculate kerbals separately (KerbalsModule.RecalculateAndApply).
+  7. PostWalk: modules finalize derived state (e.g. KerbalsModule builds chains/retired set).
 ```
 
 Each module owns its portion of the walk:
@@ -274,7 +274,7 @@ Each module owns its portion of the walk:
 | Transform | Strategies | Apply active strategy transforms to effective contract rewards before second-tier crediting. |
 | Second (dependent) | Funds, Reputation | Aggregate effective (and transformed) earnings and spendings from first-tier modules. |
 | Parallel | Facilities | Derives building state and feeds repair/upgrade costs into Funds. |
-| Outside engine | Kerbals | Reservation/chains from recording snapshots, not from ledger actions. Called separately via `KerbalsModule.RecalculateAndApply()` after the engine walk (see 11.15). |
+| First tier | Kerbals | Reservation/chains from KerbalAssignment actions. PrePass reads RecordingStore for mutable recording metadata. PostWalk builds replacement chains and retired set. ApplyToRoster called by orchestrator after engine walk. |
 
 First-tier modules run their walk and produce effective values. Strategy transforms then modify contract rewards within their active windows. Once transforms are applied, the milestone and contract fund/reputation awards flow into the Funds and Reputation running balances in the second tier. This means a single recalculation pass walks all actions from UT=0 forward, but within each UT, first-tier modules resolve, then strategy transforms apply, then second-tier modules consume the results.
 
@@ -450,7 +450,7 @@ Each module has a corresponding KSP internal state that must agree with the ledg
 
 The Science Archive in the R&D building reads from `ResearchAndDevelopment.Instance`. Patching the per-subject collected totals ensures the Science Archive progress bars reflect the recalculated timeline, not KSP's stale state.
 
-**Implementation status (v0.4):** Science (balance + per-subject collected totals), Funds, Reputation, and Facilities (level + destruction/repair visual state) are fully patched. Milestones (`ProgressTracking`) and Contracts (`ContractSystem`) have scaffolded patcher methods but are not yet functional — they log diagnostics only. Kerbals are patched separately via `KerbalsModule.RecalculateAndApply()` (not through `KspStatePatcher`).
+**Implementation status (v0.6):** All resource types fully patched — Science (balance + per-subject collected totals), Funds, Reputation, Facilities (level + destruction/repair visual state), Milestones (`ProgressTracking`), and Contracts (`ContractSystem` with ConfigNode snapshot restoration). Kerbals are patched via `KerbalsModule.ApplyToRoster()` (called by orchestrator after the engine walk, separate from `KspStatePatcher`).
 
 **Critical: use `SetReputation`, NOT `AddReputation`.** KSP's `AddReputation` applies a nonlinear gain/loss curve. If the recalculation engine already computed the final reputation value through the curve simulation, calling `AddReputation` with a correction delta would apply the curve TWICE, causing significant distortion. `SetReputation` directly assigns the value. This was discovered via decompilation (see spike findings).
 
@@ -1818,7 +1818,7 @@ This means the total number of kerbals in KSP's roster can exceed the Astronaut 
 
 **Why:** Kerbal reservation depends on crew presence in vessel snapshots (which crew members are on which vessel), not on discrete game actions. `KerbalAssignment` actions ARE now generated at commit time via `LedgerOrchestrator.CreateKerbalAssignmentActions` (from crew snapshot data), but they are not yet consumed by any module in the recalculation walk. `KerbalRescue` and `KerbalStandIn` action types exist in the `GameActionType` enum with full serialization but are not currently produced. `KerbalHire` IS produced by `GameStateEventConverter` and consumed by `FundsModule` (for hiring cost deduction).
 
-**Chain and reservation system:** Operates as designed (UT=0 reservation, replacement chains, retired pool, dismissal protection) but through its own `RecalculateAndApply()` method called separately from the ledger pipeline.
+**Chain and reservation system:** Operates as designed (UT=0 reservation, replacement chains, retired pool, dismissal protection). Fully integrated into the engine walk as a first-tier IResourceModule (T42). ProcessAction consumes KerbalAssignment actions; PostWalk builds chains and retired set; ApplyToRoster called by orchestrator after the walk.
 
 **Future direction:** `KerbalAssignment` actions are already produced and persisted in the ledger. To complete the migration: register `KerbalsModule` as an `IResourceModule` and process kerbal actions in the walk (for kerbal-specific UI in the ledger actions list). The `KerbalRescue` and `KerbalStandIn` action types are ready for the same treatment when needed.
 

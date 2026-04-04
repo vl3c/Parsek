@@ -43,5 +43,13 @@ namespace Parsek
         /// </para>
         /// </remarks>
         void ProcessAction(GameAction action);
+
+        /// <summary>
+        /// Called once after all actions have been dispatched via ProcessAction.
+        /// Modules that need cross-action post-processing (e.g. building derived
+        /// structures from the complete accumulated state) implement their logic here.
+        /// Most modules leave this as a no-op.
+        /// </summary>
+        void PostWalk();
     }
 }
