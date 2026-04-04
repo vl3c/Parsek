@@ -12,6 +12,14 @@ All notable changes to Parsek are documented here.
 - **Chain-aware tracking station ghosts (#215).** Tracking station ghost creation now respects recording chains. Intermediate recordings superseded by later recordings in the same chain no longer get stale ghost ProtoVessels. Only chain-tip recordings with orbital data create ghosts.
 - **Tracking station ghost lifecycle (#215).** Ghost ProtoVessels are now removed from the tracking station vessel list when game time passes their orbit segment endUT. Previously, ghosts were created once at scene init and persisted until scene exit regardless of time progression.
 
+### Tests
+
+- **ChainSegmentManager unit tests (T34).** 16 new tests covering `SampleContinuationVessel` guard paths (pid=0 early return, stale/negative index → stop callback), `UpdateContinuationSampling`/`UpdateUndockContinuationSampling` wrappers (no-op and stale-index propagation), `StopAllContinuations` branching (neither/one/both active, chain identity preservation), and `RefreshContinuationSnapshotCore` guards (pid=0, negative recIdx, stale recIdx). Total: 46 tests for ChainSegmentManager (up from 30).
+
+### Documentation
+
+- **TODO cleanup.** Marked T17 (game actions redesign), T25/D20 (playback engine extraction), T28/D2 (commit-pattern dedup), T32 (test audit), T34 (ChainSegmentManager tests), T41 (suborbital orbit line), and T41b (atmosphere on-rails skip) as done.
+
 ---
 
 ## 0.6.0

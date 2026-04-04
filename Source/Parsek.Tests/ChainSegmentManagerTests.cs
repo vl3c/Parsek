@@ -585,5 +585,314 @@ namespace Parsek.Tests
         }
 
         #endregion
+
+        #region SampleContinuationVessel guard paths
+
+        [Fact]
+        public void SampleContinuationVessel_PidZero_ReturnsImmediately()
+        {
+            var csm = new ChainSegmentManager();
+            uint pid = 0;
+            int recIdx = 5;
+            var lastVel = new Vector3(1, 2, 3);
+            double lastUT = 100.0;
+            bool stopCalled = false;
+
+            csm.SampleContinuationVessel(
+                pid, ref recIdx, ref lastVel, ref lastUT,
+                _ => stopCalled = true, "test");
+
+            Assert.False(stopCalled);
+            // ref params unchanged
+            Assert.Equal(5, recIdx);
+            Assert.Equal(new Vector3(1, 2, 3), lastVel);
+            Assert.Equal(100.0, lastUT);
+        }
+
+        [Fact]
+        public void SampleContinuationVessel_NegativeRecIdx_CallsStopWithStaleIndex()
+        {
+            var csm = new ChainSegmentManager();
+            uint pid = 42;
+            int recIdx = -1;
+            var lastVel = Vector3.zero;
+            double lastUT = -1;
+            string stopReason = null;
+
+            csm.SampleContinuationVessel(
+                pid, ref recIdx, ref lastVel, ref lastUT,
+                reason => stopReason = reason, "test");
+
+            Assert.Equal("stale index", stopReason);
+        }
+
+        [Fact]
+        public void SampleContinuationVessel_RecIdxBeyondCount_CallsStopWithStaleIndex()
+        {
+            RecordingStore.ResetForTesting();
+            // CommittedRecordings is empty (count=0), so recIdx=0 is already beyond
+            var csm = new ChainSegmentManager();
+            uint pid = 42;
+            int recIdx = 0;
+            var lastVel = Vector3.zero;
+            double lastUT = -1;
+            string stopReason = null;
+
+            csm.SampleContinuationVessel(
+                pid, ref recIdx, ref lastVel, ref lastUT,
+                reason => stopReason = reason, "test");
+
+            Assert.Equal("stale index", stopReason);
+            RecordingStore.ResetForTesting();
+        }
+
+        [Fact]
+        public void SampleContinuationVessel_RecIdxLargeValue_CallsStopWithStaleIndex()
+        {
+            RecordingStore.ResetForTesting();
+            var csm = new ChainSegmentManager();
+            uint pid = 99;
+            int recIdx = 999;
+            var lastVel = Vector3.zero;
+            double lastUT = -1;
+            string stopReason = null;
+
+            csm.SampleContinuationVessel(
+                pid, ref recIdx, ref lastVel, ref lastUT,
+                reason => stopReason = reason, "test");
+
+            Assert.Equal("stale index", stopReason);
+            RecordingStore.ResetForTesting();
+        }
+
+        [Fact]
+        public void UpdateContinuationSampling_PidZero_NoOp()
+        {
+            var csm = new ChainSegmentManager();
+            // Default state: ContinuationVesselPid = 0
+            Assert.Equal(0u, csm.ContinuationVesselPid);
+
+            logLines.Clear();
+            csm.UpdateContinuationSampling();
+
+            // Should return immediately — no stop logged, no crash
+            Assert.DoesNotContain(logLines, l => l.Contains("stale index"));
+            Assert.Equal(0u, csm.ContinuationVesselPid);
+        }
+
+        [Fact]
+        public void UpdateUndockContinuationSampling_PidZero_NoOp()
+        {
+            var csm = new ChainSegmentManager();
+            Assert.Equal(0u, csm.UndockContinuationPid);
+
+            logLines.Clear();
+            csm.UpdateUndockContinuationSampling();
+
+            Assert.DoesNotContain(logLines, l => l.Contains("stale index"));
+            Assert.Equal(0u, csm.UndockContinuationPid);
+        }
+
+        [Fact]
+        public void UpdateContinuationSampling_StaleIdx_StopsContinuation()
+        {
+            RecordingStore.ResetForTesting();
+            var csm = new ChainSegmentManager();
+            csm.ContinuationVesselPid = 42;
+            csm.ContinuationRecordingIdx = 5; // beyond empty list
+
+            logLines.Clear();
+            csm.UpdateContinuationSampling();
+
+            // SampleContinuationVessel calls StopContinuation("stale index")
+            Assert.Equal(0u, csm.ContinuationVesselPid);
+            Assert.Equal(-1, csm.ContinuationRecordingIdx);
+            Assert.Contains(logLines, l =>
+                l.Contains("Continuation stopped") && l.Contains("stale index"));
+            RecordingStore.ResetForTesting();
+        }
+
+        [Fact]
+        public void UpdateUndockContinuationSampling_StaleIdx_StopsUndockContinuation()
+        {
+            RecordingStore.ResetForTesting();
+            var csm = new ChainSegmentManager();
+            csm.UndockContinuationPid = 99;
+            csm.UndockContinuationRecIdx = 10; // beyond empty list
+
+            logLines.Clear();
+            csm.UpdateUndockContinuationSampling();
+
+            Assert.Equal(0u, csm.UndockContinuationPid);
+            Assert.Equal(-1, csm.UndockContinuationRecIdx);
+            Assert.Contains(logLines, l =>
+                l.Contains("Undock continuation stopped") && l.Contains("stale index"));
+            RecordingStore.ResetForTesting();
+        }
+
+        #endregion
+
+        #region StopAllContinuations branching
+
+        [Fact]
+        public void StopAllContinuations_NeitherActive_NoChanges()
+        {
+            var csm = new ChainSegmentManager();
+            PopulateAllFields(csm);
+            // Set both pids to 0 (inactive) but keep other fields populated
+            csm.ContinuationVesselPid = 0;
+            csm.UndockContinuationPid = 0;
+
+            logLines.Clear();
+            csm.StopAllContinuations("test");
+
+            // Neither Stop method called — no log entries for stops
+            Assert.DoesNotContain(logLines, l => l.Contains("Continuation stopped"));
+            Assert.DoesNotContain(logLines, l => l.Contains("Undock continuation stopped"));
+            // Fields that were set before remain (StopAllContinuations only calls Stop if pid != 0)
+            Assert.Equal(3, csm.ContinuationRecordingIdx);
+            Assert.Equal(7, csm.UndockContinuationRecIdx);
+        }
+
+        [Fact]
+        public void StopAllContinuations_OnlyContinuationActive_StopsOnlyThat()
+        {
+            var csm = new ChainSegmentManager();
+            csm.ContinuationVesselPid = 42;
+            csm.ContinuationRecordingIdx = -1; // sentinel — RefreshSnapshot returns early
+            csm.UndockContinuationPid = 0;
+            csm.UndockContinuationRecIdx = 7;
+
+            logLines.Clear();
+            csm.StopAllContinuations("test-reason");
+
+            // Continuation stopped
+            Assert.Equal(0u, csm.ContinuationVesselPid);
+            Assert.Contains(logLines, l =>
+                l.Contains("Continuation stopped") && l.Contains("test-reason"));
+            // Undock NOT stopped (pid was 0)
+            Assert.DoesNotContain(logLines, l => l.Contains("Undock continuation stopped"));
+            Assert.Equal(7, csm.UndockContinuationRecIdx);
+        }
+
+        [Fact]
+        public void StopAllContinuations_OnlyUndockActive_StopsOnlyThat()
+        {
+            var csm = new ChainSegmentManager();
+            csm.ContinuationVesselPid = 0;
+            csm.ContinuationRecordingIdx = 3;
+            csm.UndockContinuationPid = 99;
+            csm.UndockContinuationRecIdx = -1; // sentinel — RefreshSnapshot returns early
+
+            logLines.Clear();
+            csm.StopAllContinuations("test-reason");
+
+            // Undock stopped
+            Assert.Equal(0u, csm.UndockContinuationPid);
+            Assert.Contains(logLines, l =>
+                l.Contains("Undock continuation stopped") && l.Contains("test-reason"));
+            // Continuation NOT stopped
+            Assert.DoesNotContain(logLines, l => l.Contains("Continuation stopped"));
+            Assert.Equal(3, csm.ContinuationRecordingIdx);
+        }
+
+        [Fact]
+        public void StopAllContinuations_BothActive_StopsBoth()
+        {
+            var csm = new ChainSegmentManager();
+            csm.ContinuationVesselPid = 42;
+            csm.ContinuationRecordingIdx = -1; // sentinel — RefreshSnapshot returns early
+            csm.UndockContinuationPid = 99;
+            csm.UndockContinuationRecIdx = -1; // sentinel — RefreshSnapshot returns early
+
+            logLines.Clear();
+            csm.StopAllContinuations("both-stop");
+
+            Assert.Equal(0u, csm.ContinuationVesselPid);
+            Assert.Equal(0u, csm.UndockContinuationPid);
+            Assert.Contains(logLines, l =>
+                l.Contains("Continuation stopped") && l.Contains("both-stop"));
+            Assert.Contains(logLines, l =>
+                l.Contains("Undock continuation stopped") && l.Contains("both-stop"));
+        }
+
+        [Fact]
+        public void StopAllContinuations_BothActive_PreservesChainIdentity()
+        {
+            var csm = new ChainSegmentManager();
+            PopulateAllFields(csm);
+            csm.ContinuationRecordingIdx = -1; // sentinel for safe refresh
+            csm.UndockContinuationRecIdx = -1;
+
+            csm.StopAllContinuations("cleanup");
+
+            // Chain identity untouched
+            Assert.Equal("chain-abc123", csm.ActiveChainId);
+            Assert.Equal(5, csm.ActiveChainNextIndex);
+            Assert.Equal("prev-xyz", csm.ActiveChainPrevId);
+            Assert.Equal("Jebediah Kerman", csm.ActiveChainCrewName);
+            // Pending untouched
+            Assert.True(csm.PendingContinuation);
+        }
+
+        #endregion
+
+        #region RefreshContinuationSnapshotCore guard paths
+
+        [Fact]
+        public void RefreshContinuationSnapshotCore_PidZero_ReturnsImmediately()
+        {
+            var csm = new ChainSegmentManager();
+            bool getCalled = false;
+            bool setCalled = false;
+            bool stopCalled = false;
+
+            csm.RefreshContinuationSnapshotCore(
+                0, 5, _ => stopCalled = true,
+                _ => { getCalled = true; return null; },
+                (_, __) => setCalled = true,
+                "test");
+
+            Assert.False(stopCalled);
+            Assert.False(getCalled);
+            Assert.False(setCalled);
+        }
+
+        [Fact]
+        public void RefreshContinuationSnapshotCore_NegativeRecIdx_ReturnsImmediately()
+        {
+            var csm = new ChainSegmentManager();
+            bool stopCalled = false;
+
+            csm.RefreshContinuationSnapshotCore(
+                42, -1, _ => stopCalled = true,
+                _ => null, (_, __) => { },
+                "test");
+
+            Assert.False(stopCalled);
+        }
+
+        [Fact]
+        public void RefreshContinuationSnapshotCore_StaleRecIdx_CallsStop()
+        {
+            RecordingStore.ResetForTesting();
+            var csm = new ChainSegmentManager();
+            string stopReason = null;
+
+            csm.RefreshContinuationSnapshotCore(
+                42, 999, reason => stopReason = reason,
+                _ => null, (_, __) => { },
+                "test");
+
+            Assert.Equal("stale index in snapshot refresh", stopReason);
+            RecordingStore.ResetForTesting();
+        }
+
+        #endregion
+
+        // Note: CommitSegmentCore and all public commit methods (CommitBoundarySplit,
+        // CommitChainSegment, CommitDockUndockSegment, CommitVesselSwitchTermination)
+        // cannot be unit-tested because they hit FlightGlobals.ActiveVessel which has
+        // a static initializer that requires Unity runtime (Quaternion.Euler).
     }
 }

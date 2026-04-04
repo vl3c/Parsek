@@ -108,14 +108,9 @@ KSP's inertial reference frame may drift over very long time warp. Could cause g
 
 ## TODO — Code Quality
 
-### T17. Game actions recording redesign (Phase 8)
+### ~~T17. Game actions recording redesign (Phase 8)~~ DONE
 
-Redesign milestone capture, resource budgeting, and action replay validated per game mode: sandbox (no resources), science (science only), career (full). See roadmap Phase 8.
-
-**Priority:** High — correctness across game modes
-
-**Phase 8 subtask progress:**
-- Task 36 (KSP MIA Respawn Handling, D7): DONE — `KerbalsModule.ApplyToRoster()` Step 3 sets every reserved kerbal to `Assigned` on each recalculation, overriding KSP's MIA respawn. 5 tests in `KerbalReservationTests.MiaRespawnOverride_*`.
+Full ledger-based game actions system shipped in v0.6.0. 7 resource modules (Science, Funds, Reputation, Milestones, Contracts, Facilities, Strategies), KspStatePatcher, contract deadline failures, kerbal rescue detection, game state event recording, milestone path qualification, strategy commitment rates, warp facility patching. 4621 tests. See CHANGELOG 0.6.0 "Game Actions & Resources System" and "Kerbal Lifecycle Management" sections.
 
 ### T18. Log contract checker error whitelist (bug #63)
 
@@ -155,9 +150,9 @@ Items identified during refactor-2 (March 2026) but deferred because they requir
 
 A broader refactor-3 audit (March 2026) identified additional structural opportunities beyond these deferred items. Full analysis in [refactor-3-audit.md](plans/refactor-3-audit.md).
 
-### T25. ParsekFlight TimelinePlaybackController extraction (D20)
+### ~~T25. ParsekFlight TimelinePlaybackController extraction (D20)~~ DONE
 
-**Status: DONE** — Completed as GhostPlaybackEngine (1553 lines) + ParsekPlaybackPolicy (192 lines) + IPlaybackTrajectory/IGhostPositioner/GhostPlaybackEvents interfaces. ParsekFlight reduced from ~9900 to 8657 lines. Engine has zero Recording references, accesses trajectories via IPlaybackTrajectory interface only. D5 and D8 now done (PR #85). D2 done (T28, CommitSegmentCore extracted).
+Completed as GhostPlaybackEngine (1553 lines) + ParsekPlaybackPolicy (192 lines) + IPlaybackTrajectory/IGhostPositioner/GhostPlaybackEvents interfaces. ParsekFlight reduced from ~9900 to 8657 lines. Engine has zero Recording references, accesses trajectories via IPlaybackTrajectory interface only. D5 and D8 now done (PR #85). D2 done (T28, CommitSegmentCore extracted).
 
 ### ~~T26. ParsekFlight ChainSegmentManager extraction (D21)~~ DONE
 
@@ -167,9 +162,9 @@ Phase 1 (state isolation): 16 chain state fields moved to ChainSegmentManager. ~
 
 Extracted `SampleAnimationStates` core method with `AnimLookup` enum + `FindAnimation` resolver. 4 methods reduced to thin wrappers, 4 caches consolidated into 1 `animationSampleCache`. Net -139 lines.
 
-### T28. ParsekFlight commit-pattern dedup (D2)
+### ~~T28. ParsekFlight commit-pattern dedup (D2)~~ DONE
 
-~~Unify `CommitChainSegment`, `CommitDockUndockSegment`, `CommitBoundarySplit`, `HandleVesselSwitchChainTermination`.~~ **DONE** — `CommitSegmentCore` extracts shared stash/tag/commit/advance pattern. All 4 commit methods now delegate to CommitSegmentCore via `Action<Recording>` callback. CommitSegmentCore handles nullable CaptureAtStop for boundary splits.
+`CommitSegmentCore` extracts shared stash/tag/commit/advance pattern. All 4 commit methods (`CommitChainSegment`, `CommitDockUndockSegment`, `CommitBoundarySplit`, `HandleVesselSwitchChainTermination`) now delegate to CommitSegmentCore via `Action<Recording>` callback. CommitSegmentCore handles nullable CaptureAtStop for boundary splits.
 
 ### T29. BackgroundRecorder Check*State polling dedup (D11)
 
@@ -187,7 +182,7 @@ Extracted `HandleResizeDrag` and `DrawResizeHandle` static helpers. 4 drag block
 
 **Priority:** Low — moderate savings, moderate risk
 
-### T32. Deep test suite audit — DONE (audit + fixes), edge cases deferred
+### ~~T32. Deep test suite audit~~ DONE (audit + fixes), edge cases deferred
 
 Audit completed: 110 test files (~55k lines) reviewed by 9 Opus subagents, independently reviewed. Fixes applied: 43 files changed, +170/-1182 lines.
 
@@ -205,11 +200,9 @@ Remaining edge case gaps (P3, not addressed):
 
 Added 5 accessor methods (`AddHiddenGroup`, `RemoveHiddenGroup`, `IsGroupHidden`, `TryGetGroupParent`, `HasGroupParent`). Migrated all ~20 ParsekUI.cs direct field accesses to use accessors and read-only properties. Tests retain direct field access for setup (pragmatic — encapsulation targets production coupling).
 
-### T34. ChainSegmentManager unit tests
+### ~~T34. ChainSegmentManager unit tests~~ DONE
 
-ChainSegmentManager has no dedicated test file. Pure state-machine methods (`ClearAll`, `ClearChainIdentity`, `StopContinuation`, `StopUndockContinuation`) and the commit abort paths are testable without Unity. Continuation sampling logic (`SampleContinuationVessel`) would need mocking for `FlightRecorder.FindVesselByPid` and `RecordingStore`.
-
-**Priority:** Medium — new class with non-trivial state transitions
+46 tests in `ChainSegmentManagerTests.cs`. Covers: all state-machine methods (ClearAll, ClearChainIdentity, StopContinuation, StopUndockContinuation), field isolation, sentinel values, idempotency, logging. Also covers `SampleContinuationVessel` guard paths (pid=0 early return, stale index), `UpdateContinuationSampling`/`UpdateUndockContinuationSampling` wrappers (no-op and stale-index-stop paths), `StopAllContinuations` branching (neither/one/both active, identity preservation), `RefreshContinuationSnapshotCore` guards (pid=0, negative recIdx, stale recIdx). Commit methods cannot be unit-tested (FlightGlobals static initializer requires Unity runtime).
 
 ### T35. ChainSegmentManager field encapsulation
 
@@ -247,17 +240,15 @@ Ghost orbit lines look identical to real vessel orbit lines. Should have a disti
 
 **Priority:** Low — cosmetic, functional without it
 
-### T41. Ghost orbit line for suborbital recordings
+### ~~T41. Ghost orbit line for suborbital recordings~~ DONE
 
 Suborbital recordings were excluded from ghost map presence — no orbit line during playback. Now relaxed: HandleGhostCreated allows SubOrbital terminal state through. Two paths: (1) recordings with orbit segments use the existing deferred mechanism, (2) physics-only recordings construct the orbit from interpolated state vectors when altitude > 1500m and speed > 60 m/s. Hysteresis thresholds (remove at alt < 500m or speed < 30 m/s) prevent create/destroy churn. RELATIVE-frame recordings are guarded against. Tracking station still excludes SubOrbital.
 
 **Status:** Fixed (0.6.0)
 
-### T41b. Skip orbit segment recording during in-atmosphere on-rails
+### ~~T41b. Skip orbit segment recording during in-atmosphere on-rails~~ DONE
 
-When the player time-warps during atmospheric reentry, KSP puts the vessel on-rails and the recorder creates an orbit segment with Keplerian elements (no drag). During playback, the ghost follows this dragless arc instead of the real trajectory. Surface clamp (PR #113) prevents underground tunneling, but the position is approximate. Fix: in FlightRecorder's `onVesselGoOnRails` handler, check `v.mainBody.atmosphere && v.altitude < v.mainBody.atmosphereDepth` — if below atmosphere, skip orbit segment creation. Point interpolation will lerp across the gap during playback.
-
-**Priority:** Medium — affects any recording where the player warped through atmospheric flight
+Fixed in v0.6.0 (PR #116). Added `ShouldSkipOrbitSegmentForAtmosphere` check in FlightRecorder (`OnVesselGoOnRails` + `StartRecording` on-rails init) and BackgroundRecorder (`InitializeOnRailsState`). When below atmosphere, orbit segment creation is skipped. Point interpolation lerps across the gap.
 
 ### T42. Convert KerbalsModule to IResourceModule
 
