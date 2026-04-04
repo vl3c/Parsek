@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using HarmonyLib;
 
 namespace Parsek
 {
@@ -51,12 +52,29 @@ namespace Parsek
         private static readonly Dictionary<uint, int> vesselPidToRecordingIndex = new Dictionary<uint, int>();
 
         /// <summary>
+        /// Orbit segment time bounds per ghost vessel PID. Used by GhostOrbitArcPatch
+        /// to clip the orbit line to only the visible arc (between segment startUT and endUT).
+        /// Only populated for segment-based ghosts — terminal-orbit ghosts render the full ellipse.
+        /// </summary>
+        internal static readonly Dictionary<uint, (double startUT, double endUT)> ghostOrbitBounds
+            = new Dictionary<uint, (double, double)>();
+
+        /// <summary>
         /// O(1) check used by all guard code throughout the codebase.
         /// Returns true if the given persistentId belongs to a ghost map ProtoVessel.
         /// </summary>
         internal static bool IsGhostMapVessel(uint persistentId)
         {
             return ghostMapVesselPids.Contains(persistentId);
+        }
+
+        /// <summary>
+        /// O(1) check: is this ghost's native icon currently suppressed (below atmosphere)?
+        /// When true, DrawMapMarkers draws our custom icon at the ghost mesh position instead.
+        /// </summary>
+        internal static bool IsIconSuppressed(uint persistentId)
+        {
+            return ghostsWithSuppressedIcon.Contains(persistentId);
         }
 
         // ------------------------------------------------------------------
@@ -262,6 +280,7 @@ namespace Parsek
             }
 
             ghostMapVesselPids.Remove(ghostPid);
+            ghostOrbitBounds.Remove(ghostPid);
             vesselsByChainPid.Remove(chainPid);
 
             ParsekLog.Info(Tag,
@@ -310,6 +329,7 @@ namespace Parsek
 
             ghostMapVesselPids.Clear();
             ghostsWithSuppressedIcon.Clear();
+            ghostOrbitBounds.Clear();
             vesselsByChainPid.Clear();
             vesselsByRecordingIndex.Clear();
             vesselPidToRecordingIndex.Clear();
@@ -368,6 +388,7 @@ namespace Parsek
             {
                 vesselsByRecordingIndex[recordingIndex] = vessel;
                 vesselPidToRecordingIndex[vessel.persistentId] = recordingIndex;
+                ghostOrbitBounds[vessel.persistentId] = (segment.startUT, segment.endUT);
             }
 
             return vessel;
@@ -394,6 +415,7 @@ namespace Parsek
             }
 
             ghostMapVesselPids.Remove(ghostPid);
+            ghostOrbitBounds.Remove(ghostPid);
             vesselPidToRecordingIndex.Remove(ghostPid);
             vesselsByRecordingIndex.Remove(recordingIndex);
 
@@ -575,6 +597,9 @@ namespace Parsek
 
             vessel.orbitDriver.updateFromParameters();
 
+            // Store orbit segment time bounds for arc clipping (GhostOrbitArcPatch)
+            ghostOrbitBounds[vessel.persistentId] = (segment.startUT, segment.endUT);
+
             // After SOI change, force the orbit renderer to recalculate for the new body.
             // Without this, the orbit line stays clipped to the old body's SOI radius.
             // DrawOrbit is protected, so toggle the renderer off/on to force a full rebuild.
@@ -641,20 +666,54 @@ namespace Parsek
             if (committed == null || committed.Count == 0) return 0;
 
             int created = 0;
+            double currentUT = Planetarium.GetUniversalTime();
             for (int i = 0; i < committed.Count; i++)
             {
                 var rec = committed[i];
                 if (rec.IsDebris) continue;
 
+                // Skip recordings with non-orbital terminal states (Landed, Destroyed, etc.)
+                // Allow: Orbiting, Docked, and null (intermediate chain segments / unfinished).
                 var terminal = rec.TerminalStateValue;
                 if (terminal.HasValue
                     && terminal.Value != TerminalState.Orbiting
                     && terminal.Value != TerminalState.Docked)
                     continue;
 
-                if (!HasOrbitData(rec)) continue;
+                // Skip recordings where currentUT is outside all orbit segments —
+                // either before the vessel reached orbit or after it left orbit.
+                // Exception: if the recording has terminal orbit data (stable orbit),
+                // fall through to the terminal orbit path even past segment endUT (#212).
+                if (rec.OrbitSegments != null && rec.OrbitSegments.Count > 0)
+                {
+                    var firstSeg = rec.OrbitSegments[0];
+                    var lastSeg = rec.OrbitSegments[rec.OrbitSegments.Count - 1];
+                    if (currentUT < firstSeg.startUT || currentUT > lastSeg.endUT)
+                    {
+                        if (!HasOrbitData(rec))
+                            continue;
+                    }
+                }
+                // No orbit segments and no terminal orbit → nothing to show
+                else if (!HasOrbitData(rec))
+                {
+                    continue;
+                }
 
-                Vessel v = CreateGhostVesselForRecording(i, rec);
+                // Use terminal orbit data if available; otherwise fall back to
+                // the last orbit segment (intermediate chain segments and recordings
+                // without terminal orbit fields still have orbit segment data).
+                Vessel v = null;
+                if (HasOrbitData(rec))
+                {
+                    v = CreateGhostVesselForRecording(i, rec);
+                }
+                else if (rec.OrbitSegments != null && rec.OrbitSegments.Count > 0)
+                {
+                    var lastSeg = rec.OrbitSegments[rec.OrbitSegments.Count - 1];
+                    v = CreateGhostVesselFromSegment(i, rec, lastSeg);
+                }
+
                 if (v != null) created++;
             }
 
@@ -665,6 +724,78 @@ namespace Parsek
                         created, committed.Count));
 
             return created;
+        }
+
+        /// <summary>
+        /// Ensure all tracked ghost vessels have mapObject and orbitRenderer.
+        /// During SpaceTracking.Awake prefix, MapView.fetch may not be initialized yet
+        /// (Unity doesn't guarantee Awake ordering), causing Vessel.AddOrbitRenderer()
+        /// to silently skip creation. This method calls AddOrbitRenderer via Traverse
+        /// on ghosts missing their renderer. Must be called after all Awake methods
+        /// complete (e.g., from a buildVesselsList Prefix or from Start). (#195)
+        /// </summary>
+        internal static int EnsureGhostOrbitRenderers()
+        {
+            if (MapView.fetch == null)
+            {
+                ParsekLog.Warn(Tag, "EnsureGhostOrbitRenderers: MapView.fetch is null — cannot create orbit renderers");
+                return 0;
+            }
+
+            // Collect unique ghost vessels from both dictionaries
+            var ghosts = new HashSet<Vessel>();
+            foreach (var v in vesselsByChainPid.Values)
+                if (v != null) ghosts.Add(v);
+            foreach (var v in vesselsByRecordingIndex.Values)
+                if (v != null) ghosts.Add(v);
+
+            int fixedCount = 0;
+            foreach (var v in ghosts)
+            {
+                bool needsMapObj = v.mapObject == null;
+                bool needsRenderer = v.orbitRenderer == null;
+
+                if (!needsMapObj && !needsRenderer)
+                    continue;
+
+                // Call the private AddOrbitRenderer — it creates both mapObject and
+                // orbitRenderer if missing. Now that MapView.fetch is available, the
+                // guard inside AddOrbitRenderer passes. The method is idempotent.
+                Traverse.Create(v).Method("AddOrbitRenderer").GetValue();
+
+                if (v.orbitRenderer == null && needsRenderer)
+                {
+                    ParsekLog.Warn(Tag, string.Format(ic,
+                        "EnsureGhostOrbitRenderers: AddOrbitRenderer via Traverse had no effect on '{0}' pid={1} — " +
+                        "method may have been renamed in a KSP update",
+                        v.vesselName, v.persistentId));
+                }
+
+                // Configure rendering (same as post-Load block)
+                if (v.orbitRenderer != null)
+                {
+                    v.orbitRenderer.drawMode = OrbitRendererBase.DrawMode.REDRAW_AND_RECALCULATE;
+                    v.orbitRenderer.drawIcons = OrbitRendererBase.DrawIcons.ALL;
+                    if (!v.orbitRenderer.enabled)
+                        v.orbitRenderer.enabled = true;
+                }
+
+                fixedCount++;
+                ParsekLog.Info(Tag, string.Format(ic,
+                    "EnsureGhostOrbitRenderers: fixed ghost '{0}' pid={1} (mapObj was null={2}, renderer was null={3}, " +
+                    "now mapObj={4} renderer={5})",
+                    v.vesselName, v.persistentId, needsMapObj, needsRenderer,
+                    v.mapObject != null, v.orbitRenderer != null));
+            }
+
+            if (fixedCount > 0)
+                ParsekLog.Info(Tag, string.Format(ic,
+                    "EnsureGhostOrbitRenderers: fixed {0} of {1} ghost vessel(s)", fixedCount, ghosts.Count));
+            else if (ghosts.Count > 0)
+                ParsekLog.Verbose(Tag, string.Format(ic,
+                    "EnsureGhostOrbitRenderers: all {0} ghost vessel(s) already have orbit renderers", ghosts.Count));
+
+            return fixedCount;
         }
 
         /// <summary>
@@ -715,6 +846,7 @@ namespace Parsek
         {
             ghostMapVesselPids.Clear();
             ghostsWithSuppressedIcon.Clear();
+            ghostOrbitBounds.Clear();
             vesselsByChainPid.Clear();
             vesselsByRecordingIndex.Clear();
             vesselPidToRecordingIndex.Clear();
@@ -823,6 +955,16 @@ namespace Parsek
                 vesselNode.SetValue("vesselSpawning", "False", true);
                 vesselNode.SetValue("prst", "True", true);
                 vesselNode.SetValue("cln", "False", true);
+
+                // Defensive: ensure sub-nodes that SpaceTracking.buildVesselsList and other
+                // KSP internals assume exist. CreateVesselNode adds ACTIONGROUPS but omits
+                // these three. Missing nodes can cause NREs in tracking station code paths.
+                if (vesselNode.GetNode("FLIGHTPLAN") == null)
+                    vesselNode.AddNode("FLIGHTPLAN");
+                if (vesselNode.GetNode("CTRLSTATE") == null)
+                    vesselNode.AddNode("CTRLSTATE");
+                if (vesselNode.GetNode("VESSELMODULES") == null)
+                    vesselNode.AddNode("VESSELMODULES");
 
                 pv = new ProtoVessel(vesselNode, HighLogic.CurrentGame);
 

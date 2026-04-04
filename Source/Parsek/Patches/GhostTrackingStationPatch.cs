@@ -15,20 +15,31 @@ namespace Parsek.Patches
     /// </summary>
 
     /// <summary>
-    /// Suppresses NullReferenceException in SpaceTracking.buildVesselsList caused by
-    /// ghost ProtoVessels. Ghost ProtoVessels can trigger NREs in KSP's internal vessel
-    /// list rebuilding when asteroids are spawned/destroyed, because buildVesselsList
-    /// assumes certain vessel state fields are always populated. The Finalizer returns
-    /// null for the exception, which tells Harmony to swallow it completely (the original
-    /// method's caller never sees it). Unlike the previous approach of hiding ghosts from
-    /// FlightGlobals, this allows the ghost to remain in the vessel list so its sidebar
-    /// widget and map node are created. The NRE typically occurs on a single ghost vessel
-    /// iteration but the method continues processing remaining vessels (KSP uses try/catch
-    /// internally for individual widget creation).
+    /// Ensures ghost vessels have orbit renderers before buildVesselsList iterates them,
+    /// and suppresses any remaining NREs as a safety net.
+    ///
+    /// Root cause (#195): ghost ProtoVessels are created in the SpaceTracking.Awake prefix
+    /// when MapView.fetch may not yet be initialized (Unity Awake ordering is undefined).
+    /// Vessel.AddOrbitRenderer() silently bails when MapView.fetch is null, leaving
+    /// orbitRenderer null. buildVesselsList (decompiled line 751) unconditionally accesses
+    /// vessel.orbitRenderer.onVesselIconClicked.Add(...) with NO try/catch in the for loop,
+    /// so a single NRE aborts the entire method including ConstructUIList().
+    ///
+    /// The Prefix calls EnsureGhostOrbitRenderers() which uses Traverse to invoke the
+    /// private AddOrbitRenderer() on ghosts with null orbitRenderer. By the time
+    /// buildVesselsList runs (from Start or event handlers), all Awakes have completed
+    /// and MapView.fetch is guaranteed available.
+    ///
+    /// The Finalizer remains as a safety net for unforeseen NREs from ghost ProtoVessels.
     /// </summary>
     [HarmonyPatch(typeof(SpaceTracking), "buildVesselsList")]
     internal static class GhostTrackingBuildVesselsListPatch
     {
+        static void Prefix()
+        {
+            GhostMapPresence.EnsureGhostOrbitRenderers();
+        }
+
         static Exception Finalizer(Exception __exception)
         {
             if (__exception != null)
@@ -41,12 +52,13 @@ namespace Parsek.Patches
     }
 
     /// <summary>
-    /// Creates ghost map ProtoVessels BEFORE SpaceTracking builds its widget list.
-    /// SpaceTracking.Awake iterates FlightGlobals.Vessels to create sidebar widgets
-    /// AND map node click callbacks. Ghost vessels created after this point appear
-    /// in the sidebar (via onVesselCreate) but their map icons are not clickable.
-    /// Running in a prefix ensures ghost vessels are in FlightGlobals.Vessels when
-    /// SpaceTracking processes the list, giving them full click interactivity.
+    /// Creates ghost map ProtoVessels before SpaceTracking.Start loads the game state.
+    /// SpaceTracking.Awake only registers events — vessel iteration happens in
+    /// buildVesselsList() called from Start(). Creating ghosts early ensures they are
+    /// in FlightGlobals.Vessels before st.Load() and buildVesselsList() run.
+    /// Note: orbitRenderer may be null after creation here if MapView.Awake hasn't
+    /// run yet — this is fixed by the buildVesselsList Prefix calling
+    /// EnsureGhostOrbitRenderers().
     /// </summary>
     [HarmonyPatch(typeof(SpaceTracking), "Awake")]
     internal static class GhostTrackingStationInitPatch
@@ -116,15 +128,16 @@ namespace Parsek.Patches
     }
 
     /// <summary>
-    /// Prevents SpaceTracking.SetVessel from crashing on ghost ProtoVessels.
-    /// Ghost vessels lack certain state fields that SetVessel assumes exist,
-    /// causing NullReferenceException when clicking a ghost in the tracking station.
-    /// Shows a screen message instead.
+    /// Prevents SpaceTracking.SetVessel from selecting ghost ProtoVessels.
+    /// SetVessel enables the Fly/Delete/Recover buttons for the selected vessel.
+    /// If we only block SetVessel, the buttons stay enabled from the previous
+    /// selection — clicking Fly would then fly to the wrong vessel (e.g., an
+    /// asteroid). We must also lock the buttons after blocking.
     /// </summary>
     [HarmonyPatch(typeof(SpaceTracking), "SetVessel")]
     internal static class GhostTrackingSetVesselPatch
     {
-        static bool Prefix(Vessel v)
+        static bool Prefix(SpaceTracking __instance, Vessel v)
         {
             if (v == null || !GhostMapPresence.IsGhostMapVessel(v.persistentId))
                 return true;
@@ -132,6 +145,13 @@ namespace Parsek.Patches
             ScreenMessages.PostScreenMessage(
                 $"<b>{v.vesselName}</b> is a ghost — it shows the predicted orbit of a recorded vessel.",
                 5f, ScreenMessageStyle.UPPER_CENTER);
+
+            // Disable Fly/Delete/Recover buttons so the user can't accidentally
+            // act on whatever vessel was previously selected internally.
+            __instance.FlyButton.interactable = false;
+            __instance.DeleteButton.interactable = false;
+            __instance.RecoverButton.interactable = false;
+
             ParsekLog.Info("GhostMap",
                 $"Blocked SetVessel for ghost '{v.vesselName}' pid={v.persistentId} in Tracking Station");
             return false;

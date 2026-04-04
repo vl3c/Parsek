@@ -4199,7 +4199,7 @@ namespace Parsek
                 if (GhostMapPresence.HasGhostVesselForRecording(kvp.Key))
                 {
                     uint ghostPid = GhostMapPresence.GetGhostVesselPidForRecording(kvp.Key);
-                    if (ghostPid == 0 || !GhostMapPresence.ghostsWithSuppressedIcon.Contains(ghostPid))
+                    if (ghostPid == 0 || !GhostMapPresence.IsIconSuppressed(ghostPid))
                         continue; // native icon is active — skip our marker
                 }
                 if (kvp.Key < committed.Count)

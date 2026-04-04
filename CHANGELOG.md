@@ -12,6 +12,7 @@ All notable changes to Parsek are documented here.
 - **Ghost orbit line suppression (Harmony).** New `GhostOrbitLinePatch` postfix on `OrbitRendererBase.LateUpdate` hides the orbit line for ghost ProtoVessels below atmosphere while keeping the native KSP map icon visible. Also hides Ap/Pe/AN/DN markers when orbit line is hidden.
 - **Debris map markers hidden.** Debris ghost recordings no longer show green dot markers in map view.
 - **Stock vessel type icons for ghost markers.** Ghost map markers now use KSP's actual vessel type icons (Ship, Probe, Rover, Station, Plane, etc.) from the orbit icon atlas instead of a plain green dot. Icons are color-tinted per vessel type. Falls back to a diamond shape before MapView initialization.
+- **Ghost orbit arc clipping.** Ghost orbit lines in the tracking station now render only the arc between the orbit segment's `startUT` and `endUT`, instead of the full Keplerian ellipse. Suborbital trajectories no longer show orbit lines passing through the planet surface. Uses a Harmony prefix on `OrbitRendererBase.UpdateSpline` that applies the same eccentric-anomaly arc-clipping logic as KSP's own `PatchRendering`. Terminal-orbit ghosts (stable orbits) continue to show the full ellipse. Ap/Pe/AN/DN nodes are hidden for partial-arc ghosts to prevent misleading markers at out-of-arc positions.
 - **Ghost ProtoVessel pressure protection.** New `GhostCheckKillPatch` prevents KSP from destroying ghost ProtoVessels due to on-rails atmospheric pressure. Deorbit orbits pass through the atmosphere, triggering KSP's stock vessel destruction — if the map camera was focused on the ghost, this caused a NullRef cascade that broke scaled space rendering (planet disappeared, stuck exit).
 - **Ghost surface clamp.** Ghost mesh clamped to body surface when Keplerian orbit goes underground (deorbit orbits with sub-surface periapsis). Prevents ghost tunneling through the planet during orbit-only recording sections.
 
@@ -84,6 +85,13 @@ Full career-mode resource tracking across the rewind timeline. Science, funds, r
 - **Dock/undock state dedup (R3-5).** Extracted `ClearDockUndockState()` and `RestartRecordingAfterDockUndock()` from ParsekFlight, eliminating 4x duplicated cleanup and restart blocks.
 - **Removed ActionReplay.** Legacy action replay system (499 lines) replaced by ledger-based recalculation.
 - **Removed ResourceApplicator.** Legacy resource delta application (318 lines) replaced by KspStatePatcher.
+
+### Bug Fixes
+
+- **Fix #195: Ghost orbit lines not visible in tracking station.** Ghost ProtoVessels created in `SpaceTracking.Awake` prefix had null `orbitRenderer` because `MapView.fetch` wasn't set yet (Unity Awake ordering is undefined). `buildVesselsList` line 751 unconditionally accesses `vessel.orbitRenderer.onVesselIconClicked` with no try/catch — single NRE aborted the entire method including `ConstructUIList()`. Fix: added Prefix on `buildVesselsList` calling `EnsureGhostOrbitRenderers()` which uses Traverse to invoke private `AddOrbitRenderer()` on ghosts with null renderer. Also added defensive FLIGHTPLAN/CTRLSTATE/VESSELMODULES ConfigNode children to ghost ProtoVessel.
+- **Fix: Ghost map missing in tracking station when TerminalOrbit fields empty.** `CreateGhostVesselsFromCommittedRecordings` only checked `HasOrbitData()` (terminal orbit fields) which returned false for all recordings. Now falls back to the last `OrbitSegment` — same pattern used by the flight scene's deferred creation path.
+- **Fix: Duplicate ghost orbit lines during time warp across chain segments.** Multiple chain segments each created their own ghost map ProtoVessel during fast time warp. Added per-chain dedup via `chainMapOwner` dict — when a new chain segment creates a ghost map vessel, the previous segment's is removed.
+- **Fix T41: Ghost orbit line persists after landing.** `CheckPendingMapVessels` skipped with `continue` when `FindOrbitSegment` returned null (ghost past all orbit segments). The stale orbit line remained indefinitely. Now removes the ghost map ProtoVessel when UT exits all orbit segments.
 
 ### Tests
 

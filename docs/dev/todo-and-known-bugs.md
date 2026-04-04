@@ -2269,25 +2269,25 @@ During ascent, map view shows green dot icons for past recordings' spawned vesse
 
 When a ghost transitions SOI from Kerbin to Sun, the orbit line only renders up to the Mun's orbit distance. The orbit update log shows the first SOI change incorrectly sets body=Kerbin instead of Sun, then a second transition corrects it. The orbit cache key may not account for body changes, causing stale orbit rendering relative to the wrong body. Check `ApplyOrbitToVessel` and orbit cache invalidation on SOI transitions.
 
-**Status:** TODO — investigate
+**Status:** Fixed (0.5.3) — celestialBody was being set AFTER SetOrbit, so orbitDriver still referenced the old body during updateFromParameters. Fix sets celestialBody BEFORE SetOrbit and toggles the orbit renderer off/on after SOI change to force a full recalculation.
 
 ## 190. Ghost icon popup menu appears at screen center instead of cursor
 
 `GhostVesselLoadPatch` converts mouse position to normalized anchor coordinates for `PopupDialog.SpawnPopupDialog`, but KSP's PopupDialog may interpret the anchor differently. The popup consistently appears at screen center. May need screen-space coordinates instead of normalized.
 
-**Status:** TODO — fix
+**Status:** Fixed (0.5.3) — popup now uses (0.5,0.5) anchors and offsets localPosition from canvas center using mouse-to-canvas-relative coordinates after spawn.
 
 ## 191. Ghost icon popup menu doesn't close on outside click
 
 The popup spawned via `PopupDialog.SpawnPopupDialog` for ghost icons has no outside-click detection. User must press Esc to dismiss. Need to implement click-outside dismissal.
 
-**Status:** TODO — fix
+**Status:** Fixed (0.5.3) — outside-click dismissal via LateUpdate check using GetMouseButtonUp with a frame-count grace period to avoid eating the same click that opened the menu.
 
 ## 192. KSP's default vessel menu appears alongside Parsek popup in solar orbit
 
 `GhostIconClickPatch` is a Harmony postfix on `OrbitRendererBase.objectNode_OnClick`, so it runs after KSP's original handler. Both KSP's "Set as Target / Switch To" menu and Parsek's custom menu appear. Fix: change to a prefix that returns false for ghost vessels to suppress KSP's handler.
 
-**Status:** TODO — fix
+**Status:** Fixed (0.5.3) — changed GhostIconClickPatch from Postfix to Prefix, returns false for ghost vessels so KSP's original objectNode_OnClick never fires.
 
 ## 193. Double-click ghost map icon should focus camera on it
 
@@ -2307,11 +2307,19 @@ For hyperbolic escape orbits, KSP's `OrbitRendererBase.UpdateSpline` draws the g
 
 **Status:** TODO — needs custom rendering solution
 
-## 195. Ghost orbit not visible in tracking station
+## ~~195. Ghost orbit not visible in tracking station~~
 
-Ghost ProtoVessels cause NRE in `SpaceTracking.buildVesselsList` — the ghost is missing internal state fields KSP expects. The NRE is suppressed by a Harmony Finalizer (returning null) but the ghost's mapObject and orbitRenderer are never created (`mapObj=False orbitRenderer=False`). Root cause: `pv.Load()` in tracking station doesn't create map objects — those are created by `buildVesselsList` which fails on the ghost. Need to either fix the ghost ProtoVessel to be fully compatible with `buildVesselsList`, or create the map objects manually after Load.
+Ghost ProtoVessels had null `orbitRenderer` in the tracking station, causing NRE at `SpaceTracking.buildVesselsList` line 751: `vessel.orbitRenderer.onVesselIconClicked.Add(...)`. No try/catch in the for loop — a single NRE aborted the entire method including `ConstructUIList()`.
 
-**Status:** TODO — needs deeper investigation
+**Root cause (confirmed via decompilation):** Ghost vessels are created in a Harmony Prefix on `SpaceTracking.Awake`. Inside `pv.Load()`, KSP calls `Vessel.AddOrbitRenderer()` which guards on `MapView.fetch == null`. Unity doesn't guarantee Awake ordering — if `MapView.Awake` hasn't set `fetch = this` yet, `AddOrbitRenderer` silently returns, leaving `orbitRenderer` null.
+
+**Fix (two parts):**
+1. Added Prefix on `SpaceTracking.buildVesselsList` that calls `GhostMapPresence.EnsureGhostOrbitRenderers()` — uses Traverse to invoke private `Vessel.AddOrbitRenderer()` on ghosts with null renderer. By the time buildVesselsList runs (from Start), all Awakes are complete and `MapView.fetch` is available.
+2. Added defensive FLIGHTPLAN/CTRLSTATE/VESSELMODULES empty ConfigNode children to ghost ProtoVessel creation (defense-in-depth for other KSP code paths).
+
+**Files:** `GhostMapPresence.cs`, `GhostTrackingStationPatch.cs`, `ParsekTrackingStation.cs`
+
+**Status:** Fixed
 
 ## 196. Ghost icon popup window should appear next to cursor
 
@@ -2428,6 +2436,14 @@ KSP's `Vessel.CheckKill()` destroys on-rails vessels at > 1 kPa atmospheric pres
 **Root cause:** Ghost ProtoVessels were not protected against `Vessel.CheckKill()`. The existing `GhostVesselLoadPatch` prevented `GoOffRails` but not the separate pressure destruction path.
 
 **Status:** Fixed (0.6.0, PR #113) — new `GhostCheckKillPatch` Harmony prefix on `Vessel.CheckKill` returns false for ghost vessels, skipping the pressure check entirely.
+
+## 212. Ghost orbit line passes through planet in tracking station
+
+Ghost ProtoVessels in the tracking station show orbit lines that draw the full Keplerian ellipse, including the portion that passes through the planet surface. Most visible for suborbital trajectories (periapsis below surface) and orbit segments that start/end mid-orbit (SOI transitions). KSP's `OrbitRendererBase.UpdateSpline()` always samples the full 360-degree ellipse — there is no built-in arc clipping. Setting `Orbit.StartUT`/`EndUT` has no effect (only `PatchRendering` reads those fields).
+
+**Root cause:** `OrbitRendererBase.UpdateSpline()` samples eccentric anomaly from 0 to 2pi for all elliptical orbits. No time-bounding mechanism exists in the stock orbit renderer. The active vessel avoids this because it uses `PatchedConicSolver` + `PatchRendering` which clips arcs via `Orbit.EccentricAnomalyAtUT()`.
+
+**Status:** Fixed (0.6.0) — `GhostOrbitArcPatch` Harmony prefix on `OrbitRendererBase.UpdateSpline` clips the orbit line to the orbit segment's `startUT`/`endUT` range. Uses the same eccentric-anomaly arc-clipping logic as KSP's `PatchRendering`/`Trajectory.UpdateFromOrbit()`. Only applies to segment-based ghosts; terminal-orbit ghosts render the full ellipse. Ap/Pe/AN/DN nodes hidden for partial-arc ghosts.
 
 # In-Game Tests
 
