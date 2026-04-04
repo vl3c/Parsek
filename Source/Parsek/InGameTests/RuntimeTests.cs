@@ -155,17 +155,16 @@ namespace Parsek.InGameTests
             InGameAssert.IsGreaterThan(Time.timeScale, 0, "Time.timeScale should be > 0");
         }
 
-        [InGameTest(Category = "Unity", Description = "Camera.main exists (Flight/KSC only)")]
-        public void MainCameraExists()
+        [InGameTest(Category = "Unity", Description = "A scene camera is accessible")]
+        public void SceneCameraExists()
         {
-            // Camera.main is null in tracking station (uses PlanetariumCamera instead)
-            if (HighLogic.LoadedScene == GameScenes.TRACKSTATION)
-            {
-                InGameAssert.IsNotNull(PlanetariumCamera.Camera,
-                    "PlanetariumCamera.Camera should exist in tracking station");
-                return;
-            }
-            InGameAssert.IsNotNull(Camera.main, "Camera.main should exist in this scene");
+            // Camera.main can be null in map view (flight camera disabled) and tracking station.
+            // Check for any available camera: Camera.main, FlightCamera, or PlanetariumCamera.
+            bool hasCamera = Camera.main != null
+                || (FlightCamera.fetch != null && FlightCamera.fetch.mainCamera != null)
+                || PlanetariumCamera.Camera != null;
+            InGameAssert.IsTrue(hasCamera,
+                "No scene camera found (Camera.main, FlightCamera, and PlanetariumCamera all null)");
         }
 
         [InGameTest(Category = "Unity", Description = "Can create and destroy a GameObject")]
