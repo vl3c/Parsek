@@ -238,9 +238,23 @@ Test game actions system with popular mods: CustomBarnKit (non-standard facility
 
 ### T44. Refactor kerbal reservation to not use rosterStatus = Assigned
 
-Currently `ApplyToRoster` sets reserved kerbals to `rosterStatus = Assigned` to prevent KSP from offering them for new flights. But KSP expects Assigned to mean "on a vessel crew manifest," causing a tug-of-war with `ValidateAssignments` (sets them to Missing) and a miscount in the Astronaut Complex UI. Two Harmony postfixes (#216) work around this, but the root cause remains.
+Currently `KerbalsModule.ApplyToRoster` Step 3 sets reserved kerbals to `rosterStatus = Assigned` to prevent KSP from offering them for new flights and to override MIA respawn. But KSP expects Assigned to mean "on a vessel crew manifest," causing two problems that require Harmony workarounds:
 
-A cleaner approach: leave reserved kerbals as `Available` and instead (1) patch the crew selection dialog to hide/grey-out Parsek-managed kerbals, (2) keep `SwapReservedCrewInFlight` as fallback for any that slip through, (3) handle MIA respawn override via a dedicated mechanism instead of status manipulation. This eliminates the ValidateAssignments/GetAssignedCrewCount patches entirely.
+1. **ValidateAssignments tug-of-war:** `KerbalRoster.ValidateAssignments(Game)` runs on every scene load, iterates all Assigned kerbals, checks `flightState.protoVessels[i].GetVesselCrew().Contains(pcm)`, and sets any unattached ones to Missing via `StartRespawnPeriod(2000.0)`. Our `KerbalAssignmentValidationPatch` postfix re-applies Assigned after each validation. Produces ~27 KSP warnings per session.
+
+2. **Astronaut Complex count mismatch:** `KerbalRoster.GetAssignedCrewCount()` counts by `rosterStatus == Assigned`, but `AstronautComplex.CreateAssignedList()` builds the list from `protoVessel.GetVesselCrew()` only. Our `AssignedCrewCountPatch` postfix subtracts managed kerbals from the count.
+
+**Current workaround files:** `Patches/KerbalAssignmentValidationPatch.cs` (both patches)
+
+**Proposed refactor:** Leave reserved kerbals as `Available` and use Parsek-internal state for reservation:
+
+1. **Crew dialog filtering:** Harmony patch on `KSP.UI.CrewAssignmentDialog` (or `CrewHatchDialog`) to grey-out or hide `IsManaged()` kerbals in the crew selection list. This prevents assignment without rosterStatus manipulation. Need to decompile `CrewAssignmentDialog` to find the right method (likely `Fill%.` or `%.Create%.` that populates the available crew list).
+
+2. **Keep SwapReservedCrewInFlight as fallback:** If a managed kerbal is assigned to a vessel despite the dialog filter (e.g., from a quicksave), the existing swap mechanism replaces them on flight start.
+
+3. **MIA respawn override:** Currently relies on re-setting Dead kerbals to Assigned on every recalculation. Without Assigned status, need a different mechanism. Options: (a) Harmony prefix on `ProtoCrewMember.%.RespawnPeriod%.` to block respawn for managed kerbals, (b) prefix on the roster's respawn timer check, (c) just accept KSP's respawn and re-reserve the kerbal (they'd appear Available briefly then get re-reserved on next recalculation — functionally equivalent).
+
+4. **Remove patches:** Delete both `KerbalAssignmentValidationPatch` and `AssignedCrewCountPatch`. Remove Step 3 from `ApplyToRoster` (the `pcm.rosterStatus = Assigned` loop) and Step 4 (retired kerbals Assigned). The dismissal patch (`KerbalDismissalPatch`) stays — it's independent of rosterStatus.
 
 **Priority:** Low — current workaround is functional, refactor only if touching crew reservation system
 
