@@ -2406,6 +2406,47 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Creates a child recording for a breakup branch point. Handles snapshot capture,
+        /// terminal state marking for destroyed vessels, and tree wiring.
+        /// Caller is responsible for BackgroundMap registration and logging.
+        /// </summary>
+        internal static Recording CreateBreakupChildRecording(
+            RecordingTree tree, BranchPoint breakupBp,
+            uint pid, Vessel vessel, bool isDebris, string fallbackName)
+        {
+            string childRecId = Guid.NewGuid().ToString("N");
+            string vesselName = Recording.ResolveLocalizedName(vessel?.vesselName) ?? fallbackName;
+
+            var childRec = new Recording
+            {
+                RecordingId = childRecId,
+                TreeId = tree.Id,
+                VesselPersistentId = pid,
+                VesselName = vesselName,
+                ParentBranchPointId = breakupBp.Id,
+                ExplicitStartUT = breakupBp.UT,
+                IsDebris = isDebris
+            };
+
+            if (vessel != null)
+            {
+                ConfigNode snapshot = VesselSpawner.TryBackupSnapshot(vessel);
+                childRec.GhostVisualSnapshot = snapshot;
+                childRec.VesselSnapshot = snapshot != null ? snapshot.CreateCopy() : null;
+            }
+            else
+            {
+                childRec.TerminalStateValue = TerminalState.Destroyed;
+                childRec.ExplicitEndUT = breakupBp.UT;
+            }
+
+            tree.Recordings[childRecId] = childRec;
+            breakupBp.ChildRecordingIds.Add(childRecId);
+
+            return childRec;
+        }
+
+        /// <summary>
         /// Processes a BREAKUP branch point emitted by the crash coalescer.
         /// If an active tree exists, adds the BREAKUP event as a terminal-like marker
         /// on the current recording segment. If no tree exists but a recorder is active,
@@ -2460,45 +2501,18 @@ namespace Parsek
                 {
                     uint pid = controlledChildren[i];
                     Vessel childVessel = FlightRecorder.FindVesselByPid(pid);
-                    string childRecId = Guid.NewGuid().ToString("N");
-                    string vesselName = Recording.ResolveLocalizedName(childVessel?.vesselName) ?? "Unknown";
-
-                    var childRec = new Recording
-                    {
-                        RecordingId = childRecId,
-                        TreeId = activeTree.Id,
-                        VesselPersistentId = pid,
-                        VesselName = vesselName,
-                        ParentBranchPointId = breakupBp.Id,
-                        ExplicitStartUT = breakupBp.UT,
-                        IsDebris = false
-                    };
-
-                    if (childVessel != null)
-                    {
-                        ConfigNode childSnapshot = VesselSpawner.TryBackupSnapshot(childVessel);
-                        childRec.GhostVisualSnapshot = childSnapshot;
-                        childRec.VesselSnapshot = childSnapshot != null ? childSnapshot.CreateCopy() : null;
-                    }
-                    else
-                    {
-                        childRec.TerminalStateValue = TerminalState.Destroyed;
-                        childRec.ExplicitEndUT = breakupBp.UT;
-                    }
-
-                    activeTree.Recordings[childRecId] = childRec;
-                    breakupBp.ChildRecordingIds.Add(childRecId);
+                    var childRec = CreateBreakupChildRecording(activeTree, breakupBp, pid, childVessel, false, "Unknown");
 
                     // Add to BackgroundRecorder for trajectory sampling (no TTL — records indefinitely)
                     if (childVessel != null && backgroundRecorder != null)
                     {
-                        activeTree.BackgroundMap[pid] = childRecId;
+                        activeTree.BackgroundMap[pid] = childRec.RecordingId;
                         backgroundRecorder.OnVesselBackgrounded(pid);
                     }
 
                     ParsekLog.Info("Coalescer",
                         $"ProcessBreakupEvent: controlled child created: pid={pid}, " +
-                        $"name='{vesselName}', recId={childRecId}, " +
+                        $"name='{childRec.VesselName}', recId={childRec.RecordingId}, " +
                         $"alive={childVessel != null}, bgRecorder={backgroundRecorder != null}");
                 }
             }
@@ -2520,45 +2534,18 @@ namespace Parsek
                         continue;
                     }
 
-                    string childRecId = Guid.NewGuid().ToString("N");
-                    string vesselName = Recording.ResolveLocalizedName(debrisVessel?.vesselName) ?? "Debris";
-
-                    var childRec = new Recording
-                    {
-                        RecordingId = childRecId,
-                        TreeId = activeTree.Id,
-                        VesselPersistentId = pid,
-                        VesselName = vesselName,
-                        ParentBranchPointId = breakupBp.Id,
-                        ExplicitStartUT = breakupBp.UT,
-                        IsDebris = true
-                    };
-
-                    if (debrisVessel != null)
-                    {
-                        ConfigNode debrisSnapshot = VesselSpawner.TryBackupSnapshot(debrisVessel);
-                        childRec.GhostVisualSnapshot = debrisSnapshot;
-                        childRec.VesselSnapshot = debrisSnapshot != null ? debrisSnapshot.CreateCopy() : null;
-                    }
-                    else
-                    {
-                        childRec.TerminalStateValue = TerminalState.Destroyed;
-                        childRec.ExplicitEndUT = breakupBp.UT;
-                    }
-
-                    activeTree.Recordings[childRecId] = childRec;
-                    breakupBp.ChildRecordingIds.Add(childRecId);
+                    var childRec = CreateBreakupChildRecording(activeTree, breakupBp, pid, debrisVessel, true, "Debris");
 
                     if (debrisVessel != null && backgroundRecorder != null)
                     {
-                        activeTree.BackgroundMap[pid] = childRecId;
+                        activeTree.BackgroundMap[pid] = childRec.RecordingId;
                         backgroundRecorder.OnVesselBackgrounded(pid);
                         backgroundRecorder.SetDebrisExpiry(pid, debrisExpiryUT);
                     }
 
                     ParsekLog.Info("Coalescer",
                         $"ProcessBreakupEvent: debris child created: pid={pid}, " +
-                        $"name='{vesselName}', recId={childRecId}, " +
+                        $"name='{childRec.VesselName}', recId={childRec.RecordingId}, " +
                         $"alive={debrisVessel != null}");
                 }
             }
@@ -2674,39 +2661,11 @@ namespace Parsek
                         continue;
                     }
 
-                    string childRecId = Guid.NewGuid().ToString("N");
-                    string vesselName = Recording.ResolveLocalizedName(debrisVessel?.vesselName) ?? "Debris";
-
-                    var childRec = new Recording
-                    {
-                        RecordingId = childRecId,
-                        TreeId = treeId,
-                        VesselPersistentId = pid,
-                        VesselName = vesselName,
-                        ParentBranchPointId = breakupBp.Id,
-                        ExplicitStartUT = breakupBp.UT,
-                        IsDebris = true
-                    };
-
-                    if (debrisVessel != null)
-                    {
-                        ConfigNode debrisSnapshot = VesselSpawner.TryBackupSnapshot(debrisVessel);
-                        childRec.GhostVisualSnapshot = debrisSnapshot;
-                        childRec.VesselSnapshot = debrisSnapshot != null ? debrisSnapshot.CreateCopy() : null;
-                    }
-                    else
-                    {
-                        // Vessel already destroyed — mark as terminated
-                        childRec.TerminalStateValue = TerminalState.Destroyed;
-                        childRec.ExplicitEndUT = breakupBp.UT;
-                    }
-
-                    activeTree.Recordings[childRecId] = childRec;
-                    breakupBp.ChildRecordingIds.Add(childRecId);
+                    var childRec = CreateBreakupChildRecording(activeTree, breakupBp, pid, debrisVessel, true, "Debris");
 
                     ParsekLog.Info("Coalescer",
                         $"PromoteToTreeForBreakup: debris child created: pid={pid}, " +
-                        $"name='{vesselName}', recId={childRecId}, " +
+                        $"name='{childRec.VesselName}', recId={childRec.RecordingId}, " +
                         $"alive={debrisVessel != null}");
                 }
             }
@@ -2719,38 +2678,11 @@ namespace Parsek
                 {
                     uint pid = controlledPids[i];
                     Vessel childVessel = FlightRecorder.FindVesselByPid(pid);
-                    string childRecId = Guid.NewGuid().ToString("N");
-                    string vesselName = Recording.ResolveLocalizedName(childVessel?.vesselName) ?? "Unknown";
-
-                    var childRec = new Recording
-                    {
-                        RecordingId = childRecId,
-                        TreeId = treeId,
-                        VesselPersistentId = pid,
-                        VesselName = vesselName,
-                        ParentBranchPointId = breakupBp.Id,
-                        ExplicitStartUT = breakupBp.UT,
-                        IsDebris = false
-                    };
-
-                    if (childVessel != null)
-                    {
-                        ConfigNode childSnapshot = VesselSpawner.TryBackupSnapshot(childVessel);
-                        childRec.GhostVisualSnapshot = childSnapshot;
-                        childRec.VesselSnapshot = childSnapshot != null ? childSnapshot.CreateCopy() : null;
-                    }
-                    else
-                    {
-                        childRec.TerminalStateValue = TerminalState.Destroyed;
-                        childRec.ExplicitEndUT = breakupBp.UT;
-                    }
-
-                    activeTree.Recordings[childRecId] = childRec;
-                    breakupBp.ChildRecordingIds.Add(childRecId);
+                    var childRec = CreateBreakupChildRecording(activeTree, breakupBp, pid, childVessel, false, "Unknown");
 
                     ParsekLog.Info("Coalescer",
                         $"PromoteToTreeForBreakup: controlled child created: pid={pid}, " +
-                        $"name='{vesselName}', recId={childRecId}, " +
+                        $"name='{childRec.VesselName}', recId={childRec.RecordingId}, " +
                         $"alive={childVessel != null}");
                 }
             }

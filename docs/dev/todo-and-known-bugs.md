@@ -84,11 +84,9 @@ Recording subgroups in the UI are missing bulk enable and loop toggle checkboxes
 
 **Priority:** Low — UI polish
 
-### T14. Controlled children recording after breakup (bug #61)
+### ~~T14. Controlled children recording after breakup (bug #61)~~ DONE
 
-When crash/breakup creates controlled children (surviving probe cores), no recording segments are started for them. Would need multi-vessel background recording to track their trajectories.
-
-**Priority:** Low — edge case
+BackgroundRecorder tracks controlled children (IsDebris=false, no TTL) via ProcessBreakupEvent and PromoteToTreeForBreakup. Vessels with probe cores record indefinitely after breakup.
 
 ### T15. Crash-safe pending recording recovery
 
@@ -162,21 +160,17 @@ Extracted `SampleAnimationStates` core method with `AnimLookup` enum + `FindAnim
 
 `CommitSegmentCore` extracts shared stash/tag/commit/advance pattern. All 4 commit methods (`CommitChainSegment`, `CommitDockUndockSegment`, `CommitBoundarySplit`, `HandleVesselSwitchChainTermination`) now delegate to CommitSegmentCore via `Action<Recording>` callback. CommitSegmentCore handles nullable CaptureAtStop for boundary splits.
 
-### T29. BackgroundRecorder Check*State polling dedup (D11)
+### ~~T29. BackgroundRecorder Check*State polling dedup (D11)~~ CLOSED
 
-17 Check*State method pairs (~736 lines) mirror FlightRecorder. Layer 1 (pure transition logic) is already shared. Layer 2 duplication is intentional design for per-vessel state isolation. A shared `PartEventSink` interface could unify Layer 2 but would change the call pattern.
-
-**Priority:** Low — intentional design, not a bug
+Layer 1 (pure transition logic) already shared via 17 `internal static` methods. Layer 2 wrappers intentionally differ: state storage (instance fields vs BackgroundVesselState), output target, logging tags, UT source. Unifying would require an interface abstraction across 17 method pairs for marginal gain. Not worth the churn.
 
 ### ~~T30. ParsekUI window resize drag dedup (D18)~~ DONE
 
 Extracted `HandleResizeDrag` and `DrawResizeHandle` static helpers. 4 drag blocks + 4 handle blocks replaced with 8 one-liner calls. Group Popup passes null for windowName to suppress logging. Latent bugfix: Group Popup now gets `Event.current.Use()` on MouseDrag (other 3 windows already had it).
 
-### T31. ParsekFlight CreateBreakupChildRecording dedup (D1)
+### ~~T31. ParsekFlight CreateBreakupChildRecording dedup (D1)~~ DONE
 
-4 child-recording creation loops across `ProcessBreakupEvent` + `PromoteToTreeForBreakup` (~160 lines). Blocked: sites diverge in BackgroundMap handling (inline vs bulk). Would require a conditional flag.
-
-**Priority:** Low — moderate savings, moderate risk
+Extracted `CreateBreakupChildRecording(tree, breakupBp, pid, vessel, isDebris, fallbackName)` static helper. 4 loop bodies replaced with one-liner calls. Callers retain BackgroundMap handling (inline vs deferred) and logging.
 
 ### ~~T32. Deep test suite audit~~ DONE (audit + fixes), edge cases deferred
 
