@@ -12,6 +12,10 @@ All notable changes to Parsek are documented here.
 - **Continuation recording index validation (T36).** `ContinuationRecordingId` and `UndockContinuationRecId` stored alongside int indices. `TryGet` accessors validate the ID matches before returning, detecting stale indices if recordings are ever removed mid-flight.
 - **Breakup child recording dedup (T31).** Extracted `CreateBreakupChildRecording` static helper. 4 child-recording creation loops across `ProcessBreakupEvent` and `PromoteToTreeForBreakup` replaced with one-liner calls.
 
+### UI
+
+- **Simplified merge dialog.** All merge/commit confirmation dialogs (standalone, chain, tree, multi-vessel tree) now use a unified simple format: vessel/tree name and duration, with consistent "Merge to Timeline" / "Discard" buttons. Multi-vessel trees auto-apply default persist/ghost-only decisions (surviving vessels persist, destroyed are ghost-only) without per-vessel UI. Removed verbose per-vessel summaries, point counts, distances, and situation text.
+
 ### Showcase Recordings
 
 - **Fix kerbal-with-flag height mismatch (T37).** Flag plant showcase kerbalEVA now uses `ShowcaseAltitudeOffset` for top-aligned height, matching other showcase parts.

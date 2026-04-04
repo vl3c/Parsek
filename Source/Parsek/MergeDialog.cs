@@ -437,89 +437,7 @@ namespace Parsek
                 : h.ToString(CultureInfo.InvariantCulture) + "h";
         }
 
-        internal static string GetLeafSituationText(Recording leaf)
-        {
-            if (leaf.TerminalStateValue.HasValue)
-            {
-                switch (leaf.TerminalStateValue.Value)
-                {
-                    case TerminalState.Orbiting:
-                        return "Orbiting " + (leaf.TerminalOrbitBody ?? "unknown");
-                    case TerminalState.Landed:
-                        return "Landed on " + (leaf.TerminalPosition.HasValue
-                            ? leaf.TerminalPosition.Value.body : "unknown");
-                    case TerminalState.Splashed:
-                        return "Splashed on " + (leaf.TerminalPosition.HasValue
-                            ? leaf.TerminalPosition.Value.body : "unknown");
-                    case TerminalState.SubOrbital:
-                        return "Sub-orbital, " + (leaf.TerminalOrbitBody ?? "unknown");
-                    case TerminalState.Destroyed:
-                        return "Destroyed";
-                    case TerminalState.Recovered:
-                        return "Recovered";
-                    case TerminalState.Docked:
-                        return "Docked";
-                    case TerminalState.Boarded:
-                        return "Boarded";
-                    default:
-                        return "Unknown";
-                }
-            }
-
-            // Fallback for legacy recordings or recordings without terminal state
-            if (!string.IsNullOrEmpty(leaf.VesselSituation))
-                return leaf.VesselSituation;
-
-            return "Unknown";
-        }
-
         #region Extracted helpers
-
-        /// <summary>
-        /// Pure function: compute the tree merge dialog message text from tree data.
-        /// Extracts duration, destroyed/surviving counts, per-leaf summaries, and
-        /// assembles the full dialog body. Used by ShowTreeDialog.
-        /// </summary>
-        internal static string BuildTreeDialogMessage(
-            RecordingTree tree,
-            List<Recording> allLeaves,
-            List<Recording> spawnableLeaves,
-            out int survivingCount,
-            out int destroyedCount)
-        {
-            survivingCount = spawnableLeaves != null ? spawnableLeaves.Count : 0;
-            destroyedCount = CountDestroyedLeaves(allLeaves);
-            double duration = ComputeTreeDurationRange(tree);
-
-            // Build vessel count text
-            string vesselCountText;
-            if (destroyedCount > 0)
-                vesselCountText = $"{survivingCount} vessel{(survivingCount != 1 ? "s" : "")} ({destroyedCount} destroyed)";
-            else
-                vesselCountText = $"{survivingCount} vessel{(survivingCount != 1 ? "s" : "")}";
-
-            // Build per-leaf summary
-            string activeRecordingId = tree != null ? tree.ActiveRecordingId : null;
-            string treeName = tree != null ? tree.TreeName : "";
-            var sb = new StringBuilder();
-            for (int i = 0; i < (allLeaves != null ? allLeaves.Count : 0); i++)
-            {
-                var leaf = allLeaves[i];
-                string situationText = GetLeafSituationText(leaf);
-                string marker = (leaf.RecordingId == activeRecordingId) ? "  <-- you are here" : "";
-                sb.AppendLine($"  {leaf.VesselName} - {situationText}{marker}");
-            }
-
-            // Assemble message
-            string header = $"\"{treeName}\" - {vesselCountText}, {FormatDuration(duration)}\n\n";
-            string footer;
-            if (survivingCount > 0)
-                footer = "\nAll surviving vessels will appear after ghost playback.";
-            else
-                footer = "\nAll vessels were lost. Ghosts will replay the mission.";
-
-            return header + sb.ToString() + footer;
-        }
 
         /// <summary>
         /// Pure function: compute the total time span across all recordings in a tree.
@@ -545,21 +463,6 @@ namespace Parsek
                 : 0;
         }
 
-        /// <summary>
-        /// Pure function: count how many leaves have TerminalState.Destroyed.
-        /// </summary>
-        internal static int CountDestroyedLeaves(List<Recording> leaves)
-        {
-            if (leaves == null) return 0;
-            int count = 0;
-            for (int i = 0; i < leaves.Count; i++)
-            {
-                if (leaves[i].TerminalStateValue.HasValue
-                    && leaves[i].TerminalStateValue.Value == TerminalState.Destroyed)
-                    count++;
-            }
-            return count;
-        }
 
         /// <summary>
         /// Marks ForceSpawnNewVessel on tree recordings whose VesselPersistentId matches
@@ -659,40 +562,6 @@ namespace Parsek
             }
 
             return decisions;
-        }
-
-        /// <summary>
-        /// Builds the per-vessel summary text for the tree dialog, including
-        /// persist/ghost-only status indicators per vessel row.
-        /// Pure static for testability.
-        /// </summary>
-        internal static string BuildVesselRowsText(
-            List<Recording> allLeaves,
-            Dictionary<string, bool> decisions,
-            string activeRecordingId)
-        {
-            if (allLeaves == null || allLeaves.Count == 0)
-                return "";
-
-            var sb = new StringBuilder();
-            for (int i = 0; i < allLeaves.Count; i++)
-            {
-                var leaf = allLeaves[i];
-                string situationText = GetLeafSituationText(leaf);
-                string marker = (leaf.RecordingId == activeRecordingId) ? "  <-- you are here" : "";
-
-                bool persist = false;
-                if (decisions != null && decisions.ContainsKey(leaf.RecordingId))
-                    persist = decisions[leaf.RecordingId];
-
-                bool canToggle = CanPersistVessel(leaf);
-                string persistLabel = persist ? "[Persist]" : "[Ghost-only]";
-                if (!canToggle)
-                    persistLabel += " (locked)";
-
-                sb.AppendLine($"  {leaf.VesselName} - {situationText} {persistLabel}{marker}");
-            }
-            return sb.ToString();
         }
 
         /// <summary>
