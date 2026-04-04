@@ -6,6 +6,10 @@ All notable changes to Parsek are documented here.
 
 ## 0.6.1
 
+### Recording
+
+- **Close commit-to-save crash window (T15).** Recording data no longer lives only in RAM between commit and the next `OnSave()` cycle. New `FlushDirtyFiles()` writes `.prec`, `_vessel.craft`, and `_ghost.craft` to disk immediately on commit and again after the recording optimization pass (merge/split/trim). If the immediate write fails, `FilesDirty` stays true and `OnSave` retries as before — no behavior change in the failure path.
+
 ### Ghost Playback
 
 - **Fix ghost icon through planet (#212b).** Ghost vessel icon no longer follows the full Keplerian ellipse through the planet in tracking station. New `GhostOrbitIconClampPatch` prefix on `OrbitDriver.updateFromParameters` clamps the propagation UT to the visible arc — the icon freezes at the arc endpoint instead of going underground. The previous approach (drawIcons postfix on LateUpdate) silently failed because `vessel.orbitDriver` was null for ghost ProtoVessels despite `OrbitRendererBase.driver` being valid.

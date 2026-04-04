@@ -1205,5 +1205,102 @@ namespace Parsek.Tests
                 ParsekLog.ResetTestOverrides();
             }
         }
+
+        #region FlushDirtyFiles (T15 crash window)
+
+        [Fact]
+        public void CommitPending_LogsFlushDirtyFiles()
+        {
+            var logLines = new List<string>();
+            ParsekLog.SuppressLogging = false;
+            ParsekLog.TestSinkForTesting = line => logLines.Add(line);
+            try
+            {
+                RecordingStore.StashPending(MakePoints(3), "FlushTest");
+                RecordingStore.CommitPending();
+
+                // FlushDirtyFiles fires and logs (SaveRecordingFiles returns false
+                // in test env — no KSP paths — so "failed 1" is expected)
+                Assert.Contains(logLines, l =>
+                    l.Contains("[RecordingStore]") && l.Contains("FlushDirtyFiles"));
+            }
+            finally
+            {
+                ParsekLog.SuppressLogging = true;
+                ParsekLog.ResetTestOverrides();
+            }
+        }
+
+        [Fact]
+        public void RunOptimizationPass_LogsFlushDirtyFiles()
+        {
+            var logLines = new List<string>();
+            ParsekLog.SuppressLogging = false;
+            ParsekLog.TestSinkForTesting = line => logLines.Add(line);
+            try
+            {
+                RecordingStore.StashPending(MakePoints(3), "OptFlush");
+                RecordingStore.CommitPending();
+                logLines.Clear();
+
+                // Force-dirty to simulate optimizer touching the recording
+                RecordingStore.CommittedRecordings[0].FilesDirty = true;
+                RecordingStore.RunOptimizationPass();
+
+                Assert.Contains(logLines, l =>
+                    l.Contains("[RecordingStore]") && l.Contains("FlushDirtyFiles"));
+            }
+            finally
+            {
+                ParsekLog.SuppressLogging = true;
+                ParsekLog.ResetTestOverrides();
+            }
+        }
+
+        [Fact]
+        public void RunOptimizationPass_NoRecordings_NoFlushLog()
+        {
+            var logLines = new List<string>();
+            ParsekLog.SuppressLogging = false;
+            ParsekLog.TestSinkForTesting = line => logLines.Add(line);
+            try
+            {
+                RecordingStore.RunOptimizationPass();
+
+                Assert.DoesNotContain(logLines, l => l.Contains("FlushDirtyFiles"));
+            }
+            finally
+            {
+                ParsekLog.SuppressLogging = true;
+                ParsekLog.ResetTestOverrides();
+            }
+        }
+
+        [Fact]
+        public void RunOptimizationPass_CleanRecordings_NoFlushLog()
+        {
+            var logLines = new List<string>();
+            ParsekLog.SuppressLogging = false;
+            ParsekLog.TestSinkForTesting = line => logLines.Add(line);
+            try
+            {
+                RecordingStore.StashPending(MakePoints(3), "Clean");
+                RecordingStore.CommitPending();
+                // Pretend save succeeded
+                RecordingStore.CommittedRecordings[0].FilesDirty = false;
+                logLines.Clear();
+
+                RecordingStore.RunOptimizationPass();
+
+                Assert.DoesNotContain(logLines, l => l.Contains("FlushDirtyFiles"));
+            }
+            finally
+            {
+                ParsekLog.SuppressLogging = true;
+                ParsekLog.ResetTestOverrides();
+            }
+        }
+
+        #endregion
     }
 }
