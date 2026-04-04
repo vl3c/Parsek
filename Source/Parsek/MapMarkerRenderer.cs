@@ -159,14 +159,37 @@ namespace Parsek
                 VesselType.DeployedScienceController, VesselType.DeployedSciencePart
             };
 
+            // Use the sprite's own texture as atlas — in the tracking station,
+            // MapView.OrbitIconsMap may be a different Texture2D instance than
+            // the sprite atlas texture. The sprites from UINodePrefab are authoritative.
+            Texture2D spriteAtlas = null;
+            for (int i = 0; i < sprites.Length; i++)
+            {
+                if (sprites[i] != null && sprites[i].texture != null)
+                {
+                    spriteAtlas = sprites[i].texture;
+                    break;
+                }
+            }
+
+            if (spriteAtlas == null)
+            {
+                ParsekLog.Warn("MapMarker", "InitVesselTypeIcons: no sprite has a texture");
+                vesselIconAtlas = null;
+                initAttempted = true;
+                return;
+            }
+
+            vesselIconAtlas = spriteAtlas;
+
             for (int i = 0; i < vtypes.Length && i < sprites.Length; i++)
             {
                 Sprite s = sprites[i];
-                if (s == null || s.texture != vesselIconAtlas) continue;
+                if (s == null) continue;
                 Rect r = s.textureRect;
                 vesselIconUVs[vtypes[i]] = new Rect(
-                    r.x / vesselIconAtlas.width, r.y / vesselIconAtlas.height,
-                    r.width / vesselIconAtlas.width, r.height / vesselIconAtlas.height);
+                    r.x / spriteAtlas.width, r.y / spriteAtlas.height,
+                    r.width / spriteAtlas.width, r.height / spriteAtlas.height);
             }
 
             initAttempted = true;
