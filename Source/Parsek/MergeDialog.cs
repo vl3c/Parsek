@@ -171,7 +171,7 @@ namespace Parsek
                 new MultiOptionDialog(
                     "ParsekMerge",
                     message,
-                    "Parsek — Merge Recording",
+                    "Parsek - Merge to Timeline",
                     HighLogic.UISkin,
                     buttons
                 ),
@@ -208,7 +208,7 @@ namespace Parsek
                         ParsekLog.ScreenMessage($"Mission chain ({totalSegments} segments) merged — vessel will appear!", 3f);
                         ParsekLog.Info("MergeDialog", $"User chose: Chain Merge to Timeline ({totalSegments} segments)");
                     }),
-                    new DialogGUIButton("Discard All", () =>
+                    new DialogGUIButton("Discard", () =>
                     {
                         DiscardChain(pending, chainId);
                         ClearPendingFlag();
@@ -239,7 +239,7 @@ namespace Parsek
                         ParsekLog.ScreenMessage($"Mission chain ({totalSegments} segments) merged!", 3f);
                         ParsekLog.Info("MergeDialog", $"User chose: Chain Merge to Timeline ({totalSegments} segments)");
                     }),
-                    new DialogGUIButton("Discard All", () =>
+                    new DialogGUIButton("Discard", () =>
                     {
                         DiscardChain(pending, chainId);
                         ClearPendingFlag();
@@ -250,28 +250,7 @@ namespace Parsek
                 };
             }
 
-            var branchSet = new HashSet<int> { pending.ChainBranch };
-            if (chainSiblings != null)
-                foreach (var s in chainSiblings) branchSet.Add(s.ChainBranch);
-            int branchCount = branchSet.Count;
-            ParsekLog.Verbose("MergeDialog",
-                $"Chain dialog: branchCount={branchCount}, totalSegments={totalSegments}, " +
-                $"destroyed={pending.VesselDestroyed}, hasSnapshot={pending.VesselSnapshot != null}");
-            string segmentLabel = branchCount > 1
-                ? $"Mission chain ({totalSegments} segments, {branchCount} vessels tracked)"
-                : $"Mission chain ({totalSegments} segments)";
-
-            string message = $"{segmentLabel}\n" +
-                $"Vessel: {pending.VesselName}\n" +
-                $"Duration: {duration.ToString("F1", CultureInfo.InvariantCulture)}s\n" +
-                $"Distance: {pending.DistanceFromLaunch.ToString("F0", CultureInfo.InvariantCulture)}m\n\n";
-
-            if (pending.VesselSnapshot != null && !pending.VesselDestroyed)
-                message += "The final vessel will persist in the timeline.";
-            else if (pending.VesselDestroyed)
-                message += "The vessel was destroyed. All segments will replay as ghosts.";
-            else
-                message += "All segments will replay as ghosts.";
+            string message = $"{pending.VesselName} - {FormatDuration(duration)}";
 
             LockInput();
             PopupDialog.DismissPopup("ParsekMerge");
@@ -281,7 +260,7 @@ namespace Parsek
                 new MultiOptionDialog(
                     "ParsekMerge",
                     message,
-                    "Parsek — Merge Mission Chain",
+                    "Parsek - Merge to Timeline",
                     HighLogic.UISkin,
                     buttons
                 ),
@@ -343,28 +322,7 @@ namespace Parsek
         internal static string BuildMergeMessage(Recording pending, double duration,
             MergeDefault recommended)
         {
-            string header = $"Vessel: {pending.VesselName}\n" +
-                $"Points: {pending.Points.Count}\n" +
-                $"Duration: {duration.ToString("F1", CultureInfo.InvariantCulture)}s\n" +
-                $"Distance from launch: {pending.DistanceFromLaunch.ToString("F0", CultureInfo.InvariantCulture)}m\n\n";
-
-            switch (recommended)
-            {
-                case MergeDefault.GhostOnly:
-                    return header + (pending.VesselDestroyed
-                        ? "Your vessel was destroyed. Recording captured."
-                        : "Recording captured.");
-
-                case MergeDefault.Persist:
-                    string situation = pending.DistanceFromLaunch < 100.0
-                        ? "Your vessel returned near the launch site after traveling " +
-                          pending.MaxDistanceFromLaunch.ToString("F0", CultureInfo.InvariantCulture) + "m."
-                        : $"Your vessel is {pending.VesselSituation}.";
-                    return header + situation + "\nIt will persist in the timeline.";
-
-                default:
-                    return header;
-            }
+            return $"{pending.VesselName} - {FormatDuration(duration)}";
         }
 
         // ================================================================
@@ -379,39 +337,28 @@ namespace Parsek
                 return;
             }
 
-            var allLeaves = tree.GetAllLeaves();
+            var decisions = BuildDefaultVesselDecisions(tree);
+            double duration = ComputeTreeDurationRange(tree);
+            string message = $"{tree.TreeName} - {FormatDuration(duration)}";
 
-            // Multi-vessel trees get the per-vessel row dialog
-            if (allLeaves.Count > 1)
-            {
-                ShowMultiVesselTreeDialog(tree);
-                return;
-            }
-
-            var spawnableLeaves = tree.GetSpawnableLeaves();
-
-            int survivingCount;
-            int destroyedCount;
-            string message = BuildTreeDialogMessage(
-                tree, allLeaves, spawnableLeaves,
-                out survivingCount, out destroyedCount);
+            int spawnCount = 0;
+            foreach (var val in decisions.Values)
+                if (val) spawnCount++;
 
             ParsekLog.Info("MergeDialog",
                 $"Tree merge dialog: tree='{tree.TreeName}', recordings={tree.Recordings.Count}, " +
-                $"allLeaves={allLeaves.Count}, spawnable={survivingCount}, destroyed={destroyedCount}");
+                $"spawnable={spawnCount}");
 
-            // Buttons — capture in locals for lambda closures
-            int spawnCount = survivingCount;
+            var capturedDecisions = decisions;
 
             DialogGUIButton[] buttons = new[]
             {
                 new DialogGUIButton("Merge to Timeline", () =>
                 {
-                    // Mark tree recordings for force-spawn if active vessel shares PID
-                    // (after revert, pad vessel has same PID — dedup would skip spawn)
                     var av = FlightGlobals.ActiveVessel;
                     if (av != null && av.persistentId != 0)
                         MarkForceSpawnOnTreeRecordings(tree, av.persistentId);
+                    ApplyVesselDecisions(tree, capturedDecisions);
                     RecordingStore.CommitPendingTree();
                     RecordingStore.RunOptimizationPass();
                     LedgerOrchestrator.NotifyLedgerTreeCommitted(tree);
@@ -421,9 +368,9 @@ namespace Parsek
                     OnTreeCommitted?.Invoke();
                     if (spawnCount > 0)
                         ParsekLog.ScreenMessage(
-                            $"Tree merged \u2014 {spawnCount} vessel(s) will appear after ghost playback", 3f);
+                            $"Merged - {spawnCount} vessel(s) will appear after ghost playback", 3f);
                     else
-                        ParsekLog.ScreenMessage("Tree merged to timeline!", 3f);
+                        ParsekLog.ScreenMessage("Merged to timeline!", 3f);
                     ParsekLog.Info("MergeDialog",
                         $"User chose: Tree Merge (tree='{tree.TreeName}', " +
                         $"recordings={tree.Recordings.Count}, spawnable={spawnCount})");
@@ -438,7 +385,7 @@ namespace Parsek
                     RecordingStore.DiscardPendingTree();
                     ClearPendingFlag();
                     ReplayFlightResultsIfPending();
-                    ParsekLog.ScreenMessage("Recording tree discarded", 2f);
+                    ParsekLog.ScreenMessage("Recording discarded", 2f);
                     ParsekLog.Info("MergeDialog",
                         $"User chose: Tree Discard (tree='{tree.TreeName}', " +
                         $"recordings={tree.Recordings.Count})");
@@ -453,7 +400,7 @@ namespace Parsek
                 new MultiOptionDialog(
                     "ParsekMerge",
                     message,
-                    "Parsek \u2014 Merge Recording Tree",
+                    "Parsek - Merge to Timeline",
                     HighLogic.UISkin,
                     buttons
                 ),
@@ -485,89 +432,7 @@ namespace Parsek
                 : h.ToString(CultureInfo.InvariantCulture) + "h";
         }
 
-        internal static string GetLeafSituationText(Recording leaf)
-        {
-            if (leaf.TerminalStateValue.HasValue)
-            {
-                switch (leaf.TerminalStateValue.Value)
-                {
-                    case TerminalState.Orbiting:
-                        return "Orbiting " + (leaf.TerminalOrbitBody ?? "unknown");
-                    case TerminalState.Landed:
-                        return "Landed on " + (leaf.TerminalPosition.HasValue
-                            ? leaf.TerminalPosition.Value.body : "unknown");
-                    case TerminalState.Splashed:
-                        return "Splashed on " + (leaf.TerminalPosition.HasValue
-                            ? leaf.TerminalPosition.Value.body : "unknown");
-                    case TerminalState.SubOrbital:
-                        return "Sub-orbital, " + (leaf.TerminalOrbitBody ?? "unknown");
-                    case TerminalState.Destroyed:
-                        return "Destroyed";
-                    case TerminalState.Recovered:
-                        return "Recovered";
-                    case TerminalState.Docked:
-                        return "Docked";
-                    case TerminalState.Boarded:
-                        return "Boarded";
-                    default:
-                        return "Unknown";
-                }
-            }
-
-            // Fallback for legacy recordings or recordings without terminal state
-            if (!string.IsNullOrEmpty(leaf.VesselSituation))
-                return leaf.VesselSituation;
-
-            return "Unknown";
-        }
-
         #region Extracted helpers
-
-        /// <summary>
-        /// Pure function: compute the tree merge dialog message text from tree data.
-        /// Extracts duration, destroyed/surviving counts, per-leaf summaries, and
-        /// assembles the full dialog body. Used by ShowTreeDialog.
-        /// </summary>
-        internal static string BuildTreeDialogMessage(
-            RecordingTree tree,
-            List<Recording> allLeaves,
-            List<Recording> spawnableLeaves,
-            out int survivingCount,
-            out int destroyedCount)
-        {
-            survivingCount = spawnableLeaves != null ? spawnableLeaves.Count : 0;
-            destroyedCount = CountDestroyedLeaves(allLeaves);
-            double duration = ComputeTreeDurationRange(tree);
-
-            // Build vessel count text
-            string vesselCountText;
-            if (destroyedCount > 0)
-                vesselCountText = $"{survivingCount} vessel{(survivingCount != 1 ? "s" : "")} ({destroyedCount} destroyed)";
-            else
-                vesselCountText = $"{survivingCount} vessel{(survivingCount != 1 ? "s" : "")}";
-
-            // Build per-leaf summary
-            string activeRecordingId = tree != null ? tree.ActiveRecordingId : null;
-            string treeName = tree != null ? tree.TreeName : "";
-            var sb = new StringBuilder();
-            for (int i = 0; i < (allLeaves != null ? allLeaves.Count : 0); i++)
-            {
-                var leaf = allLeaves[i];
-                string situationText = GetLeafSituationText(leaf);
-                string marker = (leaf.RecordingId == activeRecordingId) ? "  <-- you are here" : "";
-                sb.AppendLine($"  {leaf.VesselName} \u2014 {situationText}{marker}");
-            }
-
-            // Assemble message
-            string header = $"\"{treeName}\" \u2014 {vesselCountText}, {FormatDuration(duration)}\n\n";
-            string footer;
-            if (survivingCount > 0)
-                footer = "\nAll surviving vessels will appear after ghost playback.";
-            else
-                footer = "\nAll vessels were lost. Ghosts will replay the mission.";
-
-            return header + sb.ToString() + footer;
-        }
 
         /// <summary>
         /// Pure function: compute the total time span across all recordings in a tree.
@@ -593,21 +458,6 @@ namespace Parsek
                 : 0;
         }
 
-        /// <summary>
-        /// Pure function: count how many leaves have TerminalState.Destroyed.
-        /// </summary>
-        internal static int CountDestroyedLeaves(List<Recording> leaves)
-        {
-            if (leaves == null) return 0;
-            int count = 0;
-            for (int i = 0; i < leaves.Count; i++)
-            {
-                if (leaves[i].TerminalStateValue.HasValue
-                    && leaves[i].TerminalStateValue.Value == TerminalState.Destroyed)
-                    count++;
-            }
-            return count;
-        }
 
         /// <summary>
         /// Marks ForceSpawnNewVessel on tree recordings whose VesselPersistentId matches
@@ -710,40 +560,6 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Builds the per-vessel summary text for the tree dialog, including
-        /// persist/ghost-only status indicators per vessel row.
-        /// Pure static for testability.
-        /// </summary>
-        internal static string BuildVesselRowsText(
-            List<Recording> allLeaves,
-            Dictionary<string, bool> decisions,
-            string activeRecordingId)
-        {
-            if (allLeaves == null || allLeaves.Count == 0)
-                return "";
-
-            var sb = new StringBuilder();
-            for (int i = 0; i < allLeaves.Count; i++)
-            {
-                var leaf = allLeaves[i];
-                string situationText = GetLeafSituationText(leaf);
-                string marker = (leaf.RecordingId == activeRecordingId) ? "  <-- you are here" : "";
-
-                bool persist = false;
-                if (decisions != null && decisions.ContainsKey(leaf.RecordingId))
-                    persist = decisions[leaf.RecordingId];
-
-                bool canToggle = CanPersistVessel(leaf);
-                string persistLabel = persist ? "[Persist]" : "[Ghost-only]";
-                if (!canToggle)
-                    persistLabel += " (locked)";
-
-                sb.AppendLine($"  {leaf.VesselName} \u2014 {situationText} {persistLabel}{marker}");
-            }
-            return sb.ToString();
-        }
-
-        /// <summary>
         /// Applies vessel decisions to the tree: nulls VesselSnapshot on recordings
         /// that are marked ghost-only (false in decisions dict).
         /// </summary>
@@ -775,116 +591,5 @@ namespace Parsek
             }
         }
 
-        /// <summary>
-        /// Shows the tree merge dialog with per-vessel rows when the tree has
-        /// multiple leaf recordings. Each row shows vessel name, status, and
-        /// persist/ghost-only decision. Single-leaf trees use the simpler dialog.
-        /// </summary>
-        internal static void ShowMultiVesselTreeDialog(RecordingTree tree)
-        {
-            var allLeaves = tree.GetAllLeaves();
-            var spawnableLeaves = tree.GetSpawnableLeaves();
-            var decisions = BuildDefaultVesselDecisions(tree);
-
-            int survivingCount;
-            int destroyedCount;
-            string headerMessage = BuildTreeDialogMessage(
-                tree, allLeaves, spawnableLeaves,
-                out survivingCount, out destroyedCount);
-
-            // Replace the per-leaf summary with the richer per-vessel rows
-            string vesselRows = BuildVesselRowsText(allLeaves, decisions, tree.ActiveRecordingId);
-
-            // Build the composite message: header (up to first leaf line) + vessel rows + footer
-            double duration = ComputeTreeDurationRange(tree);
-            string vesselCountText;
-            if (destroyedCount > 0)
-                vesselCountText = $"{survivingCount} vessel{(survivingCount != 1 ? "s" : "")} ({destroyedCount} destroyed)";
-            else
-                vesselCountText = $"{survivingCount} vessel{(survivingCount != 1 ? "s" : "")}";
-
-            string footer;
-            if (survivingCount > 0)
-                footer = "\nSurviving vessels marked [Persist] will be spawned after ghost playback.\n" +
-                         "Destroyed or recovered vessels are ghost-only (visual replay only).";
-            else
-                footer = "\nAll vessels were lost. Ghosts will replay the mission.";
-
-            string message = $"\"{tree.TreeName}\" \u2014 {vesselCountText}, {FormatDuration(duration)}\n\n" +
-                             vesselRows + footer;
-
-            ParsekLog.Info("MergeDialog",
-                $"Multi-vessel tree dialog: tree='{tree.TreeName}', leaves={allLeaves.Count}, " +
-                $"surviving={survivingCount}, destroyed={destroyedCount}");
-
-            // Capture for lambda closures
-            var capturedDecisions = decisions;
-            var capturedTree = tree;
-            int spawnCount = survivingCount;
-
-            DialogGUIButton[] buttons = new[]
-            {
-                new DialogGUIButton("Commit All", () =>
-                {
-                    // Mark tree recordings for force-spawn if active vessel shares PID
-                    // (after revert, pad vessel has same PID — dedup would skip spawn)
-                    var av = FlightGlobals.ActiveVessel;
-                    if (av != null && av.persistentId != 0)
-                        MarkForceSpawnOnTreeRecordings(capturedTree, av.persistentId);
-                    ApplyVesselDecisions(capturedTree, capturedDecisions);
-                    RecordingStore.CommitPendingTree();
-                    RecordingStore.RunOptimizationPass();
-                    LedgerOrchestrator.NotifyLedgerTreeCommitted(capturedTree);
-                    CrewReservationManager.SwapReservedCrewInFlight();
-                    ClearPendingFlag();
-                    ReplayFlightResultsIfPending();
-                    OnTreeCommitted?.Invoke();
-
-                    int persistCount = 0;
-                    foreach (var val in capturedDecisions.Values)
-                        if (val) persistCount++;
-
-                    if (persistCount > 0)
-                        ParsekLog.ScreenMessage(
-                            $"Tree merged \u2014 {persistCount} vessel(s) will appear after ghost playback", 3f);
-                    else
-                        ParsekLog.ScreenMessage("Tree merged to timeline!", 3f);
-                    ParsekLog.Info("MergeDialog",
-                        $"User chose: Commit All (tree='{capturedTree.TreeName}', " +
-                        $"persist={persistCount}, total={capturedDecisions.Count})");
-                }),
-                new DialogGUIButton("Discard", () =>
-                {
-                    foreach (var rec in capturedTree.Recordings.Values)
-                    {
-                        if (rec.VesselSnapshot != null)
-                            CrewReservationManager.UnreserveCrewInSnapshot(rec.VesselSnapshot);
-                    }
-                    RecordingStore.DiscardPendingTree();
-                    ClearPendingFlag();
-                    ReplayFlightResultsIfPending();
-                    ParsekLog.ScreenMessage("Recording tree discarded", 2f);
-                    ParsekLog.Info("MergeDialog",
-                        $"User chose: Tree Discard (tree='{capturedTree.TreeName}', " +
-                        $"recordings={capturedTree.Recordings.Count})");
-                })
-            };
-
-            LockInput();
-            PopupDialog.DismissPopup("ParsekMerge");
-            PopupDialog.SpawnPopupDialog(
-                new Vector2(0.5f, 0.5f),
-                new Vector2(0.5f, 0.5f),
-                new MultiOptionDialog(
-                    "ParsekMerge",
-                    message,
-                    "Parsek \u2014 Merge Recording Tree",
-                    HighLogic.UISkin,
-                    buttons
-                ),
-                false,
-                HighLogic.UISkin
-            );
-        }
     }
 }

@@ -78,23 +78,19 @@ Implemented via ProtoVessel-based approach. Ghost chains with orbital data get l
 
 Fixed in commit `ed19f03`. Removed PRELAUNCH situation guard from `OnCrewOnEva`. EVAs from any vessel situation (landed, orbiting, splashed, etc.) now trigger auto-record when the setting is enabled. Mid-recording EVAs were already handled via tree branching.
 
-### T13. UI subgroup enable/loop checkboxes (bug #50)
+### ~~T13. UI subgroup enable/loop checkboxes (bug #50)~~ DONE
 
-Recording subgroups in the UI are missing bulk enable and loop toggle checkboxes. Only top-level groups have them.
+`DrawGroupTree` is recursive — subgroups at any depth render the same aggregate enable checkbox and loop toggle as top-level groups. Already working.
 
-**Priority:** Low — UI polish
+### ~~T14. Controlled children recording after breakup (bug #61)~~ DONE
 
-### T14. Controlled children recording after breakup (bug #61)
+BackgroundRecorder tracks controlled children (IsDebris=false, no TTL) via ProcessBreakupEvent and PromoteToTreeForBreakup. Vessels with probe cores record indefinitely after breakup.
 
-When crash/breakup creates controlled children (surviving probe cores), no recording segments are started for them. Would need multi-vessel background recording to track their trajectories.
+### ~~T15. Crash-safe pending recording recovery~~ PARTIAL
 
-**Priority:** Low — edge case
+Commit crash window closed: `FlushDirtyFiles()` writes `.prec`/`_vessel.craft`/`_ghost.craft` immediately on commit and after the optimization pass. The remaining gap (stashed-but-not-yet-committed, i.e., merge dialog pending) still lives only in RAM — a `pending_manifest.cfg` recovery mechanism would close that too but is deferred.
 
-### T15. Crash-safe pending recording recovery
-
-If the game crashes with a merge dialog pending, recording data is lost from memory. Solution: write a `pending_manifest.cfg` to `Parsek/Recordings/` when stashed, auto-recover on next load.
-
-**Priority:** Low — data safety improvement
+**Priority:** Low — remaining gap is stash→commit only
 
 ### T16. Planetarium.right drift compensation
 
@@ -110,11 +106,9 @@ KSP's inertial reference frame may drift over very long time warp. Could cause g
 
 Full ledger-based game actions system shipped in v0.6.0. 7 resource modules (Science, Funds, Reputation, Milestones, Contracts, Facilities, Strategies), KspStatePatcher, contract deadline failures, kerbal rescue detection, game state event recording, milestone path qualification, strategy commitment rates, warp facility patching. 4621 tests. See CHANGELOG 0.6.0 "Game Actions & Resources System" and "Kerbal Lifecycle Management" sections.
 
-### T18. Log contract checker error whitelist (bug #63)
+### ~~T18. Log contract checker error whitelist (bug #63)~~ DONE
 
-`ParsekLogContractChecker` has no whitelist for intentional error-path test scenarios. Currently no tests need this.
-
-**Priority:** Low — test infrastructure
+`ValidateLatestSession` accepts `IReadOnlyList<string> errorWhitelist` parameter with substring matching. Tests cover whitelisted/non-matching errors.
 
 ### ~~T19. FlightRecorder per-frame List&lt;PartEvent&gt; allocations~~ DONE
 
@@ -164,21 +158,17 @@ Extracted `SampleAnimationStates` core method with `AnimLookup` enum + `FindAnim
 
 `CommitSegmentCore` extracts shared stash/tag/commit/advance pattern. All 4 commit methods (`CommitChainSegment`, `CommitDockUndockSegment`, `CommitBoundarySplit`, `HandleVesselSwitchChainTermination`) now delegate to CommitSegmentCore via `Action<Recording>` callback. CommitSegmentCore handles nullable CaptureAtStop for boundary splits.
 
-### T29. BackgroundRecorder Check*State polling dedup (D11)
+### ~~T29. BackgroundRecorder Check*State polling dedup (D11)~~ CLOSED
 
-17 Check*State method pairs (~736 lines) mirror FlightRecorder. Layer 1 (pure transition logic) is already shared. Layer 2 duplication is intentional design for per-vessel state isolation. A shared `PartEventSink` interface could unify Layer 2 but would change the call pattern.
-
-**Priority:** Low — intentional design, not a bug
+Layer 1 (pure transition logic) already shared via 17 `internal static` methods. Layer 2 wrappers intentionally differ: state storage (instance fields vs BackgroundVesselState), output target, logging tags, UT source. Unifying would require an interface abstraction across 17 method pairs for marginal gain. Not worth the churn.
 
 ### ~~T30. ParsekUI window resize drag dedup (D18)~~ DONE
 
 Extracted `HandleResizeDrag` and `DrawResizeHandle` static helpers. 4 drag blocks + 4 handle blocks replaced with 8 one-liner calls. Group Popup passes null for windowName to suppress logging. Latent bugfix: Group Popup now gets `Event.current.Use()` on MouseDrag (other 3 windows already had it).
 
-### T31. ParsekFlight CreateBreakupChildRecording dedup (D1)
+### ~~T31. ParsekFlight CreateBreakupChildRecording dedup (D1)~~ DONE
 
-4 child-recording creation loops across `ProcessBreakupEvent` + `PromoteToTreeForBreakup` (~160 lines). Blocked: sites diverge in BackgroundMap handling (inline vs bulk). Would require a conditional flag.
-
-**Priority:** Low — moderate savings, moderate risk
+Extracted `CreateBreakupChildRecording(tree, breakupBp, pid, vessel, isDebris, fallbackName)` static helper. 4 loop bodies replaced with one-liner calls. Callers retain BackgroundMap handling (inline vs deferred) and logging.
 
 ### ~~T32. Deep test suite audit~~ DONE (audit + fixes), edge cases deferred
 
@@ -202,23 +192,17 @@ Added 5 accessor methods (`AddHiddenGroup`, `RemoveHiddenGroup`, `IsGroupHidden`
 
 46 tests in `ChainSegmentManagerTests.cs`. Covers: all state-machine methods (ClearAll, ClearChainIdentity, StopContinuation, StopUndockContinuation), field isolation, sentinel values, idempotency, logging. Also covers `SampleContinuationVessel` guard paths (pid=0 early return, stale index), `UpdateContinuationSampling`/`UpdateUndockContinuationSampling` wrappers (no-op and stale-index-stop paths), `StopAllContinuations` branching (neither/one/both active, identity preservation), `RefreshContinuationSnapshotCore` guards (pid=0, negative recIdx, stale recIdx). Commit methods cannot be unit-tested (FlightGlobals static initializer requires Unity runtime).
 
-### T35. ChainSegmentManager field encapsulation
+### ~~T35. ChainSegmentManager field encapsulation~~ DONE
 
-ParsekFlight still reads/writes `chainManager` internal fields directly in ~5 locations (CommitFlight chain tagging, FallbackCommitSplitRecorder, PromoteToTreeForBreakup, vessel destruction handler, EVA crew name set). Consider adding `TagPendingWithChainMetadata(Recording)` and making identity fields read-only with mutation via methods only.
+Added `ApplyChainMetadataTo(Recording)`, `IsTrackingContinuation`/`IsTrackingUndockContinuation` properties, and `TryGetContinuationRecording`/`TryGetUndockContinuationRecording` accessors. ParsekFlight updated to use them.
 
-**Priority:** Low — functional but leaky abstraction
+### ~~T36. Continuation recording index fragility~~ DONE
 
-### T36. Continuation recording index fragility
+`ContinuationRecordingId` and `UndockContinuationRecId` stored alongside int indices. `TryGetContinuationRecording`/`TryGetUndockContinuationRecording` validate ID match before returning.
 
-`ContinuationRecordingIdx` and `UndockContinuationRecIdx` store `int` indices into `RecordingStore.CommittedRecordings`. If a recording is ever removed from the list while continuation is active, the stored index silently points to the wrong recording or goes out of bounds (bounds check prevents crash but stops continuation). Consider storing `RecordingId` alongside the index for validation.
+### ~~T37. Showcase kerbal-with-flag height mismatch~~ DONE
 
-**Priority:** Low — no code path currently removes committed recordings during flight
-
-### T37. Showcase kerbal-with-flag height mismatch
-
-In the showcase part list, the kerbal holding a flag is not at the same height as the other parts. Likely a Y-offset issue in the showcase positioning/snapshot for the kerbal part.
-
-**Priority:** Low — cosmetic
+Added `kerbalEVA` to `ShowcasePartTopY` (topY=1.0) and applied `ShowcaseAltitudeOffset` in `FlagPlantShowcaseRecording`.
 
 ### ~~T38. Debris recording filtering~~ DONE
 
@@ -228,11 +212,9 @@ Added `ShouldRecordDebris` filter in `ProcessBreakupEvent` and `PromoteToTreeFor
 
 Removed the `RenderingZone.Beyond` rejection from `IsWithinWatchRange`. The 120km zone boundary is about rendering from the active vessel's camera — irrelevant for watch mode which moves the camera to the ghost. The only limit is now `ghostCameraCutoffKm` (default 300km, user-configurable). The mesh-unhide exemption for watched Beyond-zone ghosts was already in place.
 
-### T40. Ghost orbit line visual differentiation (Phase 4)
+### ~~T40. Ghost orbit line visual differentiation (Phase 4)~~ CLOSED
 
-Ghost orbit lines look identical to real vessel orbit lines. Should have a distinct visual treatment (different color, semi-transparent, or dashed) so the player can tell at a glance which orbits are ghosts. Reference: KSPTrajectories mod ribbon mesh technique for custom orbit rendering. Could also use Harmony patch on `OrbitRenderer.DrawOrbit` or `orbitColor` patching.
-
-**Priority:** Low — cosmetic, functional without it
+Cosmetic nice-to-have. Ghost orbit lines are functional as-is and ghost vessels are already distinguishable by their semi-transparent mesh appearance. Not worth the Harmony complexity for a minor visual distinction.
 
 ### ~~T41. Ghost orbit line for suborbital recordings~~ DONE
 

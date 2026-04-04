@@ -999,71 +999,15 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void BuildMergeMessage_GhostOnly_Destroyed_MentionsDestroyed()
+        public void BuildMergeMessage_IncludesVesselName()
         {
             var rec = new Recording { VesselName = "Boom" };
             rec.Points.AddRange(MakePoints(5));
-            rec.VesselDestroyed = true;
 
             string msg = MergeDialog.BuildMergeMessage(rec, 60,
                 MergeDefault.GhostOnly);
 
-            Assert.Contains("destroyed", msg);
-        }
-
-        [Fact]
-        public void BuildMergeMessage_GhostOnly_NotDestroyed_DoesNotMentionDestroyed()
-        {
-            var rec = new Recording { VesselName = "Phantom" };
-            rec.Points.AddRange(MakePoints(5));
-            rec.VesselDestroyed = false;
-
-            string msg = MergeDialog.BuildMergeMessage(rec, 60,
-                MergeDefault.GhostOnly);
-
-            Assert.DoesNotContain("destroyed", msg);
-            Assert.Contains("Recording captured", msg);
-        }
-
-        [Fact]
-        public void BuildMergeMessage_Persist_ShortDistance_MentionsMaxDistance()
-        {
-            var rec = new Recording { VesselName = "Orbiter" };
-            rec.Points.AddRange(MakePoints(10));
-            rec.DistanceFromLaunch = 50;
-            rec.MaxDistanceFromLaunch = 500000;
-
-            string msg = MergeDialog.BuildMergeMessage(rec, 300,
-                MergeDefault.Persist);
-
-            Assert.Contains("500000", msg);
-            Assert.Contains("persist", msg, System.StringComparison.OrdinalIgnoreCase);
-        }
-
-        [Fact]
-        public void BuildMergeMessage_Persist_FarDistance_MentionsSituation()
-        {
-            var rec = new Recording { VesselName = "Explorer" };
-            rec.Points.AddRange(MakePoints(10));
-            rec.DistanceFromLaunch = 500;
-            rec.VesselSituation = "Orbiting Kerbin";
-
-            string msg = MergeDialog.BuildMergeMessage(rec, 300,
-                MergeDefault.Persist);
-
-            Assert.Contains("Orbiting Kerbin", msg);
-        }
-
-        [Fact]
-        public void BuildMergeMessage_IncludesPointCount()
-        {
-            var rec = new Recording { VesselName = "Ship" };
-            rec.Points.AddRange(MakePoints(7));
-
-            string msg = MergeDialog.BuildMergeMessage(rec, 60,
-                MergeDefault.GhostOnly);
-
-            Assert.Contains("7", msg);
+            Assert.Contains("Boom", msg);
         }
 
         [Fact]
@@ -1075,9 +1019,21 @@ namespace Parsek.Tests
             string msg = MergeDialog.BuildMergeMessage(rec, 45.3,
                 MergeDefault.GhostOnly);
 
-            // Duration is locale-formatted ("45.3" or "45,3"), just check it contains "45"
             Assert.Contains("45", msg);
-            Assert.Contains("Duration:", msg);
+        }
+
+        [Fact]
+        public void BuildMergeMessage_SimpleFormat()
+        {
+            var rec = new Recording { VesselName = "Explorer" };
+            rec.Points.AddRange(MakePoints(10));
+
+            string msg = MergeDialog.BuildMergeMessage(rec, 300,
+                MergeDefault.Persist);
+
+            // Simple format: "VesselName - duration"
+            Assert.Contains("Explorer", msg);
+            Assert.Contains("5m", msg);
         }
 
         // --- Stationary point trimming tests ---
@@ -1205,5 +1161,102 @@ namespace Parsek.Tests
                 ParsekLog.ResetTestOverrides();
             }
         }
+
+        #region FlushDirtyFiles (T15 crash window)
+
+        [Fact]
+        public void CommitPending_LogsFlushDirtyFiles()
+        {
+            var logLines = new List<string>();
+            ParsekLog.SuppressLogging = false;
+            ParsekLog.TestSinkForTesting = line => logLines.Add(line);
+            try
+            {
+                RecordingStore.StashPending(MakePoints(3), "FlushTest");
+                RecordingStore.CommitPending();
+
+                // FlushDirtyFiles fires and logs (SaveRecordingFiles returns false
+                // in test env — no KSP paths — so "failed 1" is expected)
+                Assert.Contains(logLines, l =>
+                    l.Contains("[RecordingStore]") && l.Contains("FlushDirtyFiles"));
+            }
+            finally
+            {
+                ParsekLog.SuppressLogging = true;
+                ParsekLog.ResetTestOverrides();
+            }
+        }
+
+        [Fact]
+        public void RunOptimizationPass_LogsFlushDirtyFiles()
+        {
+            var logLines = new List<string>();
+            ParsekLog.SuppressLogging = false;
+            ParsekLog.TestSinkForTesting = line => logLines.Add(line);
+            try
+            {
+                RecordingStore.StashPending(MakePoints(3), "OptFlush");
+                RecordingStore.CommitPending();
+                logLines.Clear();
+
+                // Force-dirty to simulate optimizer touching the recording
+                RecordingStore.CommittedRecordings[0].FilesDirty = true;
+                RecordingStore.RunOptimizationPass();
+
+                Assert.Contains(logLines, l =>
+                    l.Contains("[RecordingStore]") && l.Contains("FlushDirtyFiles"));
+            }
+            finally
+            {
+                ParsekLog.SuppressLogging = true;
+                ParsekLog.ResetTestOverrides();
+            }
+        }
+
+        [Fact]
+        public void RunOptimizationPass_NoRecordings_NoFlushLog()
+        {
+            var logLines = new List<string>();
+            ParsekLog.SuppressLogging = false;
+            ParsekLog.TestSinkForTesting = line => logLines.Add(line);
+            try
+            {
+                RecordingStore.RunOptimizationPass();
+
+                Assert.DoesNotContain(logLines, l => l.Contains("FlushDirtyFiles"));
+            }
+            finally
+            {
+                ParsekLog.SuppressLogging = true;
+                ParsekLog.ResetTestOverrides();
+            }
+        }
+
+        [Fact]
+        public void RunOptimizationPass_CleanRecordings_NoFlushLog()
+        {
+            var logLines = new List<string>();
+            ParsekLog.SuppressLogging = false;
+            ParsekLog.TestSinkForTesting = line => logLines.Add(line);
+            try
+            {
+                RecordingStore.StashPending(MakePoints(3), "Clean");
+                RecordingStore.CommitPending();
+                // Pretend save succeeded
+                RecordingStore.CommittedRecordings[0].FilesDirty = false;
+                logLines.Clear();
+
+                RecordingStore.RunOptimizationPass();
+
+                Assert.DoesNotContain(logLines, l => l.Contains("FlushDirtyFiles"));
+            }
+            finally
+            {
+                ParsekLog.SuppressLogging = true;
+                ParsekLog.ResetTestOverrides();
+            }
+        }
+
+        #endregion
     }
 }
