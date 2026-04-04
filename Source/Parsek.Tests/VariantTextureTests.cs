@@ -452,5 +452,96 @@ namespace Parsek.Tests
         }
 
         #endregion
+
+        #region ExtractShortTransformName
+
+        [Fact]
+        public void ExtractShortTransformName_NullOrEmpty_ReturnsNull()
+        {
+            Assert.Null(GhostVisualBuilder.ExtractShortTransformName(null));
+            Assert.Null(GhostVisualBuilder.ExtractShortTransformName(""));
+        }
+
+        [Fact]
+        public void ExtractShortTransformName_SimpleNameNoSlash_ReturnsNull()
+        {
+            // Short names without path separators should return null (already short)
+            Assert.Null(GhostVisualBuilder.ExtractShortTransformName("Shroud3x0"));
+            Assert.Null(GhostVisualBuilder.ExtractShortTransformName("EngineFixed"));
+        }
+
+        [Fact]
+        public void ExtractShortTransformName_FullPathWithClone_ExtractsShortName()
+        {
+            Assert.Equal("Shroud3x0",
+                GhostVisualBuilder.ExtractShortTransformName(
+                    "SquadExpansion/MakingHistory/Parts/SharedAssets/Shroud3x0(Clone)"));
+        }
+
+        [Fact]
+        public void ExtractShortTransformName_FullPathWithoutClone_ExtractsShortName()
+        {
+            Assert.Equal("EnginePlate",
+                GhostVisualBuilder.ExtractShortTransformName(
+                    "SquadExpansion/MakingHistory/Parts/Coupling/Assets/EnginePlate"));
+        }
+
+        [Fact]
+        public void ExtractShortTransformName_SingleSegmentModelPath_ExtractsCorrectly()
+        {
+            Assert.Equal("LqdEnginePoodle_v2",
+                GhostVisualBuilder.ExtractShortTransformName(
+                    "Squad/Parts/Engine/liquidEnginePoodle_v2/LqdEnginePoodle_v2(Clone)"));
+        }
+
+        #endregion
+
+        #region ResolveVariantNameFromSnapshot
+
+        [Fact]
+        public void ResolveVariantNameFromSnapshot_NullNode_ReturnsNull()
+        {
+            Assert.Null(GhostVisualBuilder.ResolveVariantNameFromSnapshot(null));
+        }
+
+        [Fact]
+        public void ResolveVariantNameFromSnapshot_PartLevelModuleVariantName_Found()
+        {
+            // KSP stores variant at PART level as moduleVariantName
+            var partNode = new ConfigNode("PART");
+            partNode.AddValue("moduleVariantName", "SingleBell");
+            var snapModule = partNode.AddNode("MODULE");
+            snapModule.AddValue("name", "ModulePartVariants");
+            snapModule.AddValue("isEnabled", "True");
+            // No selectedVariant inside MODULE
+
+            Assert.Equal("SingleBell", GhostVisualBuilder.ResolveVariantNameFromSnapshot(partNode));
+        }
+
+        [Fact]
+        public void ResolveVariantNameFromSnapshot_ModuleLevelCurrentVariant_PreferredOverPartLevel()
+        {
+            var partNode = new ConfigNode("PART");
+            partNode.AddValue("moduleVariantName", "FromPartLevel");
+            var snapModule = partNode.AddNode("MODULE");
+            snapModule.AddValue("name", "ModulePartVariants");
+            snapModule.AddValue("currentVariant", "FromModuleLevel");
+
+            // MODULE-level should win over PART-level
+            Assert.Equal("FromModuleLevel", GhostVisualBuilder.ResolveVariantNameFromSnapshot(partNode));
+        }
+
+        [Fact]
+        public void ResolveVariantNameFromSnapshot_EmptyModuleAndNoPart_ReturnsNull()
+        {
+            var partNode = new ConfigNode("PART");
+            var snapModule = partNode.AddNode("MODULE");
+            snapModule.AddValue("name", "ModulePartVariants");
+            snapModule.AddValue("isEnabled", "True");
+
+            Assert.Null(GhostVisualBuilder.ResolveVariantNameFromSnapshot(partNode));
+        }
+
+        #endregion
     }
 }

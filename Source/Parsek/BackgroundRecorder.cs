@@ -1853,6 +1853,7 @@ namespace Parsek
                 bool hasJettisonModule = false;
                 bool isJettisoned = false;
                 int jettisonModuleIndex = 0;
+                bool skipTransformFallback = p.FindModuleImplementing<ModulePartVariants>() != null;
                 for (int m = 0; m < p.Modules.Count; m++)
                 {
                     var jettison = p.Modules[m] as ModuleJettison;
@@ -1866,6 +1867,9 @@ namespace Parsek
                         isJettisoned = true;
                         break;
                     }
+
+                    if (skipTransformFallback)
+                        continue;
 
                     string jettisonNames = jettison.jettisonName;
                     if (string.IsNullOrWhiteSpace(jettisonNames))
