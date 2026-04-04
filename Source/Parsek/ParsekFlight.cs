@@ -1472,6 +1472,30 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Determines whether a debris vessel is significant enough to record.
+        /// Filters out trivial crash fragments (single struts, panels, shroud pieces)
+        /// while keeping meaningful debris like spent boosters and stages.
+        /// </summary>
+        internal static bool ShouldRecordDebris(Vessel v)
+        {
+            if (v == null) return false;
+            int partCount = v.parts?.Count ?? 0;
+            float mass = (float)v.totalMass;
+            return ShouldRecordDebris(partCount, mass);
+        }
+
+        /// <summary>
+        /// Pure testable overload: debris is significant if it has at least
+        /// 3 parts OR at least 0.5 tons of mass.
+        /// </summary>
+        internal static bool ShouldRecordDebris(int partCount, float mass)
+        {
+            const int MinPartCount = 3;
+            const float MinMassTons = 0.5f;
+            return partCount >= MinPartCount || mass >= MinMassTons;
+        }
+
+        /// <summary>
         /// Appends captured trajectory data (points, orbit segments, part events, track sections)
         /// from a source recording into the target, sorts part events by UT, and sets the target's
         /// ExplicitEndUT. If source is null, only ExplicitEndUT is set.
@@ -2480,6 +2504,7 @@ namespace Parsek
             }
 
             // Also create debris child recordings for new debris from this breakup
+            int skippedDebris = 0;
             var debrisPids = crashCoalescer.LastEmittedDebrisPids;
             if (debrisPids != null && debrisPids.Count > 0)
             {
@@ -2488,6 +2513,13 @@ namespace Parsek
                 {
                     uint pid = debrisPids[i];
                     Vessel debrisVessel = FlightRecorder.FindVesselByPid(pid);
+
+                    if (debrisVessel != null && !ShouldRecordDebris(debrisVessel))
+                    {
+                        skippedDebris++;
+                        continue;
+                    }
+
                     string childRecId = Guid.NewGuid().ToString("N");
                     string vesselName = Recording.ResolveLocalizedName(debrisVessel?.vesselName) ?? "Debris";
 
@@ -2535,6 +2567,7 @@ namespace Parsek
                 $"ProcessBreakupEvent: BREAKUP attached to tree={activeTree.Id}, " +
                 $"parentRec={activeRecId}, bpId={breakupBp.Id}, " +
                 $"cause={breakupBp.BreakupCause}, debris={breakupBp.DebrisCount}, " +
+                $"skippedTrivial={skippedDebris}, " +
                 $"duration={breakupBp.BreakupDuration:F3}s");
         }
 
@@ -2625,7 +2658,8 @@ namespace Parsek
             activeTree.BranchPoints.Add(breakupBp);
             rootRec.ChildBranchPointId = breakupBp.Id;
 
-            // 7. Create debris child recordings
+            // 7. Create debris child recordings (skip trivial fragments)
+            int skippedDebris = 0;
             var debrisPids = crashCoalescer.LastEmittedDebrisPids;
             if (debrisPids != null)
             {
@@ -2633,6 +2667,13 @@ namespace Parsek
                 {
                     uint pid = debrisPids[i];
                     Vessel debrisVessel = FlightRecorder.FindVesselByPid(pid);
+
+                    if (debrisVessel != null && !ShouldRecordDebris(debrisVessel))
+                    {
+                        skippedDebris++;
+                        continue;
+                    }
+
                     string childRecId = Guid.NewGuid().ToString("N");
                     string vesselName = Recording.ResolveLocalizedName(debrisVessel?.vesselName) ?? "Debris";
 
@@ -2774,6 +2815,7 @@ namespace Parsek
                 $"PromoteToTreeForBreakup: standalone recording promoted to tree. " +
                 $"tree={treeId}, root={rootRecId}, " +
                 $"debris={debrisPids?.Count ?? 0} (alive={debrisAlive}), " +
+                $"skippedTrivial={skippedDebris}, " +
                 $"controlled={controlledPids?.Count ?? 0}, " +
                 $"breakup={breakupBp.Id}");
         }

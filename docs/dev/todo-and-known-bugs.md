@@ -212,11 +212,9 @@ Added `ApplyChainMetadataTo(Recording)`, `IsTrackingContinuation`/`IsTrackingUnd
 
 Added `kerbalEVA` to `ShowcasePartTopY` (topY=1.0) and applied `ShowcaseAltitudeOffset` in `FlagPlantShowcaseRecording`.
 
-### T38. Debris recording filtering
+### ~~T38. Debris recording filtering~~ DONE
 
-Currently every breakup piece (including tiny debris fragments) gets its own background recording. A 17-debris breakup produces 17 separate recordings cluttering the UI. Should filter by vessel type/mass/part count and only record meaningful stages and boosters, not every small debris fragment.
-
-**Priority:** Medium — user experience, UI clutter
+Added `ShouldRecordDebris` filter in `ProcessBreakupEvent` and `PromoteToTreeForBreakup`. Debris vessels below both thresholds (< 3 parts AND < 0.5 tons) are skipped before Recording creation — no BackgroundRecorder tracking, no per-frame sampling. Spent boosters and stages pass the filter; single struts, panels, and shroud fragments are skipped. 10 unit tests.
 
 ### ~~T39. Watch mode for distant ghosts (post-separation stages)~~ DONE
 
