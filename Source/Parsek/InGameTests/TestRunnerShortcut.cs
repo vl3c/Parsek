@@ -25,9 +25,17 @@ namespace Parsek.InGameTests
         private GUIStyle opaqueStyle;
 
         private bool shortcutHeld;
+        private static TestRunnerShortcut instance;
 
         void Start()
         {
+            // Singleton — destroy duplicates (EveryScene can spawn multiples in editor)
+            if (instance != null && instance != this)
+            {
+                Destroy(this);
+                return;
+            }
+            instance = this;
             ParsekLog.Verbose(Tag, $"TestRunnerShortcut active in {HighLogic.LoadedScene}");
         }
 
@@ -102,6 +110,7 @@ namespace Parsek.InGameTests
 
         void OnDestroy()
         {
+            if (instance == this) instance = null;
             if (windowHasInputLock)
                 InputLockManager.RemoveControlLock(InputLockId);
         }
