@@ -96,8 +96,14 @@ namespace Parsek.InGameTests
             {
                 if (!windowHasInputLock)
                 {
-                    // Block all controls (not just camera) so editor/facility UIs don't steal clicks
-                    InputLockManager.SetControlLock(ControlTypes.All, InputLockId);
+                    // Block game controls underneath — avoid ControlTypes.All which can
+                    // interfere with IMGUI button events in the editor
+                    InputLockManager.SetControlLock(
+                        ControlTypes.CAMERACONTROLS | ControlTypes.EDITOR_ICON_HOVER
+                        | ControlTypes.EDITOR_ICON_PICK | ControlTypes.EDITOR_PAD_PICK_PLACE
+                        | ControlTypes.EDITOR_PAD_PICK_COPY | ControlTypes.EDITOR_GIZMO_TOOLS
+                        | ControlTypes.EDITOR_UI | ControlTypes.KSC_ALL,
+                        InputLockId);
                     windowHasInputLock = true;
                 }
             }
