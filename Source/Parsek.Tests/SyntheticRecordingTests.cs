@@ -1234,6 +1234,7 @@ namespace Parsek.Tests
             { "dockingPortLarge", 0.29 },
 
             // ── ColorChanger EVA (kerbal helmet light) ──
+            { "kerbalEVA", 1.0 },                   // standalone EVA kerbal (~1m head height)
             { "kerbalEVAFuture", 0.0 },
             { "kerbalEVAfemaleFuture", 0.0 },
 
@@ -2320,6 +2321,7 @@ namespace Parsek.Tests
             const int rowIndex = ShowcaseRowCount - 1; // last row
             double t = baseUT + 30;
             ShowcasePosition(rowIndex, ShowcaseDistanceFromPadMeters, out double lat, out double lon, out double alt);
+            alt += ShowcaseAltitudeOffset("kerbalEVA");
 
             var b = new RecordingBuilder("Part Showcase - Flag Plant")
                 .WithDefaultRotation(KscRotX, KscRotY, KscRotZ, KscRotW)
