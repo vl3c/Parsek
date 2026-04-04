@@ -78,11 +78,9 @@ Implemented via ProtoVessel-based approach. Ghost chains with orbital data get l
 
 Fixed in commit `ed19f03`. Removed PRELAUNCH situation guard from `OnCrewOnEva`. EVAs from any vessel situation (landed, orbiting, splashed, etc.) now trigger auto-record when the setting is enabled. Mid-recording EVAs were already handled via tree branching.
 
-### T13. UI subgroup enable/loop checkboxes (bug #50)
+### ~~T13. UI subgroup enable/loop checkboxes (bug #50)~~ DONE
 
-Recording subgroups in the UI are missing bulk enable and loop toggle checkboxes. Only top-level groups have them.
-
-**Priority:** Low — UI polish
+`DrawGroupTree` is recursive — subgroups at any depth render the same aggregate enable checkbox and loop toggle as top-level groups. Already working.
 
 ### ~~T14. Controlled children recording after breakup (bug #61)~~ DONE
 
@@ -214,11 +212,9 @@ Added `ShouldRecordDebris` filter in `ProcessBreakupEvent` and `PromoteToTreeFor
 
 Removed the `RenderingZone.Beyond` rejection from `IsWithinWatchRange`. The 120km zone boundary is about rendering from the active vessel's camera — irrelevant for watch mode which moves the camera to the ghost. The only limit is now `ghostCameraCutoffKm` (default 300km, user-configurable). The mesh-unhide exemption for watched Beyond-zone ghosts was already in place.
 
-### T40. Ghost orbit line visual differentiation (Phase 4)
+### ~~T40. Ghost orbit line visual differentiation (Phase 4)~~ CLOSED
 
-Ghost orbit lines look identical to real vessel orbit lines. Should have a distinct visual treatment (different color, semi-transparent, or dashed) so the player can tell at a glance which orbits are ghosts. Reference: KSPTrajectories mod ribbon mesh technique for custom orbit rendering. Could also use Harmony patch on `OrbitRenderer.DrawOrbit` or `orbitColor` patching.
-
-**Priority:** Low — cosmetic, functional without it
+Cosmetic nice-to-have. Ghost orbit lines are functional as-is and ghost vessels are already distinguishable by their semi-transparent mesh appearance. Not worth the Harmony complexity for a minor visual distinction.
 
 ### ~~T41. Ghost orbit line for suborbital recordings~~ DONE
 

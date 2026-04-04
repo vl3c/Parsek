@@ -34,7 +34,7 @@ All notable changes to Parsek are documented here.
 
 ### Documentation
 
-- **TODO cleanup.** Marked T17 (game actions redesign), T25/D20 (playback engine extraction), T28/D2 (commit-pattern dedup), T32 (test audit), T34 (ChainSegmentManager tests), T41 (suborbital orbit line), T41b (atmosphere on-rails skip), T18/T35/T36/T37, T14, T29 (closed), and T31 as done.
+- **TODO cleanup.** Marked T17 (game actions redesign), T25/D20 (playback engine extraction), T28/D2 (commit-pattern dedup), T32 (test audit), T34 (ChainSegmentManager tests), T41 (suborbital orbit line), T41b (atmosphere on-rails skip), T18/T35/T36/T37, T14, T29/T40 (closed), T31, and T13 as done.
 
 ---
 
