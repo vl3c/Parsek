@@ -1085,7 +1085,7 @@ namespace Parsek
                    && (Reputation.Instance == null || Reputation.Instance.reputation == 0f))
                 yield return null;
 
-            int framesWaited = 600 - maxValueWait;
+            int framesWaited = 599 - maxValueWait; // post-decrement: 600→599 on first check
 
             var ic = CultureInfo.InvariantCulture;
             ParsekLog.Verbose("Scenario",
