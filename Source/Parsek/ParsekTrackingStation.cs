@@ -38,11 +38,6 @@ namespace Parsek
 
         void Update()
         {
-            // State-vector ghost orbit updates run every frame for accurate positioning.
-            // Keplerian propagation diverges immediately for atmospheric trajectories.
-            GhostMapPresence.UpdateStateVectorGhostOrbits();
-
-            // Creation/removal lifecycle is rate-limited (heavier: scans all recordings)
             if (Time.time < nextLifecycleCheckTime) return;
             nextLifecycleCheckTime = Time.time + LifecycleCheckIntervalSec;
 

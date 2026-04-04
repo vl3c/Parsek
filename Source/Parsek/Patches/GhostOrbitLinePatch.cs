@@ -219,18 +219,6 @@ namespace Parsek.Patches
             if (__instance.vessel == null) return true;
             uint pid = __instance.vessel.persistentId;
             if (!GhostMapPresence.IsGhostMapVessel(pid)) return true;
-
-            // State-vector ghosts (atmospheric trajectory): suppress orbit line entirely.
-            // Keplerian orbits from atmospheric state vectors are nonsensical — wild
-            // ellipses through planet core. Only the vessel icon is shown.
-            if (GhostMapPresence.stateVectorGhostPids.Contains(pid))
-            {
-                var svLine = __instance.OrbitLine;
-                if (svLine != null) svLine.active = false;
-                __instance.drawIcons = OrbitRendererBase.DrawIcons.OBJ;
-                return false; // skip stock UpdateSpline
-            }
-
             if (!GhostMapPresence.ghostOrbitBounds.TryGetValue(pid, out var bounds))
             {
                 ParsekLog.VerboseRateLimited(Tag, "nobounds-" + pid,
