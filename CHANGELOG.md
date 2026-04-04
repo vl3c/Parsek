@@ -23,6 +23,7 @@ All notable changes to Parsek are documented here.
 ### UI
 
 - **Simplified merge dialog.** All merge/commit confirmation dialogs (standalone, chain, tree, multi-vessel tree) now use a unified simple format: vessel/tree name and duration, with consistent "Merge to Timeline" / "Discard" buttons. Multi-vessel trees auto-apply default persist/ghost-only decisions (surviving vessels persist, destroyed are ghost-only) without per-vessel UI. Removed verbose per-vessel summaries, point counts, distances, and situation text.
+- **In-game test runner.** New runtime test framework accessible via Settings > Diagnostics > "In-Game Test Runner". Discovers and runs tests inside KSP to verify systems that xUnit structurally cannot cover (real Unity GameObjects, live KSP APIs, ghost visual construction, part name resolution, crew roster state). 48 tests across 13 categories: ghost visual builds, recording data health, body name resolution, save/load round-trips, crew reservation integrity, ghost map presence, CommNet antenna power, and Flight-scene integration. Supports sync and multi-frame coroutine tests, per-category and individual run buttons, color-coded pass/fail results with inline error messages, and auto-exports `parsek-test-results.txt` to the KSP root folder after each run.
 
 ### Showcase Recordings
 
