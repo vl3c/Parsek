@@ -60,6 +60,14 @@ namespace Parsek
             = new Dictionary<uint, (double, double)>();
 
         /// <summary>
+        /// Ghost vessel PIDs that are state-vector-based (trajectory interpolation, no orbit segment).
+        /// GhostOrbitArcPatch suppresses the orbit line for these — Keplerian orbits from
+        /// atmospheric state vectors are nonsensical (wild ellipses through planet core).
+        /// Only the vessel icon is shown, positioned by the OrbitDriver.
+        /// </summary>
+        internal static readonly HashSet<uint> stateVectorGhostPids = new HashSet<uint>();
+
+        /// <summary>
         /// O(1) check used by all guard code throughout the codebase.
         /// Returns true if the given persistentId belongs to a ghost map ProtoVessel.
         /// </summary>
@@ -330,6 +338,7 @@ namespace Parsek
             ghostMapVesselPids.Clear();
             ghostsWithSuppressedIcon.Clear();
             ghostOrbitBounds.Clear();
+            stateVectorGhostPids.Clear();
             vesselsByChainPid.Clear();
             vesselsByRecordingIndex.Clear();
             vesselPidToRecordingIndex.Clear();
@@ -417,6 +426,7 @@ namespace Parsek
 
             ghostMapVesselPids.Remove(ghostPid);
             ghostOrbitBounds.Remove(ghostPid);
+            stateVectorGhostPids.Remove(ghostPid);
             vesselPidToRecordingIndex.Remove(ghostPid);
             vesselsByRecordingIndex.Remove(recordingIndex);
 
@@ -600,6 +610,7 @@ namespace Parsek
                         Vessel v = CreateGhostVesselFromStateVectors(i, rec, pt.Value, currentUT);
                         if (v != null)
                         {
+                            stateVectorGhostPids.Add(v.persistentId);
                             EnsureGhostOrbitRenderers();
                             tsStateVectorCachedIndices[i] = cached;
                             ParsekLog.Info(Tag,
@@ -1061,6 +1072,7 @@ namespace Parsek
             ghostMapVesselPids.Clear();
             ghostsWithSuppressedIcon.Clear();
             ghostOrbitBounds.Clear();
+            stateVectorGhostPids.Clear();
             vesselsByChainPid.Clear();
             vesselsByRecordingIndex.Clear();
             vesselPidToRecordingIndex.Clear();
