@@ -1057,13 +1057,14 @@ namespace Parsek
         /// </summary>
         private IEnumerator DeferredSeedAndRecalculate()
         {
-            // Wait for at least one resource singleton to be available.
-            // In sandbox mode none will ever appear — bail after timeout.
+            // Wait for ALL resource singletons to be available (matches
+            // ApplyBudgetDeductionWhenReady pattern). In sandbox mode none
+            // will ever appear — bail after timeout.
             int maxWait = 120; // ~2 seconds at 60fps
             while (maxWait-- > 0
-                   && Funding.Instance == null
-                   && ResearchAndDevelopment.Instance == null
-                   && Reputation.Instance == null)
+                   && (Funding.Instance == null
+                       || ResearchAndDevelopment.Instance == null
+                       || Reputation.Instance == null))
                 yield return null;
 
             if (Funding.Instance == null && ResearchAndDevelopment.Instance == null
@@ -1074,15 +1075,28 @@ namespace Parsek
                 yield break;
             }
 
-            // Yield one extra frame: singletons may exist but not have loaded
+            int framesWaited = 120 - maxWait;
+            if (Funding.Instance == null || ResearchAndDevelopment.Instance == null
+                || Reputation.Instance == null)
+            {
+                ParsekLog.Verbose("Scenario",
+                    $"DeferredSeed: timed out after {framesWaited} frames with partial singletons — " +
+                    $"Funding={Funding.Instance != null}, R&D={ResearchAndDevelopment.Instance != null}, " +
+                    $"Rep={Reputation.Instance != null}. Proceeding with available singletons.");
+            }
+
+            // Yield extra frames: singletons may exist but not have loaded
             // their values from the save ConfigNode yet (OnLoad ordering).
             yield return null;
+            yield return null;
+            yield return null;
 
+            var ic = CultureInfo.InvariantCulture;
             ParsekLog.Verbose("Scenario",
-                $"DeferredSeed: singletons ready — " +
-                $"Funding={(Funding.Instance != null ? Funding.Instance.Funds.ToString("F0", CultureInfo.InvariantCulture) : "null")}, " +
-                $"Science={(ResearchAndDevelopment.Instance != null ? ResearchAndDevelopment.Instance.Science.ToString("F0", CultureInfo.InvariantCulture) : "null")}, " +
-                $"Rep={(Reputation.Instance != null ? Reputation.Instance.reputation.ToString("F1", CultureInfo.InvariantCulture) : "null")}");
+                $"DeferredSeed: singletons ready after {framesWaited} frames — " +
+                $"Funding={(Funding.Instance != null ? Funding.Instance.Funds.ToString("F0", ic) : "null")}, " +
+                $"Science={(ResearchAndDevelopment.Instance != null ? ResearchAndDevelopment.Instance.Science.ToString("F0", ic) : "null")}, " +
+                $"Rep={(Reputation.Instance != null ? Reputation.Instance.reputation.ToString("F1", ic) : "null")}");
 
             LedgerOrchestrator.RecalculateAndPatch();
         }
