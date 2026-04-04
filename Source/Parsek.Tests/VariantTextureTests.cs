@@ -496,42 +496,50 @@ namespace Parsek.Tests
 
         #endregion
 
-        #region TryFindSelectedVariantNode_PartLevelModuleVariantName
+        #region ResolveVariantNameFromSnapshot
 
         [Fact]
-        public void TryFindSelectedVariantNode_ReadsPartLevelModuleVariantName()
+        public void ResolveVariantNameFromSnapshot_NullNode_ReturnsNull()
         {
-            // Simulate a part config with ModulePartVariants
-            var partConfig = new ConfigNode("PART");
-            var variantModule = partConfig.AddNode("MODULE");
-            variantModule.AddValue("name", "ModulePartVariants");
-            variantModule.AddValue("baseVariant", "DoubleBell");
-            var v1 = variantModule.AddNode("VARIANT");
-            v1.AddValue("name", "DoubleBell");
-            var v2 = variantModule.AddNode("VARIANT");
-            v2.AddValue("name", "SingleBell");
+            Assert.Null(GhostVisualBuilder.ResolveVariantNameFromSnapshot(null));
+        }
 
-            // Simulate a snapshot PART node with moduleVariantName at PART level
-            // (where KSP actually writes it) and empty MODULE
+        [Fact]
+        public void ResolveVariantNameFromSnapshot_PartLevelModuleVariantName_Found()
+        {
+            // KSP stores variant at PART level as moduleVariantName
             var partNode = new ConfigNode("PART");
             partNode.AddValue("moduleVariantName", "SingleBell");
             var snapModule = partNode.AddNode("MODULE");
             snapModule.AddValue("name", "ModulePartVariants");
             snapModule.AddValue("isEnabled", "True");
-            // Note: no selectedVariant/currentVariant inside MODULE
+            // No selectedVariant inside MODULE
 
-            // Create a minimal prefab-like object for the test
-            // We can't fully test this without Unity, but we can test the ConfigNode logic
-            bool found = GhostVisualBuilder.TryFindSelectedVariantNode(
-                null, // prefab not available in unit tests
-                partNode,
-                out ConfigNode selectedVariant,
-                out string selectedName,
-                out string resolution);
+            Assert.Equal("SingleBell", GhostVisualBuilder.ResolveVariantNameFromSnapshot(partNode));
+        }
 
-            // Without a real prefab (prefab.partInfo.partConfig), returns false
-            // but the moduleVariantName read logic is exercised
-            Assert.False(found); // can't find variant config without prefab
+        [Fact]
+        public void ResolveVariantNameFromSnapshot_ModuleLevelCurrentVariant_PreferredOverPartLevel()
+        {
+            var partNode = new ConfigNode("PART");
+            partNode.AddValue("moduleVariantName", "FromPartLevel");
+            var snapModule = partNode.AddNode("MODULE");
+            snapModule.AddValue("name", "ModulePartVariants");
+            snapModule.AddValue("currentVariant", "FromModuleLevel");
+
+            // MODULE-level should win over PART-level
+            Assert.Equal("FromModuleLevel", GhostVisualBuilder.ResolveVariantNameFromSnapshot(partNode));
+        }
+
+        [Fact]
+        public void ResolveVariantNameFromSnapshot_EmptyModuleAndNoPart_ReturnsNull()
+        {
+            var partNode = new ConfigNode("PART");
+            var snapModule = partNode.AddNode("MODULE");
+            snapModule.AddValue("name", "ModulePartVariants");
+            snapModule.AddValue("isEnabled", "True");
+
+            Assert.Null(GhostVisualBuilder.ResolveVariantNameFromSnapshot(partNode));
         }
 
         #endregion

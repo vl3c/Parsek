@@ -2684,25 +2684,7 @@ namespace Parsek
             bool variantFromSnapshot = false;
 
             // Prefer explicit variant saved on the part snapshot when present.
-            // KSP stores the variant name in two places:
-            //   1. Inside the MODULE node as "selectedVariant" or "currentVariant" (rare)
-            //   2. At the PART level as "moduleVariantName" (common — this is where KSP
-            //      actually persists the selected variant in .craft / .sfs files)
-            ConfigNode snapshotVariantModule = FindModuleNode(partNode, "ModulePartVariants");
-            requestedVariantName = FirstNonEmptyConfigValue(
-                snapshotVariantModule,
-                "currentVariant",
-                "selectedVariant",
-                "variantName",
-                "moduleVariantName");
-            // Also check PART-level moduleVariantName — KSP writes the selected variant
-            // here rather than inside the ModulePartVariants MODULE node.
-            if (string.IsNullOrEmpty(requestedVariantName) && partNode != null)
-            {
-                requestedVariantName = FirstNonEmptyConfigValue(
-                    partNode,
-                    "moduleVariantName");
-            }
+            requestedVariantName = ResolveVariantNameFromSnapshot(partNode);
             variantFromSnapshot = !string.IsNullOrEmpty(requestedVariantName);
 
             // Fall back to runtime module fields if exposed.
@@ -2769,8 +2751,40 @@ namespace Parsek
                 selectedVariantNode = variantNodes[0];
 
             selectedVariantName = FirstNonEmptyConfigValue(selectedVariantNode, "name") ?? "<unnamed>";
-            resolutionPath = resolutionPath ?? "first-fallback";
             return true;
+        }
+
+        /// <summary>
+        /// Resolves the selected variant name from a snapshot PART ConfigNode.
+        /// KSP stores variant info in two places:
+        ///   1. Inside the MODULE node as "selectedVariant" or "currentVariant" (rare)
+        ///   2. At the PART level as "moduleVariantName" (common — where KSP actually
+        ///      persists the selected variant in .craft / .sfs files)
+        /// Returns null if no variant name is found.
+        /// </summary>
+        internal static string ResolveVariantNameFromSnapshot(ConfigNode partNode)
+        {
+            if (partNode == null)
+                return null;
+
+            ConfigNode snapshotVariantModule = FindModuleNode(partNode, "ModulePartVariants");
+            string name = FirstNonEmptyConfigValue(
+                snapshotVariantModule,
+                "currentVariant",
+                "selectedVariant",
+                "variantName",
+                "moduleVariantName");
+
+            // Also check PART-level moduleVariantName — KSP writes the selected variant
+            // here rather than inside the ModulePartVariants MODULE node.
+            if (string.IsNullOrEmpty(name))
+            {
+                name = FirstNonEmptyConfigValue(
+                    partNode,
+                    "moduleVariantName");
+            }
+
+            return name;
         }
 
         private static bool TryGetSelectedVariantGameObjectStates(
@@ -4807,15 +4821,14 @@ namespace Parsek
             colorChangerInfos = null;
             Transform modelRoot = FindModelRoot(prefab);
 
-            // Dump full hierarchy for engine parts and multi-variant parts to diagnose missing meshes.
+            // Dump full hierarchy for engine parts to diagnose missing nozzle/shroud meshes.
             // Search from the Part root (not just modelRoot) to catch siblings of "model".
             bool isEnginePart = prefab.FindModuleImplementing<ModuleEngines>() != null;
             bool hasJettison = prefab.FindModuleImplementing<ModuleJettison>() != null;
-            if (isEnginePart || hasJettison)
+            if (isEnginePart)
             {
-                string dumpLabel = isEnginePart ? "ENGINE" : "JETTISON";
                 ParsekLog.VerboseRateLimited("GhostVisual", $"part_dump_{partName}",
-                    $"  {dumpLabel} PART HIERARCHY DUMP for '{partName}' pid={persistentId}:", 60.0);
+                    $"  ENGINE PART HIERARCHY DUMP for '{partName}' pid={persistentId}:", 60.0);
                 DumpTransformHierarchy(prefab.transform, 0, partName);
 
                 // Also log MeshRenderers found from Part root vs modelRoot
@@ -5081,6 +5094,70 @@ namespace Parsek
                         ParsekLog.VerboseRateLimited("GhostVisual", $"jettison_miss_{partName}_{jettisonName}",
                             $"    Jettison '{jettisonName}' found on prefab but not in cloneMap", 60.0);
                         continue;
+                    }
+
+                    // ModuleJettison.OnStart() hasn't run on the prefab, so jettison
+                    // transforms may be inactive or zero-scaled. Force them visible
+                    // in the ghost — playback will hide them via ShroudJettisoned events.
+                    if (!ghostJettison.gameObject.activeSelf)
+                    {
+                        ParsekLog.VerboseRateLimited("GhostVisual", $"jettison_activate_{partName}_{jettisonName}",
+                            $"    Jettison '{jettisonName}' was inactive on ghost — activating", 60.0);
+                        ghostJettison.gameObject.SetActive(true);
+                    }
+                    if (ghostJettison.localScale.sqrMagnitude < 0.001f)
+                    {
+                        ParsekLog.VerboseRateLimited("GhostVisual", $"jettison_rescale_{partName}_{jettisonName}",
+                            $"    Jettison '{jettisonName}' had near-zero scale {ghostJettison.localScale} — resetting to (1,1,1)", 60.0);
+                        ghostJettison.localScale = UnityEngine.Vector3.one;
+                    }
+
+                    // Log diagnostic info for jettison transform state
+                    var jmf = ghostJettison.GetComponent<MeshFilter>();
+                    var jmr = ghostJettison.GetComponent<MeshRenderer>();
+                    string jmeshInfo = jmf?.sharedMesh != null
+                        ? $"verts={jmf.sharedMesh.vertexCount} bounds={jmf.sharedMesh.bounds}"
+                        : "(no mesh on jettison transform)";
+                    string matInfo = "(no renderer)";
+                    if (jmr != null)
+                    {
+                        var mats = jmr.sharedMaterials;
+                        if (mats == null || mats.Length == 0)
+                            matInfo = "NO MATERIALS";
+                        else
+                        {
+                            var matNames = new System.Text.StringBuilder();
+                            for (int m = 0; m < mats.Length; m++)
+                            {
+                                if (m > 0) matNames.Append(", ");
+                                matNames.Append(mats[m] != null
+                                    ? $"{mats[m].name}[{mats[m].shader?.name}]"
+                                    : "null");
+                            }
+                            matInfo = matNames.ToString();
+                        }
+                    }
+                    ParsekLog.VerboseRateLimited("GhostVisual", $"jettison_hit_{partName}_{jettisonName}",
+                        $"    Jettison '{jettisonName}' matched: scale={ghostJettison.localScale} " +
+                        $"active={ghostJettison.gameObject.activeSelf} " +
+                        $"srcScale={srcJettison.localScale} srcActive={srcJettison.gameObject.activeSelf} " +
+                        $"srcPos={srcJettison.localPosition} " +
+                        $"mesh={jmeshInfo} materials=[{matInfo}]", 60.0);
+                    // Log world position chain for spatial debugging
+                    ParsekLog.VerboseRateLimited("GhostVisual", $"jettison_pos_{partName}_{jettisonName}",
+                        $"    Jettison '{jettisonName}' ghost chain: " +
+                        $"ghostLocalPos={ghostJettison.localPosition} " +
+                        $"parentName={ghostJettison.parent?.name} " +
+                        $"parentLocalPos={ghostJettison.parent?.localPosition}", 60.0);
+
+                    // DEBUG: Override jettison material with bright red to test visibility
+                    if (jmr != null)
+                    {
+                        var debugMat = new Material(Shader.Find("KSP/Diffuse"));
+                        debugMat.color = Color.red;
+                        jmr.sharedMaterial = debugMat;
+                        // Also force scale up slightly to ensure not hidden inside geometry
+                        ghostJettison.localScale = ghostJettison.localScale * 1.02f;
                     }
 
                     if (ghostJettisonTransforms.Contains(ghostJettison)) continue;
