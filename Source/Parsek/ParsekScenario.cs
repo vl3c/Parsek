@@ -1082,7 +1082,7 @@ namespace Parsek
             while (maxValueWait-- > 0
                    && (Funding.Instance == null || Funding.Instance.Funds == 0.0)
                    && (ResearchAndDevelopment.Instance == null || ResearchAndDevelopment.Instance.Science == 0f)
-                   && (Reputation.Instance == null || Reputation.Instance.reputation == 0f))
+                   && (Reputation.Instance == null || Math.Abs(Reputation.Instance.reputation) < 0.01f))
                 yield return null;
 
             int framesWaited = 599 - maxValueWait; // post-decrement: 600→599 on first check
