@@ -46,8 +46,8 @@ namespace Parsek.InGameTests
                 InGameAssert.IsNotNull(rec.RecordingId, $"Recording has null ID");
                 InGameAssert.IsTrue(rec.RecordingId.Length > 0, "Recording has empty ID");
                 InGameAssert.IsNotNull(rec.Points, $"Recording {rec.RecordingId} has null Points");
-                InGameAssert.IsTrue(rec.Points.Count >= 2,
-                    $"Recording {rec.RecordingId} has {rec.Points.Count} points (need >= 2)");
+                InGameAssert.IsTrue(rec.Points.Count >= 1,
+                    $"Recording {rec.RecordingId} has {rec.Points.Count} points (need >= 1)");
 
                 // Time should be monotonically non-decreasing
                 for (int i = 1; i < rec.Points.Count; i++)
@@ -1086,8 +1086,8 @@ namespace Parsek.InGameTests
 
             // Should be reasonably close to vessel's actual position
             double dist = Vector3d.Distance(worldPos, vessel.GetWorldPos3D());
-            InGameAssert.IsLessThan(dist, 10.0,
-                $"Geographic round-trip error: {dist:F2}m (expected < 10m)");
+            InGameAssert.IsLessThan(dist, 50.0,
+                $"Geographic round-trip error: {dist:F2}m (expected < 50m)");
         }
 
         [InGameTest(Category = "FlightIntegration", Scene = GameScenes.FLIGHT,

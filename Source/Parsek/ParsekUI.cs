@@ -4088,7 +4088,7 @@ namespace Parsek
             }
 
             if (GUILayout.Button(new GUIContent("In-Game Test Runner",
-                "Run runtime tests to verify ghost spawning, playback, and visuals")))
+                "Run runtime tests to verify ghost spawning, playback, and visuals.\nAlso available via Ctrl+Shift+T in any scene.")))
             {
                 showTestRunnerWindow = !showTestRunnerWindow;
                 ParsekLog.Verbose("UI", $"Test runner window toggled: {(showTestRunnerWindow ? "open" : "closed")}");
@@ -4173,6 +4173,18 @@ namespace Parsek
         }
 
         #region Test Runner Window
+
+        public void HandleTestRunnerShortcut()
+        {
+            if (Event.current.type == EventType.KeyDown
+                && Event.current.control && Event.current.shift
+                && Event.current.keyCode == KeyCode.T)
+            {
+                showTestRunnerWindow = !showTestRunnerWindow;
+                ParsekLog.Verbose("UI", $"Test runner toggled via shortcut: {(showTestRunnerWindow ? "open" : "closed")}");
+                Event.current.Use();
+            }
+        }
 
         public void DrawTestRunnerWindowIfOpen(Rect mainWindowRect, MonoBehaviour host)
         {
@@ -4407,6 +4419,7 @@ namespace Parsek
                 ParsekLog.Verbose("UI", "Test runner window closed");
             }
             GUILayout.EndHorizontal();
+            GUILayout.Label("Ctrl+Shift+T to toggle from any scene", GUI.skin.label);
 
             // Tooltip
             if (!string.IsNullOrEmpty(GUI.tooltip))
