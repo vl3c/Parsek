@@ -6,6 +6,10 @@ All notable changes to Parsek are documented here.
 
 ## 0.6.1
 
+### Watch Mode
+
+- **Fix watch camera cutting off on orbital ghosts.** The 300km camera cutoff was unconditionally exiting watch mode when a ghost exceeded the distance — even for orbital recordings that naturally travel far during ascent/orbit. Orbital recordings (those with orbit segments) are now exempt from both the watch-exit cutoff and the Watch button distance gate. Also added missing log entry on individual recording Watch button clicks.
+
 ### Recording
 
 - **Close commit-to-save crash window (T15).** Recording data no longer lives only in RAM between commit and the next `OnSave()` cycle. New `FlushDirtyFiles()` writes `.prec`, `_vessel.craft`, and `_ghost.craft` to disk immediately on commit and again after the recording optimization pass (merge/split/trim). If the immediate write fails, `FilesDirty` stays true and `OnSave` retries as before — no behavior change in the failure path.

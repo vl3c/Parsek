@@ -963,6 +963,18 @@ namespace Parsek.Tests
             // Strict less-than: exactly at cutoff returns false
             Assert.False(GhostPlaybackLogic.IsWithinWatchRange(300000, 300));
         }
+
+        [Theory]
+        [InlineData(500000, 300, true, false)]   // orbital ghost 500km away — exempt, no exit
+        [InlineData(500000, 300, false, true)]   // non-orbital ghost 500km away — exit
+        [InlineData(100000, 300, true, false)]   // orbital ghost within cutoff — no exit
+        [InlineData(100000, 300, false, false)]  // non-orbital ghost within cutoff — no exit
+        [InlineData(300000, 300, true, false)]   // orbital at exact boundary — exempt
+        [InlineData(300000, 300, false, true)]   // non-orbital at exact boundary — exit
+        public void ShouldExitWatchForCutoff_OrbitalExemption(double distMeters, float cutoffKm, bool isOrbital, bool expected)
+        {
+            Assert.Equal(expected, GhostPlaybackLogic.ShouldExitWatchForCutoff(distMeters, cutoffKm, isOrbital));
+        }
     }
 
     #endregion
