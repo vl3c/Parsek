@@ -1481,6 +1481,30 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Determines whether a debris vessel is significant enough to record.
+        /// Filters out trivial crash fragments (single struts, panels, shroud pieces)
+        /// while keeping meaningful debris like spent boosters and stages.
+        /// </summary>
+        internal static bool ShouldRecordDebris(Vessel v)
+        {
+            if (v == null) return false;
+            int partCount = v.parts?.Count ?? 0;
+            float mass = (float)v.totalMass;
+            return ShouldRecordDebris(partCount, mass);
+        }
+
+        /// <summary>
+        /// Pure testable overload: debris is significant if it has at least
+        /// 3 parts OR at least 0.5 tons of mass.
+        /// </summary>
+        internal static bool ShouldRecordDebris(int partCount, float mass)
+        {
+            const int MinPartCount = 3;
+            const float MinMassTons = 0.5f;
+            return partCount >= MinPartCount || mass >= MinMassTons;
+        }
+
+        /// <summary>
         /// Appends captured trajectory data (points, orbit segments, part events, track sections)
         /// from a source recording into the target, sorts part events by UT, and sets the target's
         /// ExplicitEndUT. If source is null, only ExplicitEndUT is set.
@@ -2499,10 +2523,18 @@ namespace Parsek
             if (debrisPids != null && debrisPids.Count > 0)
             {
                 double debrisExpiryUT = breakupBp.UT + BackgroundRecorder.DebrisTTLSeconds;
+                int skippedDebris = 0;
                 for (int i = 0; i < debrisPids.Count; i++)
                 {
                     uint pid = debrisPids[i];
                     Vessel debrisVessel = FlightRecorder.FindVesselByPid(pid);
+
+                    if (debrisVessel != null && !ShouldRecordDebris(debrisVessel))
+                    {
+                        skippedDebris++;
+                        continue;
+                    }
+
                     string childRecId = Guid.NewGuid().ToString("N");
                     string vesselName = Recording.ResolveLocalizedName(debrisVessel?.vesselName) ?? "Debris";
 
@@ -2544,6 +2576,10 @@ namespace Parsek
                         $"name='{vesselName}', recId={childRecId}, " +
                         $"alive={debrisVessel != null}");
                 }
+                if (skippedDebris > 0)
+                    ParsekLog.Info("Coalescer",
+                        $"ProcessBreakupEvent: skipped {skippedDebris} trivial debris " +
+                        $"(below mass/part threshold)");
             }
 
             ParsekLog.Info("Coalescer",
@@ -2640,14 +2676,22 @@ namespace Parsek
             activeTree.BranchPoints.Add(breakupBp);
             rootRec.ChildBranchPointId = breakupBp.Id;
 
-            // 7. Create debris child recordings
+            // 7. Create debris child recordings (skip trivial fragments)
             var debrisPids = crashCoalescer.LastEmittedDebrisPids;
             if (debrisPids != null)
             {
+                int skippedDebris = 0;
                 for (int i = 0; i < debrisPids.Count; i++)
                 {
                     uint pid = debrisPids[i];
                     Vessel debrisVessel = FlightRecorder.FindVesselByPid(pid);
+
+                    if (debrisVessel != null && !ShouldRecordDebris(debrisVessel))
+                    {
+                        skippedDebris++;
+                        continue;
+                    }
+
                     string childRecId = Guid.NewGuid().ToString("N");
                     string vesselName = Recording.ResolveLocalizedName(debrisVessel?.vesselName) ?? "Debris";
 
@@ -2683,6 +2727,10 @@ namespace Parsek
                         $"name='{vesselName}', recId={childRecId}, " +
                         $"alive={debrisVessel != null}");
                 }
+                if (skippedDebris > 0)
+                    ParsekLog.Info("Coalescer",
+                        $"PromoteToTreeForBreakup: skipped {skippedDebris} trivial debris " +
+                        $"(below mass/part threshold)");
             }
 
             // 8. Create controlled child recordings (same pattern, IsDebris = false, no TTL)
