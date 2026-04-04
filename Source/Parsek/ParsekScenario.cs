@@ -1057,14 +1057,13 @@ namespace Parsek
         /// </summary>
         private IEnumerator DeferredSeedAndRecalculate()
         {
-            // Wait for ALL resource singletons to be available (matches
-            // ApplyBudgetDeductionWhenReady pattern). In sandbox mode none
-            // will ever appear — bail after timeout.
-            int maxWait = 120; // ~2 seconds at 60fps
+            // Phase 1: wait for singletons to exist (non-null).
+            // In sandbox mode none will ever appear — bail after timeout.
+            int maxWait = 120;
             while (maxWait-- > 0
-                   && (Funding.Instance == null
-                       || ResearchAndDevelopment.Instance == null
-                       || Reputation.Instance == null))
+                   && Funding.Instance == null
+                   && ResearchAndDevelopment.Instance == null
+                   && Reputation.Instance == null)
                 yield return null;
 
             if (Funding.Instance == null && ResearchAndDevelopment.Instance == null
@@ -1075,25 +1074,22 @@ namespace Parsek
                 yield break;
             }
 
-            int framesWaited = 119 - maxWait; // post-decrement: 120→119 on first check
-            if (Funding.Instance == null || ResearchAndDevelopment.Instance == null
-                || Reputation.Instance == null)
-            {
-                ParsekLog.Verbose("Scenario",
-                    $"DeferredSeed: timed out after {framesWaited} frames with partial singletons — " +
-                    $"Funding={Funding.Instance != null}, R&D={ResearchAndDevelopment.Instance != null}, " +
-                    $"Rep={Reputation.Instance != null}. Proceeding with available singletons.");
-            }
+            // Phase 2: wait for singletons to have NON-ZERO values.
+            // KSP creates singletons immediately but populates their data from the
+            // save file on a separate schedule (can be many seconds on heavy saves).
+            // Spin until at least one singleton reports a non-zero value, or timeout.
+            int maxValueWait = 600; // ~10 seconds at 60fps
+            while (maxValueWait-- > 0
+                   && (Funding.Instance == null || Funding.Instance.Funds == 0.0)
+                   && (ResearchAndDevelopment.Instance == null || ResearchAndDevelopment.Instance.Science == 0f)
+                   && (Reputation.Instance == null || Reputation.Instance.reputation == 0f))
+                yield return null;
 
-            // Yield extra frames: singletons may exist but not have loaded
-            // their values from the save ConfigNode yet (OnLoad ordering).
-            yield return null;
-            yield return null;
-            yield return null;
+            int framesWaited = 600 - maxValueWait;
 
             var ic = CultureInfo.InvariantCulture;
             ParsekLog.Verbose("Scenario",
-                $"DeferredSeed: singletons ready after {framesWaited} frames — " +
+                $"DeferredSeed: values ready after {framesWaited} frames — " +
                 $"Funding={(Funding.Instance != null ? Funding.Instance.Funds.ToString("F0", ic) : "null")}, " +
                 $"Science={(ResearchAndDevelopment.Instance != null ? ResearchAndDevelopment.Instance.Science.ToString("F0", ic) : "null")}, " +
                 $"Rep={(Reputation.Instance != null ? Reputation.Instance.reputation.ToString("F1", ic) : "null")}");
