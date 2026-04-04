@@ -14,6 +14,10 @@ All notable changes to Parsek are documented here.
 - **Atmospheric ghost icons in tracking station.** Ghost vessel icons are now visible during atmospheric flight phases (launch, reentry) in the tracking station. Uses direct OnGUI rendering from trajectory data — same projection pipeline as flight-scene map markers. No ProtoVessel (avoids the known OrbitDriver state-vector roundtrip position mismatch, #172). New `MapMarkerRenderer` static helper shares icon atlas, vessel type colors, and rendering logic between flight and tracking station scenes.
 - **Watch mode for distant ghosts (T39).** Watch button is no longer disabled for ghosts beyond the 120km visual rendering zone. The zone boundary is about rendering from the active vessel's camera — irrelevant for watch mode which moves the camera to the ghost. The only limit is now the user-configurable `ghostCameraCutoffKm` setting (default 300km).
 
+### Recording
+
+- **Debris recording filtering (T38).** Trivial crash fragments (single struts, panels, shroud pieces) are no longer recorded during breakup events. `ShouldRecordDebris` filters debris before Recording creation — vessels with fewer than 3 parts AND less than 0.5 tons are skipped entirely (no BackgroundRecorder tracking, no per-frame sampling). Spent boosters and multi-part stages pass the filter.
+
 ### Tests
 
 - **ChainSegmentManager unit tests (T34).** 16 new tests covering `SampleContinuationVessel` guard paths (pid=0 early return, stale/negative index → stop callback), `UpdateContinuationSampling`/`UpdateUndockContinuationSampling` wrappers (no-op and stale-index propagation), `StopAllContinuations` branching (neither/one/both active, chain identity preservation), and `RefreshContinuationSnapshotCore` guards (pid=0, negative recIdx, stale recIdx). Total: 46 tests for ChainSegmentManager (up from 30).
