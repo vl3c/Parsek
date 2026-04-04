@@ -47,37 +47,6 @@ namespace Parsek.Patches
 
             uint pid = __instance.vessel.persistentId;
             if (!GhostMapPresence.IsGhostMapVessel(pid)) return;
-
-            // State-vector ghosts: update orbit from trajectory data every frame.
-            // This runs BEFORE updateFromParameters, so the OrbitDriver uses the
-            // correct position. No orbit line (suppressed by GhostOrbitArcPatch).
-            if (GhostMapPresence.stateVectorGhostData.TryGetValue(pid, out var svData))
-            {
-                var committed = RecordingStore.CommittedRecordings;
-                if (committed != null && svData.recordingIndex >= 0 && svData.recordingIndex < committed.Count)
-                {
-                    var rec = committed[svData.recordingIndex];
-                    double ut = Planetarium.GetUniversalTime();
-                    int cached = svData.cachedPointIndex;
-                    TrajectoryPoint? pt = TrajectoryMath.BracketPointAtUT(rec.Points, ut, ref cached);
-                    GhostMapPresence.stateVectorGhostData[pid] = (svData.recordingIndex, cached);
-
-                    if (pt.HasValue)
-                    {
-                        CelestialBody body = GhostMapPresence.FindBodyByNamePublic(pt.Value.bodyName);
-                        if (body != null)
-                        {
-                            Vector3d worldPos = body.GetWorldSurfacePosition(
-                                pt.Value.latitude, pt.Value.longitude, pt.Value.altitude);
-                            Vector3d vel = new Vector3d(
-                                pt.Value.velocity.x, pt.Value.velocity.y, pt.Value.velocity.z);
-                            __instance.orbit.UpdateFromStateVectors(worldPos, vel, body, ut);
-                        }
-                    }
-                }
-                return; // let original updateFromParameters proceed with corrected orbit
-            }
-
             if (!GhostMapPresence.ghostOrbitBounds.TryGetValue(pid, out var bounds)) return;
 
             Orbit orbit = __instance.orbit;
@@ -250,16 +219,6 @@ namespace Parsek.Patches
             if (__instance.vessel == null) return true;
             uint pid = __instance.vessel.persistentId;
             if (!GhostMapPresence.IsGhostMapVessel(pid)) return true;
-
-            // State-vector ghosts: suppress orbit line entirely (atmospheric trajectory).
-            if (GhostMapPresence.stateVectorGhostPids.Contains(pid))
-            {
-                var svLine = __instance.OrbitLine;
-                if (svLine != null) svLine.active = false;
-                __instance.drawIcons = OrbitRendererBase.DrawIcons.OBJ;
-                return false;
-            }
-
             if (!GhostMapPresence.ghostOrbitBounds.TryGetValue(pid, out var bounds))
             {
                 ParsekLog.VerboseRateLimited(Tag, "nobounds-" + pid,
