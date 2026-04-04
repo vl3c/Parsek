@@ -1530,7 +1530,7 @@ namespace Parsek
                 GUI.enabled = canWatch;
                 string watchLabel = isWatching ? "W*" : "W";
                 string watchTooltip = (hasGhost && !sameBody) ? "Ghost is on a different body"
-                    : (hasGhost && !inRange) ? "Ghost is beyond visual range"
+                    : (hasGhost && !inRange) ? "Ghost is beyond camera cutoff"
                     : "";
                 var watchContent = new GUIContent(watchLabel, watchTooltip);
                 if (GUILayout.Button(watchContent, GUILayout.Width(ColW_Watch)))

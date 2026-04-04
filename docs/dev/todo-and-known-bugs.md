@@ -74,11 +74,9 @@ To implement properly: either rescale prefab Cap/Truss meshes from XSECTION data
 
 Implemented via ProtoVessel-based approach. Ghost chains with orbital data get lightweight ProtoVessels that provide automatic tracking station entries, orbit lines, map icons, and navigation targeting. 27 guard rails across 9 files, 4 Harmony patches (GoOffRails, CommNetVessel, SpaceTracking Fly/Delete/Recover). Orbit segment updates on SOI transitions. Soft cap despawn integration. 23 tests.
 
-### T12. EVA recording scope expansion (bug #56)
+### ~~T12. EVA recording scope expansion (bug #56)~~ DONE
 
-`OnCrewOnEva` only records EVAs from launch pad. In-flight EVAs (suborbital, flying, orbiting) are not recorded.
-
-**Priority:** Medium — design limitation
+Fixed in commit `ed19f03`. Removed PRELAUNCH situation guard from `OnCrewOnEva`. EVAs from any vessel situation (landed, orbiting, splashed, etc.) now trigger auto-record when the setting is enabled. Mid-recording EVAs were already handled via tree branching.
 
 ### T13. UI subgroup enable/loop checkboxes (bug #50)
 
@@ -228,11 +226,9 @@ Currently every breakup piece (including tiny debris fragments) gets its own bac
 
 **Priority:** Medium — user experience, UI clutter
 
-### T39. Watch mode for distant ghosts (post-separation stages)
+### ~~T39. Watch mode for distant ghosts (post-separation stages)~~ DONE
 
-After stage separation, the ghost for the continuation stage is at 40-120km altitude — beyond visual range (120km) from the pad. The Watch (W) button is disabled because the `inRange` check rejects Beyond-zone ghosts. The user expects to be able to watch all stages in sequence. Watch mode should teleport the camera to the ghost's location instead of requiring the ghost to be within visual range of the active vessel.
-
-**Priority:** High — core user experience for multi-stage flights
+Removed the `RenderingZone.Beyond` rejection from `IsWithinWatchRange`. The 120km zone boundary is about rendering from the active vessel's camera — irrelevant for watch mode which moves the camera to the ghost. The only limit is now `ghostCameraCutoffKm` (default 300km, user-configurable). The mesh-unhide exemption for watched Beyond-zone ghosts was already in place.
 
 ### T40. Ghost orbit line visual differentiation (Phase 4)
 
