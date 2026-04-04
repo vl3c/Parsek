@@ -4,6 +4,16 @@ All notable changes to Parsek are documented here.
 
 ---
 
+## 0.6.1
+
+### Ghost Playback
+
+- **Fix ghost icon through planet (#212b).** Ghost vessel icon no longer follows the full Keplerian ellipse through the planet in tracking station. New `GhostOrbitIconClampPatch` prefix on `OrbitDriver.updateFromParameters` clamps the propagation UT to the visible arc — the icon freezes at the arc endpoint instead of going underground. The previous approach (drawIcons postfix on LateUpdate) silently failed because `vessel.orbitDriver` was null for ghost ProtoVessels despite `OrbitRendererBase.driver` being valid.
+- **Chain-aware tracking station ghosts (#215).** Tracking station ghost creation now respects recording chains. Intermediate recordings superseded by later recordings in the same chain no longer get stale ghost ProtoVessels. Only chain-tip recordings with orbital data create ghosts.
+- **Tracking station ghost lifecycle (#215).** Ghost ProtoVessels are now removed from the tracking station vessel list when game time passes their orbit segment endUT. Previously, ghosts were created once at scene init and persisted until scene exit regardless of time progression.
+
+---
+
 ## 0.6.0
 
 ### Ghost Playback

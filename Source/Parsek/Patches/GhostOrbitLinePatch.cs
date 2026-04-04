@@ -38,7 +38,7 @@ namespace Parsek.Patches
     /// which sets the vessel's world position. This prefix intercepts the UT before
     /// propagation and clamps it to the visible arc if needed.
     /// </summary>
-    [HarmonyPatch(typeof(OrbitDriver), "updateFromParameters")]
+    [HarmonyPatch(typeof(OrbitDriver), "updateFromParameters", new Type[0])]
     internal static class GhostOrbitIconClampPatch
     {
         static void Prefix(OrbitDriver __instance)

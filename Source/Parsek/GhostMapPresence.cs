@@ -442,6 +442,46 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Remove tracking station ghost ProtoVessels whose orbit segment bounds have been
+        /// passed by the current UT. Called periodically from ParsekTrackingStation.Update.
+        /// In the flight scene, this lifecycle is handled by ParsekPlaybackPolicy.CheckPendingMapVessels;
+        /// in the tracking station, this method provides the equivalent.
+        /// </summary>
+        internal static void RemoveExpiredTrackingStationGhosts()
+        {
+            if (vesselsByRecordingIndex.Count == 0 && vesselsByChainPid.Count == 0) return;
+
+            double currentUT = Planetarium.GetUniversalTime();
+            List<int> toRemove = null;
+
+            foreach (var kvp in vesselsByRecordingIndex)
+            {
+                uint pid = kvp.Value.persistentId;
+                if (!ghostOrbitBounds.TryGetValue(pid, out var bounds)) continue;
+
+                // Past segment endUT → recording's orbital phase is over, remove the ghost
+                if (currentUT > bounds.endUT)
+                {
+                    if (toRemove == null) toRemove = new List<int>();
+                    toRemove.Add(kvp.Key);
+                }
+            }
+
+            if (toRemove != null)
+            {
+                for (int i = 0; i < toRemove.Count; i++)
+                {
+                    int idx = toRemove[i];
+                    RemoveGhostVesselForRecording(idx, "tracking-station-expired");
+                    ParsekLog.Info(Tag,
+                        string.Format(ic,
+                            "Removed expired ghost #{0} — UT {1:F1} past segment endUT",
+                            idx, currentUT));
+                }
+            }
+        }
+
+        /// <summary>
         /// Update orbit for a recording-index ghost when the ghost traverses orbit segments.
         /// </summary>
         internal static void UpdateGhostOrbitForRecording(int recordingIndex, OrbitSegment segment)
