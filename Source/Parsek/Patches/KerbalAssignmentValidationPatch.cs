@@ -12,8 +12,7 @@ namespace Parsek.Patches
     /// incorrectly demotes them every scene load.
     ///
     /// This postfix runs after validation and re-applies Assigned status to any
-    /// managed kerbal that was demoted. This avoids the tug-of-war that causes
-    /// the Astronaut Complex "Assigned" tab to show a count but empty list.
+    /// managed kerbal that was demoted.
     /// </summary>
     [HarmonyPatch(typeof(KerbalRoster), nameof(KerbalRoster.ValidateAssignments))]
     internal static class KerbalAssignmentValidationPatch
@@ -38,6 +37,59 @@ namespace Parsek.Patches
                 ParsekLog.Verbose("KerbalValidation",
                     $"Restored {restored} managed kerbal(s) from Missing to Assigned " +
                     "after KSP ValidateAssignments");
+        }
+    }
+
+    /// <summary>
+    /// Fixes Astronaut Complex "Assigned" tab showing a count but empty list.
+    ///
+    /// KSP's GetAssignedCrewCount() counts kerbals with rosterStatus == Assigned,
+    /// but CreateAssignedList() only shows kerbals from vessel crew manifests.
+    /// Parsek-reserved kerbals are Assigned but not on any vessel, so the count
+    /// includes them but the list doesn't.
+    ///
+    /// This postfix subtracts Parsek-managed kerbals that aren't on a vessel
+    /// from the count, making the number match the displayed list.
+    /// </summary>
+    [HarmonyPatch(typeof(KerbalRoster), nameof(KerbalRoster.GetAssignedCrewCount))]
+    internal static class AssignedCrewCountPatch
+    {
+        static void Postfix(KerbalRoster __instance, ref int __result)
+        {
+            var kerbals = LedgerOrchestrator.Kerbals;
+            if (kerbals == null || __result == 0) return;
+
+            var flightState = HighLogic.CurrentGame?.flightState;
+
+            int subtract = 0;
+            foreach (ProtoCrewMember pcm in __instance.Crew)
+            {
+                if (pcm.rosterStatus != ProtoCrewMember.RosterStatus.Assigned) continue;
+                if (!kerbals.IsManaged(pcm.name)) continue;
+
+                // Check if they're actually on a vessel
+                bool onVessel = false;
+                if (flightState != null)
+                {
+                    for (int i = 0; i < flightState.protoVessels.Count; i++)
+                    {
+                        if (flightState.protoVessels[i].GetVesselCrew().Contains(pcm))
+                        {
+                            onVessel = true;
+                            break;
+                        }
+                    }
+                }
+
+                if (!onVessel)
+                    subtract++;
+            }
+
+            if (subtract > 0)
+            {
+                __result -= subtract;
+                if (__result < 0) __result = 0;
+            }
         }
     }
 }

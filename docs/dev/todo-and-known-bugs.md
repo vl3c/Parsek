@@ -236,6 +236,14 @@ Test game actions system with popular mods: CustomBarnKit (non-standard facility
 
 **Priority:** Low — v1 targets stock only, mod compat is best-effort
 
+### T44. Refactor kerbal reservation to not use rosterStatus = Assigned
+
+Currently `ApplyToRoster` sets reserved kerbals to `rosterStatus = Assigned` to prevent KSP from offering them for new flights. But KSP expects Assigned to mean "on a vessel crew manifest," causing a tug-of-war with `ValidateAssignments` (sets them to Missing) and a miscount in the Astronaut Complex UI. Two Harmony postfixes (#216) work around this, but the root cause remains.
+
+A cleaner approach: leave reserved kerbals as `Available` and instead (1) patch the crew selection dialog to hide/grey-out Parsek-managed kerbals, (2) keep `SwapReservedCrewInFlight` as fallback for any that slip through, (3) handle MIA respawn override via a dedicated mechanism instead of status manipulation. This eliminates the ValidateAssignments/GetAssignedCrewCount patches entirely.
+
+**Priority:** Low — current workaround is functional, refactor only if touching crew reservation system
+
 ---
 
 # Known Bugs
@@ -2432,7 +2440,11 @@ The orbit **line** was correctly clipped by `GhostOrbitArcPatch`, but the vessel
 
 Parsek reserves kerbals by setting `rosterStatus = Assigned` in `ApplyToRoster`, but KSP expects `Assigned` to mean "on a vessel crew manifest." KSP's `ProtoCrewMember` validation fires on every scene load and sets unattached Assigned kerbals to Missing ("Crewmember X found assigned but no vessels reference him"). This creates a tug-of-war: Parsek sets Assigned → KSP sets Missing → next recalculation sets Assigned again. The Astronaut Complex "Assigned" tab counts them in the header but can't find them in any vessel crew, so the list is empty. 27 KSP warnings per session.
 
-**Fix:** Harmony prefix on `ProtoCrewMember` validation to skip Parsek-managed kerbals, or use a different reservation mechanism that doesn't conflict with KSP's Assigned semantics.
+**Fix:** Two Harmony postfixes in `KerbalAssignmentValidationPatch.cs`:
+1. `KerbalRoster.ValidateAssignments` postfix: re-applies `Assigned` status to managed kerbals after KSP demotes them to Missing.
+2. `KerbalRoster.GetAssignedCrewCount` postfix: subtracts Parsek-managed kerbals not on a vessel from the count, so the tab number matches the displayed list.
+
+**Future refactor (T44):** The root cause is using `rosterStatus = Assigned` for reservation — KSP expects Assigned to mean "on a vessel." A cleaner approach would be a dedicated reservation mechanism that doesn't conflict with KSP's semantics (e.g., crew dialog filtering patch + internal Parsek reservation state, without changing rosterStatus). This would eliminate both the ValidateAssignments tug-of-war and the GetAssignedCrewCount correction.
 
 ## 217. Settings window GUILayout exception (Layout/Repaint mismatch)
 
