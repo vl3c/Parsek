@@ -111,6 +111,7 @@ namespace Parsek
             ui.DrawRecordingsWindowIfOpen(windowRect);
             ui.DrawActionsWindowIfOpen(windowRect);
             ui.DrawSettingsWindowIfOpen(windowRect);
+            ui.DrawTestRunnerWindowIfOpen(windowRect, this);
         }
 
         #region Ghost Playback

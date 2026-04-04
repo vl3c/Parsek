@@ -643,6 +643,7 @@ namespace Parsek
                 ui.DrawActionsWindowIfOpen(windowRect);
                 ui.DrawSettingsWindowIfOpen(windowRect);
                 ui.DrawSpawnControlWindowIfOpen(windowRect);
+                ui.DrawTestRunnerWindowIfOpen(windowRect, this);
             }
         }
 
