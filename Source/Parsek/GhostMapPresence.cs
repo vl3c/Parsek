@@ -60,6 +60,21 @@ namespace Parsek
             = new Dictionary<uint, (double, double)>();
 
         /// <summary>
+        /// Ghost vessel PIDs that are state-vector-based (trajectory interpolation, no orbit segment).
+        /// GhostOrbitArcPatch suppresses the orbit line for these. GhostOrbitIconClampPatch
+        /// uses the associated trajectory data to update the orbit position every frame.
+        /// </summary>
+        internal static readonly HashSet<uint> stateVectorGhostPids = new HashSet<uint>();
+
+        /// <summary>
+        /// State-vector ghost data for per-frame orbit updates via GhostOrbitIconClampPatch.
+        /// Maps ghost vessel PID → (recording index, cached interpolation index).
+        /// The prefix on OrbitDriver.updateFromParameters looks up trajectory points here.
+        /// </summary>
+        internal static readonly Dictionary<uint, (int recordingIndex, int cachedPointIndex)>
+            stateVectorGhostData = new Dictionary<uint, (int, int)>();
+
+        /// <summary>
         /// O(1) check used by all guard code throughout the codebase.
         /// Returns true if the given persistentId belongs to a ghost map ProtoVessel.
         /// </summary>
@@ -330,6 +345,8 @@ namespace Parsek
             ghostMapVesselPids.Clear();
             ghostsWithSuppressedIcon.Clear();
             ghostOrbitBounds.Clear();
+            stateVectorGhostPids.Clear();
+            stateVectorGhostData.Clear();
             vesselsByChainPid.Clear();
             vesselsByRecordingIndex.Clear();
             vesselPidToRecordingIndex.Clear();
@@ -416,6 +433,8 @@ namespace Parsek
 
             ghostMapVesselPids.Remove(ghostPid);
             ghostOrbitBounds.Remove(ghostPid);
+            stateVectorGhostPids.Remove(ghostPid);
+            stateVectorGhostData.Remove(ghostPid);
             vesselPidToRecordingIndex.Remove(ghostPid);
             vesselsByRecordingIndex.Remove(recordingIndex);
 
@@ -452,6 +471,7 @@ namespace Parsek
         internal static void UpdateTrackingStationGhostLifecycle()
         {
             double currentUT = Planetarium.GetUniversalTime();
+            var committed = RecordingStore.CommittedRecordings;
 
             // --- Phase 1: remove expired ghosts ---
             if (vesselsByRecordingIndex.Count > 0)
@@ -459,13 +479,35 @@ namespace Parsek
                 List<int> toRemove = null;
                 foreach (var kvp in vesselsByRecordingIndex)
                 {
+                    int idx = kvp.Key;
                     uint pid = kvp.Value.persistentId;
-                    if (!ghostOrbitBounds.TryGetValue(pid, out var bounds)) continue;
 
-                    if (currentUT > bounds.endUT)
+                    // Segment-based: expired when UT > endUT
+                    if (ghostOrbitBounds.TryGetValue(pid, out var bounds))
                     {
-                        if (toRemove == null) toRemove = new List<int>();
-                        toRemove.Add(kvp.Key);
+                        if (currentUT > bounds.endUT)
+                        {
+                            if (toRemove == null) toRemove = new List<int>();
+                            toRemove.Add(idx);
+                        }
+                        continue;
+                    }
+
+                    // State-vector: expired when past trajectory end or entering orbit segment
+                    if (stateVectorGhostPids.Contains(pid) && committed != null
+                        && idx >= 0 && idx < committed.Count)
+                    {
+                        var rec = committed[idx];
+                        bool pastEnd = rec.Points == null || rec.Points.Count == 0
+                            || currentUT > rec.Points[rec.Points.Count - 1].ut;
+                        bool enteredSegment = rec.OrbitSegments != null
+                            && TrajectoryMath.FindOrbitSegment(rec.OrbitSegments, currentUT).HasValue;
+
+                        if (pastEnd || enteredSegment)
+                        {
+                            if (toRemove == null) toRemove = new List<int>();
+                            toRemove.Add(idx);
+                        }
                     }
                 }
 
@@ -477,48 +519,75 @@ namespace Parsek
                         RemoveGhostVesselForRecording(idx, "tracking-station-expired");
                         ParsekLog.Info(Tag,
                             string.Format(ic,
-                                "Removed expired ghost #{0} — UT {1:F1} past segment endUT",
+                                "Removed expired ghost #{0} — UT {1:F1}",
                                 idx, currentUT));
                     }
                 }
             }
 
-            // --- Phase 2: create ghosts for recordings that just entered orbit segment range ---
-            var committed = RecordingStore.CommittedRecordings;
+            // --- Phase 2: create ghosts for recordings that qualify at current UT ---
             if (committed == null || committed.Count == 0) return;
 
             var superseded = FindSupersededRecordingIds(committed);
 
             for (int i = 0; i < committed.Count; i++)
             {
-                // Skip recordings that already have a ghost
                 if (vesselsByRecordingIndex.ContainsKey(i)) continue;
 
                 var rec = committed[i];
-                bool isSuperseded = superseded.Contains(rec.RecordingId);
-                var (shouldCreate, _) = ShouldCreateTrackingStationGhost(rec, isSuperseded, currentUT);
-                if (!shouldCreate) continue;
+                if (rec.IsDebris) continue;
+                if (superseded.Contains(rec.RecordingId)) continue;
 
-                Vessel v = null;
-                if (HasOrbitData(rec))
+                var terminal = rec.TerminalStateValue;
+                if (terminal.HasValue
+                    && terminal.Value != TerminalState.Orbiting
+                    && terminal.Value != TerminalState.Docked)
+                    continue;
+
+                // Path A: segment-based (orbit segment at current UT)
+                OrbitSegment? seg = rec.OrbitSegments != null
+                    ? TrajectoryMath.FindOrbitSegment(rec.OrbitSegments, currentUT)
+                    : null;
+
+                if (seg.HasValue || HasOrbitData(rec))
                 {
-                    v = CreateGhostVesselForRecording(i, rec);
-                }
-                else if (rec.OrbitSegments != null && rec.OrbitSegments.Count > 0)
-                {
-                    OrbitSegment? seg = TrajectoryMath.FindOrbitSegment(rec.OrbitSegments, currentUT);
-                    if (seg.HasValue)
-                        v = CreateGhostVesselFromSegment(i, rec, seg.Value);
+                    Vessel v = HasOrbitData(rec)
+                        ? CreateGhostVesselForRecording(i, rec)
+                        : CreateGhostVesselFromSegment(i, rec, seg.Value);
+                    if (v != null)
+                    {
+                        EnsureGhostOrbitRenderers();
+                        ParsekLog.Info(Tag,
+                            string.Format(ic,
+                                "Deferred ghost creation for #{0} \"{1}\" — UT {2:F1} entered orbit segment",
+                                i, rec.VesselName ?? "(null)", currentUT));
+                    }
+                    continue;
                 }
 
-                if (v != null)
+                // Path B: state-vector (trajectory points, no orbit segment at current UT)
+                // Shows icon during atmospheric flight (launch, reentry) without orbit line.
+                // Position updated per-frame by GhostOrbitIconClampPatch prefix.
+                if (rec.Points != null && rec.Points.Count > 0
+                    && currentUT >= rec.Points[0].ut
+                    && currentUT <= rec.Points[rec.Points.Count - 1].ut)
                 {
-                    // Ensure orbit renderer exists (MapView.fetch should be available by now)
-                    EnsureGhostOrbitRenderers();
-                    ParsekLog.Info(Tag,
-                        string.Format(ic,
-                            "Deferred ghost creation for #{0} \"{1}\" — UT {2:F1} entered orbit segment",
-                            i, rec.VesselName ?? "(null)", currentUT));
+                    int cached = -1;
+                    TrajectoryPoint? pt = TrajectoryMath.BracketPointAtUT(rec.Points, currentUT, ref cached);
+                    if (pt.HasValue)
+                    {
+                        Vessel v = CreateGhostVesselFromStateVectors(i, rec, pt.Value, currentUT);
+                        if (v != null)
+                        {
+                            stateVectorGhostPids.Add(v.persistentId);
+                            stateVectorGhostData[v.persistentId] = (i, cached);
+                            EnsureGhostOrbitRenderers();
+                            ParsekLog.Info(Tag,
+                                string.Format(ic,
+                                    "Created state-vector ghost for #{0} \"{1}\" — UT {2:F1} alt={3:F0}",
+                                    i, rec.VesselName ?? "(null)", currentUT, pt.Value.altitude));
+                        }
+                    }
                 }
             }
         }
@@ -972,6 +1041,8 @@ namespace Parsek
             ghostMapVesselPids.Clear();
             ghostsWithSuppressedIcon.Clear();
             ghostOrbitBounds.Clear();
+            stateVectorGhostPids.Clear();
+            stateVectorGhostData.Clear();
             vesselsByChainPid.Clear();
             vesselsByRecordingIndex.Clear();
             vesselPidToRecordingIndex.Clear();
@@ -985,6 +1056,14 @@ namespace Parsek
         /// Find a CelestialBody by name without LINQ allocation.
         /// Returns null if FlightGlobals.Bodies is null or name not found.
         /// </summary>
+        /// <summary>
+        /// Public accessor for FindBodyByName, used by GhostOrbitIconClampPatch.
+        /// </summary>
+        internal static CelestialBody FindBodyByNamePublic(string bodyName)
+        {
+            return FindBodyByName(bodyName);
+        }
+
         private static CelestialBody FindBodyByName(string bodyName)
         {
             var bodies = FlightGlobals.Bodies;
