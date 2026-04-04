@@ -1535,6 +1535,7 @@ namespace Parsek
                 var watchContent = new GUIContent(watchLabel, watchTooltip);
                 if (GUILayout.Button(watchContent, GUILayout.Width(ColW_Watch)))
                 {
+                    ParsekLog.Info("UI", $"Recording #{ri} W button clicked: {(isWatching ? "exit" : "enter")} watch on \"{rec.VesselName}\"");
                     if (isWatching)
                         flight.ExitWatchMode();
                     else

@@ -102,6 +102,12 @@ KSP's inertial reference frame may drift over very long time warp. Could cause g
 
 ## TODO — Code Quality
 
+### T45. Add `HasOrbitSegments` to `IPlaybackTrajectory` interface
+
+`Recording.HasOrbitSegments` property was added in PR #125, but `IPlaybackTrajectory` still requires the inline `rec.OrbitSegments != null && rec.OrbitSegments.Count > 0` pattern. ~9 callsites across the codebase use this pattern. Adding it to the interface would unify all of them, but touches the standalone ghost mod boundary — defer until the interface next changes.
+
+**Priority:** Low — cosmetic DRY cleanup
+
 ### ~~T17. Game actions recording redesign (Phase 8)~~ DONE
 
 Full ledger-based game actions system shipped in v0.6.0. 7 resource modules (Science, Funds, Reputation, Milestones, Contracts, Facilities, Strategies), KspStatePatcher, contract deadline failures, kerbal rescue detection, game state event recording, milestone path qualification, strategy commitment rates, warp facility patching. 4621 tests. See CHANGELOG 0.6.0 "Game Actions & Resources System" and "Kerbal Lifecycle Management" sections.
@@ -2483,6 +2489,16 @@ When a vessel crashes during an active recording, the recorder is stopped and co
 Intermediate tree recordings with 0 trajectory points but non-null VesselSnapshot trigger `PopulateCrewEndStates` on every recalculation walk (36 times in a typical session). These recordings can never have crew. The safety net in `PopulateUnpopulatedCrewEndStates` and the PrePass metadata scan both iterate all committed recordings including these zero-point intermediates.
 
 **Priority:** Low — performance optimization, no functional impact.
+
+## ~~221. Watch camera cuts off on orbital ghosts at 300km~~
+
+When watching an orbital stage ghost (e.g., Kerbal X second stage), the 300km camera cutoff unconditionally exits watch mode — even though the ghost naturally travels far during ascent/orbit. The Watch (W) button then becomes disabled (`IsGhostWithinVisualRange` uses the same cutoff), preventing the user from re-watching.
+
+**Log evidence:** `Ghost #1 "Kerbal X" exceeded ghost camera cutoff (300271m > 300000m) — exiting watch mode` while watching a looped KerbalX recording's orbital stage.
+
+**Root cause:** The zone cutoff at `ApplyZoneRenderingImpl` (and the `EnterWatchMode` distance guard and `IsGhostWithinVisualRange` button check) had no orbital exemption. Bug #89's fix correctly added the cutoff but didn't distinguish orbital vs surface/suborbital ghosts.
+
+**Fix (PR #125):** Orbital recordings (those with orbit segments) are exempt from the watch-exit cutoff (`ShouldExitWatchForCutoff` 3-arg overload), the `EnterWatchMode` distance gate, and the Watch button `IsGhostWithinVisualRange` check. Non-orbital ghosts (debris, surface) still respect the cutoff. Added `Recording.HasOrbitSegments` property and logging on individual W button clicks.
 
 # In-Game Tests
 
