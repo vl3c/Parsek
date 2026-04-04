@@ -43,6 +43,7 @@ All notable changes to Parsek are documented here.
 ### Architecture
 
 - **KerbalsModule converted to IResourceModule (T42).** KerbalsModule now participates in the RecalculationEngine walk lifecycle instead of operating as a separate bridge. Added `PostWalk()` phase to IResourceModule interface. Removed 19 redundant `RecalculateAndApply()` calls. Added old-save migration for KerbalAssignment actions. Fixed latent bug where dead crew (absent from VesselSnapshot) weren't reserved for MIA respawn override.
+- **Fix Astronaut Complex "Assigned" tab mismatch (#216).** KSP's `ValidateAssignments` set Parsek-reserved kerbals to Missing (not on any vessel), and `GetAssignedCrewCount` counted them despite the list being empty. Two Harmony postfixes: `KerbalAssignmentValidationPatch` restores Assigned status after validation, `AssignedCrewCountPatch` subtracts managed kerbals from the tab count.
 
 ### Documentation
 
