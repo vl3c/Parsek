@@ -65,12 +65,16 @@ namespace Parsek.InGameTests
 
             if (opaqueStyle == null)
             {
+                // Match ParsekUI's opaque window style: copy KSP skin, force alpha to 1
                 opaqueStyle = new GUIStyle(GUI.skin.window);
-                var bg = new Texture2D(1, 1);
-                bg.SetPixel(0, 0, new Color(0.15f, 0.15f, 0.15f, 1f));
-                bg.Apply();
-                opaqueStyle.normal.background = bg;
-                opaqueStyle.onNormal.background = bg;
+                opaqueStyle.normal.background = MakeOpaqueCopy(opaqueStyle.normal.background);
+                opaqueStyle.onNormal.background = MakeOpaqueCopy(opaqueStyle.onNormal.background);
+                opaqueStyle.focused.background = MakeOpaqueCopy(opaqueStyle.focused.background);
+                opaqueStyle.onFocused.background = MakeOpaqueCopy(opaqueStyle.onFocused.background);
+                opaqueStyle.active.background = MakeOpaqueCopy(opaqueStyle.active.background);
+                opaqueStyle.onActive.background = MakeOpaqueCopy(opaqueStyle.onActive.background);
+                opaqueStyle.hover.background = MakeOpaqueCopy(opaqueStyle.hover.background);
+                opaqueStyle.onHover.background = MakeOpaqueCopy(opaqueStyle.onHover.background);
             }
 
             windowRect = ClickThruBlocker.GUILayoutWindow(
@@ -85,7 +89,8 @@ namespace Parsek.InGameTests
             {
                 if (!windowHasInputLock)
                 {
-                    InputLockManager.SetControlLock(ControlTypes.CAMERACONTROLS, InputLockId);
+                    // Block all controls (not just camera) so editor/facility UIs don't steal clicks
+                    InputLockManager.SetControlLock(ControlTypes.All, InputLockId);
                     windowHasInputLock = true;
                 }
             }
@@ -256,6 +261,26 @@ namespace Parsek.InGameTests
                 case TestStatus.Skipped: return Color.gray;
                 default:                 return Color.white;
             }
+        }
+
+        private static Texture2D MakeOpaqueCopy(Texture2D source)
+        {
+            if (source == null) return null;
+            RenderTexture rt = RenderTexture.GetTemporary(source.width, source.height, 0, RenderTextureFormat.ARGB32);
+            RenderTexture prev = RenderTexture.active;
+            Graphics.Blit(source, rt);
+            RenderTexture.active = rt;
+            Texture2D copy = new Texture2D(source.width, source.height, TextureFormat.ARGB32, false);
+            copy.ReadPixels(new Rect(0, 0, source.width, source.height), 0, 0);
+            RenderTexture.active = prev;
+            RenderTexture.ReleaseTemporary(rt);
+            Color[] pixels = copy.GetPixels();
+            for (int i = 0; i < pixels.Length; i++)
+                pixels[i].a = 1f;
+            copy.SetPixels(pixels);
+            copy.Apply();
+            copy.filterMode = source.filterMode;
+            return copy;
         }
     }
 }
