@@ -1539,6 +1539,7 @@ namespace Parsek
                         flight.ExitWatchMode();
                     else
                         flight.EnterWatchMode(ri);
+                    ParsekLog.Info("UI", $"Recording #{ri} W button: {(isWatching ? "exit" : "enter")} watch on \"{rec.VesselName}\"");
                 }
                 GUI.enabled = true;
             }
