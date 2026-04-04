@@ -4174,18 +4174,6 @@ namespace Parsek
 
         #region Test Runner Window
 
-        public void HandleTestRunnerShortcut()
-        {
-            if (Event.current.type == EventType.KeyDown
-                && Event.current.control && Event.current.shift
-                && Event.current.keyCode == KeyCode.T)
-            {
-                showTestRunnerWindow = !showTestRunnerWindow;
-                ParsekLog.Verbose("UI", $"Test runner toggled via shortcut: {(showTestRunnerWindow ? "open" : "closed")}");
-                Event.current.Use();
-            }
-        }
-
         public void DrawTestRunnerWindowIfOpen(Rect mainWindowRect, MonoBehaviour host)
         {
             if (!showTestRunnerWindow)
