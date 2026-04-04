@@ -2519,11 +2519,11 @@ namespace Parsek
             }
 
             // Also create debris child recordings for new debris from this breakup
+            int skippedDebris = 0;
             var debrisPids = crashCoalescer.LastEmittedDebrisPids;
             if (debrisPids != null && debrisPids.Count > 0)
             {
                 double debrisExpiryUT = breakupBp.UT + BackgroundRecorder.DebrisTTLSeconds;
-                int skippedDebris = 0;
                 for (int i = 0; i < debrisPids.Count; i++)
                 {
                     uint pid = debrisPids[i];
@@ -2576,16 +2576,13 @@ namespace Parsek
                         $"name='{vesselName}', recId={childRecId}, " +
                         $"alive={debrisVessel != null}");
                 }
-                if (skippedDebris > 0)
-                    ParsekLog.Info("Coalescer",
-                        $"ProcessBreakupEvent: skipped {skippedDebris} trivial debris " +
-                        $"(below mass/part threshold)");
             }
 
             ParsekLog.Info("Coalescer",
                 $"ProcessBreakupEvent: BREAKUP attached to tree={activeTree.Id}, " +
                 $"parentRec={activeRecId}, bpId={breakupBp.Id}, " +
                 $"cause={breakupBp.BreakupCause}, debris={breakupBp.DebrisCount}, " +
+                $"skippedTrivial={skippedDebris}, " +
                 $"duration={breakupBp.BreakupDuration:F3}s");
         }
 
@@ -2677,10 +2674,10 @@ namespace Parsek
             rootRec.ChildBranchPointId = breakupBp.Id;
 
             // 7. Create debris child recordings (skip trivial fragments)
+            int skippedDebris = 0;
             var debrisPids = crashCoalescer.LastEmittedDebrisPids;
             if (debrisPids != null)
             {
-                int skippedDebris = 0;
                 for (int i = 0; i < debrisPids.Count; i++)
                 {
                     uint pid = debrisPids[i];
@@ -2727,10 +2724,6 @@ namespace Parsek
                         $"name='{vesselName}', recId={childRecId}, " +
                         $"alive={debrisVessel != null}");
                 }
-                if (skippedDebris > 0)
-                    ParsekLog.Info("Coalescer",
-                        $"PromoteToTreeForBreakup: skipped {skippedDebris} trivial debris " +
-                        $"(below mass/part threshold)");
             }
 
             // 8. Create controlled child recordings (same pattern, IsDebris = false, no TTL)
@@ -2837,6 +2830,7 @@ namespace Parsek
                 $"PromoteToTreeForBreakup: standalone recording promoted to tree. " +
                 $"tree={treeId}, root={rootRecId}, " +
                 $"debris={debrisPids?.Count ?? 0} (alive={debrisAlive}), " +
+                $"skippedTrivial={skippedDebris}, " +
                 $"controlled={controlledPids?.Count ?? 0}, " +
                 $"breakup={breakupBp.Id}");
         }
