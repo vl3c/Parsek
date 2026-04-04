@@ -2445,6 +2445,24 @@ Ghost ProtoVessels in the tracking station show orbit lines that draw the full K
 
 **Status:** Fixed (0.6.0) — `GhostOrbitArcPatch` Harmony prefix on `OrbitRendererBase.UpdateSpline` clips the orbit line to the orbit segment's `startUT`/`endUT` range. Uses the same eccentric-anomaly arc-clipping logic as KSP's `PatchRendering`/`Trajectory.UpdateFromOrbit()`. Only applies to segment-based ghosts; terminal-orbit ghosts render the full ellipse. Ap/Pe/AN/DN nodes hidden for partial-arc ghosts.
 
+## ~~212b. Ghost vessel icon circles through planet in tracking station~~
+
+The orbit **line** was correctly clipped by `GhostOrbitArcPatch`, but the vessel **icon** still followed the full Keplerian ellipse including the underground periapsis passage. The `GhostOrbitLinePatch.Postfix` eccentric anomaly arc check had a sign mismatch: `EccentricAnomalyAtUT(startUT/endUT)` returned negative values while `EccentricAnomalyAtUT(currentUT)` returned positive values. `GetTrueAnomaly` preserved the sign, so `curV > toV` was always true — icon always suppressed.
+
+**Fix:** Replaced eccentric/true anomaly check with orbital time (`orbit.getObtAtUT`) in new `GhostOrbitArcCheck.IsOnOrbitalArc` static method. Orbital time is monotonically increasing within a period with no sign issues. Added rate-limited logging for icon arc visibility decisions (#213).
+
+**Files:** `GhostOrbitLinePatch.cs`
+
+## ~~215. Tracking station ghost creation is chain-unaware~~
+
+`CreateGhostVesselsFromCommittedRecordings()` iterated individual recordings without awareness of recording chains. This caused stale orbit ghosts from intermediate recordings to persist even when later recordings showed the vessel had deorbited/crashed. For example, a chain A(launch)→B(orbit)→C(destroyed): recording B had orbit segments and null terminal state, so it passed all filters and got a ghost ProtoVessel showing a stale orbit for a destroyed vessel.
+
+**Root cause:** The tracking station path created ghosts per-recording instead of per-chain. It checked each recording's own terminal state, not the chain's final state. No mechanism to skip intermediate recordings superseded by later ones.
+
+**Fix:** Rewrote `CreateGhostVesselsFromCommittedRecordings` to be chain-aware. New `FindSupersededRecordingIds` builds a set of recording IDs that have a child recording (intermediate chain segments). New `ShouldCreateTrackingStationGhost` evaluates each recording: skips debris, superseded, and non-orbital terminal states. Only chain tips with orbital data get ghost ProtoVessels. Uses `FindOrbitSegment(currentUT)` instead of blindly using the last segment.
+
+**Files:** `GhostMapPresence.cs`, `GhostMapPresenceTests.cs`
+
 # In-Game Tests
 
 - [x] Vessels propagate naturally along orbits after FF (no position freezing)

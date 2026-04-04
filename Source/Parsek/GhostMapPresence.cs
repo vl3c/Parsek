@@ -656,53 +656,94 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Create ghost ProtoVessels for all committed recordings with stable orbital data.
-        /// Used in non-flight scenes (tracking station) where the playback engine is not running.
-        /// Skips debris, non-orbital terminal states, and recordings that already have ghost vessels.
+        /// Pure: find recording IDs that are superseded by a later recording in the same chain.
+        /// A recording is superseded if another recording's ParentRecordingId points to it.
+        /// Chain-tip recordings are NOT in the returned set.
+        /// </summary>
+        internal static HashSet<string> FindSupersededRecordingIds(List<Recording> recordings)
+        {
+            var superseded = new HashSet<string>();
+            if (recordings == null) return superseded;
+            for (int i = 0; i < recordings.Count; i++)
+            {
+                string parentId = recordings[i].ParentRecordingId;
+                if (!string.IsNullOrEmpty(parentId))
+                    superseded.Add(parentId);
+            }
+            return superseded;
+        }
+
+        /// <summary>
+        /// Pure: should a tracking station ghost ProtoVessel be created for this recording?
+        /// Only chain tips with orbital terminal state and orbit data qualify.
+        /// Returns a reason string for logging when the recording is skipped.
+        /// </summary>
+        internal static (bool shouldCreate, string skipReason) ShouldCreateTrackingStationGhost(
+            Recording rec, bool isSuperseded, double currentUT)
+        {
+            if (rec == null) return (false, "null");
+            if (rec.IsDebris) return (false, "debris");
+            if (isSuperseded) return (false, "superseded");
+
+            // Only chain tips with orbital terminal state get ghosts.
+            // Orbiting/Docked = in orbit. Null = still active or unfinished (show orbit if available).
+            // All other states (Landed, Destroyed, SubOrbital, Recovered, Boarded) = no orbit ghost.
+            var terminal = rec.TerminalStateValue;
+            if (terminal.HasValue
+                && terminal.Value != TerminalState.Orbiting
+                && terminal.Value != TerminalState.Docked)
+                return (false, "terminal-" + terminal.Value);
+
+            // Terminal orbit data (stable orbit) → always show
+            if (HasOrbitData(rec))
+                return (true, null);
+
+            // Orbit segments: find the one matching currentUT
+            if (rec.OrbitSegments != null && rec.OrbitSegments.Count > 0)
+            {
+                OrbitSegment? seg = TrajectoryMath.FindOrbitSegment(rec.OrbitSegments, currentUT);
+                if (seg.HasValue)
+                    return (true, null);
+                return (false, "no-current-segment");
+            }
+
+            return (false, "no-orbit-data");
+        }
+
+        /// <summary>
+        /// Create ghost ProtoVessels for committed recordings suitable for tracking station display.
+        /// Chain-aware: only creates ghosts for chain tip recordings (not intermediate segments
+        /// that have been superseded by later recordings). Skips debris, non-orbital terminal
+        /// states, and recordings without orbital data at the current UT.
         /// </summary>
         internal static int CreateGhostVesselsFromCommittedRecordings()
         {
             var committed = RecordingStore.CommittedRecordings;
             if (committed == null || committed.Count == 0) return 0;
 
-            int created = 0;
+            // Step 1: identify superseded recordings (intermediate chain segments)
+            var superseded = FindSupersededRecordingIds(committed);
+
+            int created = 0, skippedDebris = 0, skippedSuperseded = 0;
+            int skippedTerminal = 0, skippedNoOrbit = 0;
             double currentUT = Planetarium.GetUniversalTime();
+
             for (int i = 0; i < committed.Count; i++)
             {
                 var rec = committed[i];
-                if (rec.IsDebris) continue;
+                bool isSupereded = superseded.Contains(rec.RecordingId);
 
-                // Skip recordings with non-orbital terminal states (Landed, Destroyed, etc.)
-                // Allow: Orbiting, Docked, and null (intermediate chain segments / unfinished).
-                var terminal = rec.TerminalStateValue;
-                if (terminal.HasValue
-                    && terminal.Value != TerminalState.Orbiting
-                    && terminal.Value != TerminalState.Docked)
-                    continue;
-
-                // Skip recordings where currentUT is outside all orbit segments —
-                // either before the vessel reached orbit or after it left orbit.
-                // Exception: if the recording has terminal orbit data (stable orbit),
-                // fall through to the terminal orbit path even past segment endUT (#212).
-                if (rec.OrbitSegments != null && rec.OrbitSegments.Count > 0)
+                var (shouldCreate, skipReason) = ShouldCreateTrackingStationGhost(rec, isSupereded, currentUT);
+                if (!shouldCreate)
                 {
-                    var firstSeg = rec.OrbitSegments[0];
-                    var lastSeg = rec.OrbitSegments[rec.OrbitSegments.Count - 1];
-                    if (currentUT < firstSeg.startUT || currentUT > lastSeg.endUT)
-                    {
-                        if (!HasOrbitData(rec))
-                            continue;
-                    }
-                }
-                // No orbit segments and no terminal orbit → nothing to show
-                else if (!HasOrbitData(rec))
-                {
+                    if (skipReason == "debris") skippedDebris++;
+                    else if (skipReason == "superseded") skippedSuperseded++;
+                    else if (skipReason != null && skipReason.StartsWith("terminal")) skippedTerminal++;
+                    else skippedNoOrbit++;
                     continue;
                 }
 
-                // Use terminal orbit data if available; otherwise fall back to
-                // the last orbit segment (intermediate chain segments and recordings
-                // without terminal orbit fields still have orbit segment data).
+                // Use terminal orbit data if available; otherwise use the current orbit segment.
                 Vessel v = null;
                 if (HasOrbitData(rec))
                 {
@@ -710,18 +751,20 @@ namespace Parsek
                 }
                 else if (rec.OrbitSegments != null && rec.OrbitSegments.Count > 0)
                 {
-                    var lastSeg = rec.OrbitSegments[rec.OrbitSegments.Count - 1];
-                    v = CreateGhostVesselFromSegment(i, rec, lastSeg);
+                    OrbitSegment? seg = TrajectoryMath.FindOrbitSegment(rec.OrbitSegments, currentUT);
+                    if (seg.HasValue)
+                        v = CreateGhostVesselFromSegment(i, rec, seg.Value);
                 }
 
                 if (v != null) created++;
             }
 
-            if (created > 0)
-                ParsekLog.Info(Tag,
-                    string.Format(ic,
-                        "Created {0} ghost ProtoVessel(s) from {1} committed recordings",
-                        created, committed.Count));
+            ParsekLog.Info(Tag,
+                string.Format(ic,
+                    "CreateGhostVesselsFromCommittedRecordings: created={0} from {1} recordings " +
+                    "(skipped: debris={2} superseded={3} terminal={4} noOrbit={5})",
+                    created, committed.Count,
+                    skippedDebris, skippedSuperseded, skippedTerminal, skippedNoOrbit));
 
             return created;
         }

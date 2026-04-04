@@ -62,7 +62,7 @@ namespace Parsek.Patches
             // the full Keplerian ellipse — including the underground periapsis passage.
             // The orbit LINE is clipped by GhostOrbitArcPatch, but the vessel ICON
             // follows OrbitDriver and goes through the planet. This check hides
-            // everything when the vessel is off the visible arc (#212).
+            // everything when the vessel is off the visible arc (#212, #212b).
             if (GhostMapPresence.ghostOrbitBounds.TryGetValue(pid, out var timeBounds))
             {
                 Orbit orbit = __instance.vessel.orbit;
@@ -78,34 +78,26 @@ namespace Parsek.Patches
                 }
 
                 // Within the segment time range — but the vessel may be on the
-                // underground portion of the orbit (periapsis passage). Check if
-                // the vessel's current eccentric anomaly is within the visible arc.
-                if (orbit != null && orbit.eccentricity < 1.0)
+                // underground portion of the orbit (periapsis passage). Use orbital
+                // time (getObtAtUT) instead of eccentric anomaly to avoid the sign
+                // mismatch bug where EccentricAnomalyAtUT returns negative values
+                // for startUT/endUT but positive for currentUT (#212b).
+                if (orbit != null && orbit.eccentricity < 1.0 && orbit.period > 0)
                 {
-                    double fromE = orbit.EccentricAnomalyAtUT(timeBounds.startUT);
-                    double toE = orbit.EccentricAnomalyAtUT(timeBounds.endUT);
-                    double curE = orbit.EccentricAnomalyAtUT(currentUT);
+                    bool onArc = GhostOrbitArcCheck.IsOnOrbitalArc(orbit, timeBounds.startUT, timeBounds.endUT, currentUT);
 
-                    if (!double.IsNaN(fromE) && !double.IsNaN(toE) && !double.IsNaN(curE))
+                    ParsekLog.VerboseRateLimited("GhostOrbitIcon", "arc-" + pid,
+                        string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                            "Icon arc check pid={0} onArc={1} UT={2:F1} bounds=[{3:F1},{4:F1}] period={5:F1}",
+                            pid, onArc, currentUT, timeBounds.startUT, timeBounds.endUT, orbit.period));
+
+                    if (!onArc)
                     {
-                        // Normalize wraparound using true anomaly (same as GhostOrbitArcPatch)
-                        double fromV = orbit.GetTrueAnomaly(fromE);
-                        double toV = orbit.GetTrueAnomaly(toE);
-                        double curV = orbit.GetTrueAnomaly(curE);
-                        if (fromV > toV)
-                        {
-                            fromV = -(System.Math.PI * 2.0 - fromV);
-                            curV = curV > toV ? -(System.Math.PI * 2.0 - curV) : curV;
-                        }
-
-                        if (curV < fromV || curV > toV)
-                        {
-                            // Off the visible arc — hide line and icon
-                            line.active = false;
-                            __instance.drawIcons = OrbitRendererBase.DrawIcons.NONE;
-                            GhostMapPresence.ghostsWithSuppressedIcon.Add(pid);
-                            return;
-                        }
+                        // Off the visible arc — hide line and icon
+                        line.active = false;
+                        __instance.drawIcons = OrbitRendererBase.DrawIcons.NONE;
+                        GhostMapPresence.ghostsWithSuppressedIcon.Add(pid);
+                        return;
                     }
                 }
 
@@ -129,6 +121,34 @@ namespace Parsek.Patches
                 __instance.drawIcons = OrbitRendererBase.DrawIcons.ALL;
                 GhostMapPresence.ghostsWithSuppressedIcon.Remove(pid);
             }
+        }
+    }
+
+    /// <summary>
+    /// Pure: is the vessel currently on the visible orbital arc between startUT and endUT?
+    /// Uses orbital time (getObtAtUT) which is monotonically increasing within a period,
+    /// avoiding the sign mismatch bugs in eccentric/true anomaly (#212b).
+    /// </summary>
+    internal static class GhostOrbitArcCheck
+    {
+        internal static bool IsOnOrbitalArc(Orbit orbit, double startUT, double endUT, double currentUT)
+        {
+            double period = orbit.period;
+            if (period <= 0) return true; // degenerate orbit — show by default
+
+            // Normalize all orbital times to [0, period)
+            double obtStart = ((orbit.getObtAtUT(startUT) % period) + period) % period;
+            double obtEnd = ((orbit.getObtAtUT(endUT) % period) + period) % period;
+            double obtNow = ((orbit.getObtAtUT(currentUT) % period) + period) % period;
+
+            // If the arc spans the full period (or more), the vessel is always on arc
+            if (endUT - startUT >= period) return true;
+
+            // Standard range check with wraparound handling
+            if (obtStart <= obtEnd)
+                return obtNow >= obtStart && obtNow <= obtEnd;
+            else
+                return obtNow >= obtStart || obtNow <= obtEnd;
         }
     }
 
