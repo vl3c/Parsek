@@ -394,23 +394,28 @@ namespace Parsek
             Initialize();
 
             // Seed initial balances for career mode (once per save load, idempotent).
-            // Only mark as checked when at least one singleton was available — if all
-            // are null (sandbox, or called before KSP finishes loading), we retry on
-            // the next RecalculateAndPatch call so career saves get correct seeds.
+            // Skip zero values: during OnLoad, KSP singletons exist but report 0
+            // before loading their data from the save file. Seeding 0 would create a
+            // wrong FundsInitial that causes PatchFunds to zero out the real balance.
+            // If the value is legitimately 0, HasSeed stays false and patching is
+            // skipped, preserving KSP's own 0 — correct in both cases.
+            // Only mark as checked when at least one non-zero seed was captured.
             if (!seedChecked)
             {
                 bool anySeeded = false;
-                if (Funding.Instance != null)
+                if (Funding.Instance != null && Funding.Instance.Funds != 0.0)
                 {
                     Ledger.SeedInitialFunds(Funding.Instance.Funds);
                     anySeeded = true;
                 }
-                if (ResearchAndDevelopment.Instance != null)
+                if (ResearchAndDevelopment.Instance != null
+                    && ResearchAndDevelopment.Instance.Science != 0f)
                 {
                     Ledger.SeedInitialScience(ResearchAndDevelopment.Instance.Science);
                     anySeeded = true;
                 }
-                if (global::Reputation.Instance != null)
+                if (global::Reputation.Instance != null
+                    && global::Reputation.Instance.reputation != 0f)
                 {
                     Ledger.SeedInitialReputation(global::Reputation.Instance.reputation);
                     anySeeded = true;

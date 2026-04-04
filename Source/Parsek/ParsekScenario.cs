@@ -1075,7 +1075,7 @@ namespace Parsek
                 yield break;
             }
 
-            int framesWaited = 120 - maxWait;
+            int framesWaited = 119 - maxWait; // post-decrement: 120→119 on first check
             if (Funding.Instance == null || ResearchAndDevelopment.Instance == null
                 || Reputation.Instance == null)
             {

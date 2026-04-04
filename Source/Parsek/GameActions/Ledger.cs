@@ -347,6 +347,16 @@ namespace Parsek
             {
                 if (actions[i].Type == GameActionType.FundsInitial)
                 {
+                    // Update a stale 0-value seed: during a previous load, the seed may
+                    // have been created with 0 before KSP populated Funding.Instance.
+                    if (actions[i].InitialFunds == 0f && initialFunds != 0.0)
+                    {
+                        actions[i].InitialFunds = (float)initialFunds;
+                        ParsekLog.Info("Ledger",
+                            $"SeedInitialFunds: updated stale 0-value seed to {initialFunds.ToString("R", CultureInfo.InvariantCulture)}");
+                        return;
+                    }
+
                     ParsekLog.Verbose("Ledger",
                         $"SeedInitialFunds: FundsInitial already exists (amount={actions[i].InitialFunds.ToString("R", CultureInfo.InvariantCulture)}), " +
                         $"ignoring new seed amount={initialFunds.ToString("R", CultureInfo.InvariantCulture)}");
@@ -377,6 +387,14 @@ namespace Parsek
             {
                 if (actions[i].Type == GameActionType.ScienceInitial)
                 {
+                    if (actions[i].InitialScience == 0f && initialScience != 0f)
+                    {
+                        actions[i].InitialScience = initialScience;
+                        ParsekLog.Info("Ledger",
+                            $"SeedInitialScience: updated stale 0-value seed to {initialScience.ToString("R", CultureInfo.InvariantCulture)}");
+                        return;
+                    }
+
                     ParsekLog.Verbose("Ledger",
                         $"SeedInitialScience: ScienceInitial already exists (amount={actions[i].InitialScience.ToString("R", CultureInfo.InvariantCulture)}), " +
                         $"ignoring new seed amount={initialScience.ToString("R", CultureInfo.InvariantCulture)}");
@@ -407,6 +425,14 @@ namespace Parsek
             {
                 if (actions[i].Type == GameActionType.ReputationInitial)
                 {
+                    if (actions[i].InitialReputation == 0f && initialReputation != 0f)
+                    {
+                        actions[i].InitialReputation = initialReputation;
+                        ParsekLog.Info("Ledger",
+                            $"SeedInitialReputation: updated stale 0-value seed to {initialReputation.ToString("R", CultureInfo.InvariantCulture)}");
+                        return;
+                    }
+
                     ParsekLog.Verbose("Ledger",
                         $"SeedInitialReputation: ReputationInitial already exists (amount={actions[i].InitialReputation.ToString("R", CultureInfo.InvariantCulture)}), " +
                         $"ignoring new seed amount={initialReputation.ToString("R", CultureInfo.InvariantCulture)}");
