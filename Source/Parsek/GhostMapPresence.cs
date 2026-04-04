@@ -442,41 +442,83 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Remove tracking station ghost ProtoVessels whose orbit segment bounds have been
-        /// passed by the current UT. Called periodically from ParsekTrackingStation.Update.
+        /// Per-frame lifecycle for tracking station ghost ProtoVessels.
+        /// Creates ghosts when UT enters an orbit segment range (handles time warp),
+        /// and removes them when UT passes the segment endUT.
+        /// Called periodically from ParsekTrackingStation.Update.
         /// In the flight scene, this lifecycle is handled by ParsekPlaybackPolicy.CheckPendingMapVessels;
         /// in the tracking station, this method provides the equivalent.
         /// </summary>
-        internal static void RemoveExpiredTrackingStationGhosts()
+        internal static void UpdateTrackingStationGhostLifecycle()
         {
-            if (vesselsByRecordingIndex.Count == 0 && vesselsByChainPid.Count == 0) return;
-
             double currentUT = Planetarium.GetUniversalTime();
-            List<int> toRemove = null;
 
-            foreach (var kvp in vesselsByRecordingIndex)
+            // --- Phase 1: remove expired ghosts ---
+            if (vesselsByRecordingIndex.Count > 0)
             {
-                uint pid = kvp.Value.persistentId;
-                if (!ghostOrbitBounds.TryGetValue(pid, out var bounds)) continue;
-
-                // Past segment endUT → recording's orbital phase is over, remove the ghost
-                if (currentUT > bounds.endUT)
+                List<int> toRemove = null;
+                foreach (var kvp in vesselsByRecordingIndex)
                 {
-                    if (toRemove == null) toRemove = new List<int>();
-                    toRemove.Add(kvp.Key);
+                    uint pid = kvp.Value.persistentId;
+                    if (!ghostOrbitBounds.TryGetValue(pid, out var bounds)) continue;
+
+                    if (currentUT > bounds.endUT)
+                    {
+                        if (toRemove == null) toRemove = new List<int>();
+                        toRemove.Add(kvp.Key);
+                    }
+                }
+
+                if (toRemove != null)
+                {
+                    for (int i = 0; i < toRemove.Count; i++)
+                    {
+                        int idx = toRemove[i];
+                        RemoveGhostVesselForRecording(idx, "tracking-station-expired");
+                        ParsekLog.Info(Tag,
+                            string.Format(ic,
+                                "Removed expired ghost #{0} — UT {1:F1} past segment endUT",
+                                idx, currentUT));
+                    }
                 }
             }
 
-            if (toRemove != null)
+            // --- Phase 2: create ghosts for recordings that just entered orbit segment range ---
+            var committed = RecordingStore.CommittedRecordings;
+            if (committed == null || committed.Count == 0) return;
+
+            var superseded = FindSupersededRecordingIds(committed);
+
+            for (int i = 0; i < committed.Count; i++)
             {
-                for (int i = 0; i < toRemove.Count; i++)
+                // Skip recordings that already have a ghost
+                if (vesselsByRecordingIndex.ContainsKey(i)) continue;
+
+                var rec = committed[i];
+                bool isSuperseded = superseded.Contains(rec.RecordingId);
+                var (shouldCreate, _) = ShouldCreateTrackingStationGhost(rec, isSuperseded, currentUT);
+                if (!shouldCreate) continue;
+
+                Vessel v = null;
+                if (HasOrbitData(rec))
                 {
-                    int idx = toRemove[i];
-                    RemoveGhostVesselForRecording(idx, "tracking-station-expired");
+                    v = CreateGhostVesselForRecording(i, rec);
+                }
+                else if (rec.OrbitSegments != null && rec.OrbitSegments.Count > 0)
+                {
+                    OrbitSegment? seg = TrajectoryMath.FindOrbitSegment(rec.OrbitSegments, currentUT);
+                    if (seg.HasValue)
+                        v = CreateGhostVesselFromSegment(i, rec, seg.Value);
+                }
+
+                if (v != null)
+                {
+                    // Ensure orbit renderer exists (MapView.fetch should be available by now)
+                    EnsureGhostOrbitRenderers();
                     ParsekLog.Info(Tag,
                         string.Format(ic,
-                            "Removed expired ghost #{0} — UT {1:F1} past segment endUT",
-                            idx, currentUT));
+                            "Deferred ghost creation for #{0} \"{1}\" — UT {2:F1} entered orbit segment",
+                            i, rec.VesselName ?? "(null)", currentUT));
                 }
             }
         }

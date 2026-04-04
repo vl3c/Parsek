@@ -41,7 +41,7 @@ namespace Parsek
             if (Time.time < nextLifecycleCheckTime) return;
             nextLifecycleCheckTime = Time.time + LifecycleCheckIntervalSec;
 
-            GhostMapPresence.RemoveExpiredTrackingStationGhosts();
+            GhostMapPresence.UpdateTrackingStationGhostLifecycle();
         }
 
         void OnDestroy()
