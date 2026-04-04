@@ -10,6 +10,20 @@ All notable changes to Parsek are documented here.
 
 - **Close commit-to-save crash window (T15).** Recording data no longer lives only in RAM between commit and the next `OnSave()` cycle. New `FlushDirtyFiles()` writes `.prec`, `_vessel.craft`, and `_ghost.craft` to disk immediately on commit and again after the recording optimization pass (merge/split/trim). If the immediate write fails, `FilesDirty` stays true and `OnSave` retries as before — no behavior change in the failure path.
 
+### Code Quality
+
+- **ChainSegmentManager field encapsulation (T35).** Added `ApplyChainMetadataTo(Recording)`, `IsTrackingContinuation`/`IsTrackingUndockContinuation` properties, and `TryGetContinuationRecording`/`TryGetUndockContinuationRecording` accessors. ParsekFlight chain metadata copy sites and continuation access patterns now use these instead of direct field access.
+- **Continuation recording index validation (T36).** `ContinuationRecordingId` and `UndockContinuationRecId` stored alongside int indices. `TryGet` accessors validate the ID matches before returning, detecting stale indices if recordings are ever removed mid-flight.
+- **Breakup child recording dedup (T31).** Extracted `CreateBreakupChildRecording` static helper. 4 child-recording creation loops across `ProcessBreakupEvent` and `PromoteToTreeForBreakup` replaced with one-liner calls.
+
+### UI
+
+- **Simplified merge dialog.** All merge/commit confirmation dialogs (standalone, chain, tree, multi-vessel tree) now use a unified simple format: vessel/tree name and duration, with consistent "Merge to Timeline" / "Discard" buttons. Multi-vessel trees auto-apply default persist/ghost-only decisions (surviving vessels persist, destroyed are ghost-only) without per-vessel UI. Removed verbose per-vessel summaries, point counts, distances, and situation text.
+
+### Showcase Recordings
+
+- **Fix kerbal-with-flag height mismatch (T37).** Flag plant showcase kerbalEVA now uses `ShowcaseAltitudeOffset` for top-aligned height, matching other showcase parts.
+
 ### Ghost Playback
 
 - **Fix ghost icon through planet (#212b).** Ghost vessel icon no longer follows the full Keplerian ellipse through the planet in tracking station. New `GhostOrbitIconClampPatch` prefix on `OrbitDriver.updateFromParameters` clamps the propagation UT to the visible arc — the icon freezes at the arc endpoint instead of going underground. The previous approach (drawIcons postfix on LateUpdate) silently failed because `vessel.orbitDriver` was null for ghost ProtoVessels despite `OrbitRendererBase.driver` being valid.
@@ -28,7 +42,7 @@ All notable changes to Parsek are documented here.
 
 ### Documentation
 
-- **TODO cleanup.** Marked T17 (game actions redesign), T25/D20 (playback engine extraction), T28/D2 (commit-pattern dedup), T32 (test audit), T34 (ChainSegmentManager tests), T41 (suborbital orbit line), and T41b (atmosphere on-rails skip) as done.
+- **TODO cleanup.** Marked T17 (game actions redesign), T25/D20 (playback engine extraction), T28/D2 (commit-pattern dedup), T32 (test audit), T34 (ChainSegmentManager tests), T41 (suborbital orbit line), T41b (atmosphere on-rails skip), T18/T35/T36/T37, T14, T29/T40 (closed), T31, and T13 as done.
 
 ---
 

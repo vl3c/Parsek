@@ -28,19 +28,82 @@ namespace Parsek
 
         // Continuation sampling: after a vessel chain segment commits (V→EVA),
         // keeps tracking the original vessel so its trajectory extends beyond the EVA point.
-        internal uint ContinuationVesselPid;        // 0 = not tracking
-        internal int ContinuationRecordingIdx = -1; // index into CommittedRecordings
+        internal uint ContinuationVesselPid;            // 0 = not tracking
+        internal int ContinuationRecordingIdx = -1;     // index into CommittedRecordings
+        internal string ContinuationRecordingId;        // validates index hasn't gone stale
         internal Vector3 ContinuationLastVelocity;
         internal double ContinuationLastUT = -1;
 
         // Undock continuation (ghost-only recording for the other vessel)
-        internal uint UndockContinuationPid;         // 0 = not tracking
+        internal uint UndockContinuationPid;             // 0 = not tracking
         internal int UndockContinuationRecIdx = -1;
+        internal string UndockContinuationRecId;         // validates index hasn't gone stale
         internal Vector3 UndockContinuationLastVel;
         internal double UndockContinuationLastUT = -1;
 
         /// <summary>Whether a chain is currently being built.</summary>
         internal bool HasActiveChain => ActiveChainId != null;
+
+        /// <summary>Whether vessel continuation sampling is active.</summary>
+        internal bool IsTrackingContinuation => ContinuationVesselPid != 0;
+
+        /// <summary>Whether undock continuation sampling is active.</summary>
+        internal bool IsTrackingUndockContinuation => UndockContinuationPid != 0;
+
+        /// <summary>
+        /// Copies chain identity fields (ChainId, ChainIndex, ParentRecordingId, EvaCrewName)
+        /// onto the given recording. No-op if no chain is active.
+        /// </summary>
+        internal void ApplyChainMetadataTo(Recording rec)
+        {
+            if (ActiveChainId == null) return;
+            rec.ChainId = ActiveChainId;
+            rec.ChainIndex = ActiveChainNextIndex;
+            rec.ParentRecordingId = ActiveChainPrevId;
+            rec.EvaCrewName = ActiveChainCrewName;
+        }
+
+        /// <summary>
+        /// Returns the continuation recording if the index is valid, or null if stale/unset.
+        /// </summary>
+        internal bool TryGetContinuationRecording(out Recording rec)
+        {
+            rec = null;
+            if (ContinuationRecordingIdx < 0 ||
+                ContinuationRecordingIdx >= RecordingStore.CommittedRecordings.Count)
+                return false;
+            rec = RecordingStore.CommittedRecordings[ContinuationRecordingIdx];
+            if (ContinuationRecordingId != null && rec.RecordingId != ContinuationRecordingId)
+            {
+                ParsekLog.Warn("Chain",
+                    $"Continuation recording ID mismatch at index {ContinuationRecordingIdx}: " +
+                    $"expected={ContinuationRecordingId}, actual={rec.RecordingId}");
+                rec = null;
+                return false;
+            }
+            return true;
+        }
+
+        /// <summary>
+        /// Returns the undock continuation recording if the index is valid, or null if stale/unset.
+        /// </summary>
+        internal bool TryGetUndockContinuationRecording(out Recording rec)
+        {
+            rec = null;
+            if (UndockContinuationRecIdx < 0 ||
+                UndockContinuationRecIdx >= RecordingStore.CommittedRecordings.Count)
+                return false;
+            rec = RecordingStore.CommittedRecordings[UndockContinuationRecIdx];
+            if (UndockContinuationRecId != null && rec.RecordingId != UndockContinuationRecId)
+            {
+                ParsekLog.Warn("Chain",
+                    $"Undock continuation recording ID mismatch at index {UndockContinuationRecIdx}: " +
+                    $"expected={UndockContinuationRecId}, actual={rec.RecordingId}");
+                rec = null;
+                return false;
+            }
+            return true;
+        }
 
         // Continuation adaptive sampling thresholds (read from settings, same as FlightRecorder)
         private static float ContinuationMaxInterval =>
@@ -70,10 +133,12 @@ namespace Parsek
             PendingBoundaryAnchor = null;
             ContinuationVesselPid = 0;
             ContinuationRecordingIdx = -1;
+            ContinuationRecordingId = null;
             ContinuationLastVelocity = Vector3.zero;
             ContinuationLastUT = -1;
             UndockContinuationPid = 0;
             UndockContinuationRecIdx = -1;
+            UndockContinuationRecId = null;
             UndockContinuationLastVel = Vector3.zero;
             UndockContinuationLastUT = -1;
             ParsekLog.Verbose("Chain", "ClearAll: all chain state reset");
@@ -101,6 +166,7 @@ namespace Parsek
                 $"recording #{ContinuationRecordingIdx}");
             ContinuationVesselPid = 0;
             ContinuationRecordingIdx = -1;
+            ContinuationRecordingId = null;
             ContinuationLastVelocity = Vector3.zero;
             ContinuationLastUT = -1;
         }
@@ -115,6 +181,7 @@ namespace Parsek
                 $"recording #{UndockContinuationRecIdx}");
             UndockContinuationPid = 0;
             UndockContinuationRecIdx = -1;
+            UndockContinuationRecId = null;
             UndockContinuationLastUT = -1;
         }
 
@@ -321,6 +388,7 @@ namespace Parsek
 
             RecordingStore.CommittedRecordings.Add(contRec);
             UndockContinuationRecIdx = RecordingStore.CommittedRecordings.Count - 1;
+            UndockContinuationRecId = contRec.RecordingId;
             UndockContinuationPid = otherPid;
             UndockContinuationLastVel = velocity;
             UndockContinuationLastUT = ut;
@@ -475,6 +543,7 @@ namespace Parsek
                 // Vessel segment committed (V→EVA): start continuation to extend trajectory
                 ContinuationVesselPid = segmentRecorder.RecordingVesselId;
                 ContinuationRecordingIdx = RecordingStore.CommittedRecordings.Count - 1;
+                ContinuationRecordingId = RecordingStore.CommittedRecordings[ContinuationRecordingIdx].RecordingId;
                 var lastPoints = RecordingStore.CommittedRecordings[ContinuationRecordingIdx].Points;
                 if (lastPoints.Count > 0)
                 {
