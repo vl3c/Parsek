@@ -214,6 +214,11 @@ namespace Parsek
             Log($"[Parsek] Committed recording from {pendingRecording.VesselName} " +
                 $"({pendingRecording.Points.Count} points). Total committed: {committedRecordings.Count}");
 
+            // Flush to disk immediately to close the crash window.
+            // If RunOptimizationPass runs after this, it will re-dirty modified
+            // recordings and flush again with the final optimized state.
+            FlushDirtyFiles(committedRecordings);
+
             // Commit pending science subjects before clearing
             GameStateStore.CommitScienceSubjects(GameStateRecorder.PendingScienceSubjects);
             GameStateRecorder.PendingScienceSubjects.Clear();
@@ -419,6 +424,11 @@ namespace Parsek
                 rec.FilesDirty = true;
                 committedRecordings.Add(rec);
             }
+
+            // Flush to disk immediately to close the crash window.
+            // If RunOptimizationPass runs after this, it will re-dirty modified
+            // recordings and flush again with the final optimized state.
+            FlushDirtyFiles(committedRecordings);
 
             // Ensure OwnedVesselPids is populated (covers runtime-created trees
             // that never went through RecordingTree.Load)
@@ -983,6 +993,31 @@ namespace Parsek
             // Loop sync pass: link debris recordings to their parent recording
             // so debris ghosts replay in sync with the parent's loop cycle.
             PopulateLoopSyncParentIndices(recordings);
+
+            // Flush all dirty recordings to disk so the crash window after
+            // commit+optimize is closed (data no longer lives only in RAM).
+            FlushDirtyFiles(recordings);
+        }
+
+        /// <summary>
+        /// Saves all dirty recordings to disk immediately. Called after commit and
+        /// after the optimization pass to close the crash window where data exists
+        /// only in RAM. Failures are logged but non-fatal — OnSave will retry.
+        /// </summary>
+        private static void FlushDirtyFiles(List<Recording> recordings)
+        {
+            int saved = 0, failed = 0;
+            for (int i = 0; i < recordings.Count; i++)
+            {
+                if (!recordings[i].FilesDirty) continue;
+                if (SaveRecordingFiles(recordings[i]))
+                    saved++;
+                else
+                    failed++;
+            }
+            if (saved > 0 || failed > 0)
+                ParsekLog.Info("RecordingStore",
+                    $"FlushDirtyFiles: saved {saved}, failed {failed}");
         }
 
         /// <summary>

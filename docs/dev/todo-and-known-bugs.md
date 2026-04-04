@@ -86,11 +86,11 @@ Fixed in commit `ed19f03`. Removed PRELAUNCH situation guard from `OnCrewOnEva`.
 
 BackgroundRecorder tracks controlled children (IsDebris=false, no TTL) via ProcessBreakupEvent and PromoteToTreeForBreakup. Vessels with probe cores record indefinitely after breakup.
 
-### T15. Crash-safe pending recording recovery
+### ~~T15. Crash-safe pending recording recovery~~ PARTIAL
 
-If the game crashes with a merge dialog pending, recording data is lost from memory. Solution: write a `pending_manifest.cfg` to `Parsek/Recordings/` when stashed, auto-recover on next load.
+Commit crash window closed: `FlushDirtyFiles()` writes `.prec`/`_vessel.craft`/`_ghost.craft` immediately on commit and after the optimization pass. The remaining gap (stashed-but-not-yet-committed, i.e., merge dialog pending) still lives only in RAM — a `pending_manifest.cfg` recovery mechanism would close that too but is deferred.
 
-**Priority:** Low — data safety improvement
+**Priority:** Low — remaining gap is stash→commit only
 
 ### T16. Planetarium.right drift compensation
 
