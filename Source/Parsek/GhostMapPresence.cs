@@ -459,6 +459,37 @@ namespace Parsek
         private static readonly Dictionary<int, int> tsStateVectorCachedIndices = new Dictionary<int, int>();
 
         /// <summary>
+        /// Per-frame orbit update for state-vector ghosts. Re-interpolates the trajectory
+        /// at the current UT and re-computes the Keplerian orbit every frame so the icon
+        /// position accurately tracks the recorded trajectory. Without per-frame updates,
+        /// the OrbitDriver propagates the (wrong) Keplerian orbit between rate-limited ticks.
+        /// Called from ParsekTrackingStation.Update every frame (not rate-limited).
+        /// </summary>
+        internal static void UpdateStateVectorGhostOrbits()
+        {
+            if (tsStateVectorCachedIndices.Count == 0) return;
+
+            double currentUT = Planetarium.GetUniversalTime();
+            var committed = RecordingStore.CommittedRecordings;
+            if (committed == null) return;
+
+            foreach (var kvp in tsStateVectorCachedIndices)
+            {
+                int idx = kvp.Key;
+                if (idx < 0 || idx >= committed.Count) continue;
+                if (!vesselsByRecordingIndex.ContainsKey(idx)) continue;
+
+                var rec = committed[idx];
+                int cached = kvp.Value;
+                TrajectoryPoint? pt = TrajectoryMath.BracketPointAtUT(rec.Points, currentUT, ref cached);
+                tsStateVectorCachedIndices[idx] = cached;
+
+                if (pt.HasValue)
+                    UpdateGhostOrbitFromStateVectors(idx, pt.Value, currentUT);
+            }
+        }
+
+        /// <summary>
         /// Per-frame lifecycle for tracking station ghost ProtoVessels.
         /// Three phases:
         /// 1. Remove expired ghosts (segment past endUT, or state-vector past trajectory end)
@@ -524,24 +555,8 @@ namespace Parsek
                 }
             }
 
-            // --- Phase 2: update state-vector ghosts with current trajectory position ---
-            if (tsStateVectorCachedIndices.Count > 0 && committed != null)
-            {
-                foreach (var kvp in tsStateVectorCachedIndices)
-                {
-                    int idx = kvp.Key;
-                    if (idx < 0 || idx >= committed.Count) continue;
-                    if (!vesselsByRecordingIndex.ContainsKey(idx)) continue;
-
-                    var rec = committed[idx];
-                    int cached = kvp.Value;
-                    TrajectoryPoint? pt = TrajectoryMath.BracketPointAtUT(rec.Points, currentUT, ref cached);
-                    tsStateVectorCachedIndices[idx] = cached;
-
-                    if (pt.HasValue)
-                        UpdateGhostOrbitFromStateVectors(idx, pt.Value, currentUT);
-                }
-            }
+            // Phase 2 (state-vector orbit updates) moved to UpdateStateVectorGhostOrbits
+            // and called every frame from ParsekTrackingStation.Update.
 
             // --- Phase 3: create ghosts for recordings that now qualify ---
             if (committed == null || committed.Count == 0) return;
