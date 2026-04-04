@@ -4196,7 +4196,7 @@ namespace Parsek
                 testRunnerWindowRect = new Rect(
                     mainWindowRect.x + mainWindowRect.width + 10,
                     mainWindowRect.y,
-                    380, 400);
+                    380, 450);
             }
 
             EnsureOpaqueWindowStyle();
