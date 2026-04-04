@@ -191,13 +191,14 @@ namespace Parsek.InGameTests
 
         #region KSP Environment
 
-        [InGameTest(Category = "KSP", Description = "HighLogic.LoadedScene is valid")]
+        [InGameTest(Category = "KSP", Description = "HighLogic.LoadedScene is a recognized game scene")]
         public void LoadedSceneValid()
         {
             var scene = HighLogic.LoadedScene;
             InGameAssert.IsTrue(
                 scene == GameScenes.FLIGHT || scene == GameScenes.SPACECENTER
-                || scene == GameScenes.TRACKSTATION || scene == GameScenes.EDITOR,
+                || scene == GameScenes.TRACKSTATION || scene == GameScenes.EDITOR
+                || scene == GameScenes.MAINMENU,
                 $"Unexpected scene: {scene}");
         }
 
@@ -254,6 +255,12 @@ namespace Parsek.InGameTests
         [InGameTest(Category = "Settings", Description = "ParsekSettings.Current is accessible")]
         public void SettingsAccessible()
         {
+            if (HighLogic.LoadedScene == GameScenes.MAINMENU)
+            {
+                // No active game at main menu — settings may not be loaded
+                ParsekLog.Verbose("TestRunner", "Main menu — skipping settings check");
+                return;
+            }
             var settings = ParsekSettings.Current;
             InGameAssert.IsNotNull(settings, "ParsekSettings.Current should not be null");
         }
@@ -779,6 +786,11 @@ namespace Parsek.InGameTests
             Description = "ParsekScenario is active in the current game")]
         public void ScenarioInstanceActive()
         {
+            if (HighLogic.CurrentGame == null)
+            {
+                ParsekLog.Verbose("TestRunner", "No active game — skipping scenario check");
+                return;
+            }
             var scenario = Object.FindObjectOfType<ParsekScenario>();
             InGameAssert.IsNotNull(scenario,
                 "ParsekScenario should be active (ScenarioModule loaded)");
@@ -857,7 +869,12 @@ namespace Parsek.InGameTests
         public void RosterAccessible()
         {
             var game = HighLogic.CurrentGame;
-            InGameAssert.IsNotNull(game, "HighLogic.CurrentGame should not be null");
+            if (game == null)
+            {
+                // No active game (main menu) — not a failure
+                ParsekLog.Verbose("TestRunner", "No active game — skipping roster check");
+                return;
+            }
 
             var roster = game.CrewRoster;
             InGameAssert.IsNotNull(roster, "CrewRoster should not be null");
