@@ -5150,16 +5150,6 @@ namespace Parsek
                         $"parentName={ghostJettison.parent?.name} " +
                         $"parentLocalPos={ghostJettison.parent?.localPosition}", 60.0);
 
-                    // DEBUG: Override jettison material with bright red to test visibility
-                    if (jmr != null)
-                    {
-                        var debugMat = new Material(Shader.Find("KSP/Diffuse"));
-                        debugMat.color = Color.red;
-                        jmr.sharedMaterial = debugMat;
-                        // Also force scale up slightly to ensure not hidden inside geometry
-                        ghostJettison.localScale = ghostJettison.localScale * 1.02f;
-                    }
-
                     if (ghostJettisonTransforms.Contains(ghostJettison)) continue;
                     ghostJettisonTransforms.Add(ghostJettison);
                     resolvedJettisonNames.Add(jettisonName);

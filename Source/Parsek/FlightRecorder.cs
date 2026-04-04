@@ -477,6 +477,10 @@ namespace Parsek
                 bool hasJettisonModule = false;
                 bool isJettisoned = false;
                 int jettisonModuleIndex = 0;
+                // Parts with ModulePartVariants legitimately hide non-selected transforms
+                // (e.g. Poodle DoubleBell hides Shroud2). The transform-visibility fallback
+                // would misinterpret those as jettisoned, so skip it for variant parts.
+                bool skipTransformFallback = p.FindModuleImplementing<ModulePartVariants>() != null;
                 for (int m = 0; m < p.Modules.Count; m++)
                 {
                     var jettison = p.Modules[m] as ModuleJettison;
@@ -492,8 +496,11 @@ namespace Parsek
                         break;
                     }
 
-                    // Fallback for parts where the module flag may lag/never set:
-                    // if any configured jettison object is already hidden, treat as jettisoned.
+                    // Fallback: if any configured jettison object is already hidden,
+                    // treat as jettisoned. Skip for variant parts (see above).
+                    if (skipTransformFallback)
+                        continue;
+
                     string jettisonNames = jettison.jettisonName;
                     if (string.IsNullOrWhiteSpace(jettisonNames))
                         continue;
