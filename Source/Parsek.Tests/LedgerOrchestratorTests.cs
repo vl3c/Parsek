@@ -46,8 +46,9 @@ namespace Parsek.Tests
             Assert.NotNull(LedgerOrchestrator.Facilities);
             Assert.NotNull(LedgerOrchestrator.Contracts);
             Assert.NotNull(LedgerOrchestrator.Strategies);
+            Assert.NotNull(LedgerOrchestrator.Kerbals);
 
-            Assert.Contains(logLines, l => l.Contains("[LedgerOrchestrator]") && l.Contains("7 modules registered"));
+            Assert.Contains(logLines, l => l.Contains("[LedgerOrchestrator]") && l.Contains("8 modules registered"));
         }
 
         [Fact]
@@ -60,7 +61,7 @@ namespace Parsek.Tests
             int initCount = 0;
             foreach (var line in logLines)
             {
-                if (line.Contains("[LedgerOrchestrator]") && line.Contains("7 modules registered"))
+                if (line.Contains("[LedgerOrchestrator]") && line.Contains("8 modules registered"))
                     initCount++;
             }
             Assert.Equal(1, initCount);
@@ -203,7 +204,7 @@ namespace Parsek.Tests
 
             Assert.True(LedgerOrchestrator.IsInitialized);
             Assert.Contains(logLines, l =>
-                l.Contains("[LedgerOrchestrator]") && l.Contains("7 modules registered"));
+                l.Contains("[LedgerOrchestrator]") && l.Contains("8 modules registered"));
         }
 
         // ================================================================

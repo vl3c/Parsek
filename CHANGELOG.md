@@ -22,6 +22,10 @@ All notable changes to Parsek are documented here.
 
 - **ChainSegmentManager unit tests (T34).** 16 new tests covering `SampleContinuationVessel` guard paths (pid=0 early return, stale/negative index → stop callback), `UpdateContinuationSampling`/`UpdateUndockContinuationSampling` wrappers (no-op and stale-index propagation), `StopAllContinuations` branching (neither/one/both active, chain identity preservation), and `RefreshContinuationSnapshotCore` guards (pid=0, negative recIdx, stale recIdx). Total: 46 tests for ChainSegmentManager (up from 30).
 
+### Architecture
+
+- **KerbalsModule converted to IResourceModule (T42).** KerbalsModule now participates in the RecalculationEngine walk lifecycle instead of operating as a separate bridge. Added `PostWalk()` phase to IResourceModule interface. Removed 19 redundant `RecalculateAndApply()` calls. Added old-save migration for KerbalAssignment actions. Fixed latent bug where dead crew (absent from VesselSnapshot) weren't reserved for MIA respawn override.
+
 ### Documentation
 
 - **TODO cleanup.** Marked T17 (game actions redesign), T25/D20 (playback engine extraction), T28/D2 (commit-pattern dedup), T32 (test audit), T34 (ChainSegmentManager tests), T41 (suborbital orbit line), and T41b (atmosphere on-rails skip) as done.

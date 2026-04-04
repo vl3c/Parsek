@@ -94,5 +94,7 @@ namespace Parsek
         {
             return new HashSet<string>(creditedMilestones);
         }
+
+        public void PostWalk() { }
     }
 }

@@ -5,27 +5,49 @@ namespace Parsek
     /// <summary>
     /// Kerbal lifecycle logic: infers per-crew end states from recording data,
     /// computes reservations and replacement chains, populates CrewEndStates on
-    /// recordings at commit time. All methods are internal static for testability.
+    /// recordings at commit time. Implements IResourceModule to participate in the
+    /// RecalculationEngine walk lifecycle (Reset → PrePass → ProcessAction → PostWalk).
+    ///
+    /// Static utility methods (InferCrewEndState, PopulateCrewEndStates, FindTraitForKerbal)
+    /// are pure functions with no module state dependency.
     /// </summary>
-    internal static class KerbalsModule
+    internal class KerbalsModule : IResourceModule
     {
         private const string Tag = "KerbalsModule";
 
-        // ── Derived state (recomputed on every Recalculate call) ──
-        private static Dictionary<string, KerbalReservation> reservations
+        // ── Derived state (recomputed on every recalculation walk) ──
+        private Dictionary<string, KerbalReservation> reservations
             = new Dictionary<string, KerbalReservation>();
-        private static HashSet<string> retiredKerbals = new HashSet<string>();
+        private HashSet<string> retiredKerbals = new HashSet<string>();
 
         /// <summary>
         /// Set of all crew names appearing in any active committed recording.
-        /// Built once at the start of Recalculate for O(1) lookups in ComputeRetiredSet
+        /// Built during ProcessAction for O(1) lookups in ComputeRetiredSet
         /// and IsKerbalInAnyRecording. Excludes loop and disabled-chain recordings.
         /// </summary>
-        private static HashSet<string> allRecordingCrew = new HashSet<string>();
+        private HashSet<string> allRecordingCrew = new HashSet<string>();
+
+        // ── Recording metadata cache (built in PrePass) ──
+        private Dictionary<string, RecordingMeta> recordingMeta
+            = new Dictionary<string, RecordingMeta>();
+        private HashSet<string> loopingChainIds = new HashSet<string>();
 
         // ── Persisted state (stand-in names survive recalculation) ──
-        private static Dictionary<string, KerbalSlot> slots
+        private Dictionary<string, KerbalSlot> slots
             = new Dictionary<string, KerbalSlot>();
+
+        /// <summary>
+        /// Per-recording metadata cached during PrePass from RecordingStore.
+        /// Uses double EndUT to avoid float precision loss from GameAction.EndUT.
+        /// </summary>
+        private struct RecordingMeta
+        {
+            public bool IsLoop;
+            public bool IsChainRecording;
+            public string ChainId;
+            public bool IsDisabledChain;
+            public double EndUT;
+        }
 
         /// <summary>
         /// Per-kerbal reservation. Derived — never persisted directly.
@@ -50,9 +72,9 @@ namespace Parsek
         }
 
         // Read-only access for tests
-        internal static IReadOnlyDictionary<string, KerbalReservation> Reservations => reservations;
-        internal static IReadOnlyDictionary<string, KerbalSlot> Slots => slots;
-        internal static IReadOnlyCollection<string> RetiredKerbals => retiredKerbals;
+        internal IReadOnlyDictionary<string, KerbalReservation> Reservations => reservations;
+        internal IReadOnlyDictionary<string, KerbalSlot> Slots => slots;
+        internal IReadOnlyCollection<string> RetiredKerbals => retiredKerbals;
 
         /// <summary>
         /// Returns the list of retired kerbal names for UI display.
@@ -60,13 +82,185 @@ namespace Parsek
         /// returning. They remain in the roster but are blocked from dismissal.
         /// Returns a snapshot — safe to enumerate while the module recalculates.
         /// </summary>
-        internal static IReadOnlyList<string> GetRetiredKerbals()
+        internal IReadOnlyList<string> GetRetiredKerbals()
         {
             return new List<string>(retiredKerbals);
         }
 
         // ────────────────────────────────────────────────────────
-        // Task 1: End-state inference
+        // IResourceModule implementation
+        // ────────────────────────────────────────────────────────
+
+        /// <summary>
+        /// Clears all derived state before a recalculation walk.
+        /// Does NOT clear slots — stand-in names persist across walks (loaded via LoadSlots).
+        /// </summary>
+        public void Reset()
+        {
+            reservations.Clear();
+            retiredKerbals.Clear();
+            allRecordingCrew.Clear();
+            recordingMeta.Clear();
+            loopingChainIds.Clear();
+        }
+
+        /// <summary>
+        /// Builds recording metadata cache from RecordingStore.CommittedRecordings.
+        /// This is necessary because loop/disabled/chain status is mutable (users can
+        /// toggle at runtime) and is not encoded in GameAction fields.
+        /// </summary>
+        public void PrePass(List<GameAction> actions)
+        {
+            var recordings = RecordingStore.CommittedRecordings;
+            if (recordings == null) return;
+
+            for (int i = 0; i < recordings.Count; i++)
+            {
+                var rec = recordings[i];
+                if (string.IsNullOrEmpty(rec.RecordingId)) continue;
+
+                bool isLoop = rec.LoopPlayback;
+                bool isChain = rec.IsChainRecording;
+                string chainId = rec.ChainId;
+                bool isDisabled = RecordingStore.IsChainFullyDisabled(chainId);
+
+                recordingMeta[rec.RecordingId] = new RecordingMeta
+                {
+                    IsLoop = isLoop,
+                    IsChainRecording = isChain,
+                    ChainId = chainId,
+                    IsDisabledChain = isDisabled,
+                    EndUT = rec.EndUT
+                };
+
+                // Identify chains that contain a looping segment
+                if (isLoop && isChain && !string.IsNullOrEmpty(chainId))
+                    loopingChainIds.Add(chainId);
+            }
+
+            ParsekLog.Verbose(Tag,
+                $"PrePass: cached {recordingMeta.Count} recording metadata entries, " +
+                $"{loopingChainIds.Count} looping chains");
+        }
+
+        /// <summary>
+        /// Processes a KerbalAssignment action to build crew reservations.
+        /// Ignores all other action types.
+        /// </summary>
+        public void ProcessAction(GameAction action)
+        {
+            if (action == null || action.Type != GameActionType.KerbalAssignment)
+                return;
+
+            string recordingId = action.RecordingId;
+            if (string.IsNullOrEmpty(recordingId)) return;
+
+            // Look up recording metadata (skip if not found — orphaned action)
+            RecordingMeta meta;
+            if (!recordingMeta.TryGetValue(recordingId, out meta))
+                return;
+
+            // Skip loop recordings
+            if (meta.IsLoop) return;
+
+            // Skip disabled chain recordings
+            if (meta.IsDisabledChain) return;
+
+            string name = action.KerbalName;
+            if (string.IsNullOrEmpty(name)) return;
+
+            // Build the all-crew set for O(1) lookup in ComputeRetiredSet
+            allRecordingCrew.Add(name);
+
+            KerbalEndState endState = action.KerbalEndStateField;
+
+            // Map end states to reservation parameters:
+            //   Dead      -> permanent, endUT = infinity
+            //   Recovered -> temporary, endUT = rec.EndUT
+            //   Aboard    -> open-ended temporary, endUT = infinity (crew still on vessel)
+            //   Unknown   -> open-ended temporary (conservative)
+            // Override: if this recording belongs to a chain with a looping segment,
+            // keep endUT = infinity regardless of Recovered state — the ghost replays
+            // past the tip's EndUT via the loop.
+            bool permanent = (endState == KerbalEndState.Dead);
+            bool chainHasLoop = meta.IsChainRecording
+                && !string.IsNullOrEmpty(meta.ChainId)
+                && loopingChainIds.Contains(meta.ChainId);
+            // Use recording's double-precision EndUT (not action's float EndUT)
+            double endUT = (endState == KerbalEndState.Recovered && !chainHasLoop)
+                ? meta.EndUT : double.PositiveInfinity;
+
+            KerbalReservation existing;
+            if (reservations.TryGetValue(name, out existing))
+            {
+                // Merge: take max endUT, permanent wins
+                if (permanent) existing.IsPermanent = true;
+                if (endUT > existing.ReservedUntilUT) existing.ReservedUntilUT = endUT;
+                ParsekLog.Verbose(Tag,
+                    $"Reservation extended: '{name}' endUT->{existing.ReservedUntilUT:F1} " +
+                    $"(permanent={existing.IsPermanent})");
+            }
+            else
+            {
+                reservations[name] = new KerbalReservation
+                {
+                    KerbalName = name,
+                    ReservedUntilUT = endUT,
+                    IsPermanent = permanent
+                };
+                ParsekLog.Verbose(Tag,
+                    $"Reservation: '{name}' endUT={( permanent ? "INDEFINITE" : endUT.ToString("F1") )} " +
+                    $"({endState}{(chainHasLoop ? ", chainHasLoop" : "")}), recording '{recordingId}'");
+            }
+        }
+
+        /// <summary>
+        /// Post-walk: builds replacement chains and computes retired set.
+        /// Must run after all ProcessAction calls (needs complete reservation dict).
+        /// </summary>
+        public void PostWalk()
+        {
+            // 1. Build/update chains for temporary reservations
+            foreach (var kvp in reservations)
+            {
+                if (kvp.Value.IsPermanent)
+                {
+                    // Permanent: slot exits chain system. Mark owner as gone.
+                    KerbalSlot permanentSlot;
+                    if (slots.TryGetValue(kvp.Key, out permanentSlot))
+                        permanentSlot.OwnerPermanentlyGone = true;
+                    continue;
+                }
+
+                // Ensure slot exists
+                KerbalSlot slot;
+                if (!slots.TryGetValue(kvp.Key, out slot))
+                {
+                    slot = new KerbalSlot
+                    {
+                        OwnerName = kvp.Key,
+                        OwnerTrait = FindTraitForKerbal(kvp.Key),
+                    };
+                    slots[kvp.Key] = slot;
+                    ParsekLog.Verbose(Tag,
+                        $"Created slot for '{kvp.Key}' (trait={slot.OwnerTrait})");
+                }
+
+                // Walk chain: ensure each reserved level has a stand-in
+                EnsureChainDepth(slot);
+            }
+
+            // 2. Identify retired stand-ins
+            ComputeRetiredSet();
+
+            // 3. Log summary
+            ParsekLog.Info(Tag,
+                $"Recalculation complete: {reservations.Count} reservations, " +
+                $"{slots.Count} slots, {retiredKerbals.Count} retired");
+        }
+
+        // ────────────────────────────────────────────────────────
+        // End-state inference (static utilities — no module state)
         // ────────────────────────────────────────────────────────
 
         /// <summary>
@@ -221,157 +415,15 @@ namespace Parsek
         }
 
         // ────────────────────────────────────────────────────────
-        // Task 2: Reservation computation and chain building
+        // Chain and reservation helpers (instance — access module state)
         // ────────────────────────────────────────────────────────
-
-        /// <summary>
-        /// Recompute all kerbal reservations and chain state from committed recordings.
-        /// Pure computation over recording data -- no KSP roster access.
-        /// Call ApplyToRoster() afterward to mutate KSP state.
-        /// </summary>
-        internal static void Recalculate()
-        {
-            // 1. Clear derived state. DO NOT clear slots (names persist).
-            reservations.Clear();
-            retiredKerbals.Clear();
-            allRecordingCrew.Clear();
-
-            var recordings = RecordingStore.CommittedRecordings;
-            int skippedLoop = 0, skippedDisabled = 0, skippedNoCrew = 0, processed = 0;
-
-            // 2a. Pre-scan: identify chains that contain looping segments.
-            // Used below to keep crew reserved for the full loop lifetime even when
-            // the chain tip has a finite endState (e.g. Recovered after splashdown).
-            var loopingChains = new HashSet<string>();
-            for (int i = 0; i < recordings.Count; i++)
-            {
-                if (recordings[i].LoopPlayback && recordings[i].IsChainRecording)
-                    loopingChains.Add(recordings[i].ChainId);
-            }
-
-            // 2b. Build reservations and allRecordingCrew set from all committed recordings
-            for (int i = 0; i < recordings.Count; i++)
-            {
-                var rec = recordings[i];
-                if (rec.LoopPlayback)
-                {
-                    skippedLoop++;
-                    continue;
-                }
-                if (RecordingStore.IsChainFullyDisabled(rec.ChainId))
-                {
-                    skippedDisabled++;
-                    continue;
-                }
-
-                var crew = CrewReservationManager.ExtractCrewFromSnapshot(rec.VesselSnapshot);
-                if (crew.Count == 0)
-                {
-                    skippedNoCrew++;
-                    continue;
-                }
-
-                processed++;
-
-                // Build the all-crew set for O(1) lookup in ComputeRetiredSet
-                for (int c = 0; c < crew.Count; c++)
-                    allRecordingCrew.Add(crew[c]);
-
-                for (int c = 0; c < crew.Count; c++)
-                {
-                    string name = crew[c];
-                    KerbalEndState endState = KerbalEndState.Aboard; // default if no end states
-                    if (rec.CrewEndStates != null)
-                        rec.CrewEndStates.TryGetValue(name, out endState);
-
-                    // Map end states to reservation parameters:
-                    //   Dead      -> permanent, endUT = infinity
-                    //   Recovered -> temporary, endUT = rec.EndUT
-                    //   Aboard    -> open-ended temporary, endUT = infinity (crew still on vessel)
-                    //   Unknown   -> open-ended temporary (conservative)
-                    // Override: if this recording belongs to a chain with a looping segment,
-                    // keep endUT = infinity regardless of Recovered state — the ghost replays
-                    // past the tip's EndUT via the loop.
-                    bool permanent = (endState == KerbalEndState.Dead);
-                    bool chainHasLoop = rec.IsChainRecording && loopingChains.Contains(rec.ChainId);
-                    double endUT = (endState == KerbalEndState.Recovered && !chainHasLoop)
-                        ? rec.EndUT : double.PositiveInfinity;
-
-                    KerbalReservation existing;
-                    if (reservations.TryGetValue(name, out existing))
-                    {
-                        // Merge: take max endUT, permanent wins
-                        if (permanent) existing.IsPermanent = true;
-                        if (endUT > existing.ReservedUntilUT) existing.ReservedUntilUT = endUT;
-                        ParsekLog.Verbose(Tag,
-                            $"Reservation extended: '{name}' endUT->{existing.ReservedUntilUT:F1} " +
-                            $"(permanent={existing.IsPermanent})");
-                    }
-                    else
-                    {
-                        reservations[name] = new KerbalReservation
-                        {
-                            KerbalName = name,
-                            ReservedUntilUT = endUT,
-                            IsPermanent = permanent
-                        };
-                        ParsekLog.Verbose(Tag,
-                            $"Reservation: '{name}' endUT={( permanent ? "INDEFINITE" : endUT.ToString("F1") )} " +
-                            $"({endState}{(chainHasLoop ? ", chainHasLoop" : "")}), recording '{rec.RecordingId}'");
-                    }
-                }
-            }
-
-            ParsekLog.Verbose(Tag,
-                $"Reservation scan: {recordings.Count} recordings, " +
-                $"{processed} processed, {skippedLoop} loop, {skippedDisabled} disabled, " +
-                $"{skippedNoCrew} no-crew, {loopingChains.Count} looping chains");
-
-            // 3. Build/update chains for temporary reservations
-            foreach (var kvp in reservations)
-            {
-                if (kvp.Value.IsPermanent)
-                {
-                    // Permanent: slot exits chain system. Mark owner as gone.
-                    KerbalSlot permanentSlot;
-                    if (slots.TryGetValue(kvp.Key, out permanentSlot))
-                        permanentSlot.OwnerPermanentlyGone = true;
-                    continue;
-                }
-
-                // Ensure slot exists
-                KerbalSlot slot;
-                if (!slots.TryGetValue(kvp.Key, out slot))
-                {
-                    slot = new KerbalSlot
-                    {
-                        OwnerName = kvp.Key,
-                        OwnerTrait = FindTraitForKerbal(kvp.Key),
-                    };
-                    slots[kvp.Key] = slot;
-                    ParsekLog.Verbose(Tag,
-                        $"Created slot for '{kvp.Key}' (trait={slot.OwnerTrait})");
-                }
-
-                // Walk chain: ensure each reserved level has a stand-in
-                EnsureChainDepth(slot);
-            }
-
-            // 4. Identify retired stand-ins
-            ComputeRetiredSet();
-
-            // 5. Log summary
-            ParsekLog.Info(Tag,
-                $"Recalculation complete: {reservations.Count} reservations, " +
-                $"{slots.Count} slots, {retiredKerbals.Count} retired");
-        }
 
         /// <summary>
         /// Ensure the chain has a stand-in at every depth where the occupant is reserved.
         /// Stand-in names are reused from existing chain entries (deterministic).
         /// New names are generated only when a new depth is needed.
         /// </summary>
-        private static void EnsureChainDepth(KerbalSlot slot)
+        private void EnsureChainDepth(KerbalSlot slot)
         {
             // Start with the owner. If reserved, need a stand-in at depth 0.
             // If that stand-in is also reserved, need depth 1, etc.
@@ -399,7 +451,7 @@ namespace Parsek
         /// Determine which stand-ins are retired (used in a recording but displaced).
         /// A stand-in is displaced when its predecessor (owner or earlier stand-in) is free.
         /// </summary>
-        private static void ComputeRetiredSet()
+        private void ComputeRetiredSet()
         {
             int retiredCount = 0;
             foreach (var kvp in slots)
@@ -436,12 +488,15 @@ namespace Parsek
                 ParsekLog.Verbose(Tag, $"ComputeRetiredSet: {retiredCount} retired stand-in(s)");
         }
 
+        // ────────────────────────────────────────────────────────
+        // Query methods (instance — access module state)
+        // ────────────────────────────────────────────────────────
+
         /// <summary>
         /// Check if a kerbal name appears in any active committed recording's crew.
-        /// Uses the allRecordingCrew HashSet built during Recalculate for O(1) lookup.
-        /// Must be called after Recalculate() has run.
+        /// Uses the allRecordingCrew HashSet built during ProcessAction for O(1) lookup.
         /// </summary>
-        internal static bool IsKerbalInAnyRecording(string kerbalName)
+        internal bool IsKerbalInAnyRecording(string kerbalName)
         {
             return allRecordingCrew.Contains(kerbalName);
         }
@@ -477,7 +532,7 @@ namespace Parsek
         /// Check if a kerbal is available for a new recording.
         /// A kerbal is available if they are NOT in the reservations dict.
         /// </summary>
-        internal static bool IsKerbalAvailable(string kerbalName)
+        internal bool IsKerbalAvailable(string kerbalName)
         {
             bool reserved = reservations.ContainsKey(kerbalName);
             ParsekLog.Verbose(Tag,
@@ -488,7 +543,7 @@ namespace Parsek
         /// <summary>
         /// Check if a kerbal is managed by Parsek (reserved, active stand-in, or retired).
         /// </summary>
-        internal static bool IsManaged(string kerbalName)
+        internal bool IsManaged(string kerbalName)
         {
             if (string.IsNullOrEmpty(kerbalName)) return false;
             if (reservations.ContainsKey(kerbalName)) return true;
@@ -506,7 +561,7 @@ namespace Parsek
         /// Get the active occupant for a slot (the deepest non-reserved chain member,
         /// or the owner if free).
         /// </summary>
-        internal static string GetActiveOccupant(string slotOwnerName)
+        internal string GetActiveOccupant(string slotOwnerName)
         {
             if (!reservations.ContainsKey(slotOwnerName))
                 return slotOwnerName; // owner is free
@@ -529,7 +584,7 @@ namespace Parsek
         }
 
         // ────────────────────────────────────────────────────────
-        // Task 3: ApplyToRoster and integration
+        // ApplyToRoster — KSP state mutations
         // ────────────────────────────────────────────────────────
 
         /// <summary>
@@ -542,15 +597,15 @@ namespace Parsek
         /// This method overrides that behavior for Parsek-managed kerbals:
         /// Step 3 below sets every reserved kerbal's rosterStatus to Assigned,
         /// regardless of what KSP may have changed it to between recalculations.
-        /// If KSP respawns a Dead kerbal to Available, the next RecalculateAndApply
-        /// call resets them to Assigned, keeping them reserved for ghost playback.
+        /// If KSP respawns a Dead kerbal to Available, the next recalculation
+        /// resets them to Assigned, keeping them reserved for ghost playback.
         /// This ensures recording crew consistency — a kerbal who died in a
         /// recording stays reserved until the recording is removed from the timeline.
         ///
-        /// Must be called AFTER Recalculate().
+        /// Must be called AFTER PostWalk().
         /// Wraps all mutations in SuppressCrewEvents.
         /// </summary>
-        internal static void ApplyToRoster(KerbalRoster roster)
+        internal void ApplyToRoster(KerbalRoster roster)
         {
             if (roster == null)
             {
@@ -591,7 +646,7 @@ namespace Parsek
                             continue;
                         }
 
-                        // Null entry = pending generation (new depth from Recalculate)
+                        // Null entry = pending generation (new depth from PostWalk)
                         ProtoCrewMember newStandIn = roster.GetNewKerbal(
                             ProtoCrewMember.KerbalType.Crew);
                         if (newStandIn != null)
@@ -693,38 +748,6 @@ namespace Parsek
             }
         }
 
-        /// <summary>
-        /// Combined recalculate + apply for convenience.
-        /// The standard call at every commit/rewind point.
-        /// Populates CrewEndStates on recordings that don't have them yet.
-        /// </summary>
-        internal static void RecalculateAndApply()
-        {
-            var roster = HighLogic.CurrentGame?.CrewRoster;
-            if (roster == null)
-            {
-                ParsekLog.Verbose(Tag, "RecalculateAndApply: no roster — skipping");
-                return;
-            }
-
-            // Populate end states on any recording that hasn't been populated yet
-            int populated = 0;
-            for (int i = 0; i < RecordingStore.CommittedRecordings.Count; i++)
-            {
-                var rec = RecordingStore.CommittedRecordings[i];
-                if (rec.CrewEndStates == null && rec.VesselSnapshot != null)
-                {
-                    PopulateCrewEndStates(rec);
-                    if (rec.CrewEndStates != null) populated++;
-                }
-            }
-            if (populated > 0)
-                ParsekLog.Verbose(Tag, $"RecalculateAndApply: populated {populated} crew end states");
-
-            Recalculate();
-            ApplyToRoster(roster);
-        }
-
         private static ProtoCrewMember FindInRoster(KerbalRoster roster, string name)
         {
             foreach (ProtoCrewMember pcm in roster.Crew)
@@ -750,7 +773,7 @@ namespace Parsek
         // Serialization: KERBAL_SLOTS
         // ────────────────────────────────────────────────────────
 
-        internal static void SaveSlots(ConfigNode parentNode)
+        internal void SaveSlots(ConfigNode parentNode)
         {
             if (slots.Count == 0)
             {
@@ -781,7 +804,7 @@ namespace Parsek
             ParsekLog.Info(Tag, $"Saved {slots.Count} kerbal slot(s) with {chainEntryCount} chain entries");
         }
 
-        internal static void LoadSlots(ConfigNode parentNode)
+        internal void LoadSlots(ConfigNode parentNode)
         {
             slots.Clear();
 
@@ -853,14 +876,17 @@ namespace Parsek
         // ────────────────────────────────────────────────────────
 
         /// <summary>
-        /// Reset all state for testing. Clears reservations, slots, and retired set.
+        /// Reset all state for testing. Clears reservations, slots, retired set,
+        /// and all caches.
         /// </summary>
-        internal static void ResetForTesting()
+        internal void ResetForTesting()
         {
             reservations.Clear();
             slots.Clear();
             retiredKerbals.Clear();
             allRecordingCrew.Clear();
+            recordingMeta.Clear();
+            loopingChainIds.Clear();
         }
     }
 }

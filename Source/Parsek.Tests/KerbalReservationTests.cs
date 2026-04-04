@@ -19,7 +19,6 @@ namespace Parsek.Tests
             ParsekLog.SuppressLogging = false;
             ParsekLog.TestSinkForTesting = line => logLines.Add(line);
             RecordingStore.SuppressLogging = true;
-            KerbalsModule.ResetForTesting();
             RecordingStore.ResetForTesting();
         }
 
@@ -28,8 +27,63 @@ namespace Parsek.Tests
             ParsekLog.ResetTestOverrides();
             ParsekLog.SuppressLogging = true;
             RecordingStore.SuppressLogging = false;
-            KerbalsModule.ResetForTesting();
             RecordingStore.ResetForTesting();
+        }
+
+        /// <summary>
+        /// Creates a KerbalsModule instance, runs the full lifecycle against
+        /// RecordingStore.CommittedRecordings, and returns the populated module.
+        /// </summary>
+        private static KerbalsModule RecalculateFromStore()
+        {
+            return RecalculateModule(new KerbalsModule());
+        }
+
+        /// <summary>
+        /// Runs the full lifecycle on an existing KerbalsModule instance.
+        /// Use when the module has pre-loaded slots via LoadSlots before recalculation.
+        /// </summary>
+        private static KerbalsModule RecalculateModule(KerbalsModule module)
+        {
+            module.Reset();
+
+            var actions = new List<GameAction>();
+            var recordings = RecordingStore.CommittedRecordings;
+            for (int i = 0; i < recordings.Count; i++)
+            {
+                var rec = recordings[i];
+                if (rec.CrewEndStates == null && rec.VesselSnapshot != null)
+                    KerbalsModule.PopulateCrewEndStates(rec);
+
+                var snapshot = rec.GhostVisualSnapshot ?? rec.VesselSnapshot;
+                if (snapshot == null) continue;
+                var names = CrewReservationManager.ExtractCrewFromSnapshot(snapshot);
+                for (int j = 0; j < names.Count; j++)
+                {
+                    KerbalEndState endState = KerbalEndState.Unknown;
+                    if (rec.CrewEndStates != null)
+                        rec.CrewEndStates.TryGetValue(names[j], out endState);
+
+                    actions.Add(new GameAction
+                    {
+                        UT = rec.StartUT,
+                        Type = GameActionType.KerbalAssignment,
+                        RecordingId = rec.RecordingId,
+                        KerbalName = names[j],
+                        KerbalRole = KerbalsModule.FindTraitForKerbal(names[j]),
+                        StartUT = (float)rec.StartUT,
+                        EndUT = (float)rec.EndUT,
+                        KerbalEndStateField = endState,
+                        Sequence = j + 1
+                    });
+                }
+            }
+
+            module.PrePass(actions);
+            for (int i = 0; i < actions.Count; i++)
+                module.ProcessAction(actions[i]);
+            module.PostWalk();
+            return module;
         }
 
         /// <summary>
@@ -77,11 +131,11 @@ namespace Parsek.Tests
                 TerminalState.Recovered, 2000);
             RecordingStore.AddCommittedForTesting(rec);
 
-            KerbalsModule.Recalculate();
+            var kerbals = RecalculateFromStore();
 
-            Assert.False(KerbalsModule.IsKerbalAvailable("Jeb"));
-            Assert.False(KerbalsModule.IsKerbalAvailable("Bill"));
-            Assert.True(KerbalsModule.IsKerbalAvailable("Val")); // not in recording
+            Assert.False(kerbals.IsKerbalAvailable("Jeb"));
+            Assert.False(kerbals.IsKerbalAvailable("Bill"));
+            Assert.True(kerbals.IsKerbalAvailable("Val")); // not in recording
         }
 
         [Fact]
@@ -91,10 +145,10 @@ namespace Parsek.Tests
                 TerminalState.Recovered, 2000);
             RecordingStore.AddCommittedForTesting(rec);
 
-            KerbalsModule.Recalculate();
+            var kerbals = RecalculateFromStore();
 
-            Assert.Equal(2000.0, KerbalsModule.Reservations["Jeb"].ReservedUntilUT);
-            Assert.False(KerbalsModule.Reservations["Jeb"].IsPermanent);
+            Assert.Equal(2000.0, kerbals.Reservations["Jeb"].ReservedUntilUT);
+            Assert.False(kerbals.Reservations["Jeb"].IsPermanent);
         }
 
         [Fact]
@@ -104,10 +158,10 @@ namespace Parsek.Tests
                 TerminalState.Destroyed, 1000);
             RecordingStore.AddCommittedForTesting(rec);
 
-            KerbalsModule.Recalculate();
+            var kerbals = RecalculateFromStore();
 
-            Assert.True(KerbalsModule.Reservations["Jeb"].IsPermanent);
-            Assert.Equal(double.PositiveInfinity, KerbalsModule.Reservations["Jeb"].ReservedUntilUT);
+            Assert.True(kerbals.Reservations["Jeb"].IsPermanent);
+            Assert.Equal(double.PositiveInfinity, kerbals.Reservations["Jeb"].ReservedUntilUT);
         }
 
         [Fact]
@@ -120,9 +174,9 @@ namespace Parsek.Tests
             RecordingStore.AddCommittedForTesting(recA);
             RecordingStore.AddCommittedForTesting(recB);
 
-            KerbalsModule.Recalculate();
+            var kerbals = RecalculateFromStore();
 
-            Assert.Equal(3000.0, KerbalsModule.Reservations["Jeb"].ReservedUntilUT);
+            Assert.Equal(3000.0, kerbals.Reservations["Jeb"].ReservedUntilUT);
         }
 
         [Fact]
@@ -134,10 +188,10 @@ namespace Parsek.Tests
                 TerminalState.Landed, 5000);
             RecordingStore.AddCommittedForTesting(rec);
 
-            KerbalsModule.Recalculate();
+            var kerbals = RecalculateFromStore();
 
-            Assert.Equal(double.PositiveInfinity, KerbalsModule.Reservations["Jeb"].ReservedUntilUT);
-            Assert.False(KerbalsModule.Reservations["Jeb"].IsPermanent); // temporary, not dead
+            Assert.Equal(double.PositiveInfinity, kerbals.Reservations["Jeb"].ReservedUntilUT);
+            Assert.False(kerbals.Reservations["Jeb"].IsPermanent); // temporary, not dead
         }
 
         [Fact]
@@ -148,10 +202,10 @@ namespace Parsek.Tests
                 TerminalState.Orbiting, 8000);
             RecordingStore.AddCommittedForTesting(rec);
 
-            KerbalsModule.Recalculate();
+            var kerbals = RecalculateFromStore();
 
-            Assert.Equal(double.PositiveInfinity, KerbalsModule.Reservations["Jeb"].ReservedUntilUT);
-            Assert.False(KerbalsModule.Reservations["Jeb"].IsPermanent);
+            Assert.Equal(double.PositiveInfinity, kerbals.Reservations["Jeb"].ReservedUntilUT);
+            Assert.False(kerbals.Reservations["Jeb"].IsPermanent);
         }
 
         [Fact]
@@ -170,9 +224,9 @@ namespace Parsek.Tests
             };
             RecordingStore.AddCommittedForTesting(rec);
 
-            KerbalsModule.Recalculate();
+            var kerbals = RecalculateFromStore();
 
-            Assert.Empty(KerbalsModule.Reservations);
+            Assert.Empty(kerbals.Reservations);
         }
 
         [Fact]
@@ -183,9 +237,9 @@ namespace Parsek.Tests
             rec.LoopPlayback = true;
             RecordingStore.AddCommittedForTesting(rec);
 
-            KerbalsModule.Recalculate();
+            var kerbals = RecalculateFromStore();
 
-            Assert.True(KerbalsModule.IsKerbalAvailable("Jeb"));
+            Assert.True(kerbals.IsKerbalAvailable("Jeb"));
         }
 
         [Fact]
@@ -199,9 +253,9 @@ namespace Parsek.Tests
             rec.PlaybackEnabled = false;
             RecordingStore.AddCommittedForTesting(rec);
 
-            KerbalsModule.Recalculate();
+            var kerbals = RecalculateFromStore();
 
-            Assert.True(KerbalsModule.IsKerbalAvailable("Jeb"));
+            Assert.True(kerbals.IsKerbalAvailable("Jeb"));
         }
 
         [Fact]
@@ -222,11 +276,11 @@ namespace Parsek.Tests
             };
             RecordingStore.AddCommittedForTesting(rec);
 
-            KerbalsModule.Recalculate();
+            var kerbals = RecalculateFromStore();
 
             // Should default to Aboard -> open-ended
-            Assert.Equal(double.PositiveInfinity, KerbalsModule.Reservations["Jeb"].ReservedUntilUT);
-            Assert.False(KerbalsModule.Reservations["Jeb"].IsPermanent);
+            Assert.Equal(double.PositiveInfinity, kerbals.Reservations["Jeb"].ReservedUntilUT);
+            Assert.False(kerbals.Reservations["Jeb"].IsPermanent);
         }
 
         // ── Merge behavior: permanent wins over temporary ──
@@ -243,10 +297,10 @@ namespace Parsek.Tests
             RecordingStore.AddCommittedForTesting(recA);
             RecordingStore.AddCommittedForTesting(recB);
 
-            KerbalsModule.Recalculate();
+            var kerbals = RecalculateFromStore();
 
-            Assert.True(KerbalsModule.Reservations["Jeb"].IsPermanent);
-            Assert.Equal(double.PositiveInfinity, KerbalsModule.Reservations["Jeb"].ReservedUntilUT);
+            Assert.True(kerbals.Reservations["Jeb"].IsPermanent);
+            Assert.Equal(double.PositiveInfinity, kerbals.Reservations["Jeb"].ReservedUntilUT);
         }
 
         // ── Chain building ──
@@ -258,10 +312,10 @@ namespace Parsek.Tests
                 TerminalState.Recovered, 2000);
             RecordingStore.AddCommittedForTesting(rec);
 
-            KerbalsModule.Recalculate();
+            var kerbals = RecalculateFromStore();
 
-            Assert.True(KerbalsModule.Slots.ContainsKey("Jeb"));
-            Assert.Equal("Jeb", KerbalsModule.Slots["Jeb"].OwnerName);
+            Assert.True(kerbals.Slots.ContainsKey("Jeb"));
+            Assert.Equal("Jeb", kerbals.Slots["Jeb"].OwnerName);
         }
 
         [Fact]
@@ -271,11 +325,11 @@ namespace Parsek.Tests
                 TerminalState.Recovered, 2000);
             RecordingStore.AddCommittedForTesting(rec);
 
-            KerbalsModule.Recalculate();
+            var kerbals = RecalculateFromStore();
 
             // Chain should have a null placeholder at depth 0 (pending generation)
-            Assert.Single(KerbalsModule.Slots["Jeb"].Chain);
-            Assert.Null(KerbalsModule.Slots["Jeb"].Chain[0]);
+            Assert.Single(kerbals.Slots["Jeb"].Chain);
+            Assert.Null(kerbals.Slots["Jeb"].Chain[0]);
         }
 
         [Fact]
@@ -285,19 +339,20 @@ namespace Parsek.Tests
                 TerminalState.Destroyed, 1000);
             RecordingStore.AddCommittedForTesting(rec);
 
-            KerbalsModule.Recalculate();
+            var kerbals = RecalculateFromStore();
 
-            Assert.True(KerbalsModule.Reservations["Jeb"].IsPermanent);
+            Assert.True(kerbals.Reservations["Jeb"].IsPermanent);
             // No chain generated for permanently gone owner
             // Slot may exist from prior state, but no new chain entries
-            if (KerbalsModule.Slots.ContainsKey("Jeb"))
-                Assert.True(KerbalsModule.Slots["Jeb"].OwnerPermanentlyGone);
+            if (kerbals.Slots.ContainsKey("Jeb"))
+                Assert.True(kerbals.Slots["Jeb"].OwnerPermanentlyGone);
         }
 
         [Fact]
         public void Recalculate_ExistingChainEntry_Reused()
         {
             // Pre-populate a slot with an existing stand-in name
+            var module = new KerbalsModule();
             var parent = new ConfigNode("TEST");
             var slotsNode = parent.AddNode("KERBAL_SLOTS");
             var slotNode = slotsNode.AddNode("SLOT");
@@ -305,23 +360,24 @@ namespace Parsek.Tests
             slotNode.AddValue("trait", "Pilot");
             var entry = slotNode.AddNode("CHAIN_ENTRY");
             entry.AddValue("name", "Hanley");
-            KerbalsModule.LoadSlots(parent);
+            module.LoadSlots(parent);
 
             // Now recalculate with Jeb reserved
             var rec = MakeRecording("Ship", new[] { "Jeb" },
                 TerminalState.Recovered, 2000);
             RecordingStore.AddCommittedForTesting(rec);
 
-            KerbalsModule.Recalculate();
+            var kerbals = RecalculateModule(module);
 
             // Existing chain entry "Hanley" should be preserved
-            Assert.Equal("Hanley", KerbalsModule.Slots["Jeb"].Chain[0]);
+            Assert.Equal("Hanley", kerbals.Slots["Jeb"].Chain[0]);
         }
 
         [Fact]
         public void Recalculate_ChainStandInAlsoReserved_ExtendsChain()
         {
             // Pre-populate: Jeb -> Hanley at depth 0
+            var module = new KerbalsModule();
             var parent = new ConfigNode("TEST");
             var slotsNode = parent.AddNode("KERBAL_SLOTS");
             var slotNode = slotsNode.AddNode("SLOT");
@@ -329,7 +385,7 @@ namespace Parsek.Tests
             slotNode.AddValue("trait", "Pilot");
             var entry = slotNode.AddNode("CHAIN_ENTRY");
             entry.AddValue("name", "Hanley");
-            KerbalsModule.LoadSlots(parent);
+            module.LoadSlots(parent);
 
             // Both Jeb and Hanley are reserved in different recordings
             var recA = MakeRecording("Ship A", new[] { "Jeb" },
@@ -339,12 +395,12 @@ namespace Parsek.Tests
             RecordingStore.AddCommittedForTesting(recA);
             RecordingStore.AddCommittedForTesting(recB);
 
-            KerbalsModule.Recalculate();
+            var kerbals = RecalculateModule(module);
 
             // Chain should extend: Hanley at depth 0, null placeholder at depth 1
-            Assert.True(KerbalsModule.Slots["Jeb"].Chain.Count >= 2);
-            Assert.Equal("Hanley", KerbalsModule.Slots["Jeb"].Chain[0]);
-            Assert.Null(KerbalsModule.Slots["Jeb"].Chain[1]); // pending generation
+            Assert.True(kerbals.Slots["Jeb"].Chain.Count >= 2);
+            Assert.Equal("Hanley", kerbals.Slots["Jeb"].Chain[0]);
+            Assert.Null(kerbals.Slots["Jeb"].Chain[1]); // pending generation
         }
 
         // ── Query methods ──
@@ -352,13 +408,15 @@ namespace Parsek.Tests
         [Fact]
         public void GetActiveOccupant_OwnerFree_ReturnsOwner()
         {
-            Assert.Equal("Jeb", KerbalsModule.GetActiveOccupant("Jeb"));
+            var kerbals = new KerbalsModule();
+            Assert.Equal("Jeb", kerbals.GetActiveOccupant("Jeb"));
         }
 
         [Fact]
         public void GetActiveOccupant_OwnerReserved_ReturnsChainStandIn()
         {
             // Pre-populate slot with stand-in
+            var module = new KerbalsModule();
             var parent = new ConfigNode("TEST");
             var slotsNode = parent.AddNode("KERBAL_SLOTS");
             var slotNode = slotsNode.AddNode("SLOT");
@@ -366,21 +424,22 @@ namespace Parsek.Tests
             slotNode.AddValue("trait", "Pilot");
             var entry = slotNode.AddNode("CHAIN_ENTRY");
             entry.AddValue("name", "Hanley");
-            KerbalsModule.LoadSlots(parent);
+            module.LoadSlots(parent);
 
             // Reserve Jeb but not Hanley
             var rec = MakeRecording("Ship", new[] { "Jeb" },
                 TerminalState.Recovered, 2000);
             RecordingStore.AddCommittedForTesting(rec);
-            KerbalsModule.Recalculate();
+            var kerbals = RecalculateModule(module);
 
-            Assert.Equal("Hanley", KerbalsModule.GetActiveOccupant("Jeb"));
+            Assert.Equal("Hanley", kerbals.GetActiveOccupant("Jeb"));
         }
 
         [Fact]
         public void GetActiveOccupant_AllReserved_ReturnsNull()
         {
             // Pre-populate slot with stand-in
+            var module = new KerbalsModule();
             var parent = new ConfigNode("TEST");
             var slotsNode = parent.AddNode("KERBAL_SLOTS");
             var slotNode = slotsNode.AddNode("SLOT");
@@ -388,7 +447,7 @@ namespace Parsek.Tests
             slotNode.AddValue("trait", "Pilot");
             var entry = slotNode.AddNode("CHAIN_ENTRY");
             entry.AddValue("name", "Hanley");
-            KerbalsModule.LoadSlots(parent);
+            module.LoadSlots(parent);
 
             // Reserve both Jeb and Hanley
             var recA = MakeRecording("Ship A", new[] { "Jeb" },
@@ -397,10 +456,10 @@ namespace Parsek.Tests
                 TerminalState.Recovered, 3000);
             RecordingStore.AddCommittedForTesting(recA);
             RecordingStore.AddCommittedForTesting(recB);
-            KerbalsModule.Recalculate();
+            var kerbals = RecalculateModule(module);
 
             // Both owner and stand-in reserved -> returns null (pending generation)
-            Assert.Null(KerbalsModule.GetActiveOccupant("Jeb"));
+            Assert.Null(kerbals.GetActiveOccupant("Jeb"));
         }
 
         [Fact]
@@ -409,21 +468,23 @@ namespace Parsek.Tests
             var rec = MakeRecording("Ship", new[] { "Jeb" },
                 TerminalState.Recovered, 2000);
             RecordingStore.AddCommittedForTesting(rec);
-            KerbalsModule.Recalculate();
+            var kerbals = RecalculateFromStore();
 
-            Assert.True(KerbalsModule.IsManaged("Jeb"));
+            Assert.True(kerbals.IsManaged("Jeb"));
         }
 
         [Fact]
         public void IsManaged_UnmanagedKerbal_ReturnsFalse()
         {
-            Assert.False(KerbalsModule.IsManaged("Val"));
+            var kerbals = new KerbalsModule();
+            Assert.False(kerbals.IsManaged("Val"));
         }
 
         [Fact]
         public void IsManaged_StandInKerbal_ReturnsTrue()
         {
             // Pre-populate slot with stand-in
+            var kerbals = new KerbalsModule();
             var parent = new ConfigNode("TEST");
             var slotsNode = parent.AddNode("KERBAL_SLOTS");
             var slotNode = slotsNode.AddNode("SLOT");
@@ -431,9 +492,9 @@ namespace Parsek.Tests
             slotNode.AddValue("trait", "Pilot");
             var entry = slotNode.AddNode("CHAIN_ENTRY");
             entry.AddValue("name", "Hanley");
-            KerbalsModule.LoadSlots(parent);
+            kerbals.LoadSlots(parent);
 
-            Assert.True(KerbalsModule.IsManaged("Hanley"));
+            Assert.True(kerbals.IsManaged("Hanley"));
         }
 
         [Fact]
@@ -442,9 +503,9 @@ namespace Parsek.Tests
             var rec = MakeRecording("Ship", new[] { "Jeb" },
                 TerminalState.Recovered, 2000);
             RecordingStore.AddCommittedForTesting(rec);
-            KerbalsModule.Recalculate(); // builds the allRecordingCrew HashSet
+            var kerbals = RecalculateFromStore(); // builds the allRecordingCrew HashSet
 
-            Assert.True(KerbalsModule.IsKerbalInAnyRecording("Jeb"));
+            Assert.True(kerbals.IsKerbalInAnyRecording("Jeb"));
         }
 
         [Fact]
@@ -453,8 +514,9 @@ namespace Parsek.Tests
             var rec = MakeRecording("Ship", new[] { "Jeb" },
                 TerminalState.Recovered, 2000);
             RecordingStore.AddCommittedForTesting(rec);
+            var kerbals = RecalculateFromStore();
 
-            Assert.False(KerbalsModule.IsKerbalInAnyRecording("Val"));
+            Assert.False(kerbals.IsKerbalInAnyRecording("Val"));
         }
 
         [Fact]
@@ -464,8 +526,9 @@ namespace Parsek.Tests
                 TerminalState.Recovered, 2000);
             rec.LoopPlayback = true;
             RecordingStore.AddCommittedForTesting(rec);
+            var kerbals = RecalculateFromStore();
 
-            Assert.False(KerbalsModule.IsKerbalInAnyRecording("Jeb"));
+            Assert.False(kerbals.IsKerbalInAnyRecording("Jeb"));
         }
 
         [Fact]
@@ -484,6 +547,7 @@ namespace Parsek.Tests
             // Now Jeb is free (no longer in any recording). Hanley is displaced -> retired.
 
             // 1. Pre-populate slot: Jeb -> [Hanley]
+            var module = new KerbalsModule();
             var parent = new ConfigNode("TEST");
             var slotsNode = parent.AddNode("KERBAL_SLOTS");
             var slotNode = slotsNode.AddNode("SLOT");
@@ -491,7 +555,7 @@ namespace Parsek.Tests
             slotNode.AddValue("trait", "Pilot");
             var entry = slotNode.AddNode("CHAIN_ENTRY");
             entry.AddValue("name", "Hanley");
-            KerbalsModule.LoadSlots(parent);
+            module.LoadSlots(parent);
 
             // 2. Only Hanley appears in a recording (the recording where Hanley was the stand-in)
             var rec = MakeRecording("Hanley's Ship", new[] { "Hanley" },
@@ -499,16 +563,17 @@ namespace Parsek.Tests
             RecordingStore.AddCommittedForTesting(rec);
 
             // 3. Recalculate: Jeb is NOT reserved (not in any recording), Hanley IS reserved
-            KerbalsModule.Recalculate();
+            var kerbals = RecalculateModule(module);
 
             // Hanley is reserved (in a recording), not displaced
-            Assert.DoesNotContain("Hanley", KerbalsModule.RetiredKerbals);
+            Assert.DoesNotContain("Hanley", kerbals.RetiredKerbals);
         }
 
         [Fact]
         public void ComputeRetiredSet_StandInNotUsed_NotRetired()
         {
             // Stand-in exists in chain but never appeared in a recording -> not retired
+            var module = new KerbalsModule();
             var parent = new ConfigNode("TEST");
             var slotsNode = parent.AddNode("KERBAL_SLOTS");
             var slotNode = slotsNode.AddNode("SLOT");
@@ -516,12 +581,12 @@ namespace Parsek.Tests
             slotNode.AddValue("trait", "Pilot");
             var entry = slotNode.AddNode("CHAIN_ENTRY");
             entry.AddValue("name", "Hanley");
-            KerbalsModule.LoadSlots(parent);
+            module.LoadSlots(parent);
 
             // No recordings at all -> neither Jeb nor Hanley are reserved
-            KerbalsModule.Recalculate();
+            var kerbals = RecalculateModule(module);
 
-            Assert.DoesNotContain("Hanley", KerbalsModule.RetiredKerbals);
+            Assert.DoesNotContain("Hanley", kerbals.RetiredKerbals);
         }
 
         // ── Serialization ──
@@ -530,6 +595,7 @@ namespace Parsek.Tests
         public void SaveSlots_LoadSlots_RoundTrip()
         {
             // Load initial data
+            var kerbals = new KerbalsModule();
             var loadParent = new ConfigNode("TEST");
             var slotsNode = loadParent.AddNode("KERBAL_SLOTS");
             var slotNode = slotsNode.AddNode("SLOT");
@@ -541,71 +607,74 @@ namespace Parsek.Tests
             var e2 = slotNode.AddNode("CHAIN_ENTRY");
             e2.AddValue("name", "Kirrim");
 
-            KerbalsModule.LoadSlots(loadParent);
+            kerbals.LoadSlots(loadParent);
 
             // Verify loaded
-            Assert.True(KerbalsModule.Slots.ContainsKey("Jeb"));
-            Assert.Equal("Pilot", KerbalsModule.Slots["Jeb"].OwnerTrait);
-            Assert.True(KerbalsModule.Slots["Jeb"].OwnerPermanentlyGone);
-            Assert.Equal(2, KerbalsModule.Slots["Jeb"].Chain.Count);
-            Assert.Equal("Hanley", KerbalsModule.Slots["Jeb"].Chain[0]);
-            Assert.Equal("Kirrim", KerbalsModule.Slots["Jeb"].Chain[1]);
+            Assert.True(kerbals.Slots.ContainsKey("Jeb"));
+            Assert.Equal("Pilot", kerbals.Slots["Jeb"].OwnerTrait);
+            Assert.True(kerbals.Slots["Jeb"].OwnerPermanentlyGone);
+            Assert.Equal(2, kerbals.Slots["Jeb"].Chain.Count);
+            Assert.Equal("Hanley", kerbals.Slots["Jeb"].Chain[0]);
+            Assert.Equal("Kirrim", kerbals.Slots["Jeb"].Chain[1]);
 
             // Save to new parent
             var saveParent = new ConfigNode("TEST2");
-            KerbalsModule.SaveSlots(saveParent);
+            kerbals.SaveSlots(saveParent);
 
             // Reset and reload
-            KerbalsModule.ResetForTesting();
-            KerbalsModule.LoadSlots(saveParent);
+            kerbals.ResetForTesting();
+            kerbals.LoadSlots(saveParent);
 
-            Assert.True(KerbalsModule.Slots.ContainsKey("Jeb"));
-            Assert.Equal("Pilot", KerbalsModule.Slots["Jeb"].OwnerTrait);
-            Assert.True(KerbalsModule.Slots["Jeb"].OwnerPermanentlyGone);
-            Assert.Equal(2, KerbalsModule.Slots["Jeb"].Chain.Count);
-            Assert.Equal("Hanley", KerbalsModule.Slots["Jeb"].Chain[0]);
-            Assert.Equal("Kirrim", KerbalsModule.Slots["Jeb"].Chain[1]);
+            Assert.True(kerbals.Slots.ContainsKey("Jeb"));
+            Assert.Equal("Pilot", kerbals.Slots["Jeb"].OwnerTrait);
+            Assert.True(kerbals.Slots["Jeb"].OwnerPermanentlyGone);
+            Assert.Equal(2, kerbals.Slots["Jeb"].Chain.Count);
+            Assert.Equal("Hanley", kerbals.Slots["Jeb"].Chain[0]);
+            Assert.Equal("Kirrim", kerbals.Slots["Jeb"].Chain[1]);
         }
 
         [Fact]
         public void LoadSlots_EmptyParent_ClearsSlots()
         {
             // Pre-populate some slots
+            var kerbals = new KerbalsModule();
             var parent = new ConfigNode("TEST");
             var slotsNode = parent.AddNode("KERBAL_SLOTS");
             var slotNode = slotsNode.AddNode("SLOT");
             slotNode.AddValue("owner", "Jeb");
             slotNode.AddValue("trait", "Pilot");
-            KerbalsModule.LoadSlots(parent);
-            Assert.True(KerbalsModule.Slots.ContainsKey("Jeb"));
+            kerbals.LoadSlots(parent);
+            Assert.True(kerbals.Slots.ContainsKey("Jeb"));
 
             // Load from empty parent -> should clear
             var emptyParent = new ConfigNode("EMPTY");
-            KerbalsModule.LoadSlots(emptyParent);
-            Assert.Empty(KerbalsModule.Slots);
+            kerbals.LoadSlots(emptyParent);
+            Assert.Empty(kerbals.Slots);
         }
 
         [Fact]
         public void Migration_OldCrewReplacements_LoadsAsChainDepth0()
         {
+            var kerbals = new KerbalsModule();
             var parent = new ConfigNode("TEST");
             var crNode = parent.AddNode("CREW_REPLACEMENTS");
             var entry = crNode.AddNode("ENTRY");
             entry.AddValue("original", "Jeb");
             entry.AddValue("replacement", "Hanley");
 
-            KerbalsModule.LoadSlots(parent);
+            kerbals.LoadSlots(parent);
 
-            Assert.True(KerbalsModule.Slots.ContainsKey("Jeb"));
-            Assert.Single(KerbalsModule.Slots["Jeb"].Chain);
-            Assert.Equal("Hanley", KerbalsModule.Slots["Jeb"].Chain[0]);
-            Assert.Equal("Pilot", KerbalsModule.Slots["Jeb"].OwnerTrait); // default
+            Assert.True(kerbals.Slots.ContainsKey("Jeb"));
+            Assert.Single(kerbals.Slots["Jeb"].Chain);
+            Assert.Equal("Hanley", kerbals.Slots["Jeb"].Chain[0]);
+            Assert.Equal("Pilot", kerbals.Slots["Jeb"].OwnerTrait); // default
         }
 
         [Fact]
         public void Migration_PreferNewFormat_OverLegacy()
         {
             // Both KERBAL_SLOTS and CREW_REPLACEMENTS exist -> new format wins
+            var kerbals = new KerbalsModule();
             var parent = new ConfigNode("TEST");
 
             var slotsNode = parent.AddNode("KERBAL_SLOTS");
@@ -620,19 +689,20 @@ namespace Parsek.Tests
             legacyEntry.AddValue("original", "Jeb");
             legacyEntry.AddValue("replacement", "OldStandIn");
 
-            KerbalsModule.LoadSlots(parent);
+            kerbals.LoadSlots(parent);
 
             // New format should be used
-            Assert.Equal("Engineer", KerbalsModule.Slots["Jeb"].OwnerTrait);
-            Assert.Single(KerbalsModule.Slots["Jeb"].Chain);
-            Assert.Equal("NewStandIn", KerbalsModule.Slots["Jeb"].Chain[0]);
+            Assert.Equal("Engineer", kerbals.Slots["Jeb"].OwnerTrait);
+            Assert.Single(kerbals.Slots["Jeb"].Chain);
+            Assert.Equal("NewStandIn", kerbals.Slots["Jeb"].Chain[0]);
         }
 
         [Fact]
         public void SaveSlots_NoSlots_DoesNotCreateNode()
         {
+            var kerbals = new KerbalsModule();
             var parent = new ConfigNode("TEST");
-            KerbalsModule.SaveSlots(parent);
+            kerbals.SaveSlots(parent);
 
             Assert.Null(parent.GetNode("KERBAL_SLOTS"));
         }
@@ -646,7 +716,7 @@ namespace Parsek.Tests
                 TerminalState.Recovered, 2000);
             RecordingStore.AddCommittedForTesting(rec);
 
-            KerbalsModule.Recalculate();
+            RecalculateFromStore();
 
             Assert.Contains(logLines, l =>
                 l.Contains("[KerbalsModule]") && l.Contains("2 reservations"));
@@ -659,7 +729,7 @@ namespace Parsek.Tests
                 TerminalState.Recovered, 2000);
             RecordingStore.AddCommittedForTesting(rec);
 
-            KerbalsModule.Recalculate();
+            RecalculateFromStore();
 
             Assert.Contains(logLines, l =>
                 l.Contains("[KerbalsModule]") && l.Contains("1 slots"));
@@ -671,9 +741,9 @@ namespace Parsek.Tests
             var rec = MakeRecording("Ship", new[] { "Jeb" },
                 TerminalState.Recovered, 2000);
             RecordingStore.AddCommittedForTesting(rec);
-            KerbalsModule.Recalculate();
+            var kerbals = RecalculateFromStore();
 
-            KerbalsModule.IsKerbalAvailable("Jeb");
+            kerbals.IsKerbalAvailable("Jeb");
 
             Assert.Contains(logLines, l =>
                 l.Contains("[KerbalsModule]") && l.Contains("'Jeb'") && l.Contains("RESERVED"));
@@ -682,7 +752,8 @@ namespace Parsek.Tests
         [Fact]
         public void IsKerbalAvailable_LogsAvailableStatus()
         {
-            KerbalsModule.IsKerbalAvailable("Val");
+            var kerbals = new KerbalsModule();
+            kerbals.IsKerbalAvailable("Val");
 
             Assert.Contains(logLines, l =>
                 l.Contains("[KerbalsModule]") && l.Contains("'Val'") && l.Contains("available"));
@@ -691,13 +762,14 @@ namespace Parsek.Tests
         [Fact]
         public void LoadSlots_LogsMigrationCount()
         {
+            var kerbals = new KerbalsModule();
             var parent = new ConfigNode("TEST");
             var crNode = parent.AddNode("CREW_REPLACEMENTS");
             var entry = crNode.AddNode("ENTRY");
             entry.AddValue("original", "Jeb");
             entry.AddValue("replacement", "Hanley");
 
-            KerbalsModule.LoadSlots(parent);
+            kerbals.LoadSlots(parent);
 
             Assert.Contains(logLines, l =>
                 l.Contains("[KerbalsModule]") && l.Contains("Migrated") && l.Contains("1 slot"));
@@ -707,16 +779,17 @@ namespace Parsek.Tests
         public void SaveSlots_LogsSaveCount()
         {
             // Load a slot first
+            var kerbals = new KerbalsModule();
             var parent = new ConfigNode("TEST");
             var slotsNode = parent.AddNode("KERBAL_SLOTS");
             var slotNode = slotsNode.AddNode("SLOT");
             slotNode.AddValue("owner", "Jeb");
             slotNode.AddValue("trait", "Pilot");
-            KerbalsModule.LoadSlots(parent);
+            kerbals.LoadSlots(parent);
 
             logLines.Clear();
             var saveParent = new ConfigNode("SAVE");
-            KerbalsModule.SaveSlots(saveParent);
+            kerbals.SaveSlots(saveParent);
 
             Assert.Contains(logLines, l =>
                 l.Contains("[KerbalsModule]") && l.Contains("Saved 1 kerbal slot"));
@@ -742,15 +815,15 @@ namespace Parsek.Tests
             RecordingStore.AddCommittedForTesting(rec);
 
             // First recalculation
-            KerbalsModule.Recalculate();
-            Assert.True(KerbalsModule.Reservations["Jeb"].IsPermanent);
-            Assert.False(KerbalsModule.IsKerbalAvailable("Jeb"));
+            var kerbals = RecalculateFromStore();
+            Assert.True(kerbals.Reservations["Jeb"].IsPermanent);
+            Assert.False(kerbals.IsKerbalAvailable("Jeb"));
 
             // Simulate passage of time / KSP MIA respawn by recalculating again.
             // The reservation should still be permanent and active.
-            KerbalsModule.Recalculate();
-            Assert.True(KerbalsModule.Reservations["Jeb"].IsPermanent);
-            Assert.False(KerbalsModule.IsKerbalAvailable("Jeb"));
+            kerbals = RecalculateModule(kerbals);
+            Assert.True(kerbals.Reservations["Jeb"].IsPermanent);
+            Assert.False(kerbals.IsKerbalAvailable("Jeb"));
 
             Assert.Contains(logLines, l =>
                 l.Contains("[KerbalsModule]") && l.Contains("'Jeb'") && l.Contains("RESERVED"));
@@ -765,11 +838,11 @@ namespace Parsek.Tests
                 TerminalState.Recovered, 5000);
             RecordingStore.AddCommittedForTesting(rec);
 
-            KerbalsModule.Recalculate();
+            var kerbals = RecalculateFromStore();
 
-            Assert.False(KerbalsModule.Reservations["Val"].IsPermanent);
-            Assert.Equal(5000.0, KerbalsModule.Reservations["Val"].ReservedUntilUT);
-            Assert.False(KerbalsModule.IsKerbalAvailable("Val"));
+            Assert.False(kerbals.Reservations["Val"].IsPermanent);
+            Assert.Equal(5000.0, kerbals.Reservations["Val"].ReservedUntilUT);
+            Assert.False(kerbals.IsKerbalAvailable("Val"));
         }
 
         [Fact]
@@ -782,18 +855,18 @@ namespace Parsek.Tests
                 TerminalState.Destroyed, 1000);
             RecordingStore.AddCommittedForTesting(rec);
 
-            KerbalsModule.Recalculate();
+            var kerbals = RecalculateFromStore();
 
             // Jeb is reserved (dead), but Val/Bill/Bob are not in any recording
-            Assert.True(KerbalsModule.IsKerbalAvailable("Val"));
-            Assert.True(KerbalsModule.IsKerbalAvailable("Bill"));
-            Assert.True(KerbalsModule.IsKerbalAvailable("Bob"));
+            Assert.True(kerbals.IsKerbalAvailable("Val"));
+            Assert.True(kerbals.IsKerbalAvailable("Bill"));
+            Assert.True(kerbals.IsKerbalAvailable("Bob"));
 
             // Second recalculation should not introduce spurious reservations
-            KerbalsModule.Recalculate();
-            Assert.True(KerbalsModule.IsKerbalAvailable("Val"));
-            Assert.True(KerbalsModule.IsKerbalAvailable("Bill"));
-            Assert.True(KerbalsModule.IsKerbalAvailable("Bob"));
+            kerbals = RecalculateModule(kerbals);
+            Assert.True(kerbals.IsKerbalAvailable("Val"));
+            Assert.True(kerbals.IsKerbalAvailable("Bill"));
+            Assert.True(kerbals.IsKerbalAvailable("Bob"));
         }
 
         [Fact]
@@ -807,14 +880,15 @@ namespace Parsek.Tests
                 TerminalState.Destroyed, 1000);
             RecordingStore.AddCommittedForTesting(rec);
 
+            var kerbals = new KerbalsModule();
             for (int i = 0; i < 5; i++)
             {
-                KerbalsModule.Recalculate();
-                Assert.True(KerbalsModule.Reservations.ContainsKey("Jeb"),
+                kerbals = RecalculateModule(kerbals);
+                Assert.True(kerbals.Reservations.ContainsKey("Jeb"),
                     $"Jeb should be reserved on recalculation {i}");
-                Assert.True(KerbalsModule.Reservations["Jeb"].IsPermanent,
+                Assert.True(kerbals.Reservations["Jeb"].IsPermanent,
                     $"Jeb should be permanently reserved on recalculation {i}");
-                Assert.False(KerbalsModule.IsKerbalAvailable("Jeb"),
+                Assert.False(kerbals.IsKerbalAvailable("Jeb"),
                     $"Jeb should not be available on recalculation {i}");
             }
         }
@@ -853,18 +927,18 @@ namespace Parsek.Tests
             };
             RecordingStore.AddCommittedForTesting(rec);
 
-            KerbalsModule.Recalculate();
+            var kerbals = RecalculateFromStore();
 
             // Jeb: permanent reservation (dead)
-            Assert.True(KerbalsModule.Reservations["Jeb"].IsPermanent);
+            Assert.True(kerbals.Reservations["Jeb"].IsPermanent);
 
             // Val: open-ended but not permanent (aboard)
-            Assert.False(KerbalsModule.Reservations["Val"].IsPermanent);
-            Assert.Equal(double.PositiveInfinity, KerbalsModule.Reservations["Val"].ReservedUntilUT);
+            Assert.False(kerbals.Reservations["Val"].IsPermanent);
+            Assert.Equal(double.PositiveInfinity, kerbals.Reservations["Val"].ReservedUntilUT);
 
             // Bill: not in any recording, completely free
-            Assert.True(KerbalsModule.IsKerbalAvailable("Bill"));
-            Assert.False(KerbalsModule.Reservations.ContainsKey("Bill"));
+            Assert.True(kerbals.IsKerbalAvailable("Bill"));
+            Assert.False(kerbals.Reservations.ContainsKey("Bill"));
         }
 
         // ── Reset ──
@@ -875,17 +949,17 @@ namespace Parsek.Tests
             var rec = MakeRecording("Ship", new[] { "Jeb" },
                 TerminalState.Recovered, 2000);
             RecordingStore.AddCommittedForTesting(rec);
-            KerbalsModule.Recalculate();
+            var kerbals = RecalculateFromStore();
 
             // Verify state exists
-            Assert.NotEmpty(KerbalsModule.Reservations);
-            Assert.NotEmpty(KerbalsModule.Slots);
+            Assert.NotEmpty(kerbals.Reservations);
+            Assert.NotEmpty(kerbals.Slots);
 
-            KerbalsModule.ResetForTesting();
+            kerbals.ResetForTesting();
 
-            Assert.Empty(KerbalsModule.Reservations);
-            Assert.Empty(KerbalsModule.Slots);
-            Assert.Empty(KerbalsModule.RetiredKerbals);
+            Assert.Empty(kerbals.Reservations);
+            Assert.Empty(kerbals.Slots);
+            Assert.Empty(kerbals.RetiredKerbals);
         }
 
         // ── InferCrewEndState (Task 1 coverage, exercised via MakeRecording) ──
@@ -894,54 +968,6 @@ namespace Parsek.Tests
         public void InferCrewEndState_NullTerminalState_ReturnsUnknown()
         {
             var result = KerbalsModule.InferCrewEndState("Jeb", null, new HashSet<string> { "Jeb" });
-            Assert.Equal(KerbalEndState.Unknown, result);
-        }
-
-        [Fact]
-        public void InferCrewEndState_Destroyed_ReturnsDead()
-        {
-            var result = KerbalsModule.InferCrewEndState("Jeb", TerminalState.Destroyed,
-                new HashSet<string> { "Jeb" });
-            Assert.Equal(KerbalEndState.Dead, result);
-        }
-
-        [Fact]
-        public void InferCrewEndState_Recovered_ReturnsRecovered()
-        {
-            var result = KerbalsModule.InferCrewEndState("Jeb", TerminalState.Recovered,
-                new HashSet<string> { "Jeb" });
-            Assert.Equal(KerbalEndState.Recovered, result);
-        }
-
-        [Fact]
-        public void InferCrewEndState_LandedInSnapshot_ReturnsAboard()
-        {
-            var result = KerbalsModule.InferCrewEndState("Jeb", TerminalState.Landed,
-                new HashSet<string> { "Jeb" });
-            Assert.Equal(KerbalEndState.Aboard, result);
-        }
-
-        [Fact]
-        public void InferCrewEndState_LandedNotInSnapshot_ReturnsDead()
-        {
-            var result = KerbalsModule.InferCrewEndState("Jeb", TerminalState.Landed,
-                new HashSet<string>()); // Jeb not in snapshot
-            Assert.Equal(KerbalEndState.Dead, result);
-        }
-
-        [Fact]
-        public void InferCrewEndState_BoardedInSnapshot_ReturnsAboard()
-        {
-            var result = KerbalsModule.InferCrewEndState("Jeb", TerminalState.Boarded,
-                new HashSet<string> { "Jeb" });
-            Assert.Equal(KerbalEndState.Aboard, result);
-        }
-
-        [Fact]
-        public void InferCrewEndState_BoardedNotInSnapshot_ReturnsUnknown()
-        {
-            var result = KerbalsModule.InferCrewEndState("Jeb", TerminalState.Boarded,
-                new HashSet<string>()); // transferred away
             Assert.Equal(KerbalEndState.Unknown, result);
         }
     }

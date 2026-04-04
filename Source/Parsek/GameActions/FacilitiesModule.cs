@@ -233,5 +233,7 @@ namespace Parsek
 
         /// <summary>Returns the number of tracked facilities (for diagnostics).</summary>
         internal int FacilityCount => facilities.Count;
+
+        public void PostWalk() { }
     }
 }

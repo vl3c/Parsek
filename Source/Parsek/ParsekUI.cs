@@ -734,7 +734,7 @@ namespace Parsek
             }
 
             // Retired Kerbals section
-            var retiredKerbals = KerbalsModule.GetRetiredKerbals();
+            var retiredKerbals = LedgerOrchestrator.Kerbals?.GetRetiredKerbals() ?? new List<string>();
             if (retiredKerbals.Count > 0)
             {
                 if (retiredKerbals.Count != lastRetiredKerbalCount)

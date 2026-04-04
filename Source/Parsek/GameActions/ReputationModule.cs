@@ -358,5 +358,7 @@ namespace Parsek
 
             return h00 * p0 + h10 * m0 + h01 * p1 + h11 * m1;
         }
+
+        public void PostWalk() { }
     }
 }

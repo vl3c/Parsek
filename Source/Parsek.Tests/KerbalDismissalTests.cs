@@ -18,7 +18,6 @@ namespace Parsek.Tests
             ParsekLog.SuppressLogging = false;
             ParsekLog.TestSinkForTesting = line => logLines.Add(line);
             RecordingStore.SuppressLogging = true;
-            KerbalsModule.ResetForTesting();
             RecordingStore.ResetForTesting();
         }
 
@@ -27,8 +26,55 @@ namespace Parsek.Tests
             ParsekLog.ResetTestOverrides();
             ParsekLog.SuppressLogging = true;
             RecordingStore.SuppressLogging = false;
-            KerbalsModule.ResetForTesting();
             RecordingStore.ResetForTesting();
+        }
+
+        /// <summary>
+        /// Creates a KerbalsModule instance, runs the full lifecycle against
+        /// RecordingStore.CommittedRecordings, and returns the populated module.
+        /// </summary>
+        private static KerbalsModule RecalculateFromStore()
+        {
+            var module = new KerbalsModule();
+            module.Reset();
+
+            var actions = new List<GameAction>();
+            var recordings = RecordingStore.CommittedRecordings;
+            for (int i = 0; i < recordings.Count; i++)
+            {
+                var rec = recordings[i];
+                if (rec.CrewEndStates == null && rec.VesselSnapshot != null)
+                    KerbalsModule.PopulateCrewEndStates(rec);
+
+                var snapshot = rec.GhostVisualSnapshot ?? rec.VesselSnapshot;
+                if (snapshot == null) continue;
+                var names = CrewReservationManager.ExtractCrewFromSnapshot(snapshot);
+                for (int j = 0; j < names.Count; j++)
+                {
+                    KerbalEndState endState = KerbalEndState.Unknown;
+                    if (rec.CrewEndStates != null)
+                        rec.CrewEndStates.TryGetValue(names[j], out endState);
+
+                    actions.Add(new GameAction
+                    {
+                        UT = rec.StartUT,
+                        Type = GameActionType.KerbalAssignment,
+                        RecordingId = rec.RecordingId,
+                        KerbalName = names[j],
+                        KerbalRole = KerbalsModule.FindTraitForKerbal(names[j]),
+                        StartUT = (float)rec.StartUT,
+                        EndUT = (float)rec.EndUT,
+                        KerbalEndStateField = endState,
+                        Sequence = j + 1
+                    });
+                }
+            }
+
+            module.PrePass(actions);
+            for (int i = 0; i < actions.Count; i++)
+                module.ProcessAction(actions[i]);
+            module.PostWalk();
+            return module;
         }
 
         /// <summary>
@@ -71,10 +117,10 @@ namespace Parsek.Tests
                 TerminalState.Landed, 1000);
             RecordingStore.AddCommittedForTesting(rec);
 
-            KerbalsModule.Recalculate();
+            var kerbals = RecalculateFromStore();
 
             // Act + Assert
-            Assert.True(KerbalsModule.IsManaged("Jeb"),
+            Assert.True(kerbals.IsManaged("Jeb"),
                 "Reserved kerbal should be managed by Parsek");
 
             // Verify logging
@@ -96,11 +142,11 @@ namespace Parsek.Tests
             RecordingStore.AddCommittedForTesting(rec1);
             RecordingStore.AddCommittedForTesting(rec2);
 
-            KerbalsModule.Recalculate();
+            var kerbals = RecalculateFromStore();
 
             // Both are managed (reserved)
-            Assert.True(KerbalsModule.IsManaged("Jeb"));
-            Assert.True(KerbalsModule.IsManaged("StandIn1"));
+            Assert.True(kerbals.IsManaged("Jeb"));
+            Assert.True(kerbals.IsManaged("StandIn1"));
         }
 
         [Fact]
@@ -111,12 +157,12 @@ namespace Parsek.Tests
                 TerminalState.Landed, 1000);
             RecordingStore.AddCommittedForTesting(rec);
 
-            KerbalsModule.Recalculate();
+            var kerbals = RecalculateFromStore();
 
             // Act + Assert: Bill is not in any recording
-            Assert.False(KerbalsModule.IsManaged("Bill"),
+            Assert.False(kerbals.IsManaged("Bill"),
                 "Unmanaged kerbal should not be blocked from dismissal");
-            Assert.False(KerbalsModule.IsManaged("Bob"),
+            Assert.False(kerbals.IsManaged("Bob"),
                 "Unmanaged kerbal should not be blocked from dismissal");
         }
 
@@ -129,11 +175,11 @@ namespace Parsek.Tests
                 TerminalState.Landed, 1000);
             RecordingStore.AddCommittedForTesting(rec);
 
-            KerbalsModule.Recalculate();
+            var kerbals = RecalculateFromStore();
 
             // Verify Jeb has a slot
-            Assert.True(KerbalsModule.Slots.ContainsKey("Jeb"));
-            var slot = KerbalsModule.Slots["Jeb"];
+            Assert.True(kerbals.Slots.ContainsKey("Jeb"));
+            var slot = kerbals.Slots["Jeb"];
 
             // The chain should have a null entry (pending generation from ApplyToRoster).
             // Replace it with a named stand-in for testing IsManaged.
@@ -143,7 +189,7 @@ namespace Parsek.Tests
                 slot.Chain.Add("StandIn_Jeb");
 
             // Act + Assert
-            Assert.True(KerbalsModule.IsManaged("StandIn_Jeb"),
+            Assert.True(kerbals.IsManaged("StandIn_Jeb"),
                 "Stand-in in a chain should be managed by Parsek");
         }
 
@@ -151,8 +197,9 @@ namespace Parsek.Tests
         public void IsManaged_NullOrEmptyName_ReturnsFalse()
         {
             // Edge case: null/empty names should not crash
-            Assert.False(KerbalsModule.IsManaged(null));
-            Assert.False(KerbalsModule.IsManaged(""));
+            var kerbals = new KerbalsModule();
+            Assert.False(kerbals.IsManaged(null));
+            Assert.False(kerbals.IsManaged(""));
         }
 
         [Fact]
@@ -164,10 +211,10 @@ namespace Parsek.Tests
             rec.LoopPlayback = true;
             RecordingStore.AddCommittedForTesting(rec);
 
-            KerbalsModule.Recalculate();
+            var kerbals = RecalculateFromStore();
 
             // Act + Assert: Jeb should not be managed (loop recordings are skipped)
-            Assert.False(KerbalsModule.IsManaged("Jeb"),
+            Assert.False(kerbals.IsManaged("Jeb"),
                 "Crew in loop recordings should not be reserved");
         }
 
@@ -179,11 +226,11 @@ namespace Parsek.Tests
                 TerminalState.Destroyed, 1000);
             RecordingStore.AddCommittedForTesting(rec);
 
-            KerbalsModule.Recalculate();
+            var kerbals = RecalculateFromStore();
 
-            Assert.True(KerbalsModule.IsManaged("Jeb"),
+            Assert.True(kerbals.IsManaged("Jeb"),
                 "Dead kerbal should be managed");
-            Assert.True(KerbalsModule.Reservations["Jeb"].IsPermanent,
+            Assert.True(kerbals.Reservations["Jeb"].IsPermanent,
                 "Dead kerbal reservation should be permanent");
         }
 
@@ -195,13 +242,13 @@ namespace Parsek.Tests
                 TerminalState.Recovered, 1000);
             RecordingStore.AddCommittedForTesting(rec);
 
-            KerbalsModule.Recalculate();
+            var kerbals = RecalculateFromStore();
 
-            Assert.True(KerbalsModule.IsManaged("Jeb"),
+            Assert.True(kerbals.IsManaged("Jeb"),
                 "Recovered kerbal should be managed");
-            Assert.False(KerbalsModule.Reservations["Jeb"].IsPermanent,
+            Assert.False(kerbals.Reservations["Jeb"].IsPermanent,
                 "Recovered kerbal reservation should not be permanent");
-            Assert.Equal(1000, KerbalsModule.Reservations["Jeb"].ReservedUntilUT);
+            Assert.Equal(1000, kerbals.Reservations["Jeb"].ReservedUntilUT);
         }
     }
 }

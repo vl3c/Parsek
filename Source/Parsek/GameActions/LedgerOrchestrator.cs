@@ -25,6 +25,7 @@ namespace Parsek
         private static ReputationModule reputationModule;
         private static FacilitiesModule facilitiesModule;
         private static StrategiesModule strategiesModule;
+        private static KerbalsModule kerbalsModule;
         private static bool initialized;
         private static bool seedChecked;
 
@@ -54,10 +55,13 @@ namespace Parsek
 
             RecalculationEngine.ClearModules();
 
+            kerbalsModule = new KerbalsModule();
+
             // Register in tier order per design doc 1.8
             RecalculationEngine.RegisterModule(milestonesModule, RecalculationEngine.ModuleTier.FirstTier);
             RecalculationEngine.RegisterModule(contractsModule, RecalculationEngine.ModuleTier.FirstTier);
             RecalculationEngine.RegisterModule(scienceModule, RecalculationEngine.ModuleTier.FirstTier);
+            RecalculationEngine.RegisterModule(kerbalsModule, RecalculationEngine.ModuleTier.FirstTier);
 
             // Strategy transform between tiers
             RecalculationEngine.RegisterModule(strategiesModule, RecalculationEngine.ModuleTier.Strategy);
@@ -70,7 +74,7 @@ namespace Parsek
             RecalculationEngine.RegisterModule(facilitiesModule, RecalculationEngine.ModuleTier.Facilities);
 
             initialized = true;
-            ParsekLog.Info(Tag, "Initialized: 7 modules registered");
+            ParsekLog.Info(Tag, "Initialized: 8 modules registered");
         }
 
         /// <summary>
@@ -97,7 +101,13 @@ namespace Parsek
             var costActions = CreateVesselCostActions(recordingId, startUT, endUT);
             actions.AddRange(costActions);
 
-            // 3b. Generate KerbalAssignment actions from vessel crew data
+            // 3b. Populate crew end states before action creation so KerbalEndStateField is correct
+            var recForEndStates = FindRecordingById(recordingId);
+            if (recForEndStates != null && recForEndStates.CrewEndStates == null
+                && recForEndStates.VesselSnapshot != null)
+                KerbalsModule.PopulateCrewEndStates(recForEndStates);
+
+            // 3c. Generate KerbalAssignment actions from vessel crew data
             var kerbalActions = CreateKerbalAssignmentActions(recordingId, startUT, endUT);
             actions.AddRange(kerbalActions);
 
@@ -280,7 +290,7 @@ namespace Parsek
             var rec = FindRecordingById(recordingId);
             if (rec == null) return result;
 
-            // Extract crew from vessel snapshot (same source KerbalsModule.Recalculate uses)
+            // Extract crew from vessel snapshot (same source KerbalsModule.ProcessAction uses)
             var crew = ExtractCrewFromRecording(rec);
             if (crew == null || crew.Count == 0) return result;
 
@@ -322,7 +332,7 @@ namespace Parsek
 
         /// <summary>
         /// Extracts crew members from a recording's vessel snapshot data,
-        /// mirroring the crew extraction logic in KerbalsModule.Recalculate.
+        /// mirroring the crew extraction logic in KerbalsModule.ProcessAction.
         /// Uses GhostVisualSnapshot (recording-start state) as the primary source
         /// for crew names (same as PopulateCrewEndStates), falls back to VesselSnapshot.
         /// Roles come from KerbalsModule.FindTraitForKerbal (KSP roster lookup).
@@ -404,16 +414,14 @@ namespace Parsek
             // rewind, warp exit, load), converging within two calls at most.
             UpdateSlotLimitsFromFacilities();
 
+            // End-state population safety net: catch recordings with unpopulated end states
+            PopulateUnpopulatedCrewEndStates();
+
             var actions = new List<GameAction>(Ledger.Actions);
             RecalculationEngine.Recalculate(actions);
 
-            // Bridge: run KerbalsModule's snapshot-based recalculation alongside the ledger walk.
-            // The kerbals system still operates on recording snapshots, not ledger actions.
-            // This ensures crew reservations are updated on every recalculate trigger
-            // (commit, rewind, warp exit, KSP load).
-            // Bridge pattern — see T42 for future IResourceModule conversion.
-            KerbalsModule.RecalculateAndApply();
-
+            // KSP state mutations (PostWalk already called by engine)
+            kerbalsModule.ApplyToRoster(HighLogic.CurrentGame?.CrewRoster);
             KspStatePatcher.PatchAll(scienceModule, fundsModule, reputationModule,
                 milestonesModule, facilitiesModule, contractsModule);
 
@@ -444,6 +452,11 @@ namespace Parsek
             {
                 MigrateOldSaveEvents(validRecordingIds);
             }
+
+            // Migration: ensure all committed recordings have KerbalAssignment actions.
+            // Old saves predating the KerbalAssignment feature have recordings but no
+            // kerbal actions in the ledger.
+            MigrateKerbalAssignments();
 
             RecalculateAndPatch();
         }
@@ -480,6 +493,75 @@ namespace Parsek
                 ParsekLog.Info(Tag,
                     $"MigrateOldSaveEvents: {events.Count} events produced 0 convertible actions");
             }
+        }
+
+        /// <summary>
+        /// Migration: ensures all committed recordings have KerbalAssignment actions
+        /// in the ledger. Old saves predating the feature have recordings but no kerbal
+        /// actions. Generates them from vessel snapshot crew data.
+        /// </summary>
+        private static void MigrateKerbalAssignments()
+        {
+            var recordings = RecordingStore.CommittedRecordings;
+            if (recordings == null || recordings.Count == 0) return;
+
+            // Build set of recording IDs that already have KerbalAssignment actions
+            var existingIds = new HashSet<string>();
+            var ledgerActions = Ledger.Actions;
+            for (int i = 0; i < ledgerActions.Count; i++)
+            {
+                if (ledgerActions[i].Type == GameActionType.KerbalAssignment
+                    && !string.IsNullOrEmpty(ledgerActions[i].RecordingId))
+                    existingIds.Add(ledgerActions[i].RecordingId);
+            }
+
+            int migrated = 0;
+            for (int i = 0; i < recordings.Count; i++)
+            {
+                var rec = recordings[i];
+                if (existingIds.Contains(rec.RecordingId)) continue;
+
+                // Populate end states first
+                if (rec.CrewEndStates == null && rec.VesselSnapshot != null)
+                    KerbalsModule.PopulateCrewEndStates(rec);
+
+                var kerbalActions = CreateKerbalAssignmentActions(
+                    rec.RecordingId, rec.StartUT, rec.EndUT);
+                if (kerbalActions.Count > 0)
+                {
+                    Ledger.AddActions(kerbalActions);
+                    migrated += kerbalActions.Count;
+                }
+            }
+
+            if (migrated > 0)
+                ParsekLog.Info(Tag,
+                    $"MigrateKerbalAssignments: generated {migrated} KerbalAssignment actions " +
+                    $"for {recordings.Count} committed recordings");
+        }
+
+        /// <summary>
+        /// Populates CrewEndStates on committed recordings that don't have them yet.
+        /// Safety net for recordings whose end states weren't populated at commit time.
+        /// </summary>
+        private static void PopulateUnpopulatedCrewEndStates()
+        {
+            var recordings = RecordingStore.CommittedRecordings;
+            if (recordings == null) return;
+
+            int populated = 0;
+            for (int i = 0; i < recordings.Count; i++)
+            {
+                var rec = recordings[i];
+                if (rec.CrewEndStates == null && rec.VesselSnapshot != null)
+                {
+                    KerbalsModule.PopulateCrewEndStates(rec);
+                    if (rec.CrewEndStates != null) populated++;
+                }
+            }
+            if (populated > 0)
+                ParsekLog.Verbose(Tag,
+                    $"PopulateUnpopulatedCrewEndStates: populated {populated} crew end states");
         }
 
         /// <summary>
@@ -607,6 +689,7 @@ namespace Parsek
             reputationModule = null;
             facilitiesModule = null;
             strategiesModule = null;
+            kerbalsModule = null;
             RecalculationEngine.ClearModules();
             Ledger.ResetForTesting();
             ParsekLog.Verbose(Tag, "ResetForTesting: all state cleared");
@@ -678,6 +761,8 @@ namespace Parsek
         internal static FacilitiesModule Facilities => facilitiesModule;
         internal static ContractsModule Contracts => contractsModule;
         internal static StrategiesModule Strategies => strategiesModule;
+        internal static KerbalsModule Kerbals => kerbalsModule;
+        internal static void SetKerbalsForTesting(KerbalsModule module) { kerbalsModule = module; }
         internal static bool IsInitialized => initialized;
 
         /// <summary>

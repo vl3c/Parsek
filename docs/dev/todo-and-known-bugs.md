@@ -244,11 +244,9 @@ Suborbital recordings were excluded from ghost map presence — no orbit line du
 
 Fixed in v0.6.0 (PR #116). Added `ShouldSkipOrbitSegmentForAtmosphere` check in FlightRecorder (`OnVesselGoOnRails` + `StartRecording` on-rails init) and BackgroundRecorder (`InitializeOnRailsState`). When below atmosphere, orbit segment creation is skipped. Point interpolation lerps across the gap.
 
-### T42. Convert KerbalsModule to IResourceModule
+### T42. Convert KerbalsModule to IResourceModule — DONE
 
-KerbalsModule currently operates as a bridge outside the RecalculationEngine — it iterates recordings directly instead of consuming GameAction objects via the IResourceModule interface. The ledger already captures kerbal data as KerbalAssignment/KerbalHire/KerbalRescue/KerbalStandIn actions, but KerbalsModule ignores them and re-derives everything from recordings. Converting requires: (1) making KerbalsModule non-static (currently static class, can't implement interface), (2) rewriting Recalculate to consume actions instead of recordings, (3) routing 16+ direct `KerbalsModule.RecalculateAndApply()` call sites through `LedgerOrchestrator.RecalculateAndPatch()`. Wide blast radius, no functional gain — the bridge pattern works fine. Do this when there's already a reason to restructure KerbalsModule.
-
-**Priority:** Low — architectural cleanup, bridge pattern is functionally correct
+Converted KerbalsModule from static bridge class to IResourceModule instance participating in the RecalculationEngine walk lifecycle. Key changes: (1) added PostWalk() to IResourceModule interface, (2) KerbalsModule implements Reset/PrePass/ProcessAction/PostWalk consuming KerbalAssignment actions, (3) PrePass reads RecordingStore for mutable recording metadata (loop/chain/disabled status), (4) removed 19 redundant RecalculateAndApply calls, replaced 3 standalone calls with RecalculateAndPatch, (5) added old-save migration for KerbalAssignment actions, (6) fixed latent bug where dead crew (absent from VesselSnapshot) weren't reserved.
 
 ### T43. Mod compatibility testing (CustomBarnKit, Strategia, Contract Configurator)
 

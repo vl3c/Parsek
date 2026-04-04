@@ -366,5 +366,7 @@ namespace Parsek
         {
             return subjects;
         }
+
+        public void PostWalk() { }
     }
 }

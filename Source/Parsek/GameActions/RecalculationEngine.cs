@@ -213,7 +213,10 @@ namespace Parsek
                 }
             }
 
-            // 4. Log summary
+            // 4. Post-walk: let modules finalize derived state
+            PostWalkAllModules();
+
+            // 5. Log summary
             ParsekLog.Info("RecalcEngine",
                 $"Recalculate complete: actions={sorted.Count}, " +
                 $"firstTier={firstTierModules.Count} modules ({firstTierDispatches} dispatches), " +
@@ -313,6 +316,21 @@ namespace Parsek
 
             if (facilitiesModule != null)
                 facilitiesModule.PrePass(sorted);
+        }
+
+        private static void PostWalkAllModules()
+        {
+            for (int i = 0; i < firstTierModules.Count; i++)
+                firstTierModules[i].PostWalk();
+
+            if (strategyTransform != null)
+                strategyTransform.PostWalk();
+
+            for (int i = 0; i < secondTierModules.Count; i++)
+                secondTierModules[i].PostWalk();
+
+            if (facilitiesModule != null)
+                facilitiesModule.PostWalk();
         }
 
         private static void ResetAllModules()

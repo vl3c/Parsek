@@ -1241,7 +1241,6 @@ namespace Parsek
                 var treeToCommit = RecordingStore.PendingTree;
                 RecordingStore.CommitPendingTree();
                 LedgerOrchestrator.NotifyLedgerTreeCommitted(treeToCommit);
-                KerbalsModule.RecalculateAndApply();
                 MergeDialog.ReplayFlightResultsIfPending();
             }
             else
@@ -2019,7 +2018,6 @@ namespace Parsek
                         double amEnd = RecordingStore.Pending.EndUT;
                         RecordingStore.CommitPending();
                         LedgerOrchestrator.OnRecordingCommitted(amRecId, amStart, amEnd);
-                        KerbalsModule.RecalculateAndApply();
                         ParsekLog.Info("Flight",
                             $"Vessel destroyed during split — auto-merged ({dur:F1}s)");
                     }
@@ -2038,7 +2036,6 @@ namespace Parsek
                 double eUT = RecordingStore.Pending.EndUT;
                 RecordingStore.CommitPending();
                 LedgerOrchestrator.OnRecordingCommitted(recId, sUT, eUT);
-                KerbalsModule.RecalculateAndApply();
                 string chainInfo = chainManager.ActiveChainId != null
                     ? $" (chain={chainManager.ActiveChainId}, idx={chainManager.ActiveChainNextIndex})"
                     : " (standalone)";
@@ -3760,7 +3757,6 @@ namespace Parsek
                         double endUT = pending.EndUT;
                         RecordingStore.CommitPending();
                         LedgerOrchestrator.OnRecordingCommitted(recId, startUT, endUT);
-                        KerbalsModule.RecalculateAndApply();
                     }
                     else
                     {
@@ -4874,7 +4870,6 @@ namespace Parsek
             double endUT = pending.EndUT;
             RecordingStore.CommitPending();
             LedgerOrchestrator.OnRecordingCommitted(recId, startUT, endUT);
-            KerbalsModule.RecalculateAndApply();
 
             // Clear recorder state
             recorder = null;
@@ -4944,7 +4939,7 @@ namespace Parsek
             RecordingStore.CommitTree(activeTree);
 
             // Recalculate crew reservations (replaces ReserveCrewForLeaves)
-            KerbalsModule.RecalculateAndApply();
+            LedgerOrchestrator.NotifyLedgerTreeCommitted(activeTree);
 
             // Spawn all non-active leaf vessels
             SpawnTreeLeaves(activeTree, activeRecId);
@@ -8304,7 +8299,6 @@ namespace Parsek
                 double endUT = pending.EndUT;
                 RecordingStore.CommitPending();
                 LedgerOrchestrator.OnRecordingCommitted(recId, startUT, endUT);
-                KerbalsModule.RecalculateAndApply();
                 Log($"Auto-merged recording from {pending.VesselName} ({pending.Points.Count} points)");
             }
             else

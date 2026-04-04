@@ -417,7 +417,6 @@ namespace Parsek
             RecordingStore.CommitPending();
             RecordingStore.RunOptimizationPass();
             LedgerOrchestrator.OnRecordingCommitted(recId, startUT, endUT);
-            KerbalsModule.RecalculateAndApply();
             CrewReservationManager.SwapReservedCrewInFlight();
 
             if (advanceChain)
