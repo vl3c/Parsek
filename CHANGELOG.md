@@ -4,6 +4,18 @@ All notable changes to Parsek are documented here.
 
 ---
 
+## 0.6.2
+
+### Game Actions & Resources
+
+- **Fix career funds/science/reputation zeroed on save load (#222).** Loading a career save (especially after a sandbox save in the same session) would set all resources to 0. The ledger's `seedChecked` flag was never reset between saves, so no `FundsInitial`/`ScienceInitial`/`ReputationInitial` actions were created for the career save — the recalculation engine computed target=0 and `KspStatePatcher` actively zeroed KSP's correct values. Fix: added `HasSeed` guard to each resource module so patching is skipped when no seed exists, reset `seedChecked` on each save load, and added a deferred seeding coroutine that captures correct values after KSP finishes loading.
+
+### Tests
+
+- **HasSeed unit tests.** 12 new tests across FundsModule, ScienceModule, ReputationModule covering HasSeed lifecycle (false before action, true after Initial, false after Reset, false with only earnings).
+
+---
+
 ## 0.6.1
 
 ### Watch Mode

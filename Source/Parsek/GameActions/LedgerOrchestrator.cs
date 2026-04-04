@@ -393,16 +393,30 @@ namespace Parsek
         {
             Initialize();
 
-            // Seed initial balances for career mode (once per session, idempotent)
+            // Seed initial balances for career mode (once per save load, idempotent).
+            // Only mark as checked when at least one singleton was available — if all
+            // are null (sandbox, or called before KSP finishes loading), we retry on
+            // the next RecalculateAndPatch call so career saves get correct seeds.
             if (!seedChecked)
             {
+                bool anySeeded = false;
                 if (Funding.Instance != null)
+                {
                     Ledger.SeedInitialFunds(Funding.Instance.Funds);
+                    anySeeded = true;
+                }
                 if (ResearchAndDevelopment.Instance != null)
+                {
                     Ledger.SeedInitialScience(ResearchAndDevelopment.Instance.Science);
+                    anySeeded = true;
+                }
                 if (global::Reputation.Instance != null)
+                {
                     Ledger.SeedInitialReputation(global::Reputation.Instance.reputation);
-                seedChecked = true;
+                    anySeeded = true;
+                }
+                if (anySeeded)
+                    seedChecked = true;
             }
 
             // Update contract and strategy slot limits based on facility levels
@@ -587,6 +601,14 @@ namespace Parsek
         internal static void OnLoad()
         {
             Initialize();
+
+            // Reset seeding flag so initial balances are re-captured for this save.
+            // Without this, switching from a sandbox save (where singletons are null)
+            // to a career save would skip seeding entirely — leaving the ledger without
+            // FundsInitial/ScienceInitial/ReputationInitial actions and causing the
+            // recalculation engine to compute target=0 for all resources.
+            seedChecked = false;
+
             string path = Ledger.GetLedgerPath();
             if (!string.IsNullOrEmpty(path))
             {

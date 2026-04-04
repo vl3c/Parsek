@@ -858,5 +858,39 @@ namespace Parsek.Tests
             Assert.Contains(logLines, l =>
                 l.Contains("[Funds]") && l.Contains("ContractCancel") && l.Contains("3000"));
         }
+
+        // ================================================================
+        // HasSeed tests
+        // ================================================================
+
+        [Fact]
+        public void HasSeed_FalseBeforeAnyAction()
+        {
+            Assert.False(module.HasSeed);
+        }
+
+        [Fact]
+        public void HasSeed_TrueAfterFundsInitial()
+        {
+            module.ProcessAction(MakeSeed(0, 25000f));
+            Assert.True(module.HasSeed);
+        }
+
+        [Fact]
+        public void HasSeed_FalseAfterReset()
+        {
+            module.ProcessAction(MakeSeed(0, 25000f));
+            Assert.True(module.HasSeed);
+            module.Reset();
+            Assert.False(module.HasSeed);
+        }
+
+        [Fact]
+        public void HasSeed_FalseWithOnlyEarnings()
+        {
+            // Earnings without a seed should not set HasSeed
+            module.ProcessAction(MakeFundsEarning(10, 5000f, FundsEarningSource.Recovery, "r1"));
+            Assert.False(module.HasSeed);
+        }
     }
 }

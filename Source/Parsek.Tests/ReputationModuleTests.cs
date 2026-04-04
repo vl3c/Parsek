@@ -693,5 +693,54 @@ namespace Parsek.Tests
             // Exact value depends on curve, but rep should be > 100
             Assert.True(module.GetRunningRep() > 100f);
         }
+
+        // ================================================================
+        // HasSeed tests
+        // ================================================================
+
+        [Fact]
+        public void HasSeed_FalseBeforeAnyAction()
+        {
+            Assert.False(module.HasSeed);
+        }
+
+        [Fact]
+        public void HasSeed_TrueAfterReputationInitial()
+        {
+            module.ProcessAction(new GameAction
+            {
+                UT = 0,
+                Type = GameActionType.ReputationInitial,
+                InitialReputation = 50f
+            });
+            Assert.True(module.HasSeed);
+        }
+
+        [Fact]
+        public void HasSeed_FalseAfterReset()
+        {
+            module.ProcessAction(new GameAction
+            {
+                UT = 0,
+                Type = GameActionType.ReputationInitial,
+                InitialReputation = 50f
+            });
+            Assert.True(module.HasSeed);
+            module.Reset();
+            Assert.False(module.HasSeed);
+        }
+
+        [Fact]
+        public void HasSeed_FalseWithOnlyEarnings()
+        {
+            module.ProcessAction(new GameAction
+            {
+                UT = 10,
+                Type = GameActionType.ReputationEarning,
+                NominalRep = 10f,
+                RepSource = ReputationSource.Other
+            });
+            Assert.False(module.HasSeed);
+        }
     }
 }

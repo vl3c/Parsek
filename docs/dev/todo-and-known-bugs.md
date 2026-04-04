@@ -2500,6 +2500,16 @@ When watching an orbital stage ghost (e.g., Kerbal X second stage), the 300km ca
 
 **Fix (PR #125):** Orbital recordings (those with orbit segments) are exempt from the watch-exit cutoff (`ShouldExitWatchForCutoff` 3-arg overload), the `EnterWatchMode` distance gate, and the Watch button `IsGhostWithinVisualRange` check. Non-orbital ghosts (debris, surface) still respect the cutoff. Added `Recording.HasOrbitSegments` property and logging on individual W button clicks.
 
+## ~~222. Loading career save zeroes out funds, science, and reputation~~
+
+When loading a career save (especially after previously loading a sandbox save in the same KSP session), all funds, science, and reputation are set to 0. The KSP top bar shows 0 funds and 0 science despite the save having correct values.
+
+**Log evidence:** `PatchFunds: 224608.0 -> 0.0 (delta=-224608.0, target=0.0)` and `PatchScience: 99994.0 -> 0.0 (delta=-99994.0, target=0.0)` — KspStatePatcher actively zeroing resources because the recalculation engine computes target=0.
+
+**Root cause:** Two compounding issues: (1) `LedgerOrchestrator.seedChecked` was never reset between save loads — set to `true` during a sandbox save load (where Funding.Instance is null), it stayed `true` when loading a career save, preventing `FundsInitial`/`ScienceInitial`/`ReputationInitial` actions from being created. (2) No guard against patching when modules have no seed — `KspStatePatcher.PatchFunds` would write target=0 even without a `FundsInitial` action, actively destroying KSP's correct values.
+
+**Fix:** (1) Added `HasSeed` flag to `FundsModule`, `ScienceModule`, `ReputationModule` — set when an Initial action is processed, cleared on Reset. `KspStatePatcher` skips patching when the module has no seed. (2) Reset `seedChecked` in `LedgerOrchestrator.OnLoad()`. Only set `seedChecked=true` when at least one resource singleton was available. (3) Added `DeferredSeedAndRecalculate` coroutine in `ParsekScenario` that waits for singletons after initial load, then recalculates with correct values.
+
 # In-Game Tests
 
 - [x] Vessels propagate naturally along orbits after FF (no position freezing)
