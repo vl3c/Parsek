@@ -2428,6 +2428,36 @@ The orbit **line** was correctly clipped by `GhostOrbitArcPatch`, but the vessel
 
 **Files:** `GhostMapPresence.cs`, `GhostMapPresenceTests.cs`
 
+## 216. Astronaut Complex "Assigned" tab shows count but empty list
+
+Parsek reserves kerbals by setting `rosterStatus = Assigned` in `ApplyToRoster`, but KSP expects `Assigned` to mean "on a vessel crew manifest." KSP's `ProtoCrewMember` validation fires on every scene load and sets unattached Assigned kerbals to Missing ("Crewmember X found assigned but no vessels reference him"). This creates a tug-of-war: Parsek sets Assigned → KSP sets Missing → next recalculation sets Assigned again. The Astronaut Complex "Assigned" tab counts them in the header but can't find them in any vessel crew, so the list is empty. 27 KSP warnings per session.
+
+**Fix:** Harmony prefix on `ProtoCrewMember` validation to skip Parsek-managed kerbals, or use a different reservation mechanism that doesn't conflict with KSP's Assigned semantics.
+
+## 217. Settings window GUILayout exception (Layout/Repaint mismatch)
+
+`DrawSettingsWindow` throws `ArgumentException: Getting control N's position in a group with only N controls when doing repaint`. This is a Unity IMGUI bug caused by the Layout pass creating a different number of controls than the Repaint pass (conditional `GUILayout` calls whose condition changes between passes). The window is stuck at 10px height and non-functional. 72 exceptions per session when the settings window is opened.
+
+**Fix:** Ensure all `GUILayout` calls in `DrawSettingsWindow` execute identically in both Layout and Repaint passes. Wrap conditionals around content only (not layout elements), or use `GUILayout.BeginVertical`/`EndVertical` to isolate conditional sections.
+
+## 218. Crash breakup debris not recorded when recorder tears down before coalescer
+
+When a vessel crashes during an active recording, the recorder is stopped and committed before the coalescer's 0.5s window elapses. By the time the coalescer emits the BREAKUP event, there is no active tree or recorder to attach it to (`ProcessBreakupEvent: no active tree and no active recorder`). The main vessel recording is saved but the crash debris tree structure is lost. Observed with Acapello crash: 28 debris fragments orphaned, no debris ghosts during playback.
+
+**Priority:** Low — the vessel recording itself is preserved; only debris ghosts are missing.
+
+## 219. Ghost creation fails for orbital debris chain ("no orbit data")
+
+`CreateGhostVessel` repeatedly fails for certain orbital debris chains with `no orbit data for chain pid=NNNN`. The orbit segment data exists in the recording (e.g., `Orbit segment closed: pid=2007561296 UT=2225.4-2245.6 body=Kerbin`) but the ghost system cannot access it at creation time. Fires on every flight scene entry.
+
+**Priority:** Low — only affects debris ghost visibility in orbit.
+
+## 220. PopulateCrewEndStates called repeatedly for 0-point intermediate recordings
+
+Intermediate tree recordings with 0 trajectory points but non-null VesselSnapshot trigger `PopulateCrewEndStates` on every recalculation walk (36 times in a typical session). These recordings can never have crew. The safety net in `PopulateUnpopulatedCrewEndStates` and the PrePass metadata scan both iterate all committed recordings including these zero-point intermediates.
+
+**Priority:** Low — performance optimization, no functional impact.
+
 # In-Game Tests
 
 - [x] Vessels propagate naturally along orbits after FF (no position freezing)
