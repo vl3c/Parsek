@@ -76,7 +76,7 @@ namespace Parsek.InGameTests
             }
 
             if (windowRect.width < 1f)
-                windowRect = new Rect(20, 60, 380, 450);
+                windowRect = new Rect(20, 60, 380, 500);
 
             if (opaqueStyle == null)
             {
