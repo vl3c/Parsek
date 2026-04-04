@@ -30,10 +30,11 @@ Decompiled output has obfuscation artifacts (spurious `while(true) switch` block
 ## Project Layout
 
 ```
-Source/Parsek/          # Mod source (SDK-style .csproj)
-Source/Parsek.Tests/    # xUnit tests + Generators/ (RecordingBuilder, VesselSnapshotBuilder, ScenarioWriter)
-Kerbal Space Program/   # Local KSP instance (gitignored, auto-deployed)
-docs/                   # Design docs, roadmap, reference analyses
+Source/Parsek/              # Mod source (SDK-style .csproj)
+Source/Parsek/InGameTests/  # Runtime test framework (runs inside KSP via Ctrl+Shift+T)
+Source/Parsek.Tests/        # xUnit tests + Generators/ (RecordingBuilder, VesselSnapshotBuilder, ScenarioWriter)
+Kerbal Space Program/       # Local KSP instance (gitignored, auto-deployed)
+docs/                       # Design docs, roadmap, reference analyses
 ```
 
 Key source files and what they do - read the relevant one before modifying:
@@ -45,7 +46,8 @@ Key source files and what they do - read the relevant one before modifying:
 - `GhostPlaybackEvents.cs` - lifecycle event types (PlaybackCompleted, LoopRestarted, OverlapExpired, CameraAction), TrajectoryPlaybackFlags, FrameContext
 - `ChainSegmentManager.cs` - chain segment state (active chain ID, continuation tracking, boundary anchors). Owns 16 fields previously scattered across ParsekFlight.
 - `FlightRecorder.cs` - recording state + sampling (called by Harmony patch)
-- `ParsekUI.cs` - UI windows (main, recordings, actions, settings, Real Spawn Control) and map markers
+- `ParsekUI.cs` - UI windows (main, recordings, actions, settings, Real Spawn Control, test runner) and map markers
+- `InGameTests/` - runtime test framework: `InGameTestAttribute` (discovery), `InGameAssert` (assertions), `InGameTestRunner` (execution + results export), `TestRunnerShortcut` (global Ctrl+Shift+T addon), `RuntimeTests` (50 tests across 13 categories)
 - `SelectiveSpawnUI.cs` - pure static methods for Real Spawn Control (proximity candidates, countdown formatting)
 - `ParsekScenario.cs` - ScenarioModule for save/load, coroutine hosting, scene transitions
 - `CrewReservationManager.cs` - crew reservation lifecycle (reserve/unreserve/swap/clear)
@@ -72,6 +74,7 @@ git worktree add ../Parsek-<branch-name> -b <branch-name> HEAD
 ## In-Game Controls
 
 - **Toolbar button** - Toggle Parsek UI
+- **Ctrl+Shift+T** - Toggle in-game test runner (works in any scene). Results auto-export to `parsek-test-results.txt` in KSP root.
 - UI buttons: Start/Stop Recording, Preview Playback, Stop Preview, Clear Current Recording
 
 ## Debug
@@ -104,6 +107,7 @@ Every action, state transition, guard condition skip, and FX lifecycle event MUS
 - Assert with: `Assert.Contains(logLines, l => l.Contains("[Subsystem]") && l.Contains("expected text"))`
 - Use `[Collection("Sequential")]` on test classes that touch shared static state (ParsekLog, RecordingStore, etc.)
 - See `RewindLoggingTests.cs` for the canonical log-capture test pattern
+- **In-game tests** (`InGameTests/RuntimeTests.cs`): for things that require live KSP (ghost visuals, PartLoader resolution, crew roster, CommNet). Use `[InGameTest(Category = "...", Scene = GameScenes.FLIGHT)]` attribute. Tests can return `void` (sync) or `IEnumerator` (multi-frame coroutine). Run via Ctrl+Shift+T or Settings > Diagnostics.
 
 ## Visual & Recording Design Principle
 
