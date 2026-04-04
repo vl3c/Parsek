@@ -2396,7 +2396,7 @@ namespace Parsek
         /// user-configurable cutoff — zone is irrelevant because watch mode
         /// moves the camera to the ghost (T39).
         /// </summary>
-        internal static bool IsWithinWatchRange(RenderingZone zone, double distanceMeters, float cutoffKm)
+        internal static bool IsWithinWatchRange(double distanceMeters, float cutoffKm)
         {
             return distanceMeters < cutoffKm * 1000.0;
         }

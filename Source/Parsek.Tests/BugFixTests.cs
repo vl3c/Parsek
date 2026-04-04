@@ -940,41 +940,28 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void IsWithinWatchRange_PhysicsZone_WithinCutoff_True()
+        public void IsWithinWatchRange_WithinCutoff_True()
         {
-            Assert.True(GhostPlaybackLogic.IsWithinWatchRange(RenderingZone.Physics, 1000, 300));
+            Assert.True(GhostPlaybackLogic.IsWithinWatchRange(1000, 300));
         }
 
         [Fact]
-        public void IsWithinWatchRange_VisualZone_WithinCutoff_True()
+        public void IsWithinWatchRange_WellWithinCutoff_True()
         {
-            Assert.True(GhostPlaybackLogic.IsWithinWatchRange(RenderingZone.Visual, 200000, 300));
+            Assert.True(GhostPlaybackLogic.IsWithinWatchRange(200000, 300));
         }
 
         [Fact]
-        public void IsWithinWatchRange_VisualZone_BeyondCutoff_False()
+        public void IsWithinWatchRange_BeyondCutoff_False()
         {
-            // Ghost is in Visual zone (< 1000km) but exceeds 300km cutoff
-            Assert.False(GhostPlaybackLogic.IsWithinWatchRange(RenderingZone.Visual, 350000, 300));
-        }
-
-        [Fact]
-        public void IsWithinWatchRange_BeyondZone_WithinCutoff_True()
-        {
-            // Beyond zone is irrelevant for watch mode — camera moves to ghost (T39)
-            Assert.True(GhostPlaybackLogic.IsWithinWatchRange(RenderingZone.Beyond, 100000, 300));
-        }
-
-        [Fact]
-        public void IsWithinWatchRange_BeyondZone_BeyondCutoff_False()
-        {
-            Assert.False(GhostPlaybackLogic.IsWithinWatchRange(RenderingZone.Beyond, 350000, 300));
+            Assert.False(GhostPlaybackLogic.IsWithinWatchRange(350000, 300));
         }
 
         [Fact]
         public void IsWithinWatchRange_AtExactCutoff_False()
         {
-            Assert.False(GhostPlaybackLogic.IsWithinWatchRange(RenderingZone.Visual, 300000, 300));
+            // Strict less-than: exactly at cutoff returns false
+            Assert.False(GhostPlaybackLogic.IsWithinWatchRange(300000, 300));
         }
     }
 

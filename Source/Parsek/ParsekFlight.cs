@@ -7003,7 +7003,7 @@ namespace Parsek
             GhostPlaybackState s;
             if (!ghostStates.TryGetValue(index, out s) || s == null) return false;
             float cutoffKm = ParsekSettings.Current?.ghostCameraCutoffKm ?? 300f;
-            return GhostPlaybackLogic.IsWithinWatchRange(s.currentZone, s.lastDistance, cutoffKm);
+            return GhostPlaybackLogic.IsWithinWatchRange(s.lastDistance, cutoffKm);
         }
 
         /// <summary>
