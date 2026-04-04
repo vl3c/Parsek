@@ -57,7 +57,15 @@ namespace Parsek.InGameTests
 
         void OnGUI()
         {
-            if (!showWindow) return;
+            if (!showWindow)
+            {
+                if (windowHasInputLock)
+                {
+                    InputLockManager.RemoveControlLock(InputLockId);
+                    windowHasInputLock = false;
+                }
+                return;
+            }
 
             if (runner == null)
             {
@@ -96,13 +104,11 @@ namespace Parsek.InGameTests
             {
                 if (!windowHasInputLock)
                 {
-                    // Block game controls underneath — avoid ControlTypes.All which can
-                    // interfere with IMGUI button events in the editor
                     InputLockManager.SetControlLock(
                         ControlTypes.CAMERACONTROLS | ControlTypes.EDITOR_ICON_HOVER
                         | ControlTypes.EDITOR_ICON_PICK | ControlTypes.EDITOR_PAD_PICK_PLACE
                         | ControlTypes.EDITOR_PAD_PICK_COPY | ControlTypes.EDITOR_GIZMO_TOOLS
-                        | ControlTypes.EDITOR_UI | ControlTypes.KSC_ALL,
+                        | ControlTypes.KSC_ALL,
                         InputLockId);
                     windowHasInputLock = true;
                 }
