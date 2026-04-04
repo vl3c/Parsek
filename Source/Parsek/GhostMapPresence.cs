@@ -52,12 +52,29 @@ namespace Parsek
         private static readonly Dictionary<uint, int> vesselPidToRecordingIndex = new Dictionary<uint, int>();
 
         /// <summary>
+        /// Orbit segment time bounds per ghost vessel PID. Used by GhostOrbitArcPatch
+        /// to clip the orbit line to only the visible arc (between segment startUT and endUT).
+        /// Only populated for segment-based ghosts — terminal-orbit ghosts render the full ellipse.
+        /// </summary>
+        internal static readonly Dictionary<uint, (double startUT, double endUT)> ghostOrbitBounds
+            = new Dictionary<uint, (double, double)>();
+
+        /// <summary>
         /// O(1) check used by all guard code throughout the codebase.
         /// Returns true if the given persistentId belongs to a ghost map ProtoVessel.
         /// </summary>
         internal static bool IsGhostMapVessel(uint persistentId)
         {
             return ghostMapVesselPids.Contains(persistentId);
+        }
+
+        /// <summary>
+        /// O(1) check: is this ghost's native icon currently suppressed (below atmosphere)?
+        /// When true, DrawMapMarkers draws our custom icon at the ghost mesh position instead.
+        /// </summary>
+        internal static bool IsIconSuppressed(uint persistentId)
+        {
+            return ghostsWithSuppressedIcon.Contains(persistentId);
         }
 
         // ------------------------------------------------------------------
@@ -263,6 +280,7 @@ namespace Parsek
             }
 
             ghostMapVesselPids.Remove(ghostPid);
+            ghostOrbitBounds.Remove(ghostPid);
             vesselsByChainPid.Remove(chainPid);
 
             ParsekLog.Info(Tag,
@@ -311,6 +329,7 @@ namespace Parsek
 
             ghostMapVesselPids.Clear();
             ghostsWithSuppressedIcon.Clear();
+            ghostOrbitBounds.Clear();
             vesselsByChainPid.Clear();
             vesselsByRecordingIndex.Clear();
             vesselPidToRecordingIndex.Clear();
@@ -369,6 +388,7 @@ namespace Parsek
             {
                 vesselsByRecordingIndex[recordingIndex] = vessel;
                 vesselPidToRecordingIndex[vessel.persistentId] = recordingIndex;
+                ghostOrbitBounds[vessel.persistentId] = (segment.startUT, segment.endUT);
             }
 
             return vessel;
@@ -395,6 +415,7 @@ namespace Parsek
             }
 
             ghostMapVesselPids.Remove(ghostPid);
+            ghostOrbitBounds.Remove(ghostPid);
             vesselPidToRecordingIndex.Remove(ghostPid);
             vesselsByRecordingIndex.Remove(recordingIndex);
 
@@ -576,6 +597,9 @@ namespace Parsek
 
             vessel.orbitDriver.updateFromParameters();
 
+            // Store orbit segment time bounds for arc clipping (GhostOrbitArcPatch)
+            ghostOrbitBounds[vessel.persistentId] = (segment.startUT, segment.endUT);
+
             // After SOI change, force the orbit renderer to recalculate for the new body.
             // Without this, the orbit line stays clipped to the old body's SOI radius.
             // DrawOrbit is protected, so toggle the renderer off/on to force a full rebuild.
@@ -658,13 +682,17 @@ namespace Parsek
 
                 // Skip recordings where currentUT is outside all orbit segments —
                 // either before the vessel reached orbit or after it left orbit.
-                // For null-terminal recordings this is the only guard against stale orbits.
+                // Exception: if the recording has terminal orbit data (stable orbit),
+                // fall through to the terminal orbit path even past segment endUT (#212).
                 if (rec.OrbitSegments != null && rec.OrbitSegments.Count > 0)
                 {
                     var firstSeg = rec.OrbitSegments[0];
                     var lastSeg = rec.OrbitSegments[rec.OrbitSegments.Count - 1];
                     if (currentUT < firstSeg.startUT || currentUT > lastSeg.endUT)
-                        continue;
+                    {
+                        if (!HasOrbitData(rec))
+                            continue;
+                    }
                 }
                 // No orbit segments and no terminal orbit → nothing to show
                 else if (!HasOrbitData(rec))
@@ -818,6 +846,7 @@ namespace Parsek
         {
             ghostMapVesselPids.Clear();
             ghostsWithSuppressedIcon.Clear();
+            ghostOrbitBounds.Clear();
             vesselsByChainPid.Clear();
             vesselsByRecordingIndex.Clear();
             vesselPidToRecordingIndex.Clear();

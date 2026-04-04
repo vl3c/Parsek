@@ -2437,6 +2437,14 @@ KSP's `Vessel.CheckKill()` destroys on-rails vessels at > 1 kPa atmospheric pres
 
 **Status:** Fixed (0.6.0, PR #113) — new `GhostCheckKillPatch` Harmony prefix on `Vessel.CheckKill` returns false for ghost vessels, skipping the pressure check entirely.
 
+## 212. Ghost orbit line passes through planet in tracking station
+
+Ghost ProtoVessels in the tracking station show orbit lines that draw the full Keplerian ellipse, including the portion that passes through the planet surface. Most visible for suborbital trajectories (periapsis below surface) and orbit segments that start/end mid-orbit (SOI transitions). KSP's `OrbitRendererBase.UpdateSpline()` always samples the full 360-degree ellipse — there is no built-in arc clipping. Setting `Orbit.StartUT`/`EndUT` has no effect (only `PatchRendering` reads those fields).
+
+**Root cause:** `OrbitRendererBase.UpdateSpline()` samples eccentric anomaly from 0 to 2pi for all elliptical orbits. No time-bounding mechanism exists in the stock orbit renderer. The active vessel avoids this because it uses `PatchedConicSolver` + `PatchRendering` which clips arcs via `Orbit.EccentricAnomalyAtUT()`.
+
+**Status:** Fixed (0.6.0) — `GhostOrbitArcPatch` Harmony prefix on `OrbitRendererBase.UpdateSpline` clips the orbit line to the orbit segment's `startUT`/`endUT` range. Uses the same eccentric-anomaly arc-clipping logic as KSP's `PatchRendering`/`Trajectory.UpdateFromOrbit()`. Only applies to segment-based ghosts; terminal-orbit ghosts render the full ellipse. Ap/Pe/AN/DN nodes hidden for partial-arc ghosts.
+
 # In-Game Tests
 
 - [x] Vessels propagate naturally along orbits after FF (no position freezing)
