@@ -2484,6 +2484,16 @@ Intermediate tree recordings with 0 trajectory points but non-null VesselSnapsho
 
 **Priority:** Low — performance optimization, no functional impact.
 
+## ~~221. Watch camera cuts off on orbital ghosts at 300km~~
+
+When watching an orbital stage ghost (e.g., Kerbal X second stage), the 300km camera cutoff unconditionally exits watch mode — even though the ghost naturally travels far during ascent/orbit. The Watch (W) button then becomes disabled (`IsGhostWithinVisualRange` uses the same cutoff), preventing the user from re-watching.
+
+**Log evidence:** `Ghost #1 "Kerbal X" exceeded ghost camera cutoff (300271m > 300000m) — exiting watch mode` while watching a looped KerbalX recording's orbital stage.
+
+**Root cause:** The zone cutoff at `ApplyZoneRenderingImpl` (and the `EnterWatchMode` distance guard and `IsGhostWithinVisualRange` button check) had no orbital exemption. Bug #89's fix correctly added the cutoff but didn't distinguish orbital vs surface/suborbital ghosts.
+
+**Fix (PR #125):** Orbital recordings (those with orbit segments) are exempt from the watch-exit cutoff (`ShouldExitWatchForCutoff` 3-arg overload), the `EnterWatchMode` distance gate, and the Watch button `IsGhostWithinVisualRange` check. Non-orbital ghosts (debris, surface) still respect the cutoff. Added `Recording.HasOrbitSegments` property and logging on individual W button clicks.
+
 # In-Game Tests
 
 - [x] Vessels propagate naturally along orbits after FF (no position freezing)
