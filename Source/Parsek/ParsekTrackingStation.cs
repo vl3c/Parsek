@@ -104,10 +104,34 @@ namespace Parsek
                 Vector3d worldPos = body.GetWorldSurfacePosition(
                     pt.Value.latitude, pt.Value.longitude, pt.Value.altitude);
 
-                VesselType vtype = GhostMapPresence.ResolveVesselType(rec.VesselSnapshot);
+                VesselType vtype = ResolveVesselTypeWithFallback(committed, rec);
                 Color markerColor = MapMarkerRenderer.GetColorForType(vtype);
                 MapMarkerRenderer.DrawMarker(worldPos, rec.VesselName ?? "(unknown)", markerColor, vtype);
             }
+        }
+
+        /// <summary>
+        /// Resolve VesselType for a recording. If the recording has no VesselSnapshot,
+        /// searches other recordings of the same vessel (by VesselPersistentId) for a snapshot.
+        /// Ensures consistent icon type across chain recordings of the same vessel.
+        /// </summary>
+        private static VesselType ResolveVesselTypeWithFallback(List<Recording> committed, Recording rec)
+        {
+            if (rec.VesselSnapshot != null)
+                return GhostMapPresence.ResolveVesselType(rec.VesselSnapshot);
+
+            // No snapshot — search for a sibling recording of the same vessel
+            uint vpid = rec.VesselPersistentId;
+            if (vpid != 0)
+            {
+                for (int j = 0; j < committed.Count; j++)
+                {
+                    if (committed[j].VesselPersistentId == vpid && committed[j].VesselSnapshot != null)
+                        return GhostMapPresence.ResolveVesselType(committed[j].VesselSnapshot);
+                }
+            }
+
+            return VesselType.Ship;
         }
 
         void OnDestroy()
