@@ -20,6 +20,7 @@ namespace Parsek
         public int RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion;
         public List<TrajectoryPoint> Points = new List<TrajectoryPoint>();
         public List<OrbitSegment> OrbitSegments = new List<OrbitSegment>();
+        public bool HasOrbitSegments => OrbitSegments != null && OrbitSegments.Count > 0;
         public List<PartEvent> PartEvents = new List<PartEvent>();
         public List<FlagEvent> FlagEvents = new List<FlagEvent>();
         public List<SegmentEvent> SegmentEvents = new List<SegmentEvent>();
