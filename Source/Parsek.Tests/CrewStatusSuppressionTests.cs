@@ -28,54 +28,6 @@ namespace Parsek.Tests
             ParsekLog.SuppressLogging = true;
         }
 
-        /// <summary>
-        /// Creates a KerbalsModule instance, runs the full lifecycle against
-        /// RecordingStore.CommittedRecordings, and returns the populated module.
-        /// </summary>
-        private static KerbalsModule RecalculateFromStore()
-        {
-            var module = new KerbalsModule();
-            module.Reset();
-
-            var actions = new List<GameAction>();
-            var recordings = RecordingStore.CommittedRecordings;
-            for (int i = 0; i < recordings.Count; i++)
-            {
-                var rec = recordings[i];
-                if (rec.CrewEndStates == null && rec.VesselSnapshot != null)
-                    KerbalsModule.PopulateCrewEndStates(rec);
-
-                var snapshot = rec.GhostVisualSnapshot ?? rec.VesselSnapshot;
-                if (snapshot == null) continue;
-                var names = CrewReservationManager.ExtractCrewFromSnapshot(snapshot);
-                for (int j = 0; j < names.Count; j++)
-                {
-                    KerbalEndState endState = KerbalEndState.Unknown;
-                    if (rec.CrewEndStates != null)
-                        rec.CrewEndStates.TryGetValue(names[j], out endState);
-
-                    actions.Add(new GameAction
-                    {
-                        UT = rec.StartUT,
-                        Type = GameActionType.KerbalAssignment,
-                        RecordingId = rec.RecordingId,
-                        KerbalName = names[j],
-                        KerbalRole = KerbalsModule.FindTraitForKerbal(names[j]),
-                        StartUT = (float)rec.StartUT,
-                        EndUT = (float)rec.EndUT,
-                        KerbalEndStateField = endState,
-                        Sequence = j + 1
-                    });
-                }
-            }
-
-            module.PrePass(actions);
-            for (int i = 0; i < actions.Count; i++)
-                module.ProcessAction(actions[i]);
-            module.PostWalk();
-            return module;
-        }
-
         // ================================================================
         // ShouldSuppressCrewStatusChange — core decision logic
         // ================================================================
@@ -108,7 +60,7 @@ namespace Parsek.Tests
                 { "Jeb", KerbalEndState.Aboard }
             };
             RecordingStore.AddCommittedForTesting(rec);
-            var kerbals = RecalculateFromStore();
+            var kerbals = KerbalsTestHelper.RecalculateFromStore();
 
             // Inject the module so ShouldSuppressCrewStatusChange can find it
             LedgerOrchestrator.SetKerbalsForTesting(kerbals);

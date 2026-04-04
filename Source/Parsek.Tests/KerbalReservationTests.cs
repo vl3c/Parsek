@@ -31,62 +31,6 @@ namespace Parsek.Tests
         }
 
         /// <summary>
-        /// Creates a KerbalsModule instance, runs the full lifecycle against
-        /// RecordingStore.CommittedRecordings, and returns the populated module.
-        /// </summary>
-        private static KerbalsModule RecalculateFromStore()
-        {
-            return RecalculateModule(new KerbalsModule());
-        }
-
-        /// <summary>
-        /// Runs the full lifecycle on an existing KerbalsModule instance.
-        /// Use when the module has pre-loaded slots via LoadSlots before recalculation.
-        /// </summary>
-        private static KerbalsModule RecalculateModule(KerbalsModule module)
-        {
-            module.Reset();
-
-            var actions = new List<GameAction>();
-            var recordings = RecordingStore.CommittedRecordings;
-            for (int i = 0; i < recordings.Count; i++)
-            {
-                var rec = recordings[i];
-                if (rec.CrewEndStates == null && rec.VesselSnapshot != null)
-                    KerbalsModule.PopulateCrewEndStates(rec);
-
-                var snapshot = rec.GhostVisualSnapshot ?? rec.VesselSnapshot;
-                if (snapshot == null) continue;
-                var names = CrewReservationManager.ExtractCrewFromSnapshot(snapshot);
-                for (int j = 0; j < names.Count; j++)
-                {
-                    KerbalEndState endState = KerbalEndState.Unknown;
-                    if (rec.CrewEndStates != null)
-                        rec.CrewEndStates.TryGetValue(names[j], out endState);
-
-                    actions.Add(new GameAction
-                    {
-                        UT = rec.StartUT,
-                        Type = GameActionType.KerbalAssignment,
-                        RecordingId = rec.RecordingId,
-                        KerbalName = names[j],
-                        KerbalRole = KerbalsModule.FindTraitForKerbal(names[j]),
-                        StartUT = (float)rec.StartUT,
-                        EndUT = (float)rec.EndUT,
-                        KerbalEndStateField = endState,
-                        Sequence = j + 1
-                    });
-                }
-            }
-
-            module.PrePass(actions);
-            for (int i = 0; i < actions.Count; i++)
-                module.ProcessAction(actions[i]);
-            module.PostWalk();
-            return module;
-        }
-
-        /// <summary>
         /// Creates a recording with crew in its VesselSnapshot and pre-populated
         /// CrewEndStates based on the given terminal state.
         /// </summary>
@@ -131,7 +75,7 @@ namespace Parsek.Tests
                 TerminalState.Recovered, 2000);
             RecordingStore.AddCommittedForTesting(rec);
 
-            var kerbals = RecalculateFromStore();
+            var kerbals = KerbalsTestHelper.RecalculateFromStore();
 
             Assert.False(kerbals.IsKerbalAvailable("Jeb"));
             Assert.False(kerbals.IsKerbalAvailable("Bill"));
@@ -145,7 +89,7 @@ namespace Parsek.Tests
                 TerminalState.Recovered, 2000);
             RecordingStore.AddCommittedForTesting(rec);
 
-            var kerbals = RecalculateFromStore();
+            var kerbals = KerbalsTestHelper.RecalculateFromStore();
 
             Assert.Equal(2000.0, kerbals.Reservations["Jeb"].ReservedUntilUT);
             Assert.False(kerbals.Reservations["Jeb"].IsPermanent);
@@ -158,7 +102,7 @@ namespace Parsek.Tests
                 TerminalState.Destroyed, 1000);
             RecordingStore.AddCommittedForTesting(rec);
 
-            var kerbals = RecalculateFromStore();
+            var kerbals = KerbalsTestHelper.RecalculateFromStore();
 
             Assert.True(kerbals.Reservations["Jeb"].IsPermanent);
             Assert.Equal(double.PositiveInfinity, kerbals.Reservations["Jeb"].ReservedUntilUT);
@@ -174,7 +118,7 @@ namespace Parsek.Tests
             RecordingStore.AddCommittedForTesting(recA);
             RecordingStore.AddCommittedForTesting(recB);
 
-            var kerbals = RecalculateFromStore();
+            var kerbals = KerbalsTestHelper.RecalculateFromStore();
 
             Assert.Equal(3000.0, kerbals.Reservations["Jeb"].ReservedUntilUT);
         }
@@ -188,7 +132,7 @@ namespace Parsek.Tests
                 TerminalState.Landed, 5000);
             RecordingStore.AddCommittedForTesting(rec);
 
-            var kerbals = RecalculateFromStore();
+            var kerbals = KerbalsTestHelper.RecalculateFromStore();
 
             Assert.Equal(double.PositiveInfinity, kerbals.Reservations["Jeb"].ReservedUntilUT);
             Assert.False(kerbals.Reservations["Jeb"].IsPermanent); // temporary, not dead
@@ -202,7 +146,7 @@ namespace Parsek.Tests
                 TerminalState.Orbiting, 8000);
             RecordingStore.AddCommittedForTesting(rec);
 
-            var kerbals = RecalculateFromStore();
+            var kerbals = KerbalsTestHelper.RecalculateFromStore();
 
             Assert.Equal(double.PositiveInfinity, kerbals.Reservations["Jeb"].ReservedUntilUT);
             Assert.False(kerbals.Reservations["Jeb"].IsPermanent);
@@ -224,7 +168,7 @@ namespace Parsek.Tests
             };
             RecordingStore.AddCommittedForTesting(rec);
 
-            var kerbals = RecalculateFromStore();
+            var kerbals = KerbalsTestHelper.RecalculateFromStore();
 
             Assert.Empty(kerbals.Reservations);
         }
@@ -237,7 +181,7 @@ namespace Parsek.Tests
             rec.LoopPlayback = true;
             RecordingStore.AddCommittedForTesting(rec);
 
-            var kerbals = RecalculateFromStore();
+            var kerbals = KerbalsTestHelper.RecalculateFromStore();
 
             Assert.True(kerbals.IsKerbalAvailable("Jeb"));
         }
@@ -253,7 +197,7 @@ namespace Parsek.Tests
             rec.PlaybackEnabled = false;
             RecordingStore.AddCommittedForTesting(rec);
 
-            var kerbals = RecalculateFromStore();
+            var kerbals = KerbalsTestHelper.RecalculateFromStore();
 
             Assert.True(kerbals.IsKerbalAvailable("Jeb"));
         }
@@ -276,7 +220,7 @@ namespace Parsek.Tests
             };
             RecordingStore.AddCommittedForTesting(rec);
 
-            var kerbals = RecalculateFromStore();
+            var kerbals = KerbalsTestHelper.RecalculateFromStore();
 
             // Should default to Aboard -> open-ended
             Assert.Equal(double.PositiveInfinity, kerbals.Reservations["Jeb"].ReservedUntilUT);
@@ -297,7 +241,7 @@ namespace Parsek.Tests
             RecordingStore.AddCommittedForTesting(recA);
             RecordingStore.AddCommittedForTesting(recB);
 
-            var kerbals = RecalculateFromStore();
+            var kerbals = KerbalsTestHelper.RecalculateFromStore();
 
             Assert.True(kerbals.Reservations["Jeb"].IsPermanent);
             Assert.Equal(double.PositiveInfinity, kerbals.Reservations["Jeb"].ReservedUntilUT);
@@ -312,7 +256,7 @@ namespace Parsek.Tests
                 TerminalState.Recovered, 2000);
             RecordingStore.AddCommittedForTesting(rec);
 
-            var kerbals = RecalculateFromStore();
+            var kerbals = KerbalsTestHelper.RecalculateFromStore();
 
             Assert.True(kerbals.Slots.ContainsKey("Jeb"));
             Assert.Equal("Jeb", kerbals.Slots["Jeb"].OwnerName);
@@ -325,7 +269,7 @@ namespace Parsek.Tests
                 TerminalState.Recovered, 2000);
             RecordingStore.AddCommittedForTesting(rec);
 
-            var kerbals = RecalculateFromStore();
+            var kerbals = KerbalsTestHelper.RecalculateFromStore();
 
             // Chain should have a null placeholder at depth 0 (pending generation)
             Assert.Single(kerbals.Slots["Jeb"].Chain);
@@ -339,7 +283,7 @@ namespace Parsek.Tests
                 TerminalState.Destroyed, 1000);
             RecordingStore.AddCommittedForTesting(rec);
 
-            var kerbals = RecalculateFromStore();
+            var kerbals = KerbalsTestHelper.RecalculateFromStore();
 
             Assert.True(kerbals.Reservations["Jeb"].IsPermanent);
             // No chain generated for permanently gone owner
@@ -367,7 +311,7 @@ namespace Parsek.Tests
                 TerminalState.Recovered, 2000);
             RecordingStore.AddCommittedForTesting(rec);
 
-            var kerbals = RecalculateModule(module);
+            var kerbals = KerbalsTestHelper.RecalculateModule(module);
 
             // Existing chain entry "Hanley" should be preserved
             Assert.Equal("Hanley", kerbals.Slots["Jeb"].Chain[0]);
@@ -395,7 +339,7 @@ namespace Parsek.Tests
             RecordingStore.AddCommittedForTesting(recA);
             RecordingStore.AddCommittedForTesting(recB);
 
-            var kerbals = RecalculateModule(module);
+            var kerbals = KerbalsTestHelper.RecalculateModule(module);
 
             // Chain should extend: Hanley at depth 0, null placeholder at depth 1
             Assert.True(kerbals.Slots["Jeb"].Chain.Count >= 2);
@@ -430,7 +374,7 @@ namespace Parsek.Tests
             var rec = MakeRecording("Ship", new[] { "Jeb" },
                 TerminalState.Recovered, 2000);
             RecordingStore.AddCommittedForTesting(rec);
-            var kerbals = RecalculateModule(module);
+            var kerbals = KerbalsTestHelper.RecalculateModule(module);
 
             Assert.Equal("Hanley", kerbals.GetActiveOccupant("Jeb"));
         }
@@ -456,7 +400,7 @@ namespace Parsek.Tests
                 TerminalState.Recovered, 3000);
             RecordingStore.AddCommittedForTesting(recA);
             RecordingStore.AddCommittedForTesting(recB);
-            var kerbals = RecalculateModule(module);
+            var kerbals = KerbalsTestHelper.RecalculateModule(module);
 
             // Both owner and stand-in reserved -> returns null (pending generation)
             Assert.Null(kerbals.GetActiveOccupant("Jeb"));
@@ -468,7 +412,7 @@ namespace Parsek.Tests
             var rec = MakeRecording("Ship", new[] { "Jeb" },
                 TerminalState.Recovered, 2000);
             RecordingStore.AddCommittedForTesting(rec);
-            var kerbals = RecalculateFromStore();
+            var kerbals = KerbalsTestHelper.RecalculateFromStore();
 
             Assert.True(kerbals.IsManaged("Jeb"));
         }
@@ -503,7 +447,7 @@ namespace Parsek.Tests
             var rec = MakeRecording("Ship", new[] { "Jeb" },
                 TerminalState.Recovered, 2000);
             RecordingStore.AddCommittedForTesting(rec);
-            var kerbals = RecalculateFromStore(); // builds the allRecordingCrew HashSet
+            var kerbals = KerbalsTestHelper.RecalculateFromStore(); // builds the allRecordingCrew HashSet
 
             Assert.True(kerbals.IsKerbalInAnyRecording("Jeb"));
         }
@@ -514,7 +458,7 @@ namespace Parsek.Tests
             var rec = MakeRecording("Ship", new[] { "Jeb" },
                 TerminalState.Recovered, 2000);
             RecordingStore.AddCommittedForTesting(rec);
-            var kerbals = RecalculateFromStore();
+            var kerbals = KerbalsTestHelper.RecalculateFromStore();
 
             Assert.False(kerbals.IsKerbalInAnyRecording("Val"));
         }
@@ -526,7 +470,7 @@ namespace Parsek.Tests
                 TerminalState.Recovered, 2000);
             rec.LoopPlayback = true;
             RecordingStore.AddCommittedForTesting(rec);
-            var kerbals = RecalculateFromStore();
+            var kerbals = KerbalsTestHelper.RecalculateFromStore();
 
             Assert.False(kerbals.IsKerbalInAnyRecording("Jeb"));
         }
@@ -563,7 +507,7 @@ namespace Parsek.Tests
             RecordingStore.AddCommittedForTesting(rec);
 
             // 3. Recalculate: Jeb is NOT reserved (not in any recording), Hanley IS reserved
-            var kerbals = RecalculateModule(module);
+            var kerbals = KerbalsTestHelper.RecalculateModule(module);
 
             // Hanley is reserved (in a recording), not displaced
             Assert.DoesNotContain("Hanley", kerbals.RetiredKerbals);
@@ -584,7 +528,7 @@ namespace Parsek.Tests
             module.LoadSlots(parent);
 
             // No recordings at all -> neither Jeb nor Hanley are reserved
-            var kerbals = RecalculateModule(module);
+            var kerbals = KerbalsTestHelper.RecalculateModule(module);
 
             Assert.DoesNotContain("Hanley", kerbals.RetiredKerbals);
         }
@@ -716,7 +660,7 @@ namespace Parsek.Tests
                 TerminalState.Recovered, 2000);
             RecordingStore.AddCommittedForTesting(rec);
 
-            RecalculateFromStore();
+            KerbalsTestHelper.RecalculateFromStore();
 
             Assert.Contains(logLines, l =>
                 l.Contains("[KerbalsModule]") && l.Contains("2 reservations"));
@@ -729,7 +673,7 @@ namespace Parsek.Tests
                 TerminalState.Recovered, 2000);
             RecordingStore.AddCommittedForTesting(rec);
 
-            RecalculateFromStore();
+            KerbalsTestHelper.RecalculateFromStore();
 
             Assert.Contains(logLines, l =>
                 l.Contains("[KerbalsModule]") && l.Contains("1 slots"));
@@ -741,7 +685,7 @@ namespace Parsek.Tests
             var rec = MakeRecording("Ship", new[] { "Jeb" },
                 TerminalState.Recovered, 2000);
             RecordingStore.AddCommittedForTesting(rec);
-            var kerbals = RecalculateFromStore();
+            var kerbals = KerbalsTestHelper.RecalculateFromStore();
 
             kerbals.IsKerbalAvailable("Jeb");
 
@@ -815,13 +759,13 @@ namespace Parsek.Tests
             RecordingStore.AddCommittedForTesting(rec);
 
             // First recalculation
-            var kerbals = RecalculateFromStore();
+            var kerbals = KerbalsTestHelper.RecalculateFromStore();
             Assert.True(kerbals.Reservations["Jeb"].IsPermanent);
             Assert.False(kerbals.IsKerbalAvailable("Jeb"));
 
             // Simulate passage of time / KSP MIA respawn by recalculating again.
             // The reservation should still be permanent and active.
-            kerbals = RecalculateModule(kerbals);
+            kerbals = KerbalsTestHelper.RecalculateModule(kerbals);
             Assert.True(kerbals.Reservations["Jeb"].IsPermanent);
             Assert.False(kerbals.IsKerbalAvailable("Jeb"));
 
@@ -838,7 +782,7 @@ namespace Parsek.Tests
                 TerminalState.Recovered, 5000);
             RecordingStore.AddCommittedForTesting(rec);
 
-            var kerbals = RecalculateFromStore();
+            var kerbals = KerbalsTestHelper.RecalculateFromStore();
 
             Assert.False(kerbals.Reservations["Val"].IsPermanent);
             Assert.Equal(5000.0, kerbals.Reservations["Val"].ReservedUntilUT);
@@ -855,7 +799,7 @@ namespace Parsek.Tests
                 TerminalState.Destroyed, 1000);
             RecordingStore.AddCommittedForTesting(rec);
 
-            var kerbals = RecalculateFromStore();
+            var kerbals = KerbalsTestHelper.RecalculateFromStore();
 
             // Jeb is reserved (dead), but Val/Bill/Bob are not in any recording
             Assert.True(kerbals.IsKerbalAvailable("Val"));
@@ -863,7 +807,7 @@ namespace Parsek.Tests
             Assert.True(kerbals.IsKerbalAvailable("Bob"));
 
             // Second recalculation should not introduce spurious reservations
-            kerbals = RecalculateModule(kerbals);
+            kerbals = KerbalsTestHelper.RecalculateModule(kerbals);
             Assert.True(kerbals.IsKerbalAvailable("Val"));
             Assert.True(kerbals.IsKerbalAvailable("Bill"));
             Assert.True(kerbals.IsKerbalAvailable("Bob"));
@@ -883,7 +827,7 @@ namespace Parsek.Tests
             var kerbals = new KerbalsModule();
             for (int i = 0; i < 5; i++)
             {
-                kerbals = RecalculateModule(kerbals);
+                kerbals = KerbalsTestHelper.RecalculateModule(kerbals);
                 Assert.True(kerbals.Reservations.ContainsKey("Jeb"),
                     $"Jeb should be reserved on recalculation {i}");
                 Assert.True(kerbals.Reservations["Jeb"].IsPermanent,
@@ -927,7 +871,7 @@ namespace Parsek.Tests
             };
             RecordingStore.AddCommittedForTesting(rec);
 
-            var kerbals = RecalculateFromStore();
+            var kerbals = KerbalsTestHelper.RecalculateFromStore();
 
             // Jeb: permanent reservation (dead)
             Assert.True(kerbals.Reservations["Jeb"].IsPermanent);
@@ -949,7 +893,7 @@ namespace Parsek.Tests
             var rec = MakeRecording("Ship", new[] { "Jeb" },
                 TerminalState.Recovered, 2000);
             RecordingStore.AddCommittedForTesting(rec);
-            var kerbals = RecalculateFromStore();
+            var kerbals = KerbalsTestHelper.RecalculateFromStore();
 
             // Verify state exists
             Assert.NotEmpty(kerbals.Reservations);
