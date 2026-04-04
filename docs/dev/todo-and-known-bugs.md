@@ -102,6 +102,12 @@ KSP's inertial reference frame may drift over very long time warp. Could cause g
 
 ## TODO — Code Quality
 
+### T45. Add `HasOrbitSegments` to `IPlaybackTrajectory` interface
+
+`Recording.HasOrbitSegments` property was added in PR #125, but `IPlaybackTrajectory` still requires the inline `rec.OrbitSegments != null && rec.OrbitSegments.Count > 0` pattern. ~9 callsites across the codebase use this pattern. Adding it to the interface would unify all of them, but touches the standalone ghost mod boundary — defer until the interface next changes.
+
+**Priority:** Low — cosmetic DRY cleanup
+
 ### ~~T17. Game actions recording redesign (Phase 8)~~ DONE
 
 Full ledger-based game actions system shipped in v0.6.0. 7 resource modules (Science, Funds, Reputation, Milestones, Contracts, Facilities, Strategies), KspStatePatcher, contract deadline failures, kerbal rescue detection, game state event recording, milestone path qualification, strategy commitment rates, warp facility patching. 4621 tests. See CHANGELOG 0.6.0 "Game Actions & Resources System" and "Kerbal Lifecycle Management" sections.
