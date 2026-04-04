@@ -6,6 +6,10 @@ All notable changes to Parsek are documented here.
 
 ## 0.6.1
 
+### Ghost Visuals
+
+- **Fix invisible shrouds on ghost engines with variants (PR #124).** Engine shrouds (e.g. Poodle skirt, EP37 engine plate covers) were permanently invisible on ghosts. Three fixes: (1) Variant name resolution now reads `moduleVariantName` from the PART level in snapshots, where KSP actually persists it, not just inside the MODULE node. (2) Multi-MODEL parts (engine plates) have transform names with full GameDatabase paths; variant GAMEOBJECTS rules now match after stripping the path prefix and `(Clone)` suffix. (3) The transform-visibility fallback in `CheckJettisonState` misinterpreted variant-hidden transforms as jettisoned shrouds, emitting false `ShroudJettisoned` events at recording start that permanently hid all jettison geometry on playback. Fixed by skipping the fallback for parts with `ModulePartVariants`.
+
 ### Watch Mode
 
 - **Fix watch camera cutting off on orbital ghosts.** The 300km camera cutoff was unconditionally exiting watch mode when a ghost exceeded the distance — even for orbital recordings that naturally travel far during ascent/orbit. Orbital recordings (those with orbit segments) are now exempt from both the watch-exit cutoff and the Watch button distance gate. Also added missing log entry on individual recording Watch button clicks.
