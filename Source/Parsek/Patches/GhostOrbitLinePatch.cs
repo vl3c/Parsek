@@ -23,19 +23,99 @@ namespace Parsek.Patches
     }
 
     /// <summary>
-    /// Suppresses the orbit line AND native icon for ghost map ProtoVessels when
-    /// below atmosphere. The orbit line is meaningless during atmospheric flight
-    /// (drag makes Keplerian propagation diverge from recorded trajectory). The
-    /// native icon is also hidden because its position comes from OrbitDriver
-    /// propagation — which drifts far from the ghost mesh during reentry.
+    /// Clamps ghost vessel OrbitDriver propagation to the visible arc of the orbit
+    /// segment (#212b). Without this, the OrbitDriver propagates the vessel along
+    /// the full Keplerian ellipse, positioning the icon underground during the
+    /// periapsis passage. The orbit LINE is clipped by GhostOrbitArcPatch, but the
+    /// vessel ICON follows the OrbitDriver position — this patch keeps the icon
+    /// on the visible arc by clamping the propagated UT.
     ///
-    /// When both are hidden, ParsekUI.DrawMapMarkers draws our custom vessel-type
-    /// icon at the ghost mesh position (always correct). Tracked via
-    /// GhostMapPresence.ghostsWithSuppressedIcon so DrawMapMarkers knows to draw.
+    /// When the vessel would be on the underground portion, the UT is clamped to
+    /// the nearest arc endpoint (startUT or endUT), freezing the icon at the edge
+    /// of the visible arc.
+    ///
+    /// Architecture: OrbitDriver.updateFromParameters() calls orbit.UpdateFromUT(UT)
+    /// which sets the vessel's world position. This prefix intercepts the UT before
+    /// propagation and clamps it to the visible arc if needed.
+    /// </summary>
+    [HarmonyPatch(typeof(OrbitDriver), "updateFromParameters", new Type[0])]
+    internal static class GhostOrbitIconClampPatch
+    {
+        static void Prefix(OrbitDriver __instance)
+        {
+            if (__instance.vessel == null) return;
+
+            uint pid = __instance.vessel.persistentId;
+            if (!GhostMapPresence.IsGhostMapVessel(pid)) return;
+            if (!GhostMapPresence.ghostOrbitBounds.TryGetValue(pid, out var bounds)) return;
+
+            Orbit orbit = __instance.orbit;
+            if (orbit == null || orbit.eccentricity >= 1.0 || orbit.period <= 0) return;
+
+            double currentUT = Planetarium.GetUniversalTime();
+
+            // Past recording bounds → clamp to endUT so icon sits at last recorded position
+            if (currentUT > bounds.endUT)
+            {
+                orbit.UpdateFromUT(bounds.endUT);
+                GhostMapPresence.ghostsWithSuppressedIcon.Add(pid);
+                return;
+            }
+            if (currentUT < bounds.startUT)
+            {
+                orbit.UpdateFromUT(bounds.startUT);
+                GhostMapPresence.ghostsWithSuppressedIcon.Add(pid);
+                return;
+            }
+
+            // Within bounds — check if on the visible arc
+            bool onArc = GhostOrbitArcCheck.IsOnOrbitalArc(orbit, bounds.startUT, bounds.endUT, currentUT);
+            if (!onArc)
+            {
+                // Off the visible arc (underground) — clamp to the nearest arc endpoint
+                double period = orbit.period;
+                double obtNow = ((orbit.getObtAtUT(currentUT) % period) + period) % period;
+                double obtStart = ((orbit.getObtAtUT(bounds.startUT) % period) + period) % period;
+                double obtEnd = ((orbit.getObtAtUT(bounds.endUT) % period) + period) % period;
+
+                // Pick the closer endpoint in orbital-time space
+                double distToStart, distToEnd;
+                if (obtStart <= obtEnd)
+                {
+                    // No wraparound: gap is [obtEnd, obtStart+period]
+                    distToStart = (obtStart - obtNow + period) % period;
+                    distToEnd = (obtNow - obtEnd + period) % period;
+                }
+                else
+                {
+                    // Wraparound: gap is [obtEnd, obtStart]
+                    distToStart = (obtNow <= obtStart) ? (obtStart - obtNow) : (obtStart + period - obtNow);
+                    distToEnd = (obtNow >= obtEnd) ? (obtNow - obtEnd) : (obtNow + period - obtEnd);
+                }
+
+                double clampUT = (distToEnd <= distToStart) ? bounds.endUT : bounds.startUT;
+                orbit.UpdateFromUT(clampUT);
+                GhostMapPresence.ghostsWithSuppressedIcon.Add(pid);
+
+                ParsekLog.VerboseRateLimited("GhostOrbitIcon", "clamp-" + pid,
+                    string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                        "Icon clamped pid={0} UT={1:F1} clampUT={2:F1} bounds=[{3:F1},{4:F1}]",
+                        pid, currentUT, clampUT, bounds.startUT, bounds.endUT));
+                return;
+            }
+
+            GhostMapPresence.ghostsWithSuppressedIcon.Remove(pid);
+        }
+    }
+
+    /// <summary>
+    /// Suppresses the orbit line for ghost map ProtoVessels below atmosphere.
+    /// The orbit line is meaningless during atmospheric flight (drag makes Keplerian
+    /// propagation diverge from recorded trajectory).
     ///
     /// Architecture: OrbitRendererBase.LateUpdate calls DrawOrbit() then DrawNodes().
-    /// This postfix runs after both, suppressing the Vectrosity line and all MapNode
-    /// icons for ghost vessels below atmosphere.
+    /// This postfix runs after both, suppressing the Vectrosity line for ghost vessels.
+    /// Icon clamping is handled separately by GhostOrbitIconClampPatch on OrbitDriver.
     /// </summary>
     [HarmonyPatch(typeof(OrbitRendererBase), "LateUpdate")]
     internal static class GhostOrbitLinePatch
@@ -53,71 +133,28 @@ namespace Parsek.Patches
             if (line == null)
                 return;
 
-            CelestialBody body = __instance.vessel.orbitDriver?.celestialBody;
-            if (body == null)
-                return;
-
-            // Segment-based ghosts: hide orbit line AND icon when the vessel is
-            // outside the visible arc. The OrbitDriver propagates the vessel along
-            // the full Keplerian ellipse — including the underground periapsis passage.
-            // The orbit LINE is clipped by GhostOrbitArcPatch, but the vessel ICON
-            // follows OrbitDriver and goes through the planet. This check hides
-            // everything when the vessel is off the visible arc (#212).
+            // Segment-based ghosts: the orbit line is clipped by GhostOrbitArcPatch.
+            // When UT is past the recording bounds, hide the line entirely.
             if (GhostMapPresence.ghostOrbitBounds.TryGetValue(pid, out var timeBounds))
             {
-                Orbit orbit = __instance.vessel.orbit;
                 double currentUT = Planetarium.GetUniversalTime();
-
-                // Past the recording end or before start → hide everything
                 if (currentUT > timeBounds.endUT || currentUT < timeBounds.startUT)
                 {
                     line.active = false;
                     __instance.drawIcons = OrbitRendererBase.DrawIcons.NONE;
-                    GhostMapPresence.ghostsWithSuppressedIcon.Add(pid);
                     return;
                 }
 
-                // Within the segment time range — but the vessel may be on the
-                // underground portion of the orbit (periapsis passage). Check if
-                // the vessel's current eccentric anomaly is within the visible arc.
-                if (orbit != null && orbit.eccentricity < 1.0)
-                {
-                    double fromE = orbit.EccentricAnomalyAtUT(timeBounds.startUT);
-                    double toE = orbit.EccentricAnomalyAtUT(timeBounds.endUT);
-                    double curE = orbit.EccentricAnomalyAtUT(currentUT);
-
-                    if (!double.IsNaN(fromE) && !double.IsNaN(toE) && !double.IsNaN(curE))
-                    {
-                        // Normalize wraparound using true anomaly (same as GhostOrbitArcPatch)
-                        double fromV = orbit.GetTrueAnomaly(fromE);
-                        double toV = orbit.GetTrueAnomaly(toE);
-                        double curV = orbit.GetTrueAnomaly(curE);
-                        if (fromV > toV)
-                        {
-                            fromV = -(System.Math.PI * 2.0 - fromV);
-                            curV = curV > toV ? -(System.Math.PI * 2.0 - curV) : curV;
-                        }
-
-                        if (curV < fromV || curV > toV)
-                        {
-                            // Off the visible arc — hide line and icon
-                            line.active = false;
-                            __instance.drawIcons = OrbitRendererBase.DrawIcons.NONE;
-                            GhostMapPresence.ghostsWithSuppressedIcon.Add(pid);
-                            return;
-                        }
-                    }
-                }
-
-                // On the visible arc — show line and vessel icon only (no Ap/Pe)
+                // On arc — show line and vessel icon only (no Ap/Pe/AN/DN)
                 line.active = true;
                 __instance.drawIcons = OrbitRendererBase.DrawIcons.OBJ;
-                GhostMapPresence.ghostsWithSuppressedIcon.Remove(pid);
                 return;
             }
 
             // Non-segment ghosts (terminal orbits): atmosphere-based suppression only
-            if (body.atmosphere && __instance.vessel.orbit.altitude < body.atmosphereDepth)
+            CelestialBody body = __instance.driver?.referenceBody;
+            if (body != null && body.atmosphere && __instance.vessel.orbit != null
+                && __instance.vessel.orbit.altitude < body.atmosphereDepth)
             {
                 line.active = false;
                 __instance.drawIcons = OrbitRendererBase.DrawIcons.NONE;
@@ -129,6 +166,34 @@ namespace Parsek.Patches
                 __instance.drawIcons = OrbitRendererBase.DrawIcons.ALL;
                 GhostMapPresence.ghostsWithSuppressedIcon.Remove(pid);
             }
+        }
+    }
+
+    /// <summary>
+    /// Pure: is the vessel currently on the visible orbital arc between startUT and endUT?
+    /// Uses orbital time (getObtAtUT) which is monotonically increasing within a period,
+    /// avoiding the sign mismatch bugs in eccentric/true anomaly (#212b).
+    /// </summary>
+    internal static class GhostOrbitArcCheck
+    {
+        internal static bool IsOnOrbitalArc(Orbit orbit, double startUT, double endUT, double currentUT)
+        {
+            double period = orbit.period;
+            if (period <= 0) return true; // degenerate orbit — show by default
+
+            // Normalize all orbital times to [0, period)
+            double obtStart = ((orbit.getObtAtUT(startUT) % period) + period) % period;
+            double obtEnd = ((orbit.getObtAtUT(endUT) % period) + period) % period;
+            double obtNow = ((orbit.getObtAtUT(currentUT) % period) + period) % period;
+
+            // If the arc spans the full period (or more), the vessel is always on arc
+            if (endUT - startUT >= period) return true;
+
+            // Standard range check with wraparound handling
+            if (obtStart <= obtEnd)
+                return obtNow >= obtStart && obtNow <= obtEnd;
+            else
+                return obtNow >= obtStart || obtNow <= obtEnd;
         }
     }
 

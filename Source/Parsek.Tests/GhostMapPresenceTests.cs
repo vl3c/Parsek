@@ -902,5 +902,381 @@ namespace Parsek.Tests
         }
 
         #endregion
+
+        #region FindSupersededRecordingIds
+
+        /// <summary>
+        /// Empty recordings list returns empty superseded set.
+        /// </summary>
+        [Fact]
+        public void FindSuperseded_Empty_ReturnsEmpty()
+        {
+            var result = GhostMapPresence.FindSupersededRecordingIds(new List<Recording>());
+            Assert.Empty(result);
+        }
+
+        /// <summary>
+        /// Null list returns empty set without throwing.
+        /// </summary>
+        [Fact]
+        public void FindSuperseded_Null_ReturnsEmpty()
+        {
+            var result = GhostMapPresence.FindSupersededRecordingIds(null);
+            Assert.Empty(result);
+        }
+
+        /// <summary>
+        /// Recording with no parent is a standalone tip — not superseded.
+        /// </summary>
+        [Fact]
+        public void FindSuperseded_StandaloneRecording_NotSuperseded()
+        {
+            var recs = new List<Recording>
+            {
+                new Recording { RecordingId = "rec-A" }
+            };
+            var result = GhostMapPresence.FindSupersededRecordingIds(recs);
+            Assert.DoesNotContain("rec-A", result);
+        }
+
+        /// <summary>
+        /// Chain A→B: A is superseded, B is the tip.
+        /// </summary>
+        [Fact]
+        public void FindSuperseded_SimpleChain_ParentSuperseded()
+        {
+            var recs = new List<Recording>
+            {
+                new Recording { RecordingId = "rec-A" },
+                new Recording { RecordingId = "rec-B", ParentRecordingId = "rec-A" }
+            };
+            var result = GhostMapPresence.FindSupersededRecordingIds(recs);
+            Assert.Contains("rec-A", result);
+            Assert.DoesNotContain("rec-B", result);
+        }
+
+        /// <summary>
+        /// Chain A→B→C: A and B are superseded, C is tip.
+        /// </summary>
+        [Fact]
+        public void FindSuperseded_ThreeNodeChain_OnlyTipNotSuperseded()
+        {
+            var recs = new List<Recording>
+            {
+                new Recording { RecordingId = "rec-A" },
+                new Recording { RecordingId = "rec-B", ParentRecordingId = "rec-A" },
+                new Recording { RecordingId = "rec-C", ParentRecordingId = "rec-B" }
+            };
+            var result = GhostMapPresence.FindSupersededRecordingIds(recs);
+            Assert.Contains("rec-A", result);
+            Assert.Contains("rec-B", result);
+            Assert.DoesNotContain("rec-C", result);
+        }
+
+        /// <summary>
+        /// Two independent chains: each has its own tip.
+        /// </summary>
+        [Fact]
+        public void FindSuperseded_TwoChains_EachTipNotSuperseded()
+        {
+            var recs = new List<Recording>
+            {
+                new Recording { RecordingId = "chain1-A" },
+                new Recording { RecordingId = "chain1-B", ParentRecordingId = "chain1-A" },
+                new Recording { RecordingId = "chain2-A" },
+                new Recording { RecordingId = "chain2-B", ParentRecordingId = "chain2-A" }
+            };
+            var result = GhostMapPresence.FindSupersededRecordingIds(recs);
+            Assert.Contains("chain1-A", result);
+            Assert.DoesNotContain("chain1-B", result);
+            Assert.Contains("chain2-A", result);
+            Assert.DoesNotContain("chain2-B", result);
+        }
+
+        #endregion
+
+        #region ShouldCreateTrackingStationGhost
+
+        /// <summary>
+        /// Debris recording always skipped regardless of orbit data.
+        /// </summary>
+        [Fact]
+        public void ShouldCreate_Debris_Skipped()
+        {
+            var rec = new Recording
+            {
+                IsDebris = true,
+                TerminalOrbitBody = "Kerbin",
+                TerminalOrbitSemiMajorAxis = 700000,
+                TerminalStateValue = TerminalState.Orbiting
+            };
+            var (should, reason) = GhostMapPresence.ShouldCreateTrackingStationGhost(rec, false, 1000);
+            Assert.False(should);
+            Assert.Equal("debris", reason);
+        }
+
+        /// <summary>
+        /// Superseded recording always skipped (intermediate chain segment).
+        /// </summary>
+        [Fact]
+        public void ShouldCreate_Superseded_Skipped()
+        {
+            var rec = new Recording
+            {
+                TerminalOrbitBody = "Kerbin",
+                TerminalOrbitSemiMajorAxis = 700000,
+                TerminalStateValue = TerminalState.Orbiting
+            };
+            var (should, reason) = GhostMapPresence.ShouldCreateTrackingStationGhost(rec, true, 1000);
+            Assert.False(should);
+            Assert.Equal("superseded", reason);
+        }
+
+        /// <summary>
+        /// Destroyed terminal state: no ghost even with orbit data.
+        /// </summary>
+        [Fact]
+        public void ShouldCreate_Destroyed_Skipped()
+        {
+            var rec = new Recording
+            {
+                TerminalOrbitBody = "Kerbin",
+                TerminalOrbitSemiMajorAxis = 700000,
+                TerminalStateValue = TerminalState.Destroyed
+            };
+            var (should, reason) = GhostMapPresence.ShouldCreateTrackingStationGhost(rec, false, 1000);
+            Assert.False(should);
+            Assert.StartsWith("terminal", reason);
+        }
+
+        /// <summary>
+        /// Orbiting tip with terminal orbit data: create ghost.
+        /// </summary>
+        [Fact]
+        public void ShouldCreate_OrbitingWithData_Created()
+        {
+            var rec = new Recording
+            {
+                TerminalOrbitBody = "Kerbin",
+                TerminalOrbitSemiMajorAxis = 700000,
+                TerminalStateValue = TerminalState.Orbiting
+            };
+            var (should, reason) = GhostMapPresence.ShouldCreateTrackingStationGhost(rec, false, 1000);
+            Assert.True(should);
+            Assert.Null(reason);
+        }
+
+        /// <summary>
+        /// Null terminal state with orbit data: create ghost (benefit of the doubt).
+        /// </summary>
+        [Fact]
+        public void ShouldCreate_NullTerminal_WithOrbitData_Created()
+        {
+            var rec = new Recording
+            {
+                TerminalOrbitBody = "Kerbin",
+                TerminalOrbitSemiMajorAxis = 700000,
+                TerminalStateValue = null
+            };
+            var (should, reason) = GhostMapPresence.ShouldCreateTrackingStationGhost(rec, false, 1000);
+            Assert.True(should);
+            Assert.Null(reason);
+        }
+
+        /// <summary>
+        /// Null terminal state with orbit segments: create ghost when UT within segment.
+        /// </summary>
+        [Fact]
+        public void ShouldCreate_NullTerminal_WithSegment_UTInRange_Created()
+        {
+            var rec = new Recording
+            {
+                TerminalStateValue = null,
+                OrbitSegments = new List<OrbitSegment>
+                {
+                    new OrbitSegment { startUT = 100, endUT = 500, bodyName = "Kerbin", semiMajorAxis = 700000 }
+                }
+            };
+            var (should, reason) = GhostMapPresence.ShouldCreateTrackingStationGhost(rec, false, 300);
+            Assert.True(should);
+        }
+
+        /// <summary>
+        /// Null terminal state with orbit segments: skip when UT past all segments.
+        /// </summary>
+        [Fact]
+        public void ShouldCreate_NullTerminal_WithSegment_UTPastRange_Skipped()
+        {
+            var rec = new Recording
+            {
+                TerminalStateValue = null,
+                OrbitSegments = new List<OrbitSegment>
+                {
+                    new OrbitSegment { startUT = 100, endUT = 500, bodyName = "Kerbin", semiMajorAxis = 700000 }
+                }
+            };
+            var (should, reason) = GhostMapPresence.ShouldCreateTrackingStationGhost(rec, false, 1000);
+            Assert.False(should);
+            Assert.Equal("no-current-segment", reason);
+        }
+
+        /// <summary>
+        /// Tip with no orbit data and no segments: skip.
+        /// </summary>
+        [Fact]
+        public void ShouldCreate_NoOrbitData_Skipped()
+        {
+            var rec = new Recording { TerminalStateValue = null };
+            var (should, reason) = GhostMapPresence.ShouldCreateTrackingStationGhost(rec, false, 1000);
+            Assert.False(should);
+            Assert.Equal("no-orbit-data", reason);
+        }
+
+        /// <summary>
+        /// Landed terminal state: no ghost even though vessel is at rest.
+        /// </summary>
+        [Fact]
+        public void ShouldCreate_Landed_Skipped()
+        {
+            var rec = new Recording
+            {
+                TerminalOrbitBody = "Mun",
+                TerminalOrbitSemiMajorAxis = 200000,
+                TerminalStateValue = TerminalState.Landed
+            };
+            var (should, reason) = GhostMapPresence.ShouldCreateTrackingStationGhost(rec, false, 1000);
+            Assert.False(should);
+            Assert.StartsWith("terminal", reason);
+        }
+
+        /// <summary>
+        /// Docked tip with orbit data: create ghost.
+        /// </summary>
+        [Fact]
+        public void ShouldCreate_Docked_Created()
+        {
+            var rec = new Recording
+            {
+                TerminalOrbitBody = "Kerbin",
+                TerminalOrbitSemiMajorAxis = 700000,
+                TerminalStateValue = TerminalState.Docked
+            };
+            var (should, reason) = GhostMapPresence.ShouldCreateTrackingStationGhost(rec, false, 1000);
+            Assert.True(should);
+        }
+
+        #endregion
+
+        #region Chain-aware integration
+
+        /// <summary>
+        /// Scenario: chain A(launch)→B(orbit)→C(destroyed).
+        /// Only C is a tip, and C has Destroyed terminal state → no ghost.
+        /// Previously, B (intermediate with orbit data) would get a stale ghost.
+        /// </summary>
+        [Fact]
+        public void ChainAware_DestroyedTip_NoGhostForIntermediateOrbit()
+        {
+            var recs = new List<Recording>
+            {
+                new Recording
+                {
+                    RecordingId = "launch",
+                    TerminalStateValue = null
+                },
+                new Recording
+                {
+                    RecordingId = "orbit",
+                    ParentRecordingId = "launch",
+                    TerminalStateValue = null,
+                    TerminalOrbitBody = "Kerbin",
+                    TerminalOrbitSemiMajorAxis = 700000,
+                    OrbitSegments = new List<OrbitSegment>
+                    {
+                        new OrbitSegment { startUT = 100, endUT = 500, bodyName = "Kerbin", semiMajorAxis = 700000 }
+                    }
+                },
+                new Recording
+                {
+                    RecordingId = "destroyed",
+                    ParentRecordingId = "orbit",
+                    TerminalStateValue = TerminalState.Destroyed
+                }
+            };
+
+            var superseded = GhostMapPresence.FindSupersededRecordingIds(recs);
+
+            // "launch" and "orbit" are superseded
+            Assert.Contains("launch", superseded);
+            Assert.Contains("orbit", superseded);
+            Assert.DoesNotContain("destroyed", superseded);
+
+            // "orbit" is superseded → skipped even though it has orbit data
+            var (shouldOrbit, _) = GhostMapPresence.ShouldCreateTrackingStationGhost(
+                recs[1], superseded.Contains(recs[1].RecordingId), 300);
+            Assert.False(shouldOrbit);
+
+            // "destroyed" is tip but has Destroyed state → skipped
+            var (shouldDestroyed, _) = GhostMapPresence.ShouldCreateTrackingStationGhost(
+                recs[2], superseded.Contains(recs[2].RecordingId), 300);
+            Assert.False(shouldDestroyed);
+        }
+
+        /// <summary>
+        /// Scenario: chain A(launch)→B(orbit, still active).
+        /// B is the tip with null terminal state and orbit data → ghost created.
+        /// </summary>
+        [Fact]
+        public void ChainAware_ActiveOrbitTip_GhostCreated()
+        {
+            var recs = new List<Recording>
+            {
+                new Recording { RecordingId = "launch", TerminalStateValue = null },
+                new Recording
+                {
+                    RecordingId = "orbit-tip",
+                    ParentRecordingId = "launch",
+                    TerminalStateValue = null,
+                    TerminalOrbitBody = "Kerbin",
+                    TerminalOrbitSemiMajorAxis = 700000
+                }
+            };
+
+            var superseded = GhostMapPresence.FindSupersededRecordingIds(recs);
+
+            Assert.Contains("launch", superseded);
+            Assert.DoesNotContain("orbit-tip", superseded);
+
+            var (should, _) = GhostMapPresence.ShouldCreateTrackingStationGhost(
+                recs[1], superseded.Contains(recs[1].RecordingId), 300);
+            Assert.True(should);
+        }
+
+        /// <summary>
+        /// Standalone recording (no chain) with orbit data: ghost created.
+        /// </summary>
+        [Fact]
+        public void ChainAware_Standalone_OrbitRecording_GhostCreated()
+        {
+            var recs = new List<Recording>
+            {
+                new Recording
+                {
+                    RecordingId = "solo",
+                    TerminalOrbitBody = "Kerbin",
+                    TerminalOrbitSemiMajorAxis = 700000,
+                    TerminalStateValue = TerminalState.Orbiting
+                }
+            };
+
+            var superseded = GhostMapPresence.FindSupersededRecordingIds(recs);
+            Assert.DoesNotContain("solo", superseded);
+
+            var (should, _) = GhostMapPresence.ShouldCreateTrackingStationGhost(
+                recs[0], false, 1000);
+            Assert.True(should);
+        }
+
+        #endregion
     }
 }

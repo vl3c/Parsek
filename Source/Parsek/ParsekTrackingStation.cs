@@ -1,3 +1,5 @@
+using System.Collections.Generic;
+using System.Globalization;
 using UnityEngine;
 
 namespace Parsek
@@ -6,32 +8,132 @@ namespace Parsek
     /// Tracking station scene host for ghost map presence.
     /// Creates ghost ProtoVessels from committed recordings so ghosts appear
     /// in the tracking station vessel list with orbit lines and targeting.
-    /// Cleaned up on scene exit.
+    /// Per-frame lifecycle: removes/creates ghosts when UT crosses segment bounds.
+    /// OnGUI draws icons for atmospheric phases (no ProtoVessel — direct rendering
+    /// from trajectory data, same approach as ParsekUI.DrawMapMarkers in flight).
     /// </summary>
     [KSPAddon(KSPAddon.Startup.TrackingStation, false)]
     public class ParsekTrackingStation : MonoBehaviour
     {
+        private const string Tag = "TrackingStation";
+        private const float LifecycleCheckIntervalSec = 2.0f;
+        private float nextLifecycleCheckTime;
+
+        /// <summary>Cached interpolation indices for atmospheric ghost icon rendering (per recording index).</summary>
+        private readonly Dictionary<int, int> atmosCachedIndices = new Dictionary<int, int>();
+
+    
         void Start()
         {
-            // Ghost vessels are pre-created in GhostTrackingStationInitPatch (Harmony prefix
-            // on SpaceTracking.Awake). This call is a safety net if Harmony didn't run.
             int created = GhostMapPresence.CreateGhostVesselsFromCommittedRecordings();
-
-            // Ensure orbit renderers exist — MapView.fetch may have been null during Awake
-            // prefix, causing AddOrbitRenderer to bail. By Start, all Awakes are complete. (#195)
-            // Intentionally redundant with the buildVesselsList Prefix (which covers all
-            // callers); this catches the edge case where buildVesselsList isn't called.
             int renderersFixed = GhostMapPresence.EnsureGhostOrbitRenderers();
 
-            ParsekLog.Info("TrackingStation",
+            nextLifecycleCheckTime = Time.time + LifecycleCheckIntervalSec;
+            atmosCachedIndices.Clear();
+
+            ParsekLog.Info(Tag,
                 $"ParsekTrackingStation initialized: created {created} ghost vessel(s), " +
                 $"fixed {renderersFixed} orbit renderer(s)");
+        }
+
+        void Update()
+        {
+            if (Time.time < nextLifecycleCheckTime) return;
+            nextLifecycleCheckTime = Time.time + LifecycleCheckIntervalSec;
+
+            GhostMapPresence.UpdateTrackingStationGhostLifecycle();
+        }
+
+        void OnGUI()
+        {
+            // Draw icons for recordings in atmospheric phases (no ProtoVessel).
+            // Position comes directly from trajectory point interpolation —
+            // same approach as ParsekUI.DrawMapMarkers in the flight scene.
+            if (Event.current.type != EventType.Repaint) return;
+            if (PlanetariumCamera.Camera == null) return;
+
+            var committed = RecordingStore.CommittedRecordings;
+            if (committed == null || committed.Count == 0) return;
+
+            double currentUT = Planetarium.GetUniversalTime();
+
+            for (int i = 0; i < committed.Count; i++)
+            {
+                // Skip if a ProtoVessel ghost already handles this recording
+                if (GhostMapPresence.HasGhostVesselForRecording(i)) continue;
+
+                var rec = committed[i];
+                if (rec.IsDebris) continue;
+                if (rec.Points == null || rec.Points.Count == 0) continue;
+                if (currentUT < rec.Points[0].ut || currentUT > rec.Points[rec.Points.Count - 1].ut) continue;
+
+                // Skip superseded recordings (intermediate chain segments).
+                // Uses cached set from UpdateTrackingStationGhostLifecycle (computed once per tick).
+                var superseded = GhostMapPresence.CachedSupersededIds;
+                if (superseded != null && superseded.Contains(rec.RecordingId)) continue;
+
+                // Skip non-orbital terminal states
+                var terminal = rec.TerminalStateValue;
+                if (terminal.HasValue
+                    && terminal.Value != TerminalState.Orbiting
+                    && terminal.Value != TerminalState.Docked)
+                    continue;
+
+                // Skip if currently in an orbit segment (ProtoVessel handles that)
+                if (rec.OrbitSegments != null
+                    && TrajectoryMath.FindOrbitSegment(rec.OrbitSegments, currentUT).HasValue)
+                    continue;
+
+                // Interpolate trajectory position at current UT
+                if (!atmosCachedIndices.ContainsKey(i))
+                    atmosCachedIndices[i] = -1;
+                int cached = atmosCachedIndices[i];
+                TrajectoryPoint? pt = TrajectoryMath.BracketPointAtUT(rec.Points, currentUT, ref cached);
+                atmosCachedIndices[i] = cached;
+
+                if (!pt.HasValue) continue;
+
+                CelestialBody body = FlightGlobals.Bodies?.Find(b => b.name == pt.Value.bodyName);
+                if (body == null) continue;
+
+                Vector3d worldPos = body.GetWorldSurfacePosition(
+                    pt.Value.latitude, pt.Value.longitude, pt.Value.altitude);
+
+                VesselType vtype = ResolveVesselTypeWithFallback(committed, rec);
+                Color markerColor = MapMarkerRenderer.GetColorForType(vtype);
+                MapMarkerRenderer.DrawMarker(worldPos, rec.VesselName ?? "(unknown)", markerColor, vtype);
+            }
+        }
+
+        /// <summary>
+        /// Resolve VesselType for a recording. If the recording has no VesselSnapshot,
+        /// searches other recordings of the same vessel (by VesselPersistentId) for a snapshot.
+        /// Ensures consistent icon type across chain recordings of the same vessel.
+        /// O(n) scan per call — acceptable for small committed recording counts (typically under 30).
+        /// </summary>
+        private static VesselType ResolveVesselTypeWithFallback(List<Recording> committed, Recording rec)
+        {
+            if (rec.VesselSnapshot != null)
+                return GhostMapPresence.ResolveVesselType(rec.VesselSnapshot);
+
+            // No snapshot — search for a sibling recording of the same vessel
+            uint vpid = rec.VesselPersistentId;
+            if (vpid != 0)
+            {
+                for (int j = 0; j < committed.Count; j++)
+                {
+                    if (committed[j].VesselPersistentId == vpid && committed[j].VesselSnapshot != null)
+                        return GhostMapPresence.ResolveVesselType(committed[j].VesselSnapshot);
+                }
+            }
+
+            return VesselType.Ship;
         }
 
         void OnDestroy()
         {
             GhostMapPresence.RemoveAllGhostVessels("tracking-station-cleanup");
-            ParsekLog.Info("TrackingStation", "ParsekTrackingStation destroyed");
+            ParsekLog.Info(Tag, "ParsekTrackingStation destroyed");
         }
     }
 }
