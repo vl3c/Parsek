@@ -29,6 +29,12 @@ namespace Parsek
 
         private float runningRep;
 
+        /// <summary>
+        /// True when a ReputationInitial action was processed during the current walk.
+        /// When false, the module has no seed balance and patching should be skipped.
+        /// </summary>
+        private bool hasInitialSeed;
+
         // ================================================================
         // IResourceModule
         // ================================================================
@@ -38,6 +44,7 @@ namespace Parsek
         {
             float previousRep = runningRep;
             runningRep = 0f;
+            hasInitialSeed = false;
             ParsekLog.Verbose(Tag, $"Reset: runningRep {previousRep.ToString("F2", IC)} -> 0");
         }
 
@@ -199,6 +206,7 @@ namespace Parsek
         {
             float initial = action.InitialReputation;
             runningRep += initial;
+            hasInitialSeed = true;
 
             ParsekLog.Info(Tag,
                 $"ReputationInitial: seed={initial.ToString("R", IC)}, " +
@@ -208,6 +216,12 @@ namespace Parsek
         // ================================================================
         // Public query
         // ================================================================
+
+        /// <summary>
+        /// True when the module processed a ReputationInitial action during the walk.
+        /// When false, the module has no seed balance and KSP reputation should not be patched.
+        /// </summary>
+        internal bool HasSeed => hasInitialSeed;
 
         /// <summary>
         /// Returns the current running reputation after the most recent recalculation walk.

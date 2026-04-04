@@ -6,6 +6,10 @@ All notable changes to Parsek are documented here.
 
 ## 0.6.1
 
+### Game Actions & Resources
+
+- **Fix career funds/science/reputation zeroed on save load (#222).** Loading a career save (especially after a sandbox save in the same session) would set all resources to 0. The ledger's `seedChecked` flag was never reset between saves, so no `FundsInitial`/`ScienceInitial`/`ReputationInitial` actions were created for the career save — the recalculation engine computed target=0 and `KspStatePatcher` actively zeroed KSP's correct values. Fix: added `HasSeed` guard to each resource module so patching is skipped when no seed exists, reset `seedChecked` on each save load, and added a deferred seeding coroutine that captures correct values after KSP finishes loading.
+
 ### Ghost Visuals
 
 - **Fix invisible shrouds on ghost engines with variants (PR #124).** Engine shrouds (e.g. Poodle skirt, EP37 engine plate covers) were permanently invisible on ghosts. Three fixes: (1) Variant name resolution now reads `moduleVariantName` from the PART level in snapshots, where KSP actually persists it, not just inside the MODULE node. (2) Multi-MODEL parts (engine plates) have transform names with full GameDatabase paths; variant GAMEOBJECTS rules now match after stripping the path prefix and `(Clone)` suffix. (3) The transform-visibility fallback in `CheckJettisonState` misinterpreted variant-hidden transforms as jettisoned shrouds, emitting false `ShroudJettisoned` events at recording start that permanently hid all jettison geometry on playback. Fixed by skipping the fallback for parts with `ModulePartVariants`.

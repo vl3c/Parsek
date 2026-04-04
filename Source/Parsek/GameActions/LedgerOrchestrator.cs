@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Globalization;
 
@@ -27,7 +28,9 @@ namespace Parsek
         private static StrategiesModule strategiesModule;
         private static KerbalsModule kerbalsModule;
         private static bool initialized;
-        private static bool seedChecked;
+        private static bool fundsSeedDone;
+        private static bool scienceSeedDone;
+        private static bool repSeedDone;
 
         /// <summary>
         /// Monotonically increasing sequence counter for KSC events added individually
@@ -393,16 +396,29 @@ namespace Parsek
         {
             Initialize();
 
-            // Seed initial balances for career mode (once per session, idempotent)
-            if (!seedChecked)
+            // Seed initial balances for career mode (per-resource, idempotent).
+            // Each resource is tracked independently — a partial seed (e.g., only
+            // reputation ready) must not lock out future funds/science seeding.
+            // Skip zero values: KSP singletons exist but report 0 before their
+            // OnLoad populates save data. If value is legitimately 0, HasSeed stays
+            // false and patching is skipped, preserving KSP's own 0.
+            if (!fundsSeedDone && Funding.Instance != null
+                && Funding.Instance.Funds != 0.0)
             {
-                if (Funding.Instance != null)
-                    Ledger.SeedInitialFunds(Funding.Instance.Funds);
-                if (ResearchAndDevelopment.Instance != null)
-                    Ledger.SeedInitialScience(ResearchAndDevelopment.Instance.Science);
-                if (global::Reputation.Instance != null)
-                    Ledger.SeedInitialReputation(global::Reputation.Instance.reputation);
-                seedChecked = true;
+                Ledger.SeedInitialFunds(Funding.Instance.Funds);
+                fundsSeedDone = true;
+            }
+            if (!scienceSeedDone && ResearchAndDevelopment.Instance != null
+                && ResearchAndDevelopment.Instance.Science != 0f)
+            {
+                Ledger.SeedInitialScience(ResearchAndDevelopment.Instance.Science);
+                scienceSeedDone = true;
+            }
+            if (!repSeedDone && global::Reputation.Instance != null
+                && Math.Abs(global::Reputation.Instance.reputation) > 0.01f)
+            {
+                Ledger.SeedInitialReputation(global::Reputation.Instance.reputation);
+                repSeedDone = true;
             }
 
             // Update contract and strategy slot limits based on facility levels
@@ -587,6 +603,14 @@ namespace Parsek
         internal static void OnLoad()
         {
             Initialize();
+
+            // Reset per-resource seeding flags so initial balances are re-captured
+            // for this save. Without this, switching from a sandbox save to a career
+            // save would skip seeding entirely.
+            fundsSeedDone = false;
+            scienceSeedDone = false;
+            repSeedDone = false;
+
             string path = Ledger.GetLedgerPath();
             if (!string.IsNullOrEmpty(path))
             {
@@ -680,7 +704,9 @@ namespace Parsek
         internal static void ResetForTesting()
         {
             initialized = false;
-            seedChecked = false;
+            fundsSeedDone = false;
+            scienceSeedDone = false;
+            repSeedDone = false;
             kscSequenceCounter = 0;
             scienceModule = null;
             milestonesModule = null;

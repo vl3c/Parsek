@@ -2516,6 +2516,16 @@ Engine shrouds (Poodle skirt, EP37 engine plate covers) were permanently invisib
 
 **Fix (PR #124):** (1) `ResolveVariantNameFromSnapshot` reads PART-level `moduleVariantName`. (2) `ExtractShortTransformName` strips path prefix and `(Clone)` suffix in the variant rule walk-up. (3) `skipTransformFallback` flag in `CheckJettisonState` / `BackgroundRecorder.CheckJettisonState` skips the transform-visibility fallback for parts with `ModulePartVariants`. Existing recordings with stale false-positive events need re-recording.
 
+## ~~223. Loading career save zeroes out funds, science, and reputation~~
+
+When loading a career save (especially after previously loading a sandbox save in the same KSP session), all funds, science, and reputation are set to 0. The KSP top bar shows 0 funds and 0 science despite the save having correct values.
+
+**Log evidence:** `PatchFunds: 224608.0 -> 0.0 (delta=-224608.0, target=0.0)` and `PatchScience: 99994.0 -> 0.0 (delta=-99994.0, target=0.0)` — KspStatePatcher actively zeroing resources because the recalculation engine computes target=0.
+
+**Root cause:** Three compounding issues: (1) KSP resource singletons (`Funding.Instance`, `ResearchAndDevelopment.Instance`, `Reputation.Instance`) exist immediately but report 0 for many seconds before their `OnLoad` populates save data — no KSP event signals when values are ready. (2) A single global `seedChecked` flag meant any partial seed (e.g., reputation's floating-point noise `-1.25e-5` passing `!= 0`) locked out funds/science seeding permanently. (3) No guard against patching when modules have no seed — `KspStatePatcher` would write target=0, actively destroying KSP's correct values.
+
+**Fix (PR #127):** Three-layer defense: (1) `HasSeed` flag on `FundsModule`/`ScienceModule`/`ReputationModule` — `KspStatePatcher` skips patching when module has no seed. (2) Per-resource seeding flags (`fundsSeedDone`/`scienceSeedDone`/`repSeedDone`) replace global `seedChecked` — partial availability doesn't block remaining seeds. Zero values skipped with epsilon check for reputation. (3) `DeferredSeedAndRecalculate` coroutine waits for non-zero values (up to 10s), then recalculates. Defense-in-depth: `Ledger.SeedInitialFunds/Science/Rep` update stale 0-value seeds in-place when a correct value arrives.
+
 # In-Game Tests
 
 - [x] Vessels propagate naturally along orbits after FF (no position freezing)

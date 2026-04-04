@@ -760,5 +760,101 @@ namespace Parsek.Tests
             Assert.Contains(logLines, l =>
                 l.Contains("[Ledger]") && l.Contains("prunedEarnings=1"));
         }
+
+        // ================================================================
+        // Stale seed correction (Layer 3)
+        // ================================================================
+
+        [Fact]
+        public void SeedInitialFunds_UpdatesStalZeroSeed()
+        {
+            Ledger.SeedInitialFunds(0.0);
+            Assert.Equal(0f, Ledger.Actions[0].InitialFunds);
+
+            Ledger.SeedInitialFunds(224608.0);
+            Assert.Single(Ledger.Actions); // updated in-place, not added
+            Assert.Equal(224608f, Ledger.Actions[0].InitialFunds);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Ledger]") && l.Contains("updated stale 0-value seed") && l.Contains("224608"));
+        }
+
+        [Fact]
+        public void SeedInitialFunds_DoesNotUpdateNonZeroSeed()
+        {
+            Ledger.SeedInitialFunds(25000.0);
+
+            Ledger.SeedInitialFunds(30000.0);
+            Assert.Single(Ledger.Actions);
+            Assert.Equal(25000f, Ledger.Actions[0].InitialFunds); // unchanged
+        }
+
+        [Fact]
+        public void SeedInitialScience_UpdatesStaleZeroSeed()
+        {
+            Ledger.SeedInitialScience(0f);
+            Ledger.SeedInitialScience(99994f);
+            Assert.Single(Ledger.Actions);
+            Assert.Equal(99994f, Ledger.Actions[0].InitialScience);
+        }
+
+        [Fact]
+        public void SeedInitialReputation_UpdatesStaleNearZeroSeed()
+        {
+            Ledger.SeedInitialReputation(-1.25e-5f); // floating-point noise
+            Ledger.SeedInitialReputation(14.2f);
+            Assert.Single(Ledger.Actions);
+            Assert.Equal(14.2f, Ledger.Actions[0].InitialReputation);
+        }
+
+        [Fact]
+        public void SeedInitialReputation_DoesNotUpdateNonZeroSeed()
+        {
+            Ledger.SeedInitialReputation(10f);
+            Ledger.SeedInitialReputation(20f);
+            Assert.Single(Ledger.Actions);
+            Assert.Equal(10f, Ledger.Actions[0].InitialReputation); // unchanged
+        }
+
+        // ================================================================
+        // Per-resource isolation
+        // ================================================================
+
+        [Fact]
+        public void Seeding_OneResource_DoesNotBlockOthers()
+        {
+            // Seed reputation only (simulates rep's near-zero noise arriving first)
+            Ledger.SeedInitialReputation(14.2f);
+            Assert.Single(Ledger.Actions);
+            Assert.Equal(GameActionType.ReputationInitial, Ledger.Actions[0].Type);
+
+            // Funds and science can still be seeded independently
+            Ledger.SeedInitialFunds(224608.0);
+            Assert.Equal(2, Ledger.Actions.Count);
+            Assert.Equal(GameActionType.FundsInitial, Ledger.Actions[1].Type);
+
+            Ledger.SeedInitialScience(99994f);
+            Assert.Equal(3, Ledger.Actions.Count);
+            Assert.Equal(GameActionType.ScienceInitial, Ledger.Actions[2].Type);
+        }
+
+        [Fact]
+        public void StaleSeeds_UpdateIndependently()
+        {
+            // All three seeded with 0 (KSP singletons not loaded yet)
+            Ledger.SeedInitialFunds(0.0);
+            Ledger.SeedInitialScience(0f);
+            Ledger.SeedInitialReputation(0f);
+            Assert.Equal(3, Ledger.Actions.Count);
+
+            // Only funds gets corrected — science/rep remain stale
+            Ledger.SeedInitialFunds(224608.0);
+            Assert.Equal(224608f, Ledger.Actions[0].InitialFunds);
+            Assert.Equal(0f, Ledger.Actions[1].InitialScience); // still stale
+            Assert.Equal(0f, Ledger.Actions[2].InitialReputation); // still stale
+
+            // Science corrected separately
+            Ledger.SeedInitialScience(99994f);
+            Assert.Equal(99994f, Ledger.Actions[1].InitialScience);
+        }
     }
 }

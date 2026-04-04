@@ -891,5 +891,55 @@ namespace Parsek.Tests
 
             Assert.Equal(30.0, module.GetAvailableScience());
         }
+
+        // ================================================================
+        // HasSeed tests
+        // ================================================================
+
+        [Fact]
+        public void HasSeed_FalseBeforeAnyAction()
+        {
+            Assert.False(module.HasSeed);
+        }
+
+        [Fact]
+        public void HasSeed_TrueAfterScienceInitial()
+        {
+            module.ProcessAction(new GameAction
+            {
+                UT = 0,
+                Type = GameActionType.ScienceInitial,
+                InitialScience = 500f
+            });
+            Assert.True(module.HasSeed);
+        }
+
+        [Fact]
+        public void HasSeed_FalseAfterReset()
+        {
+            module.ProcessAction(new GameAction
+            {
+                UT = 0,
+                Type = GameActionType.ScienceInitial,
+                InitialScience = 500f
+            });
+            Assert.True(module.HasSeed);
+            module.Reset();
+            Assert.False(module.HasSeed);
+        }
+
+        [Fact]
+        public void HasSeed_FalseWithOnlyEarnings()
+        {
+            module.ProcessEarning(new GameAction
+            {
+                UT = 10,
+                Type = GameActionType.ScienceEarning,
+                SubjectId = "crewReport@KerbinSrfLandedLaunchPad",
+                ScienceAwarded = 5f,
+                SubjectMaxValue = 10f
+            });
+            Assert.False(module.HasSeed);
+        }
     }
 }
