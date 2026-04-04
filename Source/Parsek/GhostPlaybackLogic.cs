@@ -2392,12 +2392,12 @@ namespace Parsek
 
         /// <summary>
         /// Determines whether a ghost is within the camera cutoff distance
-        /// (eligible for Watch button). Zone must not be Beyond AND distance
-        /// must be within the cutoff.
+        /// (eligible for Watch button). Only checks distance against the
+        /// user-configurable cutoff — zone is irrelevant because watch mode
+        /// moves the camera to the ghost (T39).
         /// </summary>
         internal static bool IsWithinWatchRange(RenderingZone zone, double distanceMeters, float cutoffKm)
         {
-            if (zone == RenderingZone.Beyond) return false;
             return distanceMeters < cutoffKm * 1000.0;
         }
 

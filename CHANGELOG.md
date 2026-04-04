@@ -6,6 +6,10 @@ All notable changes to Parsek are documented here.
 
 ## 0.6.1
 
+### Ghost Playback
+
+- **Watch mode for distant ghosts (T39).** Watch button is no longer disabled for ghosts beyond the 120km visual rendering zone. The zone boundary is about rendering from the active vessel's camera — irrelevant for watch mode which moves the camera to the ghost. The only limit is now the user-configurable `ghostCameraCutoffKm` setting (default 300km).
+
 ### Tests
 
 - **ChainSegmentManager unit tests (T34).** 16 new tests covering `SampleContinuationVessel` guard paths (pid=0 early return, stale/negative index → stop callback), `UpdateContinuationSampling`/`UpdateUndockContinuationSampling` wrappers (no-op and stale-index propagation), `StopAllContinuations` branching (neither/one/both active, chain identity preservation), and `RefreshContinuationSnapshotCore` guards (pid=0, negative recIdx, stale recIdx). Total: 46 tests for ChainSegmentManager (up from 30).

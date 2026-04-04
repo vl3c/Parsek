@@ -959,10 +959,16 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void IsWithinWatchRange_BeyondZone_AlwaysFalse()
+        public void IsWithinWatchRange_BeyondZone_WithinCutoff_True()
         {
-            // Beyond zone always returns false, even if distance < cutoff (shouldn't happen normally)
-            Assert.False(GhostPlaybackLogic.IsWithinWatchRange(RenderingZone.Beyond, 100000, 300));
+            // Beyond zone is irrelevant for watch mode — camera moves to ghost (T39)
+            Assert.True(GhostPlaybackLogic.IsWithinWatchRange(RenderingZone.Beyond, 100000, 300));
+        }
+
+        [Fact]
+        public void IsWithinWatchRange_BeyondZone_BeyondCutoff_False()
+        {
+            Assert.False(GhostPlaybackLogic.IsWithinWatchRange(RenderingZone.Beyond, 350000, 300));
         }
 
         [Fact]
