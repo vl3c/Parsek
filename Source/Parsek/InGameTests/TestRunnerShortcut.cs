@@ -1,4 +1,3 @@
-using ClickThroughFix;
 using System.Collections.Generic;
 using UnityEngine;
 
@@ -77,7 +76,7 @@ namespace Parsek.InGameTests
                 opaqueStyle.onHover.background = MakeOpaqueCopy(opaqueStyle.onHover.background);
             }
 
-            windowRect = ClickThruBlocker.GUILayoutWindow(
+            windowRect = GUILayout.Window(
                 "ParsekTestRunnerGlobal".GetHashCode(),
                 windowRect,
                 DrawWindow,
