@@ -333,6 +333,7 @@ namespace Parsek
             vesselsByChainPid.Clear();
             vesselsByRecordingIndex.Clear();
             vesselPidToRecordingIndex.Clear();
+            tsStateVectorCachedIndices.Clear();
 
             ParsekLog.Info(Tag,
                 string.Format(ic,
@@ -442,16 +443,23 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Tracking indices of state-vector-based ghosts (no orbit segment, position from trajectory points).
+        /// Separate from segment-based ghosts: these need per-tick orbit updates and different expiry logic.
+        /// </summary>
+        private static readonly Dictionary<int, int> tsStateVectorCachedIndices = new Dictionary<int, int>();
+
+        /// <summary>
         /// Per-frame lifecycle for tracking station ghost ProtoVessels.
-        /// Creates ghosts when UT enters an orbit segment range (handles time warp),
-        /// and removes them when UT passes the segment endUT.
+        /// Three phases:
+        /// 1. Remove expired ghosts (segment past endUT, or state-vector past trajectory end)
+        /// 2. Update state-vector ghosts (orbit from interpolated trajectory points)
+        /// 3. Create new ghosts (segment-based or state-vector-based, handles time warp)
         /// Called periodically from ParsekTrackingStation.Update.
-        /// In the flight scene, this lifecycle is handled by ParsekPlaybackPolicy.CheckPendingMapVessels;
-        /// in the tracking station, this method provides the equivalent.
         /// </summary>
         internal static void UpdateTrackingStationGhostLifecycle()
         {
             double currentUT = Planetarium.GetUniversalTime();
+            var committed = RecordingStore.CommittedRecordings;
 
             // --- Phase 1: remove expired ghosts ---
             if (vesselsByRecordingIndex.Count > 0)
@@ -459,13 +467,34 @@ namespace Parsek
                 List<int> toRemove = null;
                 foreach (var kvp in vesselsByRecordingIndex)
                 {
+                    int idx = kvp.Key;
                     uint pid = kvp.Value.persistentId;
-                    if (!ghostOrbitBounds.TryGetValue(pid, out var bounds)) continue;
 
-                    if (currentUT > bounds.endUT)
+                    // Segment-based: expired when UT > endUT
+                    if (ghostOrbitBounds.TryGetValue(pid, out var bounds))
                     {
-                        if (toRemove == null) toRemove = new List<int>();
-                        toRemove.Add(kvp.Key);
+                        if (currentUT > bounds.endUT)
+                        {
+                            if (toRemove == null) toRemove = new List<int>();
+                            toRemove.Add(idx);
+                        }
+                        continue;
+                    }
+
+                    // State-vector-based: expired when UT past recording's trajectory end,
+                    // or when UT enters an orbit segment (let segment ghost take over)
+                    if (committed != null && idx >= 0 && idx < committed.Count)
+                    {
+                        var rec = committed[idx];
+                        bool pastEnd = rec.Points == null || rec.Points.Count == 0
+                            || currentUT > rec.Points[rec.Points.Count - 1].ut;
+                        bool enteredSegment = TrajectoryMath.FindOrbitSegment(rec.OrbitSegments, currentUT).HasValue;
+
+                        if (pastEnd || enteredSegment)
+                        {
+                            if (toRemove == null) toRemove = new List<int>();
+                            toRemove.Add(idx);
+                        }
                     }
                 }
 
@@ -474,51 +503,111 @@ namespace Parsek
                     for (int i = 0; i < toRemove.Count; i++)
                     {
                         int idx = toRemove[i];
-                        RemoveGhostVesselForRecording(idx, "tracking-station-expired");
+                        bool wasStateVector = tsStateVectorCachedIndices.ContainsKey(idx);
+                        RemoveGhostVesselForRecording(idx, wasStateVector ? "tracking-station-sv-expired" : "tracking-station-expired");
+                        tsStateVectorCachedIndices.Remove(idx);
                         ParsekLog.Info(Tag,
                             string.Format(ic,
-                                "Removed expired ghost #{0} — UT {1:F1} past segment endUT",
-                                idx, currentUT));
+                                "Removed expired ghost #{0} — UT {1:F1} ({2})",
+                                idx, currentUT, wasStateVector ? "state-vector" : "segment"));
                     }
                 }
             }
 
-            // --- Phase 2: create ghosts for recordings that just entered orbit segment range ---
-            var committed = RecordingStore.CommittedRecordings;
+            // --- Phase 2: update state-vector ghosts with current trajectory position ---
+            if (tsStateVectorCachedIndices.Count > 0 && committed != null)
+            {
+                foreach (var kvp in tsStateVectorCachedIndices)
+                {
+                    int idx = kvp.Key;
+                    if (idx < 0 || idx >= committed.Count) continue;
+                    if (!vesselsByRecordingIndex.ContainsKey(idx)) continue;
+
+                    var rec = committed[idx];
+                    int cached = kvp.Value;
+                    TrajectoryPoint? pt = TrajectoryMath.BracketPointAtUT(rec.Points, currentUT, ref cached);
+                    tsStateVectorCachedIndices[idx] = cached;
+
+                    if (pt.HasValue)
+                        UpdateGhostOrbitFromStateVectors(idx, pt.Value, currentUT);
+                }
+            }
+
+            // --- Phase 3: create ghosts for recordings that now qualify ---
             if (committed == null || committed.Count == 0) return;
 
             var superseded = FindSupersededRecordingIds(committed);
 
             for (int i = 0; i < committed.Count; i++)
             {
-                // Skip recordings that already have a ghost
                 if (vesselsByRecordingIndex.ContainsKey(i)) continue;
 
                 var rec = committed[i];
-                bool isSuperseded = superseded.Contains(rec.RecordingId);
-                var (shouldCreate, _) = ShouldCreateTrackingStationGhost(rec, isSuperseded, currentUT);
-                if (!shouldCreate) continue;
+                if (rec.IsDebris) continue;
+                if (superseded.Contains(rec.RecordingId)) continue;
 
-                Vessel v = null;
-                if (HasOrbitData(rec))
-                {
-                    v = CreateGhostVesselForRecording(i, rec);
-                }
-                else if (rec.OrbitSegments != null && rec.OrbitSegments.Count > 0)
+                var terminal = rec.TerminalStateValue;
+                if (terminal.HasValue
+                    && terminal.Value != TerminalState.Orbiting
+                    && terminal.Value != TerminalState.Docked)
+                    continue;
+
+                // Path A: segment-based (has orbit segment at current UT)
+                if (rec.OrbitSegments != null && rec.OrbitSegments.Count > 0)
                 {
                     OrbitSegment? seg = TrajectoryMath.FindOrbitSegment(rec.OrbitSegments, currentUT);
                     if (seg.HasValue)
-                        v = CreateGhostVesselFromSegment(i, rec, seg.Value);
+                    {
+                        Vessel v = HasOrbitData(rec)
+                            ? CreateGhostVesselForRecording(i, rec)
+                            : CreateGhostVesselFromSegment(i, rec, seg.Value);
+                        if (v != null)
+                        {
+                            EnsureGhostOrbitRenderers();
+                            ParsekLog.Info(Tag,
+                                string.Format(ic,
+                                    "Deferred ghost creation for #{0} \"{1}\" — UT {2:F1} entered orbit segment",
+                                    i, rec.VesselName ?? "(null)", currentUT));
+                        }
+                        continue;
+                    }
+                }
+                else if (HasOrbitData(rec))
+                {
+                    // Terminal orbit (stable) — create full-ellipse ghost
+                    Vessel v = CreateGhostVesselForRecording(i, rec);
+                    if (v != null)
+                    {
+                        EnsureGhostOrbitRenderers();
+                        ParsekLog.Info(Tag,
+                            string.Format(ic,
+                                "Deferred ghost creation for #{0} \"{1}\" — terminal orbit",
+                                i, rec.VesselName ?? "(null)"));
+                    }
+                    continue;
                 }
 
-                if (v != null)
+                // Path B: state-vector-based (trajectory points, no orbit segment at current UT)
+                // Shows ghost icon during atmospheric flight (launch, reentry) without orbit line.
+                if (rec.Points != null && rec.Points.Count > 0
+                    && currentUT >= rec.Points[0].ut
+                    && currentUT <= rec.Points[rec.Points.Count - 1].ut)
                 {
-                    // Ensure orbit renderer exists (MapView.fetch should be available by now)
-                    EnsureGhostOrbitRenderers();
-                    ParsekLog.Info(Tag,
-                        string.Format(ic,
-                            "Deferred ghost creation for #{0} \"{1}\" — UT {2:F1} entered orbit segment",
-                            i, rec.VesselName ?? "(null)", currentUT));
+                    int cached = -1;
+                    TrajectoryPoint? pt = TrajectoryMath.BracketPointAtUT(rec.Points, currentUT, ref cached);
+                    if (pt.HasValue)
+                    {
+                        Vessel v = CreateGhostVesselFromStateVectors(i, rec, pt.Value, currentUT);
+                        if (v != null)
+                        {
+                            EnsureGhostOrbitRenderers();
+                            tsStateVectorCachedIndices[i] = cached;
+                            ParsekLog.Info(Tag,
+                                string.Format(ic,
+                                    "Created state-vector ghost for #{0} \"{1}\" — UT {2:F1} alt={3:F0}",
+                                    i, rec.VesselName ?? "(null)", currentUT, pt.Value.altitude));
+                        }
+                    }
                 }
             }
         }
@@ -975,6 +1064,7 @@ namespace Parsek
             vesselsByChainPid.Clear();
             vesselsByRecordingIndex.Clear();
             vesselPidToRecordingIndex.Clear();
+            tsStateVectorCachedIndices.Clear();
         }
 
         // ------------------------------------------------------------------
