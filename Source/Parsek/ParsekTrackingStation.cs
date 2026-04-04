@@ -22,15 +22,14 @@ namespace Parsek
         /// <summary>Cached interpolation indices for atmospheric ghost icon rendering (per recording index).</summary>
         private readonly Dictionary<int, int> atmosCachedIndices = new Dictionary<int, int>();
 
-        /// <summary>Superseded recording IDs, rebuilt each lifecycle tick.</summary>
-        private HashSet<string> cachedSuperseded;
-
+    
         void Start()
         {
             int created = GhostMapPresence.CreateGhostVesselsFromCommittedRecordings();
             int renderersFixed = GhostMapPresence.EnsureGhostOrbitRenderers();
 
             nextLifecycleCheckTime = Time.time + LifecycleCheckIntervalSec;
+            atmosCachedIndices.Clear();
 
             ParsekLog.Info(Tag,
                 $"ParsekTrackingStation initialized: created {created} ghost vessel(s), " +
@@ -43,12 +42,6 @@ namespace Parsek
             nextLifecycleCheckTime = Time.time + LifecycleCheckIntervalSec;
 
             GhostMapPresence.UpdateTrackingStationGhostLifecycle();
-
-            // Rebuild superseded set for OnGUI (lightweight — just scans ParentRecordingId)
-            var committed = RecordingStore.CommittedRecordings;
-            cachedSuperseded = committed != null
-                ? GhostMapPresence.FindSupersededRecordingIds(committed)
-                : null;
         }
 
         void OnGUI()
@@ -74,8 +67,10 @@ namespace Parsek
                 if (rec.Points == null || rec.Points.Count == 0) continue;
                 if (currentUT < rec.Points[0].ut || currentUT > rec.Points[rec.Points.Count - 1].ut) continue;
 
-                // Skip superseded recordings (intermediate chain segments)
-                if (cachedSuperseded != null && cachedSuperseded.Contains(rec.RecordingId)) continue;
+                // Skip superseded recordings (intermediate chain segments).
+                // Uses cached set from UpdateTrackingStationGhostLifecycle (computed once per tick).
+                var superseded = GhostMapPresence.CachedSupersededIds;
+                if (superseded != null && superseded.Contains(rec.RecordingId)) continue;
 
                 // Skip non-orbital terminal states
                 var terminal = rec.TerminalStateValue;
@@ -114,6 +109,7 @@ namespace Parsek
         /// Resolve VesselType for a recording. If the recording has no VesselSnapshot,
         /// searches other recordings of the same vessel (by VesselPersistentId) for a snapshot.
         /// Ensures consistent icon type across chain recordings of the same vessel.
+        /// O(n) scan per call — acceptable for small committed recording counts (typically under 30).
         /// </summary>
         private static VesselType ResolveVesselTypeWithFallback(List<Recording> committed, Recording rec)
         {

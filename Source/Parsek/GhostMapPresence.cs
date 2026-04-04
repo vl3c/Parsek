@@ -442,6 +442,12 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Cached superseded recording IDs from the last lifecycle tick.
+        /// Reused by ParsekTrackingStation.OnGUI to avoid recomputing.
+        /// </summary>
+        internal static HashSet<string> CachedSupersededIds { get; private set; }
+
+        /// <summary>
         /// Per-frame lifecycle for tracking station ghost ProtoVessels.
         /// Creates ghosts when UT enters an orbit segment range (handles time warp),
         /// and removes them when UT passes the segment endUT.
@@ -487,7 +493,9 @@ namespace Parsek
             var committed = RecordingStore.CommittedRecordings;
             if (committed == null || committed.Count == 0) return;
 
+            // Compute once per tick — also used by ParsekTrackingStation.OnGUI via CachedSupersededIds
             var superseded = FindSupersededRecordingIds(committed);
+            CachedSupersededIds = superseded;
 
             for (int i = 0; i < committed.Count; i++)
             {
@@ -813,9 +821,9 @@ namespace Parsek
             for (int i = 0; i < committed.Count; i++)
             {
                 var rec = committed[i];
-                bool isSupereded = superseded.Contains(rec.RecordingId);
+                bool isSuperseded = superseded.Contains(rec.RecordingId);
 
-                var (shouldCreate, skipReason) = ShouldCreateTrackingStationGhost(rec, isSupereded, currentUT);
+                var (shouldCreate, skipReason) = ShouldCreateTrackingStationGhost(rec, isSuperseded, currentUT);
                 if (!shouldCreate)
                 {
                     if (skipReason == "debris") skippedDebris++;
