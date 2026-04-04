@@ -17,8 +17,8 @@ namespace Parsek.InGameTests
         /// </summary>
         public GameScenes Scene { get; set; } = AnyScene;
 
-        /// <summary>Sentinel value meaning "runs in any scene".</summary>
-        public const GameScenes AnyScene = GameScenes.MAINMENU;
+        /// <summary>Sentinel value meaning "runs in any scene". Uses -1 to avoid collision with real scenes.</summary>
+        public const GameScenes AnyScene = (GameScenes)(-1);
 
         /// <summary>Short description shown in the UI tooltip.</summary>
         public string Description { get; set; }

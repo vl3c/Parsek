@@ -497,6 +497,10 @@ namespace Parsek.InGameTests
                     if (string.IsNullOrEmpty(partName)) continue;
 
                     // Strip persistentId suffix if present (name = partName_pidHex in some formats)
+                    // KSP snapshot PART names may include a _persistentId suffix (e.g. "mk1pod.v2_12345").
+                    // Split on underscore to get the base part name. Note: mod parts with
+                    // unconverted underscores in their name would be truncated here — stock parts
+                    // have underscores converted to dots at runtime, so this is safe for stock.
                     string lookupName = partName.Split('_')[0];
                     totalParts++;
 
@@ -669,6 +673,10 @@ namespace Parsek.InGameTests
                 {
                     string partName = partNode.GetValue("name");
                     if (string.IsNullOrEmpty(partName)) continue;
+                    // KSP snapshot PART names may include a _persistentId suffix (e.g. "mk1pod.v2_12345").
+                    // Split on underscore to get the base part name. Note: mod parts with
+                    // unconverted underscores in their name would be truncated here — stock parts
+                    // have underscores converted to dots at runtime, so this is safe for stock.
                     string lookupName = partName.Split('_')[0];
                     if (PartLoader.getPartInfoByName(lookupName) != null)
                     {

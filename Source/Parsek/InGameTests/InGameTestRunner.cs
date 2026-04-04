@@ -38,6 +38,7 @@ namespace Parsek.InGameTests
         private MonoBehaviour coroutineHost;
         private bool isRunning;
         private Coroutine activeCoroutine;
+        private Coroutine activeInnerCoroutine;
 
         // Results summary
         public int Passed { get; private set; }
@@ -117,6 +118,9 @@ namespace Parsek.InGameTests
         public void Cancel()
         {
             if (!isRunning) return;
+            if (activeInnerCoroutine != null)
+                coroutineHost.StopCoroutine(activeInnerCoroutine);
+            activeInnerCoroutine = null;
             if (activeCoroutine != null)
                 coroutineHost.StopCoroutine(activeCoroutine);
             isRunning = false;
@@ -136,6 +140,18 @@ namespace Parsek.InGameTests
             Skipped = 0;
         }
 
+        public void ResetCategory(string category)
+        {
+            foreach (var t in allTests)
+            {
+                if (t.Category != category) continue;
+                t.Status = TestStatus.NotRun;
+                t.ErrorMessage = null;
+                t.DurationMs = 0;
+            }
+            RecountResults();
+        }
+
         private bool IsEligibleForScene(InGameTestInfo test)
         {
             if (test.RequiredScene == InGameTestAttribute.AnyScene) return true;
@@ -145,9 +161,6 @@ namespace Parsek.InGameTests
         private IEnumerator RunBatch(List<InGameTestInfo> tests)
         {
             isRunning = true;
-            Passed = 0;
-            Failed = 0;
-            Skipped = 0;
             ParsekLog.Info(Tag, $"Starting test run: {tests.Count} tests");
 
             foreach (var test in tests)
@@ -156,11 +169,12 @@ namespace Parsek.InGameTests
                 {
                     test.Status = TestStatus.Skipped;
                     test.ErrorMessage = $"Requires {test.RequiredScene} scene";
-                    Skipped++;
+                    RecountResults();
                     continue;
                 }
 
                 yield return coroutineHost.StartCoroutine(RunOneTest(test));
+                RecountResults();
             }
 
             isRunning = false;
@@ -168,6 +182,23 @@ namespace Parsek.InGameTests
                 $"Test run complete: {Passed} passed, {Failed} failed, {Skipped} skipped (of {tests.Count})");
 
             ExportResultsFile();
+        }
+
+        private void RecountResults()
+        {
+            int passed = 0, failed = 0, skipped = 0;
+            foreach (var t in allTests)
+            {
+                switch (t.Status)
+                {
+                    case TestStatus.Passed:  passed++;  break;
+                    case TestStatus.Failed:  failed++;  break;
+                    case TestStatus.Skipped: skipped++; break;
+                }
+            }
+            Passed = passed;
+            Failed = failed;
+            Skipped = skipped;
         }
 
         private IEnumerator RunOneTest(InGameTestInfo test)
@@ -225,7 +256,7 @@ namespace Parsek.InGameTests
                         }
                     }
 
-                    coroutineHost.StartCoroutine(SafeEnumerator());
+                    activeInnerCoroutine = coroutineHost.StartCoroutine(SafeEnumerator());
                 }
             }
             catch (TargetInvocationException tie) when (tie.InnerException != null)
@@ -262,7 +293,6 @@ namespace Parsek.InGameTests
             else
             {
                 test.Status = TestStatus.Passed;
-                Passed++;
                 ParsekLog.Verbose(Tag, $"PASSED: {test.Name} ({test.DurationMs:F1}ms)");
             }
 
@@ -275,12 +305,13 @@ namespace Parsek.InGameTests
             test.DurationMs = (float)sw.Elapsed.TotalMilliseconds;
             test.Status = TestStatus.Failed;
             test.ErrorMessage = message;
-            Failed++;
             ParsekLog.Warn(Tag, $"FAILED: {test.Name} - {message}");
         }
 
         private void RunCleanup(object instance, InGameTestInfo test)
         {
+            activeInnerCoroutine = null;
+
             try
             {
                 RunLifecycleMethod<InGameTeardownAttribute>(instance, test.DeclaringType);

@@ -58,6 +58,9 @@ namespace Parsek
         private Rect lastTestRunnerWindowRect;
         private InGameTestRunner testRunner;
         private readonly HashSet<string> expandedTestCategories = new HashSet<string>();
+        // Cached grouped test list — rebuilt on init and after each run to avoid per-frame LINQ
+        private List<KeyValuePair<string, List<InGameTestInfo>>> cachedTestGroups;
+        private bool testRunnerWasRunning;
 
         // Actions window
         private bool showActionsWindow;
@@ -4183,9 +4186,9 @@ namespace Parsek
             if (testRunner == null)
             {
                 testRunner = new InGameTestRunner(host);
-                // Expand all categories by default
                 foreach (var t in testRunner.Tests)
                     expandedTestCategories.Add(t.Category);
+                RebuildTestGroupCache();
             }
 
             if (testRunnerWindowRect.width < 1f)
@@ -4226,6 +4229,23 @@ namespace Parsek
             if (!testRunnerWindowHasInputLock) return;
             InputLockManager.RemoveControlLock(TestRunnerInputLockId);
             testRunnerWindowHasInputLock = false;
+        }
+
+        private void RebuildTestGroupCache()
+        {
+            var groups = new Dictionary<string, List<InGameTestInfo>>();
+            foreach (var t in testRunner.Tests)
+            {
+                if (!groups.TryGetValue(t.Category, out var list))
+                {
+                    list = new List<InGameTestInfo>();
+                    groups[t.Category] = list;
+                }
+                list.Add(t);
+            }
+            var sorted = new List<KeyValuePair<string, List<InGameTestInfo>>>(groups);
+            sorted.Sort((a, b) => string.Compare(a.Key, b.Key, System.StringComparison.Ordinal));
+            cachedTestGroups = sorted;
         }
 
         private void DrawTestRunnerWindow(int windowID)
@@ -4270,26 +4290,29 @@ namespace Parsek
             // --- Scene filter note ---
             GUILayout.Label($"Scene: {HighLogic.LoadedScene}", GUI.skin.label);
 
+            // --- Rebuild cached groups when run state changes ---
+            bool running = testRunner.IsRunning;
+            if (cachedTestGroups == null || (testRunnerWasRunning && !running))
+                RebuildTestGroupCache();
+            testRunnerWasRunning = running;
+
             // --- Test list ---
             GUILayout.Space(SpacingSmall);
             testRunnerScrollPos = GUILayout.BeginScrollView(testRunnerScrollPos,
                 GUILayout.MinHeight(200), GUILayout.MaxHeight(500));
 
-            var categories = testRunner.Tests
-                .Select(t => t.Category)
-                .Distinct()
-                .OrderBy(c => c)
-                .ToList();
-
-            foreach (var category in categories)
+            foreach (var group in cachedTestGroups)
             {
-                var testsInCategory = testRunner.Tests
-                    .Where(t => t.Category == category)
-                    .ToList();
+                var category = group.Key;
+                var testsInCategory = group.Value;
 
                 bool expanded = expandedTestCategories.Contains(category);
-                int catPassed = testsInCategory.Count(t => t.Status == TestStatus.Passed);
-                int catFailed = testsInCategory.Count(t => t.Status == TestStatus.Failed);
+                int catPassed = 0, catFailed = 0;
+                foreach (var t in testsInCategory)
+                {
+                    if (t.Status == TestStatus.Passed) catPassed++;
+                    else if (t.Status == TestStatus.Failed) catFailed++;
+                }
 
                 // Category header
                 GUILayout.BeginHorizontal();
@@ -4306,7 +4329,7 @@ namespace Parsek
                 GUI.enabled = !testRunner.IsRunning;
                 if (GUILayout.Button("Run", GUILayout.Width(40)))
                 {
-                    testRunner.ResetResults();
+                    testRunner.ResetCategory(category);
                     testRunner.RunCategory(category);
                     ParsekLog.Verbose("UI", $"Test runner: Run category '{category}'");
                 }
