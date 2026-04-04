@@ -74,6 +74,13 @@ namespace Parsek
                 return;
             }
 
+            if (!science.HasSeed)
+            {
+                ParsekLog.Verbose(Tag,
+                    "PatchScience: module has no ScienceInitial seed — skipping to preserve KSP values");
+                return;
+            }
+
             float currentScience = ResearchAndDevelopment.Instance.Science;
             double targetScience = science.GetAvailableScience();
             float delta = (float)(targetScience - (double)currentScience);
@@ -119,6 +126,13 @@ namespace Parsek
                 return;
             }
 
+            if (!funds.HasSeed)
+            {
+                ParsekLog.Verbose(Tag,
+                    "PatchFunds: module has no FundsInitial seed — skipping to preserve KSP values");
+                return;
+            }
+
             double currentFunds = Funding.Instance.Funds;
             double targetFunds = funds.GetAvailableFunds();
             double delta = targetFunds - currentFunds;
@@ -157,6 +171,13 @@ namespace Parsek
             {
                 ParsekLog.Verbose(Tag,
                     "PatchReputation: Reputation.Instance is null (sandbox mode) — skipping");
+                return;
+            }
+
+            if (!reputation.HasSeed)
+            {
+                ParsekLog.Verbose(Tag,
+                    "PatchReputation: module has no ReputationInitial seed — skipping to preserve KSP values");
                 return;
             }
 

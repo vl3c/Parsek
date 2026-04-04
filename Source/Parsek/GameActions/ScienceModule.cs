@@ -52,6 +52,12 @@ namespace Parsek
         /// </summary>
         private double totalEffectiveEarnings;
 
+        /// <summary>
+        /// True when a ScienceInitial action was processed during the current walk.
+        /// When false, the module has no seed balance and patching should be skipped.
+        /// </summary>
+        private bool hasInitialSeed;
+
         // ================================================================
         // IResourceModule
         // ================================================================
@@ -67,6 +73,7 @@ namespace Parsek
             runningScience = 0.0;
             totalCommittedSpendings = 0.0;
             totalEffectiveEarnings = 0.0;
+            hasInitialSeed = false;
 
             ParsekLog.Verbose("ScienceModule",
                 $"Reset: cleared {subjectCount} subjects, runningScience=0, " +
@@ -259,6 +266,7 @@ namespace Parsek
             double initial = (double)action.InitialScience;
             runningScience += initial;
             totalEffectiveEarnings += initial;
+            hasInitialSeed = true;
 
             ParsekLog.Info("ScienceModule",
                 $"ScienceInitial: seed={initial.ToString("R", IC)}, " +
@@ -342,6 +350,12 @@ namespace Parsek
 
             return 0.0;
         }
+
+        /// <summary>
+        /// True when the module processed a ScienceInitial action during the walk.
+        /// When false, the module has no seed balance and KSP science should not be patched.
+        /// </summary>
+        internal bool HasSeed => hasInitialSeed;
 
         /// <summary>Returns the total effective earnings accumulated during the walk.</summary>
         internal double GetTotalEffectiveEarnings()

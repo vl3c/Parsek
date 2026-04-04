@@ -664,6 +664,12 @@ namespace Parsek
             double reconcileUT = Planetarium.GetUniversalTime();
             LedgerOrchestrator.OnKspLoad(validIds, reconcileUT);
 
+            // Schedule deferred seeding: during OnLoad, Funding/R&D/Reputation singletons
+            // may exist but have not loaded their save data yet (KSP loads scenarios in
+            // parallel). The deferred coroutine waits for singletons to be ready, then
+            // seeds initial balances and recalculates so the ledger has correct values.
+            StartCoroutine(DeferredSeedAndRecalculate());
+
             // Diagnostic summary of loaded recordings with UT context
             double loadUT = Planetarium.GetUniversalTime();
             ParsekLog.Info("Scenario", $"Scenario load summary — UT: {loadUT:F0}, {recordings.Count} recording(s)");
@@ -1037,6 +1043,58 @@ namespace Parsek
             }
             // mergeDialogPending stays true until the user clicks a button
             // (ClearPendingFlag is called from the button callbacks)
+        }
+
+        #endregion
+
+        #region Deferred Seeding
+
+        /// <summary>
+        /// Waits for resource singletons to be ready, then triggers RecalculateAndPatch
+        /// so the ledger's FundsInitial/ScienceInitial/ReputationInitial actions capture
+        /// correct values. Called on initial save load because OnLoad runs before KSP's
+        /// Funding/R&amp;D/Reputation scenarios have loaded their data from the save file.
+        /// </summary>
+        private IEnumerator DeferredSeedAndRecalculate()
+        {
+            // Phase 1: wait for singletons to exist (non-null).
+            // In sandbox mode none will ever appear — bail after timeout.
+            int maxWait = 120;
+            while (maxWait-- > 0
+                   && Funding.Instance == null
+                   && ResearchAndDevelopment.Instance == null
+                   && Reputation.Instance == null)
+                yield return null;
+
+            if (Funding.Instance == null && ResearchAndDevelopment.Instance == null
+                && Reputation.Instance == null)
+            {
+                ParsekLog.Verbose("Scenario",
+                    "DeferredSeed: no resource singletons available (sandbox mode) — skipping");
+                yield break;
+            }
+
+            // Phase 2: wait for singletons to have NON-ZERO values.
+            // KSP creates singletons immediately but populates their data from the
+            // save file on a separate schedule (can be many seconds on heavy saves).
+            // Spin until at least one singleton reports a non-zero value, or timeout.
+            int maxValueWait = 600; // ~10 seconds at 60fps
+            while (maxValueWait-- > 0
+                   && (Funding.Instance == null || Funding.Instance.Funds == 0.0)
+                   && (ResearchAndDevelopment.Instance == null || ResearchAndDevelopment.Instance.Science == 0f)
+                   && (Reputation.Instance == null || Math.Abs(Reputation.Instance.reputation) < 0.01f))
+                yield return null;
+
+            int framesWaited = 599 - maxValueWait; // post-decrement: 600→599 on first check
+
+            var ic = CultureInfo.InvariantCulture;
+            ParsekLog.Verbose("Scenario",
+                $"DeferredSeed: values ready after {framesWaited} frames — " +
+                $"Funding={(Funding.Instance != null ? Funding.Instance.Funds.ToString("F0", ic) : "null")}, " +
+                $"Science={(ResearchAndDevelopment.Instance != null ? ResearchAndDevelopment.Instance.Science.ToString("F0", ic) : "null")}, " +
+                $"Rep={(Reputation.Instance != null ? Reputation.Instance.reputation.ToString("F1", ic) : "null")}");
+
+            LedgerOrchestrator.RecalculateAndPatch();
         }
 
         #endregion

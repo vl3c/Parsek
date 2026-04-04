@@ -48,6 +48,13 @@ namespace Parsek
         /// </summary>
         private double totalEarnings;
 
+        /// <summary>
+        /// True when a FundsInitial action was processed during the current walk.
+        /// When false, the module has no seed balance and patching should be skipped
+        /// (avoids zeroing out KSP funds for saves without a ledger).
+        /// </summary>
+        private bool hasInitialSeed;
+
         // ================================================================
         // IResourceModule
         // ================================================================
@@ -67,6 +74,7 @@ namespace Parsek
             runningBalance = 0.0;
             totalCommittedSpendings = 0.0;
             totalEarnings = 0.0;
+            hasInitialSeed = false;
 
             ParsekLog.Verbose(Tag,
                 $"Reset: prevSeed={prevSeed.ToString("R", IC)}, " +
@@ -226,6 +234,7 @@ namespace Parsek
         {
             initialFunds = (double)action.InitialFunds;
             runningBalance += initialFunds;
+            hasInitialSeed = true;
 
             ParsekLog.Info(Tag,
                 $"FundsInitial: seed={initialFunds.ToString("R", IC)}, " +
@@ -474,6 +483,12 @@ namespace Parsek
             double available = initialFunds + totalEarnings - totalCommittedSpendings;
             return available > 0.0 ? available : 0.0;
         }
+
+        /// <summary>
+        /// True when the module processed a FundsInitial action during the walk.
+        /// When false, the module has no seed balance and KSP funds should not be patched.
+        /// </summary>
+        internal bool HasSeed => hasInitialSeed;
 
         /// <summary>Returns the career initial funds (seed value).</summary>
         internal double GetInitialFunds()

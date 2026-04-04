@@ -2661,8 +2661,17 @@ namespace Parsek
             Part prefab, ConfigNode partNode,
             out ConfigNode selectedVariantNode, out string selectedVariantName)
         {
+            return TryFindSelectedVariantNode(prefab, partNode, out selectedVariantNode, out selectedVariantName, out _);
+        }
+
+        internal static bool TryFindSelectedVariantNode(
+            Part prefab, ConfigNode partNode,
+            out ConfigNode selectedVariantNode, out string selectedVariantName,
+            out string resolutionPath)
+        {
             selectedVariantNode = null;
             selectedVariantName = null;
+            resolutionPath = null;
 
             if (prefab == null || prefab.partInfo == null || prefab.partInfo.partConfig == null)
                 return false;
@@ -2675,13 +2684,7 @@ namespace Parsek
             bool variantFromSnapshot = false;
 
             // Prefer explicit variant saved on the part snapshot when present.
-            ConfigNode snapshotVariantModule = FindModuleNode(partNode, "ModulePartVariants");
-            requestedVariantName = FirstNonEmptyConfigValue(
-                snapshotVariantModule,
-                "currentVariant",
-                "selectedVariant",
-                "variantName",
-                "moduleVariantName");
+            requestedVariantName = ResolveVariantNameFromSnapshot(partNode);
             variantFromSnapshot = !string.IsNullOrEmpty(requestedVariantName);
 
             // Fall back to runtime module fields if exposed.
@@ -2710,7 +2713,7 @@ namespace Parsek
                 ? baseVariantName.ToLowerInvariant()
                 : null;
 
-            string resolutionPath = "first-fallback";
+            resolutionPath = "first-fallback";
 
             for (int i = 0; i < variantNodes.Length; i++)
             {
@@ -2751,16 +2754,62 @@ namespace Parsek
             return true;
         }
 
+        /// <summary>
+        /// Resolves the selected variant name from a snapshot PART ConfigNode.
+        /// KSP stores variant info in two places:
+        ///   1. Inside the MODULE node as "selectedVariant" or "currentVariant" (rare)
+        ///   2. At the PART level as "moduleVariantName" (common — where KSP actually
+        ///      persists the selected variant in .craft / .sfs files)
+        /// Returns null if no variant name is found.
+        /// </summary>
+        internal static string ResolveVariantNameFromSnapshot(ConfigNode partNode)
+        {
+            if (partNode == null)
+                return null;
+
+            ConfigNode snapshotVariantModule = FindModuleNode(partNode, "ModulePartVariants");
+            string name = FirstNonEmptyConfigValue(
+                snapshotVariantModule,
+                "currentVariant",
+                "selectedVariant",
+                "variantName",
+                "moduleVariantName");
+
+            // Also check PART-level moduleVariantName — KSP writes the selected variant
+            // here rather than inside the ModulePartVariants MODULE node.
+            if (string.IsNullOrEmpty(name))
+            {
+                name = FirstNonEmptyConfigValue(
+                    partNode,
+                    "moduleVariantName");
+            }
+
+            return name;
+        }
+
         private static bool TryGetSelectedVariantGameObjectStates(
             Part prefab,
             ConfigNode partNode,
             out string selectedVariantName,
             out Dictionary<string, bool> gameObjectStates)
         {
+            return TryGetSelectedVariantGameObjectStates(prefab, partNode,
+                out selectedVariantName, out gameObjectStates, out _);
+        }
+
+        private static bool TryGetSelectedVariantGameObjectStates(
+            Part prefab,
+            ConfigNode partNode,
+            out string selectedVariantName,
+            out Dictionary<string, bool> gameObjectStates,
+            out string variantResolutionPath)
+        {
             selectedVariantName = null;
             gameObjectStates = null;
+            variantResolutionPath = null;
 
-            if (!TryFindSelectedVariantNode(prefab, partNode, out ConfigNode selectedVariantNode, out selectedVariantName))
+            if (!TryFindSelectedVariantNode(prefab, partNode,
+                out ConfigNode selectedVariantNode, out selectedVariantName, out variantResolutionPath))
                 return false;
 
             ConfigNode gameObjectsNode = selectedVariantNode.GetNode("GAMEOBJECTS");
@@ -3123,6 +3172,18 @@ namespace Parsek
                     return enabled;
                 }
 
+                // Multi-MODEL parts: KSP names model roots with the full GameDatabase path
+                // plus "(Clone)" suffix (e.g. "SquadExpansion/.../Shroud3x0(Clone)").
+                // Variant GAMEOBJECTS rules use short names (e.g. "Shroud3x0").
+                // Try matching the last path segment after stripping "(Clone)".
+                string shortName = ExtractShortTransformName(current.name);
+                if (shortName != null && gameObjectStates.TryGetValue(shortName, out bool shortEnabled))
+                {
+                    matchedRuleName = shortName;
+                    matchedRuleEnabled = shortEnabled;
+                    return shortEnabled;
+                }
+
                 if (current == modelRoot)
                     break;
 
@@ -3130,6 +3191,31 @@ namespace Parsek
             }
 
             return true;
+        }
+
+        /// <summary>
+        /// For multi-MODEL parts, transform names include the full GameDatabase path
+        /// (e.g. "SquadExpansion/MakingHistory/Parts/SharedAssets/Shroud3x0(Clone)").
+        /// Extracts the short name ("Shroud3x0") by stripping the path prefix and "(Clone)" suffix.
+        /// Returns null if the name doesn't contain a path separator (already short).
+        /// </summary>
+        internal static string ExtractShortTransformName(string fullName)
+        {
+            if (string.IsNullOrEmpty(fullName))
+                return null;
+
+            // Only apply to path-like names (contain '/')
+            int lastSlash = fullName.LastIndexOf('/');
+            if (lastSlash < 0)
+                return null;
+
+            string segment = fullName.Substring(lastSlash + 1);
+
+            // Strip "(Clone)" suffix if present
+            if (segment.EndsWith("(Clone)"))
+                segment = segment.Substring(0, segment.Length - 7);
+
+            return segment.Length > 0 ? segment : null;
         }
 
         internal static Mesh GenerateFairingConeMesh(
@@ -4735,11 +4821,13 @@ namespace Parsek
             colorChangerInfos = null;
             Transform modelRoot = FindModelRoot(prefab);
 
-            // Dump full hierarchy for engine parts to diagnose missing nozzle meshes.
+            // Dump full hierarchy for engine parts to diagnose missing nozzle/shroud meshes.
             // Search from the Part root (not just modelRoot) to catch siblings of "model".
-            if (prefab.FindModuleImplementing<ModuleEngines>() != null)
+            bool isEnginePart = prefab.FindModuleImplementing<ModuleEngines>() != null;
+            bool hasJettison = prefab.FindModuleImplementing<ModuleJettison>() != null;
+            if (isEnginePart)
             {
-                ParsekLog.VerboseRateLimited("GhostVisual", $"engine_dump_{partName}",
+                ParsekLog.VerboseRateLimited("GhostVisual", $"part_dump_{partName}",
                     $"  ENGINE PART HIERARCHY DUMP for '{partName}' pid={persistentId}:", 60.0);
                 DumpTransformHierarchy(prefab.transform, 0, partName);
 
@@ -4790,6 +4878,7 @@ namespace Parsek
             int totalSMR = skinnedRenderers != null ? skinnedRenderers.Length : 0;
             bool hasVariantGameObjectRules = false;
             string selectedVariantName = null;
+            string variantResolutionPath = null;
             Dictionary<string, bool> selectedVariantGameObjects = null;
             if (hasPartVariants)
             {
@@ -4797,7 +4886,8 @@ namespace Parsek
                     prefab,
                     partNode,
                     out selectedVariantName,
-                    out selectedVariantGameObjects);
+                    out selectedVariantGameObjects,
+                    out variantResolutionPath);
             }
             int activeMR = 0;
             int activeSMR = 0;
@@ -4828,7 +4918,7 @@ namespace Parsek
             if (hasPartVariants && hasVariantGameObjectRules)
             {
                 ParsekLog.VerboseRateLimited("GhostVisual", $"variant_sel_{partName}",
-                    $"  Variant selection: '{selectedVariantName}' with " +
+                    $"  Variant selection: '{selectedVariantName}' via {variantResolutionPath} with " +
                     $"{selectedVariantGameObjects.Count} GAMEOBJECT rules", 60.0);
             }
             if (hasPartVariants && !filterInactiveVariantRenderers && !hasVariantGameObjectRules)
@@ -5005,6 +5095,60 @@ namespace Parsek
                             $"    Jettison '{jettisonName}' found on prefab but not in cloneMap", 60.0);
                         continue;
                     }
+
+                    // ModuleJettison.OnStart() hasn't run on the prefab, so jettison
+                    // transforms may be inactive or zero-scaled. Force them visible
+                    // in the ghost — playback will hide them via ShroudJettisoned events.
+                    if (!ghostJettison.gameObject.activeSelf)
+                    {
+                        ParsekLog.VerboseRateLimited("GhostVisual", $"jettison_activate_{partName}_{jettisonName}",
+                            $"    Jettison '{jettisonName}' was inactive on ghost — activating", 60.0);
+                        ghostJettison.gameObject.SetActive(true);
+                    }
+                    if (ghostJettison.localScale.sqrMagnitude < 0.001f)
+                    {
+                        ParsekLog.VerboseRateLimited("GhostVisual", $"jettison_rescale_{partName}_{jettisonName}",
+                            $"    Jettison '{jettisonName}' had near-zero scale {ghostJettison.localScale} — resetting to (1,1,1)", 60.0);
+                        ghostJettison.localScale = UnityEngine.Vector3.one;
+                    }
+
+                    // Log diagnostic info for jettison transform state
+                    var jmf = ghostJettison.GetComponent<MeshFilter>();
+                    var jmr = ghostJettison.GetComponent<MeshRenderer>();
+                    string jmeshInfo = jmf?.sharedMesh != null
+                        ? $"verts={jmf.sharedMesh.vertexCount} bounds={jmf.sharedMesh.bounds}"
+                        : "(no mesh on jettison transform)";
+                    string matInfo = "(no renderer)";
+                    if (jmr != null)
+                    {
+                        var mats = jmr.sharedMaterials;
+                        if (mats == null || mats.Length == 0)
+                            matInfo = "NO MATERIALS";
+                        else
+                        {
+                            var matNames = new System.Text.StringBuilder();
+                            for (int m = 0; m < mats.Length; m++)
+                            {
+                                if (m > 0) matNames.Append(", ");
+                                matNames.Append(mats[m] != null
+                                    ? $"{mats[m].name}[{mats[m].shader?.name}]"
+                                    : "null");
+                            }
+                            matInfo = matNames.ToString();
+                        }
+                    }
+                    ParsekLog.VerboseRateLimited("GhostVisual", $"jettison_hit_{partName}_{jettisonName}",
+                        $"    Jettison '{jettisonName}' matched: scale={ghostJettison.localScale} " +
+                        $"active={ghostJettison.gameObject.activeSelf} " +
+                        $"srcScale={srcJettison.localScale} srcActive={srcJettison.gameObject.activeSelf} " +
+                        $"srcPos={srcJettison.localPosition} " +
+                        $"mesh={jmeshInfo} materials=[{matInfo}]", 60.0);
+                    // Log world position chain for spatial debugging
+                    ParsekLog.VerboseRateLimited("GhostVisual", $"jettison_pos_{partName}_{jettisonName}",
+                        $"    Jettison '{jettisonName}' ghost chain: " +
+                        $"ghostLocalPos={ghostJettison.localPosition} " +
+                        $"parentName={ghostJettison.parent?.name} " +
+                        $"parentLocalPos={ghostJettison.parent?.localPosition}", 60.0);
 
                     if (ghostJettisonTransforms.Contains(ghostJettison)) continue;
                     ghostJettisonTransforms.Add(ghostJettison);
