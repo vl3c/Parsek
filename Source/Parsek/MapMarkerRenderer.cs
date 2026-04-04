@@ -22,6 +22,27 @@ namespace Parsek
         private static Texture2D fallbackDiamond;
         private static GUIStyle labelStyle;
 
+        /// <summary>
+        /// Returns the orbit color for a ghost marker by vessel type.
+        /// Matches KSP's own orbit color scheme — same table as ParsekUI.GetGhostMarkerColorForType.
+        /// </summary>
+        internal static Color GetColorForType(VesselType vtype)
+        {
+            switch (vtype)
+            {
+                case VesselType.Ship:    return new Color(0.78f, 0.78f, 0.0f);  // yellow
+                case VesselType.Probe:   return new Color(0.84f, 0.46f, 0.0f);  // orange
+                case VesselType.Relay:   return new Color(0.41f, 0.67f, 0.0f);  // green
+                case VesselType.Rover:   return new Color(0.55f, 0.78f, 0.22f); // lime
+                case VesselType.Station: return new Color(0.0f, 0.63f, 0.90f);  // blue
+                case VesselType.Plane:   return new Color(0.63f, 0.46f, 0.78f); // purple
+                case VesselType.Lander:  return new Color(0.78f, 0.67f, 0.0f);  // gold
+                case VesselType.Base:    return new Color(0.22f, 0.67f, 0.67f); // teal
+                case VesselType.EVA:     return new Color(0.78f, 0.78f, 0.78f); // light grey
+                default:                 return new Color(0.63f, 0.63f, 0.63f); // grey
+            }
+        }
+
         internal static void DrawMarker(Vector3d worldPos, string label, Color color,
             VesselType vtype = VesselType.Ship)
         {
@@ -88,26 +109,44 @@ namespace Parsek
             }
         }
 
+        private static bool initAttempted;
+
         private static void InitVesselTypeIcons()
         {
+            if (initAttempted) return; // only try once per session
+
             vesselIconAtlas = MapView.OrbitIconsMap;
-            if (vesselIconAtlas == null) return;
+            if (vesselIconAtlas == null)
+            {
+                ParsekLog.Verbose("MapMarker", "InitVesselTypeIcons: OrbitIconsMap is null");
+                return;
+            }
 
             var prefab = MapView.UINodePrefab;
-            if (prefab == null) return;
+            if (prefab == null)
+            {
+                ParsekLog.Verbose("MapMarker", "InitVesselTypeIcons: UINodePrefab is null");
+                vesselIconAtlas = null;
+                return;
+            }
 
             var fi = typeof(MapNode).GetField("iconSprites",
                 BindingFlags.Instance | BindingFlags.NonPublic);
             if (fi == null)
             {
+                ParsekLog.Warn("MapMarker", "InitVesselTypeIcons: iconSprites field not found");
                 vesselIconAtlas = null;
+                initAttempted = true;
                 return;
             }
 
             var sprites = fi.GetValue(prefab) as Sprite[];
             if (sprites == null || sprites.Length == 0)
             {
+                ParsekLog.Warn("MapMarker",
+                    $"InitVesselTypeIcons: iconSprites is null or empty (sprites={sprites?.Length ?? 0})");
                 vesselIconAtlas = null;
+                initAttempted = true;
                 return;
             }
 
@@ -129,6 +168,10 @@ namespace Parsek
                     r.x / vesselIconAtlas.width, r.y / vesselIconAtlas.height,
                     r.width / vesselIconAtlas.width, r.height / vesselIconAtlas.height);
             }
+
+            initAttempted = true;
+            ParsekLog.Info("MapMarker",
+                $"InitVesselTypeIcons: loaded {vesselIconUVs.Count} vessel type icons from atlas ({sprites.Length} sprites)");
         }
     }
 }

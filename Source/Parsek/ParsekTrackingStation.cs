@@ -105,7 +105,8 @@ namespace Parsek
                     pt.Value.latitude, pt.Value.longitude, pt.Value.altitude);
 
                 VesselType vtype = GhostMapPresence.ResolveVesselType(rec.VesselSnapshot);
-                MapMarkerRenderer.DrawMarker(worldPos, rec.VesselName ?? "(unknown)", Color.green, vtype);
+                Color markerColor = MapMarkerRenderer.GetColorForType(vtype);
+                MapMarkerRenderer.DrawMarker(worldPos, rec.VesselName ?? "(unknown)", markerColor, vtype);
             }
         }
 

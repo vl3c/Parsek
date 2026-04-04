@@ -4241,23 +4241,12 @@ namespace Parsek
 
         /// <summary>
         /// Returns the orbit color for a ghost marker by vessel type.
-        /// Matches KSP's own orbit color scheme.
+        /// Delegates to MapMarkerRenderer.GetColorForType for consistency
+        /// between flight map view and tracking station.
         /// </summary>
         private static Color GetGhostMarkerColorForType(VesselType vtype)
         {
-            switch (vtype)
-            {
-                case VesselType.Ship:    return new Color(0.78f, 0.78f, 0.0f);  // yellow
-                case VesselType.Probe:   return new Color(0.84f, 0.46f, 0.0f);  // orange
-                case VesselType.Relay:   return new Color(0.41f, 0.67f, 0.0f);  // green
-                case VesselType.Rover:   return new Color(0.55f, 0.78f, 0.22f); // lime
-                case VesselType.Station: return new Color(0.0f, 0.63f, 0.90f);  // blue
-                case VesselType.Plane:   return new Color(0.63f, 0.46f, 0.78f); // purple
-                case VesselType.Lander:  return new Color(0.78f, 0.67f, 0.0f);  // gold
-                case VesselType.Base:    return new Color(0.22f, 0.67f, 0.67f); // teal
-                case VesselType.EVA:     return new Color(0.78f, 0.78f, 0.78f); // light grey
-                default:                 return new Color(0.63f, 0.63f, 0.63f); // grey
-            }
+            return MapMarkerRenderer.GetColorForType(vtype);
         }
 
         private void DrawMapMarkerAt(Vector3 worldPos, string label, Color color,
