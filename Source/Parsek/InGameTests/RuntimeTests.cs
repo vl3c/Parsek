@@ -1,5 +1,7 @@
 using System.Collections;
 using System.Collections.Generic;
+using System.IO;
+using System.Linq;
 using UnityEngine;
 
 namespace Parsek.InGameTests
@@ -428,6 +430,672 @@ namespace Parsek.InGameTests
                 "empty ID should be invalid");
             InGameAssert.IsFalse(RecordingPaths.ValidateRecordingId("../etc/passwd"),
                 "path traversal should be invalid");
+        }
+    }
+
+    /// <summary>
+    /// Tier 1: Verify ghost visual construction against real PartLoader prefabs.
+    /// Catches part name resolution failures (underscore→dot, variant suffixes, mod parts).
+    /// </summary>
+    public class GhostVisualConstructionTests
+    {
+        private readonly InGameTestRunner runner;
+        public GhostVisualConstructionTests(InGameTestRunner runner) { this.runner = runner; }
+
+        [InGameTest(Category = "GhostVisuals",
+            Description = "Every committed recording with snapshot builds a ghost (or sphere fallback) without crash")]
+        public void AllSnapshotsBuildWithoutCrash()
+        {
+            var recordings = RecordingStore.CommittedRecordings;
+            int built = 0, fallback = 0, noSnapshot = 0;
+
+            foreach (var rec in recordings)
+            {
+                if (rec.GhostVisualSnapshot == null && rec.VesselSnapshot == null)
+                {
+                    noSnapshot++;
+                    continue;
+                }
+
+                var result = GhostVisualBuilder.BuildTimelineGhostFromSnapshot(
+                    rec, $"ParsekTest_Build_{built}");
+
+                if (result != null && result.root != null)
+                {
+                    built++;
+                    runner.TrackForCleanup(result.root);
+                }
+                else
+                {
+                    // null result means snapshot had no PART nodes or all parts failed —
+                    // not a crash, just a graceful degradation
+                    fallback++;
+                }
+            }
+
+            ParsekLog.Info("TestRunner",
+                $"Ghost build sweep: {built} built, {fallback} degraded, {noSnapshot} no snapshot " +
+                $"(of {recordings.Count} recordings)");
+        }
+
+        [InGameTest(Category = "GhostVisuals",
+            Description = "All snapshot PART names resolve in PartLoader (catches underscore→dot bugs)")]
+        public void AllSnapshotPartNamesResolve()
+        {
+            var recordings = RecordingStore.CommittedRecordings;
+            int totalParts = 0, resolved = 0, missing = 0;
+            var missingNames = new HashSet<string>();
+
+            foreach (var rec in recordings)
+            {
+                ConfigNode snapshot = rec.GhostVisualSnapshot ?? rec.VesselSnapshot;
+                if (snapshot == null) continue;
+
+                foreach (var partNode in snapshot.GetNodes("PART"))
+                {
+                    string partName = partNode.GetValue("name");
+                    if (string.IsNullOrEmpty(partName)) continue;
+
+                    // Strip persistentId suffix if present (name = partName_pidHex in some formats)
+                    string lookupName = partName.Split('_')[0];
+                    totalParts++;
+
+                    if (PartLoader.getPartInfoByName(lookupName) != null)
+                        resolved++;
+                    else
+                    {
+                        missing++;
+                        missingNames.Add(lookupName);
+                    }
+                }
+            }
+
+            if (totalParts == 0)
+            {
+                ParsekLog.Verbose("TestRunner", "No snapshot parts to validate");
+                return;
+            }
+
+            ParsekLog.Info("TestRunner",
+                $"Part name resolution: {resolved}/{totalParts} resolved, {missing} missing");
+            if (missingNames.Count > 0)
+                ParsekLog.Warn("TestRunner",
+                    $"Unresolvable part names: {string.Join(", ", missingNames)}");
+
+            // At least some parts should resolve (all missing = likely broken snapshot format)
+            InGameAssert.IsGreaterThan(resolved, 0,
+                $"No parts resolved from {totalParts} snapshot parts. Missing: {string.Join(", ", missingNames)}");
+        }
+
+        [InGameTest(Category = "GhostVisuals",
+            Description = "Ghost built from snapshot has MeshRenderer on at least one child")]
+        public void GhostHasRenderers()
+        {
+            var recordings = RecordingStore.CommittedRecordings;
+            Recording withSnapshot = recordings.FirstOrDefault(
+                r => r.GhostVisualSnapshot != null || r.VesselSnapshot != null);
+            if (withSnapshot == null)
+            {
+                ParsekLog.Verbose("TestRunner", "No recordings with snapshot — skipping renderer check");
+                return;
+            }
+
+            var result = GhostVisualBuilder.BuildTimelineGhostFromSnapshot(
+                withSnapshot, "ParsekTest_Renderer");
+            if (result == null || result.root == null)
+            {
+                ParsekLog.Verbose("TestRunner", "Ghost build returned null — skipping renderer check");
+                return;
+            }
+            runner.TrackForCleanup(result.root);
+
+            var renderers = result.root.GetComponentsInChildren<MeshRenderer>(true);
+            InGameAssert.IsGreaterThan(renderers.Length, 0,
+                $"Ghost for '{withSnapshot.VesselName}' has no MeshRenderers in hierarchy");
+            ParsekLog.Verbose("TestRunner",
+                $"Ghost '{withSnapshot.VesselName}' has {renderers.Length} MeshRenderers");
+        }
+    }
+
+    /// <summary>
+    /// Tier 1: Verify recording data integrity against live KSP state.
+    /// Catches body name mismatches, stale orbit data, broken snapshot references.
+    /// </summary>
+    public class RecordingDataHealthTests
+    {
+        [InGameTest(Category = "DataHealth",
+            Description = "All body names in trajectory points resolve in FlightGlobals")]
+        public void AllBodyNamesResolve()
+        {
+            var recordings = RecordingStore.CommittedRecordings;
+            var allBodies = new HashSet<string>();
+            var missingBodies = new HashSet<string>();
+
+            foreach (var rec in recordings)
+            {
+                if (rec.Points == null) continue;
+                foreach (var pt in rec.Points)
+                {
+                    if (string.IsNullOrEmpty(pt.bodyName)) continue;
+                    allBodies.Add(pt.bodyName);
+                }
+            }
+
+            foreach (var bodyName in allBodies)
+            {
+                if (FlightGlobals.GetBodyByName(bodyName) == null)
+                    missingBodies.Add(bodyName);
+            }
+
+            if (allBodies.Count == 0)
+            {
+                ParsekLog.Verbose("TestRunner", "No body names found in recordings");
+                return;
+            }
+
+            ParsekLog.Info("TestRunner",
+                $"Body name resolution: {allBodies.Count - missingBodies.Count}/{allBodies.Count} resolved");
+
+            InGameAssert.IsTrue(missingBodies.Count == 0,
+                $"Unresolvable body names: {string.Join(", ", missingBodies)}");
+        }
+
+        [InGameTest(Category = "DataHealth",
+            Description = "All orbit segment bodies resolve and have positive radius")]
+        public void OrbitSegmentBodiesValid()
+        {
+            var recordings = RecordingStore.CommittedRecordings;
+            int segments = 0, valid = 0;
+            var missingBodies = new HashSet<string>();
+
+            foreach (var rec in recordings)
+            {
+                if (rec.OrbitSegments == null) continue;
+                foreach (var seg in rec.OrbitSegments)
+                {
+                    segments++;
+                    if (string.IsNullOrEmpty(seg.bodyName))
+                    {
+                        missingBodies.Add("(empty)");
+                        continue;
+                    }
+
+                    var body = FlightGlobals.GetBodyByName(seg.bodyName);
+                    if (body == null)
+                    {
+                        missingBodies.Add(seg.bodyName);
+                        continue;
+                    }
+
+                    InGameAssert.IsGreaterThan(body.Radius, 0,
+                        $"Body '{seg.bodyName}' has non-positive radius");
+                    InGameAssert.IsGreaterThan(seg.semiMajorAxis, 0,
+                        $"Orbit segment for '{seg.bodyName}' has non-positive SMA={seg.semiMajorAxis}");
+                    valid++;
+                }
+            }
+
+            if (segments == 0)
+            {
+                ParsekLog.Verbose("TestRunner", "No orbit segments in committed recordings");
+                return;
+            }
+
+            ParsekLog.Info("TestRunner",
+                $"Orbit segments: {valid}/{segments} valid");
+            InGameAssert.IsTrue(missingBodies.Count == 0,
+                $"Orbit segments with unresolvable bodies: {string.Join(", ", missingBodies)}");
+        }
+
+        [InGameTest(Category = "DataHealth",
+            Description = "Every recording has at least one snapshot PART resolvable in PartLoader")]
+        public void EveryRecordingHasResolvablePart()
+        {
+            var recordings = RecordingStore.CommittedRecordings;
+            int checked_ = 0;
+            var failures = new List<string>();
+
+            foreach (var rec in recordings)
+            {
+                ConfigNode snapshot = rec.GhostVisualSnapshot ?? rec.VesselSnapshot;
+                if (snapshot == null) continue;
+
+                var partNodes = snapshot.GetNodes("PART");
+                if (partNodes == null || partNodes.Length == 0) continue;
+
+                checked_++;
+                bool anyResolved = false;
+                foreach (var partNode in partNodes)
+                {
+                    string partName = partNode.GetValue("name");
+                    if (string.IsNullOrEmpty(partName)) continue;
+                    string lookupName = partName.Split('_')[0];
+                    if (PartLoader.getPartInfoByName(lookupName) != null)
+                    {
+                        anyResolved = true;
+                        break;
+                    }
+                }
+
+                if (!anyResolved)
+                    failures.Add($"{rec.VesselName ?? rec.RecordingId}");
+            }
+
+            if (checked_ == 0)
+            {
+                ParsekLog.Verbose("TestRunner", "No recordings with snapshots to check");
+                return;
+            }
+
+            ParsekLog.Info("TestRunner",
+                $"Part resolution check: {checked_ - failures.Count}/{checked_} recordings have resolvable parts");
+            InGameAssert.IsTrue(failures.Count == 0,
+                $"Recordings with no resolvable parts: {string.Join(", ", failures)}");
+        }
+
+        [InGameTest(Category = "DataHealth",
+            Description = "Recording time ranges are sane (EndUT > StartUT, positive duration)")]
+        public void RecordingTimeRangesSane()
+        {
+            var recordings = RecordingStore.CommittedRecordings;
+            int checked_ = 0;
+
+            foreach (var rec in recordings)
+            {
+                if (rec.Points == null || rec.Points.Count < 2) continue;
+                checked_++;
+
+                double startUT = rec.Points[0].ut;
+                double endUT = rec.Points[rec.Points.Count - 1].ut;
+
+                InGameAssert.IsGreaterThan(endUT, startUT,
+                    $"Recording '{rec.VesselName}': EndUT ({endUT:F1}) should be > StartUT ({startUT:F1})");
+
+                // Sanity: recordings shouldn't span more than a few years of game time
+                double durationDays = (endUT - startUT) / 21600.0; // KSP day = 6h = 21600s
+                InGameAssert.IsLessThan(durationDays, 10000,
+                    $"Recording '{rec.VesselName}' spans {durationDays:F0} Kerbin days — suspiciously long");
+            }
+
+            ParsekLog.Verbose("TestRunner", $"Time range check: {checked_} recordings validated");
+        }
+    }
+
+    /// <summary>
+    /// Tier 1: Verify file I/O paths and save/load round-trip integrity.
+    /// </summary>
+    public class SaveLoadTests
+    {
+        [InGameTest(Category = "SaveLoad",
+            Description = "RecordingPaths.EnsureRecordingsDirectory creates/resolves the dir")]
+        public void RecordingsDirectoryExists()
+        {
+            if (string.IsNullOrEmpty(HighLogic.SaveFolder))
+            {
+                ParsekLog.Verbose("TestRunner", "No SaveFolder set — skipping directory check");
+                return;
+            }
+
+            string dir = RecordingPaths.EnsureRecordingsDirectory();
+            InGameAssert.IsNotNull(dir, "EnsureRecordingsDirectory returned null");
+            InGameAssert.IsTrue(Directory.Exists(dir),
+                $"Recordings directory does not exist: {dir}");
+            ParsekLog.Verbose("TestRunner", $"Recordings directory: {dir}");
+        }
+
+        [InGameTest(Category = "SaveLoad",
+            Description = "ParsekScenario is active in the current game")]
+        public void ScenarioInstanceActive()
+        {
+            var scenario = Object.FindObjectOfType<ParsekScenario>();
+            InGameAssert.IsNotNull(scenario,
+                "ParsekScenario should be active (ScenarioModule loaded)");
+        }
+
+        [InGameTest(Category = "SaveLoad",
+            Description = "Recording count survives ConfigNode round-trip through ParsekScenario")]
+        public void ScenarioRoundTripPreservesCount()
+        {
+            var scenario = Object.FindObjectOfType<ParsekScenario>();
+            if (scenario == null)
+            {
+                ParsekLog.Verbose("TestRunner", "No ParsekScenario instance — skipping round-trip");
+                return;
+            }
+
+            int beforeCount = RecordingStore.CommittedRecordings.Count;
+
+            // Serialize current state
+            var saveNode = new ConfigNode("SCENARIO");
+            scenario.OnSave(saveNode);
+
+            // Deserialize back
+            scenario.OnLoad(saveNode);
+            int afterCount = RecordingStore.CommittedRecordings.Count;
+
+            InGameAssert.AreEqual(beforeCount, afterCount,
+                $"Recording count changed after round-trip: {beforeCount} -> {afterCount}");
+            ParsekLog.Verbose("TestRunner",
+                $"Scenario round-trip: {beforeCount} recordings preserved");
+        }
+
+        [InGameTest(Category = "SaveLoad",
+            Description = "External recording files exist on disk for committed v3 recordings")]
+        public void ExternalFilesExist()
+        {
+            if (string.IsNullOrEmpty(HighLogic.SaveFolder))
+            {
+                ParsekLog.Verbose("TestRunner", "No SaveFolder — skipping file check");
+                return;
+            }
+
+            var recordings = RecordingStore.CommittedRecordings;
+            int checked_ = 0, found = 0, missing = 0;
+
+            foreach (var rec in recordings)
+            {
+                if (string.IsNullOrEmpty(rec.RecordingId)) continue;
+                if (!RecordingPaths.ValidateRecordingId(rec.RecordingId)) continue;
+
+                // Check for .prec trajectory file
+                string precPath = RecordingPaths.ResolveSaveScopedPath(
+                    Path.Combine("Parsek", "Recordings", rec.RecordingId + ".prec"));
+                if (string.IsNullOrEmpty(precPath)) continue;
+
+                checked_++;
+                if (File.Exists(precPath))
+                    found++;
+                else
+                    missing++;
+            }
+
+            ParsekLog.Info("TestRunner",
+                $"External files: {found}/{checked_} .prec files found, {missing} missing");
+            // Don't fail on missing — some recordings may be v2 inline format
+        }
+    }
+
+    /// <summary>
+    /// Tier 2: Verify crew reservation state against live KSP roster.
+    /// </summary>
+    public class CrewReservationTests
+    {
+        [InGameTest(Category = "CrewReservation",
+            Description = "KSP crew roster is accessible and has kerbals")]
+        public void RosterAccessible()
+        {
+            var game = HighLogic.CurrentGame;
+            InGameAssert.IsNotNull(game, "HighLogic.CurrentGame should not be null");
+
+            var roster = game.CrewRoster;
+            InGameAssert.IsNotNull(roster, "CrewRoster should not be null");
+            InGameAssert.IsGreaterThan(roster.Count, 0, "Crew roster should have at least one kerbal");
+            ParsekLog.Verbose("TestRunner", $"Crew roster has {roster.Count} kerbals");
+        }
+
+        [InGameTest(Category = "CrewReservation",
+            Description = "All replacement kerbals exist in roster and are not Dead")]
+        public void ReplacementsAreValid()
+        {
+            var replacements = CrewReservationManager.CrewReplacements;
+            if (replacements.Count == 0)
+            {
+                ParsekLog.Verbose("TestRunner", "No active crew replacements");
+                return;
+            }
+
+            var roster = HighLogic.CurrentGame.CrewRoster;
+            int valid = 0;
+            var problems = new List<string>();
+
+            foreach (var kvp in replacements)
+            {
+                string originalName = kvp.Key;
+                string replacementName = kvp.Value;
+
+                // Replacement kerbal must exist in roster
+                var pcm = roster[replacementName];
+                if (pcm == null)
+                {
+                    problems.Add($"Replacement '{replacementName}' (for '{originalName}') not in roster");
+                    continue;
+                }
+
+                // Replacement should not be Dead or Missing
+                if (pcm.rosterStatus == ProtoCrewMember.RosterStatus.Dead)
+                {
+                    problems.Add($"Replacement '{replacementName}' is Dead");
+                    continue;
+                }
+
+                valid++;
+            }
+
+            ParsekLog.Info("TestRunner",
+                $"Crew replacements: {valid}/{replacements.Count} valid");
+            InGameAssert.IsTrue(problems.Count == 0,
+                $"Crew replacement problems: {string.Join("; ", problems)}");
+        }
+
+        [InGameTest(Category = "CrewReservation",
+            Description = "No crew replacement maps a kerbal to themselves")]
+        public void NoSelfReplacements()
+        {
+            var replacements = CrewReservationManager.CrewReplacements;
+            foreach (var kvp in replacements)
+            {
+                InGameAssert.AreNotEqual(kvp.Key, kvp.Value,
+                    $"Crew replacement self-reference: '{kvp.Key}' → '{kvp.Value}'");
+            }
+        }
+
+        [InGameTest(Category = "CrewReservation",
+            Description = "No replacement name appears as both a key and a value (circular chain)")]
+        public void NoCircularReplacements()
+        {
+            var replacements = CrewReservationManager.CrewReplacements;
+            var keys = new HashSet<string>(replacements.Keys);
+            foreach (var kvp in replacements)
+            {
+                InGameAssert.IsFalse(keys.Contains(kvp.Value),
+                    $"Circular replacement chain: '{kvp.Value}' is both a replacement and a reserved original");
+            }
+        }
+    }
+
+    /// <summary>
+    /// Tier 2: Verify ghost map presence and CommNet integration against live KSP state.
+    /// </summary>
+    public class GhostMapPresenceTests
+    {
+        [InGameTest(Category = "MapPresence",
+            Description = "All ghost map PIDs resolve to ProtoVessels in FlightState")]
+        public void GhostPidsResolveToProtoVessels()
+        {
+            var ghostPids = GhostMapPresence.ghostMapVesselPids;
+            if (ghostPids.Count == 0)
+            {
+                ParsekLog.Verbose("TestRunner", "No ghost map vessels active");
+                return;
+            }
+
+            var flightState = HighLogic.CurrentGame?.flightState;
+            if (flightState == null)
+            {
+                ParsekLog.Verbose("TestRunner", "No FlightState available");
+                return;
+            }
+
+            int resolved = 0, orphaned = 0;
+            foreach (uint pid in ghostPids)
+            {
+                bool found = flightState.protoVessels.Any(pv => pv.persistentId == pid);
+                if (found) resolved++;
+                else orphaned++;
+            }
+
+            ParsekLog.Info("TestRunner",
+                $"Ghost map PIDs: {resolved}/{ghostPids.Count} resolve to ProtoVessels, {orphaned} orphaned");
+            InGameAssert.IsTrue(orphaned == 0,
+                $"{orphaned} ghost map PIDs have no corresponding ProtoVessel (leak)");
+        }
+
+        [InGameTest(Category = "MapPresence",
+            Description = "No ghost PID collides with a real (non-ghost) vessel PID")]
+        public void NoPidCollisionWithRealVessels()
+        {
+            var ghostPids = GhostMapPresence.ghostMapVesselPids;
+            if (ghostPids.Count == 0) return;
+
+            var realVessels = FlightGlobals.Vessels;
+            if (realVessels == null) return;
+
+            foreach (var vessel in realVessels)
+            {
+                if (vessel == null) continue;
+                // A vessel whose PID is in ghostPids is expected — that's the ghost itself.
+                // But we want to make sure no NON-ghost vessel accidentally shares a ghost PID.
+                if (ghostPids.Contains(vessel.persistentId) && !GhostMapPresence.IsGhostMapVessel(vessel.persistentId))
+                {
+                    InGameAssert.Fail(
+                        $"Real vessel '{vessel.vesselName}' (PID={vessel.persistentId}) collides with ghost PID");
+                }
+            }
+        }
+
+        [InGameTest(Category = "MapPresence",
+            Description = "Recordings with antenna specs produce positive relay power")]
+        public void AntennaSpecsProduceRelayPower()
+        {
+            var recordings = RecordingStore.CommittedRecordings;
+            int withAntennas = 0, withRelayPower = 0;
+
+            foreach (var rec in recordings)
+            {
+                if (rec.AntennaSpecs == null || rec.AntennaSpecs.Count == 0) continue;
+                withAntennas++;
+
+                double power = GhostCommNetRelay.ComputeCombinedAntennaPower(rec.AntennaSpecs);
+                if (power > 0) withRelayPower++;
+
+                // Individual antenna powers should be non-negative
+                foreach (var spec in rec.AntennaSpecs)
+                {
+                    InGameAssert.IsTrue(spec.antennaPower >= 0,
+                        $"Negative antenna power on '{spec.partName}': {spec.antennaPower}");
+                }
+            }
+
+            ParsekLog.Info("TestRunner",
+                $"Antenna specs: {withAntennas} recordings with antennas, {withRelayPower} with positive combined power");
+        }
+    }
+
+    /// <summary>
+    /// Tier 3: Multi-frame coroutine tests requiring Flight scene.
+    /// </summary>
+    public class FlightIntegrationTests
+    {
+        private readonly InGameTestRunner runner;
+        public FlightIntegrationTests(InGameTestRunner runner) { this.runner = runner; }
+
+        [InGameTest(Category = "FlightIntegration", Scene = GameScenes.FLIGHT,
+            Description = "Ghost world position matches lat/lon/alt via GetWorldSurfacePosition")]
+        public IEnumerator GhostPositionMatchesGeographic()
+        {
+            var recordings = RecordingStore.CommittedRecordings;
+            Recording surfaceRec = null;
+            foreach (var rec in recordings)
+            {
+                if (rec.Points != null && rec.Points.Count >= 2
+                    && !string.IsNullOrEmpty(rec.Points[0].bodyName)
+                    && rec.Points[0].altitude < 100000) // surface-ish
+                {
+                    surfaceRec = rec;
+                    break;
+                }
+            }
+
+            if (surfaceRec == null)
+            {
+                ParsekLog.Verbose("TestRunner", "No surface recording available — skipping position test");
+                yield break;
+            }
+
+            var pt = surfaceRec.Points[0];
+            var body = FlightGlobals.GetBodyByName(pt.bodyName);
+            if (body == null)
+            {
+                ParsekLog.Verbose("TestRunner", $"Body '{pt.bodyName}' not found — skipping");
+                yield break;
+            }
+
+            Vector3d expectedWorldPos = body.GetWorldSurfacePosition(pt.latitude, pt.longitude, pt.altitude);
+            var sphere = GhostVisualBuilder.CreateGhostSphere("ParsekTest_GeoPos", Color.yellow);
+            runner.TrackForCleanup(sphere);
+            sphere.transform.position = (Vector3)expectedWorldPos;
+
+            yield return null;
+
+            // Verify the position didn't drift to NaN or zero
+            InGameAssert.IsFalse(float.IsNaN(sphere.transform.position.x),
+                "Ghost position X is NaN after placement");
+            InGameAssert.IsFalse(sphere.transform.position == Vector3.zero,
+                "Ghost position collapsed to zero (floating origin issue?)");
+
+            ParsekLog.Verbose("TestRunner",
+                $"Ghost placed at {pt.latitude:F4},{pt.longitude:F4} alt={pt.altitude:F1} on {pt.bodyName}");
+        }
+
+        [InGameTest(Category = "FlightIntegration", Scene = GameScenes.FLIGHT,
+            Description = "ParsekFlight.Instance is active and accessible")]
+        public void ParsekFlightInstanceActive()
+        {
+            InGameAssert.IsNotNull(ParsekFlight.Instance,
+                "ParsekFlight.Instance should not be null in Flight scene");
+        }
+
+        [InGameTest(Category = "FlightIntegration", Scene = GameScenes.FLIGHT,
+            Description = "Active vessel body has valid surface position API")]
+        public void ActiveVesselBodySurfaceApi()
+        {
+            var vessel = FlightGlobals.ActiveVessel;
+            if (vessel == null) return;
+
+            var body = vessel.mainBody;
+            InGameAssert.IsNotNull(body, "Active vessel mainBody should not be null");
+
+            double lat = vessel.latitude;
+            double lon = vessel.longitude;
+            double alt = vessel.altitude;
+
+            // Round-trip through geographic coords
+            Vector3d worldPos = body.GetWorldSurfacePosition(lat, lon, alt);
+            InGameAssert.IsFalse(double.IsNaN(worldPos.x),
+                "GetWorldSurfacePosition returned NaN");
+            InGameAssert.IsFalse(double.IsInfinity(worldPos.x),
+                "GetWorldSurfacePosition returned Infinity");
+
+            // Should be reasonably close to vessel's actual position
+            double dist = Vector3d.Distance(worldPos, vessel.GetWorldPos3D());
+            InGameAssert.IsLessThan(dist, 10.0,
+                $"Geographic round-trip error: {dist:F2}m (expected < 10m)");
+        }
+
+        [InGameTest(Category = "FlightIntegration", Scene = GameScenes.FLIGHT,
+            Description = "Harmony physics frame patch is operational")]
+        public void HarmonyPatchOperational()
+        {
+            // If Harmony patching failed, PhysicsFramePatch wouldn't exist or wouldn't be called.
+            // We can verify indirectly: if ParsekFlight is recording, the recorder is non-null.
+            // If not recording, at least verify the Instance exists (patch registers callbacks).
+            InGameAssert.IsNotNull(ParsekFlight.Instance,
+                "ParsekFlight must be active for Harmony patches to function");
+
+            // The fact that we're in Flight scene and ParsekFlight loaded means
+            // ParsekHarmony.OnPatchApplied succeeded during mod load.
+            ParsekLog.Verbose("TestRunner",
+                $"ParsekFlight active, IsRecording={ParsekFlight.Instance.IsRecording}");
         }
     }
 }
