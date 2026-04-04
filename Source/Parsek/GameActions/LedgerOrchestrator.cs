@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Globalization;
 
@@ -414,7 +415,7 @@ namespace Parsek
                 scienceSeedDone = true;
             }
             if (!repSeedDone && global::Reputation.Instance != null
-                && global::Reputation.Instance.reputation != 0f)
+                && Math.Abs(global::Reputation.Instance.reputation) > 0.01f)
             {
                 Ledger.SeedInitialReputation(global::Reputation.Instance.reputation);
                 repSeedDone = true;

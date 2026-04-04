@@ -425,7 +425,8 @@ namespace Parsek
             {
                 if (actions[i].Type == GameActionType.ReputationInitial)
                 {
-                    if (actions[i].InitialReputation == 0f && initialReputation != 0f)
+                    if (Math.Abs(actions[i].InitialReputation) < 0.01f
+                        && Math.Abs(initialReputation) >= 0.01f)
                     {
                         actions[i].InitialReputation = initialReputation;
                         ParsekLog.Info("Ledger",
