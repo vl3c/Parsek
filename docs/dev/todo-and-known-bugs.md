@@ -110,11 +110,9 @@ KSP's inertial reference frame may drift over very long time warp. Could cause g
 
 Full ledger-based game actions system shipped in v0.6.0. 7 resource modules (Science, Funds, Reputation, Milestones, Contracts, Facilities, Strategies), KspStatePatcher, contract deadline failures, kerbal rescue detection, game state event recording, milestone path qualification, strategy commitment rates, warp facility patching. 4621 tests. See CHANGELOG 0.6.0 "Game Actions & Resources System" and "Kerbal Lifecycle Management" sections.
 
-### T18. Log contract checker error whitelist (bug #63)
+### ~~T18. Log contract checker error whitelist (bug #63)~~ DONE
 
-`ParsekLogContractChecker` has no whitelist for intentional error-path test scenarios. Currently no tests need this.
-
-**Priority:** Low — test infrastructure
+`ValidateLatestSession` accepts `IReadOnlyList<string> errorWhitelist` parameter with substring matching. Tests cover whitelisted/non-matching errors.
 
 ### ~~T19. FlightRecorder per-frame List&lt;PartEvent&gt; allocations~~ DONE
 
@@ -202,23 +200,17 @@ Added 5 accessor methods (`AddHiddenGroup`, `RemoveHiddenGroup`, `IsGroupHidden`
 
 46 tests in `ChainSegmentManagerTests.cs`. Covers: all state-machine methods (ClearAll, ClearChainIdentity, StopContinuation, StopUndockContinuation), field isolation, sentinel values, idempotency, logging. Also covers `SampleContinuationVessel` guard paths (pid=0 early return, stale index), `UpdateContinuationSampling`/`UpdateUndockContinuationSampling` wrappers (no-op and stale-index-stop paths), `StopAllContinuations` branching (neither/one/both active, identity preservation), `RefreshContinuationSnapshotCore` guards (pid=0, negative recIdx, stale recIdx). Commit methods cannot be unit-tested (FlightGlobals static initializer requires Unity runtime).
 
-### T35. ChainSegmentManager field encapsulation
+### ~~T35. ChainSegmentManager field encapsulation~~ DONE
 
-ParsekFlight still reads/writes `chainManager` internal fields directly in ~5 locations (CommitFlight chain tagging, FallbackCommitSplitRecorder, PromoteToTreeForBreakup, vessel destruction handler, EVA crew name set). Consider adding `TagPendingWithChainMetadata(Recording)` and making identity fields read-only with mutation via methods only.
+Added `ApplyChainMetadataTo(Recording)`, `IsTrackingContinuation`/`IsTrackingUndockContinuation` properties, and `TryGetContinuationRecording`/`TryGetUndockContinuationRecording` accessors. ParsekFlight updated to use them.
 
-**Priority:** Low — functional but leaky abstraction
+### ~~T36. Continuation recording index fragility~~ DONE
 
-### T36. Continuation recording index fragility
+`ContinuationRecordingId` and `UndockContinuationRecId` stored alongside int indices. `TryGetContinuationRecording`/`TryGetUndockContinuationRecording` validate ID match before returning.
 
-`ContinuationRecordingIdx` and `UndockContinuationRecIdx` store `int` indices into `RecordingStore.CommittedRecordings`. If a recording is ever removed from the list while continuation is active, the stored index silently points to the wrong recording or goes out of bounds (bounds check prevents crash but stops continuation). Consider storing `RecordingId` alongside the index for validation.
+### ~~T37. Showcase kerbal-with-flag height mismatch~~ DONE
 
-**Priority:** Low — no code path currently removes committed recordings during flight
-
-### T37. Showcase kerbal-with-flag height mismatch
-
-In the showcase part list, the kerbal holding a flag is not at the same height as the other parts. Likely a Y-offset issue in the showcase positioning/snapshot for the kerbal part.
-
-**Priority:** Low — cosmetic
+Added `kerbalEVA` to `ShowcasePartTopY` (topY=1.0) and applied `ShowcaseAltitudeOffset` in `FlagPlantShowcaseRecording`.
 
 ### T38. Debris recording filtering
 

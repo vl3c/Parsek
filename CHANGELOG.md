@@ -6,6 +6,15 @@ All notable changes to Parsek are documented here.
 
 ## 0.6.1
 
+### Code Quality
+
+- **ChainSegmentManager field encapsulation (T35).** Added `ApplyChainMetadataTo(Recording)`, `IsTrackingContinuation`/`IsTrackingUndockContinuation` properties, and `TryGetContinuationRecording`/`TryGetUndockContinuationRecording` accessors. ParsekFlight chain metadata copy sites and continuation access patterns now use these instead of direct field access.
+- **Continuation recording index validation (T36).** `ContinuationRecordingId` and `UndockContinuationRecId` stored alongside int indices. `TryGet` accessors validate the ID matches before returning, detecting stale indices if recordings are ever removed mid-flight.
+
+### Showcase Recordings
+
+- **Fix kerbal-with-flag height mismatch (T37).** Flag plant showcase kerbalEVA now uses `ShowcaseAltitudeOffset` for top-aligned height, matching other showcase parts.
+
 ### Ghost Playback
 
 - **Fix ghost icon through planet (#212b).** Ghost vessel icon no longer follows the full Keplerian ellipse through the planet in tracking station. New `GhostOrbitIconClampPatch` prefix on `OrbitDriver.updateFromParameters` clamps the propagation UT to the visible arc — the icon freezes at the arc endpoint instead of going underground. The previous approach (drawIcons postfix on LateUpdate) silently failed because `vessel.orbitDriver` was null for ghost ProtoVessels despite `OrbitRendererBase.driver` being valid.
@@ -20,7 +29,7 @@ All notable changes to Parsek are documented here.
 
 ### Documentation
 
-- **TODO cleanup.** Marked T17 (game actions redesign), T25/D20 (playback engine extraction), T28/D2 (commit-pattern dedup), T32 (test audit), T34 (ChainSegmentManager tests), T41 (suborbital orbit line), and T41b (atmosphere on-rails skip) as done.
+- **TODO cleanup.** Marked T17 (game actions redesign), T25/D20 (playback engine extraction), T28/D2 (commit-pattern dedup), T32 (test audit), T34 (ChainSegmentManager tests), T41 (suborbital orbit line), T41b (atmosphere on-rails skip), and T18/T35/T36/T37 as done.
 
 ---
 
