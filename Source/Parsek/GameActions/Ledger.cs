@@ -464,43 +464,9 @@ namespace Parsek
         }
 
         // ================================================================
-        // Safe-write (matches RecordingStore pattern)
-        // ================================================================
-
         private static void SafeWriteConfigNode(ConfigNode node, string path)
         {
-            // Ensure parent directory exists
-            string dir = Path.GetDirectoryName(path);
-            if (!string.IsNullOrEmpty(dir) && !Directory.Exists(dir))
-            {
-                Directory.CreateDirectory(dir);
-            }
-
-            string tmpPath = path + ".tmp";
-            node.Save(tmpPath);
-
-            if (File.Exists(path))
-            {
-                try
-                {
-                    File.Delete(path);
-                }
-                catch (Exception ex)
-                {
-                    ParsekLog.Warn("Ledger", $"Failed to delete existing file '{path}': {ex.Message}");
-                    throw;
-                }
-            }
-
-            try
-            {
-                File.Move(tmpPath, path);
-            }
-            catch (Exception ex)
-            {
-                ParsekLog.Warn("Ledger", $"Failed to move temp file '{tmpPath}' to '{path}': {ex.Message}");
-                throw;
-            }
+            FileIOUtils.SafeWriteConfigNode(node, path, "Ledger");
         }
     }
 }

@@ -640,30 +640,7 @@ namespace Parsek
 
         private static void SafeWriteConfigNode(ConfigNode node, string path)
         {
-            string tmpPath = path + ".tmp";
-            node.Save(tmpPath);
-            if (File.Exists(path))
-            {
-                try
-                {
-                    File.Delete(path);
-                }
-                catch (Exception ex)
-                {
-                    ParsekLog.Warn("GameStateStore", $"Failed to delete existing file '{path}': {ex.Message}");
-                    throw;
-                }
-            }
-
-            try
-            {
-                File.Move(tmpPath, path);
-            }
-            catch (Exception ex)
-            {
-                ParsekLog.Warn("GameStateStore", $"Failed to move temp file '{tmpPath}' to '{path}': {ex.Message}");
-                throw;
-            }
+            FileIOUtils.SafeWriteConfigNode(node, path, "GameStateStore");
         }
 
         /// <summary>
