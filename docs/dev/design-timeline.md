@@ -12,15 +12,16 @@ TimelineEntry
     TimelineEntryType Type            // discriminator (see below)
     string            DisplayText     // one-line human-readable description
     TimelineSource    Source          // Recording, GameAction, Legacy, or Derived
-    SignificanceTier  Tier            // T1, T2, or T3
+    SignificanceTier  Tier            // T1 or T2
     Color             DisplayColor    // green (earning), red (spending), white (neutral)
     string            RecordingId     // source recording ID; null for KSC-only actions
     string            VesselName      // vessel name if applicable; null otherwise
     bool              IsEffective     // false if zeroed by recalculation (duplicate milestone, etc.)
-    PartEventType?    DetailType      // underlying PartEventType for grouped part entries; null otherwise
 ```
 
-The `DetailType` field solves the sub-tier routing problem: `PartEngine` and `PartParachute` each span two tiers. The builder inspects `DetailType` during construction to assign the correct tier.
+No `DetailType` field — part events are not shown in the timeline, so sub-tier routing is unnecessary.
+
+Ineffective entries (`IsEffective == false`) are demoted one tier: T1→T2. A duplicate milestone only appears at Detail level. Applied after initial tier assignment from type.
 
 ### TimelineEntryType
 
@@ -28,11 +29,11 @@ The `DetailType` field solves the sub-tier routing problem: `PartEngine` and `Pa
 enum TimelineEntryType
 {
     // Recording lifecycle
-    RecordingStart,         // first trajectory point
-    RecordingEnd,           // last trajectory point (or terminal state)
-    VesselSpawn,            // ghost vessel materialized at recording start
+    RecordingStart,         // mission launch
+    RecordingEnd,           // mission conclusion (terminal state)
+    VesselSpawn,            // ghost vessel materialized
 
-    // Game actions (1:1 with GameActionType, mapped directly)
+    // Game actions (1:1 with GameActionType)
     ScienceEarning,
     ScienceSpending,
     FundsEarning,
@@ -57,91 +58,51 @@ enum TimelineEntryType
     ScienceInitial,
     ReputationInitial,
 
-    // Part events (grouped — individual PartEventType exposed via DetailType)
-    PartStaging,            // Decoupled, FairingJettisoned, ShroudJettisoned
-    PartDestruction,        // Destroyed
-    PartEngine,             // EngineIgnited, EngineShutdown, EngineThrottle
-    PartParachute,          // ParachuteDeployed, ParachuteSemiDeployed, ParachuteCut, ParachuteDestroyed
-    PartDocking,            // Docked, Undocked
-    PartDeployable,         // DeployableExtended/Retracted, Gear, CargoBay, Light, LightBlink (all 3)
-    PartRCS,                // RCSActivated, RCSStopped, RCSThrottle
-    PartRobotics,           // RoboticMotionStarted, RoboticPositionSample, RoboticMotionStopped
-    PartThermal,            // ThermalAnimationHot, ThermalAnimationMedium, ThermalAnimationCold
-    PartInventory,          // InventoryPartPlaced, InventoryPartRemoved
-
-    // Segment events (1:1 with SegmentEventType)
-    ControllerChange,
-    ControllerDisabled,
-    ControllerEnabled,
-    CrewLost,
-    CrewTransfer,
-    SegmentPartDestroyed,
-    SegmentPartRemoved,
-    SegmentPartAdded,
-    TimeJump,
-
     // Derived
-    GhostChainWindow,      // duration entry: vessel untouchable while ghost chain active
-
-    // Flag events
-    FlagPlanted,
+    GhostChainWindow,       // duration entry: vessel ghosted for a UT range
 
     // Legacy (pre-ledger game state events from MilestoneStore)
     LegacyEvent,
 }
 ```
 
+28 types total. No part events, segment events, or flag events — those remain in the Recordings Manager.
+
 ### TimelineSource
 
 ```
 enum TimelineSource
 {
-    Recording,      // RecordingStore — trajectory lifecycle, part/segment/flag events
-    GameAction,     // Ledger — resource transactions, contracts, milestones, kerbals, etc.
+    Recording,      // RecordingStore — recording lifecycle events
+    GameAction,     // Ledger — resource transactions, contracts, milestones, etc.
     Legacy,         // MilestoneStore — pre-ledger game state events
     Derived,        // Computed by timeline builder (ghost chain windows)
 }
 ```
 
-### Sub-Tier Routing
-
-Some grouped part event types span tiers. The builder uses `DetailType` to assign the correct tier:
-
-| Group | T2 members | T3 members |
-|-------|-----------|-----------|
-| PartEngine | EngineIgnited, EngineShutdown | EngineThrottle |
-| PartParachute | ParachuteDeployed | ParachuteSemiDeployed, ParachuteCut, ParachuteDestroyed |
-
-Implementation: a static method `GetTierForPartEvent(PartEventType detail)` returns the correct tier. The builder calls this instead of a flat type→tier lookup when processing part events.
-
 ## Entry Collection
 
 ### TimelineBuilder.Build() Signature
-
-The builder accepts data sources as parameters for testability — it does not read global static state:
 
 ```csharp
 internal static List<TimelineEntry> Build(
     IReadOnlyList<Recording> committedRecordings,
     IReadOnlyList<GameAction> ledgerActions,
     IReadOnlyList<Milestone> milestones,        // legacy committed events
-    IReadOnlyList<GameStateEvent> uncommitted,   // current flight session
     uint currentEpoch,
     double currentUT)
 ```
 
-Four collectors run in sequence, then results are merged by UT:
+Three collectors, then merge. Uncommitted events not shown.
 
 ### 1. Recording Collector
 
 Iterates `committedRecordings`:
 - Emits `RecordingStart` at `rec.StartUT` with vessel name
-- Emits `RecordingEnd` at `rec.EndUT` with terminal state from `rec.TerminalStateValue` (e.g., "Recovering", "Destroyed", "Orbiting Kerbin", "Stranded"). Null terminal state → "End"
-- Emits `VesselSpawn` at `rec.StartUT` if `rec.PlaybackEnabled` is true and the recording is not a mid-chain segment
-- Maps each `PartEvent` to a grouped `TimelineEntryType` via a static `MapPartEventType(PartEventType)` method. Stores the original `PartEventType` in `DetailType`. Constructs display text from `partEvent.partName` and event description.
-- Maps each `SegmentEvent` 1:1 to `TimelineEntryType`. Constructs display text from `segmentEvent.details`.
-- Maps each `FlagEvent` to `FlagPlanted` with display text from flag site name.
-- Skips hidden recordings (`rec.Hidden`) unless a "show hidden" flag is set.
+- Emits `RecordingEnd` at `rec.EndUT` with terminal state from `rec.TerminalStateValue` (e.g., "Recovering", "Destroyed", "Orbiting Kerbin"). Null terminal state → "End"
+- Emits `VesselSpawn` at `rec.StartUT` if `rec.PlaybackEnabled` and recording is not a mid-chain segment
+- Skips hidden recordings (`rec.Hidden`) unless a "show hidden" flag is set
+- Does **not** iterate `rec.PartEvents`, `rec.SegmentEvents`, or `rec.FlagEvents` — those are vessel telemetry, not career events
 
 ### Ghost Chain Window Computation
 
@@ -153,44 +114,42 @@ For each distinct `ChainId` among committed recordings (branch 0 only):
 5. `vesselName` = first member's `VesselName`
 6. Emit one `GhostChainWindow` entry at `windowStart` with display text: "`vesselName`: ghost UT `windowStart`–`windowEnd`"
 
-This reconstructs chain windows from committed recording data without needing runtime `GhostChain` objects (which are built by `ParsekPlaybackPolicy` and don't exist when the timeline builder runs).
-
 ### 2. Game Action Collector
 
 Iterates `ledgerActions`:
 - Maps `action.Type` to the matching `TimelineEntryType` (1:1 mapping)
 - Uses `GameActionDisplay.GetDescription(action)` for display text, **except**:
-  - `ScienceInitial` → `"Starting science: {action.InitialScience:F1}"` (no case in GameActionDisplay)
-  - `ReputationInitial` → `"Starting reputation: {action.InitialReputation:F0}"` (no case in GameActionDisplay)
-- Uses `GameActionDisplay.GetColor(action.Type)` for display color (note: takes `GameActionType`, not `GameAction`)
+  - `ScienceInitial` → `"Starting science: {action.InitialScience:F1}"`
+  - `ReputationInitial` → `"Starting reputation: {action.InitialReputation:F0}"`
+- Uses `GameActionDisplay.GetColor(action.Type)` for display color
 - Copies `action.Effective` → `entry.IsEffective`
 - Copies `action.RecordingId` → `entry.RecordingId`
+- If `RecordingId` is set, resolves vessel name from `committedRecordings` for display context
 
 ### 3. Legacy Collector
 
 Iterates `milestones` for the current epoch:
 - For each milestone where `m.Committed && m.Epoch == currentEpoch`:
-  - Iterates `m.Events`, skipping `GameStateStore.IsMilestoneFilteredEvent(e.eventType)` (resource events, crew status changes)
-  - Maps each to `TimelineEntryType.LegacyEvent`
-  - Uses `GameStateEventDisplay.GetDisplayCategory(e.eventType)` as prefix and `GetDisplayDescription(e)` as description
-  - All legacy entries are T2 (significant but not mission-structure-defining)
-  - Source = `TimelineSource.Legacy`
-
-### 4. Uncommitted Collector
-
-Iterates `uncommitted` events after the last milestone's EndUT in the current epoch:
-- Same filtering as legacy collector (`IsMilestoneFilteredEvent` skips resource events and crew status)
-- Same display logic (`GameStateEventDisplay`)
-- Marked with `TimelineEntryType.LegacyEvent` and `TimelineSource.Legacy`
-- These entries are visually distinct (see UI section) but structurally identical to legacy entries
+  - Iterates `m.Events`, skipping `GameStateStore.IsMilestoneFilteredEvent(e.eventType)`
+  - Uses `GameStateEventDisplay.GetDisplayCategory` + `GetDisplayDescription` for display text
+  - Type = `TimelineEntryType.LegacyEvent`, Source = `TimelineSource.Legacy`
+  - All legacy entries are T2
 
 ### Merge
 
-Concatenate all entries from all four collectors. Stable sort by UT ascending.
+Concatenate all entries from all three collectors. Stable sort by UT ascending.
 
-## Significance Tier Tables
+## Tier Assignment
 
-See `docs/parsek-timeline-design.md` §4 for the full tier classification tables. Key implementation detail: the tier is assigned during entry construction, not during rendering. The `Tier` field on `TimelineEntry` is final once built.
+Two tiers only (part events removed, T3 eliminated):
+
+**T1 — Overview:**
+`RecordingStart`, `RecordingEnd`, `VesselSpawn`, `MilestoneAchievement`, `ContractComplete`, `ContractFail`, `FacilityUpgrade`, `FacilityDestruction`, `KerbalHire`, `GhostChainWindow`, `FundsInitial`, `ScienceInitial`, `ReputationInitial`
+
+**T2 — Detail:**
+`ScienceEarning`, `ScienceSpending`, `FundsEarning`, `FundsSpending`, `ReputationEarning`, `ReputationPenalty`, `ContractAccept`, `ContractCancel`, `KerbalAssignment`, `KerbalRescue`, `KerbalStandIn`, `FacilityRepair`, `StrategyActivate`, `StrategyDeactivate`, `LegacyEvent`
+
+**Demotion:** if `!IsEffective`, bump T1→T2. (T2 entries that are ineffective remain T2 — there's no T3 to demote to.)
 
 ## UI Implementation
 
@@ -222,18 +181,15 @@ private List<TimelineEntry> cachedTimeline;
 private bool timelineDirty = true;
 
 // Filter state
-private int tierLevel = 1;                              // 1 = T1 only, 2 = T1+T2, 3 = all
+private bool showDetail = false;                        // false = Overview (T1), true = Detail (T1+T2)
 private bool showRecordingEntries = true;
 private bool showActionEntries = true;
 private bool showSparkline = false;
 
-// Collapse state
-private HashSet<string> expandedRecordingIds = new HashSet<string>();
-
 // Cross-link
 private string selectedRecordingId;
 
-// Styles (lazy-init same as before)
+// Styles
 private GUIStyle timelineGrayStyle, timelineWhiteStyle, timelineGreenStyle, timelineRedStyle;
 private GUIStyle timelineStrikethroughStyle;   // for ineffective entries
 private GUIStyle timelineDimStyle;             // for future entries (50% alpha)
@@ -241,161 +197,123 @@ private GUIStyle timelineDimStyle;             // for future entries (50% alpha)
 
 ### Tier Selector
 
-Three cumulative buttons, not independent toggles:
+Two buttons, not three (T3 eliminated with part events):
 
 ```
-[T1]  [T1+2]  [All]
+[Overview]  [Detail]
 ```
 
-`tierLevel` is 1, 2, or 3. An entry is visible if `entry.Tier <= tierLevel` (T1=1, T2=2, T3=3). This avoids the T1+T3-without-T2 inconsistency that independent booleans would allow.
+`showDetail` boolean. Entry visible if `entry.Tier == T1` (always) or `entry.Tier == T2 && showDetail`.
 
 ### Rewind Button
 
-The rewind button on `RecordingStart` entries calls `ShowRewindConfirmation(rec)`, the same method used by the Recordings Manager. This displays a confirmation dialog ("Rewind to 'Vessel Name' launch at UT?") and on confirmation calls `RecordingStore.InitiateRewind(rec)`, which:
-1. Initializes `RewindContext` with target UT and reserved resource budgets
-2. Copies the quicksave from `Parsek/Saves/` to KSP root `saves/`
-3. Pre-processes the save file (strips spawned vessels, winds back UT 10 seconds)
-4. Loads via `GamePersistence.LoadGame`
-5. Transitions to Space Center scene
-
-No new rewind infrastructure. The timeline provides a new surface for the same flow.
-
-### Uncommitted Events Section
-
-Below the main timeline entry list, a divider labeled "── Uncommitted (current flight) ──" followed by uncommitted entries in normal color. This section only appears when uncommitted events exist and the player is in flight scene.
+The rewind button on `RecordingStart` entries calls `ShowRewindConfirmation(rec)` → confirmation dialog → `RecordingStore.InitiateRewind(rec)`. Same flow as Recordings Manager.
 
 ### Epoch Display
 
-Footer shows "Epoch: N (N reverts)" when `MilestoneStore.CurrentEpoch > 0`, same as current Actions window.
+Footer shows "Epoch: N (N reverts)" when `MilestoneStore.CurrentEpoch > 0`.
 
 ### Retired Kerbals
 
-Footer shows "Retired Stand-ins (N)" as a collapsible section, same content as current Actions window. Data source: `LedgerOrchestrator.Kerbals?.GetRetiredKerbals()`.
+Footer shows "Retired Stand-ins (N)" as collapsible section. Data: `LedgerOrchestrator.Kerbals?.GetRetiredKerbals()`.
 
 ### Cross-Link Scroll-to-Entry
 
-IMGUI scroll views have no built-in "scroll to element" API. Implementation approach:
-
-During the draw pass, accumulate row heights. Track the Y offset of the entry matching `selectedRecordingId`. After the draw pass, if `selectedRecordingId` changed since last frame, set `timelineScrollPos.y` to the tracked offset. Apply a brief highlight by tracking a `highlightFadeTimer` that counts down from 1.0 to 0.0 over ~1 second, modulating the background color of the highlighted row.
+During draw pass, accumulate row heights. Track Y offset of entry matching `selectedRecordingId`. If changed since last frame, set `timelineScrollPos.y`. Brief highlight via fade timer (~1 second).
 
 ### Game Mode Handling
 
-**Career**: all features active.
-**Science**: resource budget shows only science. Sparkline shows only science strip. Funds/reputation game action types never appear (ledger won't contain them).
-**Sandbox**: resource budget hidden. Sparkline toggle hidden. Timeline shows only recording lifecycle, part/segment events, and flag events. Still useful for chronological mission structure.
-
-The resource budget section checks `HighLogic.CurrentGame.Mode`:
-- `Game.Modes.CAREER` → show funds, science, reputation
-- `Game.Modes.SCIENCE_SANDBOX` → show science only
-- `Game.Modes.SANDBOX` → hide budget section entirely
+- `Game.Modes.CAREER` → all features
+- `Game.Modes.SCIENCE_SANDBOX` → science only in budget/sparkline, no fund/rep/contract/strategy entries
+- `Game.Modes.SANDBOX` → hide budget, hide sparkline toggle, show only recording lifecycle
 
 ## Resource Sparkline
 
 ### Data Source
 
-The `RecalculationEngine` currently has no output mechanism — it is purely side-effecting into registered `IResourceModule` instances. Running balances live inside `FundsModule.runningBalance`, `ScienceModule.runningScience`, and `ReputationModule.runningRep` as private state.
-
-To expose resource history:
-
-1. Add `List<ResourceSnapshot> ResourceHistory` as a public output field on `RecalculationEngine`
-2. Add `ResourceSnapshot` struct: `{ double UT; double Funds; double Science; float Reputation; }`
-3. After the walk loop processes each action, query module state via existing getter methods (`GetRunningFunds()`, `GetRunningScience()`, `GetRunningReputation()`) and append a snapshot
-4. Clear `ResourceHistory` at the start of each `Recalculate()` call
-
-This preserves the engine's pure computation model — the modules remain the source of truth, the history is just a log of their states during the walk.
+Add `List<ResourceSnapshot> ResourceHistory` to `RecalculationEngine`. Struct: `{ double UT; double Funds; double Science; float Reputation; }`. After each balance-changing action in the walk, query `GetRunningFunds()`, `GetRunningScience()`, `GetRunningReputation()` and append. Clear at start of `Recalculate()`.
 
 ### Texture Generation
 
 `SparklineRenderer.GenerateTexture(List<ResourceSnapshot> history, float windowWidth, Game.Modes mode)` → `Texture2D`
 
-- Width = window width in pixels (integer)
-- Height = 30px per visible resource strip (90px for career, 30px for science mode)
-- Each snapshot maps to X via `(snap.UT - minUT) / (maxUT - minUT) * width`
-- Each resource value maps to Y via `(value - minValue) / (maxValue - minValue) * stripHeight`
-- Colors: funds = `(0.9f, 0.8f, 0.2f)`, science = `(0.3f, 0.8f, 1.0f)`, reputation = `(1.0f, 0.6f, 0.2f)`
-- Current-UT hairline = white, 1px wide
-
-Regenerated on timeline cache invalidation. Disposed on regeneration (old texture freed).
+- Width = window width pixels
+- Height = 30px per visible strip (90px career, 30px science mode)
+- UT → X via linear interpolation; value → Y via auto-scale
+- Colors: funds `(0.9f, 0.8f, 0.2f)`, science `(0.3f, 0.8f, 1.0f)`, reputation `(1.0f, 0.6f, 0.2f)`
+- Current-UT hairline = white, 1px
+- Regenerated on cache invalidation. Old texture disposed.
 
 ## Implementation Plan
 
 ### Phase 9a — Data Model and Builder
 
-**Goal**: `TimelineBuilder.Build()` produces a correct sorted list from all four sources.
+**Goal**: `TimelineBuilder.Build()` produces a correct sorted list from all three sources.
 
 **New files**:
-- `Source/Parsek/Timeline/TimelineEntry.cs` — entry struct, `TimelineEntryType`, `TimelineSource`, `SignificanceTier` enums
-- `Source/Parsek/Timeline/TimelineBuilder.cs` — static builder with four collectors + merge
-- `Source/Parsek/Timeline/TimelineEntryDisplay.cs` — display text/color resolution: delegates to `GameActionDisplay` for game actions, `GameStateEventDisplay` for legacy events, custom logic for recording/part/segment entries and `ScienceInitial`/`ReputationInitial`
+- `Source/Parsek/Timeline/TimelineEntry.cs` — entry struct, enums
+- `Source/Parsek/Timeline/TimelineBuilder.cs` — static builder with three collectors + merge
+- `Source/Parsek/Timeline/TimelineEntryDisplay.cs` — display text/color: delegates to `GameActionDisplay` for game actions, `GameStateEventDisplay` for legacy, custom for recording lifecycle and `ScienceInitial`/`ReputationInitial`
 
-**Files read (no changes)**: `RecordingStore.cs`, `Ledger.cs`, `Recording.cs`, `GameActionDisplay.cs`, `MilestoneStore.cs`, `GameStateStore.cs`, `GameStateEventDisplay.cs`
+**Files read (no changes)**: `RecordingStore.cs`, `Ledger.cs`, `Recording.cs`, `GameActionDisplay.cs`, `MilestoneStore.cs`, `GameStateEventDisplay.cs`
 
 **Tests** (`TimelineBuilderTests.cs`):
-- Given recordings + ledger actions + legacy milestones + uncommitted events → verify entry count, types, UT ordering
-- Tier classification for every `TimelineEntryType`, including sub-tier routing for `PartEngine` and `PartParachute`
-- Ineffective game actions produce entries with `IsEffective == false`
+- Recordings + ledger actions + legacy milestones → verify entry count, types, UT ordering
+- Tier classification for every `TimelineEntryType`
+- Ineffective game actions produce `IsEffective == false` and are demoted T1→T2
 - Legacy events from MilestoneStore appear at T2
-- Uncommitted events appear after committed entries at matching UT
 - Ghost chain window computation from multiple chain members
-- Empty inputs (no recordings, no ledger, no milestones) → empty list
+- Empty inputs → empty list
 - Chain recordings with multiple branches → only branch 0 produces ghost chain windows
 - Hidden recordings skipped unless flag set
 - `ScienceInitial` and `ReputationInitial` produce custom display text
+- No part events, segment events, or flag events in output
 
-**Scope**: ~400 lines of production code, ~500 lines of tests.
+**Scope**: ~300 lines production, ~400 lines tests.
 
 ### Phase 9b — Timeline UI (replaces Actions window)
 
-**Goal**: Timeline window renders the entry list with all visual elements described in §5 of the main design doc.
+**Goal**: Timeline window with entry list, filter bar, resource budget, footer.
 
 **Files changed**:
-- `ParsekUI.cs` — remove `DrawActionsWindow*` methods and related state. Add `DrawTimelineWindow*` methods. Move resource budget. Add tier selector, collapse state, cross-link.
-- New: `Source/Parsek/Timeline/TimelineRenderer.cs` — extracted rendering helpers if `ParsekUI.cs` gets too large (optional)
+- `ParsekUI.cs` — remove `DrawActionsWindow*` methods and state. Add `DrawTimelineWindow*` methods. Resource budget, tier selector, source toggles, cross-link.
 
 **Dependencies**: Phase 9a.
 
 **Details**:
-- Cache `TimelineBuilder.Build()` result; invalidate on: warp exit, recording commit, rewind completion, scene change, ledger mutation
-- Tier selector: cumulative `tierLevel` int (1/2/3), not independent booleans
-- Collapse state: `HashSet<string> expandedRecordingIds`
-- Current-UT divider: binary search in cached sorted list for insertion index
-- Future entries: 50% alpha color
+- Cache `TimelineBuilder.Build()` result; invalidate on triggers
+- Tier selector: `showDetail` boolean (Overview/Detail)
+- Source toggles: `showRecordingEntries`, `showActionEntries`
+- Current-UT divider: binary search in cached sorted list
+- Future entries: 50% alpha
 - Ineffective entries: gray + strikethrough
 - Rewind button: `ShowRewindConfirmation(rec)` → `RecordingStore.InitiateRewind(rec)`
-- Uncommitted section: separate divider, normal color, only when events exist
-- Footer: epoch display, retired kerbals, close button
+- Footer: epoch, retired kerbals, close
 - Game mode: hide budget/sparkline in sandbox, science-only in science mode
 
-**Scope**: ~600 lines (net change: remove ~300 lines of Actions window, add ~600 lines of Timeline).
+**Scope**: ~500 lines (remove ~300 Actions window, add ~500 Timeline).
 
 ### Phase 9c — Resource Sparkline
 
-**Goal**: Optional sparkline overlay at bottom of timeline window.
+**Goal**: Optional sparkline overlay.
 
 **Files changed**:
-- `RecalculationEngine.cs` — add `ResourceSnapshot` struct, `ResourceHistory` list, populate during walk via existing module getters
-- New: `Source/Parsek/Timeline/SparklineRenderer.cs` — texture generation and `GUI.DrawTexture` rendering
+- `RecalculationEngine.cs` — add `ResourceSnapshot`, `ResourceHistory`, populate during walk
+- New: `Source/Parsek/Timeline/SparklineRenderer.cs` — texture generation + rendering
 
-**Dependencies**: Phase 9b (needs timeline window), v0.6 complete (recalculation engine).
+**Dependencies**: Phase 9b, v0.6 complete.
 
-**Scope**: ~200 lines (snapshot collection ~30, renderer ~170).
+**Scope**: ~200 lines.
 
 ### Phase 9d — Cross-Link and Polish
 
 **Goal**: Bidirectional cross-linking between Timeline and Recordings Manager.
 
-**Files changed**: `ParsekUI.cs` — shared `selectedRecordingId`, scroll-to-entry in both windows.
+**Files changed**: `ParsekUI.cs` — shared `selectedRecordingId`, scroll-to-entry.
 
 **Dependencies**: Phase 9b.
 
-**Details**:
-- `selectedRecordingId` string field on `ParsekUI`, null when nothing selected
-- Timeline: recording header click → set `selectedRecordingId`
-- Recordings Manager: recording row click → set `selectedRecordingId`
-- Scroll-to-entry via Y offset accumulation during draw pass
-- Highlight fade timer (1s countdown)
-
-**Scope**: ~150 lines (includes IMGUI scroll-to-entry calculation).
+**Scope**: ~150 lines.
 
 ### Build Order
 
