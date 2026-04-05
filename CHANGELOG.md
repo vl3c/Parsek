@@ -4,6 +4,14 @@ All notable changes to Parsek are documented here.
 
 ---
 
+## 0.7.0
+
+### Timeline (Phase 9)
+
+- **Unified timeline view replaces Game Actions window.** Chronological, read-only view of all committed events — recording launches/recoveries, milestones, contracts, science, funds, reputation, kerbals, facilities, strategies — sorted by UT. Two-tier filtering: Overview (mission structure) and Detail (all resource transactions). Current-UT divider separates past (full color) from future (dimmed). Rewind buttons on recording entries. Cross-linked with Recordings Manager. See `docs/parsek-timeline-design.md`.
+
+---
+
 ## 0.6.2
 
 ### Bug Fixes
