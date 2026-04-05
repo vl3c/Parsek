@@ -315,6 +315,8 @@ namespace Parsek.InGameTests
             }
 
             ParsekLog.Info("TestRunner", $"Parachute infos: {valid}/{total} have canopy transforms");
+            InGameAssert.AreEqual(total, valid,
+                $"{total - valid} parachute info(s) have null canopy transform (prefab load failure)");
         }
 
         [InGameTest(Category = "PartEventFX", Scene = GameScenes.FLIGHT,
@@ -345,6 +347,8 @@ namespace Parsek.InGameTests
             }
 
             ParsekLog.Info("TestRunner", $"Light infos: {withLights}/{total} have Light components");
+            InGameAssert.AreEqual(total, withLights,
+                $"{total - withLights} light info(s) have null/empty Light list (prefab load failure)");
         }
 
         [InGameTest(Category = "PartEventFX", Scene = GameScenes.FLIGHT,
@@ -375,6 +379,8 @@ namespace Parsek.InGameTests
             }
 
             ParsekLog.Info("TestRunner", $"RCS FX: {valid}/{total} have particle systems");
+            InGameAssert.AreEqual(total, valid,
+                $"{total - valid} RCS info(s) have null/empty particle systems (prefab load failure)");
         }
 
         [InGameTest(Category = "PartEventFX", Scene = GameScenes.FLIGHT,
@@ -405,6 +411,8 @@ namespace Parsek.InGameTests
             }
 
             ParsekLog.Info("TestRunner", $"Fairing infos: {valid}/{total} have cone meshes");
+            InGameAssert.AreEqual(total, valid,
+                $"{total - valid} fairing info(s) have null mesh object (build failure)");
         }
 
         [InGameTest(Category = "PartEventFX", Scene = GameScenes.FLIGHT,
@@ -435,6 +443,8 @@ namespace Parsek.InGameTests
             }
 
             ParsekLog.Info("TestRunner", $"Deployable infos: {valid}/{total} have transform states");
+            InGameAssert.AreEqual(total, valid,
+                $"{total - valid} deployable info(s) have null/empty transform states (animation sample failure)");
         }
     }
 
@@ -926,6 +936,10 @@ namespace Parsek.InGameTests
             Description = "ParsekScenario survives OnSave+OnLoad round-trip for tree structure")]
         public void ScenarioRoundTripPreservesTreeStructure()
         {
+            // WARNING: This test calls OnSave+OnLoad on the live ParsekScenario.
+            // OnLoad re-initializes RecordingStore from the serialized ConfigNode.
+            // If the round-trip is imperfect, this could disrupt the session.
+            // The test verifies exactly this property — that the round-trip is lossless.
             var scenario = Object.FindObjectOfType<ParsekScenario>();
             if (scenario == null)
             {
@@ -974,6 +988,8 @@ namespace Parsek.InGameTests
             Description = "Crew replacement dict survives OnSave+OnLoad round-trip")]
         public void CrewReplacementsRoundTrip()
         {
+            // WARNING: Calls OnSave+OnLoad on live scenario — see comment on
+            // ScenarioRoundTripPreservesTreeStructure for rationale.
             var scenario = Object.FindObjectOfType<ParsekScenario>();
             if (scenario == null) return;
 
@@ -1011,6 +1027,9 @@ namespace Parsek.InGameTests
     /// </summary>
     public class KspApiSanityTests
     {
+        private readonly InGameTestRunner runner;
+        public KspApiSanityTests(InGameTestRunner runner) { this.runner = runner; }
+
         [InGameTest(Category = "KspApiSanity",
             Description = "body.bodyTransform.rotation is stable across 3 frames (co-rotating frame assumption)")]
         public IEnumerator BodyTransformRotationStable()
@@ -1103,6 +1122,7 @@ namespace Parsek.InGameTests
 
             // Place a test object near the active vessel
             var testObj = GhostVisualBuilder.CreateGhostSphere("ParsekTest_FloatOrigin", Color.green);
+            runner.TrackForCleanup(testObj);
             Vector3 targetPos = vessel.transform.position + new Vector3(50, 10, 0);
             testObj.transform.position = targetPos;
 
@@ -1114,8 +1134,6 @@ namespace Parsek.InGameTests
                 $"Test object drifted to NaN after 2 frames: ({finalPos.x},{finalPos.y},{finalPos.z})");
             InGameAssert.IsFalse(finalPos == Vector3.zero,
                 "Test object collapsed to origin (0,0,0) — floating origin issue");
-
-            Object.Destroy(testObj);
         }
     }
 
