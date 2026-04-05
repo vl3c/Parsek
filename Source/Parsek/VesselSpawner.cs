@@ -256,6 +256,16 @@ namespace Parsek
                 StripEvaLadderState(rec.VesselSnapshot, index, rec.VesselName);
             }
 
+            // Breakup-continuous recordings: snapshot position is from breakup time (mid-air).
+            // RespawnVessel uses raw snapshot position, so override it with the trajectory
+            // endpoint. Same pattern as EVA fix above. (#224)
+            bool isBreakupContinuous = rec.ChildBranchPointId != null && rec.TerminalStateValue.HasValue;
+            if (!isEva && isBreakupContinuous && rec.VesselSnapshot != null)
+            {
+                OverrideSnapshotPosition(rec.VesselSnapshot, spawnLat, spawnLon, spawnAlt,
+                    index, rec.VesselName);
+            }
+
             // Dead crew guard: if ALL crew in the snapshot are dead, abandon spawn.
             // Spawning a crewless command pod is worse than not spawning at all. (#170)
             // Individual dead crew are already removed by RespawnVessel.RemoveDeadCrewFromSnapshot;
