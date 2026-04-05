@@ -217,6 +217,21 @@ namespace Parsek
                     return desc;
                 }
 
+                case GameActionType.StrategyActivate:
+                {
+                    string sid = InsertSpacesBeforeUppercase(action.StrategyId ?? "unknown");
+                    if (sid.Length > 0) sid = char.ToUpper(sid[0]) + sid.Substring(1);
+                    return string.Format(IC, "Activate: {0} ({1:P0} {2}\u2192{3})",
+                        sid, action.Commitment, action.SourceResource, action.TargetResource);
+                }
+
+                case GameActionType.StrategyDeactivate:
+                {
+                    string sid = InsertSpacesBeforeUppercase(action.StrategyId ?? "unknown");
+                    if (sid.Length > 0) sid = char.ToUpper(sid[0]) + sid.Substring(1);
+                    return "Deactivate: " + sid;
+                }
+
                 case GameActionType.FundsSpending:
                 {
                     string source;
