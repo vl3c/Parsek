@@ -6,6 +6,10 @@ All notable changes to Parsek are documented here.
 
 ## 0.6.2
 
+### Crew Reservation
+
+- **Refactor kerbal reservation to not use rosterStatus=Assigned (T44).** Reserved kerbals now stay at their natural rosterStatus (typically Available) instead of being set to Assigned. A new `CrewDialogFilterPatch` Harmony prefix on `BaseCrewAssignmentDialog.AddAvailItem` filters reserved and retired kerbals from the VAB/SPH crew selection dialog. Eliminates the `KerbalAssignmentValidationPatch` tug-of-war (~27 KSP warnings per session) and the `AssignedCrewCountPatch` Astronaut Complex count mismatch. Both workaround patches deleted. Dead `ReserveSnapshotCrew` method removed.
+
 ### Code Quality — Refactor-3
 
 - **Pass 1: 48 sub-methods extracted across 9 files.** Method extraction within files for long methods in GhostPlaybackEngine, FlightRecorder, GhostVisualBuilder, GhostPlaybackLogic, ParsekUI, ParsekFlight, RecordingStore, VesselSpawner, ParsekScenario. No logic changes.
