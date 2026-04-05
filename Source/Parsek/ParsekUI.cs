@@ -62,25 +62,8 @@ namespace Parsek
         private List<KeyValuePair<string, List<InGameTestInfo>>> cachedTestGroups;
         private bool testRunnerWasRunning;
 
-        // Actions window
-        private bool showActionsWindow;
-        private Rect actionsWindowRect;
-        private Vector2 actionsScrollPos;
-        private bool isResizingActionsWindow;
-        private bool actionsWindowHasInputLock;
-        private const string ActionsInputLockId = "Parsek_ActionsWindow";
-        private int lastRetiredKerbalCount = -1; // for change-based logging
-
-        // Cached styles for actions window
-        private GUIStyle actionsGrayStyle;
-        private GUIStyle actionsWhiteStyle;
-        private GUIStyle actionsGreenStyle;
-        private GUIStyle actionsRedStyle;
-
-        // Actions table sort state
-        private enum ActionsSortColumn { Time, Type, Description, Status }
-        private ActionsSortColumn actionsSortColumn = ActionsSortColumn.Time;
-        private bool actionsSortAscending = true;
+        // Actions window (extracted to ActionsWindowUI)
+        private ActionsWindowUI actionsUI;
 
         // Column widths — shared between header and body for alignment
         private const float ColW_Enable = 20f;
@@ -121,25 +104,12 @@ namespace Parsek
         private float lastGroupClickTime;
         private const float DoubleClickThreshold = 0.3f;
 
-        // Group picker popup state
-        private bool groupPopupOpen;
-        private int groupPopupRecIdx = -1;
-        private string groupPopupChainId;
-        private string groupPopupGroup;
-        private Vector2 groupPopupPosition;
-        private HashSet<string> groupPopupChecked;
-        private HashSet<string> groupPopupOriginal;
-        private HashSet<string> groupPopupExpanded;
-        private string groupPopupNewName = "";
-        private Rect groupPopupRect;
-        private Vector2 groupPopupScrollPos;
-        private bool isResizingGroupPopup;
+        // Group picker popup (extracted to GroupPickerUI)
+        private GroupPickerUI groupPicker;
         private const float ColW_Group = 50f;
-        private const float GroupPopupMinW = 220f;
-        private const float GroupPopupMinH = 200f;
 
         // Runtime-only empty groups (not persisted)
-        private List<string> knownEmptyGroups = new List<string>();
+        internal List<string> KnownEmptyGroups = new List<string>();
 
         // Cached phase label styles
         private GUIStyle phaseStyleAtmo;
@@ -205,29 +175,9 @@ namespace Parsek
         // Window drag tracking for position logging
         private Rect lastMainWindowRect;
         private Rect lastRecordingsWindowRect;
-        private Rect lastActionsWindowRect;
         private Rect lastSettingsWindowRect;
-        private Rect lastSpawnControlWindowRect;
-
-        // Spawn Control window
-        private bool showSpawnControlWindow;
-        private Rect spawnControlWindowRect;
-        private bool spawnControlWindowHasInputLock;
-        private const string SpawnControlInputLockId = "Parsek_SpawnControlWindow";
-
-        // Spawn Control sort state
-        private enum SpawnSortColumn { Name, Distance, SpawnTime }
-        private SpawnSortColumn spawnSortColumn = SpawnSortColumn.Distance;
-        private bool spawnSortAscending = true;
-        private bool isResizingSpawnControlWindow;
-        private Vector2 spawnControlScrollPos;
-
-        // Cached sorted candidate list -- re-sorted only when source data or sort state changes
-        private List<NearbySpawnCandidate> cachedSortedCandidates = new List<NearbySpawnCandidate>();
-        private int cachedCandidateCount = -1;
-        private int cachedProximityGeneration = -1;
-        private SpawnSortColumn cachedSortColumn = SpawnSortColumn.Distance;
-        private bool cachedSortAscending = true;
+        // Spawn Control window (extracted to SpawnControlUI)
+        private SpawnControlUI spawnControlUI;
 
         private BudgetSummary cachedBudget = default(BudgetSummary);
 
@@ -240,12 +190,18 @@ namespace Parsek
         {
             this.flight = flight;
             this.mode = UIMode.Flight;
+            this.groupPicker = new GroupPickerUI(this);
+            this.spawnControlUI = new SpawnControlUI(this);
+            this.actionsUI = new ActionsWindowUI(this);
         }
 
         public ParsekUI(UIMode mode)
         {
             this.flight = null;
             this.mode = mode;
+            this.groupPicker = new GroupPickerUI(this);
+            this.spawnControlUI = new SpawnControlUI(this);
+            this.actionsUI = new ActionsWindowUI(this);
         }
 
         private const float SpacingSmall = 3f;
@@ -254,7 +210,7 @@ namespace Parsek
         /// <summary>
         /// Returns the resource budget.
         /// </summary>
-        private BudgetSummary GetCachedBudget()
+        internal BudgetSummary GetCachedBudget()
         {
             return cachedBudget;
         }
@@ -281,8 +237,8 @@ namespace Parsek
             int actionCount = MilestoneStore.GetPendingEventCount() + GameStateStore.GetUncommittedEventCount();
             if (GUILayout.Button($"Game Actions ({actionCount})"))
             {
-                showActionsWindow = !showActionsWindow;
-                ParsekLog.Verbose("UI", $"Actions window toggled: {(showActionsWindow ? "open" : "closed")}");
+                actionsUI.IsOpen = !actionsUI.IsOpen;
+                ParsekLog.Verbose("UI", $"Actions window toggled: {(actionsUI.IsOpen ? "open" : "closed")}");
             }
 
             // --- Real Spawn Control toggle (in the window group, after Game Actions) ---
@@ -294,11 +250,11 @@ namespace Parsek
                     System.Globalization.CultureInfo.InvariantCulture,
                     "Real Spawn Control ({0})", spawnCount)))
                 {
-                    showSpawnControlWindow = !showSpawnControlWindow;
+                    spawnControlUI.IsOpen = !spawnControlUI.IsOpen;
                     ParsekLog.Verbose("UI",
                         string.Format(System.Globalization.CultureInfo.InvariantCulture,
                             "Real Spawn Control window toggled: {0}",
-                            showSpawnControlWindow ? "open" : "closed"));
+                            spawnControlUI.IsOpen ? "open" : "closed"));
                 }
                 GUI.enabled = true;
             }
@@ -415,7 +371,7 @@ namespace Parsek
         /// <summary>
         /// Call after each window's GUILayoutWindow to log position/size changes (rate-limited).
         /// </summary>
-        private void LogWindowPosition(string windowName, ref Rect lastRect, Rect currentRect)
+        internal void LogWindowPosition(string windowName, ref Rect lastRect, Rect currentRect)
         {
             if (lastRect.x != currentRect.x || lastRect.y != currentRect.y ||
                 lastRect.width != currentRect.width || lastRect.height != currentRect.height)
@@ -426,66 +382,6 @@ namespace Parsek
                     $"w={currentRect.width.ToString("F0", ic)} h={currentRect.height.ToString("F0", ic)}", 2.0);
                 lastRect = currentRect;
             }
-        }
-
-        private void DrawResourceBudget()
-        {
-            var budget = GetCachedBudget();
-
-            if (budget.reservedFunds <= 0 && budget.reservedScience <= 0 && budget.reservedReputation <= 0)
-                return;
-
-            var ic = System.Globalization.CultureInfo.InvariantCulture;
-            GUILayout.Space(5);
-            GUILayout.Label("Resources", GUI.skin.box);
-
-            bool anyOverCommitted = false;
-
-            if (budget.reservedFunds > 0)
-            {
-                double currentFunds = 0;
-                try { if (Funding.Instance != null) currentFunds = Funding.Instance.Funds; } catch { }
-                anyOverCommitted |= DrawResourceLine("Funds", currentFunds, budget.reservedFunds, "N0", ic);
-            }
-
-            if (budget.reservedScience > 0)
-            {
-                double currentScience = 0;
-                try { if (ResearchAndDevelopment.Instance != null) currentScience = ResearchAndDevelopment.Instance.Science; } catch { }
-                anyOverCommitted |= DrawResourceLine("Science", currentScience, budget.reservedScience, "F1", ic);
-            }
-
-            if (budget.reservedReputation > 0)
-            {
-                float currentRep = 0;
-                try { if (Reputation.Instance != null) currentRep = Reputation.Instance.reputation; } catch { }
-                anyOverCommitted |= DrawResourceLine("Reputation", (double)currentRep, budget.reservedReputation, "F0", ic);
-            }
-
-            if (anyOverCommitted)
-            {
-                Color prev = GUI.contentColor;
-                GUI.contentColor = Color.yellow;
-                GUILayout.Label("Over-committed! Some timeline actions may fail.");
-                GUI.contentColor = prev;
-            }
-        }
-
-        /// <summary>
-        /// Draws a single resource budget line (funds, science, or reputation).
-        /// Returns true if the resource is over-committed.
-        /// </summary>
-        private static bool DrawResourceLine(string label, double currentAmount, double reserved,
-            string format, System.Globalization.CultureInfo ic)
-        {
-            double available = currentAmount - reserved;
-            double total = currentAmount;
-            bool over = available < 0;
-            Color prev = GUI.contentColor;
-            if (over) GUI.contentColor = Color.red;
-            GUILayout.Label($"{label}: {available.ToString(format, ic)} available to use ({reserved.ToString(format, ic)} committed out of {total.ToString(format, ic)} total)");
-            GUI.contentColor = prev;
-            return over;
         }
 
         public void LogMainWindowPosition(Rect currentRect)
@@ -519,384 +415,7 @@ namespace Parsek
 
         public void DrawActionsWindowIfOpen(Rect mainWindowRect)
         {
-            if (!showActionsWindow)
-            {
-                ReleaseActionsInputLock();
-                return;
-            }
-
-            // Position to the left of main window on first open
-            if (actionsWindowRect.width < 1f)
-            {
-                float x = mainWindowRect.x - 538;
-                if (x < 0) x = mainWindowRect.x + mainWindowRect.width + 10;
-                actionsWindowRect = new Rect(x, mainWindowRect.y, 528, mainWindowRect.height);
-                var ic = System.Globalization.CultureInfo.InvariantCulture;
-                ParsekLog.Verbose("UI", $"Actions window initial position: x={x.ToString("F0", ic)} y={mainWindowRect.y.ToString("F0", ic)} (mainWindow.x={mainWindowRect.x.ToString("F0", ic)})");
-            }
-
-            HandleResizeDrag(ref actionsWindowRect, ref isResizingActionsWindow,
-                MinWindowWidth, MinWindowHeight, "Actions window");
-
-            EnsureOpaqueWindowStyle();
-            actionsWindowRect = ClickThruBlocker.GUILayoutWindow(
-                "ParsekActions".GetHashCode(),
-                actionsWindowRect,
-                DrawActionsWindow,
-                "Parsek \u2014 Game Actions",
-                opaqueWindowStyle,
-                GUILayout.Width(actionsWindowRect.width),
-                GUILayout.Height(actionsWindowRect.height)
-            );
-            LogWindowPosition("Actions", ref lastActionsWindowRect, actionsWindowRect);
-
-            if (actionsWindowRect.Contains(Event.current.mousePosition))
-            {
-                if (!actionsWindowHasInputLock)
-                {
-                    InputLockManager.SetControlLock(ControlTypes.CAMERACONTROLS, ActionsInputLockId);
-                    actionsWindowHasInputLock = true;
-                }
-            }
-            else
-            {
-                ReleaseActionsInputLock();
-            }
-        }
-
-        private void ReleaseActionsInputLock()
-        {
-            if (!actionsWindowHasInputLock) return;
-            InputLockManager.RemoveControlLock(ActionsInputLockId);
-            actionsWindowHasInputLock = false;
-        }
-
-        private void EnsureActionsStyles()
-        {
-            if (actionsGrayStyle != null) return;
-
-            actionsGrayStyle = new GUIStyle(GUI.skin.label);
-            actionsGrayStyle.normal.textColor = Color.gray;
-
-            actionsWhiteStyle = new GUIStyle(GUI.skin.label);
-            actionsWhiteStyle.normal.textColor = Color.white;
-
-            actionsGreenStyle = new GUIStyle(GUI.skin.label);
-            actionsGreenStyle.normal.textColor = new Color(0.5f, 1f, 0.5f);
-
-            actionsRedStyle = new GUIStyle(GUI.skin.label);
-            actionsRedStyle.normal.textColor = new Color(1f, 0.5f, 0.5f);
-        }
-
-        private void DrawActionsWindow(int windowID)
-        {
-            EnsureActionsStyles();
-
-            // A. Resource Budget Summary
-            DrawResourceBudget();
-
-            // B. Recorded Actions List + C. Uncommitted events
-            List<System.Tuple<GameStateEvent, bool>> allEvents;
-            List<GameStateEvent> uncommittedEvents;
-            BuildSortedActionEvents(actionsSortColumn, actionsSortAscending,
-                out allEvents, out uncommittedEvents);
-
-            // Single scroll view for all sections
-            bool hasCommitted = allEvents.Count > 0;
-            bool hasUncommitted = uncommittedEvents.Count > 0;
-            var ledgerActions = Ledger.Actions;
-            bool hasLedger = ledgerActions.Count > 0;
-
-            if (hasLedger || hasCommitted || hasUncommitted)
-            {
-                GUILayout.Space(5);
-
-                // Column headers (clickable to sort)
-                GUILayout.BeginHorizontal();
-                if (GUILayout.Button(SortHeader("Time", ActionsSortColumn.Time), GUI.skin.label, GUILayout.Width(90)))
-                    ToggleActionsSort(ActionsSortColumn.Time);
-                if (GUILayout.Button(SortHeader("Type", ActionsSortColumn.Type), GUI.skin.label, GUILayout.Width(65)))
-                    ToggleActionsSort(ActionsSortColumn.Type);
-                if (GUILayout.Button(SortHeader("Description", ActionsSortColumn.Description), GUI.skin.label, GUILayout.ExpandWidth(true)))
-                    ToggleActionsSort(ActionsSortColumn.Description);
-                if (GUILayout.Button(SortHeader("Status", ActionsSortColumn.Status), GUI.skin.label, GUILayout.Width(55)))
-                    ToggleActionsSort(ActionsSortColumn.Status);
-                GUILayout.Space(25); // space for delete column
-                GUILayout.EndHorizontal();
-
-                GameStateEvent? eventToDeleteCommitted = null;
-                GameStateEvent? eventToDeleteUncommitted = null;
-
-                actionsScrollPos = GUILayout.BeginScrollView(actionsScrollPos, GUILayout.ExpandHeight(true));
-
-                // --- Ledger Actions (new game actions system) ---
-                if (hasLedger)
-                {
-                    GUILayout.Label($"Ledger Actions ({ledgerActions.Count})", GUI.skin.box);
-
-                    // Sorted by UT descending (newest first)
-                    for (int i = ledgerActions.Count - 1; i >= 0; i--)
-                    {
-                        var action = ledgerActions[i];
-                        Color color = GameActionDisplay.GetColor(action.Type);
-                        GUIStyle style;
-                        if (color.g > 0.9f && color.r < 0.6f)
-                            style = actionsGreenStyle;
-                        else if (color.r > 0.9f && color.g < 0.6f)
-                            style = actionsRedStyle;
-                        else
-                            style = actionsWhiteStyle;
-
-                        GUILayout.BeginHorizontal();
-
-                        string time = KSPUtil.PrintDateCompact(action.UT, true);
-                        GUILayout.Label(time, style, GUILayout.Width(90));
-
-                        string category = GameActionDisplay.GetCategory(action.Type);
-                        GUILayout.Label(category, style, GUILayout.Width(65));
-
-                        string desc = GameActionDisplay.GetDescription(action);
-                        GUILayout.Label(desc, style, GUILayout.ExpandWidth(true));
-
-                        GUILayout.EndHorizontal();
-                    }
-                }
-
-                // --- Recorded Actions (legacy game state events) ---
-                if (hasCommitted)
-                {
-                    if (hasLedger)
-                        GUILayout.Space(5);
-                    GUILayout.Label("Recorded Actions", GUI.skin.box);
-
-                    for (int i = 0; i < allEvents.Count; i++)
-                    {
-                        var e = allEvents[i].Item1;
-                        bool replayed = allEvents[i].Item2;
-                        GUIStyle style = replayed ? actionsGrayStyle : actionsWhiteStyle;
-
-                        GUILayout.BeginHorizontal();
-
-                        string time = KSPUtil.PrintDateCompact(e.ut, true);
-                        GUILayout.Label(time, style, GUILayout.Width(90));
-
-                        string category = GameStateEventDisplay.GetDisplayCategory(e.eventType);
-                        GUILayout.Label(category, style, GUILayout.Width(65));
-
-                        string desc = GameStateEventDisplay.GetDisplayDescription(e);
-                        GUILayout.Label(desc, style, GUILayout.ExpandWidth(true));
-
-                        string status = replayed ? "Replayed" : "Pending";
-                        GUILayout.Label(status, style, GUILayout.Width(55));
-
-                        if (GUILayout.Button("x", GUILayout.Width(20)))
-                            eventToDeleteCommitted = e;
-
-                        GUILayout.EndHorizontal();
-                    }
-                }
-
-                if (hasUncommitted)
-                {
-                    if (hasCommitted || hasLedger)
-                        GUILayout.Space(5);
-                    GUILayout.Label("Uncommitted", GUI.skin.box);
-
-                    for (int i = 0; i < uncommittedEvents.Count; i++)
-                    {
-                        var e = uncommittedEvents[i];
-
-                        GUILayout.BeginHorizontal();
-
-                        string time = KSPUtil.PrintDateCompact(e.ut, true);
-                        GUILayout.Label(time, actionsWhiteStyle, GUILayout.Width(90));
-
-                        string category = GameStateEventDisplay.GetDisplayCategory(e.eventType);
-                        GUILayout.Label(category, actionsWhiteStyle, GUILayout.Width(65));
-
-                        string desc = GameStateEventDisplay.GetDisplayDescription(e);
-                        GUILayout.Label(desc, actionsWhiteStyle, GUILayout.ExpandWidth(true));
-
-                        GUILayout.Label("\u2014", actionsGrayStyle, GUILayout.Width(55)); // em dash
-
-                        if (GUILayout.Button("x", GUILayout.Width(20)))
-                            eventToDeleteUncommitted = e;
-
-                        GUILayout.EndHorizontal();
-                    }
-                }
-
-                GUILayout.EndScrollView();
-
-                // Process deletions outside the iteration loop
-                if (eventToDeleteCommitted.HasValue)
-                {
-                    var del = eventToDeleteCommitted.Value;
-                    ParsekLog.Verbose("UI", $"Delete committed action: {del.eventType} key='{del.key}' ut={del.ut:F1}");
-                    MilestoneStore.RemoveCommittedEvent(del);
-                }
-                if (eventToDeleteUncommitted.HasValue)
-                {
-                    var del = eventToDeleteUncommitted.Value;
-                    ParsekLog.Verbose("UI", $"Delete uncommitted action: {del.eventType} key='{del.key}' ut={del.ut:F1}");
-                    GameStateStore.RemoveEvent(del);
-                }
-            }
-            else
-            {
-                GUILayout.Space(5);
-                GUILayout.Label("No actions recorded.");
-            }
-
-            // Retired Kerbals section
-            var retiredKerbals = LedgerOrchestrator.Kerbals?.GetRetiredKerbals() ?? new List<string>();
-            if (retiredKerbals.Count > 0)
-            {
-                if (retiredKerbals.Count != lastRetiredKerbalCount)
-                {
-                    ParsekLog.Verbose("UI",
-                        $"Retired kerbals count changed: {lastRetiredKerbalCount} -> {retiredKerbals.Count}");
-                    lastRetiredKerbalCount = retiredKerbals.Count;
-                }
-
-                GUILayout.Space(5);
-                GUILayout.Label($"Retired Stand-ins ({retiredKerbals.Count})", GUI.skin.box);
-                GUILayout.BeginVertical(GUI.skin.box);
-                for (int i = 0; i < retiredKerbals.Count; i++)
-                {
-                    GUILayout.Label(retiredKerbals[i], actionsGrayStyle);
-                }
-                GUILayout.EndVertical();
-            }
-            else if (lastRetiredKerbalCount > 0)
-            {
-                ParsekLog.Verbose("UI", "Retired kerbals list cleared");
-                lastRetiredKerbalCount = 0;
-            }
-
-            // C. Bottom Bar — pinned to window bottom
-            GUILayout.FlexibleSpace();
-
-            uint epoch = MilestoneStore.CurrentEpoch;
-            if (epoch > 0)
-            {
-                GUILayout.Label($"Epoch: {epoch} ({epoch} revert{(epoch == 1 ? "" : "s")})",
-                    actionsGrayStyle);
-            }
-
-            if (GUILayout.Button("Close"))
-            {
-                showActionsWindow = false;
-                ParsekLog.Verbose("UI", "Actions window closed via button");
-            }
-
-            DrawResizeHandle(actionsWindowRect, ref isResizingActionsWindow,
-                "Actions window");
-
-            GUI.DragWindow();
-        }
-
-        private string SortHeader(string label, ActionsSortColumn column)
-        {
-            if (actionsSortColumn == column)
-                return label + (actionsSortAscending ? " \u25b2" : " \u25bc"); // ▲ / ▼
-            return label;
-        }
-
-        private void ToggleActionsSort(ActionsSortColumn column)
-        {
-            if (actionsSortColumn == column)
-                actionsSortAscending = !actionsSortAscending;
-            else
-            {
-                actionsSortColumn = column;
-                actionsSortAscending = true;
-            }
-            ParsekLog.Verbose("UI", $"Actions sort changed: column={column} ascending={actionsSortAscending}");
-        }
-
-        /// <summary>
-        /// Builds the sorted list of committed action events and the list of uncommitted events
-        /// for the actions window.
-        /// </summary>
-        private static void BuildSortedActionEvents(
-            ActionsSortColumn sortColumn, bool sortAscending,
-            out List<System.Tuple<GameStateEvent, bool>> allEvents,
-            out List<GameStateEvent> uncommittedEvents)
-        {
-            var milestones = MilestoneStore.Milestones;
-            uint currentEpoch = MilestoneStore.CurrentEpoch;
-
-            allEvents = new List<System.Tuple<GameStateEvent, bool>>();
-            for (int i = 0; i < milestones.Count; i++)
-            {
-                var m = milestones[i];
-                if (!m.Committed || m.Epoch != currentEpoch) continue;
-                for (int j = 0; j < m.Events.Count; j++)
-                {
-                    if (GameStateStore.IsMilestoneFilteredEvent(m.Events[j].eventType))
-                        continue;
-                    bool replayed = j <= m.LastReplayedEventIndex;
-                    allEvents.Add(System.Tuple.Create(m.Events[j], replayed));
-                }
-            }
-
-            // Sort events
-            switch (sortColumn)
-            {
-                case ActionsSortColumn.Time:
-                    allEvents.Sort((a, b) => sortAscending
-                        ? a.Item1.ut.CompareTo(b.Item1.ut)
-                        : b.Item1.ut.CompareTo(a.Item1.ut));
-                    break;
-                case ActionsSortColumn.Type:
-                    allEvents.Sort((a, b) =>
-                    {
-                        int cmp = string.Compare(
-                            GameStateEventDisplay.GetDisplayCategory(a.Item1.eventType),
-                            GameStateEventDisplay.GetDisplayCategory(b.Item1.eventType),
-                            System.StringComparison.Ordinal);
-                        return sortAscending ? cmp : -cmp;
-                    });
-                    break;
-                case ActionsSortColumn.Description:
-                    allEvents.Sort((a, b) =>
-                    {
-                        int cmp = string.Compare(
-                            GameStateEventDisplay.GetDisplayDescription(a.Item1),
-                            GameStateEventDisplay.GetDisplayDescription(b.Item1),
-                            System.StringComparison.Ordinal);
-                        return sortAscending ? cmp : -cmp;
-                    });
-                    break;
-                case ActionsSortColumn.Status:
-                    allEvents.Sort((a, b) =>
-                    {
-                        int cmp = a.Item2.CompareTo(b.Item2); // false (Pending) < true (Replayed)
-                        return sortAscending ? cmp : -cmp;
-                    });
-                    break;
-            }
-
-            // Uncommitted events (not yet in any milestone)
-            double lastMilestoneEndUT = 0;
-            for (int i = 0; i < milestones.Count; i++)
-            {
-                if (milestones[i].Epoch == currentEpoch && milestones[i].EndUT > lastMilestoneEndUT)
-                    lastMilestoneEndUT = milestones[i].EndUT;
-            }
-
-            var storeEvents = GameStateStore.Events;
-            uncommittedEvents = new List<GameStateEvent>();
-            for (int i = 0; i < storeEvents.Count; i++)
-            {
-                var e = storeEvents[i];
-                if (e.epoch != currentEpoch) continue;
-                if (e.ut <= lastMilestoneEndUT) continue;
-                if (GameStateStore.IsMilestoneFilteredEvent(e.eventType)) continue;
-                uncommittedEvents.Add(e);
-            }
-            uncommittedEvents.Sort((a, b) => a.ut.CompareTo(b.ut));
+            actionsUI.DrawIfOpen(mainWindowRect);
         }
 
         /// <summary>
@@ -905,7 +424,7 @@ namespace Parsek
         /// </summary>
         internal static void BuildGroupTreeData(
             List<Recording> committed, int[] sortedIndices,
-            List<string> knownEmptyGroups,
+            List<string> KnownEmptyGroups,
             out Dictionary<string, List<int>> grpToRecs,
             out Dictionary<string, List<int>> chainToRecs,
             out Dictionary<string, List<string>> grpChildren,
@@ -959,8 +478,8 @@ namespace Parsek
                 allGrpNames.Add(kvp.Key);
                 allGrpNames.Add(kvp.Value);
             }
-            for (int i = 0; i < knownEmptyGroups.Count; i++)
-                allGrpNames.Add(knownEmptyGroups[i]);
+            for (int i = 0; i < KnownEmptyGroups.Count; i++)
+                allGrpNames.Add(KnownEmptyGroups[i]);
 
             foreach (var kvp in GroupHierarchyStore.GroupParents)
             {
@@ -1035,7 +554,7 @@ namespace Parsek
             LogWindowPosition("Recordings", ref lastRecordingsWindowRect, recordingsWindowRect);
 
             // Group picker popup (rendered outside recordings window to avoid scroll clipping)
-            DrawGroupPickerPopup();
+            groupPicker.Draw();
 
             // Lock camera controls (including scroll zoom) when mouse is over window.
             // ClickThroughBlocker uses ALLBUTCAMERAS which intentionally leaves camera
@@ -1134,11 +653,8 @@ namespace Parsek
             phaseStyleApproach.normal.textColor = new Color(0.4f, 0.7f, 1f); // sky blue
         }
 
-        private void DrawRecordingsWindow(int windowID)
+        private void HandleRecordingsDefocus(List<Recording> committed)
         {
-            var committed = RecordingStore.CommittedRecordings;
-            double now = Planetarium.GetUniversalTime();
-
             // Click outside active rename field → commit and close
             if (Event.current.type == EventType.MouseDown &&
                 (renamingRecordingIdx >= 0 || renamingGroup != null))
@@ -1160,6 +676,140 @@ namespace Parsek
                     CommitLoopPeriodEdit(committed);
                 }
             }
+        }
+
+        private void DrawRecordingsTableHeader(List<Recording> committed)
+        {
+            // Header row
+            GUILayout.BeginHorizontal();
+            // Select-all enable header checkbox
+            int enableCount = 0;
+            for (int i = 0; i < committed.Count; i++)
+                if (committed[i].PlaybackEnabled) enableCount++;
+            bool allEnabled = enableCount == committed.Count;
+            bool newAllEnabled = GUILayout.Toggle(allEnabled, "", GUILayout.Width(ColW_Enable));
+            if (newAllEnabled != allEnabled)
+            {
+                for (int i = 0; i < committed.Count; i++)
+                    committed[i].PlaybackEnabled = newAllEnabled;
+                ParsekLog.Info("UI", $"Set playback enabled for all recordings: enabled={newAllEnabled}");
+            }
+            DrawSortableHeader("#", SortColumn.Index, ColW_Index);
+            DrawSortableHeader("Name", SortColumn.Name, 0, true);
+            DrawSortableHeader("Phase", SortColumn.Phase, ColW_Phase);
+            DrawSortableHeader("Launch", SortColumn.LaunchTime, ColW_Launch);
+            DrawSortableHeader("Duration", SortColumn.Duration, ColW_Dur);
+
+            if (showExpandedStats)
+            {
+                GUILayout.Label("MaxAlt", GUILayout.Width(ColW_MaxAlt));
+                GUILayout.Label("MaxSpd", GUILayout.Width(ColW_MaxSpd));
+                GUILayout.Label("Dist", GUILayout.Width(ColW_Dist));
+                GUILayout.Label("Pts", GUILayout.Width(ColW_Pts));
+            }
+
+            DrawSortableHeader("Status", SortColumn.Status, ColW_Status);
+
+            // Group column header
+            GUILayout.Label("Group", GUILayout.Width(ColW_Group));
+
+            // Select-all loop header + checkbox
+            int loopCount = 0;
+            for (int i = 0; i < committed.Count; i++)
+                if (committed[i].LoopPlayback) loopCount++;
+
+            bool allLoop = loopCount == committed.Count;
+            GUILayout.BeginHorizontal(GUILayout.Width(ColW_Loop));
+            GUILayout.FlexibleSpace();
+            GUILayout.Label("Loop\nGhost");
+            bool newAllLoop = GUILayout.Toggle(allLoop, "");
+            GUILayout.FlexibleSpace();
+            GUILayout.EndHorizontal();
+            if (newAllLoop != allLoop)
+            {
+                for (int i = 0; i < committed.Count; i++)
+                    committed[i].LoopPlayback = newAllLoop;
+                ParsekLog.Info("UI", $"Set loop playback for all recordings: enabled={newAllLoop}");
+            }
+
+            GUILayout.BeginHorizontal(GUILayout.Width(ColW_Period));
+            GUILayout.FlexibleSpace();
+            GUILayout.Label(new GUIContent("Every",
+                "Loop interval between cycles.\nClick unit to cycle: sec \u2192 min \u2192 hr \u2192 auto.\n\"auto\" inherits from Settings > Looping."));
+            GUILayout.FlexibleSpace();
+            GUILayout.EndHorizontal();
+
+            if (InFlight)
+                GUILayout.Label("Watch", GUILayout.Width(ColW_Watch));
+            GUILayout.Label("Rewind\nF.Forward", GUILayout.Width(ColW_Rewind));
+
+            // Hide column header + toggle
+            GUILayout.BeginHorizontal(GUILayout.Width(ColW_Hide));
+            GUILayout.FlexibleSpace();
+            GUILayout.Label("Hide");
+            bool newHideActive = GUILayout.Toggle(GroupHierarchyStore.HideActive, "");
+            GUILayout.FlexibleSpace();
+            GUILayout.EndHorizontal();
+            if (newHideActive != GroupHierarchyStore.HideActive)
+            {
+                GroupHierarchyStore.HideActive = newHideActive;
+                ParsekLog.Info("UI", $"Hide active toggled: {GroupHierarchyStore.HideActive}");
+            }
+
+            GUILayout.EndHorizontal();
+        }
+
+        private void DrawRecordingsBottomBar(List<Recording> committed)
+        {
+            // Bottom button bar — pinned to window bottom
+            GUILayout.FlexibleSpace();
+            GUILayout.BeginHorizontal();
+
+            if (committed.Count > 0)
+            {
+                string statsLabel = showExpandedStats ? "Stats \u25c0" : "Stats \u25b6";
+                if (GUILayout.Button(statsLabel, GUILayout.Width(65)))
+                {
+                    showExpandedStats = !showExpandedStats;
+                    ParsekLog.Verbose("UI", $"Recordings Stats toggled: {(showExpandedStats ? "expanded" : "collapsed")}");
+                    if (showExpandedStats && recordingsWindowRect.width < 1324f)
+                        recordingsWindowRect.width = 1324f;
+                    else if (!showExpandedStats)
+                        recordingsWindowRect.width = 1106f;
+                }
+            }
+
+            if (GUILayout.Button("New Group", GUILayout.Width(80)))
+            {
+                string newName = GenerateUniqueGroupName();
+                KnownEmptyGroups.Add(newName);
+                expandedGroups.Add(newName);
+                renamingGroup = newName;
+                renamingGroupText = newName;
+                ParsekLog.Info("UI", $"Group '{newName}' created");
+            }
+
+            if (GUILayout.Button("Close"))
+            {
+                showRecordingsWindow = false;
+                groupPicker.Close();
+                ParsekLog.Verbose("UI", "Recordings window closed via button");
+            }
+
+            GUILayout.EndHorizontal();
+
+            DrawResizeHandle(recordingsWindowRect, ref isResizingRecordingsWindow,
+                "Recordings window");
+
+            GUI.DragWindow();
+        }
+
+        private void DrawRecordingsWindow(int windowID)
+        {
+            var committed = RecordingStore.CommittedRecordings;
+            double now = Planetarium.GetUniversalTime();
+
+            HandleRecordingsDefocus(committed);
 
             EnsureStatusStyles();
             EnsurePhaseStyles();
@@ -1176,83 +826,7 @@ namespace Parsek
                 recordingsScrollPos = GUILayout.BeginScrollView(
                     recordingsScrollPos, false, true, GUILayout.ExpandHeight(true));
 
-                // Header row
-                GUILayout.BeginHorizontal();
-                // Select-all enable header checkbox
-                int enableCount = 0;
-                for (int i = 0; i < committed.Count; i++)
-                    if (committed[i].PlaybackEnabled) enableCount++;
-                bool allEnabled = enableCount == committed.Count;
-                bool newAllEnabled = GUILayout.Toggle(allEnabled, "", GUILayout.Width(ColW_Enable));
-                if (newAllEnabled != allEnabled)
-                {
-                    for (int i = 0; i < committed.Count; i++)
-                        committed[i].PlaybackEnabled = newAllEnabled;
-                    ParsekLog.Info("UI", $"Set playback enabled for all recordings: enabled={newAllEnabled}");
-                }
-                DrawSortableHeader("#", SortColumn.Index, ColW_Index);
-                DrawSortableHeader("Name", SortColumn.Name, 0, true);
-                DrawSortableHeader("Phase", SortColumn.Phase, ColW_Phase);
-                DrawSortableHeader("Launch", SortColumn.LaunchTime, ColW_Launch);
-                DrawSortableHeader("Duration", SortColumn.Duration, ColW_Dur);
-
-                if (showExpandedStats)
-                {
-                    GUILayout.Label("MaxAlt", GUILayout.Width(ColW_MaxAlt));
-                    GUILayout.Label("MaxSpd", GUILayout.Width(ColW_MaxSpd));
-                    GUILayout.Label("Dist", GUILayout.Width(ColW_Dist));
-                    GUILayout.Label("Pts", GUILayout.Width(ColW_Pts));
-                }
-
-                DrawSortableHeader("Status", SortColumn.Status, ColW_Status);
-
-                // Group column header
-                GUILayout.Label("Group", GUILayout.Width(ColW_Group));
-
-                // Select-all loop header + checkbox
-                int loopCount = 0;
-                for (int i = 0; i < committed.Count; i++)
-                    if (committed[i].LoopPlayback) loopCount++;
-
-                bool allLoop = loopCount == committed.Count;
-                GUILayout.BeginHorizontal(GUILayout.Width(ColW_Loop));
-                GUILayout.FlexibleSpace();
-                GUILayout.Label("Loop\nGhost");
-                bool newAllLoop = GUILayout.Toggle(allLoop, "");
-                GUILayout.FlexibleSpace();
-                GUILayout.EndHorizontal();
-                if (newAllLoop != allLoop)
-                {
-                    for (int i = 0; i < committed.Count; i++)
-                        committed[i].LoopPlayback = newAllLoop;
-                    ParsekLog.Info("UI", $"Set loop playback for all recordings: enabled={newAllLoop}");
-                }
-
-                GUILayout.BeginHorizontal(GUILayout.Width(ColW_Period));
-                GUILayout.FlexibleSpace();
-                GUILayout.Label(new GUIContent("Every",
-                    "Loop interval between cycles.\nClick unit to cycle: sec \u2192 min \u2192 hr \u2192 auto.\n\"auto\" inherits from Settings > Looping."));
-                GUILayout.FlexibleSpace();
-                GUILayout.EndHorizontal();
-
-                if (InFlight)
-                    GUILayout.Label("Watch", GUILayout.Width(ColW_Watch));
-                GUILayout.Label("Rewind\nF.Forward", GUILayout.Width(ColW_Rewind));
-
-                // Hide column header + toggle
-                GUILayout.BeginHorizontal(GUILayout.Width(ColW_Hide));
-                GUILayout.FlexibleSpace();
-                GUILayout.Label("Hide");
-                bool newHideActive = GUILayout.Toggle(GroupHierarchyStore.HideActive, "");
-                GUILayout.FlexibleSpace();
-                GUILayout.EndHorizontal();
-                if (newHideActive != GroupHierarchyStore.HideActive)
-                {
-                    GroupHierarchyStore.HideActive = newHideActive;
-                    ParsekLog.Info("UI", $"Hide active toggled: {GroupHierarchyStore.HideActive}");
-                }
-
-                GUILayout.EndHorizontal();
+                DrawRecordingsTableHeader(committed);
 
                 // Rebuild if a header click invalidated during this frame
                 RebuildSortedIndices(committed, now);
@@ -1263,7 +837,7 @@ namespace Parsek
                 Dictionary<string, List<string>> grpChildren;
                 List<string> rootGrps;
                 HashSet<string> rootChainIds;
-                BuildGroupTreeData(committed, sortedIndices, knownEmptyGroups,
+                BuildGroupTreeData(committed, sortedIndices, KnownEmptyGroups,
                     out grpToRecs, out chainToRecs, out grpChildren,
                     out rootGrps, out rootChainIds);
 
@@ -1362,47 +936,7 @@ namespace Parsek
                     scrollViewRect = GUILayoutUtility.GetLastRect();
             }
 
-            // Bottom button bar — pinned to window bottom
-            GUILayout.FlexibleSpace();
-            GUILayout.BeginHorizontal();
-
-            if (committed.Count > 0)
-            {
-                string statsLabel = showExpandedStats ? "Stats \u25c0" : "Stats \u25b6";
-                if (GUILayout.Button(statsLabel, GUILayout.Width(65)))
-                {
-                    showExpandedStats = !showExpandedStats;
-                    ParsekLog.Verbose("UI", $"Recordings Stats toggled: {(showExpandedStats ? "expanded" : "collapsed")}");
-                    if (showExpandedStats && recordingsWindowRect.width < 1324f)
-                        recordingsWindowRect.width = 1324f;
-                    else if (!showExpandedStats)
-                        recordingsWindowRect.width = 1106f;
-                }
-            }
-
-            if (GUILayout.Button("New Group", GUILayout.Width(80)))
-            {
-                string newName = GenerateUniqueGroupName();
-                knownEmptyGroups.Add(newName);
-                expandedGroups.Add(newName);
-                renamingGroup = newName;
-                renamingGroupText = newName;
-                ParsekLog.Info("UI", $"Group '{newName}' created");
-            }
-
-            if (GUILayout.Button("Close"))
-            {
-                showRecordingsWindow = false;
-                groupPopupOpen = false;
-                ParsekLog.Verbose("UI", "Recordings window closed via button");
-            }
-
-            GUILayout.EndHorizontal();
-
-            DrawResizeHandle(recordingsWindowRect, ref isResizingRecordingsWindow,
-                "Recordings window");
-
-            GUI.DragWindow();
+            DrawRecordingsBottomBar(committed);
         }
 
         /// <summary>
@@ -1510,8 +1044,8 @@ namespace Parsek
             // Group assignment button
             if (GUILayout.Button("G", GUILayout.Width(ColW_Group)))
             {
-                groupPopupPosition = GUIUtility.GUIToScreenPoint(Event.current.mousePosition);
-                OpenGroupPopupForRecording(ri);
+                var mousePos = GUIUtility.GUIToScreenPoint(Event.current.mousePosition);
+                groupPicker.OpenForRecording(ri, mousePos);
                 ParsekLog.Verbose("UI", $"Group popup opened for recording index={ri} name='{rec.VesselName}'");
             }
 
@@ -1841,8 +1375,8 @@ namespace Parsek
             float halfGroup = (ColW_Group - 4f) * 0.5f; // 4px for spacing between buttons
             if (GUILayout.Button("G", GUILayout.Width(halfGroup)))
             {
-                groupPopupPosition = GUIUtility.GUIToScreenPoint(Event.current.mousePosition);
-                OpenGroupPopupForGroup(groupName);
+                var mousePos = GUIUtility.GUIToScreenPoint(Event.current.mousePosition);
+                groupPicker.OpenForGroup(groupName, mousePos);
                 ParsekLog.Verbose("UI", $"Group popup opened for group '{groupName}'");
             }
             if (GUILayout.Button("X", GUILayout.Width(halfGroup)))
@@ -2120,8 +1654,8 @@ namespace Parsek
             float halfGroup = (ColW_Group - 4f) * 0.5f;
             if (GUILayout.Button("G", GUILayout.Width(halfGroup)))
             {
-                groupPopupPosition = GUIUtility.GUIToScreenPoint(Event.current.mousePosition);
-                OpenGroupPopupForChain(chainId);
+                var mousePos = GUIUtility.GUIToScreenPoint(Event.current.mousePosition);
+                groupPicker.OpenForChain(chainId, mousePos);
                 ParsekLog.Verbose("UI", $"Group popup opened for chain '{chainName}'");
             }
             GUILayout.Space(halfGroup + 4f);
@@ -2224,9 +1758,9 @@ namespace Parsek
             if (expandedGroups.Remove(oldName))
                 expandedGroups.Add(newName);
 
-            // Update knownEmptyGroups
-            int emptyIdx = knownEmptyGroups.IndexOf(oldName);
-            if (emptyIdx >= 0) knownEmptyGroups[emptyIdx] = newName;
+            // Update KnownEmptyGroups
+            int emptyIdx = KnownEmptyGroups.IndexOf(oldName);
+            if (emptyIdx >= 0) KnownEmptyGroups[emptyIdx] = newName;
 
             ParsekLog.Info("UI", $"Group '{oldName}' renamed to '{newName}'");
         }
@@ -2234,9 +1768,9 @@ namespace Parsek
         private string GenerateUniqueGroupName()
         {
             var existing = RecordingStore.GetGroupNames();
-            for (int i = 0; i < knownEmptyGroups.Count; i++)
-                if (!existing.Contains(knownEmptyGroups[i]))
-                    existing.Add(knownEmptyGroups[i]);
+            for (int i = 0; i < KnownEmptyGroups.Count; i++)
+                if (!existing.Contains(KnownEmptyGroups[i]))
+                    existing.Add(KnownEmptyGroups[i]);
 
             for (int n = 1; ; n++)
             {
@@ -2279,7 +1813,7 @@ namespace Parsek
                     {
                         int updated = RecordingStore.ReplaceGroupOnAll(capturedName, capturedParent);
                         GroupHierarchyStore.RemoveGroupFromHierarchy(capturedName);
-                        knownEmptyGroups.Remove(capturedName);
+                        KnownEmptyGroups.Remove(capturedName);
                         expandedGroups.Remove(capturedName);
                         ParsekLog.Info("UI", $"Group '{capturedName}' disbanded ({updated} recordings moved to '{capturedParent ?? "(standalone)"}')");
                     }),
@@ -2288,331 +1822,6 @@ namespace Parsek
                         ParsekLog.Verbose("UI", $"Disband group '{capturedName}' cancelled");
                     })
                 ), false, HighLogic.UISkin);
-        }
-
-        // ─── Group picker popup ───────────────────────────────────────
-
-        private void OpenGroupPopupForRecording(int ri)
-        {
-            var rec = RecordingStore.CommittedRecordings[ri];
-            groupPopupOpen = true;
-            groupPopupRecIdx = ri;
-            groupPopupChainId = null;
-            groupPopupGroup = null;
-            groupPopupChecked = rec.RecordingGroups != null
-                ? new HashSet<string>(rec.RecordingGroups) : new HashSet<string>();
-            groupPopupOriginal = new HashSet<string>(groupPopupChecked);
-            groupPopupNewName = "";
-            InitGroupPopupExpansion();
-        }
-
-        private void OpenGroupPopupForChain(string chainId)
-        {
-            groupPopupOpen = true;
-            groupPopupRecIdx = -1;
-            groupPopupChainId = chainId;
-            groupPopupGroup = null;
-            // Checked = groups that ALL chain members are in (single pass to find members, then check)
-            var committed = RecordingStore.CommittedRecordings;
-            var memberIndices = RecordingStore.GetChainMemberIndices(chainId);
-            var allGroups = RecordingStore.GetGroupNames();
-            groupPopupChecked = new HashSet<string>();
-            for (int g = 0; g < allGroups.Count; g++)
-            {
-                bool allIn = true;
-                for (int m = 0; m < memberIndices.Count; m++)
-                {
-                    var rec = committed[memberIndices[m]];
-                    if (rec.RecordingGroups == null || !rec.RecordingGroups.Contains(allGroups[g]))
-                    { allIn = false; break; }
-                }
-                if (allIn && memberIndices.Count > 0) groupPopupChecked.Add(allGroups[g]);
-            }
-            groupPopupOriginal = new HashSet<string>(groupPopupChecked);
-            groupPopupNewName = "";
-            InitGroupPopupExpansion();
-        }
-
-        private void OpenGroupPopupForGroup(string groupName)
-        {
-            groupPopupOpen = true;
-            groupPopupRecIdx = -1;
-            groupPopupChainId = null;
-            groupPopupGroup = groupName;
-            // For group-in-group: checked = current parent (if any)
-            groupPopupChecked = new HashSet<string>();
-            string parent;
-            if (GroupHierarchyStore.TryGetGroupParent(groupName, out parent))
-                groupPopupChecked.Add(parent);
-            groupPopupOriginal = new HashSet<string>(groupPopupChecked);
-            groupPopupNewName = "";
-            InitGroupPopupExpansion();
-        }
-
-        private void InitGroupPopupExpansion()
-        {
-            // Reset popup rect so it repositions near the clicked G button
-            groupPopupRect = new Rect(0, 0, 0, 0);
-            isResizingGroupPopup = false;
-            groupPopupExpanded = new HashSet<string>();
-            // Default: all groups expanded
-            foreach (var kvp in GroupHierarchyStore.GroupParents)
-            {
-                groupPopupExpanded.Add(kvp.Value);
-            }
-            var allNames = RecordingStore.GetGroupNames();
-            for (int i = 0; i < allNames.Count; i++)
-                groupPopupExpanded.Add(allNames[i]);
-            for (int i = 0; i < knownEmptyGroups.Count; i++)
-                groupPopupExpanded.Add(knownEmptyGroups[i]);
-            groupPopupScrollPos = Vector2.zero;
-        }
-
-        /// <summary>
-        /// Draws the group picker popup. Called from OnGUI or after the recordings window.
-        /// </summary>
-        private void DrawGroupPickerPopup()
-        {
-            if (!groupPopupOpen) return;
-
-            // Collect all group names
-            var allNames = new HashSet<string>(RecordingStore.GetGroupNames());
-            foreach (var kvp in GroupHierarchyStore.GroupParents)
-            {
-                allNames.Add(kvp.Key);
-                allNames.Add(kvp.Value);
-            }
-            for (int i = 0; i < knownEmptyGroups.Count; i++)
-                allNames.Add(knownEmptyGroups[i]);
-
-            // For group-in-group popup: determine which groups are cycle-invalid
-            HashSet<string> cycleInvalid = null;
-            if (groupPopupGroup != null)
-            {
-                cycleInvalid = new HashSet<string>();
-                cycleInvalid.Add(groupPopupGroup);
-                var desc = GroupHierarchyStore.GetDescendantGroups(groupPopupGroup);
-                for (int i = 0; i < desc.Count; i++)
-                    cycleInvalid.Add(desc[i]);
-            }
-
-            // Build hierarchy for display
-            var parentToChildren = new Dictionary<string, List<string>>();
-            foreach (var kvp in GroupHierarchyStore.GroupParents)
-            {
-                List<string> ch;
-                if (!parentToChildren.TryGetValue(kvp.Value, out ch))
-                {
-                    ch = new List<string>();
-                    parentToChildren[kvp.Value] = ch;
-                }
-                ch.Add(kvp.Key);
-            }
-            foreach (var ch in parentToChildren.Values)
-                ch.Sort(System.StringComparer.OrdinalIgnoreCase);
-
-            var rootNames = new List<string>();
-            foreach (var n in allNames)
-            {
-                if (!GroupHierarchyStore.HasGroupParent(n))
-                    rootNames.Add(n);
-            }
-            rootNames.Sort(System.StringComparer.OrdinalIgnoreCase);
-
-            HandleResizeDrag(ref groupPopupRect, ref isResizingGroupPopup,
-                GroupPopupMinW, GroupPopupMinH, null);
-
-            // Initialize popup rect on first open
-            if (groupPopupRect.width < 1f)
-            {
-                groupPopupRect = new Rect(
-                    Mathf.Clamp(groupPopupPosition.x, 0, Screen.width - 280f),
-                    Mathf.Clamp(groupPopupPosition.y, 0, Screen.height - 300f),
-                    280f, 300f);
-            }
-
-            bool isGroupPopup = groupPopupGroup != null;
-            string popupTitle = isGroupPopup ? "Set Parent Group" : "Manage Groups";
-
-            EnsureOpaqueWindowStyle();
-            groupPopupRect = ClickThruBlocker.GUILayoutWindow(
-                "ParsekGroupPopup".GetHashCode(),
-                groupPopupRect,
-                (id) => DrawGroupPopupContents(rootNames, parentToChildren, cycleInvalid, allNames, isGroupPopup),
-                popupTitle,
-                opaqueWindowStyle,
-                GUILayout.Width(groupPopupRect.width),
-                GUILayout.Height(groupPopupRect.height));
-        }
-
-        private void DrawGroupPopupContents(List<string> rootNames,
-            Dictionary<string, List<string>> parentToChildren,
-            HashSet<string> cycleInvalid, HashSet<string> allNames, bool isGroupPopup)
-        {
-            groupPopupScrollPos = GUILayout.BeginScrollView(groupPopupScrollPos, GUILayout.ExpandHeight(true));
-
-            // For group-in-group: add "(None / Root)" option
-            if (isGroupPopup)
-            {
-                bool noneChecked = groupPopupChecked.Count == 0;
-                bool newNone = GUILayout.Toggle(noneChecked, "(None / Root level)");
-                if (newNone && !noneChecked)
-                    groupPopupChecked.Clear();
-            }
-
-            // Draw group hierarchy with checkboxes
-            for (int r = 0; r < rootNames.Count; r++)
-                DrawGroupPopupNode(rootNames[r], 0, parentToChildren, cycleInvalid, isGroupPopup);
-
-            GUILayout.EndScrollView();
-
-            GUILayout.Space(3);
-
-            // New group creation
-            GUILayout.BeginHorizontal();
-            groupPopupNewName = GUILayout.TextField(groupPopupNewName, GUILayout.ExpandWidth(true));
-            if (GUILayout.Button("+", GUILayout.Width(25)))
-            {
-                string newName = groupPopupNewName.Trim();
-                if (!RecordingStore.IsInvalidGroupName(newName) &&
-                    !allNames.Contains(newName) && !knownEmptyGroups.Contains(newName))
-                {
-                    knownEmptyGroups.Add(newName);
-                    if (!isGroupPopup)
-                        groupPopupChecked.Add(newName);
-                    groupPopupNewName = "";
-                    ParsekLog.Info("UI", $"Group '{newName}' created via popup");
-                }
-            }
-            GUILayout.EndHorizontal();
-
-            GUILayout.Space(3);
-
-            // Done / Cancel
-            GUILayout.BeginHorizontal();
-            GUILayout.FlexibleSpace();
-            if (GUILayout.Button("OK", GUILayout.Width(60)))
-            {
-                ApplyGroupPopupChanges();
-                groupPopupOpen = false;
-            }
-            if (GUILayout.Button("Cancel", GUILayout.Width(60)))
-            {
-                groupPopupOpen = false;
-            }
-            GUILayout.FlexibleSpace();
-            GUILayout.EndHorizontal();
-
-            DrawResizeHandle(groupPopupRect, ref isResizingGroupPopup, null);
-
-            GUI.DragWindow();
-        }
-
-        private void DrawGroupPopupNode(string groupName, int depth,
-            Dictionary<string, List<string>> parentToChildren,
-            HashSet<string> cycleInvalid, bool singleSelect)
-        {
-            // Skip self + all descendants (can't assign a group to itself or its children)
-            if (cycleInvalid != null && cycleInvalid.Contains(groupName))
-                return;
-
-            List<string> children;
-            bool hasChildren = parentToChildren.TryGetValue(groupName, out children) && children.Count > 0;
-
-            GUILayout.BeginHorizontal();
-            if (depth > 0) GUILayout.Space(depth * 12f);
-
-            bool isChecked = groupPopupChecked.Contains(groupName);
-            bool newChecked = GUILayout.Toggle(isChecked, "", GUILayout.Width(20));
-            if (newChecked != isChecked)
-            {
-                if (singleSelect)
-                {
-                    groupPopupChecked.Clear();
-                    if (newChecked) groupPopupChecked.Add(groupName);
-                }
-                else
-                {
-                    if (newChecked) groupPopupChecked.Add(groupName);
-                    else groupPopupChecked.Remove(groupName);
-                }
-            }
-
-            if (hasChildren)
-            {
-                bool expanded = groupPopupExpanded.Contains(groupName);
-                string arrow = expanded ? "\u25bc" : "\u25b6";
-                if (GUILayout.Button(arrow, GUI.skin.label, GUILayout.Width(14)))
-                {
-                    if (expanded) groupPopupExpanded.Remove(groupName);
-                    else groupPopupExpanded.Add(groupName);
-                }
-            }
-
-            GUILayout.Label(groupName, GUILayout.ExpandWidth(true));
-
-            GUILayout.EndHorizontal();
-
-            // Draw children if expanded
-            if (hasChildren && groupPopupExpanded.Contains(groupName))
-            {
-                for (int c = 0; c < children.Count; c++)
-                    DrawGroupPopupNode(children[c], depth + 1, parentToChildren, cycleInvalid, singleSelect);
-            }
-        }
-
-        private void ApplyGroupPopupChanges()
-        {
-            var committed = RecordingStore.CommittedRecordings;
-
-            if (groupPopupGroup != null)
-            {
-                // Group-in-group: set parent
-                if (groupPopupChecked.Count == 0)
-                {
-                    // Remove parent (root level)
-                    GroupHierarchyStore.SetGroupParent(groupPopupGroup, null);
-                    ParsekLog.Info("UI", $"Group '{groupPopupGroup}' moved to root level");
-                }
-                else
-                {
-                    // Set parent to the single checked group
-                    foreach (var parent in groupPopupChecked)
-                    {
-                        GroupHierarchyStore.SetGroupParent(groupPopupGroup, parent);
-                        ParsekLog.Info("UI", $"Group '{groupPopupGroup}' parent set to '{parent}'");
-                        break;
-                    }
-                }
-            }
-            else if (groupPopupChainId != null)
-            {
-                // Chain: add/remove groups for all chain members
-                var added = new HashSet<string>(groupPopupChecked);
-                added.ExceptWith(groupPopupOriginal);
-                var removed = new HashSet<string>(groupPopupOriginal);
-                removed.ExceptWith(groupPopupChecked);
-
-                foreach (var g in added)
-                    RecordingStore.AddChainToGroup(groupPopupChainId, g);
-                foreach (var g in removed)
-                    RecordingStore.RemoveChainFromGroup(groupPopupChainId, g);
-                ParsekLog.Info("UI", $"Chain '{groupPopupChainId}' groups changed: +[{string.Join(", ", added)}] -[{string.Join(", ", removed)}]");
-            }
-            else if (groupPopupRecIdx >= 0 && groupPopupRecIdx < committed.Count)
-            {
-                // Recording: add/remove groups
-                var added = new HashSet<string>(groupPopupChecked);
-                added.ExceptWith(groupPopupOriginal);
-                var removed = new HashSet<string>(groupPopupOriginal);
-                removed.ExceptWith(groupPopupChecked);
-
-                foreach (var g in added)
-                    RecordingStore.AddRecordingToGroup(groupPopupRecIdx, g);
-                foreach (var g in removed)
-                    RecordingStore.RemoveRecordingFromGroup(groupPopupRecIdx, g);
-                ParsekLog.Info("UI", $"Recording [{groupPopupRecIdx}] groups changed: +[{string.Join(", ", added)}] -[{string.Join(", ", removed)}]");
-            }
         }
 
         private void ShowRewindConfirmation(Recording rec)
@@ -2781,7 +1990,7 @@ namespace Parsek
                 false, HighLogic.UISkin);
         }
 
-        private void DrawSortableHeaderCore<TCol>(
+        internal void DrawSortableHeaderCore<TCol>(
             string label, TCol col, ref TCol currentCol, ref bool ascending,
             float width, bool expand, Action onChanged)
             where TCol : struct
@@ -3538,264 +2747,12 @@ namespace Parsek
         }
 
         // ════════════════════════════════════════════════════════════════
-        //  Real Spawn Control window
+        //  Real Spawn Control window (extracted to SpawnControlUI)
         // ════════════════════════════════════════════════════════════════
 
         public void DrawSpawnControlWindowIfOpen(Rect mainWindowRect)
         {
-            if (!showSpawnControlWindow)
-            {
-                ReleaseSpawnControlInputLock();
-                return;
-            }
-
-            // Auto-close when no nearby candidates
-            if (!InFlight || flight == null || flight.NearbySpawnCandidates.Count == 0)
-            {
-                showSpawnControlWindow = false;
-                ReleaseSpawnControlInputLock();
-                return;
-            }
-
-            if (spawnControlWindowRect.width < 1f)
-            {
-                float x = mainWindowRect.x + mainWindowRect.width + 10;
-                spawnControlWindowRect = new Rect(x, mainWindowRect.y, 680, 200);
-                var ic = System.Globalization.CultureInfo.InvariantCulture;
-                ParsekLog.Verbose("UI",
-                    $"Real Spawn Control window initial position: x={spawnControlWindowRect.x.ToString("F0", ic)} y={spawnControlWindowRect.y.ToString("F0", ic)}");
-            }
-
-            HandleResizeDrag(ref spawnControlWindowRect, ref isResizingSpawnControlWindow,
-                MinWindowWidth, MinWindowHeight, "Real Spawn Control window");
-
-            EnsureOpaqueWindowStyle();
-            spawnControlWindowRect = ClickThruBlocker.GUILayoutWindow(
-                "ParsekSpawnControl".GetHashCode(),
-                spawnControlWindowRect,
-                DrawSpawnControlWindow,
-                "Parsek \u2014 Real Spawn Control",
-                opaqueWindowStyle,
-                GUILayout.Width(spawnControlWindowRect.width),
-                GUILayout.Height(spawnControlWindowRect.height)
-            );
-            LogWindowPosition("SpawnControl", ref lastSpawnControlWindowRect, spawnControlWindowRect);
-
-            if (spawnControlWindowRect.Contains(Event.current.mousePosition))
-            {
-                if (!spawnControlWindowHasInputLock)
-                {
-                    InputLockManager.SetControlLock(ControlTypes.CAMERACONTROLS, SpawnControlInputLockId);
-                    spawnControlWindowHasInputLock = true;
-                }
-            }
-            else
-            {
-                ReleaseSpawnControlInputLock();
-            }
-        }
-
-        private void ReleaseSpawnControlInputLock()
-        {
-            if (!spawnControlWindowHasInputLock) return;
-            InputLockManager.RemoveControlLock(SpawnControlInputLockId);
-            spawnControlWindowHasInputLock = false;
-        }
-
-        // Spawn Control column widths (matches recordings window style)
-        private const float SpawnColW_Name = 0f;    // expand
-        private const float SpawnColW_Dist = 55f;
-        private const float SpawnColW_SpawnTime = 100f;
-        private const float SpawnColW_Countdown = 95f;
-        private const float SpawnColW_State = 110f;
-        private const float SpawnColW_Warp = 85f;
-
-        private void DrawSpawnSortableHeader(string label, SpawnSortColumn col, float width)
-        {
-            DrawSpawnSortableHeader(label, col, false, width);
-        }
-
-        private void DrawSpawnSortableHeader(string label, SpawnSortColumn col, bool expand)
-        {
-            DrawSpawnSortableHeader(label, col, expand, 0);
-        }
-
-        private void DrawSpawnSortableHeader(string label, SpawnSortColumn col, bool expand, float width)
-        {
-            DrawSortableHeaderCore(label, col, ref spawnSortColumn, ref spawnSortAscending, width, expand, () =>
-            {
-                ParsekLog.Verbose("UI", $"Spawn sort changed: column={spawnSortColumn}, ascending={spawnSortAscending}");
-            });
-        }
-
-        private int CompareSpawnCandidates(NearbySpawnCandidate a, NearbySpawnCandidate b)
-        {
-            int cmp;
-            switch (spawnSortColumn)
-            {
-                case SpawnSortColumn.Name:
-                    cmp = string.Compare(a.vesselName, b.vesselName,
-                        System.StringComparison.OrdinalIgnoreCase);
-                    break;
-                case SpawnSortColumn.SpawnTime:
-                    cmp = a.endUT.CompareTo(b.endUT);
-                    break;
-                default: // Distance
-                    cmp = a.distance.CompareTo(b.distance);
-                    break;
-            }
-            return spawnSortAscending ? cmp : -cmp;
-        }
-
-        private void DrawSpawnControlWindow(int windowID)
-        {
-            var ic = System.Globalization.CultureInfo.InvariantCulture;
-            double currentUT = Planetarium.GetUniversalTime();
-            var candidates = flight.NearbySpawnCandidates;
-
-            if (candidates.Count == 0)
-            {
-                GUILayout.Label("No nearby craft to spawn.");
-                if (GUILayout.Button("Close"))
-                    showSpawnControlWindow = false;
-                GUI.DragWindow();
-                return;
-            }
-
-            // Header row with sortable columns
-            GUILayout.BeginHorizontal();
-            DrawSpawnSortableHeader("Craft", SpawnSortColumn.Name, true);
-            DrawSpawnSortableHeader("Dist", SpawnSortColumn.Distance, SpawnColW_Dist);
-            DrawSpawnSortableHeader("Spawns at", SpawnSortColumn.SpawnTime, SpawnColW_SpawnTime);
-            DrawSpawnSortableHeader("In T-", SpawnSortColumn.SpawnTime, SpawnColW_Countdown);
-            GUILayout.Label("State", GUILayout.Width(SpawnColW_State));
-            GUILayout.Label("", GUILayout.Width(SpawnColW_Warp));
-            GUILayout.EndHorizontal();
-
-            // Re-sort when candidate list, sort state, or departure info changes
-            int gen = flight.ProximityCheckGeneration;
-            if (candidates.Count != cachedCandidateCount
-                || gen != cachedProximityGeneration
-                || spawnSortColumn != cachedSortColumn
-                || spawnSortAscending != cachedSortAscending)
-            {
-                cachedSortedCandidates.Clear();
-                for (int ci = 0; ci < candidates.Count; ci++)
-                    cachedSortedCandidates.Add(candidates[ci]);
-                cachedSortedCandidates.Sort(CompareSpawnCandidates);
-                cachedCandidateCount = candidates.Count;
-                cachedProximityGeneration = gen;
-                cachedSortColumn = spawnSortColumn;
-                cachedSortAscending = spawnSortAscending;
-            }
-            var sorted = cachedSortedCandidates;
-
-            // Scrollable per-craft rows
-            spawnControlScrollPos = GUILayout.BeginScrollView(spawnControlScrollPos, GUILayout.ExpandHeight(true));
-            for (int i = 0; i < sorted.Count; i++)
-            {
-                var cand = sorted[i];
-                double delta = cand.endUT - currentUT;
-                bool canWarp = cand.endUT > currentUT;
-
-                GUILayout.BeginHorizontal();
-                GUILayout.Label(cand.vesselName, GUILayout.ExpandWidth(true));
-                GUILayout.Label(
-                    string.Format(ic, "{0:F0}m", cand.distance),
-                    GUILayout.Width(SpawnColW_Dist));
-                GUILayout.Label(
-                    KSPUtil.PrintDateCompact(cand.endUT, true),
-                    GUILayout.Width(SpawnColW_SpawnTime));
-                GUILayout.Label(
-                    SelectiveSpawnUI.FormatCountdown(delta),
-                    GUILayout.Width(SpawnColW_Countdown));
-
-                // State column: departure info
-                if (cand.willDepart)
-                {
-                    double depDelta = cand.departureUT - currentUT;
-                    string stateText;
-                    if (depDelta <= 0)
-                        stateText = string.Format(ic, "Departing \u2192 {0}", cand.destination ?? "?");
-                    else
-                        stateText = string.Format(ic, "Departs {0}",
-                            SelectiveSpawnUI.FormatCountdown(depDelta));
-                    var prevColor = GUI.contentColor;
-                    GUI.contentColor = depDelta <= 0
-                        ? new Color(1f, 0.65f, 0.2f) // orange
-                        : new Color(1f, 1f, 0.4f);    // yellow
-                    GUILayout.Label(stateText, GUILayout.Width(SpawnColW_State));
-                    GUI.contentColor = prevColor;
-                }
-                else
-                {
-                    GUILayout.Label("", GUILayout.Width(SpawnColW_State));
-                }
-
-                // Warp button: "FF-Depart" for departing, "FF-Spawn" for normal
-                if (cand.willDepart)
-                {
-                    bool canWarpDep = cand.departureUT > currentUT;
-                    GUI.enabled = canWarpDep;
-                    if (GUILayout.Button("FF-Depart", GUILayout.Width(SpawnColW_Warp)))
-                    {
-                        ParsekLog.Info("UI",
-                            string.Format(ic,
-                                "Real Spawn Control: warp to departure '{0}' recording #{1} depUT={2:F1}",
-                                cand.vesselName, cand.recordingIndex, cand.departureUT));
-                        flight.WarpToDeparture(cand.recordingIndex, cand.departureUT);
-                    }
-                    GUI.enabled = true;
-                }
-                else
-                {
-                    GUI.enabled = canWarp;
-                    if (GUILayout.Button("FF-Spawn", GUILayout.Width(SpawnColW_Warp)))
-                    {
-                        ParsekLog.Info("UI",
-                            string.Format(ic,
-                                "Real Spawn Control: warp to '{0}' recording #{1}",
-                                cand.vesselName, cand.recordingIndex));
-                        flight.WarpToRecordingEnd(cand.recordingIndex);
-                    }
-                    GUI.enabled = true;
-                }
-                GUILayout.EndHorizontal();
-            }
-            GUILayout.EndScrollView();
-
-            // Bottom section -- pinned to window bottom
-            GUILayout.FlexibleSpace();
-
-            GUILayout.BeginHorizontal();
-            var next = SelectiveSpawnUI.FindNextSpawnCandidate(candidates, currentUT);
-            GUI.enabled = next != null;
-            string tooltip = next != null
-                ? SelectiveSpawnUI.FormatNextSpawnTooltip(next, currentUT) : "";
-            if (GUILayout.Button(new GUIContent("Warp to Next Real Spawn", tooltip),
-                GUILayout.ExpandWidth(true)))
-            {
-                ParsekLog.Info("UI", "Real Spawn Control: Warp to Next Real Spawn clicked");
-                flight.WarpToNextCraftSpawn();
-            }
-            GUI.enabled = true;
-            if (GUILayout.Button("Close", GUILayout.Width(132)))
-            {
-                showSpawnControlWindow = false;
-                ParsekLog.Verbose("UI", "Real Spawn Control window closed");
-            }
-            GUILayout.EndHorizontal();
-
-            if (!string.IsNullOrEmpty(GUI.tooltip))
-            {
-                GUILayout.Space(SpacingSmall);
-                GUILayout.Label(GUI.tooltip, GUI.skin.box);
-            }
-
-            DrawResizeHandle(spawnControlWindowRect, ref isResizingSpawnControlWindow,
-                "Real Spawn Control window");
-
-            GUI.DragWindow();
+            spawnControlUI.DrawIfOpen(mainWindowRect, flight, InFlight);
         }
 
         private void CommitSettingsAutoLoopEdit(ParsekSettings s)
@@ -4248,59 +3205,8 @@ namespace Parsek
             cachedTestGroups = sorted;
         }
 
-        private void DrawTestRunnerWindow(int windowID)
+        private void DrawTestCategoryList()
         {
-            if (testRunner == null)
-            {
-                GUILayout.Label("Test runner not initialized.");
-                GUI.DragWindow();
-                return;
-            }
-
-            // --- Controls bar ---
-            GUILayout.BeginHorizontal();
-            GUI.enabled = !testRunner.IsRunning;
-            if (GUILayout.Button("Run All"))
-            {
-                testRunner.ResetResults();
-                testRunner.RunAll();
-                ParsekLog.Info("UI", "Test runner: Run All clicked");
-            }
-            if (GUILayout.Button("Reset"))
-            {
-                testRunner.ResetResults();
-                ParsekLog.Verbose("UI", "Test runner: Reset clicked");
-            }
-            GUI.enabled = testRunner.IsRunning;
-            if (GUILayout.Button("Cancel"))
-            {
-                testRunner.Cancel();
-            }
-            GUI.enabled = true;
-            GUILayout.EndHorizontal();
-
-            // --- Summary ---
-            GUILayout.Space(SpacingSmall);
-            int total = testRunner.Tests.Count;
-            string status = testRunner.IsRunning ? "RUNNING" : "idle";
-            GUILayout.Label(
-                $"{status} | {testRunner.Passed} passed  {testRunner.Failed} failed  {testRunner.Skipped} skipped  ({total} total)",
-                GUI.skin.box);
-
-            // --- Scene filter note ---
-            GUILayout.Label($"Scene: {HighLogic.LoadedScene}", GUI.skin.label);
-
-            // --- Rebuild cached groups when run state changes ---
-            bool running = testRunner.IsRunning;
-            if (cachedTestGroups == null || (testRunnerWasRunning && !running))
-                RebuildTestGroupCache();
-            testRunnerWasRunning = running;
-
-            // --- Test list ---
-            GUILayout.Space(SpacingSmall);
-            testRunnerScrollPos = GUILayout.BeginScrollView(testRunnerScrollPos,
-                GUILayout.MinHeight(200), GUILayout.MaxHeight(500));
-
             foreach (var group in cachedTestGroups)
             {
                 var category = group.Key;
@@ -4390,6 +3296,62 @@ namespace Parsek
                     }
                 }
             }
+        }
+
+        private void DrawTestRunnerWindow(int windowID)
+        {
+            if (testRunner == null)
+            {
+                GUILayout.Label("Test runner not initialized.");
+                GUI.DragWindow();
+                return;
+            }
+
+            // --- Controls bar ---
+            GUILayout.BeginHorizontal();
+            GUI.enabled = !testRunner.IsRunning;
+            if (GUILayout.Button("Run All"))
+            {
+                testRunner.ResetResults();
+                testRunner.RunAll();
+                ParsekLog.Info("UI", "Test runner: Run All clicked");
+            }
+            if (GUILayout.Button("Reset"))
+            {
+                testRunner.ResetResults();
+                ParsekLog.Verbose("UI", "Test runner: Reset clicked");
+            }
+            GUI.enabled = testRunner.IsRunning;
+            if (GUILayout.Button("Cancel"))
+            {
+                testRunner.Cancel();
+            }
+            GUI.enabled = true;
+            GUILayout.EndHorizontal();
+
+            // --- Summary ---
+            GUILayout.Space(SpacingSmall);
+            int total = testRunner.Tests.Count;
+            string status = testRunner.IsRunning ? "RUNNING" : "idle";
+            GUILayout.Label(
+                $"{status} | {testRunner.Passed} passed  {testRunner.Failed} failed  {testRunner.Skipped} skipped  ({total} total)",
+                GUI.skin.box);
+
+            // --- Scene filter note ---
+            GUILayout.Label($"Scene: {HighLogic.LoadedScene}", GUI.skin.label);
+
+            // --- Rebuild cached groups when run state changes ---
+            bool running = testRunner.IsRunning;
+            if (cachedTestGroups == null || (testRunnerWasRunning && !running))
+                RebuildTestGroupCache();
+            testRunnerWasRunning = running;
+
+            // --- Test list ---
+            GUILayout.Space(SpacingSmall);
+            testRunnerScrollPos = GUILayout.BeginScrollView(testRunnerScrollPos,
+                GUILayout.MinHeight(200), GUILayout.MaxHeight(500));
+
+            DrawTestCategoryList();
 
             GUILayout.EndScrollView();
 
@@ -4528,9 +3490,9 @@ namespace Parsek
         public void Cleanup()
         {
             ReleaseRecordingsInputLock();
-            ReleaseActionsInputLock();
+            actionsUI.ReleaseInputLock();
             ReleaseSettingsInputLock();
-            ReleaseSpawnControlInputLock();
+            spawnControlUI.ReleaseInputLock();
             if (mapMarkerDiamond != null)
                 UnityEngine.Object.Destroy(mapMarkerDiamond);
         }
@@ -4687,7 +3649,7 @@ namespace Parsek
         /// Handles resize drag for a window. Call before the window function.
         /// Group Popup passes null for windowName to suppress logging.
         /// </summary>
-        private static void HandleResizeDrag(ref Rect windowRect, ref bool isResizing,
+        internal static void HandleResizeDrag(ref Rect windowRect, ref bool isResizing,
             float minWidth, float minHeight, string windowName)
         {
             if (!isResizing) return;
@@ -4717,7 +3679,7 @@ namespace Parsek
         /// Draws a resize handle triangle and starts resize on mouse down.
         /// Call at the end of the window draw function.
         /// </summary>
-        private static void DrawResizeHandle(Rect windowRect, ref bool isResizing, string windowName)
+        internal static void DrawResizeHandle(Rect windowRect, ref bool isResizing, string windowName)
         {
             Rect handleRect = new Rect(
                 windowRect.width - ResizeHandleSize,

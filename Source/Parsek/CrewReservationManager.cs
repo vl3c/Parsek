@@ -38,8 +38,7 @@ namespace Parsek
                 return;
             }
 
-            GameStateRecorder.SuppressCrewEvents = true;
-            try
+            using (SuppressionGuard.Crew())
             {
                 foreach (var rec in RecordingStore.CommittedRecordings)
                 {
@@ -50,10 +49,6 @@ namespace Parsek
 
                 if (RecordingStore.HasPending && RecordingStore.Pending.VesselSnapshot != null)
                     ReserveCrewIn(RecordingStore.Pending.VesselSnapshot, false, roster);
-            }
-            finally
-            {
-                GameStateRecorder.SuppressCrewEvents = false;
             }
         }
 
@@ -75,8 +70,7 @@ namespace Parsek
                 return;
             }
 
-            GameStateRecorder.SuppressCrewEvents = true;
-            try
+            using (SuppressionGuard.Crew())
             {
                 foreach (ConfigNode partNode in snapshot.GetNodes("PART"))
                 {
@@ -97,10 +91,6 @@ namespace Parsek
                         }
                     }
                 }
-            }
-            finally
-            {
-                GameStateRecorder.SuppressCrewEvents = false;
             }
         }
 
@@ -176,8 +166,7 @@ namespace Parsek
                 return;
             }
 
-            GameStateRecorder.SuppressCrewEvents = true;
-            try
+            using (SuppressionGuard.Crew())
             {
                 foreach (var kvp in new Dictionary<string, string>(crewReplacements))
                 {
@@ -186,10 +175,6 @@ namespace Parsek
 
                 crewReplacements.Clear();
                 CrewLog("Cleared all crew replacements");
-            }
-            finally
-            {
-                GameStateRecorder.SuppressCrewEvents = false;
             }
         }
 
@@ -387,8 +372,7 @@ namespace Parsek
                 return;
             }
 
-            GameStateRecorder.SuppressCrewEvents = true;
-            try
+            using (SuppressionGuard.Crew())
             {
                 int rescued = 0;
                 foreach (ProtoCrewMember pcm in roster.Crew)
@@ -404,10 +388,6 @@ namespace Parsek
 
                 if (rescued > 0)
                     CrewLog($"Rescued {rescued} reserved crew member(s) from Missing status");
-            }
-            finally
-            {
-                GameStateRecorder.SuppressCrewEvents = false;
             }
         }
 
@@ -438,8 +418,7 @@ namespace Parsek
                         survivingCrew.Add(crew[j].name);
             }
 
-            GameStateRecorder.SuppressCrewEvents = true;
-            try
+            using (SuppressionGuard.Crew())
             {
                 int rescued = 0;
                 foreach (ProtoCrewMember pcm in roster.Crew)
@@ -459,10 +438,6 @@ namespace Parsek
                     ParsekLog.Info("Crew",
                         $"Rescued {rescued} orphaned crew member(s) from vessel strip → Available");
                 return rescued;
-            }
-            finally
-            {
-                GameStateRecorder.SuppressCrewEvents = false;
             }
         }
 

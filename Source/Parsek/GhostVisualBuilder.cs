@@ -4643,6 +4643,190 @@ namespace Parsek
             return null;
         }
 
+        /// <summary>
+        /// Logs a diagnostic hierarchy dump for engine parts, including warnings about
+        /// MeshRenderers that live outside the model subtree (e.g. shroud transforms).
+        /// </summary>
+        private static void LogEnginePartHierarchyDump(
+            Part prefab, Transform modelRoot, string partName, uint persistentId)
+        {
+            ParsekLog.VerboseRateLimited("GhostVisual", $"part_dump_{partName}",
+                $"  ENGINE PART HIERARCHY DUMP for '{partName}' pid={persistentId}:", 60.0);
+            DumpTransformHierarchy(prefab.transform, 0, partName);
+
+            // Also log MeshRenderers found from Part root vs modelRoot
+            var allMR = prefab.GetComponentsInChildren<MeshRenderer>(true);
+            var modelMR = modelRoot.GetComponentsInChildren<MeshRenderer>(true);
+            if (allMR.Length != modelMR.Length)
+            {
+                ParsekLog.VerboseRateLimited("GhostVisual", $"engine_mr_warn_{partName}",
+                    $"  WARNING: Part root has {allMR.Length} MeshRenderers but " +
+                    $"modelRoot '{modelRoot.name}' has only {modelMR.Length}! " +
+                    $"Missing renderers are OUTSIDE the model subtree.", 60.0);
+                foreach (var mr in allMR)
+                {
+                    bool isUnderModel = false;
+                    Transform cur = mr.transform;
+                    while (cur != null && cur != prefab.transform)
+                    {
+                        if (cur == modelRoot) { isUnderModel = true; break; }
+                        cur = cur.parent;
+                    }
+                    if (!isUnderModel)
+                    {
+                        var mf = mr.GetComponent<MeshFilter>();
+                        string meshName = mf?.sharedMesh?.name ?? "(no mesh)";
+                        ParsekLog.VerboseRateLimited("GhostVisual", $"outside_mr_{partName}_{mr.gameObject.name}",
+                            $"    OUTSIDE-MODEL MR: '{mr.gameObject.name}' mesh={meshName} " +
+                            $"path={GetTransformPath(mr.transform, prefab.transform)}", 60.0);
+                    }
+                }
+            }
+        }
+
+        /// <summary>
+        /// Resolves jettison (shroud) transforms from all ModuleJettison modules on the prefab,
+        /// maps them through the cloneMap to ghost transforms, and ensures they are visible.
+        /// Some parts expose multiple ModuleJettison modules and/or comma-separated
+        /// jettisonName values (e.g. fairingL,fairingR) that must all toggle together.
+        /// Returns a JettisonGhostInfo if any jettison transforms were resolved, null otherwise.
+        /// </summary>
+        private static JettisonGhostInfo ResolveJettisonTransforms(
+            Part prefab, Dictionary<Transform, Transform> cloneMap,
+            uint persistentId, string partName)
+        {
+            var ghostJettisonTransforms = new List<Transform>();
+            var resolvedJettisonNames = new List<string>();
+            for (int moduleIndex = 0; moduleIndex < prefab.Modules.Count; moduleIndex++)
+            {
+                var jettison = prefab.Modules[moduleIndex] as ModuleJettison;
+                if (jettison == null) continue;
+
+                string jettisonNameList = jettison.jettisonName;
+                if (string.IsNullOrWhiteSpace(jettisonNameList)) continue;
+
+                string[] jettisonNames = jettisonNameList.Split(
+                    new[] { ',' }, System.StringSplitOptions.RemoveEmptyEntries);
+                for (int nameIndex = 0; nameIndex < jettisonNames.Length; nameIndex++)
+                {
+                    string jettisonName = jettisonNames[nameIndex].Trim();
+                    if (string.IsNullOrEmpty(jettisonName)) continue;
+
+                    Transform srcJettison = prefab.FindModelTransform(jettisonName);
+                    if (srcJettison == null)
+                    {
+                        continue;
+                    }
+
+                    Transform ghostJettison;
+                    if (!cloneMap.TryGetValue(srcJettison, out ghostJettison) || ghostJettison == null)
+                    {
+                        ParsekLog.VerboseRateLimited("GhostVisual", $"jettison_miss_{partName}_{jettisonName}",
+                            $"    Jettison '{jettisonName}' found on prefab but not in cloneMap", 60.0);
+                        continue;
+                    }
+
+                    // ModuleJettison.OnStart() hasn't run on the prefab, so jettison
+                    // transforms may be inactive or zero-scaled. Force them visible
+                    // in the ghost — playback will hide them via ShroudJettisoned events.
+                    if (!ghostJettison.gameObject.activeSelf)
+                    {
+                        ParsekLog.VerboseRateLimited("GhostVisual", $"jettison_activate_{partName}_{jettisonName}",
+                            $"    Jettison '{jettisonName}' was inactive on ghost — activating", 60.0);
+                        ghostJettison.gameObject.SetActive(true);
+                    }
+                    if (ghostJettison.localScale.sqrMagnitude < 0.001f)
+                    {
+                        ParsekLog.VerboseRateLimited("GhostVisual", $"jettison_rescale_{partName}_{jettisonName}",
+                            $"    Jettison '{jettisonName}' had near-zero scale {ghostJettison.localScale} — resetting to (1,1,1)", 60.0);
+                        ghostJettison.localScale = UnityEngine.Vector3.one;
+                    }
+
+                    // Log diagnostic info for jettison transform state
+                    var jmf = ghostJettison.GetComponent<MeshFilter>();
+                    var jmr = ghostJettison.GetComponent<MeshRenderer>();
+                    string jmeshInfo = jmf?.sharedMesh != null
+                        ? $"verts={jmf.sharedMesh.vertexCount} bounds={jmf.sharedMesh.bounds}"
+                        : "(no mesh on jettison transform)";
+                    string matInfo = "(no renderer)";
+                    if (jmr != null)
+                    {
+                        var mats = jmr.sharedMaterials;
+                        if (mats == null || mats.Length == 0)
+                            matInfo = "NO MATERIALS";
+                        else
+                        {
+                            var matNames = new System.Text.StringBuilder();
+                            for (int m = 0; m < mats.Length; m++)
+                            {
+                                if (m > 0) matNames.Append(", ");
+                                matNames.Append(mats[m] != null
+                                    ? $"{mats[m].name}[{mats[m].shader?.name}]"
+                                    : "null");
+                            }
+                            matInfo = matNames.ToString();
+                        }
+                    }
+                    ParsekLog.VerboseRateLimited("GhostVisual", $"jettison_hit_{partName}_{jettisonName}",
+                        $"    Jettison '{jettisonName}' matched: scale={ghostJettison.localScale} " +
+                        $"active={ghostJettison.gameObject.activeSelf} " +
+                        $"srcScale={srcJettison.localScale} srcActive={srcJettison.gameObject.activeSelf} " +
+                        $"srcPos={srcJettison.localPosition} " +
+                        $"mesh={jmeshInfo} materials=[{matInfo}]", 60.0);
+                    // Log world position chain for spatial debugging
+                    ParsekLog.VerboseRateLimited("GhostVisual", $"jettison_pos_{partName}_{jettisonName}",
+                        $"    Jettison '{jettisonName}' ghost chain: " +
+                        $"ghostLocalPos={ghostJettison.localPosition} " +
+                        $"parentName={ghostJettison.parent?.name} " +
+                        $"parentLocalPos={ghostJettison.parent?.localPosition}", 60.0);
+
+                    if (ghostJettisonTransforms.Contains(ghostJettison)) continue;
+                    ghostJettisonTransforms.Add(ghostJettison);
+                    resolvedJettisonNames.Add(jettisonName);
+                }
+            }
+
+            if (ghostJettisonTransforms.Count > 0)
+            {
+                return new JettisonGhostInfo
+                {
+                    partPersistentId = persistentId,
+                    jettisonTransforms = ghostJettisonTransforms
+                };
+            }
+
+            return null;
+        }
+
+        /// <summary>
+        /// Mirrors all model transforms into the ghost cloneMap so that animations can
+        /// find intermediate non-mesh transforms. The mesh-cloning phase only creates
+        /// transforms leading to renderers; this fills in the rest.
+        /// </summary>
+        private static void EnsureFullModelHierarchy(
+            Transform modelRoot, Transform ghostModelNode,
+            Dictionary<Transform, Transform> cloneMap, string partName)
+        {
+            var allModelTransforms = modelRoot.GetComponentsInChildren<Transform>(true);
+            int created = 0;
+            for (int t = 0; t < allModelTransforms.Length; t++)
+            {
+                Transform src = allModelTransforms[t];
+                if (src == modelRoot) continue;  // already mapped
+                if (cloneMap.ContainsKey(src)) continue;  // already cloned
+
+                // MirrorTransformChain walks from src up to modelRoot, creating
+                // any missing intermediate nodes and registering them in cloneMap.
+                MirrorTransformChain(src, modelRoot, ghostModelNode, cloneMap);
+                created++;
+            }
+            ParsekLog.VerboseRateLimited("GhostVisual", $"ghost-build-{partName}",
+                $"    EnsureFullHierarchy '{partName}': " +
+                (created > 0
+                    ? $"created {created} missing intermediate transforms for animation support"
+                    : $"all {allModelTransforms.Length} model transforms already in cloneMap"), 60.0);
+        }
+
         #endregion
 
         private static bool HasCModuleLinkedMesh(ConfigNode partConfig)
@@ -4826,40 +5010,7 @@ namespace Parsek
             bool isEnginePart = prefab.FindModuleImplementing<ModuleEngines>() != null;
             bool hasJettison = prefab.FindModuleImplementing<ModuleJettison>() != null;
             if (isEnginePart)
-            {
-                ParsekLog.VerboseRateLimited("GhostVisual", $"part_dump_{partName}",
-                    $"  ENGINE PART HIERARCHY DUMP for '{partName}' pid={persistentId}:", 60.0);
-                DumpTransformHierarchy(prefab.transform, 0, partName);
-
-                // Also log MeshRenderers found from Part root vs modelRoot
-                var allMR = prefab.GetComponentsInChildren<MeshRenderer>(true);
-                var modelMR = modelRoot.GetComponentsInChildren<MeshRenderer>(true);
-                if (allMR.Length != modelMR.Length)
-                {
-                    ParsekLog.VerboseRateLimited("GhostVisual", $"engine_mr_warn_{partName}",
-                        $"  WARNING: Part root has {allMR.Length} MeshRenderers but " +
-                        $"modelRoot '{modelRoot.name}' has only {modelMR.Length}! " +
-                        $"Missing renderers are OUTSIDE the model subtree.", 60.0);
-                    foreach (var mr in allMR)
-                    {
-                        bool isUnderModel = false;
-                        Transform cur = mr.transform;
-                        while (cur != null && cur != prefab.transform)
-                        {
-                            if (cur == modelRoot) { isUnderModel = true; break; }
-                            cur = cur.parent;
-                        }
-                        if (!isUnderModel)
-                        {
-                            var mf = mr.GetComponent<MeshFilter>();
-                            string meshName = mf?.sharedMesh?.name ?? "(no mesh)";
-                            ParsekLog.VerboseRateLimited("GhostVisual", $"outside_mr_{partName}_{mr.gameObject.name}",
-                                $"    OUTSIDE-MODEL MR: '{mr.gameObject.name}' mesh={meshName} " +
-                                $"path={GetTransformPath(mr.transform, prefab.transform)}", 60.0);
-                        }
-                    }
-                }
-            }
+                LogEnginePartHierarchyDump(prefab, modelRoot, partName, persistentId);
 
             // Parts with ModulePartVariants have multiple visual variants where only
             // one set of GameObjects should be visible (e.g. Poodle v2: DoubleBell vs
@@ -5063,107 +5214,8 @@ namespace Parsek
                 cloneMap, modelRoot, partRoot.transform, ref meshCount, ref added);
 
             // Detect jettison parts (shrouds/fairings) via cloneMap.
-            // Some parts expose multiple ModuleJettison modules and/or comma-separated
-            // jettisonName values (e.g. fairingL,fairingR) that must all toggle together.
-            var ghostJettisonTransforms = new List<Transform>();
-            var resolvedJettisonNames = new List<string>();
-            for (int moduleIndex = 0; moduleIndex < prefab.Modules.Count; moduleIndex++)
-            {
-                var jettison = prefab.Modules[moduleIndex] as ModuleJettison;
-                if (jettison == null) continue;
-
-                string jettisonNameList = jettison.jettisonName;
-                if (string.IsNullOrWhiteSpace(jettisonNameList)) continue;
-
-                string[] jettisonNames = jettisonNameList.Split(
-                    new[] { ',' }, System.StringSplitOptions.RemoveEmptyEntries);
-                for (int nameIndex = 0; nameIndex < jettisonNames.Length; nameIndex++)
-                {
-                    string jettisonName = jettisonNames[nameIndex].Trim();
-                    if (string.IsNullOrEmpty(jettisonName)) continue;
-
-                    Transform srcJettison = prefab.FindModelTransform(jettisonName);
-                    if (srcJettison == null)
-                    {
-                        continue;
-                    }
-
-                    Transform ghostJettison;
-                    if (!cloneMap.TryGetValue(srcJettison, out ghostJettison) || ghostJettison == null)
-                    {
-                        ParsekLog.VerboseRateLimited("GhostVisual", $"jettison_miss_{partName}_{jettisonName}",
-                            $"    Jettison '{jettisonName}' found on prefab but not in cloneMap", 60.0);
-                        continue;
-                    }
-
-                    // ModuleJettison.OnStart() hasn't run on the prefab, so jettison
-                    // transforms may be inactive or zero-scaled. Force them visible
-                    // in the ghost — playback will hide them via ShroudJettisoned events.
-                    if (!ghostJettison.gameObject.activeSelf)
-                    {
-                        ParsekLog.VerboseRateLimited("GhostVisual", $"jettison_activate_{partName}_{jettisonName}",
-                            $"    Jettison '{jettisonName}' was inactive on ghost — activating", 60.0);
-                        ghostJettison.gameObject.SetActive(true);
-                    }
-                    if (ghostJettison.localScale.sqrMagnitude < 0.001f)
-                    {
-                        ParsekLog.VerboseRateLimited("GhostVisual", $"jettison_rescale_{partName}_{jettisonName}",
-                            $"    Jettison '{jettisonName}' had near-zero scale {ghostJettison.localScale} — resetting to (1,1,1)", 60.0);
-                        ghostJettison.localScale = UnityEngine.Vector3.one;
-                    }
-
-                    // Log diagnostic info for jettison transform state
-                    var jmf = ghostJettison.GetComponent<MeshFilter>();
-                    var jmr = ghostJettison.GetComponent<MeshRenderer>();
-                    string jmeshInfo = jmf?.sharedMesh != null
-                        ? $"verts={jmf.sharedMesh.vertexCount} bounds={jmf.sharedMesh.bounds}"
-                        : "(no mesh on jettison transform)";
-                    string matInfo = "(no renderer)";
-                    if (jmr != null)
-                    {
-                        var mats = jmr.sharedMaterials;
-                        if (mats == null || mats.Length == 0)
-                            matInfo = "NO MATERIALS";
-                        else
-                        {
-                            var matNames = new System.Text.StringBuilder();
-                            for (int m = 0; m < mats.Length; m++)
-                            {
-                                if (m > 0) matNames.Append(", ");
-                                matNames.Append(mats[m] != null
-                                    ? $"{mats[m].name}[{mats[m].shader?.name}]"
-                                    : "null");
-                            }
-                            matInfo = matNames.ToString();
-                        }
-                    }
-                    ParsekLog.VerboseRateLimited("GhostVisual", $"jettison_hit_{partName}_{jettisonName}",
-                        $"    Jettison '{jettisonName}' matched: scale={ghostJettison.localScale} " +
-                        $"active={ghostJettison.gameObject.activeSelf} " +
-                        $"srcScale={srcJettison.localScale} srcActive={srcJettison.gameObject.activeSelf} " +
-                        $"srcPos={srcJettison.localPosition} " +
-                        $"mesh={jmeshInfo} materials=[{matInfo}]", 60.0);
-                    // Log world position chain for spatial debugging
-                    ParsekLog.VerboseRateLimited("GhostVisual", $"jettison_pos_{partName}_{jettisonName}",
-                        $"    Jettison '{jettisonName}' ghost chain: " +
-                        $"ghostLocalPos={ghostJettison.localPosition} " +
-                        $"parentName={ghostJettison.parent?.name} " +
-                        $"parentLocalPos={ghostJettison.parent?.localPosition}", 60.0);
-
-                    if (ghostJettisonTransforms.Contains(ghostJettison)) continue;
-                    ghostJettisonTransforms.Add(ghostJettison);
-                    resolvedJettisonNames.Add(jettisonName);
-                }
-            }
-
-            if (ghostJettisonTransforms.Count > 0)
-            {
-                jettisonInfo = new JettisonGhostInfo
-                {
-                    partPersistentId = persistentId,
-                    jettisonTransforms = ghostJettisonTransforms
-                };
-            }
+            jettisonInfo = ResolveJettisonTransforms(
+                prefab, cloneMap, persistentId, partName);
 
             // Detect engine parts and clone FX particle systems
             engineInfos = EngineFxBuilder.TryBuildEngineFX(prefab, persistentId, partName, modelRoot,
@@ -5234,26 +5286,7 @@ namespace Parsek
                 hasRoboticModules;
 
             if (needsFullHierarchy)
-            {
-                var allModelTransforms = modelRoot.GetComponentsInChildren<Transform>(true);
-                int created = 0;
-                for (int t = 0; t < allModelTransforms.Length; t++)
-                {
-                    Transform src = allModelTransforms[t];
-                    if (src == modelRoot) continue;  // already mapped
-                    if (cloneMap.ContainsKey(src)) continue;  // already cloned
-
-                    // MirrorTransformChain walks from src up to modelRoot, creating
-                    // any missing intermediate nodes and registering them in cloneMap.
-                    MirrorTransformChain(src, modelRoot, modelNode.transform, cloneMap);
-                    created++;
-                }
-                ParsekLog.VerboseRateLimited("GhostVisual", $"ghost-build-{partName}",
-                    $"    EnsureFullHierarchy '{partName}': " +
-                    (created > 0
-                        ? $"created {created} missing intermediate transforms for animation support"
-                        : $"all {allModelTransforms.Length} model transforms already in cloneMap"), 60.0);
-            }
+                EnsureFullModelHierarchy(modelRoot, modelNode.transform, cloneMap, partName);
 
             if (hasRoboticModules)
                 roboticInfos = TryBuildRoboticInfos(
@@ -5568,141 +5601,158 @@ namespace Parsek
             }
             else
             {
-                // Combine all ghost meshes into a single emission shape
-                MeshFilter[] meshFilters = ghostRoot.GetComponentsInChildren<MeshFilter>(true);
-                var combines = CombineGhostMeshFilters(meshFilters, ghostRoot.transform, true);
-
-                Mesh combinedMesh = null;
-                if (combines.Count > 0)
-                {
-                    combinedMesh = new Mesh();
-                    combinedMesh.CombineMeshes(combines.ToArray(), true, true);
-                }
-
-                GameObject fireObj = new GameObject("ReentryFire");
-                fireObj.transform.SetParent(ghostRoot.transform, false);
-                fireObj.transform.localPosition = Vector3.zero;
-                fireObj.transform.localRotation = Quaternion.identity;
-
-                ParticleSystem ps = fireObj.AddComponent<ParticleSystem>();
-
-                var main = ps.main;
-                main.simulationSpace = ParticleSystemSimulationSpace.World;
-                main.startLifetime = new ParticleSystem.MinMaxCurve(ReentryFireLifetimeMin, ReentryFireLifetimeMax);
-                // Small outward push from surface normal — particles drift slightly away from hull
-                // Small outward push from surface normal — particles drift slightly away from hull
-                main.startSpeed = new ParticleSystem.MinMaxCurve(1f, 4f);
-                main.startSize = new ParticleSystem.MinMaxCurve(vesselLength * 0.06f, vesselLength * 0.2f);
-                main.maxParticles = ReentryFireMaxParticles;
-                main.playOnAwake = false;
-                main.prewarm = false;
-                main.startColor = new ParticleSystem.MinMaxGradient(
-                    new Color(1f, 0.8f, 0.3f, 0.8f),
-                    new Color(1f, 0.5f, 0.15f, 0.9f));
-
-                // Shape: emit from vessel mesh surface
-                var shape = ps.shape;
-                if (combinedMesh != null)
-                {
-                    shape.shapeType = ParticleSystemShapeType.Mesh;
-                    shape.mesh = combinedMesh;
-                    shape.meshShapeType = ParticleSystemMeshShapeType.Triangle;
-                    shape.normalOffset = 0.05f;
-                }
-                else
-                {
-                    // Fallback: sphere if no meshes available
-                    shape.shapeType = ParticleSystemShapeType.Sphere;
-                    shape.radius = vesselLength * 0.3f;
-                }
-
-                // Emission: driven by DriveReentryLayers
-                var emission = ps.emission;
-                emission.enabled = true;
-                emission.rateOverTimeMultiplier = 0f;
-
-                // Color over lifetime: bright yellow-white → orange → deep red → fade out
-                var colorOverLifetime = ps.colorOverLifetime;
-                colorOverLifetime.enabled = true;
-                var fireGradient = new Gradient();
-                fireGradient.SetKeys(
-                    new GradientColorKey[]
-                    {
-                        new GradientColorKey(new Color(1f, 0.9f, 0.5f), 0f),
-                        new GradientColorKey(new Color(1f, 0.5f, 0.1f), 0.3f),
-                        new GradientColorKey(new Color(0.8f, 0.2f, 0.05f), 0.7f),
-                        new GradientColorKey(new Color(0.4f, 0.1f, 0.02f), 1f)
-                    },
-                    new GradientAlphaKey[]
-                    {
-                        new GradientAlphaKey(0.8f, 0f),
-                        new GradientAlphaKey(0.5f, 0.3f),
-                        new GradientAlphaKey(0.15f, 0.7f),
-                        new GradientAlphaKey(0f, 1f)
-                    }
-                );
-                colorOverLifetime.color = fireGradient;
-
-                // Size over lifetime: particles expand as they cool
-                var sizeOverLifetime = ps.sizeOverLifetime;
-                sizeOverLifetime.enabled = true;
-                sizeOverLifetime.size = new ParticleSystem.MinMaxCurve(1f,
-                    new AnimationCurve(new Keyframe(0f, 0.6f), new Keyframe(0.5f, 1.2f), new Keyframe(1f, 1.6f)));
-
-                // Noise: turbulence for organic fire look
-                var noise = ps.noise;
-                noise.enabled = true;
-                noise.strength = vesselLength * 0.06f;
-                noise.frequency = 3f;
-                noise.scrollSpeed = 2f;
-                noise.damping = true;
-
-                // Material: additive shader with runtime soft-circle texture
-                var psRenderer = fireObj.GetComponent<ParticleSystemRenderer>();
-                psRenderer.renderMode = ParticleSystemRenderMode.Billboard;
-                psRenderer.maxParticleSize = 10f;
-
-                Texture2D softCircle = CreateSoftCircleTexture(32);
-                info.generatedTexture = softCircle;
-
-                var fireMat = new Material(particleShader);
-                fireMat.mainTexture = softCircle;
-                fireMat.SetColor("_TintColor", new Color(1f, 0.6f, 0.2f, 0.5f));
-                psRenderer.material = fireMat;
-                info.allClonedMaterials.Add(fireMat);
-
-                ps.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
-                ps.Clear(true);
-
-                info.fireParticles = ps;
-                info.combinedEmissionMesh = combinedMesh;
-
-                ParsekLog.VerboseRateLimited("ReentryFx", "emission-build",
-                    $"combined {combines.Count} meshes into emission shape " +
-                    $"({(combinedMesh != null ? combinedMesh.vertexCount : 0)} verts) for ghost #{ghostIndex}");
+                BuildReentryFireParticleSystem(ghostRoot, particleShader, vesselLength, info, ghostIndex);
             }
 
             // --- Fire shell overlay: collect mesh+transform pairs for DrawMesh ---
-            // Used to re-draw the ghost geometry offset along velocity with additive blending,
-            // approximating KSP's FXCamera replacement shader vertex displacement.
-            {
-                MeshFilter[] allMeshFilters = ghostRoot.GetComponentsInChildren<MeshFilter>(true);
-                info.fireShellMeshes = CollectFireShellMeshes(allMeshFilters, true);
-
-                Shader shellShader = Shader.Find("KSP/Particles/Additive");
-                if (shellShader != null)
-                {
-                    var shellMat = new Material(shellShader);
-                    shellMat.SetColor("_TintColor", ReentryFireShellColor);
-                    info.fireShellMaterial = shellMat;
-                    info.allClonedMaterials.Add(shellMat);
-                }
-
-                ParsekLog.VerboseRateLimited("ReentryFx", "shell-build",
-                    $"{info.fireShellMeshes.Count} meshes collected for fire shell overlay on ghost #{ghostIndex}");
-            }
+            BuildReentryFireShellOverlay(ghostRoot, info, ghostIndex);
 
             return info;
+        }
+
+        /// <summary>
+        /// Creates the mesh-surface-emitting fire particle system for reentry FX.
+        /// Combines all ghost meshes into a single emission shape, configures lifetime/color/noise,
+        /// and attaches the result to the ghost root.
+        /// </summary>
+        private static void BuildReentryFireParticleSystem(
+            GameObject ghostRoot, Shader particleShader, float vesselLength,
+            ReentryFxInfo info, int ghostIndex)
+        {
+            // Combine all ghost meshes into a single emission shape
+            MeshFilter[] meshFilters = ghostRoot.GetComponentsInChildren<MeshFilter>(true);
+            var combines = CombineGhostMeshFilters(meshFilters, ghostRoot.transform, true);
+
+            Mesh combinedMesh = null;
+            if (combines.Count > 0)
+            {
+                combinedMesh = new Mesh();
+                combinedMesh.CombineMeshes(combines.ToArray(), true, true);
+            }
+
+            GameObject fireObj = new GameObject("ReentryFire");
+            fireObj.transform.SetParent(ghostRoot.transform, false);
+            fireObj.transform.localPosition = Vector3.zero;
+            fireObj.transform.localRotation = Quaternion.identity;
+
+            ParticleSystem ps = fireObj.AddComponent<ParticleSystem>();
+
+            var main = ps.main;
+            main.simulationSpace = ParticleSystemSimulationSpace.World;
+            main.startLifetime = new ParticleSystem.MinMaxCurve(ReentryFireLifetimeMin, ReentryFireLifetimeMax);
+            // Small outward push from surface normal — particles drift slightly away from hull
+            main.startSpeed = new ParticleSystem.MinMaxCurve(1f, 4f);
+            main.startSize = new ParticleSystem.MinMaxCurve(vesselLength * 0.06f, vesselLength * 0.2f);
+            main.maxParticles = ReentryFireMaxParticles;
+            main.playOnAwake = false;
+            main.prewarm = false;
+            main.startColor = new ParticleSystem.MinMaxGradient(
+                new Color(1f, 0.8f, 0.3f, 0.8f),
+                new Color(1f, 0.5f, 0.15f, 0.9f));
+
+            // Shape: emit from vessel mesh surface
+            var shape = ps.shape;
+            if (combinedMesh != null)
+            {
+                shape.shapeType = ParticleSystemShapeType.Mesh;
+                shape.mesh = combinedMesh;
+                shape.meshShapeType = ParticleSystemMeshShapeType.Triangle;
+                shape.normalOffset = 0.05f;
+            }
+            else
+            {
+                // Fallback: sphere if no meshes available
+                shape.shapeType = ParticleSystemShapeType.Sphere;
+                shape.radius = vesselLength * 0.3f;
+            }
+
+            // Emission: driven by DriveReentryLayers
+            var emission = ps.emission;
+            emission.enabled = true;
+            emission.rateOverTimeMultiplier = 0f;
+
+            // Color over lifetime: bright yellow-white �� orange → deep red → fade out
+            var colorOverLifetime = ps.colorOverLifetime;
+            colorOverLifetime.enabled = true;
+            var fireGradient = new Gradient();
+            fireGradient.SetKeys(
+                new GradientColorKey[]
+                {
+                    new GradientColorKey(new Color(1f, 0.9f, 0.5f), 0f),
+                    new GradientColorKey(new Color(1f, 0.5f, 0.1f), 0.3f),
+                    new GradientColorKey(new Color(0.8f, 0.2f, 0.05f), 0.7f),
+                    new GradientColorKey(new Color(0.4f, 0.1f, 0.02f), 1f)
+                },
+                new GradientAlphaKey[]
+                {
+                    new GradientAlphaKey(0.8f, 0f),
+                    new GradientAlphaKey(0.5f, 0.3f),
+                    new GradientAlphaKey(0.15f, 0.7f),
+                    new GradientAlphaKey(0f, 1f)
+                }
+            );
+            colorOverLifetime.color = fireGradient;
+
+            // Size over lifetime: particles expand as they cool
+            var sizeOverLifetime = ps.sizeOverLifetime;
+            sizeOverLifetime.enabled = true;
+            sizeOverLifetime.size = new ParticleSystem.MinMaxCurve(1f,
+                new AnimationCurve(new Keyframe(0f, 0.6f), new Keyframe(0.5f, 1.2f), new Keyframe(1f, 1.6f)));
+
+            // Noise: turbulence for organic fire look
+            var noise = ps.noise;
+            noise.enabled = true;
+            noise.strength = vesselLength * 0.06f;
+            noise.frequency = 3f;
+            noise.scrollSpeed = 2f;
+            noise.damping = true;
+
+            // Material: additive shader with runtime soft-circle texture
+            var psRenderer = fireObj.GetComponent<ParticleSystemRenderer>();
+            psRenderer.renderMode = ParticleSystemRenderMode.Billboard;
+            psRenderer.maxParticleSize = 10f;
+
+            Texture2D softCircle = CreateSoftCircleTexture(32);
+            info.generatedTexture = softCircle;
+
+            var fireMat = new Material(particleShader);
+            fireMat.mainTexture = softCircle;
+            fireMat.SetColor("_TintColor", new Color(1f, 0.6f, 0.2f, 0.5f));
+            psRenderer.material = fireMat;
+            info.allClonedMaterials.Add(fireMat);
+
+            ps.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
+            ps.Clear(true);
+
+            info.fireParticles = ps;
+            info.combinedEmissionMesh = combinedMesh;
+
+            ParsekLog.VerboseRateLimited("ReentryFx", "emission-build",
+                $"combined {combines.Count} meshes into emission shape " +
+                $"({(combinedMesh != null ? combinedMesh.vertexCount : 0)} verts) for ghost #{ghostIndex}");
+        }
+
+        /// <summary>
+        /// Collects mesh+transform pairs for the fire shell overlay (DrawMesh re-draw of ghost
+        /// geometry offset along velocity with additive blending). Creates the shell material.
+        /// </summary>
+        private static void BuildReentryFireShellOverlay(
+            GameObject ghostRoot, ReentryFxInfo info, int ghostIndex)
+        {
+            MeshFilter[] allMeshFilters = ghostRoot.GetComponentsInChildren<MeshFilter>(true);
+            info.fireShellMeshes = CollectFireShellMeshes(allMeshFilters, true);
+
+            Shader shellShader = Shader.Find("KSP/Particles/Additive");
+            if (shellShader != null)
+            {
+                var shellMat = new Material(shellShader);
+                shellMat.SetColor("_TintColor", ReentryFireShellColor);
+                info.fireShellMaterial = shellMat;
+                info.allClonedMaterials.Add(shellMat);
+            }
+
+            ParsekLog.VerboseRateLimited("ReentryFx", "shell-build",
+                $"{info.fireShellMeshes.Count} meshes collected for fire shell overlay on ghost #{ghostIndex}");
         }
 
         /// <summary>
@@ -5956,6 +6006,23 @@ namespace Parsek
             obj.transform.position = worldPosition;
 
             // --- Smoke puff ---
+            var smokePs = BuildPuffSmokeBurst(obj, alphaShader, scale);
+
+            // --- Small spark burst (additive) ---
+            BuildPuffSparkBurst(obj, scale);
+
+            smokePs.Play();
+            Object.Destroy(obj, 3f);
+
+            return obj;
+        }
+
+        /// <summary>
+        /// Builds the smoke puff particle system on the root GameObject for part puff FX.
+        /// Returns the ParticleSystem so the caller can trigger Play().
+        /// </summary>
+        private static ParticleSystem BuildPuffSmokeBurst(GameObject obj, Shader alphaShader, float scale)
+        {
             var smokePs = obj.AddComponent<ParticleSystem>();
             var smokeMain = smokePs.main;
             smokeMain.simulationSpace = ParticleSystemSimulationSpace.World;
@@ -6023,77 +6090,78 @@ namespace Parsek
             var smokeCleanup = obj.AddComponent<MaterialCleanup>();
             smokeCleanup.material = smokeMat;
 
-            // --- Small spark burst (additive) ---
+            return smokePs;
+        }
+
+        /// <summary>
+        /// Builds a small spark burst child particle system on the puff FX root.
+        /// Uses additive shader. No-ops if the shader is unavailable.
+        /// </summary>
+        private static void BuildPuffSparkBurst(GameObject parent, float scale)
+        {
             Shader additiveShader = Shader.Find("KSP/Particles/Additive");
-            if (additiveShader != null)
+            if (additiveShader == null) return;
+
+            var sparkObj = new GameObject("Sparks");
+            sparkObj.transform.SetParent(parent.transform, false);
+
+            var sparkPs = sparkObj.AddComponent<ParticleSystem>();
+            var sparkMain = sparkPs.main;
+            sparkMain.simulationSpace = ParticleSystemSimulationSpace.World;
+            sparkMain.startLifetime = new ParticleSystem.MinMaxCurve(0.3f, 0.6f);
+            sparkMain.startSpeed = new ParticleSystem.MinMaxCurve(scale * 0.5f, scale * 1.5f);
+            sparkMain.startSize = new ParticleSystem.MinMaxCurve(scale * 0.03f, scale * 0.1f);
+            sparkMain.maxParticles = 50;
+            sparkMain.playOnAwake = false;
+            sparkMain.loop = false;
+            sparkMain.gravityModifier = 0.3f;
+            sparkMain.startColor = new ParticleSystem.MinMaxGradient(
+                new Color(1f, 0.9f, 0.5f, 0.8f),
+                new Color(1f, 0.6f, 0.2f, 0.6f));
+
+            var sparkShape = sparkPs.shape;
+            sparkShape.shapeType = ParticleSystemShapeType.Sphere;
+            sparkShape.radius = scale * 0.08f;
+
+            var sparkEmission = sparkPs.emission;
+            sparkEmission.enabled = true;
+            sparkEmission.rateOverTime = 0f;
+            sparkEmission.SetBursts(new ParticleSystem.Burst[]
             {
-                var sparkObj = new GameObject("Sparks");
-                sparkObj.transform.SetParent(obj.transform, false);
+                new ParticleSystem.Burst(0f, 15, 30)
+            });
 
-                var sparkPs = sparkObj.AddComponent<ParticleSystem>();
-                var sparkMain = sparkPs.main;
-                sparkMain.simulationSpace = ParticleSystemSimulationSpace.World;
-                sparkMain.startLifetime = new ParticleSystem.MinMaxCurve(0.3f, 0.6f);
-                sparkMain.startSpeed = new ParticleSystem.MinMaxCurve(scale * 0.5f, scale * 1.5f);
-                sparkMain.startSize = new ParticleSystem.MinMaxCurve(scale * 0.03f, scale * 0.1f);
-                sparkMain.maxParticles = 50;
-                sparkMain.playOnAwake = false;
-                sparkMain.loop = false;
-                sparkMain.gravityModifier = 0.3f;
-                sparkMain.startColor = new ParticleSystem.MinMaxGradient(
-                    new Color(1f, 0.9f, 0.5f, 0.8f),
-                    new Color(1f, 0.6f, 0.2f, 0.6f));
-
-                var sparkShape = sparkPs.shape;
-                sparkShape.shapeType = ParticleSystemShapeType.Sphere;
-                sparkShape.radius = scale * 0.08f;
-
-                var sparkEmission = sparkPs.emission;
-                sparkEmission.enabled = true;
-                sparkEmission.rateOverTime = 0f;
-                sparkEmission.SetBursts(new ParticleSystem.Burst[]
+            var sparkColor = sparkPs.colorOverLifetime;
+            sparkColor.enabled = true;
+            var sparkGradient = new Gradient();
+            sparkGradient.SetKeys(
+                new GradientColorKey[]
                 {
-                    new ParticleSystem.Burst(0f, 15, 30)
-                });
+                    new GradientColorKey(new Color(1f, 0.95f, 0.7f), 0f),
+                    new GradientColorKey(new Color(1f, 0.5f, 0.1f), 0.5f),
+                    new GradientColorKey(new Color(0.5f, 0.2f, 0.05f), 1f)
+                },
+                new GradientAlphaKey[]
+                {
+                    new GradientAlphaKey(0.8f, 0f),
+                    new GradientAlphaKey(0.3f, 0.5f),
+                    new GradientAlphaKey(0f, 1f)
+                }
+            );
+            sparkColor.color = sparkGradient;
 
-                var sparkColor = sparkPs.colorOverLifetime;
-                sparkColor.enabled = true;
-                var sparkGradient = new Gradient();
-                sparkGradient.SetKeys(
-                    new GradientColorKey[]
-                    {
-                        new GradientColorKey(new Color(1f, 0.95f, 0.7f), 0f),
-                        new GradientColorKey(new Color(1f, 0.5f, 0.1f), 0.5f),
-                        new GradientColorKey(new Color(0.5f, 0.2f, 0.05f), 1f)
-                    },
-                    new GradientAlphaKey[]
-                    {
-                        new GradientAlphaKey(0.8f, 0f),
-                        new GradientAlphaKey(0.3f, 0.5f),
-                        new GradientAlphaKey(0f, 1f)
-                    }
-                );
-                sparkColor.color = sparkGradient;
+            var sparkMat = new Material(additiveShader);
+            sparkMat.mainTexture = cachedExplosionTexture;
+            sparkMat.SetColor("_TintColor", new Color(1f, 0.7f, 0.3f, 0.5f));
+            var sparkRenderer = sparkObj.GetComponent<ParticleSystemRenderer>();
+            sparkRenderer.renderMode = ParticleSystemRenderMode.Billboard;
+            sparkRenderer.maxParticleSize = 8f;
+            sparkRenderer.material = sparkMat;
 
-                var sparkMat = new Material(additiveShader);
-                sparkMat.mainTexture = cachedExplosionTexture;
-                sparkMat.SetColor("_TintColor", new Color(1f, 0.7f, 0.3f, 0.5f));
-                var sparkRenderer = sparkObj.GetComponent<ParticleSystemRenderer>();
-                sparkRenderer.renderMode = ParticleSystemRenderMode.Billboard;
-                sparkRenderer.maxParticleSize = 8f;
-                sparkRenderer.material = sparkMat;
+            var sparkCleanup = sparkObj.AddComponent<MaterialCleanup>();
+            sparkCleanup.material = sparkMat;
 
-                var sparkCleanup = sparkObj.AddComponent<MaterialCleanup>();
-                sparkCleanup.material = sparkMat;
-
-                sparkPs.Play();
-            }
-
-            smokePs.Play();
-            Object.Destroy(obj, 3f);
-
-
-            return obj;
+            sparkPs.Play();
         }
 
         /// <summary>
