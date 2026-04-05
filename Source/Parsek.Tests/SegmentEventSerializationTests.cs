@@ -18,7 +18,6 @@ namespace Parsek.Tests
         {
             RecordingStore.SuppressLogging = true;
             ParsekLog.SuppressLogging = true;
-            MilestoneStore.SuppressLogging = true;
             GameStateStore.SuppressLogging = true;
             RecordingStore.ResetForTesting();
         }
