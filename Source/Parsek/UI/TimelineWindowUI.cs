@@ -338,7 +338,6 @@ namespace Parsek
             if (entry.Source == TimelineSource.Recording && !showRecordingEntries) return false;
             if (entry.Source == TimelineSource.GameAction && !showActionEntries) return false;
             if (entry.Source == TimelineSource.Legacy && !showActionEntries) return false;
-            if (entry.Source == TimelineSource.Derived && !showRecordingEntries) return false;
             return true;
         }
 

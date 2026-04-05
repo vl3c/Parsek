@@ -27,7 +27,6 @@ namespace Parsek
                 case TimelineEntryType.FacilityUpgrade:
                 case TimelineEntryType.FacilityDestruction:
                 case TimelineEntryType.KerbalHire:
-                case TimelineEntryType.GhostChainWindow:
                 case TimelineEntryType.FundsInitial:
                 case TimelineEntryType.ScienceInitial:
                 case TimelineEntryType.ReputationInitial:
@@ -38,10 +37,42 @@ namespace Parsek
             }
         }
 
-        /// <summary>Display text for a recording start event.</summary>
-        internal static string GetRecordingStartText(string vesselName)
+        /// <summary>Display text for a recording start event, including mission duration.</summary>
+        internal static string GetRecordingStartText(string vesselName, double durationSeconds)
         {
-            return $"Launch: {vesselName}";
+            string duration = FormatDuration(durationSeconds);
+            if (string.IsNullOrEmpty(duration))
+                return $"Launch: {vesselName}";
+            return $"Launch: {vesselName} (MET {duration})";
+        }
+
+        /// <summary>
+        /// Formats a duration in seconds as a human-readable string showing only non-zero components.
+        /// E.g., 90061 seconds → "1d, 1h, 1m, 1s". Returns empty string for zero or negative.
+        /// </summary>
+        internal static string FormatDuration(double seconds)
+        {
+            if (seconds <= 0) return "";
+
+            // KSP uses 6-hour days, 426-day years (Kerbin calendar)
+            int totalSeconds = (int)seconds;
+            int s = totalSeconds % 60;
+            int totalMinutes = totalSeconds / 60;
+            int m = totalMinutes % 60;
+            int totalHours = totalMinutes / 60;
+            int h = totalHours % 6;       // KSP day = 6 hours
+            int totalDays = totalHours / 6;
+            int d = totalDays % 426;       // KSP year = 426 days
+            int y = totalDays / 426;
+
+            var parts = new System.Collections.Generic.List<string>(5);
+            if (y > 0) parts.Add($"{y}y");
+            if (d > 0) parts.Add($"{d}d");
+            if (h > 0) parts.Add($"{h}h");
+            if (m > 0) parts.Add($"{m}m");
+            if (s > 0) parts.Add($"{s}s");
+
+            return parts.Count > 0 ? string.Join(", ", parts.ToArray()) : "";
         }
 
         /// <summary>
@@ -83,14 +114,6 @@ namespace Parsek
             return $"Spawn: {vesselName}";
         }
 
-        /// <summary>
-        /// Display text for a ghost chain window entry.
-        /// Shows vessel name and the UT range during which the ghost is active.
-        /// </summary>
-        internal static string GetGhostChainWindowText(string vesselName, double startUT, double endUT)
-        {
-            return string.Format(IC, "{0}: ghost UT {1:F0}\u2013{2:F0}", vesselName, startUT, endUT);
-        }
 
         /// <summary>
         /// Display text for a game action timeline entry.

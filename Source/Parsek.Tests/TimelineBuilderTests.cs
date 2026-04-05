@@ -299,7 +299,6 @@ namespace Parsek.Tests
                 TimelineEntryType.FacilityUpgrade,
                 TimelineEntryType.FacilityDestruction,
                 TimelineEntryType.KerbalHire,
-                TimelineEntryType.GhostChainWindow,
                 TimelineEntryType.FundsInitial,
                 TimelineEntryType.ScienceInitial,
                 TimelineEntryType.ReputationInitial
@@ -312,7 +311,7 @@ namespace Parsek.Tests
                     $"Expected T1 for {type} but got {tier}");
             }
 
-            Assert.Equal(13, t1Types.Length);
+            Assert.Equal(12, t1Types.Length);
         }
 
         // ================================================================
@@ -352,13 +351,32 @@ namespace Parsek.Tests
         }
 
         // ================================================================
+        // 12b. FormatDuration produces correct human-readable text
+        // ================================================================
+
+        [Theory]
+        [InlineData(0, "")]
+        [InlineData(30, "30s")]
+        [InlineData(60, "1m")]
+        [InlineData(90, "1m, 30s")]
+        [InlineData(3600, "1h")]
+        [InlineData(21600, "1d")]           // 6h = 1 KSP day
+        [InlineData(9201600, "1y")]         // 426 * 6h * 3600 = 9201600s
+        [InlineData(9201600 + 21600 + 3661, "1y, 1d, 1h, 1m, 1s")]
+        public void FormatDuration_ProducesCorrectText(double seconds, string expected)
+        {
+            Assert.Equal(expected, TimelineEntryDisplay.FormatDuration(seconds));
+        }
+
+        // ================================================================
         // 13. Ghost chain window — two members
         // ================================================================
 
         [Fact]
-        public void GhostChainWindow_TwoMembers()
+        public void ChainRecording_LaunchShowsFullChainDuration()
         {
             string chainId = "chain-abc";
+            // Chain spans UT 100-400 (300 seconds = 5m)
             var rec0 = MakeRecording("Orbiter", 100, 200, chainId: chainId, chainIndex: 0, chainBranch: 0);
             var rec1 = MakeRecording("Orbiter", 200, 400, chainId: chainId, chainIndex: 1, chainBranch: 0);
 
@@ -368,26 +386,23 @@ namespace Parsek.Tests
                 new List<Milestone>(),
                 0);
 
-            var chainWindows = result.Where(e => e.Type == TimelineEntryType.GhostChainWindow).ToList();
-            Assert.Single(chainWindows);
+            var starts = result.Where(e => e.Type == TimelineEntryType.RecordingStart).ToList();
+            Assert.Equal(2, starts.Count);
 
-            var window = chainWindows[0];
-            Assert.Equal(100, window.UT);
-            Assert.Equal("Orbiter", window.VesselName);
-            Assert.Contains("100", window.DisplayText);
-            Assert.Contains("400", window.DisplayText);
-            Assert.Equal(TimelineSource.Derived, window.Source);
-            Assert.Equal(SignificanceTier.T1, window.Tier);
+            // Both chain members show full chain duration (300s = 5m)
+            var firstStart = starts.First(s => s.UT == 100);
+            Assert.Contains("MET 5m", firstStart.DisplayText);
         }
 
         // ================================================================
-        // 14. Ghost chain window — branch excluded
+        // 14. Chain duration — branch excluded from duration calc
         // ================================================================
 
         [Fact]
-        public void GhostChainWindow_BranchExcluded()
+        public void ChainDuration_BranchExcluded()
         {
             string chainId = "chain-xyz";
+            // Branch 0: UT 100-200 (100s), Branch 1: UT 200-400 (ignored)
             var rec0 = MakeRecording("Main Ship", 100, 200, chainId: chainId, chainIndex: 0, chainBranch: 0);
             var rec1 = MakeRecording("Branch Ship", 200, 400, chainId: chainId, chainIndex: 1, chainBranch: 1);
 
@@ -397,15 +412,9 @@ namespace Parsek.Tests
                 new List<Milestone>(),
                 0);
 
-            var chainWindows = result.Where(e => e.Type == TimelineEntryType.GhostChainWindow).ToList();
-            Assert.Single(chainWindows);
-
-            // Only branch 0 contributes — window should be 100-200 (not 100-400)
-            var window = chainWindows[0];
-            Assert.Equal(100, window.UT);
-            Assert.Equal("Main Ship", window.VesselName);
-            Assert.Contains("200", window.DisplayText);
-            Assert.DoesNotContain("400", window.DisplayText);
+            // rec0 (branch 0) should show duration of branch 0 only (100s = 1m, 40s)
+            var start0 = result.First(e => e.Type == TimelineEntryType.RecordingStart && e.VesselName == "Main Ship");
+            Assert.Contains("MET 1m, 40s", start0.DisplayText);
         }
 
         // ================================================================

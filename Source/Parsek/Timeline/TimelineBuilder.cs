@@ -52,13 +52,17 @@ namespace Parsek
                 if (rec.Hidden) { hiddenSkipped++; continue; }
                 if (rec.IsDebris) continue;
 
-                // RecordingStart
+                // RecordingStart — duration is from this recording, or full chain span
+                double duration = rec.EndUT - rec.StartUT;
+                if (!string.IsNullOrEmpty(rec.ChainId))
+                    duration = GetChainDuration(rec.ChainId, recordings);
+
                 var startType = TimelineEntryType.RecordingStart;
                 entries.Add(new TimelineEntry
                 {
                     UT = rec.StartUT,
                     Type = startType,
-                    DisplayText = TimelineEntryDisplay.GetRecordingStartText(rec.VesselName),
+                    DisplayText = TimelineEntryDisplay.GetRecordingStartText(rec.VesselName, duration),
                     Source = TimelineSource.Recording,
                     Tier = TimelineEntryDisplay.GetTier(startType),
                     DisplayColor = Color.white,
@@ -101,68 +105,29 @@ namespace Parsek
                 }
             }
 
-            // Ghost chain windows — one per distinct ChainId (branch 0 only)
-            int chainWindowCount = CollectGhostChainWindows(recordings, entries);
-            count += chainWindowCount;
-
-            if (hiddenSkipped > 0 || chainWindowCount > 0)
+            if (hiddenSkipped > 0)
                 ParsekLog.Verbose("Timeline",
-                    $"Recording collector: {count} entries, {hiddenSkipped} hidden skipped, {chainWindowCount} chain windows");
+                    $"Recording collector: {count} entries, {hiddenSkipped} hidden skipped");
 
             return count;
         }
 
-        private static int CollectGhostChainWindows(
-            IReadOnlyList<Recording> recordings,
-            List<TimelineEntry> entries)
+        /// <summary>
+        /// Returns the total duration of a chain (max EndUT - min StartUT across branch 0 members).
+        /// Falls back to 0 if no matching members found.
+        /// </summary>
+        private static double GetChainDuration(string chainId, IReadOnlyList<Recording> recordings)
         {
-            // Group recordings by ChainId (branch 0 only, non-null ChainId)
-            var chainGroups = new Dictionary<string, List<Recording>>();
+            double minStart = double.MaxValue;
+            double maxEnd = double.MinValue;
             for (int i = 0; i < recordings.Count; i++)
             {
-                var rec = recordings[i];
-                if (string.IsNullOrEmpty(rec.ChainId) || rec.ChainBranch != 0)
-                    continue;
-                List<Recording> group;
-                if (!chainGroups.TryGetValue(rec.ChainId, out group))
-                {
-                    group = new List<Recording>();
-                    chainGroups[rec.ChainId] = group;
-                }
-                group.Add(rec);
+                var r = recordings[i];
+                if (r.ChainId != chainId || r.ChainBranch != 0) continue;
+                if (r.StartUT < minStart) minStart = r.StartUT;
+                if (r.EndUT > maxEnd) maxEnd = r.EndUT;
             }
-
-            int count = 0;
-            foreach (var kvp in chainGroups)
-            {
-                var group = kvp.Value;
-                group.Sort((a, b) => a.ChainIndex.CompareTo(b.ChainIndex));
-
-                double windowStart = group[0].StartUT;
-                double windowEnd = group[0].EndUT;
-                string vesselName = group[0].VesselName;
-
-                for (int i = 1; i < group.Count; i++)
-                {
-                    if (group[i].StartUT < windowStart) windowStart = group[i].StartUT;
-                    if (group[i].EndUT > windowEnd) windowEnd = group[i].EndUT;
-                }
-
-                var windowType = TimelineEntryType.GhostChainWindow;
-                entries.Add(new TimelineEntry
-                {
-                    UT = windowStart,
-                    Type = windowType,
-                    DisplayText = TimelineEntryDisplay.GetGhostChainWindowText(vesselName, windowStart, windowEnd),
-                    Source = TimelineSource.Derived,
-                    Tier = TimelineEntryDisplay.GetTier(windowType),
-                    DisplayColor = Color.white,
-                    VesselName = vesselName
-                });
-                count++;
-            }
-
-            return count;
+            return minStart < double.MaxValue ? maxEnd - minStart : 0;
         }
 
         /// <summary>
