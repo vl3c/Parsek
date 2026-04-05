@@ -217,6 +217,22 @@ namespace Parsek
                     return desc;
                 }
 
+                case GameActionType.FundsSpending:
+                {
+                    string source;
+                    switch (action.FundsSpendingSource)
+                    {
+                        case FundsSpendingSource.VesselBuild:     source = "Build"; break;
+                        case FundsSpendingSource.FacilityUpgrade: source = "Facility upgrade"; break;
+                        case FundsSpendingSource.FacilityRepair:  source = "Facility repair"; break;
+                        case FundsSpendingSource.KerbalHire:      source = "Hire"; break;
+                        case FundsSpendingSource.ContractPenalty:  source = "Contract penalty"; break;
+                        case FundsSpendingSource.Strategy:        source = "Strategy"; break;
+                        default:                                  source = "Expense"; break;
+                    }
+                    return string.Format(IC, "{0} -{1:0}", source, action.FundsSpent);
+                }
+
                 case GameActionType.ScienceSpending:
                 {
                     string node = InsertSpacesBeforeUppercase(action.NodeId ?? "unknown");
