@@ -46,11 +46,25 @@ namespace Parsek
             int count = 0;
             int hiddenSkipped = 0;
 
+            // Build recording-id to vessel-name lookup for parent resolution (EVA)
+            var vesselNameById = new Dictionary<string, string>();
+            for (int i = 0; i < recordings.Count; i++)
+            {
+                var r = recordings[i];
+                if (!string.IsNullOrEmpty(r.RecordingId))
+                    vesselNameById[r.RecordingId] = r.VesselName;
+            }
+
             for (int i = 0; i < recordings.Count; i++)
             {
                 var rec = recordings[i];
                 if (rec.Hidden) { hiddenSkipped++; continue; }
                 if (rec.IsDebris) continue;
+
+                bool isEva = !string.IsNullOrEmpty(rec.EvaCrewName);
+                string parentVesselName = null;
+                if (isEva && !string.IsNullOrEmpty(rec.ParentRecordingId))
+                    vesselNameById.TryGetValue(rec.ParentRecordingId, out parentVesselName);
 
                 // RecordingStart — duration is from this recording, or full chain span
                 double duration = rec.EndUT - rec.StartUT;
@@ -62,7 +76,7 @@ namespace Parsek
                 {
                     UT = rec.StartUT,
                     Type = startType,
-                    DisplayText = TimelineEntryDisplay.GetRecordingStartText(rec.VesselName, duration, !string.IsNullOrEmpty(rec.EvaCrewName)),
+                    DisplayText = TimelineEntryDisplay.GetRecordingStartText(rec.VesselName, duration, isEva, parentVesselName),
                     Source = TimelineSource.Recording,
                     Tier = TimelineEntryDisplay.GetTier(startType),
                     DisplayColor = Color.white,
@@ -80,7 +94,7 @@ namespace Parsek
                     {
                         UT = rec.EndUT,
                         Type = spawnType,
-                        DisplayText = TimelineEntryDisplay.GetVesselSpawnText(rec.VesselName, rec.TerminalStateValue, rec.VesselSituation),
+                        DisplayText = TimelineEntryDisplay.GetVesselSpawnText(rec.VesselName, rec.TerminalStateValue, rec.VesselSituation, isEva, parentVesselName),
                         Source = TimelineSource.Recording,
                         Tier = TimelineEntryDisplay.GetTier(spawnType),
                         DisplayColor = Color.white,

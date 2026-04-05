@@ -37,13 +37,25 @@ namespace Parsek
         }
 
         /// <summary>Display text for a recording start event, including mission duration.</summary>
-        internal static string GetRecordingStartText(string vesselName, double durationSeconds, bool isEva)
+        internal static string GetRecordingStartText(string vesselName, double durationSeconds,
+            bool isEva, string parentVesselName)
         {
             string prefix = isEva ? "EVA" : "Launch";
             string duration = FormatDuration(durationSeconds);
-            if (string.IsNullOrEmpty(duration))
-                return $"{prefix}: {vesselName}";
-            return $"{prefix}: {vesselName} (MET {duration})";
+
+            var sb = new System.Text.StringBuilder();
+            sb.Append(prefix);
+            sb.Append(": ");
+            sb.Append(vesselName);
+
+            // EVA shows source vessel: "EVA: Jeb from Mun Lander"
+            if (isEva && !string.IsNullOrEmpty(parentVesselName))
+                sb.Append($" from {parentVesselName}");
+
+            if (!string.IsNullOrEmpty(duration))
+                sb.Append($" (MET {duration})");
+
+            return sb.ToString();
         }
 
         /// <summary>
@@ -80,8 +92,13 @@ namespace Parsek
         /// Uses VesselSituation if available ("Orbiting Kerbin", "Landed on Mun"),
         /// falls back to terminal state name, falls back to no parenthetical.
         /// </summary>
-        internal static string GetVesselSpawnText(string vesselName, TerminalState? state, string vesselSituation)
+        internal static string GetVesselSpawnText(string vesselName, TerminalState? state,
+            string vesselSituation, bool isEva, string parentVesselName)
         {
+            // Boarded EVA: "Board: Jeb (Mun Lander)" — kerbal returned to parent vessel
+            if (isEva && state == TerminalState.Boarded && !string.IsNullOrEmpty(parentVesselName))
+                return $"Board: {vesselName} ({parentVesselName})";
+
             // Prefer the full situation string (includes body name)
             if (!string.IsNullOrEmpty(vesselSituation))
                 return $"Spawn: {vesselName} ({vesselSituation})";
