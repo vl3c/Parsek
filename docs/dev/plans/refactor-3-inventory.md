@@ -2,6 +2,7 @@
 
 **Date:** 2026-04-05. Fresh analysis from `origin/main` at `9f5b48d` (v0.6.1).
 **Pass 1 completed:** 2026-04-05. 48 sub-methods extracted across 9 files. 0 logic changes, 4766 tests pass.
+**Pass 3 completed:** 2026-04-05. 5 new files, ~1,200 lines moved across files. SafeWriteConfigNode dedup (4 files), SuppressionGuard (4 files, 10 sites), 3 ParsekUI window extractions. ParsekUI: 4,773 → 3,698 lines. 4766 tests pass.
 
 **Total source:** 68,282 lines across 60+ .cs files (excluding Tests/, InGameTests/, obj/, bin/).
 

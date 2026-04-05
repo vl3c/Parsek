@@ -264,6 +264,44 @@ Currently `KerbalsModule.ApplyToRoster` Step 3 sets reserved kerbals to `rosterS
 
 **Priority:** Low — current workaround is functional, refactor only if touching crew reservation system
 
+### T46. ParsekFlight WatchModeController extraction
+
+Extract 15 camera-follow fields (lines 241-253) and the 553-line `#region Camera Follow` into a `WatchModeController` class. Methods: `HandleLoopCameraAction`, `HandleOverlapCameraAction`, `EnterWatchMode`, `ExitWatchMode`, `DrawWatchModeOverlay`, `ResetLoopPhaseForWatch`, `FindNextWatchTarget`, `TransferWatchToNextSegment`, `IsVesselSituationSafe`, `ComputeWatchIndexAfterDelete`. Partial duplication exists between `HandleLoopCameraAction` and `HandleOverlapCameraAction` (~20 shared lines for `RetargetToNewGhost` and `ExplosionHoldStart` cases).
+
+**Why deferred (refactor-3 Pass 2):** The camera follow code deeply depends on ParsekFlight instance state (`engine`, `ghostStates`, `FlightCamera.fetch`, `InputLockManager`, `loopPhaseOffsets`). Extracting to a separate class would require passing 10+ references. Cost exceeds benefit. See `docs/dev/plans/refactor-3-pass2-analysis.md` Section 4.
+
+**Priority:** Low — the region is well-organized with clear method boundaries
+
+### T47. ParsekUI RecordingsTableUI extraction
+
+Extract the recordings table (1,101 lines, 30+ fields) from ParsekUI into `RecordingsTableUI`. Fields include sort state, rename state, expand/collapse state, double-click detection, column widths. Methods: `DrawRecordingsWindow`, `DrawRecordingsTableHeader`, `DrawRecordingsBottomBar`, `DrawRecordingNameCell`, plus many per-cell helpers.
+
+**Why deferred (refactor-3 Pass 2):** 30+ shared fields deeply coupled to flight state and main window interactions. Highest-risk extraction in ParsekUI. See `docs/dev/plans/refactor-3-pass2-analysis.md` Section 4.
+
+**Priority:** Medium — largest single UI section, but coupling makes it risky
+
+### T48. ParsekUI SettingsWindowUI extraction
+
+Extract settings window (353 lines, ~5 fields) from ParsekUI into `SettingsWindowUI`. Methods: `DrawSettingsWindow`, `DrawRecordingSettings`, `DrawLoopingSettings`, `DrawGhostSettings`, `DrawDiagnosticsSettings`, `DrawSamplingSettings`, `DrawDataManagementSettings`.
+
+**Why deferred (refactor-3 Pass 2):** Modifies shared `ParsekSettings` state, has callbacks into ParsekUI for refresh/reset. Medium coupling risk.
+
+**Priority:** Low
+
+### T49. ParsekUI TestRunnerUI extraction
+
+Extract test runner window (276 lines, 8 fields) from ParsekUI into `TestRunnerUI`. Methods: `DrawTestRunnerWindow`, `DrawTestCategoryList`.
+
+**Why deferred (refactor-3 Pass 2):** Tightly coupled to `InGameTestRunner` lifecycle (start/stop/results). Medium coupling risk.
+
+**Priority:** Low
+
+### T50. MilestoneStore.SuppressLogging dead code
+
+`MilestoneStore.SuppressLogging` (`internal static bool`, line 13) has no production readers or writers — only used in test code. Investigate whether it can be removed or if it's intended for future use.
+
+**Priority:** Low — cosmetic
+
 ---
 
 # Known Bugs
