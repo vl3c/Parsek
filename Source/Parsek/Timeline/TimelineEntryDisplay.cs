@@ -281,7 +281,7 @@ namespace Parsek
 
                 case GameActionType.KerbalAssignment:
                 {
-                    string crew = string.Format(IC, "{0} ({1})",
+                    string crew = string.Format(IC, "Assign: {0} ({1})",
                         action.KerbalName ?? "unknown", action.KerbalRole ?? "unknown");
                     if (!string.IsNullOrEmpty(vesselName))
                         crew += $" on {vesselName}";
