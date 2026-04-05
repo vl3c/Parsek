@@ -757,5 +757,67 @@ namespace Parsek.Tests
         {
             Assert.Equal(expected, TimelineEntryDisplay.HumanizeSubjectId(input));
         }
+
+        // ================================================================
+        // 28. IsPlayerAction classification
+        // ================================================================
+
+        [Fact]
+        public void IsPlayerAction_ClassifiesActionsCorrectly()
+        {
+            // Player actions (deliberate KSC choices)
+            var actions = new[]
+            {
+                TimelineEntryType.ScienceSpending,
+                TimelineEntryType.FundsSpending,
+                TimelineEntryType.ContractAccept,
+                TimelineEntryType.ContractCancel,
+                TimelineEntryType.KerbalHire,
+                TimelineEntryType.FacilityUpgrade,
+                TimelineEntryType.FacilityRepair,
+                TimelineEntryType.StrategyActivate,
+                TimelineEntryType.StrategyDeactivate,
+                TimelineEntryType.FundsInitial,
+                TimelineEntryType.ScienceInitial,
+                TimelineEntryType.ReputationInitial
+            };
+            foreach (var type in actions)
+                Assert.True(TimelineEntryDisplay.IsPlayerAction(type), $"{type} should be a player action");
+
+            // Events (gameplay consequences)
+            var events = new[]
+            {
+                TimelineEntryType.ScienceEarning,
+                TimelineEntryType.FundsEarning,
+                TimelineEntryType.ReputationEarning,
+                TimelineEntryType.ReputationPenalty,
+                TimelineEntryType.MilestoneAchievement,
+                TimelineEntryType.ContractComplete,
+                TimelineEntryType.ContractFail,
+                TimelineEntryType.FacilityDestruction,
+                TimelineEntryType.KerbalAssignment,
+                TimelineEntryType.KerbalRescue,
+                TimelineEntryType.KerbalStandIn,
+                TimelineEntryType.RecordingStart,
+                TimelineEntryType.VesselSpawn,
+                TimelineEntryType.LegacyEvent
+            };
+            foreach (var type in events)
+                Assert.False(TimelineEntryDisplay.IsPlayerAction(type), $"{type} should NOT be a player action");
+        }
+
+        // ================================================================
+        // 29. HumanizeStrategyId
+        // ================================================================
+
+        [Theory]
+        [InlineData("AggressiveNeg", "Aggressive Negotiations")]
+        [InlineData("PatentsLic", "Patents Licensing")]
+        [InlineData("UnknownModStrategy", "Unknown Mod Strategy")]
+        [InlineData(null, "unknown")]
+        public void HumanizeStrategyId_MapsCorrectly(string input, string expected)
+        {
+            Assert.Equal(expected, TimelineEntryDisplay.HumanizeStrategyId(input));
+        }
     }
 }

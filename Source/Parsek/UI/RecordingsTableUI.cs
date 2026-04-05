@@ -964,8 +964,8 @@ namespace Parsek
                 ParsekLog.Info("UI", $"Set playback enabled for group '{groupName}': enabled={newEnabled}");
             }
 
-            // Spacer for # column
-            GUILayout.Space(ColW_Index);
+            // Spacer for # column (fixed-width label for alignment with recording rows)
+            GUILayout.Label("", GUILayout.Width(ColW_Index));
 
             // Expand/collapse + name (indent inside Name column for sub-groups)
             if (indent > 0f) GUILayout.Space(indent);
