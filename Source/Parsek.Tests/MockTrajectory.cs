@@ -11,6 +11,7 @@ namespace Parsek.Tests
     {
         public List<TrajectoryPoint> Points { get; set; } = new List<TrajectoryPoint>();
         public List<OrbitSegment> OrbitSegments { get; set; } = new List<OrbitSegment>();
+        public bool HasOrbitSegments => OrbitSegments != null && OrbitSegments.Count > 0;
         public List<TrackSection> TrackSections { get; set; } = new List<TrackSection>();
         public double StartUT => Points.Count > 0 ? Points[0].ut : 0;
         public double EndUT => Points.Count > 0 ? Points[Points.Count - 1].ut : 0;

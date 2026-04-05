@@ -102,11 +102,9 @@ KSP's inertial reference frame may drift over very long time warp. Could cause g
 
 ## TODO — Code Quality
 
-### T45. Add `HasOrbitSegments` to `IPlaybackTrajectory` interface
+### ~~T45. Add `HasOrbitSegments` to `IPlaybackTrajectory` interface~~ DONE
 
-`Recording.HasOrbitSegments` property was added in PR #125, but `IPlaybackTrajectory` still requires the inline `rec.OrbitSegments != null && rec.OrbitSegments.Count > 0` pattern. ~9 callsites across the codebase use this pattern. Adding it to the interface would unify all of them, but touches the standalone ghost mod boundary — defer until the interface next changes.
-
-**Priority:** Low — cosmetic DRY cleanup
+Added `bool HasOrbitSegments { get; }` to `IPlaybackTrajectory`. Replaced 13 inline `OrbitSegments != null && .Count > 0` checks across `GhostPlaybackEngine`, `ParsekPlaybackPolicy`, `GhostMapPresence`, `ParsekFlight`, and `RecordingOptimizer`. Also implemented on `MockTrajectory` in tests.
 
 ### ~~T17. Game actions recording redesign (Phase 8)~~ DONE
 

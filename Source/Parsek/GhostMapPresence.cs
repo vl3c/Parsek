@@ -512,7 +512,7 @@ namespace Parsek
                 {
                     v = CreateGhostVesselForRecording(i, rec);
                 }
-                else if (rec.OrbitSegments != null && rec.OrbitSegments.Count > 0)
+                else if (rec.HasOrbitSegments)
                 {
                     OrbitSegment? seg = TrajectoryMath.FindOrbitSegment(rec.OrbitSegments, currentUT);
                     if (seg.HasValue)
@@ -789,7 +789,7 @@ namespace Parsek
                 return (true, null);
 
             // Orbit segments: find the one matching currentUT
-            if (rec.OrbitSegments != null && rec.OrbitSegments.Count > 0)
+            if (rec.HasOrbitSegments)
             {
                 OrbitSegment? seg = TrajectoryMath.FindOrbitSegment(rec.OrbitSegments, currentUT);
                 if (seg.HasValue)
@@ -839,7 +839,7 @@ namespace Parsek
                 {
                     v = CreateGhostVesselForRecording(i, rec);
                 }
-                else if (rec.OrbitSegments != null && rec.OrbitSegments.Count > 0)
+                else if (rec.HasOrbitSegments)
                 {
                     OrbitSegment? seg = TrajectoryMath.FindOrbitSegment(rec.OrbitSegments, currentUT);
                     if (seg.HasValue)

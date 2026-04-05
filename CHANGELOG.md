@@ -16,6 +16,7 @@ All notable changes to Parsek are documented here.
 - **Pass 3A: SafeWriteConfigNode deduplicated.** Four independent safe-write implementations (Ledger, RecordingStore, GameStateStore, MilestoneStore) consolidated into shared `FileIOUtils.SafeWriteConfigNode`. MilestoneStore gains error handling it previously lacked.
 - **Pass 3B: SuppressionGuard struct.** 10 manual try/finally suppression-flag blocks across 4 files replaced with `IDisposable` `SuppressionGuard` struct (Crew, Resources, ResourcesAndReplay factories).
 - **Pass 3C: ParsekUI window extractions.** Three self-contained windows extracted from ParsekUI (4,773 → 3,698 lines): `UI/GroupPickerUI` (373 lines), `UI/SpawnControlUI` (321 lines), `UI/ActionsWindowUI` (500 lines).
+- **T45: `HasOrbitSegments` added to `IPlaybackTrajectory` interface.** 13 inline `OrbitSegments != null && .Count > 0` checks replaced across 6 files. `MockTrajectory` updated.
 - 4,766 tests pass throughout. Zero logic changes.
 
 ### Tests
