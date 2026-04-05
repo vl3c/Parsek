@@ -50,6 +50,7 @@ namespace Parsek
             {
                 var rec = recordings[i];
                 if (rec.Hidden) { hiddenSkipped++; continue; }
+                if (rec.IsDebris) continue;
 
                 // RecordingStart
                 var startType = TimelineEntryType.RecordingStart;

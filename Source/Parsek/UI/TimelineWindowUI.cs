@@ -74,7 +74,8 @@ namespace Parsek
             {
                 float x = mainWindowRect.x - 538;
                 if (x < 0) x = mainWindowRect.x + mainWindowRect.width + 10;
-                timelineWindowRect = new Rect(x, mainWindowRect.y, 528, mainWindowRect.height);
+                float height = Math.Max(600f, mainWindowRect.height);
+                timelineWindowRect = new Rect(x, mainWindowRect.y, 528, height);
                 var ic = System.Globalization.CultureInfo.InvariantCulture;
                 ParsekLog.Verbose("UI",
                     $"Timeline window initial position: x={x.ToString("F0", ic)} y={mainWindowRect.y.ToString("F0", ic)} (mainWindow.x={mainWindowRect.x.ToString("F0", ic)})");
