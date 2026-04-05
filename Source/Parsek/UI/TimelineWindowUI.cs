@@ -23,6 +23,7 @@ namespace Parsek
         private bool timelineWindowHasInputLock;
         private const string TimelineInputLockId = "Parsek_TimelineWindow";
         private Rect lastTimelineWindowRect;
+        private static readonly List<string> EmptyStringList = new List<string>();
         private const float MinWindowWidth = 350f;
         private const float MinWindowHeight = 150f;
         private const float ApproxRowHeight = 20f;
@@ -521,7 +522,7 @@ namespace Parsek
 
         private void DrawRetiredKerbalsSection()
         {
-            var retiredKerbals = cachedRetiredKerbals ?? new List<string>();
+            var retiredKerbals = cachedRetiredKerbals ?? (IReadOnlyList<string>)EmptyStringList;
             if (retiredKerbals.Count > 0)
             {
                 if (retiredKerbals.Count != lastRetiredKerbalCount)
