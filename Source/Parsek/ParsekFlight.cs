@@ -6632,13 +6632,22 @@ namespace Parsek
                     && !GhostMapPresence.IsGhostMapVessel(vessel.persistentId));
                 if (v != null)
                 {
+                    // Only activate if within physics range. ForceSetActiveVessel on an
+                    // unloaded vessel triggers a full FLIGHT→FLIGHT scene reload (black
+                    // screen flash). Better to stay on the pad and let the player switch
+                    // manually via tracking station or map view.
+                    if (!v.loaded)
+                    {
+                        Log($"Spawned vessel pid={pid} not loaded — staying on current vessel");
+                        yield break;
+                    }
                     v.IgnoreGForces(240);
                     FlightGlobals.ForceSetActiveVessel(v);
-                    Log($"Activated vessel pid={pid} (loaded={v.loaded})");
+                    Log($"Activated spawned vessel pid={pid} ({v.vesselName})");
                     yield break;
                 }
             }
-            Log($"WARNING: Could not activate vessel pid={pid} within 5 seconds");
+            Log($"WARNING: Could not find spawned vessel pid={pid} within 5 seconds");
         }
 
         #region Zone Rendering (shared by normal, background, and looped ghosts)

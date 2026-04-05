@@ -204,11 +204,13 @@ After a recording tree is committed via the merge dialog, all R buttons for that
 
 **Status:** Open — design gap: should tree branches inherit the root's rewind save?
 
-## 185. Investigate spawning idle vessels earlier or trimming recording tail
+## ~~185. Investigate spawning idle vessels earlier or trimming recording tail~~
 
 After an EVA, the vessel left behind is a static recording (ghost) right up to the moment the tree was committed, even though it stopped moving much earlier. Consider either spawning the vessel as real when it enters its final resting state, or trimming the end of the recording if nothing changes after the last meaningful event.
 
-**Status:** TODO
+**Fix:** `RecordingOptimizer.TrimBoringTail` already handles this for standalone recordings. It was not applying to breakup-continuous tree recordings because `IsLeafRecording` rejected them (had `ChildBranchPointId != null`). Fixed by checking `IsEffectiveLeafForVessel` before rejecting.
+
+**Status:** Fixed
 
 ## 186. Initial launch recording shows T+ countdown instead of "past" status
 
@@ -291,7 +293,7 @@ Recording `f8fd04e5` (Kerbal X, chainIndex=1) had both `childBranchPointId` (bre
 
 **Status:** Fixed
 
-## 226. ForceSpawnNewVessel transient flag is fragile
+## ~~226. ForceSpawnNewVessel transient flag is fragile~~
 
 `ForceSpawnNewVessel` was a transient (not serialized) flag on Recording, set at scene entry and consumed at spawn time. The flag could be lost if Recording objects were recreated mid-scene (auto-save, quicksave, RecordingStore rebuild).
 
