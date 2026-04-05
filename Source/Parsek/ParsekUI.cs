@@ -124,8 +124,8 @@ namespace Parsek
                 ParsekLog.Verbose("UI", $"Recordings window toggled: {(recordingsTableUI.IsOpen ? "open" : "closed")}");
             }
 
-            int actionCount = MilestoneStore.GetPendingEventCount() + GameStateStore.GetUncommittedEventCount();
-            if (GUILayout.Button($"Timeline ({actionCount})"))
+            int timelineCount = RecordingStore.CommittedRecordings.Count + Ledger.Actions.Count;
+            if (GUILayout.Button($"Timeline ({timelineCount})"))
             {
                 timelineUI.IsOpen = !timelineUI.IsOpen;
                 ParsekLog.Verbose("UI", $"Timeline window toggled: {(timelineUI.IsOpen ? "open" : "closed")}");

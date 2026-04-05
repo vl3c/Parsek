@@ -47,6 +47,7 @@ namespace Parsek
         private GUIStyle timelineRedStyle;
         private GUIStyle timelineDimStyle;
         private GUIStyle timelineStrikethroughStyle;
+        private GUIStyle toggleButtonStyle;
 
         private int lastRetiredKerbalCount = -1;
 
@@ -158,6 +159,16 @@ namespace Parsek
 
             timelineStrikethroughStyle = new GUIStyle(GUI.skin.label);
             timelineStrikethroughStyle.normal.textColor = Color.gray;
+
+            // Toggle button: "on" state uses a darker background than "off"
+            toggleButtonStyle = new GUIStyle(GUI.skin.button);
+            var darkTex = new Texture2D(1, 1);
+            darkTex.SetPixel(0, 0, new Color(0.15f, 0.15f, 0.15f, 1f));
+            darkTex.Apply();
+            toggleButtonStyle.onNormal.background = darkTex;
+            toggleButtonStyle.onHover.background = darkTex;
+            toggleButtonStyle.onNormal.textColor = Color.white;
+            toggleButtonStyle.onHover.textColor = Color.white;
         }
 
         private void DrawTimelineWindow(int windowID)
@@ -218,12 +229,12 @@ namespace Parsek
             bool overviewActive = !showDetail;
             bool detailActive = showDetail;
 
-            if (GUILayout.Toggle(overviewActive, "Overview", GUI.skin.button, GUILayout.Width(80)) && !overviewActive)
+            if (GUILayout.Toggle(overviewActive, "Overview", toggleButtonStyle, GUILayout.Width(80)) && !overviewActive)
             {
                 showDetail = false;
                 ParsekLog.Verbose("UI", "Timeline filter: Overview");
             }
-            if (GUILayout.Toggle(detailActive, "Detail", GUI.skin.button, GUILayout.Width(70)) && !detailActive)
+            if (GUILayout.Toggle(detailActive, "Detail", toggleButtonStyle, GUILayout.Width(70)) && !detailActive)
             {
                 showDetail = true;
                 ParsekLog.Verbose("UI", "Timeline filter: Detail");
@@ -232,14 +243,14 @@ namespace Parsek
             GUILayout.Space(10);
 
             // Source toggles
-            bool newShowRec = GUILayout.Toggle(showRecordingEntries, "Recordings", GUI.skin.button, GUILayout.Width(90));
+            bool newShowRec = GUILayout.Toggle(showRecordingEntries, "Recordings", toggleButtonStyle, GUILayout.Width(90));
             if (newShowRec != showRecordingEntries)
             {
                 showRecordingEntries = newShowRec;
                 ParsekLog.Verbose("UI", $"Timeline source toggle: Recordings={showRecordingEntries}");
             }
 
-            bool newShowAct = GUILayout.Toggle(showActionEntries, "Actions", GUI.skin.button, GUILayout.Width(70));
+            bool newShowAct = GUILayout.Toggle(showActionEntries, "Actions", toggleButtonStyle, GUILayout.Width(70));
             if (newShowAct != showActionEntries)
             {
                 showActionEntries = newShowAct;
@@ -380,7 +391,7 @@ namespace Parsek
                         bool canFF = RecordingStore.CanFastForward(rec, out ffReason, isRecording: isRecording);
                         GUI.enabled = canFF;
                         if (GUILayout.Button(new GUIContent("FF", canFF ? "Fast-forward to this launch" : ffReason),
-                            GUILayout.Width(25)))
+                            GUILayout.Width(35)))
                         {
                             ParsekLog.Info("UI",
                                 $"Timeline FF button clicked: \"{rec.VesselName}\" id={rec.RecordingId}");
@@ -405,7 +416,7 @@ namespace Parsek
                     }
 
                     // GoTo button — always last, right-aligned
-                    if (GUILayout.Button(new GUIContent("GoTo", "Show in Recordings Manager"), GUILayout.Width(38)))
+                    if (GUILayout.Button(new GUIContent("GoTo", "Show in Recordings Manager"), GUILayout.Width(48)))
                     {
                         parentUI.SelectedRecordingId = entry.RecordingId;
                         if (tableUI != null)
