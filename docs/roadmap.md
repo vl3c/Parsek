@@ -134,49 +134,19 @@ Full redesign of milestone capture, resource budgeting, and action replay. Stand
 
 **Validated across all game modes:** Sandbox (no resources), Science (science-only), Career (full complexity). 4621 tests passing.
 
----
+### v0.7 — Timeline
 
-## Phase 9: Timeline (v0.7 — IN PROGRESS)
+Unified chronological view of all committed career events, replacing the Game Actions window.
 
-Design document: `docs/parsek-timeline-design.md`
+**Design:** `docs/parsek-timeline-design.md`
 
-Evolve the current Game Actions window into a unified, chronological timeline view of all committed career-level events. The timeline is a read-only query layer — it does not own data. Recordings, game actions, and milestones remain in their respective systems; the timeline pulls from all of them, normalizes entries into a common shape (UT, type, description, source recording ID, visual category), and presents them sorted by UT. Vessel-level telemetry (part events, segment events) stays in the Recordings Manager.
+**Timeline window:** Flat chronological list of career events sorted by UT. Current-UT divider separates past (full color) from future (dimmed). Two significance tiers: Overview (mission structure — launches, milestones, contracts, facilities) and Detail (all resource transactions). Three source filters: Recordings, Actions (deliberate player choices), Events (gameplay consequences). Vessel-level telemetry (part events, segment events) stays in the Recordings Manager.
 
-### Timeline object
+**Entry display:** EVA-aware (`EVA: Jeb from Mun Lander (MET 5s)`, `Board: Jeb (Mun Lander)`). Spawn at EndUT with VesselSituation (`Spawn: Vessel (Landed on Mun)`). Mission Elapsed Time on launches (KSP calendar). Humanized science subjects, tech nodes, milestones, strategy names. Color-coded: green = earnings, red = penalties, light blue = player actions, white = recordings.
 
-The timeline shows the full committed history at all times. Everything before the player's current UT has already played out (vessels spawned, resources applied). Everything after the current UT will play out as ghosts when the player advances. There are no branches and no hidden future — the player recorded that future and committed it.
+**Operations:** Rewind (R) and Fast-Forward (FF) buttons on recording entries. GoTo cross-link opens Recordings Manager, unhides recording, expands parent groups, scrolls to target.
 
-Each entry in the timeline is a normalized event with at minimum: UT, event type, display text, source system (recording / game action / milestone), and optionally a link to the source recording. Ghost chain windows appear as duration entries: "Station Alpha: ghost UT 500–1600" — making it immediately clear why a vessel is untouchable and when it resolves.
-
-### Significance tiers
-
-Every event type belongs to a tier that controls default visibility:
-
-- **T1 (always visible):** recording commit, recording start/end, vessel spawn, tech unlock, contract complete/fail, facility upgrade, crew hire/loss, ghost chain window
-- **T2 (visible on expand or filter):** docking, undocking, staging, EVA, science collection, crew transfer, contract accept, fund/reputation transactions
-- **T3 (visible on explicit request):** individual part events, controller changes, resource snapshots, SegmentEvents
-
-Default view shows T1 only. Within recordings, events are hierarchically collapsible: top level shows the recording as a block (UT range, vessel name), expanding reveals BranchPoints and game actions, expanding further reveals part events and SegmentEvents.
-
-### UI
-
-Sub-window within the Parsek UI with a vertical scrollable list. Current UT is marked — events before the marker are styled as "completed," events after are styled as "upcoming" (dimmed or distinct color, not hidden). Filter buttons at the top allow toggling event types and tiers. Clicking a recording entry highlights it in the Recordings Manager (and vice versa — selecting a recording in the Manager scrolls the timeline to it).
-
-### Timeline operations
-
-Rewind and fast-forward are timeline operations. The player can rewind to any recording's launch point directly from the timeline (equivalent to the existing rewind button in the Recordings Manager). The per-recording rewind/fast-forward buttons in the Recordings Manager remain as shortcuts.
-
-### Resource graph overlay
-
-A small sparkline running alongside the timeline showing funds, science, and reputation over time. The recalculation walk already computes these values at every event — the overlay exposes them visually. Optional, toggled from the filter bar.
-
-### Static UT marker during warp
-
-The current UT marker does not live-update during time warp. It jumps to the correct position on warp exit, when game state is recalculated and vessels spawn. Live-updating is a potential optimization for later.
-
-### Relationship to Recordings Manager
-
-The Recordings Manager is vessel-centric (list of recordings, per-recording controls). The timeline is time-centric (what happened when). They are complementary views of the same data, cross-linked but not merged.
+**Data model:** 26 entry types (2 recording lifecycle + 23 game actions + 1 legacy). `TimelineBuilder` with 3 collectors + stable UT sort. `IsPlayerAction` classification. Game-mode aware (career/science/sandbox). 4870 tests passing (53 timeline-specific).
 
 ---
 
@@ -272,7 +242,7 @@ v0.6: Game Actions System (COMPLETE)
     │  facilities, strategies, reservations, recalculation
     │
     ▼
-Phase 9: Timeline (v0.7 — IN PROGRESS)
+Phase 9: Timeline (v0.7 ✓)
     │  Unified chronological view of all committed events,
     │  significance tiers, filtering, rewind from timeline
     │
