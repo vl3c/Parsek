@@ -1400,7 +1400,7 @@ namespace Parsek
                 ), false, HighLogic.UISkin);
         }
 
-        private void ShowRewindConfirmation(Recording rec)
+        internal void ShowRewindConfirmation(Recording rec)
         {
             int futureCount = RecordingStore.CountFutureRecordings(rec.StartUT);
             string futureText = futureCount > 0
