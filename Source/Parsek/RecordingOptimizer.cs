@@ -688,7 +688,11 @@ namespace Parsek
         /// </summary>
         internal static bool IsLeafRecording(Recording rec, List<Recording> allRecordings)
         {
-            if (rec.ChildBranchPointId != null) return false;
+            // Breakup-continuous effective leaf: ChildBranchPointId is set but no
+            // same-PID child exists — the recording IS the leaf for its vessel. (#224)
+            if (rec.ChildBranchPointId != null
+                && !GhostPlaybackLogic.IsEffectiveLeafForVessel(rec))
+                return false;
 
             if (!string.IsNullOrEmpty(rec.ChainId) && rec.ChainIndex >= 0)
             {
