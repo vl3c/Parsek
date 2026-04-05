@@ -746,7 +746,7 @@ namespace Parsek.Tests
         // ================================================================
 
         [Theory]
-        [InlineData("crewReport@KerbinSrfLaunchpad", "Crew Report @ Kerbin Srf Launchpad")]
+        [InlineData("crewReport@KerbinSrfLaunchpad", "Crew Report @ Kerbin Launchpad")]
         [InlineData("mysteryGoo@MunSrfLandedMidlands", "Mystery Goo @ Mun Landed Midlands")]
         [InlineData("temperatureScan", "Temperature Scan")]
         [InlineData("", "")]

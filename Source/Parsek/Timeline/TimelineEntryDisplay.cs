@@ -124,8 +124,12 @@ namespace Parsek
 
             // Clean up redundant KSP situation prefixes
             // "Srf Landed" → "Landed", "Srf Splashed" → "Splashed" (Srf is redundant with these)
-            location = location.Replace("Srf Landed", "Landed");
-            location = location.Replace("Srf Splashed", "Splashed");
+            location = location.Replace("Srf Landed ", "Landed ");
+            location = location.Replace("Srf Splashed ", "Splashed ");
+            // "Srf" without Landed/Splashed (e.g. "KerbinSrf" → "Kerbin Srf") — strip standalone Srf
+            location = location.Replace(" Srf ", " ");
+            if (location.EndsWith(" Srf"))
+                location = location.Substring(0, location.Length - 4);
 
             if (string.IsNullOrEmpty(location))
                 return experiment;
