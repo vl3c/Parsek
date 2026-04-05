@@ -6,6 +6,14 @@ All notable changes to Parsek are documented here.
 
 ## 0.6.2
 
+### Code Quality — Refactor-3
+
+- **Pass 1: 48 sub-methods extracted across 9 files.** Method extraction within files for long methods in GhostPlaybackEngine, FlightRecorder, GhostVisualBuilder, GhostPlaybackLogic, ParsekUI, ParsekFlight, RecordingStore, VesselSpawner, ParsekScenario. No logic changes.
+- **Pass 3A: SafeWriteConfigNode deduplicated.** Four independent safe-write implementations (Ledger, RecordingStore, GameStateStore, MilestoneStore) consolidated into shared `FileIOUtils.SafeWriteConfigNode`. MilestoneStore gains error handling it previously lacked.
+- **Pass 3B: SuppressionGuard struct.** 10 manual try/finally suppression-flag blocks across 4 files replaced with `IDisposable` `SuppressionGuard` struct (Crew, Resources, ResourcesAndReplay factories).
+- **Pass 3C: ParsekUI window extractions.** Three self-contained windows extracted from ParsekUI (4,773 → 3,698 lines): `UI/GroupPickerUI` (373 lines), `UI/SpawnControlUI` (321 lines), `UI/ActionsWindowUI` (500 lines).
+- 4,766 tests pass throughout. Zero logic changes.
+
 ### Tests
 
 - **40 new in-game runtime tests across 9 categories (PR #130).** Nearly doubles the runtime test suite (50 → 90). New categories: GhostLifecycle (orphan ghosts, NaN positions, overlap cap, explosion leaks, soft-cap coherence), PartEventFX (engine/RCS particle systems, parachute canopy, light components, fairing meshes, deployable transforms), GameActionsHealth (stuck suppression flags, career resource singleton bounds), GhostChains (stale recording refs, double-ghosting, time range validity, missing tip snapshots), TreeIntegrity (broken parent/child links, PID collisions across trees, EndUT coverage), SceneAndPatch (KSC/TS controller presence, ghost vessel load patch, scenario+crew round-trips), KspApiSanity (body rotation stability, UT monotonicity, PartLoader cache, Krakensbane, floating origin NaN drift), GhostMapOrbits (degenerate orbital elements), SpawnCollision (vessel bounds, distant overlap).

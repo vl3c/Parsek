@@ -46,13 +46,18 @@ Key source files and what they do - read the relevant one before modifying:
 - `GhostPlaybackEvents.cs` - lifecycle event types (PlaybackCompleted, LoopRestarted, OverlapExpired, CameraAction), TrajectoryPlaybackFlags, FrameContext
 - `ChainSegmentManager.cs` - chain segment state (active chain ID, continuation tracking, boundary anchors). Owns 16 fields previously scattered across ParsekFlight.
 - `FlightRecorder.cs` - recording state + sampling (called by Harmony patch)
-- `ParsekUI.cs` - UI windows (main, recordings, actions, settings, Real Spawn Control, test runner) and map markers
+- `ParsekUI.cs` - UI windows (main, recordings, settings, test runner) and map markers
+- `UI/GroupPickerUI.cs` - group picker popup (recording/chain group assignment)
+- `UI/SpawnControlUI.cs` - Real Spawn Control window (nearby vessel proximity spawning)
+- `UI/ActionsWindowUI.cs` - Game Actions window (ledger display, budget, retired kerbals)
 - `InGameTests/` - runtime test framework: `InGameTestAttribute` (discovery), `InGameAssert` (assertions), `InGameTestRunner` (execution + results export), `TestRunnerShortcut` (global Ctrl+Shift+T addon), `RuntimeTests` (50 tests across 13 categories)
 - `SelectiveSpawnUI.cs` - pure static methods for Real Spawn Control (proximity candidates, countdown formatting)
 - `ParsekScenario.cs` - ScenarioModule for save/load, coroutine hosting, scene transitions
 - `CrewReservationManager.cs` - crew reservation lifecycle (reserve/unreserve/swap/clear)
 - `GameActions/` - ledger-based game actions system (GameAction, Ledger, RecalculationEngine, 8 resource modules including KerbalsModule, KspStatePatcher, LedgerOrchestrator, GameStateEventConverter)
 - `GroupHierarchyStore.cs` - UI recording group hierarchy and visibility state
+- `FileIOUtils.cs` - shared safe-write (tmp+rename) utility for ConfigNode file I/O
+- `SuppressionGuard.cs` - IDisposable guard struct for GameStateRecorder suppression flags
 - `RecordingStore.cs` - static recording storage surviving scene changes
 - `GhostVisualBuilder.cs` - ghost mesh building from vessel snapshots
 - `TrajectoryMath.cs` - pure static math (sampling, interpolation, orbit search)

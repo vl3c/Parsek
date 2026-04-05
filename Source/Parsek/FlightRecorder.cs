@@ -3981,30 +3981,74 @@ namespace Parsek
 
             LogVisualRecordingCoverage(v);
 
-            // Capture pre-launch resource snapshot BEFORE recording starts
-            // (skip for promotion — resources belong to the tree root)
             if (!isPromotion)
-            {
-                PreLaunchFunds = 0;
-                PreLaunchScience = 0;
-                PreLaunchReputation = 0;
-                try
-                {
-                    if (Funding.Instance != null)
-                        PreLaunchFunds = Funding.Instance.Funds;
-                    if (ResearchAndDevelopment.Instance != null)
-                        PreLaunchScience = ResearchAndDevelopment.Instance.Science;
-                    if (Reputation.Instance != null)
-                        PreLaunchReputation = Reputation.Instance.reputation;
-                }
-                catch (Exception ex) { ParsekLog.Verbose("Recorder", $"Pre-launch resource capture failed: {ex.Message}"); }
-                ParsekLog.Verbose("Recorder",
-                    $"Pre-launch resources captured: funds={PreLaunchFunds:F0}, science={PreLaunchScience:F1}, rep={PreLaunchReputation:F1}");
-            }
+                CapturePreLaunchResources();
 
             // Capture rewind save (quicksave stored in Parsek/Saves/)
             CaptureRewindSave(v, isPromotion);
 
+            InitializeRecordingFlags(v);
+            var initialEnv = InitializeEnvironmentAndAnchorTracking(v);
+            InsertBoundaryAnchorAndSnapshot(v);
+
+            // Check if vessel is already on rails (e.g. started recording during time warp)
+            if (v.packed)
+            {
+                // Take one boundary point first
+                SamplePosition(v);
+
+                // Skip orbit segment if below atmosphere — Keplerian orbit ignores drag
+                if (ShouldSkipOrbitSegmentForAtmosphere(v.mainBody.atmosphere, v.altitude, v.mainBody.atmosphereDepth))
+                {
+                    ParsekLog.Info("Recorder",
+                        $"Recording started on rails in atmosphere — skipping orbit segment " +
+                        $"(alt={v.altitude:F0}, atmoDepth={v.mainBody.atmosphereDepth:F0})");
+                }
+                else
+                {
+                    InitializeOnRailsOrbitSegment(v, initialEnv);
+                }
+            }
+
+            // Register the Harmony patch to call us each physics frame
+            Patches.PhysicsFramePatch.ActiveRecorder = this;
+
+            SubscribePartEvents();
+
+            ParsekLog.Info("Recorder", $"Recording started (physics-frame sampling{(isPromotion ? ", promotion" : "")})");
+            if (!isPromotion)
+                ParsekLog.ScreenMessage("Recording STARTED", 2f);
+        }
+
+        /// <summary>
+        /// Captures the pre-launch resource snapshot (funds, science, reputation) for delta
+        /// tracking. Skipped for promotion — resources belong to the tree root.
+        /// </summary>
+        private void CapturePreLaunchResources()
+        {
+            PreLaunchFunds = 0;
+            PreLaunchScience = 0;
+            PreLaunchReputation = 0;
+            try
+            {
+                if (Funding.Instance != null)
+                    PreLaunchFunds = Funding.Instance.Funds;
+                if (ResearchAndDevelopment.Instance != null)
+                    PreLaunchScience = ResearchAndDevelopment.Instance.Science;
+                if (Reputation.Instance != null)
+                    PreLaunchReputation = Reputation.Instance.reputation;
+            }
+            catch (Exception ex) { ParsekLog.Verbose("Recorder", $"Pre-launch resource capture failed: {ex.Message}"); }
+            ParsekLog.Verbose("Recorder",
+                $"Pre-launch resources captured: funds={PreLaunchFunds:F0}, science={PreLaunchScience:F1}, rep={PreLaunchReputation:F1}");
+        }
+
+        /// <summary>
+        /// Resets all recording state flags, vessel identity, velocity tracking, mod detection,
+        /// and atmosphere/altitude boundary state for the given vessel.
+        /// </summary>
+        private void InitializeRecordingFlags(Vessel v)
+        {
             IsRecording = true;
             isOnRails = false;
             VesselDestroyedDuringRecording = false;
@@ -4034,7 +4078,15 @@ namespace Parsek
             ParsekLog.Verbose("Recorder", $"Boundary detection initialized: body={v.mainBody?.name}, " +
                 $"inAtmo={wasInAtmosphere}, hasAtmo={v.mainBody?.atmosphere}, alt={v.altitude:F0}m" +
                 $", altThreshold={currentAltitudeThreshold:F0}m, aboveThreshold={wasAboveAltitudeThreshold}");
+        }
 
+        /// <summary>
+        /// Initializes environment hysteresis, TrackSections, anchor detection for RELATIVE
+        /// frame, and logs the surface-relative rotation. Returns the initial environment
+        /// classification (needed by the on-rails orbit segment path).
+        /// </summary>
+        private SegmentEnvironment InitializeEnvironmentAndAnchorTracking(Vessel v)
+        {
             // Initialize environment tracking
             TrackSections.Clear();
             var initialEnv = ClassifyCurrentEnvironment(v);
@@ -4056,6 +4108,16 @@ namespace Parsek
                 $"{v.srfRelRotation.z.ToString("R", ic)},{v.srfRelRotation.w.ToString("R", ic)}) " +
                 $"UT={Planetarium.GetUniversalTime().ToString("R", ic)}");
 
+            return initialEnv;
+        }
+
+        /// <summary>
+        /// Inserts the boundary anchor point from the previous chain segment (if present),
+        /// captures the initial backup snapshot, and stores the ghost visual snapshot.
+        /// Must be called AFTER InitializeRecordingFlags (depends on lastRecordedUT reset).
+        /// </summary>
+        private void InsertBoundaryAnchorAndSnapshot(Vessel v)
+        {
             // Insert boundary anchor from previous chain segment if present.
             // Must come AFTER the lastRecordedUT reset above so the anchor's
             // UT is preserved (prevents duplicate-UT with the first live sample).
@@ -4076,34 +4138,6 @@ namespace Parsek
             initialGhostVisualSnapshot = lastGoodVesselSnapshot != null
                 ? lastGoodVesselSnapshot.CreateCopy()
                 : VesselSpawner.TryBackupSnapshot(v);
-
-            // Check if vessel is already on rails (e.g. started recording during time warp)
-            if (v.packed)
-            {
-                // Take one boundary point first
-                SamplePosition(v);
-
-                // Skip orbit segment if below atmosphere — Keplerian orbit ignores drag
-                if (ShouldSkipOrbitSegmentForAtmosphere(v.mainBody.atmosphere, v.altitude, v.mainBody.atmosphereDepth))
-                {
-                    ParsekLog.Info("Recorder",
-                        $"Recording started on rails in atmosphere — skipping orbit segment " +
-                        $"(alt={v.altitude:F0}, atmoDepth={v.mainBody.atmosphereDepth:F0})");
-                }
-                else
-                {
-                    InitializeOnRailsOrbitSegment(v, initialEnv);
-                }
-            }
-
-            // Register the Harmony patch to call us each physics frame
-            Patches.PhysicsFramePatch.ActiveRecorder = this;
-
-            SubscribePartEvents();
-
-            ParsekLog.Info("Recorder", $"Recording started (physics-frame sampling{(isPromotion ? ", promotion" : "")})");
-            if (!isPromotion)
-                ParsekLog.ScreenMessage("Recording STARTED", 2f);
         }
 
         /// <summary>
@@ -4550,7 +4584,36 @@ namespace Parsek
             CheckAtmosphereBoundary(v);
             CheckAltitudeBoundary(v);
 
-            // Poll parachute, jettison, engine, RCS, and deployable state every physics frame (before adaptive sampling skip)
+            PollPartStates(v);
+            UpdateEnvironmentTracking(v);
+
+            UpdateAnchorDetection(v);
+
+            // Krakensbane-corrected true velocity
+            Vector3 currentVelocity = (Vector3)(v.rb_velocityD + Krakensbane.GetFrameVelocity());
+
+            if (!TrajectoryMath.ShouldRecordPoint(currentVelocity, lastRecordedVelocity,
+                Planetarium.GetUniversalTime(), lastRecordedUT,
+                maxSampleInterval, velocityDirThreshold, speedChangeThreshold))
+            {
+                ParsekLog.VerboseRateLimited("Recorder", "sample-skipped",
+                    $"Sample skipped at ut={Planetarium.GetUniversalTime():F2}; waiting for threshold trigger", 2.0);
+                return;
+            }
+
+            TrajectoryPoint point = BuildTrajectoryPoint(v, currentVelocity);
+
+            ApplyRelativeOffset(ref point, v);
+            CommitRecordedPoint(point, v);
+        }
+
+        /// <summary>
+        /// Polls all part-module states (parachutes, jettisons, engines, RCS, deployables,
+        /// ladders, animation groups, aero/control surfaces, lights, gear, cargo bays,
+        /// fairings, robotics). Runs every physics frame before adaptive sampling.
+        /// </summary>
+        private void PollPartStates(Vessel v)
+        {
             CheckParachuteState(v);
             CheckJettisonState(v);
             CheckEngineState(v);
@@ -4568,8 +4631,15 @@ namespace Parsek
             CheckCargoBayState(v);
             CheckFairingState(v);
             CheckRoboticState(v);
+        }
 
-            // Environment tracking — runs every physics frame regardless of adaptive sampling
+        /// <summary>
+        /// Checks the environment hysteresis for a transition (e.g. Atmospheric -> ExoBallistic)
+        /// and creates a new TrackSection at the boundary if the environment changed.
+        /// Runs every physics frame regardless of adaptive sampling.
+        /// </summary>
+        private void UpdateEnvironmentTracking(Vessel v)
+        {
             if (environmentHysteresis != null)
             {
                 var rawEnv = ClassifyCurrentEnvironment(v);
@@ -4588,69 +4658,68 @@ namespace Parsek
                         currentTrackSection.anchorVesselId = currentAnchorPid;
                 }
             }
+        }
 
-            UpdateAnchorDetection(v);
-
-            // Krakensbane-corrected true velocity
-            Vector3 currentVelocity = (Vector3)(v.rb_velocityD + Krakensbane.GetFrameVelocity());
-
-            if (!TrajectoryMath.ShouldRecordPoint(currentVelocity, lastRecordedVelocity,
-                Planetarium.GetUniversalTime(), lastRecordedUT,
-                maxSampleInterval, velocityDirThreshold, speedChangeThreshold))
-            {
-                ParsekLog.VerboseRateLimited("Recorder", "sample-skipped",
-                    $"Sample skipped at ut={Planetarium.GetUniversalTime():F2}; waiting for threshold trigger", 2.0);
+        /// <summary>
+        /// In RELATIVE mode, rewrites the trajectory point's lat/lon/alt as a (dx, dy, dz)
+        /// offset from the anchor vessel. If the anchor is no longer loaded, force-exits
+        /// RELATIVE mode and starts a new ABSOLUTE TrackSection.
+        /// </summary>
+        private void ApplyRelativeOffset(ref TrajectoryPoint point, Vessel v)
+        {
+            if (!isRelativeMode || currentAnchorPid == 0)
                 return;
-            }
 
-            TrajectoryPoint point = BuildTrajectoryPoint(v, currentVelocity);
-
-            // RELATIVE mode: reinterpret lat/lon/alt as (dx, dy, dz) offset from anchor vessel
-            if (isRelativeMode && currentAnchorPid != 0)
+            Vessel anchor = FindVesselByPid(currentAnchorPid);
+            if (anchor != null)
             {
-                Vessel anchor = FindVesselByPid(currentAnchorPid);
-                if (anchor != null)
-                {
-                    // Compute offset in world-space. Both positions come from
-                    // GetWorldSurfacePosition, so FloatingOrigin shifts cancel
-                    // (both shift equally within the physics bubble).
-                    Vector3d focusPos = v.mainBody.GetWorldSurfacePosition(
-                        v.latitude, v.longitude, v.altitude);
-                    Vector3d anchorPos = v.mainBody.GetWorldSurfacePosition(
-                        anchor.latitude, anchor.longitude, anchor.altitude);
-                    Vector3d offset = TrajectoryMath.ComputeRelativeOffset(focusPos, anchorPos);
-                    point.latitude = offset.x;   // dx
-                    point.longitude = offset.y;  // dy
-                    point.altitude = offset.z;   // dz
-                    // bodyName stays the same — both vessels are on the same body
+                // Compute offset in world-space. Both positions come from
+                // GetWorldSurfacePosition, so FloatingOrigin shifts cancel
+                // (both shift equally within the physics bubble).
+                Vector3d focusPos = v.mainBody.GetWorldSurfacePosition(
+                    v.latitude, v.longitude, v.altitude);
+                Vector3d anchorPos = v.mainBody.GetWorldSurfacePosition(
+                    anchor.latitude, anchor.longitude, anchor.altitude);
+                Vector3d offset = TrajectoryMath.ComputeRelativeOffset(focusPos, anchorPos);
+                point.latitude = offset.x;   // dx
+                point.longitude = offset.y;  // dy
+                point.altitude = offset.z;   // dz
+                // bodyName stays the same — both vessels are on the same body
 
-                    ParsekLog.VerboseRateLimited("Anchor", "relative-offset",
-                        $"RELATIVE sample: dx={offset.x:F2} dy={offset.y:F2} dz={offset.z:F2} " +
-                        $"anchorPid={currentAnchorPid} |offset|={offset.magnitude:F2}m", 2.0);
-                }
-                else
-                {
-                    // Anchor vessel no longer loaded — force transition out of RELATIVE mode.
-                    // The point keeps its absolute lat/lon/alt from the vessel (correct for ABSOLUTE).
-                    // Close the RELATIVE section and start a new ABSOLUTE section so the frame
-                    // tag matches the data.
-                    ParsekLog.Warn("Anchor",
-                        $"Anchor vessel pid={currentAnchorPid} not found in loaded vessels — " +
-                        $"forcing transition to ABSOLUTE at UT={Planetarium.GetUniversalTime():F2}");
-                    var oldAnchor = currentAnchorPid;
-                    isRelativeMode = false;
-                    currentAnchorPid = 0;
-                    CloseCurrentTrackSection(Planetarium.GetUniversalTime());
-                    var env = environmentHysteresis != null
-                        ? environmentHysteresis.CurrentEnvironment
-                        : SegmentEnvironment.Atmospheric;
-                    StartNewTrackSection(env, ReferenceFrame.Absolute, Planetarium.GetUniversalTime());
-                    ParsekLog.Info("Anchor",
-                        $"RELATIVE mode force-exited: anchor pid={oldAnchor} unloaded, " +
-                        $"new ABSOLUTE section started");
-                }
+                ParsekLog.VerboseRateLimited("Anchor", "relative-offset",
+                    $"RELATIVE sample: dx={offset.x:F2} dy={offset.y:F2} dz={offset.z:F2} " +
+                    $"anchorPid={currentAnchorPid} |offset|={offset.magnitude:F2}m", 2.0);
             }
+            else
+            {
+                // Anchor vessel no longer loaded — force transition out of RELATIVE mode.
+                // The point keeps its absolute lat/lon/alt from the vessel (correct for ABSOLUTE).
+                // Close the RELATIVE section and start a new ABSOLUTE section so the frame
+                // tag matches the data.
+                ParsekLog.Warn("Anchor",
+                    $"Anchor vessel pid={currentAnchorPid} not found in loaded vessels — " +
+                    $"forcing transition to ABSOLUTE at UT={Planetarium.GetUniversalTime():F2}");
+                var oldAnchor = currentAnchorPid;
+                isRelativeMode = false;
+                currentAnchorPid = 0;
+                CloseCurrentTrackSection(Planetarium.GetUniversalTime());
+                var env = environmentHysteresis != null
+                    ? environmentHysteresis.CurrentEnvironment
+                    : SegmentEnvironment.Atmospheric;
+                StartNewTrackSection(env, ReferenceFrame.Absolute, Planetarium.GetUniversalTime());
+                ParsekLog.Info("Anchor",
+                    $"RELATIVE mode force-exited: anchor pid={oldAnchor} unloaded, " +
+                    $"new ABSOLUTE section started");
+            }
+        }
 
+        /// <summary>
+        /// Appends the trajectory point to the flat Recording list and the current TrackSection,
+        /// updates last-recorded bookkeeping, refreshes the backup snapshot, and emits periodic
+        /// diagnostic logging.
+        /// </summary>
+        private void CommitRecordedPoint(TrajectoryPoint point, Vessel v)
+        {
             Recording.Add(point);
             lastRecordedUT = point.ut;
             lastRecordedVelocity = point.velocity;
@@ -4763,25 +4832,7 @@ namespace Parsek
             }
             if (v.persistentId != RecordingVesselId) return;
 
-            // Clear RELATIVE mode BEFORE sampling the boundary point (#74).
-            // SamplePosition records raw lat/lon/alt (absolute coordinates). If called
-            // while isRelativeMode is true, the point would have absolute values in a
-            // RELATIVE TrackSection — causing a position discontinuity during playback.
-            if (isRelativeMode)
-            {
-                ParsekLog.Info("Anchor",
-                    $"RELATIVE mode cleared on rails transition: anchorPid={currentAnchorPid}");
-                double clearUT = Planetarium.GetUniversalTime();
-                var clearEnv = environmentHysteresis != null
-                    ? environmentHysteresis.CurrentEnvironment
-                    : SegmentEnvironment.ExoBallistic;
-                CloseCurrentTrackSection(clearUT);
-                StartNewTrackSection(clearEnv, ReferenceFrame.Absolute, clearUT);
-                isRelativeMode = false;
-                currentAnchorPid = 0;
-            }
-
-            // Record a boundary TrajectoryPoint at current UT (stitching point)
+            ClearRelativeModeForRailsTransition();
             SamplePosition(v);
 
             // Layer 1: Surface vessels (LANDED/SPLASHED/PRELAUNCH) stay in place on rails —
@@ -4806,46 +4857,8 @@ namespace Parsek
                 return;
             }
 
-            currentOrbitSegment = CreateOrbitSegmentFromVessel(v, Planetarium.GetUniversalTime());
-
-            // Capture orbital-frame-relative rotation
-            Vector3d orbVel = v.obt_velocity;
-            Vector3d radialOut = (v.CoMD - v.mainBody.position).normalized;
-            currentOrbitSegment.orbitalFrameRotation =
-                TrajectoryMath.ComputeOrbitalFrameRotation(v.transform.rotation, orbVel, radialOut);
-
-            // Capture angular velocity if PersistentRotation is active and vessel is spinning
-            if (hasPersistentRotation && v.rootPart != null && v.rootPart.rb != null)
-            {
-                Vector3 worldAngVel = v.angularVelocity;
-                if (worldAngVel.magnitude > TrajectoryMath.SpinThreshold)
-                {
-                    currentOrbitSegment.angularVelocity =
-                        Quaternion.Inverse(v.transform.rotation) * worldAngVel;
-                    ParsekLog.Verbose("Recorder",
-                        $"Spinning vessel detected (|angVel|={worldAngVel.magnitude:F4}), recording angular velocity for spin-forward");
-                }
-            }
-
-            // Emit terminal engine/RCS/robotic events so ghost FX stops during orbit segment (#150)
-            double railsUT = Planetarium.GetUniversalTime();
-            var railsTerminalEvts = EmitTerminalEngineAndRcsEvents(
-                activeEngineKeys, activeRcsKeys, activeRoboticKeys,
-                lastRoboticPosition, railsUT, "Recorder");
-            PartEvents.AddRange(railsTerminalEvts);
-            if (railsTerminalEvts.Count > 0)
-                ParsekLog.Info("Recorder",
-                    $"Emitted {railsTerminalEvts.Count} terminal FX events at on-rails transition (UT={railsUT.ToString("F1", System.Globalization.CultureInfo.InvariantCulture)})");
-
-            // Clear active state so off-rails re-detection starts fresh
-            activeEngineKeys.Clear();
-            activeRcsKeys.Clear();
-            activeRoboticKeys.Clear();
-            lastThrottle.Clear();
-            lastRcsThrottle.Clear();
-            lastRoboticPosition.Clear();
-            rcsActiveFrameCount.Clear();
-            decoupledPartIds.Clear();
+            CaptureOrbitSegmentWithRotation(v);
+            EmitTerminalEventsAndClearActiveState();
 
             isOnRails = true;
 
@@ -4866,6 +4879,84 @@ namespace Parsek
                 $"ofrRot={currentOrbitSegment.orbitalFrameRotation}, " +
                 $"angVel={currentOrbitSegment.angularVelocity}, " +
                 $"persistentRotation={hasPersistentRotation})");
+        }
+
+        /// <summary>
+        /// Clears RELATIVE mode state before sampling a boundary point at a rails transition.
+        /// SamplePosition records raw lat/lon/alt (absolute coordinates); if called while
+        /// isRelativeMode is true the point would have absolute values in a RELATIVE
+        /// TrackSection, causing a position discontinuity during playback (#74).
+        /// </summary>
+        private void ClearRelativeModeForRailsTransition()
+        {
+            if (isRelativeMode)
+            {
+                ParsekLog.Info("Anchor",
+                    $"RELATIVE mode cleared on rails transition: anchorPid={currentAnchorPid}");
+                double clearUT = Planetarium.GetUniversalTime();
+                var clearEnv = environmentHysteresis != null
+                    ? environmentHysteresis.CurrentEnvironment
+                    : SegmentEnvironment.ExoBallistic;
+                CloseCurrentTrackSection(clearUT);
+                StartNewTrackSection(clearEnv, ReferenceFrame.Absolute, clearUT);
+                isRelativeMode = false;
+                currentAnchorPid = 0;
+            }
+        }
+
+        /// <summary>
+        /// Creates a new orbit segment from the vessel's current orbit and captures the
+        /// orbital-frame-relative rotation and angular velocity (if PersistentRotation is active).
+        /// </summary>
+        private void CaptureOrbitSegmentWithRotation(Vessel v)
+        {
+            currentOrbitSegment = CreateOrbitSegmentFromVessel(v, Planetarium.GetUniversalTime());
+
+            // Capture orbital-frame-relative rotation
+            Vector3d orbVel = v.obt_velocity;
+            Vector3d radialOut = (v.CoMD - v.mainBody.position).normalized;
+            currentOrbitSegment.orbitalFrameRotation =
+                TrajectoryMath.ComputeOrbitalFrameRotation(v.transform.rotation, orbVel, radialOut);
+
+            // Capture angular velocity if PersistentRotation is active and vessel is spinning
+            if (hasPersistentRotation && v.rootPart != null && v.rootPart.rb != null)
+            {
+                Vector3 worldAngVel = v.angularVelocity;
+                if (worldAngVel.magnitude > TrajectoryMath.SpinThreshold)
+                {
+                    currentOrbitSegment.angularVelocity =
+                        Quaternion.Inverse(v.transform.rotation) * worldAngVel;
+                    ParsekLog.Verbose("Recorder",
+                        $"Spinning vessel detected (|angVel|={worldAngVel.magnitude:F4}), recording angular velocity for spin-forward");
+                }
+            }
+        }
+
+        /// <summary>
+        /// Emits terminal EngineShutdown/RCSStopped/RoboticMotionStopped events so ghost FX
+        /// stops during orbit segments (#150), then clears all active engine/RCS/robotic
+        /// tracking state so off-rails re-detection starts fresh.
+        /// </summary>
+        private void EmitTerminalEventsAndClearActiveState()
+        {
+            double railsUT = Planetarium.GetUniversalTime();
+            var railsTerminalEvts = EmitTerminalEngineAndRcsEvents(
+                activeEngineKeys, activeRcsKeys, activeRoboticKeys,
+                lastRoboticPosition, railsUT, "Recorder");
+            PartEvents.AddRange(railsTerminalEvts);
+            if (railsTerminalEvts.Count > 0)
+                ParsekLog.Info("Recorder",
+                    $"Emitted {railsTerminalEvts.Count} terminal FX events at on-rails transition (UT={railsUT.ToString("F1", System.Globalization.CultureInfo.InvariantCulture)})");
+
+            // Clear active state so off-rails re-detection starts fresh
+            activeEngineKeys.Clear();
+            activeRcsKeys.Clear();
+            activeRoboticKeys.Clear();
+            lastThrottle.Clear();
+            lastRcsThrottle.Clear();
+            lastRoboticPosition.Clear();
+            rcsActiveFrameCount.Clear();
+            decoupledPartIds.Clear();
         }
 
         public void OnVesselGoOffRails(Vessel v)

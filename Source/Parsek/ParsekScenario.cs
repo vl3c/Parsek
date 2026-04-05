@@ -28,9 +28,48 @@ namespace Parsek
 
         public override void OnSave(ConfigNode node)
         {
-            // Safety net (defense-in-depth): if a pending recording still exists outside Flight
-            // and the dialog is not actively pending, auto-commit ghost-only before serialization.
-            // Under normal operation this is unreachable — Sites A/B handle all paths.
+            SafetyNetAutoCommitPending();
+
+            // Diagnostic: detect if HighLogic.SaveFolder changed since this scenario loaded.
+            // Under normal KSP flow OnSave fires before the folder changes, but if it doesn't,
+            // file writes (SaveRecordingFiles, GameStateStore, MilestoneStore) would target
+            // the wrong save directory.
+            string currentSaveFolder = HighLogic.SaveFolder;
+            if (IsSaveFolderMismatch(scenarioSaveFolder, currentSaveFolder))
+            {
+                ParsekLog.Warn("Scenario",
+                    $"OnSave: save folder mismatch — loaded for '{scenarioSaveFolder}' " +
+                    $"but current is '{currentSaveFolder}'. Data may write to wrong save directory.");
+            }
+
+            // Clear any existing recording nodes
+            node.RemoveNodes("RECORDING");
+
+            var recordings = RecordingStore.CommittedRecordings;
+            ParsekLog.Info("Scenario", $"OnSave: saving {recordings.Count} committed recordings, epoch={MilestoneStore.CurrentEpoch}");
+
+            SaveStandaloneRecordings(node, recordings);
+            SaveTreeRecordings(node);
+            PersistGameStateAndMilestones(node);
+
+            // Strip ghost map ProtoVessels — they are transient and reconstructed on load
+            if (GhostMapPresence.ghostMapVesselPids.Count > 0)
+            {
+                var flightState = HighLogic.CurrentGame?.flightState;
+                if (flightState != null)
+                    GhostMapPresence.StripFromSave(flightState);
+            }
+
+            lastOnSaveScene = HighLogic.LoadedScene;
+        }
+
+        /// <summary>
+        /// Safety net (defense-in-depth): if a pending recording still exists outside Flight
+        /// and the dialog is not actively pending, auto-commit ghost-only before serialization.
+        /// Under normal operation this is unreachable — Sites A/B handle all paths.
+        /// </summary>
+        private static void SafetyNetAutoCommitPending()
+        {
             if (HighLogic.LoadedScene != GameScenes.FLIGHT && !mergeDialogPending)
             {
                 if (RecordingStore.HasPending)
@@ -54,28 +93,14 @@ namespace Parsek
                         "Safety net: committed pending tree on save outside Flight");
                 }
             }
+        }
 
-            // Diagnostic: detect if HighLogic.SaveFolder changed since this scenario loaded.
-            // Under normal KSP flow OnSave fires before the folder changes, but if it doesn't,
-            // file writes (SaveRecordingFiles, GameStateStore, MilestoneStore) would target
-            // the wrong save directory.
-            string currentSaveFolder = HighLogic.SaveFolder;
-            if (IsSaveFolderMismatch(scenarioSaveFolder, currentSaveFolder))
-            {
-                ParsekLog.Warn("Scenario",
-                    $"OnSave: save folder mismatch — loaded for '{scenarioSaveFolder}' " +
-                    $"but current is '{currentSaveFolder}'. Data may write to wrong save directory.");
-            }
-
-            // Clear any existing recording nodes
-            node.RemoveNodes("RECORDING");
-
-            var recordings = RecordingStore.CommittedRecordings;
-            ParsekLog.Info("Scenario", $"OnSave: saving {recordings.Count} committed recordings, epoch={MilestoneStore.CurrentEpoch}");
-
-            SaveStandaloneRecordings(node, recordings);
-
-            // Save committed recording trees
+        /// <summary>
+        /// Saves committed recording trees to RECORDING_TREE ConfigNodes and writes
+        /// bulk data to external files for recordings whose data changed.
+        /// </summary>
+        private static void SaveTreeRecordings(ConfigNode node)
+        {
             node.RemoveNodes("RECORDING_TREE");
             var committedTrees = RecordingStore.CommittedTrees;
             ParsekLog.Info("Scenario", $"OnSave: saving {committedTrees.Count} committed tree(s)");
@@ -107,7 +132,14 @@ namespace Parsek
                     $"Saved {committedTrees.Count} trees ({treeRecCount} recordings): {treeTotalPoints} points, " +
                     $"{treeTotalOrbitSegments} orbit segments, {treeTotalPartEvents} part events, " +
                     $"{treeWithTrackSections} with track sections, {treeWithSnapshots} with snapshots");
+        }
 
+        /// <summary>
+        /// Persists crew state, group hierarchy, game state events, baselines,
+        /// milestones, and ledger data to the save node and external files.
+        /// </summary>
+        private static void PersistGameStateAndMilestones(ConfigNode node)
+        {
             // Persist kerbal slots (new format) and crew replacements (backward compat)
             LedgerOrchestrator.Kerbals?.SaveSlots(node);
             CrewReservationManager.SaveCrewReplacements(node);
@@ -140,16 +172,6 @@ namespace Parsek
                 budgetDeductionEpoch.ToString(CultureInfo.InvariantCulture));
             ParsekLog.Verbose("Scenario",
                 $"OnSave: wrote milestoneEpoch={MilestoneStore.CurrentEpoch}, budgetDeductionEpoch={budgetDeductionEpoch}");
-
-            // Strip ghost map ProtoVessels — they are transient and reconstructed on load
-            if (GhostMapPresence.ghostMapVesselPids.Count > 0)
-            {
-                var flightState = HighLogic.CurrentGame?.flightState;
-                if (flightState != null)
-                    GhostMapPresence.StripFromSave(flightState);
-            }
-
-            lastOnSaveScene = HighLogic.LoadedScene;
         }
 
         // Static flag: only load from save once per KSP session.
@@ -212,132 +234,20 @@ namespace Parsek
 
             var recordings = RecordingStore.CommittedRecordings;
 
-            // Register a one-time hook to reset session state when returning to main menu.
-            // This prevents stale in-memory recordings from leaking into a new save
-            // (e.g., deleting a career and creating a new one with the same name).
-            // Wrapped in try-catch: KSP's EvtDelegate constructor can throw
-            // NullReferenceException during early scene loads when GameEvents
-            // internals aren't fully initialized.
-            if (!mainMenuHookRegistered)
-            {
-                try
-                {
-                    GameEvents.onGameSceneLoadRequested.Add(OnMainMenuTransition);
-                    mainMenuHookRegistered = true;
-                }
-                catch (System.NullReferenceException)
-                {
-                    ParsekLog.Verbose("Scenario",
-                        "Main menu hook deferred (GameEvents not ready) — will retry on next OnLoad");
-                }
-            }
-
-            // Detect loading a different save game (not a revert)
-            string currentSave = HighLogic.SaveFolder;
-            scenarioSaveFolder = currentSave;
-            if (currentSave != lastSaveFolder)
-            {
-                initialLoadDone = false;
-                lastSaveFolder = currentSave;
-                ScenarioLog($"[Parsek Scenario] Save folder changed to '{currentSave}' — resetting session state");
-            }
-
-            // Load crew replacement mappings from the node (both initial and revert paths need this).
-            // Skip during go-back: in-memory crewReplacements is the source of truth
-            // (it has replacements for recordings committed after this quicksave).
-            if (!RewindContext.IsRewinding)
-            {
-                CrewReservationManager.LoadCrewReplacements(node);
-                LedgerOrchestrator.Kerbals?.LoadSlots(node);
-                GroupHierarchyStore.LoadGroupHierarchy(node);
-                GroupHierarchyStore.LoadHiddenGroups(node);
-            }
+            RegisterMainMenuHook();
+            DetectSaveFolderChange();
+            LoadCrewAndGroupState(node);
 
             // Game state recorder lifecycle — re-subscribe on every OnLoad (handles reverts)
             stateRecorder?.Unsubscribe();
             if (!initialLoadDone)
-            {
-                ParsekLog.Verbose("Scenario", "OnLoad: initial load — loading external files");
-                GameStateStore.LoadEventFile();
-                GameStateStore.LoadBaselines();
-                MilestoneStore.LoadMilestoneFile();
-
-                // Load ledger from external file (skip during rewind — in-memory ledger is source of truth)
-                if (!RewindContext.IsRewinding)
-                    LedgerOrchestrator.OnLoad();
-
-                // Clean up stale parsek_rw_*.sfs temp files left by a crash during rewind
-                try
-                {
-                    string savesDir = System.IO.Path.Combine(
-                        KSPUtil.ApplicationRootPath ?? "", "saves", HighLogic.SaveFolder ?? "");
-                    if (System.IO.Directory.Exists(savesDir))
-                    {
-                        string[] staleFiles = System.IO.Directory.GetFiles(savesDir, "parsek_rw_*.sfs");
-                        for (int s = 0; s < staleFiles.Length; s++)
-                        {
-                            try
-                            {
-                                System.IO.File.Delete(staleFiles[s]);
-                                ScenarioLog($"[Parsek Scenario] Deleted stale rewind temp file: {System.IO.Path.GetFileName(staleFiles[s])}");
-                            }
-                            catch { }
-                        }
-                    }
-                }
-                catch (Exception ex)
-                {
-                    ScenarioLog($"[Parsek Scenario] Failed to scan for stale rewind temp files: {ex.Message}");
-                }
-
-                // Restore epoch from save
-                string epochStr = node.GetValue("milestoneEpoch");
-                if (epochStr != null)
-                {
-                    uint epoch;
-                    if (uint.TryParse(epochStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out epoch))
-                    {
-                        MilestoneStore.CurrentEpoch = epoch;
-                        ParsekLog.Verbose("Scenario", $"OnLoad: restored milestoneEpoch={epoch} from save");
-                    }
-                }
-
-                // Restore budget deduction tracking
-                string bdeStr = node.GetValue("budgetDeductionEpoch");
-                if (bdeStr != null)
-                {
-                    uint bde;
-                    if (uint.TryParse(bdeStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out bde))
-                    {
-                        budgetDeductionEpoch = bde;
-                        ParsekLog.Verbose("Scenario", $"OnLoad: restored budgetDeductionEpoch={bde} from save");
-                    }
-                }
-            }
+                LoadExternalFilesAndRestoreEpoch(node);
             stateRecorder = new GameStateRecorder();
             stateRecorder.SeedFacilityCacheFromCurrentState();
             stateRecorder.Subscribe();
 
-            // Subscribe to vessel lifecycle events (Remove first to avoid duplicates on revert/scene change)
-            GameEvents.onVesselRecovered.Remove(OnVesselRecovered);
-            GameEvents.onVesselRecovered.Add(OnVesselRecovered);
-            GameEvents.onVesselTerminated.Remove(OnVesselTerminated);
-            GameEvents.onVesselTerminated.Add(OnVesselTerminated);
-            GameEvents.onVesselSwitching.Remove(OnVesselSwitching);
-            GameEvents.onVesselSwitching.Add(OnVesselSwitching);
-
-            // Capture initial baseline if none exist yet
-            if (!initialLoadDone && GameStateStore.BaselineCount == 0)
-            {
-                try
-                {
-                    GameStateStore.CaptureBaselineIfNeeded();
-                }
-                catch (System.Exception ex)
-                {
-                    ScenarioLog($"[Parsek Scenario] Failed to capture initial baseline: {ex.Message}");
-                }
-            }
+            SubscribeVesselLifecycleEvents();
+            CaptureInitialBaseline();
 
             if (initialLoadDone)
             {
@@ -884,6 +794,159 @@ namespace Parsek
                 $"OnLoad: rewind complete at UT {RewindContext.RewindUT}. " +
                 $"Timeline: {recordings.Count} recordings");
             RewindContext.EndRewind();
+        }
+
+        /// <summary>
+        /// Registers a one-time hook to reset session state when returning to main menu.
+        /// This prevents stale in-memory recordings from leaking into a new save
+        /// (e.g., deleting a career and creating a new one with the same name).
+        /// </summary>
+        private static void RegisterMainMenuHook()
+        {
+            if (!mainMenuHookRegistered)
+            {
+                // Wrapped in try-catch: KSP's EvtDelegate constructor can throw
+                // NullReferenceException during early scene loads when GameEvents
+                // internals aren't fully initialized.
+                try
+                {
+                    GameEvents.onGameSceneLoadRequested.Add(OnMainMenuTransition);
+                    mainMenuHookRegistered = true;
+                }
+                catch (System.NullReferenceException)
+                {
+                    ParsekLog.Verbose("Scenario",
+                        "Main menu hook deferred (GameEvents not ready) — will retry on next OnLoad");
+                }
+            }
+        }
+
+        /// <summary>
+        /// Detects loading a different save game (not a revert) and resets session state
+        /// if the save folder changed.
+        /// </summary>
+        private void DetectSaveFolderChange()
+        {
+            string currentSave = HighLogic.SaveFolder;
+            scenarioSaveFolder = currentSave;
+            if (currentSave != lastSaveFolder)
+            {
+                initialLoadDone = false;
+                lastSaveFolder = currentSave;
+                ScenarioLog($"[Parsek Scenario] Save folder changed to '{currentSave}' — resetting session state");
+            }
+        }
+
+        /// <summary>
+        /// Loads crew replacement mappings, kerbal slots, and group hierarchy from the save node.
+        /// Skipped during rewind since in-memory state is the source of truth.
+        /// </summary>
+        private static void LoadCrewAndGroupState(ConfigNode node)
+        {
+            if (!RewindContext.IsRewinding)
+            {
+                CrewReservationManager.LoadCrewReplacements(node);
+                LedgerOrchestrator.Kerbals?.LoadSlots(node);
+                GroupHierarchyStore.LoadGroupHierarchy(node);
+                GroupHierarchyStore.LoadHiddenGroups(node);
+            }
+        }
+
+        /// <summary>
+        /// Loads external data files (game state events, baselines, milestones, ledger),
+        /// cleans up stale rewind temp files, and restores epoch and budget deduction
+        /// tracking from the save node. Only called on initial load (not revert/scene change).
+        /// </summary>
+        private static void LoadExternalFilesAndRestoreEpoch(ConfigNode node)
+        {
+            ParsekLog.Verbose("Scenario", "OnLoad: initial load — loading external files");
+            GameStateStore.LoadEventFile();
+            GameStateStore.LoadBaselines();
+            MilestoneStore.LoadMilestoneFile();
+
+            // Load ledger from external file (skip during rewind — in-memory ledger is source of truth)
+            if (!RewindContext.IsRewinding)
+                LedgerOrchestrator.OnLoad();
+
+            // Clean up stale parsek_rw_*.sfs temp files left by a crash during rewind
+            try
+            {
+                string savesDir = System.IO.Path.Combine(
+                    KSPUtil.ApplicationRootPath ?? "", "saves", HighLogic.SaveFolder ?? "");
+                if (System.IO.Directory.Exists(savesDir))
+                {
+                    string[] staleFiles = System.IO.Directory.GetFiles(savesDir, "parsek_rw_*.sfs");
+                    for (int s = 0; s < staleFiles.Length; s++)
+                    {
+                        try
+                        {
+                            System.IO.File.Delete(staleFiles[s]);
+                            ScenarioLog($"[Parsek Scenario] Deleted stale rewind temp file: {System.IO.Path.GetFileName(staleFiles[s])}");
+                        }
+                        catch { }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                ScenarioLog($"[Parsek Scenario] Failed to scan for stale rewind temp files: {ex.Message}");
+            }
+
+            // Restore epoch from save
+            string epochStr = node.GetValue("milestoneEpoch");
+            if (epochStr != null)
+            {
+                uint epoch;
+                if (uint.TryParse(epochStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out epoch))
+                {
+                    MilestoneStore.CurrentEpoch = epoch;
+                    ParsekLog.Verbose("Scenario", $"OnLoad: restored milestoneEpoch={epoch} from save");
+                }
+            }
+
+            // Restore budget deduction tracking
+            string bdeStr = node.GetValue("budgetDeductionEpoch");
+            if (bdeStr != null)
+            {
+                uint bde;
+                if (uint.TryParse(bdeStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out bde))
+                {
+                    budgetDeductionEpoch = bde;
+                    ParsekLog.Verbose("Scenario", $"OnLoad: restored budgetDeductionEpoch={bde} from save");
+                }
+            }
+        }
+
+        /// <summary>
+        /// Subscribes to vessel lifecycle events (recovery, termination, switching).
+        /// Removes existing subscriptions first to avoid duplicates on revert/scene change.
+        /// </summary>
+        private void SubscribeVesselLifecycleEvents()
+        {
+            GameEvents.onVesselRecovered.Remove(OnVesselRecovered);
+            GameEvents.onVesselRecovered.Add(OnVesselRecovered);
+            GameEvents.onVesselTerminated.Remove(OnVesselTerminated);
+            GameEvents.onVesselTerminated.Add(OnVesselTerminated);
+            GameEvents.onVesselSwitching.Remove(OnVesselSwitching);
+            GameEvents.onVesselSwitching.Add(OnVesselSwitching);
+        }
+
+        /// <summary>
+        /// Captures an initial game state baseline if none exist yet and this is the initial load.
+        /// </summary>
+        private static void CaptureInitialBaseline()
+        {
+            if (!initialLoadDone && GameStateStore.BaselineCount == 0)
+            {
+                try
+                {
+                    GameStateStore.CaptureBaselineIfNeeded();
+                }
+                catch (System.Exception ex)
+                {
+                    ScenarioLog($"[Parsek Scenario] Failed to capture initial baseline: {ex.Message}");
+                }
+            }
         }
 
         /// <summary>

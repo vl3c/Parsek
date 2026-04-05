@@ -725,24 +725,7 @@ namespace Parsek
             // Pause window: position at end, hide parts, zero velocity for reentry decay
             if (inPauseWindow)
             {
-                var lastPt = traj.Points[traj.Points.Count - 1];
-                positioner.PositionAtPoint(index, traj, state, lastPt);
-                if (string.IsNullOrEmpty(state.lastInterpolatedBodyName))
-                {
-                    state.lastInterpolatedBodyName = lastPt.bodyName;
-                    state.lastInterpolatedAltitude = lastPt.altitude;
-                }
-                TriggerExplosionIfDestroyed(state, traj, index, ctx.warpRate);
-                if (!state.pauseHidden)
-                {
-                    state.pauseHidden = true;
-                    GhostPlaybackLogic.HideAllGhostParts(state);
-                }
-                if (state.reentryFxInfo != null)
-                {
-                    state.lastInterpolatedVelocity = Vector3.zero;
-                    UpdateReentryFx(index, state, traj.VesselName, ctx.warpRate);
-                }
+                HandleLoopPauseWindow(index, traj, state, ctx.warpRate);
                 return;
             }
 
@@ -849,6 +832,20 @@ namespace Parsek
             }
 
             // Update overlap ghosts (older cycles)
+            UpdateExpireAndPositionOverlaps(index, traj, flags, ctx, overlaps,
+                duration, cycleDuration, suppressVisualFx);
+        }
+
+        /// <summary>
+        /// Iterates overlap ghosts (older cycles) in reverse. Expires cycles whose phase
+        /// exceeds duration (triggers explosion + camera event), removes null entries,
+        /// and positions remaining overlaps at their current loop UT.
+        /// </summary>
+        private void UpdateExpireAndPositionOverlaps(int index, IPlaybackTrajectory traj,
+            TrajectoryPlaybackFlags flags, FrameContext ctx,
+            List<GhostPlaybackState> overlaps,
+            double duration, double cycleDuration, bool suppressVisualFx)
+        {
             for (int i = overlaps.Count - 1; i >= 0; i--)
             {
                 var ovState = overlaps[i];
@@ -907,6 +904,34 @@ namespace Parsek
 
                 positioner.PositionLoop(index, traj, ovState, loopUT, suppressVisualFx);
                 ApplyFrameVisuals(index, traj, ovState, loopUT, ctx.warpRate, false, suppressVisualFx);
+            }
+        }
+
+        /// <summary>
+        /// Handles the loop pause window: positions ghost at the final trajectory point,
+        /// hides all parts (crash-site hold), zeroes velocity for reentry FX decay,
+        /// and triggers explosion if the recording ended in destruction.
+        /// </summary>
+        private void HandleLoopPauseWindow(int index, IPlaybackTrajectory traj,
+            GhostPlaybackState state, float warpRate)
+        {
+            var lastPt = traj.Points[traj.Points.Count - 1];
+            positioner.PositionAtPoint(index, traj, state, lastPt);
+            if (string.IsNullOrEmpty(state.lastInterpolatedBodyName))
+            {
+                state.lastInterpolatedBodyName = lastPt.bodyName;
+                state.lastInterpolatedAltitude = lastPt.altitude;
+            }
+            TriggerExplosionIfDestroyed(state, traj, index, warpRate);
+            if (!state.pauseHidden)
+            {
+                state.pauseHidden = true;
+                GhostPlaybackLogic.HideAllGhostParts(state);
+            }
+            if (state.reentryFxInfo != null)
+            {
+                state.lastInterpolatedVelocity = Vector3.zero;
+                UpdateReentryFx(index, state, traj.VesselName, warpRate);
             }
         }
 

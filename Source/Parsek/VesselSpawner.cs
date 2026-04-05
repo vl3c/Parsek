@@ -208,28 +208,7 @@ namespace Parsek
                 return;
             }
 
-            // Correct unsafe snapshot situation before spawning (#169).
-            // Vessels captured mid-flight have sit=FLYING but terminal state may be Landed/Orbiting.
-            // Without correction, KSP's on-rails pressure check destroys the vessel immediately.
-            CorrectUnsafeSnapshotSituation(rec.VesselSnapshot, rec.TerminalStateValue);
-
-            // Crew protection: strip crew from spawn snapshot when recording ended in
-            // destruction to prevent killing crew during spawn-death cycles (#114).
-            // Modifies the snapshot in-place — acceptable for Destroyed recordings
-            // since they won't be re-spawned (blocked by FLYING/non-leaf checks).
-            if (ShouldStripCrewForSpawn(rec))
-            {
-                if (rec.VesselSnapshot != null)
-                {
-                    int stripped = StripAllCrewFromSnapshot(rec.VesselSnapshot);
-                    ParsekLog.Info("Spawner",
-                        $"Stripped {stripped} crew from spawn snapshot for destroyed recording " +
-                        $"#{index} ({rec.VesselName}) — prevents crew death on spawn");
-                }
-            }
-
-            // Build exclude set once for all spawn paths (EVA'd crew spawn via child recordings)
-            HashSet<string> excludeCrew = BuildExcludeCrewSet(rec);
+            HashSet<string> excludeCrew = PrepareSnapshotForSpawn(rec, index);
 
             if (rec.Points.Count == 0 || FlightGlobals.Vessels == null)
             {
@@ -261,69 +240,9 @@ namespace Parsek
 
             Vector3d spawnPos = body.GetWorldSurfacePosition(spawnLat, spawnLon, spawnAlt);
 
-            // KSC exclusion zone — block spawn near the launch pad to prevent collisions
-            // with KSC infrastructure that isn't in FlightGlobals.Vessels. (#170)
             bool isEva = !string.IsNullOrEmpty(rec.EvaCrewName);
-            if (!isEva && body.isHomeWorld &&
-                SpawnCollisionDetector.IsWithinKscExclusionZone(
-                    spawnLat, spawnLon, body.Radius,
-                    SpawnCollisionDetector.DefaultKscExclusionRadiusMeters))
-            {
-                rec.CollisionBlockCount++;
-                if (ShouldAbandonCollisionBlockedSpawn(rec.CollisionBlockCount, MaxCollisionBlocks))
-                {
-                    rec.VesselSpawned = true;
-                    rec.SpawnAbandoned = true;
-                    ParsekLog.Warn("Spawner",
-                        $"Spawn ABANDONED for #{index} ({rec.VesselName}): within KSC exclusion zone " +
-                        $"(lat={spawnLat:F4}, lon={spawnLon:F4}) for {rec.CollisionBlockCount} consecutive frames — " +
-                        $"giving up (max={MaxCollisionBlocks})");
-                }
-                else
-                {
-                    ParsekLog.VerboseRateLimited("Spawner",
-                        "ksc-exclusion-" + index,
-                        $"Spawn blocked for #{index} ({rec.VesselName}): within KSC exclusion zone " +
-                        $"(lat={spawnLat:F4}, lon={spawnLon:F4}) — will retry next frame " +
-                        $"(block={rec.CollisionBlockCount}/{MaxCollisionBlocks})");
-                }
+            if (CheckSpawnCollisions(rec, index, isEva, body, spawnLat, spawnLon, spawnPos))
                 return;
-            }
-
-            // Bounding box overlap check — block spawn if overlapping a loaded vessel.
-            // Ghost continues at its last position; next frame retries via UpdateTimelinePlayback.
-            // Same collision detection system used by chain-tip spawns (SpawnCollisionDetector).
-            // EVA kerbals skip this (they spawn where recorded, too small to collide).
-            if (!isEva)
-            {
-                Bounds spawnBounds = SpawnCollisionDetector.ComputeVesselBounds(rec.VesselSnapshot);
-                var (overlap, overlapDist, blockerName) =
-                    SpawnCollisionDetector.CheckOverlapAgainstLoadedVessels(spawnPos, spawnBounds, 5f);
-                if (overlap)
-                {
-                    rec.CollisionBlockCount++;
-                    if (ShouldAbandonCollisionBlockedSpawn(rec.CollisionBlockCount, MaxCollisionBlocks))
-                    {
-                        rec.VesselSpawned = true;   // prevent ShouldSpawnAtRecordingEnd from returning true
-                        rec.SpawnAbandoned = true;  // prevent vessel-gone check from resetting VesselSpawned
-                        ParsekLog.Warn("Spawner",
-                            $"Spawn ABANDONED for #{index} ({rec.VesselName}): collision-blocked for " +
-                            $"{rec.CollisionBlockCount} consecutive frames by '{blockerName}' at {overlapDist:F0}m — " +
-                            $"giving up (max={MaxCollisionBlocks})");
-                    }
-                    else
-                    {
-                        ParsekLog.VerboseRateLimited("Spawner",
-                            "collision-block-" + index,
-                            $"Spawn blocked for #{index} ({rec.VesselName}): overlaps '{blockerName}' at {overlapDist:F0}m — " +
-                            $"will retry next frame (block={rec.CollisionBlockCount}/{MaxCollisionBlocks})");
-                    }
-                    return;
-                }
-            }
-
-            // Reset collision block counter on successful spawn path
-            rec.CollisionBlockCount = 0;
 
             // EVA spawn position fix: update the snapshot's lat/lon/alt to the recording
             // endpoint. The snapshot was captured at EVA start (kerbal on the pod's ladder),
@@ -397,6 +316,109 @@ namespace Parsek
             {
                 LogSpawnFailure(rec, index, maxSpawnAttempts);
             }
+        }
+
+        /// <summary>
+        /// Prepares the vessel snapshot for spawning: corrects unsafe situation,
+        /// strips crew from destroyed recordings, and builds the exclude crew set.
+        /// </summary>
+        private static HashSet<string> PrepareSnapshotForSpawn(Recording rec, int index)
+        {
+            // Correct unsafe snapshot situation before spawning (#169).
+            // Vessels captured mid-flight have sit=FLYING but terminal state may be Landed/Orbiting.
+            // Without correction, KSP's on-rails pressure check destroys the vessel immediately.
+            CorrectUnsafeSnapshotSituation(rec.VesselSnapshot, rec.TerminalStateValue);
+
+            // Crew protection: strip crew from spawn snapshot when recording ended in
+            // destruction to prevent killing crew during spawn-death cycles (#114).
+            // Modifies the snapshot in-place — acceptable for Destroyed recordings
+            // since they won't be re-spawned (blocked by FLYING/non-leaf checks).
+            if (ShouldStripCrewForSpawn(rec))
+            {
+                if (rec.VesselSnapshot != null)
+                {
+                    int stripped = StripAllCrewFromSnapshot(rec.VesselSnapshot);
+                    ParsekLog.Info("Spawner",
+                        $"Stripped {stripped} crew from spawn snapshot for destroyed recording " +
+                        $"#{index} ({rec.VesselName}) — prevents crew death on spawn");
+                }
+            }
+
+            // Build exclude set once for all spawn paths (EVA'd crew spawn via child recordings)
+            return BuildExcludeCrewSet(rec);
+        }
+
+        /// <summary>
+        /// Checks KSC exclusion zone and bounding box overlap collisions.
+        /// Returns true if the spawn is blocked (caller should return without spawning).
+        /// Resets CollisionBlockCount on successful (unblocked) path.
+        /// </summary>
+        private static bool CheckSpawnCollisions(Recording rec, int index, bool isEva,
+            CelestialBody body, double spawnLat, double spawnLon, Vector3d spawnPos)
+        {
+            // KSC exclusion zone — block spawn near the launch pad to prevent collisions
+            // with KSC infrastructure that isn't in FlightGlobals.Vessels. (#170)
+            if (!isEva && body.isHomeWorld &&
+                SpawnCollisionDetector.IsWithinKscExclusionZone(
+                    spawnLat, spawnLon, body.Radius,
+                    SpawnCollisionDetector.DefaultKscExclusionRadiusMeters))
+            {
+                rec.CollisionBlockCount++;
+                if (ShouldAbandonCollisionBlockedSpawn(rec.CollisionBlockCount, MaxCollisionBlocks))
+                {
+                    rec.VesselSpawned = true;
+                    rec.SpawnAbandoned = true;
+                    ParsekLog.Warn("Spawner",
+                        $"Spawn ABANDONED for #{index} ({rec.VesselName}): within KSC exclusion zone " +
+                        $"(lat={spawnLat:F4}, lon={spawnLon:F4}) for {rec.CollisionBlockCount} consecutive frames — " +
+                        $"giving up (max={MaxCollisionBlocks})");
+                }
+                else
+                {
+                    ParsekLog.VerboseRateLimited("Spawner",
+                        "ksc-exclusion-" + index,
+                        $"Spawn blocked for #{index} ({rec.VesselName}): within KSC exclusion zone " +
+                        $"(lat={spawnLat:F4}, lon={spawnLon:F4}) — will retry next frame " +
+                        $"(block={rec.CollisionBlockCount}/{MaxCollisionBlocks})");
+                }
+                return true;
+            }
+
+            // Bounding box overlap check — block spawn if overlapping a loaded vessel.
+            // Ghost continues at its last position; next frame retries via UpdateTimelinePlayback.
+            // Same collision detection system used by chain-tip spawns (SpawnCollisionDetector).
+            // EVA kerbals skip this (they spawn where recorded, too small to collide).
+            if (!isEva)
+            {
+                Bounds spawnBounds = SpawnCollisionDetector.ComputeVesselBounds(rec.VesselSnapshot);
+                var (overlap, overlapDist, blockerName) =
+                    SpawnCollisionDetector.CheckOverlapAgainstLoadedVessels(spawnPos, spawnBounds, 5f);
+                if (overlap)
+                {
+                    rec.CollisionBlockCount++;
+                    if (ShouldAbandonCollisionBlockedSpawn(rec.CollisionBlockCount, MaxCollisionBlocks))
+                    {
+                        rec.VesselSpawned = true;   // prevent ShouldSpawnAtRecordingEnd from returning true
+                        rec.SpawnAbandoned = true;  // prevent vessel-gone check from resetting VesselSpawned
+                        ParsekLog.Warn("Spawner",
+                            $"Spawn ABANDONED for #{index} ({rec.VesselName}): collision-blocked for " +
+                            $"{rec.CollisionBlockCount} consecutive frames by '{blockerName}' at {overlapDist:F0}m — " +
+                            $"giving up (max={MaxCollisionBlocks})");
+                    }
+                    else
+                    {
+                        ParsekLog.VerboseRateLimited("Spawner",
+                            "collision-block-" + index,
+                            $"Spawn blocked for #{index} ({rec.VesselName}): overlaps '{blockerName}' at {overlapDist:F0}m — " +
+                            $"will retry next frame (block={rec.CollisionBlockCount}/{MaxCollisionBlocks})");
+                    }
+                    return true;
+                }
+            }
+
+            // Reset collision block counter on successful spawn path
+            rec.CollisionBlockCount = 0;
+            return false;
         }
 
         /// <summary>

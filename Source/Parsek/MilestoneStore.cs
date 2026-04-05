@@ -300,11 +300,7 @@ namespace Parsek
 
         private static void SafeWriteConfigNode(ConfigNode node, string path)
         {
-            string tmpPath = path + ".tmp";
-            node.Save(tmpPath);
-            if (File.Exists(path))
-                File.Delete(path);
-            File.Move(tmpPath, path);
+            FileIOUtils.SafeWriteConfigNode(node, path, "MilestoneStore");
         }
 
         #endregion
