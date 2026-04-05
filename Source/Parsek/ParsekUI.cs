@@ -81,6 +81,7 @@ namespace Parsek
             this.timelineUI = new TimelineWindowUI(this);
             this.testRunnerUI = new TestRunnerUI(this);
             this.settingsUI = new SettingsWindowUI(this);
+            LedgerOrchestrator.OnTimelineDataChanged += OnTimelineDataChanged;
         }
 
         public ParsekUI(UIMode mode)
@@ -92,6 +93,12 @@ namespace Parsek
             this.timelineUI = new TimelineWindowUI(this);
             this.testRunnerUI = new TestRunnerUI(this);
             this.settingsUI = new SettingsWindowUI(this);
+            LedgerOrchestrator.OnTimelineDataChanged += OnTimelineDataChanged;
+        }
+
+        private void OnTimelineDataChanged()
+        {
+            timelineUI.InvalidateCache();
         }
 
         private const float SpacingSmall = 3f;
@@ -699,6 +706,7 @@ namespace Parsek
 
         public void Cleanup()
         {
+            LedgerOrchestrator.OnTimelineDataChanged -= OnTimelineDataChanged;
             recordingsTableUI.ReleaseInputLock();
             timelineUI.ReleaseInputLock();
             settingsUI.ReleaseInputLock();

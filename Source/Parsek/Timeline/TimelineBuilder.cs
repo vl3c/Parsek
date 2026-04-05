@@ -1,5 +1,4 @@
 using System.Collections.Generic;
-using System.Linq;
 using UnityEngine;
 
 namespace Parsek
@@ -23,37 +22,38 @@ namespace Parsek
             IReadOnlyList<Milestone> milestones,
             uint currentEpoch)
         {
+            // Build recording-id to vessel-name lookup once, shared by both collectors
+            var vesselNameById = new Dictionary<string, string>();
+            for (int i = 0; i < committedRecordings.Count; i++)
+            {
+                var r = committedRecordings[i];
+                if (!string.IsNullOrEmpty(r.RecordingId))
+                    vesselNameById[r.RecordingId] = r.VesselName;
+            }
+
             var entries = new List<TimelineEntry>();
 
-            int recordingCount = CollectRecordingEntries(committedRecordings, entries);
-            int actionCount = CollectGameActionEntries(committedRecordings, ledgerActions, entries);
+            int recordingCount = CollectRecordingEntries(committedRecordings, vesselNameById, entries);
+            int actionCount = CollectGameActionEntries(ledgerActions, vesselNameById, entries);
             int legacyCount = CollectLegacyEntries(milestones, currentEpoch, entries);
 
-            var sorted = entries.OrderBy(e => e.UT).ToList();
+            entries.Sort((a, b) => a.UT.CompareTo(b.UT));
 
             ParsekLog.Verbose("Timeline",
-                $"Build complete: {sorted.Count} entries ({recordingCount} recording, {actionCount} action, {legacyCount} legacy)");
+                $"Build complete: {entries.Count} entries ({recordingCount} recording, {actionCount} action, {legacyCount} legacy)");
 
-            return sorted;
+            return entries;
         }
 
         // ---- Recording Collector ----
 
         private static int CollectRecordingEntries(
             IReadOnlyList<Recording> recordings,
+            Dictionary<string, string> vesselNameById,
             List<TimelineEntry> entries)
         {
             int count = 0;
             int hiddenSkipped = 0;
-
-            // Build recording-id to vessel-name lookup for parent resolution (EVA)
-            var vesselNameById = new Dictionary<string, string>();
-            for (int i = 0; i < recordings.Count; i++)
-            {
-                var r = recordings[i];
-                if (!string.IsNullOrEmpty(r.RecordingId))
-                    vesselNameById[r.RecordingId] = r.VesselName;
-            }
 
             for (int i = 0; i < recordings.Count; i++)
             {
@@ -155,19 +155,10 @@ namespace Parsek
         // ---- Game Action Collector ----
 
         private static int CollectGameActionEntries(
-            IReadOnlyList<Recording> committedRecordings,
             IReadOnlyList<GameAction> ledgerActions,
+            Dictionary<string, string> vesselNameById,
             List<TimelineEntry> entries)
         {
-            // Build recording-id to vessel-name lookup
-            var vesselNamesByRecordingId = new Dictionary<string, string>();
-            for (int i = 0; i < committedRecordings.Count; i++)
-            {
-                var rec = committedRecordings[i];
-                if (!string.IsNullOrEmpty(rec.RecordingId))
-                    vesselNamesByRecordingId[rec.RecordingId] = rec.VesselName;
-            }
-
             int count = 0;
             for (int i = 0; i < ledgerActions.Count; i++)
             {
@@ -182,7 +173,7 @@ namespace Parsek
                 // Resolve vessel name from recording ID
                 string vesselName = null;
                 if (!string.IsNullOrEmpty(action.RecordingId))
-                    vesselNamesByRecordingId.TryGetValue(action.RecordingId, out vesselName);
+                    vesselNameById.TryGetValue(action.RecordingId, out vesselName);
 
                 // Skip EVA self-assignment: kerbal assigned to their own EVA vessel
                 if (action.Type == GameActionType.KerbalAssignment &&
