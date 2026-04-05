@@ -480,6 +480,35 @@ namespace Parsek
                 ParsekLog.Verbose("Spawner",
                     $"No snapshot lat/lon/alt for #{index} ({rec.VesselName}) — using trajectory endpoint for collision check");
             }
+
+            // Safety net: clamp altitude for surface terminal states.
+            // The last trajectory point may be recorded while still descending — its altitude
+            // is above the actual rest position. KSP reclassifies SPLASHED vessels above sea
+            // level to FLYING, causing them to fall and crash. (#224)
+            if (rec.TerminalStateValue == TerminalState.Splashed)
+            {
+                if (alt > 0)
+                {
+                    ParsekLog.Verbose("Spawner",
+                        $"Clamped altitude for SPLASHED spawn #{index} ({rec.VesselName}): {alt:F1} -> 0");
+                    alt = 0;
+                }
+            }
+            else if (rec.TerminalStateValue == TerminalState.Landed)
+            {
+                string bodyName = lastPt.bodyName ?? "Kerbin";
+                CelestialBody body = FlightGlobals.Bodies?.Find(b => b.name == bodyName);
+                if (body != null)
+                {
+                    double terrainAlt = body.TerrainAltitude(lat, lon);
+                    if (alt < terrainAlt)
+                    {
+                        ParsekLog.Verbose("Spawner",
+                            $"Clamped altitude for LANDED spawn #{index} ({rec.VesselName}): {alt:F1} -> {terrainAlt:F1}");
+                        alt = terrainAlt;
+                    }
+                }
+            }
         }
 
         /// <summary>
