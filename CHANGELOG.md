@@ -4,6 +4,15 @@ All notable changes to Parsek are documented here.
 
 ---
 
+## 0.6.2
+
+### Tests
+
+- **40 new in-game runtime tests across 9 categories (PR #130).** Nearly doubles the runtime test suite (50 → 90). New categories: GhostLifecycle (orphan ghosts, NaN positions, overlap cap, explosion leaks, soft-cap coherence), PartEventFX (engine/RCS particle systems, parachute canopy, light components, fairing meshes, deployable transforms), GameActionsHealth (stuck suppression flags, career resource singleton bounds), GhostChains (stale recording refs, double-ghosting, time range validity, missing tip snapshots), TreeIntegrity (broken parent/child links, PID collisions across trees, EndUT coverage), SceneAndPatch (KSC/TS controller presence, ghost vessel load patch, scenario+crew round-trips), KspApiSanity (body rotation stability, UT monotonicity, PartLoader cache, Krakensbane, floating origin NaN drift), GhostMapOrbits (degenerate orbital elements), SpawnCollision (vessel bounds, distant overlap).
+- **`InGameAssert.Skip()` for honest test reporting.** Tests that cannot exercise their assertions (no active ghosts, no committed trees, wrong game mode) now report as SKIPPED instead of silently passing. The test runner catches `InGameTestSkippedException` in both sync and coroutine paths, so results clearly distinguish "tested and passed" from "could not test".
+
+---
+
 ## 0.6.1
 
 ### Game Actions & Resources
