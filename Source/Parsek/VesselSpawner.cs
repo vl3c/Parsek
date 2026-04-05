@@ -445,6 +445,20 @@ namespace Parsek
                 return;
             }
 
+            // Breakup-continuous recordings: snapshot position is from breakup time (mid-air),
+            // not from the actual rest position. Use trajectory endpoint like EVA. (#224)
+            bool useTrajectoryEndpoint = rec.ChildBranchPointId != null && rec.TerminalStateValue.HasValue;
+            if (useTrajectoryEndpoint)
+            {
+                lat = lastPt.latitude;
+                lon = lastPt.longitude;
+                alt = lastPt.altitude;
+                ParsekLog.Verbose("Spawner",
+                    $"Breakup-continuous spawn #{index} ({rec.VesselName}): using trajectory endpoint " +
+                    $"(snapshot position is from breakup time, not rest position)");
+                return;
+            }
+
             bool hasSnapshotPos = TryGetSnapshotDouble(rec.VesselSnapshot, "lat", out lat)
                                && TryGetSnapshotDouble(rec.VesselSnapshot, "lon", out lon)
                                && TryGetSnapshotDouble(rec.VesselSnapshot, "alt", out alt);
