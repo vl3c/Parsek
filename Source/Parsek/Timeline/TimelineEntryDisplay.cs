@@ -169,6 +169,21 @@ namespace Parsek
                 case GameActionType.ReputationInitial:
                     return string.Format(IC, "Starting reputation: {0:F0}", action.InitialReputation);
 
+                case GameActionType.MilestoneAchievement:
+                {
+                    string rawId = action.MilestoneId ?? "unknown";
+                    // KSP milestone IDs use "/" as body separator: "Kerbin/Splashdown" → "Kerbin - Splashdown"
+                    rawId = rawId.Replace("/", " - ");
+                    string mid = InsertSpacesBeforeUppercase(rawId);
+                    if (mid.Length > 0) mid = char.ToUpper(mid[0]) + mid.Substring(1);
+                    string desc = "Milestone: " + mid;
+                    if (action.MilestoneFundsAwarded != 0)
+                        desc += string.Format(IC, " +{0:0} funds", action.MilestoneFundsAwarded);
+                    if (action.MilestoneRepAwarded != 0)
+                        desc += string.Format(IC, " +{0:0.#} rep", action.MilestoneRepAwarded);
+                    return desc;
+                }
+
                 case GameActionType.ScienceEarning:
                     return string.Format(IC, "{0} +{1:0.#} sci",
                         HumanizeSubjectId(action.SubjectId ?? "unknown"), action.ScienceAwarded);
