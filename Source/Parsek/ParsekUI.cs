@@ -42,11 +42,8 @@ namespace Parsek
         private const float MinWindowWidth = 350f;
         private const float MinWindowHeight = 150f;
 
-        // Settings window
-        private bool showSettingsWindow;
-        private Rect settingsWindowRect;
-        private bool settingsWindowHasInputLock;
-        private const string SettingsInputLockId = "Parsek_SettingsWindow";
+        // Settings window (extracted to SettingsWindowUI)
+        private SettingsWindowUI settingsUI;
 
         // Test runner window (extracted to TestRunnerUI)
         private TestRunnerUI testRunnerUI;
@@ -142,14 +139,6 @@ namespace Parsek
         private string loopPeriodEditText = "";
         private Rect loopPeriodEditRect;
 
-        // Settings auto-loop editing
-        private string settingsAutoLoopText = "";
-        private bool settingsAutoLoopEditing;
-        private Rect settingsAutoLoopEditRect;
-
-        private bool settingsCameraCutoffEditing;
-        private string settingsCameraCutoffText = "";
-        private Rect settingsCameraCutoffEditRect;
         private const float ColW_Period = 80f;
 
         // R/FF button state tracking for transition logging
@@ -164,7 +153,6 @@ namespace Parsek
         // Window drag tracking for position logging
         private Rect lastMainWindowRect;
         private Rect lastRecordingsWindowRect;
-        private Rect lastSettingsWindowRect;
         // Spawn Control window (extracted to SpawnControlUI)
         private SpawnControlUI spawnControlUI;
 
@@ -183,6 +171,7 @@ namespace Parsek
             this.spawnControlUI = new SpawnControlUI(this);
             this.actionsUI = new ActionsWindowUI(this);
             this.testRunnerUI = new TestRunnerUI(this);
+            this.settingsUI = new SettingsWindowUI(this);
         }
 
         public ParsekUI(UIMode mode)
@@ -193,6 +182,7 @@ namespace Parsek
             this.spawnControlUI = new SpawnControlUI(this);
             this.actionsUI = new ActionsWindowUI(this);
             this.testRunnerUI = new TestRunnerUI(this);
+            this.settingsUI = new SettingsWindowUI(this);
         }
 
         private const float SpacingSmall = 3f;
@@ -257,8 +247,8 @@ namespace Parsek
             GUILayout.Space(SpacingLarge);
             if (GUILayout.Button("Settings"))
             {
-                showSettingsWindow = !showSettingsWindow;
-                ParsekLog.Verbose("UI", $"Settings window toggled: {(showSettingsWindow ? "open" : "closed")}");
+                settingsUI.IsOpen = !settingsUI.IsOpen;
+                ParsekLog.Verbose("UI", $"Settings window toggled: {(settingsUI.IsOpen ? "open" : "closed")}");
             }
 
             // --- Version footer ---
@@ -1928,7 +1918,7 @@ namespace Parsek
                 false, HighLogic.UISkin);
         }
 
-        private void ShowWipeRecordingsConfirmation(int count)
+        internal void ShowWipeRecordingsConfirmation(int count)
         {
             PopupDialog.SpawnPopupDialog(
                 new Vector2(0.5f, 0.5f),
@@ -1957,7 +1947,7 @@ namespace Parsek
                 false, HighLogic.UISkin);
         }
 
-        private void ShowWipeActionsConfirmation(int count)
+        internal void ShowWipeActionsConfirmation(int count)
         {
             PopupDialog.SpawnPopupDialog(
                 new Vector2(0.5f, 0.5f),
@@ -2687,54 +2677,7 @@ namespace Parsek
 
         public void DrawSettingsWindowIfOpen(Rect mainWindowRect)
         {
-            if (!showSettingsWindow)
-            {
-                ReleaseSettingsInputLock();
-                return;
-            }
-
-            if (settingsWindowRect.width < 1f)
-            {
-                settingsWindowRect = new Rect(
-                    mainWindowRect.x + mainWindowRect.width + 10,
-                    mainWindowRect.y,
-                    280, 10);
-                var ic = System.Globalization.CultureInfo.InvariantCulture;
-                ParsekLog.Verbose("UI", $"Settings window initial position: x={settingsWindowRect.x.ToString("F0", ic)} y={settingsWindowRect.y.ToString("F0", ic)}");
-            }
-
-            EnsureOpaqueWindowStyle();
-            // Reset height each frame so GUILayout auto-sizes to content
-            settingsWindowRect.height = 10;
-            settingsWindowRect = ClickThruBlocker.GUILayoutWindow(
-                "ParsekSettings".GetHashCode(),
-                settingsWindowRect,
-                DrawSettingsWindow,
-                "Parsek \u2014 Settings",
-                opaqueWindowStyle,
-                GUILayout.Width(280)
-            );
-            LogWindowPosition("Settings", ref lastSettingsWindowRect, settingsWindowRect);
-
-            if (settingsWindowRect.Contains(Event.current.mousePosition))
-            {
-                if (!settingsWindowHasInputLock)
-                {
-                    InputLockManager.SetControlLock(ControlTypes.CAMERACONTROLS, SettingsInputLockId);
-                    settingsWindowHasInputLock = true;
-                }
-            }
-            else
-            {
-                ReleaseSettingsInputLock();
-            }
-        }
-
-        private void ReleaseSettingsInputLock()
-        {
-            if (!settingsWindowHasInputLock) return;
-            InputLockManager.RemoveControlLock(SettingsInputLockId);
-            settingsWindowHasInputLock = false;
+            settingsUI.DrawIfOpen(mainWindowRect);
         }
 
         // ════════════════════════════════════════════════════════════════
@@ -2746,383 +2689,15 @@ namespace Parsek
             spawnControlUI.DrawIfOpen(mainWindowRect, flight, InFlight);
         }
 
-        private void CommitSettingsAutoLoopEdit(ParsekSettings s)
-        {
-            double parsed;
-            if (TryParseLoopInput(settingsAutoLoopText, s.AutoLoopDisplayUnit, out parsed) && parsed >= 0)
-            {
-                // float cast: KSP GameParameters requires float; loses precision beyond ~7 digits (fine for practical intervals)
-                s.autoLoopIntervalSeconds = (float)ConvertToSeconds(parsed, s.AutoLoopDisplayUnit);
-                ParsekLog.Info("UI",
-                    $"Setting changed: autoLoopIntervalSeconds={s.autoLoopIntervalSeconds.ToString("F1", System.Globalization.CultureInfo.InvariantCulture)}s");
-            }
-            else
-            {
-                ParsekLog.Warn("UI",
-                    $"Auto-loop settings edit rejected: invalid or negative input '{settingsAutoLoopText}' " +
-                    $"for unit {UnitLabel(s.AutoLoopDisplayUnit)}");
-            }
-            settingsAutoLoopEditing = false;
-            settingsAutoLoopEditRect = default;
-            GUIUtility.keyboardControl = 0;
-        }
-
-        private void DrawSettingsWindow(int windowID)
-        {
-            var s = ParsekSettings.Current;
-            if (s == null)
-            {
-                GUILayout.Label("Settings unavailable (no active game).");
-                if (GUILayout.Button("Close"))
-                    showSettingsWindow = false;
-                GUI.DragWindow();
-                return;
-            }
-
-            // Click outside active settings edit field → commit
-            if (Event.current.type == EventType.MouseDown)
-            {
-                if (settingsAutoLoopEditing && settingsAutoLoopEditRect.width > 0
-                    && !settingsAutoLoopEditRect.Contains(Event.current.mousePosition))
-                    CommitSettingsAutoLoopEdit(s);
-                if (settingsCameraCutoffEditing && settingsCameraCutoffEditRect.width > 0
-                    && !settingsCameraCutoffEditRect.Contains(Event.current.mousePosition))
-                    CommitSettingsCameraCutoffEdit(s);
-            }
-
-            #region Settings sections
-            DrawRecordingSettings(s);
-            GUILayout.Space(SpacingSmall);
-            DrawLoopingSettings(s);
-            GUILayout.Space(SpacingSmall);
-            DrawGhostSettings(s);
-            GUILayout.Space(SpacingSmall);
-            DrawDiagnosticsSettings(s);
-            GUILayout.Space(SpacingSmall);
-            DrawSamplingSettings(s);
-            GUILayout.Space(SpacingSmall);
-            DrawDataManagementSettings(s);
-            #endregion
-
-            GUILayout.Space(SpacingLarge);
-            GUILayout.BeginHorizontal();
-            if (GUILayout.Button("Defaults"))
-            {
-                ParsekLog.Verbose("UI", "Settings Defaults button clicked");
-                s.autoRecordOnLaunch = true;
-                s.autoRecordOnEva = true;
-                s.autoMerge = false;
-                s.verboseLogging = true;
-                s.maxSampleInterval = 3.0f;
-                s.velocityDirThreshold = 2.0f;
-                s.speedChangeThreshold = 5.0f;
-                s.autoLoopIntervalSeconds = 10.0f;
-                s.autoLoopTimeUnit = 0;
-                s.ghostCapEnabled = false;
-                s.ghostCapZone1Reduce = 8;
-                s.ghostCapZone1Despawn = 15;
-                s.ghostCapZone2Simplify = 20;
-                s.ghostCameraCutoffKm = 300f;
-                GhostSoftCapManager.Enabled = false;
-                GhostSoftCapManager.ApplySettings(8, 15, 20);
-                settingsAutoLoopEditing = false;
-                settingsCameraCutoffEditing = false;
-                ParsekLog.Info("UI", "Settings reset to defaults");
-            }
-            if (GUILayout.Button("Close"))
-            {
-                showSettingsWindow = false;
-                ParsekLog.Verbose("UI", "Settings window closed via button");
-            }
-            GUILayout.EndHorizontal();
-
-            // Render tooltip at bottom of window when hovering a control with GUIContent tooltip
-            if (!string.IsNullOrEmpty(GUI.tooltip))
-            {
-                GUILayout.Space(SpacingSmall);
-                GUILayout.Label(GUI.tooltip, GUI.skin.box);
-            }
-
-            GUI.DragWindow();
-        }
-
-        private void DrawRecordingSettings(ParsekSettings s)
-        {
-            GUILayout.Label("Recording", GUI.skin.box);
-            bool autoRecordOnLaunch = GUILayout.Toggle(s.autoRecordOnLaunch,
-                new GUIContent(" Auto-record on launch", "Start recording when a vessel leaves the pad or runway"));
-            if (autoRecordOnLaunch != s.autoRecordOnLaunch)
-            {
-                s.autoRecordOnLaunch = autoRecordOnLaunch;
-                ParsekLog.Info("UI", $"Setting changed: autoRecordOnLaunch={s.autoRecordOnLaunch}");
-            }
-
-            bool autoRecordOnEva = GUILayout.Toggle(s.autoRecordOnEva,
-                new GUIContent(" Auto-record on EVA", "Start recording when a kerbal goes EVA from the pad"));
-            if (autoRecordOnEva != s.autoRecordOnEva)
-            {
-                s.autoRecordOnEva = autoRecordOnEva;
-                ParsekLog.Info("UI", $"Setting changed: autoRecordOnEva={s.autoRecordOnEva}");
-            }
-
-            bool autoMerge = GUILayout.Toggle(s.autoMerge,
-                new GUIContent(" Auto-merge recordings", "When off, a confirmation dialog appears after each recording"));
-            if (autoMerge != s.autoMerge)
-            {
-                s.autoMerge = autoMerge;
-                ParsekLog.Info("UI", $"Setting changed: autoMerge={s.autoMerge}");
-            }
-        }
-
-        private void DrawLoopingSettings(ParsekSettings s)
-        {
-            GUILayout.Label("Looping", GUI.skin.box);
-            GUILayout.BeginHorizontal();
-            GUILayout.Label(new GUIContent("Auto-loop every",
-                "Default loop interval for recordings set to 'auto' unit"), GUILayout.Width(100));
-            {
-                if (!settingsAutoLoopEditing)
-                {
-                    // Not editing: show formatted value from model
-                    double displayVal = ConvertFromSeconds(s.autoLoopIntervalSeconds, s.AutoLoopDisplayUnit);
-                    string displayText = FormatLoopValue(displayVal, s.AutoLoopDisplayUnit);
-                    GUI.SetNextControlName("AutoLoopEdit");
-                    string newText = GUILayout.TextField(displayText, GUILayout.Width(45));
-                    if (GUI.GetNameOfFocusedControl() == "AutoLoopEdit")
-                    {
-                        settingsAutoLoopText = newText;
-                        settingsAutoLoopEditing = true;
-                        settingsAutoLoopEditRect = GUILayoutUtility.GetLastRect();
-                        ParsekLog.Verbose("UI",
-                            $"Auto-loop settings edit started: value='{newText}' unit={UnitLabel(s.AutoLoopDisplayUnit)}");
-                    }
-                }
-                else
-                {
-                    // Enter key → commit (check before TextField, which consumes KeyDown)
-                    bool submitAutoLoop = Event.current.type == EventType.KeyDown &&
-                        (Event.current.keyCode == KeyCode.Return || Event.current.keyCode == KeyCode.KeypadEnter);
-
-                    // Editing: use buffer, track rect for click-outside
-                    GUI.SetNextControlName("AutoLoopEdit");
-                    string newText = GUILayout.TextField(settingsAutoLoopText, GUILayout.Width(45));
-                    settingsAutoLoopEditRect = GUILayoutUtility.GetLastRect();
-                    if (newText != settingsAutoLoopText)
-                        settingsAutoLoopText = newText;
-
-                    if (submitAutoLoop)
-                    {
-                        CommitSettingsAutoLoopEdit(s);
-                        Event.current.Use();
-                    }
-                }
-
-                if (GUILayout.Button(UnitLabel(s.AutoLoopDisplayUnit), GUILayout.Width(40)))
-                {
-                    if (settingsAutoLoopEditing)
-                        CommitSettingsAutoLoopEdit(s);
-                    s.AutoLoopDisplayUnit = CycleDisplayUnit(s.AutoLoopDisplayUnit);
-                    ParsekLog.Info("UI", $"Setting changed: autoLoopDisplayUnit={s.AutoLoopDisplayUnit}");
-                }
-            }
-            GUILayout.EndHorizontal();
-        }
-
-        private void DrawGhostSettings(ParsekSettings s)
-        {
-            GUILayout.Label("Ghosts", GUI.skin.box);
-
-            // --- Camera cutoff ---
-            GUILayout.BeginHorizontal();
-            GUILayout.Label(new GUIContent("Camera cutoff",
-                "Watch mode auto-exits when ghost exceeds this distance from the active vessel"),
-                GUILayout.Width(85));
-            {
-                if (!settingsCameraCutoffEditing)
-                {
-                    string displayText = s.ghostCameraCutoffKm.ToString("F0", System.Globalization.CultureInfo.InvariantCulture);
-                    GUI.SetNextControlName("CameraCutoffEdit");
-                    string newText = GUILayout.TextField(displayText, GUILayout.Width(45));
-                    if (GUI.GetNameOfFocusedControl() == "CameraCutoffEdit")
-                    {
-                        settingsCameraCutoffText = newText;
-                        settingsCameraCutoffEditing = true;
-                        settingsCameraCutoffEditRect = GUILayoutUtility.GetLastRect();
-                    }
-                }
-                else
-                {
-                    // Enter key → commit (check before TextField, which consumes KeyDown)
-                    bool submitCutoff = Event.current.type == EventType.KeyDown &&
-                        (Event.current.keyCode == KeyCode.Return || Event.current.keyCode == KeyCode.KeypadEnter);
-
-                    GUI.SetNextControlName("CameraCutoffEdit");
-                    string newText = GUILayout.TextField(settingsCameraCutoffText, GUILayout.Width(45));
-                    settingsCameraCutoffEditRect = GUILayoutUtility.GetLastRect();
-                    if (newText != settingsCameraCutoffText)
-                        settingsCameraCutoffText = newText;
-
-                    if (submitCutoff)
-                    {
-                        CommitSettingsCameraCutoffEdit(s);
-                        Event.current.Use();
-                    }
-                }
-            }
-            GUILayout.Label("km");
-            GUILayout.EndHorizontal();
-
-            // --- Soft caps ---
-            GUILayout.Space(SpacingSmall);
-
-            bool enabled = GUILayout.Toggle(s.ghostCapEnabled,
-                new GUIContent(" Enable soft caps",
-                    "Limit ghost count per distance zone to reduce rendering load"));
-            if (enabled != s.ghostCapEnabled)
-            {
-                s.ghostCapEnabled = enabled;
-                GhostSoftCapManager.Enabled = enabled;
-                ParsekLog.Info("UI", $"Ghost soft caps {(enabled ? "enabled" : "disabled")}");
-            }
-
-            if (!s.ghostCapEnabled)
-            {
-                GUILayout.Label("  (caps disabled \u2014 all ghosts rendered)", GUI.skin.label);
-                return;
-            }
-
-            DrawGhostCapSlider("Zone 1 reduce", "Nearby ghosts above this count get reduced fidelity",
-                ref s.ghostCapZone1Reduce, 2, 30, "ghostCap.zone1Reduce", s);
-            DrawGhostCapSlider("Zone 1 despawn", "Nearby ghosts above this count get despawned (lowest priority first)",
-                ref s.ghostCapZone1Despawn, 5, 50, "ghostCap.zone1Despawn", s);
-            DrawGhostCapSlider("Zone 2 simplify", "Distant ghosts above this count get simplified to orbit lines",
-                ref s.ghostCapZone2Simplify, 5, 60, "ghostCap.zone2Simplify", s);
-
-            // Enforce constraint: reduce must be less than despawn
-            if (s.ghostCapZone1Reduce >= s.ghostCapZone1Despawn)
-            {
-                s.ghostCapZone1Reduce = System.Math.Max(2, s.ghostCapZone1Despawn - 1);
-                GhostSoftCapManager.ApplySettings(
-                    s.ghostCapZone1Reduce, s.ghostCapZone1Despawn, s.ghostCapZone2Simplify);
-                ParsekLog.Info("UI",
-                    $"Clamped ghostCapZone1Reduce={s.ghostCapZone1Reduce} to stay below " +
-                    $"ghostCapZone1Despawn={s.ghostCapZone1Despawn}");
-            }
-        }
-
-        private void CommitSettingsCameraCutoffEdit(ParsekSettings s)
-        {
-            var ic = System.Globalization.CultureInfo.InvariantCulture;
-            if (float.TryParse(settingsCameraCutoffText, System.Globalization.NumberStyles.Float,
-                    ic, out float parsed) && parsed >= 10f && parsed <= 10000f)
-            {
-                s.ghostCameraCutoffKm = parsed;
-                ParsekLog.Info("UI",
-                    $"Setting changed: ghostCameraCutoffKm={s.ghostCameraCutoffKm.ToString("F0", ic)}");
-            }
-            settingsCameraCutoffEditing = false;
-            settingsCameraCutoffEditRect = default;
-            GUIUtility.keyboardControl = 0;
-        }
-
-        private void DrawDiagnosticsSettings(ParsekSettings s)
-        {
-            GUILayout.Label("Diagnostics", GUI.skin.box);
-            bool verboseLogging = GUILayout.Toggle(s.verboseLogging, " Verbose logging (development default)");
-            if (verboseLogging != s.verboseLogging)
-            {
-                s.verboseLogging = verboseLogging;
-                ParsekLog.Info("UI", $"Setting changed: verboseLogging={s.verboseLogging}");
-            }
-
-            if (GUILayout.Button(new GUIContent("In-Game Test Runner",
-                "Run runtime tests to verify ghost spawning, playback, and visuals.\nAlso available via Ctrl+Shift+T in any scene.")))
-            {
-                testRunnerUI.IsOpen = !testRunnerUI.IsOpen;
-                ParsekLog.Verbose("UI", $"Test runner window toggled: {(testRunnerUI.IsOpen ? "open" : "closed")}");
-            }
-        }
-
-        private void DrawSamplingSettings(ParsekSettings s)
-        {
-            GUILayout.Label("Sampling", GUI.skin.box);
-
-            GUILayout.BeginHorizontal();
-            GUILayout.Label($"Max interval: {s.maxSampleInterval:F1}s", GUILayout.Width(140));
-            float maxSampleInterval = GUILayout.HorizontalSlider(s.maxSampleInterval, 1f, 10f);
-            if (Mathf.Abs(maxSampleInterval - s.maxSampleInterval) > 0.0001f)
-            {
-                s.maxSampleInterval = maxSampleInterval;
-                ParsekLog.VerboseRateLimited("UI", "sampling.maxSampleInterval",
-                    $"Setting changed: maxSampleInterval={s.maxSampleInterval:F1}s", 1.0);
-            }
-            GUILayout.EndHorizontal();
-
-            GUILayout.BeginHorizontal();
-            GUILayout.Label($"Direction: {s.velocityDirThreshold:F1}\u00b0", GUILayout.Width(140));
-            float velocityDirThreshold = GUILayout.HorizontalSlider(s.velocityDirThreshold, 0.5f, 10f);
-            if (Mathf.Abs(velocityDirThreshold - s.velocityDirThreshold) > 0.0001f)
-            {
-                s.velocityDirThreshold = velocityDirThreshold;
-                ParsekLog.VerboseRateLimited("UI", "sampling.velocityDirThreshold",
-                    $"Setting changed: velocityDirThreshold={s.velocityDirThreshold:F1}", 1.0);
-            }
-            GUILayout.EndHorizontal();
-
-            GUILayout.BeginHorizontal();
-            GUILayout.Label($"Speed: {s.speedChangeThreshold:F0}%", GUILayout.Width(140));
-            float speedChangeThreshold = GUILayout.HorizontalSlider(s.speedChangeThreshold, 1f, 20f);
-            if (Mathf.Abs(speedChangeThreshold - s.speedChangeThreshold) > 0.0001f)
-            {
-                s.speedChangeThreshold = speedChangeThreshold;
-                ParsekLog.VerboseRateLimited("UI", "sampling.speedChangeThreshold",
-                    $"Setting changed: speedChangeThreshold={s.speedChangeThreshold:F0}%", 1.0);
-            }
-            GUILayout.EndHorizontal();
-        }
-
-        private void DrawGhostCapSlider(string label, string tooltip, ref int value,
-            int min, int max, string logKey, ParsekSettings s)
-        {
-            GUILayout.BeginHorizontal();
-            GUILayout.Label(
-                new GUIContent($"{label}: {value}", tooltip),
-                GUILayout.Width(140));
-            int newValue = Mathf.RoundToInt(
-                GUILayout.HorizontalSlider(value, min, max));
-            if (newValue != value)
-            {
-                value = newValue;
-                GhostSoftCapManager.ApplySettings(
-                    s.ghostCapZone1Reduce, s.ghostCapZone1Despawn, s.ghostCapZone2Simplify);
-                ParsekLog.VerboseRateLimited("UI", logKey,
-                    $"Setting changed: {logKey}={value}", 1.0);
-            }
-            GUILayout.EndHorizontal();
-        }
-
-        private void DrawDataManagementSettings(ParsekSettings s)
-        {
-            GUILayout.Label("Data Management", GUI.skin.box);
-
-            int committedCount = RecordingStore.CommittedRecordings.Count;
-            int milestoneCount = MilestoneStore.Milestones.Count;
-
-            GUI.enabled = committedCount > 0;
-            if (GUILayout.Button($"Wipe All Recordings ({committedCount})"))
-                ShowWipeRecordingsConfirmation(committedCount);
-            GUI.enabled = true;
-
-            GUI.enabled = milestoneCount > 0;
-            if (GUILayout.Button($"Wipe All Game Actions ({milestoneCount})"))
-                ShowWipeActionsConfirmation(milestoneCount);
-            GUI.enabled = true;
-
-        }
-
         public void DrawTestRunnerWindowIfOpen(Rect mainWindowRect, MonoBehaviour host)
         {
             testRunnerUI.DrawIfOpen(mainWindowRect, host);
+        }
+
+        internal void ToggleTestRunner()
+        {
+            testRunnerUI.IsOpen = !testRunnerUI.IsOpen;
+            ParsekLog.Verbose("UI", $"Test runner window toggled: {(testRunnerUI.IsOpen ? "open" : "closed")}");
         }
 
         public void DrawMapMarkers()
@@ -3209,7 +2784,7 @@ namespace Parsek
         {
             ReleaseRecordingsInputLock();
             actionsUI.ReleaseInputLock();
-            ReleaseSettingsInputLock();
+            settingsUI.ReleaseInputLock();
             spawnControlUI.ReleaseInputLock();
             if (mapMarkerDiamond != null)
                 UnityEngine.Object.Destroy(mapMarkerDiamond);
