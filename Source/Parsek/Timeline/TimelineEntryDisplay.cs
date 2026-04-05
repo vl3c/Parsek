@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using System.Globalization;
 
 namespace Parsek
@@ -9,6 +10,18 @@ namespace Parsek
     internal static class TimelineEntryDisplay
     {
         private static readonly CultureInfo IC = CultureInfo.InvariantCulture;
+
+        // KSP stock strategy ID → human-readable name
+        private static readonly Dictionary<string, string> StrategyNames = new Dictionary<string, string>
+        {
+            { "AggressiveNeg", "Aggressive Negotiations" },
+            { "AppreciationCamp", "Appreciation Campaign" },
+            { "FundraisingCamp", "Fundraising Campaign" },
+            { "OutreachProg", "Outreach Program" },
+            { "PatentsLic", "Patents Licensing" },
+            { "RecoveryTransp", "Recovery Transponder" },
+            { "UnpaidInterns", "Unpaid Research Program" }
+        };
 
         /// <summary>
         /// Returns the default significance tier for the given entry type.
@@ -169,6 +182,18 @@ namespace Parsek
             return $"{experiment} @ {location}";
         }
 
+        /// <summary>Maps KSP strategy ID to human name, falls back to camelCase split.</summary>
+        internal static string HumanizeStrategyId(string strategyId)
+        {
+            if (string.IsNullOrEmpty(strategyId)) return "unknown";
+            string name;
+            if (StrategyNames.TryGetValue(strategyId, out name)) return name;
+            // Fallback for modded strategies: camelCase split + capitalize
+            name = InsertSpacesBeforeUppercase(strategyId);
+            if (name.Length > 0) name = char.ToUpper(name[0]) + name.Substring(1);
+            return name;
+        }
+
         private static string InsertSpacesBeforeUppercase(string s)
         {
             if (string.IsNullOrEmpty(s)) return s;
@@ -219,18 +244,13 @@ namespace Parsek
 
                 case GameActionType.StrategyActivate:
                 {
-                    string sid = InsertSpacesBeforeUppercase(action.StrategyId ?? "unknown");
-                    if (sid.Length > 0) sid = char.ToUpper(sid[0]) + sid.Substring(1);
+                    string sid = HumanizeStrategyId(action.StrategyId);
                     return string.Format(IC, "Activate: {0} ({1:P0} {2}\u2192{3})",
                         sid, action.Commitment, action.SourceResource, action.TargetResource);
                 }
 
                 case GameActionType.StrategyDeactivate:
-                {
-                    string sid = InsertSpacesBeforeUppercase(action.StrategyId ?? "unknown");
-                    if (sid.Length > 0) sid = char.ToUpper(sid[0]) + sid.Substring(1);
-                    return "Deactivate: " + sid;
-                }
+                    return "Deactivate: " + HumanizeStrategyId(action.StrategyId);
 
                 case GameActionType.FundsSpending:
                 {
