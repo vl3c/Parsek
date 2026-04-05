@@ -291,6 +291,23 @@ Recording `f8fd04e5` (Kerbal X, chainIndex=1) had both `childBranchPointId` (bre
 
 **Status:** Fixed
 
+## 226. ForceSpawnNewVessel transient flag is fragile
+
+`ForceSpawnNewVessel` is a transient (not serialized) flag on Recording, set at scene entry by `MarkForceSpawnOnActiveVesselRecordings` and consumed at spawn time by `SpawnVesselOrChainTip`. The flag was lost between these two points — likely because Recording objects are recreated during save/load cycles within the same scene (auto-save, quicksave, or RecordingStore rebuild).
+
+A direct active-vessel PID check was added as a stateless workaround at the spawn site, but the underlying problem remains: any spawn logic that depends on transient flags set at scene entry is unreliable if the flag carrier (Recording object) can be replaced mid-scene.
+
+**Impact:** The recording optimizer (post-processing) and any future spawn-related logic must not rely on transient Recording fields surviving from scene entry to arbitrary later points.
+
+**Options:**
+1. Serialize `ForceSpawnNewVessel` — survives save/load but adds save bloat and needs explicit reset
+2. Replace flag with a `HashSet<string>` of recording IDs in RecordingStore (static, survives object recreation)
+3. Make all spawn decisions stateless — derive from current game state at spawn time (no flags needed)
+
+Option 3 is the cleanest long-term approach. The active-vessel PID check is a step in that direction.
+
+**Priority:** Medium — current workaround handles the common case but the pattern is a latent risk
+
 ---
 
 # In-Game Tests
