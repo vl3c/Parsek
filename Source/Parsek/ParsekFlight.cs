@@ -6090,7 +6090,7 @@ namespace Parsek
                 activeVesselPos = FlightGlobals.ActiveVessel != null
                     ? (Vector3d)FlightGlobals.ActiveVessel.transform.position
                     : Vector3d.zero,
-                protectedIndex = watchMode.watchedRecordingIndex,
+                protectedIndex = watchMode.WatchedRecordingIndex,
                 externalGhostCount = activeGhostChains?.Count ?? 0,
                 autoLoopIntervalSeconds = ParsekSettings.Current?.autoLoopIntervalSeconds
                     ?? GhostPlaybackLogic.DefaultLoopIntervalSeconds,
@@ -7856,10 +7856,10 @@ namespace Parsek
                         break;
                     }
                 }
-                if (ffTargetIdx >= 0 && ffTargetIdx != watchMode.watchedRecordingIndex)
+                if (ffTargetIdx >= 0 && ffTargetIdx != watchMode.WatchedRecordingIndex)
                 {
                     ParsekLog.Info("CameraFollow",
-                        $"FF transfer: watch #{watchMode.watchedRecordingIndex} \u2192 #{ffTargetIdx} \"{rec.VesselName}\"");
+                        $"FF transfer: watch #{watchMode.WatchedRecordingIndex} \u2192 #{ffTargetIdx} \"{rec.VesselName}\"");
                     // Exit current watch, ghost will be positioned by engine after time jump
                     ExitWatchMode();
                     // Defer entering watch on the target — the ghost needs to be positioned

@@ -23,19 +23,19 @@ namespace Parsek
             ControlTypes.CAMERAMODES;
 
         // Camera follow state — transient, never serialized
-        internal int watchedRecordingIndex = -1;       // -1 = not watching
-        internal string watchedRecordingId;             // stable across index shifts
-        internal float watchStartTime;                  // Time.time when watch mode was entered
-        internal long watchedOverlapCycleIndex = -1;    // which overlap cycle the camera is following (-1 = ready for next, -2 = holding after explosion)
-        internal double overlapRetargetAfterUT = -1;    // delay re-target after watched cycle explodes
-        internal GameObject overlapCameraAnchor;        // temp anchor so FlightCamera doesn't reference destroyed ghost
-        internal Vessel savedCameraVessel;
-        internal float savedCameraDistance;
-        internal float savedCameraPitch;
-        internal float savedCameraHeading;
-        internal float watchEndHoldUntilRealTime = -1;  // non-looped end hold timer (real time, warp-independent)
-        internal float savedPivotSharpness = 0.5f;
-        internal int watchNoTargetFrames;               // consecutive frames with no valid camera target (safety net)
+        private int watchedRecordingIndex = -1;       // -1 = not watching
+        private string watchedRecordingId;             // stable across index shifts
+        private float watchStartTime;                  // Time.time when watch mode was entered
+        private long watchedOverlapCycleIndex = -1;    // which overlap cycle the camera is following (-1 = ready for next, -2 = holding after explosion)
+        private double overlapRetargetAfterUT = -1;    // delay re-target after watched cycle explodes
+        private GameObject overlapCameraAnchor;        // temp anchor so FlightCamera doesn't reference destroyed ghost
+        private Vessel savedCameraVessel;
+        private float savedCameraDistance;
+        private float savedCameraPitch;
+        private float savedCameraHeading;
+        private float watchEndHoldUntilRealTime = -1;  // non-looped end hold timer (real time, warp-independent)
+        private float savedPivotSharpness = 0.5f;
+        private int watchNoTargetFrames;               // consecutive frames with no valid camera target (safety net)
 
         // Lazy-initialized GUI styles for the watch mode overlay
         private GUIStyle watchOverlayStyle;
