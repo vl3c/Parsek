@@ -205,25 +205,24 @@ namespace Parsek
 
             GUILayout.FlexibleSpace();
 
-            // Stats footer — count actions vs events from cached timeline
-            int recCount = RecordingStore.CommittedRecordings.Count;
-            uint epoch = MilestoneStore.CurrentEpoch;
+            // Stats footer — count from cached timeline (what the user actually sees)
+            int recCount = 0;
             int playerActionCount = 0;
             int eventCount = 0;
             if (cachedTimeline != null)
             {
                 for (int i = 0; i < cachedTimeline.Count; i++)
                 {
-                    if (cachedTimeline[i].Source == TimelineSource.Recording) continue;
-                    if (cachedTimeline[i].IsPlayerAction) playerActionCount++;
+                    var e = cachedTimeline[i];
+                    if (e.Type == TimelineEntryType.RecordingStart) recCount++;
+                    else if (e.Source == TimelineSource.Recording) continue;
+                    else if (e.IsPlayerAction) playerActionCount++;
                     else eventCount++;
                 }
             }
 
             var stats = new System.Text.StringBuilder();
             stats.Append($"{recCount} Recording{(recCount == 1 ? "" : "s")}");
-            if (epoch > 0)
-                stats.Append($" ({(int)epoch} Revert{(epoch == 1 ? "" : "s")})");
             stats.Append($", {playerActionCount} Action{(playerActionCount == 1 ? "" : "s")}");
             stats.Append($", {eventCount} Event{(eventCount == 1 ? "" : "s")}");
             GUILayout.Label(stats.ToString(), timelineGrayStyle);
