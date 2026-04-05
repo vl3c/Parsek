@@ -37,12 +37,13 @@ namespace Parsek
         }
 
         /// <summary>Display text for a recording start event, including mission duration.</summary>
-        internal static string GetRecordingStartText(string vesselName, double durationSeconds)
+        internal static string GetRecordingStartText(string vesselName, double durationSeconds, bool isEva)
         {
+            string prefix = isEva ? "EVA" : "Launch";
             string duration = FormatDuration(durationSeconds);
             if (string.IsNullOrEmpty(duration))
-                return $"Launch: {vesselName}";
-            return $"Launch: {vesselName} (MET {duration})";
+                return $"{prefix}: {vesselName}";
+            return $"{prefix}: {vesselName} (MET {duration})";
         }
 
         /// <summary>

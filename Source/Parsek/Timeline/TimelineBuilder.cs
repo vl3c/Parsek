@@ -62,7 +62,7 @@ namespace Parsek
                 {
                     UT = rec.StartUT,
                     Type = startType,
-                    DisplayText = TimelineEntryDisplay.GetRecordingStartText(rec.VesselName, duration),
+                    DisplayText = TimelineEntryDisplay.GetRecordingStartText(rec.VesselName, duration, !string.IsNullOrEmpty(rec.EvaCrewName)),
                     Source = TimelineSource.Recording,
                     Tier = TimelineEntryDisplay.GetTier(startType),
                     DisplayColor = Color.white,
@@ -165,6 +165,13 @@ namespace Parsek
                 string vesselName = null;
                 if (!string.IsNullOrEmpty(action.RecordingId))
                     vesselNamesByRecordingId.TryGetValue(action.RecordingId, out vesselName);
+
+                // Skip EVA self-assignment: kerbal assigned to their own EVA vessel
+                if (action.Type == GameActionType.KerbalAssignment &&
+                    !string.IsNullOrEmpty(action.KerbalName) &&
+                    !string.IsNullOrEmpty(vesselName) &&
+                    vesselName == action.KerbalName)
+                    continue;
 
                 entries.Add(new TimelineEntry
                 {
