@@ -126,6 +126,8 @@ The timeline can contain many events for an active career. Rather than hiding ev
 
 The timeline subsumes everything the Game Actions window does (showing game actions sorted by time) and adds recording lifecycle events and visual structure. Keeping both would create redundancy. The Game Actions button becomes the Timeline button. The resource budget summary, epoch display, and retired kerbals section move into the timeline window.
 
+The current Game Actions window lives in `UI/ActionsWindowUI.cs` (extracted from `ParsekUI.cs` during refactor-3). The timeline replaces this file with `UI/TimelineWindowUI.cs`, following the same extracted-window pattern.
+
 ---
 
 ## 3. Architecture

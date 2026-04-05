@@ -153,22 +153,18 @@ Two tiers only (part events removed, T3 eliminated):
 
 ## UI Implementation
 
-### State Variables (replacing Actions window)
+### File Structure
 
-Remove:
-```csharp
-private bool showActionsWindow;
-private Rect actionsWindowRect;
-private Vector2 actionsScrollPos;
-private bool isResizingActionsWindow;
-private bool actionsWindowHasInputLock;
-private GUIStyle actionsGrayStyle, actionsWhiteStyle, actionsGreenStyle, actionsRedStyle;
-private enum ActionsSortColumn { Time, Type, Description, Status }
-private ActionsSortColumn actionsSortColumn;
-private bool actionsSortAscending;
-```
+The refactor-3 branch extracted the Actions window from `ParsekUI.cs` into `UI/ActionsWindowUI.cs`. The timeline replaces this extracted class:
 
-Add:
+- **Remove**: `Source/Parsek/UI/ActionsWindowUI.cs` (entire file)
+- **Remove**: `actionsUI` field and `DrawActionsWindowIfOpen` delegate in `ParsekUI.cs`
+- **Add**: `Source/Parsek/UI/TimelineWindowUI.cs` — new class following the same extracted-window pattern (constructor takes `ParsekUI` parent, `DrawIfOpen(Rect)` entry point)
+- **Update**: `ParsekUI.cs` — replace `actionsUI` with `timelineUI`, delegate to `timelineUI.DrawIfOpen`
+
+### State Variables
+
+`TimelineWindowUI` owns all timeline state (mirrors the `ActionsWindowUI` pattern):
 ```csharp
 private bool showTimelineWindow;
 private Rect timelineWindowRect;
@@ -257,7 +253,9 @@ During draw pass, accumulate row heights. Track Y offset of entry matching `sele
 **Goal**: Timeline window with entry list, filter bar, resource budget, footer.
 
 **Files changed**:
-- `ParsekUI.cs` — remove `DrawActionsWindow*` methods and state. Add `DrawTimelineWindow*` methods. Resource budget, tier selector, source toggles, cross-link.
+- Remove `Source/Parsek/UI/ActionsWindowUI.cs`
+- New: `Source/Parsek/UI/TimelineWindowUI.cs` — timeline window (replaces ActionsWindowUI)
+- `ParsekUI.cs` — replace `actionsUI` field with `timelineUI`, update delegate and button label
 
 **Dependencies**: Phase 9a.
 
