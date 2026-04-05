@@ -2094,8 +2094,16 @@ namespace Parsek
             // Breakup-continuous check: the foreground recording continued past a breakup
             // (ProcessBreakupEvent sets ChildBranchPointId without creating a same-PID
             // continuation). If no child shares this vessel's PID, the recording IS the
-            // effective leaf and should be spawnable. (#224)
-            bool effectiveLeaf = rec.ChildBranchPointId != null && IsEffectiveLeafForVessel(rec);
+            // effective leaf and should be spawnable. Only applies to non-debris recordings
+            // with a spawnable terminal state (Landed/Splashed/Orbiting). (#224)
+            bool hasSpawnableTerminal = rec.TerminalStateValue.HasValue &&
+                (rec.TerminalStateValue.Value == TerminalState.Landed ||
+                 rec.TerminalStateValue.Value == TerminalState.Splashed ||
+                 rec.TerminalStateValue.Value == TerminalState.Orbiting);
+            bool effectiveLeaf = rec.ChildBranchPointId != null
+                && !rec.IsDebris
+                && hasSpawnableTerminal
+                && IsEffectiveLeafForVessel(rec);
 
             // Non-leaf tree recordings should never spawn — they branched into a
             // same-vessel continuation that carries the correct snapshot.
