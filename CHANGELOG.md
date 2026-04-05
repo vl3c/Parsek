@@ -12,7 +12,13 @@ All notable changes to Parsek are documented here.
 - **Pass 3A: SafeWriteConfigNode deduplicated.** Four independent safe-write implementations (Ledger, RecordingStore, GameStateStore, MilestoneStore) consolidated into shared `FileIOUtils.SafeWriteConfigNode`. MilestoneStore gains error handling it previously lacked.
 - **Pass 3B: SuppressionGuard struct.** 10 manual try/finally suppression-flag blocks across 4 files replaced with `IDisposable` `SuppressionGuard` struct (Crew, Resources, ResourcesAndReplay factories).
 - **Pass 3C: ParsekUI window extractions.** Three self-contained windows extracted from ParsekUI (4,773 → 3,698 lines): `UI/GroupPickerUI` (373 lines), `UI/SpawnControlUI` (321 lines), `UI/ActionsWindowUI` (500 lines).
-- 4,766 tests pass throughout. Zero logic changes.
+- **Pass 4: Remaining UI & watch-mode extractions (T46-T50).** Five more extractions completing the refactor:
+  - `UI/TestRunnerUI` (276 lines) — test runner window from ParsekUI.
+  - `UI/SettingsWindowUI` (353 lines) — settings window from ParsekUI.
+  - `UI/RecordingsTableUI` (2,251 lines) — recordings table from ParsekUI (largest extraction, 57 fields, 30+ methods). GroupPickerUI ownership moved here.
+  - `WatchModeController` (963 lines) — camera-follow / watch-mode from ParsekFlight (15 fields, 18 methods). ParsekFlight keeps forwarding methods for external callers.
+  - `MilestoneStore.SuppressLogging` dead code removed (field written in 80 tests, never read).
+- 4,816 tests pass throughout. Zero logic changes.
 
 ### Tests
 

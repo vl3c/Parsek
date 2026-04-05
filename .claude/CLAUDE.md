@@ -38,7 +38,8 @@ docs/                       # Design docs, roadmap, reference analyses
 ```
 
 Key source files and what they do - read the relevant one before modifying:
-- `ParsekFlight.cs` - flight-scene controller (policy, recording, chain management, camera follow, input)
+- `ParsekFlight.cs` - flight-scene controller (policy, recording, chain management, input). Camera follow delegated to WatchModeController.
+- `WatchModeController.cs` - camera-follow / watch-mode state machine (enter/exit watch, camera anchoring, overlap retarget, explosion hold)
 - `GhostPlaybackEngine.cs` - ghost playback mechanics engine: owns ghostStates, per-frame positioning, loop/overlap playback, zone transitions, soft caps, reentry FX. Zero Recording references — accesses trajectories via IPlaybackTrajectory only. Future standalone mod core.
 - `ParsekPlaybackPolicy.cs` - event subscriber reacting to engine lifecycle events (spawn decisions, resource deltas, camera management, deferred spawn queue)
 - `IPlaybackTrajectory.cs` - interface exposing 27 trajectory/visual/orbital fields from Recording to the engine
@@ -46,7 +47,10 @@ Key source files and what they do - read the relevant one before modifying:
 - `GhostPlaybackEvents.cs` - lifecycle event types (PlaybackCompleted, LoopRestarted, OverlapExpired, CameraAction), TrajectoryPlaybackFlags, FrameContext
 - `ChainSegmentManager.cs` - chain segment state (active chain ID, continuation tracking, boundary anchors). Owns 16 fields previously scattered across ParsekFlight.
 - `FlightRecorder.cs` - recording state + sampling (called by Harmony patch)
-- `ParsekUI.cs` - UI windows (main, recordings, settings, test runner) and map markers
+- `ParsekUI.cs` - UI main window, map markers, and coordinator for extracted sub-windows
+- `UI/RecordingsTableUI.cs` - recordings table window (sort, rename, group tree, chain blocks, loop period editing)
+- `UI/SettingsWindowUI.cs` - settings window (recording, looping, ghost, diagnostics, sampling, data management)
+- `UI/TestRunnerUI.cs` - in-game test runner window
 - `UI/GroupPickerUI.cs` - group picker popup (recording/chain group assignment)
 - `UI/SpawnControlUI.cs` - Real Spawn Control window (nearby vessel proximity spawning)
 - `UI/ActionsWindowUI.cs` - Game Actions window (ledger display, budget, retired kerbals)
