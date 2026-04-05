@@ -139,56 +139,48 @@ Follow the existing feature-based naming convention (e.g., `AdaptiveSamplingTest
 5. **Build & test** — `dotnet build` + `dotnet test`
 6. **Update inventory** — mark file status as `Pass1-Done`
 
-### Processing Order
+### Results: GameActions/ Area
 
-#### Canary — GameAction.cs (895 lines)
+All 15 GameActions/ files plus GameStateRecorder, GameStateStore, MilestoneStore, ResourceBudget, and CrewReservationManager were reviewed in detail. **All found already well-structured** — comprehensive logging at every decision point, coherent methods (long by line count but single-purpose), existing test suites. No extractions warranted. Marked Pass1-Done in inventory.
 
-Process first as the dry run. **Lowest risk:** pure data class with no side effects, no static mutable state, no KSP API coupling. The serialize/deserialize switch statements (84 and 102 lines) have clear per-domain extraction candidates. Many per-type helpers are pure functions testable as `internal static`. Validates the entire extraction→logging→test→build workflow before touching stateful files.
+### Processing Order: God Classes
+
+The real extraction work is in the large files that were partially refactored in refactor-1/refactor-2 but have grown since. These contain methods with 150-638 lines and multiple clearly separable logical phases.
+
+#### Canary — GhostPlaybackEngine.cs (1,745 lines)
+
+Moderate size, clear phase-based methods. Two long methods that are textbook extraction candidates.
 
 **Extraction targets:**
-- `SerializeInto` (84 lines, 23-case switch) → extract per-domain helpers where case body exceeds 20 lines (science, contract, kerbal, facility, strategy)
-- `DeserializeFrom` (102 lines, 23-case switch) → same pattern: per-domain helpers for cases >20 lines
-- Review all 72+ per-type serialize/deserialize helpers for logging gaps
+- `UpdateLoopingPlayback` (190 lines, line 566) → extract `HandleCycleRebuild` (~50 lines: cycle detection, event firing, ghost destroy/respawn), `HandleGhostSpawnOrReshow` (~37 lines: spawn on zone entry, reshow after warp-down), `HandlePauseWindow` (~22 lines: special pause positioning and hiding)
+- `UpdateOverlapPlayback` (151 lines, line 761) → extract `UpdatePrimaryCycle` (~48 lines: primary ghost cycle transition, spawn, camera events), `UpdateOverlapCycles` (~60 lines: iterate older cycles, expiry detection, positioning)
 
 **After:** `dotnet build` + `dotnet test`. Commit individually.
 
-#### Tier 1 — Large Files With Most Extraction Targets (one at a time)
+#### Tier 1 — Largest Extraction Targets (one at a time)
 
 | # | File | Lines | Key Extractions |
 |---|------|-------|-----------------|
-| 2 | KspStatePatcher.cs | 777 | PatchContracts (179→3-4 helpers), PatchProgressNodeTree (75), PatchDestructionState (71→per-building helper), PatchFacilities (69), PatchMilestones (58), PatchPerSubjectScience (52). **Note:** KSP API coupling means most extractions will be `private` (not directly testable); focus on logging coverage. |
-| 3 | LedgerOrchestrator.cs | 900 | CreateVesselCostActions (66→build+recovery helpers), MigrateKerbalAssignments (44→loop body), OnRecordingCommitted (44→logging review). Most methods are moderate length — focus on logging gaps and `internal static` test coverage for pure helpers (DeduplicateAgainstLedger, GetActionKey, ExtractCrewFromRecording, FindRecordingById). |
-| 4 | GameStateRecorder.cs | 975 | Subscribe (100+→grouped subscriptions), OnScienceReceived (60+→subject capture helper), OnFacilityUpgraded (50+→level diff helper). Mixed static/instance state — focus on logging for suppression flag usage. |
+| 2 | FlightRecorder.cs | 5,176 | `OnPhysicsFrame` (638 lines, line ~4538) → `PollPartStates` (~17 lines), `UpdateEnvironmentTracking` (~18 lines), `BuildAndApplyPoint` (~45+ lines). Massive frame orchestrator with clearly separable phases. |
+| 3 | GhostVisualBuilder.cs | 6,416 | `AddPartVisuals` (505 lines, line 4801) → `DetectAndLogPartVariants` (~109 lines: variant detection, renderer audit, logging), `SetupPartHierarchy` (~32 lines: root/model node creation), `BuildPartMeshes` (~49 lines: clone MeshRenderers + SkinnedMeshRenderers). Already has extracted helpers section; this continues the decomposition. |
+| 4 | GhostPlaybackLogic.cs | 2,580 | `ApplyPartEvents` (227 lines, line 742) → `HandleParachuteDeployedEvent` (26 lines, exceeds 20-line switch case threshold: dual-path logic for fake vs real canopy), `UpdateEventPostProcessing` (~9 lines: visibility recalc, light blinking, robotics). |
 
 **After each file:** `dotnet build` + `dotnet test`. Commit individually per file (3 commits).
 
-#### Tier 2 — Other New/Large Files (2 parallel subagents per batch)
+#### Tier 2 — UI + Flight Controller Methods (2 parallel subagents per batch)
 
 | Batch | Files | Lines | Key Extractions |
 |-------|-------|-------|-----------------|
-| 2A | FundsModule.cs (513), Ledger.cs (506) | 1,019 | FundsModule: ComputeTotalSpendings (53), ProcessAction (46). Ledger: Reconcile (115→PruneEarnings/PruneSpendings/PruneOther), LoadFromFile (74), seed dedup (3x ~25 lines→shared helper). |
-| 2B | KerbalsModule.cs (892), GameStateEventConverter.cs (514) | 1,406 | KerbalsModule: ProcessAction (50+). Converter: ConvertEvent (57→review case body sizes), ConvertContractAccepted (51), ConvertEvents (45). |
-| 2C | RecordingOptimizer.cs (863), GhostMapPresence.cs (1,211) | 2,074 | RecordingOptimizer: pure algorithmic — subagent reads full file to identify extraction candidates. GhostMapPresence: CreateMapVessel (60+), UpdateOrbit (50+). **Note:** GhostMapPresence is Unity-heavy; most extractions will be `private`. |
-| 2D | ParsekPlaybackPolicy.cs (892) | 892 | HandlePlaybackCompleted (45+). Mostly new — subagent reads full file to identify extraction candidates and logging gaps. |
+| 2A | ParsekUI.cs | 4,736 | `DrawRecordingsWindow` (270 lines) → `DrawRecordingsTableHeader` (~61 lines), `HandleRecordingsDefocus` (~20 lines). `DrawActionsWindow` (207 lines) → section-based extraction (header, ledger section, committed section, uncommitted events). `DrawSpawnControlWindow` (150 lines) → section extraction. |
+| 2B | ParsekFlight.cs | 8,649 | `UpdateProximityCheck` (276 lines) → candidate collection phase, dedup phase, notification dispatch phase. Review watch mode region and dock/undock methods for logging gaps and extraction opportunities. |
 
-**After each batch:** Merge-check for conflicts, then `dotnet build` + `dotnet test`. Commit per batch (4 commits).
+**After each batch:** Merge-check, then `dotnet build` + `dotnet test`. Commit per batch (2 commits).
 
-**Note:** VesselGhoster.cs (709 lines, +2 changed) moved to Tier 4 — it's stable and Unity-heavy, making extraction value low.
+#### Tier 3 — Quick scan of remaining large files
 
-#### Tier 3 — Smaller GameActions Modules (3 parallel subagents)
+Remaining files not yet reviewed: BackgroundRecorder.cs (2,788), ParsekScenario.cs (2,185), RecordingStore.cs (2,911), RecordingTree.cs (1,013), VesselSpawner.cs (1,426), ParsekKSC.cs (897).
 
-| Batch | Files | Lines | Key Extractions |
-|-------|-------|-------|-----------------|
-| 3A | ScienceModule.cs (386), ReputationModule.cs (378), ContractsModule.cs (327) | 1,091 | ScienceModule: ProcessEarning (61→hard-cap helper). ContractsModule: PrePass (67→deadline scan helper). ReputationModule: EvaluateHermiteSpline (39→borderline, review logging). |
-| 3B | StrategiesModule.cs (298), RecalculationEngine.cs (351), FacilitiesModule.cs (239) | 888 | StrategiesModule: TransformContractReward (66→per-resource diversion helper). RecalculationEngine: Recalculate (91→review for sub-step extraction), RegisterModule (63). FacilitiesModule: likely no extractions needed. |
-
-**After batch:** `dotnet build` + `dotnet test`. Commit per batch (2 commits).
-
-#### Tier 4 — Small/Stable Files, Quick Scan
-
-Remaining files: GameActionDisplay.cs (246), MilestonesModule.cs (100), IResourceModule.cs (55), GameStateStore.cs (709), MilestoneStore.cs (474), ResourceBudget.cs (433), CrewReservationManager.cs (686), VesselGhoster.cs (709).
-
-Quick scan for missing logging and test opportunities. Most will need zero or minimal changes. VesselGhoster is included here (stable, +2 changed, Unity-heavy). Commit once.
+Quick scan for methods >50 lines with multiple logical steps. Most were already refactored in previous passes. Commit once if any changes.
 
 ---
 
@@ -309,14 +301,13 @@ Same checklist as refactor-1/refactor-2 (see `docs/dev/done/refactor/refactor-re
 
 | Phase | Granularity | Est. Commits |
 |-------|-------------|--------------|
-| Pass 1 Canary | 1 file (GameAction.cs) | 1 |
-| Pass 1 Tier 1 | 1 per file (KspStatePatcher, LedgerOrchestrator, GameStateRecorder) | 3 |
-| Pass 1 Tier 2 | 1 per batch (2A-2D) | 4 |
-| Pass 1 Tier 3 | 1 per batch (3A-3B) | 2 |
-| Pass 1 Tier 4 | 1 | 1 |
-| Pass 3 Phase A | 1 (dedup) | 1 |
-| Pass 3 Phase B | 1 per split | ~1-2 |
-| Pass 3 Phase C | 1 (cleanup + docs) | 1 |
-| **Total** | | **~14-15** |
+| Pass 1 GameActions scan | 1 (all clean, no changes) | 1 (docs only) |
+| Pass 1 Canary | 1 file (GhostPlaybackEngine) | 1 |
+| Pass 1 Tier 1 | 1 per file (FlightRecorder, GhostVisualBuilder, GhostPlaybackLogic) | 3 |
+| Pass 1 Tier 2 | 1 per batch (ParsekUI, ParsekFlight) | 2 |
+| Pass 1 Tier 3 | 1 (remaining large files scan) | 0-1 |
+| Pass 3 Phase A | 1 (cross-file extractions if warranted) | ~1-2 |
+| Pass 3 Phase B | 1 (cleanup + docs) | 1 |
+| **Total** | | **~9-11** |
 
 No `Co-Authored-By` lines (per CLAUDE.md).
