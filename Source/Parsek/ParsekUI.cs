@@ -41,8 +41,8 @@ namespace Parsek
         // Test runner window (extracted to TestRunnerUI)
         private TestRunnerUI testRunnerUI;
 
-        // Actions window (extracted to ActionsWindowUI)
-        private ActionsWindowUI actionsUI;
+        // Timeline window (extracted to TimelineWindowUI, replaces ActionsWindowUI)
+        private TimelineWindowUI timelineUI;
 
         // Reusable per-frame buffers (used by DrawMapMarkers for chain dedup)
         private static readonly Dictionary<string, int> chainTipIndexBuffer = new Dictionary<string, int>();
@@ -59,6 +59,8 @@ namespace Parsek
 
         internal ParsekFlight Flight => flight;
         internal bool InFlightMode => InFlight;
+        internal RecordingsTableUI GetRecordingsTableUI() => recordingsTableUI;
+        internal TimelineWindowUI GetTimelineUI() => timelineUI;
 
         // Runtime-only empty groups — delegated to RecordingsTableUI
         internal List<string> KnownEmptyGroups => recordingsTableUI.KnownEmptyGroups;
@@ -69,7 +71,7 @@ namespace Parsek
             this.mode = UIMode.Flight;
             this.recordingsTableUI = new RecordingsTableUI(this);
             this.spawnControlUI = new SpawnControlUI(this);
-            this.actionsUI = new ActionsWindowUI(this);
+            this.timelineUI = new TimelineWindowUI(this);
             this.testRunnerUI = new TestRunnerUI(this);
             this.settingsUI = new SettingsWindowUI(this);
         }
@@ -80,7 +82,7 @@ namespace Parsek
             this.mode = mode;
             this.recordingsTableUI = new RecordingsTableUI(this);
             this.spawnControlUI = new SpawnControlUI(this);
-            this.actionsUI = new ActionsWindowUI(this);
+            this.timelineUI = new TimelineWindowUI(this);
             this.testRunnerUI = new TestRunnerUI(this);
             this.settingsUI = new SettingsWindowUI(this);
         }
@@ -116,10 +118,10 @@ namespace Parsek
             }
 
             int actionCount = MilestoneStore.GetPendingEventCount() + GameStateStore.GetUncommittedEventCount();
-            if (GUILayout.Button($"Game Actions ({actionCount})"))
+            if (GUILayout.Button($"Timeline ({actionCount})"))
             {
-                actionsUI.IsOpen = !actionsUI.IsOpen;
-                ParsekLog.Verbose("UI", $"Actions window toggled: {(actionsUI.IsOpen ? "open" : "closed")}");
+                timelineUI.IsOpen = !timelineUI.IsOpen;
+                ParsekLog.Verbose("UI", $"Timeline window toggled: {(timelineUI.IsOpen ? "open" : "closed")}");
             }
 
             // --- Real Spawn Control toggle (in the window group, after Game Actions) ---
@@ -294,9 +296,9 @@ namespace Parsek
             }
         }
 
-        public void DrawActionsWindowIfOpen(Rect mainWindowRect)
+        public void DrawTimelineWindowIfOpen(Rect mainWindowRect)
         {
-            actionsUI.DrawIfOpen(mainWindowRect);
+            timelineUI.DrawIfOpen(mainWindowRect);
         }
 
         // ════════════════════════════════════════════════════════════════
@@ -692,7 +694,7 @@ namespace Parsek
         public void Cleanup()
         {
             recordingsTableUI.ReleaseInputLock();
-            actionsUI.ReleaseInputLock();
+            timelineUI.ReleaseInputLock();
             settingsUI.ReleaseInputLock();
             spawnControlUI.ReleaseInputLock();
             if (mapMarkerDiamond != null)

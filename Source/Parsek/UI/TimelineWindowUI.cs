@@ -1,0 +1,454 @@
+using System;
+using System.Collections.Generic;
+using ClickThroughFix;
+using UnityEngine;
+
+namespace Parsek
+{
+    /// <summary>
+    /// Timeline window — replaces ActionsWindowUI.
+    /// Shows a chronological, read-only view of all committed career events
+    /// from recordings and game actions, with current-UT divider, tier filtering,
+    /// resource budget, and rewind access.
+    /// </summary>
+    internal class TimelineWindowUI
+    {
+        private readonly ParsekUI parentUI;
+
+        // Window state
+        private bool showTimelineWindow;
+        private Rect timelineWindowRect;
+        private Vector2 timelineScrollPos;
+        private bool isResizingTimelineWindow;
+        private bool timelineWindowHasInputLock;
+        private const string TimelineInputLockId = "Parsek_TimelineWindow";
+        private Rect lastTimelineWindowRect;
+        private const float MinWindowWidth = 350f;
+        private const float MinWindowHeight = 150f;
+
+        // Cached timeline data (invalidated on triggers)
+        private List<TimelineEntry> cachedTimeline;
+        private bool timelineDirty = true;
+
+        // Filter state
+        private bool showDetail = false;
+        private bool showRecordingEntries = true;
+        private bool showActionEntries = true;
+
+        // Styles
+        private GUIStyle timelineGrayStyle;
+        private GUIStyle timelineWhiteStyle;
+        private GUIStyle timelineGreenStyle;
+        private GUIStyle timelineRedStyle;
+        private GUIStyle timelineDimStyle;
+        private GUIStyle timelineStrikethroughStyle;
+
+        private int lastRetiredKerbalCount = -1;
+
+        public bool IsOpen
+        {
+            get { return showTimelineWindow; }
+            set { showTimelineWindow = value; }
+        }
+
+        internal TimelineWindowUI(ParsekUI parentUI)
+        {
+            this.parentUI = parentUI;
+        }
+
+        public void DrawIfOpen(Rect mainWindowRect)
+        {
+            if (!showTimelineWindow)
+            {
+                ReleaseInputLock();
+                return;
+            }
+
+            // Position to the left of main window on first open
+            if (timelineWindowRect.width < 1f)
+            {
+                float x = mainWindowRect.x - 538;
+                if (x < 0) x = mainWindowRect.x + mainWindowRect.width + 10;
+                timelineWindowRect = new Rect(x, mainWindowRect.y, 528, mainWindowRect.height);
+                var ic = System.Globalization.CultureInfo.InvariantCulture;
+                ParsekLog.Verbose("UI",
+                    $"Timeline window initial position: x={x.ToString("F0", ic)} y={mainWindowRect.y.ToString("F0", ic)} (mainWindow.x={mainWindowRect.x.ToString("F0", ic)})");
+            }
+
+            ParsekUI.HandleResizeDrag(ref timelineWindowRect, ref isResizingTimelineWindow,
+                MinWindowWidth, MinWindowHeight, "Timeline window");
+
+            var opaqueWindowStyle = parentUI.GetOpaqueWindowStyle();
+            timelineWindowRect = ClickThruBlocker.GUILayoutWindow(
+                "ParsekTimeline".GetHashCode(),
+                timelineWindowRect,
+                DrawTimelineWindow,
+                "Parsek \u2014 Timeline",
+                opaqueWindowStyle,
+                GUILayout.Width(timelineWindowRect.width),
+                GUILayout.Height(timelineWindowRect.height)
+            );
+            parentUI.LogWindowPosition("Timeline", ref lastTimelineWindowRect, timelineWindowRect);
+
+            if (timelineWindowRect.Contains(Event.current.mousePosition))
+            {
+                if (!timelineWindowHasInputLock)
+                {
+                    InputLockManager.SetControlLock(ControlTypes.CAMERACONTROLS, TimelineInputLockId);
+                    timelineWindowHasInputLock = true;
+                }
+            }
+            else
+            {
+                ReleaseInputLock();
+            }
+        }
+
+        public void ReleaseInputLock()
+        {
+            if (!timelineWindowHasInputLock) return;
+            InputLockManager.RemoveControlLock(TimelineInputLockId);
+            timelineWindowHasInputLock = false;
+        }
+
+        /// <summary>
+        /// Marks the cached timeline as stale so it rebuilds on next draw.
+        /// Called by ParsekUI on cache invalidation triggers.
+        /// </summary>
+        public void InvalidateCache()
+        {
+            timelineDirty = true;
+        }
+
+        private void EnsureStyles()
+        {
+            if (timelineGrayStyle != null) return;
+
+            timelineGrayStyle = new GUIStyle(GUI.skin.label);
+            timelineGrayStyle.normal.textColor = Color.gray;
+
+            timelineWhiteStyle = new GUIStyle(GUI.skin.label);
+            timelineWhiteStyle.normal.textColor = Color.white;
+
+            timelineGreenStyle = new GUIStyle(GUI.skin.label);
+            timelineGreenStyle.normal.textColor = new Color(0.5f, 1f, 0.5f);
+
+            timelineRedStyle = new GUIStyle(GUI.skin.label);
+            timelineRedStyle.normal.textColor = new Color(1f, 0.5f, 0.5f);
+
+            timelineDimStyle = new GUIStyle(GUI.skin.label);
+            timelineDimStyle.normal.textColor = new Color(1f, 1f, 1f, 0.5f);
+
+            timelineStrikethroughStyle = new GUIStyle(GUI.skin.label);
+            timelineStrikethroughStyle.normal.textColor = Color.gray;
+        }
+
+        private void DrawTimelineWindow(int windowID)
+        {
+            EnsureStyles();
+
+            // Zone 1: Resource Budget
+            DrawResourceBudget();
+
+            // Zone 2: Filter Bar
+            DrawFilterBar();
+
+            // Rebuild cache if dirty
+            if (timelineDirty || cachedTimeline == null)
+            {
+                cachedTimeline = TimelineBuilder.Build(
+                    RecordingStore.CommittedRecordings,
+                    Ledger.Actions,
+                    MilestoneStore.Milestones,
+                    MilestoneStore.CurrentEpoch);
+                timelineDirty = false;
+            }
+
+            // Zone 3: Entry List
+            DrawEntryList();
+
+            // Zone 4: Footer
+            DrawRetiredKerbalsSection();
+
+            GUILayout.FlexibleSpace();
+
+            uint epoch = MilestoneStore.CurrentEpoch;
+            if (epoch > 0)
+            {
+                GUILayout.Label($"Epoch: {epoch} ({epoch} revert{(epoch == 1 ? "" : "s")})",
+                    timelineGrayStyle);
+            }
+
+            if (GUILayout.Button("Close"))
+            {
+                showTimelineWindow = false;
+                ParsekLog.Verbose("UI", "Timeline window closed via button");
+            }
+
+            ParsekUI.DrawResizeHandle(timelineWindowRect, ref isResizingTimelineWindow,
+                "Timeline window");
+
+            GUI.DragWindow();
+        }
+
+        private void DrawFilterBar()
+        {
+            GUILayout.Space(5);
+            GUILayout.BeginHorizontal();
+
+            // Tier selector
+            bool overviewActive = !showDetail;
+            bool detailActive = showDetail;
+
+            if (GUILayout.Toggle(overviewActive, "Overview", GUI.skin.button, GUILayout.Width(80)) && !overviewActive)
+            {
+                showDetail = false;
+                ParsekLog.Verbose("UI", "Timeline filter: Overview");
+            }
+            if (GUILayout.Toggle(detailActive, "Detail", GUI.skin.button, GUILayout.Width(70)) && !detailActive)
+            {
+                showDetail = true;
+                ParsekLog.Verbose("UI", "Timeline filter: Detail");
+            }
+
+            GUILayout.Space(10);
+
+            // Source toggles
+            bool newShowRec = GUILayout.Toggle(showRecordingEntries, "Recordings", GUI.skin.button, GUILayout.Width(90));
+            if (newShowRec != showRecordingEntries)
+            {
+                showRecordingEntries = newShowRec;
+                ParsekLog.Verbose("UI", $"Timeline source toggle: Recordings={showRecordingEntries}");
+            }
+
+            bool newShowAct = GUILayout.Toggle(showActionEntries, "Actions", GUI.skin.button, GUILayout.Width(70));
+            if (newShowAct != showActionEntries)
+            {
+                showActionEntries = newShowAct;
+                ParsekLog.Verbose("UI", $"Timeline source toggle: Actions={showActionEntries}");
+            }
+
+            GUILayout.EndHorizontal();
+        }
+
+        private void DrawEntryList()
+        {
+            if (cachedTimeline == null || cachedTimeline.Count == 0)
+            {
+                GUILayout.Space(5);
+                GUILayout.Label("No timeline entries.");
+                return;
+            }
+
+            double currentUT = 0;
+            try { currentUT = Planetarium.GetUniversalTime(); } catch { }
+
+            GUILayout.Space(5);
+            timelineScrollPos = GUILayout.BeginScrollView(timelineScrollPos, GUILayout.ExpandHeight(true));
+
+            bool dividerDrawn = false;
+
+            for (int i = 0; i < cachedTimeline.Count; i++)
+            {
+                var entry = cachedTimeline[i];
+
+                // Visibility check
+                if (!IsEntryVisible(entry)) continue;
+
+                // Draw divider before the first future entry
+                if (!dividerDrawn && entry.UT > currentUT)
+                {
+                    DrawNowDivider(currentUT);
+                    dividerDrawn = true;
+                }
+
+                bool isFuture = entry.UT > currentUT;
+                DrawEntryRow(entry, isFuture);
+            }
+
+            // Draw divider at the end if all entries are in the past
+            if (!dividerDrawn)
+            {
+                DrawNowDivider(currentUT);
+            }
+
+            GUILayout.EndScrollView();
+        }
+
+        private bool IsEntryVisible(TimelineEntry entry)
+        {
+            if (entry.Tier == SignificanceTier.T2 && !showDetail) return false;
+            if (entry.Source == TimelineSource.Recording && !showRecordingEntries) return false;
+            if (entry.Source == TimelineSource.GameAction && !showActionEntries) return false;
+            if (entry.Source == TimelineSource.Legacy && !showActionEntries) return false;
+            if (entry.Source == TimelineSource.Derived && !showRecordingEntries) return false;
+            return true;
+        }
+
+        private void DrawNowDivider(double currentUT)
+        {
+            string utText;
+            try { utText = KSPUtil.PrintDateCompact(currentUT, true); }
+            catch { utText = currentUT.ToString("F0", System.Globalization.CultureInfo.InvariantCulture); }
+
+            GUILayout.Space(3);
+            GUILayout.Label($"\u2500\u2500 {utText} (now) \u2500\u2500", timelineGrayStyle);
+            GUILayout.Space(3);
+        }
+
+        private void DrawEntryRow(TimelineEntry entry, bool isFuture)
+        {
+            GUILayout.BeginHorizontal();
+
+            // Pick style based on entry state
+            GUIStyle style;
+            if (!entry.IsEffective)
+                style = timelineStrikethroughStyle;
+            else if (isFuture)
+                style = timelineDimStyle;
+            else
+                style = GetStyleForColor(entry.DisplayColor);
+
+            // UT column
+            string time;
+            try { time = KSPUtil.PrintDateCompact(entry.UT, true); }
+            catch { time = entry.UT.ToString("F0", System.Globalization.CultureInfo.InvariantCulture); }
+            GUILayout.Label(time, style, GUILayout.Width(90));
+
+            // Description text
+            GUILayout.Label(entry.DisplayText, style, GUILayout.ExpandWidth(true));
+
+            // Rewind button for RecordingStart entries
+            if (entry.Type == TimelineEntryType.RecordingStart && !string.IsNullOrEmpty(entry.RecordingId))
+            {
+                var rec = FindRecordingById(entry.RecordingId);
+                if (rec != null)
+                {
+                    if (GUILayout.Button("\u27f2", GUILayout.Width(25)))
+                    {
+                        ParsekLog.Info("UI", $"Timeline rewind button clicked: \"{rec.VesselName}\" id={rec.RecordingId}");
+                        parentUI.GetRecordingsTableUI().ShowRewindConfirmation(rec);
+                    }
+                }
+            }
+
+            GUILayout.EndHorizontal();
+        }
+
+        private GUIStyle GetStyleForColor(Color color)
+        {
+            if (color.g > 0.9f && color.r < 0.6f) return timelineGreenStyle;
+            if (color.r > 0.9f && color.g < 0.6f) return timelineRedStyle;
+            return timelineWhiteStyle;
+        }
+
+        private static Recording FindRecordingById(string recordingId)
+        {
+            var recordings = RecordingStore.CommittedRecordings;
+            for (int i = 0; i < recordings.Count; i++)
+            {
+                if (recordings[i].RecordingId == recordingId)
+                    return recordings[i];
+            }
+            return null;
+        }
+
+        private void DrawRetiredKerbalsSection()
+        {
+            var retiredKerbals = LedgerOrchestrator.Kerbals?.GetRetiredKerbals() ?? new List<string>();
+            if (retiredKerbals.Count > 0)
+            {
+                if (retiredKerbals.Count != lastRetiredKerbalCount)
+                {
+                    ParsekLog.Verbose("UI",
+                        $"Retired kerbals count changed: {lastRetiredKerbalCount} -> {retiredKerbals.Count}");
+                    lastRetiredKerbalCount = retiredKerbals.Count;
+                }
+
+                GUILayout.Space(5);
+                GUILayout.Label($"Retired Stand-ins ({retiredKerbals.Count})", GUI.skin.box);
+                GUILayout.BeginVertical(GUI.skin.box);
+                for (int i = 0; i < retiredKerbals.Count; i++)
+                {
+                    GUILayout.Label(retiredKerbals[i], timelineGrayStyle);
+                }
+                GUILayout.EndVertical();
+            }
+            else if (lastRetiredKerbalCount > 0)
+            {
+                ParsekLog.Verbose("UI", "Retired kerbals list cleared");
+                lastRetiredKerbalCount = 0;
+            }
+        }
+
+        private void DrawResourceBudget()
+        {
+            // Hide budget entirely in sandbox mode
+            try
+            {
+                if (HighLogic.CurrentGame?.Mode == Game.Modes.SANDBOX)
+                    return;
+            }
+            catch { }
+
+            var budget = parentUI.GetCachedBudget();
+
+            if (budget.reservedFunds <= 0 && budget.reservedScience <= 0 && budget.reservedReputation <= 0)
+                return;
+
+            var ic = System.Globalization.CultureInfo.InvariantCulture;
+            GUILayout.Space(5);
+            GUILayout.Label("Resources", GUI.skin.box);
+
+            bool anyOverCommitted = false;
+            bool isScienceMode = false;
+            try { isScienceMode = HighLogic.CurrentGame?.Mode == Game.Modes.SCIENCE_SANDBOX; }
+            catch { }
+
+            if (!isScienceMode && budget.reservedFunds > 0)
+            {
+                double currentFunds = 0;
+                try { if (Funding.Instance != null) currentFunds = Funding.Instance.Funds; } catch { }
+                anyOverCommitted |= DrawResourceLine("Funds", currentFunds, budget.reservedFunds, "N0", ic);
+            }
+
+            if (budget.reservedScience > 0)
+            {
+                double currentScience = 0;
+                try { if (ResearchAndDevelopment.Instance != null) currentScience = ResearchAndDevelopment.Instance.Science; } catch { }
+                anyOverCommitted |= DrawResourceLine("Science", currentScience, budget.reservedScience, "F1", ic);
+            }
+
+            if (!isScienceMode && budget.reservedReputation > 0)
+            {
+                float currentRep = 0;
+                try { if (Reputation.Instance != null) currentRep = Reputation.Instance.reputation; } catch { }
+                anyOverCommitted |= DrawResourceLine("Reputation", (double)currentRep, budget.reservedReputation, "F0", ic);
+            }
+
+            if (anyOverCommitted)
+            {
+                Color prev = GUI.contentColor;
+                GUI.contentColor = Color.yellow;
+                GUILayout.Label("Over-committed! Some timeline actions may fail.");
+                GUI.contentColor = prev;
+            }
+        }
+
+        /// <summary>
+        /// Draws a single resource budget line. Returns true if over-committed.
+        /// </summary>
+        private static bool DrawResourceLine(string label, double currentAmount, double reserved,
+            string format, System.Globalization.CultureInfo ic)
+        {
+            double available = currentAmount - reserved;
+            double total = currentAmount;
+            bool over = available < 0;
+            Color prev = GUI.contentColor;
+            if (over) GUI.contentColor = Color.red;
+            GUILayout.Label($"{label}: {available.ToString(format, ic)} available to use ({reserved.ToString(format, ic)} committed out of {total.ToString(format, ic)} total)");
+            GUI.contentColor = prev;
+            return over;
+        }
+    }
+}

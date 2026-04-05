@@ -109,7 +109,7 @@ namespace Parsek
                 "Parsek", ui.GetOpaqueWindowStyle(), GUILayout.Width(250));
 
             ui.DrawRecordingsWindowIfOpen(windowRect);
-            ui.DrawActionsWindowIfOpen(windowRect);
+            ui.DrawTimelineWindowIfOpen(windowRect);
             ui.DrawSettingsWindowIfOpen(windowRect);
             ui.DrawTestRunnerWindowIfOpen(windowRect, this);
         }
