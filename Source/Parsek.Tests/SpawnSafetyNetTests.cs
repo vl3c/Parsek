@@ -889,6 +889,72 @@ namespace Parsek.Tests
             Assert.Equal(3.0, alt);
         }
 
+        [Fact]
+        public void ResolveSpawnPosition_BreakupContinuousSplashed_ClampsAltitudeToZero()
+        {
+            // Breakup-continuous recording with terminal=Splashed: last trajectory point
+            // is still above sea level. Altitude must be clamped to 0. (#224)
+            var rec = new Recording
+            {
+                VesselSnapshot = new ConfigNode("VESSEL"),
+                EvaCrewName = null,
+                ChildBranchPointId = "bp-crash",
+                TerminalStateValue = TerminalState.Splashed
+            };
+
+            var lastPt = new TrajectoryPoint { latitude = -0.12, longitude = -73.72, altitude = 42.5 };
+            VesselSpawner.ResolveSpawnPosition(rec, 13, lastPt, out double lat, out double lon, out double alt);
+
+            Assert.Equal(-0.12, lat);
+            Assert.Equal(-73.72, lon);
+            Assert.Equal(0.0, alt);
+            Assert.Contains(logLines, l => l.Contains("Clamped altitude") && l.Contains("SPLASHED"));
+        }
+
+        [Fact]
+        public void ResolveSpawnPosition_BreakupContinuousSplashed_NegativeAlt_NoClamp()
+        {
+            // Already at or below sea level — no clamping needed
+            var rec = new Recording
+            {
+                VesselSnapshot = new ConfigNode("VESSEL"),
+                EvaCrewName = null,
+                ChildBranchPointId = "bp-crash",
+                TerminalStateValue = TerminalState.Splashed
+            };
+
+            var lastPt = new TrajectoryPoint { latitude = -0.12, longitude = -73.72, altitude = -1.5 };
+            VesselSpawner.ResolveSpawnPosition(rec, 13, lastPt, out double lat, out double lon, out double alt);
+
+            Assert.Equal(-1.5, alt);
+        }
+
+        [Fact]
+        public void ResolveSpawnPosition_NonBreakupSplashed_ClampsAltitudeToZero()
+        {
+            // Non-breakup recording that uses snapshot position: snapshot alt > 0 with
+            // terminal=Splashed should still be clamped (safety net for all paths).
+            var snapshot = new ConfigNode("VESSEL");
+            snapshot.AddValue("lat", "-0.12");
+            snapshot.AddValue("lon", "-73.72");
+            snapshot.AddValue("alt", "15.3");
+
+            var rec = new Recording
+            {
+                VesselSnapshot = snapshot,
+                EvaCrewName = null,
+                ChildBranchPointId = null,
+                TerminalStateValue = TerminalState.Splashed
+            };
+
+            var lastPt = new TrajectoryPoint { latitude = 0, longitude = 0, altitude = 0 };
+            VesselSpawner.ResolveSpawnPosition(rec, 5, lastPt, out double lat, out double lon, out double alt);
+
+            Assert.Equal(-0.12, lat);
+            Assert.Equal(-73.72, lon);
+            Assert.Equal(0.0, alt);
+        }
+
         #endregion
 
         #region StripEvaLadderState

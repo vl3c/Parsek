@@ -457,6 +457,7 @@ namespace Parsek
 
             // Breakup-continuous recordings: snapshot position is from breakup time (mid-air),
             // not from the actual rest position. Use trajectory endpoint like EVA. (#224)
+            // No early return — falls through to altitude clamping below.
             bool useTrajectoryEndpoint = rec.ChildBranchPointId != null && rec.TerminalStateValue.HasValue;
             if (useTrajectoryEndpoint)
             {
@@ -466,19 +467,20 @@ namespace Parsek
                 ParsekLog.Verbose("Spawner",
                     $"Breakup-continuous spawn #{index} ({rec.VesselName}): using trajectory endpoint " +
                     $"(snapshot position is from breakup time, not rest position)");
-                return;
             }
-
-            bool hasSnapshotPos = TryGetSnapshotDouble(rec.VesselSnapshot, "lat", out lat)
-                               && TryGetSnapshotDouble(rec.VesselSnapshot, "lon", out lon)
-                               && TryGetSnapshotDouble(rec.VesselSnapshot, "alt", out alt);
-            if (!hasSnapshotPos)
+            else
             {
-                lat = lastPt.latitude;
-                lon = lastPt.longitude;
-                alt = lastPt.altitude;
-                ParsekLog.Verbose("Spawner",
-                    $"No snapshot lat/lon/alt for #{index} ({rec.VesselName}) — using trajectory endpoint for collision check");
+                bool hasSnapshotPos = TryGetSnapshotDouble(rec.VesselSnapshot, "lat", out lat)
+                                   && TryGetSnapshotDouble(rec.VesselSnapshot, "lon", out lon)
+                                   && TryGetSnapshotDouble(rec.VesselSnapshot, "alt", out alt);
+                if (!hasSnapshotPos)
+                {
+                    lat = lastPt.latitude;
+                    lon = lastPt.longitude;
+                    alt = lastPt.altitude;
+                    ParsekLog.Verbose("Spawner",
+                        $"No snapshot lat/lon/alt for #{index} ({rec.VesselName}) — using trajectory endpoint for collision check");
+                }
             }
 
             // Safety net: clamp altitude for surface terminal states.

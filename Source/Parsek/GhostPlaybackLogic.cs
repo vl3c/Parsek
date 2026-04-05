@@ -2286,7 +2286,7 @@ namespace Parsek
 
                     // No child shares this vessel PID — recording IS the effective leaf
                     ParsekLog.VerboseRateLimited("Spawner",
-                        "effective-leaf-" + rec.RecordingId,
+                        rec.RecordingId,
                         string.Format(CultureInfo.InvariantCulture,
                             "IsEffectiveLeafForVessel: recording {0} vessel={1} is effective leaf " +
                             "(breakup-continuous, no same-PID continuation child)",

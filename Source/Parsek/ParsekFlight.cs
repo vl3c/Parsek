@@ -3766,8 +3766,10 @@ namespace Parsek
             var trees = RecordingStore.CommittedTrees;
             for (int t = 0; t < trees.Count; t++)
             {
-                foreach (var rec in trees[t].Recordings.Values)
+                var enumerator = trees[t].Recordings.GetEnumerator();
+                while (enumerator.MoveNext())
                 {
+                    var rec = enumerator.Current.Value;
                     if (rec.VesselPersistentId == activePid && !rec.VesselSpawned)
                     {
                         rec.ForceSpawnNewVessel = true;
