@@ -41,6 +41,13 @@ namespace Parsek
         private static int kscSequenceCounter;
 
         /// <summary>
+        /// Fired after RecalculateAndPatch completes — signals that timeline data
+        /// (recordings, ledger actions) may have changed. Subscribed by ParsekUI
+        /// to invalidate the TimelineWindowUI cache.
+        /// </summary>
+        internal static Action OnTimelineDataChanged;
+
+        /// <summary>
         /// Initialize modules and register with engine. Call once on game start.
         /// Idempotent — safe to call multiple times.
         /// </summary>
@@ -443,6 +450,8 @@ namespace Parsek
 
             ParsekLog.Info(Tag,
                 $"RecalculateAndPatch complete: {actions.Count} actions walked");
+
+            OnTimelineDataChanged?.Invoke();
         }
 
         /// <summary>
@@ -718,6 +727,7 @@ namespace Parsek
             kerbalsModule = null;
             RecalculationEngine.ClearModules();
             Ledger.ResetForTesting();
+            OnTimelineDataChanged = null;
             ParsekLog.Verbose(Tag, "ResetForTesting: all state cleared");
         }
 
