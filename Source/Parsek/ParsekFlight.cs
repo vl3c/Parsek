@@ -3910,7 +3910,6 @@ namespace Parsek
 
             activeGhostChains = activeChains;
 
-
             // Wire the ghosted-vessel check for ShouldSkipExternalVesselGhost (Task 6b-3b)
             GhostPlaybackLogic.SetIsGhostedOverride(
                 pid => vesselGhoster != null && vesselGhoster.IsGhosted(pid));
@@ -3956,7 +3955,8 @@ namespace Parsek
 
                 activeChains[pid] = chain;
 
-                // Create ghost map vessel for non-terminated chains ending in stable orbit
+                // Create ghost map vessel for chains ending in stable orbit
+                // (terminated chains already filtered by the continue above)
                 if (!string.IsNullOrEmpty(chain.TipRecordingId))
                 {
                     Recording tipRecording = FindTipRecordingById(chain.TipRecordingId);
