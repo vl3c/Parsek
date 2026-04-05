@@ -302,6 +302,12 @@ Extract test runner window (276 lines, 8 fields) from ParsekUI into `TestRunnerU
 
 **Priority:** Low — cosmetic
 
+### T51. GhostChain GhostStartUT > SpawnUT for 13 chains
+
+In-game test `ChainTimeRangesValid` fails: 13 ghost chains have `GhostStartUT > SpawnUT`, meaning the ghost visibility range starts after the vessel should already be replaced by a ghost. Detected by `GhostChainWalker.ComputeAllGhostChains(trees, double.MaxValue)` in the test career save. Likely a `GhostChainWalker` computation issue with terminated or multi-segment chains — the ghost start time is derived from the tip recording's StartUT but SpawnUT comes from the earliest link's EndUT.
+
+**Priority:** Medium — affects ghost chain correctness, but no runtime crash
+
 ---
 
 # Known Bugs
