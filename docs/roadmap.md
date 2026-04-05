@@ -136,9 +136,11 @@ Full redesign of milestone capture, resource budgeting, and action replay. Stand
 
 ---
 
-## Phase 9: Timeline (NEXT)
+## Phase 9: Timeline (v0.7 — IN PROGRESS)
 
-Evolve the current Game Actions window into a unified, chronological timeline view of all committed events across all Parsek systems. The timeline is a read-only query layer — it does not own data. Recordings, game actions, and milestones remain in their respective systems; the timeline pulls from all of them, normalizes entries into a common shape (UT, type, description, source recording ID, visual category), and presents them sorted by UT.
+Design document: `docs/parsek-timeline-design.md`
+
+Evolve the current Game Actions window into a unified, chronological timeline view of all committed career-level events. The timeline is a read-only query layer — it does not own data. Recordings, game actions, and milestones remain in their respective systems; the timeline pulls from all of them, normalizes entries into a common shape (UT, type, description, source recording ID, visual category), and presents them sorted by UT. Vessel-level telemetry (part events, segment events) stays in the Recordings Manager.
 
 ### Timeline object
 
@@ -270,7 +272,7 @@ v0.6: Game Actions System (COMPLETE)
     │  facilities, strategies, reservations, recalculation
     │
     ▼
-Phase 9: Timeline (NEXT)
+Phase 9: Timeline (v0.7 — IN PROGRESS)
     │  Unified chronological view of all committed events,
     │  significance tiers, filtering, rewind from timeline
     │
