@@ -15,6 +15,7 @@ namespace Parsek
         // === Trajectory data ===
         List<TrajectoryPoint> Points { get; }
         List<OrbitSegment> OrbitSegments { get; }
+        bool HasOrbitSegments { get; }
         List<TrackSection> TrackSections { get; }
         double StartUT { get; }
         double EndUT { get; }

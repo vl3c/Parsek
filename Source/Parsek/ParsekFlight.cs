@@ -5856,7 +5856,7 @@ namespace Parsek
                     var rec = committed[i];
                     if (rec.VesselPersistentId != chain.OriginalVesselPid) continue;
 
-                    if (rec.OrbitSegments != null && rec.OrbitSegments.Count > 0)
+                    if (rec.HasOrbitSegments)
                     {
                         PositionGhostFromOrbitOnly(ghostGO, rec, currentUT,
                             (int)(chain.OriginalVesselPid * 10000));
@@ -7542,7 +7542,7 @@ namespace Parsek
             if (isWatchedGhost)
             {
                 float cutoffKm = ParsekSettings.Current?.ghostCameraCutoffKm ?? 300f;
-                bool hasOrbitalSegments = rec.OrbitSegments != null && rec.OrbitSegments.Count > 0;
+                bool hasOrbitalSegments = rec.HasOrbitSegments;
                 if (GhostPlaybackLogic.ShouldExitWatchForCutoff(ghostDistance, cutoffKm, hasOrbitalSegments))
                 {
                     ParsekLog.Info("Zone",
@@ -7567,7 +7567,7 @@ namespace Parsek
             // #171: During warp, exempt orbital ghosts from zone hiding — they travel far
             // from the player and would complete playback while invisible.
             if (shouldHideMesh && GhostPlaybackLogic.ShouldExemptFromZoneHide(
-                    TimeWarp.CurrentRate, rec.OrbitSegments != null && rec.OrbitSegments.Count > 0))
+                    TimeWarp.CurrentRate, rec.HasOrbitSegments))
             {
                 shouldHideMesh = false;
                 ParsekLog.VerboseRateLimited("Zone", $"warp-zone-exempt-{recIdx}",

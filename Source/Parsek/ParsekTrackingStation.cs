@@ -79,7 +79,7 @@ namespace Parsek
                     continue;
 
                 // Skip if currently in an orbit segment (ProtoVessel handles that)
-                if (rec.OrbitSegments != null
+                if (rec.HasOrbitSegments
                     && TrajectoryMath.FindOrbitSegment(rec.OrbitSegments, currentUT).HasValue)
                     continue;
 
