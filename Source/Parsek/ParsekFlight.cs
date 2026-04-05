@@ -260,6 +260,7 @@ namespace Parsek
 
         // Ghost playback engine + policy (T25 extraction)
         private GhostPlaybackEngine engine;
+        internal GhostPlaybackEngine Engine => engine;
         private ParsekPlaybackPolicy policy;
 
         // Cached per-frame allocations for engine path (avoid GC pressure)
