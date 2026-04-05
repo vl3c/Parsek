@@ -727,9 +727,8 @@ namespace Parsek
 
                 foreach (var kvp in reservations)
                 {
-                    string kerbalName = kvp.Key;
-
                     // Bridge to SwapReservedCrewInFlight: map reserved -> active occupant
+                    string kerbalName = kvp.Key;
                     string occupant = GetActiveOccupant(kerbalName);
                     if (occupant != null)
                     {

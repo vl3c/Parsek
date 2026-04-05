@@ -32,8 +32,12 @@ namespace Parsek.Patches
             if (method == null)
                 ParsekLog.Warn("CrewDialogFilter",
                     "BaseCrewAssignmentDialog.AddAvailItem(PCM,UIList,ButtonTypes) not found " +
-                    "— crew dialog filtering will not apply");
+                    "— crew dialog filtering will not apply. " +
+                    "Harmony will skip this patch (caught by ParsekHarmony try/catch).");
 
+            // Returning null causes Harmony to throw during patching.
+            // ParsekHarmony.Awake wraps each patch in try/catch, so this
+            // just skips the patch and increments the failed counter.
             return method;
         }
 
