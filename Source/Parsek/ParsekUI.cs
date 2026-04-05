@@ -588,6 +588,66 @@ namespace Parsek
             actionsRedStyle.normal.textColor = new Color(1f, 0.5f, 0.5f);
         }
 
+        private void DrawLedgerActionsSection(IReadOnlyList<GameAction> ledgerActions)
+        {
+            GUILayout.Label($"Ledger Actions ({ledgerActions.Count})", GUI.skin.box);
+
+            // Sorted by UT descending (newest first)
+            for (int i = ledgerActions.Count - 1; i >= 0; i--)
+            {
+                var action = ledgerActions[i];
+                Color color = GameActionDisplay.GetColor(action.Type);
+                GUIStyle style;
+                if (color.g > 0.9f && color.r < 0.6f)
+                    style = actionsGreenStyle;
+                else if (color.r > 0.9f && color.g < 0.6f)
+                    style = actionsRedStyle;
+                else
+                    style = actionsWhiteStyle;
+
+                GUILayout.BeginHorizontal();
+
+                string time = KSPUtil.PrintDateCompact(action.UT, true);
+                GUILayout.Label(time, style, GUILayout.Width(90));
+
+                string category = GameActionDisplay.GetCategory(action.Type);
+                GUILayout.Label(category, style, GUILayout.Width(65));
+
+                string desc = GameActionDisplay.GetDescription(action);
+                GUILayout.Label(desc, style, GUILayout.ExpandWidth(true));
+
+                GUILayout.EndHorizontal();
+            }
+        }
+
+        private void DrawRetiredKerbalsSection()
+        {
+            var retiredKerbals = LedgerOrchestrator.Kerbals?.GetRetiredKerbals() ?? new List<string>();
+            if (retiredKerbals.Count > 0)
+            {
+                if (retiredKerbals.Count != lastRetiredKerbalCount)
+                {
+                    ParsekLog.Verbose("UI",
+                        $"Retired kerbals count changed: {lastRetiredKerbalCount} -> {retiredKerbals.Count}");
+                    lastRetiredKerbalCount = retiredKerbals.Count;
+                }
+
+                GUILayout.Space(5);
+                GUILayout.Label($"Retired Stand-ins ({retiredKerbals.Count})", GUI.skin.box);
+                GUILayout.BeginVertical(GUI.skin.box);
+                for (int i = 0; i < retiredKerbals.Count; i++)
+                {
+                    GUILayout.Label(retiredKerbals[i], actionsGrayStyle);
+                }
+                GUILayout.EndVertical();
+            }
+            else if (lastRetiredKerbalCount > 0)
+            {
+                ParsekLog.Verbose("UI", "Retired kerbals list cleared");
+                lastRetiredKerbalCount = 0;
+            }
+        }
+
         private void DrawActionsWindow(int windowID)
         {
             EnsureActionsStyles();
@@ -629,38 +689,8 @@ namespace Parsek
 
                 actionsScrollPos = GUILayout.BeginScrollView(actionsScrollPos, GUILayout.ExpandHeight(true));
 
-                // --- Ledger Actions (new game actions system) ---
                 if (hasLedger)
-                {
-                    GUILayout.Label($"Ledger Actions ({ledgerActions.Count})", GUI.skin.box);
-
-                    // Sorted by UT descending (newest first)
-                    for (int i = ledgerActions.Count - 1; i >= 0; i--)
-                    {
-                        var action = ledgerActions[i];
-                        Color color = GameActionDisplay.GetColor(action.Type);
-                        GUIStyle style;
-                        if (color.g > 0.9f && color.r < 0.6f)
-                            style = actionsGreenStyle;
-                        else if (color.r > 0.9f && color.g < 0.6f)
-                            style = actionsRedStyle;
-                        else
-                            style = actionsWhiteStyle;
-
-                        GUILayout.BeginHorizontal();
-
-                        string time = KSPUtil.PrintDateCompact(action.UT, true);
-                        GUILayout.Label(time, style, GUILayout.Width(90));
-
-                        string category = GameActionDisplay.GetCategory(action.Type);
-                        GUILayout.Label(category, style, GUILayout.Width(65));
-
-                        string desc = GameActionDisplay.GetDescription(action);
-                        GUILayout.Label(desc, style, GUILayout.ExpandWidth(true));
-
-                        GUILayout.EndHorizontal();
-                    }
-                }
+                    DrawLedgerActionsSection(ledgerActions);
 
                 // --- Recorded Actions (legacy game state events) ---
                 if (hasCommitted)
@@ -748,31 +778,7 @@ namespace Parsek
                 GUILayout.Label("No actions recorded.");
             }
 
-            // Retired Kerbals section
-            var retiredKerbals = LedgerOrchestrator.Kerbals?.GetRetiredKerbals() ?? new List<string>();
-            if (retiredKerbals.Count > 0)
-            {
-                if (retiredKerbals.Count != lastRetiredKerbalCount)
-                {
-                    ParsekLog.Verbose("UI",
-                        $"Retired kerbals count changed: {lastRetiredKerbalCount} -> {retiredKerbals.Count}");
-                    lastRetiredKerbalCount = retiredKerbals.Count;
-                }
-
-                GUILayout.Space(5);
-                GUILayout.Label($"Retired Stand-ins ({retiredKerbals.Count})", GUI.skin.box);
-                GUILayout.BeginVertical(GUI.skin.box);
-                for (int i = 0; i < retiredKerbals.Count; i++)
-                {
-                    GUILayout.Label(retiredKerbals[i], actionsGrayStyle);
-                }
-                GUILayout.EndVertical();
-            }
-            else if (lastRetiredKerbalCount > 0)
-            {
-                ParsekLog.Verbose("UI", "Retired kerbals list cleared");
-                lastRetiredKerbalCount = 0;
-            }
+            DrawRetiredKerbalsSection();
 
             // C. Bottom Bar — pinned to window bottom
             GUILayout.FlexibleSpace();
@@ -1134,11 +1140,8 @@ namespace Parsek
             phaseStyleApproach.normal.textColor = new Color(0.4f, 0.7f, 1f); // sky blue
         }
 
-        private void DrawRecordingsWindow(int windowID)
+        private void HandleRecordingsDefocus(List<Recording> committed)
         {
-            var committed = RecordingStore.CommittedRecordings;
-            double now = Planetarium.GetUniversalTime();
-
             // Click outside active rename field → commit and close
             if (Event.current.type == EventType.MouseDown &&
                 (renamingRecordingIdx >= 0 || renamingGroup != null))
@@ -1160,6 +1163,140 @@ namespace Parsek
                     CommitLoopPeriodEdit(committed);
                 }
             }
+        }
+
+        private void DrawRecordingsTableHeader(List<Recording> committed)
+        {
+            // Header row
+            GUILayout.BeginHorizontal();
+            // Select-all enable header checkbox
+            int enableCount = 0;
+            for (int i = 0; i < committed.Count; i++)
+                if (committed[i].PlaybackEnabled) enableCount++;
+            bool allEnabled = enableCount == committed.Count;
+            bool newAllEnabled = GUILayout.Toggle(allEnabled, "", GUILayout.Width(ColW_Enable));
+            if (newAllEnabled != allEnabled)
+            {
+                for (int i = 0; i < committed.Count; i++)
+                    committed[i].PlaybackEnabled = newAllEnabled;
+                ParsekLog.Info("UI", $"Set playback enabled for all recordings: enabled={newAllEnabled}");
+            }
+            DrawSortableHeader("#", SortColumn.Index, ColW_Index);
+            DrawSortableHeader("Name", SortColumn.Name, 0, true);
+            DrawSortableHeader("Phase", SortColumn.Phase, ColW_Phase);
+            DrawSortableHeader("Launch", SortColumn.LaunchTime, ColW_Launch);
+            DrawSortableHeader("Duration", SortColumn.Duration, ColW_Dur);
+
+            if (showExpandedStats)
+            {
+                GUILayout.Label("MaxAlt", GUILayout.Width(ColW_MaxAlt));
+                GUILayout.Label("MaxSpd", GUILayout.Width(ColW_MaxSpd));
+                GUILayout.Label("Dist", GUILayout.Width(ColW_Dist));
+                GUILayout.Label("Pts", GUILayout.Width(ColW_Pts));
+            }
+
+            DrawSortableHeader("Status", SortColumn.Status, ColW_Status);
+
+            // Group column header
+            GUILayout.Label("Group", GUILayout.Width(ColW_Group));
+
+            // Select-all loop header + checkbox
+            int loopCount = 0;
+            for (int i = 0; i < committed.Count; i++)
+                if (committed[i].LoopPlayback) loopCount++;
+
+            bool allLoop = loopCount == committed.Count;
+            GUILayout.BeginHorizontal(GUILayout.Width(ColW_Loop));
+            GUILayout.FlexibleSpace();
+            GUILayout.Label("Loop\nGhost");
+            bool newAllLoop = GUILayout.Toggle(allLoop, "");
+            GUILayout.FlexibleSpace();
+            GUILayout.EndHorizontal();
+            if (newAllLoop != allLoop)
+            {
+                for (int i = 0; i < committed.Count; i++)
+                    committed[i].LoopPlayback = newAllLoop;
+                ParsekLog.Info("UI", $"Set loop playback for all recordings: enabled={newAllLoop}");
+            }
+
+            GUILayout.BeginHorizontal(GUILayout.Width(ColW_Period));
+            GUILayout.FlexibleSpace();
+            GUILayout.Label(new GUIContent("Every",
+                "Loop interval between cycles.\nClick unit to cycle: sec \u2192 min \u2192 hr \u2192 auto.\n\"auto\" inherits from Settings > Looping."));
+            GUILayout.FlexibleSpace();
+            GUILayout.EndHorizontal();
+
+            if (InFlight)
+                GUILayout.Label("Watch", GUILayout.Width(ColW_Watch));
+            GUILayout.Label("Rewind\nF.Forward", GUILayout.Width(ColW_Rewind));
+
+            // Hide column header + toggle
+            GUILayout.BeginHorizontal(GUILayout.Width(ColW_Hide));
+            GUILayout.FlexibleSpace();
+            GUILayout.Label("Hide");
+            bool newHideActive = GUILayout.Toggle(GroupHierarchyStore.HideActive, "");
+            GUILayout.FlexibleSpace();
+            GUILayout.EndHorizontal();
+            if (newHideActive != GroupHierarchyStore.HideActive)
+            {
+                GroupHierarchyStore.HideActive = newHideActive;
+                ParsekLog.Info("UI", $"Hide active toggled: {GroupHierarchyStore.HideActive}");
+            }
+
+            GUILayout.EndHorizontal();
+        }
+
+        private void DrawRecordingsBottomBar(List<Recording> committed)
+        {
+            // Bottom button bar — pinned to window bottom
+            GUILayout.FlexibleSpace();
+            GUILayout.BeginHorizontal();
+
+            if (committed.Count > 0)
+            {
+                string statsLabel = showExpandedStats ? "Stats \u25c0" : "Stats \u25b6";
+                if (GUILayout.Button(statsLabel, GUILayout.Width(65)))
+                {
+                    showExpandedStats = !showExpandedStats;
+                    ParsekLog.Verbose("UI", $"Recordings Stats toggled: {(showExpandedStats ? "expanded" : "collapsed")}");
+                    if (showExpandedStats && recordingsWindowRect.width < 1324f)
+                        recordingsWindowRect.width = 1324f;
+                    else if (!showExpandedStats)
+                        recordingsWindowRect.width = 1106f;
+                }
+            }
+
+            if (GUILayout.Button("New Group", GUILayout.Width(80)))
+            {
+                string newName = GenerateUniqueGroupName();
+                knownEmptyGroups.Add(newName);
+                expandedGroups.Add(newName);
+                renamingGroup = newName;
+                renamingGroupText = newName;
+                ParsekLog.Info("UI", $"Group '{newName}' created");
+            }
+
+            if (GUILayout.Button("Close"))
+            {
+                showRecordingsWindow = false;
+                groupPopupOpen = false;
+                ParsekLog.Verbose("UI", "Recordings window closed via button");
+            }
+
+            GUILayout.EndHorizontal();
+
+            DrawResizeHandle(recordingsWindowRect, ref isResizingRecordingsWindow,
+                "Recordings window");
+
+            GUI.DragWindow();
+        }
+
+        private void DrawRecordingsWindow(int windowID)
+        {
+            var committed = RecordingStore.CommittedRecordings;
+            double now = Planetarium.GetUniversalTime();
+
+            HandleRecordingsDefocus(committed);
 
             EnsureStatusStyles();
             EnsurePhaseStyles();
@@ -1176,83 +1313,7 @@ namespace Parsek
                 recordingsScrollPos = GUILayout.BeginScrollView(
                     recordingsScrollPos, false, true, GUILayout.ExpandHeight(true));
 
-                // Header row
-                GUILayout.BeginHorizontal();
-                // Select-all enable header checkbox
-                int enableCount = 0;
-                for (int i = 0; i < committed.Count; i++)
-                    if (committed[i].PlaybackEnabled) enableCount++;
-                bool allEnabled = enableCount == committed.Count;
-                bool newAllEnabled = GUILayout.Toggle(allEnabled, "", GUILayout.Width(ColW_Enable));
-                if (newAllEnabled != allEnabled)
-                {
-                    for (int i = 0; i < committed.Count; i++)
-                        committed[i].PlaybackEnabled = newAllEnabled;
-                    ParsekLog.Info("UI", $"Set playback enabled for all recordings: enabled={newAllEnabled}");
-                }
-                DrawSortableHeader("#", SortColumn.Index, ColW_Index);
-                DrawSortableHeader("Name", SortColumn.Name, 0, true);
-                DrawSortableHeader("Phase", SortColumn.Phase, ColW_Phase);
-                DrawSortableHeader("Launch", SortColumn.LaunchTime, ColW_Launch);
-                DrawSortableHeader("Duration", SortColumn.Duration, ColW_Dur);
-
-                if (showExpandedStats)
-                {
-                    GUILayout.Label("MaxAlt", GUILayout.Width(ColW_MaxAlt));
-                    GUILayout.Label("MaxSpd", GUILayout.Width(ColW_MaxSpd));
-                    GUILayout.Label("Dist", GUILayout.Width(ColW_Dist));
-                    GUILayout.Label("Pts", GUILayout.Width(ColW_Pts));
-                }
-
-                DrawSortableHeader("Status", SortColumn.Status, ColW_Status);
-
-                // Group column header
-                GUILayout.Label("Group", GUILayout.Width(ColW_Group));
-
-                // Select-all loop header + checkbox
-                int loopCount = 0;
-                for (int i = 0; i < committed.Count; i++)
-                    if (committed[i].LoopPlayback) loopCount++;
-
-                bool allLoop = loopCount == committed.Count;
-                GUILayout.BeginHorizontal(GUILayout.Width(ColW_Loop));
-                GUILayout.FlexibleSpace();
-                GUILayout.Label("Loop\nGhost");
-                bool newAllLoop = GUILayout.Toggle(allLoop, "");
-                GUILayout.FlexibleSpace();
-                GUILayout.EndHorizontal();
-                if (newAllLoop != allLoop)
-                {
-                    for (int i = 0; i < committed.Count; i++)
-                        committed[i].LoopPlayback = newAllLoop;
-                    ParsekLog.Info("UI", $"Set loop playback for all recordings: enabled={newAllLoop}");
-                }
-
-                GUILayout.BeginHorizontal(GUILayout.Width(ColW_Period));
-                GUILayout.FlexibleSpace();
-                GUILayout.Label(new GUIContent("Every",
-                    "Loop interval between cycles.\nClick unit to cycle: sec \u2192 min \u2192 hr \u2192 auto.\n\"auto\" inherits from Settings > Looping."));
-                GUILayout.FlexibleSpace();
-                GUILayout.EndHorizontal();
-
-                if (InFlight)
-                    GUILayout.Label("Watch", GUILayout.Width(ColW_Watch));
-                GUILayout.Label("Rewind\nF.Forward", GUILayout.Width(ColW_Rewind));
-
-                // Hide column header + toggle
-                GUILayout.BeginHorizontal(GUILayout.Width(ColW_Hide));
-                GUILayout.FlexibleSpace();
-                GUILayout.Label("Hide");
-                bool newHideActive = GUILayout.Toggle(GroupHierarchyStore.HideActive, "");
-                GUILayout.FlexibleSpace();
-                GUILayout.EndHorizontal();
-                if (newHideActive != GroupHierarchyStore.HideActive)
-                {
-                    GroupHierarchyStore.HideActive = newHideActive;
-                    ParsekLog.Info("UI", $"Hide active toggled: {GroupHierarchyStore.HideActive}");
-                }
-
-                GUILayout.EndHorizontal();
+                DrawRecordingsTableHeader(committed);
 
                 // Rebuild if a header click invalidated during this frame
                 RebuildSortedIndices(committed, now);
@@ -1362,47 +1423,7 @@ namespace Parsek
                     scrollViewRect = GUILayoutUtility.GetLastRect();
             }
 
-            // Bottom button bar — pinned to window bottom
-            GUILayout.FlexibleSpace();
-            GUILayout.BeginHorizontal();
-
-            if (committed.Count > 0)
-            {
-                string statsLabel = showExpandedStats ? "Stats \u25c0" : "Stats \u25b6";
-                if (GUILayout.Button(statsLabel, GUILayout.Width(65)))
-                {
-                    showExpandedStats = !showExpandedStats;
-                    ParsekLog.Verbose("UI", $"Recordings Stats toggled: {(showExpandedStats ? "expanded" : "collapsed")}");
-                    if (showExpandedStats && recordingsWindowRect.width < 1324f)
-                        recordingsWindowRect.width = 1324f;
-                    else if (!showExpandedStats)
-                        recordingsWindowRect.width = 1106f;
-                }
-            }
-
-            if (GUILayout.Button("New Group", GUILayout.Width(80)))
-            {
-                string newName = GenerateUniqueGroupName();
-                knownEmptyGroups.Add(newName);
-                expandedGroups.Add(newName);
-                renamingGroup = newName;
-                renamingGroupText = newName;
-                ParsekLog.Info("UI", $"Group '{newName}' created");
-            }
-
-            if (GUILayout.Button("Close"))
-            {
-                showRecordingsWindow = false;
-                groupPopupOpen = false;
-                ParsekLog.Verbose("UI", "Recordings window closed via button");
-            }
-
-            GUILayout.EndHorizontal();
-
-            DrawResizeHandle(recordingsWindowRect, ref isResizingRecordingsWindow,
-                "Recordings window");
-
-            GUI.DragWindow();
+            DrawRecordingsBottomBar(committed);
         }
 
         /// <summary>
@@ -3690,7 +3711,14 @@ namespace Parsek
             }
             var sorted = cachedSortedCandidates;
 
-            // Scrollable per-craft rows
+            DrawSpawnCandidateRows(sorted, currentUT, ic);
+
+            DrawSpawnControlBottomBar(candidates, currentUT);
+        }
+
+        private void DrawSpawnCandidateRows(List<NearbySpawnCandidate> sorted,
+            double currentUT, System.Globalization.CultureInfo ic)
+        {
             spawnControlScrollPos = GUILayout.BeginScrollView(spawnControlScrollPos, GUILayout.ExpandHeight(true));
             for (int i = 0; i < sorted.Count; i++)
             {
@@ -3763,7 +3791,11 @@ namespace Parsek
                 GUILayout.EndHorizontal();
             }
             GUILayout.EndScrollView();
+        }
 
+        private void DrawSpawnControlBottomBar(List<NearbySpawnCandidate> candidates,
+            double currentUT)
+        {
             // Bottom section -- pinned to window bottom
             GUILayout.FlexibleSpace();
 
@@ -4248,59 +4280,8 @@ namespace Parsek
             cachedTestGroups = sorted;
         }
 
-        private void DrawTestRunnerWindow(int windowID)
+        private void DrawTestCategoryList()
         {
-            if (testRunner == null)
-            {
-                GUILayout.Label("Test runner not initialized.");
-                GUI.DragWindow();
-                return;
-            }
-
-            // --- Controls bar ---
-            GUILayout.BeginHorizontal();
-            GUI.enabled = !testRunner.IsRunning;
-            if (GUILayout.Button("Run All"))
-            {
-                testRunner.ResetResults();
-                testRunner.RunAll();
-                ParsekLog.Info("UI", "Test runner: Run All clicked");
-            }
-            if (GUILayout.Button("Reset"))
-            {
-                testRunner.ResetResults();
-                ParsekLog.Verbose("UI", "Test runner: Reset clicked");
-            }
-            GUI.enabled = testRunner.IsRunning;
-            if (GUILayout.Button("Cancel"))
-            {
-                testRunner.Cancel();
-            }
-            GUI.enabled = true;
-            GUILayout.EndHorizontal();
-
-            // --- Summary ---
-            GUILayout.Space(SpacingSmall);
-            int total = testRunner.Tests.Count;
-            string status = testRunner.IsRunning ? "RUNNING" : "idle";
-            GUILayout.Label(
-                $"{status} | {testRunner.Passed} passed  {testRunner.Failed} failed  {testRunner.Skipped} skipped  ({total} total)",
-                GUI.skin.box);
-
-            // --- Scene filter note ---
-            GUILayout.Label($"Scene: {HighLogic.LoadedScene}", GUI.skin.label);
-
-            // --- Rebuild cached groups when run state changes ---
-            bool running = testRunner.IsRunning;
-            if (cachedTestGroups == null || (testRunnerWasRunning && !running))
-                RebuildTestGroupCache();
-            testRunnerWasRunning = running;
-
-            // --- Test list ---
-            GUILayout.Space(SpacingSmall);
-            testRunnerScrollPos = GUILayout.BeginScrollView(testRunnerScrollPos,
-                GUILayout.MinHeight(200), GUILayout.MaxHeight(500));
-
             foreach (var group in cachedTestGroups)
             {
                 var category = group.Key;
@@ -4390,6 +4371,62 @@ namespace Parsek
                     }
                 }
             }
+        }
+
+        private void DrawTestRunnerWindow(int windowID)
+        {
+            if (testRunner == null)
+            {
+                GUILayout.Label("Test runner not initialized.");
+                GUI.DragWindow();
+                return;
+            }
+
+            // --- Controls bar ---
+            GUILayout.BeginHorizontal();
+            GUI.enabled = !testRunner.IsRunning;
+            if (GUILayout.Button("Run All"))
+            {
+                testRunner.ResetResults();
+                testRunner.RunAll();
+                ParsekLog.Info("UI", "Test runner: Run All clicked");
+            }
+            if (GUILayout.Button("Reset"))
+            {
+                testRunner.ResetResults();
+                ParsekLog.Verbose("UI", "Test runner: Reset clicked");
+            }
+            GUI.enabled = testRunner.IsRunning;
+            if (GUILayout.Button("Cancel"))
+            {
+                testRunner.Cancel();
+            }
+            GUI.enabled = true;
+            GUILayout.EndHorizontal();
+
+            // --- Summary ---
+            GUILayout.Space(SpacingSmall);
+            int total = testRunner.Tests.Count;
+            string status = testRunner.IsRunning ? "RUNNING" : "idle";
+            GUILayout.Label(
+                $"{status} | {testRunner.Passed} passed  {testRunner.Failed} failed  {testRunner.Skipped} skipped  ({total} total)",
+                GUI.skin.box);
+
+            // --- Scene filter note ---
+            GUILayout.Label($"Scene: {HighLogic.LoadedScene}", GUI.skin.label);
+
+            // --- Rebuild cached groups when run state changes ---
+            bool running = testRunner.IsRunning;
+            if (cachedTestGroups == null || (testRunnerWasRunning && !running))
+                RebuildTestGroupCache();
+            testRunnerWasRunning = running;
+
+            // --- Test list ---
+            GUILayout.Space(SpacingSmall);
+            testRunnerScrollPos = GUILayout.BeginScrollView(testRunnerScrollPos,
+                GUILayout.MinHeight(200), GUILayout.MaxHeight(500));
+
+            DrawTestCategoryList();
 
             GUILayout.EndScrollView();
 
