@@ -53,6 +53,16 @@ namespace Parsek
 
         private int lastRetiredKerbalCount = -1;
 
+        // Cached retired kerbals list — refreshed on cache rebuild
+        private IReadOnlyList<string> cachedRetiredKerbals;
+
+        // Cached stats text — refreshed on cache rebuild or filter change
+        private string cachedStatsText;
+        private bool filterDirty = true;
+
+        // Cached recording lookup by ID — refreshed on cache rebuild
+        private Dictionary<string, Recording> recordingById;
+
         public bool IsOpen
         {
             get { return showTimelineWindow; }
@@ -137,6 +147,10 @@ namespace Parsek
         public void InvalidateCache()
         {
             timelineDirty = true;
+            filterDirty = true;
+            cachedRetiredKerbals = null;
+            cachedStatsText = null;
+            recordingById = null;
             ParsekLog.Verbose("Timeline", "Cache invalidated");
         }
 
@@ -194,7 +208,26 @@ namespace Parsek
                     MilestoneStore.Milestones,
                     MilestoneStore.CurrentEpoch);
                 timelineDirty = false;
-                ParsekLog.Verbose("Timeline", $"Cache rebuilt: {cachedTimeline.Count} entries");
+                filterDirty = true;
+
+                // Rebuild recording lookup cache
+                var recordings = RecordingStore.CommittedRecordings;
+                recordingById = new Dictionary<string, Recording>(recordings.Count);
+                for (int i = 0; i < recordings.Count; i++)
+                {
+                    var r = recordings[i];
+                    if (!string.IsNullOrEmpty(r.RecordingId))
+                        recordingById[r.RecordingId] = r;
+                }
+
+                // Refresh retired kerbals cache
+                cachedRetiredKerbals = LedgerOrchestrator.Kerbals?.GetRetiredKerbals()
+                    ?? new List<string>();
+
+                ParsekLog.Verbose("Timeline",
+                    $"Cache rebuilt: {cachedTimeline.Count} entries, " +
+                    $"{recordingById.Count} recordings indexed, " +
+                    $"{cachedRetiredKerbals.Count} retired kerbals");
             }
 
             // Zone 3: Entry List
@@ -206,27 +239,31 @@ namespace Parsek
             GUILayout.FlexibleSpace();
 
             // Stats footer — count only visible (filtered) entries
-            int recCount = 0;
-            int playerActionCount = 0;
-            int eventCount = 0;
-            if (cachedTimeline != null)
+            if (filterDirty || cachedStatsText == null)
             {
-                for (int i = 0; i < cachedTimeline.Count; i++)
+                int recCount = 0;
+                int playerActionCount = 0;
+                int eventCount = 0;
+                if (cachedTimeline != null)
                 {
-                    var e = cachedTimeline[i];
-                    if (!IsEntryVisible(e)) continue;
-                    if (e.Type == TimelineEntryType.RecordingStart) recCount++;
-                    else if (e.Source == TimelineSource.Recording) continue;
-                    else if (e.IsPlayerAction) playerActionCount++;
-                    else eventCount++;
+                    for (int i = 0; i < cachedTimeline.Count; i++)
+                    {
+                        var e = cachedTimeline[i];
+                        if (!IsEntryVisible(e)) continue;
+                        if (e.Source == TimelineSource.Recording) recCount++;
+                        else if (e.IsPlayerAction) playerActionCount++;
+                        else eventCount++;
+                    }
                 }
-            }
 
-            var stats = new System.Text.StringBuilder();
-            stats.Append($"{recCount} Recording{(recCount == 1 ? "" : "s")}");
-            stats.Append($", {playerActionCount} Action{(playerActionCount == 1 ? "" : "s")}");
-            stats.Append($", {eventCount} Event{(eventCount == 1 ? "" : "s")}");
-            GUILayout.Label(stats.ToString(), timelineGrayStyle);
+                var stats = new System.Text.StringBuilder();
+                stats.Append($"{recCount} Recording{(recCount == 1 ? "" : "s")}");
+                stats.Append($", {playerActionCount} Action{(playerActionCount == 1 ? "" : "s")}");
+                stats.Append($", {eventCount} Event{(eventCount == 1 ? "" : "s")}");
+                cachedStatsText = stats.ToString();
+                filterDirty = false;
+            }
+            GUILayout.Label(cachedStatsText, timelineGrayStyle);
 
             if (GUILayout.Button("Close"))
             {
@@ -252,11 +289,13 @@ namespace Parsek
             if (GUILayout.Toggle(overviewActive, "Overview", toggleButtonStyle, GUILayout.Width(80)) && !overviewActive)
             {
                 showDetail = false;
+                filterDirty = true;
                 ParsekLog.Verbose("UI", "Timeline filter: Overview");
             }
             if (GUILayout.Toggle(detailActive, "Detail", toggleButtonStyle, GUILayout.Width(70)) && !detailActive)
             {
                 showDetail = true;
+                filterDirty = true;
                 ParsekLog.Verbose("UI", "Timeline filter: Detail");
             }
 
@@ -267,6 +306,7 @@ namespace Parsek
             if (newShowRec != showRecordingEntries)
             {
                 showRecordingEntries = newShowRec;
+                filterDirty = true;
                 ParsekLog.Verbose("UI", $"Timeline source toggle: Recordings={showRecordingEntries}");
             }
 
@@ -274,6 +314,7 @@ namespace Parsek
             if (newShowAct != showActionEntries)
             {
                 showActionEntries = newShowAct;
+                filterDirty = true;
                 ParsekLog.Verbose("UI", $"Timeline source toggle: Actions={showActionEntries}");
             }
 
@@ -281,6 +322,7 @@ namespace Parsek
             if (newShowEvt != showEventEntries)
             {
                 showEventEntries = newShowEvt;
+                filterDirty = true;
                 ParsekLog.Verbose("UI", $"Timeline source toggle: Events={showEventEntries}");
             }
 
@@ -468,20 +510,18 @@ namespace Parsek
             return timelineWhiteStyle;
         }
 
-        private static Recording FindRecordingById(string recordingId)
+        private Recording FindRecordingById(string recordingId)
         {
-            var recordings = RecordingStore.CommittedRecordings;
-            for (int i = 0; i < recordings.Count; i++)
-            {
-                if (recordings[i].RecordingId == recordingId)
-                    return recordings[i];
-            }
-            return null;
+            if (recordingById == null || string.IsNullOrEmpty(recordingId))
+                return null;
+            Recording rec;
+            recordingById.TryGetValue(recordingId, out rec);
+            return rec;
         }
 
         private void DrawRetiredKerbalsSection()
         {
-            var retiredKerbals = LedgerOrchestrator.Kerbals?.GetRetiredKerbals() ?? new List<string>();
+            var retiredKerbals = cachedRetiredKerbals ?? new List<string>();
             if (retiredKerbals.Count > 0)
             {
                 if (retiredKerbals.Count != lastRetiredKerbalCount)
