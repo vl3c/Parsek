@@ -35,6 +35,10 @@ namespace Parsek
         private bool showRecordingEntries = true;
         private bool showActionEntries = true;
 
+        // Cross-link: tracks which recordingId was last set externally
+        // so we can scroll to it once
+        private string pendingScrollToRecordingId;
+
         // Styles
         private GUIStyle timelineGrayStyle;
         private GUIStyle timelineWhiteStyle;
@@ -109,6 +113,16 @@ namespace Parsek
             if (!timelineWindowHasInputLock) return;
             InputLockManager.RemoveControlLock(TimelineInputLockId);
             timelineWindowHasInputLock = false;
+        }
+
+        /// <summary>
+        /// Called by the Recordings Manager to scroll the timeline to a specific recording.
+        /// The next draw pass will scroll to the RecordingStart entry with this ID.
+        /// </summary>
+        internal void ScrollToRecording(string recordingId)
+        {
+            pendingScrollToRecordingId = recordingId;
+            ParsekLog.Verbose("Timeline", $"Cross-link: scroll requested for recordingId={recordingId}");
         }
 
         /// <summary>
@@ -244,6 +258,35 @@ namespace Parsek
             try { currentUT = Planetarium.GetUniversalTime(); } catch { }
 
             GUILayout.Space(5);
+
+            // Handle pending cross-link scroll: find the target row index
+            // before entering the scroll view so we can set the scroll position
+            int scrollTargetRow = -1;
+            if (!string.IsNullOrEmpty(pendingScrollToRecordingId) && cachedTimeline != null)
+            {
+                int visibleRow = 0;
+                for (int i = 0; i < cachedTimeline.Count; i++)
+                {
+                    var e = cachedTimeline[i];
+                    if (!IsEntryVisible(e)) continue;
+                    if (e.Type == TimelineEntryType.RecordingStart &&
+                        e.RecordingId == pendingScrollToRecordingId)
+                    {
+                        scrollTargetRow = visibleRow;
+                        break;
+                    }
+                    visibleRow++;
+                }
+                if (scrollTargetRow >= 0)
+                {
+                    // Approximate: ~20px per row. Not pixel-perfect but functional.
+                    timelineScrollPos.y = scrollTargetRow * 20f;
+                    ParsekLog.Verbose("Timeline",
+                        $"Cross-link: scrolled to row {scrollTargetRow} for recordingId={pendingScrollToRecordingId}");
+                }
+                pendingScrollToRecordingId = null;
+            }
+
             timelineScrollPos = GUILayout.BeginScrollView(timelineScrollPos, GUILayout.ExpandHeight(true));
 
             bool dividerDrawn = false;
@@ -318,15 +361,24 @@ namespace Parsek
             // Description text
             GUILayout.Label(entry.DisplayText, style, GUILayout.ExpandWidth(true));
 
-            // Rewind button for RecordingStart entries
+            // Cross-link + rewind for RecordingStart entries
             if (entry.Type == TimelineEntryType.RecordingStart && !string.IsNullOrEmpty(entry.RecordingId))
             {
                 var rec = FindRecordingById(entry.RecordingId);
                 if (rec != null)
                 {
+                    // Select button — highlights this recording in the Recordings Manager
+                    if (GUILayout.Button("\u25b6", GUILayout.Width(22)))
+                    {
+                        parentUI.SelectedRecordingId = entry.RecordingId;
+                        ParsekLog.Verbose("Timeline",
+                            $"Cross-link: selected \"{rec.VesselName}\" id={entry.RecordingId}");
+                    }
+                    // Rewind button
                     if (GUILayout.Button("\u27f2", GUILayout.Width(25)))
                     {
-                        ParsekLog.Info("UI", $"Timeline rewind button clicked: \"{rec.VesselName}\" id={rec.RecordingId}");
+                        ParsekLog.Info("UI",
+                            $"Timeline rewind button clicked: \"{rec.VesselName}\" id={rec.RecordingId}");
                         parentUI.GetRecordingsTableUI().ShowRewindConfirmation(rec);
                     }
                 }

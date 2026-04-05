@@ -62,6 +62,13 @@ namespace Parsek
         internal RecordingsTableUI GetRecordingsTableUI() => recordingsTableUI;
         internal TimelineWindowUI GetTimelineUI() => timelineUI;
 
+        /// <summary>
+        /// Shared cross-link between Timeline and Recordings Manager.
+        /// Setting this from either window causes the other to scroll to and highlight
+        /// the matching recording. Null means no selection.
+        /// </summary>
+        internal string SelectedRecordingId { get; set; }
+
         // Runtime-only empty groups — delegated to RecordingsTableUI
         internal List<string> KnownEmptyGroups => recordingsTableUI.KnownEmptyGroups;
 
