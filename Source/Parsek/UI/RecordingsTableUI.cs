@@ -147,14 +147,94 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Called by the Timeline to scroll the Recordings Manager to a specific recording.
-        /// Opens the window if closed.
+        /// Called by the Timeline GoTo button. Ensures the target recording is visible
+        /// (unhides if hidden, disables hide filter if needed, expands parent groups),
+        /// opens the window, and scrolls to the recording.
         /// </summary>
         internal void ScrollToRecording(string recordingId)
         {
-            pendingScrollToRecordingId = recordingId;
             if (!showRecordingsWindow) showRecordingsWindow = true;
-            ParsekLog.Verbose("UI", $"Cross-link: Recordings Manager scroll requested for recordingId={recordingId}");
+
+            // Find the recording
+            var committed = RecordingStore.CommittedRecordings;
+            Recording target = null;
+            for (int i = 0; i < committed.Count; i++)
+            {
+                if (committed[i].RecordingId == recordingId)
+                {
+                    target = committed[i];
+                    break;
+                }
+            }
+
+            if (target == null)
+            {
+                ParsekLog.Warn("UI", $"Cross-link: recording {recordingId} not found in committed list");
+                return;
+            }
+
+            // Unhide if the recording itself is hidden
+            if (target.Hidden)
+            {
+                target.Hidden = false;
+                ParsekLog.Info("UI", $"Cross-link: unhid recording \"{target.VesselName}\"");
+            }
+
+            // Disable hide filter if it would prevent the recording from showing
+            // (e.g., recording was just unhidden but other hidden recordings exist)
+            if (GroupHierarchyStore.HideActive && target.Hidden)
+            {
+                GroupHierarchyStore.HideActive = false;
+                ParsekLog.Info("UI", "Cross-link: disabled HideActive to show recording");
+            }
+
+            // Expand all parent groups so the recording is visible in the tree
+            if (target.RecordingGroups != null)
+            {
+                for (int g = 0; g < target.RecordingGroups.Count; g++)
+                {
+                    string groupName = target.RecordingGroups[g];
+
+                    // Expand the immediate group
+                    if (!expandedGroups.Contains(groupName))
+                    {
+                        expandedGroups.Add(groupName);
+                        ParsekLog.Verbose("UI", $"Cross-link: expanded group \"{groupName}\"");
+                    }
+
+                    // Walk up the parent chain and expand all ancestors
+                    string current = groupName;
+                    string parent;
+                    while (GroupHierarchyStore.TryGetGroupParent(current, out parent))
+                    {
+                        if (!expandedGroups.Contains(parent))
+                        {
+                            expandedGroups.Add(parent);
+                            ParsekLog.Verbose("UI", $"Cross-link: expanded ancestor group \"{parent}\"");
+                        }
+                        current = parent;
+                    }
+                }
+            }
+
+            // Unhide the group if it's in a hidden group
+            if (target.RecordingGroups != null && GroupHierarchyStore.HideActive)
+            {
+                for (int g = 0; g < target.RecordingGroups.Count; g++)
+                {
+                    string groupName = target.RecordingGroups[g];
+                    if (GroupHierarchyStore.IsGroupHidden(groupName))
+                    {
+                        GroupHierarchyStore.RemoveHiddenGroup(groupName);
+                        ParsekLog.Info("UI", $"Cross-link: unhid group \"{groupName}\"");
+                    }
+                }
+            }
+
+            // Schedule scroll to this recording (detected during next draw pass)
+            pendingScrollToRecordingId = recordingId;
+            ParsekLog.Verbose("UI",
+                $"Cross-link: scroll requested for \"{target.VesselName}\" id={recordingId}");
         }
 
         /// <summary>
