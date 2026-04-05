@@ -44,7 +44,7 @@ Orbital rotation fidelity, watch camera, heat effects, KSC scene playback, UI po
 
 **Design:** `docs/dev/done/design-orbital-rotation.md`, `docs/dev/done/design-camera-follow-ghost.md`
 
-### v0.5 — Recording System Redesign (in progress)
+### v0.5 — Recording System Redesign
 
 Comprehensive redesign of the recording and playback systems. Multi-vessel sessions, ghost chain paradox prevention, spawn safety, time jump, rendering zones, and ghost visual hardening.
 
@@ -76,7 +76,11 @@ Comprehensive redesign of the recording and playback systems. Multi-vessel sessi
 - Ghost extension — ghost continues on propagated orbit/surface past recording end while spawn is blocked
 - Trajectory walkback — for immovable blockers, walks backward along recorded trajectory to find a valid spawn position
 - Terrain correction — surface spawns adjusted for terrain height changes between recording and playback
-- Spawn-die-respawn prevention, spawn abandon flags, retry limits
+- KSC exclusion zone — 50m safety radius around launch pad and runway
+- Spawn-die-respawn prevention (3-cycle limit), spawn abandon flags, retry limits (150 frames)
+- Snapshot situation correction (FLYING→LANDED for landed terminals, FLYING→ORBITING for orbital terminals)
+- Non-leaf tree recording spawn suppression, unsafe snapshot situation blocking
+- Dead crew protection on spawn (strip dead crew, abandon all-dead spawn)
 
 **Time jump:**
 - Relative-state time jump — discrete UT skip preserving rendezvous geometry across ghost chain windows
@@ -84,29 +88,34 @@ Comprehensive redesign of the recording and playback systems. Multi-vessel sessi
 
 **Rendering & performance:**
 - Distance-based zones — Physics, Visual, Beyond — with zone-aware playback and part event gating
-- Ghost soft caps — configurable thresholds with priority-based despawning (partial — despawn works, reduced fidelity and orbit line simplification are placeholder)
+- Ghost soft caps — configurable thresholds with priority-based despawning, reduced fidelity (75% renderer culling), simplified orbit-line mode
+- Terminated chain early-out — fully-terminated trees and chains skip per-frame evaluation
 
-**Ghost visual hardening:** Variant textures, damaged wheel filtering, fairing meshes and internal structure, SRB nozzle glow, engine shrouds, initial state seeding for all tracking sets. Compound part visuals (fuel lines, struts). Plume and smoke trail fixes. Control surfaces, robotics/servo detection, cabin lights, animation-based deployables. RCS debounce.
+**Ghost visual hardening:** Variant textures and materials (TEXTURE/MATERIAL/GAMEOBJECT rules), damaged wheel filtering, fairing meshes with procedural truss and nosecone caps, SRB nozzle glow (FXModuleAnimateThrottle), engine shrouds with variant awareness, initial state seeding for all 16 tracking set types. Compound part visuals (fuel lines, struts). Plume and smoke trail fixes (KSPParticleEmitter native control, emission module disabled). Control surfaces, robotics/servo detection, cabin lights, animation-based deployables. RCS debounce (8-frame threshold). Part separation smoke/spark FX. Lingering particle systems on ghost despawn.
 
-**Ghost world presence:** CommNet relay via antenna specs. Ghost labels. ProtoVessel-based map presence — tracking station entries, orbit lines, navigation targeting, Harmony guard rails.
+**Ghost world presence:** CommNet relay via antenna specs with correct combination formula. Ghost labels. ProtoVessel-based map presence — tracking station entries, orbit lines, navigation targeting, ghost icon click popup (Set Target / Watch / Focus). Harmony guard rails (27 checks across 9 files, 4+ patches). Orbit segment updates on SOI transitions. Tracking station NRE protection.
 
 **Real Spawn Control:** Proximity-based UI for warping to when nearby ghost craft become real vessels. Per-craft warp buttons, sortable columns, countdown display, screen notifications. Countdown column in Recordings Manager.
 
-**UI:** Fast-forward redesigned as instant UT jump. Watch mode distance limits. Spawn abandon status display.
+**Per-phase looping:** Chain recordings split at atmosphere/altitude/SOI boundaries. Tree recordings split by optimizer at environment boundaries. Auto loop range trims boring bookends. Debris loop sync via LoopSyncParentIdx.
 
-**Remaining work** tracked in `docs/dev/todo-and-known-bugs.md`. Key areas: log spam reduction, UI subgroup controls and EVA recording scope expansion, minor performance optimizations.
+**Watch mode hardening:** Zone-hide exemption for watched ghosts (no 120km cutoff). Hold timer with retry for chain transitions. Auto-follow through tree branching with PID-matched descent. FF watch transfer. Camera bridge anchors at cycle boundaries. Distance guard (100km rendering-safe limit). Orbital recording exemption from distance cutoffs.
 
----
+**Rewind/spawn hardening:** Future vessel strip (PRELAUNCH and all types via quicksave PID whitelist). Spawn state reconciliation after strip. EVA vessel removal with crew rescue. Localization key resolution at all comparison sites. Spawn position from snapshot (not trajectory endpoint). EVA endpoint spawning. Ladder state stripping. Orbital vessel spawn via state vector orbit construction.
 
-## Phase 8: Game Actions Recording Redesign
+**UI:** Fast-forward redesigned as instant UT jump. Simplified merge dialog. Compressed Status column (merged countdown). Group header aggregate stats. Recording group unique naming. In-game test runner (90 tests, Ctrl+Shift+T).
 
-Redesign milestone capture, resource budgeting, and action replay to work correctly across all game modes, validated in order of increasing complexity.
+**Code health:** GhostPlaybackEngine extraction (zero Recording references, IPlaybackTrajectory interface). ChainSegmentManager extraction. ParsekPlaybackPolicy event-driven architecture. Comprehensive log audit (92% output reduction). 4600+ xUnit tests. PartStateSeeder unification. GhostBuildResult consolidation.
 
-**Design:** `docs/parsek-game-actions-system-design.md`
+### v0.6 — Game Actions System
 
-The game actions system is a standalone resource ledger that tracks every economic event on the timeline. Completely separate from the vessel recording system — coupled only by a recording ID on earning actions. Sidecar files capture rich raw data during flight; extraction to ledger on commit. Two-phase recalculate+patch on warp exit. Unified recalculation walk from UT=0 with two-tier module dependency ordering.
+Full redesign of milestone capture, resource budgeting, and action replay. Standalone resource ledger tracking every economic event on the timeline.
 
-Modules designed:
+**Design:** `docs/parsek-game-actions-and-resources-recorder-design.md`
+
+**Architecture:** Sidecar files capture raw data during flight; extraction to ledger on commit. Two-phase recalculate+patch on warp exit. Unified recalculation walk from UT=0 with two-tier module dependency ordering. KSP UI patched to display available funds (not gross balance).
+
+**Resource modules (8):**
 
 | Module | Key mechanics |
 |--------|--------------|
@@ -114,28 +123,22 @@ Modules designed:
 | Funds | Seeded balance from save, reservation system prevents overspending across rewinds, vessel build costs as recording-associated spendings |
 | Reputation | Non-linear gain/loss curve, nominal vs effective values |
 | Milestones | Once-ever binary cap, chronological priority, first-tier feeds funds and reputation |
-| Kerbals | Reservation from UT=0 as continuous block, temporary vs permanent loss, replacement chains, stand-in generation |
-| Facilities | Upgrade/destruction/repair schemas, visual state management during fast-forward, KSP state patching |
-| Contracts | UT=0 reservation, accept/complete/fail/cancel lifecycle, parameter progress tracking |
-| Strategies | UT=0 reservation, transform layer between first-tier and second-tier modules |
+| Kerbals | IResourceModule participant, reservation from UT=0 as continuous block, temporary vs permanent loss, replacement chains, stand-in generation, managed-kerbal filtering |
+| Facilities | Upgrade/destruction/repair schemas, visual state management during fast-forward, KSP state patching, deferred replay for missing facilityRefs |
+| Contracts | UT=0 reservation, accept/complete/fail/cancel lifecycle, parameter progress tracking, deadline failure detection |
+| Strategies | UT=0 reservation, transform layer between first-tier and second-tier modules, commitment rates |
 
-Paradox prevention layers: no-delete invariant, spending reservation (science/funds), UT=0 reservation (kerbals/contracts/strategies). KSP UI patched to display available funds (not gross balance), clamped to zero; Parsek UI shows full breakdown.
+**Paradox prevention:** No-delete invariant, spending reservation (science/funds), UT=0 reservation (kerbals/contracts/strategies). Milestone path qualification. Budget deduction clamping. Chain gap closure for game state events.
 
-### Validation by game mode
+**Crew lifecycle:** Crew reservation via internal managed state (Harmony patches for KSP roster validation and astronaut complex count). Crew swap in both flight and KSC spawn snapshots. Orphaned crew rescue after vessel strip. Dead crew spawn protection. Kerbal rescue detection. Managed-kerbal event filtering.
 
-Each mode adds a layer of game state complexity. Simpler modes must work flawlessly before the next layer is validated.
-
-**Sandbox:** No resources, no tech tree, no contracts. Recording and ghost playback as pure trajectory replay. Verify no resource budget UI shown, no milestone capture attempted, rewind loads quicksave without action replay, commit path skips all game state delta computation.
-
-**Science mode:** Science budget and tech tree, no funds or reputation. Verify science-only resource tracking, tech unlock milestones captured and replayed correctly, part purchase milestones work without funds checks, action blocking prevents re-researching committed tech, rewind restores science balance and replays tech unlocks only.
-
-**Career mode:** Full complexity — funds + science + reputation + contracts + crew management. Verify all three currencies tracked in resource budget, contract milestone capture (accept, complete, fail, cancel), facility upgrade milestones and action blocking, crew hire/fire milestones, action replay handles all event types correctly after rewind, resource budget remains consistent across rewind/fast-forward cycles. Edge cases: over-committed budgets, rewind past contract completion, facility downgrade on rewind.
+**Validated across all game modes:** Sandbox (no resources), Science (science-only), Career (full complexity). 4621 tests at ship.
 
 ---
 
-## Phase 9: Timeline
+## Phase 9: Timeline (NEXT)
 
-A unified, chronological view of all committed events across all Parsek systems. The timeline is a read-only query layer — it does not own data. Recordings, game actions, and milestones remain in their respective systems; the timeline pulls from all of them, normalizes entries into a common shape (UT, type, description, source recording ID, visual category), and presents them sorted by UT.
+Evolve the current Game Actions window into a unified, chronological timeline view of all committed events across all Parsek systems. The timeline is a read-only query layer — it does not own data. Recordings, game actions, and milestones remain in their respective systems; the timeline pulls from all of them, normalizes entries into a common shape (UT, type, description, source recording ID, visual category), and presents them sorted by UT.
 
 ### Timeline object
 
@@ -257,17 +260,17 @@ Player boundaries that enable competitive multiplayer. Each player has their own
 ## The Dependency Chain
 
 ```
-Foundation: Parsek core recording system (v0.3–v0.5, COMPLETE)
+v0.3–v0.5: Core Recording System (COMPLETE)
     │  Recording, playback, loops, ghost chains, spawn safety,
     │  time jump, rendering zones, multi-vessel sessions
     │
     ▼
-Phase 8: Game Actions System (NEXT)
+v0.6: Game Actions System (COMPLETE)
     │  Science, funds, reputation, kerbals, contracts,
     │  facilities, strategies, reservations, recalculation
     │
     ▼
-Phase 9: Timeline
+Phase 9: Timeline (NEXT)
     │  Unified chronological view of all committed events,
     │  significance tiers, filtering, rewind from timeline
     │
@@ -299,19 +302,24 @@ Phase 14: Competitive Play + Space Race
 ### Planetarium.right drift compensation for long orbital segments
 KSP's inertial reference frame may drift over very long time warp durations. This could cause ghost orientation mismatch for interplanetary transfer segments. Needs empirical measurement first — if drift is sub-degree for typical segment lengths, no fix needed.
 
-### Crash-safe pending recording recovery
-If the game crashes or the player alt-F4s while a merge dialog is pending, the recording data is lost from memory. The sidecar files already exist on disk, but the metadata entry referencing them is missing. Solution: write a pending manifest file when a recording is stashed, auto-recover on next load if the recording wasn't committed or discarded.
+### Crash-safe pending recording recovery (partial)
+Commit crash window closed (sidecar files flushed immediately). Remaining gap: stashed-but-not-yet-committed recordings (merge dialog pending) still live only in RAM. Solution: write a pending manifest file when a recording is stashed, auto-recover on next load if the recording wasn't committed or discarded. Low priority — remaining gap is stash→commit only.
 
 ### Additional part event coverage
-- ~~Control surface deflection~~ (done)
-- ~~Robotics / Breaking Ground DLC~~ (partial)
 - Two-phase engine startup (spool-up animations on some engines)
+- Engine plate covers / interstage fairings (partially fixed — mesh cloned but positioning may be wrong)
 
 ### Recording file size optimization
 Shorter key names, compact numeric encoding, optional compression, event name deduplication. Becomes important at scale (many recordings, long missions).
 
 ### Ghost soft cap completion
-Reduced fidelity (mesh part culling) and orbit line simplification full implementations. LOD culling, ghost mesh unloading outside active time range, particle system pooling. Benchmark with synthetic stress tests.
+LOD culling for distant ghost meshes. Ghost mesh unloading outside active time range. Particle system pooling for engine/RCS FX. Benchmark with synthetic stress tests.
+
+### Kerbal reservation refactor (T44)
+Replace `rosterStatus = Assigned` workaround with Parsek-internal state + Harmony crew dialog filtering. Would eliminate 2 workaround patches and ~27 KSP warnings per session. Low priority — current workaround is functional.
+
+### Hyperbolic escape orbit line rendering (189b)
+Ghost escape orbits clip at finite distance (~12,000 km). Active vessels show full escape trajectory via PatchedConicSolver which ghosts don't have. Needs custom LineRenderer or orbit line extension.
 
 ---
 
