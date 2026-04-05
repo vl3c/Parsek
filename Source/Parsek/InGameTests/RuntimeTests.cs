@@ -949,6 +949,57 @@ namespace Parsek.InGameTests
                     $"Circular replacement chain: '{kvp.Value}' is both a replacement and a reserved original");
             }
         }
+
+        [InGameTest(Category = "CrewReservation",
+            Description = "No Parsek-reserved kerbals have rosterStatus=Assigned (T44 refactor validation)")]
+        public void ReservedCrewNotAssigned()
+        {
+            var kerbals = LedgerOrchestrator.Kerbals;
+            if (kerbals == null)
+            {
+                InGameAssert.Skip("No KerbalsModule initialized");
+                return;
+            }
+
+            var roster = HighLogic.CurrentGame?.CrewRoster;
+            if (roster == null)
+            {
+                InGameAssert.Skip("No crew roster available");
+                return;
+            }
+
+            var problems = new List<string>();
+            foreach (ProtoCrewMember pcm in roster.Crew)
+            {
+                if (pcm.rosterStatus != ProtoCrewMember.RosterStatus.Assigned) continue;
+
+                // Assigned is OK if the kerbal is genuinely on a vessel
+                bool onVessel = false;
+                var flightState = HighLogic.CurrentGame?.flightState;
+                if (flightState != null)
+                {
+                    for (int i = 0; i < flightState.protoVessels.Count; i++)
+                    {
+                        if (flightState.protoVessels[i].GetVesselCrew().Contains(pcm))
+                        {
+                            onVessel = true;
+                            break;
+                        }
+                    }
+                }
+
+                if (!onVessel && kerbals.ShouldFilterFromCrewDialog(pcm.name))
+                {
+                    problems.Add($"'{pcm.name}' is Assigned but not on any vessel " +
+                        "(should be Available, filtered via CrewDialogFilterPatch)");
+                }
+            }
+
+            InGameAssert.IsTrue(problems.Count == 0,
+                $"Reserved crew with stale Assigned status: {string.Join("; ", problems)}");
+            ParsekLog.Info("TestRunner",
+                $"ReservedCrewNotAssigned: checked roster, {problems.Count} problem(s)");
+        }
     }
 
     /// <summary>

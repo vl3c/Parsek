@@ -541,6 +541,23 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Check if a kerbal should be filtered from the VAB/SPH crew assignment dialog.
+        /// Returns true for reserved kerbals and retired stand-ins — these must not be
+        /// assignable to new vessels. Returns false for active stand-ins (in chains but
+        /// not reserved/retired) — they are the player's replacement crew and must remain
+        /// selectable.
+        ///
+        /// This is narrower than IsManaged, which also returns true for active stand-ins.
+        /// Used by CrewDialogFilterPatch.
+        /// </summary>
+        internal bool ShouldFilterFromCrewDialog(string kerbalName)
+        {
+            if (string.IsNullOrEmpty(kerbalName)) return false;
+            return reservations.ContainsKey(kerbalName)
+                || retiredKerbals.Contains(kerbalName);
+        }
+
+        /// <summary>
         /// Check if a kerbal is managed by Parsek (reserved, active stand-in, or retired).
         /// </summary>
         internal bool IsManaged(string kerbalName)
@@ -589,18 +606,16 @@ namespace Parsek
 
         /// <summary>
         /// Apply derived kerbal state to the KSP roster. Creates stand-ins,
-        /// removes unused displaced stand-ins, sets roster statuses, and
-        /// populates crewReplacements dict for SwapReservedCrewInFlight.
+        /// removes unused displaced stand-ins, and populates the crewReplacements
+        /// dict for SwapReservedCrewInFlight.
         ///
-        /// MIA Respawn Override: KSP has a built-in MIA respawn mechanic that
-        /// transitions Dead kerbals to Available after a configurable delay.
-        /// This method overrides that behavior for Parsek-managed kerbals:
-        /// Step 3 below sets every reserved kerbal's rosterStatus to Assigned,
-        /// regardless of what KSP may have changed it to between recalculations.
-        /// If KSP respawns a Dead kerbal to Available, the next recalculation
-        /// resets them to Assigned, keeping them reserved for ghost playback.
-        /// This ensures recording crew consistency — a kerbal who died in a
-        /// recording stays reserved until the recording is removed from the timeline.
+        /// Reserved kerbals are left at their natural rosterStatus (typically
+        /// Available). CrewDialogFilterPatch prevents them from appearing in the
+        /// VAB/SPH crew assignment dialog. KerbalDismissalPatch prevents dismissal.
+        ///
+        /// MIA Respawn: If KSP respawns a Dead kerbal to Available, the crew
+        /// dialog filter still hides them (they remain in the reservations dict).
+        /// No rosterStatus manipulation needed.
         ///
         /// Must be called AFTER PostWalk().
         /// Wraps all mutations in SuppressCrewEvents.
@@ -683,7 +698,7 @@ namespace Parsek
                         bool usedInRecording = IsKerbalInAnyRecording(standIn);
                         if (usedInRecording)
                         {
-                            // Retired — keep in roster but mark Assigned (unassignable)
+                            // Retired — keep in roster (filtered from crew dialog)
                             retiredDisplaced++;
                             ParsekLog.Info(Tag,
                                 $"Stand-in '{standIn}' displaced -> retired (used in recording)");
@@ -706,32 +721,19 @@ namespace Parsek
                     slot.Chain.Clear();
                 }
 
-                // Step 3: Set roster statuses and populate crewReplacements bridge
+                // Step 3: Populate crewReplacements bridge (no rosterStatus changes —
+                // CrewDialogFilterPatch handles crew dialog filtering)
                 CrewReservationManager.ClearReplacementsInternal();
 
                 foreach (var kvp in reservations)
                 {
-                    string kerbalName = kvp.Key;
-                    var pcm = FindInRoster(roster, kerbalName);
-                    if (pcm != null)
-                    {
-                        pcm.rosterStatus = ProtoCrewMember.RosterStatus.Assigned;
-                    }
-
                     // Bridge to SwapReservedCrewInFlight: map reserved -> active occupant
+                    string kerbalName = kvp.Key;
                     string occupant = GetActiveOccupant(kerbalName);
                     if (occupant != null)
                     {
                         CrewReservationManager.SetReplacement(kerbalName, occupant);
                     }
-                }
-
-                // Step 4: Set retired kerbals to Assigned (unassignable)
-                foreach (string retired in retiredKerbals)
-                {
-                    var pcm = FindInRoster(roster, retired);
-                    if (pcm != null)
-                        pcm.rosterStatus = ProtoCrewMember.RosterStatus.Assigned;
                 }
 
                 ParsekLog.Info(Tag,
