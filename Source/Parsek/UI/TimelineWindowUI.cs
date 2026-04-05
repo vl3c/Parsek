@@ -48,6 +48,7 @@ namespace Parsek
         private GUIStyle timelineRedStyle;
         private GUIStyle timelineDimStyle;
         private GUIStyle timelineStrikethroughStyle;
+        private GUIStyle timelineBlueStyle;
         private GUIStyle toggleButtonStyle;
 
         private int lastRetiredKerbalCount = -1;
@@ -160,6 +161,9 @@ namespace Parsek
 
             timelineStrikethroughStyle = new GUIStyle(GUI.skin.label);
             timelineStrikethroughStyle.normal.textColor = Color.gray;
+
+            timelineBlueStyle = new GUIStyle(GUI.skin.label);
+            timelineBlueStyle.normal.textColor = new Color(0.5f, 0.7f, 1f);
 
             // Toggle button: "on" state reuses the button's own rounded-corner texture
             // but tints it darker via the on-state background color trick
@@ -388,6 +392,8 @@ namespace Parsek
                 style = timelineStrikethroughStyle;
             else if (isFuture)
                 style = timelineDimStyle;
+            else if (entry.IsPlayerAction)
+                style = timelineBlueStyle;
             else
                 style = GetStyleForColor(entry.DisplayColor);
 
