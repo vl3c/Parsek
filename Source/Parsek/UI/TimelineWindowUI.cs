@@ -160,13 +160,12 @@ namespace Parsek
             timelineStrikethroughStyle = new GUIStyle(GUI.skin.label);
             timelineStrikethroughStyle.normal.textColor = Color.gray;
 
-            // Toggle button: "on" state uses a darker background than "off"
+            // Toggle button: "on" state reuses the button's own rounded-corner texture
+            // but tints it darker via the on-state background color trick
             toggleButtonStyle = new GUIStyle(GUI.skin.button);
-            var darkTex = new Texture2D(1, 1);
-            darkTex.SetPixel(0, 0, new Color(0.15f, 0.15f, 0.15f, 1f));
-            darkTex.Apply();
-            toggleButtonStyle.onNormal.background = darkTex;
-            toggleButtonStyle.onHover.background = darkTex;
+            // Copy the normal (off) background to the on states so we keep rounded corners
+            toggleButtonStyle.onNormal.background = GUI.skin.button.active.background;
+            toggleButtonStyle.onHover.background = GUI.skin.button.active.background;
             toggleButtonStyle.onNormal.textColor = Color.white;
             toggleButtonStyle.onHover.textColor = Color.white;
         }
