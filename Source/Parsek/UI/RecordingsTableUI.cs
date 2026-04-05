@@ -841,20 +841,6 @@ namespace Parsek
                 {
                     GUILayout.Label("", GUILayout.Width(ColW_Rewind));
                 }
-
-                // Timeline cross-link button
-                if (GUILayout.Button(new GUIContent("T", "Show in Timeline"), GUILayout.Width(20)))
-                {
-                    parentUI.SelectedRecordingId = rec.RecordingId;
-                    var tl = parentUI.GetTimelineUI();
-                    if (tl != null)
-                    {
-                        tl.ScrollToRecording(rec.RecordingId);
-                        if (!tl.IsOpen) tl.IsOpen = true;
-                    }
-                    ParsekLog.Verbose("UI",
-                        $"Cross-link: Recordings Manager → Timeline for \"{rec.VesselName}\" id={rec.RecordingId}");
-                }
             }
 
             // Hide checkbox
