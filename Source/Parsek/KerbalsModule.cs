@@ -613,8 +613,7 @@ namespace Parsek
                 return;
             }
 
-            GameStateRecorder.SuppressCrewEvents = true;
-            try
+            using (SuppressionGuard.Crew())
             {
                 int standInsCreated = 0, standInsRecreated = 0;
                 int deletedUnused = 0, retiredDisplaced = 0;
@@ -741,10 +740,6 @@ namespace Parsek
                     $"{reservations.Count} reserved, " +
                     $"{standInsCreated} created, {standInsRecreated} recreated, " +
                     $"{deletedUnused} deleted, {retiredDisplaced} displaced");
-            }
-            finally
-            {
-                GameStateRecorder.SuppressCrewEvents = false;
             }
         }
 

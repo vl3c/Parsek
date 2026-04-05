@@ -4943,8 +4943,7 @@ namespace Parsek
             var roster = HighLogic.CurrentGame?.CrewRoster;
             if (roster != null)
             {
-                GameStateRecorder.SuppressCrewEvents = true;
-                try
+                using (SuppressionGuard.Crew())
                 {
                     foreach (var leaf in spawnableLeaves)
                     {
@@ -4952,10 +4951,6 @@ namespace Parsek
                         if (leaf.VesselSnapshot == null) continue;
                         CrewReservationManager.ReserveCrewIn(leaf.VesselSnapshot, false, roster);
                     }
-                }
-                finally
-                {
-                    GameStateRecorder.SuppressCrewEvents = false;
                 }
             }
         }
@@ -6369,8 +6364,7 @@ namespace Parsek
 
                 // Suppress game state recording during replay — these are replayed
                 // deltas from a previous recording, not new player actions
-                GameStateRecorder.SuppressResourceEvents = true;
-                try
+                using (SuppressionGuard.Resources())
                 {
                     if (fundsDelta != 0 && Funding.Instance != null)
                     {
@@ -6395,10 +6389,6 @@ namespace Parsek
                         Reputation.Instance.AddReputation(repDelta, TransactionReasons.None);
                         Log($"Timeline resource: reputation {repDelta:+0.0;-0.0}");
                     }
-                }
-                finally
-                {
-                    GameStateRecorder.SuppressResourceEvents = false;
                 }
 
                 rec.LastAppliedResourceIndex = targetIndex;
@@ -6463,8 +6453,7 @@ namespace Parsek
             if (GhostPlaybackLogic.ShouldPauseTimelineResourceReplay(IsRecording))
                 return; // retry next frame
 
-            GameStateRecorder.SuppressResourceEvents = true;
-            try
+            using (SuppressionGuard.Resources())
             {
                 if (tree.DeltaFunds != 0 && Funding.Instance != null)
                 {
@@ -6501,10 +6490,6 @@ namespace Parsek
                     Reputation.Instance.AddReputation(delta, TransactionReasons.None);
                     Log($"Tree resource: reputation {delta:+0.0;-0.0} (tree '{tree.TreeName}')");
                 }
-            }
-            finally
-            {
-                GameStateRecorder.SuppressResourceEvents = false;
             }
 
             tree.ResourcesApplied = true;

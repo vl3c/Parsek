@@ -34,9 +34,7 @@ namespace Parsek
             ReputationModule reputation, MilestonesModule milestones, FacilitiesModule facilities,
             ContractsModule contracts = null)
         {
-            GameStateRecorder.SuppressResourceEvents = true;
-            GameStateRecorder.IsReplayingActions = true;
-            try
+            using (SuppressionGuard.ResourcesAndReplay())
             {
                 PatchScience(science);
                 PatchFunds(funds);
@@ -46,11 +44,6 @@ namespace Parsek
                 PatchContracts(contracts);
 
                 ParsekLog.Info(Tag, "PatchAll complete");
-            }
-            finally
-            {
-                GameStateRecorder.SuppressResourceEvents = false;
-                GameStateRecorder.IsReplayingActions = false;
             }
         }
 
