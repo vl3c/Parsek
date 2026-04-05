@@ -637,7 +637,7 @@ namespace Parsek
                 );
                 ui.LogMainWindowPosition(windowRect);
                 ui.DrawRecordingsWindowIfOpen(windowRect);
-                ui.DrawActionsWindowIfOpen(windowRect);
+                ui.DrawTimelineWindowIfOpen(windowRect);
                 ui.DrawSettingsWindowIfOpen(windowRect);
                 ui.DrawSpawnControlWindowIfOpen(windowRect);
                 ui.DrawTestRunnerWindowIfOpen(windowRect, this);

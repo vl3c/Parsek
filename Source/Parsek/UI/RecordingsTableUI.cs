@@ -27,7 +27,7 @@ namespace Parsek
 
         // Column widths — shared between header and body for alignment
         private const float ColW_Enable = 20f;
-        private const float ColW_Phase = 70f;
+        private const float ColW_Phase = 90f;
         private const float ColW_Index = 30f;
         private const float ColW_Launch = 110f;
         private const float ColW_Dur = 80f;
@@ -134,10 +134,107 @@ namespace Parsek
             set { showRecordingsWindow = value; }
         }
 
+        // Cross-link: pending scroll target from Timeline
+        private string pendingScrollToRecordingId;
+        // Deferred scroll: row index found during draw pass, applied next frame
+        private int pendingScrollRowIndex = -1;
+        private int renderedRowCounter;
+
         internal RecordingsTableUI(ParsekUI parentUI)
         {
             this.parentUI = parentUI;
             this.groupPicker = new GroupPickerUI(parentUI);
+        }
+
+        /// <summary>
+        /// Called by the Timeline GoTo button. Ensures the target recording is visible
+        /// (unhides if hidden, disables hide filter if needed, expands parent groups),
+        /// opens the window, and scrolls to the recording.
+        /// </summary>
+        internal void ScrollToRecording(string recordingId)
+        {
+            if (!showRecordingsWindow) showRecordingsWindow = true;
+
+            // Find the recording
+            var committed = RecordingStore.CommittedRecordings;
+            Recording target = null;
+            for (int i = 0; i < committed.Count; i++)
+            {
+                if (committed[i].RecordingId == recordingId)
+                {
+                    target = committed[i];
+                    break;
+                }
+            }
+
+            if (target == null)
+            {
+                ParsekLog.Warn("UI", $"Cross-link: recording {recordingId} not found in committed list");
+                return;
+            }
+
+            // Unhide if the recording itself is hidden
+            if (target.Hidden)
+            {
+                target.Hidden = false;
+                ParsekLog.Info("UI", $"Cross-link: unhid recording \"{target.VesselName}\"");
+            }
+
+            // Disable hide filter if it would prevent the recording from showing
+            // (e.g., recording was just unhidden but other hidden recordings exist)
+            if (GroupHierarchyStore.HideActive && target.Hidden)
+            {
+                GroupHierarchyStore.HideActive = false;
+                ParsekLog.Info("UI", "Cross-link: disabled HideActive to show recording");
+            }
+
+            // Expand all parent groups so the recording is visible in the tree
+            if (target.RecordingGroups != null)
+            {
+                for (int g = 0; g < target.RecordingGroups.Count; g++)
+                {
+                    string groupName = target.RecordingGroups[g];
+
+                    // Expand the immediate group
+                    if (!expandedGroups.Contains(groupName))
+                    {
+                        expandedGroups.Add(groupName);
+                        ParsekLog.Verbose("UI", $"Cross-link: expanded group \"{groupName}\"");
+                    }
+
+                    // Walk up the parent chain and expand all ancestors
+                    string current = groupName;
+                    string parent;
+                    while (GroupHierarchyStore.TryGetGroupParent(current, out parent))
+                    {
+                        if (!expandedGroups.Contains(parent))
+                        {
+                            expandedGroups.Add(parent);
+                            ParsekLog.Verbose("UI", $"Cross-link: expanded ancestor group \"{parent}\"");
+                        }
+                        current = parent;
+                    }
+                }
+            }
+
+            // Unhide the group if it's in a hidden group
+            if (target.RecordingGroups != null && GroupHierarchyStore.HideActive)
+            {
+                for (int g = 0; g < target.RecordingGroups.Count; g++)
+                {
+                    string groupName = target.RecordingGroups[g];
+                    if (GroupHierarchyStore.IsGroupHidden(groupName))
+                    {
+                        GroupHierarchyStore.RemoveHiddenGroup(groupName);
+                        ParsekLog.Info("UI", $"Cross-link: unhid group \"{groupName}\"");
+                    }
+                }
+            }
+
+            // Schedule scroll to this recording (detected during next draw pass)
+            pendingScrollToRecordingId = recordingId;
+            ParsekLog.Verbose("UI",
+                $"Cross-link: scroll requested for \"{target.VesselName}\" id={recordingId}");
         }
 
         /// <summary>
@@ -389,6 +486,15 @@ namespace Parsek
             EnsurePhaseStyles();
             RebuildSortedIndices(committed, now);
 
+            // Cross-link scroll: apply deferred scroll from previous frame's row detection
+            if (pendingScrollRowIndex >= 0)
+            {
+                recordingsScrollPos.y = pendingScrollRowIndex * 22f;
+                ParsekLog.Verbose("UI",
+                    $"Cross-link: applied deferred scroll to rendered row {pendingScrollRowIndex}");
+                pendingScrollRowIndex = -1;
+            }
+
             if (committed.Count == 0)
             {
                 GUILayout.Label("No recordings.");
@@ -396,6 +502,7 @@ namespace Parsek
             else
             {
                 // Scrollable table body (header inside scroll view for guaranteed alignment)
+                renderedRowCounter = 0;
                 recordingsScrollPos = GUILayout.BeginScrollView(
                     recordingsScrollPos, false, true, GUILayout.ExpandHeight(true));
 
@@ -519,6 +626,18 @@ namespace Parsek
         {
             var rec = committed[ri];
             if (rec.Hidden && GroupHierarchyStore.HideActive) return false;
+
+            // Cross-link: detect target row during draw pass
+            if (!string.IsNullOrEmpty(pendingScrollToRecordingId) &&
+                rec.RecordingId == pendingScrollToRecordingId)
+            {
+                pendingScrollRowIndex = renderedRowCounter;
+                ParsekLog.Verbose("UI",
+                    $"Cross-link: found \"{rec.VesselName}\" at rendered row {renderedRowCounter}");
+                pendingScrollToRecordingId = null;
+            }
+            renderedRowCounter++;
+
             GUILayout.BeginHorizontal();
 
             // Enable checkbox (always at column 0)
@@ -592,12 +711,8 @@ namespace Parsek
             else
             {
                 statusStyle = statusStylePast;
-                if (rec.IsDebris)
-                    statusText = "past";
-                else if (rec.TerminalStateValue.HasValue)
+                if (rec.TerminalStateValue.HasValue && !rec.IsDebris)
                     statusText = rec.TerminalStateValue.Value.ToString();
-                else if (rec.Points.Count > 0)
-                    statusText = SelectiveSpawnUI.FormatCountdown(rec.StartUT - now);
                 else
                     statusText = "past";
             }
@@ -845,8 +960,8 @@ namespace Parsek
                 ParsekLog.Info("UI", $"Set playback enabled for group '{groupName}': enabled={newEnabled}");
             }
 
-            // Spacer for # column
-            GUILayout.Space(ColW_Index);
+            // Spacer for # column (fixed-width label for alignment with recording rows)
+            GUILayout.Label("", GUILayout.Width(ColW_Index));
 
             // Expand/collapse + name (indent inside Name column for sub-groups)
             if (indent > 0f) GUILayout.Space(indent);
@@ -1400,7 +1515,7 @@ namespace Parsek
                 ), false, HighLogic.UISkin);
         }
 
-        private void ShowRewindConfirmation(Recording rec)
+        internal void ShowRewindConfirmation(Recording rec)
         {
             int futureCount = RecordingStore.CountFutureRecordings(rec.StartUT);
             string futureText = futureCount > 0
@@ -1436,7 +1551,7 @@ namespace Parsek
                 false, HighLogic.UISkin);
         }
 
-        private void ShowFastForwardConfirmation(Recording rec)
+        internal void ShowFastForwardConfirmation(Recording rec)
         {
             var ic = System.Globalization.CultureInfo.InvariantCulture;
             double now = Planetarium.GetUniversalTime();

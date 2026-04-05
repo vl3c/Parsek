@@ -279,10 +279,25 @@ Set up dependencies with `TaskUpdate(addBlockedBy: [...])` so tasks execute in t
 
 ### 4c. Implement (Implementation Agent - clean context)
 
-Each task is handled by a fresh general-purpose agent in an isolated worktree. The `isolation=worktree` parameter creates an automatic worktree under `.claude/worktrees/` - the agent works on an isolated copy of the repo and commits on its own branch. The agent receives only: the task description, the design doc path, and which existing files to follow as patterns.
+Each task is handled by a fresh general-purpose agent. The orchestrator decides the isolation level based on task scope:
+
+**Isolation modes:**
+- **No isolation (default for small/medium tasks):** The agent works directly on the current branch. The orchestrator stays in the same worktree and dispatches agents sequentially. Best for tightly coupled sequential tasks within a single feature (e.g., data model → builder → tests), where each task builds on the previous commit. Avoids the overhead of creating/merging worktree branches for every small unit of work.
+- **Isolated worktree (for large or parallel tasks):** The `isolation=worktree` parameter creates an automatic worktree under `.claude/worktrees/`. Best for independent tasks that can run in parallel, tasks that might need to be discarded, or large changes where isolation protects the main branch. Use `run_in_background: true` for parallel agents.
+
+**Choosing isolation level:**
+
+| Situation | Isolation |
+|-----------|-----------|
+| Sequential tasks on a feature branch (3-5 small files) | No isolation — work directly on branch |
+| Independent tasks that can run in parallel | Isolated worktrees — merge results after |
+| Large task touching many files (risky, might need rollback) | Isolated worktree — discard if it goes wrong |
+| First task setting a pattern others will follow | No isolation — orchestrator reviews before continuing |
+
+The agent receives: the task description, the design doc path, and which existing files to follow as patterns.
 
 ```
-Agent(subagent_type=general-purpose, isolation=worktree):
+Agent(subagent_type=general-purpose):
   "Implement task: [task description from TaskCreate].
    Design doc: docs/design-[feature].md
    Follow patterns in [existing similar file].
@@ -298,11 +313,6 @@ Agent(subagent_type=general-purpose, isolation=worktree):
 - **Write tests alongside implementation (not after).** Follow the Test Plan section of the design doc. Every test must have a "what makes it fail" justification. Include log assertion tests that capture output via the test sink and verify that decision points produce expected diagnostic lines. Tests without a concrete regression they guard against are noise - don't write them.
 - Run `dotnet build` and `dotnet test` before committing
 - One logical change per commit
-
-**Parallelization:**
-- Independent tasks (no `blockedBy` relationship) can run as parallel agents in separate worktrees
-- Dependent tasks run sequentially - wait for the blocker to complete before starting
-- Use `run_in_background: true` for parallel agents, then check results when notified
 
 ### 4d. Review the Implementation (Review Agent - clean context)
 

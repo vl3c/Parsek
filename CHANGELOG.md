@@ -4,6 +4,25 @@ All notable changes to Parsek are documented here.
 
 ---
 
+## 0.7.0
+
+### Timeline (Phase 9)
+
+- **Unified timeline view replaces Game Actions window.** Chronological, read-only view of all committed career events sorted by UT. Current-UT divider separates past (full color) from future (dimmed). See `docs/parsek-timeline-design.md`.
+- **Two-tier filtering.** Overview shows mission structure (launches, milestones, contracts, facilities). Detail adds all resource transactions (science, funds, reputation).
+- **Three source filters.** Recordings (launches/spawns), Actions (deliberate player choices: tech, build, hire), Events (gameplay consequences: milestones, science earned, contract completions).
+- **Rewind / Fast-Forward from timeline.** R button on past recordings, FF button on future recordings — same behavior as Recordings Manager.
+- **GoTo cross-link.** GoTo button on recording entries opens the Recordings Manager, unhides the recording if hidden, expands parent groups, and scrolls to it.
+- **Humanized display text.** Science subjects split and spaced (`crewReport@KerbinSrfLaunchpad` → `Crew Report @ Kerbin Launchpad`). Tech nodes, milestones, and strategy names humanized. Milestone IDs with `/` shown as ` - ` separator.
+- **EVA-aware entries.** EVA recordings show `EVA: Jeb from Mun Lander (MET 5s)` instead of `Launch:`. Boarded kerbals show `Board: Jeb (Mun Lander)`. EVA self-assignment entries filtered out.
+- **Spawn entries at EndUT with situation.** `Spawn: Vessel (Landed on Mun)` using KSP's VesselSituation. Falls back to terminal state + orbit body.
+- **Mission Elapsed Time on launch entries.** `Launch: Vessel (MET 1d, 2h, 30m)` showing only non-zero components (KSP calendar: 6h days, 426d years). Chain recordings show full chain duration.
+- **Resource budget summary.** Funds/science/reputation reserved vs. available at top of window. Game-mode aware (hidden in sandbox, science-only in science mode).
+- **Footer statistics.** Recording count, revert count, action count, event count.
+- 53 timeline-specific tests, 4870 total.
+
+---
+
 ## 0.6.2
 
 ### Bug Fixes
