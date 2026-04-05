@@ -78,5 +78,6 @@ namespace Parsek
         public string RecordingId;
         public string VesselName;
         public bool IsEffective = true;
+        public bool IsPlayerAction;  // true = deliberate KSC action, false = gameplay event
     }
 }

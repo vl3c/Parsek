@@ -35,6 +35,7 @@ namespace Parsek
         private bool showDetail = false;
         private bool showRecordingEntries = true;
         private bool showActionEntries = true;
+        private bool showEventEntries = true;
 
         // Cross-link: tracks which recordingId was last set externally
         // so we can scroll to it once
@@ -200,21 +201,27 @@ namespace Parsek
 
             GUILayout.FlexibleSpace();
 
-            // Stats footer
+            // Stats footer — count actions vs events from cached timeline
             int recCount = RecordingStore.CommittedRecordings.Count;
-            int actionCount = Ledger.Actions.Count;
             uint epoch = MilestoneStore.CurrentEpoch;
+            int playerActionCount = 0;
+            int eventCount = 0;
+            if (cachedTimeline != null)
+            {
+                for (int i = 0; i < cachedTimeline.Count; i++)
+                {
+                    if (cachedTimeline[i].Source == TimelineSource.Recording) continue;
+                    if (cachedTimeline[i].IsPlayerAction) playerActionCount++;
+                    else eventCount++;
+                }
+            }
 
             var stats = new System.Text.StringBuilder();
             stats.Append($"{recCount} Recording{(recCount == 1 ? "" : "s")}");
             if (epoch > 0)
-            {
-                int rewinds = 0, fastForwards = 0;
-                // Epoch counts total reverts; FF count not tracked separately yet
-                rewinds = (int)epoch;
-                stats.Append($" ({rewinds} Revert{(rewinds == 1 ? "" : "s")})");
-            }
-            stats.Append($", {actionCount} Game Event{(actionCount == 1 ? "" : "s")}");
+                stats.Append($" ({(int)epoch} Revert{(epoch == 1 ? "" : "s")})");
+            stats.Append($", {playerActionCount} Action{(playerActionCount == 1 ? "" : "s")}");
+            stats.Append($", {eventCount} Event{(eventCount == 1 ? "" : "s")}");
             GUILayout.Label(stats.ToString(), timelineGrayStyle);
 
             if (GUILayout.Button("Close"))
@@ -264,6 +271,13 @@ namespace Parsek
             {
                 showActionEntries = newShowAct;
                 ParsekLog.Verbose("UI", $"Timeline source toggle: Actions={showActionEntries}");
+            }
+
+            bool newShowEvt = GUILayout.Toggle(showEventEntries, "Events", toggleButtonStyle, GUILayout.Width(65));
+            if (newShowEvt != showEventEntries)
+            {
+                showEventEntries = newShowEvt;
+                ParsekLog.Verbose("UI", $"Timeline source toggle: Events={showEventEntries}");
             }
 
             GUILayout.EndHorizontal();
@@ -345,8 +359,11 @@ namespace Parsek
         {
             if (entry.Tier == SignificanceTier.T2 && !showDetail) return false;
             if (entry.Source == TimelineSource.Recording && !showRecordingEntries) return false;
-            if (entry.Source == TimelineSource.GameAction && !showActionEntries) return false;
-            if (entry.Source == TimelineSource.Legacy && !showActionEntries) return false;
+            if (entry.Source == TimelineSource.GameAction || entry.Source == TimelineSource.Legacy)
+            {
+                if (entry.IsPlayerAction && !showActionEntries) return false;
+                if (!entry.IsPlayerAction && !showEventEntries) return false;
+            }
             return true;
         }
 

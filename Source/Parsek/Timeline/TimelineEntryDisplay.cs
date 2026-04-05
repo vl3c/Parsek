@@ -49,6 +49,33 @@ namespace Parsek
             }
         }
 
+        /// <summary>
+        /// Returns true if this game action type is a deliberate player action (KSC decisions).
+        /// Returns false for gameplay events (consequences of flight, milestones, etc.).
+        /// </summary>
+        internal static bool IsPlayerAction(TimelineEntryType type)
+        {
+            switch (type)
+            {
+                case TimelineEntryType.ScienceSpending:      // tech unlock
+                case TimelineEntryType.FundsSpending:        // vessel build, facility, hire
+                case TimelineEntryType.ContractAccept:       // accepted contract
+                case TimelineEntryType.ContractCancel:       // cancelled contract
+                case TimelineEntryType.KerbalHire:           // hired kerbal
+                case TimelineEntryType.FacilityUpgrade:      // upgraded facility
+                case TimelineEntryType.FacilityRepair:       // repaired facility
+                case TimelineEntryType.StrategyActivate:     // activated strategy
+                case TimelineEntryType.StrategyDeactivate:   // deactivated strategy
+                case TimelineEntryType.FundsInitial:         // career seed
+                case TimelineEntryType.ScienceInitial:       // career seed
+                case TimelineEntryType.ReputationInitial:    // career seed
+                    return true;
+
+                default:
+                    return false;
+            }
+        }
+
         /// <summary>Display text for a recording start event, including mission duration.</summary>
         internal static string GetRecordingStartText(string vesselName, double durationSeconds,
             bool isEva, string parentVesselName)

@@ -201,7 +201,8 @@ namespace Parsek
                     DisplayColor = GameActionDisplay.GetColor(action.Type),
                     RecordingId = action.RecordingId,
                     VesselName = vesselName,
-                    IsEffective = action.Effective
+                    IsEffective = action.Effective,
+                    IsPlayerAction = TimelineEntryDisplay.IsPlayerAction(entryType)
                 });
                 count++;
             }
