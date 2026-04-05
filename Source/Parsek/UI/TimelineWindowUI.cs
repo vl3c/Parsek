@@ -154,7 +154,7 @@ namespace Parsek
             timelineGreenStyle.normal.textColor = new Color(0.5f, 1f, 0.5f);
 
             timelineRedStyle = new GUIStyle(GUI.skin.label);
-            timelineRedStyle.normal.textColor = new Color(1f, 0.5f, 0.5f);
+            timelineRedStyle.normal.textColor = new Color(1f, 0.6f, 0.6f);
 
             timelineDimStyle = new GUIStyle(GUI.skin.label);
             timelineDimStyle.normal.textColor = new Color(1f, 1f, 1f, 0.5f);
