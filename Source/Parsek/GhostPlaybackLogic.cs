@@ -828,30 +828,7 @@ namespace Parsek
                         }
                         break;
                     case PartEventType.ParachuteDeployed:
-                        bool usedRealCanopy = false;
-
-                        if (state.parachuteInfos != null)
-                        {
-                            ParachuteGhostInfo info;
-                            if (state.parachuteInfos.TryGetValue(evt.partPersistentId, out info) && info.canopyTransform != null)
-                            {
-                                info.canopyTransform.localScale = info.deployedCanopyScale;
-                                info.canopyTransform.localPosition = info.deployedCanopyPos;
-                                info.canopyTransform.localRotation = info.deployedCanopyRot;
-                                if (info.capTransform != null)
-                                    info.capTransform.gameObject.SetActive(false);
-                                usedRealCanopy = true;
-                            }
-                        }
-
-                        if (!usedRealCanopy)
-                        {
-                            var canopy = GhostVisualBuilder.CreateFakeCanopy(ghost, evt.partPersistentId);
-                            if (canopy != null)
-                            {
-                                TrackFakeCanopy(state, evt.partPersistentId, canopy);
-                            }
-                        }
+                        ApplyParachuteDeployedEvent(state, ghost, evt.partPersistentId);
                         break;
                     case PartEventType.EngineIgnited:
                         // Use at least a minimum emission on ignition (#165) — older
@@ -1151,6 +1128,38 @@ namespace Parsek
         #endregion
 
         #region Canopy Management
+
+        /// <summary>
+        /// Applies a ParachuteDeployed event: sets the real canopy to deployed pose if available,
+        /// otherwise creates a fake canopy sphere as fallback. Hides the cap in both cases.
+        /// </summary>
+        private static void ApplyParachuteDeployedEvent(GhostPlaybackState state, GameObject ghost, uint partPersistentId)
+        {
+            bool usedRealCanopy = false;
+
+            if (state.parachuteInfos != null)
+            {
+                ParachuteGhostInfo info;
+                if (state.parachuteInfos.TryGetValue(partPersistentId, out info) && info.canopyTransform != null)
+                {
+                    info.canopyTransform.localScale = info.deployedCanopyScale;
+                    info.canopyTransform.localPosition = info.deployedCanopyPos;
+                    info.canopyTransform.localRotation = info.deployedCanopyRot;
+                    if (info.capTransform != null)
+                        info.capTransform.gameObject.SetActive(false);
+                    usedRealCanopy = true;
+                }
+            }
+
+            if (!usedRealCanopy)
+            {
+                var canopy = GhostVisualBuilder.CreateFakeCanopy(ghost, partPersistentId);
+                if (canopy != null)
+                {
+                    TrackFakeCanopy(state, partPersistentId, canopy);
+                }
+            }
+        }
 
         internal static void TrackFakeCanopy(GhostPlaybackState state, uint partPid, GameObject canopy)
         {
