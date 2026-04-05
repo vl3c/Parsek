@@ -317,7 +317,6 @@ The timeline window has four visual zones, top to bottom:
 **Zone 2: Filter Bar** — a row of controls:
 - **Tier selector**: two buttons labeled "Overview" (default) and "Detail". Overview shows mission structure — launches, recoveries, milestones, contracts, facility changes. Detail adds all resource transactions.
 - **Source toggles**: "Recordings" and "Actions" toggle buttons. Both on by default. Turning off "Recordings" hides recording lifecycle events. Turning off "Actions" hides game action entries.
-- **Sparkline toggle**: "Resources" button to show/hide the resource sparkline (see §6). Off by default.
 
 **Zone 3: Entry List** — the main scrollable list of timeline entries, divided by the current-UT marker.
 
@@ -385,53 +384,20 @@ Implementation note: IMGUI scroll views have no built-in "scroll to element" API
 
 ---
 
-## 6. Resource Sparkline
+## 6. Game Mode Considerations
 
-### 6.1 What the player sees
-
-Three thin horizontal sparkline strips at the bottom of the entry list (above the footer), showing funds, science, and reputation over time:
-
-```
-▁▁▂▃▃▅▆▆▅▃▂▂▃▅▇▇ Funds     (yellow/gold)
-▁▁▁▂▂▃▃▃▃▃▃▃▃▃▃▃ Science   (cyan/blue)
-▁▂▂▃▃▃▂▂▃▃▄▄▅▅▆▆ Reputation (orange)
-```
-
-Each strip spans the full UT range. Vertical hairline at current UT. Toggled via "Resources" button in filter bar. Off by default.
-
-In sandbox mode, hidden. In science mode, only science strip appears.
-
-### 6.2 Data source
-
-The `RecalculationEngine` walks all ledger actions, dispatching to resource modules that maintain running balances. To expose this:
-
-- Add `List<ResourceSnapshot> ResourceHistory` output field to `RecalculationEngine`
-- `ResourceSnapshot`: `{ double UT; double Funds; double Science; float Reputation; }`
-- After each balance-changing action, query module getters and append a snapshot
-- `TimelineBuilder` reads `ResourceHistory` and passes it to the sparkline renderer
-
-### 6.3 Rendering
-
-Procedurally generated `Texture2D` via `GUI.DrawTexture`. Regenerated on timeline cache invalidation. ~30px tall per strip, full window width. Auto-scaled Y axis.
-
-**Future**: hover tooltip showing exact values at mouse position. Not in v1.
-
----
-
-## 7. Game Mode Considerations
-
-### 7.1 Career mode
+### 6.1 Career mode
 
 All features active. All three resource sparklines available. All game action types appear.
 
-### 7.2 Science mode
+### 6.2 Science mode
 
 - No funds, no reputation, no contracts, no strategies
 - Resource budget shows only science
 - Sparkline shows only science
 - Fund/reputation/contract/strategy entries never appear
 
-### 7.3 Sandbox mode
+### 6.3 Sandbox mode
 
 - No game actions (empty ledger)
 - Resource budget hidden, sparkline hidden
@@ -440,11 +406,12 @@ All features active. All three resource sparklines available. All game action ty
 
 ---
 
-## 8. What the Timeline Does Not Do
+## 7. What the Timeline Does Not Do
 
 Explicit non-goals for Phase 9:
 
 - **Vessel-level telemetry**: part events (staging, engines, parachutes, docking, deployables, RCS, robotics), segment events, flag events. These belong in the Recordings Manager.
+- **Resource sparkline / graphs**: deferred. May be added later based on player needs.
 - **Individual event deletion**: the timeline is read-only. Delete buttons from the old Actions window are removed.
 - **Sorting by columns**: always sorted by UT. Filtering (not sorting) finds specific event types.
 - **Live UT marker during warp**: jumps on warp exit. Live-updating is a potential future optimization.

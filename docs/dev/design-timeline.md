@@ -184,8 +184,6 @@ private bool timelineDirty = true;
 private bool showDetail = false;                        // false = Overview (T1), true = Detail (T1+T2)
 private bool showRecordingEntries = true;
 private bool showActionEntries = true;
-private bool showSparkline = false;
-
 // Cross-link
 private string selectedRecordingId;
 
@@ -226,23 +224,6 @@ During draw pass, accumulate row heights. Track Y offset of entry matching `sele
 - `Game.Modes.CAREER` → all features
 - `Game.Modes.SCIENCE_SANDBOX` → science only in budget/sparkline, no fund/rep/contract/strategy entries
 - `Game.Modes.SANDBOX` → hide budget, hide sparkline toggle, show only recording lifecycle
-
-## Resource Sparkline
-
-### Data Source
-
-Add `List<ResourceSnapshot> ResourceHistory` to `RecalculationEngine`. Struct: `{ double UT; double Funds; double Science; float Reputation; }`. After each balance-changing action in the walk, query `GetRunningFunds()`, `GetRunningScience()`, `GetRunningReputation()` and append. Clear at start of `Recalculate()`.
-
-### Texture Generation
-
-`SparklineRenderer.GenerateTexture(List<ResourceSnapshot> history, float windowWidth, Game.Modes mode)` → `Texture2D`
-
-- Width = window width pixels
-- Height = 30px per visible strip (90px career, 30px science mode)
-- UT → X via linear interpolation; value → Y via auto-scale
-- Colors: funds `(0.9f, 0.8f, 0.2f)`, science `(0.3f, 0.8f, 1.0f)`, reputation `(1.0f, 0.6f, 0.2f)`
-- Current-UT hairline = white, 1px
-- Regenerated on cache invalidation. Old texture disposed.
 
 ## Implementation Plan
 
@@ -293,19 +274,7 @@ Add `List<ResourceSnapshot> ResourceHistory` to `RecalculationEngine`. Struct: `
 
 **Scope**: ~500 lines (remove ~300 Actions window, add ~500 Timeline).
 
-### Phase 9c — Resource Sparkline
-
-**Goal**: Optional sparkline overlay.
-
-**Files changed**:
-- `RecalculationEngine.cs` — add `ResourceSnapshot`, `ResourceHistory`, populate during walk
-- New: `Source/Parsek/Timeline/SparklineRenderer.cs` — texture generation + rendering
-
-**Dependencies**: Phase 9b, v0.6 complete.
-
-**Scope**: ~200 lines.
-
-### Phase 9d — Cross-Link and Polish
+### Phase 9c — Cross-Link and Polish
 
 **Goal**: Bidirectional cross-linking between Timeline and Recordings Manager.
 
@@ -321,7 +290,4 @@ Add `List<ResourceSnapshot> ResourceHistory` to `RecalculationEngine`. Struct: `
 |-------|-----------|----------|
 | 9a | v0.6 (game actions system complete) | Data model, builder, tests |
 | 9b | 9a | Timeline UI replacing Actions window |
-| 9c | 9b | Resource sparkline |
-| 9d | 9b | Cross-link with Recordings Manager |
-
-9c and 9d are independent and can be built in parallel.
+| 9c | 9b | Cross-link with Recordings Manager |
