@@ -5978,9 +5978,12 @@ namespace Parsek
             // Real vessel dedup: if a vessel with this PID still exists in the game world,
             // skip spawning a duplicate. This runs only at actual spawn time (pastChainEnd),
             // not every frame like ShouldSpawnAtRecordingEnd.
-            // Exception: ForceSpawnNewVessel is set after revert — the existing vessel is at the
-            // reverted position, not the recording's end position. Spawn a fresh copy with a new PID.
-            if (!rec.ForceSpawnNewVessel &&
+            // Exceptions that bypass dedup (spawn a fresh copy with new PID):
+            //   - ForceSpawnNewVessel flag (set on scene entry for matching PIDs)
+            //   - Active vessel shares PID (after revert, pad vessel has same PID as recording)
+            bool activeVesselSharesPid = FlightGlobals.ActiveVessel != null &&
+                FlightGlobals.ActiveVessel.persistentId == rec.VesselPersistentId;
+            if (!rec.ForceSpawnNewVessel && !activeVesselSharesPid &&
                 rec.VesselPersistentId != 0 && GhostPlaybackLogic.RealVesselExists(rec.VesselPersistentId))
             {
                 rec.VesselSpawned = true;
