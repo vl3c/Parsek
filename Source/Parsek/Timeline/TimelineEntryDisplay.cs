@@ -107,15 +107,15 @@ namespace Parsek
             if (seconds <= 0) return "";
 
             // KSP uses 6-hour days, 426-day years (Kerbin calendar)
-            int totalSeconds = (int)seconds;
-            int s = totalSeconds % 60;
-            int totalMinutes = totalSeconds / 60;
-            int m = totalMinutes % 60;
-            int totalHours = totalMinutes / 60;
-            int h = totalHours % 6;       // KSP day = 6 hours
-            int totalDays = totalHours / 6;
-            int d = totalDays % 426;       // KSP year = 426 days
-            int y = totalDays / 426;
+            long totalSeconds = (long)seconds;
+            long s = totalSeconds % 60;
+            long totalMinutes = totalSeconds / 60;
+            long m = totalMinutes % 60;
+            long totalHours = totalMinutes / 60;
+            long h = totalHours % 6;       // KSP day = 6 hours
+            long totalDays = totalHours / 6;
+            long d = totalDays % 426;       // KSP year = 426 days
+            long y = totalDays / 426;
 
             var parts = new System.Collections.Generic.List<string>(5);
             if (y > 0) parts.Add($"{y}y");
