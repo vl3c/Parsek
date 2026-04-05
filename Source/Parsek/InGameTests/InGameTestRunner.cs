@@ -259,6 +259,18 @@ namespace Parsek.InGameTests
                     activeInnerCoroutine = coroutineHost.StartCoroutine(SafeEnumerator());
                 }
             }
+            catch (TargetInvocationException tie) when (tie.InnerException is InGameTestSkippedException skipEx)
+            {
+                RecordSkip(test, sw, skipEx.Message);
+                RunCleanup(instance, test);
+                yield break;
+            }
+            catch (InGameTestSkippedException skipEx)
+            {
+                RecordSkip(test, sw, skipEx.Message);
+                RunCleanup(instance, test);
+                yield break;
+            }
             catch (TargetInvocationException tie) when (tie.InnerException != null)
             {
                 RecordFailure(test, sw, tie.InnerException.Message);
@@ -285,10 +297,15 @@ namespace Parsek.InGameTests
 
             if (coroutineError != null)
             {
-                string msg = coroutineError is TargetInvocationException tie2 && tie2.InnerException != null
-                    ? tie2.InnerException.Message
-                    : coroutineError.Message;
-                RecordFailure(test, sw, msg);
+                // Unwrap TargetInvocationException if needed
+                var inner = coroutineError is TargetInvocationException tie2 && tie2.InnerException != null
+                    ? tie2.InnerException
+                    : coroutineError;
+
+                if (inner is InGameTestSkippedException)
+                    RecordSkip(test, sw, inner.Message);
+                else
+                    RecordFailure(test, sw, inner.Message);
             }
             else
             {
@@ -306,6 +323,15 @@ namespace Parsek.InGameTests
             test.Status = TestStatus.Failed;
             test.ErrorMessage = message;
             ParsekLog.Warn(Tag, $"FAILED: {test.Name} - {message}");
+        }
+
+        private void RecordSkip(InGameTestInfo test, Stopwatch sw, string reason)
+        {
+            sw.Stop();
+            test.DurationMs = (float)sw.Elapsed.TotalMilliseconds;
+            test.Status = TestStatus.Skipped;
+            test.ErrorMessage = reason;
+            ParsekLog.Verbose(Tag, $"SKIPPED: {test.Name} - {reason}");
         }
 
         private void RunCleanup(object instance, InGameTestInfo test)
