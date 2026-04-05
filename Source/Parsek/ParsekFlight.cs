@@ -2484,6 +2484,19 @@ namespace Parsek
             // Set ChildBranchPointId on the active recording to link to this breakup
             activeRec.ChildBranchPointId = breakupBp.Id;
 
+            // Refresh the vessel snapshot to reflect post-breakup state.
+            // The recording continues past breakup (breakup-continuous design), so the
+            // spawn snapshot must show the surviving vessel, not the pre-breakup config.
+            // Without this, spawning materializes the full pre-breakup rocket. (#224)
+            Vessel activeVessel = FlightGlobals.ActiveVessel;
+            if (activeVessel != null && activeVessel.persistentId == activeRec.VesselPersistentId)
+            {
+                VesselSpawner.SnapshotVessel(activeRec, false);
+                ParsekLog.Info("Coalescer",
+                    $"ProcessBreakupEvent: refreshed VesselSnapshot post-breakup " +
+                    $"(parts={activeVessel.parts?.Count ?? 0})");
+            }
+
             // Create child recording segments for controlled children (vessels with probe
             // cores that survive the breakup). Same pattern as PromoteToTreeForBreakup step 8.
             // These are NOT debris — they record indefinitely (no TTL) and can serve as

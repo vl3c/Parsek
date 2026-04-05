@@ -8,7 +8,7 @@ All notable changes to Parsek are documented here.
 
 ### Bug Fixes
 
-- **Fix vessel not spawned at end of playback when parts break off on impact (#224).** Recordings with both `ChildBranchPointId` (from breakup on splashdown) and terminal state Splashed/Landed/Orbiting were incorrectly suppressed by the non-leaf tree check. Added spawnable-terminal-state override. Also added diagnostic logging for spawn suppression reasons.
+- **Fix vessel not spawned at end of playback when parts break off on impact (#224).** Breakup-continuous foreground recordings (where `ProcessBreakupEvent` sets `ChildBranchPointId` without creating a same-PID continuation) are now recognized as effective leaves via `IsEffectiveLeafForVessel`. Snapshot refreshed post-breakup to reflect surviving vessel. Added diagnostic spawn-suppression-reason logging.
 - **Fix GhostChain.GhostStartUT set to rewindUT instead of earliest claim time (#225, T51).** `GhostStartUT` was initialized to the `rewindUT` parameter, making the in-game test `ChainTimeRangesValid` fail for all 13 chains with valid SpawnUT. Now set to `links[0].ut` (earliest chain link time).
 
 ### Crew Reservation
