@@ -61,7 +61,11 @@ namespace Parsek
                 if (rec.Hidden) { hiddenSkipped++; continue; }
                 if (rec.IsDebris) continue;
 
-                bool isEva = !string.IsNullOrEmpty(rec.EvaCrewName);
+                // EVA detection: EvaCrewName set, or vessel name matches a crew end state
+                // (standalone EVA recordings may not have EvaCrewName set)
+                bool isEva = !string.IsNullOrEmpty(rec.EvaCrewName) ||
+                    (rec.CrewEndStates != null && rec.CrewEndStates.Count == 1 &&
+                     rec.CrewEndStates.ContainsKey(rec.VesselName));
                 string parentVesselName = null;
                 if (isEva && !string.IsNullOrEmpty(rec.ParentRecordingId))
                     vesselNameById.TryGetValue(rec.ParentRecordingId, out parentVesselName);
