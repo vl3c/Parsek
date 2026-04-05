@@ -3748,8 +3748,10 @@ namespace Parsek
                 return;
 
             uint activePid = activeVessel.persistentId;
-            var allCommitted = RecordingStore.CommittedRecordings;
             int forceCount = 0;
+
+            // Standalone committed recordings
+            var allCommitted = RecordingStore.CommittedRecordings;
             for (int ci = 0; ci < allCommitted.Count; ci++)
             {
                 if (allCommitted[ci].VesselPersistentId == activePid && !allCommitted[ci].VesselSpawned)
@@ -3758,9 +3760,25 @@ namespace Parsek
                     forceCount++;
                 }
             }
+
+            // Tree recordings — after scene reload, MergeDialog's marks are lost (transient).
+            // Must re-mark here for tree recordings that share the active vessel's PID. (#224)
+            var trees = RecordingStore.CommittedTrees;
+            for (int t = 0; t < trees.Count; t++)
+            {
+                foreach (var rec in trees[t].Recordings.Values)
+                {
+                    if (rec.VesselPersistentId == activePid && !rec.VesselSpawned)
+                    {
+                        rec.ForceSpawnNewVessel = true;
+                        forceCount++;
+                    }
+                }
+            }
+
             if (forceCount > 0)
                 ParsekLog.Verbose("Flight",
-                    $"Marked {forceCount} committed recording(s) with ForceSpawnNewVessel " +
+                    $"Marked {forceCount} recording(s) with ForceSpawnNewVessel " +
                     $"(active vessel pid={activePid})");
         }
 
