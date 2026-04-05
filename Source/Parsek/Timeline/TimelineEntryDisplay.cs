@@ -74,13 +74,23 @@ namespace Parsek
             return parts.Count > 0 ? string.Join(", ", parts.ToArray()) : "";
         }
 
-        /// <summary>Display text for a vessel spawn event with terminal state.</summary>
-        internal static string GetVesselSpawnText(string vesselName, TerminalState? state)
+        /// <summary>
+        /// Display text for a vessel spawn event with situation context.
+        /// Uses VesselSituation if available ("Orbiting Kerbin", "Landed on Mun"),
+        /// falls back to terminal state name, falls back to no parenthetical.
+        /// </summary>
+        internal static string GetVesselSpawnText(string vesselName, TerminalState? state, string vesselSituation)
         {
+            // Prefer the full situation string (includes body name)
+            if (!string.IsNullOrEmpty(vesselSituation))
+                return $"Spawn: {vesselName} ({vesselSituation})";
+
+            // Fall back to terminal state name
             string stateText = FormatTerminalState(state);
-            if (string.IsNullOrEmpty(stateText))
-                return $"Spawn: {vesselName}";
-            return $"Spawn: {vesselName} ({stateText})";
+            if (!string.IsNullOrEmpty(stateText))
+                return $"Spawn: {vesselName} ({stateText})";
+
+            return $"Spawn: {vesselName}";
         }
 
         /// <summary>Maps a terminal state to human-readable text. Null returns empty string.</summary>

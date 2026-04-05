@@ -56,6 +56,12 @@ KSP's inertial reference frame may drift over very long time warp. Could cause g
 
 **Priority:** Low — may not be needed
 
+### T52. Record start/end position with body, biome, and situation
+
+Recordings should capture start and end location context: body name, biome name, and vessel situation (landed/splashed/orbiting/sub-orbital). Currently `VesselSituation` captures "Orbiting Kerbin" etc. but biome is not stored. This is needed for rich timeline display: "Spawn: Mun Lander (Landed at Midlands on Mun)" instead of just "Spawn: Mun Lander (Landed on Mun)". Record `vessel.mainBody.name`, `ScienceUtil.GetExperimentBiome(body, lat, lon)`, and `vessel.situation` at both recording start and end.
+
+**Priority:** Medium — improves timeline readability significantly
+
 ## TODO — Compatibility
 
 ### T43. Mod compatibility testing (CustomBarnKit, Strategia, Contract Configurator)

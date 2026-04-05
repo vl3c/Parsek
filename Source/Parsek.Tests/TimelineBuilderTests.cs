@@ -674,17 +674,19 @@ namespace Parsek.Tests
         // ================================================================
 
         [Theory]
-        [InlineData(TerminalState.Orbiting, "Spawn: TestVessel (Orbiting)")]
-        [InlineData(TerminalState.Landed, "Spawn: TestVessel (Landed)")]
-        [InlineData(TerminalState.Splashed, "Spawn: TestVessel (Splashed)")]
-        [InlineData(TerminalState.SubOrbital, "Spawn: TestVessel (Sub-orbital)")]
-        [InlineData(TerminalState.Destroyed, "Spawn: TestVessel (Destroyed)")]
-        [InlineData(TerminalState.Recovered, "Spawn: TestVessel (Recovered)")]
-        [InlineData(TerminalState.Docked, "Spawn: TestVessel (Docked)")]
-        [InlineData(TerminalState.Boarded, "Spawn: TestVessel (Boarded)")]
-        public void VesselSpawn_AllTerminalStates(TerminalState state, string expectedText)
+        [InlineData(TerminalState.Orbiting, null, "Spawn: TestVessel (Orbiting)")]
+        [InlineData(TerminalState.Landed, null, "Spawn: TestVessel (Landed)")]
+        [InlineData(TerminalState.Splashed, null, "Spawn: TestVessel (Splashed)")]
+        [InlineData(TerminalState.SubOrbital, null, "Spawn: TestVessel (Sub-orbital)")]
+        [InlineData(TerminalState.Destroyed, null, "Spawn: TestVessel (Destroyed)")]
+        [InlineData(TerminalState.Recovered, null, "Spawn: TestVessel (Recovered)")]
+        [InlineData(TerminalState.Docked, null, "Spawn: TestVessel (Docked)")]
+        [InlineData(TerminalState.Boarded, null, "Spawn: TestVessel (Boarded)")]
+        [InlineData(TerminalState.Landed, "Landed on Mun", "Spawn: TestVessel (Landed on Mun)")]
+        [InlineData(TerminalState.Orbiting, "Orbiting Kerbin", "Spawn: TestVessel (Orbiting Kerbin)")]
+        public void VesselSpawn_AllTerminalStates(TerminalState state, string situation, string expectedText)
         {
-            var text = TimelineEntryDisplay.GetVesselSpawnText("TestVessel", state);
+            var text = TimelineEntryDisplay.GetVesselSpawnText("TestVessel", state, situation);
             Assert.Equal(expectedText, text);
         }
 
