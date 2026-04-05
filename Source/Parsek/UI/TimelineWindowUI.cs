@@ -205,7 +205,7 @@ namespace Parsek
 
             GUILayout.FlexibleSpace();
 
-            // Stats footer — count from cached timeline (what the user actually sees)
+            // Stats footer — count only visible (filtered) entries
             int recCount = 0;
             int playerActionCount = 0;
             int eventCount = 0;
@@ -214,6 +214,7 @@ namespace Parsek
                 for (int i = 0; i < cachedTimeline.Count; i++)
                 {
                     var e = cachedTimeline[i];
+                    if (!IsEntryVisible(e)) continue;
                     if (e.Type == TimelineEntryType.RecordingStart) recCount++;
                     else if (e.Source == TimelineSource.Recording) continue;
                     else if (e.IsPlayerAction) playerActionCount++;

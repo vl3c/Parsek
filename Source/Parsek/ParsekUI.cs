@@ -124,8 +124,7 @@ namespace Parsek
                 ParsekLog.Verbose("UI", $"Recordings window toggled: {(recordingsTableUI.IsOpen ? "open" : "closed")}");
             }
 
-            int timelineCount = RecordingStore.CommittedRecordings.Count + Ledger.Actions.Count;
-            if (GUILayout.Button($"Timeline ({timelineCount})"))
+            if (GUILayout.Button("Timeline"))
             {
                 timelineUI.IsOpen = !timelineUI.IsOpen;
                 ParsekLog.Verbose("UI", $"Timeline window toggled: {(timelineUI.IsOpen ? "open" : "closed")}");
