@@ -71,30 +71,16 @@ namespace Parsek
                 });
                 count++;
 
-                // RecordingEnd
-                var endType = TimelineEntryType.RecordingEnd;
-                entries.Add(new TimelineEntry
-                {
-                    UT = rec.EndUT,
-                    Type = endType,
-                    DisplayText = TimelineEntryDisplay.GetRecordingEndText(rec.VesselName, rec.TerminalStateValue),
-                    Source = TimelineSource.Recording,
-                    Tier = TimelineEntryDisplay.GetTier(endType),
-                    DisplayColor = Color.white,
-                    RecordingId = rec.RecordingId,
-                    VesselName = rec.VesselName
-                });
-                count++;
-
-                // VesselSpawn — only if playback enabled and not a mid-chain segment
+                // VesselSpawn at EndUT — vessel materializes after ghost playback
+                // Only if playback enabled and not a mid-chain segment
                 if (rec.PlaybackEnabled && !IsChainMidSegment(rec, recordings))
                 {
                     var spawnType = TimelineEntryType.VesselSpawn;
                     entries.Add(new TimelineEntry
                     {
-                        UT = rec.StartUT,
+                        UT = rec.EndUT,
                         Type = spawnType,
-                        DisplayText = TimelineEntryDisplay.GetVesselSpawnText(rec.VesselName),
+                        DisplayText = TimelineEntryDisplay.GetVesselSpawnText(rec.VesselName, rec.TerminalStateValue),
                         Source = TimelineSource.Recording,
                         Tier = TimelineEntryDisplay.GetTier(spawnType),
                         DisplayColor = Color.white,
@@ -184,7 +170,7 @@ namespace Parsek
                 {
                     UT = action.UT,
                     Type = entryType,
-                    DisplayText = TimelineEntryDisplay.GetGameActionText(action),
+                    DisplayText = TimelineEntryDisplay.GetGameActionText(action, vesselName),
                     Source = TimelineSource.GameAction,
                     Tier = tier,
                     DisplayColor = GameActionDisplay.GetColor(action.Type),

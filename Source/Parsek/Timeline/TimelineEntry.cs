@@ -4,14 +4,13 @@ namespace Parsek
 {
     /// <summary>
     /// Discriminator for timeline entries — covers every event source.
-    /// 27 types total: 3 recording lifecycle, 23 game actions (1:1 with GameActionType),
+    /// 26 types total: 2 recording lifecycle, 23 game actions (1:1 with GameActionType),
     /// 1 legacy (pre-ledger events).
     /// </summary>
     public enum TimelineEntryType
     {
-        // Recording lifecycle (3)
+        // Recording lifecycle (2)
         RecordingStart,
-        RecordingEnd,
         VesselSpawn,
 
         // Game actions (23, 1:1 with GameActionType)

@@ -72,19 +72,15 @@ namespace Parsek.Tests
                 new List<Milestone>(),
                 0);
 
-            Assert.Equal(3, result.Count);
+            Assert.Equal(2, result.Count);
 
             var start = result.First(e => e.Type == TimelineEntryType.RecordingStart);
             Assert.Equal(100, start.UT);
             Assert.Equal("Flea I", start.VesselName);
             Assert.Equal(TimelineSource.Recording, start.Source);
 
-            var end = result.First(e => e.Type == TimelineEntryType.RecordingEnd);
-            Assert.Equal(500, end.UT);
-            Assert.Equal("Flea I", end.VesselName);
-
             var spawn = result.First(e => e.Type == TimelineEntryType.VesselSpawn);
-            Assert.Equal(100, spawn.UT);
+            Assert.Equal(500, spawn.UT); // EndUT — vessel materializes after ghost playback
             Assert.Equal("Flea I", spawn.VesselName);
         }
 
@@ -119,9 +115,9 @@ namespace Parsek.Tests
                 new List<Milestone>(),
                 0);
 
-            Assert.Equal(2, result.Count);
+            // Only RecordingStart — no VesselSpawn since playback disabled
+            Assert.Single(result);
             Assert.Contains(result, e => e.Type == TimelineEntryType.RecordingStart);
-            Assert.Contains(result, e => e.Type == TimelineEntryType.RecordingEnd);
             Assert.DoesNotContain(result, e => e.Type == TimelineEntryType.VesselSpawn);
         }
 
@@ -291,7 +287,6 @@ namespace Parsek.Tests
             var t1Types = new[]
             {
                 TimelineEntryType.RecordingStart,
-                TimelineEntryType.RecordingEnd,
                 TimelineEntryType.VesselSpawn,
                 TimelineEntryType.MilestoneAchievement,
                 TimelineEntryType.ContractComplete,
@@ -311,7 +306,7 @@ namespace Parsek.Tests
                     $"Expected T1 for {type} but got {tier}");
             }
 
-            Assert.Equal(12, t1Types.Length);
+            Assert.Equal(11, t1Types.Length);
         }
 
         // ================================================================
@@ -437,9 +432,9 @@ namespace Parsek.Tests
             var spawns = result.Where(e => e.Type == TimelineEntryType.VesselSpawn).ToList();
 
             // Index 0 is mid-chain (has successor index 1) — should NOT spawn
-            // Index 1 is last in chain — SHOULD spawn
+            // Index 1 is last in chain — SHOULD spawn at its EndUT
             Assert.Single(spawns);
-            Assert.Equal(200, spawns[0].UT); // rec1's StartUT
+            Assert.Equal(400, spawns[0].UT); // rec1's EndUT
         }
 
         // ================================================================
@@ -573,7 +568,7 @@ namespace Parsek.Tests
         // ================================================================
 
         [Fact]
-        public void RecordingEnd_TerminalStateText()
+        public void VesselSpawn_TerminalStateText()
         {
             var recRecovered = MakeRecording("Ship A", 100, 200, terminal: TerminalState.Recovered);
             var recDestroyed = MakeRecording("Ship B", 100, 200, terminal: TerminalState.Destroyed);
@@ -585,17 +580,17 @@ namespace Parsek.Tests
                 new List<Milestone>(),
                 0);
 
-            var ends = result.Where(e => e.Type == TimelineEntryType.RecordingEnd).ToList();
-            Assert.Equal(3, ends.Count);
+            var spawns = result.Where(e => e.Type == TimelineEntryType.VesselSpawn).ToList();
+            Assert.Equal(3, spawns.Count);
 
-            var endA = ends.First(e => e.VesselName == "Ship A");
-            Assert.Equal("Recovered: Ship A", endA.DisplayText);
+            var spawnA = spawns.First(e => e.VesselName == "Ship A");
+            Assert.Equal("Spawn: Ship A (Recovered)", spawnA.DisplayText);
 
-            var endB = ends.First(e => e.VesselName == "Ship B");
-            Assert.Equal("Destroyed: Ship B", endB.DisplayText);
+            var spawnB = spawns.First(e => e.VesselName == "Ship B");
+            Assert.Equal("Spawn: Ship B (Destroyed)", spawnB.DisplayText);
 
-            var endC = ends.First(e => e.VesselName == "Ship C");
-            Assert.Equal("End: Ship C", endC.DisplayText);
+            var spawnC = spawns.First(e => e.VesselName == "Ship C");
+            Assert.Equal("Spawn: Ship C", spawnC.DisplayText);
         }
 
         // ================================================================
@@ -654,11 +649,11 @@ namespace Parsek.Tests
                 new List<Milestone> { milestone },
                 1); // epoch matches milestone
 
-            // 2 recordings x 3 entries each (Start + End + Spawn) = 6
+            // 2 recordings x 2 entries each (Start + Spawn) = 4
             // 3 game actions = 3
             // 1 legacy event = 1
-            // Total = 10
-            Assert.Equal(10, result.Count);
+            // Total = 8
+            Assert.Equal(8, result.Count);
 
             // Verify UT ordering
             for (int i = 1; i < result.Count; i++)
@@ -679,17 +674,17 @@ namespace Parsek.Tests
         // ================================================================
 
         [Theory]
-        [InlineData(TerminalState.Orbiting, "Orbiting: TestVessel")]
-        [InlineData(TerminalState.Landed, "Landed: TestVessel")]
-        [InlineData(TerminalState.Splashed, "Splashed: TestVessel")]
-        [InlineData(TerminalState.SubOrbital, "Sub-orbital: TestVessel")]
-        [InlineData(TerminalState.Destroyed, "Destroyed: TestVessel")]
-        [InlineData(TerminalState.Recovered, "Recovered: TestVessel")]
-        [InlineData(TerminalState.Docked, "Docked: TestVessel")]
-        [InlineData(TerminalState.Boarded, "Boarded: TestVessel")]
-        public void RecordingEnd_AllTerminalStates(TerminalState state, string expectedText)
+        [InlineData(TerminalState.Orbiting, "Spawn: TestVessel (Orbiting)")]
+        [InlineData(TerminalState.Landed, "Spawn: TestVessel (Landed)")]
+        [InlineData(TerminalState.Splashed, "Spawn: TestVessel (Splashed)")]
+        [InlineData(TerminalState.SubOrbital, "Spawn: TestVessel (Sub-orbital)")]
+        [InlineData(TerminalState.Destroyed, "Spawn: TestVessel (Destroyed)")]
+        [InlineData(TerminalState.Recovered, "Spawn: TestVessel (Recovered)")]
+        [InlineData(TerminalState.Docked, "Spawn: TestVessel (Docked)")]
+        [InlineData(TerminalState.Boarded, "Spawn: TestVessel (Boarded)")]
+        public void VesselSpawn_AllTerminalStates(TerminalState state, string expectedText)
         {
-            var text = TimelineEntryDisplay.GetRecordingEndText("TestVessel", state);
+            var text = TimelineEntryDisplay.GetVesselSpawnText("TestVessel", state);
             Assert.Equal(expectedText, text);
         }
 
@@ -721,7 +716,7 @@ namespace Parsek.Tests
                 new List<Milestone>(),
                 0);
 
-            Assert.Equal(3, result.Count);
+            Assert.Equal(2, result.Count); // Start + Spawn (no RecordingEnd)
             Assert.All(result, e => Assert.Equal(100.0, e.UT));
         }
 
@@ -744,6 +739,21 @@ namespace Parsek.Tests
 
             Assert.Contains(logLines, l =>
                 l.Contains("[Timeline]") && l.Contains("2 hidden skipped"));
+        }
+
+        // ================================================================
+        // 27. HumanizeSubjectId
+        // ================================================================
+
+        [Theory]
+        [InlineData("crewReport@KerbinSrfLaunchpad", "Crew Report @ Kerbin Srf Launchpad")]
+        [InlineData("mysteryGoo@MunSrfLandedMidlands", "Mystery Goo @ Mun Landed Midlands")]
+        [InlineData("temperatureScan", "Temperature Scan")]
+        [InlineData("", "")]
+        [InlineData(null, null)]
+        public void HumanizeSubjectId_FormatsCorrectly(string input, string expected)
+        {
+            Assert.Equal(expected, TimelineEntryDisplay.HumanizeSubjectId(input));
         }
     }
 }

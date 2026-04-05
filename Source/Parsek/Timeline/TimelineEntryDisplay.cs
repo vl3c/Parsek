@@ -19,7 +19,6 @@ namespace Parsek
             switch (type)
             {
                 case TimelineEntryType.RecordingStart:
-                case TimelineEntryType.RecordingEnd:
                 case TimelineEntryType.VesselSpawn:
                 case TimelineEntryType.MilestoneAchievement:
                 case TimelineEntryType.ContractComplete:
@@ -75,52 +74,85 @@ namespace Parsek
             return parts.Count > 0 ? string.Join(", ", parts.ToArray()) : "";
         }
 
-        /// <summary>
-        /// Display text for a recording end event.
-        /// Maps each terminal state to human-readable text with vessel name.
-        /// Null terminal state produces "End: {vesselName}".
-        /// </summary>
-        internal static string GetRecordingEndText(string vesselName, TerminalState? state)
+        /// <summary>Display text for a vessel spawn event with terminal state.</summary>
+        internal static string GetVesselSpawnText(string vesselName, TerminalState? state)
         {
-            if (state == null)
-                return $"End: {vesselName}";
+            string stateText = FormatTerminalState(state);
+            if (string.IsNullOrEmpty(stateText))
+                return $"Spawn: {vesselName}";
+            return $"Spawn: {vesselName} ({stateText})";
+        }
 
+        /// <summary>Maps a terminal state to human-readable text. Null returns empty string.</summary>
+        internal static string FormatTerminalState(TerminalState? state)
+        {
+            if (state == null) return "";
             switch (state.Value)
             {
-                case TerminalState.Orbiting:
-                    return $"Orbiting: {vesselName}";
-                case TerminalState.Landed:
-                    return $"Landed: {vesselName}";
-                case TerminalState.Splashed:
-                    return $"Splashed: {vesselName}";
-                case TerminalState.SubOrbital:
-                    return $"Sub-orbital: {vesselName}";
-                case TerminalState.Destroyed:
-                    return $"Destroyed: {vesselName}";
-                case TerminalState.Recovered:
-                    return $"Recovered: {vesselName}";
-                case TerminalState.Docked:
-                    return $"Docked: {vesselName}";
-                case TerminalState.Boarded:
-                    return $"Boarded: {vesselName}";
-                default:
-                    return $"End: {vesselName}";
+                case TerminalState.Orbiting:   return "Orbiting";
+                case TerminalState.Landed:     return "Landed";
+                case TerminalState.Splashed:   return "Splashed";
+                case TerminalState.SubOrbital: return "Sub-orbital";
+                case TerminalState.Destroyed:  return "Destroyed";
+                case TerminalState.Recovered:  return "Recovered";
+                case TerminalState.Docked:     return "Docked";
+                case TerminalState.Boarded:    return "Boarded";
+                default:                       return "";
             }
         }
 
-        /// <summary>Display text for a vessel spawn event.</summary>
-        internal static string GetVesselSpawnText(string vesselName)
+        /// <summary>
+        /// Humanizes a KSP science subject ID.
+        /// "crewReport@KerbinSrfLaunchpad" → "Crew Report @ Kerbin Srf Launchpad"
+        /// </summary>
+        internal static string HumanizeSubjectId(string subjectId)
         {
-            return $"Spawn: {vesselName}";
+            if (string.IsNullOrEmpty(subjectId)) return subjectId;
+
+            // Split at @ into experiment and location
+            int atIdx = subjectId.IndexOf('@');
+            string experiment = atIdx >= 0 ? subjectId.Substring(0, atIdx) : subjectId;
+            string location = atIdx >= 0 ? subjectId.Substring(atIdx + 1) : "";
+
+            // Insert spaces before uppercase letters (camelCase → spaced)
+            experiment = InsertSpacesBeforeUppercase(experiment);
+            location = InsertSpacesBeforeUppercase(location);
+
+            // Capitalize first letter
+            if (experiment.Length > 0)
+                experiment = char.ToUpper(experiment[0]) + experiment.Substring(1);
+
+            // Clean up redundant KSP situation prefixes
+            // "Srf Landed" → "Landed", "Srf Splashed" → "Splashed" (Srf is redundant with these)
+            location = location.Replace("Srf Landed", "Landed");
+            location = location.Replace("Srf Splashed", "Splashed");
+
+            if (string.IsNullOrEmpty(location))
+                return experiment;
+            return $"{experiment} @ {location}";
+        }
+
+        private static string InsertSpacesBeforeUppercase(string s)
+        {
+            if (string.IsNullOrEmpty(s)) return s;
+            var sb = new System.Text.StringBuilder(s.Length + 8);
+            sb.Append(s[0]);
+            for (int i = 1; i < s.Length; i++)
+            {
+                if (char.IsUpper(s[i]) && !char.IsUpper(s[i - 1]))
+                    sb.Append(' ');
+                sb.Append(s[i]);
+            }
+            return sb.ToString();
         }
 
 
         /// <summary>
         /// Display text for a game action timeline entry.
-        /// Delegates to <see cref="GameActionDisplay.GetDescription"/> for most types,
-        /// with custom handling for ScienceInitial and ReputationInitial.
+        /// Custom handling for science subjects (humanized), kerbal assignments (with vessel),
+        /// ScienceInitial, and ReputationInitial. All others delegate to GameActionDisplay.
         /// </summary>
-        internal static string GetGameActionText(GameAction action)
+        internal static string GetGameActionText(GameAction action, string vesselName)
         {
             if (action == null)
                 return "";
@@ -132,6 +164,19 @@ namespace Parsek
 
                 case GameActionType.ReputationInitial:
                     return string.Format(IC, "Starting reputation: {0:F0}", action.InitialReputation);
+
+                case GameActionType.ScienceEarning:
+                    return string.Format(IC, "{0} +{1:0.#} sci",
+                        HumanizeSubjectId(action.SubjectId ?? "unknown"), action.ScienceAwarded);
+
+                case GameActionType.KerbalAssignment:
+                {
+                    string crew = string.Format(IC, "{0} ({1})",
+                        action.KerbalName ?? "unknown", action.KerbalRole ?? "unknown");
+                    if (!string.IsNullOrEmpty(vesselName))
+                        crew += $" on {vesselName}";
+                    return crew;
+                }
 
                 default:
                     return GameActionDisplay.GetDescription(action);

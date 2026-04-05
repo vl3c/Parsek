@@ -200,12 +200,22 @@ namespace Parsek
 
             GUILayout.FlexibleSpace();
 
+            // Stats footer
+            int recCount = RecordingStore.CommittedRecordings.Count;
+            int actionCount = Ledger.Actions.Count;
             uint epoch = MilestoneStore.CurrentEpoch;
+
+            var stats = new System.Text.StringBuilder();
+            stats.Append($"{recCount} Recording{(recCount == 1 ? "" : "s")}");
             if (epoch > 0)
             {
-                GUILayout.Label($"Epoch: {epoch} ({epoch} revert{(epoch == 1 ? "" : "s")})",
-                    timelineGrayStyle);
+                int rewinds = 0, fastForwards = 0;
+                // Epoch counts total reverts; FF count not tracked separately yet
+                rewinds = (int)epoch;
+                stats.Append($" ({rewinds} Revert{(rewinds == 1 ? "" : "s")})");
             }
+            stats.Append($", {actionCount} Game Event{(actionCount == 1 ? "" : "s")}");
+            GUILayout.Label(stats.ToString(), timelineGrayStyle);
 
             if (GUILayout.Button("Close"))
             {
