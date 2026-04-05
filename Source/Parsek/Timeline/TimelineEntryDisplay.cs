@@ -217,6 +217,13 @@ namespace Parsek
                     return desc;
                 }
 
+                case GameActionType.ScienceSpending:
+                {
+                    string node = InsertSpacesBeforeUppercase(action.NodeId ?? "unknown");
+                    if (node.Length > 0) node = char.ToUpper(node[0]) + node.Substring(1);
+                    return string.Format(IC, "Tech: {0} -{1:0.#} sci", node, action.Cost);
+                }
+
                 case GameActionType.ScienceEarning:
                     return string.Format(IC, "{0} +{1:0.#} sci",
                         HumanizeSubjectId(action.SubjectId ?? "unknown"), action.ScienceAwarded);
