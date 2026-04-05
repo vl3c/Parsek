@@ -21,14 +21,11 @@ namespace Parsek.InGameTests
         public void AllGhostStatesHaveLiveGameObject()
         {
             var flight = ParsekFlight.Instance;
-            if (flight == null) return;
+            if (flight == null) InGameAssert.Skip("No ParsekFlight instance");
 
             var ghostGOs = flight.Engine.GetGhostGameObjects();
             if (ghostGOs.Count == 0)
-            {
-                ParsekLog.Verbose("TestRunner", "No active ghosts — skipping ghost GO check");
-                return;
-            }
+                InGameAssert.Skip("No active ghosts");
 
             int valid = 0, orphaned = 0;
             foreach (var kvp in ghostGOs)
@@ -50,14 +47,11 @@ namespace Parsek.InGameTests
         public void AllGhostPositionsFinite()
         {
             var flight = ParsekFlight.Instance;
-            if (flight == null) return;
+            if (flight == null) InGameAssert.Skip("No ParsekFlight instance");
 
             var positions = flight.Engine.GetActiveGhostPositions().ToList();
             if (positions.Count == 0)
-            {
-                ParsekLog.Verbose("TestRunner", "No active ghost positions to check");
-                return;
-            }
+                InGameAssert.Skip("No active ghost positions");
 
             int nanCount = 0;
             foreach (var (index, pos) in positions)
@@ -81,7 +75,7 @@ namespace Parsek.InGameTests
         public void OverlapGhostCountWithinCap()
         {
             var flight = ParsekFlight.Instance;
-            if (flight == null) return;
+            if (flight == null) InGameAssert.Skip("No ParsekFlight instance");
 
             int maxPerRec = GhostPlaybackEngine.MaxOverlapGhostsPerRecording;
             var ghostGOs = flight.Engine.GetGhostGameObjects();
@@ -109,7 +103,7 @@ namespace Parsek.InGameTests
         public void ActiveExplosionsClean()
         {
             var flight = ParsekFlight.Instance;
-            if (flight == null) return;
+            if (flight == null) InGameAssert.Skip("No ParsekFlight instance");
 
             var explosions = flight.Engine.activeExplosions;
             int nullCount = 0;
@@ -132,14 +126,11 @@ namespace Parsek.InGameTests
         public void LoopPhaseOffsetsFinite()
         {
             var flight = ParsekFlight.Instance;
-            if (flight == null) return;
+            if (flight == null) InGameAssert.Skip("No ParsekFlight instance");
 
             var offsets = flight.Engine.loopPhaseOffsets;
             if (offsets.Count == 0)
-            {
-                ParsekLog.Verbose("TestRunner", "No loop phase offsets active");
-                return;
-            }
+                InGameAssert.Skip("No loop phase offsets active");
 
             int badCount = 0;
             foreach (var kvp in offsets)
@@ -161,14 +152,11 @@ namespace Parsek.InGameTests
         public void SoftCapConsistency()
         {
             var flight = ParsekFlight.Instance;
-            if (flight == null) return;
+            if (flight == null) InGameAssert.Skip("No ParsekFlight instance");
 
             var suppressed = flight.Engine.softCapSuppressed;
             if (suppressed.Count == 0)
-            {
-                ParsekLog.Verbose("TestRunner", "No soft-cap suppressed ghosts");
-                return;
-            }
+                InGameAssert.Skip("No soft-cap suppressed ghosts");
 
             int inconsistent = 0;
             foreach (int idx in suppressed)
@@ -193,7 +181,7 @@ namespace Parsek.InGameTests
         public void GhostCountReasonable()
         {
             var flight = ParsekFlight.Instance;
-            if (flight == null) return;
+            if (flight == null) InGameAssert.Skip("No ParsekFlight instance");
 
             int ghostCount = flight.Engine.GhostCount;
             ParsekLog.Verbose("TestRunner", $"GhostPlaybackEngine.GhostCount = {ghostCount}");
@@ -211,7 +199,7 @@ namespace Parsek.InGameTests
         public void GhostBodyNamesValid()
         {
             var flight = ParsekFlight.Instance;
-            if (flight == null) return;
+            if (flight == null) InGameAssert.Skip("No ParsekFlight instance");
 
             var ghostGOs = flight.Engine.GetGhostGameObjects();
             int checked_ = 0;
@@ -228,10 +216,7 @@ namespace Parsek.InGameTests
             }
 
             if (checked_ == 0)
-            {
-                ParsekLog.Verbose("TestRunner", "No ghosts with body names to check");
-                return;
-            }
+                InGameAssert.Skip("No ghosts with body names to check");
 
             ParsekLog.Verbose("TestRunner",
                 $"Ghost body names: {checked_ - badBodies.Count}/{checked_} resolved");
@@ -255,7 +240,7 @@ namespace Parsek.InGameTests
         public void EngineInfosHaveParticleSystems()
         {
             var flight = ParsekFlight.Instance;
-            if (flight == null) return;
+            if (flight == null) InGameAssert.Skip("No ParsekFlight instance");
 
             int total = 0, valid = 0, nullSystems = 0;
             foreach (var kvp in flight.Engine.GetGhostGameObjects())
@@ -274,17 +259,12 @@ namespace Parsek.InGameTests
             }
 
             if (total == 0)
-            {
-                ParsekLog.Verbose("TestRunner", "No engine FX infos on active ghosts");
-                return;
-            }
+                InGameAssert.Skip("No engine FX infos on active ghosts");
 
             ParsekLog.Info("TestRunner",
                 $"Engine FX: {valid}/{total} have particle systems, {nullSystems} empty");
-            // Warn but don't fail — some engines may legitimately have no FX
-            if (nullSystems > 0)
-                ParsekLog.Warn("TestRunner",
-                    $"{nullSystems} engine info(s) have null/empty particle systems");
+            InGameAssert.AreEqual(total, valid,
+                $"{nullSystems} engine info(s) have null/empty particle systems (FX build failure)");
         }
 
         [InGameTest(Category = "PartEventFX", Scene = GameScenes.FLIGHT,
@@ -292,7 +272,7 @@ namespace Parsek.InGameTests
         public void ParachuteInfosValid()
         {
             var flight = ParsekFlight.Instance;
-            if (flight == null) return;
+            if (flight == null) InGameAssert.Skip("No ParsekFlight instance");
 
             int total = 0, valid = 0;
             foreach (var kvp in flight.Engine.GetGhostGameObjects())
@@ -309,10 +289,7 @@ namespace Parsek.InGameTests
             }
 
             if (total == 0)
-            {
-                ParsekLog.Verbose("TestRunner", "No parachute infos on active ghosts");
-                return;
-            }
+                InGameAssert.Skip("No parachute infos on active ghosts");
 
             ParsekLog.Info("TestRunner", $"Parachute infos: {valid}/{total} have canopy transforms");
             InGameAssert.AreEqual(total, valid,
@@ -324,7 +301,7 @@ namespace Parsek.InGameTests
         public void LightInfosValid()
         {
             var flight = ParsekFlight.Instance;
-            if (flight == null) return;
+            if (flight == null) InGameAssert.Skip("No ParsekFlight instance");
 
             int total = 0, withLights = 0;
             foreach (var kvp in flight.Engine.GetGhostGameObjects())
@@ -341,10 +318,7 @@ namespace Parsek.InGameTests
             }
 
             if (total == 0)
-            {
-                ParsekLog.Verbose("TestRunner", "No light infos on active ghosts");
-                return;
-            }
+                InGameAssert.Skip("No light infos on active ghosts");
 
             ParsekLog.Info("TestRunner", $"Light infos: {withLights}/{total} have Light components");
             InGameAssert.AreEqual(total, withLights,
@@ -356,7 +330,7 @@ namespace Parsek.InGameTests
         public void RcsInfosHaveParticleSystems()
         {
             var flight = ParsekFlight.Instance;
-            if (flight == null) return;
+            if (flight == null) InGameAssert.Skip("No ParsekFlight instance");
 
             int total = 0, valid = 0;
             foreach (var kvp in flight.Engine.GetGhostGameObjects())
@@ -373,10 +347,7 @@ namespace Parsek.InGameTests
             }
 
             if (total == 0)
-            {
-                ParsekLog.Verbose("TestRunner", "No RCS infos on active ghosts");
-                return;
-            }
+                InGameAssert.Skip("No RCS infos on active ghosts");
 
             ParsekLog.Info("TestRunner", $"RCS FX: {valid}/{total} have particle systems");
             InGameAssert.AreEqual(total, valid,
@@ -388,7 +359,7 @@ namespace Parsek.InGameTests
         public void FairingInfosValid()
         {
             var flight = ParsekFlight.Instance;
-            if (flight == null) return;
+            if (flight == null) InGameAssert.Skip("No ParsekFlight instance");
 
             int total = 0, valid = 0;
             foreach (var kvp in flight.Engine.GetGhostGameObjects())
@@ -405,10 +376,7 @@ namespace Parsek.InGameTests
             }
 
             if (total == 0)
-            {
-                ParsekLog.Verbose("TestRunner", "No fairing infos on active ghosts");
-                return;
-            }
+                InGameAssert.Skip("No fairing infos on active ghosts");
 
             ParsekLog.Info("TestRunner", $"Fairing infos: {valid}/{total} have cone meshes");
             InGameAssert.AreEqual(total, valid,
@@ -420,7 +388,7 @@ namespace Parsek.InGameTests
         public void DeployableInfosValid()
         {
             var flight = ParsekFlight.Instance;
-            if (flight == null) return;
+            if (flight == null) InGameAssert.Skip("No ParsekFlight instance");
 
             int total = 0, valid = 0;
             foreach (var kvp in flight.Engine.GetGhostGameObjects())
@@ -437,10 +405,7 @@ namespace Parsek.InGameTests
             }
 
             if (total == 0)
-            {
-                ParsekLog.Verbose("TestRunner", "No deployable infos on active ghosts");
-                return;
-            }
+                InGameAssert.Skip("No deployable infos on active ghosts");
 
             ParsekLog.Info("TestRunner", $"Deployable infos: {valid}/{total} have transform states");
             InGameAssert.AreEqual(total, valid,
@@ -480,61 +445,49 @@ namespace Parsek.InGameTests
         public void FundingSingletonAccessible()
         {
             if (HighLogic.CurrentGame == null)
-            {
-                ParsekLog.Verbose("TestRunner", "No active game — skipping funding check");
-                return;
-            }
+                InGameAssert.Skip("No active game");
+            if (HighLogic.CurrentGame.Mode != Game.Modes.CAREER)
+                InGameAssert.Skip($"Game mode is {HighLogic.CurrentGame.Mode}, not Career");
 
-            // In career/science mode, Funding should exist. In sandbox, may be null.
-            if (HighLogic.CurrentGame.Mode == Game.Modes.CAREER)
-            {
-                var funding = Funding.Instance;
-                InGameAssert.IsNotNull(funding, "Funding.Instance null in career mode");
-                // Funds should not be negative
-                InGameAssert.IsTrue(funding.Funds >= 0,
-                    $"Funds are negative: {funding.Funds:F0} (budget deduction error?)");
-                ParsekLog.Verbose("TestRunner", $"Funding singleton: Funds={funding.Funds:F0}");
-            }
-            else
-            {
-                ParsekLog.Verbose("TestRunner",
-                    $"Game mode is {HighLogic.CurrentGame.Mode} — funding check skipped");
-            }
+            var funding = Funding.Instance;
+            InGameAssert.IsNotNull(funding, "Funding.Instance null in career mode");
+            InGameAssert.IsTrue(funding.Funds >= 0,
+                $"Funds are negative: {funding.Funds:F0} (budget deduction error?)");
+            ParsekLog.Verbose("TestRunner", $"Funding singleton: Funds={funding.Funds:F0}");
         }
 
         [InGameTest(Category = "GameActionsHealth",
             Description = "KSP ResearchAndDevelopment singleton is accessible in career")]
         public void ScienceSingletonAccessible()
         {
-            if (HighLogic.CurrentGame == null) return;
+            if (HighLogic.CurrentGame == null)
+                InGameAssert.Skip("No active game");
+            if (HighLogic.CurrentGame.Mode != Game.Modes.CAREER
+                && HighLogic.CurrentGame.Mode != Game.Modes.SCIENCE_SANDBOX)
+                InGameAssert.Skip($"Game mode is {HighLogic.CurrentGame.Mode}, not Career/Science");
 
-            if (HighLogic.CurrentGame.Mode == Game.Modes.CAREER
-                || HighLogic.CurrentGame.Mode == Game.Modes.SCIENCE_SANDBOX)
-            {
-                var rd = ResearchAndDevelopment.Instance;
-                InGameAssert.IsNotNull(rd, "ResearchAndDevelopment.Instance null in career/science mode");
-                InGameAssert.IsTrue(ResearchAndDevelopment.Instance.Science >= 0,
-                    $"Science is negative: {ResearchAndDevelopment.Instance.Science:F1}");
-                ParsekLog.Verbose("TestRunner",
-                    $"R&D singleton: Science={ResearchAndDevelopment.Instance.Science:F1}");
-            }
+            var rd = ResearchAndDevelopment.Instance;
+            InGameAssert.IsNotNull(rd, "ResearchAndDevelopment.Instance null in career/science mode");
+            InGameAssert.IsTrue(ResearchAndDevelopment.Instance.Science >= 0,
+                $"Science is negative: {ResearchAndDevelopment.Instance.Science:F1}");
+            ParsekLog.Verbose("TestRunner",
+                $"R&D singleton: Science={ResearchAndDevelopment.Instance.Science:F1}");
         }
 
         [InGameTest(Category = "GameActionsHealth",
             Description = "KSP Reputation singleton is accessible in career")]
         public void ReputationSingletonAccessible()
         {
-            if (HighLogic.CurrentGame == null) return;
+            if (HighLogic.CurrentGame == null)
+                InGameAssert.Skip("No active game");
+            if (HighLogic.CurrentGame.Mode != Game.Modes.CAREER)
+                InGameAssert.Skip($"Game mode is {HighLogic.CurrentGame.Mode}, not Career");
 
-            if (HighLogic.CurrentGame.Mode == Game.Modes.CAREER)
-            {
-                var rep = Reputation.Instance;
-                InGameAssert.IsNotNull(rep, "Reputation.Instance null in career mode");
-                // Reputation is clamped to [-1000, 1000]
-                InGameAssert.IsTrue(rep.reputation >= -1000f && rep.reputation <= 1000f,
-                    $"Reputation out of bounds: {rep.reputation:F1} (expected [-1000, 1000])");
-                ParsekLog.Verbose("TestRunner", $"Reputation singleton: rep={rep.reputation:F1}");
-            }
+            var rep = Reputation.Instance;
+            InGameAssert.IsNotNull(rep, "Reputation.Instance null in career mode");
+            InGameAssert.IsTrue(rep.reputation >= -1000f && rep.reputation <= 1000f,
+                $"Reputation out of bounds: {rep.reputation:F1} (expected [-1000, 1000])");
+            ParsekLog.Verbose("TestRunner", $"Reputation singleton: rep={rep.reputation:F1}");
         }
     }
 
@@ -554,18 +507,11 @@ namespace Parsek.InGameTests
         {
             var trees = RecordingStore.CommittedTrees;
             if (trees.Count == 0)
-            {
-                ParsekLog.Verbose("TestRunner", "No committed trees — skipping chain link check");
-                return;
-            }
+                InGameAssert.Skip("No committed trees");
 
-            // Build chain map from committed trees
             var chains = GhostChainWalker.ComputeAllGhostChains(trees, double.MaxValue);
             if (chains.Count == 0)
-            {
-                ParsekLog.Verbose("TestRunner", "No ghost chains computed");
-                return;
-            }
+                InGameAssert.Skip("No ghost chains computed");
 
             // Build lookup of all recording IDs across all trees
             var allRecIds = new HashSet<string>();
@@ -603,7 +549,7 @@ namespace Parsek.InGameTests
         public void ChainTimeRangesValid()
         {
             var trees = RecordingStore.CommittedTrees;
-            if (trees.Count == 0) return;
+            if (trees.Count == 0) InGameAssert.Skip("No committed trees");
 
             var chains = GhostChainWalker.ComputeAllGhostChains(trees, double.MaxValue);
             int violations = 0;
@@ -630,7 +576,7 @@ namespace Parsek.InGameTests
         public void NoDoubleGhosting()
         {
             var trees = RecordingStore.CommittedTrees;
-            if (trees.Count == 0) return;
+            if (trees.Count == 0) InGameAssert.Skip("No committed trees");
 
             var chains = GhostChainWalker.ComputeAllGhostChains(trees, double.MaxValue);
             var seenPids = new Dictionary<uint, int>(); // pid -> count
@@ -660,7 +606,7 @@ namespace Parsek.InGameTests
         public void SpawnChainsHaveTipSnapshot()
         {
             var trees = RecordingStore.CommittedTrees;
-            if (trees.Count == 0) return;
+            if (trees.Count == 0) InGameAssert.Skip("No committed trees");
 
             var chains = GhostChainWalker.ComputeAllGhostChains(trees, double.MaxValue);
             int spawnChains = 0, withSnapshot = 0;
@@ -689,10 +635,7 @@ namespace Parsek.InGameTests
             }
 
             if (spawnChains == 0)
-            {
-                ParsekLog.Verbose("TestRunner", "No spawn chains to check");
-                return;
-            }
+                InGameAssert.Skip("No spawn chains to check");
 
             ParsekLog.Info("TestRunner",
                 $"Spawn chains: {withSnapshot}/{spawnChains} have tip vessel snapshot");
@@ -735,10 +678,7 @@ namespace Parsek.InGameTests
             }
 
             if (totalBPs == 0)
-            {
-                ParsekLog.Verbose("TestRunner", "No branch point children to check");
-                return;
-            }
+                InGameAssert.Skip("No branch point children to check");
 
             InGameAssert.AreEqual(0, dangling,
                 $"{dangling} branch point child reference(s) point to non-existent recordings");
@@ -770,10 +710,7 @@ namespace Parsek.InGameTests
             }
 
             if (checked_ == 0)
-            {
-                ParsekLog.Verbose("TestRunner", "No non-root recordings with parent links");
-                return;
-            }
+                InGameAssert.Skip("No non-root recordings with parent links");
 
             ParsekLog.Verbose("TestRunner",
                 $"Parent links: {checked_ - dangling}/{checked_} valid");
@@ -787,10 +724,7 @@ namespace Parsek.InGameTests
         {
             var trees = RecordingStore.CommittedTrees;
             if (trees.Count < 2)
-            {
-                ParsekLog.Verbose("TestRunner", $"Only {trees.Count} tree(s) — no cross-tree collision possible");
-                return;
-            }
+                InGameAssert.Skip($"Only {trees.Count} tree(s) — need 2+ for cross-tree check");
 
             var globalPids = new Dictionary<uint, int>(); // pid -> tree index
             int collisions = 0;
@@ -883,10 +817,7 @@ namespace Parsek.InGameTests
         {
             var ghostPids = GhostMapPresence.ghostMapVesselPids;
             if (ghostPids.Count == 0)
-            {
-                ParsekLog.Verbose("TestRunner", "No ghost map PIDs — patch not exercised");
-                return;
-            }
+                InGameAssert.Skip("No ghost map PIDs — patch not exercised");
 
             int loadedGhosts = 0;
             foreach (var vessel in FlightGlobals.Vessels)
@@ -914,7 +845,7 @@ namespace Parsek.InGameTests
         public void PhysicsFramePatchCleanWhenIdle()
         {
             var flight = ParsekFlight.Instance;
-            if (flight == null) return;
+            if (flight == null) InGameAssert.Skip("No ParsekFlight instance");
 
             if (!flight.IsRecording)
             {
@@ -942,17 +873,11 @@ namespace Parsek.InGameTests
             // The test verifies exactly this property — that the round-trip is lossless.
             var scenario = Object.FindObjectOfType<ParsekScenario>();
             if (scenario == null)
-            {
-                ParsekLog.Verbose("TestRunner", "No ParsekScenario — skipping tree round-trip");
-                return;
-            }
+                InGameAssert.Skip("No ParsekScenario instance");
 
             var treesBefore = RecordingStore.CommittedTrees;
             if (treesBefore.Count == 0)
-            {
-                ParsekLog.Verbose("TestRunner", "No committed trees — skipping tree round-trip");
-                return;
-            }
+                InGameAssert.Skip("No committed trees");
 
             // Capture tree IDs and recording counts before
             var beforeMap = new Dictionary<int, int>(); // tree index -> recording count
@@ -991,7 +916,7 @@ namespace Parsek.InGameTests
             // WARNING: Calls OnSave+OnLoad on live scenario — see comment on
             // ScenarioRoundTripPreservesTreeStructure for rationale.
             var scenario = Object.FindObjectOfType<ParsekScenario>();
-            if (scenario == null) return;
+            if (scenario == null) InGameAssert.Skip("No ParsekScenario instance");
 
             var before = CrewReservationManager.CrewReplacements.ToDictionary(kvp => kvp.Key, kvp => kvp.Value);
 
@@ -1036,10 +961,7 @@ namespace Parsek.InGameTests
         {
             var kerbin = FlightGlobals.GetBodyByName("Kerbin");
             if (kerbin == null)
-            {
-                ParsekLog.Verbose("TestRunner", "Kerbin not found — skipping rotation stability check");
-                yield break;
-            }
+                InGameAssert.Skip("Kerbin not found");
 
             Quaternion rot0 = kerbin.bodyTransform.rotation;
             yield return null;
@@ -1093,10 +1015,7 @@ namespace Parsek.InGameTests
             var info2 = PartLoader.getPartInfoByName(testPart);
 
             if (info1 == null)
-            {
-                ParsekLog.Verbose("TestRunner", $"Part '{testPart}' not found — skipping reference check");
-                return;
-            }
+                InGameAssert.Skip($"Part '{testPart}' not found in PartLoader");
 
             InGameAssert.IsTrue(ReferenceEquals(info1, info2),
                 $"PartLoader returned different instances for '{testPart}' (cache broken)");
@@ -1118,7 +1037,7 @@ namespace Parsek.InGameTests
         public IEnumerator FloatingOriginNoNaNDrift()
         {
             var vessel = FlightGlobals.ActiveVessel;
-            if (vessel == null) yield break;
+            if (vessel == null) InGameAssert.Skip("No active vessel");
 
             // Place a test object near the active vessel
             var testObj = GhostVisualBuilder.CreateGhostSphere("ParsekTest_FloatOrigin", Color.green);
@@ -1153,13 +1072,10 @@ namespace Parsek.InGameTests
         {
             var ghostPids = GhostMapPresence.ghostMapVesselPids;
             if (ghostPids.Count == 0)
-            {
-                ParsekLog.Verbose("TestRunner", "No ghost map vessels — skipping orbit check");
-                return;
-            }
+                InGameAssert.Skip("No ghost map vessels");
 
             var flightState = HighLogic.CurrentGame?.flightState;
-            if (flightState == null) return;
+            if (flightState == null) InGameAssert.Skip("No FlightState available");
 
             double ut = Planetarium.GetUniversalTime();
             int checked_ = 0, valid = 0;
@@ -1200,10 +1116,7 @@ namespace Parsek.InGameTests
             }
 
             if (checked_ == 0)
-            {
-                ParsekLog.Verbose("TestRunner", "No ghost ProtoVessels with orbit snapshots");
-                return;
-            }
+                InGameAssert.Skip("No ghost ProtoVessels with orbit snapshots");
 
             ParsekLog.Info("TestRunner",
                 $"Ghost orbits: {valid}/{checked_} produce valid positions at UT={ut:F1}");
@@ -1226,7 +1139,7 @@ namespace Parsek.InGameTests
         public void ActiveVesselBoundsNonDegenerate()
         {
             var vessel = FlightGlobals.ActiveVessel;
-            if (vessel == null) return;
+            if (vessel == null) InGameAssert.Skip("No active vessel");
 
             // Build a snapshot from the active vessel and compute bounds
             var snapshot = new ConfigNode("VESSEL");
@@ -1256,7 +1169,7 @@ namespace Parsek.InGameTests
         public void NoOverlapAtDistantPosition()
         {
             var vessel = FlightGlobals.ActiveVessel;
-            if (vessel == null) return;
+            if (vessel == null) InGameAssert.Skip("No active vessel");
 
             // Pick a position 5km away from active vessel — should have no overlap
             Vector3d farPos = vessel.GetWorldPos3D() + new Vector3d(5000, 0, 0);
