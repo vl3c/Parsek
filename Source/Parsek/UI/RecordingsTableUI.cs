@@ -27,7 +27,7 @@ namespace Parsek
 
         // Column widths — shared between header and body for alignment
         private const float ColW_Enable = 20f;
-        private const float ColW_Phase = 70f;
+        private const float ColW_Phase = 80f;
         private const float ColW_Index = 30f;
         private const float ColW_Launch = 110f;
         private const float ColW_Dur = 80f;
