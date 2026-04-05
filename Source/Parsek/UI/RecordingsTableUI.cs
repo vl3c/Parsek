@@ -136,6 +136,9 @@ namespace Parsek
 
         // Cross-link: pending scroll target from Timeline
         private string pendingScrollToRecordingId;
+        // Deferred scroll: row index found during draw pass, applied next frame
+        private int pendingScrollRowIndex = -1;
+        private int renderedRowCounter;
 
         internal RecordingsTableUI(ParsekUI parentUI)
         {
@@ -403,20 +406,13 @@ namespace Parsek
             EnsurePhaseStyles();
             RebuildSortedIndices(committed, now);
 
-            // Handle pending cross-link scroll from Timeline
-            if (!string.IsNullOrEmpty(pendingScrollToRecordingId) && committed.Count > 0)
+            // Cross-link scroll: apply deferred scroll from previous frame's row detection
+            if (pendingScrollRowIndex >= 0)
             {
-                for (int i = 0; i < committed.Count; i++)
-                {
-                    if (committed[i].RecordingId == pendingScrollToRecordingId)
-                    {
-                        recordingsScrollPos.y = i * 22f;
-                        ParsekLog.Verbose("UI",
-                            $"Cross-link: scrolled to recording #{i} \"{committed[i].VesselName}\"");
-                        break;
-                    }
-                }
-                pendingScrollToRecordingId = null;
+                recordingsScrollPos.y = pendingScrollRowIndex * 22f;
+                ParsekLog.Verbose("UI",
+                    $"Cross-link: applied deferred scroll to rendered row {pendingScrollRowIndex}");
+                pendingScrollRowIndex = -1;
             }
 
             if (committed.Count == 0)
@@ -426,6 +422,7 @@ namespace Parsek
             else
             {
                 // Scrollable table body (header inside scroll view for guaranteed alignment)
+                renderedRowCounter = 0;
                 recordingsScrollPos = GUILayout.BeginScrollView(
                     recordingsScrollPos, false, true, GUILayout.ExpandHeight(true));
 
@@ -549,6 +546,18 @@ namespace Parsek
         {
             var rec = committed[ri];
             if (rec.Hidden && GroupHierarchyStore.HideActive) return false;
+
+            // Cross-link: detect target row during draw pass
+            if (!string.IsNullOrEmpty(pendingScrollToRecordingId) &&
+                rec.RecordingId == pendingScrollToRecordingId)
+            {
+                pendingScrollRowIndex = renderedRowCounter;
+                ParsekLog.Verbose("UI",
+                    $"Cross-link: found \"{rec.VesselName}\" at rendered row {renderedRowCounter}");
+                pendingScrollToRecordingId = null;
+            }
+            renderedRowCounter++;
+
             GUILayout.BeginHorizontal();
 
             // Enable checkbox (always at column 0)
