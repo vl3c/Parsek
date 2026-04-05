@@ -6040,13 +6040,23 @@ namespace Parsek
                     ? GhostPlaybackLogic.ShouldSuppressSpawnForChain(activeGhostChains, rec)
                     : (suppressed: false, reason: "");
 
+                bool finalNeedsSpawn = spawnResult.needsSpawn && !chainSuppressed.suppressed;
+
+                // Log spawn suppression reason for non-debris recordings (diagnostic)
+                if (!finalNeedsSpawn && !rec.IsDebris)
+                {
+                    string reason = !spawnResult.needsSpawn ? spawnResult.reason : chainSuppressed.reason;
+                    ParsekLog.VerboseRateLimited("Spawner", "spawn-suppressed-" + i,
+                        $"Spawn suppressed for #{i} \"{rec.VesselName}\": {reason}");
+                }
+
                 flags[i] = new TrajectoryPlaybackFlags
                 {
                     skipGhost = !hasData || !rec.PlaybackEnabled || externalVesselSuppressed,
                     isStandalone = !rec.IsTreeRecording,
                     isMidChain = RecordingStore.IsChainMidSegment(rec),
                     chainEndUT = RecordingStore.GetChainEndUT(rec),
-                    needsSpawn = spawnResult.needsSpawn && !chainSuppressed.suppressed,
+                    needsSpawn = finalNeedsSpawn,
                     isActiveChainMember = isActiveChain,
                     isChainLoopingOrDisabled = chainLoopOrDisabled,
                     segmentLabel = RecordingStore.GetSegmentPhaseLabel(rec),

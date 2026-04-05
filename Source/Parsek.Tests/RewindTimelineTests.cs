@@ -627,5 +627,93 @@ namespace Parsek.Tests
         }
 
         #endregion
+
+        #region ShouldSpawnAtRecordingEnd — Non-Leaf + Terminal State Override
+
+        [Fact]
+        public void ShouldSpawn_NonLeafWithSplashed_ReturnsTrue()
+        {
+            // Bug: parts break off on splashdown → ChildBranchPointId set + terminal Splashed
+            var rec = new Recording
+            {
+                VesselSnapshot = new ConfigNode("VESSEL"),
+                ChildBranchPointId = "bp-crash-on-splashdown",
+                TerminalStateValue = TerminalState.Splashed
+            };
+
+            var (needsSpawn, _) = GhostPlaybackLogic.ShouldSpawnAtRecordingEnd(
+                rec, isActiveChainMember: false, isChainLoopingOrDisabled: false);
+
+            Assert.True(needsSpawn);
+        }
+
+        [Fact]
+        public void ShouldSpawn_NonLeafWithLanded_ReturnsTrue()
+        {
+            var rec = new Recording
+            {
+                VesselSnapshot = new ConfigNode("VESSEL"),
+                ChildBranchPointId = "bp-gear-broke-on-landing",
+                TerminalStateValue = TerminalState.Landed
+            };
+
+            var (needsSpawn, _) = GhostPlaybackLogic.ShouldSpawnAtRecordingEnd(
+                rec, isActiveChainMember: false, isChainLoopingOrDisabled: false);
+
+            Assert.True(needsSpawn);
+        }
+
+        [Fact]
+        public void ShouldSpawn_NonLeafWithOrbiting_ReturnsTrue()
+        {
+            var rec = new Recording
+            {
+                VesselSnapshot = new ConfigNode("VESSEL"),
+                ChildBranchPointId = "bp-panel-broke-in-orbit",
+                TerminalStateValue = TerminalState.Orbiting
+            };
+
+            var (needsSpawn, _) = GhostPlaybackLogic.ShouldSpawnAtRecordingEnd(
+                rec, isActiveChainMember: false, isChainLoopingOrDisabled: false);
+
+            Assert.True(needsSpawn);
+        }
+
+        [Fact]
+        public void ShouldSpawn_NonLeafWithDestroyed_StillReturnsFalse()
+        {
+            // Destroyed terminal + non-leaf should stay suppressed
+            var rec = new Recording
+            {
+                VesselSnapshot = new ConfigNode("VESSEL"),
+                ChildBranchPointId = "bp-1",
+                TerminalStateValue = TerminalState.Destroyed
+            };
+
+            var (needsSpawn, reason) = GhostPlaybackLogic.ShouldSpawnAtRecordingEnd(
+                rec, isActiveChainMember: false, isChainLoopingOrDisabled: false);
+
+            Assert.False(needsSpawn);
+        }
+
+        [Fact]
+        public void ShouldSpawn_NonLeafWithNoTerminal_StillReturnsFalse()
+        {
+            // Non-leaf without terminal state stays suppressed (normal case)
+            var rec = new Recording
+            {
+                VesselSnapshot = new ConfigNode("VESSEL"),
+                ChildBranchPointId = "bp-1",
+                TerminalStateValue = null
+            };
+
+            var (needsSpawn, reason) = GhostPlaybackLogic.ShouldSpawnAtRecordingEnd(
+                rec, isActiveChainMember: false, isChainLoopingOrDisabled: false);
+
+            Assert.False(needsSpawn);
+            Assert.Contains("non-leaf tree recording", reason);
+        }
+
+        #endregion
     }
 }

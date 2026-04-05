@@ -264,11 +264,9 @@ Extracted test runner window (276 lines, 8 fields, 6 methods) into `UI/TestRunne
 
 Removed. The field was declared but never read — only written to `true` in 80 test constructors. All MilestoneStore logging goes through ParsekLog, which has its own SuppressLogging flag.
 
-### T51. GhostChain GhostStartUT > SpawnUT for 13 chains
+### ~~T51. GhostChain GhostStartUT > SpawnUT for 13 chains~~ DONE
 
-In-game test `ChainTimeRangesValid` fails: 13 ghost chains have `GhostStartUT > SpawnUT`, meaning the ghost visibility range starts after the vessel should already be replaced by a ghost. Detected by `GhostChainWalker.ComputeAllGhostChains(trees, double.MaxValue)` in the test career save. Likely a `GhostChainWalker` computation issue with terminated or multi-segment chains — the ghost start time is derived from the tip recording's StartUT but SpawnUT comes from the earliest link's EndUT.
-
-**Priority:** Medium — affects ghost chain correctness, but no runtime crash
+In-game test `ChainTimeRangesValid` fails: 13 ghost chains have `GhostStartUT > SpawnUT`. Root cause: `GhostStartUT` was initialized to `rewindUT` (the parameter) instead of the earliest chain link UT. Test passes `double.MaxValue` → all chains fail. Fixed: set `GhostStartUT = links[0].ut`. See bug #225.
 
 ---
 
@@ -2527,6 +2525,26 @@ When loading a career save (especially after previously loading a sandbox save i
 **Root cause:** Three compounding issues: (1) KSP resource singletons (`Funding.Instance`, `ResearchAndDevelopment.Instance`, `Reputation.Instance`) exist immediately but report 0 for many seconds before their `OnLoad` populates save data — no KSP event signals when values are ready. (2) A single global `seedChecked` flag meant any partial seed (e.g., reputation's floating-point noise `-1.25e-5` passing `!= 0`) locked out funds/science seeding permanently. (3) No guard against patching when modules have no seed — `KspStatePatcher` would write target=0, actively destroying KSP's correct values.
 
 **Fix (PR #127):** Three-layer defense: (1) `HasSeed` flag on `FundsModule`/`ScienceModule`/`ReputationModule` — `KspStatePatcher` skips patching when module has no seed. (2) Per-resource seeding flags (`fundsSeedDone`/`scienceSeedDone`/`repSeedDone`) replace global `seedChecked` — partial availability doesn't block remaining seeds. Zero values skipped with epsilon check for reputation. (3) `DeferredSeedAndRecalculate` coroutine waits for non-zero values (up to 10s), then recalculates. Defense-in-depth: `Ledger.SeedInitialFunds/Science/Rep` update stale 0-value seeds in-place when a correct value arrives.
+
+## ~~224. Vessel not spawned at end of playback when parts break off on splashdown~~
+
+Recording `f8fd04e5` (Kerbal X, chainIndex=1) had both `childBranchPointId` (breakup at UT 102.8, parts broke off on splashdown impact) AND `terminalState = Splashed`. `ShouldSpawnAtRecordingEnd` hit the `ChildBranchPointId != null` check first, returning `(false, "non-leaf tree recording")` — the vessel was never spawned despite successfully splashing down.
+
+**Root cause:** The non-leaf check assumed recordings with children never need spawning. But parts can break off on impact (creating a branch point) while the main vessel survives and comes to rest. No continuation recording exists in this case — the parent recording carries both the branch point and the terminal state.
+
+**Fix:** Added spawnable-terminal-state override to both non-leaf checks in `ShouldSpawnAtRecordingEnd`. Recordings with `TerminalState` = Landed/Splashed/Orbiting bypass the non-leaf suppression. Also added diagnostic logging in `ComputePlaybackFlags` — logs the specific spawn suppression reason (rate-limited) for all non-debris recordings.
+
+**Status:** Fixed
+
+## ~~225. GhostChain.GhostStartUT set to rewindUT instead of earliest claim time (T51)~~
+
+`GhostChainWalker.ComputeAllGhostChains` initialized `GhostStartUT = rewindUT` (the current time parameter). This made `GhostStartUT > SpawnUT` for any chain where `SpawnUT < rewindUT` (completed chains). The in-game test `ChainTimeRangesValid` passes `double.MaxValue`, causing all 13 chains with valid SpawnUT to fail the `GhostStartUT <= SpawnUT` invariant.
+
+**Root cause:** `GhostStartUT` should be an intrinsic property of the chain (earliest claim time), not dependent on when chains are computed. The field is metadata-only (not consumed by any runtime display code).
+
+**Fix:** Set `GhostStartUT = links[0].ut` — the UT of the earliest chain link (first claim interaction).
+
+**Status:** Fixed
 
 # In-Game Tests
 

@@ -300,9 +300,9 @@ namespace Parsek.Tests
             // currentUT=1500 >= SpawnUT=1120 → vessel should NOT be ghosted
             Assert.False(1500.0 < chainLate.SpawnUT);
 
-            // The GhostStartUT is different (reflects the rewindUT parameter)
-            Assert.Equal(500.0, chainEarly.GhostStartUT);
-            Assert.Equal(1500.0, chainLate.GhostStartUT);
+            // GhostStartUT is the earliest link UT (dock at 1060), independent of rewindUT
+            Assert.Equal(1060.0, chainEarly.GhostStartUT);
+            Assert.Equal(1060.0, chainLate.GhostStartUT);
         }
 
         #endregion
@@ -327,7 +327,7 @@ namespace Parsek.Tests
             Assert.Single(chains);
             var chain = chains[claimedPid];
             Assert.Equal(2000.0, chain.SpawnUT);
-            Assert.Equal(midUT, chain.GhostStartUT);
+            Assert.Equal(500.0, chain.GhostStartUT); // earliest link UT (dock at 500)
 
             // Mid-chain: currentUT=1000 < SpawnUT=2000 → active
             Assert.True(midUT < chain.SpawnUT);

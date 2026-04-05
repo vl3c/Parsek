@@ -124,7 +124,7 @@ namespace Parsek.Tests
             Assert.Single(chain.Links);
             Assert.Equal("MERGE", chain.Links[0].interactionType);
             Assert.Equal("tree-1", chain.Links[0].treeId);
-            Assert.Equal(900.0, chain.GhostStartUT);
+            Assert.Equal(1060.0, chain.GhostStartUT); // earliest link UT, not rewindUT
             Assert.False(chain.IsTerminated);
         }
 

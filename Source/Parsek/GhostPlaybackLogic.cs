@@ -2091,8 +2091,18 @@ namespace Parsek
                 return (false, "chain looping or fully disabled");
             }
 
+            // Spawnable terminal states: vessel survived and is at rest.
+            // These override non-leaf checks because parts can break off on impact
+            // (setting ChildBranchPointId) while the vessel itself survives.
+            bool hasSpawnableTerminal = rec.TerminalStateValue.HasValue &&
+                (rec.TerminalStateValue.Value == TerminalState.Landed ||
+                 rec.TerminalStateValue.Value == TerminalState.Splashed ||
+                 rec.TerminalStateValue.Value == TerminalState.Orbiting);
+
             // Non-leaf tree recordings should never spawn (they branched into children)
-            if (rec.ChildBranchPointId != null)
+            // Exception: recordings with a spawnable terminal state — the vessel continued
+            // past the branch point and came to rest (e.g., parts broke off on splashdown).
+            if (rec.ChildBranchPointId != null && !hasSpawnableTerminal)
             {
                 return (false, "non-leaf tree recording");
             }
@@ -2100,7 +2110,7 @@ namespace Parsek
             // Safety net: even if ChildBranchPointId is null, check committed trees
             // for recordings that are parents of a branch point. Covers edge cases where
             // ChildBranchPointId was not set (e.g., serialization gaps). (#114)
-            if (IsNonLeafInCommittedTree(rec))
+            if (!hasSpawnableTerminal && IsNonLeafInCommittedTree(rec))
             {
                 return (false, "non-leaf in committed tree (safety net)");
             }
