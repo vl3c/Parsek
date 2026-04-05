@@ -157,10 +157,9 @@ Two tiers only (part events removed, T3 eliminated):
 
 The refactor-3 branch extracted the Actions window from `ParsekUI.cs` into `UI/ActionsWindowUI.cs`. The timeline replaces this extracted class:
 
-- **Remove**: `Source/Parsek/UI/ActionsWindowUI.cs` (entire file)
-- **Remove**: `actionsUI` field and `DrawActionsWindowIfOpen` delegate in `ParsekUI.cs`
-- **Add**: `Source/Parsek/UI/TimelineWindowUI.cs` — new class following the same extracted-window pattern (constructor takes `ParsekUI` parent, `DrawIfOpen(Rect)` entry point)
-- **Update**: `ParsekUI.cs` — replace `actionsUI` with `timelineUI`, delegate to `timelineUI.DrawIfOpen`
+- **Remove**: `Source/Parsek/UI/ActionsWindowUI.cs` (entire file — 500 lines)
+- **Add**: `Source/Parsek/UI/TimelineWindowUI.cs` — new class following the same extracted-window pattern as the other five UI classes: constructor takes `ParsekUI` parent, `DrawIfOpen(Rect)` entry point, `IsOpen` property, `ReleaseInputLock()`
+- **Update**: `ParsekUI.cs` — replace `actionsUI` field with `timelineUI`, update construction in both constructors, update `DrawActionsWindowIfOpen` → `DrawTimelineWindowIfOpen`, update button label and toggle, update `ReleaseInputLock` call in `OnDestroy`
 
 ### State Variables
 
@@ -201,7 +200,7 @@ Two buttons, not three (T3 eliminated with part events):
 
 ### Rewind Button
 
-The rewind button on `RecordingStart` entries calls `ShowRewindConfirmation(rec)` → confirmation dialog → `RecordingStore.InitiateRewind(rec)`. Same flow as Recordings Manager.
+The rewind button on `RecordingStart` entries calls `RecordingsTableUI.ShowRewindConfirmation(rec)` → confirmation dialog → `RecordingStore.InitiateRewind(rec)`. `ShowRewindConfirmation` lives on `RecordingsTableUI` (extracted from `ParsekUI` during refactor). The `TimelineWindowUI` needs access to it — either via the `ParsekUI` parent (which holds a `RecordingsTableUI` instance) or by making the method `internal static`.
 
 ### Epoch Display
 
@@ -253,9 +252,9 @@ During draw pass, accumulate row heights. Track Y offset of entry matching `sele
 **Goal**: Timeline window with entry list, filter bar, resource budget, footer.
 
 **Files changed**:
-- Remove `Source/Parsek/UI/ActionsWindowUI.cs`
-- New: `Source/Parsek/UI/TimelineWindowUI.cs` — timeline window (replaces ActionsWindowUI)
-- `ParsekUI.cs` — replace `actionsUI` field with `timelineUI`, update delegate and button label
+- Remove `Source/Parsek/UI/ActionsWindowUI.cs` (500 lines)
+- New: `Source/Parsek/UI/TimelineWindowUI.cs` — timeline window (replaces ActionsWindowUI, same extracted-window pattern)
+- `ParsekUI.cs` — replace `actionsUI` with `timelineUI`, update constructors, delegate, button label, OnDestroy cleanup
 
 **Dependencies**: Phase 9a.
 

@@ -126,7 +126,7 @@ The timeline can contain many events for an active career. Rather than hiding ev
 
 The timeline subsumes everything the Game Actions window does (showing game actions sorted by time) and adds recording lifecycle events and visual structure. Keeping both would create redundancy. The Game Actions button becomes the Timeline button. The resource budget summary, epoch display, and retired kerbals section move into the timeline window.
 
-The current Game Actions window lives in `UI/ActionsWindowUI.cs` (extracted from `ParsekUI.cs` during refactor-3). The timeline replaces this file with `UI/TimelineWindowUI.cs`, following the same extracted-window pattern.
+The current Game Actions window lives in `UI/ActionsWindowUI.cs`, one of six extracted UI windows (`RecordingsTableUI`, `SettingsWindowUI`, `TestRunnerUI`, `GroupPickerUI`, `SpawnControlUI`). The timeline replaces `ActionsWindowUI` with `UI/TimelineWindowUI.cs`, following the same extracted-window pattern: constructor takes `ParsekUI` parent, `DrawIfOpen(Rect)` entry point, `IsOpen` property, `ReleaseInputLock()` for cleanup.
 
 ---
 
@@ -144,7 +144,7 @@ RecordingStore ──reads──→ TimelineBuilder ←──reads── Ledger
                          MilestoneStore
 ```
 
-The timeline never writes to any of these systems. The only side effect it triggers is through the rewind button, which delegates to `RecordingStore.InitiateRewind()` via the existing `ShowRewindConfirmation()` dialog — the same mechanism already used by the Recordings Manager.
+The timeline never writes to any of these systems. The only side effect it triggers is through the rewind button, which delegates to `RecordingStore.InitiateRewind()` via `RecordingsTableUI.ShowRewindConfirmation()` — the same mechanism already used by the Recordings Manager.
 
 ### 3.2 TimelineEntry — the normalized event shape
 
@@ -362,7 +362,7 @@ A horizontal separator line with "── UT {value} (now) ──" label. Updates
 
 Clicking the [⟲] button on a `RecordingStart` entry invokes the same rewind flow as the Recordings Manager:
 
-1. `ShowRewindConfirmation(rec)` displays a confirmation dialog: "Rewind to 'Vessel Name' launch at UT?"
+1. `RecordingsTableUI.ShowRewindConfirmation(rec)` displays a confirmation dialog: "Rewind to 'Vessel Name' launch at UT?"
 2. The dialog shows how many future recordings will replay as ghosts
 3. On confirm, `RecordingStore.InitiateRewind(rec)` executes the rewind
 
