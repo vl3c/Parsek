@@ -236,7 +236,7 @@ namespace Parsek
                 target.TrackSections.AddRange(absorbed.TrackSections);
 
             // 5. Merge OrbitSegments
-            if (absorbed.OrbitSegments != null && absorbed.OrbitSegments.Count > 0)
+            if (absorbed.HasOrbitSegments)
                 target.OrbitSegments.AddRange(absorbed.OrbitSegments);
 
             // 6. Union FlagEvents
@@ -377,7 +377,7 @@ namespace Parsek
             original.TrackSections.RemoveRange(sectionIndex, original.TrackSections.Count - sectionIndex);
 
             // 7. Partition OrbitSegments by UT
-            if (original.OrbitSegments != null && original.OrbitSegments.Count > 0)
+            if (original.HasOrbitSegments)
             {
                 second.OrbitSegments = new List<OrbitSegment>();
                 for (int i = original.OrbitSegments.Count - 1; i >= 0; i--)
@@ -688,7 +688,11 @@ namespace Parsek
         /// </summary>
         internal static bool IsLeafRecording(Recording rec, List<Recording> allRecordings)
         {
-            if (rec.ChildBranchPointId != null) return false;
+            // Breakup-continuous effective leaf: ChildBranchPointId is set but no
+            // same-PID child exists — the recording IS the leaf for its vessel. (#224)
+            if (rec.ChildBranchPointId != null
+                && !GhostPlaybackLogic.IsEffectiveLeafForVessel(rec))
+                return false;
 
             if (!string.IsNullOrEmpty(rec.ChainId) && rec.ChainIndex >= 0)
             {

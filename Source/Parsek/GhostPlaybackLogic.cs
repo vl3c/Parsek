@@ -2091,8 +2091,23 @@ namespace Parsek
                 return (false, "chain looping or fully disabled");
             }
 
-            // Non-leaf tree recordings should never spawn (they branched into children)
-            if (rec.ChildBranchPointId != null)
+            // Breakup-continuous check: the foreground recording continued past a breakup
+            // (ProcessBreakupEvent sets ChildBranchPointId without creating a same-PID
+            // continuation). If no child shares this vessel's PID, the recording IS the
+            // effective leaf and should be spawnable. Only applies to non-debris recordings
+            // with a spawnable terminal state (Landed/Splashed/Orbiting). (#224)
+            bool hasSpawnableTerminal = rec.TerminalStateValue.HasValue &&
+                (rec.TerminalStateValue.Value == TerminalState.Landed ||
+                 rec.TerminalStateValue.Value == TerminalState.Splashed ||
+                 rec.TerminalStateValue.Value == TerminalState.Orbiting);
+            bool effectiveLeaf = rec.ChildBranchPointId != null
+                && !rec.IsDebris
+                && hasSpawnableTerminal
+                && IsEffectiveLeafForVessel(rec);
+
+            // Non-leaf tree recordings should never spawn — they branched into a
+            // same-vessel continuation that carries the correct snapshot.
+            if (rec.ChildBranchPointId != null && !effectiveLeaf)
             {
                 return (false, "non-leaf tree recording");
             }
@@ -2100,7 +2115,9 @@ namespace Parsek
             // Safety net: even if ChildBranchPointId is null, check committed trees
             // for recordings that are parents of a branch point. Covers edge cases where
             // ChildBranchPointId was not set (e.g., serialization gaps). (#114)
-            if (IsNonLeafInCommittedTree(rec))
+            // Skip for effective-leaf recordings — the branch point exists but the recording
+            // is still the leaf for its vessel.
+            if (!effectiveLeaf && IsNonLeafInCommittedTree(rec))
             {
                 return (false, "non-leaf in committed tree (safety net)");
             }
@@ -2228,6 +2245,55 @@ namespace Parsek
                     }
                 }
                 break; // Found the tree, no need to check others
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// Returns true when a recording with ChildBranchPointId is the effective leaf
+        /// for its vessel — no child recording of that branch point shares the same
+        /// VesselPersistentId. This happens for breakup-continuous foreground recordings
+        /// where ProcessBreakupEvent sets ChildBranchPointId without creating a same-PID
+        /// continuation (debris-only breakups on splashdown/landing). (#224)
+        /// </summary>
+        internal static bool IsEffectiveLeafForVessel(Recording rec)
+        {
+            if (string.IsNullOrEmpty(rec.ChildBranchPointId) || !rec.IsTreeRecording)
+                return false;
+
+            var trees = RecordingStore.CommittedTrees;
+            for (int t = 0; t < trees.Count; t++)
+            {
+                var tree = trees[t];
+                if (tree.Id != rec.TreeId) continue;
+
+                // Find the branch point
+                for (int b = 0; b < tree.BranchPoints.Count; b++)
+                {
+                    var bp = tree.BranchPoints[b];
+                    if (bp.Id != rec.ChildBranchPointId) continue;
+
+                    // Check if any child recording shares the same vessel PID
+                    for (int c = 0; c < bp.ChildRecordingIds.Count; c++)
+                    {
+                        Recording childRec;
+                        if (tree.Recordings.TryGetValue(bp.ChildRecordingIds[c], out childRec))
+                        {
+                            if (childRec.VesselPersistentId == rec.VesselPersistentId)
+                                return false; // Same-PID continuation exists — NOT effective leaf
+                        }
+                    }
+
+                    // No child shares this vessel PID — recording IS the effective leaf
+                    ParsekLog.VerboseRateLimited("Spawner",
+                        rec.RecordingId,
+                        string.Format(CultureInfo.InvariantCulture,
+                            "IsEffectiveLeafForVessel: recording {0} vessel={1} is effective leaf " +
+                            "(breakup-continuous, no same-PID continuation child)",
+                            rec.RecordingId, rec.VesselPersistentId));
+                    return true;
+                }
+                break;
             }
             return false;
         }

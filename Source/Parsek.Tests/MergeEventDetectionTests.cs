@@ -10,7 +10,6 @@ namespace Parsek.Tests
         public MergeEventDetectionTests()
         {
             RecordingStore.SuppressLogging = true;
-            MilestoneStore.SuppressLogging = true;
             MilestoneStore.ResetForTesting();
             GameStateStore.SuppressLogging = true;
             ParsekLog.SuppressLogging = true;

@@ -235,7 +235,6 @@ namespace Parsek.Tests
         public Bug174_TerminatedChainSkipTests()
         {
             RecordingStore.SuppressLogging = true;
-            MilestoneStore.SuppressLogging = true;
             MilestoneStore.ResetForTesting();
             GameStateStore.SuppressLogging = true;
             ParsekLog.ResetTestOverrides();

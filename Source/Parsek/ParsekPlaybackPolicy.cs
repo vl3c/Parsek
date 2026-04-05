@@ -50,7 +50,7 @@ namespace Parsek
 
             // Tell the engine how to check if a ghost is being held
             engine.IsGhostHeld = idx =>
-                heldGhosts.ContainsKey(idx) || host.watchedRecordingIndex == idx;
+                heldGhosts.ContainsKey(idx) || host.WatchedRecordingIndex == idx;
 
             ParsekLog.Info("Policy", "ParsekPlaybackPolicy created and subscribed to engine events");
         }
@@ -75,7 +75,7 @@ namespace Parsek
 
         private void HandlePlaybackCompleted(PlaybackCompletedEvent evt)
         {
-            bool isWatched = host.watchedRecordingIndex == evt.Index;
+            bool isWatched = host.WatchedRecordingIndex == evt.Index;
 
             ParsekLog.Verbose("Policy",
                 $"PlaybackCompleted index={evt.Index} vessel={evt.Trajectory?.VesselName} " +
@@ -270,7 +270,7 @@ namespace Parsek
                                 $"id={info.recordingId} held={now - info.holdStartTime:F1}s");
 
                             // If user is currently watching this recording, activate the spawned vessel
-                            if (host.watchedRecordingIndex == index)
+                            if (host.WatchedRecordingIndex == index)
                             {
                                 uint spawnedPid = committed[index].SpawnedVesselPersistentId;
                                 if (spawnedPid != 0)
@@ -451,7 +451,7 @@ namespace Parsek
             // Accept recordings with terminal orbit data, orbit segments, or trajectory
             // points (physics-only suborbital recordings have points but no orbit data).
             bool hasOrbitData = GhostMapPresence.HasOrbitData(evt.Trajectory);
-            bool hasOrbitSegments = evt.Trajectory.OrbitSegments != null && evt.Trajectory.OrbitSegments.Count > 0;
+            bool hasOrbitSegments = evt.Trajectory.HasOrbitSegments;
             bool hasPoints = evt.Trajectory.Points != null && evt.Trajectory.Points.Count > 0;
             if (!hasOrbitData && !hasOrbitSegments && !hasPoints)
                 return;
@@ -568,7 +568,7 @@ namespace Parsek
                     }
 
                     // Path B: state-vector-based (new — physics-only suborbital)
-                    if (traj.OrbitSegments == null || traj.OrbitSegments.Count == 0)
+                    if (!traj.HasOrbitSegments)
                     {
                         if (traj.Points == null || traj.Points.Count == 0) continue;
                         if (IsInRelativeFrame(traj, currentUT)) continue;
@@ -655,7 +655,7 @@ namespace Parsek
                 if (idx < 0 || idx >= committed.Count) continue;
 
                 var rec = committed[idx];
-                if (rec.OrbitSegments == null || rec.OrbitSegments.Count == 0) continue;
+                if (!rec.HasOrbitSegments) continue;
 
                 OrbitSegment? seg = TrajectoryMath.FindOrbitSegment(rec.OrbitSegments, currentUT);
 
@@ -745,7 +745,7 @@ namespace Parsek
         /// </summary>
         internal static bool StartsInOrbit(IPlaybackTrajectory traj, double ut)
         {
-            if (traj.OrbitSegments == null || traj.OrbitSegments.Count == 0)
+            if (!traj.HasOrbitSegments)
                 return false;
             // If recording has no trajectory points, it's orbit-only
             if (traj.Points == null || traj.Points.Count == 0)

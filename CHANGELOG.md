@@ -6,13 +6,33 @@ All notable changes to Parsek are documented here.
 
 ## 0.6.2
 
+### Bug Fixes
+
+- **Fix vessel not spawned at end of playback when parts break off on impact (#224).** Breakup-continuous foreground recordings (where `ProcessBreakupEvent` sets `ChildBranchPointId` without creating a same-PID continuation) are now recognized as effective leaves via `IsEffectiveLeafForVessel`. Snapshot refreshed post-breakup to reflect surviving vessel. Added diagnostic spawn-suppression-reason logging.
+- **Fix spawn-in-air: altitude clamping for surface terminal states.** Breakup-continuous recordings used the last trajectory point (still descending) as spawn position. Splashed vessels spawned above sea level; KSP reclassified them to FLYING. Altitude now clamped to 0 for Splashed, terrain height for Landed.
+- **Fix boring tail trim skipped for breakup-continuous leaves (#185).** `IsLeafRecording` in `RecordingOptimizer` rejected recordings with `ChildBranchPointId` without checking effective-leaf status. Ghost sat motionless on the surface for the full recording duration instead of trimming the idle tail and spawning promptly.
+- **Fix camera black screen on distant vessel spawn.** `DeferredActivateVessel` called `ForceSetActiveVessel` on unloaded vessels (beyond physics range), triggering a full FLIGHT→FLIGHT scene reload. Now skips activation for unloaded vessels — camera stays on the pad.
+- **Fix GhostChain.GhostStartUT set to rewindUT instead of earliest claim time (#225, T51).** `GhostStartUT` was initialized to the `rewindUT` parameter, making the in-game test `ChainTimeRangesValid` fail for all 13 chains with valid SpawnUT. Now set to `links[0].ut` (earliest chain link time).
+- **Stateless spawn dedup bypass replaces fragile ForceSpawnNewVessel flag (#226).** Per-recording transient flag (lost on Recording object recreation mid-scene) replaced with single static `RecordingStore.SceneEntryActiveVesselPid`. `SpawnVesselOrChainTip` derives bypass decision from current game state at spawn time. Removed `MarkForceSpawnOnActiveVesselRecordings`, `MergeDialog.MarkForceSpawnOnTreeRecordings`, and all per-recording flag-setting code.
+
+### Crew Reservation
+
+- **Refactor kerbal reservation to not use rosterStatus=Assigned (T44).** Reserved kerbals now stay at their natural rosterStatus (typically Available) instead of being set to Assigned. A new `CrewDialogFilterPatch` Harmony prefix on `BaseCrewAssignmentDialog.AddAvailItem` filters reserved and retired kerbals from the VAB/SPH crew selection dialog. Eliminates the `KerbalAssignmentValidationPatch` tug-of-war (~27 KSP warnings per session) and the `AssignedCrewCountPatch` Astronaut Complex count mismatch. Both workaround patches deleted. Dead `ReserveSnapshotCrew` method removed.
+
 ### Code Quality — Refactor-3
 
 - **Pass 1: 48 sub-methods extracted across 9 files.** Method extraction within files for long methods in GhostPlaybackEngine, FlightRecorder, GhostVisualBuilder, GhostPlaybackLogic, ParsekUI, ParsekFlight, RecordingStore, VesselSpawner, ParsekScenario. No logic changes.
 - **Pass 3A: SafeWriteConfigNode deduplicated.** Four independent safe-write implementations (Ledger, RecordingStore, GameStateStore, MilestoneStore) consolidated into shared `FileIOUtils.SafeWriteConfigNode`. MilestoneStore gains error handling it previously lacked.
 - **Pass 3B: SuppressionGuard struct.** 10 manual try/finally suppression-flag blocks across 4 files replaced with `IDisposable` `SuppressionGuard` struct (Crew, Resources, ResourcesAndReplay factories).
 - **Pass 3C: ParsekUI window extractions.** Three self-contained windows extracted from ParsekUI (4,773 → 3,698 lines): `UI/GroupPickerUI` (373 lines), `UI/SpawnControlUI` (321 lines), `UI/ActionsWindowUI` (500 lines).
-- 4,766 tests pass throughout. Zero logic changes.
+- **T45: `HasOrbitSegments` added to `IPlaybackTrajectory` interface.** 13 inline `OrbitSegments != null && .Count > 0` checks replaced across 6 files. `MockTrajectory` updated.
+- **Pass 4: Remaining UI & watch-mode extractions (T46-T50).** Five more extractions completing the refactor:
+  - `UI/TestRunnerUI` (276 lines) — test runner window from ParsekUI.
+  - `UI/SettingsWindowUI` (353 lines) — settings window from ParsekUI.
+  - `UI/RecordingsTableUI` (2,251 lines) — recordings table from ParsekUI (largest extraction, 57 fields, 30+ methods). GroupPickerUI ownership moved here.
+  - `WatchModeController` (963 lines) — camera-follow / watch-mode from ParsekFlight (15 fields, 18 methods). ParsekFlight keeps forwarding methods for external callers.
+  - `MilestoneStore.SuppressLogging` dead code removed (field written in 80 tests, never read).
+- 4,816 tests pass throughout. Zero logic changes.
 
 ### Tests
 

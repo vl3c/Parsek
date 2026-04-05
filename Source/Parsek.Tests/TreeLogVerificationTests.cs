@@ -24,7 +24,6 @@ namespace Parsek.Tests
 
             // Suppress side effects that would crash outside Unity
             GameStateStore.SuppressLogging = true;
-            MilestoneStore.SuppressLogging = true;
         }
 
         public void Dispose()

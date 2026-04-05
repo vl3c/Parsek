@@ -26,35 +26,11 @@ namespace Parsek
         #region Public Methods
 
         /// <summary>
-        /// Mark crew from all unspawned vessel snapshots as Assigned so they
-        /// can't be placed on new craft in the VAB/SPH.
-        /// </summary>
-        public static void ReserveSnapshotCrew()
-        {
-            var roster = HighLogic.CurrentGame?.CrewRoster;
-            if (roster == null)
-            {
-                ParsekLog.Verbose("CrewReservation", "ReserveSnapshotCrew: no crew roster available — skipping");
-                return;
-            }
-
-            using (SuppressionGuard.Crew())
-            {
-                foreach (var rec in RecordingStore.CommittedRecordings)
-                {
-                    if (rec.LoopPlayback) continue;
-                    if (RecordingStore.IsChainFullyDisabled(rec.ChainId)) continue;
-                    ReserveCrewIn(rec.VesselSnapshot, rec.VesselSpawned, roster);
-                }
-
-                if (RecordingStore.HasPending && RecordingStore.Pending.VesselSnapshot != null)
-                    ReserveCrewIn(RecordingStore.Pending.VesselSnapshot, false, roster);
-            }
-        }
-
-        /// <summary>
-        /// Set crew in a specific snapshot back to Available.
+        /// Clean up replacement kerbals for crew in a snapshot.
         /// Call when discarding, recovering, or wiping recordings.
+        ///
+        /// No rosterStatus changes — reserved kerbals stay at their natural status
+        /// (typically Available). CrewDialogFilterPatch handles crew dialog filtering.
         /// </summary>
         public static void UnreserveCrewInSnapshot(ConfigNode snapshot)
         {
@@ -76,19 +52,8 @@ namespace Parsek
                 {
                     foreach (string name in partNode.GetValues("crew"))
                     {
-                        foreach (ProtoCrewMember pcm in roster.Crew)
-                        {
-                            if (pcm.name == name && pcm.rosterStatus == ProtoCrewMember.RosterStatus.Assigned)
-                            {
-                                pcm.rosterStatus = ProtoCrewMember.RosterStatus.Available;
-                                CrewLog($"Unreserved crew '{name}'");
-
-                                // Clean up the replacement kerbal
-                                CleanUpReplacement(name, roster);
-
-                                break;
-                            }
-                        }
+                        if (!string.IsNullOrEmpty(name))
+                            CleanUpReplacement(name, roster);
                     }
                 }
             }
@@ -380,9 +345,9 @@ namespace Parsek
                     if (!ShouldRescueFromMissing(pcm.rosterStatus, pcm.name, crewReplacements))
                         continue;
 
-                    pcm.rosterStatus = ProtoCrewMember.RosterStatus.Assigned;
+                    pcm.rosterStatus = ProtoCrewMember.RosterStatus.Available;
                     rescued++;
-                    CrewLog($"Rescued Missing crew '{pcm.name}' → Assigned " +
+                    CrewLog($"Rescued Missing crew '{pcm.name}' → Available " +
                         $"(was orphaned by EVA vessel removal)");
                 }
 
@@ -395,8 +360,7 @@ namespace Parsek
         /// Rescues crew orphaned by vessel stripping during rewind/revert (#116).
         /// Any crew member with Assigned status who is not on a surviving ProtoVessel
         /// is set to Available. Dead crew are skipped. Must be called after
-        /// StripOrphanedSpawnedVessels / StripFuturePrelaunchVessels and before
-        /// ReserveSnapshotCrew (which re-reserves Available crew from snapshots).
+        /// StripOrphanedSpawnedVessels / StripFuturePrelaunchVessels.
         /// </summary>
         internal static int RescueOrphanedCrew(List<ProtoVessel> survivingVessels)
         {
