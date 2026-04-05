@@ -94,7 +94,7 @@ namespace Parsek
                     {
                         UT = rec.EndUT,
                         Type = spawnType,
-                        DisplayText = TimelineEntryDisplay.GetVesselSpawnText(rec.VesselName, rec.TerminalStateValue, rec.VesselSituation, isEva, parentVesselName),
+                        DisplayText = TimelineEntryDisplay.GetVesselSpawnText(rec.VesselName, rec.TerminalStateValue, rec.VesselSituation, isEva, parentVesselName, rec.TerminalOrbitBody),
                         Source = TimelineSource.Recording,
                         Tier = TimelineEntryDisplay.GetTier(spawnType),
                         DisplayColor = Color.white,

@@ -93,7 +93,7 @@ namespace Parsek
         /// falls back to terminal state name, falls back to no parenthetical.
         /// </summary>
         internal static string GetVesselSpawnText(string vesselName, TerminalState? state,
-            string vesselSituation, bool isEva, string parentVesselName)
+            string vesselSituation, bool isEva, string parentVesselName, string terminalOrbitBody)
         {
             // Boarded EVA: "Board: Jeb (Mun Lander)" — kerbal returned to parent vessel
             if (isEva && state == TerminalState.Boarded && !string.IsNullOrEmpty(parentVesselName))
@@ -103,10 +103,15 @@ namespace Parsek
             if (!string.IsNullOrEmpty(vesselSituation))
                 return $"Spawn: {vesselName} ({vesselSituation})";
 
-            // Fall back to terminal state name
+            // Fall back to terminal state with body context for orbital states
             string stateText = FormatTerminalState(state);
             if (!string.IsNullOrEmpty(stateText))
+            {
+                if (!string.IsNullOrEmpty(terminalOrbitBody) &&
+                    (state == TerminalState.Orbiting || state == TerminalState.SubOrbital))
+                    return $"Spawn: {vesselName} ({stateText} {terminalOrbitBody})";
                 return $"Spawn: {vesselName} ({stateText})";
+            }
 
             return $"Spawn: {vesselName}";
         }

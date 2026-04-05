@@ -674,7 +674,7 @@ namespace Parsek.Tests
         // ================================================================
 
         [Theory]
-        [InlineData(TerminalState.Orbiting, null, "Spawn: TestVessel (Orbiting)")]
+        [InlineData(TerminalState.Orbiting, null, "Spawn: TestVessel (Orbiting)")]  // no body fallback
         [InlineData(TerminalState.Landed, null, "Spawn: TestVessel (Landed)")]
         [InlineData(TerminalState.Splashed, null, "Spawn: TestVessel (Splashed)")]
         [InlineData(TerminalState.SubOrbital, null, "Spawn: TestVessel (Sub-orbital)")]
@@ -686,7 +686,7 @@ namespace Parsek.Tests
         [InlineData(TerminalState.Orbiting, "Orbiting Kerbin", "Spawn: TestVessel (Orbiting Kerbin)")]
         public void VesselSpawn_AllTerminalStates(TerminalState state, string situation, string expectedText)
         {
-            var text = TimelineEntryDisplay.GetVesselSpawnText("TestVessel", state, situation, false, null);
+            var text = TimelineEntryDisplay.GetVesselSpawnText("TestVessel", state, situation, false, null, null);
             Assert.Equal(expectedText, text);
         }
 
