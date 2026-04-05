@@ -14,7 +14,7 @@ namespace Parsek
     {
         /// <summary>
         /// Set to true by ParsekScenario during its own crew mutations
-        /// (ReserveCrewIn, UnreserveCrewInSnapshot, CleanUpReplacement, ClearReplacements)
+        /// (UnreserveCrewInSnapshot, CleanUpReplacement, ClearReplacements)
         /// to prevent recording Parsek's internal bookkeeping as real game state events.
         /// </summary>
         internal static bool SuppressCrewEvents = false;

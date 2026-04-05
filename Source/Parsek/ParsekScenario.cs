@@ -768,7 +768,6 @@ namespace Parsek
             }
 
             // Rescue crew orphaned by vessel stripping (#116).
-            // Must run BEFORE ReserveSnapshotCrew so crew are Available for re-reservation.
             if (HighLogic.CurrentGame?.flightState != null)
                 CrewReservationManager.RescueOrphanedCrew(
                     HighLogic.CurrentGame.flightState.protoVessels);

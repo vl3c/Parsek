@@ -236,7 +236,7 @@ namespace Parsek
                 target.TrackSections.AddRange(absorbed.TrackSections);
 
             // 5. Merge OrbitSegments
-            if (absorbed.OrbitSegments != null && absorbed.OrbitSegments.Count > 0)
+            if (absorbed.HasOrbitSegments)
                 target.OrbitSegments.AddRange(absorbed.OrbitSegments);
 
             // 6. Union FlagEvents
@@ -377,7 +377,7 @@ namespace Parsek
             original.TrackSections.RemoveRange(sectionIndex, original.TrackSections.Count - sectionIndex);
 
             // 7. Partition OrbitSegments by UT
-            if (original.OrbitSegments != null && original.OrbitSegments.Count > 0)
+            if (original.HasOrbitSegments)
             {
                 second.OrbitSegments = new List<OrbitSegment>();
                 for (int i = original.OrbitSegments.Count - 1; i >= 0; i--)

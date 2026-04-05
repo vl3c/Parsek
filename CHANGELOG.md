@@ -6,12 +6,17 @@ All notable changes to Parsek are documented here.
 
 ## 0.6.2
 
+### Crew Reservation
+
+- **Refactor kerbal reservation to not use rosterStatus=Assigned (T44).** Reserved kerbals now stay at their natural rosterStatus (typically Available) instead of being set to Assigned. A new `CrewDialogFilterPatch` Harmony prefix on `BaseCrewAssignmentDialog.AddAvailItem` filters reserved and retired kerbals from the VAB/SPH crew selection dialog. Eliminates the `KerbalAssignmentValidationPatch` tug-of-war (~27 KSP warnings per session) and the `AssignedCrewCountPatch` Astronaut Complex count mismatch. Both workaround patches deleted. Dead `ReserveSnapshotCrew` method removed.
+
 ### Code Quality — Refactor-3
 
 - **Pass 1: 48 sub-methods extracted across 9 files.** Method extraction within files for long methods in GhostPlaybackEngine, FlightRecorder, GhostVisualBuilder, GhostPlaybackLogic, ParsekUI, ParsekFlight, RecordingStore, VesselSpawner, ParsekScenario. No logic changes.
 - **Pass 3A: SafeWriteConfigNode deduplicated.** Four independent safe-write implementations (Ledger, RecordingStore, GameStateStore, MilestoneStore) consolidated into shared `FileIOUtils.SafeWriteConfigNode`. MilestoneStore gains error handling it previously lacked.
 - **Pass 3B: SuppressionGuard struct.** 10 manual try/finally suppression-flag blocks across 4 files replaced with `IDisposable` `SuppressionGuard` struct (Crew, Resources, ResourcesAndReplay factories).
 - **Pass 3C: ParsekUI window extractions.** Three self-contained windows extracted from ParsekUI (4,773 → 3,698 lines): `UI/GroupPickerUI` (373 lines), `UI/SpawnControlUI` (321 lines), `UI/ActionsWindowUI` (500 lines).
+- **T45: `HasOrbitSegments` added to `IPlaybackTrajectory` interface.** 13 inline `OrbitSegments != null && .Count > 0` checks replaced across 6 files. `MockTrajectory` updated.
 - **Pass 4: Remaining UI & watch-mode extractions (T46-T50).** Five more extractions completing the refactor:
   - `UI/TestRunnerUI` (276 lines) — test runner window from ParsekUI.
   - `UI/SettingsWindowUI` (353 lines) — settings window from ParsekUI.
