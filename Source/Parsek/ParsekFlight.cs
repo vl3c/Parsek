@@ -660,26 +660,7 @@ namespace Parsek
                 toolbarControl = null;
             }
 
-            // Unregister events to prevent handler leaks
-            GameEvents.onGameSceneLoadRequested.Remove(OnSceneChangeRequested);
-            GameEvents.onFlightReady.Remove(OnFlightReady);
-            GameEvents.onVesselWillDestroy.Remove(OnVesselWillDestroy);
-            GameEvents.onVesselSituationChange.Remove(OnVesselSituationChange);
-            GameEvents.onCrewOnEva.Remove(OnCrewOnEva);
-            GameEvents.onCrewBoardVessel.Remove(OnCrewBoardVessel);
-            GameEvents.onVesselGoOnRails.Remove(OnVesselGoOnRails);
-            GameEvents.onVesselGoOffRails.Remove(OnVesselGoOffRails);
-            GameEvents.onVesselLoaded.Remove(OnVesselLoaded);
-            GameEvents.onVesselUnloaded.Remove(OnVesselUnloaded);
-            GameEvents.onVesselSOIChanged.Remove(OnVesselSOIChanged);
-            GameEvents.onPartCouple.Remove(OnPartCouple);
-            GameEvents.onPartUndock.Remove(OnPartUndock);
-            GameEvents.onGroundSciencePartDeployed.Remove(OnGroundSciencePartDeployed);
-            GameEvents.onGroundSciencePartRemoved.Remove(OnGroundSciencePartRemoved);
-            GameEvents.onVesselChange.Remove(OnVesselSwitchComplete);
-            GameEvents.onTimeWarpRateChanged.Remove(OnTimeWarpRateChanged);
-            MergeDialog.OnTreeCommitted -= OnTreeCommittedFromMergeDialog;
-            GameEvents.afterFlagPlanted.Remove(OnAfterFlagPlanted);
+            UnregisterGameEvents();
 
             // Restore debris persistence if still overridden
             RestoreDebrisPersistence();
@@ -742,6 +723,32 @@ namespace Parsek
             loggedAnchorNotFound.Clear();
 
             ui?.Cleanup();
+        }
+
+        /// <summary>
+        /// Unregisters all GameEvents and delegate subscriptions to prevent handler leaks.
+        /// </summary>
+        private void UnregisterGameEvents()
+        {
+            GameEvents.onGameSceneLoadRequested.Remove(OnSceneChangeRequested);
+            GameEvents.onFlightReady.Remove(OnFlightReady);
+            GameEvents.onVesselWillDestroy.Remove(OnVesselWillDestroy);
+            GameEvents.onVesselSituationChange.Remove(OnVesselSituationChange);
+            GameEvents.onCrewOnEva.Remove(OnCrewOnEva);
+            GameEvents.onCrewBoardVessel.Remove(OnCrewBoardVessel);
+            GameEvents.onVesselGoOnRails.Remove(OnVesselGoOnRails);
+            GameEvents.onVesselGoOffRails.Remove(OnVesselGoOffRails);
+            GameEvents.onVesselLoaded.Remove(OnVesselLoaded);
+            GameEvents.onVesselUnloaded.Remove(OnVesselUnloaded);
+            GameEvents.onVesselSOIChanged.Remove(OnVesselSOIChanged);
+            GameEvents.onPartCouple.Remove(OnPartCouple);
+            GameEvents.onPartUndock.Remove(OnPartUndock);
+            GameEvents.onGroundSciencePartDeployed.Remove(OnGroundSciencePartDeployed);
+            GameEvents.onGroundSciencePartRemoved.Remove(OnGroundSciencePartRemoved);
+            GameEvents.onVesselChange.Remove(OnVesselSwitchComplete);
+            GameEvents.onTimeWarpRateChanged.Remove(OnTimeWarpRateChanged);
+            MergeDialog.OnTreeCommitted -= OnTreeCommittedFromMergeDialog;
+            GameEvents.afterFlagPlanted.Remove(OnAfterFlagPlanted);
         }
 
         #endregion
@@ -863,76 +870,92 @@ namespace Parsek
             }
             else
             {
-                // Snapshot vessel for persistence across revert.
-                VesselSpawner.SnapshotVessel(
-                    RecordingStore.Pending,
-                    wasDestroyed,
-                    destroyedFallbackSnapshot: recorder.InitialGhostVisualSnapshot ?? recorder.LastGoodVesselSnapshot);
-                RecordingStore.Pending.GhostVisualSnapshot = recorder.InitialGhostVisualSnapshot != null
-                    ? recorder.InitialGhostVisualSnapshot.CreateCopy()
-                    : (RecordingStore.Pending.VesselSnapshot != null
-                        ? RecordingStore.Pending.VesselSnapshot.CreateCopy()
-                        : null);
-
-                // Fallback path (ForceStop): CaptureAtStop is null, so
-                // ApplyPersistenceArtifactsFrom didn't run. Apply chain
-                // metadata directly from the active fields.
-                if (RecordingStore.HasPending)
-                    chainManager.ApplyChainMetadataTo(RecordingStore.Pending);
-
-                // Copy rewind fields from recorder (ForceStop bypasses ApplyPersistenceArtifactsFrom)
-                if (RecordingStore.HasPending)
-                {
-                    RecordingStore.Pending.RewindSaveFileName = recorder.RewindSaveFileName;
-                    RecordingStore.Pending.RewindReservedFunds = recorder.RewindReservedFunds;
-                    RecordingStore.Pending.RewindReservedScience = recorder.RewindReservedScience;
-                    RecordingStore.Pending.RewindReservedRep = recorder.RewindReservedRep;
-                }
-
-                // Tag segment phase in fallback path
-                if (RecordingStore.HasPending && string.IsNullOrEmpty(RecordingStore.Pending.SegmentPhase))
-                {
-                    TagSegmentPhaseIfMissing(RecordingStore.Pending, FlightGlobals.ActiveVessel);
-                    if (!string.IsNullOrEmpty(RecordingStore.Pending.SegmentPhase))
-                        ParsekLog.Verbose("Flight", $"Final segment tagged (ForceStop): " +
-                            $"{RecordingStore.Pending.SegmentBodyName} {RecordingStore.Pending.SegmentPhase}");
-                }
+                ApplyFallbackSnapshotAndMetadata(wasDestroyed);
             }
 
             // Clear chain fields after both paths have consumed them
             chainManager.ClearChainIdentity();
 
             // Capture vessel situation + PersistentId on the pending recording.
-            // VesselPersistentId: safety net for the fallback path where
-            // ApplyPersistenceArtifactsFrom didn't run.
-            // SceneExitSituation + TerminalState: enables auto-commit by
-            // ParsekScenario on non-revert scene exits.
-            if (RecordingStore.HasPending)
-            {
-                RecordingStore.Pending.VesselPersistentId = recorder.RecordingVesselId;
-
-                if (FlightGlobals.ActiveVessel != null)
-                {
-                    var sit = FlightGlobals.ActiveVessel.situation;
-                    RecordingStore.Pending.SceneExitSituation = (int)sit;
-                    RecordingStore.Pending.TerminalStateValue =
-                        RecordingTree.DetermineTerminalState((int)sit, FlightGlobals.ActiveVessel);
-                }
-
-                // Fallback: if the vessel was destroyed during recording,
-                // override whatever situation-based terminal state was set.
-                // Covers two cases:
-                // 1. ActiveVessel null (building collision destroyed the only
-                //    vessel, triggering scene change before
-                //    ShowPostDestructionMergeDialog could run) — TerminalState is null.
-                // 2. ActiveVessel switched to debris/other vessel with a
-                //    non-Destroyed situation (e.g., LANDED) — TerminalState is
-                //    wrong (Landed instead of Destroyed).
-                ApplyDestroyedFallback(wasDestroyed, RecordingStore.Pending);
-            }
+            CaptureSceneExitState(wasDestroyed);
 
             recorder = null;
             lastPlaybackIndex = 0;
+        }
+
+        /// <summary>
+        /// Fallback snapshot path when CaptureAtStop is null (ForceStop).
+        /// Captures vessel snapshot, applies chain metadata, copies rewind fields,
+        /// and tags segment phase.
+        /// </summary>
+        private void ApplyFallbackSnapshotAndMetadata(bool wasDestroyed)
+        {
+            // Snapshot vessel for persistence across revert.
+            VesselSpawner.SnapshotVessel(
+                RecordingStore.Pending,
+                wasDestroyed,
+                destroyedFallbackSnapshot: recorder.InitialGhostVisualSnapshot ?? recorder.LastGoodVesselSnapshot);
+            RecordingStore.Pending.GhostVisualSnapshot = recorder.InitialGhostVisualSnapshot != null
+                ? recorder.InitialGhostVisualSnapshot.CreateCopy()
+                : (RecordingStore.Pending.VesselSnapshot != null
+                    ? RecordingStore.Pending.VesselSnapshot.CreateCopy()
+                    : null);
+
+            // Fallback path (ForceStop): CaptureAtStop is null, so
+            // ApplyPersistenceArtifactsFrom didn't run. Apply chain
+            // metadata directly from the active fields.
+            if (RecordingStore.HasPending)
+                chainManager.ApplyChainMetadataTo(RecordingStore.Pending);
+
+            // Copy rewind fields from recorder (ForceStop bypasses ApplyPersistenceArtifactsFrom)
+            if (RecordingStore.HasPending)
+            {
+                RecordingStore.Pending.RewindSaveFileName = recorder.RewindSaveFileName;
+                RecordingStore.Pending.RewindReservedFunds = recorder.RewindReservedFunds;
+                RecordingStore.Pending.RewindReservedScience = recorder.RewindReservedScience;
+                RecordingStore.Pending.RewindReservedRep = recorder.RewindReservedRep;
+            }
+
+            // Tag segment phase in fallback path
+            if (RecordingStore.HasPending && string.IsNullOrEmpty(RecordingStore.Pending.SegmentPhase))
+            {
+                TagSegmentPhaseIfMissing(RecordingStore.Pending, FlightGlobals.ActiveVessel);
+                if (!string.IsNullOrEmpty(RecordingStore.Pending.SegmentPhase))
+                    ParsekLog.Verbose("Flight", $"Final segment tagged (ForceStop): " +
+                        $"{RecordingStore.Pending.SegmentBodyName} {RecordingStore.Pending.SegmentPhase}");
+            }
+        }
+
+        /// <summary>
+        /// Captures vessel situation, PersistentId, and terminal state on the pending recording.
+        /// VesselPersistentId is a safety net; SceneExitSituation + TerminalState enable
+        /// auto-commit by ParsekScenario on non-revert scene exits.
+        /// </summary>
+        private void CaptureSceneExitState(bool wasDestroyed)
+        {
+            if (!RecordingStore.HasPending)
+                return;
+
+            RecordingStore.Pending.VesselPersistentId = recorder.RecordingVesselId;
+
+            if (FlightGlobals.ActiveVessel != null)
+            {
+                var sit = FlightGlobals.ActiveVessel.situation;
+                RecordingStore.Pending.SceneExitSituation = (int)sit;
+                RecordingStore.Pending.TerminalStateValue =
+                    RecordingTree.DetermineTerminalState((int)sit, FlightGlobals.ActiveVessel);
+            }
+
+            // Fallback: if the vessel was destroyed during recording,
+            // override whatever situation-based terminal state was set.
+            // Covers two cases:
+            // 1. ActiveVessel null (building collision destroyed the only
+            //    vessel, triggering scene change before
+            //    ShowPostDestructionMergeDialog could run) — TerminalState is null.
+            // 2. ActiveVessel switched to debris/other vessel with a
+            //    non-Destroyed situation (e.g., LANDED) — TerminalState is
+            //    wrong (Landed instead of Destroyed).
+            ApplyDestroyedFallback(wasDestroyed, RecordingStore.Pending);
         }
 
         void OnVesselWillDestroy(Vessel v)
@@ -3627,91 +3650,14 @@ namespace Parsek
             // On non-revert scene changes, pending recordings are auto-committed by ParsekScenario.
             // On reverts, the merge dialog is expected here (player chose to revert).
             if (RecordingStore.HasPending)
-            {
-                var pending = RecordingStore.Pending;
-
-                // After revert, the original vessel exists at its reverted position (e.g., on the pad),
-                // not at the recording's end position. Mark for fresh spawn with a new PID so the
-                // dedup check doesn't skip it. Also mark committed chain siblings.
-                pending.ForceSpawnNewVessel = true;
-                if (!string.IsNullOrEmpty(pending.ChainId))
-                {
-                    var chainSiblings = RecordingStore.GetChainRecordings(pending.ChainId);
-                    if (chainSiblings != null)
-                    {
-                        for (int cs = 0; cs < chainSiblings.Count; cs++)
-                            chainSiblings[cs].ForceSpawnNewVessel = true;
-                    }
-                }
-                ParsekLog.Verbose("Flight", $"Pending recording on flight ready: ForceSpawnNewVessel=true for '{pending.VesselName}'");
-
-                // Check if this is part of a chain with committed siblings
-                bool hasChainSiblings = !string.IsNullOrEmpty(pending.ChainId) &&
-                    RecordingStore.GetChainRecordings(pending.ChainId) != null;
-
-                if (hasChainSiblings)
-                {
-                    // Chain-level merge dialog (covers all segments)
-                    Log($"Found pending chain recording (chain={pending.ChainId}, idx={pending.ChainIndex})");
-                    CommitOrShowDialog(pending);
-                }
-                else if (!string.IsNullOrEmpty(pending.ParentRecordingId))
-                {
-                    // Legacy: auto-commit EVA child recordings (skip merge dialog)
-                    bool parentFound = false;
-                    foreach (var rec in RecordingStore.CommittedRecordings)
-                    {
-                        if (rec.RecordingId == pending.ParentRecordingId)
-                        {
-                            parentFound = true;
-                            break;
-                        }
-                    }
-                    if (parentFound)
-                    {
-                        Log($"Auto-committing EVA child recording (parent={pending.ParentRecordingId}, crew={pending.EvaCrewName})");
-                        string recId = pending.RecordingId;
-                        double startUT = pending.StartUT;
-                        double endUT = pending.EndUT;
-                        RecordingStore.CommitPending();
-                        LedgerOrchestrator.OnRecordingCommitted(recId, startUT, endUT);
-                    }
-                    else
-                    {
-                        Log($"EVA child recording has no matching parent — commit or dialog");
-                        CommitOrShowDialog(pending);
-                    }
-                }
-                else
-                {
-                    Log($"Found pending recording from {pending.VesselName} ({pending.Points.Count} points)");
-                    CommitOrShowDialog(pending);
-                }
-            }
+                HandlePendingStandaloneRecording();
 
             // Mark all committed recordings that share the active vessel's PID for fresh spawn.
             // After revert, the pad vessel has the same PID as previously-recorded vessels.
             // Without this, the PID dedup in SpawnVesselOrChainTip would skip spawning
             // because it finds the pad vessel and thinks the recorded vessel already exists.
             // ForceSpawnNewVessel is transient (not serialized), so this must run every flight entry.
-            if (activeVessel != null && activeVessel.persistentId != 0)
-            {
-                uint activePid = activeVessel.persistentId;
-                var allCommitted = RecordingStore.CommittedRecordings;
-                int forceCount = 0;
-                for (int ci = 0; ci < allCommitted.Count; ci++)
-                {
-                    if (allCommitted[ci].VesselPersistentId == activePid && !allCommitted[ci].VesselSpawned)
-                    {
-                        allCommitted[ci].ForceSpawnNewVessel = true;
-                        forceCount++;
-                    }
-                }
-                if (forceCount > 0)
-                    ParsekLog.Verbose("Flight",
-                        $"Marked {forceCount} committed recording(s) with ForceSpawnNewVessel " +
-                        $"(active vessel pid={activePid})");
-            }
+            MarkForceSpawnOnActiveVesselRecordings(activeVessel);
 
             // Swap reserved crew out of the active vessel so the player
             // can't record with them again (they belong to deferred-spawn vessels)
@@ -3737,6 +3683,99 @@ namespace Parsek
                 Log($"  Recording #{i}: \"{rec.VesselName}\" UT {rec.StartUT:F0}-{rec.EndUT:F0}, " +
                     $"{rec.Points.Count} pts{orbitInfo}, {hasVessel}{chainInfo}");
             }
+        }
+
+        /// <summary>
+        /// Handles pending standalone recording on flight ready: marks for force-spawn,
+        /// routes to chain-level merge dialog, EVA auto-commit, or standard merge dialog.
+        /// </summary>
+        private void HandlePendingStandaloneRecording()
+        {
+            var pending = RecordingStore.Pending;
+
+            // After revert, the original vessel exists at its reverted position (e.g., on the pad),
+            // not at the recording's end position. Mark for fresh spawn with a new PID so the
+            // dedup check doesn't skip it. Also mark committed chain siblings.
+            pending.ForceSpawnNewVessel = true;
+            if (!string.IsNullOrEmpty(pending.ChainId))
+            {
+                var chainSiblings = RecordingStore.GetChainRecordings(pending.ChainId);
+                if (chainSiblings != null)
+                {
+                    for (int cs = 0; cs < chainSiblings.Count; cs++)
+                        chainSiblings[cs].ForceSpawnNewVessel = true;
+                }
+            }
+            ParsekLog.Verbose("Flight", $"Pending recording on flight ready: ForceSpawnNewVessel=true for '{pending.VesselName}'");
+
+            // Check if this is part of a chain with committed siblings
+            bool hasChainSiblings = !string.IsNullOrEmpty(pending.ChainId) &&
+                RecordingStore.GetChainRecordings(pending.ChainId) != null;
+
+            if (hasChainSiblings)
+            {
+                // Chain-level merge dialog (covers all segments)
+                Log($"Found pending chain recording (chain={pending.ChainId}, idx={pending.ChainIndex})");
+                CommitOrShowDialog(pending);
+            }
+            else if (!string.IsNullOrEmpty(pending.ParentRecordingId))
+            {
+                // Legacy: auto-commit EVA child recordings (skip merge dialog)
+                bool parentFound = false;
+                foreach (var rec in RecordingStore.CommittedRecordings)
+                {
+                    if (rec.RecordingId == pending.ParentRecordingId)
+                    {
+                        parentFound = true;
+                        break;
+                    }
+                }
+                if (parentFound)
+                {
+                    Log($"Auto-committing EVA child recording (parent={pending.ParentRecordingId}, crew={pending.EvaCrewName})");
+                    string recId = pending.RecordingId;
+                    double startUT = pending.StartUT;
+                    double endUT = pending.EndUT;
+                    RecordingStore.CommitPending();
+                    LedgerOrchestrator.OnRecordingCommitted(recId, startUT, endUT);
+                }
+                else
+                {
+                    Log($"EVA child recording has no matching parent — commit or dialog");
+                    CommitOrShowDialog(pending);
+                }
+            }
+            else
+            {
+                Log($"Found pending recording from {pending.VesselName} ({pending.Points.Count} points)");
+                CommitOrShowDialog(pending);
+            }
+        }
+
+        /// <summary>
+        /// Marks all committed recordings sharing the active vessel's PID for fresh spawn.
+        /// Required after revert so PID dedup does not skip spawning.
+        /// </summary>
+        private void MarkForceSpawnOnActiveVesselRecordings(Vessel activeVessel)
+        {
+            if (activeVessel == null || activeVessel.persistentId == 0)
+                return;
+
+            uint activePid = activeVessel.persistentId;
+            var allCommitted = RecordingStore.CommittedRecordings;
+            int forceCount = 0;
+            for (int ci = 0; ci < allCommitted.Count; ci++)
+            {
+                if (allCommitted[ci].VesselPersistentId == activePid && !allCommitted[ci].VesselSpawned)
+                {
+                    allCommitted[ci].ForceSpawnNewVessel = true;
+                    forceCount++;
+                }
+            }
+            if (forceCount > 0)
+                ParsekLog.Verbose("Flight",
+                    $"Marked {forceCount} committed recording(s) with ForceSpawnNewVessel " +
+                    $"(active vessel pid={activePid})");
         }
 
         #endregion
@@ -3867,7 +3906,30 @@ namespace Parsek
             // Only store and ghost chains whose spawn UT is in the future.
             // Past-UT chains are already resolved — storing them would cause
             // spurious spawn suppression and duplicate chain-tip spawn attempts.
-            var activeChains = new Dictionary<uint, GhostChain>();
+            int ghostedCount = FilterAndGhostChains(chains, currentUT, out var activeChains);
+
+            activeGhostChains = activeChains;
+
+
+            // Wire the ghosted-vessel check for ShouldSkipExternalVesselGhost (Task 6b-3b)
+            GhostPlaybackLogic.SetIsGhostedOverride(
+                pid => vesselGhoster != null && vesselGhoster.IsGhosted(pid));
+
+            ParsekLog.Info("Ghoster",
+                string.Format(CultureInfo.InvariantCulture,
+                    "Ghost chains evaluated: {0} chain(s), {1} vessel(s) ghosted",
+                    chains.Count, ghostedCount));
+        }
+
+        /// <summary>
+        /// Filters chains to only future-UT non-terminated chains, creates ghost map vessels
+        /// for orbital tips, and ghosts real vessels in the scene.
+        /// Returns the number of vessels successfully ghosted.
+        /// </summary>
+        private int FilterAndGhostChains(Dictionary<uint, GhostChain> chains, double currentUT,
+            out Dictionary<uint, GhostChain> activeChains)
+        {
+            activeChains = new Dictionary<uint, GhostChain>();
             int ghostedCount = 0;
             foreach (var kvp in chains)
             {
@@ -3895,7 +3957,7 @@ namespace Parsek
                 activeChains[pid] = chain;
 
                 // Create ghost map vessel for non-terminated chains ending in stable orbit
-                if (!chain.IsTerminated && !string.IsNullOrEmpty(chain.TipRecordingId))
+                if (!string.IsNullOrEmpty(chain.TipRecordingId))
                 {
                     Recording tipRecording = FindTipRecordingById(chain.TipRecordingId);
                     if (tipRecording != null
@@ -3922,18 +3984,7 @@ namespace Parsek
                         "Failed to ghost vessel pid={0} for chain — vessel may remain real", pid));
                 }
             }
-
-            activeGhostChains = activeChains;
-
-
-            // Wire the ghosted-vessel check for ShouldSkipExternalVesselGhost (Task 6b-3b)
-            GhostPlaybackLogic.SetIsGhostedOverride(
-                pid => vesselGhoster != null && vesselGhoster.IsGhosted(pid));
-
-            ParsekLog.Info("Ghoster",
-                string.Format(CultureInfo.InvariantCulture,
-                    "Ghost chains evaluated: {0} chain(s), {1} vessel(s) ghosted",
-                    chains.Count, ghostedCount));
+            return ghostedCount;
         }
 
         #endregion
@@ -5002,34 +5053,7 @@ namespace Parsek
             // In tree mode, the active recording may have debris branches (non-leaf)
             // so FinalizeIndividualRecording skips its terminalState. The optimizer
             // will propagate this to the chain tip via SplitAtSection.
-            if (!string.IsNullOrEmpty(tree.ActiveRecordingId))
-            {
-                Recording activeRec;
-                if (tree.Recordings.TryGetValue(tree.ActiveRecordingId, out activeRec))
-                {
-                    if (activeRec.TerminalStateValue.HasValue)
-                    {
-                        ParsekLog.Verbose("Flight",
-                            $"FinalizeTreeRecordings: active recording '{activeRec.RecordingId}' " +
-                            $"already has terminalState={activeRec.TerminalStateValue} — skipping");
-                    }
-                    else
-                    {
-                        Vessel v = activeRec.VesselPersistentId != 0
-                            ? FlightRecorder.FindVesselByPid(activeRec.VesselPersistentId)
-                            : null;
-                        if (v != null)
-                        {
-                            activeRec.TerminalStateValue =
-                                RecordingTree.DetermineTerminalState((int)v.situation, v);
-                            ParsekLog.Info("Flight",
-                                $"FinalizeTreeRecordings: set terminalState=" +
-                                $"{activeRec.TerminalStateValue} on active recording " +
-                                $"'{activeRec.RecordingId}' (non-leaf, vessel situation={v.situation})");
-                        }
-                    }
-                }
-            }
+            EnsureActiveRecordingTerminalState(tree);
 
             // 4. Prune zero-point debris leaves (#173) — removes recordings with no
             // trajectory data that were created from same-frame destruction debris.
@@ -5044,6 +5068,42 @@ namespace Parsek
                 $"FinalizeTreeRecordings: tree '{tree.TreeName}' resource delta: " +
                 $"funds={tree.DeltaFunds:+0.0;-0.0}, science={tree.DeltaScience:+0.0;-0.0}, " +
                 $"rep={tree.DeltaReputation:+0.0;-0.0}");
+        }
+
+        /// <summary>
+        /// Sets terminal state on the active recording even if it is a non-leaf node.
+        /// FinalizeIndividualRecording skips non-leaves, but the active recording needs
+        /// terminal state for the optimizer's SplitAtSection propagation.
+        /// </summary>
+        private static void EnsureActiveRecordingTerminalState(RecordingTree tree)
+        {
+            if (string.IsNullOrEmpty(tree.ActiveRecordingId))
+                return;
+
+            Recording activeRec;
+            if (!tree.Recordings.TryGetValue(tree.ActiveRecordingId, out activeRec))
+                return;
+
+            if (activeRec.TerminalStateValue.HasValue)
+            {
+                ParsekLog.Verbose("Flight",
+                    $"FinalizeTreeRecordings: active recording '{activeRec.RecordingId}' " +
+                    $"already has terminalState={activeRec.TerminalStateValue} — skipping");
+                return;
+            }
+
+            Vessel v = activeRec.VesselPersistentId != 0
+                ? FlightRecorder.FindVesselByPid(activeRec.VesselPersistentId)
+                : null;
+            if (v != null)
+            {
+                activeRec.TerminalStateValue =
+                    RecordingTree.DetermineTerminalState((int)v.situation, v);
+                ParsekLog.Info("Flight",
+                    $"FinalizeTreeRecordings: set terminalState=" +
+                    $"{activeRec.TerminalStateValue} on active recording " +
+                    $"'{activeRec.RecordingId}' (non-leaf, vessel situation={v.situation})");
+            }
         }
 
         private void FinalizeIndividualRecording(Recording rec, double commitUT, bool isSceneExit)
@@ -5780,55 +5840,62 @@ namespace Parsek
                 }
                 else
                 {
-                    // Fallback: check for orbit segments or surface position on any committed recording
-                    // for this vessel that has orbital/surface data
-                    bool positioned = false;
-                    var committed = RecordingStore.CommittedRecordings;
-                    if (committed != null)
+                    PositionChainGhostFallback(info.ghostGO, chain, currentUT);
+                }
+            }
+        }
+
+        /// <summary>
+        /// Fallback positioning for chain ghosts: searches committed recordings for any
+        /// orbit segment or surface position matching the chain's vessel PID.
+        /// </summary>
+        private void PositionChainGhostFallback(GameObject ghostGO, GhostChain chain, double currentUT)
+        {
+            bool positioned = false;
+            var committed = RecordingStore.CommittedRecordings;
+            if (committed != null)
+            {
+                for (int i = 0; i < committed.Count; i++)
+                {
+                    var rec = committed[i];
+                    if (rec.VesselPersistentId != chain.OriginalVesselPid) continue;
+
+                    if (rec.OrbitSegments != null && rec.OrbitSegments.Count > 0)
                     {
-                        for (int i = 0; i < committed.Count; i++)
-                        {
-                            var rec = committed[i];
-                            if (rec.VesselPersistentId != chain.OriginalVesselPid) continue;
-
-                            if (rec.OrbitSegments != null && rec.OrbitSegments.Count > 0)
-                            {
-                                PositionGhostFromOrbitOnly(info.ghostGO, rec, currentUT,
-                                    (int)(chain.OriginalVesselPid * 10000));
-                                UpdateChainGhostOrbitIfNeeded(chain, rec.OrbitSegments, currentUT);
-                                positioned = true;
-                                ParsekLog.VerboseRateLimited("Flight",
-                                    "chain-ghost-orbit-" + chain.OriginalVesselPid,
-                                    string.Format(CultureInfo.InvariantCulture,
-                                        "Chain ghost positioned from orbit: pid={0} rec={1} UT={2:F1}",
-                                        chain.OriginalVesselPid, rec.RecordingId, currentUT));
-                                break;
-                            }
-
-                            if (rec.SurfacePos.HasValue)
-                            {
-                                PositionGhostAtSurface(info.ghostGO, rec.SurfacePos.Value);
-                                positioned = true;
-                                ParsekLog.VerboseRateLimited("Flight",
-                                    "chain-ghost-surface-" + chain.OriginalVesselPid,
-                                    string.Format(CultureInfo.InvariantCulture,
-                                        "Chain ghost positioned at surface: pid={0} rec={1} body={2}",
-                                        chain.OriginalVesselPid, rec.RecordingId,
-                                        rec.SurfacePos.Value.body));
-                                break;
-                            }
-                        }
+                        PositionGhostFromOrbitOnly(ghostGO, rec, currentUT,
+                            (int)(chain.OriginalVesselPid * 10000));
+                        UpdateChainGhostOrbitIfNeeded(chain, rec.OrbitSegments, currentUT);
+                        positioned = true;
+                        ParsekLog.VerboseRateLimited("Flight",
+                            "chain-ghost-orbit-" + chain.OriginalVesselPid,
+                            string.Format(CultureInfo.InvariantCulture,
+                                "Chain ghost positioned from orbit: pid={0} rec={1} UT={2:F1}",
+                                chain.OriginalVesselPid, rec.RecordingId, currentUT));
+                        break;
                     }
 
-                    if (!positioned)
+                    if (rec.SurfacePos.HasValue)
                     {
+                        PositionGhostAtSurface(ghostGO, rec.SurfacePos.Value);
+                        positioned = true;
                         ParsekLog.VerboseRateLimited("Flight",
-                            "chain-ghost-no-data-" + chain.OriginalVesselPid,
+                            "chain-ghost-surface-" + chain.OriginalVesselPid,
                             string.Format(CultureInfo.InvariantCulture,
-                                "Chain ghost has no positioning data: pid={0} UT={1:F1}",
-                                chain.OriginalVesselPid, currentUT));
+                                "Chain ghost positioned at surface: pid={0} rec={1} body={2}",
+                                chain.OriginalVesselPid, rec.RecordingId,
+                                rec.SurfacePos.Value.body));
+                        break;
                     }
                 }
+            }
+
+            if (!positioned)
+            {
+                ParsekLog.VerboseRateLimited("Flight",
+                    "chain-ghost-no-data-" + chain.OriginalVesselPid,
+                    string.Format(CultureInfo.InvariantCulture,
+                        "Chain ghost has no positioning data: pid={0} UT={1:F1}",
+                        chain.OriginalVesselPid, currentUT));
             }
         }
 
@@ -6114,36 +6181,41 @@ namespace Parsek
             ApplyTreeResourceDeltas(currentUT);
 
             // Watch-mode ghost validity check
-            if (watchedRecordingIndex >= 0)
-            {
-                if (!engine.HasActiveGhost(watchedRecordingIndex))
-                {
-                    // Check overlap ghosts
-                    bool hasOverlap = false;
-                    if (watchedOverlapCycleIndex >= 0)
-                    {
-                        List<GhostPlaybackState> overlaps;
-                        if (engine.TryGetOverlapGhosts(watchedRecordingIndex, out overlaps))
-                        {
-                            for (int i = 0; i < overlaps.Count; i++)
-                            {
-                                if (overlaps[i]?.loopCycleIndex == watchedOverlapCycleIndex)
-                                { hasOverlap = true; break; }
-                            }
-                        }
-                    }
-                    if (!hasOverlap && watchedOverlapCycleIndex != -2) // -2 = holding after explosion
-                    {
-                        ParsekLog.Info("CameraFollow",
-                            $"Watched ghost #{watchedRecordingIndex} no longer active — exiting watch mode");
-                        ExitWatchMode();
-                    }
-                }
-            }
+            ValidateWatchedGhostStillActive();
         }
 
         // UpdateTimelinePlayback removed (T25 Phase 9 — engine is primary path)
 
+        /// <summary>
+        /// Checks whether the watched ghost is still active. Exits watch mode if the
+        /// primary ghost is gone and no matching overlap cycle exists.
+        /// </summary>
+        private void ValidateWatchedGhostStillActive()
+        {
+            if (watchedRecordingIndex < 0) return;
+            if (engine.HasActiveGhost(watchedRecordingIndex)) return;
+
+            // Check overlap ghosts
+            bool hasOverlap = false;
+            if (watchedOverlapCycleIndex >= 0)
+            {
+                List<GhostPlaybackState> overlaps;
+                if (engine.TryGetOverlapGhosts(watchedRecordingIndex, out overlaps))
+                {
+                    for (int i = 0; i < overlaps.Count; i++)
+                    {
+                        if (overlaps[i]?.loopCycleIndex == watchedOverlapCycleIndex)
+                        { hasOverlap = true; break; }
+                    }
+                }
+            }
+            if (!hasOverlap && watchedOverlapCycleIndex != -2) // -2 = holding after explosion
+            {
+                ParsekLog.Info("CameraFollow",
+                    $"Watched ghost #{watchedRecordingIndex} no longer active — exiting watch mode");
+                ExitWatchMode();
+            }
+        }
 
         private void FlushDeferredSpawns(List<Recording> committed)
         {
@@ -6646,55 +6718,8 @@ namespace Parsek
             // During the hold, try to auto-follow to a continuation ghost each frame
             // (continuation may not exist yet at completion time — spawn race condition).
             // Once expired, destroy the ghost and exit watch mode.
-            if (watchEndHoldUntilRealTime > 0)
-            {
-                int idx = watchedRecordingIndex;
-                var committed = RecordingStore.CommittedRecordings;
-
-                // Try auto-follow each frame during the hold — continuation ghost
-                // may have spawned since the initial check in HandlePlaybackCompleted
-                if (idx >= 0 && idx < committed.Count)
-                {
-                    int nextTarget = FindNextWatchTarget(idx, committed[idx]);
-                    if (nextTarget >= 0)
-                    {
-                        ParsekLog.Info("CameraFollow",
-                            $"Watch hold auto-follow: #{idx} → #{nextTarget} (during hold period)");
-                        watchEndHoldUntilRealTime = -1;
-                        GhostPlaybackState held;
-                        if (ghostStates.TryGetValue(idx, out held) && held != null)
-                        {
-                            var traj = committed[idx] as IPlaybackTrajectory;
-                            engine.DestroyGhost(idx, traj, default(TrajectoryPlaybackFlags),
-                                reason: "auto-followed during hold");
-                        }
-                        TransferWatchToNextSegment(nextTarget);
-                        return;
-                    }
-                }
-
-                // Hold expired — no continuation found, destroy and exit
-                if (Time.time >= watchEndHoldUntilRealTime)
-                {
-                    ParsekLog.Info("CameraFollow",
-                        $"Watch hold expired for #{idx} at t={watchEndHoldUntilRealTime:F1} — destroying ghost and exiting watch");
-                    watchEndHoldUntilRealTime = -1;
-                    GhostPlaybackState held;
-                    if (ghostStates.TryGetValue(idx, out held) && held != null)
-                    {
-                        if (idx >= 0 && idx < committed.Count)
-                        {
-                            var traj = committed[idx] as IPlaybackTrajectory;
-                            engine.DestroyGhost(idx, traj, default(TrajectoryPlaybackFlags), reason: "watch hold expired");
-                        }
-                    }
-                    ExitWatchMode();
-                    return;
-                }
-
-                // Still in hold period — don't process further (ghost is frozen at final pos)
+            if (ProcessWatchEndHoldTimer())
                 return;
-            }
 
             // Safety net: orphaned -2 state with invalid timer — clear to -1 so
             // normal logic can take over (or exit watch mode via safety net below)
@@ -6711,6 +6736,99 @@ namespace Parsek
                 return;
 
             // Find the ghost we're actually following — may be an overlap ghost, not the primary
+            GhostPlaybackState state = FindWatchedGhostState();
+
+            if (FlightCamera.fetch == null || FlightCamera.fetch.transform == null
+                || FlightCamera.fetch.transform.parent == null)
+                return;
+
+            if (state == null || state.cameraPivot == null)
+            {
+                // No valid target — count frames and exit if persistent
+                watchNoTargetFrames++;
+                if (watchNoTargetFrames >= 3)
+                {
+                    ParsekLog.Warn("CameraFollow",
+                        $"No valid camera target for {watchNoTargetFrames} frames — exiting watch mode");
+                    ExitWatchMode();
+                }
+                return;
+            }
+
+            // Valid target found — reset safety counter
+            watchNoTargetFrames = 0;
+
+            // Keep sharpness zeroed — KSP resets it on various events
+            FlightCamera.fetch.pivotTranslateSharpness = 0f;
+
+            // Drive camera orbit center to the cameraPivot's world position
+            FlightCamera.fetch.transform.parent.position = state.cameraPivot.position;
+        }
+
+        /// <summary>
+        /// Processes the watch-end hold timer: tries auto-follow to continuation each frame,
+        /// destroys ghost and exits watch mode when expired.
+        /// Returns true if watch camera update should return early (hold active or resolved).
+        /// </summary>
+        private bool ProcessWatchEndHoldTimer()
+        {
+            if (watchEndHoldUntilRealTime <= 0)
+                return false;
+
+            int idx = watchedRecordingIndex;
+            var committed = RecordingStore.CommittedRecordings;
+
+            // Try auto-follow each frame during the hold — continuation ghost
+            // may have spawned since the initial check in HandlePlaybackCompleted
+            if (idx >= 0 && idx < committed.Count)
+            {
+                int nextTarget = FindNextWatchTarget(idx, committed[idx]);
+                if (nextTarget >= 0)
+                {
+                    ParsekLog.Info("CameraFollow",
+                        $"Watch hold auto-follow: #{idx} → #{nextTarget} (during hold period)");
+                    watchEndHoldUntilRealTime = -1;
+                    GhostPlaybackState held;
+                    if (ghostStates.TryGetValue(idx, out held) && held != null)
+                    {
+                        var traj = committed[idx] as IPlaybackTrajectory;
+                        engine.DestroyGhost(idx, traj, default(TrajectoryPlaybackFlags),
+                            reason: "auto-followed during hold");
+                    }
+                    TransferWatchToNextSegment(nextTarget);
+                    return true;
+                }
+            }
+
+            // Hold expired — no continuation found, destroy and exit
+            if (Time.time >= watchEndHoldUntilRealTime)
+            {
+                ParsekLog.Info("CameraFollow",
+                    $"Watch hold expired for #{idx} at t={watchEndHoldUntilRealTime:F1} — destroying ghost and exiting watch");
+                watchEndHoldUntilRealTime = -1;
+                GhostPlaybackState held;
+                if (ghostStates.TryGetValue(idx, out held) && held != null)
+                {
+                    if (idx >= 0 && idx < committed.Count)
+                    {
+                        var traj = committed[idx] as IPlaybackTrajectory;
+                        engine.DestroyGhost(idx, traj, default(TrajectoryPlaybackFlags), reason: "watch hold expired");
+                    }
+                }
+                ExitWatchMode();
+                return true;
+            }
+
+            // Still in hold period — don't process further (ghost is frozen at final pos)
+            return true;
+        }
+
+        /// <summary>
+        /// Resolves the ghost state being followed in watch mode. Searches overlap ghosts
+        /// when watching a specific cycle, falls back to primary if the tracked cycle is lost.
+        /// </summary>
+        private GhostPlaybackState FindWatchedGhostState()
+        {
             GhostPlaybackState state = null;
             if (watchedOverlapCycleIndex >= 0)
             {
@@ -6757,32 +6875,7 @@ namespace Parsek
             {
                 ghostStates.TryGetValue(watchedRecordingIndex, out state);
             }
-
-            if (FlightCamera.fetch == null || FlightCamera.fetch.transform == null
-                || FlightCamera.fetch.transform.parent == null)
-                return;
-
-            if (state == null || state.cameraPivot == null)
-            {
-                // No valid target — count frames and exit if persistent
-                watchNoTargetFrames++;
-                if (watchNoTargetFrames >= 3)
-                {
-                    ParsekLog.Warn("CameraFollow",
-                        $"No valid camera target for {watchNoTargetFrames} frames — exiting watch mode");
-                    ExitWatchMode();
-                }
-                return;
-            }
-
-            // Valid target found — reset safety counter
-            watchNoTargetFrames = 0;
-
-            // Keep sharpness zeroed — KSP resets it on various events
-            FlightCamera.fetch.pivotTranslateSharpness = 0f;
-
-            // Drive camera orbit center to the cameraPivot's world position
-            FlightCamera.fetch.transform.parent.position = state.cameraPivot.position;
+            return state;
         }
 
         private bool TryResolveOverlapRetarget()
@@ -7106,43 +7199,7 @@ namespace Parsek
             // reset the loop phase so the ghost starts from the beginning of the recording
             // (at the pad) instead of wherever it is mid-flight (e.g. near the Mun).
             if (gs.currentZone == RenderingZone.Beyond && ShouldLoopPlayback(rec))
-            {
-                double currentUT = Planetarium.GetUniversalTime();
-                double duration = rec.EndUT - rec.StartUT;
-                double intervalSeconds = GetLoopIntervalSeconds(rec);
-                double cycleDuration = duration + intervalSeconds;
-                if (cycleDuration <= GhostPlaybackLogic.MinLoopDurationSeconds)
-                    cycleDuration = duration;
-
-                // Current elapsed time (with any existing offset)
-                double elapsed = currentUT - rec.StartUT;
-                double existingOffset;
-                if (loopPhaseOffsets.TryGetValue(index, out existingOffset))
-                    elapsed += existingOffset;
-
-                // Compute where we are in the current cycle
-                int curCycle = (int)Math.Floor(elapsed / cycleDuration);
-                if (curCycle < 0) curCycle = 0;
-                double cycleTime = elapsed - (curCycle * cycleDuration);
-
-                // Shift elapsed so cycleTime becomes 0 (= recording start)
-                double newOffset = (existingOffset) - cycleTime;
-                loopPhaseOffsets[index] = newOffset;
-
-                // Re-show the ghost so the camera has something to target
-                gs.ghost.SetActive(true);
-                gs.currentZone = RenderingZone.Physics;
-                gs.playbackIndex = 0;
-
-                // Position ghost at first trajectory point so camera targets the pad
-                if (rec.Points != null && rec.Points.Count > 0)
-                    PositionGhostAt(gs.ghost, rec.Points[0]);
-
-                ParsekLog.Info("CameraFollow",
-                    string.Format(CultureInfo.InvariantCulture,
-                        "Watch mode loop reset: ghost #{0} \"{1}\" cycleTime={2:F1}s -> offset={3:F1}s (ghost repositioned to recording start)",
-                        index, rec.VesselName, cycleTime, newOffset));
-            }
+                ResetLoopPhaseForWatch(index, gs, rec);
 
             // Save camera state only when entering fresh (not switching between ghosts)
             if (!switching)
@@ -7180,6 +7237,49 @@ namespace Parsek
             string altStr = gs.lastInterpolatedAltitude.ToString("F0", CultureInfo.InvariantCulture);
             ParsekLog.Info("CameraFollow",
                 $"Entering watch mode for recording #{index} \"{committed[index].VesselName}\" \u2014 ghost at alt {altStr}m on {body}");
+        }
+
+        /// <summary>
+        /// Resets the loop phase offset so a beyond-range looping ghost restarts from
+        /// the beginning of the recording when the player enters watch mode.
+        /// </summary>
+        private void ResetLoopPhaseForWatch(int index, GhostPlaybackState gs, Recording rec)
+        {
+            double currentUT = Planetarium.GetUniversalTime();
+            double duration = rec.EndUT - rec.StartUT;
+            double intervalSeconds = GetLoopIntervalSeconds(rec);
+            double cycleDuration = duration + intervalSeconds;
+            if (cycleDuration <= GhostPlaybackLogic.MinLoopDurationSeconds)
+                cycleDuration = duration;
+
+            // Current elapsed time (with any existing offset)
+            double elapsed = currentUT - rec.StartUT;
+            double existingOffset;
+            if (loopPhaseOffsets.TryGetValue(index, out existingOffset))
+                elapsed += existingOffset;
+
+            // Compute where we are in the current cycle
+            int curCycle = (int)Math.Floor(elapsed / cycleDuration);
+            if (curCycle < 0) curCycle = 0;
+            double cycleTime = elapsed - (curCycle * cycleDuration);
+
+            // Shift elapsed so cycleTime becomes 0 (= recording start)
+            double newOffset = (existingOffset) - cycleTime;
+            loopPhaseOffsets[index] = newOffset;
+
+            // Re-show the ghost so the camera has something to target
+            gs.ghost.SetActive(true);
+            gs.currentZone = RenderingZone.Physics;
+            gs.playbackIndex = 0;
+
+            // Position ghost at first trajectory point so camera targets the pad
+            if (rec.Points != null && rec.Points.Count > 0)
+                PositionGhostAt(gs.ghost, rec.Points[0]);
+
+            ParsekLog.Info("CameraFollow",
+                string.Format(CultureInfo.InvariantCulture,
+                    "Watch mode loop reset: ghost #{0} \"{1}\" cycleTime={2:F1}s -> offset={3:F1}s (ghost repositioned to recording start)",
+                    index, rec.VesselName, cycleTime, newOffset));
         }
 
         /// <summary>
@@ -8383,6 +8483,21 @@ namespace Parsek
             double currentUT = Planetarium.GetUniversalTime();
             var committed = RecordingStore.CommittedRecordings;
 
+            CollectNearbySpawnCandidates(activePos, currentUT, committed);
+
+            // Sort by distance (closest first)
+            nearbySpawnCandidates.Sort((a, b) => a.distance.CompareTo(b.distance));
+            proximityCheckGeneration++;
+
+            NotifyNewProximityCandidates(currentUT);
+        }
+
+        /// <summary>
+        /// Scans active ghosts for spawn-eligible recordings within proximity range.
+        /// Populates nearbySpawnCandidates with qualifying entries.
+        /// </summary>
+        private void CollectNearbySpawnCandidates(Vector3d activePos, double currentUT, List<Recording> committed)
+        {
             foreach (var kvp in ghostStates)
             {
                 int i = kvp.Key;
@@ -8433,12 +8548,13 @@ namespace Parsek
                     destination = depInfo.destination
                 });
             }
+        }
 
-            // Sort by distance (closest first)
-            nearbySpawnCandidates.Sort((a, b) => a.distance.CompareTo(b.distance));
-            proximityCheckGeneration++;
-
-            // Notify for new candidates
+        /// <summary>
+        /// Fires one-time screen notifications for newly discovered proximity candidates.
+        /// </summary>
+        private void NotifyNewProximityCandidates(double currentUT)
+        {
             for (int c = 0; c < nearbySpawnCandidates.Count; c++)
             {
                 var cand = nearbySpawnCandidates[c];
