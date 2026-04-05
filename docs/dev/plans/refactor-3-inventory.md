@@ -1,10 +1,11 @@
 # Refactor-3 Inventory
 
 **Date:** 2026-04-05. Fresh analysis from `origin/main` at `9f5b48d` (v0.6.1).
+**Pass 1 completed:** 2026-04-05. 48 sub-methods extracted across 9 files. 0 logic changes, 4766 tests pass.
 
 **Total source:** 68,282 lines across 60+ .cs files (excluding Tests/, InGameTests/, obj/, bin/).
 
-**Scope:** The entire `GameActions/` system (6,485 lines, 15 files) is new since refactor-2 (v0.5.2) and has never been through a refactoring pass. Several other files grew significantly. This inventory focuses on both areas.
+**Scope:** The entire `GameActions/` system (6,485 lines, 15 files) plus all god classes (ParsekFlight, FlightRecorder, GhostVisualBuilder, GhostPlaybackEngine, GhostPlaybackLogic, ParsekUI, ParsekScenario, RecordingStore, VesselSpawner).
 
 ---
 
@@ -14,27 +15,27 @@
 
 | File | Lines | Since v0.5.2 | Notes |
 |------|-------|-------------|-------|
-| ParsekFlight.cs | 8,649 | +1673 changed | Grew via tracking station, policy, time jump features |
-| GhostVisualBuilder.cs | 6,416 | +231 changed | Minor growth (variant fix) |
-| FlightRecorder.cs | 5,176 | +336 changed | Part event additions |
-| ParsekUI.cs | 4,736 | +1536 changed | Grew via test runner UI, spawn control, actions window |
-| RecordingStore.cs | 2,911 | +715 changed | Grew via optimizer, tree serialization |
-| BackgroundRecorder.cs | 2,788 | +42 changed | Stable |
-| GhostPlaybackLogic.cs | 2,580 | +369 changed | Grew via KSC playback, watch mode |
-| ParsekScenario.cs | 2,185 | +740 changed | Grew via ledger integration, seeding |
+| ParsekFlight.cs | 8,765 | +1673 changed | **Pass1-Done — 14 extractions from 10 methods** |
+| GhostVisualBuilder.cs | 6,484 | +231 changed | **Pass1-Done — 7 extractions (AddPartVisuals, ReentryFx, PuffFx)** |
+| FlightRecorder.cs | 5,267 | +336 changed | **Pass1-Done — 10 extractions (OnPhysicsFrame, StartRecording, OnVesselGoOnRails)** |
+| ParsekUI.cs | 4,773 | +1536 changed | **Pass1-Done — 9 extractions from 4 Draw methods** |
+| RecordingStore.cs | 2,958 | +715 changed | **Pass1-Done — 4 extractions from CommitTree** |
+| BackgroundRecorder.cs | 2,788 | +42 changed | Pass1-Done — no extraction needed |
+| GhostPlaybackLogic.cs | 2,589 | +369 changed | **Pass1-Done — 1 extraction (ApplyParachuteDeployedEvent)** |
+| ParsekScenario.cs | 2,248 | +740 changed | **Pass1-Done — 8 extractions from OnSave/OnLoad** |
 
 ### Tier 2 — Medium-large (800-2000 lines)
 
 | File | Lines | Since v0.5.2 | Notes |
 |------|-------|-------------|-------|
-| GhostPlaybackEngine.cs | 1,745 | +273 changed | Grew via overlap/zone |
-| VesselSpawner.cs | 1,426 | +421 changed | Significant growth |
+| GhostPlaybackEngine.cs | 1,770 | +273 changed | **Pass1-Done — 2 extractions (loop pause, overlap iteration)** |
+| VesselSpawner.cs | 1,473 | +421 changed | **Pass1-Done — 2 extractions from SpawnOrRecoverIfTooClose** |
 | GhostMapPresence.cs | 1,211 | +1165 changed | **Pass1-Done — clean** |
-| RecordingTree.cs | 1,013 | +72 changed | Stable |
-| EngineFxBuilder.cs | 988 | +34 changed | Stable |
+| RecordingTree.cs | 1,013 | +72 changed | Pass1-Done — no extraction needed |
+| EngineFxBuilder.cs | 988 | +34 changed | Stable (out of scope) |
 | GameStateRecorder.cs | 975 | +269 changed | **Pass1-Done — clean event handler pattern** |
 | **GameActions/LedgerOrchestrator.cs** | 900 | **+900 new** | **Pass1-Done — well-structured, comprehensive logging** |
-| ParsekKSC.cs | 897 | +201 changed | Grew via KSC ghosts |
+| ParsekKSC.cs | 897 | +201 changed | Pass1-Done — no extraction needed |
 | **GameActions/GameAction.cs** | 895 | **+895 new** | **Pass1-Done — well-structured, 37 tests exist, no extraction needed** |
 | ParsekPlaybackPolicy.cs | 892 | +730 changed | **Pass1-Done — clean** |
 | **KerbalsModule.cs** | 892 | **+892 new** | **Pass1-Done — clean** |
