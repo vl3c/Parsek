@@ -21,8 +21,7 @@ namespace Parsek
             IReadOnlyList<Recording> committedRecordings,
             IReadOnlyList<GameAction> ledgerActions,
             IReadOnlyList<Milestone> milestones,
-            uint currentEpoch,
-            double currentUT)
+            uint currentEpoch)
         {
             var entries = new List<TimelineEntry>();
 
@@ -130,6 +129,8 @@ namespace Parsek
             foreach (var kvp in chainGroups)
             {
                 var group = kvp.Value;
+                group.Sort((a, b) => a.ChainIndex.CompareTo(b.ChainIndex));
+
                 double windowStart = group[0].StartUT;
                 double windowEnd = group[0].EndUT;
                 string vesselName = group[0].VesselName;

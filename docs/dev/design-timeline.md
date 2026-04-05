@@ -89,8 +89,7 @@ internal static List<TimelineEntry> Build(
     IReadOnlyList<Recording> committedRecordings,
     IReadOnlyList<GameAction> ledgerActions,
     IReadOnlyList<Milestone> milestones,        // legacy committed events
-    uint currentEpoch,
-    double currentUT)
+    uint currentEpoch)
 ```
 
 Three collectors, then merge. Uncommitted events not shown.

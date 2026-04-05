@@ -149,7 +149,7 @@ namespace Parsek
                 case GameActionType.ReputationInitial:    return TimelineEntryType.ReputationInitial;
 
                 default:
-                    ParsekLog.Warn("TimelineEntryDisplay",
+                    ParsekLog.Warn("Timeline",
                         $"Unknown GameActionType '{type}' — mapping to LegacyEvent");
                     return TimelineEntryType.LegacyEvent;
             }
