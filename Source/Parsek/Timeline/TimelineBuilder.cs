@@ -44,11 +44,12 @@ namespace Parsek
             List<TimelineEntry> entries)
         {
             int count = 0;
+            int hiddenSkipped = 0;
 
             for (int i = 0; i < recordings.Count; i++)
             {
                 var rec = recordings[i];
-                if (rec.Hidden) continue;
+                if (rec.Hidden) { hiddenSkipped++; continue; }
 
                 // RecordingStart
                 var startType = TimelineEntryType.RecordingStart;
@@ -100,7 +101,12 @@ namespace Parsek
             }
 
             // Ghost chain windows — one per distinct ChainId (branch 0 only)
-            count += CollectGhostChainWindows(recordings, entries);
+            int chainWindowCount = CollectGhostChainWindows(recordings, entries);
+            count += chainWindowCount;
+
+            if (hiddenSkipped > 0 || chainWindowCount > 0)
+                ParsekLog.Verbose("Timeline",
+                    $"Recording collector: {count} entries, {hiddenSkipped} hidden skipped, {chainWindowCount} chain windows");
 
             return count;
         }

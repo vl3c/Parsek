@@ -25,6 +25,7 @@ namespace Parsek
         private Rect lastTimelineWindowRect;
         private const float MinWindowWidth = 350f;
         private const float MinWindowHeight = 150f;
+        private const float ApproxRowHeight = 20f;
 
         // Cached timeline data (invalidated on triggers)
         private List<TimelineEntry> cachedTimeline;
@@ -132,6 +133,7 @@ namespace Parsek
         public void InvalidateCache()
         {
             timelineDirty = true;
+            ParsekLog.Verbose("Timeline", "Cache invalidated");
         }
 
         private void EnsureStyles()
@@ -176,6 +178,7 @@ namespace Parsek
                     MilestoneStore.Milestones,
                     MilestoneStore.CurrentEpoch);
                 timelineDirty = false;
+                ParsekLog.Verbose("Timeline", $"Cache rebuilt: {cachedTimeline.Count} entries");
             }
 
             // Zone 3: Entry List
@@ -279,8 +282,7 @@ namespace Parsek
                 }
                 if (scrollTargetRow >= 0)
                 {
-                    // Approximate: ~20px per row. Not pixel-perfect but functional.
-                    timelineScrollPos.y = scrollTargetRow * 20f;
+                    timelineScrollPos.y = scrollTargetRow * ApproxRowHeight;
                     ParsekLog.Verbose("Timeline",
                         $"Cross-link: scrolled to row {scrollTargetRow} for recordingId={pendingScrollToRecordingId}");
                 }
@@ -361,7 +363,7 @@ namespace Parsek
             // Description text
             GUILayout.Label(entry.DisplayText, style, GUILayout.ExpandWidth(true));
 
-            // Cross-link + rewind for RecordingStart entries
+            // Cross-link + rewind/FF for RecordingStart entries
             if (entry.Type == TimelineEntryType.RecordingStart && !string.IsNullOrEmpty(entry.RecordingId))
             {
                 var rec = FindRecordingById(entry.RecordingId);
@@ -374,12 +376,43 @@ namespace Parsek
                         ParsekLog.Verbose("Timeline",
                             $"Cross-link: selected \"{rec.VesselName}\" id={entry.RecordingId}");
                     }
-                    // Rewind button
-                    if (GUILayout.Button("\u27f2", GUILayout.Width(25)))
+
+                    var tableUI = parentUI.GetRecordingsTableUI();
+                    if (isFuture)
                     {
-                        ParsekLog.Info("UI",
-                            $"Timeline rewind button clicked: \"{rec.VesselName}\" id={rec.RecordingId}");
-                        parentUI.GetRecordingsTableUI().ShowRewindConfirmation(rec);
+                        // Future recording: FF button
+                        string ffReason;
+                        bool isRecording = parentUI.InFlightMode && parentUI.Flight != null && parentUI.Flight.IsRecording;
+                        bool canFF = RecordingStore.CanFastForward(rec, out ffReason, isRecording: isRecording);
+                        GUI.enabled = canFF;
+                        if (GUILayout.Button(new GUIContent("FF", canFF ? "Fast-forward to this launch" : ffReason),
+                            GUILayout.Width(25)))
+                        {
+                            ParsekLog.Info("UI",
+                                $"Timeline FF button clicked: \"{rec.VesselName}\" id={rec.RecordingId}");
+                            tableUI.ShowFastForwardConfirmation(rec);
+                        }
+                        GUI.enabled = true;
+                    }
+                    else
+                    {
+                        // Past/active recording: Rewind button
+                        bool hasRewindSave = !string.IsNullOrEmpty(rec.RewindSaveFileName);
+                        if (hasRewindSave)
+                        {
+                            string rewindReason;
+                            bool isRecording = parentUI.InFlightMode && parentUI.Flight != null && parentUI.Flight.IsRecording;
+                            bool canRewind = RecordingStore.CanRewind(rec, out rewindReason, isRecording: isRecording);
+                            GUI.enabled = canRewind;
+                            if (GUILayout.Button(new GUIContent("R", canRewind ? "Rewind to this launch" : rewindReason),
+                                GUILayout.Width(25)))
+                            {
+                                ParsekLog.Info("UI",
+                                    $"Timeline rewind button clicked: \"{rec.VesselName}\" id={rec.RecordingId}");
+                                tableUI.ShowRewindConfirmation(rec);
+                            }
+                            GUI.enabled = true;
+                        }
                     }
                 }
             }

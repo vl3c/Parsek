@@ -664,5 +664,77 @@ namespace Parsek.Tests
             Assert.Contains(result, e => e.Source == TimelineSource.GameAction);
             Assert.Contains(result, e => e.Source == TimelineSource.Legacy);
         }
+
+        // ================================================================
+        // 23. All terminal states produce correct text
+        // ================================================================
+
+        [Theory]
+        [InlineData(TerminalState.Orbiting, "Orbiting: TestVessel")]
+        [InlineData(TerminalState.Landed, "Landed: TestVessel")]
+        [InlineData(TerminalState.Splashed, "Splashed: TestVessel")]
+        [InlineData(TerminalState.SubOrbital, "Sub-orbital: TestVessel")]
+        [InlineData(TerminalState.Destroyed, "Destroyed: TestVessel")]
+        [InlineData(TerminalState.Recovered, "Recovered: TestVessel")]
+        [InlineData(TerminalState.Docked, "Docked: TestVessel")]
+        [InlineData(TerminalState.Boarded, "Boarded: TestVessel")]
+        public void RecordingEnd_AllTerminalStates(TerminalState state, string expectedText)
+        {
+            var text = TimelineEntryDisplay.GetRecordingEndText("TestVessel", state);
+            Assert.Equal(expectedText, text);
+        }
+
+        // ================================================================
+        // 24. MapGameActionType unknown type logs warning
+        // ================================================================
+
+        [Fact]
+        public void MapGameActionType_UnknownType_LogsWarning()
+        {
+            var result = TimelineEntryDisplay.MapGameActionType((GameActionType)999);
+
+            Assert.Equal(TimelineEntryType.LegacyEvent, result);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Timeline]") && l.Contains("Unknown GameActionType"));
+        }
+
+        // ================================================================
+        // 25. Recording with StartUT == EndUT produces valid entries
+        // ================================================================
+
+        [Fact]
+        public void ZeroDurationRecording_ProducesValidEntries()
+        {
+            var rec = MakeRecording("Instant", 100, 100, terminal: TerminalState.Destroyed);
+            var result = TimelineBuilder.Build(
+                new List<Recording> { rec },
+                new List<GameAction>(),
+                new List<Milestone>(),
+                0);
+
+            Assert.Equal(3, result.Count);
+            Assert.All(result, e => Assert.Equal(100.0, e.UT));
+        }
+
+        // ================================================================
+        // 26. Hidden skip count logged
+        // ================================================================
+
+        [Fact]
+        public void HiddenRecordings_LogSkipCount()
+        {
+            var visible = MakeRecording("Visible", 100, 200);
+            var hidden1 = MakeRecording("Hidden1", 100, 200, hidden: true);
+            var hidden2 = MakeRecording("Hidden2", 100, 200, hidden: true);
+
+            TimelineBuilder.Build(
+                new List<Recording> { visible, hidden1, hidden2 },
+                new List<GameAction>(),
+                new List<Milestone>(),
+                0);
+
+            Assert.Contains(logLines, l =>
+                l.Contains("[Timeline]") && l.Contains("2 hidden skipped"));
+        }
     }
 }

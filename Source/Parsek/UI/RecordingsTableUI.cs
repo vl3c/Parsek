@@ -1450,7 +1450,7 @@ namespace Parsek
                 false, HighLogic.UISkin);
         }
 
-        private void ShowFastForwardConfirmation(Recording rec)
+        internal void ShowFastForwardConfirmation(Recording rec)
         {
             var ic = System.Globalization.CultureInfo.InvariantCulture;
             double now = Planetarium.GetUniversalTime();
