@@ -711,13 +711,8 @@ namespace Parsek
             else
             {
                 statusStyle = statusStylePast;
-                double elapsed = now - rec.EndUT;
-                if (rec.IsDebris || elapsed > 600)
-                    statusText = "past";
-                else if (rec.TerminalStateValue.HasValue)
+                if (rec.TerminalStateValue.HasValue && !rec.IsDebris)
                     statusText = rec.TerminalStateValue.Value.ToString();
-                else if (rec.Points.Count > 0)
-                    statusText = SelectiveSpawnUI.FormatCountdown(rec.StartUT - now);
                 else
                     statusText = "past";
             }
