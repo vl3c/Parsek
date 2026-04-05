@@ -3616,18 +3616,22 @@ namespace Parsek
             // Phase 6b: Evaluate ghost chains and ghost claimed vessels
             EvaluateAndApplyGhostChains();
 
+            // Capture active vessel PID at scene entry for stateless spawn dedup bypass.
+            // After revert, the pad vessel shares the same PID as recorded vessels — at
+            // spawn time, SpawnVesselOrChainTip checks this static PID instead of relying
+            // on per-recording transient flags that could be lost on Recording recreation.
+            RecordingStore.SceneEntryActiveVesselPid =
+                (activeVessel != null) ? activeVessel.persistentId : 0;
+            if (RecordingStore.SceneEntryActiveVesselPid != 0)
+                ParsekLog.Verbose("Flight",
+                    $"Scene entry active vessel pid={RecordingStore.SceneEntryActiveVesselPid}");
+
             // Handle pending tree: show tree merge dialog.
             // On non-revert scene changes, pending trees are auto-committed by ParsekScenario.
             // Reaching here means either a revert or a fallback (auto-commit missed).
             if (RecordingStore.HasPendingTree)
             {
                 var pt = RecordingStore.PendingTree;
-                // Belt-and-suspenders: mark tree recordings for force-spawn before dialog.
-                // The merge dialog callbacks also call MarkForceSpawnOnTreeRecordings,
-                // but this covers the case where the tree is committed without a dialog
-                // (e.g., auto-merge setting, or future code paths).
-                if (activeVessel != null && activeVessel.persistentId != 0)
-                    MergeDialog.MarkForceSpawnOnTreeRecordings(pt, activeVessel.persistentId);
                 ParsekLog.Warn("Flight", $"Pending tree '{pt.TreeName}' reached OnFlightReady — showing tree merge dialog (fallback)");
                 MergeDialog.ShowTreeDialog(pt);
             }
@@ -3637,13 +3641,6 @@ namespace Parsek
             // On reverts, the merge dialog is expected here (player chose to revert).
             if (RecordingStore.HasPending)
                 HandlePendingStandaloneRecording();
-
-            // Mark all committed recordings that share the active vessel's PID for fresh spawn.
-            // After revert, the pad vessel has the same PID as previously-recorded vessels.
-            // Without this, the PID dedup in SpawnVesselOrChainTip would skip spawning
-            // because it finds the pad vessel and thinks the recorded vessel already exists.
-            // ForceSpawnNewVessel is transient (not serialized), so this must run every flight entry.
-            MarkForceSpawnOnActiveVesselRecordings(activeVessel);
 
             // Swap reserved crew out of the active vessel so the player
             // can't record with them again (they belong to deferred-spawn vessels)
@@ -3679,20 +3676,8 @@ namespace Parsek
         {
             var pending = RecordingStore.Pending;
 
-            // After revert, the original vessel exists at its reverted position (e.g., on the pad),
-            // not at the recording's end position. Mark for fresh spawn with a new PID so the
-            // dedup check doesn't skip it. Also mark committed chain siblings.
-            pending.ForceSpawnNewVessel = true;
-            if (!string.IsNullOrEmpty(pending.ChainId))
-            {
-                var chainSiblings = RecordingStore.GetChainRecordings(pending.ChainId);
-                if (chainSiblings != null)
-                {
-                    for (int cs = 0; cs < chainSiblings.Count; cs++)
-                        chainSiblings[cs].ForceSpawnNewVessel = true;
-                }
-            }
-            ParsekLog.Verbose("Flight", $"Pending recording on flight ready: ForceSpawnNewVessel=true for '{pending.VesselName}'");
+            // No per-recording flag needed — SceneEntryActiveVesselPid (set above)
+            // lets SpawnVesselOrChainTip bypass PID dedup statelessly.
 
             // Check if this is part of a chain with committed siblings
             bool hasChainSiblings = !string.IsNullOrEmpty(pending.ChainId) &&
@@ -3736,52 +3721,6 @@ namespace Parsek
                 Log($"Found pending recording from {pending.VesselName} ({pending.Points.Count} points)");
                 CommitOrShowDialog(pending);
             }
-        }
-
-        /// <summary>
-        /// Marks all committed recordings sharing the active vessel's PID for fresh spawn.
-        /// Required after revert so PID dedup does not skip spawning.
-        /// </summary>
-        private void MarkForceSpawnOnActiveVesselRecordings(Vessel activeVessel)
-        {
-            if (activeVessel == null || activeVessel.persistentId == 0)
-                return;
-
-            uint activePid = activeVessel.persistentId;
-            int forceCount = 0;
-
-            // Standalone committed recordings
-            var allCommitted = RecordingStore.CommittedRecordings;
-            for (int ci = 0; ci < allCommitted.Count; ci++)
-            {
-                if (allCommitted[ci].VesselPersistentId == activePid && !allCommitted[ci].VesselSpawned)
-                {
-                    allCommitted[ci].ForceSpawnNewVessel = true;
-                    forceCount++;
-                }
-            }
-
-            // Tree recordings — after scene reload, MergeDialog's marks are lost (transient).
-            // Must re-mark here for tree recordings that share the active vessel's PID. (#224)
-            var trees = RecordingStore.CommittedTrees;
-            for (int t = 0; t < trees.Count; t++)
-            {
-                var enumerator = trees[t].Recordings.GetEnumerator();
-                while (enumerator.MoveNext())
-                {
-                    var rec = enumerator.Current.Value;
-                    if (rec.VesselPersistentId == activePid && !rec.VesselSpawned)
-                    {
-                        rec.ForceSpawnNewVessel = true;
-                        forceCount++;
-                    }
-                }
-            }
-
-            if (forceCount > 0)
-                ParsekLog.Verbose("Flight",
-                    $"Marked {forceCount} recording(s) with ForceSpawnNewVessel " +
-                    $"(active vessel pid={activePid})");
         }
 
         #endregion
@@ -5981,11 +5920,13 @@ namespace Parsek
             // skip spawning a duplicate. This runs only at actual spawn time (pastChainEnd),
             // not every frame like ShouldSpawnAtRecordingEnd.
             // Exceptions that bypass dedup (spawn a fresh copy with new PID):
-            //   - ForceSpawnNewVessel flag (set on scene entry for matching PIDs)
-            //   - Active vessel shares PID (after revert, pad vessel has same PID as recording)
+            //   - Recording PID matches scene-entry active vessel (stateless revert detection)
+            //   - Current active vessel shares PID (covers mid-scene vessel switches)
+            bool matchesSceneEntryVessel = rec.VesselPersistentId != 0 &&
+                rec.VesselPersistentId == RecordingStore.SceneEntryActiveVesselPid;
             bool activeVesselSharesPid = FlightGlobals.ActiveVessel != null &&
                 FlightGlobals.ActiveVessel.persistentId == rec.VesselPersistentId;
-            if (!rec.ForceSpawnNewVessel && !activeVesselSharesPid &&
+            if (!matchesSceneEntryVessel && !activeVesselSharesPid &&
                 rec.VesselPersistentId != 0 && GhostPlaybackLogic.RealVesselExists(rec.VesselPersistentId))
             {
                 rec.VesselSpawned = true;

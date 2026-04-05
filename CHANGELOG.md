@@ -10,6 +10,7 @@ All notable changes to Parsek are documented here.
 
 - **Fix vessel not spawned at end of playback when parts break off on impact (#224).** Breakup-continuous foreground recordings (where `ProcessBreakupEvent` sets `ChildBranchPointId` without creating a same-PID continuation) are now recognized as effective leaves via `IsEffectiveLeafForVessel`. Snapshot refreshed post-breakup to reflect surviving vessel. Added diagnostic spawn-suppression-reason logging.
 - **Fix GhostChain.GhostStartUT set to rewindUT instead of earliest claim time (#225, T51).** `GhostStartUT` was initialized to the `rewindUT` parameter, making the in-game test `ChainTimeRangesValid` fail for all 13 chains with valid SpawnUT. Now set to `links[0].ut` (earliest chain link time).
+- **Stateless spawn dedup bypass replaces fragile ForceSpawnNewVessel flag (#226).** Per-recording transient flag (lost on Recording object recreation mid-scene) replaced with single static `RecordingStore.SceneEntryActiveVesselPid`. `SpawnVesselOrChainTip` derives bypass decision from current game state at spawn time. Removed `MarkForceSpawnOnActiveVesselRecordings`, `MergeDialog.MarkForceSpawnOnTreeRecordings`, and all per-recording flag-setting code.
 
 ### Crew Reservation
 

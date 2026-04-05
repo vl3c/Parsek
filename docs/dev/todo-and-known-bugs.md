@@ -293,20 +293,11 @@ Recording `f8fd04e5` (Kerbal X, chainIndex=1) had both `childBranchPointId` (bre
 
 ## 226. ForceSpawnNewVessel transient flag is fragile
 
-`ForceSpawnNewVessel` is a transient (not serialized) flag on Recording, set at scene entry by `MarkForceSpawnOnActiveVesselRecordings` and consumed at spawn time by `SpawnVesselOrChainTip`. The flag was lost between these two points — likely because Recording objects are recreated during save/load cycles within the same scene (auto-save, quicksave, or RecordingStore rebuild).
+`ForceSpawnNewVessel` was a transient (not serialized) flag on Recording, set at scene entry and consumed at spawn time. The flag could be lost if Recording objects were recreated mid-scene (auto-save, quicksave, RecordingStore rebuild).
 
-A direct active-vessel PID check was added as a stateless workaround at the spawn site, but the underlying problem remains: any spawn logic that depends on transient flags set at scene entry is unreliable if the flag carrier (Recording object) can be replaced mid-scene.
+**Fix:** Replaced per-recording transient flag with a single static `RecordingStore.SceneEntryActiveVesselPid` (set once at scene entry). `SpawnVesselOrChainTip` now checks `rec.VesselPersistentId == SceneEntryActiveVesselPid` to bypass PID dedup statelessly. A complementary `activeVesselSharesPid` runtime check covers mid-scene vessel switches. Removed `ForceSpawnNewVessel` field, `MarkForceSpawnOnActiveVesselRecordings`, `MergeDialog.MarkForceSpawnOnTreeRecordings`, and all flag-setting code.
 
-**Impact:** The recording optimizer (post-processing) and any future spawn-related logic must not rely on transient Recording fields surviving from scene entry to arbitrary later points.
-
-**Options:**
-1. Serialize `ForceSpawnNewVessel` — survives save/load but adds save bloat and needs explicit reset
-2. Replace flag with a `HashSet<string>` of recording IDs in RecordingStore (static, survives object recreation)
-3. Make all spawn decisions stateless — derive from current game state at spawn time (no flags needed)
-
-Option 3 is the cleanest long-term approach. The active-vessel PID check is a step in that direction.
-
-**Priority:** Medium — current workaround handles the common case but the pattern is a latent risk
+**Status:** Fixed
 
 ---
 

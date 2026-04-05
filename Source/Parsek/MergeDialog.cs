@@ -355,9 +355,6 @@ namespace Parsek
             {
                 new DialogGUIButton("Merge to Timeline", () =>
                 {
-                    var av = FlightGlobals.ActiveVessel;
-                    if (av != null && av.persistentId != 0)
-                        MarkForceSpawnOnTreeRecordings(tree, av.persistentId);
                     ApplyVesselDecisions(tree, capturedDecisions);
                     RecordingStore.CommitPendingTree();
                     RecordingStore.RunOptimizationPass();
@@ -456,50 +453,6 @@ namespace Parsek
             return (minStartUT < double.MaxValue && maxEndUT > double.MinValue)
                 ? maxEndUT - minStartUT
                 : 0;
-        }
-
-
-        /// <summary>
-        /// Marks ForceSpawnNewVessel on tree recordings whose VesselPersistentId matches
-        /// the active vessel's PID and that haven't been spawned yet. This prevents PID
-        /// dedup from skipping spawn when the pad vessel shares a PID with the recording's
-        /// vessel (common after revert). Pure static for testability.
-        /// </summary>
-        /// <param name="tree">The recording tree to scan.</param>
-        /// <param name="activePid">The active vessel's persistentId (0 = skip).</param>
-        /// <returns>Number of recordings marked.</returns>
-        internal static int MarkForceSpawnOnTreeRecordings(RecordingTree tree, uint activePid)
-        {
-            if (tree == null || activePid == 0)
-            {
-                ParsekLog.Verbose("MergeDialog",
-                    $"MarkForceSpawnOnTreeRecordings: skip — tree={tree != null}, activePid={activePid}");
-                return 0;
-            }
-
-            int count = 0;
-            foreach (var rec in tree.Recordings.Values)
-            {
-                if (rec.VesselPersistentId == activePid && !rec.VesselSpawned)
-                {
-                    rec.ForceSpawnNewVessel = true;
-                    count++;
-                    ParsekLog.Verbose("MergeDialog",
-                        $"MarkForceSpawnOnTreeRecordings: marked '{rec.VesselName}' " +
-                        $"(id={rec.RecordingId}, pid={rec.VesselPersistentId})");
-                }
-            }
-
-            if (count > 0)
-                ParsekLog.Info("MergeDialog",
-                    $"MarkForceSpawnOnTreeRecordings: marked {count} recording(s) " +
-                    $"with ForceSpawnNewVessel (activePid={activePid}, tree='{tree.TreeName}')");
-            else
-                ParsekLog.Verbose("MergeDialog",
-                    $"MarkForceSpawnOnTreeRecordings: no recordings matched activePid={activePid} " +
-                    $"in tree '{tree.TreeName}' ({tree.Recordings.Count} recordings)");
-
-            return count;
         }
 
         #endregion
