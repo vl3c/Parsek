@@ -421,6 +421,47 @@ namespace Parsek.Tests
             Assert.Contains("non-leaf in committed tree", reason);
         }
 
+        [Fact]
+        public void ShouldSpawn_NonLeafInTree_NullChildBranchPointId_WithSplashed_ReturnsTrue()
+        {
+            // Safety net path: ChildBranchPointId is null but tree structure shows
+            // this recording is a parent. Spawnable terminal state overrides.
+            var tree = new RecordingTree
+            {
+                Id = "tree-splash",
+                TreeName = "SplashTree",
+                RootRecordingId = "root-rec"
+            };
+
+            var rootRec = new Recording
+            {
+                RecordingId = "root-rec",
+                TreeId = "tree-splash",
+                VesselPersistentId = 100,
+                VesselSnapshot = new ConfigNode("VESSEL"),
+                ChildBranchPointId = null, // Not set (serialization gap)
+                TerminalStateValue = TerminalState.Splashed
+            };
+
+            var bp = new BranchPoint
+            {
+                Id = "bp-splash-break",
+                Type = BranchPointType.Breakup,
+                UT = 78.0
+            };
+            bp.ParentRecordingIds.Add("root-rec");
+            bp.ChildRecordingIds.Add("child-rec");
+
+            tree.Recordings["root-rec"] = rootRec;
+            tree.BranchPoints.Add(bp);
+            RecordingStore.CommittedTrees.Add(tree);
+
+            var (needsSpawn, _) = GhostPlaybackLogic.ShouldSpawnAtRecordingEnd(
+                rootRec, isActiveChainMember: false, isChainLoopingOrDisabled: false);
+
+            Assert.True(needsSpawn);
+        }
+
         #endregion
 
         #region ShouldStripCrewForSpawn
