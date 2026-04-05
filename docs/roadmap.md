@@ -132,7 +132,7 @@ Full redesign of milestone capture, resource budgeting, and action replay. Stand
 
 **Crew lifecycle:** Crew reservation via internal managed state (Harmony patches for KSP roster validation and astronaut complex count). Crew swap in both flight and KSC spawn snapshots. Orphaned crew rescue after vessel strip. Dead crew spawn protection. Kerbal rescue detection. Managed-kerbal event filtering.
 
-**Validated across all game modes:** Sandbox (no resources), Science (science-only), Career (full complexity). 4621 tests at ship.
+**Validated across all game modes:** Sandbox (no resources), Science (science-only), Career (full complexity). 4621 tests passing.
 
 ---
 
