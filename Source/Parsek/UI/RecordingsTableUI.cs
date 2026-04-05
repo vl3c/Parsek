@@ -134,10 +134,24 @@ namespace Parsek
             set { showRecordingsWindow = value; }
         }
 
+        // Cross-link: pending scroll target from Timeline
+        private string pendingScrollToRecordingId;
+
         internal RecordingsTableUI(ParsekUI parentUI)
         {
             this.parentUI = parentUI;
             this.groupPicker = new GroupPickerUI(parentUI);
+        }
+
+        /// <summary>
+        /// Called by the Timeline to scroll the Recordings Manager to a specific recording.
+        /// Opens the window if closed.
+        /// </summary>
+        internal void ScrollToRecording(string recordingId)
+        {
+            pendingScrollToRecordingId = recordingId;
+            if (!showRecordingsWindow) showRecordingsWindow = true;
+            ParsekLog.Verbose("UI", $"Cross-link: Recordings Manager scroll requested for recordingId={recordingId}");
         }
 
         /// <summary>
@@ -388,6 +402,22 @@ namespace Parsek
             EnsureStatusStyles();
             EnsurePhaseStyles();
             RebuildSortedIndices(committed, now);
+
+            // Handle pending cross-link scroll from Timeline
+            if (!string.IsNullOrEmpty(pendingScrollToRecordingId) && committed.Count > 0)
+            {
+                for (int i = 0; i < committed.Count; i++)
+                {
+                    if (committed[i].RecordingId == pendingScrollToRecordingId)
+                    {
+                        recordingsScrollPos.y = i * 22f;
+                        ParsekLog.Verbose("UI",
+                            $"Cross-link: scrolled to recording #{i} \"{committed[i].VesselName}\"");
+                        break;
+                    }
+                }
+                pendingScrollToRecordingId = null;
+            }
 
             if (committed.Count == 0)
             {

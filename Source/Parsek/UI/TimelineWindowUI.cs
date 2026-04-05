@@ -364,26 +364,19 @@ namespace Parsek
             // Description text
             GUILayout.Label(entry.DisplayText, style, GUILayout.ExpandWidth(true));
 
-            // Cross-link + rewind/FF for RecordingStart entries
+            // R/FF + GoTo for RecordingStart entries (R/FF first, GoTo last for alignment)
             if (entry.Type == TimelineEntryType.RecordingStart && !string.IsNullOrEmpty(entry.RecordingId))
             {
                 var rec = FindRecordingById(entry.RecordingId);
                 if (rec != null)
                 {
-                    // Select button — highlights this recording in the Recordings Manager
-                    if (GUILayout.Button("\u25b6", GUILayout.Width(22)))
-                    {
-                        parentUI.SelectedRecordingId = entry.RecordingId;
-                        ParsekLog.Verbose("Timeline",
-                            $"Cross-link: selected \"{rec.VesselName}\" id={entry.RecordingId}");
-                    }
-
                     var tableUI = parentUI.GetRecordingsTableUI();
+                    bool isRecording = parentUI.InFlightMode && parentUI.Flight != null && parentUI.Flight.IsRecording;
+
                     if (isFuture)
                     {
                         // Future recording: FF button
                         string ffReason;
-                        bool isRecording = parentUI.InFlightMode && parentUI.Flight != null && parentUI.Flight.IsRecording;
                         bool canFF = RecordingStore.CanFastForward(rec, out ffReason, isRecording: isRecording);
                         GUI.enabled = canFF;
                         if (GUILayout.Button(new GUIContent("FF", canFF ? "Fast-forward to this launch" : ffReason),
@@ -395,25 +388,30 @@ namespace Parsek
                         }
                         GUI.enabled = true;
                     }
-                    else
+                    else if (!string.IsNullOrEmpty(rec.RewindSaveFileName))
                     {
                         // Past/active recording: Rewind button
-                        bool hasRewindSave = !string.IsNullOrEmpty(rec.RewindSaveFileName);
-                        if (hasRewindSave)
+                        string rewindReason;
+                        bool canRewind = RecordingStore.CanRewind(rec, out rewindReason, isRecording: isRecording);
+                        GUI.enabled = canRewind;
+                        if (GUILayout.Button(new GUIContent("R", canRewind ? "Rewind to this launch" : rewindReason),
+                            GUILayout.Width(25)))
                         {
-                            string rewindReason;
-                            bool isRecording = parentUI.InFlightMode && parentUI.Flight != null && parentUI.Flight.IsRecording;
-                            bool canRewind = RecordingStore.CanRewind(rec, out rewindReason, isRecording: isRecording);
-                            GUI.enabled = canRewind;
-                            if (GUILayout.Button(new GUIContent("R", canRewind ? "Rewind to this launch" : rewindReason),
-                                GUILayout.Width(25)))
-                            {
-                                ParsekLog.Info("UI",
-                                    $"Timeline rewind button clicked: \"{rec.VesselName}\" id={rec.RecordingId}");
-                                tableUI.ShowRewindConfirmation(rec);
-                            }
-                            GUI.enabled = true;
+                            ParsekLog.Info("UI",
+                                $"Timeline rewind button clicked: \"{rec.VesselName}\" id={rec.RecordingId}");
+                            tableUI.ShowRewindConfirmation(rec);
                         }
+                        GUI.enabled = true;
+                    }
+
+                    // GoTo button — always last, right-aligned
+                    if (GUILayout.Button(new GUIContent("GoTo", "Show in Recordings Manager"), GUILayout.Width(38)))
+                    {
+                        parentUI.SelectedRecordingId = entry.RecordingId;
+                        if (tableUI != null)
+                            tableUI.ScrollToRecording(entry.RecordingId);
+                        ParsekLog.Verbose("Timeline",
+                            $"GoTo: \"{rec.VesselName}\" id={entry.RecordingId}");
                     }
                 }
             }
