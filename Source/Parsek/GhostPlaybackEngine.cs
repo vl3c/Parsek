@@ -146,7 +146,7 @@ namespace Parsek
                 }
 
                 bool hasPoints = traj.Points != null && traj.Points.Count >= 2;
-                bool hasOrbitData = traj.OrbitSegments != null && traj.OrbitSegments.Count > 0;
+                bool hasOrbitData = traj.HasOrbitSegments;
                 bool hasSurfaceData = traj.SurfacePos.HasValue;
                 if (!hasPoints && !hasOrbitData && !hasSurfaceData) continue;
 
