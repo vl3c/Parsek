@@ -686,7 +686,7 @@ namespace Parsek.Tests
         [InlineData(TerminalState.Orbiting, "Orbiting Kerbin", "Spawn: TestVessel (Orbiting Kerbin)")]
         public void VesselSpawn_AllTerminalStates(TerminalState state, string situation, string expectedText)
         {
-            var text = TimelineEntryDisplay.GetVesselSpawnText("TestVessel", state, situation, false, null, null);
+            var text = TimelineEntryDisplay.GetVesselSpawnText("TestVessel", state, situation, false, null, null, null);
             Assert.Equal(expectedText, text);
         }
 

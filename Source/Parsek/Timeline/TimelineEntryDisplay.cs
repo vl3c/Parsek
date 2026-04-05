@@ -133,9 +133,10 @@ namespace Parsek
         /// falls back to terminal state name, falls back to no parenthetical.
         /// </summary>
         internal static string GetVesselSpawnText(string vesselName, TerminalState? state,
-            string vesselSituation, bool isEva, string parentVesselName, string terminalOrbitBody)
+            string vesselSituation, bool isEva, string parentVesselName,
+            string terminalOrbitBody, string segmentBodyName)
         {
-            // Boarded EVA: "Board: Jeb (Mun Lander)" — kerbal returned to parent vessel
+            // Boarded EVA: "Board: Jeb (Mun Lander)" - kerbal returned to parent vessel
             if (isEva && state == TerminalState.Boarded && !string.IsNullOrEmpty(parentVesselName))
                 return $"Board: {vesselName} ({parentVesselName})";
 
@@ -143,13 +144,18 @@ namespace Parsek
             if (!string.IsNullOrEmpty(vesselSituation))
                 return $"Spawn: {vesselName} ({vesselSituation})";
 
-            // Fall back to terminal state with body context for orbital states
+            // Fall back to terminal state with body context
             string stateText = FormatTerminalState(state);
             if (!string.IsNullOrEmpty(stateText))
             {
-                if (!string.IsNullOrEmpty(terminalOrbitBody) &&
-                    (state == TerminalState.Orbiting || state == TerminalState.SubOrbital))
-                    return $"Spawn: {vesselName} ({stateText} {terminalOrbitBody})";
+                string body = !string.IsNullOrEmpty(terminalOrbitBody) ? terminalOrbitBody : segmentBodyName;
+                if (!string.IsNullOrEmpty(body))
+                {
+                    bool usesOn = state == TerminalState.Landed || state == TerminalState.Splashed;
+                    return usesOn
+                        ? $"Spawn: {vesselName} ({stateText} on {body})"
+                        : $"Spawn: {vesselName} ({stateText} {body})";
+                }
                 return $"Spawn: {vesselName} ({stateText})";
             }
 
