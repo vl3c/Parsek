@@ -2484,6 +2484,19 @@ namespace Parsek
             // Set ChildBranchPointId on the active recording to link to this breakup
             activeRec.ChildBranchPointId = breakupBp.Id;
 
+            // Refresh the vessel snapshot to reflect post-breakup state.
+            // The recording continues past breakup (breakup-continuous design), so the
+            // spawn snapshot must show the surviving vessel, not the pre-breakup config.
+            // Without this, spawning materializes the full pre-breakup rocket. (#224)
+            Vessel activeVessel = FlightGlobals.ActiveVessel;
+            if (activeVessel != null && activeVessel.persistentId == activeRec.VesselPersistentId)
+            {
+                VesselSpawner.SnapshotVessel(activeRec, false);
+                ParsekLog.Info("Coalescer",
+                    $"ProcessBreakupEvent: refreshed VesselSnapshot post-breakup " +
+                    $"(parts={activeVessel.parts?.Count ?? 0})");
+            }
+
             // Create child recording segments for controlled children (vessels with probe
             // cores that survive the breakup). Same pattern as PromoteToTreeForBreakup step 8.
             // These are NOT debris — they record indefinitely (no TTL) and can serve as
@@ -3603,18 +3616,22 @@ namespace Parsek
             // Phase 6b: Evaluate ghost chains and ghost claimed vessels
             EvaluateAndApplyGhostChains();
 
+            // Capture active vessel PID at scene entry for stateless spawn dedup bypass.
+            // After revert, the pad vessel shares the same PID as recorded vessels — at
+            // spawn time, SpawnVesselOrChainTip checks this static PID instead of relying
+            // on per-recording transient flags that could be lost on Recording recreation.
+            RecordingStore.SceneEntryActiveVesselPid =
+                (activeVessel != null) ? activeVessel.persistentId : 0;
+            if (RecordingStore.SceneEntryActiveVesselPid != 0)
+                ParsekLog.Verbose("Flight",
+                    $"Scene entry active vessel pid={RecordingStore.SceneEntryActiveVesselPid}");
+
             // Handle pending tree: show tree merge dialog.
             // On non-revert scene changes, pending trees are auto-committed by ParsekScenario.
             // Reaching here means either a revert or a fallback (auto-commit missed).
             if (RecordingStore.HasPendingTree)
             {
                 var pt = RecordingStore.PendingTree;
-                // Belt-and-suspenders: mark tree recordings for force-spawn before dialog.
-                // The merge dialog callbacks also call MarkForceSpawnOnTreeRecordings,
-                // but this covers the case where the tree is committed without a dialog
-                // (e.g., auto-merge setting, or future code paths).
-                if (activeVessel != null && activeVessel.persistentId != 0)
-                    MergeDialog.MarkForceSpawnOnTreeRecordings(pt, activeVessel.persistentId);
                 ParsekLog.Warn("Flight", $"Pending tree '{pt.TreeName}' reached OnFlightReady — showing tree merge dialog (fallback)");
                 MergeDialog.ShowTreeDialog(pt);
             }
@@ -3624,13 +3641,6 @@ namespace Parsek
             // On reverts, the merge dialog is expected here (player chose to revert).
             if (RecordingStore.HasPending)
                 HandlePendingStandaloneRecording();
-
-            // Mark all committed recordings that share the active vessel's PID for fresh spawn.
-            // After revert, the pad vessel has the same PID as previously-recorded vessels.
-            // Without this, the PID dedup in SpawnVesselOrChainTip would skip spawning
-            // because it finds the pad vessel and thinks the recorded vessel already exists.
-            // ForceSpawnNewVessel is transient (not serialized), so this must run every flight entry.
-            MarkForceSpawnOnActiveVesselRecordings(activeVessel);
 
             // Swap reserved crew out of the active vessel so the player
             // can't record with them again (they belong to deferred-spawn vessels)
@@ -3666,20 +3676,8 @@ namespace Parsek
         {
             var pending = RecordingStore.Pending;
 
-            // After revert, the original vessel exists at its reverted position (e.g., on the pad),
-            // not at the recording's end position. Mark for fresh spawn with a new PID so the
-            // dedup check doesn't skip it. Also mark committed chain siblings.
-            pending.ForceSpawnNewVessel = true;
-            if (!string.IsNullOrEmpty(pending.ChainId))
-            {
-                var chainSiblings = RecordingStore.GetChainRecordings(pending.ChainId);
-                if (chainSiblings != null)
-                {
-                    for (int cs = 0; cs < chainSiblings.Count; cs++)
-                        chainSiblings[cs].ForceSpawnNewVessel = true;
-                }
-            }
-            ParsekLog.Verbose("Flight", $"Pending recording on flight ready: ForceSpawnNewVessel=true for '{pending.VesselName}'");
+            // No per-recording flag needed — SceneEntryActiveVesselPid (set above)
+            // lets SpawnVesselOrChainTip bypass PID dedup statelessly.
 
             // Check if this is part of a chain with committed siblings
             bool hasChainSiblings = !string.IsNullOrEmpty(pending.ChainId) &&
@@ -3723,32 +3721,6 @@ namespace Parsek
                 Log($"Found pending recording from {pending.VesselName} ({pending.Points.Count} points)");
                 CommitOrShowDialog(pending);
             }
-        }
-
-        /// <summary>
-        /// Marks all committed recordings sharing the active vessel's PID for fresh spawn.
-        /// Required after revert so PID dedup does not skip spawning.
-        /// </summary>
-        private void MarkForceSpawnOnActiveVesselRecordings(Vessel activeVessel)
-        {
-            if (activeVessel == null || activeVessel.persistentId == 0)
-                return;
-
-            uint activePid = activeVessel.persistentId;
-            var allCommitted = RecordingStore.CommittedRecordings;
-            int forceCount = 0;
-            for (int ci = 0; ci < allCommitted.Count; ci++)
-            {
-                if (allCommitted[ci].VesselPersistentId == activePid && !allCommitted[ci].VesselSpawned)
-                {
-                    allCommitted[ci].ForceSpawnNewVessel = true;
-                    forceCount++;
-                }
-            }
-            if (forceCount > 0)
-                ParsekLog.Verbose("Flight",
-                    $"Marked {forceCount} committed recording(s) with ForceSpawnNewVessel " +
-                    $"(active vessel pid={activePid})");
         }
 
         #endregion
@@ -5947,9 +5919,14 @@ namespace Parsek
             // Real vessel dedup: if a vessel with this PID still exists in the game world,
             // skip spawning a duplicate. This runs only at actual spawn time (pastChainEnd),
             // not every frame like ShouldSpawnAtRecordingEnd.
-            // Exception: ForceSpawnNewVessel is set after revert — the existing vessel is at the
-            // reverted position, not the recording's end position. Spawn a fresh copy with a new PID.
-            if (!rec.ForceSpawnNewVessel &&
+            // Exceptions that bypass dedup (spawn a fresh copy with new PID):
+            //   - Recording PID matches scene-entry active vessel (stateless revert detection)
+            //   - Current active vessel shares PID (covers mid-scene vessel switches)
+            bool matchesSceneEntryVessel = rec.VesselPersistentId != 0 &&
+                rec.VesselPersistentId == RecordingStore.SceneEntryActiveVesselPid;
+            bool activeVesselSharesPid = FlightGlobals.ActiveVessel != null &&
+                FlightGlobals.ActiveVessel.persistentId == rec.VesselPersistentId;
+            if (!matchesSceneEntryVessel && !activeVesselSharesPid &&
                 rec.VesselPersistentId != 0 && GhostPlaybackLogic.RealVesselExists(rec.VesselPersistentId))
             {
                 rec.VesselSpawned = true;
@@ -6040,13 +6017,23 @@ namespace Parsek
                     ? GhostPlaybackLogic.ShouldSuppressSpawnForChain(activeGhostChains, rec)
                     : (suppressed: false, reason: "");
 
+                bool finalNeedsSpawn = spawnResult.needsSpawn && !chainSuppressed.suppressed;
+
+                // Log spawn suppression reason for non-debris recordings (diagnostic)
+                if (!finalNeedsSpawn && !rec.IsDebris)
+                {
+                    string reason = !spawnResult.needsSpawn ? spawnResult.reason : chainSuppressed.reason;
+                    ParsekLog.VerboseRateLimited("Spawner", "spawn-suppressed-" + i,
+                        $"Spawn suppressed for #{i} \"{rec.VesselName}\": {reason}");
+                }
+
                 flags[i] = new TrajectoryPlaybackFlags
                 {
                     skipGhost = !hasData || !rec.PlaybackEnabled || externalVesselSuppressed,
                     isStandalone = !rec.IsTreeRecording,
                     isMidChain = RecordingStore.IsChainMidSegment(rec),
                     chainEndUT = RecordingStore.GetChainEndUT(rec),
-                    needsSpawn = spawnResult.needsSpawn && !chainSuppressed.suppressed,
+                    needsSpawn = finalNeedsSpawn,
                     isActiveChainMember = isActiveChain,
                     isChainLoopingOrDisabled = chainLoopOrDisabled,
                     segmentLabel = RecordingStore.GetSegmentPhaseLabel(rec),
@@ -6645,13 +6632,22 @@ namespace Parsek
                     && !GhostMapPresence.IsGhostMapVessel(vessel.persistentId));
                 if (v != null)
                 {
+                    // Only activate if within physics range. ForceSetActiveVessel on an
+                    // unloaded vessel triggers a full FLIGHT→FLIGHT scene reload (black
+                    // screen flash). Better to stay on the pad and let the player switch
+                    // manually via tracking station or map view.
+                    if (!v.loaded)
+                    {
+                        Log($"Spawned vessel pid={pid} not loaded — staying on current vessel");
+                        yield break;
+                    }
                     v.IgnoreGForces(240);
                     FlightGlobals.ForceSetActiveVessel(v);
-                    Log($"Activated vessel pid={pid} (loaded={v.loaded})");
+                    Log($"Activated spawned vessel pid={pid} ({v.vesselName})");
                     yield break;
                 }
             }
-            Log($"WARNING: Could not activate vessel pid={pid} within 5 seconds");
+            Log($"WARNING: Could not find spawned vessel pid={pid} within 5 seconds");
         }
 
         #region Zone Rendering (shared by normal, background, and looped ghosts)

@@ -6,6 +6,15 @@ All notable changes to Parsek are documented here.
 
 ## 0.6.2
 
+### Bug Fixes
+
+- **Fix vessel not spawned at end of playback when parts break off on impact (#224).** Breakup-continuous foreground recordings (where `ProcessBreakupEvent` sets `ChildBranchPointId` without creating a same-PID continuation) are now recognized as effective leaves via `IsEffectiveLeafForVessel`. Snapshot refreshed post-breakup to reflect surviving vessel. Added diagnostic spawn-suppression-reason logging.
+- **Fix spawn-in-air: altitude clamping for surface terminal states.** Breakup-continuous recordings used the last trajectory point (still descending) as spawn position. Splashed vessels spawned above sea level; KSP reclassified them to FLYING. Altitude now clamped to 0 for Splashed, terrain height for Landed.
+- **Fix boring tail trim skipped for breakup-continuous leaves (#185).** `IsLeafRecording` in `RecordingOptimizer` rejected recordings with `ChildBranchPointId` without checking effective-leaf status. Ghost sat motionless on the surface for the full recording duration instead of trimming the idle tail and spawning promptly.
+- **Fix camera black screen on distant vessel spawn.** `DeferredActivateVessel` called `ForceSetActiveVessel` on unloaded vessels (beyond physics range), triggering a full FLIGHT→FLIGHT scene reload. Now skips activation for unloaded vessels — camera stays on the pad.
+- **Fix GhostChain.GhostStartUT set to rewindUT instead of earliest claim time (#225, T51).** `GhostStartUT` was initialized to the `rewindUT` parameter, making the in-game test `ChainTimeRangesValid` fail for all 13 chains with valid SpawnUT. Now set to `links[0].ut` (earliest chain link time).
+- **Stateless spawn dedup bypass replaces fragile ForceSpawnNewVessel flag (#226).** Per-recording transient flag (lost on Recording object recreation mid-scene) replaced with single static `RecordingStore.SceneEntryActiveVesselPid`. `SpawnVesselOrChainTip` derives bypass decision from current game state at spawn time. Removed `MarkForceSpawnOnActiveVesselRecordings`, `MergeDialog.MarkForceSpawnOnTreeRecordings`, and all per-recording flag-setting code.
+
 ### Crew Reservation
 
 - **Refactor kerbal reservation to not use rosterStatus=Assigned (T44).** Reserved kerbals now stay at their natural rosterStatus (typically Available) instead of being set to Assigned. A new `CrewDialogFilterPatch` Harmony prefix on `BaseCrewAssignmentDialog.AddAvailItem` filters reserved and retired kerbals from the VAB/SPH crew selection dialog. Eliminates the `KerbalAssignmentValidationPatch` tug-of-war (~27 KSP warnings per session) and the `AssignedCrewCountPatch` Astronaut Complex count mismatch. Both workaround patches deleted. Dead `ReserveSnapshotCrew` method removed.

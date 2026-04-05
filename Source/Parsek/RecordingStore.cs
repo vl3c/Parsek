@@ -20,6 +20,12 @@ namespace Parsek
         // When true, suppresses logging calls (for unit testing outside Unity)
         internal static bool SuppressLogging;
 
+        // PID of the active vessel at scene entry. Used by SpawnVesselOrChainTip to
+        // bypass PID dedup statelessly — if a recording's VesselPersistentId matches
+        // this, the existing real vessel is the player's reverted/active vessel, not
+        // a previously-spawned endpoint. Static so it survives Recording object recreation.
+        internal static uint SceneEntryActiveVesselPid;
+
         // Rewind state is now encapsulated in RewindContext.
         // These delegate properties preserve API compatibility for callers
         // that read IsRewinding/RewindUT/etc. through RecordingStore.
@@ -1353,6 +1359,7 @@ namespace Parsek
             committedRecordings.Clear();
             committedTrees.Clear();
             pendingTree = null;
+            SceneEntryActiveVesselPid = 0;
             RewindContext.ResetForTesting();
             RewindUTAdjustmentPending = false;
             GameStateRecorder.PendingScienceSubjects.Clear();

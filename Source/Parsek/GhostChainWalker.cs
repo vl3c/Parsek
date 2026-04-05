@@ -78,7 +78,7 @@ namespace Parsek
                 {
                     OriginalVesselPid = pid,
                     Links = links,
-                    GhostStartUT = rewindUT
+                    GhostStartUT = links[0].ut
                 };
 
                 chains[pid] = chain;

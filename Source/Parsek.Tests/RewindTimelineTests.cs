@@ -627,5 +627,101 @@ namespace Parsek.Tests
         }
 
         #endregion
+
+        #region ShouldSpawnAtRecordingEnd — Non-Leaf / Effective Leaf
+
+        [Fact]
+        public void ShouldSpawn_NonLeafWithSamePidChild_ReturnsFalse()
+        {
+            // True non-leaf: branch point has a same-PID continuation child
+            var tree = new RecordingTree
+            {
+                Id = "tree-1",
+                TreeName = "TestTree",
+                RootRecordingId = "parent-rec"
+            };
+            var parentRec = new Recording
+            {
+                RecordingId = "parent-rec",
+                TreeId = "tree-1",
+                VesselPersistentId = 100,
+                VesselSnapshot = new ConfigNode("VESSEL"),
+                ChildBranchPointId = "bp-decouple"
+            };
+            var continuationRec = new Recording
+            {
+                RecordingId = "continuation-rec",
+                TreeId = "tree-1",
+                VesselPersistentId = 100, // Same PID — true continuation
+                ParentBranchPointId = "bp-decouple"
+            };
+            var bp = new BranchPoint
+            {
+                Id = "bp-decouple",
+                Type = BranchPointType.JointBreak,
+                UT = 50.0
+            };
+            bp.ParentRecordingIds.Add("parent-rec");
+            bp.ChildRecordingIds.Add("continuation-rec");
+            tree.Recordings["parent-rec"] = parentRec;
+            tree.Recordings["continuation-rec"] = continuationRec;
+            tree.BranchPoints.Add(bp);
+            RecordingStore.CommittedTrees.Add(tree);
+
+            var (needsSpawn, reason) = GhostPlaybackLogic.ShouldSpawnAtRecordingEnd(
+                parentRec, isActiveChainMember: false, isChainLoopingOrDisabled: false);
+
+            Assert.False(needsSpawn);
+            Assert.Contains("non-leaf tree recording", reason);
+        }
+
+        [Fact]
+        public void ShouldSpawn_EffectiveLeaf_BreakupDebrisOnly_ReturnsTrue()
+        {
+            // Breakup-continuous: ChildBranchPointId set but no same-PID child.
+            // Only debris children exist. Recording IS the effective leaf. (#224)
+            var tree = new RecordingTree
+            {
+                Id = "tree-1",
+                TreeName = "TestTree",
+                RootRecordingId = "parent-rec"
+            };
+            var parentRec = new Recording
+            {
+                RecordingId = "parent-rec",
+                TreeId = "tree-1",
+                VesselPersistentId = 100,
+                VesselSnapshot = new ConfigNode("VESSEL"),
+                ChildBranchPointId = "bp-crash",
+                TerminalStateValue = TerminalState.Splashed
+            };
+            var debrisRec = new Recording
+            {
+                RecordingId = "debris-rec",
+                TreeId = "tree-1",
+                VesselPersistentId = 999, // Different PID — debris, not continuation
+                ParentBranchPointId = "bp-crash",
+                IsDebris = true
+            };
+            var bp = new BranchPoint
+            {
+                Id = "bp-crash",
+                Type = BranchPointType.Breakup,
+                UT = 102.8
+            };
+            bp.ParentRecordingIds.Add("parent-rec");
+            bp.ChildRecordingIds.Add("debris-rec");
+            tree.Recordings["parent-rec"] = parentRec;
+            tree.Recordings["debris-rec"] = debrisRec;
+            tree.BranchPoints.Add(bp);
+            RecordingStore.CommittedTrees.Add(tree);
+
+            var (needsSpawn, _) = GhostPlaybackLogic.ShouldSpawnAtRecordingEnd(
+                parentRec, isActiveChainMember: false, isChainLoopingOrDisabled: false);
+
+            Assert.True(needsSpawn);
+        }
+
+        #endregion
     }
 }
