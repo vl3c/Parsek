@@ -50,7 +50,7 @@ namespace Parsek
 
             // Tell the engine how to check if a ghost is being held
             engine.IsGhostHeld = idx =>
-                heldGhosts.ContainsKey(idx) || host.watchedRecordingIndex == idx;
+                heldGhosts.ContainsKey(idx) || host.WatchedRecordingIndex == idx;
 
             ParsekLog.Info("Policy", "ParsekPlaybackPolicy created and subscribed to engine events");
         }
@@ -75,7 +75,7 @@ namespace Parsek
 
         private void HandlePlaybackCompleted(PlaybackCompletedEvent evt)
         {
-            bool isWatched = host.watchedRecordingIndex == evt.Index;
+            bool isWatched = host.WatchedRecordingIndex == evt.Index;
 
             ParsekLog.Verbose("Policy",
                 $"PlaybackCompleted index={evt.Index} vessel={evt.Trajectory?.VesselName} " +
@@ -270,7 +270,7 @@ namespace Parsek
                                 $"id={info.recordingId} held={now - info.holdStartTime:F1}s");
 
                             // If user is currently watching this recording, activate the spawned vessel
-                            if (host.watchedRecordingIndex == index)
+                            if (host.WatchedRecordingIndex == index)
                             {
                                 uint spawnedPid = committed[index].SpawnedVesselPersistentId;
                                 if (spawnedPid != 0)

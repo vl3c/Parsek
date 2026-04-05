@@ -1,0 +1,615 @@
+using System;
+using System.Collections.Generic;
+using Xunit;
+
+namespace Parsek.Tests
+{
+    /// <summary>
+    /// Tests for internal static methods on RecordingsTableUI.
+    /// These methods were extracted from ParsekUI and are tested both directly
+    /// and via the ParsekUI forwarders.
+    /// </summary>
+    [Collection("Sequential")]
+    public class RecordingsTableUITests : IDisposable
+    {
+        private readonly List<string> logLines = new List<string>();
+
+        public RecordingsTableUITests()
+        {
+            RecordingStore.SuppressLogging = true;
+            RecordingStore.ResetForTesting();
+            MilestoneStore.ResetForTesting();
+            GameStateStore.SuppressLogging = true;
+            ParsekLog.ResetTestOverrides();
+            ParsekLog.SuppressLogging = true;
+            GroupHierarchyStore.ResetGroupsForTesting();
+            CrewReservationManager.ResetReplacementsForTesting();
+            ParsekLog.TestSinkForTesting = line => logLines.Add(line);
+        }
+
+        public void Dispose()
+        {
+            ParsekLog.ResetTestOverrides();
+            ParsekLog.SuppressLogging = true;
+            RecordingStore.SuppressLogging = true;
+            RecordingStore.ResetForTesting();
+            MilestoneStore.ResetForTesting();
+            GroupHierarchyStore.ResetGroupsForTesting();
+            CrewReservationManager.ResetReplacementsForTesting();
+        }
+
+        private static Recording MakeRec(double startUT, double endUT, string name = "Test")
+        {
+            var rec = new Recording { VesselName = name };
+            rec.Points.Add(new TrajectoryPoint { ut = startUT });
+            if (endUT > startUT)
+                rec.Points.Add(new TrajectoryPoint { ut = endUT });
+            return rec;
+        }
+
+        // ── GetRecordingSortKey ──
+
+        [Fact]
+        public void GetRecordingSortKey_LaunchTime_ReturnsStartUT()
+        {
+            var rec = MakeRec(250, 400);
+            double key = ParsekUI.GetRecordingSortKey(rec, ParsekUI.SortColumn.LaunchTime, 0, 0);
+            Assert.Equal(250, key);
+        }
+
+        [Fact]
+        public void GetRecordingSortKey_Duration_ReturnsDuration()
+        {
+            var rec = MakeRec(100, 350);
+            double key = ParsekUI.GetRecordingSortKey(rec, ParsekUI.SortColumn.Duration, 0, 0);
+            Assert.Equal(250, key);
+        }
+
+        [Fact]
+        public void GetRecordingSortKey_Status_Future()
+        {
+            var rec = MakeRec(500, 600);
+            double key = ParsekUI.GetRecordingSortKey(rec, ParsekUI.SortColumn.Status, 100, 0);
+            Assert.Equal(0, key); // future
+        }
+
+        [Fact]
+        public void GetRecordingSortKey_Status_Active()
+        {
+            var rec = MakeRec(100, 300);
+            double key = ParsekUI.GetRecordingSortKey(rec, ParsekUI.SortColumn.Status, 200, 0);
+            Assert.Equal(1, key); // active
+        }
+
+        [Fact]
+        public void GetRecordingSortKey_Status_Past()
+        {
+            var rec = MakeRec(100, 200);
+            double key = ParsekUI.GetRecordingSortKey(rec, ParsekUI.SortColumn.Status, 500, 0);
+            Assert.Equal(2, key); // past
+        }
+
+        [Fact]
+        public void GetRecordingSortKey_Index_ReturnsRowFallback()
+        {
+            var rec = MakeRec(100, 200);
+            double key = ParsekUI.GetRecordingSortKey(rec, ParsekUI.SortColumn.Index, 0, 42);
+            Assert.Equal(42, key);
+        }
+
+        [Fact]
+        public void GetRecordingSortKey_Phase_ReturnsRowFallback()
+        {
+            var rec = MakeRec(100, 200);
+            rec.SegmentPhase = "atmo";
+            double key = ParsekUI.GetRecordingSortKey(rec, ParsekUI.SortColumn.Phase, 0, 11);
+            Assert.Equal(11, key); // Phase uses default branch = rowFallback
+        }
+
+        [Fact]
+        public void GetRecordingSortKey_Name_ReturnsRowFallback()
+        {
+            var rec = MakeRec(100, 200, "Vessel");
+            double key = ParsekUI.GetRecordingSortKey(rec, ParsekUI.SortColumn.Name, 0, 5);
+            Assert.Equal(5, key); // Name uses default branch = rowFallback
+        }
+
+        // ── GetChainSortKey ──
+
+        [Fact]
+        public void GetChainSortKey_LaunchTime_ReturnsEarliestStartUT()
+        {
+            var committed = new List<Recording>
+            {
+                MakeRec(300, 400),
+                MakeRec(150, 250),
+                MakeRec(200, 350)
+            };
+            var members = new List<int> { 0, 1, 2 };
+            double key = ParsekUI.GetChainSortKey(members, committed,
+                ParsekUI.SortColumn.LaunchTime, 0);
+            Assert.Equal(150, key);
+        }
+
+        [Fact]
+        public void GetChainSortKey_Duration_ReturnsSumOfPositiveDurations()
+        {
+            var committed = new List<Recording>
+            {
+                MakeRec(100, 160),  // 60s
+                MakeRec(200, 280),  // 80s
+                MakeRec(300, 300)   // 0s (single point), not added
+            };
+            var members = new List<int> { 0, 1, 2 };
+            double key = ParsekUI.GetChainSortKey(members, committed,
+                ParsekUI.SortColumn.Duration, 0);
+            Assert.Equal(140, key);
+        }
+
+        [Fact]
+        public void GetChainSortKey_Status_ReturnsBestAmongMembers()
+        {
+            var committed = new List<Recording>
+            {
+                MakeRec(100, 200),  // past at now=600
+                MakeRec(400, 700),  // active at now=600
+                MakeRec(800, 900)   // future at now=600
+            };
+            var members = new List<int> { 0, 1, 2 };
+            double key = ParsekUI.GetChainSortKey(members, committed,
+                ParsekUI.SortColumn.Status, 600);
+            Assert.Equal(0, key); // future is "best" (lowest order)
+        }
+
+        [Fact]
+        public void GetChainSortKey_DefaultColumn_ReturnsZero()
+        {
+            var committed = new List<Recording> { MakeRec(100, 200) };
+            var members = new List<int> { 0 };
+            double key = ParsekUI.GetChainSortKey(members, committed,
+                ParsekUI.SortColumn.Name, 0);
+            Assert.Equal(0, key);
+        }
+
+        // ── GetGroupEarliestStartUT ──
+
+        [Fact]
+        public void GetGroupEarliestStartUT_EmptyDescendants_ReturnsMaxValue()
+        {
+            var result = ParsekUI.GetGroupEarliestStartUT(new HashSet<int>(), new List<Recording>());
+            Assert.Equal(double.MaxValue, result);
+        }
+
+        [Fact]
+        public void GetGroupEarliestStartUT_Single_ReturnsStartUT()
+        {
+            var committed = new List<Recording> { MakeRec(500, 600) };
+            var result = ParsekUI.GetGroupEarliestStartUT(new HashSet<int> { 0 }, committed);
+            Assert.Equal(500, result);
+        }
+
+        [Fact]
+        public void GetGroupEarliestStartUT_Multiple_ReturnsMinimum()
+        {
+            var committed = new List<Recording>
+            {
+                MakeRec(300, 400),
+                MakeRec(100, 200),
+                MakeRec(200, 300)
+            };
+            var result = ParsekUI.GetGroupEarliestStartUT(new HashSet<int> { 0, 1, 2 }, committed);
+            Assert.Equal(100, result);
+        }
+
+        // ── GetGroupTotalDuration ──
+
+        [Fact]
+        public void GetGroupTotalDuration_EmptyDescendants_ReturnsZero()
+        {
+            var result = ParsekUI.GetGroupTotalDuration(new HashSet<int>(), new List<Recording>());
+            Assert.Equal(0, result);
+        }
+
+        [Fact]
+        public void GetGroupTotalDuration_SingleRecording_ReturnsDuration()
+        {
+            var committed = new List<Recording> { MakeRec(100, 250) };
+            var result = ParsekUI.GetGroupTotalDuration(new HashSet<int> { 0 }, committed);
+            Assert.Equal(150, result);
+        }
+
+        [Fact]
+        public void GetGroupTotalDuration_SkipsZeroDuration()
+        {
+            var committed = new List<Recording>
+            {
+                MakeRec(100, 100),  // 0s (single point, EndUT==StartUT)
+                MakeRec(200, 350)   // 150s
+            };
+            var result = ParsekUI.GetGroupTotalDuration(new HashSet<int> { 0, 1 }, committed);
+            Assert.Equal(150, result);
+        }
+
+        [Fact]
+        public void GetGroupTotalDuration_SumsAllPositive()
+        {
+            var committed = new List<Recording>
+            {
+                MakeRec(100, 200),  // 100s
+                MakeRec(300, 420),  // 120s
+                MakeRec(500, 530)   // 30s
+            };
+            var result = ParsekUI.GetGroupTotalDuration(new HashSet<int> { 0, 1, 2 }, committed);
+            Assert.Equal(250, result);
+        }
+
+        // ── FindGroupMainRecordingIndex ──
+
+        [Fact]
+        public void FindGroupMainRecordingIndex_EmptyDescendants_ReturnsNegativeOne()
+        {
+            Assert.Equal(-1, ParsekUI.FindGroupMainRecordingIndex(
+                new HashSet<int>(), new List<Recording>()));
+        }
+
+        [Fact]
+        public void FindGroupMainRecordingIndex_SingleNonDebris_ReturnsThatIndex()
+        {
+            var committed = new List<Recording> { MakeRec(100, 200, "Vessel") };
+            Assert.Equal(0, ParsekUI.FindGroupMainRecordingIndex(
+                new HashSet<int> { 0 }, committed));
+        }
+
+        [Fact]
+        public void FindGroupMainRecordingIndex_AllDebris_ReturnsNegativeOne()
+        {
+            var d1 = MakeRec(100, 200, "Stage1"); d1.IsDebris = true;
+            var d2 = MakeRec(150, 250, "Stage2"); d2.IsDebris = true;
+            var committed = new List<Recording> { d1, d2 };
+            Assert.Equal(-1, ParsekUI.FindGroupMainRecordingIndex(
+                new HashSet<int> { 0, 1 }, committed));
+        }
+
+        [Fact]
+        public void FindGroupMainRecordingIndex_MixedTypes_ReturnsEarliestNonDebris()
+        {
+            var debris = MakeRec(50, 100, "Booster"); debris.IsDebris = true;
+            var laterVessel = MakeRec(200, 300, "Lander");
+            var earlierVessel = MakeRec(100, 200, "Rocket");
+            var committed = new List<Recording> { debris, laterVessel, earlierVessel };
+            Assert.Equal(2, ParsekUI.FindGroupMainRecordingIndex(
+                new HashSet<int> { 0, 1, 2 }, committed));
+        }
+
+        [Fact]
+        public void FindGroupMainRecordingIndex_OutOfRangeIndex_Skipped()
+        {
+            var committed = new List<Recording> { MakeRec(100, 200, "Vessel") };
+            // Index 5 is out of range, should be skipped without crash
+            Assert.Equal(0, ParsekUI.FindGroupMainRecordingIndex(
+                new HashSet<int> { 0, 5 }, committed));
+        }
+
+        // ── GetGroupStatus ──
+
+        [Fact]
+        public void GetGroupStatus_EmptyDescendants_ReturnsDash()
+        {
+            ParsekUI.GetGroupStatus(new HashSet<int>(), new List<Recording>(),
+                500, out string text, out int order);
+            Assert.Equal("-", text);
+            Assert.Equal(2, order);
+        }
+
+        [Fact]
+        public void GetGroupStatus_AllFuture_ReturnsFutureOrder()
+        {
+            var committed = new List<Recording>
+            {
+                MakeRec(700, 800),
+                MakeRec(600, 700)
+            };
+            ParsekUI.GetGroupStatus(new HashSet<int> { 0, 1 }, committed,
+                500, out string text, out int order);
+            Assert.Equal(0, order);
+        }
+
+        [Fact]
+        public void GetGroupStatus_ActivePresent_ReturnsActiveOrder()
+        {
+            var committed = new List<Recording>
+            {
+                MakeRec(400, 600),  // active at now=500
+                MakeRec(100, 200)   // past
+            };
+            ParsekUI.GetGroupStatus(new HashSet<int> { 0, 1 }, committed,
+                500, out string text, out int order);
+            Assert.Equal(1, order);
+        }
+
+        [Fact]
+        public void GetGroupStatus_AllPast_ReturnsPast()
+        {
+            var committed = new List<Recording>
+            {
+                MakeRec(100, 200),
+                MakeRec(250, 350)
+            };
+            ParsekUI.GetGroupStatus(new HashSet<int> { 0, 1 }, committed,
+                500, out string text, out int order);
+            Assert.Equal(2, order);
+            Assert.Equal("past", text);
+        }
+
+        // ── GetGroupSortKey ──
+
+        [Fact]
+        public void GetGroupSortKey_EmptyDescendants_ReturnsMaxValue()
+        {
+            double key = ParsekUI.GetGroupSortKey(new HashSet<int>(), new List<Recording>(),
+                ParsekUI.SortColumn.LaunchTime, 0);
+            Assert.Equal(double.MaxValue, key);
+        }
+
+        [Fact]
+        public void GetGroupSortKey_LaunchTime_DelegatesToEarliestStartUT()
+        {
+            var committed = new List<Recording>
+            {
+                MakeRec(300, 400),
+                MakeRec(150, 250)
+            };
+            double key = ParsekUI.GetGroupSortKey(new HashSet<int> { 0, 1 }, committed,
+                ParsekUI.SortColumn.LaunchTime, 0);
+            Assert.Equal(150, key);
+        }
+
+        [Fact]
+        public void GetGroupSortKey_Duration_DelegatesToTotalDuration()
+        {
+            var committed = new List<Recording>
+            {
+                MakeRec(100, 200),  // 100s
+                MakeRec(300, 370)   // 70s
+            };
+            double key = ParsekUI.GetGroupSortKey(new HashSet<int> { 0, 1 }, committed,
+                ParsekUI.SortColumn.Duration, 0);
+            Assert.Equal(170, key);
+        }
+
+        [Fact]
+        public void GetGroupSortKey_Status_DelegatesToGetGroupStatus()
+        {
+            var committed = new List<Recording>
+            {
+                MakeRec(400, 600)   // active at now=500
+            };
+            double key = ParsekUI.GetGroupSortKey(new HashSet<int> { 0 }, committed,
+                ParsekUI.SortColumn.Status, 500);
+            Assert.Equal(1, key);
+        }
+
+        [Fact]
+        public void GetGroupSortKey_Name_ReturnsZero()
+        {
+            var committed = new List<Recording> { MakeRec(100, 200) };
+            double key = ParsekUI.GetGroupSortKey(new HashSet<int> { 0 }, committed,
+                ParsekUI.SortColumn.Name, 0);
+            Assert.Equal(0, key);
+        }
+
+        [Fact]
+        public void GetGroupSortKey_Phase_ReturnsZero()
+        {
+            var committed = new List<Recording> { MakeRec(100, 200) };
+            double key = ParsekUI.GetGroupSortKey(new HashSet<int> { 0 }, committed,
+                ParsekUI.SortColumn.Phase, 0);
+            Assert.Equal(0, key);
+        }
+
+        [Fact]
+        public void GetGroupSortKey_Index_ReturnsNegativeOne()
+        {
+            var committed = new List<Recording> { MakeRec(100, 200) };
+            double key = ParsekUI.GetGroupSortKey(new HashSet<int> { 0 }, committed,
+                ParsekUI.SortColumn.Index, 0);
+            Assert.Equal(-1, key);
+        }
+
+        // ── UnitSuffix ──
+
+        [Theory]
+        [InlineData(LoopTimeUnit.Sec, "s")]
+        [InlineData(LoopTimeUnit.Min, "m")]
+        [InlineData(LoopTimeUnit.Hour, "h")]
+        [InlineData(LoopTimeUnit.Auto, "s")]  // Auto falls through to default "s"
+        public void UnitSuffix_ReturnsCorrectSuffix(LoopTimeUnit unit, string expected)
+        {
+            Assert.Equal(expected, ParsekUI.UnitSuffix(unit));
+        }
+
+        // ── CycleRecordingUnit ──
+
+        [Fact]
+        public void CycleRecordingUnit_FullCycle()
+        {
+            var u = LoopTimeUnit.Sec;
+            u = ParsekUI.CycleRecordingUnit(u);
+            Assert.Equal(LoopTimeUnit.Min, u);
+
+            u = ParsekUI.CycleRecordingUnit(u);
+            Assert.Equal(LoopTimeUnit.Hour, u);
+
+            u = ParsekUI.CycleRecordingUnit(u);
+            Assert.Equal(LoopTimeUnit.Auto, u);
+
+            u = ParsekUI.CycleRecordingUnit(u);
+            Assert.Equal(LoopTimeUnit.Sec, u);
+        }
+
+        // ── ApplyAutoLoopRange ──
+
+        [Fact]
+        public void ApplyAutoLoopRange_Enable_WithTrimmableSections_SetsRange()
+        {
+            var rec = new Recording
+            {
+                TrackSections = new List<TrackSection>
+                {
+                    new TrackSection { environment = SegmentEnvironment.SurfaceStationary, startUT = 50, endUT = 100 },
+                    new TrackSection { environment = SegmentEnvironment.Atmospheric, startUT = 100, endUT = 200 },
+                    new TrackSection { environment = SegmentEnvironment.ExoBallistic, startUT = 200, endUT = 500 }
+                }
+            };
+            ParsekUI.ApplyAutoLoopRange(rec, true);
+            Assert.Equal(100, rec.LoopStartUT);
+            Assert.Equal(200, rec.LoopEndUT);
+        }
+
+        [Fact]
+        public void ApplyAutoLoopRange_Enable_NoTrimmableSections_LeavesNaN()
+        {
+            var rec = new Recording
+            {
+                TrackSections = new List<TrackSection>
+                {
+                    new TrackSection { environment = SegmentEnvironment.Atmospheric, startUT = 100, endUT = 200 },
+                    new TrackSection { environment = SegmentEnvironment.ExoPropulsive, startUT = 200, endUT = 300 }
+                }
+            };
+            ParsekUI.ApplyAutoLoopRange(rec, true);
+            Assert.True(double.IsNaN(rec.LoopStartUT));
+            Assert.True(double.IsNaN(rec.LoopEndUT));
+        }
+
+        [Fact]
+        public void ApplyAutoLoopRange_Disable_ClearsExistingRange()
+        {
+            var rec = new Recording
+            {
+                LoopStartUT = 100,
+                LoopEndUT = 200
+            };
+            ParsekUI.ApplyAutoLoopRange(rec, false);
+            Assert.True(double.IsNaN(rec.LoopStartUT));
+            Assert.True(double.IsNaN(rec.LoopEndUT));
+        }
+
+        [Fact]
+        public void ApplyAutoLoopRange_Disable_AlreadyNaN_NoLogEmitted()
+        {
+            var rec = new Recording(); // LoopStartUT/EndUT default to NaN
+            logLines.Clear();
+            ParsekUI.ApplyAutoLoopRange(rec, false);
+            // No "Loop range cleared" log because they were already NaN
+            Assert.DoesNotContain(logLines, l => l.Contains("Loop range cleared"));
+        }
+
+        [Fact]
+        public void ApplyAutoLoopRange_Enable_LogsAutoRange()
+        {
+            ParsekLog.SuppressLogging = false;
+            var rec = new Recording
+            {
+                VesselName = "TestShip",
+                TrackSections = new List<TrackSection>
+                {
+                    new TrackSection { environment = SegmentEnvironment.SurfaceStationary, startUT = 50, endUT = 100 },
+                    new TrackSection { environment = SegmentEnvironment.Atmospheric, startUT = 100, endUT = 200 },
+                    new TrackSection { environment = SegmentEnvironment.ExoBallistic, startUT = 200, endUT = 500 }
+                }
+            };
+            rec.Points.Add(new TrajectoryPoint { ut = 50 });
+            rec.Points.Add(new TrajectoryPoint { ut = 500 });
+            logLines.Clear();
+            ParsekUI.ApplyAutoLoopRange(rec, true);
+            Assert.Contains(logLines, l => l.Contains("Auto loop range") && l.Contains("TestShip"));
+        }
+
+        // ── BuildGroupTreeData ──
+
+        [Fact]
+        public void BuildGroupTreeData_EmptyInput_ProducesEmptyOutputs()
+        {
+            ParsekUI.BuildGroupTreeData(
+                new List<Recording>(), new int[0], new List<string>(),
+                out var grpToRecs, out var chainToRecs, out var grpChildren,
+                out var rootGrps, out var rootChainIds);
+
+            Assert.Empty(grpToRecs);
+            Assert.Empty(chainToRecs);
+            Assert.Empty(grpChildren);
+            Assert.Empty(rootGrps);
+            Assert.Empty(rootChainIds);
+        }
+
+        [Fact]
+        public void BuildGroupTreeData_UngroupedRecording_NotInAnyGroup()
+        {
+            var committed = new List<Recording> { new Recording { VesselName = "Solo" } };
+            ParsekUI.BuildGroupTreeData(
+                committed, new int[] { 0 }, new List<string>(),
+                out var grpToRecs, out var chainToRecs, out var grpChildren,
+                out var rootGrps, out var rootChainIds);
+
+            Assert.Empty(grpToRecs);
+            Assert.Empty(rootGrps);
+        }
+
+        [Fact]
+        public void BuildGroupTreeData_GroupedRecording_AppearsInGroup()
+        {
+            var rec = new Recording
+            {
+                VesselName = "Rocket",
+                RecordingGroups = new List<string> { "Launch" }
+            };
+            ParsekUI.BuildGroupTreeData(
+                new List<Recording> { rec }, new int[] { 0 }, new List<string>(),
+                out var grpToRecs, out var chainToRecs, out var grpChildren,
+                out var rootGrps, out var rootChainIds);
+
+            Assert.True(grpToRecs.ContainsKey("Launch"));
+            Assert.Contains(0, grpToRecs["Launch"]);
+            Assert.Contains("Launch", rootGrps);
+        }
+
+        [Fact]
+        public void BuildGroupTreeData_ChainWithNoGroups_IsRootChain()
+        {
+            var committed = new List<Recording>
+            {
+                new Recording { VesselName = "Seg0", ChainId = "chain-1", ChainIndex = 0 },
+                new Recording { VesselName = "Seg1", ChainId = "chain-1", ChainIndex = 1 }
+            };
+            ParsekUI.BuildGroupTreeData(
+                committed, new int[] { 0, 1 }, new List<string>(),
+                out var grpToRecs, out var chainToRecs, out var grpChildren,
+                out var rootGrps, out var rootChainIds);
+
+            Assert.True(chainToRecs.ContainsKey("chain-1"));
+            Assert.Equal(2, chainToRecs["chain-1"].Count);
+            Assert.Contains("chain-1", rootChainIds);
+        }
+
+        [Fact]
+        public void BuildGroupTreeData_ChainWithGroupMember_NotRootChain()
+        {
+            var committed = new List<Recording>
+            {
+                new Recording
+                {
+                    VesselName = "Seg0", ChainId = "chain-g", ChainIndex = 0,
+                    RecordingGroups = new List<string> { "Flights" }
+                },
+                new Recording { VesselName = "Seg1", ChainId = "chain-g", ChainIndex = 1 }
+            };
+            ParsekUI.BuildGroupTreeData(
+                committed, new int[] { 0, 1 }, new List<string>(),
+                out var grpToRecs, out var chainToRecs, out var grpChildren,
+                out var rootGrps, out var rootChainIds);
+
+            Assert.DoesNotContain("chain-g", rootChainIds);
+        }
+    }
+}

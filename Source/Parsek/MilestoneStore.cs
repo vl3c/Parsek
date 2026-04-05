@@ -10,8 +10,6 @@ namespace Parsek
         private static bool initialLoadDone = false;
         private static string lastSaveFolder = null;
 
-        internal static bool SuppressLogging = false;
-
         private static string ShortId(string id)
         {
             if (string.IsNullOrEmpty(id)) return "?";

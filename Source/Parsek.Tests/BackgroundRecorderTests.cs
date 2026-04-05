@@ -10,7 +10,6 @@ namespace Parsek.Tests
         public BackgroundRecorderTests()
         {
             RecordingStore.SuppressLogging = true;
-            MilestoneStore.SuppressLogging = true;
             MilestoneStore.ResetForTesting();
             GameStateStore.SuppressLogging = true;
             ParsekLog.SuppressLogging = true;

@@ -18,7 +18,6 @@ namespace Parsek.Tests
         public ComputeStatsExtractedTests()
         {
             RecordingStore.SuppressLogging = true;
-            MilestoneStore.SuppressLogging = true;
             MilestoneStore.ResetForTesting();
             GameStateStore.SuppressLogging = true;
             RecordingStore.ResetForTesting();

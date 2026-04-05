@@ -204,7 +204,6 @@ namespace Parsek.Tests
 
             var rec = new Recording();
             RecordingStore.SuppressLogging = true;
-            MilestoneStore.SuppressLogging = true;
             MilestoneStore.ResetForTesting();
             RecordingStore.DeserializeTrajectoryFrom(node, rec);
 

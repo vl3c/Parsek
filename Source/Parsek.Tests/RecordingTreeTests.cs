@@ -12,7 +12,6 @@ namespace Parsek.Tests
         public RecordingTreeTests()
         {
             RecordingStore.SuppressLogging = true;
-            MilestoneStore.SuppressLogging = true;
             MilestoneStore.ResetForTesting();
             GameStateStore.SuppressLogging = true;
             ParsekLog.SuppressLogging = true;

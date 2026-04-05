@@ -31,7 +31,6 @@ namespace Parsek.Tests
         public BackgroundPartEventAuditTests()
         {
             RecordingStore.SuppressLogging = true;
-            MilestoneStore.SuppressLogging = true;
             MilestoneStore.ResetForTesting();
             GameStateStore.SuppressLogging = true;
             ParsekLog.SuppressLogging = false;
