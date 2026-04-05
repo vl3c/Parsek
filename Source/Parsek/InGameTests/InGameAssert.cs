@@ -116,10 +116,25 @@ namespace Parsek.InGameTests
         {
             throw new InGameTestFailedException(message);
         }
+
+        /// <summary>
+        /// Marks the test as Skipped (not Passed, not Failed) when a precondition
+        /// is not met. Use instead of silent early-return so the test runner can
+        /// distinguish "tested and passed" from "could not test".
+        /// </summary>
+        public static void Skip(string reason)
+        {
+            throw new InGameTestSkippedException(reason);
+        }
     }
 
     public class InGameTestFailedException : Exception
     {
         public InGameTestFailedException(string message) : base(message) { }
+    }
+
+    public class InGameTestSkippedException : Exception
+    {
+        public InGameTestSkippedException(string message) : base(message) { }
     }
 }
