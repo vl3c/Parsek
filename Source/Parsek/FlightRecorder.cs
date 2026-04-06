@@ -160,6 +160,12 @@ namespace Parsek
         public double RewindReservedFunds { get; private set; }
         public double RewindReservedScience { get; private set; }
         public float RewindReservedRep { get; private set; }
+
+        // Location context (Phase 10) — captured at recording start
+        public string StartBodyName { get; private set; }
+        public string StartBiome { get; private set; }
+        public string StartSituation { get; private set; }
+        public string LaunchSiteName { get; private set; }
         public ConfigNode LastGoodVesselSnapshot => lastGoodVesselSnapshot;
         public ConfigNode InitialGhostVisualSnapshot => initialGhostVisualSnapshot;
 
@@ -3988,6 +3994,7 @@ namespace Parsek
             CaptureRewindSave(v, isPromotion);
 
             InitializeRecordingFlags(v);
+            CaptureStartLocation(v, isPromotion);
             var initialEnv = InitializeEnvironmentAndAnchorTracking(v);
             InsertBoundaryAnchorAndSnapshot(v);
 
@@ -4041,6 +4048,70 @@ namespace Parsek
             catch (Exception ex) { ParsekLog.Verbose("Recorder", $"Pre-launch resource capture failed: {ex.Message}"); }
             ParsekLog.Verbose("Recorder",
                 $"Pre-launch resources captured: funds={PreLaunchFunds:F0}, science={PreLaunchScience:F1}, rep={PreLaunchReputation:F1}");
+        }
+
+        /// <summary>
+        /// Captures start location context (Phase 10): body, biome, situation, and launch site.
+        /// </summary>
+        private void CaptureStartLocation(Vessel v, bool isPromotion)
+        {
+            StartBodyName = v.mainBody?.name;
+            StartSituation = v.isEVA ? "EVA" : VesselSpawner.HumanizeSituation(v.situation);
+            StartBiome = VesselSpawner.TryResolveBiome(v.mainBody?.name, v.latitude, v.longitude);
+            // Chain continuations (BoundaryAnchor set) inherit a stale FlightDriver value — skip
+            bool isChainContinuation = BoundaryAnchor.HasValue;
+            LaunchSiteName = ResolveLaunchSiteName(v, isPromotion || isChainContinuation);
+            ParsekLog.Verbose("Recorder",
+                $"Start location captured: body={StartBodyName ?? "(null)"}, biome={StartBiome ?? "(null)"}, " +
+                $"situation={StartSituation ?? "(null)"}, launchSite={LaunchSiteName ?? "(null)"}");
+        }
+
+        /// <summary>
+        /// Resolves the launch site name for the current vessel.
+        /// Uses FlightDriver.LaunchSiteName for stock sites (LaunchPad, Runway, Desert Airfield,
+        /// Woomerang Launch Site, Island Airfield). The value persists in FlightDriver after
+        /// the vessel transitions from PRELAUNCH to FLYING, so we capture it regardless of
+        /// current situation. Returns null when the launch site is unknown.
+        /// </summary>
+        internal static string ResolveLaunchSiteName(Vessel v, bool isPromotion)
+        {
+            if (v == null) return null;
+
+            // Only capture launch site for the initial launch — not for EVAs,
+            // chain continuations, or promoted background recordings.
+            // FlightDriver.LaunchSiteName persists from the original launch
+            // and would incorrectly tag all subsequent recordings.
+            if (v.isEVA || isPromotion) return null;
+
+            try
+            {
+                string site = FlightDriver.LaunchSiteName;
+                if (string.IsNullOrEmpty(site))
+                    return null;
+                return HumanizeLaunchSiteName(site);
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.Verbose("Recorder", $"ResolveLaunchSiteName failed: {ex.Message}");
+                return null;
+            }
+        }
+
+        /// <summary>
+        /// Humanizes stock launch site names. KSP internal names are "LaunchPad", "Runway".
+        /// Making History DLC names are already human-readable.
+        /// </summary>
+        internal static string HumanizeLaunchSiteName(string siteName)
+        {
+            if (string.IsNullOrEmpty(siteName)) return null;
+            switch (siteName)
+            {
+                case "LaunchPad": return "Launch Pad";
+                case "Runway":    return "Runway";
+                default:
+                    // MH DLC uses underscores internally (e.g., "Woomerang_Launch_Site")
+                    return siteName.Replace('_', ' ');
+            }
         }
 
         /// <summary>
@@ -4292,7 +4363,11 @@ namespace Parsek
                 RewindReservedFunds = RewindReservedFunds,
                 RewindReservedScience = RewindReservedScience,
                 RewindReservedRep = RewindReservedRep,
-                TrackSections = new List<TrackSection>(TrackSections)
+                TrackSections = new List<TrackSection>(TrackSections),
+                StartBodyName = StartBodyName,
+                StartBiome = StartBiome,
+                StartSituation = StartSituation,
+                LaunchSiteName = LaunchSiteName
             };
             // Clear after first capture — prevents chain children from inheriting root's rewind save
             RewindSaveFileName = null;

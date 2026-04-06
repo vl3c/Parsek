@@ -56,6 +56,13 @@ namespace Parsek
         // Atmosphere segment metadata
         public string SegmentPhase;      // "atmo", "exo", or "approach" (null = untagged/legacy)
         public string SegmentBodyName;   // body name at split point (e.g., "Kerbin", "Duna")
+
+        // Location context (Phase 10) — body, biome, situation at recording start and end
+        public string StartBodyName;     // body at recording start (null = not set / legacy)
+        public string StartBiome;        // biome at recording start (null = not set / unavailable)
+        public string StartSituation;    // vessel situation at recording start (null = not set)
+        public string EndBiome;          // biome at recording end (null = not set / unavailable)
+        public string LaunchSiteName;    // stock/mod launch site name (null = not launched from a site)
         public bool PlaybackEnabled = true;  // false = skip ghost during playback
         public bool Hidden;                  // true = hidden from recordings list (unless Show Hidden is on)
 
@@ -218,6 +225,11 @@ namespace Parsek
             SegmentBodyName = source.SegmentBodyName;
             PlaybackEnabled = source.PlaybackEnabled;
             Hidden = source.Hidden;
+            EndBiome = source.EndBiome;
+            // Note: Start location fields intentionally NOT copied here.
+            // This method copies end-state from a previous segment onto a new one at chain
+            // boundaries. Start fields are captured fresh per segment in StartRecording.
+            // Use CopyStartLocationFrom for explicit start-field propagation.
             TreeId = source.TreeId;
             VesselPersistentId = source.VesselPersistentId;
             TerminalStateValue = source.TerminalStateValue;
@@ -249,6 +261,20 @@ namespace Parsek
             if (source.Controllers != null)
                 Controllers = new List<ControllerInfo>(source.Controllers);
             IsDebris = source.IsDebris;
+        }
+
+        /// <summary>
+        /// Copies start location fields from a source recording.
+        /// Used at commit paths where ApplyPersistenceArtifactsFrom intentionally
+        /// excludes start fields (they're end-state artifacts, not start-state).
+        /// </summary>
+        public void CopyStartLocationFrom(Recording source)
+        {
+            if (source == null) return;
+            StartBodyName = source.StartBodyName;
+            StartBiome = source.StartBiome;
+            StartSituation = source.StartSituation;
+            LaunchSiteName = source.LaunchSiteName;
         }
 
         /// <summary>

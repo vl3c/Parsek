@@ -1249,6 +1249,14 @@ namespace Parsek
                 ComputeMaxDistance(pending, bodyFirst, firstPoint);
 
                 pending.VesselSituation = pending.VesselSnapshot != null ? "Destroyed (snapshot kept)" : "Destroyed";
+
+                // End biome from last trajectory point (vessel already destroyed)
+                if (pending.Points.Count > 0)
+                {
+                    var lastPt = pending.Points[pending.Points.Count - 1];
+                    pending.EndBiome = TryResolveBiome(lastPt.bodyName, lastPt.latitude, lastPt.longitude);
+                }
+
                 ParsekLog.Info("Spawner", $"Vessel was destroyed during recording. Distance from launch: {pending.DistanceFromLaunch:F0}m, " +
                     $"Max distance: {pending.MaxDistanceFromLaunch:F0}m, Snapshot kept: {pending.VesselSnapshot != null}");
                 return;
@@ -1293,13 +1301,17 @@ namespace Parsek
             pending.VesselSnapshot = node;
             pending.VesselDestroyed = false;
 
-            // Build situation string
+            // Build situation string (humanized, not raw enum)
             pending.VesselSituation = vessel.isEVA
                 ? $"EVA {vessel.mainBody.name}"
-                : $"{vessel.situation} {vessel.mainBody.name}";
+                : $"{HumanizeSituation(vessel.situation)} {vessel.mainBody.name}";
+
+            // Capture end biome (Phase 10)
+            pending.EndBiome = TryResolveBiome(vessel.mainBody?.name, vessel.latitude, vessel.longitude);
 
             ParsekLog.Info("Spawner", $"Vessel snapshot taken. Distance from launch: {pending.DistanceFromLaunch:F0}m, " +
-                $"Max distance: {pending.MaxDistanceFromLaunch:F0}m, Situation: {pending.VesselSituation}");
+                $"Max distance: {pending.MaxDistanceFromLaunch:F0}m, Situation: {pending.VesselSituation}, " +
+                $"EndBiome: {pending.EndBiome ?? "(null)"}");
         }
 
         private static void ComputeMaxDistance(Recording pending, CelestialBody bodyFirst, TrajectoryPoint firstPoint)
@@ -1326,6 +1338,47 @@ namespace Parsek
             if (bodyLookupFailCount > 0)
                 ParsekLog.Warn("Spawner", $"ComputeMaxDistance: {bodyLookupFailCount} points had unresolvable body names");
             pending.MaxDistanceFromLaunch = maxDist;
+        }
+
+        /// <summary>
+        /// Resolves the biome name at the given coordinates on the given body.
+        /// Returns null if the body is not found or ScienceUtil is unavailable (unit tests).
+        /// </summary>
+        internal static string TryResolveBiome(string bodyName, double lat, double lon)
+        {
+            if (string.IsNullOrEmpty(bodyName)) return null;
+            try
+            {
+                CelestialBody body = FlightGlobals.Bodies?.Find(b => b.name == bodyName);
+                if (body == null) return null;
+                string biome = ScienceUtil.GetExperimentBiome(body, lat, lon);
+                return string.IsNullOrEmpty(biome) ? null : biome;
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.Verbose("Spawner", $"TryResolveBiome failed for {bodyName} ({lat:F4},{lon:F4}): {ex.Message}");
+                return null;
+            }
+        }
+
+        /// <summary>
+        /// Converts KSP's Vessel.Situations enum to a human-readable string.
+        /// KSP enum names are ALL_CAPS (PRELAUNCH, SUB_ORBITAL, etc.).
+        /// </summary>
+        internal static string HumanizeSituation(Vessel.Situations situation)
+        {
+            switch (situation)
+            {
+                case Vessel.Situations.PRELAUNCH:  return "Prelaunch";
+                case Vessel.Situations.LANDED:     return "Landed";
+                case Vessel.Situations.SPLASHED:   return "Splashed";
+                case Vessel.Situations.FLYING:     return "Flying";
+                case Vessel.Situations.SUB_ORBITAL: return "Sub-orbital";
+                case Vessel.Situations.ORBITING:   return "Orbiting";
+                case Vessel.Situations.ESCAPING:   return "Escaping";
+                case Vessel.Situations.DOCKED:     return "Docked";
+                default:                           return situation.ToString();
+            }
         }
 
         private static double ResolveRelocatedAltitude(

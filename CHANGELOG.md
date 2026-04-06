@@ -17,6 +17,33 @@ All notable changes to Parsek are documented here.
 
 ---
 
+## 0.7.0+1
+
+### Location Context (Phase 10)
+
+- **Biome captured at recording start and end.** Timeline shows "Landed at Midlands on Mun" instead of "Landed on Mun". Uses `ScienceUtil.GetExperimentBiome` — works for all stock bodies and biomes.
+- **Vessel situation at recording start.** Humanized display: "Flying", "Orbiting", "Prelaunch" (not raw KSP ALL_CAPS enum names).
+- **Stock launch site name captured.** Launch Pad, Runway, and Making History DLC sites (Desert Airfield, Woomerang Launch Site, Island Airfield) detected via `FlightDriver.LaunchSiteName`. Timeline shows "Launch: Vessel from Launch Pad on Kerbin".
+- **Biome injected into spawn entries.** Surface situations (Landed, Splashed) get "at [biome] on [body]". Orbital situations pass through unchanged.
+
+### Timeline Improvements
+
+- **Tree branch recordings filtered from timeline.** Staging debris, booster separations, and decouple children no longer show as spurious "Launch:" or "Spawn:" entries. Only true launches and EVAs appear.
+- **Destroyed terminal spawn entries removed.** "Spawn: Bob (Destroyed)" no longer appears — you can't spawn a destroyed vessel.
+- **Spawn text shows body name for all terminal states.** Previously only orbital terminals showed the body.
+- **Diagnostic logging for timeline construction.** Each included/excluded entry logged with classification flags and skip reasons.
+
+### Documentation
+
+- **Gloops design document rewritten.** `docs/dev/gloops-recorder-design.md` now grounded in actual codebase — maps 1:1 to existing types (IPlaybackTrajectory, GhostPlaybackEngine). Extraction plan identifies 17 files to move, 2 needing pre-extraction splitting.
+- **Roadmap updated.** Phase 10 renamed to Location Context. Phase 11.5 (Recording Optimization & Observability) added. Phase 15 (Mod Compatibility) added as final phase — stock-first approach. Gloops extraction placed as Phase 13 prerequisite.
+
+### Bug Fixes
+
+- 25 new tests, 4900 total passing.
+
+---
+
 ## 0.7.0
 
 ### Timeline (Phase 9)

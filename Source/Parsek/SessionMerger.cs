@@ -125,6 +125,13 @@ namespace Parsek
                     merged.Controllers = new List<ControllerInfo>(srcRec.Controllers);
                 merged.IsDebris = srcRec.IsDebris;
 
+                // Location context (Phase 10)
+                merged.StartBodyName = srcRec.StartBodyName;
+                merged.StartBiome = srcRec.StartBiome;
+                merged.StartSituation = srcRec.StartSituation;
+                merged.EndBiome = srcRec.EndBiome;
+                merged.LaunchSiteName = srcRec.LaunchSiteName;
+
                 result[recId] = merged;
 
                 LogMergeDiagnostics(recId, srcRec.VesselName, inputSectionCount,

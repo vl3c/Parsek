@@ -863,6 +863,7 @@ namespace Parsek
             {
                 var pending = RecordingStore.Pending;
                 pending.ApplyPersistenceArtifactsFrom(captured);
+                pending.CopyStartLocationFrom(captured);
                 Log("Applied stop-time snapshot/geometry artifacts to pending recording");
             }
             else
@@ -1095,6 +1096,10 @@ namespace Parsek
             if (captured != null)
             {
                 RecordingStore.Pending.ApplyPersistenceArtifactsFrom(captured);
+                RecordingStore.Pending.StartBodyName = captured.StartBodyName;
+                RecordingStore.Pending.StartBiome = captured.StartBiome;
+                RecordingStore.Pending.StartSituation = captured.StartSituation;
+                RecordingStore.Pending.LaunchSiteName = captured.LaunchSiteName;
             }
             else
             {
@@ -1965,6 +1970,10 @@ namespace Parsek
                     pending.RewindReservedFunds = captured.RewindReservedFunds;
                     pending.RewindReservedScience = captured.RewindReservedScience;
                     pending.RewindReservedRep = captured.RewindReservedRep;
+
+                    // Location context (Phase 10)
+                    pending.CopyStartLocationFrom(captured);
+                    pending.EndBiome = captured.EndBiome;
 
                     // Preserve chain membership if this segment was part of a chain
                     chainManager.ApplyChainMetadataTo(pending);
@@ -4743,6 +4752,10 @@ namespace Parsek
             if (captured != null)
             {
                 RecordingStore.Pending.ApplyPersistenceArtifactsFrom(captured);
+                RecordingStore.Pending.StartBodyName = captured.StartBodyName;
+                RecordingStore.Pending.StartBiome = captured.StartBiome;
+                RecordingStore.Pending.StartSituation = captured.StartSituation;
+                RecordingStore.Pending.LaunchSiteName = captured.LaunchSiteName;
                 Log("CommitFlight: applied stop-time artifacts");
             }
             else
