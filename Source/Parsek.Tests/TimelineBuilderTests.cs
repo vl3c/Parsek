@@ -16,12 +16,14 @@ namespace Parsek.Tests
             ParsekLog.SuppressLogging = false;
             ParsekLog.VerboseOverrideForTesting = true;
             ParsekLog.TestSinkForTesting = line => logLines.Add(line);
+            ParsekTimeFormat.KerbinTimeOverrideForTesting = true;
         }
 
         public void Dispose()
         {
             ParsekLog.ResetTestOverrides();
             ParsekLog.SuppressLogging = true;
+            ParsekTimeFormat.ResetForTesting();
         }
 
         private static Recording MakeRecording(string vesselName, double startUT, double endUT,

@@ -337,11 +337,12 @@ namespace Parsek
                 ParsekLog.Info("UI", $"Ghost soft caps {(enabled ? "enabled" : "disabled")}");
             }
 
-            if (!s.ghostCapEnabled)
-            {
-                GUILayout.Label("  (caps disabled \u2014 all ghosts rendered)", GUI.skin.label);
-                return;
-            }
+            // Always draw slider controls even when caps are disabled — IMGUI requires
+            // identical control counts in Layout and Repaint passes. The toggle click changes
+            // ghostCapEnabled between passes, causing a mismatch if controls are conditionally
+            // skipped. GUI.enabled grays out sliders without affecting layout. (Bug #217)
+            bool prevEnabled = GUI.enabled;
+            GUI.enabled = s.ghostCapEnabled;
 
             DrawGhostCapSlider("Zone 1 reduce", "Nearby ghosts above this count get reduced fidelity",
                 ref s.ghostCapZone1Reduce, 2, 30, "ghostCap.zone1Reduce", s);
@@ -350,7 +351,9 @@ namespace Parsek
             DrawGhostCapSlider("Zone 2 simplify", "Distant ghosts above this count get simplified to orbit lines",
                 ref s.ghostCapZone2Simplify, 5, 60, "ghostCap.zone2Simplify", s);
 
-            if (s.ghostCapZone1Reduce >= s.ghostCapZone1Despawn)
+            GUI.enabled = prevEnabled;
+
+            if (s.ghostCapEnabled && s.ghostCapZone1Reduce >= s.ghostCapZone1Despawn)
             {
                 s.ghostCapZone1Reduce = System.Math.Max(2, s.ghostCapZone1Despawn - 1);
                 GhostSoftCapManager.ApplySettings(

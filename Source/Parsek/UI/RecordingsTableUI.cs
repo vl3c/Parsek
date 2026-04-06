@@ -763,11 +763,12 @@ namespace Parsek
                 bool sameBody = flight.IsGhostOnSameBody(ri);
                 bool inRange = flight.IsGhostWithinVisualRange(ri);
                 bool isWatching = flight.WatchedRecordingIndex == ri;
-                bool canWatch = hasGhost && sameBody && inRange;
+                bool canWatch = hasGhost && sameBody && inRange && !rec.IsDebris;
 
                 GUI.enabled = canWatch;
                 string watchLabel = isWatching ? "W*" : "W";
-                string watchTooltip = (hasGhost && !sameBody) ? "Ghost is on a different body"
+                string watchTooltip = rec.IsDebris ? "Debris is not watchable"
+                    : (hasGhost && !sameBody) ? "Ghost is on a different body"
                     : (hasGhost && !inRange) ? "Ghost is beyond camera cutoff"
                     : "";
                 var watchContent = new GUIContent(watchLabel, watchTooltip);
@@ -1785,28 +1786,7 @@ namespace Parsek
         }
 
         internal static string FormatDuration(double seconds)
-        {
-            if (double.IsNaN(seconds) || double.IsInfinity(seconds) || seconds < 0) seconds = 0;
-            int total = (int)seconds;
-            if (total < 60) return $"{total}s";
-            if (total < 3600) return $"{total / 60}m {total % 60}s";
-
-            // KSP calendar: 6-hour days, 426-day years
-            const int SecsPerHour = 3600;
-            const int SecsPerDay = 6 * SecsPerHour;   // 21600
-            const int SecsPerYear = 426 * SecsPerDay;  // 9201600
-
-            if (total < SecsPerDay) return $"{total / SecsPerHour}h {(total % SecsPerHour) / 60}m";
-            if (total < SecsPerYear)
-            {
-                int days = total / SecsPerDay;
-                int hours = (total % SecsPerDay) / SecsPerHour;
-                return hours > 0 ? $"{days}d {hours}h" : $"{days}d";
-            }
-            int years = total / SecsPerYear;
-            int remDays = (total % SecsPerYear) / SecsPerDay;
-            return remDays > 0 ? $"{years}y {remDays}d" : $"{years}y";
-        }
+            => ParsekTimeFormat.FormatDuration(seconds);
 
         internal static string FormatAltitude(double meters)
         {

@@ -224,11 +224,13 @@ In the Parsek recordings window, the initial launch recording (parent of a tree)
 
 **Status:** TODO
 
-## 187. Centralize time conversion system
+## ~~187. Centralize time conversion system~~
 
 All time formatting (FormatDuration, FormatCountdown, KSPUtil.PrintDateCompact) should use a centralized system that respects the game's calendar settings (day length, year length). Currently FormatDuration hardcodes 6h days / 426d years. Audit all time conversion call sites and unify.
 
-**Status:** TODO
+**Fix:** Created `ParsekTimeFormat` static class as single source of truth for calendar constants and time formatting. `FormatDuration` (compact), `FormatDurationFull` (all components), and `FormatCountdown` all respect `GameSettings.KERBIN_TIME`. Replaced 4 duplicate `FormatDuration` implementations (RecordingsTableUI, MergeDialog, TimelineEntryDisplay, ParsekUI) and moved calendar constants from SelectiveSpawnUI. 37 new unit tests covering both Kerbin and Earth calendars.
+
+**Status:** Fixed
 
 ## 188. Spawned surface vessels clutter map view during ascent
 
@@ -247,11 +249,13 @@ For hyperbolic escape orbits, KSP's `OrbitRendererBase.UpdateSpline` draws the g
 
 **Status:** TODO — needs custom rendering solution
 
-## 194. W (watch) button stays enabled on one booster after separation
+## ~~194. W (watch) button stays enabled on one booster after separation~~
 
 After booster separation, 3 of 4 boosters correctly have W disabled, but one stays enabled. The watch eligibility check (`HasActiveGhost && sameBody && inRange`) doesn't check `IsDebris`. A debris recording can have an active timeline ghost but shouldn't be watchable.
 
-**Status:** TODO — fix
+**Fix:** Added `&& !rec.IsDebris` to the individual recording row watch eligibility check in RecordingsTableUI. Added "Debris is not watchable" tooltip. Group-level W button already filtered debris via `FindGroupMainRecordingIndex`.
+
+**Status:** Fixed
 
 ## 196. Ghost icon popup window should appear next to cursor
 
@@ -265,11 +269,13 @@ Two compounding issues: (1) `TerminalOrbitBody` is null on all recordings at loa
 
 **Status:** TODO — needs investigation into why TerminalOrbitBody is never set, and coordinate frame correction after scene reload.
 
-## 217. Settings window GUILayout exception (Layout/Repaint mismatch)
+## ~~217. Settings window GUILayout exception (Layout/Repaint mismatch)~~
 
 `DrawSettingsWindow` throws `ArgumentException: Getting control N's position in a group with only N controls when doing repaint`. Unity IMGUI bug caused by conditional `GUILayout` calls whose condition changes between Layout and Repaint passes. The window is stuck at 10px height and non-functional. 72 exceptions per session when the settings window is opened.
 
-**Fix:** Ensure all `GUILayout` calls in `DrawSettingsWindow` execute identically in both Layout and Repaint passes. Wrap conditionals around content only (not layout elements).
+**Fix:** Removed the early `return` in `DrawGhostSettings` that conditionally skipped ghost cap slider controls when `ghostCapEnabled` was false. Sliders are now always drawn (for IMGUI Layout/Repaint consistency) but grayed out via `GUI.enabled` when caps are disabled.
+
+**Status:** Fixed
 
 ## 218. Crash breakup debris not recorded when recorder tears down before coalescer
 
