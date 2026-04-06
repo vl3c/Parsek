@@ -307,6 +307,18 @@ Recording `f8fd04e5` (Kerbal X, chainIndex=1) had both `childBranchPointId` (bre
 
 **Status:** Fixed
 
+## 227. Mid-tree spawn entry for vessel with EVA branch
+
+When a kerbal EVAs from a capsule, the tree creates an EVA branch point. The capsule's root recording ends at that UT and a continuation recording starts as a tree child. The timeline shows a premature "Spawn: Kerbal X" at the EVA time because `IsChainMidSegment` only checks chain segments (optimizer splits), not tree continuation segments.
+
+The root recording has `ChildBranchPointId` set (the EVA branch) which means it's effectively a mid-tree segment, not a leaf. The vessel should show a single continuous presence from launch to final capsule spawn — EVA kerbals are separate branches, not interruptions of the main vessel's timeline.
+
+**Fix:** The spawn entry filter needs to check whether a recording with `ChildBranchPointId` has a same-PID continuation child (analogous to `IsEffectiveLeafForVessel`). If a continuation exists, suppress the spawn entry — the vessel continues in the next segment.
+
+**Priority:** Medium — creates confusing timeline with phantom spawn entries at every EVA/staging boundary
+
+**Status:** Open
+
 ---
 
 # In-Game Tests
