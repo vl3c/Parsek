@@ -150,17 +150,20 @@ Unified chronological view of all committed career events, replacing the Game Ac
 
 ---
 
-## Phase 10: Launch Origin Awareness
+## Phase 10: Location Context
 
-Recordings become location-aware. Each recording knows where it started — body, coordinates, and optionally a named launch site.
+Recordings become location-aware. Each recording knows where it started and ended — body, biome, situation, coordinates, and optionally a named launch site.
 
+- Biome captured at recording start and end via `ScienceUtil.GetExperimentBiome`
+- Vessel situation at recording start (not just end)
+- Timeline shows "Landed at Midlands on Mun" instead of "Landed on Mun"
 - Integration with launch site mods via reflection where available
 - Detection of off-world construction mod vessel modules
 - Fallback to raw coordinates for mods without formal APIs
 - UI grouping and filtering by launch site in the Recordings Manager
 - Prerequisite for logistics routes (Phase 12) and async multiplayer (Phase 13)
 
-Small, additive feature. A few metadata fields at recording start.
+Small, additive feature. A few metadata fields at recording start and end.
 
 ---
 
@@ -194,9 +197,27 @@ Every supply ship is a replay of a real mission the player flew — more immersi
 
 Multiple players contribute recordings to a shared timeline. The Kerbal system feels populated with vessels flying and bases being built. All players share one game actions timeline — science, funds, reputation, contracts, and kerbals are pooled.
 
+### Gloops Extraction (Phase 13 Prerequisite)
+
+Extract the ghost playback engine into a separate assembly (`Gloops.dll`) within the same repository. This provides build-time boundary enforcement and defines the `.gloop` file format needed for recording export/import. See `docs/dev/gloops-recorder-design.md` for the full design.
+
+**Extraction timing rationale:** The engine boundary already exists (IPlaybackTrajectory, IGhostPositioner, GhostPlaybackEngine with zero Recording references). Extracting earlier than Phase 13 adds overhead without user benefit — new features through Phase 12 still touch engine code, and doing that across assemblies adds friction. Phase 13 is the natural trigger because recording export/import requires a standalone file format (`.gloop`), which is exactly what the extraction produces.
+
+**Extraction scope:**
+- Separate .csproj in the same repo (not a submodule yet)
+- 17 files move to Gloops, 2 files need pre-extraction splitting
+- Pre-extraction refactors: split `GhostPlaybackLogic.cs` (engine vs. policy), extract recorder from `FlightRecorder.cs`, `ParsekLog` abstraction
+- Parsek becomes a consumer of the Gloops API
+
+**Standalone Gloops mod (post Phase 13, if demand exists):**
+- Split into separate repository / submodule
+- Content pack system for ambient world activity (KSC traffic, scenery)
+- Standalone UI (loop manager, pack toggles, settings)
+- Custom mesh support for non-vessel content
+
 ### Recording Export/Import
 
-Prerequisite for multiplayer. Share recordings as standalone archive files. Export bundles recording data, vessel craft, and metadata. Import validates, assigns new IDs, and injects into current save. Handles missing parts gracefully (warn, skip, or substitute).
+Prerequisite for multiplayer. Share recordings as standalone `.gloop` archive files. Export bundles trajectory data, vessel snapshot, and metadata. Import validates, assigns new IDs, and injects into current save. Handles missing parts gracefully (warn, skip, or substitute).
 
 ### Shared Timeline
 
@@ -247,8 +268,8 @@ Phase 9: Timeline (v0.7 ✓)
     │  significance tiers, filtering, rewind from timeline
     │
     ▼
-Phase 10: Launch Origin Awareness
-    │  Recordings know WHERE they start/end
+Phase 10: Location Context
+    │  Recordings know WHERE they start/end (body, biome, situation)
     │
     ▼
 Phase 11: Resource Snapshots
@@ -259,12 +280,19 @@ Phase 12: Looped Transport Logistics
     │  Routes = looped recordings with resource delivery
     │
     ▼
+Gloops Extraction ─── Extract ghost engine to separate assembly,
+    │                   define .gloop file format
+    ▼
 Phase 13: Cooperative Async Multiplayer
-    │  Shared recordings folder, player identity, shared timeline
+    │  .gloop export/import, shared folder, player identity
     │
     ▼
 Phase 14: Competitive Play + Space Race
-       Per-player game actions, milestone racing, opponent packs
+    │  Per-player game actions, milestone racing, opponent packs
+    │
+   ···
+Standalone Gloops Mod (if demand exists)
+       Separate repo, content packs, standalone UI, custom meshes
 ```
 
 ---
