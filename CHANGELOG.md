@@ -4,6 +4,23 @@ All notable changes to Parsek are documented here.
 
 ---
 
+## 0.7.2
+
+### Spawn System Hardening
+
+- **Per-part identity regeneration on spawn (#234).** `RegenerateVesselIdentity` now regenerates per-part `persistentId` (via `FlightGlobals.GetUniquepersistentId`), `flightID` (via `ShipConstruction.GetUniqueFlightID`), `missionID`, and `launchID` — not just vessel-level GUID. Previously, spawned copies shared all part PIDs with the original vessel, causing tracking station/map view conflicts and likely contributing to #112 (spawn blocked by own copy). Uses delegate injection for unit testability.
+- **G-force suppression after spawn (#235).** `IgnoreGForces(240)` now called on newly spawned vessels in both `RespawnVessel` and `SpawnAtPosition`. Without this, KSP calculates extreme g-forces from position correction after `ProtoVessel.Load()` and can destroy the vessel immediately. The existing `MaxSpawnDeathCycles = 3` guard was treating this symptom.
+- **Global PID registry cleanup (#237).** Old part `persistentId` values are now removed from `FlightGlobals.PersistentUnloadedPartIds` before assigning new ones during identity regeneration. Prevents phantom entries accumulating over spawn/revert cycles in long sessions.
+- **Robotics reference patching (#238).** `PatchRoboticsReferences` remaps `ModuleRoboticController` (KAL-1000) part PID references in `CONTROLLEDAXES`/`CONTROLLEDACTIONS`/`SYMPARTS` after identity regeneration. Without this, Breaking Ground DLC robotics controllers lose their servo bindings on spawned copies.
+- **Post-spawn velocity zeroing (#239).** `ApplyPostSpawnStabilization` zeroes linear and angular velocity on freshly spawned surface vessels (LANDED/SPLASHED/PRELAUNCH) to prevent physics jitter. Orbital spawns are excluded via `ShouldZeroVelocityAfterSpawn` guard.
+- **isBackingUp investigation (#236).** Confirmed via decompilation that `Vessel.BackupVessel()` sets `isBackingUp = true` internally. No fix needed — added documentation comment.
+
+### Tests
+
+- 20 new unit tests (identity regeneration, PID collection, robotics patching, velocity zeroing). 4970 total passing.
+
+---
+
 ## 0.7.1
 
 ### Bug Fixes
