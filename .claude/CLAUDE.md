@@ -11,6 +11,14 @@ dotnet test --filter InjectAllRecordings  # inject 8 synthetic recordings into t
 
 Post-build copy uses `ContinueOnError="true"` - builds succeed when KSP has DLL locked.
 
+## Release
+
+```bash
+python scripts/release.py    # build Release, run tests, package zip
+```
+
+Produces `Parsek-v{version}.zip` in repo root with `GameData/Parsek/` layout (DLL + version file + toolbar textures). Validates that `Parsek.version` and `AssemblyInfo.cs` versions match before building.
+
 ## KSP Decompilation
 
 To investigate KSP internals, decompile `Assembly-CSharp.dll` using `ilspycmd`:
