@@ -55,11 +55,18 @@ namespace Parsek
             int count = 0;
             int hiddenSkipped = 0;
 
+            int debrisSkipped = 0;
+            int treeChildSkipped = 0;
+            int chainChildSkipped = 0;
+            int destroyedSkipped = 0;
+            int midChainSkipped = 0;
+            int disabledSkipped = 0;
+
             for (int i = 0; i < recordings.Count; i++)
             {
                 var rec = recordings[i];
                 if (rec.Hidden) { hiddenSkipped++; continue; }
-                if (rec.IsDebris) continue;
+                if (rec.IsDebris) { debrisSkipped++; continue; }
 
                 // EVA detection: EvaCrewName set, or vessel name matches a crew end state
                 // (standalone EVA recordings may not have EvaCrewName set)
@@ -70,35 +77,65 @@ namespace Parsek
                 if (isEva && !string.IsNullOrEmpty(rec.ParentRecordingId))
                     vesselNameById.TryGetValue(rec.ParentRecordingId, out parentVesselName);
 
-                // RecordingStart — duration is from this recording, or full chain span
-                double duration = rec.EndUT - rec.StartUT;
-                if (!string.IsNullOrEmpty(rec.ChainId))
-                    duration = GetChainDuration(rec.ChainId, recordings);
+                // Classification flags
+                bool isTreeChild = !string.IsNullOrEmpty(rec.ParentBranchPointId) && !isEva;
+                bool isChainChild = rec.ChainIndex > 0;
+                bool isDestroyedTerminal = rec.TerminalStateValue == TerminalState.Destroyed;
+                bool isMidChain = IsChainMidSegment(rec, recordings);
 
-                var startType = TimelineEntryType.RecordingStart;
-                entries.Add(new TimelineEntry
+                // RecordingStart — only for true launches and EVAs.
+                // Skip: optimizer-split segments (ChainIndex > 0) and tree branch children
+                // (ParentBranchPointId set — created by staging/decouple/breakup, not player launch).
+                // EVA recordings with a parent branch point are still shown (as "EVA:" entries).
+                if (isChainChild)
+                    chainChildSkipped++;
+                else if (isTreeChild)
+                    treeChildSkipped++;
+
+                if (!isChainChild && !isTreeChild)
                 {
-                    UT = rec.StartUT,
-                    Type = startType,
-                    DisplayText = TimelineEntryDisplay.GetRecordingStartText(rec.VesselName, duration, isEva, parentVesselName),
-                    Source = TimelineSource.Recording,
-                    Tier = TimelineEntryDisplay.GetTier(startType),
-                    DisplayColor = Color.white,
-                    RecordingId = rec.RecordingId,
-                    VesselName = rec.VesselName
-                });
-                count++;
+                    double duration = rec.EndUT - rec.StartUT;
+                    if (!string.IsNullOrEmpty(rec.ChainId))
+                        duration = GetChainDuration(rec.ChainId, recordings);
 
-                // VesselSpawn at EndUT — vessel materializes after ghost playback
-                // Only if playback enabled and not a mid-chain segment
-                if (rec.PlaybackEnabled && !IsChainMidSegment(rec, recordings))
+                    var startType = TimelineEntryType.RecordingStart;
+                    string displayText = TimelineEntryDisplay.GetRecordingStartText(rec.VesselName, duration, isEva, parentVesselName, rec.StartBodyName, rec.StartBiome, rec.LaunchSiteName);
+                    entries.Add(new TimelineEntry
+                    {
+                        UT = rec.StartUT,
+                        Type = startType,
+                        DisplayText = displayText,
+                        Source = TimelineSource.Recording,
+                        Tier = TimelineEntryDisplay.GetTier(startType),
+                        DisplayColor = Color.white,
+                        RecordingId = rec.RecordingId,
+                        VesselName = rec.VesselName
+                    });
+                    count++;
+
+                    ParsekLog.Verbose("Timeline",
+                        $"  +Start #{i} '{rec.VesselName}' UT={rec.StartUT:F1} " +
+                        $"isEva={isEva} chainIdx={rec.ChainIndex} terminal={rec.TerminalStateValue} " +
+                        $"text=\"{displayText}\"");
+                }
+
+                // VesselSpawn at EndUT — vessel materializes after ghost playback.
+                // Skip: disabled playback, mid-chain segments, destroyed terminals (can't spawn
+                // a destroyed vessel), and tree children that aren't the effective vessel leaf.
+                if (!rec.PlaybackEnabled) disabledSkipped++;
+                else if (isMidChain) midChainSkipped++;
+                else if (isDestroyedTerminal) destroyedSkipped++;
+
+                if (rec.PlaybackEnabled && !isMidChain
+                    && !isDestroyedTerminal && !isTreeChild)
                 {
                     var spawnType = TimelineEntryType.VesselSpawn;
+                    string displayText = TimelineEntryDisplay.GetVesselSpawnText(rec.VesselName, rec.TerminalStateValue, rec.VesselSituation, isEva, parentVesselName, rec.TerminalOrbitBody, rec.SegmentBodyName, rec.EndBiome);
                     entries.Add(new TimelineEntry
                     {
                         UT = rec.EndUT,
                         Type = spawnType,
-                        DisplayText = TimelineEntryDisplay.GetVesselSpawnText(rec.VesselName, rec.TerminalStateValue, rec.VesselSituation, isEva, parentVesselName, rec.TerminalOrbitBody),
+                        DisplayText = displayText,
                         Source = TimelineSource.Recording,
                         Tier = TimelineEntryDisplay.GetTier(spawnType),
                         DisplayColor = Color.white,
@@ -106,12 +143,19 @@ namespace Parsek
                         VesselName = rec.VesselName
                     });
                     count++;
+
+                    ParsekLog.Verbose("Timeline",
+                        $"  +Spawn #{i} '{rec.VesselName}' UT={rec.EndUT:F1} " +
+                        $"terminal={rec.TerminalStateValue} sit=\"{rec.VesselSituation}\" " +
+                        $"text=\"{displayText}\"");
                 }
             }
 
-            if (hiddenSkipped > 0)
-                ParsekLog.Verbose("Timeline",
-                    $"Recording collector: {count} entries, {hiddenSkipped} hidden skipped");
+            ParsekLog.Verbose("Timeline",
+                $"Recording collector: {count} entries from {recordings.Count} recordings " +
+                $"(hidden={hiddenSkipped} debris={debrisSkipped} treeChild={treeChildSkipped} " +
+                $"chainChild={chainChildSkipped} destroyed={destroyedSkipped} " +
+                $"midChain={midChainSkipped} disabled={disabledSkipped})");
 
             return count;
         }

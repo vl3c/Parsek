@@ -56,11 +56,11 @@ KSP's inertial reference frame may drift over very long time warp. Could cause g
 
 **Priority:** Low — may not be needed
 
-### T52. Record start/end position with body, biome, and situation
+### ~~T52. Record start/end position with body, biome, and situation~~
 
-Recordings should capture start and end location context: body name, biome name, and vessel situation (landed/splashed/orbiting/sub-orbital). Currently `VesselSituation` captures "Orbiting Kerbin" etc. but biome is not stored. This is needed for rich timeline display: "Spawn: Mun Lander (Landed at Midlands on Mun)" instead of just "Spawn: Mun Lander (Landed on Mun)". Record `vessel.mainBody.name`, `ScienceUtil.GetExperimentBiome(body, lat, lon)`, and `vessel.situation` at both recording start and end.
+Four new fields on Recording: `StartBodyName`, `StartBiome`, `StartSituation`, `EndBiome`. Captured via `ScienceUtil.GetExperimentBiome` at recording start/end. Timeline shows "Landed at Midlands on Mun". Serialized in .sfs metadata (additive, no format version change). Propagated through optimizer splits, chain boundaries, session merge.
 
-**Priority:** Medium — improves timeline readability significantly
+**Status:** Fixed (Phase 10)
 
 ## TODO — Compatibility
 
@@ -304,6 +304,46 @@ Recording `f8fd04e5` (Kerbal X, chainIndex=1) had both `childBranchPointId` (bre
 `ForceSpawnNewVessel` was a transient (not serialized) flag on Recording, set at scene entry and consumed at spawn time. The flag could be lost if Recording objects were recreated mid-scene (auto-save, quicksave, RecordingStore rebuild).
 
 **Fix:** Replaced per-recording transient flag with a single static `RecordingStore.SceneEntryActiveVesselPid` (set once at scene entry). `SpawnVesselOrChainTip` now checks `rec.VesselPersistentId == SceneEntryActiveVesselPid` to bypass PID dedup statelessly. A complementary `activeVesselSharesPid` runtime check covers mid-scene vessel switches. Removed `ForceSpawnNewVessel` field, `MarkForceSpawnOnActiveVesselRecordings`, `MergeDialog.MarkForceSpawnOnTreeRecordings`, and all flag-setting code.
+
+**Status:** Fixed
+
+## 227. Mid-tree spawn entry for vessel with EVA/staging branch
+
+When a kerbal EVAs or a stage separates, the tree creates a branch point. The vessel's current recording segment ends at that UT and a continuation recording starts as a tree child. The timeline shows a premature "Spawn: Kerbal X" at the branch time because `IsChainMidSegment` only checks chain segments (optimizer splits), not tree continuation segments.
+
+The root recording has `ChildBranchPointId` set which means it's effectively a mid-tree segment, not a leaf. The vessel should show a single continuous presence from launch to final capsule spawn — EVA kerbals and staging debris are separate branches, not interruptions of the main vessel's timeline.
+
+**Fix:** The spawn entry filter needs to check whether a recording with `ChildBranchPointId` has a same-PID continuation child (analogous to `IsEffectiveLeafForVessel`). If a continuation exists, suppress the spawn entry.
+
+**Priority:** Medium — creates confusing timeline with phantom spawn entries at every EVA/staging boundary
+
+**Status:** Open
+
+## 228. Crew reassignment entries appear when kerbals EVA
+
+When a kerbal EVAs from a vessel, KSP internally reassigns the remaining crew. The game actions system captures these as KerbalAssignment actions, which appear in the detailed timeline view. These are real KSP events but feel redundant — the player didn't decide to reassign crew, KSP did it automatically as a side effect of the EVA.
+
+**Fix:** Filter out KerbalAssignment actions that occur at the same UT as an EVA branch point. The EVA entry already communicates the crew change — the reassignment is noise.
+
+**Priority:** Low — only visible in Detail filter, cosmetic
+
+**Status:** Open
+
+## 229. Crew death (CREW_LOST) not shown in timeline
+
+When a kerbal dies (e.g., Bob hits the ground without a parachute), the recording captures this as a `SegmentEvent` with type `CREW_LOST`. However, the timeline has no entry type for crew death — the event is invisible. The recording's terminal state shows "Destroyed" but the destroyed spawn entry is now correctly filtered (can't spawn a destroyed vessel).
+
+A crew death should appear in the timeline as a distinct event: "Lost: Bob Kerman" or similar, at the UT of the CREW_LOST segment event. This would make the timeline a complete narrative of the mission.
+
+**Priority:** Medium — important mission events invisible in timeline
+
+**Status:** Open
+
+## ~~230. LaunchSiteName leaks to chain continuation segments~~
+
+`FlightDriver.LaunchSiteName` persists from the original launch for the entire flight session. Chain continuation recordings (after dock/undock) that aren't EVAs or promotions picked up the stale value.
+
+**Fix:** `CaptureStartLocation` now checks `BoundaryAnchor.HasValue` — if set, this is a chain continuation, not a fresh launch. Skips launch site capture alongside EVA and promotion guards.
 
 **Status:** Fixed
 

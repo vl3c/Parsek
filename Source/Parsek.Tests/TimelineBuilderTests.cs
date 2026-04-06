@@ -381,12 +381,13 @@ namespace Parsek.Tests
                 new List<Milestone>(),
                 0);
 
+            // Only the chain root (index 0) gets a Launch entry.
+            // Chain children (index > 0) are optimizer splits, not player-visible launches.
             var starts = result.Where(e => e.Type == TimelineEntryType.RecordingStart).ToList();
-            Assert.Equal(2, starts.Count);
+            Assert.Equal(1, starts.Count);
 
-            // Both chain members show full chain duration (300s = 5m)
-            var firstStart = starts.First(s => s.UT == 100);
-            Assert.Contains("MET 5m", firstStart.DisplayText);
+            // Root launch shows full chain duration (300s = 5m)
+            Assert.Contains("MET 5m", starts[0].DisplayText);
         }
 
         // ================================================================
@@ -580,14 +581,15 @@ namespace Parsek.Tests
                 new List<Milestone>(),
                 0);
 
+            // Destroyed terminals are filtered — "Spawn: Destroyed" makes no sense
             var spawns = result.Where(e => e.Type == TimelineEntryType.VesselSpawn).ToList();
-            Assert.Equal(3, spawns.Count);
+            Assert.Equal(2, spawns.Count);
 
             var spawnA = spawns.First(e => e.VesselName == "Ship A");
             Assert.Equal("Spawn: Ship A (Recovered)", spawnA.DisplayText);
 
-            var spawnB = spawns.First(e => e.VesselName == "Ship B");
-            Assert.Equal("Spawn: Ship B (Destroyed)", spawnB.DisplayText);
+            // Ship B (Destroyed) should NOT have a spawn entry
+            Assert.DoesNotContain(spawns, e => e.VesselName == "Ship B");
 
             var spawnC = spawns.First(e => e.VesselName == "Ship C");
             Assert.Equal("Spawn: Ship C", spawnC.DisplayText);
@@ -686,7 +688,7 @@ namespace Parsek.Tests
         [InlineData(TerminalState.Orbiting, "Orbiting Kerbin", "Spawn: TestVessel (Orbiting Kerbin)")]
         public void VesselSpawn_AllTerminalStates(TerminalState state, string situation, string expectedText)
         {
-            var text = TimelineEntryDisplay.GetVesselSpawnText("TestVessel", state, situation, false, null, null);
+            var text = TimelineEntryDisplay.GetVesselSpawnText("TestVessel", state, situation, false, null, null, null);
             Assert.Equal(expectedText, text);
         }
 
@@ -711,14 +713,15 @@ namespace Parsek.Tests
         [Fact]
         public void ZeroDurationRecording_ProducesValidEntries()
         {
-            var rec = MakeRecording("Instant", 100, 100, terminal: TerminalState.Destroyed);
+            // Destroyed terminals no longer produce spawn entries, so use Landed
+            var rec = MakeRecording("Instant", 100, 100, terminal: TerminalState.Landed);
             var result = TimelineBuilder.Build(
                 new List<Recording> { rec },
                 new List<GameAction>(),
                 new List<Milestone>(),
                 0);
 
-            Assert.Equal(2, result.Count); // Start + Spawn (no RecordingEnd)
+            Assert.Equal(2, result.Count); // Start + Spawn
             Assert.All(result, e => Assert.Equal(100.0, e.UT));
         }
 
@@ -740,7 +743,7 @@ namespace Parsek.Tests
                 0);
 
             Assert.Contains(logLines, l =>
-                l.Contains("[Timeline]") && l.Contains("2 hidden skipped"));
+                l.Contains("[Timeline]") && l.Contains("hidden=2"));
         }
 
         // ================================================================
