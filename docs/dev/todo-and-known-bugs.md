@@ -355,9 +355,9 @@ A crew death should appear in the timeline as a distinct event: "Lost: Bob Kerma
 
 ## ~~231. Vessels and EVA kerbals spawn high in the air at end of recording~~
 
-Vessels and EVA kerbals with `terminal=Landed` spawned at their last trajectory point altitude (still falling), then KSP reclassified from LANDED→FLYING and they fell and crashed. Two root causes: (1) EVA recordings returned early from `ResolveSpawnPosition` before altitude clamping; (2) LANDED altitude clamp only fixed underground spawns (`alt < terrainAlt`), not in-air spawns. Additionally, normal leaf recordings with surface terminals never called `OverrideSnapshotPosition`, so `RespawnVessel` used the uncorrected snapshot position.
+Vessels and EVA kerbals with `terminal=Landed` spawned at their last trajectory point altitude (still falling), then KSP reclassified from LANDED→FLYING and they fell and crashed. Multiple root causes: (1) EVA recordings returned early from `ResolveSpawnPosition` before altitude clamping; (2) LANDED altitude clamp only fixed underground spawns; (3) KSC spawn path and SpawnTreeLeaves path had no altitude clamping at all; (4) snapshot rotation was from mid-flight descent, not landing orientation.
 
-**Fix:** Merged EVA and breakup-continuous into a single `useTrajectoryEndpoint` path with no early return — all paths fall through to altitude clamping. LANDED clamp now unconditionally sets `alt = terrainAlt`. Added `OverrideSnapshotPosition` for all LANDED/SPLASHED recordings. Extracted `ClampAltitudeForLanded` as pure testable method.
+**Fix:** Merged EVA and breakup-continuous into a single `useTrajectoryEndpoint` path with no early return. LANDED clamp sets `alt = terrainAlt + 2m` clearance (prevents burying lower parts underground while keeping drop minimal). Applied `ResolveSpawnPosition` + `OverrideSnapshotPosition` to all three spawn paths (flight scene, KSC, tree leaves). Snapshot rotation overridden with last trajectory point's `srfRelRotation` for surface terminals. Extracted `ClampAltitudeForLanded` as pure testable method. All 9 `RespawnVessel` call sites audited.
 
 **Status:** Fixed
 
