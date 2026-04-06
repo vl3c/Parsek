@@ -361,6 +361,28 @@ Vessels and EVA kerbals with `terminal=Landed` spawned at their last trajectory 
 
 **Status:** Fixed
 
+## 232. Green sphere fallback for debris ghosts with no snapshot
+
+Debris recordings from mid-air booster collisions have no vessel snapshot. The ghost visual builder falls back to a green sphere. User sees distracting green balls appearing during watch mode playback. KSC ghost path already skips ghosts with no snapshot (`ParsekKSC.cs:473`); flight scene should do the same for debris.
+
+**Fix:** In `GhostPlaybackEngine`, skip ghost creation entirely for debris with no snapshot (instead of sphere fallback). Non-debris keeps sphere fallback as safety net.
+
+**Priority:** Low — cosmetic, only visible during booster breakup playback
+
+**Status:** TODO
+
+## 233. Spawned EVA vessel deleted by crew reservation on scene re-entry
+
+After Parsek spawns an EVA vessel at recording end, switching vessels triggers FLIGHT→FLIGHT scene reload. `CrewReservationManager.RemoveReservedEvaVessels()` re-runs on scene entry: `ReserveCrewIn` re-adds the kerbal to `crewReplacements`, then `RemoveReservedEvaVessels` finds the spawned EVA vessel and deletes it because the kerbal's name is in the replacements dict.
+
+**Root cause:** The reservation system can't distinguish a stale EVA vessel from a quicksave revert (should be removed) from one spawned by Parsek's recording system (should be kept).
+
+**Fix:** In `RemoveReservedEvaVessels`, check if the EVA vessel's `persistentId` matches any committed recording's `SpawnedVesselPersistentId`. If it does, skip removal — it's a legitimately spawned vessel. Build a `HashSet<uint>` of spawned PIDs from `RecordingStore.CommittedRecordings` before the removal loop.
+
+**Priority:** Medium — spawned EVA kerbals disappear on vessel switch
+
+**Status:** TODO
+
 ---
 
 # In-Game Tests
