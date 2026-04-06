@@ -743,7 +743,7 @@ namespace Parsek.Tests
                 0);
 
             Assert.Contains(logLines, l =>
-                l.Contains("[Timeline]") && l.Contains("2 hidden skipped"));
+                l.Contains("[Timeline]") && l.Contains("hidden=2"));
         }
 
         // ================================================================
