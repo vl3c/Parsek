@@ -179,6 +179,36 @@ Recordings capture physical resource inventories (ore, fuel, monoprop, etc.) at 
 
 ---
 
+## Phase 11.5: Recording Optimization & Observability
+
+Optimization pass before logistics routes add many long-lived looped recordings. A long career with dozens of missions will accumulate significant disk and memory footprint — this phase makes that measurable and then reduces it.
+
+### Observability (first)
+
+Instrument the system so size/performance problems are visible during playtesting, without introducing behavior changes:
+
+- **Per-save storage report** — total disk size of Parsek data (sidecar files + .sfs metadata), broken down by recording. Accessible from Settings > Diagnostics.
+- **Per-recording stats** — point count, part event count, orbit segment count, sidecar file sizes (.prec, _vessel.craft, _ghost.craft, .pcrf). Visible in Recordings Manager tooltip or detail view.
+- **Playback budget** — per-frame timing for ghost positioning, part event application, zone evaluation. Logged via `ParsekLog.VerboseRateLimited`, surfaced in diagnostics.
+- **Memory footprint estimate** — loaded trajectory point count, loaded snapshot count, ghost mesh count. Logged at scene load and on-demand.
+- **Recording growth rate** — logged during recording: points/second, events/second, estimated file size at current rate.
+
+### Optimization (after measurement)
+
+Based on what the observability pass reveals, candidates include:
+
+- **Shorter key names** in .prec trajectory serialization (e.g., `u` instead of `ut`, `la` instead of `lat`)
+- **Compact numeric encoding** — fixed decimal places instead of round-trip `"R"` format where precision isn't needed
+- **Vessel snapshot deduplication** — ghost visual snapshot often duplicates vessel snapshot; store once and reference
+- **Part event name deduplication** — index table for repeated part names in event lists
+- **Trajectory point thinning** — post-commit pass that removes redundant points (straight-line segments, stationary holds) beyond what adaptive sampling already does
+- **Optional gzip compression** for sidecar files
+- **Lazy loading** — don't load trajectory data for recordings outside the current playback window
+
+This phase is explicitly measurement-first: add observability, playtest a full career, identify the actual bottlenecks, then optimize the ones that matter. No speculative optimization.
+
+---
+
 ## Phase 12: Looped Transport Logistics
 
 Automated supply routes realized through Parsek's existing loop mechanic. Fly a cargo run once, loop the recording, each iteration is a supply delivery.
@@ -274,6 +304,10 @@ Phase 10: Location Context
     ▼
 Phase 11: Resource Snapshots
     │  Recordings know WHAT they carry
+    │
+    ▼
+Phase 11.5: Recording Optimization & Observability
+    │  Measure disk/memory/perf, then optimize what matters
     │
     ▼
 Phase 12: Looped Transport Logistics
