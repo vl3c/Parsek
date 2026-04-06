@@ -266,6 +266,17 @@ namespace Parsek
                     index, rec.VesselName);
             }
 
+            // Surface terminal override: for any LANDED/SPLASHED recording, the snapshot
+            // position may be from mid-flight (captured before the vessel reached its final
+            // rest position). ResolveSpawnPosition clamped the altitude, but RespawnVessel
+            // uses the raw snapshot. Override so both agree. (#231)
+            if (!isEva && !isBreakupContinuous && rec.VesselSnapshot != null
+                && (rec.TerminalStateValue == TerminalState.Landed || rec.TerminalStateValue == TerminalState.Splashed))
+            {
+                OverrideSnapshotPosition(rec.VesselSnapshot, spawnLat, spawnLon, spawnAlt,
+                    index, rec.VesselName);
+            }
+
             // Dead crew guard: if ALL crew in the snapshot are dead, abandon spawn.
             // Spawning a crewless command pod is worse than not spawning at all. (#170)
             // Individual dead crew are already removed by RespawnVessel.RemoveDeadCrewFromSnapshot;
@@ -432,41 +443,34 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Resolve spawn position. EVA vessels always use the trajectory endpoint
-        /// (the snapshot position is from EVA start, not where the kerbal walked to — #175).
-        /// Non-EVA vessels use the snapshot lat/lon/alt, falling back to the trajectory
+        /// Resolve spawn position. EVA and breakup-continuous recordings use the trajectory
+        /// endpoint (snapshot position is stale — from EVA start or breakup time).
+        /// Other recordings use the snapshot lat/lon/alt, falling back to the trajectory
         /// endpoint if snapshot lacks position data (#127).
+        /// All paths fall through to altitude clamping for surface terminal states (#231).
         /// </summary>
         internal static void ResolveSpawnPosition(Recording rec, int index,
             TrajectoryPoint lastPt, out double lat, out double lon, out double alt)
         {
             lat = 0; lon = 0; alt = 0;
 
-            // EVA vessels: always use trajectory endpoint (#175). The snapshot position is
-            // from EVA start (kerbal on the pod's ladder), not where they ended up.
+            // EVA (#175): snapshot position is from EVA start (kerbal on the pod's ladder).
+            // Breakup-continuous (#224): snapshot position is from breakup time (mid-air).
+            // Both use trajectory endpoint instead. No early return — falls through to clamping.
             bool isEva = !string.IsNullOrEmpty(rec.EvaCrewName);
-            if (isEva)
-            {
-                lat = lastPt.latitude;
-                lon = lastPt.longitude;
-                alt = lastPt.altitude;
-                ParsekLog.Verbose("Spawner",
-                    $"EVA spawn #{index} ({rec.VesselName}): using trajectory endpoint for position");
-                return;
-            }
+            bool isBreakupContinuous = rec.ChildBranchPointId != null && rec.TerminalStateValue.HasValue;
+            bool useTrajectoryEndpoint = isEva || isBreakupContinuous;
 
-            // Breakup-continuous recordings: snapshot position is from breakup time (mid-air),
-            // not from the actual rest position. Use trajectory endpoint like EVA. (#224)
-            // No early return — falls through to altitude clamping below.
-            bool useTrajectoryEndpoint = rec.ChildBranchPointId != null && rec.TerminalStateValue.HasValue;
             if (useTrajectoryEndpoint)
             {
                 lat = lastPt.latitude;
                 lon = lastPt.longitude;
                 alt = lastPt.altitude;
+                string reason = isEva
+                    ? "EVA endpoint (snapshot is from EVA start)"
+                    : "breakup-continuous endpoint (snapshot is from breakup time)";
                 ParsekLog.Verbose("Spawner",
-                    $"Breakup-continuous spawn #{index} ({rec.VesselName}): using trajectory endpoint " +
-                    $"(snapshot position is from breakup time, not rest position)");
+                    $"Spawn #{index} ({rec.VesselName}): using trajectory endpoint — {reason}");
             }
             else
             {
@@ -484,9 +488,10 @@ namespace Parsek
             }
 
             // Safety net: clamp altitude for surface terminal states.
-            // The last trajectory point may be recorded while still descending — its altitude
-            // is above the actual rest position. KSP reclassifies SPLASHED vessels above sea
-            // level to FLYING, causing them to fall and crash. (#224)
+            // The last trajectory point or snapshot may be from while still descending —
+            // altitude is above the actual rest position. Without clamping, KSP spawns
+            // a LANDED vessel in mid-air, reclassifies to FLYING, and it falls and crashes.
+            // SPLASHED: clamp to sea level. LANDED: clamp to terrain height. (#224, #231)
             if (rec.TerminalStateValue == TerminalState.Splashed)
             {
                 if (alt > 0)
@@ -503,14 +508,27 @@ namespace Parsek
                 if (body != null)
                 {
                     double terrainAlt = body.TerrainAltitude(lat, lon);
-                    if (alt < terrainAlt)
-                    {
-                        ParsekLog.Verbose("Spawner",
-                            $"Clamped altitude for LANDED spawn #{index} ({rec.VesselName}): {alt:F1} -> {terrainAlt:F1}");
-                        alt = terrainAlt;
-                    }
+                    alt = ClampAltitudeForLanded(alt, terrainAlt, index, rec.VesselName);
                 }
             }
+        }
+
+        /// <summary>
+        /// Pure: clamp altitude to terrain height for LANDED spawns.
+        /// Always returns terrainAlt — a LANDED vessel belongs on the ground. (#231)
+        /// </summary>
+        internal static double ClampAltitudeForLanded(double alt, double terrainAlt,
+            int index, string vesselName)
+        {
+            var ic = CultureInfo.InvariantCulture;
+            double delta = alt - terrainAlt;
+            if (System.Math.Abs(delta) > 1.0)
+            {
+                ParsekLog.Verbose("Spawner",
+                    $"Clamped altitude for LANDED spawn #{index} ({vesselName}): " +
+                    $"{alt.ToString("F1", ic)} -> {terrainAlt.ToString("F1", ic)} (delta={delta.ToString("F1", ic)})");
+            }
+            return terrainAlt;
         }
 
         /// <summary>
@@ -911,8 +929,8 @@ namespace Parsek
             snapshot.SetValue("alt", newAlt, true);
 
             ParsekLog.Info("Spawner",
-                $"EVA spawn position override for #{index} ({vesselName}): " +
-                $"({oldLat},{oldLon},{oldAlt}) → ({newLat},{newLon},{newAlt})");
+                $"Snapshot position override for #{index} ({vesselName}): " +
+                $"alt {oldAlt} → {newAlt}");
         }
 
         /// <summary>

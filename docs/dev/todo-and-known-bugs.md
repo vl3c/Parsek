@@ -353,6 +353,14 @@ A crew death should appear in the timeline as a distinct event: "Lost: Bob Kerma
 
 **Status:** Fixed
 
+## ~~231. Vessels and EVA kerbals spawn high in the air at end of recording~~
+
+Vessels and EVA kerbals with `terminal=Landed` spawned at their last trajectory point altitude (still falling), then KSP reclassified from LANDED→FLYING and they fell and crashed. Two root causes: (1) EVA recordings returned early from `ResolveSpawnPosition` before altitude clamping; (2) LANDED altitude clamp only fixed underground spawns (`alt < terrainAlt`), not in-air spawns. Additionally, normal leaf recordings with surface terminals never called `OverrideSnapshotPosition`, so `RespawnVessel` used the uncorrected snapshot position.
+
+**Fix:** Merged EVA and breakup-continuous into a single `useTrajectoryEndpoint` path with no early return — all paths fall through to altitude clamping. LANDED clamp now unconditionally sets `alt = terrainAlt`. Added `OverrideSnapshotPosition` for all LANDED/SPLASHED recordings. Extracted `ClampAltitudeForLanded` as pure testable method.
+
+**Status:** Fixed
+
 ---
 
 # In-Game Tests

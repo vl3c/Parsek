@@ -842,7 +842,7 @@ namespace Parsek.Tests
             VesselSpawner.OverrideSnapshotPosition(snapshot, 10.5, 20.5, 30.5, 7, "Jeb");
 
             Assert.Contains(logLines, l =>
-                l.Contains("[Spawner]") && l.Contains("EVA spawn position override") && l.Contains("Jeb"));
+                l.Contains("[Spawner]") && l.Contains("Snapshot position override") && l.Contains("Jeb"));
         }
 
         [Fact]
@@ -953,6 +953,66 @@ namespace Parsek.Tests
             Assert.Equal(-0.12, lat);
             Assert.Equal(-73.72, lon);
             Assert.Equal(0.0, alt);
+        }
+
+        [Fact]
+        public void ResolveSpawnPosition_EvaLanded_FallsThroughToSplashedClamp()
+        {
+            // EVA recordings previously returned early, bypassing altitude clamping.
+            // With terminal=Splashed and alt > 0, the EVA should now be clamped to 0. (#231)
+            var rec = new Recording
+            {
+                VesselSnapshot = new ConfigNode("VESSEL"),
+                EvaCrewName = "Jebediah Kerman",
+                TerminalStateValue = TerminalState.Splashed
+            };
+
+            var lastPt = new TrajectoryPoint { latitude = 5.0, longitude = 10.0, altitude = 150.0, bodyName = "Kerbin" };
+            VesselSpawner.ResolveSpawnPosition(rec, 7, lastPt, out double lat, out double lon, out double alt);
+
+            Assert.Equal(5.0, lat);
+            Assert.Equal(10.0, lon);
+            Assert.Equal(0.0, alt);
+            Assert.Contains(logLines, l => l.Contains("Clamped altitude") && l.Contains("SPLASHED"));
+        }
+
+        // ── ClampAltitudeForLanded (pure, testable without CelestialBody) ──
+
+        [Fact]
+        public void ClampAltitudeForLanded_AboveTerrain_ClampsDown()
+        {
+            // Vessel at 500m, terrain at 67m → clamp to 67m (#231)
+            double result = VesselSpawner.ClampAltitudeForLanded(500.0, 67.0, 3, "Kerbal X");
+            Assert.Equal(67.0, result);
+            Assert.Contains(logLines, l =>
+                l.Contains("Clamped altitude") && l.Contains("LANDED") && l.Contains("delta=433.0"));
+        }
+
+        [Fact]
+        public void ClampAltitudeForLanded_BelowTerrain_ClampsUp()
+        {
+            // Vessel at -5m, terrain at 67m → clamp to 67m
+            double result = VesselSpawner.ClampAltitudeForLanded(-5.0, 67.0, 3, "Kerbal X");
+            Assert.Equal(67.0, result);
+            Assert.Contains(logLines, l =>
+                l.Contains("Clamped altitude") && l.Contains("LANDED") && l.Contains("delta=-72.0"));
+        }
+
+        [Fact]
+        public void ClampAltitudeForLanded_NearTerrain_NoLogNoise()
+        {
+            // Vessel at 67.3m, terrain at 67.0m → clamp to 67.0m, no log (delta < 1m)
+            double result = VesselSpawner.ClampAltitudeForLanded(67.3, 67.0, 3, "Kerbal X");
+            Assert.Equal(67.0, result);
+            Assert.DoesNotContain(logLines, l => l.Contains("Clamped altitude") && l.Contains("LANDED"));
+        }
+
+        [Fact]
+        public void ClampAltitudeForLanded_ExactMatch_NoLogNoise()
+        {
+            double result = VesselSpawner.ClampAltitudeForLanded(67.0, 67.0, 3, "Kerbal X");
+            Assert.Equal(67.0, result);
+            Assert.DoesNotContain(logLines, l => l.Contains("Clamped altitude") && l.Contains("LANDED"));
         }
 
         #endregion

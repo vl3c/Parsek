@@ -10,6 +10,7 @@ All notable changes to Parsek are documented here.
 
 - **Fix Settings window GUILayout exception (#217).** The ghost soft caps toggle caused an IMGUI Layout/Repaint mismatch: the early `return` in `DrawGhostSettings` skipped slider controls when caps were disabled, but a toggle click between passes changed the control count. 72 exceptions per session, window stuck at 10px. Fix: sliders always drawn, grayed out via `GUI.enabled` when caps disabled.
 - **Fix W (watch) button staying enabled on debris boosters (#194).** After booster separation, one debris recording could have an active ghost with the W button enabled. Added `IsDebris` guard to watch eligibility check and "Debris is not watchable" tooltip.
+- **Fix vessels and EVA kerbals spawning high in the air (#231).** Vessels with `terminal=Landed` spawned at their last trajectory point altitude (still descending), fell, and exploded. Two gaps: EVA recordings bypassed altitude clamping via early return, and the LANDED clamp only corrected underground spawns. Now all spawn paths fall through to clamping, LANDED unconditionally clamps to terrain height, and `OverrideSnapshotPosition` applies for all surface terminals.
 
 ### Code Quality
 
