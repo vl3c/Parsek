@@ -4067,23 +4067,19 @@ namespace Parsek
         /// <summary>
         /// Resolves the launch site name for the current vessel.
         /// Uses FlightDriver.LaunchSiteName for stock sites (LaunchPad, Runway, Desert Airfield,
-        /// Woomerang Launch Site, Island Airfield). Returns null for non-launch situations or
-        /// when the launch site is unknown.
+        /// Woomerang Launch Site, Island Airfield). The value persists in FlightDriver after
+        /// the vessel transitions from PRELAUNCH to FLYING, so we capture it regardless of
+        /// current situation. Returns null when the launch site is unknown.
         /// </summary>
         internal static string ResolveLaunchSiteName(Vessel v)
         {
-            // Only capture launch site for prelaunch vessels — landed/splashed vessels
-            // at non-pad locations should not claim a launch site.
-            if (v == null || v.situation != Vessel.Situations.PRELAUNCH)
-                return null;
+            if (v == null) return null;
 
             try
             {
                 string site = FlightDriver.LaunchSiteName;
                 if (string.IsNullOrEmpty(site))
                     return null;
-                // FlightDriver.LaunchSiteName returns internal IDs like "LaunchPad", "Runway".
-                // Humanize common stock names for display.
                 return HumanizeLaunchSiteName(site);
             }
             catch (Exception ex)

@@ -381,12 +381,13 @@ namespace Parsek.Tests
                 new List<Milestone>(),
                 0);
 
+            // Only the chain root (index 0) gets a Launch entry.
+            // Chain children (index > 0) are optimizer splits, not player-visible launches.
             var starts = result.Where(e => e.Type == TimelineEntryType.RecordingStart).ToList();
-            Assert.Equal(2, starts.Count);
+            Assert.Equal(1, starts.Count);
 
-            // Both chain members show full chain duration (300s = 5m)
-            var firstStart = starts.First(s => s.UT == 100);
-            Assert.Contains("MET 5m", firstStart.DisplayText);
+            // Root launch shows full chain duration (300s = 5m)
+            Assert.Contains("MET 5m", starts[0].DisplayText);
         }
 
         // ================================================================

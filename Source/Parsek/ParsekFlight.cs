@@ -863,6 +863,12 @@ namespace Parsek
             {
                 var pending = RecordingStore.Pending;
                 pending.ApplyPersistenceArtifactsFrom(captured);
+                // Start location fields are intentionally excluded from ApplyPersistenceArtifactsFrom
+                // (that method copies end-state for chain boundaries). Copy them explicitly here.
+                pending.StartBodyName = captured.StartBodyName;
+                pending.StartBiome = captured.StartBiome;
+                pending.StartSituation = captured.StartSituation;
+                pending.LaunchSiteName = captured.LaunchSiteName;
                 Log("Applied stop-time snapshot/geometry artifacts to pending recording");
             }
             else
@@ -1095,6 +1101,10 @@ namespace Parsek
             if (captured != null)
             {
                 RecordingStore.Pending.ApplyPersistenceArtifactsFrom(captured);
+                RecordingStore.Pending.StartBodyName = captured.StartBodyName;
+                RecordingStore.Pending.StartBiome = captured.StartBiome;
+                RecordingStore.Pending.StartSituation = captured.StartSituation;
+                RecordingStore.Pending.LaunchSiteName = captured.LaunchSiteName;
             }
             else
             {
@@ -4750,6 +4760,10 @@ namespace Parsek
             if (captured != null)
             {
                 RecordingStore.Pending.ApplyPersistenceArtifactsFrom(captured);
+                RecordingStore.Pending.StartBodyName = captured.StartBodyName;
+                RecordingStore.Pending.StartBiome = captured.StartBiome;
+                RecordingStore.Pending.StartSituation = captured.StartSituation;
+                RecordingStore.Pending.LaunchSiteName = captured.LaunchSiteName;
                 Log("CommitFlight: applied stop-time artifacts");
             }
             else

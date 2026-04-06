@@ -70,24 +70,30 @@ namespace Parsek
                 if (isEva && !string.IsNullOrEmpty(rec.ParentRecordingId))
                     vesselNameById.TryGetValue(rec.ParentRecordingId, out parentVesselName);
 
-                // RecordingStart — duration is from this recording, or full chain span
-                double duration = rec.EndUT - rec.StartUT;
-                if (!string.IsNullOrEmpty(rec.ChainId))
-                    duration = GetChainDuration(rec.ChainId, recordings);
-
-                var startType = TimelineEntryType.RecordingStart;
-                entries.Add(new TimelineEntry
+                // RecordingStart — only for root recordings (chain index 0 or standalone).
+                // Optimizer-split segments (ChainIndex > 0) are internal chain structure,
+                // not player-visible launch events.
+                bool isChainChild = rec.ChainIndex > 0;
+                if (!isChainChild)
                 {
-                    UT = rec.StartUT,
-                    Type = startType,
-                    DisplayText = TimelineEntryDisplay.GetRecordingStartText(rec.VesselName, duration, isEva, parentVesselName, rec.StartBodyName, rec.StartBiome, rec.LaunchSiteName),
-                    Source = TimelineSource.Recording,
-                    Tier = TimelineEntryDisplay.GetTier(startType),
-                    DisplayColor = Color.white,
-                    RecordingId = rec.RecordingId,
-                    VesselName = rec.VesselName
-                });
-                count++;
+                    double duration = rec.EndUT - rec.StartUT;
+                    if (!string.IsNullOrEmpty(rec.ChainId))
+                        duration = GetChainDuration(rec.ChainId, recordings);
+
+                    var startType = TimelineEntryType.RecordingStart;
+                    entries.Add(new TimelineEntry
+                    {
+                        UT = rec.StartUT,
+                        Type = startType,
+                        DisplayText = TimelineEntryDisplay.GetRecordingStartText(rec.VesselName, duration, isEva, parentVesselName, rec.StartBodyName, rec.StartBiome, rec.LaunchSiteName),
+                        Source = TimelineSource.Recording,
+                        Tier = TimelineEntryDisplay.GetTier(startType),
+                        DisplayColor = Color.white,
+                        RecordingId = rec.RecordingId,
+                        VesselName = rec.VesselName
+                    });
+                    count++;
+                }
 
                 // VesselSpawn at EndUT — vessel materializes after ghost playback
                 // Only if playback enabled and not a mid-chain segment
