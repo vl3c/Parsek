@@ -79,7 +79,7 @@ namespace Parsek
         /// <summary>Display text for a recording start event, including mission duration and location.</summary>
         internal static string GetRecordingStartText(string vesselName, double durationSeconds,
             bool isEva, string parentVesselName,
-            string startBodyName = null, string startBiome = null)
+            string startBodyName = null, string startBiome = null, string launchSiteName = null)
         {
             string prefix = isEva ? "EVA" : "Launch";
             string duration = FormatDuration(durationSeconds);
@@ -93,9 +93,14 @@ namespace Parsek
             if (isEva && !string.IsNullOrEmpty(parentVesselName))
                 sb.Append($" from {parentVesselName}");
 
-            // Location context: "at KSC on Kerbin" or "on Kerbin"
-            if (!string.IsNullOrEmpty(startBiome) && !string.IsNullOrEmpty(startBodyName))
-                sb.Append($" at {startBiome} on {startBodyName}");
+            // Location context: prefer launch site name over biome for launches
+            // "from Launch Pad on Kerbin" > "at KSC on Kerbin" > "on Kerbin"
+            string locationName = !string.IsNullOrEmpty(launchSiteName) ? launchSiteName : startBiome;
+            if (!string.IsNullOrEmpty(locationName) && !string.IsNullOrEmpty(startBodyName))
+            {
+                string prep = !string.IsNullOrEmpty(launchSiteName) ? "from" : "at";
+                sb.Append($" {prep} {locationName} on {startBodyName}");
+            }
             else if (!string.IsNullOrEmpty(startBodyName))
                 sb.Append($" on {startBodyName}");
 

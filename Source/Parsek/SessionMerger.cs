@@ -130,6 +130,7 @@ namespace Parsek
                 merged.StartBiome = srcRec.StartBiome;
                 merged.StartSituation = srcRec.StartSituation;
                 merged.EndBiome = srcRec.EndBiome;
+                merged.LaunchSiteName = srcRec.LaunchSiteName;
 
                 result[recId] = merged;
 

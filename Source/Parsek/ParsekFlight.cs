@@ -1971,6 +1971,7 @@ namespace Parsek
                     pending.StartBiome = captured.StartBiome;
                     pending.StartSituation = captured.StartSituation;
                     pending.EndBiome = captured.EndBiome;
+                    pending.LaunchSiteName = captured.LaunchSiteName;
 
                     // Preserve chain membership if this segment was part of a chain
                     chainManager.ApplyChainMetadataTo(pending);

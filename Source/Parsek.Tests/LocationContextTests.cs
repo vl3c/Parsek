@@ -90,10 +90,18 @@ namespace Parsek.Tests
         // --- Display text tests ---
 
         [Fact]
-        public void GetRecordingStartText_WithBiome_IncludesLocation()
+        public void GetRecordingStartText_WithLaunchSite_PrefersSiteOverBiome()
         {
             string text = TimelineEntryDisplay.GetRecordingStartText(
-                "Mun Lander", 3600, false, null, "Kerbin", "KSC");
+                "Mun Lander", 3600, false, null, "Kerbin", "KSC", "Launch Pad");
+            Assert.Equal("Launch: Mun Lander from Launch Pad on Kerbin (MET 1h)", text);
+        }
+
+        [Fact]
+        public void GetRecordingStartText_WithBiome_NoLaunchSite()
+        {
+            string text = TimelineEntryDisplay.GetRecordingStartText(
+                "Mun Lander", 3600, false, null, "Kerbin", "KSC", null);
             Assert.Equal("Launch: Mun Lander at KSC on Kerbin (MET 1h)", text);
         }
 
@@ -101,7 +109,7 @@ namespace Parsek.Tests
         public void GetRecordingStartText_NullBiome_FallsBackToBody()
         {
             string text = TimelineEntryDisplay.GetRecordingStartText(
-                "Mun Lander", 3600, false, null, "Kerbin", null);
+                "Mun Lander", 3600, false, null, "Kerbin", null, null);
             Assert.Equal("Launch: Mun Lander on Kerbin (MET 1h)", text);
         }
 
@@ -117,8 +125,16 @@ namespace Parsek.Tests
         public void GetRecordingStartText_Eva_WithBiome()
         {
             string text = TimelineEntryDisplay.GetRecordingStartText(
-                "Jeb", 5, true, "Mun Lander", "Mun", "Midlands");
+                "Jeb", 5, true, "Mun Lander", "Mun", "Midlands", null);
             Assert.Equal("EVA: Jeb from Mun Lander at Midlands on Mun (MET 5s)", text);
+        }
+
+        [Fact]
+        public void GetRecordingStartText_MakingHistorySite()
+        {
+            string text = TimelineEntryDisplay.GetRecordingStartText(
+                "Rocket", 600, false, null, "Kerbin", null, "Woomerang Launch Site");
+            Assert.Equal("Launch: Rocket from Woomerang Launch Site on Kerbin (MET 10m)", text);
         }
 
         [Fact]
@@ -205,6 +221,51 @@ namespace Parsek.Tests
             Assert.Equal("Orbiting", VesselSpawner.HumanizeSituation(Vessel.Situations.ORBITING));
             Assert.Equal("Escaping", VesselSpawner.HumanizeSituation(Vessel.Situations.ESCAPING));
             Assert.Equal("Docked", VesselSpawner.HumanizeSituation(Vessel.Situations.DOCKED));
+        }
+
+        // --- Launch site tests ---
+
+        [Fact]
+        public void SaveLoad_LaunchSiteName_RoundTrip()
+        {
+            var source = new Recording { LaunchSiteName = "Launch Pad" };
+            var node = new ConfigNode("RECORDING");
+            ParsekScenario.SaveRecordingMetadata(node, source);
+
+            var loaded = new Recording();
+            ParsekScenario.LoadRecordingMetadata(node, loaded);
+            Assert.Equal("Launch Pad", loaded.LaunchSiteName);
+        }
+
+        [Fact]
+        public void SaveLoad_NullLaunchSiteName_NotWritten()
+        {
+            var source = new Recording();
+            var node = new ConfigNode("RECORDING");
+            ParsekScenario.SaveRecordingMetadata(node, source);
+            Assert.Null(node.GetValue("launchSiteName"));
+        }
+
+        [Fact]
+        public void HumanizeLaunchSiteName_StockNames()
+        {
+            Assert.Equal("Launch Pad", FlightRecorder.HumanizeLaunchSiteName("LaunchPad"));
+            Assert.Equal("Runway", FlightRecorder.HumanizeLaunchSiteName("Runway"));
+        }
+
+        [Fact]
+        public void HumanizeLaunchSiteName_MakingHistoryNames_PassThrough()
+        {
+            Assert.Equal("Desert Airfield", FlightRecorder.HumanizeLaunchSiteName("Desert Airfield"));
+            Assert.Equal("Woomerang Launch Site", FlightRecorder.HumanizeLaunchSiteName("Woomerang Launch Site"));
+            Assert.Equal("Island Airfield", FlightRecorder.HumanizeLaunchSiteName("Island Airfield"));
+        }
+
+        [Fact]
+        public void HumanizeLaunchSiteName_NullEmpty()
+        {
+            Assert.Null(FlightRecorder.HumanizeLaunchSiteName(null));
+            Assert.Null(FlightRecorder.HumanizeLaunchSiteName(""));
         }
     }
 }

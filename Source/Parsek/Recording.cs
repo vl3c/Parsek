@@ -62,6 +62,7 @@ namespace Parsek
         public string StartBiome;        // biome at recording start (null = not set / unavailable)
         public string StartSituation;    // vessel situation at recording start (null = not set)
         public string EndBiome;          // biome at recording end (null = not set / unavailable)
+        public string LaunchSiteName;    // stock/mod launch site name (null = not launched from a site)
         public bool PlaybackEnabled = true;  // false = skip ghost during playback
         public bool Hidden;                  // true = hidden from recordings list (unless Show Hidden is on)
 

@@ -304,6 +304,8 @@ namespace Parsek
                 recNode.AddValue("startSituation", rec.StartSituation);
             if (!string.IsNullOrEmpty(rec.EndBiome))
                 recNode.AddValue("endBiome", rec.EndBiome);
+            if (!string.IsNullOrEmpty(rec.LaunchSiteName))
+                recNode.AddValue("launchSiteName", rec.LaunchSiteName);
 
             // Pre-launch resources
             if (rec.PreLaunchFunds != 0)
@@ -564,6 +566,7 @@ namespace Parsek
             rec.StartBiome = recNode.GetValue("startBiome");
             rec.StartSituation = recNode.GetValue("startSituation");
             rec.EndBiome = recNode.GetValue("endBiome");
+            rec.LaunchSiteName = recNode.GetValue("launchSiteName");
 
             // Pre-launch resources
             string preLaunchFundsStr = recNode.GetValue("preLaunchFunds");

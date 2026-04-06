@@ -165,6 +165,7 @@ namespace Parsek
         public string StartBodyName { get; private set; }
         public string StartBiome { get; private set; }
         public string StartSituation { get; private set; }
+        public string LaunchSiteName { get; private set; }
         public ConfigNode LastGoodVesselSnapshot => lastGoodVesselSnapshot;
         public ConfigNode InitialGhostVisualSnapshot => initialGhostVisualSnapshot;
 
@@ -4050,16 +4051,61 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Captures start location context (Phase 10): body, biome, and situation.
+        /// Captures start location context (Phase 10): body, biome, situation, and launch site.
         /// </summary>
         private void CaptureStartLocation(Vessel v)
         {
             StartBodyName = v.mainBody?.name;
             StartSituation = v.isEVA ? "EVA" : VesselSpawner.HumanizeSituation(v.situation);
             StartBiome = VesselSpawner.TryResolveBiome(v.mainBody?.name, v.latitude, v.longitude);
+            LaunchSiteName = ResolveLaunchSiteName(v);
             ParsekLog.Verbose("Recorder",
                 $"Start location captured: body={StartBodyName ?? "(null)"}, biome={StartBiome ?? "(null)"}, " +
-                $"situation={StartSituation ?? "(null)"}");
+                $"situation={StartSituation ?? "(null)"}, launchSite={LaunchSiteName ?? "(null)"}");
+        }
+
+        /// <summary>
+        /// Resolves the launch site name for the current vessel.
+        /// Uses FlightDriver.LaunchSiteName for stock sites (LaunchPad, Runway, Desert Airfield,
+        /// Woomerang Launch Site, Island Airfield). Returns null for non-launch situations or
+        /// when the launch site is unknown.
+        /// </summary>
+        internal static string ResolveLaunchSiteName(Vessel v)
+        {
+            // Only capture launch site for prelaunch vessels — landed/splashed vessels
+            // at non-pad locations should not claim a launch site.
+            if (v == null || v.situation != Vessel.Situations.PRELAUNCH)
+                return null;
+
+            try
+            {
+                string site = FlightDriver.LaunchSiteName;
+                if (string.IsNullOrEmpty(site))
+                    return null;
+                // FlightDriver.LaunchSiteName returns internal IDs like "LaunchPad", "Runway".
+                // Humanize common stock names for display.
+                return HumanizeLaunchSiteName(site);
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.Verbose("Recorder", $"ResolveLaunchSiteName failed: {ex.Message}");
+                return null;
+            }
+        }
+
+        /// <summary>
+        /// Humanizes stock launch site names. KSP internal names are "LaunchPad", "Runway".
+        /// Making History DLC names are already human-readable.
+        /// </summary>
+        internal static string HumanizeLaunchSiteName(string siteName)
+        {
+            if (string.IsNullOrEmpty(siteName)) return null;
+            switch (siteName)
+            {
+                case "LaunchPad": return "Launch Pad";
+                case "Runway":    return "Runway";
+                default:          return siteName;  // MH DLC names are already readable
+            }
         }
 
         /// <summary>
@@ -4314,7 +4360,8 @@ namespace Parsek
                 TrackSections = new List<TrackSection>(TrackSections),
                 StartBodyName = StartBodyName,
                 StartBiome = StartBiome,
-                StartSituation = StartSituation
+                StartSituation = StartSituation,
+                LaunchSiteName = LaunchSiteName
             };
             // Clear after first capture — prevents chain children from inheriting root's rewind save
             RewindSaveFileName = null;

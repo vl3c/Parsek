@@ -80,7 +80,7 @@ namespace Parsek
                 {
                     UT = rec.StartUT,
                     Type = startType,
-                    DisplayText = TimelineEntryDisplay.GetRecordingStartText(rec.VesselName, duration, isEva, parentVesselName, rec.StartBodyName, rec.StartBiome),
+                    DisplayText = TimelineEntryDisplay.GetRecordingStartText(rec.VesselName, duration, isEva, parentVesselName, rec.StartBodyName, rec.StartBiome, rec.LaunchSiteName),
                     Source = TimelineSource.Recording,
                     Tier = TimelineEntryDisplay.GetTier(startType),
                     DisplayColor = Color.white,
