@@ -1301,10 +1301,10 @@ namespace Parsek
             pending.VesselSnapshot = node;
             pending.VesselDestroyed = false;
 
-            // Build situation string
+            // Build situation string (humanized, not raw enum)
             pending.VesselSituation = vessel.isEVA
                 ? $"EVA {vessel.mainBody.name}"
-                : $"{vessel.situation} {vessel.mainBody.name}";
+                : $"{HumanizeSituation(vessel.situation)} {vessel.mainBody.name}";
 
             // Capture end biome (Phase 10)
             pending.EndBiome = TryResolveBiome(vessel.mainBody?.name, vessel.latitude, vessel.longitude);

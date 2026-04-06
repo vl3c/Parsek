@@ -3994,7 +3994,7 @@ namespace Parsek
             CaptureRewindSave(v, isPromotion);
 
             InitializeRecordingFlags(v);
-            CaptureStartLocation(v);
+            CaptureStartLocation(v, isPromotion);
             var initialEnv = InitializeEnvironmentAndAnchorTracking(v);
             InsertBoundaryAnchorAndSnapshot(v);
 
@@ -4053,12 +4053,12 @@ namespace Parsek
         /// <summary>
         /// Captures start location context (Phase 10): body, biome, situation, and launch site.
         /// </summary>
-        private void CaptureStartLocation(Vessel v)
+        private void CaptureStartLocation(Vessel v, bool isPromotion)
         {
             StartBodyName = v.mainBody?.name;
             StartSituation = v.isEVA ? "EVA" : VesselSpawner.HumanizeSituation(v.situation);
             StartBiome = VesselSpawner.TryResolveBiome(v.mainBody?.name, v.latitude, v.longitude);
-            LaunchSiteName = ResolveLaunchSiteName(v);
+            LaunchSiteName = ResolveLaunchSiteName(v, isPromotion);
             ParsekLog.Verbose("Recorder",
                 $"Start location captured: body={StartBodyName ?? "(null)"}, biome={StartBiome ?? "(null)"}, " +
                 $"situation={StartSituation ?? "(null)"}, launchSite={LaunchSiteName ?? "(null)"}");
@@ -4071,9 +4071,15 @@ namespace Parsek
         /// the vessel transitions from PRELAUNCH to FLYING, so we capture it regardless of
         /// current situation. Returns null when the launch site is unknown.
         /// </summary>
-        internal static string ResolveLaunchSiteName(Vessel v)
+        internal static string ResolveLaunchSiteName(Vessel v, bool isPromotion)
         {
             if (v == null) return null;
+
+            // Only capture launch site for the initial launch — not for EVAs,
+            // chain continuations, or promoted background recordings.
+            // FlightDriver.LaunchSiteName persists from the original launch
+            // and would incorrectly tag all subsequent recordings.
+            if (v.isEVA || isPromotion) return null;
 
             try
             {
@@ -4100,7 +4106,9 @@ namespace Parsek
             {
                 case "LaunchPad": return "Launch Pad";
                 case "Runway":    return "Runway";
-                default:          return siteName;  // MH DLC names are already readable
+                default:
+                    // MH DLC uses underscores internally (e.g., "Woomerang_Launch_Site")
+                    return siteName.Replace('_', ' ');
             }
         }
 

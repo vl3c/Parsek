@@ -254,11 +254,12 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void HumanizeLaunchSiteName_MakingHistoryNames_PassThrough()
+        public void HumanizeLaunchSiteName_MakingHistoryNames_UnderscoresReplaced()
         {
-            Assert.Equal("Desert Airfield", FlightRecorder.HumanizeLaunchSiteName("Desert Airfield"));
-            Assert.Equal("Woomerang Launch Site", FlightRecorder.HumanizeLaunchSiteName("Woomerang Launch Site"));
-            Assert.Equal("Island Airfield", FlightRecorder.HumanizeLaunchSiteName("Island Airfield"));
+            // MH DLC uses underscores internally
+            Assert.Equal("Woomerang Launch Site", FlightRecorder.HumanizeLaunchSiteName("Woomerang_Launch_Site"));
+            Assert.Equal("Desert Airfield", FlightRecorder.HumanizeLaunchSiteName("Desert_Airfield"));
+            Assert.Equal("Island Airfield", FlightRecorder.HumanizeLaunchSiteName("Island_Airfield"));
         }
 
         [Fact]
