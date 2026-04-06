@@ -339,15 +339,13 @@ A crew death should appear in the timeline as a distinct event: "Lost: Bob Kerma
 
 **Status:** Open
 
-## 230. LaunchSiteName leaks to chain continuation segments
+## ~~230. LaunchSiteName leaks to chain continuation segments~~
 
-`FlightDriver.LaunchSiteName` persists from the original launch for the entire flight session. Chain continuation recordings (after dock/undock) that aren't EVAs or promotions still pick up the stale value. Currently guarded for EVA and promotion, but not for chain boundary restarts via `ChainSegmentManager`.
+`FlightDriver.LaunchSiteName` persists from the original launch for the entire flight session. Chain continuation recordings (after dock/undock) that aren't EVAs or promotions picked up the stale value.
 
-**Fix:** Only set `LaunchSiteName` when `StartSituation` is "Prelaunch" or when the recording is the first in a session (no `BoundaryAnchor`). Chain continuations should inherit null.
+**Fix:** `CaptureStartLocation` now checks `BoundaryAnchor.HasValue` — if set, this is a chain continuation, not a fresh launch. Skips launch site capture alongside EVA and promotion guards.
 
-**Priority:** Low — chain continuations typically don't show Launch entries anyway (tree child filter), but the data is incorrect
-
-**Status:** Open
+**Status:** Fixed
 
 ---
 

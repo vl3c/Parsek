@@ -4058,7 +4058,9 @@ namespace Parsek
             StartBodyName = v.mainBody?.name;
             StartSituation = v.isEVA ? "EVA" : VesselSpawner.HumanizeSituation(v.situation);
             StartBiome = VesselSpawner.TryResolveBiome(v.mainBody?.name, v.latitude, v.longitude);
-            LaunchSiteName = ResolveLaunchSiteName(v, isPromotion);
+            // Chain continuations (BoundaryAnchor set) inherit a stale FlightDriver value — skip
+            bool isChainContinuation = BoundaryAnchor.HasValue;
+            LaunchSiteName = ResolveLaunchSiteName(v, isPromotion || isChainContinuation);
             ParsekLog.Verbose("Recorder",
                 $"Start location captured: body={StartBodyName ?? "(null)"}, biome={StartBiome ?? "(null)"}, " +
                 $"situation={StartSituation ?? "(null)"}, launchSite={LaunchSiteName ?? "(null)"}");
