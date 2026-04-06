@@ -43,27 +43,27 @@ namespace Parsek
         internal static string FormatDuration(double seconds)
         {
             if (double.IsNaN(seconds) || double.IsInfinity(seconds) || seconds < 0) seconds = 0;
-            int total = (int)seconds;
+            long total = (long)seconds;
             if (total < 60) return total.ToString(IC) + "s";
             if (total < 3600) return (total / 60).ToString(IC) + "m " + (total % 60).ToString(IC) + "s";
 
-            int secsPerDay = SecsPerDay;
-            int secsPerYear = SecsPerYear;
+            long secsPerDay = SecsPerDay;
+            long secsPerYear = SecsPerYear;
 
             if (total < secsPerDay)
                 return (total / 3600).ToString(IC) + "h " + ((total % 3600) / 60).ToString(IC) + "m";
 
             if (total < secsPerYear)
             {
-                int days = total / secsPerDay;
-                int hours = (total % secsPerDay) / 3600;
+                long days = total / secsPerDay;
+                long hours = (total % secsPerDay) / 3600;
                 return hours > 0
                     ? days.ToString(IC) + "d " + hours.ToString(IC) + "h"
                     : days.ToString(IC) + "d";
             }
 
-            int years = total / secsPerYear;
-            int remDays = (total % secsPerYear) / secsPerDay;
+            long years = total / secsPerYear;
+            long remDays = (total % secsPerYear) / secsPerDay;
             return remDays > 0
                 ? years.ToString(IC) + "y " + remDays.ToString(IC) + "d"
                 : years.ToString(IC) + "y";
