@@ -295,6 +295,16 @@ namespace Parsek
             if (!string.IsNullOrEmpty(rec.SegmentBodyName))
                 recNode.AddValue("segmentBodyName", rec.SegmentBodyName);
 
+            // Location context (Phase 10)
+            if (!string.IsNullOrEmpty(rec.StartBodyName))
+                recNode.AddValue("startBodyName", rec.StartBodyName);
+            if (!string.IsNullOrEmpty(rec.StartBiome))
+                recNode.AddValue("startBiome", rec.StartBiome);
+            if (!string.IsNullOrEmpty(rec.StartSituation))
+                recNode.AddValue("startSituation", rec.StartSituation);
+            if (!string.IsNullOrEmpty(rec.EndBiome))
+                recNode.AddValue("endBiome", rec.EndBiome);
+
             // Pre-launch resources
             if (rec.PreLaunchFunds != 0)
                 recNode.AddValue("preLaunchFunds", rec.PreLaunchFunds.ToString("R", ic));
@@ -548,6 +558,12 @@ namespace Parsek
             // Atmosphere segment metadata
             rec.SegmentPhase = recNode.GetValue("segmentPhase");
             rec.SegmentBodyName = recNode.GetValue("segmentBodyName");
+
+            // Location context (Phase 10)
+            rec.StartBodyName = recNode.GetValue("startBodyName");
+            rec.StartBiome = recNode.GetValue("startBiome");
+            rec.StartSituation = recNode.GetValue("startSituation");
+            rec.EndBiome = recNode.GetValue("endBiome");
 
             // Pre-launch resources
             string preLaunchFundsStr = recNode.GetValue("preLaunchFunds");

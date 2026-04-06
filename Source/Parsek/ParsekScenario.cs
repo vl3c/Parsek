@@ -1859,6 +1859,17 @@ namespace Parsek
                 recNode.AddValue("segmentPhase", rec.SegmentPhase);
             if (!string.IsNullOrEmpty(rec.SegmentBodyName))
                 recNode.AddValue("segmentBodyName", rec.SegmentBodyName);
+
+            // Location context (Phase 10)
+            if (!string.IsNullOrEmpty(rec.StartBodyName))
+                recNode.AddValue("startBodyName", rec.StartBodyName);
+            if (!string.IsNullOrEmpty(rec.StartBiome))
+                recNode.AddValue("startBiome", rec.StartBiome);
+            if (!string.IsNullOrEmpty(rec.StartSituation))
+                recNode.AddValue("startSituation", rec.StartSituation);
+            if (!string.IsNullOrEmpty(rec.EndBiome))
+                recNode.AddValue("endBiome", rec.EndBiome);
+
             if (!rec.PlaybackEnabled)
                 recNode.AddValue("playbackEnabled", rec.PlaybackEnabled.ToString());
             if (rec.Hidden)
@@ -2005,6 +2016,12 @@ namespace Parsek
             // Atmosphere segment metadata
             rec.SegmentPhase = recNode.GetValue("segmentPhase");
             rec.SegmentBodyName = recNode.GetValue("segmentBodyName");
+
+            // Location context (Phase 10) — null if missing (legacy recordings)
+            rec.StartBodyName = recNode.GetValue("startBodyName");
+            rec.StartBiome = recNode.GetValue("startBiome");
+            rec.StartSituation = recNode.GetValue("startSituation");
+            rec.EndBiome = recNode.GetValue("endBiome");
             string playbackEnabledStr = recNode.GetValue("playbackEnabled");
             if (playbackEnabledStr != null)
             {

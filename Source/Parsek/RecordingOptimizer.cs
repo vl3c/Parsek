@@ -408,6 +408,26 @@ namespace Parsek
 
             second.SegmentBodyName = original.SegmentBodyName;
 
+            // 9b. Propagate location context (Phase 10)
+            // First half keeps original Start* fields.
+            // Second half derives start from its first point; keeps original EndBiome.
+            second.EndBiome = original.EndBiome;
+            original.EndBiome = null;
+
+            if (second.Points.Count > 0)
+            {
+                var firstPt = second.Points[0];
+                second.StartBodyName = firstPt.bodyName;
+                second.StartBiome = VesselSpawner.TryResolveBiome(firstPt.bodyName, firstPt.latitude, firstPt.longitude);
+                // StartSituation left null — ambiguous from environment alone
+            }
+
+            if (original.Points.Count > 0)
+            {
+                var lastPt = original.Points[original.Points.Count - 1];
+                original.EndBiome = VesselSpawner.TryResolveBiome(lastPt.bodyName, lastPt.latitude, lastPt.longitude);
+            }
+
             // 10. Transfer terminal-state fields to second half (represents end-of-recording state)
             second.VesselSnapshot = original.VesselSnapshot;
             original.VesselSnapshot = null;

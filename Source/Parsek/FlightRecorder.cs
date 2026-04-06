@@ -160,6 +160,11 @@ namespace Parsek
         public double RewindReservedFunds { get; private set; }
         public double RewindReservedScience { get; private set; }
         public float RewindReservedRep { get; private set; }
+
+        // Location context (Phase 10) — captured at recording start
+        public string StartBodyName { get; private set; }
+        public string StartBiome { get; private set; }
+        public string StartSituation { get; private set; }
         public ConfigNode LastGoodVesselSnapshot => lastGoodVesselSnapshot;
         public ConfigNode InitialGhostVisualSnapshot => initialGhostVisualSnapshot;
 
@@ -3988,6 +3993,7 @@ namespace Parsek
             CaptureRewindSave(v, isPromotion);
 
             InitializeRecordingFlags(v);
+            CaptureStartLocation(v);
             var initialEnv = InitializeEnvironmentAndAnchorTracking(v);
             InsertBoundaryAnchorAndSnapshot(v);
 
@@ -4041,6 +4047,19 @@ namespace Parsek
             catch (Exception ex) { ParsekLog.Verbose("Recorder", $"Pre-launch resource capture failed: {ex.Message}"); }
             ParsekLog.Verbose("Recorder",
                 $"Pre-launch resources captured: funds={PreLaunchFunds:F0}, science={PreLaunchScience:F1}, rep={PreLaunchReputation:F1}");
+        }
+
+        /// <summary>
+        /// Captures start location context (Phase 10): body, biome, and situation.
+        /// </summary>
+        private void CaptureStartLocation(Vessel v)
+        {
+            StartBodyName = v.mainBody?.name;
+            StartSituation = v.isEVA ? "EVA" : VesselSpawner.HumanizeSituation(v.situation);
+            StartBiome = VesselSpawner.TryResolveBiome(v.mainBody?.name, v.latitude, v.longitude);
+            ParsekLog.Verbose("Recorder",
+                $"Start location captured: body={StartBodyName ?? "(null)"}, biome={StartBiome ?? "(null)"}, " +
+                $"situation={StartSituation ?? "(null)"}");
         }
 
         /// <summary>
@@ -4292,7 +4311,10 @@ namespace Parsek
                 RewindReservedFunds = RewindReservedFunds,
                 RewindReservedScience = RewindReservedScience,
                 RewindReservedRep = RewindReservedRep,
-                TrackSections = new List<TrackSection>(TrackSections)
+                TrackSections = new List<TrackSection>(TrackSections),
+                StartBodyName = StartBodyName,
+                StartBiome = StartBiome,
+                StartSituation = StartSituation
             };
             // Clear after first capture — prevents chain children from inheriting root's rewind save
             RewindSaveFileName = null;

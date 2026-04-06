@@ -56,6 +56,12 @@ namespace Parsek
         // Atmosphere segment metadata
         public string SegmentPhase;      // "atmo", "exo", or "approach" (null = untagged/legacy)
         public string SegmentBodyName;   // body name at split point (e.g., "Kerbin", "Duna")
+
+        // Location context (Phase 10) — body, biome, situation at recording start and end
+        public string StartBodyName;     // body at recording start (null = not set / legacy)
+        public string StartBiome;        // biome at recording start (null = not set / unavailable)
+        public string StartSituation;    // vessel situation at recording start (null = not set)
+        public string EndBiome;          // biome at recording end (null = not set / unavailable)
         public bool PlaybackEnabled = true;  // false = skip ghost during playback
         public bool Hidden;                  // true = hidden from recordings list (unless Show Hidden is on)
 
@@ -218,6 +224,10 @@ namespace Parsek
             SegmentBodyName = source.SegmentBodyName;
             PlaybackEnabled = source.PlaybackEnabled;
             Hidden = source.Hidden;
+            EndBiome = source.EndBiome;
+            // Note: StartBodyName/StartBiome/StartSituation intentionally NOT copied here.
+            // This method copies end-state from a previous segment onto a new one at chain
+            // boundaries. Start fields are captured fresh per segment in StartRecording.
             TreeId = source.TreeId;
             VesselPersistentId = source.VesselPersistentId;
             TerminalStateValue = source.TerminalStateValue;

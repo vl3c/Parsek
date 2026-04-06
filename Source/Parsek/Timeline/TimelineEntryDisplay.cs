@@ -76,9 +76,10 @@ namespace Parsek
             }
         }
 
-        /// <summary>Display text for a recording start event, including mission duration.</summary>
+        /// <summary>Display text for a recording start event, including mission duration and location.</summary>
         internal static string GetRecordingStartText(string vesselName, double durationSeconds,
-            bool isEva, string parentVesselName)
+            bool isEva, string parentVesselName,
+            string startBodyName = null, string startBiome = null)
         {
             string prefix = isEva ? "EVA" : "Launch";
             string duration = FormatDuration(durationSeconds);
@@ -91,6 +92,12 @@ namespace Parsek
             // EVA shows source vessel: "EVA: Jeb from Mun Lander"
             if (isEva && !string.IsNullOrEmpty(parentVesselName))
                 sb.Append($" from {parentVesselName}");
+
+            // Location context: "at KSC on Kerbin" or "on Kerbin"
+            if (!string.IsNullOrEmpty(startBiome) && !string.IsNullOrEmpty(startBodyName))
+                sb.Append($" at {startBiome} on {startBodyName}");
+            else if (!string.IsNullOrEmpty(startBodyName))
+                sb.Append($" on {startBodyName}");
 
             if (!string.IsNullOrEmpty(duration))
                 sb.Append($" (MET {duration})");
@@ -134,15 +141,20 @@ namespace Parsek
         /// </summary>
         internal static string GetVesselSpawnText(string vesselName, TerminalState? state,
             string vesselSituation, bool isEva, string parentVesselName,
-            string terminalOrbitBody, string segmentBodyName)
+            string terminalOrbitBody, string segmentBodyName, string endBiome = null)
         {
             // Boarded EVA: "Board: Jeb (Mun Lander)" - kerbal returned to parent vessel
             if (isEva && state == TerminalState.Boarded && !string.IsNullOrEmpty(parentVesselName))
                 return $"Board: {vesselName} ({parentVesselName})";
 
             // Prefer the full situation string (includes body name)
+            // Inject biome if available: "Landed Mun" -> "Landed at Midlands on Mun"
             if (!string.IsNullOrEmpty(vesselSituation))
+            {
+                if (!string.IsNullOrEmpty(endBiome))
+                    return $"Spawn: {vesselName} ({InjectBiomeIntoSituation(vesselSituation, endBiome)})";
                 return $"Spawn: {vesselName} ({vesselSituation})";
+            }
 
             // Fall back to terminal state with body context
             string stateText = FormatTerminalState(state);
@@ -152,6 +164,8 @@ namespace Parsek
                 if (!string.IsNullOrEmpty(body))
                 {
                     bool usesOn = state == TerminalState.Landed || state == TerminalState.Splashed;
+                    if (usesOn && !string.IsNullOrEmpty(endBiome))
+                        return $"Spawn: {vesselName} ({stateText} at {endBiome} on {body})";
                     return usesOn
                         ? $"Spawn: {vesselName} ({stateText} on {body})"
                         : $"Spawn: {vesselName} ({stateText} {body})";
@@ -160,6 +174,31 @@ namespace Parsek
             }
 
             return $"Spawn: {vesselName}";
+        }
+
+        /// <summary>
+        /// Injects biome into a VesselSituation string like "Landed Mun" -> "Landed at Midlands on Mun".
+        /// Only applies to surface situations (Landed, Splashed, Prelaunch). Orbital situations pass through unchanged.
+        /// </summary>
+        internal static string InjectBiomeIntoSituation(string vesselSituation, string biome)
+        {
+            if (string.IsNullOrEmpty(vesselSituation) || string.IsNullOrEmpty(biome))
+                return vesselSituation;
+
+            // VesselSituation format is "{situation} {bodyName}" e.g. "Landed Mun", "ORBITING Kerbin"
+            // For surface situations, insert "at {biome} on" before body
+            int spaceIdx = vesselSituation.IndexOf(' ');
+            if (spaceIdx < 0) return vesselSituation;
+
+            string sit = vesselSituation.Substring(0, spaceIdx);
+            string body = vesselSituation.Substring(spaceIdx + 1);
+
+            // Only inject biome for surface situations
+            string sitUpper = sit.ToUpperInvariant();
+            if (sitUpper == "LANDED" || sitUpper == "SPLASHED" || sitUpper == "PRELAUNCH")
+                return $"{sit} at {biome} on {body}";
+
+            return vesselSituation;
         }
 
         /// <summary>Maps a terminal state to human-readable text. Null returns empty string.</summary>

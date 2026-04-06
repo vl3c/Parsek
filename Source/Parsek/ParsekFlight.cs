@@ -1966,6 +1966,12 @@ namespace Parsek
                     pending.RewindReservedScience = captured.RewindReservedScience;
                     pending.RewindReservedRep = captured.RewindReservedRep;
 
+                    // Location context (Phase 10)
+                    pending.StartBodyName = captured.StartBodyName;
+                    pending.StartBiome = captured.StartBiome;
+                    pending.StartSituation = captured.StartSituation;
+                    pending.EndBiome = captured.EndBiome;
+
                     // Preserve chain membership if this segment was part of a chain
                     chainManager.ApplyChainMetadataTo(pending);
 
