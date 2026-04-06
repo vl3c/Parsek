@@ -307,15 +307,45 @@ Recording `f8fd04e5` (Kerbal X, chainIndex=1) had both `childBranchPointId` (bre
 
 **Status:** Fixed
 
-## 227. Mid-tree spawn entry for vessel with EVA branch
+## 227. Mid-tree spawn entry for vessel with EVA/staging branch
 
-When a kerbal EVAs from a capsule, the tree creates an EVA branch point. The capsule's root recording ends at that UT and a continuation recording starts as a tree child. The timeline shows a premature "Spawn: Kerbal X" at the EVA time because `IsChainMidSegment` only checks chain segments (optimizer splits), not tree continuation segments.
+When a kerbal EVAs or a stage separates, the tree creates a branch point. The vessel's current recording segment ends at that UT and a continuation recording starts as a tree child. The timeline shows a premature "Spawn: Kerbal X" at the branch time because `IsChainMidSegment` only checks chain segments (optimizer splits), not tree continuation segments.
 
-The root recording has `ChildBranchPointId` set (the EVA branch) which means it's effectively a mid-tree segment, not a leaf. The vessel should show a single continuous presence from launch to final capsule spawn — EVA kerbals are separate branches, not interruptions of the main vessel's timeline.
+The root recording has `ChildBranchPointId` set which means it's effectively a mid-tree segment, not a leaf. The vessel should show a single continuous presence from launch to final capsule spawn — EVA kerbals and staging debris are separate branches, not interruptions of the main vessel's timeline.
 
-**Fix:** The spawn entry filter needs to check whether a recording with `ChildBranchPointId` has a same-PID continuation child (analogous to `IsEffectiveLeafForVessel`). If a continuation exists, suppress the spawn entry — the vessel continues in the next segment.
+**Fix:** The spawn entry filter needs to check whether a recording with `ChildBranchPointId` has a same-PID continuation child (analogous to `IsEffectiveLeafForVessel`). If a continuation exists, suppress the spawn entry.
 
 **Priority:** Medium — creates confusing timeline with phantom spawn entries at every EVA/staging boundary
+
+**Status:** Open
+
+## 228. Crew reassignment entries appear when kerbals EVA
+
+When a kerbal EVAs from a vessel, KSP internally reassigns the remaining crew. The game actions system captures these as KerbalAssignment actions, which appear in the detailed timeline view. These are real KSP events but feel redundant — the player didn't decide to reassign crew, KSP did it automatically as a side effect of the EVA.
+
+**Fix:** Filter out KerbalAssignment actions that occur at the same UT as an EVA branch point. The EVA entry already communicates the crew change — the reassignment is noise.
+
+**Priority:** Low — only visible in Detail filter, cosmetic
+
+**Status:** Open
+
+## 229. Crew death (CREW_LOST) not shown in timeline
+
+When a kerbal dies (e.g., Bob hits the ground without a parachute), the recording captures this as a `SegmentEvent` with type `CREW_LOST`. However, the timeline has no entry type for crew death — the event is invisible. The recording's terminal state shows "Destroyed" but the destroyed spawn entry is now correctly filtered (can't spawn a destroyed vessel).
+
+A crew death should appear in the timeline as a distinct event: "Lost: Bob Kerman" or similar, at the UT of the CREW_LOST segment event. This would make the timeline a complete narrative of the mission.
+
+**Priority:** Medium — important mission events invisible in timeline
+
+**Status:** Open
+
+## 230. LaunchSiteName leaks to chain continuation segments
+
+`FlightDriver.LaunchSiteName` persists from the original launch for the entire flight session. Chain continuation recordings (after dock/undock) that aren't EVAs or promotions still pick up the stale value. Currently guarded for EVA and promotion, but not for chain boundary restarts via `ChainSegmentManager`.
+
+**Fix:** Only set `LaunchSiteName` when `StartSituation` is "Prelaunch" or when the recording is the first in a session (no `BoundaryAnchor`). Chain continuations should inherit null.
+
+**Priority:** Low — chain continuations typically don't show Launch entries anyway (tree child filter), but the data is incorrect
 
 **Status:** Open
 
