@@ -152,14 +152,12 @@ Unified chronological view of all committed career events, replacing the Game Ac
 
 ## Phase 10: Location Context
 
-Recordings become location-aware. Each recording knows where it started and ended — body, biome, situation, coordinates, and optionally a named launch site.
+Recordings become location-aware. Each recording knows where it started and ended — body, biome, situation, coordinates, and stock launch site name.
 
 - Biome captured at recording start and end via `ScienceUtil.GetExperimentBiome`
 - Vessel situation at recording start (not just end)
-- Timeline shows "Landed at Midlands on Mun" instead of "Landed on Mun"
-- Integration with launch site mods via reflection where available
-- Detection of off-world construction mod vessel modules
-- Fallback to raw coordinates for mods without formal APIs
+- Stock launch site name from `FlightDriver.LaunchSiteName` (Launch Pad, Runway, Making History DLC sites)
+- Timeline shows "Launch: Vessel from Launch Pad on Kerbin" and "Spawn: Vessel (Landed at Midlands on Mun)"
 - UI grouping and filtering by launch site in the Recordings Manager
 - Prerequisite for logistics routes (Phase 12) and async multiplayer (Phase 13)
 
@@ -324,10 +322,27 @@ Phase 13: Cooperative Async Multiplayer
 Phase 14: Competitive Play + Space Race
     │  Per-player game actions, milestone racing, opponent packs
     │
+    ▼
+Phase 15: Mod Compatibility
+    │  Kerbal Konstructs, KSC Switcher, Extraplanetary Launchpads,
+    │  off-world construction, modded launch sites via reflection
+    │
    ···
 Standalone Gloops Mod (if demand exists)
        Separate repo, content packs, standalone UI, custom meshes
 ```
+
+---
+
+## Phase 15: Mod Compatibility
+
+All prior phases target stock KSP (including Making History DLC). This phase adds support for popular mods via reflection-based detection and API integration. Only attempted after the stock experience is stable and fun.
+
+- **Kerbal Konstructs / KSC Switcher** — detect custom launch sites, capture site name at recording start, display in timeline and Recordings Manager
+- **Extraplanetary Launchpads** — detect EL-spawned vessels (builder PartModules: `ELLaunchpad`, `ELDisposablePad`, `ELSurveyStation`), capture pad name, handle empty `launchedFrom` field
+- **Off-world construction mods** — detect vessels built outside KSC, tag recordings with construction origin
+- **Mod detection pattern** — `AssemblyLoader.loadedAssemblies` (already used for PersistentRotation, RemoteTech). Reflection for API access. Graceful degradation when mods are absent.
+- **Compatibility testing** — CustomBarnKit, Strategia, Contract Configurator (see T43)
 
 ---
 
