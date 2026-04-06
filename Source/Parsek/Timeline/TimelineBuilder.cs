@@ -70,11 +70,13 @@ namespace Parsek
                 if (isEva && !string.IsNullOrEmpty(rec.ParentRecordingId))
                     vesselNameById.TryGetValue(rec.ParentRecordingId, out parentVesselName);
 
-                // RecordingStart — only for root recordings (chain index 0 or standalone).
-                // Optimizer-split segments (ChainIndex > 0) are internal chain structure,
-                // not player-visible launch events.
+                // RecordingStart — only for true launches and EVAs.
+                // Skip: optimizer-split segments (ChainIndex > 0) and tree branch children
+                // (ParentBranchPointId set — created by staging/decouple/breakup, not player launch).
+                // EVA recordings with a parent branch point are still shown (as "EVA:" entries).
+                bool isTreeChild = !string.IsNullOrEmpty(rec.ParentBranchPointId) && !isEva;
                 bool isChainChild = rec.ChainIndex > 0;
-                if (!isChainChild)
+                if (!isChainChild && !isTreeChild)
                 {
                     double duration = rec.EndUT - rec.StartUT;
                     if (!string.IsNullOrEmpty(rec.ChainId))
@@ -95,9 +97,12 @@ namespace Parsek
                     count++;
                 }
 
-                // VesselSpawn at EndUT — vessel materializes after ghost playback
-                // Only if playback enabled and not a mid-chain segment
-                if (rec.PlaybackEnabled && !IsChainMidSegment(rec, recordings))
+                // VesselSpawn at EndUT — vessel materializes after ghost playback.
+                // Skip: disabled playback, mid-chain segments, destroyed terminals (can't spawn
+                // a destroyed vessel), and tree children that aren't the effective vessel leaf.
+                bool isDestroyedTerminal = rec.TerminalStateValue == TerminalState.Destroyed;
+                if (rec.PlaybackEnabled && !IsChainMidSegment(rec, recordings)
+                    && !isDestroyedTerminal && !isTreeChild)
                 {
                     var spawnType = TimelineEntryType.VesselSpawn;
                     entries.Add(new TimelineEntry

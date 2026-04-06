@@ -581,14 +581,15 @@ namespace Parsek.Tests
                 new List<Milestone>(),
                 0);
 
+            // Destroyed terminals are filtered — "Spawn: Destroyed" makes no sense
             var spawns = result.Where(e => e.Type == TimelineEntryType.VesselSpawn).ToList();
-            Assert.Equal(3, spawns.Count);
+            Assert.Equal(2, spawns.Count);
 
             var spawnA = spawns.First(e => e.VesselName == "Ship A");
             Assert.Equal("Spawn: Ship A (Recovered)", spawnA.DisplayText);
 
-            var spawnB = spawns.First(e => e.VesselName == "Ship B");
-            Assert.Equal("Spawn: Ship B (Destroyed)", spawnB.DisplayText);
+            // Ship B (Destroyed) should NOT have a spawn entry
+            Assert.DoesNotContain(spawns, e => e.VesselName == "Ship B");
 
             var spawnC = spawns.First(e => e.VesselName == "Ship C");
             Assert.Equal("Spawn: Ship C", spawnC.DisplayText);
@@ -712,14 +713,15 @@ namespace Parsek.Tests
         [Fact]
         public void ZeroDurationRecording_ProducesValidEntries()
         {
-            var rec = MakeRecording("Instant", 100, 100, terminal: TerminalState.Destroyed);
+            // Destroyed terminals no longer produce spawn entries, so use Landed
+            var rec = MakeRecording("Instant", 100, 100, terminal: TerminalState.Landed);
             var result = TimelineBuilder.Build(
                 new List<Recording> { rec },
                 new List<GameAction>(),
                 new List<Milestone>(),
                 0);
 
-            Assert.Equal(2, result.Count); // Start + Spawn (no RecordingEnd)
+            Assert.Equal(2, result.Count); // Start + Spawn
             Assert.All(result, e => Assert.Equal(100.0, e.UT));
         }
 
