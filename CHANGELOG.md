@@ -17,7 +17,7 @@ All notable changes to Parsek are documented here.
 
 ### Tests
 
-- 20 new unit tests (identity regeneration, PID collection, robotics patching, velocity zeroing). 4970 total passing.
+- 32 new test cases (identity regeneration, PID collection, robotics patching, velocity zeroing, log assertions). 4974 total passing.
 
 ---
 

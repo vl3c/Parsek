@@ -391,7 +391,7 @@ After Parsek spawns an EVA vessel at recording end, switching vessels triggers F
 
 **Priority:** High — likely root cause or contributing factor for #112 and PID collision issues in multi-spawn scenarios
 
-**Status:** Fixed — `RegeneratePartIdentities` with delegate injection regenerates persistentId, flightID (uid), missionID (mid), and launchID per PART node. Returns old→new PID mapping for robotics patching. 7 unit tests.
+**Status:** Fixed — `RegeneratePartIdentities` with delegate injection regenerates persistentId, flightID (uid), missionID (mid), and launchID per PART node. Returns old→new PID mapping for robotics patching.
 
 ## ~~235. Add IgnoreGForces after ProtoVessel.Load on spawn~~
 
@@ -430,7 +430,7 @@ This is a slow leak: each spawn without cleanup adds stale entries. Over a long 
 
 **Priority:** Medium — degradation over long sessions, low risk fix
 
-**Status:** Fixed — `CollectPartPersistentIds` extracts old PIDs; `RegenerateVesselIdentity` removes them from `FlightGlobals.PersistentUnloadedPartIds` before reassigning. 5 unit tests.
+**Status:** Fixed — `CollectPartPersistentIds` extracts old PIDs; `RegenerateVesselIdentity` removes them from `FlightGlobals.PersistentUnloadedPartIds` before reassigning.
 
 ## ~~238. Robotics reference patching for Breaking Ground DLC vessels~~
 
@@ -442,7 +442,7 @@ Only relevant for vessels with Breaking Ground DLC robotics parts using KAL-1000
 
 **Priority:** Low-Medium — only affects DLC robotics vessels, but completely breaks their controllers if hit
 
-**Status:** Fixed — `PatchRoboticsReferences` walks MODULE nodes for `ModuleRoboticController`, remaps PIDs in CONTROLLEDAXES/CONTROLLEDACTIONS/SYMPARTS using mapping from #234. 8 unit tests.
+**Status:** Fixed — `PatchRoboticsReferences` walks MODULE nodes for `ModuleRoboticController`, remaps PIDs in CONTROLLEDAXES/CONTROLLEDACTIONS/SYMPARTS using mapping from #234.
 
 ## ~~239. Post-spawn velocity zeroing for physics stabilization~~
 
@@ -454,7 +454,7 @@ Consider a lightweight post-spawn stabilization: zero all velocities on the spaw
 
 **Priority:** Low — cosmetic (physics jitter on surface spawn), partially mitigated by #231's rotation fix
 
-**Status:** Fixed — `ApplyPostSpawnStabilization` zeroes linear + angular velocity for LANDED/SPLASHED/PRELAUNCH. `ShouldZeroVelocityAfterSpawn` guards against orbital situations. 4 unit tests.
+**Status:** Fixed — `ApplyPostSpawnStabilization` zeroes linear + angular velocity for LANDED/SPLASHED/PRELAUNCH. `ShouldZeroVelocityAfterSpawn` guards against orbital situations.
 
 ---
 
