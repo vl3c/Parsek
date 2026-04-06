@@ -828,7 +828,7 @@ namespace Parsek
                     VesselSpawner.ResolveSpawnPosition(rec, recIdx, lastPt,
                         out spawnLat, out spawnLon, out spawnAlt);
                     VesselSpawner.OverrideSnapshotPosition(spawnSnapshot, spawnLat, spawnLon, spawnAlt,
-                        recIdx, rec.VesselName);
+                        recIdx, rec.VesselName, lastPt.rotation);
                 }
 
                 uint spawnedPid = VesselSpawner.RespawnVessel(spawnSnapshot);

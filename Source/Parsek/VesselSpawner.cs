@@ -269,12 +269,13 @@ namespace Parsek
             // Surface terminal override: for any LANDED/SPLASHED recording, the snapshot
             // position may be from mid-flight (captured before the vessel reached its final
             // rest position). ResolveSpawnPosition clamped the altitude, but RespawnVessel
-            // uses the raw snapshot. Override so both agree. (#231)
+            // uses the raw snapshot. Override position and rotation so the vessel spawns
+            // in its near-landing orientation, not the mid-flight descent pose. (#231)
             if (!isEva && !isBreakupContinuous && rec.VesselSnapshot != null
                 && (rec.TerminalStateValue == TerminalState.Landed || rec.TerminalStateValue == TerminalState.Splashed))
             {
                 OverrideSnapshotPosition(rec.VesselSnapshot, spawnLat, spawnLon, spawnAlt,
-                    index, rec.VesselName);
+                    index, rec.VesselName, lastPt.rotation);
             }
 
             // Dead crew guard: if ALL crew in the snapshot are dead, abandon spawn.
@@ -520,7 +521,7 @@ namespace Parsek
         /// (heat shields, engines, landing legs) underground. The clearance offset ensures the
         /// entire vessel is above the surface so KSP's physics can settle it naturally. (#231)
         /// </summary>
-        internal const double LandedClearanceMeters = 5.0;
+        internal const double LandedClearanceMeters = 2.0;
 
         internal static double ClampAltitudeForLanded(double alt, double terrainAlt,
             int index, string vesselName)
@@ -924,30 +925,31 @@ namespace Parsek
 
         /// <summary>
         /// Overrides the snapshot's lat/lon/alt with the given endpoint coordinates.
-        /// Used for EVA vessels whose snapshot was captured at EVA start (on the pod's
-        /// ladder) but need to spawn at the recording endpoint (where the kerbal walked to).
+        /// Optionally overrides rotation from the last trajectory point so the vessel
+        /// spawns in its near-landing orientation rather than the mid-flight snapshot orientation.
         /// Modifies the snapshot in-place.
         /// </summary>
         internal static void OverrideSnapshotPosition(ConfigNode snapshot,
-            double lat, double lon, double alt, int index, string vesselName)
+            double lat, double lon, double alt, int index, string vesselName,
+            Quaternion? rotation = null)
         {
             if (snapshot == null) return;
 
-            string oldLat = snapshot.GetValue("lat") ?? "?";
-            string oldLon = snapshot.GetValue("lon") ?? "?";
             string oldAlt = snapshot.GetValue("alt") ?? "?";
 
-            string newLat = lat.ToString("R", CultureInfo.InvariantCulture);
-            string newLon = lon.ToString("R", CultureInfo.InvariantCulture);
-            string newAlt = alt.ToString("R", CultureInfo.InvariantCulture);
+            snapshot.SetValue("lat", lat.ToString("R", CultureInfo.InvariantCulture), true);
+            snapshot.SetValue("lon", lon.ToString("R", CultureInfo.InvariantCulture), true);
+            snapshot.SetValue("alt", alt.ToString("R", CultureInfo.InvariantCulture), true);
 
-            snapshot.SetValue("lat", newLat, true);
-            snapshot.SetValue("lon", newLon, true);
-            snapshot.SetValue("alt", newAlt, true);
+            if (rotation.HasValue)
+            {
+                snapshot.SetValue("rot", KSPUtil.WriteQuaternion(rotation.Value), true);
+            }
 
             ParsekLog.Info("Spawner",
                 $"Snapshot position override for #{index} ({vesselName}): " +
-                $"alt {oldAlt} → {newAlt}");
+                $"alt {oldAlt} → {alt.ToString("R", CultureInfo.InvariantCulture)}" +
+                (rotation.HasValue ? " (rot updated)" : ""));
         }
 
         /// <summary>

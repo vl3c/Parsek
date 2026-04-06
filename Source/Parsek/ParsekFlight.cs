@@ -5273,7 +5273,7 @@ namespace Parsek
                         VesselSpawner.ResolveSpawnPosition(leaf, -1, lastPt,
                             out spawnLat, out spawnLon, out spawnAlt);
                         VesselSpawner.OverrideSnapshotPosition(leaf.VesselSnapshot, spawnLat, spawnLon, spawnAlt,
-                            -1, leaf.VesselName);
+                            -1, leaf.VesselName, lastPt.rotation);
                     }
 
                     uint spawnedPid = VesselSpawner.RespawnVessel(leaf.VesselSnapshot);
