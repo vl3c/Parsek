@@ -1527,7 +1527,9 @@ namespace Parsek
             if (game == null)
             {
                 ParsekLog.Warn("Spawner",
-                    "RegenerateVesselIdentity: no CurrentGame — skipping per-part regeneration");
+                    $"RegenerateVesselIdentity: vessel GUID regenerated (pid={newPid}), " +
+                    $"{oldPartPids.Count} old PID(s) cleaned from registry, " +
+                    "but no CurrentGame — per-part regeneration skipped");
                 return;
             }
             uint missionId = (uint)Guid.NewGuid().GetHashCode();
