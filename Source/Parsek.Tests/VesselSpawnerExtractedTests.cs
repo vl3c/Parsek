@@ -198,5 +198,32 @@ namespace Parsek.Tests
         }
 
         #endregion
+
+        #region ShouldZeroVelocityAfterSpawn (#239)
+
+        [Theory]
+        [InlineData("LANDED", true)]
+        [InlineData("SPLASHED", true)]
+        [InlineData("PRELAUNCH", true)]
+        [InlineData("ORBITING", false)]
+        [InlineData("FLYING", false)]
+        [InlineData("SUB_ORBITAL", false)]
+        [InlineData("ESCAPING", false)]
+        [InlineData(null, false)]
+        [InlineData("", false)]
+        public void ShouldZeroVelocityAfterSpawn_CorrectForSituation(string sit, bool expected)
+        {
+            Assert.Equal(expected, VesselSpawner.ShouldZeroVelocityAfterSpawn(sit));
+        }
+
+        [Fact]
+        public void ShouldZeroVelocityAfterSpawn_CaseInsensitive()
+        {
+            Assert.True(VesselSpawner.ShouldZeroVelocityAfterSpawn("landed"));
+            Assert.True(VesselSpawner.ShouldZeroVelocityAfterSpawn("Splashed"));
+            Assert.True(VesselSpawner.ShouldZeroVelocityAfterSpawn("prelaunch"));
+        }
+
+        #endregion
     }
 }

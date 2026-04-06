@@ -383,6 +383,79 @@ After Parsek spawns an EVA vessel at recording end, switching vessels triggers F
 
 **Status:** TODO
 
+## ~~234. Per-part identity regeneration on spawn~~
+
+`RegenerateVesselIdentity` only regenerates vessel-level `pid` (GUID) and zeroes `persistentId`. Per-part IDs are untouched. LazySpawner's `MakeUnique` regenerates six ID types: vessel `vesselID`, vessel `persistentId` (via `FlightGlobals.CheckVesselpersistentId`), per-part `persistentId` (via `FlightGlobals.GetUniquepersistentId`), per-part `flightID` (via `ShipConstruction.GetUniqueFlightID`), per-part `missionID`, and per-part `launchID` (via `game.launchID++`). Without per-part regeneration, spawned copies share part PIDs with the original vessel, which can cause tracking station/map view conflicts and is likely a contributing factor to #112 (spawn blocked by own copy — duplicate part PIDs persist across spawns).
+
+**Reference:** `docs/mods-references/LazySpawner-architecture-analysis.md` §3 (MakeUnique method)
+
+**Priority:** High — likely root cause or contributing factor for #112 and PID collision issues in multi-spawn scenarios
+
+**Status:** Fixed — `RegeneratePartIdentities` with delegate injection regenerates persistentId, flightID (uid), missionID (mid), and launchID per PART node. Returns old→new PID mapping for robotics patching. 7 unit tests.
+
+## ~~235. Add IgnoreGForces after ProtoVessel.Load on spawn~~
+
+`RespawnVessel` and `SpawnAtPosition` call `ProtoVessel.Load()` but do not call `vessel.IgnoreGForces(240)` on the newly created vessel. VesselMover demonstrates this is critical: without it, KSP calculates extreme g-forces from the position correction after load and can destroy the vessel immediately. The `MaxSpawnDeathCycles = 3` guard may be treating the symptom of exactly this.
+
+Currently `IgnoreGForces(240)` is only called during ghost positioning (`ParsekFlight.cs:6657`), not after real vessel spawn. A single call right after `pv.Load()` + `pv.vesselRef` validation in both spawn paths could eliminate an entire class of spawn-death cycles.
+
+**Reference:** `docs/mods-references/VesselMover-architecture-analysis.md` §2-3 (g-force suppression)
+
+**Priority:** High — may eliminate spawn-death cycles entirely; low risk (single API call)
+
+**Status:** Fixed — `IgnoreGForces(240)` added after `pv.Load()` in both `RespawnVessel` and `SpawnAtPosition`.
+
+## ~~236. Verify isBackingUp flag in TryBackupSnapshot~~
+
+`TryBackupSnapshot` calls `vessel.BackupVessel()` without explicitly setting `vessel.isBackingUp = true`. LazySpawner explicitly sets this flag because it is required for PartModules to fully serialize their state — without it, some modules silently drop data from the ProtoVessel snapshot. `BackupVessel()` may handle this internally (needs decompilation to verify), but if it doesn't, this could cause incomplete module data leading to broken spawns or ghost visual issues.
+
+**Investigation:** Decompile `Vessel.BackupVessel()` to check whether it sets `isBackingUp` internally. If not, wrap the call:
+```csharp
+vessel.isBackingUp = true;
+ProtoVessel pv = vessel.BackupVessel();
+vessel.isBackingUp = false;
+```
+
+**Reference:** `docs/mods-references/LazySpawner-architecture-analysis.md` §2 (VesselToProtoVessel)
+
+**Priority:** Medium — needs investigation before deciding if a fix is needed
+
+**Status:** Done — `BackupVessel()` sets `isBackingUp = true` internally (confirmed via decompilation). No fix needed. Added documentation comment in `TryBackupSnapshot`.
+
+## ~~237. Clean up global PID registry on identity regeneration~~
+
+When `RegenerateVesselIdentity` sets `persistentId = "0"`, it does not remove the old part PIDs from `FlightGlobals.PersistentUnloadedPartIds`. LazySpawner explicitly calls `FlightGlobals.PersistentUnloadedPartIds.Remove(snapshot.persistentId)` before reassigning each part's persistent ID. Without cleanup, phantom entries accumulate in the global registry over many spawn/revert cycles in a session.
+
+This is a slow leak: each spawn without cleanup adds stale entries. Over a long play session with many spawns and reverts, it could cause PID allocation collisions or unnecessary memory usage.
+
+**Priority:** Medium — degradation over long sessions, low risk fix
+
+**Status:** Fixed — `CollectPartPersistentIds` extracts old PIDs; `RegenerateVesselIdentity` removes them from `FlightGlobals.PersistentUnloadedPartIds` before reassigning. 5 unit tests.
+
+## ~~238. Robotics reference patching for Breaking Ground DLC vessels~~
+
+When part `persistentId`s are regenerated during spawn (once #234 is implemented), `ModuleRoboticController` (KAL-1000) references to those parts break because the controller stores part PIDs in its `CONTROLLEDAXES`/`CONTROLLEDACTIONS` ConfigNodes. LazySpawner fixes this by walking module ConfigNodes and remapping old→new PIDs using a `Dictionary<uint, uint>` built during ID regeneration.
+
+Only relevant for vessels with Breaking Ground DLC robotics parts using KAL-1000 controllers. Should be implemented alongside #234.
+
+**Reference:** `docs/mods-references/LazySpawner-architecture-analysis.md` §4 (UpdateRoboticsReferences)
+
+**Priority:** Low-Medium — only affects DLC robotics vessels, but completely breaks their controllers if hit
+
+**Status:** Fixed — `PatchRoboticsReferences` walks MODULE nodes for `ModuleRoboticController`, remaps PIDs in CONTROLLEDAXES/CONTROLLEDACTIONS/SYMPARTS using mapping from #234. 8 unit tests.
+
+## ~~239. Post-spawn velocity zeroing for physics stabilization~~
+
+VesselMover applies a multi-frame stabilization pattern after spawn: `IgnoreGForces(240)` + `SetWorldVelocity(zero)` + `angularVelocity = zero` + `angularMomentum = zero`. Parsek spawns rely on KSP to settle the vessel naturally after `ProtoVessel.Load()`, which can cause visible physics jitter or bouncing on surface spawns.
+
+Consider a lightweight post-spawn stabilization: zero all velocities on the spawned vessel for 1-2 frames after load. This is more conservative than VesselMover's per-frame approach (which is for interactive repositioning) but would suppress the initial physics impulse from spawn.
+
+**Reference:** `docs/mods-references/VesselMover-architecture-analysis.md` §2 (velocity zeroing)
+
+**Priority:** Low — cosmetic (physics jitter on surface spawn), partially mitigated by #231's rotation fix
+
+**Status:** Fixed — `ApplyPostSpawnStabilization` zeroes linear + angular velocity for LANDED/SPLASHED/PRELAUNCH. `ShouldZeroVelocityAfterSpawn` guards against orbital situations. 4 unit tests.
+
 ---
 
 # In-Game Tests

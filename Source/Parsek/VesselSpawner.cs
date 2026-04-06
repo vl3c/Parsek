@@ -25,6 +25,8 @@ namespace Parsek
             if (vessel == null) return null;
             try
             {
+                // BackupVessel() sets vessel.isBackingUp = true internally (confirmed
+                // via decompilation) — PartModules see the flag during serialization. (#236)
                 ProtoVessel pv = vessel.BackupVessel();
                 if (pv == null) return null;
                 ConfigNode node = new ConfigNode("VESSEL");
@@ -86,6 +88,12 @@ namespace Parsek
                 }
                 if (pv.vesselRef.orbitDriver == null)
                     ParsekLog.Warn("Spawner", "Spawned vessel has no orbitDriver — may not appear in map view");
+
+                // Suppress g-force destruction from spawn position correction (#235)
+                pv.vesselRef.IgnoreGForces(240);
+
+                // Zero velocity for surface spawns to prevent physics jitter (#239)
+                ApplyPostSpawnStabilization(pv.vesselRef, spawnNode.GetValue("sit"));
 
                 GameEvents.onNewVesselCreated.Fire(pv.vesselRef);
 
@@ -184,6 +192,12 @@ namespace Parsek
                 }
                 if (pv.vesselRef.orbitDriver == null)
                     ParsekLog.Warn("Spawner", "SpawnAtPosition vessel has no orbitDriver — may not appear in map view");
+
+                // Suppress g-force destruction from spawn position correction (#235)
+                pv.vesselRef.IgnoreGForces(240);
+
+                // Zero velocity for surface spawns to prevent physics jitter (#239)
+                ApplyPostSpawnStabilization(pv.vesselRef, sit);
 
                 GameEvents.onNewVesselCreated.Fire(pv.vesselRef);
 
@@ -1493,13 +1507,45 @@ namespace Parsek
         /// Regenerate vessel identity fields to avoid PID collisions with the original vessel.
         /// After revert, the original vessel is back on the pad with the same PIDs.
         /// Spawning a copy with identical PIDs causes map view / tracking station issues.
+        /// Regenerates vessel-level GUID + per-part persistentId/flightID/missionID/launchID (#234),
+        /// cleans old PIDs from global registry (#237), patches robotics references (#238).
         /// </summary>
         private static void RegenerateVesselIdentity(ConfigNode spawnNode)
         {
+            // Vessel-level identity
             string newPid = Guid.NewGuid().ToString("N");
             spawnNode.SetValue("pid", newPid, true);
             spawnNode.SetValue("persistentId", "0", true);
-            ParsekLog.Verbose("Spawner", $"Regenerated vessel identity: pid={newPid}");
+
+            // Clean up old part PIDs from global registry before reassigning (#237)
+            List<uint> oldPartPids = CollectPartPersistentIds(spawnNode);
+            for (int i = 0; i < oldPartPids.Count; i++)
+                FlightGlobals.PersistentUnloadedPartIds.Remove(oldPartPids[i]);
+
+            // Regenerate per-part identities (#234)
+            var game = HighLogic.CurrentGame;
+            if (game == null)
+            {
+                ParsekLog.Warn("Spawner",
+                    "RegenerateVesselIdentity: no CurrentGame — skipping per-part regeneration");
+                return;
+            }
+            uint missionId = (uint)Guid.NewGuid().GetHashCode();
+            uint launchId = game.launchID++;
+            var pidMap = RegeneratePartIdentities(spawnNode,
+                () => FlightGlobals.GetUniquepersistentId(),
+                () => ShipConstruction.GetUniqueFlightID(game.flightState),
+                missionId, launchId);
+
+            // Patch robotics controller references with new PIDs (#238)
+            int roboticsPatched = 0;
+            if (pidMap.Count > 0)
+                roboticsPatched = PatchRoboticsReferences(spawnNode, pidMap);
+
+            ParsekLog.Verbose("Spawner",
+                $"Regenerated vessel identity: pid={newPid}, {pidMap.Count} part(s) regenerated, " +
+                $"{oldPartPids.Count} old PID(s) cleaned from registry" +
+                (roboticsPatched > 0 ? $", {roboticsPatched} robotics ref(s) patched" : ""));
         }
 
         private static void EnsureSpawnReadiness(ConfigNode spawnNode)
@@ -1586,6 +1632,152 @@ namespace Parsek
             spawnNode.SetValue("landed", landed ? "True" : "False", true);
             spawnNode.SetValue("splashed", splashed ? "True" : "False", true);
             spawnNode.SetValue("sit", sit, true);
+        }
+
+        /// <summary>
+        /// Collect all non-zero part persistentId values from PART sub-nodes. (#237)
+        /// Used to identify stale entries for removal from the global PID registry.
+        /// </summary>
+        internal static List<uint> CollectPartPersistentIds(ConfigNode vesselNode)
+        {
+            var ids = new List<uint>();
+            if (vesselNode == null) return ids;
+            foreach (ConfigNode partNode in vesselNode.GetNodes("PART"))
+            {
+                string pidStr = partNode.GetValue("persistentId");
+                if (pidStr != null
+                    && uint.TryParse(pidStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out uint pid)
+                    && pid != 0)
+                {
+                    ids.Add(pid);
+                }
+            }
+            return ids;
+        }
+
+        /// <summary>
+        /// Regenerate per-part identity fields (persistentId, flightID, missionID, launchID)
+        /// on all PART sub-nodes. Returns old→new persistentId mapping for robotics patching. (#234)
+        /// Delegate injection allows pure unit testing without KSP runtime.
+        /// </summary>
+        internal static Dictionary<uint, uint> RegeneratePartIdentities(
+            ConfigNode spawnNode,
+            Func<uint> generatePersistentId,
+            Func<uint> generateFlightId,
+            uint missionId,
+            uint launchId)
+        {
+            var pidMap = new Dictionary<uint, uint>();
+            if (spawnNode == null) return pidMap;
+
+            string mid = missionId.ToString(CultureInfo.InvariantCulture);
+            string lid = launchId.ToString(CultureInfo.InvariantCulture);
+
+            foreach (ConfigNode partNode in spawnNode.GetNodes("PART"))
+            {
+                // Track old→new persistentId for robotics reference patching
+                string oldPidStr = partNode.GetValue("persistentId");
+                if (oldPidStr != null
+                    && uint.TryParse(oldPidStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out uint oldPid)
+                    && oldPid != 0)
+                {
+                    uint newPid = generatePersistentId();
+                    pidMap[oldPid] = newPid;
+                    partNode.SetValue("persistentId", newPid.ToString(CultureInfo.InvariantCulture), true);
+                }
+                else
+                {
+                    // Part has no valid persistentId — assign a fresh one without mapping
+                    uint newPid = generatePersistentId();
+                    partNode.SetValue("persistentId", newPid.ToString(CultureInfo.InvariantCulture), true);
+                }
+
+                uint newUid = generateFlightId();
+                partNode.SetValue("uid", newUid.ToString(CultureInfo.InvariantCulture), true);
+                partNode.SetValue("mid", mid, true);
+                partNode.SetValue("launchID", lid, true);
+            }
+
+            return pidMap;
+        }
+
+        /// <summary>
+        /// Remap part persistentId references in ModuleRoboticController (KAL-1000) ConfigNodes
+        /// after per-part identity regeneration. Returns count of PIDs remapped. (#238)
+        /// </summary>
+        internal static int PatchRoboticsReferences(ConfigNode spawnNode, Dictionary<uint, uint> pidMap)
+        {
+            if (spawnNode == null || pidMap == null || pidMap.Count == 0) return 0;
+
+            int remapCount = 0;
+            foreach (ConfigNode partNode in spawnNode.GetNodes("PART"))
+            {
+                foreach (ConfigNode moduleNode in partNode.GetNodes("MODULE"))
+                {
+                    if (moduleNode.GetValue("name") != "ModuleRoboticController")
+                        continue;
+
+                    foreach (ConfigNode axesNode in moduleNode.GetNodes("CONTROLLEDAXES"))
+                    {
+                        foreach (ConfigNode axisNode in axesNode.GetNodes("AXIS"))
+                        {
+                            RemapPidValue(axisNode, "persistentId", pidMap, ref remapCount);
+                            foreach (ConfigNode symNode in axisNode.GetNodes("SYMPARTS"))
+                                RemapPidValue(symNode, "symPersistentId", pidMap, ref remapCount);
+                        }
+                    }
+
+                    foreach (ConfigNode actionsNode in moduleNode.GetNodes("CONTROLLEDACTIONS"))
+                    {
+                        foreach (ConfigNode actionNode in actionsNode.GetNodes("ACTION"))
+                        {
+                            RemapPidValue(actionNode, "persistentId", pidMap, ref remapCount);
+                        }
+                    }
+                }
+            }
+            return remapCount;
+        }
+
+        private static void RemapPidValue(ConfigNode node, string key,
+            Dictionary<uint, uint> pidMap, ref int count)
+        {
+            string val = node.GetValue(key);
+            if (val != null
+                && uint.TryParse(val, NumberStyles.Integer, CultureInfo.InvariantCulture, out uint oldPid)
+                && pidMap.TryGetValue(oldPid, out uint newPid))
+            {
+                node.SetValue(key, newPid.ToString(CultureInfo.InvariantCulture), true);
+                count++;
+            }
+        }
+
+        /// <summary>
+        /// Pure decision: should post-spawn velocity zeroing be applied? (#239)
+        /// Only surface situations need stabilization — orbital/flying vessels must keep velocity.
+        /// </summary>
+        internal static bool ShouldZeroVelocityAfterSpawn(string situation)
+        {
+            if (string.IsNullOrEmpty(situation)) return false;
+            return situation.Equals("LANDED", StringComparison.OrdinalIgnoreCase)
+                || situation.Equals("SPLASHED", StringComparison.OrdinalIgnoreCase)
+                || situation.Equals("PRELAUNCH", StringComparison.OrdinalIgnoreCase);
+        }
+
+        /// <summary>
+        /// Zero linear and angular velocity on a freshly spawned vessel to prevent
+        /// physics jitter on surface spawns. No-op for orbital/flying situations. (#239)
+        /// </summary>
+        internal static void ApplyPostSpawnStabilization(Vessel vessel, string situation)
+        {
+            if (vessel == null || !ShouldZeroVelocityAfterSpawn(situation)) return;
+
+            vessel.SetWorldVelocity(Vector3d.zero);
+            vessel.angularVelocity = Vector3.zero;
+            vessel.angularMomentum = Vector3.zero;
+
+            ParsekLog.Verbose("Spawner",
+                $"Post-spawn stabilization: pid={vessel.persistentId} sit={situation} — velocity zeroed");
         }
 
         #endregion
