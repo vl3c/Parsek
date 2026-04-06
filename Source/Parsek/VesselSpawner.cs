@@ -514,21 +514,38 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Pure: clamp altitude to terrain height for LANDED spawns.
-        /// Always returns terrainAlt — a LANDED vessel belongs on the ground. (#231)
+        /// Pure: clamp altitude to terrain height + clearance for LANDED spawns.
+        /// KSP's alt field positions the vessel's root part (typically the command pod at the top).
+        /// Setting alt = terrainAlt puts the root part at ground level, burying lower parts
+        /// (heat shields, engines, landing legs) underground. The clearance offset ensures the
+        /// entire vessel is above the surface so KSP's physics can settle it naturally. (#231)
         /// </summary>
+        internal const double LandedClearanceMeters = 5.0;
+
         internal static double ClampAltitudeForLanded(double alt, double terrainAlt,
             int index, string vesselName)
         {
             var ic = CultureInfo.InvariantCulture;
-            double delta = alt - terrainAlt;
-            if (System.Math.Abs(delta) > 1.0)
+            double target = terrainAlt + LandedClearanceMeters;
+            double delta = alt - target;
+            if (alt > target)
             {
+                // Above target: clamp down (vessel was still descending when recorded)
                 ParsekLog.Verbose("Spawner",
                     $"Clamped altitude for LANDED spawn #{index} ({vesselName}): " +
-                    $"{alt.ToString("F1", ic)} -> {terrainAlt.ToString("F1", ic)} (delta={delta.ToString("F1", ic)})");
+                    $"{alt.ToString("F1", ic)} -> {target.ToString("F1", ic)} (delta={delta.ToString("F1", ic)})");
+                return target;
             }
-            return terrainAlt;
+            if (alt < terrainAlt)
+            {
+                // Below terrain: clamp up (underground)
+                ParsekLog.Verbose("Spawner",
+                    $"Clamped altitude for LANDED spawn #{index} ({vesselName}): " +
+                    $"{alt.ToString("F1", ic)} -> {target.ToString("F1", ic)} (underground, delta={delta.ToString("F1", ic)})");
+                return target;
+            }
+            // Between terrain and target: already in a reasonable range, leave as-is
+            return alt;
         }
 
         /// <summary>

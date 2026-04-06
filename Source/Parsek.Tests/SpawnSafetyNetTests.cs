@@ -979,40 +979,41 @@ namespace Parsek.Tests
         // ── ClampAltitudeForLanded (pure, testable without CelestialBody) ──
 
         [Fact]
-        public void ClampAltitudeForLanded_AboveTerrain_ClampsDown()
+        public void ClampAltitudeForLanded_HighAboveTerrain_ClampsDown()
         {
-            // Vessel at 500m, terrain at 67m → clamp to 67m (#231)
+            // Vessel at 500m, terrain at 67m → clamp to 67 + 5 = 72m (#231)
+            double target = 67.0 + VesselSpawner.LandedClearanceMeters;
             double result = VesselSpawner.ClampAltitudeForLanded(500.0, 67.0, 3, "Kerbal X");
-            Assert.Equal(67.0, result);
+            Assert.Equal(target, result);
             Assert.Contains(logLines, l =>
-                l.Contains("Clamped altitude") && l.Contains("LANDED") && l.Contains("delta=433.0"));
+                l.Contains("Clamped altitude") && l.Contains("LANDED"));
         }
 
         [Fact]
         public void ClampAltitudeForLanded_BelowTerrain_ClampsUp()
         {
-            // Vessel at -5m, terrain at 67m → clamp to 67m
+            // Vessel at -5m, terrain at 67m → clamp to 67 + 5 = 72m (underground)
+            double target = 67.0 + VesselSpawner.LandedClearanceMeters;
             double result = VesselSpawner.ClampAltitudeForLanded(-5.0, 67.0, 3, "Kerbal X");
-            Assert.Equal(67.0, result);
+            Assert.Equal(target, result);
             Assert.Contains(logLines, l =>
-                l.Contains("Clamped altitude") && l.Contains("LANDED") && l.Contains("delta=-72.0"));
+                l.Contains("Clamped altitude") && l.Contains("underground"));
         }
 
         [Fact]
-        public void ClampAltitudeForLanded_NearTerrain_NoLogNoise()
+        public void ClampAltitudeForLanded_BetweenTerrainAndTarget_Unchanged()
         {
-            // Vessel at 67.3m, terrain at 67.0m → clamp to 67.0m, no log (delta < 1m)
-            double result = VesselSpawner.ClampAltitudeForLanded(67.3, 67.0, 3, "Kerbal X");
-            Assert.Equal(67.0, result);
-            Assert.DoesNotContain(logLines, l => l.Contains("Clamped altitude") && l.Contains("LANDED"));
+            // Vessel at 69m, terrain at 67m, target at 72m → in reasonable range, leave as-is
+            double result = VesselSpawner.ClampAltitudeForLanded(69.0, 67.0, 3, "Kerbal X");
+            Assert.Equal(69.0, result);
         }
 
         [Fact]
-        public void ClampAltitudeForLanded_ExactMatch_NoLogNoise()
+        public void ClampAltitudeForLanded_AtTarget_Unchanged()
         {
-            double result = VesselSpawner.ClampAltitudeForLanded(67.0, 67.0, 3, "Kerbal X");
-            Assert.Equal(67.0, result);
-            Assert.DoesNotContain(logLines, l => l.Contains("Clamped altitude") && l.Contains("LANDED"));
+            double target = 67.0 + VesselSpawner.LandedClearanceMeters;
+            double result = VesselSpawner.ClampAltitudeForLanded(target, 67.0, 3, "Kerbal X");
+            Assert.Equal(target, result);
         }
 
         #endregion
