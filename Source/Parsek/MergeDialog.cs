@@ -407,27 +407,7 @@ namespace Parsek
         }
 
         internal static string FormatDuration(double seconds)
-        {
-            if (double.IsNaN(seconds) || double.IsInfinity(seconds)) return "0s";
-            if (seconds < 0) seconds = 0;
-            if (seconds < 60)
-                return ((int)seconds).ToString(CultureInfo.InvariantCulture) + "s";
-            if (seconds < 3600)
-            {
-                int m = (int)(seconds / 60);
-                int s = (int)(seconds % 60);
-                return s > 0
-                    ? m.ToString(CultureInfo.InvariantCulture) + "m " +
-                      s.ToString(CultureInfo.InvariantCulture) + "s"
-                    : m.ToString(CultureInfo.InvariantCulture) + "m";
-            }
-            int h = (int)(seconds / 3600);
-            int min = (int)((seconds % 3600) / 60);
-            return min > 0
-                ? h.ToString(CultureInfo.InvariantCulture) + "h " +
-                  min.ToString(CultureInfo.InvariantCulture) + "m"
-                : h.ToString(CultureInfo.InvariantCulture) + "h";
-        }
+            => ParsekTimeFormat.FormatDuration(seconds);
 
         #region Extracted helpers
 

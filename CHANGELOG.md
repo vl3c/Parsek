@@ -6,6 +6,20 @@ All notable changes to Parsek are documented here.
 
 ## 0.7.1
 
+### Bug Fixes
+
+- **Fix Settings window GUILayout exception (#217).** The ghost soft caps toggle caused an IMGUI Layout/Repaint mismatch: the early `return` in `DrawGhostSettings` skipped slider controls when caps were disabled, but a toggle click between passes changed the control count. 72 exceptions per session, window stuck at 10px. Fix: sliders always drawn, grayed out via `GUI.enabled` when caps disabled.
+- **Fix W (watch) button staying enabled on debris boosters (#194).** After booster separation, one debris recording could have an active ghost with the W button enabled. Added `IsDebris` guard to watch eligibility check and "Debris is not watchable" tooltip.
+- **Fix vessels and EVA kerbals spawning high in the air (#231).** Vessels with `terminal=Landed` spawned at their last trajectory point altitude (still descending), fell, and exploded. Three spawn paths lacked altitude clamping (flight scene, KSC, tree leaves). Now all paths clamp LANDED to terrain+2m clearance, override snapshot position AND rotation from the last trajectory point. Vessels spawn in their near-landing orientation instead of mid-flight descent pose.
+
+### Code Quality
+
+- **Centralize time conversion system (#187).** Created `ParsekTimeFormat` static class as single source of truth for calendar-aware time formatting. `FormatDuration` (compact: "2d 3h"), `FormatDurationFull` (all units: "1y, 2d, 3h"), and `FormatCountdown` ("T-2d 3h 15m 5s") all respect `GameSettings.KERBIN_TIME`. Replaced 4 duplicate `FormatDuration` implementations (RecordingsTableUI, MergeDialog, TimelineEntryDisplay, ParsekUI) and moved calendar constants from SelectiveSpawnUI. MergeDialog now correctly shows days/years for long recordings. 37 new tests covering both Kerbin and Earth calendars, 4912 total.
+
+---
+
+## 0.7.0+1
+
 ### Location Context (Phase 10)
 
 - **Biome captured at recording start and end.** Timeline shows "Landed at Midlands on Mun" instead of "Landed on Mun". Uses `ScienceUtil.GetExperimentBiome` — works for all stock bodies and biomes.

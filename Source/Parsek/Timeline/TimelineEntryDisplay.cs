@@ -115,29 +115,7 @@ namespace Parsek
         /// E.g., 90061 seconds → "1d, 1h, 1m, 1s". Returns empty string for zero or negative.
         /// </summary>
         internal static string FormatDuration(double seconds)
-        {
-            if (seconds <= 0) return "";
-
-            // KSP uses 6-hour days, 426-day years (Kerbin calendar)
-            long totalSeconds = (long)seconds;
-            long s = totalSeconds % 60;
-            long totalMinutes = totalSeconds / 60;
-            long m = totalMinutes % 60;
-            long totalHours = totalMinutes / 60;
-            long h = totalHours % 6;       // KSP day = 6 hours
-            long totalDays = totalHours / 6;
-            long d = totalDays % 426;       // KSP year = 426 days
-            long y = totalDays / 426;
-
-            var parts = new System.Collections.Generic.List<string>(5);
-            if (y > 0) parts.Add($"{y}y");
-            if (d > 0) parts.Add($"{d}d");
-            if (h > 0) parts.Add($"{h}h");
-            if (m > 0) parts.Add($"{m}m");
-            if (s > 0) parts.Add($"{s}s");
-
-            return parts.Count > 0 ? string.Join(", ", parts.ToArray()) : "";
-        }
+            => ParsekTimeFormat.FormatDurationFull(seconds);
 
         /// <summary>
         /// Display text for a vessel spawn event with situation context.

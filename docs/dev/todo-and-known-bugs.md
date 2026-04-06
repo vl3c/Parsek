@@ -224,11 +224,13 @@ In the Parsek recordings window, the initial launch recording (parent of a tree)
 
 **Status:** TODO
 
-## 187. Centralize time conversion system
+## ~~187. Centralize time conversion system~~
 
 All time formatting (FormatDuration, FormatCountdown, KSPUtil.PrintDateCompact) should use a centralized system that respects the game's calendar settings (day length, year length). Currently FormatDuration hardcodes 6h days / 426d years. Audit all time conversion call sites and unify.
 
-**Status:** TODO
+**Fix:** Created `ParsekTimeFormat` static class as single source of truth for calendar constants and time formatting. `FormatDuration` (compact), `FormatDurationFull` (all components), and `FormatCountdown` all respect `GameSettings.KERBIN_TIME`. Replaced 4 duplicate `FormatDuration` implementations (RecordingsTableUI, MergeDialog, TimelineEntryDisplay, ParsekUI) and moved calendar constants from SelectiveSpawnUI. 37 new unit tests covering both Kerbin and Earth calendars.
+
+**Status:** Fixed
 
 ## 188. Spawned surface vessels clutter map view during ascent
 
@@ -247,11 +249,13 @@ For hyperbolic escape orbits, KSP's `OrbitRendererBase.UpdateSpline` draws the g
 
 **Status:** TODO — needs custom rendering solution
 
-## 194. W (watch) button stays enabled on one booster after separation
+## ~~194. W (watch) button stays enabled on one booster after separation~~
 
 After booster separation, 3 of 4 boosters correctly have W disabled, but one stays enabled. The watch eligibility check (`HasActiveGhost && sameBody && inRange`) doesn't check `IsDebris`. A debris recording can have an active timeline ghost but shouldn't be watchable.
 
-**Status:** TODO — fix
+**Fix:** Added `&& !rec.IsDebris` to the individual recording row watch eligibility check in RecordingsTableUI. Added "Debris is not watchable" tooltip. Group-level W button already filtered debris via `FindGroupMainRecordingIndex`.
+
+**Status:** Fixed
 
 ## 196. Ghost icon popup window should appear next to cursor
 
@@ -265,11 +269,13 @@ Two compounding issues: (1) `TerminalOrbitBody` is null on all recordings at loa
 
 **Status:** TODO — needs investigation into why TerminalOrbitBody is never set, and coordinate frame correction after scene reload.
 
-## 217. Settings window GUILayout exception (Layout/Repaint mismatch)
+## ~~217. Settings window GUILayout exception (Layout/Repaint mismatch)~~
 
 `DrawSettingsWindow` throws `ArgumentException: Getting control N's position in a group with only N controls when doing repaint`. Unity IMGUI bug caused by conditional `GUILayout` calls whose condition changes between Layout and Repaint passes. The window is stuck at 10px height and non-functional. 72 exceptions per session when the settings window is opened.
 
-**Fix:** Ensure all `GUILayout` calls in `DrawSettingsWindow` execute identically in both Layout and Repaint passes. Wrap conditionals around content only (not layout elements).
+**Fix:** Removed the early `return` in `DrawGhostSettings` that conditionally skipped ghost cap slider controls when `ghostCapEnabled` was false. Sliders are now always drawn (for IMGUI Layout/Repaint consistency) but grayed out via `GUI.enabled` when caps are disabled.
+
+**Status:** Fixed
 
 ## 218. Crash breakup debris not recorded when recorder tears down before coalescer
 
@@ -346,6 +352,36 @@ A crew death should appear in the timeline as a distinct event: "Lost: Bob Kerma
 **Fix:** `CaptureStartLocation` now checks `BoundaryAnchor.HasValue` — if set, this is a chain continuation, not a fresh launch. Skips launch site capture alongside EVA and promotion guards.
 
 **Status:** Fixed
+
+## ~~231. Vessels and EVA kerbals spawn high in the air at end of recording~~
+
+Vessels and EVA kerbals with `terminal=Landed` spawned at their last trajectory point altitude (still falling), then KSP reclassified from LANDED→FLYING and they fell and crashed. Multiple root causes: (1) EVA recordings returned early from `ResolveSpawnPosition` before altitude clamping; (2) LANDED altitude clamp only fixed underground spawns; (3) KSC spawn path and SpawnTreeLeaves path had no altitude clamping at all; (4) snapshot rotation was from mid-flight descent, not landing orientation.
+
+**Fix:** Merged EVA and breakup-continuous into a single `useTrajectoryEndpoint` path with no early return. LANDED clamp sets `alt = terrainAlt + 2m` clearance (prevents burying lower parts underground while keeping drop minimal). Applied `ResolveSpawnPosition` + `OverrideSnapshotPosition` to all three spawn paths (flight scene, KSC, tree leaves). Snapshot rotation overridden with last trajectory point's `srfRelRotation` for surface terminals. Extracted `ClampAltitudeForLanded` as pure testable method. All 9 `RespawnVessel` call sites audited.
+
+**Status:** Fixed
+
+## 232. Green sphere fallback for debris ghosts with no snapshot
+
+Debris recordings from mid-air booster collisions have no vessel snapshot. The ghost visual builder falls back to a green sphere. User sees distracting green balls appearing during watch mode playback. KSC ghost path already skips ghosts with no snapshot (`ParsekKSC.cs:473`); flight scene should do the same for debris.
+
+**Fix:** In `GhostPlaybackEngine`, skip ghost creation entirely for debris with no snapshot (instead of sphere fallback). Non-debris keeps sphere fallback as safety net.
+
+**Priority:** Low — cosmetic, only visible during booster breakup playback
+
+**Status:** TODO
+
+## 233. Spawned EVA vessel deleted by crew reservation on scene re-entry
+
+After Parsek spawns an EVA vessel at recording end, switching vessels triggers FLIGHT→FLIGHT scene reload. `CrewReservationManager.RemoveReservedEvaVessels()` re-runs on scene entry: `ReserveCrewIn` re-adds the kerbal to `crewReplacements`, then `RemoveReservedEvaVessels` finds the spawned EVA vessel and deletes it because the kerbal's name is in the replacements dict.
+
+**Root cause:** The reservation system can't distinguish a stale EVA vessel from a quicksave revert (should be removed) from one spawned by Parsek's recording system (should be kept).
+
+**Fix:** In `RemoveReservedEvaVessels`, check if the EVA vessel's `persistentId` matches any committed recording's `SpawnedVesselPersistentId`. If it does, skip removal — it's a legitimately spawned vessel. Build a `HashSet<uint>` of spawned PIDs from `RecordingStore.CommittedRecordings` before the removal loop.
+
+**Priority:** Medium — spawned EVA kerbals disappear on vessel switch
+
+**Status:** TODO
 
 ---
 

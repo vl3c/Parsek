@@ -6,8 +6,19 @@ namespace Parsek.Tests
 {
     #region Test 1 — FormatDuration with days and years
 
-    public class FormatDurationRegressionTests
+    [Collection("Sequential")]
+    public class FormatDurationRegressionTests : IDisposable
     {
+        public FormatDurationRegressionTests()
+        {
+            ParsekTimeFormat.KerbinTimeOverrideForTesting = true;
+        }
+
+        public void Dispose()
+        {
+            ParsekTimeFormat.ResetForTesting();
+        }
+
         [Fact]
         public void FormatDuration_Seconds_ReturnsSecondsOnly()
         {

@@ -816,6 +816,21 @@ namespace Parsek
                 // Same guard as SpawnOrRecoverIfTooClose — prevents on-rails pressure destruction.
                 VesselSpawner.CorrectUnsafeSnapshotSituation(spawnSnapshot, rec.TerminalStateValue);
 
+                // Clamp altitude for surface terminals (#231). The snapshot position may be
+                // from mid-flight (captured while descending). Without clamping, the vessel
+                // spawns high in the air and crashes when unpacked.
+                if (rec.Points.Count > 0
+                    && (rec.TerminalStateValue == TerminalState.Landed
+                        || rec.TerminalStateValue == TerminalState.Splashed))
+                {
+                    var lastPt = rec.Points[rec.Points.Count - 1];
+                    double spawnLat, spawnLon, spawnAlt;
+                    VesselSpawner.ResolveSpawnPosition(rec, recIdx, lastPt,
+                        out spawnLat, out spawnLon, out spawnAlt);
+                    VesselSpawner.OverrideSnapshotPosition(spawnSnapshot, spawnLat, spawnLon, spawnAlt,
+                        recIdx, rec.VesselName, lastPt.rotation);
+                }
+
                 uint spawnedPid = VesselSpawner.RespawnVessel(spawnSnapshot);
                 if (spawnedPid != 0)
                 {

@@ -5262,6 +5262,20 @@ namespace Parsek
                     // Correct unsafe snapshot situation before spawning (#169)
                     VesselSpawner.CorrectUnsafeSnapshotSituation(leaf.VesselSnapshot, leaf.TerminalStateValue);
 
+                    // Clamp altitude for surface terminals (#231). The snapshot position may be
+                    // from mid-flight. Without clamping, the vessel spawns in the air and crashes.
+                    if (leaf.Points.Count > 0
+                        && (leaf.TerminalStateValue == TerminalState.Landed
+                            || leaf.TerminalStateValue == TerminalState.Splashed))
+                    {
+                        var lastPt = leaf.Points[leaf.Points.Count - 1];
+                        double spawnLat, spawnLon, spawnAlt;
+                        VesselSpawner.ResolveSpawnPosition(leaf, -1, lastPt,
+                            out spawnLat, out spawnLon, out spawnAlt);
+                        VesselSpawner.OverrideSnapshotPosition(leaf.VesselSnapshot, spawnLat, spawnLon, spawnAlt,
+                            -1, leaf.VesselName, lastPt.rotation);
+                    }
+
                     uint spawnedPid = VesselSpawner.RespawnVessel(leaf.VesselSnapshot);
                     if (spawnedPid != 0)
                     {

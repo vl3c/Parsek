@@ -8,8 +8,19 @@ namespace Parsek.Tests
     /// Tests for the Recordings Manager window features:
     /// FormatDuration, GetStatusOrder, sort logic, RemoveRecordingAt.
     /// </summary>
-    public class FormatDurationTests
+    [Collection("Sequential")]
+    public class FormatDurationTests : System.IDisposable
     {
+        public FormatDurationTests()
+        {
+            ParsekTimeFormat.KerbinTimeOverrideForTesting = true;
+        }
+
+        public void Dispose()
+        {
+            ParsekTimeFormat.ResetForTesting();
+        }
+
         [Theory]
         [InlineData(0, "0s")]
         [InlineData(1, "1s")]

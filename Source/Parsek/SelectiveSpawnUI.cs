@@ -41,36 +41,21 @@ namespace Parsek
     internal static class SelectiveSpawnUI
     {
         private static readonly CultureInfo IC = CultureInfo.InvariantCulture;
-        private static readonly System.Text.StringBuilder SharedSB = new System.Text.StringBuilder(64);
-
-        // Kerbin time: 6-hour days (21600s), 426-day years
-        // Earth time: 24-hour days (86400s), 365-day years
-        private const int KerbinDaySec = 21600;
-        private const int KerbinYearDays = 426;
-        private const int EarthDaySec = 86400;
-        private const int EarthYearDays = 365;
 
         /// <summary>
-        /// Test hook: when non-null, overrides GameSettings.KERBIN_TIME for unit tests.
+        /// Test hook: delegates to ParsekTimeFormat.KerbinTimeOverrideForTesting.
+        /// Kept for backward compatibility with existing tests.
         /// </summary>
-        internal static bool? KerbinTimeOverrideForTesting;
+        internal static bool? KerbinTimeOverrideForTesting
+        {
+            get => ParsekTimeFormat.KerbinTimeOverrideForTesting;
+            set => ParsekTimeFormat.KerbinTimeOverrideForTesting = value;
+        }
 
-        internal static bool UseKerbinTime =>
-            KerbinTimeOverrideForTesting ?? GameSettings.KERBIN_TIME;
+        internal static bool UseKerbinTime => ParsekTimeFormat.UseKerbinTime;
 
         internal static void GetDayAndYearConstants(out int daySec, out int yearDays)
-        {
-            if (UseKerbinTime)
-            {
-                daySec = KerbinDaySec;
-                yearDays = KerbinYearDays;
-            }
-            else
-            {
-                daySec = EarthDaySec;
-                yearDays = EarthYearDays;
-            }
-        }
+            => ParsekTimeFormat.GetDayAndYearConstants(out daySec, out yearDays);
 
         /// <summary>
         /// Pure: determine whether a ghost qualifies as a spawn candidate.
@@ -150,60 +135,7 @@ namespace Parsek
         /// Returns "T+..." for negative deltas (event in the past).
         /// </summary>
         internal static string FormatCountdown(double deltaSeconds)
-        {
-            string prefix = "T-";
-            if (deltaSeconds < 0)
-            {
-                prefix = "T+";
-                deltaSeconds = -deltaSeconds;
-            }
-
-            GetDayAndYearConstants(out int daySec, out int yearDays);
-            long yearSec = (long)yearDays * daySec;
-
-            long totalSec = (long)deltaSeconds;
-            long years = totalSec / yearSec;
-            totalSec %= yearSec;
-            long days = totalSec / daySec;
-            totalSec %= daySec;
-            long hours = totalSec / 3600;
-            totalSec %= 3600;
-            long minutes = totalSec / 60;
-            long seconds = totalSec % 60;
-
-            var parts = SharedSB;
-            parts.Clear();
-            parts.Append(prefix);
-            bool started = false;
-
-            if (years > 0)
-            {
-                parts.Append(years.ToString(IC));
-                parts.Append("y ");
-                started = true;
-            }
-            if (started || days > 0)
-            {
-                parts.Append(days.ToString(IC));
-                parts.Append("d ");
-                started = true;
-            }
-            if (started || hours > 0)
-            {
-                parts.Append(hours.ToString(IC));
-                parts.Append("h ");
-                started = true;
-            }
-            if (started || minutes > 0)
-            {
-                parts.Append(minutes.ToString(IC));
-                parts.Append("m ");
-            }
-            parts.Append(seconds.ToString(IC));
-            parts.Append('s');
-
-            return parts.ToString();
-        }
+            => ParsekTimeFormat.FormatCountdown(deltaSeconds);
 
         /// <summary>
         /// Pure: format the tooltip for the "Warp to Next Spawn" button.
