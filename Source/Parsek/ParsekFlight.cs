@@ -863,12 +863,7 @@ namespace Parsek
             {
                 var pending = RecordingStore.Pending;
                 pending.ApplyPersistenceArtifactsFrom(captured);
-                // Start location fields are intentionally excluded from ApplyPersistenceArtifactsFrom
-                // (that method copies end-state for chain boundaries). Copy them explicitly here.
-                pending.StartBodyName = captured.StartBodyName;
-                pending.StartBiome = captured.StartBiome;
-                pending.StartSituation = captured.StartSituation;
-                pending.LaunchSiteName = captured.LaunchSiteName;
+                pending.CopyStartLocationFrom(captured);
                 Log("Applied stop-time snapshot/geometry artifacts to pending recording");
             }
             else
@@ -1977,11 +1972,8 @@ namespace Parsek
                     pending.RewindReservedRep = captured.RewindReservedRep;
 
                     // Location context (Phase 10)
-                    pending.StartBodyName = captured.StartBodyName;
-                    pending.StartBiome = captured.StartBiome;
-                    pending.StartSituation = captured.StartSituation;
+                    pending.CopyStartLocationFrom(captured);
                     pending.EndBiome = captured.EndBiome;
-                    pending.LaunchSiteName = captured.LaunchSiteName;
 
                     // Preserve chain membership if this segment was part of a chain
                     chainManager.ApplyChainMetadataTo(pending);

@@ -226,9 +226,10 @@ namespace Parsek
             PlaybackEnabled = source.PlaybackEnabled;
             Hidden = source.Hidden;
             EndBiome = source.EndBiome;
-            // Note: StartBodyName/StartBiome/StartSituation intentionally NOT copied here.
+            // Note: Start location fields intentionally NOT copied here.
             // This method copies end-state from a previous segment onto a new one at chain
             // boundaries. Start fields are captured fresh per segment in StartRecording.
+            // Use CopyStartLocationFrom for explicit start-field propagation.
             TreeId = source.TreeId;
             VesselPersistentId = source.VesselPersistentId;
             TerminalStateValue = source.TerminalStateValue;
@@ -260,6 +261,20 @@ namespace Parsek
             if (source.Controllers != null)
                 Controllers = new List<ControllerInfo>(source.Controllers);
             IsDebris = source.IsDebris;
+        }
+
+        /// <summary>
+        /// Copies start location fields from a source recording.
+        /// Used at commit paths where ApplyPersistenceArtifactsFrom intentionally
+        /// excludes start fields (they're end-state artifacts, not start-state).
+        /// </summary>
+        public void CopyStartLocationFrom(Recording source)
+        {
+            if (source == null) return;
+            StartBodyName = source.StartBodyName;
+            StartBiome = source.StartBiome;
+            StartSituation = source.StartSituation;
+            LaunchSiteName = source.LaunchSiteName;
         }
 
         /// <summary>
