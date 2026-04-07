@@ -74,20 +74,17 @@ Test game actions system with popular mods: CustomBarnKit (non-standard facility
 
 # Known Bugs
 
-## 46. EVA kerbals disappear in water after spawn
+## ~~46. EVA kerbals disappear in water after spawn~~
 
 Player landed in water, EVA'd 3 kerbals from the pad vessel, but 2 of them disappeared. May be KSP's known behavior of destroying EVA kerbals in certain water situations, or a Parsek crew reservation/dedup conflict.
 
 **Observed in:** Same session as #45. After vessel spawn with crew dedup (3 crew removed from spawn snapshot because they were already on the pad vessel from revert), the pad vessel retained the real crew. Player EVA'd from pad vessel; 2 of 3 kerbals vanished shortly after EVA.
 
-**Root cause:** Needs investigation. Possible causes:
-1. KSP destroys EVA kerbals that land in water (known vanilla behavior in some situations)
-2. Parsek `crewReplacements` dict interfered with EVA kerbal persistence
-3. Crew dedup removed crew from the wrong vessel
+**Root cause:** Same mechanism as #233. `RemoveReservedEvaVessels` deletes EVA vessels whose crew name is in `crewReplacements`, including player-created EVA vessels. The crew names were reserved from committed recording snapshots. When `SwapReservedCrewInFlight` ran (on scene re-entry or recording commit), it found the player's EVA vessels and destroyed them. Cause 1 (KSP water behavior) may also be a factor for some disappearances.
 
-**Impact:** Medium — crew members lost unexpectedly.
+**Fix:** Two guards added to `RemoveReservedEvaVessels`: (1) loaded EVA vessels are skipped entirely — they're actively in the physics bubble, not stale quicksave remnants (bug #46). (2) Vessels whose `persistentId` matches a committed recording's `SpawnedVesselPersistentId` are skipped (bug #233).
 
-**Status:** Open — deferred to resource/game actions tracking redesign
+**Status:** Fixed
 
 ## 95. Committed recordings are mutated in several places after commit
 
@@ -331,25 +328,21 @@ The root recording has `ChildBranchPointId` set which means it's effectively a m
 
 **Status:** Open
 
-## 228. Crew reassignment entries appear when kerbals EVA
+## ~~228. Crew reassignment entries appear when kerbals EVA~~
 
 When a kerbal EVAs from a vessel, KSP internally reassigns the remaining crew. The game actions system captures these as KerbalAssignment actions, which appear in the detailed timeline view. These are real KSP events but feel redundant — the player didn't decide to reassign crew, KSP did it automatically as a side effect of the EVA.
 
-**Fix:** Filter out KerbalAssignment actions that occur at the same UT as an EVA branch point. The EVA entry already communicates the crew change — the reassignment is noise.
+**Fix:** `TimelineBuilder.BuildEvaBranchKeys` collects `(parentRecordingId, startUT)` pairs from EVA recordings. `CollectGameActionEntries` skips KerbalAssignment actions whose `(RecordingId, UT)` matches an EVA branch key. The EVA entry already communicates the crew change.
 
-**Priority:** Low — only visible in Detail filter, cosmetic
+**Status:** Fixed
 
-**Status:** Open
+## ~~229. Crew death (CREW_LOST) not shown in timeline~~
 
-## 229. Crew death (CREW_LOST) not shown in timeline
+When a kerbal dies (e.g., Bob hits the ground without a parachute), the timeline had no entry type for crew death — the event was invisible. The recording's terminal state shows "Destroyed" but the destroyed spawn entry is correctly filtered (can't spawn a destroyed vessel).
 
-When a kerbal dies (e.g., Bob hits the ground without a parachute), the recording captures this as a `SegmentEvent` with type `CREW_LOST`. However, the timeline has no entry type for crew death — the event is invisible. The recording's terminal state shows "Destroyed" but the destroyed spawn entry is now correctly filtered (can't spawn a destroyed vessel).
+**Fix:** Added `TimelineEntryType.CrewDeath` (T1 significance). `CollectRecordingEntries` iterates `rec.CrewEndStates` and emits a "Lost: {name} ({vessel})" entry at `rec.EndUT` for each kerbal with `KerbalEndState.Dead`. Red-tinted display color distinguishes death entries from other timeline items.
 
-A crew death should appear in the timeline as a distinct event: "Lost: Bob Kerman" or similar, at the UT of the CREW_LOST segment event. This would make the timeline a complete narrative of the mission.
-
-**Priority:** Medium — important mission events invisible in timeline
-
-**Status:** Open
+**Status:** Fixed
 
 ## ~~230. LaunchSiteName leaks to chain continuation segments~~
 
@@ -375,17 +368,15 @@ Debris recordings from mid-air booster collisions have no vessel snapshot. The g
 
 **Status:** Fixed
 
-## 233. Spawned EVA vessel deleted by crew reservation on scene re-entry
+## ~~233. Spawned EVA vessel deleted by crew reservation on scene re-entry~~
 
 After Parsek spawns an EVA vessel at recording end, switching vessels triggers FLIGHT→FLIGHT scene reload. `CrewReservationManager.RemoveReservedEvaVessels()` re-runs on scene entry: `ReserveCrewIn` re-adds the kerbal to `crewReplacements`, then `RemoveReservedEvaVessels` finds the spawned EVA vessel and deletes it because the kerbal's name is in the replacements dict.
 
 **Root cause:** The reservation system can't distinguish a stale EVA vessel from a quicksave revert (should be removed) from one spawned by Parsek's recording system (should be kept).
 
-**Fix:** In `RemoveReservedEvaVessels`, check if the EVA vessel's `persistentId` matches any committed recording's `SpawnedVesselPersistentId`. If it does, skip removal — it's a legitimately spawned vessel. Build a `HashSet<uint>` of spawned PIDs from `RecordingStore.CommittedRecordings` before the removal loop.
+**Fix:** `ShouldRemoveEvaVessel` now accepts optional `vesselPid` and `spawnedVesselPids` parameters. `RemoveReservedEvaVessels` builds a `HashSet<uint>` of `SpawnedVesselPersistentId` values from `RecordingStore.CommittedRecordings` via `BuildSpawnedVesselPidSet`. EVA vessels whose PID matches a committed recording's spawned PID are kept. Logs guarded vessel count separately.
 
-**Priority:** Medium — spawned EVA kerbals disappear on vessel switch
-
-**Status:** TODO
+**Status:** Fixed
 
 ## ~~234. Per-part identity regeneration on spawn~~
 

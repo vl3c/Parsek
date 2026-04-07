@@ -283,7 +283,12 @@ namespace Parsek
         /// </summary>
         private static void RemoveReservedEvaVessels()
         {
+            // Bug #233: build set of PIDs spawned by committed recordings so we
+            // don't delete EVA vessels that Parsek intentionally created.
+            var spawnedPids = BuildSpawnedVesselPidSet(RecordingStore.CommittedRecordings);
+
             int evaRemoved = 0;
+            int spawnGuarded = 0;
             var allVessels = FlightGlobals.Vessels;
             for (int v = allVessels.Count - 1; v >= 0; v--)
             {
@@ -292,8 +297,28 @@ namespace Parsek
                 if (GhostMapPresence.IsGhostMapVessel(vessel.persistentId)) continue;
                 if (!vessel.isEVA) continue;
 
+                // Bug #46: don't remove loaded EVA vessels — they're actively in the
+                // physics bubble (player-created or recently spawned). Only remove
+                // packed/unloaded stale EVA vessels from quicksave.
+                if (vessel.loaded)
+                {
+                    string loadedName = GetEvaCrewName(vessel);
+                    if (crewReplacements.ContainsKey(loadedName ?? ""))
+                    {
+                        spawnGuarded++;
+                        CrewLog($"Kept loaded EVA vessel '{loadedName}' (pid={vessel.persistentId}) — in physics bubble");
+                    }
+                    continue;
+                }
+
                 string evaCrewName = GetEvaCrewName(vessel);
-                if (!ShouldRemoveEvaVessel(true, evaCrewName, crewReplacements)) continue;
+                if (!ShouldRemoveEvaVessel(true, evaCrewName, crewReplacements,
+                    vessel.persistentId, spawnedPids))
+                {
+                    if (crewReplacements.ContainsKey(evaCrewName ?? ""))
+                        spawnGuarded++;
+                    continue;
+                }
 
                 CrewLog($"Removing reserved EVA vessel '{evaCrewName}' (pid={vessel.persistentId})");
 
@@ -314,6 +339,9 @@ namespace Parsek
                 }
                 evaRemoved++;
             }
+
+            if (spawnGuarded > 0)
+                CrewLog($"Kept {spawnGuarded} spawned EVA vessel(s) (matched committed recording PID)");
 
             if (evaRemoved > 0)
             {
@@ -431,13 +459,40 @@ namespace Parsek
 
         /// <summary>
         /// Pure decision: should this EVA vessel be removed during crew swap?
-        /// An EVA vessel is removed if its crew member is reserved (in the replacements dict).
+        /// An EVA vessel is removed if its crew member is reserved (in the replacements dict)
+        /// AND the vessel was not spawned by a committed recording (bug #233).
         /// Extracted for testability.
         /// </summary>
         internal static bool ShouldRemoveEvaVessel(
-            bool isEva, string crewName, IReadOnlyDictionary<string, string> replacements)
+            bool isEva, string crewName, IReadOnlyDictionary<string, string> replacements,
+            uint vesselPid = 0, HashSet<uint> spawnedVesselPids = null)
         {
-            return isEva && !string.IsNullOrEmpty(crewName) && replacements.ContainsKey(crewName);
+            if (!isEva || string.IsNullOrEmpty(crewName) || !replacements.ContainsKey(crewName))
+                return false;
+
+            // Bug #233: don't remove EVA vessels that Parsek spawned at recording end
+            if (vesselPid != 0 && spawnedVesselPids != null && spawnedVesselPids.Contains(vesselPid))
+                return false;
+
+            return true;
+        }
+
+        /// <summary>
+        /// Builds a HashSet of SpawnedVesselPersistentId values from committed recordings.
+        /// Used by RemoveReservedEvaVessels to avoid deleting Parsek-spawned EVA vessels (bug #233).
+        /// Extracted for testability.
+        /// </summary>
+        internal static HashSet<uint> BuildSpawnedVesselPidSet(List<Recording> recordings)
+        {
+            var pids = new HashSet<uint>();
+            if (recordings == null) return pids;
+            for (int i = 0; i < recordings.Count; i++)
+            {
+                uint pid = recordings[i].SpawnedVesselPersistentId;
+                if (pid != 0)
+                    pids.Add(pid);
+            }
+            return pids;
         }
 
         /// <summary>
