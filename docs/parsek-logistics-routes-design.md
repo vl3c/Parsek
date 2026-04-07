@@ -155,6 +155,7 @@ internal class Route
     public double DispatchInterval;      // seconds between cycle starts
     public double NextDispatchUT;        // UT of next scheduled dispatch
     public double? PendingDeliveryUT;    // UT when in-transit delivery arrives (null if not in transit)
+    public Dictionary<string, double> PendingDeliveryAmounts; // actual amounts to deliver (computed at dispatch, survives save/load)
 
     // Linking
     public string LinkedRouteId;         // paired route for round-trip (null if standalone)
@@ -213,6 +214,12 @@ ROUTE
     {
         LiquidFuel = 200.0
         Oxidizer = 244.0
+    }
+    PENDING_DELIVERY
+    {
+        // present only when Status == InTransit; actual amounts computed at dispatch
+        LiquidFuel = 100.0
+        Oxidizer = 0.0
     }
 }
 ```
@@ -273,24 +280,26 @@ If validation fails: button is absent or greyed out. Tooltip explains what's mis
 
 **Trigger:** Each physics frame (or once per second during warp), the route scheduler checks all active routes.
 
-**For each route with `NextDispatchUT <= currentUT`:**
+**For each route with Status in {Active, WaitingForResources, DestinationFull} and `NextDispatchUT <= currentUT`:**
+
+This explicitly excludes InTransit (delivery pending), Paused (player-disabled), and EndpointLost (no vessels) routes from dispatch evaluation.
 
 1. **Check round-trip link.** If `LinkedRouteId` is set and the linked route has `Status == InTransit`, skip — wait for partner to complete.
 
-2. **Check destination capacity.** Find vessels at destination endpoint (PID match, or 50m surface proximity). Sum available capacity per delivery resource. If zero capacity for all resources → set `Status = DestinationFull`, increment `SkippedCycles`, advance `NextDispatchUT`. If partial capacity → compute proportional delivery (fraction = min ratio across all delivery resources).
+2. **Check destination capacity.** Find vessels at destination endpoint (PID match, or 50m surface proximity). If NO vessels found at all → set `Status = EndpointLost`, skip cycle (distinct from DestinationFull — EndpointLost means the target is gone, not just full). If vessels found but zero capacity for all resources → set `Status = DestinationFull`, increment `SkippedCycles`, advance `NextDispatchUT`. If partial capacity → compute proportional delivery: per-resource independent, each resource delivers min(deliveryAmount, destinationCapacity). Store actual delivery amounts in `PendingDeliveryAmounts`.
 
-3. **Check origin resources (if non-KSC).** Find vessels at origin endpoint. Sum available amounts per cost resource. If insufficient for any resource (accounting for proportional delivery fraction) → set `Status = WaitingForResources`, do NOT advance `NextDispatchUT` (re-check next frame).
+3. **Check origin resources (if non-KSC).** Find vessels at origin endpoint. If no vessels found at all → set `Status = EndpointLost`, skip cycle. If vessels exist but insufficient resources for full CostManifest (required if any delivery resource is non-zero) → set `Status = WaitingForResources`, do NOT advance `NextDispatchUT` (re-check next frame). Note: only one dispatch per route per evaluation. If the route was waiting for many cycles, it dispatches once and advances NextDispatchUT by one interval. No catch-up storm.
 
-4. **Dispatch.** Deduct cost from origin vessels (proportional if partial delivery). Set `PendingDeliveryUT = currentUT + TransitDuration`. Set `Status = InTransit`. Create ROUTE_DISPATCHED timeline event. Advance `NextDispatchUT`.
+4. **Dispatch.** Origin cost (smart deduction): deduct full CostManifest if ANY delivery resource has non-zero amount (transit fuel was burned regardless of how many resources were actually delivered). Zero deduction only if total delivery is zero across all resources (all at capacity). Store actual delivery amounts in `PendingDeliveryAmounts`. Set `PendingDeliveryUT = currentUT + TransitDuration`. Set `Status = InTransit`. Create ROUTE_DISPATCHED timeline event. Advance `NextDispatchUT`.
 
 ### Delivery execution
 
 **Trigger:** Route has `PendingDeliveryUT <= currentUT`.
 
-1. **Find destination vessels** at endpoint (PID or surface proximity).
-2. **For each resource in the delivery manifest** (proportional amount): distribute across destination vessel tanks. For unloaded vessels: modify `ProtoPartResourceSnapshot.amount` directly, respect `flowState`, clamp to `maxAmount`. For loaded vessels: use `Part.RequestResource()`.
+1. **Find destination vessels** at endpoint (PID or surface proximity). If NO vessels found → clear `PendingDeliveryUT` and `PendingDeliveryAmounts`, set `Status = EndpointLost`, log warning. Resources already deducted from origin are lost (transit cost of a failed delivery). This prevents InTransit deadlock. Return.
+2. **For each resource in `PendingDeliveryAmounts`:** distribute across destination vessel tanks, clamped to current `maxAmount`. For unloaded vessels: modify `ProtoPartResourceSnapshot.amount` directly, respect `flowState`, clamp to `maxAmount`. For loaded vessels: use `Part.RequestResource()`.
 3. **Create ROUTE_DELIVERED timeline event.** Record amounts actually delivered.
-4. **Clear `PendingDeliveryUT`.** Set `Status = Active`. Increment `CompletedCycles`.
+4. **Clear `PendingDeliveryUT` and `PendingDeliveryAmounts`.** Set `Status = Active`. Increment `CompletedCycles`.
 5. **If linked route exists:** the partner route's linked-wait condition is now cleared, allowing its next dispatch.
 
 ### Endpoint vessel resolution
@@ -310,14 +319,21 @@ ResolveEndpointVessels(endpoint):
 
 ```
 SynodicPeriod(originBody, destBody):
-    if originBody == destBody or originBody.referenceBody != destBody.referenceBody:
-        return 0  // same body or not in same system — no transfer window
-    T1 = originBody.orbit.period
-    T2 = destBody.orbit.period
+    if originBody == destBody:
+        return 0  // same body, no transfer window
+    // Walk up to common parent
+    a = originBody, b = destBody
+    while a.referenceBody != b.referenceBody:
+        if a hierarchy depth > b: a = a.referenceBody
+        else: b = b.referenceBody
+        if a is Sun or b is Sun: return 0  // no computable synodic period
+    // a and b now orbit the same parent
+    T1 = a.orbit.period, T2 = b.orbit.period
+    if T1 == T2: return 0
     return abs(1 / (1/T1 - 1/T2))
 ```
 
-Pure math, no KSP API beyond reading orbital periods. Returns 0 if not applicable (same-body routes use player-set interval instead).
+Handles cross-system routes: Mun→Laythe walks up to Kerbin/Jool orbiting Sun. Guards against Sun-orbiting routes and equal-period edge cases. Returns 0 if not applicable (same-body routes use player-set interval instead).
 
 ### Round-trip linking
 
@@ -338,15 +354,16 @@ Player selects two routes in the UI and clicks "Link as Round Trip." Sets `Linke
 
 ### E3. Origin destroyed or recovered (non-KSC)
 **Scenario:** Minmus mining base recovered for funds.
-**Behavior:** No vessels at origin location. `Status = WaitingForResources`. Route persists. When new base is placed at same location, route resumes.
+**Behavior:** If no vessels found at origin at all → `Status = EndpointLost` (same treatment as orbital destination — the endpoint is gone). If vessels exist at origin but lack sufficient resources → `Status = WaitingForResources`. Route persists in both cases. When new base is placed at same location, or resources are resupplied, route resumes.
+**Note:** For surface origins, proximity fallback applies (same 50m rule as destination). For KSC origins, this check is skipped (KSC is always available).
 
 ### E4. Destination tanks full
 **Scenario:** Route delivers 200 LF per cycle. Base has 200/200 LF.
 **Behavior:** `Status = DestinationFull`. Ghost loops visually. Origin NOT deducted. Cycle skipped (`SkippedCycles` incremented). When player uses some fuel, next cycle delivers.
 
 ### E5. Destination partially full
-**Scenario:** Base has room for 50 LF out of 150 LF delivery.
-**Behavior:** Deliver 50 LF. Deduct proportionally from origin (1/3 of cost manifest). Log partial delivery.
+**Scenario:** Base has room for 100 LF but full on Ox. Delivery manifest: 150 LF, 183 Ox.
+**Behavior:** Per-resource independent: deliver 100 LF, 0 Ox. Origin pays full cost (transit fuel was burned). `PendingDeliveryAmounts` stores {LF: 100}. Log partial delivery.
 
 ### E6. Player reverts past a dispatch
 **Scenario:** Route dispatched at UT=50000. Player reverts to UT=49000.
@@ -389,6 +406,18 @@ Player selects two routes in the UI and clicks "Link as Round Trip." Sets `Linke
 ### E15. Save/load round-trip
 **Scenario:** Player saves, loads, routes should persist.
 **Behavior:** All Route fields serialized in ParsekScenario OnSave/OnLoad. Route state (NextDispatchUT, PendingDeliveryUT, Status, CompletedCycles) restored exactly.
+
+---
+
+## v1 Limitations
+
+- **Capacity changes during transit:** Delivery clamps to `maxAmount` at delivery time. Excess silently lost. Origin was already deducted at dispatch.
+- **Zero transit duration:** Dispatch and delivery may process in same frame. Acceptable.
+- **EC-only delivery:** Electric charge fluctuates rapidly. Route status may flicker between Active and DestinationFull. Acceptable for v1.
+- **Resource not on destination:** If delivery manifest includes a resource the destination has no tanks for, that resource is silently skipped (delivered amount = 0).
+- **Origin loaded vs unloaded:** Dispatch deduction uses same loaded/unloaded distinction as delivery (`Part.RequestResource` for loaded, `ProtoPartResourceSnapshot` for unloaded).
+- **Scene handling:** Route scheduler runs in all scenes via ParsekScenario (always active). `FlightGlobals.Vessels` available in all scenes for endpoint resolution.
+- **Revert mechanism:** Route state (`NextDispatchUT`, `PendingDeliveryUT`, `PendingDeliveryAmounts`, `Status`, etc.) is serialized in .sfs. Quicksave load restores the Route ConfigNode. `ParsekScenario.OnLoad` re-reads route state. Timeline events use epoch isolation for revert safety.
 
 ---
 
@@ -478,13 +507,15 @@ Player selects two routes in the UI and clicks "Link as Round Trip." Sets `Linke
 - Non-KSC origin with sufficient resources → dispatch succeeds, origin deducted. *Catches: skipping deduction.*
 - Non-KSC origin with insufficient resources → dispatch delayed. *Catches: dispatching without resources.*
 - Destination full → cycle skipped, origin NOT deducted. *Catches: deducting for wasted delivery.*
-- Destination partially full → proportional delivery and proportional origin deduction. *Catches: full deduction for partial delivery.*
+- Destination partially full → per-resource independent delivery, full origin cost if any resource delivered. *Catches: proportional cost instead of full cost, coupled resources.*
 - Linked route partner in transit → dispatch skipped. *Catches: ignoring link constraint.*
 
 **Synodic period computation**
 - Kerbin-Mun → known value (~6.4 days). *Catches: formula error.*
+- Mun-Laythe → walks up to Kerbin/Jool, computes from their orbital periods. *Catches: cross-system hierarchy walk.*
 - Same body → returns 0. *Catches: division by zero.*
-- Bodies in different systems → returns 0. *Catches: invalid comparison.*
+- Sun-orbiting body → returns 0 when hierarchy walk hits Sun. *Catches: missing guard at top of tree.*
+- Equal orbital periods → returns 0. *Catches: division by zero from T1==T2.*
 
 **Endpoint resolution**
 - Vessel PID exists → return that vessel. *Catches: skipping PID check.*
