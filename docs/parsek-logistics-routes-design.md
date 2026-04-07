@@ -1,18 +1,134 @@
-# Design: Logistics Routes (Phase 11 + 12)
+# Parsek — Logistics Routes Design
 
-## Status: Step 3 — Design Document
+*Design specification for Parsek's automated resource delivery system — covering route creation, dispatch scheduling, resource transfer between unloaded vessels, endpoint resolution, transfer window computation, and round-trip linking across the rewind timeline.*
 
----
+*Parsek is a KSP1 mod for time-rewind mission recording. Players fly missions, commit recordings to a timeline, rewind to earlier points, and see previously recorded missions play back as ghost vessels alongside new ones. This document specifies how looped recordings are extended into logistics routes that physically move resources between vessels.*
 
-## Problem
-
-Parsek records flights and replays them as ghosts. Looped recordings already make ghost vessels fly the same route repeatedly. But the loops are purely visual — no resources actually move. A player who flies a fuel tanker from KSC to their Mun base once should be able to automate that supply run, with real fuel appearing at the destination each cycle.
-
-"Fly it once, automate it forever." The player earns logistics routes by flying them manually. The ghost replays visually on each cycle. Resources move abstractly — deducted at origin, added at destination after transit time. No physical vessel during transit, no physics simulation.
+**Version:** 0.1 (design phase — no implementation yet)
+**Prerequisite:** Phase 11 (Resource Snapshots) must be implemented before routes. Phase 10 (Location Context) is already complete.
+**Out of scope:** Ghost playback engine, recording system, chain structure, game actions recalculation engine. See `parsek-flight-recorder-design.md` and `parsek-game-actions-and-resources-recorder-design.md` for those.
 
 ---
 
-## Terminology
+## 1. Introduction
+
+This document specifies how Parsek turns looped recordings into automated supply routes. It covers:
+
+- What makes a recording eligible to become a route (dock + transfer + undock validation)
+- How the delivery manifest is computed from what the player actually transferred
+- The dispatch cycle: check timing, check capacity, check origin resources, deduct, deliver
+- Endpoint resolution: surface proximity fallback vs orbital PID matching
+- Transfer window scheduling via synodic period computation
+- Round-trip linking for paired one-way routes
+- Resource modification on unloaded vessels via ProtoPartResourceSnapshot
+- Timeline integration with epoch isolation for revert safety
+- Edge cases: destruction, full tanks, competing routes, time warp, reverts
+
+### 1.1 What happens when the player creates a route
+
+The player flies a cargo mission manually — drives a rover with fuel to a base, or launches a tanker to an orbital station. During the flight, they dock at the destination, transfer resources using KSP's standard UI, and undock. Parsek records the whole thing.
+
+After committing the recording, a "Create Route" button appears. Clicking it creates an automated logistics route. Parsek derives everything from the recording: where the route starts and ends, what resources are delivered, how long transit takes, and how much fuel the origin must supply. The player confirms and optionally adjusts the dispatch interval.
+
+### 1.2 What happens each cycle
+
+On schedule, the route evaluates whether delivery is possible. It checks the destination (is there room?), the origin (are there enough resources?), and whether the transit window is open. If everything checks out, origin resources are deducted, and after the recorded transit duration elapses, resources appear at the destination. The ghost replays the recorded flight visually during transit.
+
+### 1.3 What the player sees
+
+| Situation | What happens |
+|-----------|-------------|
+| Create route from recording | System auto-derives origin, destination, delivery manifest, and cost. Player confirms. |
+| Route dispatches on schedule | Origin resources deducted (if non-KSC). Ghost begins replay. |
+| Route delivers after transit | Resources appear in destination vessel tanks. Ghost completes cycle. |
+| Destination tanks full | Cycle skipped. Origin NOT deducted. Ghost loops visually. |
+| Origin runs out of resources | Dispatch delayed until resources available. Route resumes automatically. |
+| Destination destroyed (surface) | Proximity fallback auto-reconnects to rebuilt base at same location. |
+| Destination destroyed (orbital) | Route pauses. Player must re-target to new station. |
+| Player reverts past a dispatch | Epoch isolation invalidates dispatch. Origin resources restored. |
+| Two routes linked as round-trip | They alternate: Route A completes → Route B dispatches → B completes → A dispatches. |
+
+### 1.4 Example: fuel delivery rover
+
+```
+RECORDING (committed):
+  Segment 1: Rover departs KSC runway with 200 LF
+  Segment 2: Rover docks at base (pre-dock: 195 LF)
+  Segment 3: Player transfers 150 LF to base (pre-undock: 45 LF)
+  Segment 4: Rover undocks, drives back to KSC
+
+ROUTE DERIVED:
+  Origin:     KSC runway area (free — no deduction)
+  Destination: base location (from dock event coordinates)
+  Delivery:   150 LF per cycle (195 pre-dock − 45 pre-undock)
+  Transit:    recording duration (~10 min)
+  Interval:   player-set (minimum = recording duration)
+
+EACH CYCLE:
+  UT=0:     Dispatch. Ghost rover starts replay.
+  UT=600:   Delivery. 150 LF added to base tanks.
+            If base full → 0 LF added, origin not deducted.
+```
+
+### 1.5 Example: Minmus mining supply chain
+
+```
+ROUTE A: KSC → Minmus Base (fuel supply)
+  Origin:     KSC (free)
+  Delivery:   800 LF + 978 Ox per cycle
+  Result:     mining base stays fueled for drill + ISRU operation
+
+ROUTE B: Minmus Base → Kerbin Depot (ore delivery)
+  Origin:     Minmus base (non-KSC — must have resources)
+  Cost:       1200 Ore + 600 LF + 733 Ox per cycle (start manifest)
+  Delivery:   1200 Ore per cycle
+  Gate:       dispatch delayed until base has all required resources
+
+CHAIN BEHAVIOR:
+  Route A delivers fuel → base mines ore → Route B ships ore to depot.
+  If Route A stops → base runs dry → Route B pauses indefinitely.
+  If depot tanks full → Route B skips cycles, base accumulates ore.
+```
+
+---
+
+## 2. Design Philosophy
+
+These principles govern every design decision in the logistics system. They are listed here because they inform every section that follows.
+
+### 2.1 Realism and fidelity
+
+1. **Fly it once, automate it forever.** Routes replicate exactly what the player did during the recording. The delivery amount, transit duration, and fuel cost are all derived from the real flight — not configured abstractly.
+
+2. **Transit takes real time.** The route duration equals the recording duration. A 3-year Eeloo transfer takes 3 years per cycle. A 10-minute rover drive takes 10 minutes. No shortcuts.
+
+3. **Transfer windows are respected.** Inter-body routes dispatch at the synodic period of the origin and destination bodies. Same-body routes can dispatch at any time but not faster than the original recording.
+
+### 2.2 Resource safety
+
+4. **No infinite resource glitches.** Routes deliver exactly what was transferred during the recording — no more, no less. KSC origins are free (KSP charges funds to build vessels). Non-KSC origins deduct the transport's full start manifest. Recovery funds from the real vessel are one-time.
+
+5. **Don't waste origin resources.** Origin is only deducted if at least one delivery resource can be accepted at the destination. If destination is completely full, the cycle is skipped and origin pays nothing. Per-resource delivery is independent: each resource fills what fits.
+
+6. **Dock + transfer + undock required.** A route can only be created from a recording where the transport docked, transferred resources, AND undocked (freeing the port for the next cycle). No undock = no route.
+
+### 2.3 Abstraction model
+
+7. **No physical vessel during transit.** Route execution is pure math — deduct at origin, wait, add at destination. The ghost is visual only. No physics, no collisions, no orbit propagation.
+
+8. **Endpoints are locations, not specific vessels.** Surface endpoints use vessel PID as primary match, with 50m coordinate fallback if the vessel is gone. Orbital endpoints use PID only. This survives base rebuilding, vessel replacement, and mod compatibility (transfer tubes, claws, etc.).
+
+9. **The system doesn't produce resources.** Parsek moves resources between locations. Mining, ISRU, and solar power are the player's responsibility. Routes chain naturally: the output of one feeds the input of another.
+
+### 2.4 Timeline integration
+
+10. **Dispatches and deliveries are timeline events.** Route activity participates in the same ledger and epoch isolation system as game actions. Reverts invalidate dispatches from abandoned timelines. Resources are restored via quicksave.
+
+11. **Routes persist across scenes and save/load.** All route state is serialized in the .sfs. The scheduler runs in all scenes via ParsekScenario.
+
+---
+
+## 3. Terminology
 
 **Route** — a separate entity that defines a repeating resource transfer between two locations. Created from a recording that contains a valid dock-transfer-undock sequence. Uses the recording's loop system for timing and ghost visuals.
 
@@ -20,7 +136,7 @@ Parsek records flights and replays them as ghosts. Looped recordings already mak
 
 **Delivery manifest** — the per-resource amounts transferred per cycle. Computed as pre-dock minus pre-undock transport resources (only decreases).
 
-**Start manifest** — the transport vessel's resources at recording start. For non-KSC origins, this is the cost deducted from the origin each cycle (cargo + transit fuel).
+**Cost manifest** — the transport vessel's resources at recording start. For non-KSC origins, this is deducted from the origin each cycle (cargo + transit fuel).
 
 **Dispatch** — the moment a route cycle begins. Origin resources are checked and deducted. A timeline event is created.
 
@@ -30,66 +146,9 @@ Parsek records flights and replays them as ghosts. Looped recordings already mak
 
 ---
 
-## Mental Model
+## 4. Data Model
 
-```
-  RECORDING (one-time flight)
-       │
-       │  player enables "Create Route" after commit
-       ▼
-     ROUTE
-       │
-       ├── Origin endpoint (where transport departed)
-       │     coordinates + body + vessel PID
-       │     KSC = free, non-KSC = deduct start manifest
-       │
-       ├── Destination endpoint (where transport docked)
-       │     coordinates + body + vessel PID
-       │     surface: PID match or 50m proximity fallback
-       │     orbital: PID match only
-       │
-       ├── Delivery manifest (what was transferred)
-       │     pre-dock minus pre-undock, per resource, only decreases
-       │
-       ├── Transit duration (recording duration)
-       │
-       └── Dispatch timing
-             same-SOI: player-set interval (≥ recording duration)
-             inter-body: synodic period of origin + dest bodies
-             player can override
-
-  CYCLE FLOW:
-  ┌─────────────────────────────────────────────────────────┐
-  │                                                         │
-  │  1. Check timing (transfer window / interval elapsed)   │
-  │          │                                              │
-  │          ▼                                              │
-  │  2. Check destination capacity                          │
-  │     └── full → skip cycle, no deduction                 │
-  │     └── partial → compute proportional delivery         │
-  │          │                                              │
-  │          ▼                                              │
-  │  3. Check origin resources (if non-KSC)                 │
-  │     └── insufficient → delay until available            │
-  │          │                                              │
-  │          ▼                                              │
-  │  4. DISPATCH: deduct from origin, create timeline event │
-  │          │                                              │
-  │          ▼                                              │
-  │  5. Wait transit duration (ghost replays visually)      │
-  │          │                                              │
-  │          ▼                                              │
-  │  6. DELIVERY: add to destination, create timeline event │
-  │          │                                              │
-  │          └── loop back to step 1                        │
-  └─────────────────────────────────────────────────────────┘
-```
-
----
-
-## Data Model
-
-### ResourceAmount
+### 4.1 ResourceAmount
 
 ```csharp
 internal struct ResourceAmount
@@ -99,11 +158,7 @@ internal struct ResourceAmount
 }
 ```
 
-### ResourceManifest
-
-A `Dictionary<string, ResourceAmount>` keyed by resource name (e.g., "LiquidFuel", "Oxidizer"). Used for start/end snapshots on recordings and for delivery/cost manifests on routes.
-
-### RouteEndpoint
+### 4.2 RouteEndpoint
 
 ```csharp
 internal struct RouteEndpoint
@@ -113,25 +168,25 @@ internal struct RouteEndpoint
     public double longitude;
     public double altitude;
     public uint vesselPid;         // PID of vessel docked to during recording
-    public bool isOrbital;         // true if endpoint is in orbit (no surface proximity fallback)
+    public bool isOrbital;         // true = no surface proximity fallback
 }
 ```
 
-### RouteStatus enum
+### 4.3 RouteStatus
 
 ```csharp
 internal enum RouteStatus
 {
     Active,             // dispatching on schedule
-    WaitingForResources,// origin doesn't have enough — delayed
+    InTransit,          // dispatched, waiting for transit duration to elapse
+    WaitingForResources,// origin exists but lacks resources — delayed
     DestinationFull,    // destination can't accept delivery — skipping cycles
-    EndpointLost,       // destination vessel gone (orbital) or no vessel at location (surface)
-    Paused,             // player manually paused
-    InTransit           // dispatched, waiting for transit duration to elapse
+    EndpointLost,       // destination/origin vessel gone (orbital PID miss or no surface vessels)
+    Paused              // player manually paused
 }
 ```
 
-### Route
+### 4.4 Route
 
 ```csharp
 internal class Route
@@ -155,7 +210,7 @@ internal class Route
     public double DispatchInterval;      // seconds between cycle starts
     public double NextDispatchUT;        // UT of next scheduled dispatch
     public double? PendingDeliveryUT;    // UT when in-transit delivery arrives (null if not in transit)
-    public Dictionary<string, double> PendingDeliveryAmounts; // actual amounts to deliver (computed at dispatch, survives save/load)
+    public Dictionary<string, double> PendingDeliveryAmounts; // actual amounts (computed at dispatch, survives save/load)
 
     // Linking
     public string LinkedRouteId;         // paired route for round-trip (null if standalone)
@@ -167,7 +222,7 @@ internal class Route
 }
 ```
 
-### Serialization (ConfigNode in .sfs)
+### 4.5 Serialization format
 
 ```
 ROUTE
@@ -217,7 +272,7 @@ ROUTE
     }
     PENDING_DELIVERY
     {
-        // present only when Status == InTransit; actual amounts computed at dispatch
+        // present only when Status == InTransit
         LiquidFuel = 100.0
         Oxidizer = 0.0
     }
@@ -226,7 +281,7 @@ ROUTE
 
 Routes are stored in ParsekScenario's save data alongside recordings and game actions. Additive — saves without routes load fine. Routes reference recordings by ID but are independent entities.
 
-### Recording extensions (Phase 11)
+### 4.6 Recording extensions (Phase 11)
 
 Two new optional fields on Recording:
 
@@ -249,73 +304,115 @@ Additive — missing node = no data. No format version bump.
 
 ---
 
-## Behavior
+## 5. Route Creation
 
-### Route creation
+### 5.1 Validation
 
-**Trigger:** Player clicks "Create Route" on a committed recording in the Recordings Manager.
+A recording qualifies as a route if and only if:
 
-**Validation:** The recording qualifies only if:
 1. At least one dock event exists (PartEventType.Docked boundary in chain)
 2. At least one undock event exists AFTER the dock (PartEventType.Undocked boundary)
 3. At least one resource decreased on the transport between the dock and undock snapshots
 
-If validation fails: button is absent or greyed out. Tooltip explains what's missing (e.g., "Transport must undock from destination to enable route").
+If validation fails: "Create Route" button is absent or greyed out with tooltip explaining what's missing (e.g., "Transport must undock from destination to enable route — docking port needs to be free for the next cycle").
 
-**Route derivation (automatic):**
-- Origin = recording start location (body + coordinates from first trajectory point)
-- Destination = dock event location (body + coordinates from dock boundary trajectory point)
-- Origin vessel PID = vessel PID at recording start (for non-KSC origin resource checking)
-- Destination vessel PID = PID of vessel docked to (from the dock event's PartEvent data or the chain boundary metadata)
-- IsKscOrigin = true if origin body is Kerbin and coordinates are near a launch site
-- DeliveryManifest = ExtractResourceManifest(pre-dock snapshot) minus ExtractResourceManifest(pre-undock snapshot), per resource, only positive deltas
-- CostManifest = ExtractResourceManifest(recording start snapshot) — the full start manifest
-- TransitDuration = recording EndUT minus recording StartUT
-- DispatchInterval = TransitDuration (default; player can increase)
-- For inter-body routes: DispatchInterval defaults to synodic period of origin and destination bodies
+### 5.2 Route derivation
 
-**Player confirmation:** Route configuration panel shows derived values. Player can edit name, dispatch interval, and enable/disable. On confirm, route is created and scheduling begins.
+All values are automatically derived from the recording:
 
-### Dispatch evaluation
+- **Origin** = recording start location (body + coordinates from first trajectory point)
+- **Destination** = dock event location (body + coordinates from dock boundary trajectory point)
+- **Origin vessel PID** = vessel PID at recording start
+- **Destination vessel PID** = PID of vessel docked to (from dock event metadata)
+- **IsKscOrigin** = true if origin body is Kerbin and coordinates are near a launch site
+- **DeliveryManifest** = ExtractResourceManifest(pre-dock) minus ExtractResourceManifest(pre-undock), per resource, only positive deltas
+- **CostManifest** = ExtractResourceManifest(recording start snapshot)
+- **TransitDuration** = recording EndUT minus StartUT
+- **DispatchInterval** = TransitDuration (default; player can increase). For inter-body routes: defaults to synodic period of origin and destination bodies.
 
-**Trigger:** Each physics frame (or once per second during warp), the route scheduler checks all active routes.
+### 5.3 Player confirmation
+
+Route configuration panel shows derived values. Player can edit name, dispatch interval, and enable/disable. On confirm, route is created and scheduling begins.
+
+### 5.4 Multiple dock/undock in one recording
+
+v1: only the LAST dock-transfer-undock sequence counts. The destination is the last docking target. Delivery is from the last dock/undock pair. Multi-stop routes deferred to v2.
+
+---
+
+## 6. Dispatch and Delivery
+
+### 6.1 Dispatch evaluation
+
+**Trigger:** The route scheduler runs each physics frame (or once per second during warp) in all scenes via ParsekScenario.
 
 **For each route with Status in {Active, WaitingForResources, DestinationFull} and `NextDispatchUT <= currentUT`:**
 
-This explicitly excludes InTransit (delivery pending), Paused (player-disabled), and EndpointLost (no vessels) routes from dispatch evaluation.
+Routes with Status InTransit, Paused, or EndpointLost are excluded from dispatch evaluation.
 
-1. **Check round-trip link.** If `LinkedRouteId` is set and the linked route has `Status == InTransit`, skip — wait for partner to complete.
+**Step 1: Check round-trip link.** If `LinkedRouteId` is set and the linked route has `Status == InTransit`, skip — wait for partner to complete.
 
-2. **Check destination capacity.** Find vessels at destination endpoint (PID match, or 50m surface proximity). If NO vessels found at all → set `Status = EndpointLost`, skip cycle (distinct from DestinationFull — EndpointLost means the target is gone, not just full). If vessels found but zero capacity for all resources → set `Status = DestinationFull`, increment `SkippedCycles`, advance `NextDispatchUT`. If partial capacity → compute proportional delivery: per-resource independent, each resource delivers min(deliveryAmount, destinationCapacity). Store actual delivery amounts in `PendingDeliveryAmounts`.
+**Step 2: Check destination.** Find vessels at destination endpoint (§7). If NO vessels found at all → set `Status = EndpointLost`, skip cycle. If vessels found but zero capacity for all delivery resources → set `Status = DestinationFull`, increment `SkippedCycles`, advance `NextDispatchUT`. If capacity available → compute per-resource independent delivery: for each resource, deliver `min(deliveryAmount, destinationCapacity)`. Store in `PendingDeliveryAmounts`.
 
-3. **Check origin resources (if non-KSC).** Find vessels at origin endpoint. If no vessels found at all → set `Status = EndpointLost`, skip cycle. If vessels exist but insufficient resources for full CostManifest (required if any delivery resource is non-zero) → set `Status = WaitingForResources`, do NOT advance `NextDispatchUT` (re-check next frame). Note: only one dispatch per route per evaluation. If the route was waiting for many cycles, it dispatches once and advances NextDispatchUT by one interval. No catch-up storm.
+**Step 3: Check origin (if non-KSC).** Find vessels at origin endpoint (§7). If no vessels found at all → set `Status = EndpointLost`, skip cycle. If vessels exist but insufficient resources for CostManifest → set `Status = WaitingForResources`, do NOT advance `NextDispatchUT` (re-check next frame). Note: only one dispatch per route per evaluation cycle — no catch-up storm.
 
-4. **Dispatch.** Origin cost (smart deduction): deduct full CostManifest if ANY delivery resource has non-zero amount (transit fuel was burned regardless of how many resources were actually delivered). Zero deduction only if total delivery is zero across all resources (all at capacity). Store actual delivery amounts in `PendingDeliveryAmounts`. Set `PendingDeliveryUT = currentUT + TransitDuration`. Set `Status = InTransit`. Create ROUTE_DISPATCHED timeline event. Advance `NextDispatchUT`.
+**Step 4: Dispatch.** Deduct full CostManifest from origin (transit fuel burned regardless of partial delivery). Store actual delivery amounts in `PendingDeliveryAmounts`. Set `PendingDeliveryUT = currentUT + TransitDuration`. Set `Status = InTransit`. Create ROUTE_DISPATCHED timeline event. Advance `NextDispatchUT`.
 
-### Delivery execution
+### 6.2 Delivery execution
 
 **Trigger:** Route has `PendingDeliveryUT <= currentUT`.
 
-1. **Find destination vessels** at endpoint (PID or surface proximity). If NO vessels found → clear `PendingDeliveryUT` and `PendingDeliveryAmounts`, set `Status = EndpointLost`, log warning. Resources already deducted from origin are lost (transit cost of a failed delivery). This prevents InTransit deadlock. Return.
-2. **For each resource in `PendingDeliveryAmounts`:** distribute across destination vessel tanks, clamped to current `maxAmount`. For unloaded vessels: modify `ProtoPartResourceSnapshot.amount` directly, respect `flowState`, clamp to `maxAmount`. For loaded vessels: use `Part.RequestResource()`.
+1. **Find destination vessels** at endpoint (§7). If NO vessels found → clear `PendingDeliveryUT` and `PendingDeliveryAmounts`, set `Status = EndpointLost`, log warning. Resources already deducted from origin are lost (transit cost of a failed delivery). This prevents InTransit deadlock.
+2. **For each resource in `PendingDeliveryAmounts`:** distribute across destination vessel tanks, clamped to current `maxAmount`. For unloaded vessels: modify `ProtoPartResourceSnapshot.amount` directly, respect `flowState`. For loaded vessels: use `Part.RequestResource()`.
 3. **Create ROUTE_DELIVERED timeline event.** Record amounts actually delivered.
 4. **Clear `PendingDeliveryUT` and `PendingDeliveryAmounts`.** Set `Status = Active`. Increment `CompletedCycles`.
-5. **If linked route exists:** the partner route's linked-wait condition is now cleared, allowing its next dispatch.
+5. **If linked route exists:** the partner route's linked-wait condition is now cleared.
 
-### Endpoint vessel resolution
+### 6.3 Per-resource independent delivery
+
+Each delivery resource is evaluated independently:
+
+```
+For each resource in DeliveryManifest:
+    capacity = sum of (maxAmount - amount) across all destination tanks for this resource
+    deliver = min(manifest amount, capacity)
+    PendingDeliveryAmounts[resource] = deliver
+```
+
+Origin cost: deduct full CostManifest if ANY delivery resource has a non-zero amount. Zero deduction only if total delivery is zero across all resources.
+
+---
+
+## 7. Endpoint Resolution
+
+### 7.1 Algorithm
 
 ```
 ResolveEndpointVessels(endpoint):
     1. Find vessel by endpoint.vesselPid in FlightGlobals.Vessels
-       → if found and within reasonable range of endpoint coordinates: return [vessel]
-    2. If not found AND endpoint.isOrbital == true:
+       → if found: return [vessel]
+    2. If not found AND endpoint.isOrbital:
        → return [] (orbital endpoints have no fallback)
     3. If not found AND endpoint is surface:
-       → scan FlightGlobals.Vessels for any vessel within 50m of (body, lat, lon, alt)
-       → return all matches with available tank capacity
+       → scan FlightGlobals.Vessels for all vessels within 50m
+         of (body, lat, lon, alt)
+       → return matches with available tank capacity
 ```
 
-### Synodic period computation
+### 7.2 Surface vs orbital behavior
+
+- **Surface endpoints:** PID primary, 50m proximity fallback. Handles base rebuilding — a new vessel at the same spot auto-becomes the endpoint.
+- **Orbital endpoints:** PID only. Orbital coordinates change every second, so proximity fallback does not work. If an orbital station is destroyed and rebuilt, the player must re-target the route.
+
+### 7.3 Loaded vs unloaded vessels
+
+If the endpoint vessel is loaded (player is within physics range), use `Part.RequestResource()` for resource operations. If unloaded, use `ProtoPartResourceSnapshot.amount` directly. Both paths apply to origin (deduction) and destination (delivery).
+
+---
+
+## 8. Transfer Window Scheduling
+
+### 8.1 Synodic period computation
 
 ```
 SynodicPeriod(originBody, destBody):
@@ -326,272 +423,245 @@ SynodicPeriod(originBody, destBody):
     while a.referenceBody != b.referenceBody:
         if a hierarchy depth > b: a = a.referenceBody
         else: b = b.referenceBody
-        if a is Sun or b is Sun: return 0  // no computable synodic period
+        if a is Sun or b is Sun: return 0
     // a and b now orbit the same parent
     T1 = a.orbit.period, T2 = b.orbit.period
     if T1 == T2: return 0
     return abs(1 / (1/T1 - 1/T2))
 ```
 
-Handles cross-system routes: Mun→Laythe walks up to Kerbin/Jool orbiting Sun. Guards against Sun-orbiting routes and equal-period edge cases. Returns 0 if not applicable (same-body routes use player-set interval instead).
+Handles cross-system routes: Mun→Laythe walks up to Kerbin/Jool orbiting Sun. Guards against Sun-orbiting bodies and equal-period edge cases.
 
-### Round-trip linking
+### 8.2 Dispatch interval rules
 
-Player selects two routes in the UI and clicks "Link as Round Trip." Sets `LinkedRouteId` on both routes. The scheduling constraint: a route with a linked partner skips dispatch if the partner is `InTransit`. Unlinking clears `LinkedRouteId` on both.
+- **Same-body routes:** Player-set interval. Minimum = recording duration.
+- **Inter-body routes:** Default = synodic period. Player can override.
+- **Gravity assist routes:** Two-body synodic approximation (intermediate flybys not tracked). Player can fine-tune.
 
 ---
 
-## Edge Cases
+## 9. Round-Trip Linking
 
-### E1. Destination destroyed, surface base
+### 9.1 How round trips work
+
+A round trip is two separate one-way routes, each from its own recording:
+
+1. Player flies tanker KSC → Station. Parsek spawns real tanker at station after first playback.
+2. Player flies spawned tanker Station → KSC. Second recording created.
+3. Both recordings become routes. Player links them as a round-trip pair.
+
+### 9.2 Scheduling constraint
+
+Linked routes alternate: **don't dispatch me until my partner completes.**
+
+```
+Route A completes → Route B dispatches → Route B completes → Route A dispatches → ...
+```
+
+### 9.3 Implementation
+
+Player selects two routes in the UI and clicks "Link as Round Trip." Sets `LinkedRouteId` on both. The dispatch evaluation (§6.1, step 1) checks whether the partner is `InTransit`. Unlinking clears `LinkedRouteId` on both. Pausing a partner does NOT block the other (linked-wait only applies to `InTransit`).
+
+---
+
+## 10. Edge Cases
+
+### 10.1 Destination destroyed, surface base
 **Scenario:** Mun base destroyed. Player rebuilds at same spot.
-**Behavior:** PID match fails. Surface proximity fallback finds new vessel within 50m. Route auto-reconnects. No player action needed.
-**v1 limitation:** If rebuilt base is >50m from original, route won't find it. Player must create a new route.
+**Behavior:** PID match fails. Surface proximity fallback finds new vessel within 50m. Route auto-reconnects.
+**v1 limitation:** If rebuilt >50m from original, player must create a new route.
 
-### E2. Destination destroyed, orbital station
-**Scenario:** Kerbin station destroyed. Player rebuilds a new station.
-**Behavior:** PID match fails. No proximity fallback for orbital endpoints. `Status = EndpointLost`. Player must re-target route to new station PID via UI.
+### 10.2 Destination destroyed, orbital station
+**Scenario:** Kerbin station destroyed. Player rebuilds.
+**Behavior:** PID match fails. No proximity fallback. `Status = EndpointLost`. Player must re-target.
 
-### E3. Origin destroyed or recovered (non-KSC)
-**Scenario:** Minmus mining base recovered for funds.
-**Behavior:** If no vessels found at origin at all → `Status = EndpointLost` (same treatment as orbital destination — the endpoint is gone). If vessels exist at origin but lack sufficient resources → `Status = WaitingForResources`. Route persists in both cases. When new base is placed at same location, or resources are resupplied, route resumes.
-**Note:** For surface origins, proximity fallback applies (same 50m rule as destination). For KSC origins, this check is skipped (KSC is always available).
+### 10.3 Origin destroyed or recovered (non-KSC)
+**Scenario:** Minmus base recovered for funds.
+**Behavior:** No vessels at origin → `Status = EndpointLost`. Vessels exist but empty → `Status = WaitingForResources`. Route persists. Resumes when resources appear. Surface origins have proximity fallback. KSC origins skip this check.
 
-### E4. Destination tanks full
-**Scenario:** Route delivers 200 LF per cycle. Base has 200/200 LF.
-**Behavior:** `Status = DestinationFull`. Ghost loops visually. Origin NOT deducted. Cycle skipped (`SkippedCycles` incremented). When player uses some fuel, next cycle delivers.
+### 10.4 Destination tanks full
+**Scenario:** Route delivers 200 LF. Base has 200/200 LF.
+**Behavior:** `Status = DestinationFull`. Ghost loops visually. Origin NOT deducted. Resumes when player uses fuel.
 
-### E5. Destination partially full
-**Scenario:** Base has room for 100 LF but full on Ox. Delivery manifest: 150 LF, 183 Ox.
-**Behavior:** Per-resource independent: deliver 100 LF, 0 Ox. Origin pays full cost (transit fuel was burned). `PendingDeliveryAmounts` stores {LF: 100}. Log partial delivery.
+### 10.5 Destination partially full
+**Scenario:** Base has room for 100 LF, full on Ox. Delivery: 150 LF + 183 Ox.
+**Behavior:** Per-resource independent: deliver 100 LF, 0 Ox. Origin pays full CostManifest (transit fuel was burned).
 
-### E6. Player reverts past a dispatch
+### 10.6 Player reverts past a dispatch
 **Scenario:** Route dispatched at UT=50000. Player reverts to UT=49000.
-**Behavior:** Timeline events (ROUTE_DISPATCHED, ROUTE_DELIVERED) are invalidated by epoch isolation. Origin resources restored via quicksave. Route recalculates NextDispatchUT from the restored state.
+**Behavior:** Timeline events invalidated by epoch isolation. Origin resources restored via quicksave. Route state restored from .sfs.
 
-### E7. Time warp past multiple cycles
+### 10.7 Time warp past multiple cycles
 **Scenario:** Three cycles due at UT=50000, 50500, 51000.
-**Behavior:** All processed sequentially. Each dispatch checks origin availability independently. First dispatch may deplete origin, blocking subsequent dispatches.
+**Behavior:** All processed sequentially. Each dispatch checks origin independently. First may deplete origin, blocking subsequent.
 
-### E8. Transport still docked at recording end
-**Scenario:** Player forgets to undock after transferring resources.
-**Behavior:** Route validation fails (no undock event after dock). "Create Route" button absent. Tooltip: "Transport must undock from destination."
+### 10.8 Transport still docked at recording end
+**Scenario:** Player forgets to undock.
+**Behavior:** Validation fails. "Create Route" absent. Tooltip: "Transport must undock from destination."
 
-### E9. No resources transferred during docking
-**Scenario:** Player docks and undocks without transferring anything.
-**Behavior:** Route validation fails (no resource decrease between dock and undock). "Create Route" button absent. Tooltip: "No resource transfer detected during docking."
+### 10.9 No resources transferred during docking
+**Scenario:** Player docks and undocks without transferring.
+**Behavior:** Validation fails. Tooltip: "No resource transfer detected during docking."
 
-### E10. Multiple dock/undock in one recording
-**Scenario:** Recording contains dock→transfer→undock→dock→transfer→undock.
-**Behavior:** v1 — only the LAST dock-transfer-undock sequence counts. The destination is the last docking target. Delivery is from the last dock/undock pair.
-**Future:** Multi-stop routes (multiple deliveries per cycle).
+### 10.10 Multiple dock/undock in one recording
+**Scenario:** Recording has dock→transfer→undock→dock→transfer→undock.
+**Behavior:** v1 — last dock-transfer-undock pair counts. Future: multi-stop routes.
 
-### E11. Route dispatch while player is at destination
-**Scenario:** Player is sitting at the Mun base when delivery is due.
-**Behavior:** Destination vessel is loaded. Use `Part.RequestResource()` instead of `ProtoPartResourceSnapshot`. Resources appear in real-time in the player's view.
+### 10.11 Route dispatch while player is at destination
+**Scenario:** Player at Mun base when delivery arrives.
+**Behavior:** Destination loaded. Uses `Part.RequestResource()`. Resources appear in real-time.
 
-### E12. Competing routes at same origin
-**Scenario:** Two routes share a Minmus base origin. Base has enough for one dispatch but not both.
-**Behavior:** v1 — FIFO by NextDispatchUT. Whichever route's dispatch is due first gets priority. Second route enters `WaitingForResources` until origin is resupplied.
-**Future:** Player-configurable priority ordering.
+### 10.12 Competing routes at same origin
+**Scenario:** Two routes share Minmus base. Base has enough for one, not both.
+**Behavior:** v1 — FIFO by NextDispatchUT. Future: player-configurable priority.
 
-### E13. Linked route partner is paused
-**Scenario:** Route A and B are linked. Player pauses Route B.
-**Behavior:** Route A still dispatches on its own schedule (linked-wait only applies to `InTransit` status, not `Paused`). When B is resumed, the alternation resumes from B's next scheduled dispatch.
+### 10.13 Linked route partner paused
+**Scenario:** Route A and B linked. Player pauses B.
+**Behavior:** A dispatches on its own schedule. B resumes from its next scheduled dispatch when unpaused.
 
-### E14. Recording deleted
-**Scenario:** Player deletes the source recording for a route.
-**Behavior:** Route becomes orphaned — no ghost visual replay (recording gone), but resource transfer logic still works. Route continues to dispatch/deliver on schedule without visuals. Status shows "No ghost" indicator.
+### 10.14 Recording deleted
+**Scenario:** Source recording for a route is deleted.
+**Behavior:** Route orphaned — resource transfers continue, ghost replay absent. "No ghost" indicator in UI.
 
-### E15. Save/load round-trip
-**Scenario:** Player saves, loads, routes should persist.
-**Behavior:** All Route fields serialized in ParsekScenario OnSave/OnLoad. Route state (NextDispatchUT, PendingDeliveryUT, Status, CompletedCycles) restored exactly.
+### 10.15 Save/load round-trip
+**Scenario:** Save, load.
+**Behavior:** All Route fields serialized in ParsekScenario OnSave/OnLoad. State restored exactly.
 
 ---
 
-## v1 Limitations
+## 11. v1 Limitations
 
 - **Capacity changes during transit:** Delivery clamps to `maxAmount` at delivery time. Excess silently lost. Origin was already deducted at dispatch.
 - **Zero transit duration:** Dispatch and delivery may process in same frame. Acceptable.
-- **EC-only delivery:** Electric charge fluctuates rapidly. Route status may flicker between Active and DestinationFull. Acceptable for v1.
-- **Resource not on destination:** If delivery manifest includes a resource the destination has no tanks for, that resource is silently skipped (delivered amount = 0).
-- **Origin loaded vs unloaded:** Dispatch deduction uses same loaded/unloaded distinction as delivery (`Part.RequestResource` for loaded, `ProtoPartResourceSnapshot` for unloaded).
-- **Scene handling:** Route scheduler runs in all scenes via ParsekScenario (always active). `FlightGlobals.Vessels` available in all scenes for endpoint resolution.
-- **Revert mechanism:** Route state (`NextDispatchUT`, `PendingDeliveryUT`, `PendingDeliveryAmounts`, `Status`, etc.) is serialized in .sfs. Quicksave load restores the Route ConfigNode. `ParsekScenario.OnLoad` re-reads route state. Timeline events use epoch isolation for revert safety.
+- **EC-only delivery:** Electric charge fluctuates rapidly. Status may flicker between Active and DestinationFull.
+- **Resource not on destination:** If delivery manifest includes a resource the destination has no tanks for, that resource is silently skipped.
+- **Origin loaded vs unloaded:** Same loaded/unloaded distinction as delivery.
+- **Scene handling:** Route scheduler runs in all scenes via ParsekScenario. `FlightGlobals.Vessels` available for endpoint resolution.
+- **Revert mechanism:** Route state serialized in .sfs. Quicksave load restores Route ConfigNode. Timeline events use epoch isolation.
 
 ---
 
-## What Doesn't Change
+## 12. What Doesn't Change
 
-- **Recording system** — recordings are unchanged. Resource manifests are additive optional metadata.
-- **Loop system** — loop timing, ghost replay, cycle events all work as today. Routes add a delivery hook but don't modify loop behavior.
-- **Ghost playback engine** — no changes to GhostPlaybackEngine, IPlaybackTrajectory, or IGhostPositioner.
+- **Recording system** — recordings unchanged. Resource manifests are additive metadata.
+- **Loop system** — timing, ghost replay, cycle events all work as today. Routes add a delivery hook.
+- **Ghost playback engine** — no changes to GhostPlaybackEngine, IPlaybackTrajectory, IGhostPositioner.
 - **Chain system** — chain segments, dock/undock boundaries, snapshots all unchanged.
 - **Merge dialog** — route creation happens after commit, not during merge.
 - **Crew reservation** — deferred. Routes don't reserve crew in v1.
-- **Game actions system** — route events (DISPATCHED, DELIVERED) are new event types in the existing ledger. No changes to recalculation engine or resource modules.
+- **Game actions system** — route events are new event types in existing ledger. No changes to recalculation engine.
 - **Map markers** — deferred. No map view integration in v1.
 
 ---
 
-## Backward Compatibility
+## 13. Backward Compatibility
 
-- **Saves without routes:** Load fine. No routes created. ROUTE ConfigNode simply absent.
-- **Saves without resource manifests:** Load fine. Recordings without RESOURCE_MANIFEST show no resource info. Route creation is unavailable for recordings without manifests (manifests only captured on new recordings after Phase 11).
-- **Old recordings:** Cannot be converted to routes (no manifest data). Player must re-fly the route to create a new recording with manifests.
-- **Format:** All new data is additive. No version bump. Missing nodes = no data.
+- **Saves without routes:** Load fine. ROUTE ConfigNode absent.
+- **Saves without resource manifests:** Load fine. Route creation unavailable for old recordings (no manifest data).
+- **Old recordings:** Cannot become routes. Player must re-fly to create a recording with manifests.
+- **Format:** All new data additive. No version bump. Missing nodes = no data.
 
 ---
 
-## Diagnostic Logging
+## 14. Diagnostic Logging
 
-### Route creation
-- `[Parsek][INFO][Route] Route created: id={id} name={name} recording={recId} origin={bodyName}({lat},{lon}) dest={bodyName}({lat},{lon}) delivery={manifest} cost={manifest}`
-- `[Parsek][INFO][Route] Route validation failed for recording {recId}: {reason}` (no dock, no undock, no transfer)
+### 14.1 Route creation
+- `[Parsek][INFO][Route] Route created: id={id} name={name} recording={recId} origin={body}({lat},{lon}) dest={body}({lat},{lon}) delivery={manifest} cost={manifest}`
+- `[Parsek][INFO][Route] Route validation failed for recording {recId}: {reason}`
 
-### Dispatch evaluation
+### 14.2 Dispatch evaluation
 - `[Parsek][VERBOSE][Route] Dispatch check: route={name} nextUT={ut} currentUT={ut} status={status}`
-- `[Parsek][INFO][Route] Dispatch: route={name} cycle={n} deducted={amounts} from origin vessel(s) at {body}({lat},{lon})`
+- `[Parsek][INFO][Route] Dispatch: route={name} cycle={n} deducted={amounts} from origin at {body}({lat},{lon})`
 - `[Parsek][INFO][Route] Dispatch delayed: route={name} — origin missing {resource}={needed} (available={have})`
 - `[Parsek][INFO][Route] Dispatch skipped: route={name} — destination full (capacity={amounts})`
 - `[Parsek][INFO][Route] Dispatch skipped: route={name} — linked route {linkedId} in transit`
 
-### Delivery
-- `[Parsek][INFO][Route] Delivery: route={name} cycle={n} delivered={amounts} to {vesselCount} vessel(s) at {body}({lat},{lon})`
-- `[Parsek][INFO][Route] Partial delivery: route={name} — {resource} delivered {actual}/{requested} (destination capacity limited)`
-- `[Parsek][WARN][Route] Delivery failed: route={name} — no vessels at destination {body}({lat},{lon})`
+### 14.3 Delivery
+- `[Parsek][INFO][Route] Delivery: route={name} cycle={n} delivered={amounts} to {count} vessel(s) at {body}({lat},{lon})`
+- `[Parsek][INFO][Route] Partial delivery: route={name} — {resource} delivered {actual}/{requested}`
+- `[Parsek][WARN][Route] Delivery failed: route={name} — no vessels at destination`
 
-### Endpoint resolution
-- `[Parsek][VERBOSE][Route] Endpoint resolve: {type} pid={pid} found={true/false} fallback={proximity/none} vessels={count}`
+### 14.4 Endpoint resolution
+- `[Parsek][VERBOSE][Route] Endpoint resolve: {type} pid={pid} found={bool} fallback={proximity/none} vessels={count}`
 
-### State transitions
-- `[Parsek][INFO][Route] Status change: route={name} {oldStatus} → {newStatus}`
+### 14.5 State transitions
+- `[Parsek][INFO][Route] Status change: route={name} {old} → {new}`
 
-### Timeline events
+### 14.6 Timeline events
 - `[Parsek][INFO][Route] Timeline event: ROUTE_DISPATCHED route={name} ut={ut}`
 - `[Parsek][INFO][Route] Timeline event: ROUTE_DELIVERED route={name} ut={ut} amounts={amounts}`
 
 ---
 
-## Test Plan
+## 15. Test Plan
 
-### Unit tests (pure logic, no Unity)
+### 15.1 Unit tests (pure logic, no Unity)
 
-**ExtractResourceManifest** (T11.1)
+**ExtractResourceManifest**
 - Empty ConfigNode → empty manifest. *Catches: null deref on missing PART nodes.*
 - Single part, one resource → manifest with one entry. *Catches: parsing errors.*
 - Multi-part, same resource → amounts summed. *Catches: overwrite instead of accumulate.*
-- Multiple resource types → all present in manifest. *Catches: single-resource assumption.*
-- Missing RESOURCE node on a part → skipped gracefully. *Catches: null deref.*
-- Zero-amount resource → included (maxAmount matters for capacity). *Catches: filtering out zero amounts.*
+- Multiple resource types → all present. *Catches: single-resource assumption.*
+- Missing RESOURCE node → skipped gracefully. *Catches: null deref.*
+- Zero-amount resource → included (maxAmount matters). *Catches: filtering out zeros.*
 
-**ComputeResourceDelta**
-- Start > end → positive delta (consumed). *Catches: sign inversion.*
-- Start < end → negative delta (gained). *Catches: absolute value bug.*
-- Start == end → zero delta, excluded. *Catches: noise from unchanged resources.*
-
-**ComputeDeliveryManifest** (pre-dock minus pre-undock, only decreases)
+**ComputeDeliveryManifest**
 - Normal transfer: pre-dock 200 LF, pre-undock 50 LF → delivery 150 LF. *Catches: wrong snapshot pair.*
-- Resource increased (EC): pre-dock 50, pre-undock 180 → delivery 0 (ignored). *Catches: including increases.*
-- Multiple resources, mixed: some decrease, some increase → only decreases in manifest. *Catches: all-or-nothing bug.*
-- No decreases → empty manifest (route validation should reject). *Catches: false positive validation.*
+- Resource increased (EC): pre-dock 50, pre-undock 180 → delivery 0. *Catches: including increases.*
+- Mixed: some decrease, some increase → only decreases. *Catches: all-or-nothing.*
+- No decreases → empty manifest (validation rejects). *Catches: false positive.*
 
 **Route validation**
-- Recording with dock + transfer + undock → valid. *Catches: false rejection.*
-- Recording with dock + undock, no transfer → invalid. *Catches: false acceptance.*
-- Recording with dock + transfer, no undock → invalid. *Catches: missing undock check.*
-- Recording with no dock at all → invalid. *Catches: missing dock check.*
+- Dock + transfer + undock → valid. *Catches: false rejection.*
+- Dock + undock, no transfer → invalid. *Catches: false acceptance.*
+- Dock + transfer, no undock → invalid. *Catches: missing undock check.*
+- No dock → invalid. *Catches: missing dock check.*
 
 **Dispatch evaluation**
-- KSC origin, destination has capacity → dispatch succeeds, no origin deduction. *Catches: deducting from KSC.*
-- Non-KSC origin with sufficient resources → dispatch succeeds, origin deducted. *Catches: skipping deduction.*
-- Non-KSC origin with insufficient resources → dispatch delayed. *Catches: dispatching without resources.*
-- Destination full → cycle skipped, origin NOT deducted. *Catches: deducting for wasted delivery.*
-- Destination partially full → per-resource independent delivery, full origin cost if any resource delivered. *Catches: proportional cost instead of full cost, coupled resources.*
-- Linked route partner in transit → dispatch skipped. *Catches: ignoring link constraint.*
+- KSC origin, capacity available → dispatch, no deduction. *Catches: deducting from KSC.*
+- Non-KSC, sufficient → dispatch, deducted. *Catches: skipping deduction.*
+- Non-KSC, insufficient → delayed. *Catches: dispatching without resources.*
+- Destination full → skipped, origin NOT deducted. *Catches: wasted deduction.*
+- Partial capacity → per-resource independent, full cost. *Catches: coupled delivery.*
+- Linked partner in transit → skipped. *Catches: ignoring link.*
 
-**Synodic period computation**
-- Kerbin-Mun → known value (~6.4 days). *Catches: formula error.*
-- Mun-Laythe → walks up to Kerbin/Jool, computes from their orbital periods. *Catches: cross-system hierarchy walk.*
-- Same body → returns 0. *Catches: division by zero.*
-- Sun-orbiting body → returns 0 when hierarchy walk hits Sun. *Catches: missing guard at top of tree.*
-- Equal orbital periods → returns 0. *Catches: division by zero from T1==T2.*
+**Synodic period**
+- Kerbin-Mun → ~6.4 days. *Catches: formula error.*
+- Mun-Laythe → walks to Kerbin/Jool. *Catches: cross-system hierarchy.*
+- Same body → 0. *Catches: division by zero.*
+- Sun-orbiting → 0. *Catches: missing guard.*
+- Equal periods → 0. *Catches: T1==T2 division.*
 
 **Endpoint resolution**
-- Vessel PID exists → return that vessel. *Catches: skipping PID check.*
-- PID gone, surface endpoint, vessel within 50m → return fallback vessel. *Catches: missing fallback.*
-- PID gone, surface endpoint, no vessel within 50m → return empty. *Catches: false match.*
-- PID gone, orbital endpoint → return empty (no fallback). *Catches: orbital proximity fallback.*
+- PID exists → found. *Catches: skipping PID.*
+- PID gone, surface, vessel within 50m → fallback. *Catches: missing fallback.*
+- PID gone, surface, nothing nearby → empty. *Catches: false match.*
+- PID gone, orbital → empty. *Catches: orbital fallback.*
 
-### Log assertion tests
+### 15.2 Log assertion tests
 
-- Route creation logs manifest and endpoint details. *Catches: silent creation.*
-- Dispatch delayed logs which resource is missing and amounts. *Catches: silent delay.*
-- Delivery logs amounts actually delivered per vessel. *Catches: silent delivery.*
-- Status change logs old→new transition. *Catches: silent state change.*
-- Partial delivery logs fraction and reason. *Catches: silent partial.*
+- Route creation logs manifest and endpoints. *Catches: silent creation.*
+- Dispatch delayed logs missing resource and amounts. *Catches: silent delay.*
+- Delivery logs amounts per vessel. *Catches: silent delivery.*
+- Status change logs old→new. *Catches: silent transition.*
+- Partial delivery logs reason. *Catches: silent partial.*
 
-### Serialization round-trip tests
+### 15.3 Serialization round-trip tests
 
-- Route serialize → deserialize → all fields match. *Catches: missing field in save/load.*
-- ResourceManifest serialize → deserialize → amounts match with full precision. *Catches: locale-dependent formatting.*
-- Route with null LinkedRouteId → serialize → deserialize → still null. *Catches: empty string vs null.*
-- Route with PendingDeliveryUT → survives save/load. *Catches: in-transit state lost on reload.*
+- Route serialize → deserialize → all fields match. *Catches: missing field.*
+- ResourceManifest round-trip with full precision. *Catches: locale formatting.*
+- Null LinkedRouteId survives round-trip. *Catches: empty vs null.*
+- In-transit route with PendingDeliveryUT survives. *Catches: transit state lost.*
 
-### Integration tests (synthetic recordings)
+### 15.4 Integration tests (synthetic recordings)
 
-- Create recording with dock+transfer+undock → route validation passes. *Catches: real chain structure mismatch.*
-- Create recording without undock → route validation rejects. *Catches: validation not checking chain events.*
-- Inject route into save file → loads correctly. *Catches: ParsekScenario integration.*
-
----
-
-## Appendix: Gameplay Scenarios (from Step 2)
-
-### Scenario 1: Fuel Delivery Rover (simplest case)
-
-**Setup:** Base with empty fuel tank near KSC. Rover with full tank at runway.
-
-**Player:** Drives to base → docks → transfers 150 LF → undocks → drives back.
-
-**Route:** Delivery 150 LF per cycle. Origin KSC (free). Interval = recording duration.
-
-### Scenario 2: Orbital Monoprop Resupply
-
-**Setup:** Kerbin station at 100km, low on monoprop. Resupply capsule from KSC.
-
-**Player:** Launch → rendezvous → dock → transfer 650 MP → undock → deorbit.
-
-**Route:** Delivery 650 MP per cycle. Origin KSC (free). Ghost visible during launch and station approach (RELATIVE frame tracks station position). Transit is invisible.
-
-### Scenario 3: Minmus Ore Delivery (chained routes)
-
-**Setup:** Mining base on Minmus. Kerbin orbital depot. Two one-way routes.
-
-**Route A:** KSC → Minmus base. Delivers fuel. Free origin.
-**Route B:** Minmus base → Kerbin depot. Delivers 1200 Ore. Non-KSC origin — dispatch gated by resource availability.
-
-Route A feeds Route B. If Route A stops, Minmus base runs dry, Route B pauses.
-
-### Scenario 4: Eeloo Supply Run (interplanetary)
-
-**Setup:** Eeloo base. Supply ship from KSC via Hohmann or gravity assist.
-
-**Route:** Dispatch interval = Kerbin-Eeloo synodic period (~1.9 years). Gravity assists use same two-body synodic approximation. Player can override timing.
-
-### Scenario 5: Failure Cases
-
-- **Destination destroyed (surface):** Proximity fallback auto-reconnects to rebuilt base.
-- **Destination destroyed (orbital):** Route pauses, player re-targets.
-- **Origin empty:** Dispatch delayed until resources available.
-- **Destination full:** Cycle skipped, origin not deducted.
-- **Revert:** Epoch isolation invalidates dispatches from abandoned timeline.
-- **Time warp:** All pending cycles processed sequentially.
-- **Transport still docked:** Route validation rejects (no undock event).
+- Recording with dock+transfer+undock → validation passes. *Catches: chain structure mismatch.*
+- Recording without undock → validation rejects. *Catches: missing chain event check.*
+- Inject route into save → loads correctly. *Catches: ParsekScenario integration.*
 
 ---
 
-## Open Questions (deferred to v2)
+## 16. Open Questions (deferred to v2)
 
 - **Multi-stop routes:** Recording with multiple dock-transfer-undock sequences. v1 uses only the last pair.
 - **Crewed routes:** Crew reservation for route dispatches. v1 ignores crew.
@@ -600,10 +670,29 @@ Route A feeds Route B. If Route A stops, Minmus base runs dry, Route B pauses.
 
 ---
 
-## Reference Documents
+## Appendix A: Gameplay Scenarios (from Step 2)
 
-- `docs/dev/research/logistics-network-design.md` — full logistics network design (research phase)
-- `docs/dev/research/loop-playback-and-logistics.md` — loop mechanics and orbital drift analysis
-- `docs/dev/research/resource-snapshots-preparation.md` — infrastructure analysis and unloaded vessel modification patterns
+### A.1 Fuel Delivery Rover
+Base with empty fuel tank near KSC. Rover drives to base, docks, transfers 150 LF, undocks, drives back. Route: 150 LF per cycle, KSC origin (free), interval = recording duration.
+
+### A.2 Orbital Monoprop Resupply
+Kerbin station at 100km. Capsule from KSC: launch, dock, transfer 650 MP, undock, deorbit. Ghost visible during launch and station approach (RELATIVE frame). Transit invisible.
+
+### A.3 Minmus Ore Delivery (chained routes)
+Route A: KSC → Minmus base (fuel). Route B: Minmus base → Kerbin depot (ore). B is gated by resource availability at Minmus. A feeds B.
+
+### A.4 Eeloo Supply Run (interplanetary)
+Dispatch at Kerbin-Eeloo synodic period (~1.9 years). Gravity assists use same two-body approximation. Player can override.
+
+### A.5 Failure Cases
+Destination destroyed (surface: proximity reconnects; orbital: route pauses). Origin empty (delayed). Destination full (skipped, no deduction). Revert (epoch isolation). Time warp (sequential processing). Transport still docked (validation rejects).
+
+---
+
+## Appendix B: Reference Documents
+
+- `docs/dev/research/logistics-network-design.md` — logistics network research
+- `docs/dev/research/loop-playback-and-logistics.md` — loop mechanics and orbital drift
+- `docs/dev/research/resource-snapshots-preparation.md` — infrastructure analysis and unloaded vessel modification
 - `docs/mods-references/Kerbalism-resource-system-analysis.md` — background resource processing patterns
-- `docs/roadmap.md` — Phase 11 (Resource Snapshots), Phase 11.5 (Optimization), Phase 12 (Logistics)
+- `docs/roadmap.md` — Phase 11, 11.5, 12
