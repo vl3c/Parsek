@@ -24,19 +24,19 @@ Create a `.netkan` file or submit to CKAN indexer so users can install Parsek vi
 
 Don't render full ghost meshes far from camera. Unity LOD groups or manual distance culling.
 
-**Priority:** Low — only matters with many ghosts in Zone 2
+**Priority:** Deferred to Phase 11.5 (Recording Optimization & Observability)
 
 ### T7. Ghost mesh unloading outside active time range
 
 Ghost meshes built for recordings whose UT range is far from current playback time could be unloaded and rebuilt on demand.
 
-**Priority:** Low — memory optimization
+**Priority:** Deferred to Phase 11.5 (Recording Optimization & Observability)
 
 ### T8. Particle system pooling for engine/RCS FX
 
 Engine and RCS particle systems are instantiated per ghost. Pooling would reduce GC pressure with many active ghosts.
 
-**Priority:** Low
+**Priority:** Deferred to Phase 11.5 (Recording Optimization & Observability)
 
 ## TODO — Ghost Visuals
 
@@ -196,9 +196,9 @@ After removing ResourceBudget.ComputeTotal logging (52% of output), remaining sp
 - KSCSpawn "Spawn not needed" at INFO level (54 lines)
 - BgRecorder CheckpointAllVessels checkpointed=0 at INFO (15 lines)
 
-**Priority:** Low — VERBOSE level, but adds up
+**Priority:** Deferred to Phase 11.5 (Recording Optimization & Observability)
 
-**Status:** Open — tracked for next log audit round
+**Status:** Open
 
 ## 166. R buttons disabled after tree commit — rewind saves consumed
 
@@ -291,7 +291,7 @@ When a vessel crashes during an active recording, the recorder is stopped and co
 
 Intermediate tree recordings with 0 trajectory points but non-null VesselSnapshot trigger `PopulateCrewEndStates` on every recalculation walk (36 times in a typical session). These recordings can never have crew.
 
-**Priority:** Low — performance optimization, no functional impact.
+**Priority:** Deferred to Phase 11.5 (Recording Optimization & Observability)
 
 ## ~~224. Vessel not spawned at end of playback when parts break off on splashdown~~
 
