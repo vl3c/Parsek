@@ -143,13 +143,13 @@ After T25 extraction, ParsekFlight still has forwarding properties (`ghostStates
 
 **Status:** Partially fixed — removed 6 dead forwarding methods, inlined 4 remaining call sites. 7 forwarding properties retained as ergonomic aliases — `ghostStates` alone has 17 usages. Actual indirection was ~40 lines, not ~500.
 
-## 154. parsek_38.png texture compression warning
+## ~~154. parsek_38.png texture compression warning~~
 
 KSP warns `Texture resolution is not valid for compression` for the 38x38 toolbar icon. Not a power-of-two size so KSP can't DXT-compress it.
 
-**Fix:** Resize to 32x32 or 64x64.
+**Fix:** Replaced 38x38 and 24x24 toolbar icons with 64x64 and 32x32 power-of-two versions. Updated references in ParsekFlight, ParsekKSC, and release.py.
 
-**Priority:** Low — cosmetic, icon works fine uncompressed
+**Status:** Fixed
 
 ## 156. Missing test coverage from lifecycle simulation
 
@@ -163,17 +163,15 @@ Areas identified by code path simulation that lack unit tests:
 
 **Status:** Partially fixed — item 4 done (7 tests). Items 1-3 deferred to in-game testing.
 
-## 157. Green sphere ghost for debris after ghost-only merge decision
+## ~~157. Green sphere ghost for debris after ghost-only merge decision~~
 
 When a debris recording is set to "ghost-only" in the merge dialog, `ApplyVesselDecisions` nulls `VesselSnapshot`. If `GhostVisualSnapshot` was also null (debris destroyed before snapshot copy), `GetGhostSnapshot` returns null and the ghost falls back to a green sphere.
 
-**Partial fix:** `ApplyVesselDecisions` now copies `VesselSnapshot` to `GhostVisualSnapshot` before nulling the spawn snapshot, if `GhostVisualSnapshot` is not already set.
+**Partial fix (earlier):** `ApplyVesselDecisions` copies `VesselSnapshot` to `GhostVisualSnapshot` before nulling the spawn snapshot.
 
-**Remaining issue:** If the debris was destroyed before ANY snapshot was captured (both null at recording time), the sphere fallback is unavoidable. Could improve by capturing snapshot at the moment of breakup rather than deferring.
+**Full fix:** Pre-capture vessel snapshots at split detection time (when debris vessels are still alive) and store them in the CrashCoalescer. When `CreateBreakupChildRecording` runs 0.5s later and the vessel is gone, use the pre-captured snapshot as fallback for both `GhostVisualSnapshot` and `VesselSnapshot`.
 
-**Priority:** Low — cosmetic (sphere fallback for very-short-lived debris)
-
-**Status:** Partially fixed
+**Status:** Fixed
 
 ## 159. EVA auto-recordings have no rewind save — R button absent
 
@@ -286,11 +284,15 @@ When a vessel crashes during an active recording, the recorder is stopped and co
 
 **Priority:** Low — the vessel recording itself is preserved; only debris ghosts are missing.
 
-## 219. Ghost creation fails for orbital debris chain ("no orbit data")
+## ~~219. Ghost creation fails for orbital debris chain ("no orbit data")~~
 
 `CreateGhostVessel` repeatedly fails for certain orbital debris chains with `no orbit data for chain pid=NNNN`. The orbit segment data exists in the recording but the ghost system cannot access it at creation time. Fires on every flight scene entry.
 
-**Priority:** Low — only affects debris ghost visibility in orbit.
+**Root cause:** `CaptureTerminalOrbit` only runs when `FindVesselByPid` returns a live vessel. Orbital debris with 30s TTL is often destroyed by finalization time.
+
+**Fix:** `PopulateTerminalOrbitFromLastSegment` recovers terminal orbit fields from the last `OrbitSegment` when the vessel is gone at finalization time. Called in `FinalizeIndividualRecording` when vessel is null but recording has orbit segments.
+
+**Status:** Fixed
 
 ## 220. PopulateCrewEndStates called repeatedly for 0-point intermediate recordings
 
@@ -316,17 +318,15 @@ Recording `f8fd04e5` (Kerbal X, chainIndex=1) had both `childBranchPointId` (bre
 
 **Status:** Fixed
 
-## 227. Mid-tree spawn entry for vessel with EVA/staging branch
+## ~~227. Mid-tree spawn entry for vessel with EVA/staging branch~~
 
 When a kerbal EVAs or a stage separates, the tree creates a branch point. The vessel's current recording segment ends at that UT and a continuation recording starts as a tree child. The timeline shows a premature "Spawn: Kerbal X" at the branch time because `IsChainMidSegment` only checks chain segments (optimizer splits), not tree continuation segments.
 
 The root recording has `ChildBranchPointId` set which means it's effectively a mid-tree segment, not a leaf. The vessel should show a single continuous presence from launch to final capsule spawn — EVA kerbals and staging debris are separate branches, not interruptions of the main vessel's timeline.
 
-**Fix:** The spawn entry filter needs to check whether a recording with `ChildBranchPointId` has a same-PID continuation child (analogous to `IsEffectiveLeafForVessel`). If a continuation exists, suppress the spawn entry.
+**Fix:** Added `HasSamePidTreeContinuation` helper to `TimelineBuilder` — flat-list equivalent of `GhostPlaybackLogic.IsEffectiveLeafForVessel`. Two-sided fix: (1) suppress parent spawn when a same-PID continuation child exists, (2) allow tree-child leaf recordings to produce spawn entries when they are the effective leaf for their vessel. Breakup-only recordings (no same-PID continuation) correctly still spawn.
 
-**Priority:** Medium — creates confusing timeline with phantom spawn entries at every EVA/staging boundary
-
-**Status:** Open
+**Status:** Fixed
 
 ## ~~228. Crew reassignment entries appear when kerbals EVA~~
 

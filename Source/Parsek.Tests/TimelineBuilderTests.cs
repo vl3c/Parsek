@@ -814,6 +814,178 @@ namespace Parsek.Tests
         }
 
         // ================================================================
+        // 30. Tree recording with EVA branch — parent suppressed, leaf spawns (#227)
+        // ================================================================
+
+        [Fact]
+        public void TreeRecordingWithEvaBranch_OnlyLeafSpawns()
+        {
+            string branchPointId = "bp-eva-001";
+            uint vesselPid = 42;
+
+            // Root recording: launched, then EVA at UT=300. Has ChildBranchPointId.
+            var root = MakeRecording("Kerbal X", 100, 300, terminal: TerminalState.Landed);
+            root.VesselPersistentId = vesselPid;
+            root.ChildBranchPointId = branchPointId;
+
+            // Continuation child: same vessel PID, picks up after EVA branch
+            var continuation = MakeRecording("Kerbal X", 300, 600, terminal: TerminalState.Landed);
+            continuation.VesselPersistentId = vesselPid;
+            continuation.ParentBranchPointId = branchPointId;
+
+            var result = TimelineBuilder.Build(
+                new List<Recording> { root, continuation },
+                new List<GameAction>(),
+                new List<Milestone>(),
+                0);
+
+            var spawns = result.Where(e => e.Type == TimelineEntryType.VesselSpawn).ToList();
+
+            // Only the continuation leaf should spawn (at UT=600), not the root (UT=300)
+            Assert.Single(spawns);
+            Assert.Equal(600, spawns[0].UT);
+        }
+
+        // ================================================================
+        // 31. Tree recording with breakup-only — effective leaf spawns (#224/#227)
+        // ================================================================
+
+        [Fact]
+        public void TreeRecordingBreakupOnly_EffectiveLeafSpawns()
+        {
+            string branchPointId = "bp-breakup-001";
+            uint vesselPid = 42;
+            uint debrisPid = 99;
+
+            // Root recording: breakup at UT=300, no same-PID continuation (debris only)
+            var root = MakeRecording("Kerbal X", 100, 300, terminal: TerminalState.Splashed);
+            root.VesselPersistentId = vesselPid;
+            root.ChildBranchPointId = branchPointId;
+
+            // Debris child: different vessel PID
+            var debris = MakeRecording("Kerbal X Debris", 300, 310, terminal: TerminalState.Destroyed);
+            debris.VesselPersistentId = debrisPid;
+            debris.ParentBranchPointId = branchPointId;
+            debris.IsDebris = true;
+
+            var result = TimelineBuilder.Build(
+                new List<Recording> { root, debris },
+                new List<GameAction>(),
+                new List<Milestone>(),
+                0);
+
+            var spawns = result.Where(e => e.Type == TimelineEntryType.VesselSpawn).ToList();
+
+            // Root IS the effective leaf (no same-PID continuation) — should spawn
+            Assert.Single(spawns);
+            Assert.Equal(300, spawns[0].UT);
+            Assert.Equal("Kerbal X", spawns[0].VesselName);
+        }
+
+        // ================================================================
+        // 32. HasSamePidTreeContinuation — direct unit tests
+        // ================================================================
+
+        [Fact]
+        public void HasSamePidTreeContinuation_WithContinuation_ReturnsTrue()
+        {
+            string bpId = "bp-001";
+            uint pid = 42;
+
+            var parent = MakeRecording("Ship", 100, 200);
+            parent.VesselPersistentId = pid;
+            parent.ChildBranchPointId = bpId;
+
+            var child = MakeRecording("Ship", 200, 400);
+            child.VesselPersistentId = pid;
+            child.ParentBranchPointId = bpId;
+
+            Assert.True(TimelineBuilder.HasSamePidTreeContinuation(parent, new List<Recording> { parent, child }));
+        }
+
+        [Fact]
+        public void HasSamePidTreeContinuation_DifferentPid_ReturnsFalse()
+        {
+            string bpId = "bp-001";
+
+            var parent = MakeRecording("Ship", 100, 200);
+            parent.VesselPersistentId = 42;
+            parent.ChildBranchPointId = bpId;
+
+            var child = MakeRecording("Debris", 200, 300);
+            child.VesselPersistentId = 99;
+            child.ParentBranchPointId = bpId;
+
+            Assert.False(TimelineBuilder.HasSamePidTreeContinuation(parent, new List<Recording> { parent, child }));
+        }
+
+        [Fact]
+        public void HasSamePidTreeContinuation_NoChildBranchPoint_ReturnsFalse()
+        {
+            var rec = MakeRecording("Ship", 100, 200);
+            rec.VesselPersistentId = 42;
+            // No ChildBranchPointId set
+
+            Assert.False(TimelineBuilder.HasSamePidTreeContinuation(rec, new List<Recording> { rec }));
+        }
+
+        [Fact]
+        public void HasSamePidTreeContinuation_ZeroPid_ReturnsFalse()
+        {
+            string bpId = "bp-001";
+
+            var parent = MakeRecording("Ship", 100, 200);
+            parent.VesselPersistentId = 0; // not set
+            parent.ChildBranchPointId = bpId;
+
+            var child = MakeRecording("Ship", 200, 300);
+            child.VesselPersistentId = 0;
+            child.ParentBranchPointId = bpId;
+
+            Assert.False(TimelineBuilder.HasSamePidTreeContinuation(parent, new List<Recording> { parent, child }));
+        }
+
+        // ================================================================
+        // 33. Multi-branch tree: EVA + staging, only final leaf spawns (#227)
+        // ================================================================
+
+        [Fact]
+        public void MultiBranchTree_OnlyFinalLeafSpawns()
+        {
+            string bp1 = "bp-eva-001";
+            string bp2 = "bp-stage-001";
+            uint vesselPid = 42;
+
+            // Root: launches, EVA at UT=200
+            var root = MakeRecording("Kerbal X", 100, 200);
+            root.VesselPersistentId = vesselPid;
+            root.ChildBranchPointId = bp1;
+
+            // Continuation after EVA: same PID, stages at UT=400
+            var seg1 = MakeRecording("Kerbal X", 200, 400);
+            seg1.VesselPersistentId = vesselPid;
+            seg1.ParentBranchPointId = bp1;
+            seg1.ChildBranchPointId = bp2;
+
+            // Final continuation after staging: same PID, lands at UT=600
+            var seg2 = MakeRecording("Kerbal X", 400, 600, terminal: TerminalState.Landed);
+            seg2.VesselPersistentId = vesselPid;
+            seg2.ParentBranchPointId = bp2;
+
+            var result = TimelineBuilder.Build(
+                new List<Recording> { root, seg1, seg2 },
+                new List<GameAction>(),
+                new List<Milestone>(),
+                0);
+
+            var spawns = result.Where(e => e.Type == TimelineEntryType.VesselSpawn).ToList();
+
+            // Only the final leaf (seg2) should spawn at UT=600
+            Assert.Single(spawns);
+            Assert.Equal(600, spawns[0].UT);
+        }
+
+        // ================================================================
         // 29. HumanizeStrategyId
         // ================================================================
 
