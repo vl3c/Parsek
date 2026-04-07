@@ -8,6 +8,8 @@ All notable changes to Parsek are documented here.
 
 ### Bug Fixes
 
+- **Fix atmospheric ghost markers not appearing in Tracking Station.** `OnGUI` had a terminal state filter that skipped non-Orbiting/non-Docked recordings, blocking atmospheric trajectory markers for SubOrbital, Destroyed, Recovered, and Landed recordings even during their active flight window. The UT range check already handles temporal visibility correctly. Extracted `ShouldDrawAtmosphericMarker` as testable pure method.
+- **Fix delayed proto-vessel ghost creation after merge dialog commit.** When a recording was committed via the merge/approval dialog while in the Tracking Station, proto-vessel ghosts took up to 2 seconds to appear (waiting for the lifecycle tick). Now detects committed recording count changes and forces an immediate lifecycle tick.
 - **Fix Settings window GUILayout exception (#217).** The ghost soft caps toggle caused an IMGUI Layout/Repaint mismatch: the early `return` in `DrawGhostSettings` skipped slider controls when caps were disabled, but a toggle click between passes changed the control count. 72 exceptions per session, window stuck at 10px. Fix: sliders always drawn, grayed out via `GUI.enabled` when caps disabled.
 - **Fix W (watch) button staying enabled on debris boosters (#194).** After booster separation, one debris recording could have an active ghost with the W button enabled. Added `IsDebris` guard to watch eligibility check and "Debris is not watchable" tooltip.
 - **Fix vessels and EVA kerbals spawning high in the air (#231).** Vessels with `terminal=Landed` spawned at their last trajectory point altitude (still descending), fell, and exploded. Three spawn paths lacked altitude clamping (flight scene, KSC, tree leaves). Now all paths clamp LANDED to terrain+2m clearance, override snapshot position AND rotation from the last trajectory point. Vessels spawn in their near-landing orientation instead of mid-flight descent pose.
@@ -35,7 +37,7 @@ All notable changes to Parsek are documented here.
 
 ### Tests
 
-- 76 new test cases. 4981 total passing.
+- 86 new test cases. 4994 total passing.
 
 ### Location Context (Phase 10)
 
