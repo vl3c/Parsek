@@ -29,13 +29,14 @@ All notable changes to Parsek are documented here.
 - **Fix W (watch) button staying enabled on debris boosters (#194).** After booster separation, one debris recording could have an active ghost with the W button enabled. Added `IsDebris` guard to watch eligibility check and "Debris is not watchable" tooltip.
 - **Fix vessels and EVA kerbals spawning high in the air (#231).** Vessels with `terminal=Landed` spawned at their last trajectory point altitude (still descending), fell, and exploded. Three spawn paths lacked altitude clamping (flight scene, KSC, tree leaves). Now all paths clamp LANDED to terrain+2m clearance, override snapshot position AND rotation from the last trajectory point. Vessels spawn in their near-landing orientation instead of mid-flight descent pose.
 
+### Recording Optimizer
+
+- **All-boring leaf recordings now trimmed to minimal window.** After optimizer splits produce an all-SurfaceStationary or all-ExoBallistic leaf recording (e.g., vessel sitting on Mun after approach/surface split), `TrimBoringTail` now trims to `Points[1].ut + buffer` instead of skipping. Previously, these recordings survived indefinitely because `FindLastInterestingUT` returned NaN with no reference point. The ghost now finishes in seconds instead of replaying minutes of stationary vessel.
+- **Documented ChildBranchPointId split invariant.** Added comments in `RecordingStore.RunOptimizationPass` explaining why unconditional move of `ChildBranchPointId` to the second half is safe (BP is always at recording's temporal end) and why `BranchPoint.ChildRecordingIds` doesn't need updating (chain linkage provides the connection).
+
 ### Code Quality
 
 - **Centralize time conversion system (#187).** Created `ParsekTimeFormat` static class as single source of truth for calendar-aware time formatting. `FormatDuration` (compact: "2d 3h"), `FormatDurationFull` (all units: "1y, 2d, 3h"), and `FormatCountdown` ("T-2d 3h 15m 5s") all respect `GameSettings.KERBIN_TIME`. Replaced 4 duplicate `FormatDuration` implementations (RecordingsTableUI, MergeDialog, TimelineEntryDisplay, ParsekUI) and moved calendar constants from SelectiveSpawnUI. MergeDialog now correctly shows days/years for long recordings. 37 new tests covering both Kerbin and Earth calendars, 4912 total.
-
----
-
-## 0.7.0+1
 
 ### Location Context (Phase 10)
 
@@ -51,14 +52,15 @@ All notable changes to Parsek are documented here.
 - **Spawn text shows body name for all terminal states.** Previously only orbital terminals showed the body.
 - **Diagnostic logging for timeline construction.** Each included/excluded entry logged with classification flags and skip reasons.
 
+### Tests
+
+- 4 new test cases (all-boring leaf trim, tree-with-branch-point optimizer integration, all-boring-too-few-points guard, end-to-end approach/surface split+trim). 4977 total passing.
+
 ### Documentation
 
 - **Gloops design document rewritten.** `docs/dev/gloops-recorder-design.md` now grounded in actual codebase — maps 1:1 to existing types (IPlaybackTrajectory, GhostPlaybackEngine). Extraction plan identifies 17 files to move, 2 needing pre-extraction splitting.
 - **Roadmap updated.** Phase 10 renamed to Location Context. Phase 11.5 (Recording Optimization & Observability) added. Phase 15 (Mod Compatibility) added as final phase — stock-first approach. Gloops extraction placed as Phase 13 prerequisite.
-
-### Bug Fixes
-
-- 25 new tests, 4900 total passing.
+- `docs/dev/recording-optimizer-review.md` — full investigation of the recording post-processing optimizer covering multi-environment split logic, branch point re-parenting safety, and two end-to-end mission scenarios (Mun landing, Duna rover to Kerbin sample return).
 
 ---
 
