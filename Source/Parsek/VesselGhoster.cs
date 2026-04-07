@@ -182,7 +182,7 @@ namespace Parsek
             // the vessel), falling back to trajectory/terminal position (#127).
             Bounds spawnBounds = SpawnCollisionDetector.ComputeVesselBounds(vesselSnapshot);
             Vector3d spawnPos = ResolveSpawnPosition(tipRecording, vesselSnapshot);
-            var (overlap, distance, blockerName) =
+            var (overlap, distance, blockerName, _) =
                 SpawnCollisionDetector.CheckOverlapAgainstLoadedVessels(spawnPos, spawnBounds, SpawnCollisionPadding);
 
             if (overlap)
@@ -266,7 +266,7 @@ namespace Parsek
 
             // Recheck overlap at propagated position
             Bounds spawnBounds = SpawnCollisionDetector.ComputeVesselBounds(vesselSnapshot);
-            var (overlap, distance, blockerName) =
+            var (overlap, distance, blockerName, _) =
                 SpawnCollisionDetector.CheckOverlapAgainstLoadedVessels(propagatedPos, spawnBounds, SpawnCollisionPadding);
 
             if (overlap)
@@ -405,7 +405,7 @@ namespace Parsek
                 },
                 pos =>
                 {
-                    var (ov, _, _) = SpawnCollisionDetector.CheckOverlapAgainstLoadedVessels(
+                    var (ov, _, _, _) = SpawnCollisionDetector.CheckOverlapAgainstLoadedVessels(
                         pos, spawnBounds, SpawnCollisionPadding);
                     return ov;
                 });
