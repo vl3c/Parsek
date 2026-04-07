@@ -157,6 +157,21 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Clears continuation boundary on a recording, accepting the extended data as canonical.
+        /// Called before StopContinuation/StopUndockContinuation on all normal stop paths.
+        /// </summary>
+        internal static void BakeContinuationData(Recording rec)
+        {
+            if (rec.ContinuationBoundaryIndex >= 0)
+                ParsekLog.Verbose("Chain",
+                    $"Baked continuation data for '{rec.VesselName}' " +
+                    $"(boundary={rec.ContinuationBoundaryIndex}, points={rec.Points.Count}, id={rec.RecordingId})");
+            rec.ContinuationBoundaryIndex = -1;
+            rec.PreContinuationVesselSnapshot = null;
+            rec.PreContinuationGhostSnapshot = null;
+        }
+
+        /// <summary>
         /// Stops vessel continuation tracking. Clears PID and recording index.
         /// </summary>
         internal void StopContinuation(string reason)
@@ -269,11 +284,15 @@ namespace Parsek
             if (ContinuationVesselPid != 0)
             {
                 RefreshContinuationSnapshot();
+                if (TryGetContinuationRecording(out var contRec))
+                    BakeContinuationData(contRec);
                 StopContinuation(reason);
             }
             if (UndockContinuationPid != 0)
             {
                 RefreshUndockContinuationSnapshot();
+                if (TryGetUndockContinuationRecording(out var undockRec))
+                    BakeContinuationData(undockRec);
                 StopUndockContinuation(reason);
             }
         }
@@ -385,6 +404,7 @@ namespace Parsek
                 RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion
             };
             contRec.Points.Add(seedPoint);
+            contRec.ContinuationBoundaryIndex = 0; // Bug #95: entire recording is continuation data
 
             RecordingStore.CommittedRecordings.Add(contRec);
             UndockContinuationRecIdx = RecordingStore.CommittedRecordings.Count - 1;
@@ -543,7 +563,14 @@ namespace Parsek
                 ContinuationVesselPid = segmentRecorder.RecordingVesselId;
                 ContinuationRecordingIdx = RecordingStore.CommittedRecordings.Count - 1;
                 ContinuationRecordingId = RecordingStore.CommittedRecordings[ContinuationRecordingIdx].RecordingId;
-                var lastPoints = RecordingStore.CommittedRecordings[ContinuationRecordingIdx].Points;
+                // Bug #95: save boundary for rollback on revert.
+                // Deep-copy snapshots because RefreshContinuationSnapshotCore path B
+                // mutates the existing ConfigNode in place (SetValue on lat/lon/alt).
+                var contRec = RecordingStore.CommittedRecordings[ContinuationRecordingIdx];
+                contRec.ContinuationBoundaryIndex = contRec.Points.Count;
+                contRec.PreContinuationVesselSnapshot = contRec.VesselSnapshot?.CreateCopy();
+                contRec.PreContinuationGhostSnapshot = contRec.GhostVisualSnapshot?.CreateCopy();
+                var lastPoints = contRec.Points;
                 if (lastPoints.Count > 0)
                 {
                     ContinuationLastVelocity = lastPoints[lastPoints.Count - 1].velocity;
@@ -559,10 +586,12 @@ namespace Parsek
             }
             else if (ContinuationVesselPid != 0)
             {
-                // EVA segment committed during boarding (EVA→V): stop continuation.
+                // EVA segment committed during boarding (EVA→V): bake + stop continuation.
                 // Bug #95: Do NOT null VesselSnapshot on committed recordings.
                 // The next chain segment handles spawning, but after revert the snapshot
                 // is needed for re-spawn. VesselSnapshot is immutable after commit.
+                if (TryGetContinuationRecording(out var boardingRec))
+                    BakeContinuationData(boardingRec);
                 ParsekLog.Verbose("Chain", $"Continuation stopped (boarding): " +
                     $"VesselSnapshot preserved on recording #{ContinuationRecordingIdx} " +
                     $"(snapshot={RecordingStore.CommittedRecordings[ContinuationRecordingIdx].VesselSnapshot != null})");
@@ -695,10 +724,16 @@ namespace Parsek
             if (ContinuationVesselPid != 0)
             {
                 RefreshContinuationSnapshot();
+                if (TryGetContinuationRecording(out var contRec2))
+                    BakeContinuationData(contRec2);
                 StopContinuation("vessel-switch chain termination");
             }
             if (UndockContinuationPid != 0)
+            {
+                if (TryGetUndockContinuationRecording(out var undockRec2))
+                    BakeContinuationData(undockRec2);
                 StopUndockContinuation("vessel-switch chain termination");
+            }
 
             // Terminate chain — no continuation possible after vessel switch
             ParsekLog.Info("Chain", $"Chain terminated by vessel switch: chain={ActiveChainId}, " +

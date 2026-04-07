@@ -24,6 +24,8 @@ All notable changes to Parsek are documented here.
 - **Fix ghost map markers missing / wrong positions after save/load (#203).** `SaveRecordingMetadata` / `LoadRecordingMetadata` (standalone recordings) never serialized the 8 terminal orbit fields. After save/load, all standalone recordings had `TerminalOrbitBody = null`, so `HasOrbitData` returned false and no ghost map ProtoVessels could be created. Tree recordings were unaffected (separate serialization path). Now serialized in both paths.
 - **Fix tree root recording showing T+ countdown instead of terminal state (#186).** Continuation sampling extends a committed recording's `EndUT` past current time, causing the status column to show "T+5m 23s" instead of "Landed". Now checks `TerminalStateValue` in all three status paths (row display, group aggregate, sort key). Group status also shows the best non-debris terminal state instead of generic "past".
 - **Fix green sphere fallback for debris ghosts with no snapshot (#232).** Debris from mid-air booster collisions had no vessel snapshot, causing distracting green spheres during watch mode playback. Now skips ghost creation entirely for snapshotless debris. Non-debris keeps sphere fallback as safety net.
+- **Fix continuation data persisting through revert (#95, items 3-5).** After EVA or undock, the continuation system appended trajectory points and overwrote snapshots on already-committed recordings. On revert/rewind, these mutations persisted — ghosts showed trajectory from an abandoned timeline. Fix: `ContinuationBoundaryIndex` tracks the commit-time point count; pre-continuation snapshots are backed up. On normal stop, the boundary is cleared (data baked as canonical). On revert, `RollbackContinuationData` truncates points and restores snapshots. All 8 stop sites audited: 5 bake (normal lifecycle transitions), 3 don't (vessel destroyed — revert undoes destruction).
+- **Fix R (rewind) button missing on tree branch recordings (#159, #166).** Tree branch recordings (EVA kerbals, decoupled stages) had no `RewindSaveFileName` because rewind saves are only captured at launch. Added tree-aware lookup: `GetRewindRecording` resolves through the tree root so branches can rewind to the original launch point. `InitiateRewind` and `ShowRewindConfirmation` now use the owner recording's fields for correct vessel stripping, UT display, and future-recording count.
 
 ### Spawn System Hardening
 
@@ -45,7 +47,7 @@ All notable changes to Parsek are documented here.
 
 ### Tests
 
-- 106 new test cases. 5041 total passing.
+- 119 new test cases. 5064 total passing.
 
 ### Location Context (Phase 10)
 
