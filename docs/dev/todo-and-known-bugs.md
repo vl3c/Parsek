@@ -12,11 +12,11 @@ Create a `.netkan` file or submit to CKAN indexer so users can install Parsek vi
 
 **Priority:** Nice-to-have
 
-### T4. Release automation
+### ~~T4. Release automation~~
 
-GitHub Actions workflow to build, run tests, package `GameData/Parsek/` into a zip, and create a GitHub release on tag push. Currently all release packaging is manual.
+`scripts/release.py` — builds Release, runs tests, validates version consistency (`Parsek.version` vs `AssemblyInfo.cs`), packages `GameData/Parsek/` zip (DLL + version file + toolbar textures).
 
-**Priority:** Nice-to-have
+**Status:** Done
 
 ## TODO — Performance & Optimization
 
@@ -24,19 +24,19 @@ GitHub Actions workflow to build, run tests, package `GameData/Parsek/` into a z
 
 Don't render full ghost meshes far from camera. Unity LOD groups or manual distance culling.
 
-**Priority:** Low — only matters with many ghosts in Zone 2
+**Priority:** Deferred to Phase 11.5 (Recording Optimization & Observability)
 
 ### T7. Ghost mesh unloading outside active time range
 
 Ghost meshes built for recordings whose UT range is far from current playback time could be unloaded and rebuilt on demand.
 
-**Priority:** Low — memory optimization
+**Priority:** Deferred to Phase 11.5 (Recording Optimization & Observability)
 
 ### T8. Particle system pooling for engine/RCS FX
 
 Engine and RCS particle systems are instantiated per ghost. Pooling would reduce GC pressure with many active ghosts.
 
-**Priority:** Low
+**Priority:** Deferred to Phase 11.5 (Recording Optimization & Observability)
 
 ## TODO — Ghost Visuals
 
@@ -50,11 +50,11 @@ To implement properly: either rescale prefab Cap/Truss meshes from XSECTION data
 
 ## TODO — Recording Accuracy
 
-### T16. Planetarium.right drift compensation
+### ~~T16. Planetarium.right drift compensation~~
 
-KSP's inertial reference frame may drift over very long time warp. Could cause ghost orientation mismatch for interplanetary segments. Needs empirical measurement first.
+Not needed. Orbital ghost rotation stores vessel orientation relative to the local orbital frame (velocity + radial), not an inertial reference. Playback reconstructs the orbital frame from live orbit state each frame, so any `Planetarium.right` drift is irrelevant.
 
-**Priority:** Low — may not be needed
+**Status:** Closed — not needed (orbital frame-relative design is inherently drift-proof)
 
 ### ~~T52. Record start/end position with body, biome, and situation~~
 
@@ -118,15 +118,13 @@ After rewinding and re-entering flight, the Aeris 4A recording's spawn-at-end tr
 
 **Status:** Open (root cause of duplicate vessel remains; infinite loop symptom resolved by #110 fix)
 
-## 125. Engine plate covers / fairings not visible on ghost
+## ~~125. Engine plate covers / fairings not visible on ghost~~
 
-Engine plates (`EnginePlate1` etc.) have protective covers (interstage fairings) that are built by `ModuleProceduralFairing` at runtime — similar to stock procedural fairings but integrated into the engine plate part. These covers are not visible on ghost vessels during playback. The ghost shows the engine plate base and attached engines but the fairing shell is missing.
+Engine plates (`EnginePlate1` etc.) have protective covers (interstage fairings) that are built by `ModuleProceduralFairing` at runtime — similar to stock procedural fairings but integrated into the engine plate part. These covers were not visible on ghost vessels during playback.
 
-Likely same root cause as the original procedural fairing work: the fairing mesh is generated procedurally from XSECTION data at runtime by `ModuleProceduralFairing`, not stored as a static mesh on the prefab. The ghost builder's `GenerateFairingConeMesh` may not be triggered for engine plate fairings, or the engine plate's MODULE config may differ from standalone fairings.
+**Fix:** Variant filter fix (PR #124) ensures the correct shroud mesh is cloned. Engine skirts now display correctly on ghost vessels in-game.
 
-**Priority:** Medium — visually noticeable on any vessel using engine plates
-
-**Status:** Partially fixed — variant filter fix ensures the correct shroud mesh IS cloned (9 MR including Shroud3x2 for "Medium" variant), but the shroud is not visually correct in-game. The `ModuleJettison` lists ALL shroud variants (Shroud3x0-3x4) — the jettison system collects all of them, including non-active variants that were filtered by the variant system. Additionally, the shroud mesh may be positioned incorrectly (user reports it might be rendered upward instead of downward). The shroud meshes are external SharedAssets models whose transform positioning relative to the engine plate needs investigation.
+**Status:** Fixed
 
 ## 132. Policy RunSpawnDeathChecks and FlushDeferredSpawns are TODO stubs
 
@@ -198,9 +196,9 @@ After removing ResourceBudget.ComputeTotal logging (52% of output), remaining sp
 - KSCSpawn "Spawn not needed" at INFO level (54 lines)
 - BgRecorder CheckpointAllVessels checkpointed=0 at INFO (15 lines)
 
-**Priority:** Low — VERBOSE level, but adds up
+**Priority:** Deferred to Phase 11.5 (Recording Optimization & Observability)
 
-**Status:** Open — tracked for next log audit round
+**Status:** Open
 
 ## 166. R buttons disabled after tree commit — rewind saves consumed
 
@@ -293,7 +291,7 @@ When a vessel crashes during an active recording, the recorder is stopped and co
 
 Intermediate tree recordings with 0 trajectory points but non-null VesselSnapshot trigger `PopulateCrewEndStates` on every recalculation walk (36 times in a typical session). These recordings can never have crew.
 
-**Priority:** Low — performance optimization, no functional impact.
+**Priority:** Deferred to Phase 11.5 (Recording Optimization & Observability)
 
 ## ~~224. Vessel not spawned at end of playback when parts break off on splashdown~~
 
