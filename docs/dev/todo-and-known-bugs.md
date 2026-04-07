@@ -447,6 +447,16 @@ Consider a lightweight post-spawn stabilization: zero all velocities on the spaw
 
 **Status:** Fixed — `ApplyPostSpawnStabilization` zeroes linear + angular velocity for LANDED/SPLASHED/PRELAUNCH. `ShouldZeroVelocityAfterSpawn` guards against orbital situations.
 
+## ~~240. Atmospheric ghost markers not appearing in Tracking Station~~
+
+`ParsekTrackingStation.OnGUI` had a terminal state filter (`TerminalState != Orbiting && != Docked → skip`) that blocked atmospheric trajectory markers for SubOrbital, Destroyed, Recovered, and Landed recordings. This meant non-orbital ghosts never showed map markers during their active flight window in the tracking station. Users had to exit and re-enter TS to trigger ghost creation through the lifecycle update path.
+
+Root cause: the terminal state filter was appropriate for proto-vessel ghosts (which need orbital data) but was incorrectly applied to trajectory-interpolated atmospheric markers. The UT range check already handles temporal visibility.
+
+Additionally, proto-vessel ghosts created by deferred commit (merge/approval dialog) took up to 2 seconds to appear because `UpdateTrackingStationGhostLifecycle` only ran on a fixed interval.
+
+**Status:** Fixed — removed terminal state filter from atmospheric marker path. Extracted `ShouldDrawAtmosphericMarker` as testable pure method. Added committed-count change detection in `Update()` to force immediate lifecycle tick after dialog commits.
+
 ---
 
 # In-Game Tests
