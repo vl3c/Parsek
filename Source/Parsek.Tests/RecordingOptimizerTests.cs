@@ -2017,16 +2017,8 @@ namespace Parsek.Tests
                 frames = new List<TrajectoryPoint>()
             });
 
-            // Staging branch point at UT=17200 (during exo phase) — booster separation
-            main.ChildBranchPointId = "bp_staging";
-            // Note: in real tree mode, this BP would be at the recording's end (branchUT).
-            // For this test we simulate the case where the main recording is the ROOT
-            // and has already been finalized with data past the branch point (the child
-            // recording accumulates data after the BP, but the root retains all its data).
-            // Actually, in tree mode, the root recording ends at BP1 and a new recording
-            // continues. But for testing the optimizer's split logic, what matters is:
-            // the recording has ChildBranchPointId at the temporal END (17700 = ExplicitEndUT).
-            // Let's set it up correctly:
+            // Branch point at recording's temporal end (UT=17700), as in real tree mode
+            // where ChildBranchPointId is set at branchUT during CreateSplitBranch.
             main.ChildBranchPointId = "bp_staging";
 
             var bp = new BranchPoint
