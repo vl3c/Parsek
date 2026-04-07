@@ -473,7 +473,7 @@ namespace Parsek
                         }
                         GUI.enabled = true;
                     }
-                    else if (!string.IsNullOrEmpty(rec.RewindSaveFileName))
+                    else if (!string.IsNullOrEmpty(RecordingStore.GetRewindSaveFileName(rec)))
                     {
                         // Past/active recording: Rewind button
                         string rewindReason;

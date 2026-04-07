@@ -787,7 +787,7 @@ namespace Parsek
             {
                 bool isFuture = now < rec.StartUT;
                 bool isActive = now >= rec.StartUT && now <= rec.EndUT;
-                bool hasRewindSave = !string.IsNullOrEmpty(rec.RewindSaveFileName);
+                bool hasRewindSave = !string.IsNullOrEmpty(RecordingStore.GetRewindSaveFileName(rec));
                 if (isFuture)
                 {
                     // Future recording: FF button advances UT to recording start
@@ -1138,7 +1138,7 @@ namespace Parsek
             {
                 var mainRec = committed[mainIdx];
                 bool isFuture = now < mainRec.StartUT;
-                bool hasRewindSave = !string.IsNullOrEmpty(mainRec.RewindSaveFileName);
+                bool hasRewindSave = !string.IsNullOrEmpty(RecordingStore.GetRewindSaveFileName(mainRec));
                 bool isRecording = parentUI.InFlightMode && flight.IsRecording;
 
                 if (isFuture)
@@ -1518,18 +1518,26 @@ namespace Parsek
 
         internal void ShowRewindConfirmation(Recording rec)
         {
-            int futureCount = RecordingStore.CountFutureRecordings(rec.StartUT);
+            // Resolve the rewind save owner — may be the tree root for branch recordings.
+            var owner = RecordingStore.GetRewindRecording(rec) ?? rec;
+            bool isTreeBranch = owner != rec;
+
+            int futureCount = RecordingStore.CountFutureRecordings(owner.StartUT);
             string futureText = futureCount > 0
                 ? $"\n\n{futureCount} recording(s) after this launch will replay as ghosts."
                 : "";
 
             var ic = System.Globalization.CultureInfo.InvariantCulture;
-            string launchDate = KSPUtil.PrintDateCompact(rec.StartUT, true);
-            string message = $"Rewind to \"{rec.VesselName}\" launch at {launchDate}?" +
+            string launchDate = KSPUtil.PrintDateCompact(owner.StartUT, true);
+            string branchNote = isTreeBranch
+                ? $"\n(from branch \"{rec.VesselName}\")"
+                : "";
+            string message = $"Rewind to \"{owner.VesselName}\" launch at {launchDate}?" +
+                branchNote +
                 futureText +
                 "\n\nAny uncommitted progress will be lost.";
 
-            var capturedRec = rec;
+            var capturedOwner = owner;
             PopupDialog.SpawnPopupDialog(
                 new Vector2(0.5f, 0.5f),
                 new Vector2(0.5f, 0.5f),
@@ -1541,8 +1549,8 @@ namespace Parsek
                     new DialogGUIButton("Rewind", () =>
                     {
                         ParsekLog.Info("Rewind",
-                            $"User confirmed rewind to \"{capturedRec.VesselName}\" at UT {capturedRec.StartUT}");
-                        RecordingStore.InitiateRewind(capturedRec);
+                            $"User confirmed rewind to \"{capturedOwner.VesselName}\" at UT {capturedOwner.StartUT}");
+                        RecordingStore.InitiateRewind(capturedOwner);
                     }),
                     new DialogGUIButton("Cancel", () =>
                     {
