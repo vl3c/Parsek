@@ -206,6 +206,46 @@ The abstracted logistics model (recommended MVP from logistics-network-design.md
 
 4. **Additive format, no version bump.** Missing RESOURCE_MANIFEST node = no data. Backward compatible. Old recordings work unchanged.
 
+## Modifying Resources on Unloaded Vessels (Investigated)
+
+**Confirmed feasible.** `ProtoPartResourceSnapshot.amount` is a public writable field. The save path (`Save()`) writes the current field value, overwriting any cached ConfigNode. The load path (`Load()`) reads the field into the Part when the vessel comes off rails. No refresh calls needed.
+
+Multiple mods use this pattern (BackgroundProcessing, StageRecovery, and others). Common approach: iterate tanks for the target resource, distribute the delta across them with overflow/underflow spillage, clamp to [0, maxAmount]. See `docs/mods-references/` for detailed analysis.
+
+### Delivery pattern for Parsek
+
+```csharp
+// Find destination vessel (unloaded)
+Vessel destVessel = FlightGlobals.Vessels.FirstOrDefault(v => v.persistentId == destPid);
+ProtoVessel dest = destVessel.protoVessel;
+
+// Add resources, distributing across tanks
+foreach (var entry in deliveryManifest)
+{
+    double remaining = entry.Value;
+    foreach (var part in dest.protoPartSnapshots)
+        foreach (var res in part.resources)
+            if (res.resourceName == entry.Key && res.flowState && remaining > 0)
+            {
+                double space = res.maxAmount - res.amount;
+                double add = Math.Min(remaining, space);
+                res.amount += add;
+                remaining -= add;
+            }
+    // remaining > 0 means destination tanks are full -- delivery partially failed
+}
+```
+
+### Edge cases to handle
+- **Destination tanks full** -- partial delivery; remainder lost or queued
+- **`flowState == false`** -- player disabled flow on a tank; skip it
+- **Destination vessel loaded** -- use `part.RequestResource()` instead of ProtoPartResourceSnapshot
+- **Destination vessel destroyed/recovered** -- route should auto-disable
+- **Zero-capacity resources** -- guard against division by zero
+
+### Cross-vessel transfer is novel
+No existing KSP mod does cross-vessel physical resource transfer on unloaded vessels. Background processing mods only modify resources within a single vessel. Parsek logistics delivery would be new -- but the per-vessel modification pattern is proven. The key addition: source and destination must be updated atomically in the same tick.
+
 ## Open Questions
 
 - **Modded resources:** KSP's resource system is extensible. Should we filter to known stock resources, or capture everything? Recommendation: capture everything -- the extraction function doesn't need to know resource names.
