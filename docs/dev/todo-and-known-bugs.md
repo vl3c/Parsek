@@ -367,15 +367,13 @@ Vessels and EVA kerbals with `terminal=Landed` spawned at their last trajectory 
 
 **Status:** Fixed
 
-## 232. Green sphere fallback for debris ghosts with no snapshot
+## ~~232. Green sphere fallback for debris ghosts with no snapshot~~
 
 Debris recordings from mid-air booster collisions have no vessel snapshot. The ghost visual builder falls back to a green sphere. User sees distracting green balls appearing during watch mode playback. KSC ghost path already skips ghosts with no snapshot (`ParsekKSC.cs:473`); flight scene should do the same for debris.
 
-**Fix:** In `GhostPlaybackEngine`, skip ghost creation entirely for debris with no snapshot (instead of sphere fallback). Non-debris keeps sphere fallback as safety net.
+**Fix:** Early return in `SpawnGhost` when `traj.IsDebris && GetGhostSnapshot(traj) == null` — skips ghost creation entirely with a log message. Non-debris keeps sphere fallback as safety net. Confirmed in log: ghosts #8 and #10 ("Kerbal X Debris") were hitting sphere fallback with `parts=0`.
 
-**Priority:** Low — cosmetic, only visible during booster breakup playback
-
-**Status:** TODO
+**Status:** Fixed
 
 ## 233. Spawned EVA vessel deleted by crew reservation on scene re-entry
 
