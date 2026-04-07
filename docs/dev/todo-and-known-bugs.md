@@ -101,17 +101,15 @@ Recordings should be frozen after commit (immutable trajectory + events, mutable
 
 **Status:** Fixed
 
-## 112. Aeris 4A spawn blocked by own spawned copy — permanent overlap
+## ~~112. Aeris 4A spawn blocked by own spawned copy — permanent overlap~~
 
 After rewinding and re-entering flight, the Aeris 4A recording's spawn-at-end tried to place a new vessel at the same position where a previously-spawned (but not cleaned up) Aeris 4A already sat. The spawn collision detector correctly blocked it, but because the overlap is permanent (both vessels at the same runway position), this triggered bug #110's infinite retry loop. The log showed `Spawn blocked: overlaps with #autoLOC_501176 at 5m — will retry next frame` repeating every frame for the remainder of the session.
 
 **Root cause:** `CleanupOrphanedSpawnedVessels` recovered one copy, but a second Aeris 4A was loaded from the save and occupied the spawn slot. The duplicate presence is partly caused by bug #109 (cleanup skipped on second rewind, leaving a stale vessel in the save). The spawn system has no dedup against already-present matching vessels.
 
-**Note:** The infinite retry loop symptom is resolved by bug #110's fix (spawn abandoned after 150 frames). The root cause of duplicate vessel presence remains a separate issue.
+**Fix:** Three-layer defense: (1) #110 — 150-frame abandon prevents infinite retry. (2) #109 — guard prevents cleanup data loss on second rewind. (3) Defensive duplicate recovery in `CheckSpawnCollisions` — when a collision blocker's name matches the recording's vessel name, recover the blocker once via `ShipConstruction.RecoverVesselFromFlight` then re-check. `DuplicateBlockerRecovered` flag on Recording prevents recovery loops. Also fixed pre-existing gap: `CollisionBlockCount`/`SpawnAbandoned` now reset by `ResetRecordingPlaybackFields`.
 
-**Priority:** Medium (consequence of #110 infinite retry — infinite loop symptom now resolved)
-
-**Status:** Open (root cause of duplicate vessel remains; infinite loop symptom resolved by #110 fix)
+**Status:** Fixed
 
 ## ~~125. Engine plate covers / fairings not visible on ghost~~
 
