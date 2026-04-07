@@ -1519,7 +1519,8 @@ namespace Parsek
         internal void ShowRewindConfirmation(Recording rec)
         {
             // Resolve the rewind save owner — may be the tree root for branch recordings.
-            var owner = RecordingStore.GetRewindRecording(rec) ?? rec;
+            var owner = RecordingStore.GetRewindRecording(rec);
+            if (owner == null) return;
             bool isTreeBranch = owner != rec;
 
             int futureCount = RecordingStore.CountFutureRecordings(owner.StartUT);
@@ -1527,7 +1528,6 @@ namespace Parsek
                 ? $"\n\n{futureCount} recording(s) after this launch will replay as ghosts."
                 : "";
 
-            var ic = System.Globalization.CultureInfo.InvariantCulture;
             string launchDate = KSPUtil.PrintDateCompact(owner.StartUT, true);
             string branchNote = isTreeBranch
                 ? $"\n(from branch \"{rec.VesselName}\")"
