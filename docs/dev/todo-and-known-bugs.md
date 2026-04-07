@@ -146,13 +146,13 @@ After T25 extraction, ParsekFlight still has forwarding properties (`ghostStates
 
 **Status:** Partially fixed — removed 6 dead forwarding methods, inlined 4 remaining call sites. 7 forwarding properties retained as ergonomic aliases — `ghostStates` alone has 17 usages. Actual indirection was ~40 lines, not ~500.
 
-## 154. parsek_38.png texture compression warning
+## ~~154. parsek_38.png texture compression warning~~
 
 KSP warns `Texture resolution is not valid for compression` for the 38x38 toolbar icon. Not a power-of-two size so KSP can't DXT-compress it.
 
-**Fix:** Resize to 32x32 or 64x64.
+**Fix:** Replaced 38x38 and 24x24 toolbar icons with 64x64 and 32x32 power-of-two versions. Updated references in ParsekFlight, ParsekKSC, and release.py.
 
-**Priority:** Low — cosmetic, icon works fine uncompressed
+**Status:** Fixed
 
 ## 156. Missing test coverage from lifecycle simulation
 
@@ -319,17 +319,15 @@ Recording `f8fd04e5` (Kerbal X, chainIndex=1) had both `childBranchPointId` (bre
 
 **Status:** Fixed
 
-## 227. Mid-tree spawn entry for vessel with EVA/staging branch
+## ~~227. Mid-tree spawn entry for vessel with EVA/staging branch~~
 
 When a kerbal EVAs or a stage separates, the tree creates a branch point. The vessel's current recording segment ends at that UT and a continuation recording starts as a tree child. The timeline shows a premature "Spawn: Kerbal X" at the branch time because `IsChainMidSegment` only checks chain segments (optimizer splits), not tree continuation segments.
 
 The root recording has `ChildBranchPointId` set which means it's effectively a mid-tree segment, not a leaf. The vessel should show a single continuous presence from launch to final capsule spawn — EVA kerbals and staging debris are separate branches, not interruptions of the main vessel's timeline.
 
-**Fix:** The spawn entry filter needs to check whether a recording with `ChildBranchPointId` has a same-PID continuation child (analogous to `IsEffectiveLeafForVessel`). If a continuation exists, suppress the spawn entry.
+**Fix:** Added `HasSamePidTreeContinuation` helper to `TimelineBuilder` — flat-list equivalent of `GhostPlaybackLogic.IsEffectiveLeafForVessel`. Two-sided fix: (1) suppress parent spawn when a same-PID continuation child exists, (2) allow tree-child leaf recordings to produce spawn entries when they are the effective leaf for their vessel. Breakup-only recordings (no same-PID continuation) correctly still spawn.
 
-**Priority:** Medium — creates confusing timeline with phantom spawn entries at every EVA/staging boundary
-
-**Status:** Open
+**Status:** Fixed
 
 ## 228. Crew reassignment entries appear when kerbals EVA
 

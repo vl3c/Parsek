@@ -8,6 +8,9 @@ All notable changes to Parsek are documented here.
 
 ### Bug Fixes
 
+- **Fix mid-tree spawn entries at EVA/staging boundaries (#227).** When a kerbal EVA'd or a stage separated, the timeline showed a premature "Spawn: Kerbal X" at the branch time. Two-sided fix: (1) suppress parent spawn when a same-PID continuation child exists via new `HasSamePidTreeContinuation` helper, (2) allow tree-child leaf recordings to produce spawn entries. Breakup-only recordings (no same-PID continuation) correctly still spawn.
+- **Fix toolbar icon texture compression warning (#154).** Replaced 38x38 and 24x24 toolbar icons with 64x64 and 32x32 power-of-two versions. KSP can now DXT-compress the textures.
+
 - **Fix Settings window GUILayout exception (#217).** The ghost soft caps toggle caused an IMGUI Layout/Repaint mismatch: the early `return` in `DrawGhostSettings` skipped slider controls when caps were disabled, but a toggle click between passes changed the control count. 72 exceptions per session, window stuck at 10px. Fix: sliders always drawn, grayed out via `GUI.enabled` when caps disabled.
 - **Fix W (watch) button staying enabled on debris boosters (#194).** After booster separation, one debris recording could have an active ghost with the W button enabled. Added `IsDebris` guard to watch eligibility check and "Debris is not watchable" tooltip.
 - **Fix vessels and EVA kerbals spawning high in the air (#231).** Vessels with `terminal=Landed` spawned at their last trajectory point altitude (still descending), fell, and exploded. Three spawn paths lacked altitude clamping (flight scene, KSC, tree leaves). Now all paths clamp LANDED to terrain+2m clearance, override snapshot position AND rotation from the last trajectory point. Vessels spawn in their near-landing orientation instead of mid-flight descent pose.
@@ -35,7 +38,7 @@ All notable changes to Parsek are documented here.
 
 ### Tests
 
-- 76 new test cases. 4981 total passing.
+- 84 new test cases. 4991 total passing.
 
 ### Location Context (Phase 10)
 

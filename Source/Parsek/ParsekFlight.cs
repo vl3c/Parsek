@@ -349,8 +349,8 @@ namespace Parsek
                 () => { showUI = false; },
                 ApplicationLauncher.AppScenes.FLIGHT | ApplicationLauncher.AppScenes.MAPVIEW,
                 MODID, "parsekButton",
-                "Parsek/Textures/parsek_38",
-                "Parsek/Textures/parsek_24",
+                "Parsek/Textures/parsek_64",
+                "Parsek/Textures/parsek_32",
                 MODNAME
             );
         }
