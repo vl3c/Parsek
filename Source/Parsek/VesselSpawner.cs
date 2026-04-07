@@ -427,28 +427,71 @@ namespace Parsek
             if (!isEva)
             {
                 Bounds spawnBounds = SpawnCollisionDetector.ComputeVesselBounds(rec.VesselSnapshot);
-                var (overlap, overlapDist, blockerName) =
+                var (overlap, overlapDist, blockerName, blockerVessel) =
                     SpawnCollisionDetector.CheckOverlapAgainstLoadedVessels(spawnPos, spawnBounds, 5f);
                 if (overlap)
                 {
-                    rec.CollisionBlockCount++;
-                    if (ShouldAbandonCollisionBlockedSpawn(rec.CollisionBlockCount, MaxCollisionBlocks))
+                    // Defensive duplicate recovery: if the blocker has the same name as the
+                    // recording being spawned, it is likely a quicksave-loaded duplicate that
+                    // survived cleanup after rewind. Recover it once to clear the spawn slot. (#112)
+                    // Name matching is the only available heuristic — after rewind, all
+                    // SpawnedVesselPersistentId values are reset to 0 so PID matching is not
+                    // possible. False positive (two same-name recordings at same position) is
+                    // narrow and non-destructive (vessel goes to KSC recovery, not deleted).
+                    string resolvedRecName = Recording.ResolveLocalizedName(rec.VesselName);
+                    if (!rec.DuplicateBlockerRecovered
+                        && blockerVessel != null
+                        && blockerVessel.loaded
+                        && ShouldRecoverBlockerVessel(blockerName, resolvedRecName))
                     {
-                        rec.VesselSpawned = true;   // prevent ShouldSpawnAtRecordingEnd from returning true
-                        rec.SpawnAbandoned = true;  // prevent vessel-gone check from resetting VesselSpawned
                         ParsekLog.Warn("Spawner",
-                            $"Spawn ABANDONED for #{index} ({rec.VesselName}): collision-blocked for " +
-                            $"{rec.CollisionBlockCount} consecutive frames by '{blockerName}' at {overlapDist:F0}m — " +
-                            $"giving up (max={MaxCollisionBlocks})");
+                            $"Duplicate blocker detected for #{index} ({rec.VesselName}): " +
+                            $"recovering '{blockerName}' (pid={blockerVessel.persistentId}) at {overlapDist:F0}m — " +
+                            $"likely quicksave-loaded duplicate (#112)");
+                        ShipConstruction.RecoverVesselFromFlight(
+                            blockerVessel.protoVessel, HighLogic.CurrentGame.flightState, true);
+                        rec.DuplicateBlockerRecovered = true;
+                        rec.CollisionBlockCount = 0;
+
+                        // Re-check overlap after recovery — another vessel may still block
+                        var (stillOverlap, recheckDist, recheckName, _) =
+                            SpawnCollisionDetector.CheckOverlapAgainstLoadedVessels(spawnPos, spawnBounds, 5f);
+                        if (stillOverlap)
+                        {
+                            rec.CollisionBlockCount++;
+                            if (ShouldAbandonCollisionBlockedSpawn(rec.CollisionBlockCount, MaxCollisionBlocks))
+                            {
+                                rec.VesselSpawned = true;
+                                rec.SpawnAbandoned = true;
+                                ParsekLog.Warn("Spawner",
+                                    $"Spawn ABANDONED for #{index} ({rec.VesselName}): still blocked by " +
+                                    $"'{recheckName}' at {recheckDist:F0}m after duplicate recovery — giving up");
+                            }
+                            return true;
+                        }
+                        // Blocker removed, no other overlap — fall through to spawn
                     }
                     else
                     {
-                        ParsekLog.VerboseRateLimited("Spawner",
-                            "collision-block-" + index,
-                            $"Spawn blocked for #{index} ({rec.VesselName}): overlaps '{blockerName}' at {overlapDist:F0}m — " +
-                            $"will retry next frame (block={rec.CollisionBlockCount}/{MaxCollisionBlocks})");
+                        rec.CollisionBlockCount++;
+                        if (ShouldAbandonCollisionBlockedSpawn(rec.CollisionBlockCount, MaxCollisionBlocks))
+                        {
+                            rec.VesselSpawned = true;   // prevent ShouldSpawnAtRecordingEnd from returning true
+                            rec.SpawnAbandoned = true;  // prevent vessel-gone check from resetting VesselSpawned
+                            ParsekLog.Warn("Spawner",
+                                $"Spawn ABANDONED for #{index} ({rec.VesselName}): collision-blocked for " +
+                                $"{rec.CollisionBlockCount} consecutive frames by '{blockerName}' at {overlapDist:F0}m — " +
+                                $"giving up (max={MaxCollisionBlocks})");
+                        }
+                        else
+                        {
+                            ParsekLog.VerboseRateLimited("Spawner",
+                                "collision-block-" + index,
+                                $"Spawn blocked for #{index} ({rec.VesselName}): overlaps '{blockerName}' at {overlapDist:F0}m — " +
+                                $"will retry next frame (block={rec.CollisionBlockCount}/{MaxCollisionBlocks})");
+                        }
+                        return true;
                     }
-                    return true;
                 }
             }
 
@@ -621,6 +664,19 @@ namespace Parsek
         internal static bool ShouldAbandonCollisionBlockedSpawn(int collisionBlockCount, int maxBlocks)
         {
             return collisionBlockCount >= maxBlocks;
+        }
+
+        /// <summary>
+        /// Pure decision: should the blocking vessel be recovered as a likely duplicate?
+        /// Returns true when the blocker's resolved name matches the recording's vessel name,
+        /// indicating a leftover from a previous spawn (e.g., quicksave-loaded duplicate after rewind).
+        /// Both names must already be resolved via ResolveLocalizedName. (#112)
+        /// </summary>
+        internal static bool ShouldRecoverBlockerVessel(string blockerName, string recordingVesselName)
+        {
+            if (string.IsNullOrEmpty(blockerName) || string.IsNullOrEmpty(recordingVesselName))
+                return false;
+            return string.Equals(blockerName, recordingVesselName, StringComparison.Ordinal);
         }
 
         /// <summary>

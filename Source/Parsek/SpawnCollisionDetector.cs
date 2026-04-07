@@ -366,7 +366,7 @@ namespace Parsek
         /// any loaded vessel's approximate bounding box. Returns the closest
         /// overlapping vessel's info, or overlap=false if no overlap found.
         /// </summary>
-        internal static (bool overlap, float closestDistance, string blockerName) CheckOverlapAgainstLoadedVessels(
+        internal static (bool overlap, float closestDistance, string blockerName, Vessel blockerVessel) CheckOverlapAgainstLoadedVessels(
             Vector3d spawnWorldPos, Bounds spawnBounds, float padding)
         {
             ParsekLog.Verbose(Tag,
@@ -376,6 +376,7 @@ namespace Parsek
             bool anyOverlap = false;
             float closestDist = float.MaxValue;
             string blockerName = null;
+            Vessel blockerVessel = null;
 
             for (int i = 0; i < FlightGlobals.Vessels.Count; i++)
             {
@@ -408,6 +409,7 @@ namespace Parsek
                     {
                         closestDist = dist;
                         blockerName = Recording.ResolveLocalizedName(other.vesselName);
+                        blockerVessel = other;
                     }
 
                     ParsekLog.VerboseRateLimited(Tag,
@@ -426,7 +428,7 @@ namespace Parsek
                 ParsekLog.Verbose(Tag, "No spawn overlap detected against loaded vessels");
             }
 
-            return (anyOverlap, closestDist, blockerName);
+            return (anyOverlap, closestDist, blockerName, blockerVessel);
         }
 
         /// <summary>
