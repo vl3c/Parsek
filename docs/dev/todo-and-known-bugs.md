@@ -167,13 +167,9 @@ When a debris recording is set to "ghost-only" in the merge dialog, `ApplyVessel
 
 **Status:** Fixed
 
-## 159. EVA auto-recordings have no rewind save — R button absent
+## 159. ~~EVA auto-recordings have no rewind save — R button absent~~
 
-EVA recordings started from non-launch situations (landed base, orbiting station) have no `RewindSaveFileName` because rewind saves are only captured for chain root / launch recordings. The R button in the recordings window doesn't appear for these recordings.
-
-**Priority:** Low — design gap, not a bug. Rewind save belongs to the original launch, not each EVA.
-
-**Status:** Open — needs design decision: should EVA auto-records capture their own rewind save?
+**Status:** Resolved — tree-aware rewind lookup: branch recordings resolve the rewind save through the tree root via `RecordingStore.GetRewindRecording()`. R button now appears for all tree members.
 
 ## 160. Log spam: remaining sources after ComputeTotal removal
 
@@ -189,13 +185,9 @@ After removing ResourceBudget.ComputeTotal logging (52% of output), remaining sp
 
 **Status:** Open
 
-## 166. R buttons disabled after tree commit — rewind saves consumed
+## 166. ~~R buttons disabled after tree commit — rewind saves consumed~~
 
-After a recording tree is committed via the merge dialog, all R buttons for that tree's recordings become disabled because the rewind quicksave files were deleted during tree promotion. Only the root recording had a rewind save; branch recordings never had one.
-
-**Priority:** Low — by design for tree recordings, but confusing UX
-
-**Status:** Open — design gap: should tree branches inherit the root's rewind save?
+**Status:** Resolved — same fix as #159. Tree branches now resolve the root's rewind save via `RecordingStore.GetRewindRecording()`. `InitiateRewind` and `ShowRewindConfirmation` use the owner recording's fields for correct vessel stripping and UT display.
 
 ## ~~185. Investigate spawning idle vessels earlier or trimming recording tail~~
 
