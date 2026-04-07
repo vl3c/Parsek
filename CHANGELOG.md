@@ -44,7 +44,7 @@ All notable changes to Parsek are documented here.
 
 ### Tests
 
-- 106 new test cases. 5041 total passing.
+- 107 new test cases. 5052 total passing.
 
 ### Location Context (Phase 10)
 

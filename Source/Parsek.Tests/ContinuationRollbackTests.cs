@@ -81,25 +81,51 @@ namespace Parsek.Tests
             var rec = MakeRecordingWithPoints(5);
             var originalVessel = MakeSnapshot("original-vessel");
             var originalGhost = MakeSnapshot("original-ghost");
-            var continuationVessel = MakeSnapshot("continuation-vessel");
-            var continuationGhost = MakeSnapshot("continuation-ghost");
+            // Deep-copy backups (matches production code which uses CreateCopy)
+            var backupVessel = originalVessel.CreateCopy();
+            var backupGhost = originalGhost.CreateCopy();
 
             rec.VesselSnapshot = originalVessel;
             rec.GhostVisualSnapshot = originalGhost;
             rec.ContinuationBoundaryIndex = 5;
-            rec.PreContinuationVesselSnapshot = originalVessel;
-            rec.PreContinuationGhostSnapshot = originalGhost;
+            rec.PreContinuationVesselSnapshot = backupVessel;
+            rec.PreContinuationGhostSnapshot = backupGhost;
 
-            // Simulate continuation overwriting snapshots
-            rec.VesselSnapshot = continuationVessel;
-            rec.GhostVisualSnapshot = continuationGhost;
+            // Simulate continuation overwriting snapshots (path A: new ConfigNode)
+            rec.VesselSnapshot = MakeSnapshot("continuation-vessel");
+            rec.GhostVisualSnapshot = MakeSnapshot("continuation-ghost");
 
             RecordingStore.RollbackContinuationData(rec);
 
-            Assert.Same(originalVessel, rec.VesselSnapshot);
-            Assert.Same(originalGhost, rec.GhostVisualSnapshot);
+            Assert.Same(backupVessel, rec.VesselSnapshot);
+            Assert.Same(backupGhost, rec.GhostVisualSnapshot);
+            Assert.Equal("original-vessel", rec.VesselSnapshot.GetValue("name"));
+            Assert.Equal("original-ghost", rec.GhostVisualSnapshot.GetValue("name"));
             Assert.Null(rec.PreContinuationVesselSnapshot);
             Assert.Null(rec.PreContinuationGhostSnapshot);
+        }
+
+        [Fact]
+        public void BackupSurvivesInPlaceSnapshotMutation()
+        {
+            // Verify deep-copy protects backup from path B (in-place SetValue mutation)
+            var rec = MakeRecordingWithPoints(5);
+            var originalVessel = MakeSnapshot("original-vessel");
+            originalVessel.AddValue("lat", "0.5");
+
+            rec.VesselSnapshot = originalVessel;
+            rec.ContinuationBoundaryIndex = 5;
+            rec.PreContinuationVesselSnapshot = originalVessel.CreateCopy();
+
+            // Simulate path B: in-place mutation of the active snapshot
+            rec.VesselSnapshot.SetValue("lat", "99.9", true);
+            rec.VesselSnapshot.SetValue("name", "mutated-vessel", true);
+
+            RecordingStore.RollbackContinuationData(rec);
+
+            // Backup should be unaffected by the in-place mutation
+            Assert.Equal("original-vessel", rec.VesselSnapshot.GetValue("name"));
+            Assert.Equal("0.5", rec.VesselSnapshot.GetValue("lat"));
         }
 
         [Fact]

@@ -162,6 +162,10 @@ namespace Parsek
         /// </summary>
         internal static void BakeContinuationData(Recording rec)
         {
+            if (rec.ContinuationBoundaryIndex >= 0)
+                ParsekLog.Verbose("Chain",
+                    $"Baked continuation data for '{rec.VesselName}' " +
+                    $"(boundary={rec.ContinuationBoundaryIndex}, points={rec.Points.Count}, id={rec.RecordingId})");
             rec.ContinuationBoundaryIndex = -1;
             rec.PreContinuationVesselSnapshot = null;
             rec.PreContinuationGhostSnapshot = null;
@@ -559,11 +563,13 @@ namespace Parsek
                 ContinuationVesselPid = segmentRecorder.RecordingVesselId;
                 ContinuationRecordingIdx = RecordingStore.CommittedRecordings.Count - 1;
                 ContinuationRecordingId = RecordingStore.CommittedRecordings[ContinuationRecordingIdx].RecordingId;
-                // Bug #95: save boundary for rollback on revert
+                // Bug #95: save boundary for rollback on revert.
+                // Deep-copy snapshots because RefreshContinuationSnapshotCore path B
+                // mutates the existing ConfigNode in place (SetValue on lat/lon/alt).
                 var contRec = RecordingStore.CommittedRecordings[ContinuationRecordingIdx];
                 contRec.ContinuationBoundaryIndex = contRec.Points.Count;
-                contRec.PreContinuationVesselSnapshot = contRec.VesselSnapshot;
-                contRec.PreContinuationGhostSnapshot = contRec.GhostVisualSnapshot;
+                contRec.PreContinuationVesselSnapshot = contRec.VesselSnapshot?.CreateCopy();
+                contRec.PreContinuationGhostSnapshot = contRec.GhostVisualSnapshot?.CreateCopy();
                 var lastPoints = contRec.Points;
                 if (lastPoints.Count > 0)
                 {
