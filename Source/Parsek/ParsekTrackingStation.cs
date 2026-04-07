@@ -43,6 +43,9 @@ namespace Parsek
             // Detect live recording commits (merge dialog, approval dialog) and force
             // an immediate lifecycle tick so proto-vessel ghosts appear without waiting
             // for the normal 2-second interval.
+            // NOTE: count-based detection has a blind spot if a recording is removed and
+            // another added in the same frame (net zero change). This can't happen in TS
+            // today — removals only occur via clear-all which resets the entire session.
             int currentCount = RecordingStore.CommittedRecordings?.Count ?? 0;
             if (currentCount != lastKnownCommittedCount)
             {
@@ -97,6 +100,11 @@ namespace Parsek
                 VesselType vtype = ResolveVesselTypeWithFallback(committed, rec);
                 Color markerColor = MapMarkerRenderer.GetColorForType(vtype);
                 MapMarkerRenderer.DrawMarker(worldPos, rec.VesselName ?? "(unknown)", markerColor, vtype);
+
+                ParsekLog.VerboseRateLimited(Tag, $"atmosMarker-{i}",
+                    $"Drawing atmospheric marker #{i} \"{rec.VesselName}\" " +
+                    $"terminal={rec.TerminalStateValue?.ToString() ?? "null"} " +
+                    $"lat={pt.Value.latitude:F2} lon={pt.Value.longitude:F2} alt={pt.Value.altitude:F0}");
             }
         }
 
