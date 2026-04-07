@@ -374,6 +374,7 @@ namespace Parsek
                 {
                     if (!recordings[i].IsTreeRecording) continue;
 
+                    RecordingStore.RollbackContinuationData(recordings[i]);
                     ClearPostSpawnTerminalState(recordings[i], "tree recording");
 
                     recordings[i].VesselSpawned = false;
@@ -1495,6 +1496,7 @@ namespace Parsek
                 // Skip tree recordings — their mutable state is restored from tree nodes
                 if (recordings[i].IsTreeRecording) continue;
 
+                RecordingStore.RollbackContinuationData(recordings[i]);
                 ClearPostSpawnTerminalState(recordings[i]);
 
                 recordings[i].VesselSpawned = false;
