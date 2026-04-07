@@ -801,7 +801,17 @@ namespace Parsek
             if (!GhostPlaybackLogic.IsBoringEnvironment(lastSection.environment)) return false;
 
             double lastInterestingUT = FindLastInterestingUT(rec);
-            if (double.IsNaN(lastInterestingUT)) return false; // entire recording is boring — no reference point
+            if (double.IsNaN(lastInterestingUT))
+            {
+                // Entire recording is boring (no non-boring sections, no events).
+                // This happens after optimizer splits produce an all-SurfaceStationary
+                // or all-ExoBallistic leaf. Trim to a minimal window from the start
+                // so the ghost finishes quickly and the real vessel spawns promptly.
+                // Use the second point's UT as reference to guarantee at least 2 points
+                // survive for valid interpolation (the trim logic requires keepCount >= 2).
+                if (rec.Points.Count < 3) return false; // too few to trim meaningfully
+                lastInterestingUT = rec.Points[1].ut;
+            }
 
             double trimUT = lastInterestingUT + bufferSeconds;
             if (trimUT >= rec.EndUT) return false; // boring tail is shorter than buffer

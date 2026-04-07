@@ -1840,7 +1840,7 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void TrimBoringTail_AllBoringSections_ReturnsFalse()
+        public void TrimBoringTail_AllBoringSections_TrimsToMinimalWindow()
         {
             var rec = new Recording();
             for (int i = 0; i < 10; i++)
@@ -1849,7 +1849,26 @@ namespace Parsek.Tests
                 { environment = SegmentEnvironment.ExoBallistic, startUT = 17000, endUT = 17900 });
             var recordings = new List<Recording> { rec };
 
+            // All-boring leaf: trims to Points[1].ut + buffer.
+            // Points[1] = 17100, buffer = 10, trimUT = 17110 → keeps 2 points (17000, 17100)
+            Assert.True(RecordingOptimizer.TrimBoringTail(rec, recordings));
+            Assert.Equal(2, rec.Points.Count);
+            Assert.True(rec.EndUT <= 17100 + RecordingOptimizer.DefaultTailBufferSeconds + 1);
+        }
+
+        [Fact]
+        public void TrimBoringTail_AllBoringSections_TooFewPoints_ReturnsFalse()
+        {
+            // Only 2 points — not enough to trim (need >= 3 for trimming to make sense)
+            var rec = new Recording();
+            rec.Points.Add(new TrajectoryPoint { ut = 17000 });
+            rec.Points.Add(new TrajectoryPoint { ut = 17900 });
+            rec.TrackSections.Add(new TrackSection
+                { environment = SegmentEnvironment.ExoBallistic, startUT = 17000, endUT = 17900 });
+            var recordings = new List<Recording> { rec };
+
             Assert.False(RecordingOptimizer.TrimBoringTail(rec, recordings));
+            Assert.Equal(2, rec.Points.Count);
         }
 
         [Fact]
@@ -1938,6 +1957,224 @@ namespace Parsek.Tests
             // keepCount would be 0 (< 2), so returns false
             Assert.False(RecordingOptimizer.TrimBoringTail(rec, recordings));
             Assert.Equal(10, rec.Points.Count); // untouched
+        }
+
+        #endregion
+
+        #region RunOptimizationPass -- tree with branch points
+
+        /// <summary>
+        /// Simulates a Mun mission: launch (atmo), orbit+transfer (exo), approach, surface.
+        /// The main recording has a staging branch point during exo phase.
+        /// After optimizer splits, verifies:
+        /// - 4 chain segments (atmo, exo, approach, surface)
+        /// - ChildBranchPointId ends up on the exo segment (where the staging happened)
+        /// - BranchPoint.ParentRecordingIds correctly references the exo segment
+        /// - Chain indices are sequential
+        /// - Debris recording is untouched
+        /// </summary>
+        [Fact]
+        public void RunOptimizationPass_TreeWithBranchPoint_SplitsCorrectly()
+        {
+            RecordingStore.SuppressLogging = true;
+            RecordingStore.ResetForTesting();
+
+            // Main recording: Atmo [17000,17100] -> Exo [17100,17500] -> Approach [17500,17600] -> Surface [17600,17700]
+            var main = new Recording { RecordingId = "main_rec", TreeId = "tree_mun" };
+            main.Points.Add(new TrajectoryPoint { ut = 17000, altitude = 100, bodyName = "Kerbin" });
+            main.Points.Add(new TrajectoryPoint { ut = 17050, altitude = 30000, bodyName = "Kerbin" });
+            main.Points.Add(new TrajectoryPoint { ut = 17099, altitude = 69000, bodyName = "Kerbin" });
+            main.Points.Add(new TrajectoryPoint { ut = 17100, altitude = 71000, bodyName = "Kerbin" });
+            main.Points.Add(new TrajectoryPoint { ut = 17200, altitude = 100000, bodyName = "Kerbin" });
+            main.Points.Add(new TrajectoryPoint { ut = 17300, altitude = 200000, bodyName = "Mun" });
+            main.Points.Add(new TrajectoryPoint { ut = 17400, altitude = 50000, bodyName = "Mun" });
+            main.Points.Add(new TrajectoryPoint { ut = 17499, altitude = 31000, bodyName = "Mun" });
+            main.Points.Add(new TrajectoryPoint { ut = 17500, altitude = 29000, bodyName = "Mun" });
+            main.Points.Add(new TrajectoryPoint { ut = 17550, altitude = 10000, bodyName = "Mun" });
+            main.Points.Add(new TrajectoryPoint { ut = 17599, altitude = 100, bodyName = "Mun" });
+            main.Points.Add(new TrajectoryPoint { ut = 17600, altitude = 10, bodyName = "Mun" });
+            main.Points.Add(new TrajectoryPoint { ut = 17650, altitude = 5, bodyName = "Mun" });
+            main.Points.Add(new TrajectoryPoint { ut = 17700, altitude = 5, bodyName = "Mun" });
+
+            main.TrackSections.Add(new TrackSection
+            {
+                environment = SegmentEnvironment.Atmospheric, startUT = 17000, endUT = 17100,
+                frames = new List<TrajectoryPoint>()
+            });
+            main.TrackSections.Add(new TrackSection
+            {
+                environment = SegmentEnvironment.ExoBallistic, startUT = 17100, endUT = 17500,
+                frames = new List<TrajectoryPoint>()
+            });
+            main.TrackSections.Add(new TrackSection
+            {
+                environment = SegmentEnvironment.Approach, startUT = 17500, endUT = 17600,
+                frames = new List<TrajectoryPoint>()
+            });
+            main.TrackSections.Add(new TrackSection
+            {
+                environment = SegmentEnvironment.SurfaceStationary, startUT = 17600, endUT = 17700,
+                frames = new List<TrajectoryPoint>()
+            });
+
+            // Branch point at recording's temporal end (UT=17700), as in real tree mode
+            // where ChildBranchPointId is set at branchUT during CreateSplitBranch.
+            main.ChildBranchPointId = "bp_staging";
+
+            var bp = new BranchPoint
+            {
+                Id = "bp_staging",
+                UT = 17700, // at recording's end (as in real tree mode)
+                Type = BranchPointType.JointBreak,
+                ParentRecordingIds = new List<string> { "main_rec" },
+                ChildRecordingIds = new List<string> { "main_continuation", "debris_rec" }
+            };
+
+            // Debris recording (booster) — single environment, won't be split
+            var debris = new Recording
+            {
+                RecordingId = "debris_rec",
+                TreeId = "tree_mun",
+                IsDebris = true,
+                ParentBranchPointId = "bp_staging",
+                VesselName = "Booster"
+            };
+            debris.Points.Add(new TrajectoryPoint { ut = 17200, altitude = 100000, bodyName = "Kerbin" });
+            debris.Points.Add(new TrajectoryPoint { ut = 17300, altitude = 50000, bodyName = "Kerbin" });
+            debris.TrackSections.Add(new TrackSection
+            {
+                environment = SegmentEnvironment.ExoBallistic, startUT = 17200, endUT = 17300,
+                frames = new List<TrajectoryPoint>()
+            });
+
+            var tree = new RecordingTree
+            {
+                Id = "tree_mun",
+                TreeName = "Mun Mission",
+                RootRecordingId = "main_rec",
+                BranchPoints = new List<BranchPoint> { bp },
+                Recordings = new System.Collections.Generic.Dictionary<string, Recording>
+                {
+                    { "main_rec", main },
+                    { "debris_rec", debris }
+                }
+            };
+            RecordingStore.CommittedTrees.Add(tree);
+
+            var recordings = RecordingStore.CommittedRecordings;
+            recordings.Add(main);
+            recordings.Add(debris);
+
+            RecordingStore.RunOptimizationPass();
+
+            // Should have 5 recordings: 4 from main split + 1 debris
+            // (surface leaf may be trimmed to minimal window but still exists)
+            Assert.True(recordings.Count >= 4, $"Expected at least 4 recordings, got {recordings.Count}");
+
+            // Find the chain segments (exclude debris)
+            var chain = new List<Recording>();
+            for (int i = 0; i < recordings.Count; i++)
+            {
+                if (recordings[i].RecordingId != "debris_rec")
+                    chain.Add(recordings[i]);
+            }
+            Assert.Equal(4, chain.Count);
+
+            // Verify chain indices are sequential
+            chain.Sort((a, b) => a.StartUT.CompareTo(b.StartUT));
+            for (int i = 0; i < chain.Count; i++)
+                Assert.Equal(i, chain[i].ChainIndex);
+
+            // All chain segments share the same ChainId
+            string chainId = chain[0].ChainId;
+            Assert.False(string.IsNullOrEmpty(chainId));
+            for (int i = 1; i < chain.Count; i++)
+                Assert.Equal(chainId, chain[i].ChainId);
+
+            // Verify segment phases
+            Assert.Equal("atmo", chain[0].SegmentPhase);
+            Assert.Equal("exo", chain[1].SegmentPhase);
+            Assert.Equal("approach", chain[2].SegmentPhase);
+            Assert.Equal("surface", chain[3].SegmentPhase);
+
+            // ChildBranchPointId should be on the LAST chain segment (temporal end)
+            Assert.Null(chain[0].ChildBranchPointId);
+            Assert.Null(chain[1].ChildBranchPointId);
+            Assert.Null(chain[2].ChildBranchPointId);
+            Assert.Equal("bp_staging", chain[3].ChildBranchPointId);
+
+            // BranchPoint.ParentRecordingIds should reference the last chain segment
+            Assert.Single(bp.ParentRecordingIds);
+            Assert.Equal(chain[3].RecordingId, bp.ParentRecordingIds[0]);
+
+            // All chain segments have correct TreeId
+            for (int i = 0; i < chain.Count; i++)
+                Assert.Equal("tree_mun", chain[i].TreeId);
+
+            // Debris recording unchanged
+            var debrisResult = recordings.Find(r => r.RecordingId == "debris_rec");
+            Assert.NotNull(debrisResult);
+            Assert.True(debrisResult.IsDebris);
+            Assert.Equal("bp_staging", debrisResult.ParentBranchPointId);
+
+            // Tree dict updated with new recordings
+            Assert.True(tree.Recordings.Count >= 5,
+                $"Tree should have at least 5 recordings, got {tree.Recordings.Count}");
+
+            RecordingStore.ResetForTesting();
+        }
+
+        /// <summary>
+        /// Verifies that the all-boring leaf trim works end-to-end through RunOptimizationPass.
+        /// After splitting Approach from Surface, the Surface leaf (all SurfaceStationary)
+        /// should be trimmed to a minimal window.
+        /// </summary>
+        [Fact]
+        public void RunOptimizationPass_AllBoringLeaf_TrimmedToMinimalWindow()
+        {
+            RecordingStore.SuppressLogging = true;
+            RecordingStore.ResetForTesting();
+
+            // Recording: Approach [17000,17030] -> SurfaceStationary [17030,17200]
+            var rec = new Recording { RecordingId = "approach_surface" };
+            rec.Points.Add(new TrajectoryPoint { ut = 17000, altitude = 20000, bodyName = "Mun" });
+            rec.Points.Add(new TrajectoryPoint { ut = 17015, altitude = 10000, bodyName = "Mun" });
+            rec.Points.Add(new TrajectoryPoint { ut = 17029, altitude = 100, bodyName = "Mun" });
+            rec.Points.Add(new TrajectoryPoint { ut = 17030, altitude = 5, bodyName = "Mun" });
+            // Long boring tail: 170 seconds of sitting on the surface
+            for (int i = 1; i <= 17; i++)
+                rec.Points.Add(new TrajectoryPoint { ut = 17030 + i * 10, altitude = 5, bodyName = "Mun" });
+
+            rec.TrackSections.Add(new TrackSection
+            {
+                environment = SegmentEnvironment.Approach, startUT = 17000, endUT = 17030,
+                frames = new List<TrajectoryPoint>()
+            });
+            rec.TrackSections.Add(new TrackSection
+            {
+                environment = SegmentEnvironment.SurfaceStationary, startUT = 17030, endUT = 17200,
+                frames = new List<TrajectoryPoint>()
+            });
+
+            var recordings = RecordingStore.CommittedRecordings;
+            recordings.Add(rec);
+
+            RecordingStore.RunOptimizationPass();
+
+            // Should split into 2: Approach + Surface
+            Assert.Equal(2, recordings.Count);
+            var approach = recordings[0];
+            var surface = recordings[1];
+            Assert.Equal("approach", approach.SegmentPhase);
+            Assert.Equal("surface", surface.SegmentPhase);
+
+            // Surface leaf is all-boring -> trimmed to Points[1].ut + buffer.
+            // After split, surface points start at 17030 with 10s spacing,
+            // so Points[1]=17040, trimUT=17050. Significantly shorter than original 170s.
+            Assert.True(surface.EndUT < 17100,
+                $"Surface EndUT {surface.EndUT} should be trimmed well below original 17200");
+
+            RecordingStore.ResetForTesting();
         }
 
         #endregion

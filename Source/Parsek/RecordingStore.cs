@@ -928,7 +928,17 @@ namespace Parsek
                 if (second.Points != null && second.Points.Count > 0)
                     second.SegmentBodyName = second.Points[0].bodyName;
 
-                // BranchPoint linkage: ChildBranchPointId moves to last half
+                // BranchPoint linkage: ChildBranchPointId moves to last half.
+                // This is safe because ChildBranchPointId is always set at recording
+                // termination (CreateSplitBranch sets it at branchUT), so any optimizer
+                // environment split is at an internal boundary before branchUT.
+                //
+                // NOTE: The parent BranchPoint's ChildRecordingIds still references
+                // original.RecordingId (now the first chain segment). This is correct —
+                // the first segment IS the direct child of that BP. The chain linkage
+                // (shared ChainId) connects it to subsequent segments. Code that walks
+                // from a BranchPoint to the chain tip must follow ChainId, not just
+                // ChildRecordingIds.
                 second.ChildBranchPointId = original.ChildBranchPointId;
                 original.ChildBranchPointId = null;
                 // Do NOT set second.ParentRecordingId — that field is for EVA linkage only
