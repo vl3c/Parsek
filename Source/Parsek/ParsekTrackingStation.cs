@@ -21,7 +21,9 @@ namespace Parsek
         /// <summary>Cached interpolation indices for atmospheric ghost icon rendering (per recording index).</summary>
         private readonly Dictionary<int, int> atmosCachedIndices = new Dictionary<int, int>();
 
-    
+        /// <summary>Tracks the last known committed recording count for live-update detection.</summary>
+        private int lastKnownCommittedCount;
+
         void Start()
         {
             int created = GhostMapPresence.CreateGhostVesselsFromCommittedRecordings();
@@ -29,6 +31,7 @@ namespace Parsek
 
             nextLifecycleCheckTime = Time.time + LifecycleCheckIntervalSec;
             atmosCachedIndices.Clear();
+            lastKnownCommittedCount = RecordingStore.CommittedRecordings?.Count ?? 0;
 
             ParsekLog.Info(Tag,
                 $"ParsekTrackingStation initialized: created {created} ghost vessel(s), " +
@@ -37,6 +40,19 @@ namespace Parsek
 
         void Update()
         {
+            // Detect live recording commits (merge dialog, approval dialog) and force
+            // an immediate lifecycle tick so proto-vessel ghosts appear without waiting
+            // for the normal 2-second interval.
+            int currentCount = RecordingStore.CommittedRecordings?.Count ?? 0;
+            if (currentCount != lastKnownCommittedCount)
+            {
+                ParsekLog.Info(Tag,
+                    $"Committed recording count changed ({lastKnownCommittedCount} → {currentCount}) " +
+                    "— forcing immediate lifecycle tick");
+                lastKnownCommittedCount = currentCount;
+                nextLifecycleCheckTime = 0f; // force tick this frame
+            }
+
             if (Time.time < nextLifecycleCheckTime) return;
             nextLifecycleCheckTime = Time.time + LifecycleCheckIntervalSec;
 
@@ -56,32 +72,12 @@ namespace Parsek
 
             double currentUT = Planetarium.GetUniversalTime();
 
+            var superseded = GhostMapPresence.CachedSupersededIds;
+
             for (int i = 0; i < committed.Count; i++)
             {
-                // Skip if a ProtoVessel ghost already handles this recording
-                if (GhostMapPresence.HasGhostVesselForRecording(i)) continue;
-
                 var rec = committed[i];
-                if (rec.IsDebris) continue;
-                if (rec.Points == null || rec.Points.Count == 0) continue;
-                if (currentUT < rec.Points[0].ut || currentUT > rec.Points[rec.Points.Count - 1].ut) continue;
-
-                // Skip superseded recordings (intermediate chain segments).
-                // Uses cached set from UpdateTrackingStationGhostLifecycle (computed once per tick).
-                var superseded = GhostMapPresence.CachedSupersededIds;
-                if (superseded != null && superseded.Contains(rec.RecordingId)) continue;
-
-                // Skip non-orbital terminal states
-                var terminal = rec.TerminalStateValue;
-                if (terminal.HasValue
-                    && terminal.Value != TerminalState.Orbiting
-                    && terminal.Value != TerminalState.Docked)
-                    continue;
-
-                // Skip if currently in an orbit segment (ProtoVessel handles that)
-                if (rec.HasOrbitSegments
-                    && TrajectoryMath.FindOrbitSegment(rec.OrbitSegments, currentUT).HasValue)
-                    continue;
+                if (!ShouldDrawAtmosphericMarker(rec, i, currentUT, superseded)) continue;
 
                 // Interpolate trajectory position at current UT
                 if (!atmosCachedIndices.ContainsKey(i))
@@ -127,6 +123,29 @@ namespace Parsek
             }
 
             return VesselType.Ship;
+        }
+
+        /// <summary>
+        /// Pure: should an atmospheric trajectory marker be drawn for this recording?
+        /// Returns true if the recording is eligible for trajectory-interpolated icon rendering
+        /// (no ProtoVessel ghost, has trajectory data at currentUT, not superseded, not in orbit segment).
+        /// Deliberately does NOT filter by terminal state — atmospheric markers show the ghost's
+        /// flight path during its time window regardless of how the recording ended.
+        /// </summary>
+        internal static bool ShouldDrawAtmosphericMarker(
+            Recording rec, int recordingIndex, double currentUT,
+            HashSet<string> supersededIds)
+        {
+            if (GhostMapPresence.HasGhostVesselForRecording(recordingIndex)) return false;
+            if (rec == null) return false;
+            if (rec.IsDebris) return false;
+            if (rec.Points == null || rec.Points.Count == 0) return false;
+            if (currentUT < rec.Points[0].ut || currentUT > rec.Points[rec.Points.Count - 1].ut) return false;
+            if (supersededIds != null && supersededIds.Contains(rec.RecordingId)) return false;
+            if (rec.HasOrbitSegments
+                && TrajectoryMath.FindOrbitSegment(rec.OrbitSegments, currentUT).HasValue)
+                return false;
+            return true;
         }
 
         void OnDestroy()

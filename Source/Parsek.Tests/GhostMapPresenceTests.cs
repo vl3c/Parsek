@@ -1278,5 +1278,191 @@ namespace Parsek.Tests
         }
 
         #endregion
+
+        #region ShouldDrawAtmosphericMarker
+
+        [Fact]
+        public void ShouldDrawAtmosphericMarker_SubOrbitalTerminalState_NotFiltered()
+        {
+            var rec = new Recording
+            {
+                RecordingId = "suborbital-1",
+                TerminalStateValue = TerminalState.SubOrbital,
+                Points = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint { ut = 100, bodyName = "Kerbin" },
+                    new TrajectoryPoint { ut = 200, bodyName = "Kerbin" }
+                }
+            };
+            // currentUT=150 is within the recording window — marker should show
+            bool result = ParsekTrackingStation.ShouldDrawAtmosphericMarker(rec, 0, 150, null);
+            Assert.True(result);
+        }
+
+        [Fact]
+        public void ShouldDrawAtmosphericMarker_DestroyedTerminalState_NotFiltered()
+        {
+            var rec = new Recording
+            {
+                RecordingId = "destroyed-1",
+                TerminalStateValue = TerminalState.Destroyed,
+                Points = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint { ut = 100, bodyName = "Kerbin" },
+                    new TrajectoryPoint { ut = 200, bodyName = "Kerbin" }
+                }
+            };
+            bool result = ParsekTrackingStation.ShouldDrawAtmosphericMarker(rec, 0, 150, null);
+            Assert.True(result);
+        }
+
+        [Fact]
+        public void ShouldDrawAtmosphericMarker_RecoveredTerminalState_NotFiltered()
+        {
+            var rec = new Recording
+            {
+                RecordingId = "recovered-1",
+                TerminalStateValue = TerminalState.Recovered,
+                Points = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint { ut = 100, bodyName = "Kerbin" },
+                    new TrajectoryPoint { ut = 200, bodyName = "Kerbin" }
+                }
+            };
+            bool result = ParsekTrackingStation.ShouldDrawAtmosphericMarker(rec, 0, 150, null);
+            Assert.True(result);
+        }
+
+        [Fact]
+        public void ShouldDrawAtmosphericMarker_LandedTerminalState_NotFiltered()
+        {
+            var rec = new Recording
+            {
+                RecordingId = "landed-1",
+                TerminalStateValue = TerminalState.Landed,
+                Points = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint { ut = 100, bodyName = "Kerbin" },
+                    new TrajectoryPoint { ut = 200, bodyName = "Kerbin" }
+                }
+            };
+            bool result = ParsekTrackingStation.ShouldDrawAtmosphericMarker(rec, 0, 150, null);
+            Assert.True(result);
+        }
+
+        [Fact]
+        public void ShouldDrawAtmosphericMarker_OutOfTimeWindow_Filtered()
+        {
+            var rec = new Recording
+            {
+                RecordingId = "past-1",
+                TerminalStateValue = TerminalState.Destroyed,
+                Points = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint { ut = 100, bodyName = "Kerbin" },
+                    new TrajectoryPoint { ut = 200, bodyName = "Kerbin" }
+                }
+            };
+            // currentUT=250 is past the recording end — marker should NOT show
+            bool result = ParsekTrackingStation.ShouldDrawAtmosphericMarker(rec, 0, 250, null);
+            Assert.False(result);
+        }
+
+        [Fact]
+        public void ShouldDrawAtmosphericMarker_Debris_Filtered()
+        {
+            var rec = new Recording
+            {
+                RecordingId = "debris-1",
+                IsDebris = true,
+                Points = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint { ut = 100, bodyName = "Kerbin" },
+                    new TrajectoryPoint { ut = 200, bodyName = "Kerbin" }
+                }
+            };
+            bool result = ParsekTrackingStation.ShouldDrawAtmosphericMarker(rec, 0, 150, null);
+            Assert.False(result);
+        }
+
+        [Fact]
+        public void ShouldDrawAtmosphericMarker_Superseded_Filtered()
+        {
+            var rec = new Recording
+            {
+                RecordingId = "superseded-1",
+                Points = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint { ut = 100, bodyName = "Kerbin" },
+                    new TrajectoryPoint { ut = 200, bodyName = "Kerbin" }
+                }
+            };
+            var superseded = new HashSet<string> { "superseded-1" };
+            bool result = ParsekTrackingStation.ShouldDrawAtmosphericMarker(rec, 0, 150, superseded);
+            Assert.False(result);
+        }
+
+        [Fact]
+        public void ShouldDrawAtmosphericMarker_NoPoints_Filtered()
+        {
+            var rec = new Recording
+            {
+                RecordingId = "empty-1",
+                Points = new List<TrajectoryPoint>()
+            };
+            bool result = ParsekTrackingStation.ShouldDrawAtmosphericMarker(rec, 0, 150, null);
+            Assert.False(result);
+        }
+
+        [Fact]
+        public void ShouldDrawAtmosphericMarker_InOrbitSegment_Filtered()
+        {
+            var rec = new Recording
+            {
+                RecordingId = "orbital-phase-1",
+                Points = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint { ut = 100, bodyName = "Kerbin" },
+                    new TrajectoryPoint { ut = 500, bodyName = "Kerbin" }
+                },
+                OrbitSegments = new List<OrbitSegment>
+                {
+                    new OrbitSegment { startUT = 200, endUT = 400, bodyName = "Kerbin",
+                        semiMajorAxis = 700000, eccentricity = 0.01,
+                        inclination = 0, longitudeOfAscendingNode = 0,
+                        argumentOfPeriapsis = 0, meanAnomalyAtEpoch = 0, epoch = 200 }
+                }
+            };
+            // currentUT=300 is within the orbit segment — ProtoVessel handles this, marker should NOT show
+            bool result = ParsekTrackingStation.ShouldDrawAtmosphericMarker(rec, 0, 300, null);
+            Assert.False(result);
+        }
+
+        [Fact]
+        public void ShouldDrawAtmosphericMarker_InAtmosphericPhaseOfMixedRecording_NotFiltered()
+        {
+            var rec = new Recording
+            {
+                RecordingId = "mixed-1",
+                TerminalStateValue = TerminalState.Orbiting,
+                Points = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint { ut = 100, bodyName = "Kerbin" },
+                    new TrajectoryPoint { ut = 500, bodyName = "Kerbin" }
+                },
+                OrbitSegments = new List<OrbitSegment>
+                {
+                    new OrbitSegment { startUT = 300, endUT = 500, bodyName = "Kerbin",
+                        semiMajorAxis = 700000, eccentricity = 0.01,
+                        inclination = 0, longitudeOfAscendingNode = 0,
+                        argumentOfPeriapsis = 0, meanAnomalyAtEpoch = 0, epoch = 300 }
+                }
+            };
+            // currentUT=150 is in the atmospheric phase (before orbit segment) — marker should show
+            bool result = ParsekTrackingStation.ShouldDrawAtmosphericMarker(rec, 0, 150, null);
+            Assert.True(result);
+        }
+
+        #endregion
     }
 }
