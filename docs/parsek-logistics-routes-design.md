@@ -702,5 +702,5 @@ Destination destroyed (surface: proximity reconnects; orbital: route pauses). Or
 - `docs/dev/research/logistics-network-design.md` — logistics network research
 - `docs/dev/research/loop-playback-and-logistics.md` — loop mechanics and orbital drift
 - `docs/dev/research/resource-snapshots-preparation.md` — infrastructure analysis and unloaded vessel modification
-- `docs/mods-references/Kerbalism-resource-system-analysis.md` — background resource processing patterns
+- `docs/mods-references/` — background resource processing patterns from other KSP mods
 - `docs/roadmap.md` — Phase 11, 11.5, 12
