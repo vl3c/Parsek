@@ -74,6 +74,16 @@ namespace Parsek
             return pendingWatchId != null && pendingWatchId == recordingId && spawnedPid != 0;
         }
 
+        /// <summary>
+        /// Pure decision: should this recording be checked for spawn-death (vessel spawned
+        /// then immediately destroyed)? Returns true when the recording has a live spawned
+        /// vessel that hasn't already been abandoned.
+        /// </summary>
+        internal static bool ShouldCheckForSpawnDeath(bool vesselSpawned, uint spawnedPid, bool spawnAbandoned)
+        {
+            return vesselSpawned && spawnedPid != 0 && !spawnAbandoned;
+        }
+
         internal static bool ShouldPauseTimelineResourceReplay(bool isRecording)
         {
             return isRecording;
