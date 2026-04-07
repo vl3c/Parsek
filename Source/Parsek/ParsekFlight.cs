@@ -63,7 +63,6 @@ namespace Parsek
         private Dictionary<int, GhostPlaybackState> ghostStates => engine.ghostStates;
         private List<GameObject> activeExplosions => engine.activeExplosions;
 
-
         // Cached TimelineGhosts dictionary — rebuilt once per frame on first access (T20)
         private Dictionary<int, GameObject> cachedTimelineGhosts = new Dictionary<int, GameObject>();
         private int cachedTimelineGhostsFrame = -1;
@@ -1048,7 +1047,7 @@ namespace Parsek
             // TickCrashCoalescer runs each Update frame. Once the 0.5s window expires,
             // it emits BREAKUP → ProcessBreakupEvent sees recorder alive →
             // PromoteToTreeForBreakup creates a tree with debris child recordings.
-            if (crashCoalescer.HasPendingBreakup)
+            if (crashCoalescer != null && crashCoalescer.HasPendingBreakup)
             {
                 ParsekLog.Info("Flight",
                     "ShowPostDestructionMergeDialog: waiting for crash coalescer");
