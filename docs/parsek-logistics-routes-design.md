@@ -44,7 +44,7 @@ On schedule, the route evaluates whether delivery is possible. It checks the des
 | Destination tanks full | Cycle skipped. Origin NOT deducted. Ghost loops visually. |
 | Origin runs out of resources | Dispatch delayed until resources available. Route resumes automatically. |
 | Destination destroyed (surface) | Proximity fallback auto-reconnects to rebuilt base at same location. |
-| Destination destroyed (orbital) | Route pauses. Player must re-target to new station. |
+| Destination destroyed (orbital) | Route halted (`EndpointLost`). Player must re-target to new station. |
 | Player reverts past a dispatch | Epoch isolation invalidates dispatch. Origin resources restored. |
 | Two routes linked as round-trip | They alternate: Route A completes → Route B dispatches → B completes → A dispatches. |
 
@@ -380,6 +380,14 @@ For each resource in DeliveryManifest:
 ```
 
 Origin cost: deduct full CostManifest if ANY delivery resource has a non-zero amount. Zero deduction only if total delivery is zero across all resources.
+
+### 6.4 Pause, unpause, and re-target
+
+**Pause:** Player clicks Pause in route UI → `Status = Paused`. Route excluded from dispatch evaluation. Ghost may continue looping visually (existing loop system), but no resource operations occur.
+
+**Unpause:** Player clicks Resume → `Status = Active`. Route re-enters dispatch evaluation on next scheduler tick. `NextDispatchUT` is recalculated if stale (advanced to next valid dispatch time from currentUT).
+
+**Re-target (EndpointLost recovery):** Player selects a new destination vessel in the route UI → endpoint coordinates and vesselPid updated, `Status` transitions from `EndpointLost` to `Active`. Same mechanism for origin re-targeting on non-KSC routes.
 
 ---
 
