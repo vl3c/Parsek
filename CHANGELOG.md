@@ -8,6 +8,12 @@ All notable changes to Parsek are documented here.
 
 ### Bug Fixes
 
+- **Fix crash breakup debris not recorded when recorder tears down before coalescer (#218).** `ShowPostDestructionMergeDialog` stopped the recorder after one frame, but the crash coalescer's 0.5s window hadn't expired yet. By the time the BREAKUP event emitted, no recorder existed to attach it to. Now waits for the coalescer to finish before proceeding, with a 5s real-time timeout for safety. Continuation recorder marked `VesselDestroyedDuringRecording` after tree promotion to prevent tree dialog guard from incorrectly aborting.
+
+### Code Quality
+
+- **Remove dead forwarding properties (#133).** Removed unused `overlapGhosts` and `loopPhaseOffsets` private forwarding properties from ParsekFlight — zero internal callers, external code accesses `engine.*` directly.
+
 - **Fix atmospheric ghost markers not appearing in Tracking Station (#240).** `OnGUI` had a terminal state filter that skipped non-Orbiting/non-Docked recordings, blocking atmospheric trajectory markers for SubOrbital, Destroyed, Recovered, and Landed recordings even during their active flight window. The UT range check already handles temporal visibility correctly. Extracted `ShouldDrawAtmosphericMarker` as testable pure method.
 - **Fix delayed proto-vessel ghost creation after merge dialog commit.** When a recording was committed via the merge/approval dialog while in the Tracking Station, proto-vessel ghosts took up to 2 seconds to appear (waiting for the lifecycle tick). Now detects committed recording count changes and forces an immediate lifecycle tick.
 - **Fix deferred spawn queue split-brain (#132).** `HandlePlaybackCompleted` in `ParsekPlaybackPolicy` added deferred spawn IDs to the policy's `pendingSpawnRecordingIds`, but `FlushDeferredSpawns` in `ParsekFlight` read from its own never-populated duplicate set. Deferred spawns during warp silently never flushed. Moved `FlushDeferredSpawns` to the policy, eliminated the duplicate fields.
