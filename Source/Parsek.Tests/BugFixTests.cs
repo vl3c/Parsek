@@ -1523,4 +1523,196 @@ namespace Parsek.Tests
     }
 
     #endregion
+
+    #region Bug #157 — CreateBreakupChildRecording with fallback snapshot
+
+    [Collection("Sequential")]
+    public class Bug157_FallbackSnapshotTests : IDisposable
+    {
+        private readonly List<string> logLines = new List<string>();
+
+        public Bug157_FallbackSnapshotTests()
+        {
+            ParsekLog.ResetTestOverrides();
+            ParsekLog.SuppressLogging = false;
+            ParsekLog.VerboseOverrideForTesting = true;
+            ParsekLog.TestSinkForTesting = line => logLines.Add(line);
+        }
+
+        public void Dispose()
+        {
+            ParsekLog.ResetTestOverrides();
+            ParsekLog.SuppressLogging = true;
+        }
+
+        [Fact]
+        public void NullVessel_WithFallbackSnapshot_UsesIt()
+        {
+            var tree = new RecordingTree { Id = "t1", TreeName = "Test" };
+            var bp = new BranchPoint { Id = "bp1", UT = 100 };
+
+            var snapshot = new ConfigNode("VESSEL");
+            snapshot.AddValue("name", "Debris Piece");
+
+            var rec = ParsekFlight.CreateBreakupChildRecording(
+                tree, bp, 42, null, true, "Debris", snapshot);
+
+            Assert.NotNull(rec.GhostVisualSnapshot);
+            Assert.NotNull(rec.VesselSnapshot);
+            Assert.Equal("Debris Piece", rec.GhostVisualSnapshot.GetValue("name"));
+            Assert.Equal(TerminalState.Destroyed, rec.TerminalStateValue);
+            Assert.Equal(100, rec.ExplicitEndUT);
+
+            Assert.Contains(logLines, l => l.Contains("pre-captured snapshot") && l.Contains("pid=42"));
+        }
+
+        [Fact]
+        public void NullVessel_NoFallback_BothSnapshotsNull()
+        {
+            var tree = new RecordingTree { Id = "t1", TreeName = "Test" };
+            var bp = new BranchPoint { Id = "bp1", UT = 100 };
+
+            var rec = ParsekFlight.CreateBreakupChildRecording(
+                tree, bp, 42, null, true, "Debris", null);
+
+            Assert.Null(rec.GhostVisualSnapshot);
+            Assert.Null(rec.VesselSnapshot);
+            Assert.Equal(TerminalState.Destroyed, rec.TerminalStateValue);
+        }
+
+        [Fact]
+        public void FallbackSnapshot_CopiedToVesselSnapshot()
+        {
+            var tree = new RecordingTree { Id = "t1", TreeName = "Test" };
+            var bp = new BranchPoint { Id = "bp1", UT = 100 };
+
+            var snapshot = new ConfigNode("VESSEL");
+            snapshot.AddValue("pid", "42");
+
+            var rec = ParsekFlight.CreateBreakupChildRecording(
+                tree, bp, 42, null, true, "Debris", snapshot);
+
+            // VesselSnapshot should be a copy, not the same reference
+            Assert.NotNull(rec.VesselSnapshot);
+            Assert.NotSame(rec.GhostVisualSnapshot, rec.VesselSnapshot);
+            Assert.Equal("42", rec.VesselSnapshot.GetValue("pid"));
+        }
+    }
+
+    #endregion
+
+    #region Bug #219 — PopulateTerminalOrbitFromLastSegment
+
+    [Collection("Sequential")]
+    public class Bug219_PopulateTerminalOrbitFromLastSegmentTests : IDisposable
+    {
+        private readonly List<string> logLines = new List<string>();
+
+        public Bug219_PopulateTerminalOrbitFromLastSegmentTests()
+        {
+            ParsekLog.ResetTestOverrides();
+            ParsekLog.SuppressLogging = false;
+            ParsekLog.VerboseOverrideForTesting = true;
+            ParsekLog.TestSinkForTesting = line => logLines.Add(line);
+        }
+
+        public void Dispose()
+        {
+            ParsekLog.ResetTestOverrides();
+            ParsekLog.SuppressLogging = true;
+        }
+
+        [Fact]
+        public void WithOrbitSegments_PopulatesTerminalOrbit()
+        {
+            var rec = new Recording();
+            rec.OrbitSegments = new List<OrbitSegment>
+            {
+                new OrbitSegment
+                {
+                    startUT = 100, endUT = 200,
+                    bodyName = "Kerbin",
+                    inclination = 28.5,
+                    eccentricity = 0.001,
+                    semiMajorAxis = 700000,
+                    longitudeOfAscendingNode = 90,
+                    argumentOfPeriapsis = 45,
+                    meanAnomalyAtEpoch = 1.5,
+                    epoch = 100
+                }
+            };
+
+            ParsekFlight.PopulateTerminalOrbitFromLastSegment(rec);
+
+            Assert.Equal("Kerbin", rec.TerminalOrbitBody);
+            Assert.Equal(28.5, rec.TerminalOrbitInclination);
+            Assert.Equal(0.001, rec.TerminalOrbitEccentricity);
+            Assert.Equal(700000, rec.TerminalOrbitSemiMajorAxis);
+            Assert.Equal(90, rec.TerminalOrbitLAN);
+            Assert.Equal(45, rec.TerminalOrbitArgumentOfPeriapsis);
+            Assert.Equal(1.5, rec.TerminalOrbitMeanAnomalyAtEpoch);
+            Assert.Equal(100, rec.TerminalOrbitEpoch);
+
+            Assert.Contains(logLines, l => l.Contains("PopulateTerminalOrbitFromLastSegment")
+                && l.Contains("Kerbin") && l.Contains("700000"));
+        }
+
+        [Fact]
+        public void UsesLastSegment_NotFirst()
+        {
+            var rec = new Recording();
+            rec.OrbitSegments = new List<OrbitSegment>
+            {
+                new OrbitSegment { startUT = 100, endUT = 200, bodyName = "Kerbin", semiMajorAxis = 700000 },
+                new OrbitSegment { startUT = 200, endUT = 300, bodyName = "Mun", semiMajorAxis = 250000 }
+            };
+
+            ParsekFlight.PopulateTerminalOrbitFromLastSegment(rec);
+
+            Assert.Equal("Mun", rec.TerminalOrbitBody);
+            Assert.Equal(250000, rec.TerminalOrbitSemiMajorAxis);
+        }
+
+        [Fact]
+        public void NoOrbitSegments_DoesNothing()
+        {
+            var rec = new Recording();
+            rec.OrbitSegments = new List<OrbitSegment>();
+
+            ParsekFlight.PopulateTerminalOrbitFromLastSegment(rec);
+
+            Assert.Null(rec.TerminalOrbitBody);
+            Assert.Equal(0, rec.TerminalOrbitSemiMajorAxis);
+        }
+
+        [Fact]
+        public void AlreadyPopulated_DoesNotOverwrite()
+        {
+            var rec = new Recording();
+            rec.TerminalOrbitBody = "Duna";
+            rec.TerminalOrbitSemiMajorAxis = 500000;
+            rec.OrbitSegments = new List<OrbitSegment>
+            {
+                new OrbitSegment { startUT = 100, endUT = 200, bodyName = "Kerbin", semiMajorAxis = 700000 }
+            };
+
+            ParsekFlight.PopulateTerminalOrbitFromLastSegment(rec);
+
+            Assert.Equal("Duna", rec.TerminalOrbitBody);
+            Assert.Equal(500000, rec.TerminalOrbitSemiMajorAxis);
+        }
+
+        [Fact]
+        public void NullOrbitSegmentsList_DoesNothing()
+        {
+            var rec = new Recording();
+            rec.OrbitSegments = null;
+
+            ParsekFlight.PopulateTerminalOrbitFromLastSegment(rec);
+
+            Assert.Null(rec.TerminalOrbitBody);
+        }
+    }
+
+    #endregion
 }

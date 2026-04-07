@@ -731,5 +731,78 @@ namespace Parsek.Tests
         }
 
         #endregion
+
+        #region Pre-captured snapshots (#157)
+
+        [Fact]
+        public void PreCapturedSnapshot_SurvivedThroughEmission()
+        {
+            var coalescer = new CrashCoalescer(0.1);
+            var snapshot = new ConfigNode("VESSEL");
+            snapshot.AddValue("name", "Debris Fragment");
+
+            coalescer.OnSplitEvent(100.0, 42, false, preSnapshot: snapshot);
+
+            // Before emission — snapshot not accessible via LastEmitted
+            Assert.Null(coalescer.GetPreCapturedSnapshot(42));
+
+            // Tick past window
+            var bp = coalescer.Tick(100.2);
+            Assert.NotNull(bp);
+
+            // Now accessible via GetPreCapturedSnapshot
+            var retrieved = coalescer.GetPreCapturedSnapshot(42);
+            Assert.NotNull(retrieved);
+            Assert.Equal("Debris Fragment", retrieved.GetValue("name"));
+        }
+
+        [Fact]
+        public void PreCapturedSnapshot_NullWhenNotProvided()
+        {
+            var coalescer = new CrashCoalescer(0.1);
+            coalescer.OnSplitEvent(100.0, 42, false);
+            coalescer.Tick(100.2);
+
+            Assert.Null(coalescer.GetPreCapturedSnapshot(42));
+        }
+
+        [Fact]
+        public void PreCapturedSnapshot_ClearedOnReset()
+        {
+            var coalescer = new CrashCoalescer(0.1);
+            var snapshot = new ConfigNode("VESSEL");
+            coalescer.OnSplitEvent(100.0, 42, false, preSnapshot: snapshot);
+            coalescer.Tick(100.2);
+
+            // Verify it exists after emission
+            Assert.NotNull(coalescer.GetPreCapturedSnapshot(42));
+
+            // Start a new window — lastEmitted is overwritten on next emission
+            coalescer.OnSplitEvent(200.0, 99, false);
+            coalescer.Tick(200.2);
+
+            // Old snapshot should be gone (overwritten by new emission)
+            Assert.Null(coalescer.GetPreCapturedSnapshot(42));
+        }
+
+        [Fact]
+        public void PreCapturedSnapshot_MultipleDebris()
+        {
+            var coalescer = new CrashCoalescer(0.5);
+            var snap1 = new ConfigNode("VESSEL");
+            snap1.AddValue("name", "Debris1");
+            var snap2 = new ConfigNode("VESSEL");
+            snap2.AddValue("name", "Debris2");
+
+            coalescer.OnSplitEvent(100.0, 10, false, preSnapshot: snap1);
+            coalescer.OnSplitEvent(100.1, 20, false, preSnapshot: snap2);
+            coalescer.Tick(100.6);
+
+            Assert.Equal("Debris1", coalescer.GetPreCapturedSnapshot(10)?.GetValue("name"));
+            Assert.Equal("Debris2", coalescer.GetPreCapturedSnapshot(20)?.GetValue("name"));
+            Assert.Null(coalescer.GetPreCapturedSnapshot(99)); // not added
+        }
+
+        #endregion
     }
 }

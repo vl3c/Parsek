@@ -83,6 +83,13 @@ namespace Parsek
                 bool isDestroyedTerminal = rec.TerminalStateValue == TerminalState.Destroyed;
                 bool isMidChain = IsChainMidSegment(rec, recordings);
 
+                // Tree continuation: parent has ChildBranchPointId → same-PID child exists
+                // (EVA/staging/breakup). The parent should not spawn; only the leaf spawns.
+                // Conversely, a tree child that IS the leaf for its vessel should spawn. (#227)
+                bool hasSamePidContinuation = HasSamePidTreeContinuation(rec, recordings);
+                bool isTreeLeaf = isTreeChild && !hasSamePidContinuation
+                    && string.IsNullOrEmpty(rec.ChildBranchPointId);
+
                 // RecordingStart — only for true launches and EVAs.
                 // Skip: optimizer-split segments (ChainIndex > 0) and tree branch children
                 // (ParentBranchPointId set — created by staging/decouple/breakup, not player launch).
@@ -121,13 +128,15 @@ namespace Parsek
 
                 // VesselSpawn at EndUT — vessel materializes after ghost playback.
                 // Skip: disabled playback, mid-chain segments, destroyed terminals (can't spawn
-                // a destroyed vessel), and tree children that aren't the effective vessel leaf.
+                // a destroyed vessel), mid-tree segments with a same-PID continuation (#227),
+                // and tree children that aren't the effective vessel leaf.
+                bool suppressTreeSpawn = hasSamePidContinuation || (isTreeChild && !isTreeLeaf);
                 if (!rec.PlaybackEnabled) disabledSkipped++;
                 else if (isMidChain) midChainSkipped++;
                 else if (isDestroyedTerminal) destroyedSkipped++;
 
                 if (rec.PlaybackEnabled && !isMidChain
-                    && !isDestroyedTerminal && !isTreeChild)
+                    && !isDestroyedTerminal && !suppressTreeSpawn)
                 {
                     var spawnType = TimelineEntryType.VesselSpawn;
                     string displayText = TimelineEntryDisplay.GetVesselSpawnText(rec.VesselName, rec.TerminalStateValue, rec.VesselSituation, isEva, parentVesselName, rec.TerminalOrbitBody, rec.SegmentBodyName, rec.EndBiome);
@@ -191,6 +200,28 @@ namespace Parsek
             {
                 var other = recordings[i];
                 if (other.ChainId == rec.ChainId && other.ChainBranch == 0 && other.ChainIndex > rec.ChainIndex)
+                    return true;
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// Returns true if the recording has a ChildBranchPointId and another recording
+        /// in the list is a child of that branch point with the same VesselPersistentId.
+        /// This means the vessel continues in a tree child — the parent is a mid-tree
+        /// segment and should not produce a spawn entry. (#227)
+        /// Flat-list equivalent of <see cref="GhostPlaybackLogic.IsEffectiveLeafForVessel"/>
+        /// (inverted sense: true here = NOT effective leaf).
+        /// </summary>
+        internal static bool HasSamePidTreeContinuation(Recording rec, IReadOnlyList<Recording> recordings)
+        {
+            if (string.IsNullOrEmpty(rec.ChildBranchPointId)) return false;
+            if (rec.VesselPersistentId == 0) return false;
+            for (int i = 0; i < recordings.Count; i++)
+            {
+                var other = recordings[i];
+                if (other.ParentBranchPointId == rec.ChildBranchPointId
+                    && other.VesselPersistentId == rec.VesselPersistentId)
                     return true;
             }
             return false;
