@@ -62,8 +62,8 @@ namespace Parsek
                 () => { showUI = false; ParsekLog.Verbose("KSC", "Toolbar button OFF"); },
                 ApplicationLauncher.AppScenes.SPACECENTER,
                 ParsekFlight.MODID, "parsekKSCButton",
-                "Parsek/Textures/parsek_38",
-                "Parsek/Textures/parsek_24",
+                "Parsek/Textures/parsek_64",
+                "Parsek/Textures/parsek_32",
                 ParsekFlight.MODNAME
             );
 

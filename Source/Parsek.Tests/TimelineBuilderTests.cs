@@ -290,6 +290,7 @@ namespace Parsek.Tests
             {
                 TimelineEntryType.RecordingStart,
                 TimelineEntryType.VesselSpawn,
+                TimelineEntryType.CrewDeath,
                 TimelineEntryType.MilestoneAchievement,
                 TimelineEntryType.ContractComplete,
                 TimelineEntryType.ContractFail,
@@ -308,7 +309,7 @@ namespace Parsek.Tests
                     $"Expected T1 for {type} but got {tier}");
             }
 
-            Assert.Equal(11, t1Types.Length);
+            Assert.Equal(12, t1Types.Length);
         }
 
         // ================================================================
@@ -805,10 +806,183 @@ namespace Parsek.Tests
                 TimelineEntryType.KerbalStandIn,
                 TimelineEntryType.RecordingStart,
                 TimelineEntryType.VesselSpawn,
+                TimelineEntryType.CrewDeath,
                 TimelineEntryType.LegacyEvent
             };
             foreach (var type in events)
                 Assert.False(TimelineEntryDisplay.IsPlayerAction(type), $"{type} should NOT be a player action");
+        }
+
+        // ================================================================
+        // 30. Tree recording with EVA branch — parent suppressed, leaf spawns (#227)
+        // ================================================================
+
+        [Fact]
+        public void TreeRecordingWithEvaBranch_OnlyLeafSpawns()
+        {
+            string branchPointId = "bp-eva-001";
+            uint vesselPid = 42;
+
+            // Root recording: launched, then EVA at UT=300. Has ChildBranchPointId.
+            var root = MakeRecording("Kerbal X", 100, 300, terminal: TerminalState.Landed);
+            root.VesselPersistentId = vesselPid;
+            root.ChildBranchPointId = branchPointId;
+
+            // Continuation child: same vessel PID, picks up after EVA branch
+            var continuation = MakeRecording("Kerbal X", 300, 600, terminal: TerminalState.Landed);
+            continuation.VesselPersistentId = vesselPid;
+            continuation.ParentBranchPointId = branchPointId;
+
+            var result = TimelineBuilder.Build(
+                new List<Recording> { root, continuation },
+                new List<GameAction>(),
+                new List<Milestone>(),
+                0);
+
+            var spawns = result.Where(e => e.Type == TimelineEntryType.VesselSpawn).ToList();
+
+            // Only the continuation leaf should spawn (at UT=600), not the root (UT=300)
+            Assert.Single(spawns);
+            Assert.Equal(600, spawns[0].UT);
+        }
+
+        // ================================================================
+        // 31. Tree recording with breakup-only — effective leaf spawns (#224/#227)
+        // ================================================================
+
+        [Fact]
+        public void TreeRecordingBreakupOnly_EffectiveLeafSpawns()
+        {
+            string branchPointId = "bp-breakup-001";
+            uint vesselPid = 42;
+            uint debrisPid = 99;
+
+            // Root recording: breakup at UT=300, no same-PID continuation (debris only)
+            var root = MakeRecording("Kerbal X", 100, 300, terminal: TerminalState.Splashed);
+            root.VesselPersistentId = vesselPid;
+            root.ChildBranchPointId = branchPointId;
+
+            // Debris child: different vessel PID
+            var debris = MakeRecording("Kerbal X Debris", 300, 310, terminal: TerminalState.Destroyed);
+            debris.VesselPersistentId = debrisPid;
+            debris.ParentBranchPointId = branchPointId;
+            debris.IsDebris = true;
+
+            var result = TimelineBuilder.Build(
+                new List<Recording> { root, debris },
+                new List<GameAction>(),
+                new List<Milestone>(),
+                0);
+
+            var spawns = result.Where(e => e.Type == TimelineEntryType.VesselSpawn).ToList();
+
+            // Root IS the effective leaf (no same-PID continuation) — should spawn
+            Assert.Single(spawns);
+            Assert.Equal(300, spawns[0].UT);
+            Assert.Equal("Kerbal X", spawns[0].VesselName);
+        }
+
+        // ================================================================
+        // 32. HasSamePidTreeContinuation — direct unit tests
+        // ================================================================
+
+        [Fact]
+        public void HasSamePidTreeContinuation_WithContinuation_ReturnsTrue()
+        {
+            string bpId = "bp-001";
+            uint pid = 42;
+
+            var parent = MakeRecording("Ship", 100, 200);
+            parent.VesselPersistentId = pid;
+            parent.ChildBranchPointId = bpId;
+
+            var child = MakeRecording("Ship", 200, 400);
+            child.VesselPersistentId = pid;
+            child.ParentBranchPointId = bpId;
+
+            Assert.True(TimelineBuilder.HasSamePidTreeContinuation(parent, new List<Recording> { parent, child }));
+        }
+
+        [Fact]
+        public void HasSamePidTreeContinuation_DifferentPid_ReturnsFalse()
+        {
+            string bpId = "bp-001";
+
+            var parent = MakeRecording("Ship", 100, 200);
+            parent.VesselPersistentId = 42;
+            parent.ChildBranchPointId = bpId;
+
+            var child = MakeRecording("Debris", 200, 300);
+            child.VesselPersistentId = 99;
+            child.ParentBranchPointId = bpId;
+
+            Assert.False(TimelineBuilder.HasSamePidTreeContinuation(parent, new List<Recording> { parent, child }));
+        }
+
+        [Fact]
+        public void HasSamePidTreeContinuation_NoChildBranchPoint_ReturnsFalse()
+        {
+            var rec = MakeRecording("Ship", 100, 200);
+            rec.VesselPersistentId = 42;
+            // No ChildBranchPointId set
+
+            Assert.False(TimelineBuilder.HasSamePidTreeContinuation(rec, new List<Recording> { rec }));
+        }
+
+        [Fact]
+        public void HasSamePidTreeContinuation_ZeroPid_ReturnsFalse()
+        {
+            string bpId = "bp-001";
+
+            var parent = MakeRecording("Ship", 100, 200);
+            parent.VesselPersistentId = 0; // not set
+            parent.ChildBranchPointId = bpId;
+
+            var child = MakeRecording("Ship", 200, 300);
+            child.VesselPersistentId = 0;
+            child.ParentBranchPointId = bpId;
+
+            Assert.False(TimelineBuilder.HasSamePidTreeContinuation(parent, new List<Recording> { parent, child }));
+        }
+
+        // ================================================================
+        // 33. Multi-branch tree: EVA + staging, only final leaf spawns (#227)
+        // ================================================================
+
+        [Fact]
+        public void MultiBranchTree_OnlyFinalLeafSpawns()
+        {
+            string bp1 = "bp-eva-001";
+            string bp2 = "bp-stage-001";
+            uint vesselPid = 42;
+
+            // Root: launches, EVA at UT=200
+            var root = MakeRecording("Kerbal X", 100, 200);
+            root.VesselPersistentId = vesselPid;
+            root.ChildBranchPointId = bp1;
+
+            // Continuation after EVA: same PID, stages at UT=400
+            var seg1 = MakeRecording("Kerbal X", 200, 400);
+            seg1.VesselPersistentId = vesselPid;
+            seg1.ParentBranchPointId = bp1;
+            seg1.ChildBranchPointId = bp2;
+
+            // Final continuation after staging: same PID, lands at UT=600
+            var seg2 = MakeRecording("Kerbal X", 400, 600, terminal: TerminalState.Landed);
+            seg2.VesselPersistentId = vesselPid;
+            seg2.ParentBranchPointId = bp2;
+
+            var result = TimelineBuilder.Build(
+                new List<Recording> { root, seg1, seg2 },
+                new List<GameAction>(),
+                new List<Milestone>(),
+                0);
+
+            var spawns = result.Where(e => e.Type == TimelineEntryType.VesselSpawn).ToList();
+
+            // Only the final leaf (seg2) should spawn at UT=600
+            Assert.Single(spawns);
+            Assert.Equal(600, spawns[0].UT);
         }
 
         // ================================================================
@@ -823,6 +997,315 @@ namespace Parsek.Tests
         public void HumanizeStrategyId_MapsCorrectly(string input, string expected)
         {
             Assert.Equal(expected, TimelineEntryDisplay.HumanizeStrategyId(input));
+        }
+
+        // ================================================================
+        // 30. Crew death entries from CrewEndStates (Bug #229)
+        // ================================================================
+
+        [Fact]
+        public void CrewDeath_SingleDeadKerbal_ProducesEntry()
+        {
+            var rec = MakeRecording("Flea I", 100, 500, terminal: TerminalState.Destroyed);
+            rec.CrewEndStates = new Dictionary<string, KerbalEndState>
+            {
+                { "Bob Kerman", KerbalEndState.Dead }
+            };
+
+            var result = TimelineBuilder.Build(
+                new List<Recording> { rec },
+                new List<GameAction>(),
+                new List<Milestone>(),
+                0);
+
+            var deaths = result.FindAll(e => e.Type == TimelineEntryType.CrewDeath);
+            Assert.Single(deaths);
+            Assert.Equal(500, deaths[0].UT);
+            Assert.Equal("Lost: Bob Kerman (Flea I)", deaths[0].DisplayText);
+            Assert.Equal(SignificanceTier.T1, deaths[0].Tier);
+            Assert.Equal(TimelineSource.Recording, deaths[0].Source);
+        }
+
+        [Fact]
+        public void CrewDeath_MultipleDeadKerbal_ProducesMultipleEntries()
+        {
+            var rec = MakeRecording("Doomed Ship", 100, 300, terminal: TerminalState.Destroyed);
+            rec.CrewEndStates = new Dictionary<string, KerbalEndState>
+            {
+                { "Jebediah Kerman", KerbalEndState.Dead },
+                { "Bill Kerman", KerbalEndState.Dead },
+                { "Bob Kerman", KerbalEndState.Aboard } // survived somehow
+            };
+
+            var result = TimelineBuilder.Build(
+                new List<Recording> { rec },
+                new List<GameAction>(),
+                new List<Milestone>(),
+                0);
+
+            var deaths = result.FindAll(e => e.Type == TimelineEntryType.CrewDeath);
+            Assert.Equal(2, deaths.Count);
+            Assert.All(deaths, d => Assert.Equal(300, d.UT));
+        }
+
+        [Fact]
+        public void CrewDeath_NoneDeadKerbal_NoEntry()
+        {
+            var rec = MakeRecording("Safe Ship", 100, 500, terminal: TerminalState.Landed);
+            rec.CrewEndStates = new Dictionary<string, KerbalEndState>
+            {
+                { "Jebediah Kerman", KerbalEndState.Aboard }
+            };
+
+            var result = TimelineBuilder.Build(
+                new List<Recording> { rec },
+                new List<GameAction>(),
+                new List<Milestone>(),
+                0);
+
+            Assert.DoesNotContain(result, e => e.Type == TimelineEntryType.CrewDeath);
+        }
+
+        [Fact]
+        public void CrewDeath_NullCrewEndStates_NoEntry()
+        {
+            var rec = MakeRecording("Legacy Ship", 100, 500);
+            rec.CrewEndStates = null;
+
+            var result = TimelineBuilder.Build(
+                new List<Recording> { rec },
+                new List<GameAction>(),
+                new List<Milestone>(),
+                0);
+
+            Assert.DoesNotContain(result, e => e.Type == TimelineEntryType.CrewDeath);
+        }
+
+        [Fact]
+        public void CrewDeath_HiddenRecording_Skipped()
+        {
+            var rec = MakeRecording("Hidden Death", 100, 500, hidden: true);
+            rec.CrewEndStates = new Dictionary<string, KerbalEndState>
+            {
+                { "Bob Kerman", KerbalEndState.Dead }
+            };
+
+            var result = TimelineBuilder.Build(
+                new List<Recording> { rec },
+                new List<GameAction>(),
+                new List<Milestone>(),
+                0);
+
+            Assert.DoesNotContain(result, e => e.Type == TimelineEntryType.CrewDeath);
+        }
+
+        [Fact]
+        public void CrewDeath_LogsCount()
+        {
+            var rec = MakeRecording("Crash Ship", 100, 200, terminal: TerminalState.Destroyed);
+            rec.CrewEndStates = new Dictionary<string, KerbalEndState>
+            {
+                { "Jeb", KerbalEndState.Dead }
+            };
+
+            TimelineBuilder.Build(
+                new List<Recording> { rec },
+                new List<GameAction>(),
+                new List<Milestone>(),
+                0);
+
+            Assert.Contains(logLines, l =>
+                l.Contains("[Timeline]") && l.Contains("crewDeath=1"));
+        }
+
+        // ================================================================
+        // 31. GetCrewDeathText
+        // ================================================================
+
+        [Theory]
+        [InlineData("Bob Kerman", "Flea I", "Lost: Bob Kerman (Flea I)")]
+        [InlineData("Jebediah Kerman", null, "Lost: Jebediah Kerman")]
+        [InlineData("Jebediah Kerman", "", "Lost: Jebediah Kerman")]
+        [InlineData(null, "Ship", "Lost: unknown (Ship)")]
+        public void GetCrewDeathText_FormatsCorrectly(string kerbalName, string vesselName, string expected)
+        {
+            Assert.Equal(expected, TimelineEntryDisplay.GetCrewDeathText(kerbalName, vesselName));
+        }
+
+        // ================================================================
+        // 32. EVA crew reassignment filtering (Bug #228)
+        // ================================================================
+
+        [Fact]
+        public void EvaReassignment_FilteredAtBranchTime()
+        {
+            // Parent recording — the vessel crew EVAs from
+            var parentRec = MakeRecording("Mun Lander", 100, 500, recordingId: "parent-rec");
+
+            // EVA recording — starts at UT 300 (the EVA time)
+            var evaRec = MakeRecording("Jeb", 300, 400, recordingId: "eva-rec");
+            evaRec.EvaCrewName = "Jebediah Kerman";
+            evaRec.ParentRecordingId = "parent-rec";
+            evaRec.ParentBranchPointId = "bp-1"; // tree child
+
+            // KSP auto-generates crew reassignment at the EVA time on the parent
+            var actions = new List<GameAction>
+            {
+                new GameAction
+                {
+                    UT = 300,
+                    Type = GameActionType.KerbalAssignment,
+                    RecordingId = "parent-rec",
+                    KerbalName = "Bill Kerman",
+                    KerbalRole = "Engineer",
+                    Effective = true
+                }
+            };
+
+            var result = TimelineBuilder.Build(
+                new List<Recording> { parentRec, evaRec },
+                actions,
+                new List<Milestone>(),
+                0);
+
+            // Bill's reassignment at UT=300 should be filtered (same UT + same recordingId as EVA parent)
+            Assert.DoesNotContain(result, e => e.Type == TimelineEntryType.KerbalAssignment);
+        }
+
+        [Fact]
+        public void EvaReassignment_DifferentUT_NotFiltered()
+        {
+            var parentRec = MakeRecording("Mun Lander", 100, 500, recordingId: "parent-rec");
+            var evaRec = MakeRecording("Jeb", 300, 400, recordingId: "eva-rec");
+            evaRec.EvaCrewName = "Jebediah Kerman";
+            evaRec.ParentRecordingId = "parent-rec";
+            evaRec.ParentBranchPointId = "bp-1";
+
+            // Crew assignment at a DIFFERENT UT — should NOT be filtered
+            var actions = new List<GameAction>
+            {
+                new GameAction
+                {
+                    UT = 200, // not the EVA time
+                    Type = GameActionType.KerbalAssignment,
+                    RecordingId = "parent-rec",
+                    KerbalName = "Bill Kerman",
+                    KerbalRole = "Engineer",
+                    Effective = true
+                }
+            };
+
+            var result = TimelineBuilder.Build(
+                new List<Recording> { parentRec, evaRec },
+                actions,
+                new List<Milestone>(),
+                0);
+
+            Assert.Contains(result, e => e.Type == TimelineEntryType.KerbalAssignment);
+        }
+
+        [Fact]
+        public void EvaReassignment_DifferentRecording_NotFiltered()
+        {
+            var parentRec = MakeRecording("Mun Lander", 100, 500, recordingId: "parent-rec");
+            var otherRec = MakeRecording("Other Ship", 100, 500, recordingId: "other-rec");
+            var evaRec = MakeRecording("Jeb", 300, 400, recordingId: "eva-rec");
+            evaRec.EvaCrewName = "Jebediah Kerman";
+            evaRec.ParentRecordingId = "parent-rec";
+            evaRec.ParentBranchPointId = "bp-1";
+
+            // Same UT but different recording — should NOT be filtered
+            var actions = new List<GameAction>
+            {
+                new GameAction
+                {
+                    UT = 300,
+                    Type = GameActionType.KerbalAssignment,
+                    RecordingId = "other-rec", // not the parent
+                    KerbalName = "Val Kerman",
+                    KerbalRole = "Pilot",
+                    Effective = true
+                }
+            };
+
+            var result = TimelineBuilder.Build(
+                new List<Recording> { parentRec, otherRec, evaRec },
+                actions,
+                new List<Milestone>(),
+                0);
+
+            Assert.Contains(result, e => e.Type == TimelineEntryType.KerbalAssignment);
+        }
+
+        [Fact]
+        public void EvaReassignment_LogsFilterCount()
+        {
+            var parentRec = MakeRecording("Ship", 100, 500, recordingId: "parent-rec");
+            var evaRec = MakeRecording("Jeb", 300, 400, recordingId: "eva-rec");
+            evaRec.EvaCrewName = "Jeb";
+            evaRec.ParentRecordingId = "parent-rec";
+            evaRec.ParentBranchPointId = "bp-1";
+
+            var actions = new List<GameAction>
+            {
+                new GameAction
+                {
+                    UT = 300, Type = GameActionType.KerbalAssignment,
+                    RecordingId = "parent-rec", KerbalName = "Bill", KerbalRole = "Engineer",
+                    Effective = true
+                },
+                new GameAction
+                {
+                    UT = 300, Type = GameActionType.KerbalAssignment,
+                    RecordingId = "parent-rec", KerbalName = "Bob", KerbalRole = "Scientist",
+                    Effective = true
+                }
+            };
+
+            TimelineBuilder.Build(
+                new List<Recording> { parentRec, evaRec },
+                actions,
+                new List<Milestone>(),
+                0);
+
+            Assert.Contains(logLines, l =>
+                l.Contains("[Timeline]") && l.Contains("Filtered 2 KerbalAssignment"));
+        }
+
+        // ================================================================
+        // 33. BuildEvaBranchKeys / EncodeEvaBranchKey
+        // ================================================================
+
+        [Fact]
+        public void BuildEvaBranchKeys_ReturnsEmptyForNoEva()
+        {
+            var rec = MakeRecording("Ship", 100, 200);
+            var keys = TimelineBuilder.BuildEvaBranchKeys(new List<Recording> { rec });
+            Assert.Empty(keys);
+        }
+
+        [Fact]
+        public void BuildEvaBranchKeys_ReturnsKeyForEvaWithParent()
+        {
+            var eva = MakeRecording("Jeb", 300, 400);
+            eva.EvaCrewName = "Jeb";
+            eva.ParentRecordingId = "parent-123";
+            eva.ParentBranchPointId = "bp-1";
+
+            var keys = TimelineBuilder.BuildEvaBranchKeys(new List<Recording> { eva });
+            Assert.Single(keys);
+            Assert.Contains(TimelineBuilder.EncodeEvaBranchKey("parent-123", 300), keys);
+        }
+
+        [Fact]
+        public void BuildEvaBranchKeys_SkipsEvaWithoutParent()
+        {
+            var eva = MakeRecording("Jeb", 300, 400);
+            eva.EvaCrewName = "Jeb";
+            // No ParentRecordingId
+
+            var keys = TimelineBuilder.BuildEvaBranchKeys(new List<Recording> { eva });
+            Assert.Empty(keys);
         }
     }
 }

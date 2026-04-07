@@ -58,19 +58,146 @@ namespace Parsek
         /// <summary>
         /// Pre-check: detect spawned vessels that died since last frame.
         /// Runs BEFORE engine.UpdatePlayback() so flags reflect current state.
+        /// If a spawned vessel's PID is no longer in FlightGlobals.Vessels, the
+        /// recording is either reset for re-spawn or abandoned after MaxSpawnDeathCycles.
         /// </summary>
         internal void RunSpawnDeathChecks()
         {
-            // TODO(#132): Move spawn-death detection from ParsekFlight
+            var committed = RecordingStore.CommittedRecordings;
+            if (committed.Count == 0) return;
+
+            int detected = 0;
+            int abandoned = 0;
+
+            for (int i = 0; i < committed.Count; i++)
+            {
+                var rec = committed[i];
+                if (!GhostPlaybackLogic.ShouldCheckForSpawnDeath(
+                        rec.VesselSpawned, rec.SpawnedVesselPersistentId, rec.SpawnAbandoned))
+                    continue;
+
+                // Vessel still alive — no action needed
+                if (FlightRecorder.FindVesselByPid(rec.SpawnedVesselPersistentId) != null)
+                    continue;
+
+                // Vessel died since last frame
+                rec.SpawnDeathCount++;
+                detected++;
+
+                if (VesselSpawner.ShouldAbandonSpawnDeathLoop(
+                        rec.SpawnDeathCount, VesselSpawner.MaxSpawnDeathCycles))
+                {
+                    rec.SpawnAbandoned = true;
+                    abandoned++;
+                    ParsekLog.Warn("Policy",
+                        $"Spawn-death loop abandoned: #{i} \"{rec.VesselName}\" " +
+                        $"pid={rec.SpawnedVesselPersistentId} deathCount={rec.SpawnDeathCount} " +
+                        $"— exceeded {VesselSpawner.MaxSpawnDeathCycles} max cycles");
+                }
+                else
+                {
+                    uint oldPid = rec.SpawnedVesselPersistentId;
+                    rec.VesselSpawned = false;
+                    rec.SpawnedVesselPersistentId = 0;
+                    rec.SpawnAttempts = 0;
+                    ParsekLog.Info("Policy",
+                        $"Spawn-death detected: #{i} \"{rec.VesselName}\" " +
+                        $"pid={oldPid} deathCount={rec.SpawnDeathCount} — reset for re-spawn");
+                }
+            }
+
+            if (detected > 0)
+                ParsekLog.Info("Policy",
+                    $"RunSpawnDeathChecks: {detected} death(s) detected, {abandoned} abandoned");
+        }
+
+        /// <summary>
+        /// Removes a recording ID from the deferred spawn queue (e.g. on delete).
+        /// </summary>
+        internal void RemovePendingSpawn(string recordingId)
+        {
+            pendingSpawnRecordingIds.Remove(recordingId);
         }
 
         /// <summary>
         /// Flush deferred spawns that were queued during warp.
         /// Runs AFTER engine.UpdatePlayback() when warp ends.
+        /// Iterates committed recordings, spawns eligible vessels, skips
+        /// out-of-bubble spawns (kept in queue for next check).
         /// </summary>
-        internal void FlushDeferredSpawns(double currentUT, float warpRate)
+        internal void FlushDeferredSpawns()
         {
-            // TODO(#132): Move FlushDeferredSpawns from ParsekFlight
+            if (!GhostPlaybackLogic.ShouldFlushDeferredSpawns(
+                    pendingSpawnRecordingIds.Count,
+                    GhostPlaybackEngine.IsAnyWarpActiveFromGlobals()))
+                return;
+
+            var committed = RecordingStore.CommittedRecordings;
+            int spawnedCount = 0;
+            int deferredOutOfBubble = 0;
+            var flushedIds = new List<string>();
+            Vector3d activeVesselPos = FlightGlobals.ActiveVessel != null
+                ? FlightGlobals.ActiveVessel.GetWorldPos3D()
+                : Vector3d.zero;
+
+            for (int i = 0; i < committed.Count; i++)
+            {
+                var rec = committed[i];
+                if (!pendingSpawnRecordingIds.Contains(rec.RecordingId)) continue;
+                if (GhostPlaybackLogic.ShouldSkipDeferredSpawn(rec.VesselSpawned, rec.VesselSnapshot != null))
+                {
+                    ParsekLog.Verbose("Policy",
+                        $"Deferred spawn skipped — #{i} \"{rec.VesselName}\" already spawned or no snapshot");
+                    flushedIds.Add(rec.RecordingId);
+                    continue;
+                }
+
+                // Physics-bubble scoping: skip out-of-bubble spawns (keep in queue)
+                if (FlightGlobals.ActiveVessel != null &&
+                    ParsekFlight.ShouldDeferSpawnOutsideBubble(rec, activeVesselPos))
+                {
+                    deferredOutOfBubble++;
+                    ParsekLog.Verbose("Policy",
+                        $"Deferred spawn kept in queue (outside physics bubble): #{i} \"{rec.VesselName}\"");
+                    continue;
+                }
+
+                ParsekLog.Info("Policy",
+                    $"Deferred spawn executing: #{i} \"{rec.VesselName}\" id={rec.RecordingId}");
+                host.SpawnVesselOrChainTipFromPolicy(rec, i);
+                spawnedCount++;
+                flushedIds.Add(rec.RecordingId);
+
+                // Restore camera follow if this recording was being watched when deferred
+                if (GhostPlaybackLogic.ShouldRestoreWatchMode(
+                        pendingWatchRecordingId, rec.RecordingId, rec.SpawnedVesselPersistentId))
+                {
+                    ParsekLog.Info("Policy",
+                        $"Deferred watch: switching to spawned vessel pid={rec.SpawnedVesselPersistentId}");
+                    host.DeferredActivateVesselFromPolicy(rec.SpawnedVesselPersistentId);
+                }
+            }
+
+            // Remove flushed IDs, keep out-of-bubble spawns in queue
+            for (int j = 0; j < flushedIds.Count; j++)
+                pendingSpawnRecordingIds.Remove(flushedIds[j]);
+
+            if (deferredOutOfBubble > 0)
+            {
+                ParsekLog.Info("Policy",
+                    $"Warp ended — flushed {spawnedCount} deferred spawn(s), " +
+                    $"{deferredOutOfBubble} kept (outside bubble), " +
+                    $"{pendingSpawnRecordingIds.Count} remaining");
+            }
+            else
+            {
+                ParsekLog.Info("Policy",
+                    $"Warp ended — flushed {spawnedCount}/{flushedIds.Count} deferred spawn(s)");
+                pendingSpawnRecordingIds.Clear();
+            }
+
+            if (pendingSpawnRecordingIds.Count == 0)
+                pendingWatchRecordingId = null;
         }
 
         private void HandlePlaybackCompleted(PlaybackCompletedEvent evt)

@@ -74,20 +74,17 @@ Test game actions system with popular mods: CustomBarnKit (non-standard facility
 
 # Known Bugs
 
-## 46. EVA kerbals disappear in water after spawn
+## ~~46. EVA kerbals disappear in water after spawn~~
 
 Player landed in water, EVA'd 3 kerbals from the pad vessel, but 2 of them disappeared. May be KSP's known behavior of destroying EVA kerbals in certain water situations, or a Parsek crew reservation/dedup conflict.
 
 **Observed in:** Same session as #45. After vessel spawn with crew dedup (3 crew removed from spawn snapshot because they were already on the pad vessel from revert), the pad vessel retained the real crew. Player EVA'd from pad vessel; 2 of 3 kerbals vanished shortly after EVA.
 
-**Root cause:** Needs investigation. Possible causes:
-1. KSP destroys EVA kerbals that land in water (known vanilla behavior in some situations)
-2. Parsek `crewReplacements` dict interfered with EVA kerbal persistence
-3. Crew dedup removed crew from the wrong vessel
+**Root cause:** Same mechanism as #233. `RemoveReservedEvaVessels` deletes EVA vessels whose crew name is in `crewReplacements`, including player-created EVA vessels. The crew names were reserved from committed recording snapshots. When `SwapReservedCrewInFlight` ran (on scene re-entry or recording commit), it found the player's EVA vessels and destroyed them. Cause 1 (KSP water behavior) may also be a factor for some disappearances.
 
-**Impact:** Medium — crew members lost unexpectedly.
+**Fix:** Two guards added to `RemoveReservedEvaVessels`: (1) loaded EVA vessels are skipped entirely — they're actively in the physics bubble, not stale quicksave remnants (bug #46). (2) Vessels whose `persistentId` matches a committed recording's `SpawnedVesselPersistentId` are skipped (bug #233).
 
-**Status:** Open — deferred to resource/game actions tracking redesign
+**Status:** Fixed
 
 ## 95. Committed recordings are mutated in several places after commit
 
@@ -128,15 +125,11 @@ Engine plates (`EnginePlate1` etc.) have protective covers (interstage fairings)
 
 ## 132. Policy RunSpawnDeathChecks and FlushDeferredSpawns are TODO stubs
 
-`ParsekPlaybackPolicy.RunSpawnDeathChecks()` and `FlushDeferredSpawns()` are placeholder stubs. The old path equivalents in `ParsekFlight.UpdateTimelinePlaybackViaEngine()` still call the original `FlushDeferredSpawns(committed)` directly, so deferred spawns work. But spawn-death detection (vessel dies immediately after spawning → re-spawn with death count tracking) is not wired through the policy yet.
+`RunSpawnDeathChecks()` now iterates committed recordings each frame, checks if spawned vessel PIDs still exist via `FlightRecorder.FindVesselByPid`, increments `SpawnDeathCount` on death, and either resets for re-spawn or abandons after `MaxSpawnDeathCycles`. New pure predicate `ShouldCheckForSpawnDeath` in `GhostPlaybackLogic`.
 
-The pure predicates (`ShouldAbandonSpawnDeathLoop`, `ShouldFlushDeferredSpawns`, `ShouldSkipDeferredSpawn`) are tested; only the integration through the policy event handlers is missing.
+`FlushDeferredSpawns()` moved from `ParsekFlight` to `ParsekPlaybackPolicy`, eliminating the split-brain bug where the policy populated its own `pendingSpawnRecordingIds` in `HandlePlaybackCompleted` but the flush read from ParsekFlight's never-populated duplicate set. The policy now owns the full lifecycle: queue during warp → flush when warp ends.
 
-**Investigation notes:** `FlushDeferredSpawns` works correctly in ParsekFlight — moving to policy is pure refactoring with heavy state dependency (`pendingSpawnRecordingIds`, `pendingWatchRecordingId`, `SpawnVesselOrChainTip`, `DeferredActivateVessel`). Low value, high risk. Spawn-death detection is genuinely absent: `SpawnDeathCount` is never read in the engine path, and no `onVesselTerminated` subscription exists to detect spawned vessel destruction. Implementing requires event subscription + PID-to-recording matching. **Dormant bug:** policy and ParsekFlight have duplicate `pendingSpawnRecordingIds`/`pendingWatchRecordingId` fields — policy populates its copies in `HandlePlaybackCompleted` but the flush reads ParsekFlight's copies. Currently works because both paths add to the same set independently, but could diverge.
-
-**Priority:** Low — edge case (rapid spawn-death cycles), FlushDeferredSpawns works via existing path
-
-**Status:** Open — deferred (spawn-death detection needs design, FlushDeferredSpawns move is low-value refactor)
+**Status:** Fixed
 
 ## 133. Forwarding properties in ParsekFlight add ~500 lines of indirection
 
@@ -146,13 +139,13 @@ After T25 extraction, ParsekFlight still has forwarding properties (`ghostStates
 
 **Status:** Partially fixed — removed 6 dead forwarding methods, inlined 4 remaining call sites. 7 forwarding properties retained as ergonomic aliases — `ghostStates` alone has 17 usages. Actual indirection was ~40 lines, not ~500.
 
-## 154. parsek_38.png texture compression warning
+## ~~154. parsek_38.png texture compression warning~~
 
 KSP warns `Texture resolution is not valid for compression` for the 38x38 toolbar icon. Not a power-of-two size so KSP can't DXT-compress it.
 
-**Fix:** Resize to 32x32 or 64x64.
+**Fix:** Replaced 38x38 and 24x24 toolbar icons with 64x64 and 32x32 power-of-two versions. Updated references in ParsekFlight, ParsekKSC, and release.py.
 
-**Priority:** Low — cosmetic, icon works fine uncompressed
+**Status:** Fixed
 
 ## 156. Missing test coverage from lifecycle simulation
 
@@ -166,17 +159,15 @@ Areas identified by code path simulation that lack unit tests:
 
 **Status:** Partially fixed — item 4 done (7 tests). Items 1-3 deferred to in-game testing.
 
-## 157. Green sphere ghost for debris after ghost-only merge decision
+## ~~157. Green sphere ghost for debris after ghost-only merge decision~~
 
 When a debris recording is set to "ghost-only" in the merge dialog, `ApplyVesselDecisions` nulls `VesselSnapshot`. If `GhostVisualSnapshot` was also null (debris destroyed before snapshot copy), `GetGhostSnapshot` returns null and the ghost falls back to a green sphere.
 
-**Partial fix:** `ApplyVesselDecisions` now copies `VesselSnapshot` to `GhostVisualSnapshot` before nulling the spawn snapshot, if `GhostVisualSnapshot` is not already set.
+**Partial fix (earlier):** `ApplyVesselDecisions` copies `VesselSnapshot` to `GhostVisualSnapshot` before nulling the spawn snapshot.
 
-**Remaining issue:** If the debris was destroyed before ANY snapshot was captured (both null at recording time), the sphere fallback is unavoidable. Could improve by capturing snapshot at the moment of breakup rather than deferring.
+**Full fix:** Pre-capture vessel snapshots at split detection time (when debris vessels are still alive) and store them in the CrashCoalescer. When `CreateBreakupChildRecording` runs 0.5s later and the vessel is gone, use the pre-captured snapshot as fallback for both `GhostVisualSnapshot` and `VesselSnapshot`.
 
-**Priority:** Low — cosmetic (sphere fallback for very-short-lived debris)
-
-**Status:** Partially fixed
+**Status:** Fixed
 
 ## 159. EVA auto-recordings have no rewind save — R button absent
 
@@ -289,11 +280,15 @@ When a vessel crashes during an active recording, the recorder is stopped and co
 
 **Priority:** Low — the vessel recording itself is preserved; only debris ghosts are missing.
 
-## 219. Ghost creation fails for orbital debris chain ("no orbit data")
+## ~~219. Ghost creation fails for orbital debris chain ("no orbit data")~~
 
 `CreateGhostVessel` repeatedly fails for certain orbital debris chains with `no orbit data for chain pid=NNNN`. The orbit segment data exists in the recording but the ghost system cannot access it at creation time. Fires on every flight scene entry.
 
-**Priority:** Low — only affects debris ghost visibility in orbit.
+**Root cause:** `CaptureTerminalOrbit` only runs when `FindVesselByPid` returns a live vessel. Orbital debris with 30s TTL is often destroyed by finalization time.
+
+**Fix:** `PopulateTerminalOrbitFromLastSegment` recovers terminal orbit fields from the last `OrbitSegment` when the vessel is gone at finalization time. Called in `FinalizeIndividualRecording` when vessel is null but recording has orbit segments.
+
+**Status:** Fixed
 
 ## 220. PopulateCrewEndStates called repeatedly for 0-point intermediate recordings
 
@@ -319,37 +314,31 @@ Recording `f8fd04e5` (Kerbal X, chainIndex=1) had both `childBranchPointId` (bre
 
 **Status:** Fixed
 
-## 227. Mid-tree spawn entry for vessel with EVA/staging branch
+## ~~227. Mid-tree spawn entry for vessel with EVA/staging branch~~
 
 When a kerbal EVAs or a stage separates, the tree creates a branch point. The vessel's current recording segment ends at that UT and a continuation recording starts as a tree child. The timeline shows a premature "Spawn: Kerbal X" at the branch time because `IsChainMidSegment` only checks chain segments (optimizer splits), not tree continuation segments.
 
 The root recording has `ChildBranchPointId` set which means it's effectively a mid-tree segment, not a leaf. The vessel should show a single continuous presence from launch to final capsule spawn — EVA kerbals and staging debris are separate branches, not interruptions of the main vessel's timeline.
 
-**Fix:** The spawn entry filter needs to check whether a recording with `ChildBranchPointId` has a same-PID continuation child (analogous to `IsEffectiveLeafForVessel`). If a continuation exists, suppress the spawn entry.
+**Fix:** Added `HasSamePidTreeContinuation` helper to `TimelineBuilder` — flat-list equivalent of `GhostPlaybackLogic.IsEffectiveLeafForVessel`. Two-sided fix: (1) suppress parent spawn when a same-PID continuation child exists, (2) allow tree-child leaf recordings to produce spawn entries when they are the effective leaf for their vessel. Breakup-only recordings (no same-PID continuation) correctly still spawn.
 
-**Priority:** Medium — creates confusing timeline with phantom spawn entries at every EVA/staging boundary
+**Status:** Fixed
 
-**Status:** Open
-
-## 228. Crew reassignment entries appear when kerbals EVA
+## ~~228. Crew reassignment entries appear when kerbals EVA~~
 
 When a kerbal EVAs from a vessel, KSP internally reassigns the remaining crew. The game actions system captures these as KerbalAssignment actions, which appear in the detailed timeline view. These are real KSP events but feel redundant — the player didn't decide to reassign crew, KSP did it automatically as a side effect of the EVA.
 
-**Fix:** Filter out KerbalAssignment actions that occur at the same UT as an EVA branch point. The EVA entry already communicates the crew change — the reassignment is noise.
+**Fix:** `TimelineBuilder.BuildEvaBranchKeys` collects `(parentRecordingId, startUT)` pairs from EVA recordings. `CollectGameActionEntries` skips KerbalAssignment actions whose `(RecordingId, UT)` matches an EVA branch key. The EVA entry already communicates the crew change.
 
-**Priority:** Low — only visible in Detail filter, cosmetic
+**Status:** Fixed
 
-**Status:** Open
+## ~~229. Crew death (CREW_LOST) not shown in timeline~~
 
-## 229. Crew death (CREW_LOST) not shown in timeline
+When a kerbal dies (e.g., Bob hits the ground without a parachute), the timeline had no entry type for crew death — the event was invisible. The recording's terminal state shows "Destroyed" but the destroyed spawn entry is correctly filtered (can't spawn a destroyed vessel).
 
-When a kerbal dies (e.g., Bob hits the ground without a parachute), the recording captures this as a `SegmentEvent` with type `CREW_LOST`. However, the timeline has no entry type for crew death — the event is invisible. The recording's terminal state shows "Destroyed" but the destroyed spawn entry is now correctly filtered (can't spawn a destroyed vessel).
+**Fix:** Added `TimelineEntryType.CrewDeath` (T1 significance). `CollectRecordingEntries` iterates `rec.CrewEndStates` and emits a "Lost: {name} ({vessel})" entry at `rec.EndUT` for each kerbal with `KerbalEndState.Dead`. Red-tinted display color distinguishes death entries from other timeline items.
 
-A crew death should appear in the timeline as a distinct event: "Lost: Bob Kerman" or similar, at the UT of the CREW_LOST segment event. This would make the timeline a complete narrative of the mission.
-
-**Priority:** Medium — important mission events invisible in timeline
-
-**Status:** Open
+**Status:** Fixed
 
 ## ~~230. LaunchSiteName leaks to chain continuation segments~~
 
@@ -375,17 +364,15 @@ Debris recordings from mid-air booster collisions have no vessel snapshot. The g
 
 **Status:** Fixed
 
-## 233. Spawned EVA vessel deleted by crew reservation on scene re-entry
+## ~~233. Spawned EVA vessel deleted by crew reservation on scene re-entry~~
 
 After Parsek spawns an EVA vessel at recording end, switching vessels triggers FLIGHT→FLIGHT scene reload. `CrewReservationManager.RemoveReservedEvaVessels()` re-runs on scene entry: `ReserveCrewIn` re-adds the kerbal to `crewReplacements`, then `RemoveReservedEvaVessels` finds the spawned EVA vessel and deletes it because the kerbal's name is in the replacements dict.
 
 **Root cause:** The reservation system can't distinguish a stale EVA vessel from a quicksave revert (should be removed) from one spawned by Parsek's recording system (should be kept).
 
-**Fix:** In `RemoveReservedEvaVessels`, check if the EVA vessel's `persistentId` matches any committed recording's `SpawnedVesselPersistentId`. If it does, skip removal — it's a legitimately spawned vessel. Build a `HashSet<uint>` of spawned PIDs from `RecordingStore.CommittedRecordings` before the removal loop.
+**Fix:** `ShouldRemoveEvaVessel` now accepts optional `vesselPid` and `spawnedVesselPids` parameters. `RemoveReservedEvaVessels` builds a `HashSet<uint>` of `SpawnedVesselPersistentId` values from `RecordingStore.CommittedRecordings` via `BuildSpawnedVesselPidSet`. EVA vessels whose PID matches a committed recording's spawned PID are kept. Logs guarded vessel count separately.
 
-**Priority:** Medium — spawned EVA kerbals disappear on vessel switch
-
-**Status:** TODO
+**Status:** Fixed
 
 ## ~~234. Per-part identity regeneration on spawn~~
 

@@ -8,8 +8,14 @@ All notable changes to Parsek are documented here.
 
 ### Bug Fixes
 
-- **Fix atmospheric ghost markers not appearing in Tracking Station.** `OnGUI` had a terminal state filter that skipped non-Orbiting/non-Docked recordings, blocking atmospheric trajectory markers for SubOrbital, Destroyed, Recovered, and Landed recordings even during their active flight window. The UT range check already handles temporal visibility correctly. Extracted `ShouldDrawAtmosphericMarker` as testable pure method.
+- **Fix atmospheric ghost markers not appearing in Tracking Station (#240).** `OnGUI` had a terminal state filter that skipped non-Orbiting/non-Docked recordings, blocking atmospheric trajectory markers for SubOrbital, Destroyed, Recovered, and Landed recordings even during their active flight window. The UT range check already handles temporal visibility correctly. Extracted `ShouldDrawAtmosphericMarker` as testable pure method.
 - **Fix delayed proto-vessel ghost creation after merge dialog commit.** When a recording was committed via the merge/approval dialog while in the Tracking Station, proto-vessel ghosts took up to 2 seconds to appear (waiting for the lifecycle tick). Now detects committed recording count changes and forces an immediate lifecycle tick.
+- **Fix deferred spawn queue split-brain (#132).** `HandlePlaybackCompleted` in `ParsekPlaybackPolicy` added deferred spawn IDs to the policy's `pendingSpawnRecordingIds`, but `FlushDeferredSpawns` in `ParsekFlight` read from its own never-populated duplicate set. Deferred spawns during warp silently never flushed. Moved `FlushDeferredSpawns` to the policy, eliminated the duplicate fields.
+- **Wire up spawn-death detection (#132).** `RunSpawnDeathChecks` now runs before each engine update, detecting spawned vessels that died since last frame. Increments `SpawnDeathCount`, resets for re-spawn, or abandons after 3 cycles. Previously `SpawnDeathCount` was never incremented in the engine path.
+- **Fix mid-tree spawn entries at EVA/staging boundaries (#227).** When a kerbal EVA'd or a stage separated, the timeline showed a premature "Spawn: Kerbal X" at the branch time. Two-sided fix: (1) suppress parent spawn when a same-PID continuation child exists via new `HasSamePidTreeContinuation` helper, (2) allow tree-child leaf recordings to produce spawn entries. Breakup-only recordings (no same-PID continuation) correctly still spawn.
+- **Fix toolbar icon texture compression warning (#154).** Replaced 38x38 and 24x24 toolbar icons with 64x64 and 32x32 power-of-two versions. KSP can now DXT-compress the textures.
+- **Fix ghost creation failing for orbital debris ("no orbit data") (#219).** `CaptureTerminalOrbit` only ran when `FindVesselByPid` returned a live vessel. Orbital debris with 30s TTL was often destroyed by finalization time, leaving terminal orbit fields empty. `PopulateTerminalOrbitFromLastSegment` now recovers orbit data from the last `OrbitSegment`.
+- **Fix green sphere ghost for debris destroyed during coalescing window (#157).** Pre-capture vessel snapshots at split detection time and carry them through the CrashCoalescer. When `CreateBreakupChildRecording` runs 0.5s later and the vessel is destroyed, the pre-captured snapshot provides `GhostVisualSnapshot` instead of falling back to a green sphere.
 - **Fix Settings window GUILayout exception (#217).** The ghost soft caps toggle caused an IMGUI Layout/Repaint mismatch: the early `return` in `DrawGhostSettings` skipped slider controls when caps were disabled, but a toggle click between passes changed the control count. 72 exceptions per session, window stuck at 10px. Fix: sliders always drawn, grayed out via `GUI.enabled` when caps disabled.
 - **Fix W (watch) button staying enabled on debris boosters (#194).** After booster separation, one debris recording could have an active ghost with the W button enabled. Added `IsDebris` guard to watch eligibility check and "Debris is not watchable" tooltip.
 - **Fix vessels and EVA kerbals spawning high in the air (#231).** Vessels with `terminal=Landed` spawned at their last trajectory point altitude (still descending), fell, and exploded. Three spawn paths lacked altitude clamping (flight scene, KSC, tree leaves). Now all paths clamp LANDED to terrain+2m clearance, override snapshot position AND rotation from the last trajectory point. Vessels spawn in their near-landing orientation instead of mid-flight descent pose.
@@ -37,7 +43,7 @@ All notable changes to Parsek are documented here.
 
 ### Tests
 
-- 86 new test cases. 4994 total passing.
+- 106 new test cases. 5041 total passing.
 
 ### Location Context (Phase 10)
 
@@ -52,10 +58,17 @@ All notable changes to Parsek are documented here.
 - **Destroyed terminal spawn entries removed.** "Spawn: Bob (Destroyed)" no longer appears — you can't spawn a destroyed vessel.
 - **Spawn text shows body name for all terminal states.** Previously only orbital terminals showed the body.
 - **Diagnostic logging for timeline construction.** Each included/excluded entry logged with classification flags and skip reasons.
+- **Crew death entries in timeline (#229).** New `CrewDeath` timeline entry type (T1 significance). When a recording has `CrewEndStates` with `Dead` kerbals, "Lost: Bob Kerman (Vessel Name)" entries appear at recording EndUT with red-tinted color. Makes crew deaths visible in the mission narrative.
+- **EVA crew reassignment noise filtered (#228).** KSP auto-reshuffles remaining crew when someone EVAs, generating spurious KerbalAssignment actions. These are now filtered by matching `(RecordingId, UT)` against EVA branch keys built from EVA recordings' parent info.
+
+### Crew Reservation
+
+- **Fix EVA kerbals disappearing after spawn or player EVA (#46, #233).** `RemoveReservedEvaVessels` was deleting any EVA vessel whose crew name was in the `crewReplacements` dict, including Parsek-spawned vessels (#233) and player-created EVAs (#46). Two guards added: (1) loaded EVA vessels (in the physics bubble) are always kept. (2) Vessels whose `persistentId` matches a committed recording's `SpawnedVesselPersistentId` are kept.
 
 ### Tests
 
 - 4 new test cases (all-boring leaf trim, tree-with-branch-point optimizer integration, all-boring-too-few-points guard, end-to-end approach/surface split+trim). 4977 total passing.
+- 23 new test cases (crew death timeline entries, EVA reassignment filtering, spawned EVA PID guard, BuildEvaBranchKeys, BuildSpawnedVesselPidSet). 5007 total passing.
 
 ### Documentation
 

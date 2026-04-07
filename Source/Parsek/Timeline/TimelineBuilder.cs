@@ -31,10 +31,14 @@ namespace Parsek
                     vesselNameById[r.RecordingId] = r.VesselName;
             }
 
+            // Bug #228: build set of (parentRecordingId, startUT) pairs from EVA recordings
+            // so we can filter out crew reassignment noise at EVA branch times.
+            var evaBranchKeys = BuildEvaBranchKeys(committedRecordings);
+
             var entries = new List<TimelineEntry>();
 
             int recordingCount = CollectRecordingEntries(committedRecordings, vesselNameById, entries);
-            int actionCount = CollectGameActionEntries(ledgerActions, vesselNameById, entries);
+            int actionCount = CollectGameActionEntries(ledgerActions, vesselNameById, evaBranchKeys, entries);
             int legacyCount = CollectLegacyEntries(milestones, currentEpoch, entries);
 
             entries.Sort((a, b) => a.UT.CompareTo(b.UT));
@@ -54,6 +58,7 @@ namespace Parsek
         {
             int count = 0;
             int hiddenSkipped = 0;
+            int crewDeathCount = 0;
 
             int debrisSkipped = 0;
             int treeChildSkipped = 0;
@@ -82,6 +87,13 @@ namespace Parsek
                 bool isChainChild = rec.ChainIndex > 0;
                 bool isDestroyedTerminal = rec.TerminalStateValue == TerminalState.Destroyed;
                 bool isMidChain = IsChainMidSegment(rec, recordings);
+
+                // Tree continuation: parent has ChildBranchPointId → same-PID child exists
+                // (EVA/staging/breakup). The parent should not spawn; only the leaf spawns.
+                // Conversely, a tree child that IS the leaf for its vessel should spawn. (#227)
+                bool hasSamePidContinuation = HasSamePidTreeContinuation(rec, recordings);
+                bool isTreeLeaf = isTreeChild && !hasSamePidContinuation
+                    && string.IsNullOrEmpty(rec.ChildBranchPointId);
 
                 // RecordingStart — only for true launches and EVAs.
                 // Skip: optimizer-split segments (ChainIndex > 0) and tree branch children
@@ -121,13 +133,15 @@ namespace Parsek
 
                 // VesselSpawn at EndUT — vessel materializes after ghost playback.
                 // Skip: disabled playback, mid-chain segments, destroyed terminals (can't spawn
-                // a destroyed vessel), and tree children that aren't the effective vessel leaf.
+                // a destroyed vessel), mid-tree segments with a same-PID continuation (#227),
+                // and tree children that aren't the effective vessel leaf.
+                bool suppressTreeSpawn = hasSamePidContinuation || (isTreeChild && !isTreeLeaf);
                 if (!rec.PlaybackEnabled) disabledSkipped++;
                 else if (isMidChain) midChainSkipped++;
                 else if (isDestroyedTerminal) destroyedSkipped++;
 
                 if (rec.PlaybackEnabled && !isMidChain
-                    && !isDestroyedTerminal && !isTreeChild)
+                    && !isDestroyedTerminal && !suppressTreeSpawn)
                 {
                     var spawnType = TimelineEntryType.VesselSpawn;
                     string displayText = TimelineEntryDisplay.GetVesselSpawnText(rec.VesselName, rec.TerminalStateValue, rec.VesselSituation, isEva, parentVesselName, rec.TerminalOrbitBody, rec.SegmentBodyName, rec.EndBiome);
@@ -149,13 +163,42 @@ namespace Parsek
                         $"terminal={rec.TerminalStateValue} sit=\"{rec.VesselSituation}\" " +
                         $"text=\"{displayText}\"");
                 }
+
+                // CrewDeath — one entry per dead kerbal (bug #229).
+                // Uses CrewEndStates populated by KerbalsModule at commit time.
+                // Placed at rec.EndUT because CrewEndStates has no per-kerbal death
+                // timestamp — usually correct (death = vessel destruction at EndUT),
+                // but inaccurate if crew died mid-recording (e.g., decoupled crew cabin).
+                if (rec.CrewEndStates != null)
+                {
+                    foreach (var kvp in rec.CrewEndStates)
+                    {
+                        if (kvp.Value != KerbalEndState.Dead) continue;
+
+                        var deathType = TimelineEntryType.CrewDeath;
+                        string deathText = TimelineEntryDisplay.GetCrewDeathText(kvp.Key, rec.VesselName);
+                        entries.Add(new TimelineEntry
+                        {
+                            UT = rec.EndUT,
+                            Type = deathType,
+                            DisplayText = deathText,
+                            Source = TimelineSource.Recording,
+                            Tier = TimelineEntryDisplay.GetTier(deathType),
+                            DisplayColor = new Color(1f, 0.4f, 0.4f), // red-ish
+                            RecordingId = rec.RecordingId,
+                            VesselName = rec.VesselName
+                        });
+                        count++;
+                        crewDeathCount++;
+                    }
+                }
             }
 
             ParsekLog.Verbose("Timeline",
                 $"Recording collector: {count} entries from {recordings.Count} recordings " +
                 $"(hidden={hiddenSkipped} debris={debrisSkipped} treeChild={treeChildSkipped} " +
                 $"chainChild={chainChildSkipped} destroyed={destroyedSkipped} " +
-                $"midChain={midChainSkipped} disabled={disabledSkipped})");
+                $"midChain={midChainSkipped} disabled={disabledSkipped} crewDeath={crewDeathCount})");
 
             return count;
         }
@@ -196,14 +239,66 @@ namespace Parsek
             return false;
         }
 
+        /// <summary>
+        /// Returns true if the recording has a ChildBranchPointId and another recording
+        /// in the list is a child of that branch point with the same VesselPersistentId.
+        /// This means the vessel continues in a tree child — the parent is a mid-tree
+        /// segment and should not produce a spawn entry. (#227)
+        /// Flat-list equivalent of <see cref="GhostPlaybackLogic.IsEffectiveLeafForVessel"/>
+        /// (inverted sense: true here = NOT effective leaf).
+        /// </summary>
+        internal static bool HasSamePidTreeContinuation(Recording rec, IReadOnlyList<Recording> recordings)
+        {
+            if (string.IsNullOrEmpty(rec.ChildBranchPointId)) return false;
+            if (rec.VesselPersistentId == 0) return false;
+            for (int i = 0; i < recordings.Count; i++)
+            {
+                var other = recordings[i];
+                if (other.ParentBranchPointId == rec.ChildBranchPointId
+                    && other.VesselPersistentId == rec.VesselPersistentId)
+                    return true;
+            }
+            return false;
+        }
+
         // ---- Game Action Collector ----
+
+        /// <summary>
+        /// Builds a HashSet of (parentRecordingId, startUT) keys from EVA recordings.
+        /// When a kerbal EVAs, KSP reshuffles the remaining crew — those KerbalAssignment
+        /// actions at the EVA's startUT on the parent recording are noise (bug #228).
+        /// Extracted for testability.
+        /// </summary>
+        internal static HashSet<string> BuildEvaBranchKeys(IReadOnlyList<Recording> recordings)
+        {
+            var keys = new HashSet<string>();
+            for (int i = 0; i < recordings.Count; i++)
+            {
+                var rec = recordings[i];
+                if (string.IsNullOrEmpty(rec.EvaCrewName)) continue;
+                if (string.IsNullOrEmpty(rec.ParentRecordingId)) continue;
+                keys.Add(EncodeEvaBranchKey(rec.ParentRecordingId, rec.StartUT));
+            }
+            return keys;
+        }
+
+        /// <summary>
+        /// Encodes a (recordingId, ut) pair as a string key for HashSet lookup.
+        /// Uses round-trip format for UT to avoid floating-point matching issues.
+        /// </summary>
+        internal static string EncodeEvaBranchKey(string recordingId, double ut)
+        {
+            return string.Concat(recordingId, ":", ut.ToString("R", System.Globalization.CultureInfo.InvariantCulture));
+        }
 
         private static int CollectGameActionEntries(
             IReadOnlyList<GameAction> ledgerActions,
             Dictionary<string, string> vesselNameById,
+            HashSet<string> evaBranchKeys,
             List<TimelineEntry> entries)
         {
             int count = 0;
+            int evaReassignSkipped = 0;
             for (int i = 0; i < ledgerActions.Count; i++)
             {
                 var action = ledgerActions[i];
@@ -226,6 +321,16 @@ namespace Parsek
                     vesselName == action.KerbalName)
                     continue;
 
+                // Bug #228: skip crew reassignment at EVA branch time — KSP auto-reshuffles
+                // remaining crew when someone EVAs, creating noise KerbalAssignment actions.
+                if (action.Type == GameActionType.KerbalAssignment &&
+                    !string.IsNullOrEmpty(action.RecordingId) &&
+                    evaBranchKeys.Contains(EncodeEvaBranchKey(action.RecordingId, action.UT)))
+                {
+                    evaReassignSkipped++;
+                    continue;
+                }
+
                 entries.Add(new TimelineEntry
                 {
                     UT = action.UT,
@@ -241,6 +346,10 @@ namespace Parsek
                 });
                 count++;
             }
+
+            if (evaReassignSkipped > 0)
+                ParsekLog.Verbose("Timeline",
+                    $"Filtered {evaReassignSkipped} KerbalAssignment action(s) at EVA branch time(s)");
 
             return count;
         }
