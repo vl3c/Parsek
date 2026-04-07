@@ -166,6 +166,9 @@ namespace Parsek
 
                 // CrewDeath — one entry per dead kerbal (bug #229).
                 // Uses CrewEndStates populated by KerbalsModule at commit time.
+                // Placed at rec.EndUT because CrewEndStates has no per-kerbal death
+                // timestamp — usually correct (death = vessel destruction at EndUT),
+                // but inaccurate if crew died mid-recording (e.g., decoupled crew cabin).
                 if (rec.CrewEndStates != null)
                 {
                     foreach (var kvp in rec.CrewEndStates)

@@ -288,7 +288,8 @@ namespace Parsek
             var spawnedPids = BuildSpawnedVesselPidSet(RecordingStore.CommittedRecordings);
 
             int evaRemoved = 0;
-            int spawnGuarded = 0;
+            int loadedKept = 0;
+            int pidKept = 0;
             var allVessels = FlightGlobals.Vessels;
             for (int v = allVessels.Count - 1; v >= 0; v--)
             {
@@ -305,7 +306,7 @@ namespace Parsek
                     string loadedName = GetEvaCrewName(vessel);
                     if (crewReplacements.ContainsKey(loadedName ?? ""))
                     {
-                        spawnGuarded++;
+                        loadedKept++;
                         CrewLog($"Kept loaded EVA vessel '{loadedName}' (pid={vessel.persistentId}) — in physics bubble");
                     }
                     continue;
@@ -316,7 +317,7 @@ namespace Parsek
                     vessel.persistentId, spawnedPids))
                 {
                     if (crewReplacements.ContainsKey(evaCrewName ?? ""))
-                        spawnGuarded++;
+                        pidKept++;
                     continue;
                 }
 
@@ -340,8 +341,10 @@ namespace Parsek
                 evaRemoved++;
             }
 
-            if (spawnGuarded > 0)
-                CrewLog($"Kept {spawnGuarded} spawned EVA vessel(s) (matched committed recording PID)");
+            if (loadedKept > 0)
+                CrewLog($"Kept {loadedKept} loaded EVA vessel(s) (in physics bubble)");
+            if (pidKept > 0)
+                CrewLog($"Kept {pidKept} EVA vessel(s) (matched committed recording PID)");
 
             if (evaRemoved > 0)
             {
