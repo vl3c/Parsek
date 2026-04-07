@@ -1824,10 +1824,19 @@ namespace Parsek
             }
 
             // Stop any existing undock continuation and vessel continuation (tree handles them)
+            // Bug #95: bake before stop — continuation data is canonical (tree takes over)
             if (chainManager.IsTrackingUndockContinuation)
+            {
+                if (chainManager.TryGetUndockContinuationRecording(out var undockRec))
+                    ChainSegmentManager.BakeContinuationData(undockRec);
                 chainManager.StopUndockContinuation("tree branch");
+            }
             if (chainManager.IsTrackingContinuation)
+            {
+                if (chainManager.TryGetContinuationRecording(out var contRec))
+                    ChainSegmentManager.BakeContinuationData(contRec);
                 chainManager.StopContinuation("tree branch");
+            }
 
             // Create new FlightRecorder for active child
             recorder = new FlightRecorder();
@@ -2804,10 +2813,19 @@ namespace Parsek
 
             // 11. Clear stale standalone state
             chainManager.ClearChainIdentity();
+            // Bug #95: bake before stop — continuation data is canonical (promoted to tree)
             if (chainManager.IsTrackingUndockContinuation)
+            {
+                if (chainManager.TryGetUndockContinuationRecording(out var undockRec))
+                    ChainSegmentManager.BakeContinuationData(undockRec);
                 chainManager.StopUndockContinuation("tree promotion");
+            }
             if (chainManager.IsTrackingContinuation)
+            {
+                if (chainManager.TryGetContinuationRecording(out var contRec))
+                    ChainSegmentManager.BakeContinuationData(contRec);
                 chainManager.StopContinuation("tree promotion");
+            }
 
             // 12. Start new FlightRecorder for continuation
             recorder = new FlightRecorder();
@@ -4194,8 +4212,13 @@ namespace Parsek
                 recorder = null;
 
                 // Stop existing undock continuation (we're switching roles)
+                // Bug #95: bake before stop — old trajectory is real
                 if (chainManager.UndockContinuationPid != 0)
+                {
+                    if (chainManager.TryGetUndockContinuationRecording(out var undockRec))
+                        ChainSegmentManager.BakeContinuationData(undockRec);
                     chainManager.StopUndockContinuation("sibling switch");
+                }
 
                 RestartRecordingAfterDockUndock("undock switch", "undocked",
                     () => chainManager.StartUndockContinuation(oldPid));

@@ -1395,6 +1395,14 @@ namespace Parsek
             committedRecordings.Add(rec);
         }
 
+        /// <summary>
+        /// Adds a tree directly to committed trees. For unit tests only.
+        /// </summary>
+        internal static void AddCommittedTreeForTesting(RecordingTree tree)
+        {
+            committedTrees.Add(tree);
+        }
+
         internal static void DeleteRecordingFiles(Recording rec)
         {
             if (rec == null)
@@ -1599,8 +1607,45 @@ namespace Parsek
             return (standaloneCount, committedTrees.Count);
         }
 
+        /// <summary>
+        /// Rolls back continuation data appended after commit (bug #95).
+        /// If a continuation boundary is set, truncates Points back to the boundary,
+        /// restores pre-continuation snapshots, and marks file dirty. Called from all
+        /// revert/rewind paths (ResetRecordingPlaybackFields, RestoreStandaloneMutableState,
+        /// tree recording reset loop).
+        /// </summary>
+        internal static void RollbackContinuationData(Recording rec)
+        {
+            if (rec.ContinuationBoundaryIndex >= 0)
+            {
+                // Truncate continuation points (if any were added)
+                if (rec.ContinuationBoundaryIndex < rec.Points.Count)
+                {
+                    int removeCount = rec.Points.Count - rec.ContinuationBoundaryIndex;
+                    rec.Points.RemoveRange(rec.ContinuationBoundaryIndex, removeCount);
+                    rec.FilesDirty = true;
+                    if (!SuppressLogging)
+                        ParsekLog.Verbose("Rewind",
+                            $"Rolled back {removeCount} continuation point(s) for '{rec.VesselName}' " +
+                            $"(boundary={rec.ContinuationBoundaryIndex}, id={rec.RecordingId})");
+                }
+
+                // Restore pre-continuation snapshots (may have been overwritten
+                // by RefreshContinuationSnapshotCore even without new points)
+                if (rec.PreContinuationVesselSnapshot != null)
+                    rec.VesselSnapshot = rec.PreContinuationVesselSnapshot;
+                if (rec.PreContinuationGhostSnapshot != null)
+                    rec.GhostVisualSnapshot = rec.PreContinuationGhostSnapshot;
+            }
+            rec.ContinuationBoundaryIndex = -1;
+            rec.PreContinuationVesselSnapshot = null;
+            rec.PreContinuationGhostSnapshot = null;
+        }
+
         private static void ResetRecordingPlaybackFields(Recording rec)
         {
+            RollbackContinuationData(rec);
+
             // If the vessel had spawned, any terminal state change (Recovered/Destroyed)
             // was on the spawned real vessel, not the recording. Clear it so the recording
             // can spawn again after revert/rewind.
@@ -1766,6 +1811,60 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Returns the recording that owns the rewind save for the given recording.
+        /// For standalone recordings this is the recording itself; for tree branches
+        /// it is the tree root (which captured the quicksave at launch).
+        /// Returns null if no rewind save is available.
+        /// </summary>
+        internal static Recording GetRewindRecording(Recording rec)
+        {
+            return GetRewindRecording(rec, committedTrees);
+        }
+
+        /// <summary>
+        /// Parameterized overload for testability.
+        /// </summary>
+        internal static Recording GetRewindRecording(Recording rec, List<RecordingTree> trees)
+        {
+            if (rec == null) return null;
+
+            // Direct owner: recording has its own rewind save
+            if (!string.IsNullOrEmpty(rec.RewindSaveFileName))
+                return rec;
+
+            // Tree branch: look up root recording's rewind save
+            if (!string.IsNullOrEmpty(rec.TreeId) && trees != null)
+            {
+                for (int i = 0; i < trees.Count; i++)
+                {
+                    if (trees[i].Id == rec.TreeId)
+                    {
+                        Recording rootRec;
+                        if (!string.IsNullOrEmpty(trees[i].RootRecordingId) &&
+                            trees[i].Recordings.TryGetValue(trees[i].RootRecordingId, out rootRec) &&
+                            !string.IsNullOrEmpty(rootRec.RewindSaveFileName))
+                        {
+                            return rootRec;
+                        }
+                        break; // Found tree but root has no save
+                    }
+                }
+            }
+
+            return null;
+        }
+
+        /// <summary>
+        /// Convenience wrapper: returns the rewind save filename for a recording,
+        /// resolving through the tree root if needed. Returns null if unavailable.
+        /// </summary>
+        internal static string GetRewindSaveFileName(Recording rec)
+        {
+            var owner = GetRewindRecording(rec);
+            return owner?.RewindSaveFileName;
+        }
+
+        /// <summary>
         /// Checks whether the player can rewind to a given recording's launch point.
         /// </summary>
         internal static bool CanRewind(Recording rec, out string reason, bool isRecording)
@@ -1777,7 +1876,9 @@ namespace Parsek
                 return false;
             }
 
-            if (string.IsNullOrEmpty(rec.RewindSaveFileName))
+            // Resolve rewind save through tree root if needed
+            string resolvedSave = GetRewindSaveFileName(rec);
+            if (string.IsNullOrEmpty(resolvedSave))
             {
                 reason = "No rewind save available";
                 // Per-frame logging removed (was 3.7% of all log output); reason returned to caller
@@ -1807,7 +1908,7 @@ namespace Parsek
 
             // Verify the save file exists
             string savePath = RecordingPaths.ResolveSaveScopedPath(
-                RecordingPaths.BuildRewindSaveRelativePath(rec.RewindSaveFileName));
+                RecordingPaths.BuildRewindSaveRelativePath(resolvedSave));
             if (string.IsNullOrEmpty(savePath) || !File.Exists(savePath))
             {
                 reason = "Rewind save file missing";
@@ -1887,22 +1988,40 @@ namespace Parsek
         /// </summary>
         internal static void InitiateRewind(Recording rec)
         {
+            // Resolve the rewind save owner — may be the tree root for branch recordings.
+            // All save-related fields (filename, resources, UT) come from the owner,
+            // since the quicksave was captured at the owner's launch.
+            var owner = GetRewindRecording(rec);
+            if (owner == null)
+            {
+                if (!SuppressLogging)
+                    ParsekLog.Error("Rewind",
+                        $"InitiateRewind: no rewind owner for '{rec.VesselName}' (id={rec.RecordingId})");
+                return;
+            }
+
+            bool isTreeBranch = owner != rec;
+            if (isTreeBranch && !SuppressLogging)
+                ParsekLog.Info("Rewind",
+                    $"Rewind via tree root: branch '{rec.VesselName}' -> root '{owner.VesselName}' " +
+                    $"save={owner.RewindSaveFileName}");
+
             var reserved = new BudgetSummary
             {
-                reservedFunds = rec.RewindReservedFunds,
-                reservedScience = rec.RewindReservedScience,
-                reservedReputation = rec.RewindReservedRep
+                reservedFunds = owner.RewindReservedFunds,
+                reservedScience = owner.RewindReservedScience,
+                reservedReputation = owner.RewindReservedRep
             };
 
-            // Baseline resources from the recording's pre-launch snapshot.
+            // Baseline resources from the owner's pre-launch snapshot.
             // The rewind save was captured at the same moment as PreLaunch values.
-            RewindContext.BeginRewind(rec.StartUT, reserved,
-                rec.PreLaunchFunds, rec.PreLaunchScience, rec.PreLaunchReputation);
+            RewindContext.BeginRewind(owner.StartUT, reserved,
+                owner.PreLaunchFunds, owner.PreLaunchScience, owner.PreLaunchReputation);
 
             if (!SuppressLogging)
                 ParsekLog.Info("Rewind",
-                    $"Rewind initiated to UT {rec.StartUT} " +
-                    $"(save: {rec.RewindSaveFileName})");
+                    $"Rewind initiated to UT {owner.StartUT} " +
+                    $"(save: {owner.RewindSaveFileName})");
 
             string tempCopyName = null;
             try
@@ -1913,8 +2032,8 @@ namespace Parsek
                     HighLogic.SaveFolder ?? "");
 
                 string sourcePath = Path.Combine(savesDir,
-                    RecordingPaths.BuildRewindSaveRelativePath(rec.RewindSaveFileName));
-                tempCopyName = rec.RewindSaveFileName;
+                    RecordingPaths.BuildRewindSaveRelativePath(owner.RewindSaveFileName));
+                tempCopyName = owner.RewindSaveFileName;
                 string tempPath = Path.Combine(savesDir, tempCopyName + ".sfs");
 
                 // Copy from Parsek/Saves/ to root saves dir
@@ -1925,24 +2044,25 @@ namespace Parsek
                 // 2. Wind back UT by 10 seconds so the player can reach the pad before launch
                 const double rewindLeadTime = 10.0;
 
-                // Collect all vessel names to strip in a single file I/O pass
-                var stripNames = new HashSet<string> { rec.VesselName };
-                if (!string.IsNullOrEmpty(rec.ChainId))
+                // Collect all vessel names to strip — use owner's identity since the
+                // quicksave contains the owner's vessel (not the branch's).
+                var stripNames = new HashSet<string> { owner.VesselName };
+                if (!string.IsNullOrEmpty(owner.ChainId))
                 {
                     // EVA child recordings have different vessel names (the kerbal's name)
                     // and would otherwise survive the strip
                     foreach (var committed in committedRecordings)
                     {
-                        if (committed.ChainId == rec.ChainId &&
+                        if (committed.ChainId == owner.ChainId &&
                             !string.IsNullOrEmpty(committed.EvaCrewName) &&
-                            committed.VesselName != rec.VesselName)
+                            committed.VesselName != owner.VesselName)
                         {
                             stripNames.Add(committed.VesselName);
                         }
                     }
                     if (stripNames.Count > 1 && !SuppressLogging)
                         ParsekLog.Info("Rewind",
-                            $"Rewind strip includes {stripNames.Count - 1} EVA child vessel name(s) from chain '{rec.ChainId}'");
+                            $"Rewind strip includes {stripNames.Count - 1} EVA child vessel name(s) from chain '{owner.ChainId}'");
                 }
                 // Collect spawned vessel PIDs for PID-based stripping (belt-and-suspenders
                 // alongside name matching — catches renamed vessels or debris)
@@ -1960,7 +2080,7 @@ namespace Parsek
                     ResetRewindFlags();
                     if (!SuppressLogging)
                         ParsekLog.Error("Rewind",
-                            $"Rewind failed: LoadGame returned null for save '{rec.RewindSaveFileName}'. " +
+                            $"Rewind failed: LoadGame returned null for save '{owner.RewindSaveFileName}'. " +
                             $"Flags reset: IsRewinding={IsRewinding}, RewindUT={RewindUT}, RewindAdjustedUT={RewindAdjustedUT}");
                     return;
                 }
@@ -1978,7 +2098,7 @@ namespace Parsek
 
                 if (!SuppressLogging)
                     ParsekLog.Info("Rewind",
-                        $"Rewind: loading save '{rec.RewindSaveFileName}' into SpaceCenter");
+                        $"Rewind: loading save '{owner.RewindSaveFileName}' into SpaceCenter");
             }
             catch (Exception ex)
             {
