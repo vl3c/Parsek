@@ -1398,8 +1398,8 @@ namespace Parsek
             // Debris with no snapshot would produce a distracting green sphere — skip entirely (#232)
             if (traj.IsDebris && GhostVisualBuilder.GetGhostSnapshot(traj) == null)
             {
-                ParsekLog.VerboseRateLimited("Engine", $"skip-debris-{index}",
-                    $"Ghost #{index} \"{traj?.VesselName}\": debris with no snapshot, skipping");
+                ParsekLog.Verbose("Engine",
+                    $"Ghost #{index} \"{traj.VesselName}\": debris with no snapshot, skipping");
                 return;
             }
 

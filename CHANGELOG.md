@@ -30,7 +30,7 @@ All notable changes to Parsek are documented here.
 
 ### Tests
 
-- 75 new test cases. 4980 total passing.
+- 76 new test cases. 4981 total passing.
 
 ---
 

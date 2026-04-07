@@ -1876,6 +1876,7 @@ namespace Parsek
             int futureIdx = -1;
             bool anyPast = false;
             TerminalState? bestTerminal = null;
+            double bestTerminalEndUT = double.MinValue;
 
             foreach (int idx in descendants)
             {
@@ -1904,8 +1905,12 @@ namespace Parsek
                 else
                 {
                     anyPast = true;
-                    if (rec.TerminalStateValue.HasValue && !rec.IsDebris)
+                    // Pick terminal state from the latest-ending non-debris recording
+                    if (rec.TerminalStateValue.HasValue && !rec.IsDebris && rec.EndUT > bestTerminalEndUT)
+                    {
                         bestTerminal = rec.TerminalStateValue.Value;
+                        bestTerminalEndUT = rec.EndUT;
+                    }
                 }
             }
 

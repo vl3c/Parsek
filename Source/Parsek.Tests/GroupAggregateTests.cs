@@ -233,6 +233,22 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void GroupStatus_MultipleTerminals_PicksLatestEnding()
+        {
+            var rec1 = MakeRec(100, 200);
+            rec1.TerminalStateValue = TerminalState.Landed;
+            var rec2 = MakeRec(100, 400);
+            rec2.TerminalStateValue = TerminalState.Orbiting;
+            var committed = new List<Recording> { rec1, rec2 };
+            var descendants = new HashSet<int> { 0, 1 };
+            string text;
+            int order;
+            ParsekUI.GetGroupStatus(descendants, committed, 500, out text, out order);
+            Assert.Equal(2, order);
+            Assert.Equal("Orbiting", text); // rec2 ends later
+        }
+
+        [Fact]
         public void GroupStatus_DebrisTerminal_ShowsPast()
         {
             var rec = MakeRec(100, 200);
