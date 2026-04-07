@@ -6561,7 +6561,7 @@ namespace Parsek
             // Clear ParsekFlight-local diagnostic guards since indices shifted
             loggedOrbitSegments.Clear();
             loggedOrbitRotationSegments.Clear();
-            policy.pendingSpawnRecordingIds.Remove(rec.RecordingId);
+            policy.RemovePendingSpawn(rec.RecordingId);
 
             ParsekLog.ScreenMessage($"Recording '{rec.VesselName}' deleted", 2f);
         }

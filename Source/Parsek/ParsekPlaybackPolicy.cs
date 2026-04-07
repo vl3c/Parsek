@@ -112,6 +112,14 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Removes a recording ID from the deferred spawn queue (e.g. on delete).
+        /// </summary>
+        internal void RemovePendingSpawn(string recordingId)
+        {
+            pendingSpawnRecordingIds.Remove(recordingId);
+        }
+
+        /// <summary>
         /// Flush deferred spawns that were queued during warp.
         /// Runs AFTER engine.UpdatePlayback() when warp ends.
         /// Iterates committed recordings, spawns eligible vessels, skips
