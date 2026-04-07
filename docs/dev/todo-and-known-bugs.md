@@ -128,15 +128,11 @@ Engine plates (`EnginePlate1` etc.) have protective covers (interstage fairings)
 
 ## 132. Policy RunSpawnDeathChecks and FlushDeferredSpawns are TODO stubs
 
-`ParsekPlaybackPolicy.RunSpawnDeathChecks()` and `FlushDeferredSpawns()` are placeholder stubs. The old path equivalents in `ParsekFlight.UpdateTimelinePlaybackViaEngine()` still call the original `FlushDeferredSpawns(committed)` directly, so deferred spawns work. But spawn-death detection (vessel dies immediately after spawning → re-spawn with death count tracking) is not wired through the policy yet.
+`RunSpawnDeathChecks()` now iterates committed recordings each frame, checks if spawned vessel PIDs still exist via `FlightRecorder.FindVesselByPid`, increments `SpawnDeathCount` on death, and either resets for re-spawn or abandons after `MaxSpawnDeathCycles`. New pure predicate `ShouldCheckForSpawnDeath` in `GhostPlaybackLogic`.
 
-The pure predicates (`ShouldAbandonSpawnDeathLoop`, `ShouldFlushDeferredSpawns`, `ShouldSkipDeferredSpawn`) are tested; only the integration through the policy event handlers is missing.
+`FlushDeferredSpawns()` moved from `ParsekFlight` to `ParsekPlaybackPolicy`, eliminating the split-brain bug where the policy populated its own `pendingSpawnRecordingIds` in `HandlePlaybackCompleted` but the flush read from ParsekFlight's never-populated duplicate set. The policy now owns the full lifecycle: queue during warp → flush when warp ends.
 
-**Investigation notes:** `FlushDeferredSpawns` works correctly in ParsekFlight — moving to policy is pure refactoring with heavy state dependency (`pendingSpawnRecordingIds`, `pendingWatchRecordingId`, `SpawnVesselOrChainTip`, `DeferredActivateVessel`). Low value, high risk. Spawn-death detection is genuinely absent: `SpawnDeathCount` is never read in the engine path, and no `onVesselTerminated` subscription exists to detect spawned vessel destruction. Implementing requires event subscription + PID-to-recording matching. **Dormant bug:** policy and ParsekFlight have duplicate `pendingSpawnRecordingIds`/`pendingWatchRecordingId` fields — policy populates its copies in `HandlePlaybackCompleted` but the flush reads ParsekFlight's copies. Currently works because both paths add to the same set independently, but could diverge.
-
-**Priority:** Low — edge case (rapid spawn-death cycles), FlushDeferredSpawns works via existing path
-
-**Status:** Open — deferred (spawn-death detection needs design, FlushDeferredSpawns move is low-value refactor)
+**Status:** Fixed
 
 ## 133. Forwarding properties in ParsekFlight add ~500 lines of indirection
 

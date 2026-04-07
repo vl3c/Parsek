@@ -101,5 +101,39 @@ namespace Parsek.Tests
         }
 
         #endregion
+
+        #region ShouldCheckForSpawnDeath
+
+        [Fact]
+        public void ShouldCheckForSpawnDeath_SpawnedWithPid_ReturnsTrue()
+        {
+            Assert.True(GhostPlaybackLogic.ShouldCheckForSpawnDeath(true, 42000, false));
+        }
+
+        [Fact]
+        public void ShouldCheckForSpawnDeath_NotSpawned_ReturnsFalse()
+        {
+            Assert.False(GhostPlaybackLogic.ShouldCheckForSpawnDeath(false, 42000, false));
+        }
+
+        [Fact]
+        public void ShouldCheckForSpawnDeath_ZeroPid_ReturnsFalse()
+        {
+            Assert.False(GhostPlaybackLogic.ShouldCheckForSpawnDeath(true, 0, false));
+        }
+
+        [Fact]
+        public void ShouldCheckForSpawnDeath_Abandoned_ReturnsFalse()
+        {
+            Assert.False(GhostPlaybackLogic.ShouldCheckForSpawnDeath(true, 42000, true));
+        }
+
+        [Fact]
+        public void ShouldCheckForSpawnDeath_NotSpawnedZeroPidAbandoned_ReturnsFalse()
+        {
+            Assert.False(GhostPlaybackLogic.ShouldCheckForSpawnDeath(false, 0, true));
+        }
+
+        #endregion
     }
 }

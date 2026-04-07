@@ -8,6 +8,8 @@ All notable changes to Parsek are documented here.
 
 ### Bug Fixes
 
+- **Fix deferred spawn queue split-brain (#132).** `HandlePlaybackCompleted` in `ParsekPlaybackPolicy` added deferred spawn IDs to the policy's `pendingSpawnRecordingIds`, but `FlushDeferredSpawns` in `ParsekFlight` read from its own never-populated duplicate set. Deferred spawns during warp silently never flushed. Moved `FlushDeferredSpawns` to the policy, eliminated the duplicate fields.
+- **Wire up spawn-death detection (#132).** `RunSpawnDeathChecks` now runs before each engine update, detecting spawned vessels that died since last frame. Increments `SpawnDeathCount`, resets for re-spawn, or abandons after 3 cycles. Previously `SpawnDeathCount` was never incremented in the engine path.
 - **Fix mid-tree spawn entries at EVA/staging boundaries (#227).** When a kerbal EVA'd or a stage separated, the timeline showed a premature "Spawn: Kerbal X" at the branch time. Two-sided fix: (1) suppress parent spawn when a same-PID continuation child exists via new `HasSamePidTreeContinuation` helper, (2) allow tree-child leaf recordings to produce spawn entries. Breakup-only recordings (no same-PID continuation) correctly still spawn.
 - **Fix toolbar icon texture compression warning (#154).** Replaced 38x38 and 24x24 toolbar icons with 64x64 and 32x32 power-of-two versions. KSP can now DXT-compress the textures.
 - **Fix ghost creation failing for orbital debris ("no orbit data") (#219).** `CaptureTerminalOrbit` only ran when `FindVesselByPid` returned a live vessel. Orbital debris with 30s TTL was often destroyed by finalization time, leaving terminal orbit fields empty. `PopulateTerminalOrbitFromLastSegment` now recovers orbit data from the last `OrbitSegment`.
