@@ -12,6 +12,7 @@ All notable changes to Parsek are documented here.
 - **Fix W (watch) button staying enabled on debris boosters (#194).** After booster separation, one debris recording could have an active ghost with the W button enabled. Added `IsDebris` guard to watch eligibility check and "Debris is not watchable" tooltip.
 - **Fix vessels and EVA kerbals spawning high in the air (#231).** Vessels with `terminal=Landed` spawned at their last trajectory point altitude (still descending), fell, and exploded. Three spawn paths lacked altitude clamping (flight scene, KSC, tree leaves). Now all paths clamp LANDED to terrain+2m clearance, override snapshot position AND rotation from the last trajectory point. Vessels spawn in their near-landing orientation instead of mid-flight descent pose.
 - **Fix ghost map markers missing / wrong positions after save/load (#203).** `SaveRecordingMetadata` / `LoadRecordingMetadata` (standalone recordings) never serialized the 8 terminal orbit fields. After save/load, all standalone recordings had `TerminalOrbitBody = null`, so `HasOrbitData` returned false and no ghost map ProtoVessels could be created. Tree recordings were unaffected (separate serialization path). Now serialized in both paths.
+- **Fix tree root recording showing T+ countdown instead of terminal state (#186).** Continuation sampling extends a committed recording's `EndUT` past current time, causing the status column to show "T+5m 23s" instead of "Landed". Now checks `TerminalStateValue` in all three status paths (row display, group aggregate, sort key). Group status also shows the best non-debris terminal state instead of generic "past".
 
 ### Spawn System Hardening
 
@@ -28,7 +29,7 @@ All notable changes to Parsek are documented here.
 
 ### Tests
 
-- 72 new test cases. 4977 total passing.
+- 75 new test cases. 4980 total passing.
 
 ---
 

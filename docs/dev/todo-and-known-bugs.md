@@ -216,11 +216,15 @@ After an EVA, the vessel left behind is a static recording (ghost) right up to t
 
 **Status:** Fixed
 
-## 186. Initial launch recording shows T+ countdown instead of "past" status
+## ~~186. Initial launch recording shows T+ countdown instead of "past" status~~
 
 In the Parsek recordings window, the initial launch recording (parent of a tree) shows "T+5m 23s" in the Status column while child recordings show "Landed". It may be more appropriate to show "past" or the terminal state. Additionally, these tree recordings have no Phase column value.
 
-**Status:** TODO
+**Root cause:** Continuation sampling appends trajectory points to committed recordings, extending their `EndUT` past the current time. The status logic (`DrawRecordingRow`, `GetGroupStatus`, `GetStatusOrder`) compared only `now <= rec.EndUT` to classify a recording as "active", without checking whether the recording was already committed with a terminal state.
+
+**Fix:** Added `&& !rec.TerminalStateValue.HasValue` guard to all three status classification paths: individual row display, group/chain aggregate status, and sort key computation. Recordings with a terminal state now always show their terminal state (e.g., "Landed", "Orbiting") regardless of `EndUT`. Group status also picks the best non-debris terminal state instead of always showing "past". Phase column is empty by design for tree roots (different children may have different phases).
+
+**Status:** Fixed
 
 ## ~~187. Centralize time conversion system~~
 

@@ -701,7 +701,7 @@ namespace Parsek
                     ? SelectiveSpawnUI.FormatCountdown(rec.StartUT - now)
                     : "future";
             }
-            else if (now <= rec.EndUT)
+            else if (now <= rec.EndUT && !rec.TerminalStateValue.HasValue)
             {
                 statusStyle = statusStyleActive;
                 statusText = rec.Points.Count > 0
@@ -1671,7 +1671,7 @@ namespace Parsek
         internal static int GetStatusOrder(Recording rec, double now)
         {
             if (now < rec.StartUT) return 0;  // future
-            if (now <= rec.EndUT) return 1;    // active
+            if (now <= rec.EndUT && !rec.TerminalStateValue.HasValue) return 1;    // active
             return 2;                          // past
         }
 
@@ -1875,11 +1875,13 @@ namespace Parsek
             int activeIdx = -1;
             int futureIdx = -1;
             bool anyPast = false;
+            TerminalState? bestTerminal = null;
 
             foreach (int idx in descendants)
             {
                 var rec = committed[idx];
-                if (now >= rec.StartUT && now <= rec.EndUT)
+                // A recording with TerminalStateValue is done — don't treat as active
+                if (now >= rec.StartUT && now <= rec.EndUT && !rec.TerminalStateValue.HasValue)
                 {
                     // Active recording -- prefer closest T- (= StartUT - now, which is negative;
                     // we want the one closest to now, i.e., smallest |delta|)
@@ -1902,6 +1904,8 @@ namespace Parsek
                 else
                 {
                     anyPast = true;
+                    if (rec.TerminalStateValue.HasValue && !rec.IsDebris)
+                        bestTerminal = rec.TerminalStateValue.Value;
                 }
             }
 
@@ -1924,7 +1928,7 @@ namespace Parsek
             else if (anyPast)
             {
                 statusOrder = 2;
-                statusText = "past";
+                statusText = bestTerminal.HasValue ? bestTerminal.Value.ToString() : "past";
             }
             else
             {
