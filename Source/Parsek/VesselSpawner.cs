@@ -434,6 +434,10 @@ namespace Parsek
                     // Defensive duplicate recovery: if the blocker has the same name as the
                     // recording being spawned, it is likely a quicksave-loaded duplicate that
                     // survived cleanup after rewind. Recover it once to clear the spawn slot. (#112)
+                    // Name matching is the only available heuristic — after rewind, all
+                    // SpawnedVesselPersistentId values are reset to 0 so PID matching is not
+                    // possible. False positive (two same-name recordings at same position) is
+                    // narrow and non-destructive (vessel goes to KSC recovery, not deleted).
                     string resolvedRecName = Recording.ResolveLocalizedName(rec.VesselName);
                     if (!rec.DuplicateBlockerRecovered
                         && blockerVessel != null
@@ -450,7 +454,7 @@ namespace Parsek
                         rec.CollisionBlockCount = 0;
 
                         // Re-check overlap after recovery — another vessel may still block
-                        var (stillOverlap, _, _, _) =
+                        var (stillOverlap, recheckDist, recheckName, _) =
                             SpawnCollisionDetector.CheckOverlapAgainstLoadedVessels(spawnPos, spawnBounds, 5f);
                         if (stillOverlap)
                         {
@@ -460,8 +464,8 @@ namespace Parsek
                                 rec.VesselSpawned = true;
                                 rec.SpawnAbandoned = true;
                                 ParsekLog.Warn("Spawner",
-                                    $"Spawn ABANDONED for #{index} ({rec.VesselName}): still blocked after " +
-                                    $"duplicate recovery — giving up");
+                                    $"Spawn ABANDONED for #{index} ({rec.VesselName}): still blocked by " +
+                                    $"'{recheckName}' at {recheckDist:F0}m after duplicate recovery — giving up");
                             }
                             return true;
                         }
