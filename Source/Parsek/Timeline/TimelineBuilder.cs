@@ -31,10 +31,14 @@ namespace Parsek
                     vesselNameById[r.RecordingId] = r.VesselName;
             }
 
+            // Bug #228: build set of (parentRecordingId, startUT) pairs from EVA recordings
+            // so we can filter out crew reassignment noise at EVA branch times.
+            var evaBranchKeys = BuildEvaBranchKeys(committedRecordings);
+
             var entries = new List<TimelineEntry>();
 
             int recordingCount = CollectRecordingEntries(committedRecordings, vesselNameById, entries);
-            int actionCount = CollectGameActionEntries(ledgerActions, vesselNameById, entries);
+            int actionCount = CollectGameActionEntries(ledgerActions, vesselNameById, evaBranchKeys, entries);
             int legacyCount = CollectLegacyEntries(milestones, currentEpoch, entries);
 
             entries.Sort((a, b) => a.UT.CompareTo(b.UT));
@@ -54,6 +58,7 @@ namespace Parsek
         {
             int count = 0;
             int hiddenSkipped = 0;
+            int crewDeathCount = 0;
 
             int debrisSkipped = 0;
             int treeChildSkipped = 0;
@@ -158,13 +163,42 @@ namespace Parsek
                         $"terminal={rec.TerminalStateValue} sit=\"{rec.VesselSituation}\" " +
                         $"text=\"{displayText}\"");
                 }
+
+                // CrewDeath — one entry per dead kerbal (bug #229).
+                // Uses CrewEndStates populated by KerbalsModule at commit time.
+                // Placed at rec.EndUT because CrewEndStates has no per-kerbal death
+                // timestamp — usually correct (death = vessel destruction at EndUT),
+                // but inaccurate if crew died mid-recording (e.g., decoupled crew cabin).
+                if (rec.CrewEndStates != null)
+                {
+                    foreach (var kvp in rec.CrewEndStates)
+                    {
+                        if (kvp.Value != KerbalEndState.Dead) continue;
+
+                        var deathType = TimelineEntryType.CrewDeath;
+                        string deathText = TimelineEntryDisplay.GetCrewDeathText(kvp.Key, rec.VesselName);
+                        entries.Add(new TimelineEntry
+                        {
+                            UT = rec.EndUT,
+                            Type = deathType,
+                            DisplayText = deathText,
+                            Source = TimelineSource.Recording,
+                            Tier = TimelineEntryDisplay.GetTier(deathType),
+                            DisplayColor = new Color(1f, 0.4f, 0.4f), // red-ish
+                            RecordingId = rec.RecordingId,
+                            VesselName = rec.VesselName
+                        });
+                        count++;
+                        crewDeathCount++;
+                    }
+                }
             }
 
             ParsekLog.Verbose("Timeline",
                 $"Recording collector: {count} entries from {recordings.Count} recordings " +
                 $"(hidden={hiddenSkipped} debris={debrisSkipped} treeChild={treeChildSkipped} " +
                 $"chainChild={chainChildSkipped} destroyed={destroyedSkipped} " +
-                $"midChain={midChainSkipped} disabled={disabledSkipped})");
+                $"midChain={midChainSkipped} disabled={disabledSkipped} crewDeath={crewDeathCount})");
 
             return count;
         }
@@ -229,12 +263,42 @@ namespace Parsek
 
         // ---- Game Action Collector ----
 
+        /// <summary>
+        /// Builds a HashSet of (parentRecordingId, startUT) keys from EVA recordings.
+        /// When a kerbal EVAs, KSP reshuffles the remaining crew — those KerbalAssignment
+        /// actions at the EVA's startUT on the parent recording are noise (bug #228).
+        /// Extracted for testability.
+        /// </summary>
+        internal static HashSet<string> BuildEvaBranchKeys(IReadOnlyList<Recording> recordings)
+        {
+            var keys = new HashSet<string>();
+            for (int i = 0; i < recordings.Count; i++)
+            {
+                var rec = recordings[i];
+                if (string.IsNullOrEmpty(rec.EvaCrewName)) continue;
+                if (string.IsNullOrEmpty(rec.ParentRecordingId)) continue;
+                keys.Add(EncodeEvaBranchKey(rec.ParentRecordingId, rec.StartUT));
+            }
+            return keys;
+        }
+
+        /// <summary>
+        /// Encodes a (recordingId, ut) pair as a string key for HashSet lookup.
+        /// Uses round-trip format for UT to avoid floating-point matching issues.
+        /// </summary>
+        internal static string EncodeEvaBranchKey(string recordingId, double ut)
+        {
+            return string.Concat(recordingId, ":", ut.ToString("R", System.Globalization.CultureInfo.InvariantCulture));
+        }
+
         private static int CollectGameActionEntries(
             IReadOnlyList<GameAction> ledgerActions,
             Dictionary<string, string> vesselNameById,
+            HashSet<string> evaBranchKeys,
             List<TimelineEntry> entries)
         {
             int count = 0;
+            int evaReassignSkipped = 0;
             for (int i = 0; i < ledgerActions.Count; i++)
             {
                 var action = ledgerActions[i];
@@ -257,6 +321,16 @@ namespace Parsek
                     vesselName == action.KerbalName)
                     continue;
 
+                // Bug #228: skip crew reassignment at EVA branch time — KSP auto-reshuffles
+                // remaining crew when someone EVAs, creating noise KerbalAssignment actions.
+                if (action.Type == GameActionType.KerbalAssignment &&
+                    !string.IsNullOrEmpty(action.RecordingId) &&
+                    evaBranchKeys.Contains(EncodeEvaBranchKey(action.RecordingId, action.UT)))
+                {
+                    evaReassignSkipped++;
+                    continue;
+                }
+
                 entries.Add(new TimelineEntry
                 {
                     UT = action.UT,
@@ -272,6 +346,10 @@ namespace Parsek
                 });
                 count++;
             }
+
+            if (evaReassignSkipped > 0)
+                ParsekLog.Verbose("Timeline",
+                    $"Filtered {evaReassignSkipped} KerbalAssignment action(s) at EVA branch time(s)");
 
             return count;
         }

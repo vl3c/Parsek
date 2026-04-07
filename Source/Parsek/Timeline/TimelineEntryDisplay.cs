@@ -33,6 +33,7 @@ namespace Parsek
             {
                 case TimelineEntryType.RecordingStart:
                 case TimelineEntryType.VesselSpawn:
+                case TimelineEntryType.CrewDeath:
                 case TimelineEntryType.MilestoneAchievement:
                 case TimelineEntryType.ContractComplete:
                 case TimelineEntryType.ContractFail:
@@ -116,6 +117,16 @@ namespace Parsek
         /// </summary>
         internal static string FormatDuration(double seconds)
             => ParsekTimeFormat.FormatDurationFull(seconds);
+
+        /// <summary>
+        /// Display text for a crew death event: "Lost: Bob Kerman (Vessel Name)".
+        /// </summary>
+        internal static string GetCrewDeathText(string kerbalName, string vesselName)
+        {
+            if (string.IsNullOrEmpty(vesselName))
+                return $"Lost: {kerbalName ?? "unknown"}";
+            return $"Lost: {kerbalName ?? "unknown"} ({vesselName})";
+        }
 
         /// <summary>
         /// Display text for a vessel spawn event with situation context.

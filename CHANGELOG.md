@@ -55,10 +55,17 @@ All notable changes to Parsek are documented here.
 - **Destroyed terminal spawn entries removed.** "Spawn: Bob (Destroyed)" no longer appears — you can't spawn a destroyed vessel.
 - **Spawn text shows body name for all terminal states.** Previously only orbital terminals showed the body.
 - **Diagnostic logging for timeline construction.** Each included/excluded entry logged with classification flags and skip reasons.
+- **Crew death entries in timeline (#229).** New `CrewDeath` timeline entry type (T1 significance). When a recording has `CrewEndStates` with `Dead` kerbals, "Lost: Bob Kerman (Vessel Name)" entries appear at recording EndUT with red-tinted color. Makes crew deaths visible in the mission narrative.
+- **EVA crew reassignment noise filtered (#228).** KSP auto-reshuffles remaining crew when someone EVAs, generating spurious KerbalAssignment actions. These are now filtered by matching `(RecordingId, UT)` against EVA branch keys built from EVA recordings' parent info.
+
+### Crew Reservation
+
+- **Fix EVA kerbals disappearing after spawn or player EVA (#46, #233).** `RemoveReservedEvaVessels` was deleting any EVA vessel whose crew name was in the `crewReplacements` dict, including Parsek-spawned vessels (#233) and player-created EVAs (#46). Two guards added: (1) loaded EVA vessels (in the physics bubble) are always kept. (2) Vessels whose `persistentId` matches a committed recording's `SpawnedVesselPersistentId` are kept.
 
 ### Tests
 
 - 4 new test cases (all-boring leaf trim, tree-with-branch-point optimizer integration, all-boring-too-few-points guard, end-to-end approach/surface split+trim). 4977 total passing.
+- 23 new test cases (crew death timeline entries, EVA reassignment filtering, spawned EVA PID guard, BuildEvaBranchKeys, BuildSpawnedVesselPidSet). 5007 total passing.
 
 ### Documentation
 
