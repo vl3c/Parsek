@@ -261,11 +261,15 @@ The popup spawned via `PopupDialog.SpawnPopupDialog` consistently appears at scr
 
 **Status:** TODO — deferred
 
-## 203. Green dot ghost markers at wrong positions near Mun after scene reload
+## ~~203. Green dot ghost markers at wrong positions near Mun after scene reload~~
 
 Two compounding issues: (1) `TerminalOrbitBody` is null on all recordings at load time — `HasOrbitData(Recording)` returns false for all 62 recordings, preventing ProtoVessel creation from the initial scan. (2) After FLIGHT→FLIGHT scene reload, ghost map vessel positions jump from Mun-relative (~11M m) to world-frame (~2B m) — the coordinate frame shifts during scene reload and positions aren't corrected.
 
-**Status:** TODO — needs investigation into why TerminalOrbitBody is never set, and coordinate frame correction after scene reload.
+**Root cause:** `SaveRecordingMetadata` / `LoadRecordingMetadata` (used by standalone recordings) never serialized the 8 terminal orbit fields (`tOrbBody`, `tOrbInc`, `tOrbEcc`, `tOrbSma`, `tOrbLan`, `tOrbArgPe`, `tOrbMna`, `tOrbEpoch`). Tree recordings were unaffected because `RecordingTree.SaveRecordingInto` / `LoadRecordingFrom` already handled these fields. After save/load, all standalone recordings had `TerminalOrbitBody = null`, so `HasOrbitData` returned false and no ghost map ProtoVessels could be created. Issue (2) was a consequence: without valid orbit data, ghost positions computed from stale or zero orbital elements produced world-frame coordinates instead of body-relative.
+
+**Fix:** Added terminal orbit field serialization to `SaveRecordingMetadata` and `LoadRecordingMetadata`, matching the existing pattern in `RecordingTree`.
+
+**Status:** Fixed
 
 ## ~~217. Settings window GUILayout exception (Layout/Repaint mismatch)~~
 

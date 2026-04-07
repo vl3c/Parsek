@@ -268,5 +268,62 @@ namespace Parsek.Tests
             Assert.Null(FlightRecorder.HumanizeLaunchSiteName(null));
             Assert.Null(FlightRecorder.HumanizeLaunchSiteName(""));
         }
+
+        // --- Terminal orbit serialization tests (bug #203) ---
+
+        [Fact]
+        public void SaveLoad_TerminalOrbit_RoundTrip()
+        {
+            var source = new Recording
+            {
+                TerminalOrbitBody = "Mun",
+                TerminalOrbitInclination = 12.345,
+                TerminalOrbitEccentricity = 0.05,
+                TerminalOrbitSemiMajorAxis = 250000.0,
+                TerminalOrbitLAN = 45.678,
+                TerminalOrbitArgumentOfPeriapsis = 90.123,
+                TerminalOrbitMeanAnomalyAtEpoch = 1.234,
+                TerminalOrbitEpoch = 50000.0
+            };
+            var node = new ConfigNode("RECORDING");
+            ParsekScenario.SaveRecordingMetadata(node, source);
+
+            var loaded = new Recording();
+            ParsekScenario.LoadRecordingMetadata(node, loaded);
+
+            Assert.Equal("Mun", loaded.TerminalOrbitBody);
+            Assert.Equal(12.345, loaded.TerminalOrbitInclination);
+            Assert.Equal(0.05, loaded.TerminalOrbitEccentricity);
+            Assert.Equal(250000.0, loaded.TerminalOrbitSemiMajorAxis);
+            Assert.Equal(45.678, loaded.TerminalOrbitLAN);
+            Assert.Equal(90.123, loaded.TerminalOrbitArgumentOfPeriapsis);
+            Assert.Equal(1.234, loaded.TerminalOrbitMeanAnomalyAtEpoch);
+            Assert.Equal(50000.0, loaded.TerminalOrbitEpoch);
+        }
+
+        [Fact]
+        public void SaveLoad_NullTerminalOrbitBody_NotWritten()
+        {
+            var source = new Recording();
+            var node = new ConfigNode("RECORDING");
+            ParsekScenario.SaveRecordingMetadata(node, source);
+
+            Assert.Null(node.GetValue("tOrbBody"));
+            Assert.Null(node.GetValue("tOrbSma"));
+        }
+
+        [Fact]
+        public void Load_MissingTerminalOrbit_DefaultsToZero()
+        {
+            var node = new ConfigNode("RECORDING");
+            node.AddValue("loopPlayback", "False");
+
+            var loaded = new Recording();
+            ParsekScenario.LoadRecordingMetadata(node, loaded);
+
+            Assert.Null(loaded.TerminalOrbitBody);
+            Assert.Equal(0.0, loaded.TerminalOrbitSemiMajorAxis);
+        }
     }
 }
+
