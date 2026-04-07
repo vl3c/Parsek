@@ -23,6 +23,11 @@ namespace Parsek
         private List<uint> debrisPids = new List<uint>();
         private string cause;  // "CRASH", "OVERHEAT", "STRUCTURAL_FAILURE"
 
+        // Pre-captured vessel snapshots at split detection time, before debris can be
+        // destroyed during the coalescing window. Keyed by vessel persistentId. (#157)
+        private Dictionary<uint, ConfigNode> preCapturedSnapshots = new Dictionary<uint, ConfigNode>();
+        private Dictionary<uint, ConfigNode> lastEmittedSnapshots = new Dictionary<uint, ConfigNode>();
+
         // Snapshot of child PIDs from the last emitted BREAKUP,
         // preserved across Reset() so the caller can access them after Tick() returns.
         private List<uint> lastEmittedControlledChildPids = new List<uint>();
@@ -44,7 +49,8 @@ namespace Parsek
         /// <param name="childPid">PersistentId of the child vessel</param>
         /// <param name="childHasController">Whether the child has a command part</param>
         /// <param name="splitCause">Cause string (CRASH, OVERHEAT, STRUCTURAL_FAILURE)</param>
-        public void OnSplitEvent(double ut, uint childPid, bool childHasController, string splitCause = "CRASH")
+        public void OnSplitEvent(double ut, uint childPid, bool childHasController, string splitCause = "CRASH",
+            ConfigNode preSnapshot = null)
         {
             if (!HasPendingBreakup)
             {
@@ -74,6 +80,11 @@ namespace Parsek
                     "Debris fragment added: pid=" + childPid + " at UT=" + ut.ToString("F2", CultureInfo.InvariantCulture) +
                     " (total debris=" + debrisPids.Count + ")");
             }
+
+            // Store pre-captured snapshot for use when coalescer emits (#157).
+            // At emission time (0.5s later), the vessel may already be destroyed.
+            if (preSnapshot != null && !preCapturedSnapshots.ContainsKey(childPid))
+                preCapturedSnapshots[childPid] = preSnapshot;
         }
 
         /// <summary>
@@ -111,12 +122,15 @@ namespace Parsek
                 " controlledChildren=" + controlledChildPids.Count + " debris=" + debrisPids.Count +
                 " duration=" + bp.BreakupDuration.ToString("F3", ic) + "s window=" + coalesceWindow.ToString("F1", ic) + "s");
 
-            // Snapshot child PIDs before Reset clears them,
-            // so the caller can access them via LastEmittedControlledChildPids / LastEmittedDebrisPids.
+            // Snapshot child PIDs and pre-captured snapshots before Reset clears them,
+            // so the caller can access them via LastEmitted* properties.
             lastEmittedControlledChildPids.Clear();
             lastEmittedControlledChildPids.AddRange(controlledChildPids);
             lastEmittedDebrisPids.Clear();
             lastEmittedDebrisPids.AddRange(debrisPids);
+            lastEmittedSnapshots.Clear();
+            foreach (var kvp in preCapturedSnapshots)
+                lastEmittedSnapshots[kvp.Key] = kvp.Value;
 
             Reset();
             return bp;
@@ -143,6 +157,16 @@ namespace Parsek
         public IReadOnlyList<uint> LastEmittedDebrisPids => lastEmittedDebrisPids;
 
         /// <summary>
+        /// Returns a pre-captured snapshot for the given PID, or null if none was captured.
+        /// Valid immediately after Tick() returns a non-null BranchPoint. (#157)
+        /// </summary>
+        public ConfigNode GetPreCapturedSnapshot(uint pid)
+        {
+            ConfigNode snap;
+            return lastEmittedSnapshots.TryGetValue(pid, out snap) ? snap : null;
+        }
+
+        /// <summary>
         /// Returns the current debris count. Only valid while HasPendingBreakup is true.
         /// </summary>
         public int CurrentDebrisCount => debrisPids.Count;
@@ -156,6 +180,7 @@ namespace Parsek
             lastSplitUT = double.NaN;
             controlledChildPids.Clear();
             debrisPids.Clear();
+            preCapturedSnapshots.Clear();
             cause = null;
             ParsekLog.Verbose("Coalescer", "Reset -- window cleared");
         }

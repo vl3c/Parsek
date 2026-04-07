@@ -2363,9 +2363,18 @@ namespace Parsek
                     foreach (var newPid in newVesselPids)
                     {
                         bool hasController = newVesselHasController.ContainsKey(newPid) && newVesselHasController[newPid];
+
+                        // Pre-capture snapshot while the vessel is still alive (#157).
+                        // By coalescer emission time (0.5s later), debris may be destroyed.
+                        ConfigNode preSnapshot = null;
+                        Vessel childVessel = FlightRecorder.FindVesselByPid(newPid);
+                        if (childVessel != null)
+                            preSnapshot = VesselSpawner.TryBackupSnapshot(childVessel);
+
                         ParsekLog.Info("Coalescer",
-                            $"Feeding split to coalescer: childPid={newPid}, childHasController={hasController}");
-                        crashCoalescer.OnSplitEvent(branchUT, newPid, hasController);
+                            $"Feeding split to coalescer: childPid={newPid}, childHasController={hasController}" +
+                            $", preSnapshot={preSnapshot != null}");
+                        crashCoalescer.OnSplitEvent(branchUT, newPid, hasController, preSnapshot: preSnapshot);
                     }
 
                     // Resume the recorder — the coalescer's Tick will emit the BREAKUP
@@ -2415,7 +2424,8 @@ namespace Parsek
         /// </summary>
         internal static Recording CreateBreakupChildRecording(
             RecordingTree tree, BranchPoint breakupBp,
-            uint pid, Vessel vessel, bool isDebris, string fallbackName)
+            uint pid, Vessel vessel, bool isDebris, string fallbackName,
+            ConfigNode fallbackSnapshot = null)
         {
             string childRecId = Guid.NewGuid().ToString("N");
             string vesselName = Recording.ResolveLocalizedName(vessel?.vesselName) ?? fallbackName;
@@ -2436,6 +2446,16 @@ namespace Parsek
                 ConfigNode snapshot = VesselSpawner.TryBackupSnapshot(vessel);
                 childRec.GhostVisualSnapshot = snapshot;
                 childRec.VesselSnapshot = snapshot != null ? snapshot.CreateCopy() : null;
+            }
+            else if (fallbackSnapshot != null)
+            {
+                // Vessel destroyed during coalescing window — use pre-captured snapshot (#157)
+                childRec.GhostVisualSnapshot = fallbackSnapshot;
+                childRec.VesselSnapshot = fallbackSnapshot.CreateCopy();
+                childRec.TerminalStateValue = TerminalState.Destroyed;
+                childRec.ExplicitEndUT = breakupBp.UT;
+                ParsekLog.Info("Coalescer",
+                    $"CreateBreakupChildRecording: using pre-captured snapshot for pid={pid} (vessel destroyed)");
             }
             else
             {
@@ -2517,7 +2537,10 @@ namespace Parsek
                 {
                     uint pid = controlledChildren[i];
                     Vessel childVessel = FlightRecorder.FindVesselByPid(pid);
-                    var childRec = CreateBreakupChildRecording(activeTree, breakupBp, pid, childVessel, false, "Unknown");
+                    ConfigNode ctrlSnap = childVessel == null
+                        ? crashCoalescer.GetPreCapturedSnapshot(pid)
+                        : null;
+                    var childRec = CreateBreakupChildRecording(activeTree, breakupBp, pid, childVessel, false, "Unknown", ctrlSnap);
 
                     // Add to BackgroundRecorder for trajectory sampling (no TTL — records indefinitely)
                     if (childVessel != null && backgroundRecorder != null)
@@ -2550,7 +2573,10 @@ namespace Parsek
                         continue;
                     }
 
-                    var childRec = CreateBreakupChildRecording(activeTree, breakupBp, pid, debrisVessel, true, "Debris");
+                    ConfigNode preSnap = debrisVessel == null
+                        ? crashCoalescer.GetPreCapturedSnapshot(pid)
+                        : null;
+                    var childRec = CreateBreakupChildRecording(activeTree, breakupBp, pid, debrisVessel, true, "Debris", preSnap);
 
                     if (debrisVessel != null && backgroundRecorder != null)
                     {
@@ -2677,12 +2703,15 @@ namespace Parsek
                         continue;
                     }
 
-                    var childRec = CreateBreakupChildRecording(activeTree, breakupBp, pid, debrisVessel, true, "Debris");
+                    ConfigNode preSnap = debrisVessel == null
+                        ? crashCoalescer.GetPreCapturedSnapshot(pid)
+                        : null;
+                    var childRec = CreateBreakupChildRecording(activeTree, breakupBp, pid, debrisVessel, true, "Debris", preSnap);
 
                     ParsekLog.Info("Coalescer",
                         $"PromoteToTreeForBreakup: debris child created: pid={pid}, " +
                         $"name='{childRec.VesselName}', recId={childRec.RecordingId}, " +
-                        $"alive={debrisVessel != null}");
+                        $"alive={debrisVessel != null}, preSnap={preSnap != null}");
                 }
             }
 
@@ -2694,12 +2723,15 @@ namespace Parsek
                 {
                     uint pid = controlledPids[i];
                     Vessel childVessel = FlightRecorder.FindVesselByPid(pid);
-                    var childRec = CreateBreakupChildRecording(activeTree, breakupBp, pid, childVessel, false, "Unknown");
+                    ConfigNode ctrlSnap = childVessel == null
+                        ? crashCoalescer.GetPreCapturedSnapshot(pid)
+                        : null;
+                    var childRec = CreateBreakupChildRecording(activeTree, breakupBp, pid, childVessel, false, "Unknown", ctrlSnap);
 
                     ParsekLog.Info("Coalescer",
                         $"PromoteToTreeForBreakup: controlled child created: pid={pid}, " +
                         $"name='{childRec.VesselName}', recId={childRec.RecordingId}, " +
-                        $"alive={childVessel != null}");
+                        $"alive={childVessel != null}, preSnap={ctrlSnap != null}");
                 }
             }
 
@@ -5113,6 +5145,11 @@ namespace Parsek
                     rec.VesselSnapshot = null;
                     ParsekLog.Warn("Flight", $"FinalizeTreeRecordings: vessel pid={rec.VesselPersistentId} " +
                         $"not found for recording '{rec.RecordingId}' — marking Destroyed");
+
+                    // Recover terminal orbit from last orbit segment if available (#219).
+                    // Orbital debris often has orbit segments from BackgroundRecorder sampling
+                    // but the vessel is destroyed by finalization time.
+                    PopulateTerminalOrbitFromLastSegment(rec);
                 }
             }
 
@@ -5415,6 +5452,31 @@ namespace Parsek
                 rec.TerminalOrbitEpoch = orb.epoch;
                 rec.TerminalOrbitBody = orb.referenceBody?.name ?? "Kerbin";
             }
+        }
+
+        /// <summary>
+        /// Populates terminal orbit fields from the last OrbitSegment when the vessel
+        /// is already destroyed at finalization time. Enables ghost map presence for
+        /// orbital debris whose vessel expired before CaptureTerminalOrbit could run. (#219)
+        /// </summary>
+        internal static void PopulateTerminalOrbitFromLastSegment(Recording rec)
+        {
+            if (!rec.HasOrbitSegments) return;
+            if (!string.IsNullOrEmpty(rec.TerminalOrbitBody)) return; // already populated
+
+            var seg = rec.OrbitSegments[rec.OrbitSegments.Count - 1];
+            rec.TerminalOrbitInclination = seg.inclination;
+            rec.TerminalOrbitEccentricity = seg.eccentricity;
+            rec.TerminalOrbitSemiMajorAxis = seg.semiMajorAxis;
+            rec.TerminalOrbitLAN = seg.longitudeOfAscendingNode;
+            rec.TerminalOrbitArgumentOfPeriapsis = seg.argumentOfPeriapsis;
+            rec.TerminalOrbitMeanAnomalyAtEpoch = seg.meanAnomalyAtEpoch;
+            rec.TerminalOrbitEpoch = seg.epoch;
+            rec.TerminalOrbitBody = seg.bodyName;
+
+            ParsekLog.Info("Flight",
+                $"PopulateTerminalOrbitFromLastSegment: recovered orbit for '{rec.RecordingId}' " +
+                $"from segment body={seg.bodyName} sma={seg.semiMajorAxis:F1}");
         }
 
         /// <summary>

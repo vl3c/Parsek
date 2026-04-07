@@ -166,17 +166,15 @@ Areas identified by code path simulation that lack unit tests:
 
 **Status:** Partially fixed — item 4 done (7 tests). Items 1-3 deferred to in-game testing.
 
-## 157. Green sphere ghost for debris after ghost-only merge decision
+## ~~157. Green sphere ghost for debris after ghost-only merge decision~~
 
 When a debris recording is set to "ghost-only" in the merge dialog, `ApplyVesselDecisions` nulls `VesselSnapshot`. If `GhostVisualSnapshot` was also null (debris destroyed before snapshot copy), `GetGhostSnapshot` returns null and the ghost falls back to a green sphere.
 
-**Partial fix:** `ApplyVesselDecisions` now copies `VesselSnapshot` to `GhostVisualSnapshot` before nulling the spawn snapshot, if `GhostVisualSnapshot` is not already set.
+**Partial fix (earlier):** `ApplyVesselDecisions` copies `VesselSnapshot` to `GhostVisualSnapshot` before nulling the spawn snapshot.
 
-**Remaining issue:** If the debris was destroyed before ANY snapshot was captured (both null at recording time), the sphere fallback is unavoidable. Could improve by capturing snapshot at the moment of breakup rather than deferring.
+**Full fix:** Pre-capture vessel snapshots at split detection time (when debris vessels are still alive) and store them in the CrashCoalescer. When `CreateBreakupChildRecording` runs 0.5s later and the vessel is gone, use the pre-captured snapshot as fallback for both `GhostVisualSnapshot` and `VesselSnapshot`.
 
-**Priority:** Low — cosmetic (sphere fallback for very-short-lived debris)
-
-**Status:** Partially fixed
+**Status:** Fixed
 
 ## 159. EVA auto-recordings have no rewind save — R button absent
 
@@ -289,11 +287,15 @@ When a vessel crashes during an active recording, the recorder is stopped and co
 
 **Priority:** Low — the vessel recording itself is preserved; only debris ghosts are missing.
 
-## 219. Ghost creation fails for orbital debris chain ("no orbit data")
+## ~~219. Ghost creation fails for orbital debris chain ("no orbit data")~~
 
 `CreateGhostVessel` repeatedly fails for certain orbital debris chains with `no orbit data for chain pid=NNNN`. The orbit segment data exists in the recording but the ghost system cannot access it at creation time. Fires on every flight scene entry.
 
-**Priority:** Low — only affects debris ghost visibility in orbit.
+**Root cause:** `CaptureTerminalOrbit` only runs when `FindVesselByPid` returns a live vessel. Orbital debris with 30s TTL is often destroyed by finalization time.
+
+**Fix:** `PopulateTerminalOrbitFromLastSegment` recovers terminal orbit fields from the last `OrbitSegment` when the vessel is gone at finalization time. Called in `FinalizeIndividualRecording` when vessel is null but recording has orbit segments.
+
+**Status:** Fixed
 
 ## 220. PopulateCrewEndStates called repeatedly for 0-point intermediate recordings
 
