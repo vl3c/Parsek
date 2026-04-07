@@ -1599,8 +1599,45 @@ namespace Parsek
             return (standaloneCount, committedTrees.Count);
         }
 
+        /// <summary>
+        /// Rolls back continuation data appended after commit (bug #95).
+        /// If a continuation boundary is set, truncates Points back to the boundary,
+        /// restores pre-continuation snapshots, and marks file dirty. Called from all
+        /// revert/rewind paths (ResetRecordingPlaybackFields, RestoreStandaloneMutableState,
+        /// tree recording reset loop).
+        /// </summary>
+        internal static void RollbackContinuationData(Recording rec)
+        {
+            if (rec.ContinuationBoundaryIndex >= 0)
+            {
+                // Truncate continuation points (if any were added)
+                if (rec.ContinuationBoundaryIndex < rec.Points.Count)
+                {
+                    int removeCount = rec.Points.Count - rec.ContinuationBoundaryIndex;
+                    rec.Points.RemoveRange(rec.ContinuationBoundaryIndex, removeCount);
+                    rec.FilesDirty = true;
+                    if (!SuppressLogging)
+                        ParsekLog.Verbose("Rewind",
+                            $"Rolled back {removeCount} continuation point(s) for '{rec.VesselName}' " +
+                            $"(boundary={rec.ContinuationBoundaryIndex}, id={rec.RecordingId})");
+                }
+
+                // Restore pre-continuation snapshots (may have been overwritten
+                // by RefreshContinuationSnapshotCore even without new points)
+                if (rec.PreContinuationVesselSnapshot != null)
+                    rec.VesselSnapshot = rec.PreContinuationVesselSnapshot;
+                if (rec.PreContinuationGhostSnapshot != null)
+                    rec.GhostVisualSnapshot = rec.PreContinuationGhostSnapshot;
+            }
+            rec.ContinuationBoundaryIndex = -1;
+            rec.PreContinuationVesselSnapshot = null;
+            rec.PreContinuationGhostSnapshot = null;
+        }
+
         private static void ResetRecordingPlaybackFields(Recording rec)
         {
+            RollbackContinuationData(rec);
+
             // If the vessel had spawned, any terminal state change (Recovered/Destroyed)
             // was on the spawned real vessel, not the recording. Clear it so the recording
             // can spawn again after revert/rewind.

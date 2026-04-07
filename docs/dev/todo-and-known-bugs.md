@@ -86,7 +86,7 @@ Player landed in water, EVA'd 3 kerbals from the pad vessel, but 2 of them disap
 
 **Status:** Fixed
 
-## 95. Committed recordings are mutated in several places after commit
+## ~~95. Committed recordings are mutated in several places after commit~~
 
 Recordings should be frozen after commit (immutable trajectory + events, mutable playback state only). Audit found several places where immutable fields on committed recordings are mutated:
 
@@ -97,11 +97,9 @@ Recordings should be frozen after commit (immutable trajectory + events, mutable
 5. **`ParsekFlight.cs:3629-3641`** — Undock continuation snapshot refresh: same pattern for `GhostVisualSnapshot`.
 6. **`ParsekScenario.cs:2469-2472`** — `UpdateRecordingsForTerminalEvent`: can still mutate committed recordings that match by vessel name but haven't spawned yet (name collision edge case; spawned recordings are now guarded).
 
-Items 1-2 are highest risk (snapshot destruction). Items 3-5 are part of the continuation mechanism's design but violate the frozen-recording principle. Item 6 is a residual edge case from #94.
+**Fix:** Items 1-2 fixed earlier (snapshot no longer nulled; `VesselDestroyed` flag gates spawn). Item 6 fixed by #94. Items 3-5 fixed with continuation boundary rollback: `ContinuationBoundaryIndex` tracks the commit-time point count, `PreContinuationVesselSnapshot`/`PreContinuationGhostSnapshot` back up pre-continuation snapshots. On normal stop, boundary is cleared (data baked as canonical). On revert/rewind, `RollbackContinuationData` truncates points back to the boundary and restores snapshots. Rollback called from all three revert paths (rewind `ResetRecordingPlaybackFields`, standalone `RestoreStandaloneMutableState`, tree recording reset loop). Bake-in at all 5 normal stop sites (StopAllContinuations, boarding, vessel-switch termination, tree branch, tree promotion, sibling switch). Vessel-destroyed paths intentionally don't bake (revert undoes destruction). Known limitation: save during active continuation bakes implicitly (boundary is `[NonSerialized]`).
 
-**Priority:** Medium — the continuation mutations are by design and rarely hit in practice, but the snapshot nulling (items 1-2) can cause the same no-spawn-after-revert symptom as #94 if the continuation vessel is destroyed or boards before revert.
-
-**Status:** Partially fixed — items 1-2 fixed (snapshot no longer nulled on committed recordings; `VesselDestroyed` flag gates spawn and is reset by `ResetRecordingPlaybackFields` on revert/rewind). Item 6 already fixed by #94 (committed recordings fully skipped in `UpdateRecordingsForTerminalEvent`). Items 3-5 deferred as known tech debt (continuation mechanism design; would require a separate ContinuationData overlay to fix properly).
+**Status:** Fixed
 
 ## 112. Aeris 4A spawn blocked by own spawned copy — permanent overlap
 

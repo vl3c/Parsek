@@ -53,6 +53,13 @@ namespace Parsek
         // since last SaveRecordingFiles call. Checked in OnSave to skip unchanged recordings.
         [NonSerialized] public bool FilesDirty;
 
+        // Continuation rollback (bug #95): transient boundary for rolling back continuation
+        // data on revert. Set when continuation starts, cleared on normal stop (bake) or
+        // revert (rollback). -1 = no active continuation.
+        [NonSerialized] internal int ContinuationBoundaryIndex = -1;
+        [NonSerialized] internal ConfigNode PreContinuationVesselSnapshot;
+        [NonSerialized] internal ConfigNode PreContinuationGhostSnapshot;
+
         // Atmosphere segment metadata
         public string SegmentPhase;      // "atmo", "exo", or "approach" (null = untagged/legacy)
         public string SegmentBodyName;   // body name at split point (e.g., "Kerbin", "Duna")
