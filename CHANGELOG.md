@@ -8,8 +8,8 @@ All notable changes to Parsek are documented here.
 
 ### Bug Fixes
 
+- **Fix crash breakup debris not recorded when recorder tears down before coalescer (#218).** `ShowPostDestructionMergeDialog` stopped the recorder after one frame, but the crash coalescer's 0.5s window hadn't expired yet. By the time the BREAKUP event emitted, no recorder existed to attach it to. Now waits for the coalescer to finish before proceeding, with a 5s real-time timeout for safety. Continuation recorder marked `VesselDestroyedDuringRecording` after tree promotion to prevent tree dialog guard from incorrectly aborting.
 - **Fix spawn permanently blocked by duplicate vessel after rewind (#112).** After rewind, a quicksave-loaded duplicate of a spawned vessel could survive cleanup and permanently block the spawn position. Added defensive duplicate recovery in `CheckSpawnCollisions`: when a collision blocker's name matches the recording's vessel name, recover the blocker once then re-check. `DuplicateBlockerRecovered` flag prevents recovery loops. Also fixed pre-existing gap where `CollisionBlockCount`/`SpawnAbandoned` survived rewind (now reset by `ResetRecordingPlaybackFields`).
-
 - **Fix atmospheric ghost markers not appearing in Tracking Station (#240).** `OnGUI` had a terminal state filter that skipped non-Orbiting/non-Docked recordings, blocking atmospheric trajectory markers for SubOrbital, Destroyed, Recovered, and Landed recordings even during their active flight window. The UT range check already handles temporal visibility correctly. Extracted `ShouldDrawAtmosphericMarker` as testable pure method.
 - **Fix delayed proto-vessel ghost creation after merge dialog commit.** When a recording was committed via the merge/approval dialog while in the Tracking Station, proto-vessel ghosts took up to 2 seconds to appear (waiting for the lifecycle tick). Now detects committed recording count changes and forces an immediate lifecycle tick.
 - **Fix deferred spawn queue split-brain (#132).** `HandlePlaybackCompleted` in `ParsekPlaybackPolicy` added deferred spawn IDs to the policy's `pendingSpawnRecordingIds`, but `FlushDeferredSpawns` in `ParsekFlight` read from its own never-populated duplicate set. Deferred spawns during warp silently never flushed. Moved `FlushDeferredSpawns` to the policy, eliminated the duplicate fields.
@@ -26,6 +26,9 @@ All notable changes to Parsek are documented here.
 - **Fix green sphere fallback for debris ghosts with no snapshot (#232).** Debris from mid-air booster collisions had no vessel snapshot, causing distracting green spheres during watch mode playback. Now skips ghost creation entirely for snapshotless debris. Non-debris keeps sphere fallback as safety net.
 - **Fix continuation data persisting through revert (#95, items 3-5).** After EVA or undock, the continuation system appended trajectory points and overwrote snapshots on already-committed recordings. On revert/rewind, these mutations persisted — ghosts showed trajectory from an abandoned timeline. Fix: `ContinuationBoundaryIndex` tracks the commit-time point count; pre-continuation snapshots are backed up. On normal stop, the boundary is cleared (data baked as canonical). On revert, `RollbackContinuationData` truncates points and restores snapshots. All 8 stop sites audited: 5 bake (normal lifecycle transitions), 3 don't (vessel destroyed — revert undoes destruction).
 - **Fix R (rewind) button missing on tree branch recordings (#159, #166).** Tree branch recordings (EVA kerbals, decoupled stages) had no `RewindSaveFileName` because rewind saves are only captured at launch. Added tree-aware lookup: `GetRewindRecording` resolves through the tree root so branches can rewind to the original launch point. `InitiateRewind` and `ShowRewindConfirmation` now use the owner recording's fields for correct vessel stripping, UT display, and future-recording count.
+- **Fix timeline not refreshing after commits, rewinds, and KSC spending.** `LedgerOrchestrator.OnTimelineDataChanged` callback now wires to `TimelineWindowUI.InvalidateCache()`, ensuring the timeline view refreshes when data changes from commits, rewinds, time warp, KSC spending, and game load.
+- **Fix FormatDuration overflow for long careers.** Changed `int` → `long` to support durations exceeding 68 years.
+- **Fix timeline footer VesselSpawn count.** Footer now correctly counts all Recording-source entries instead of skipping VesselSpawn via early `continue`.
 
 ### Spawn System Hardening
 
@@ -43,7 +46,9 @@ All notable changes to Parsek are documented here.
 
 ### Code Quality
 
+- **Remove dead forwarding properties (#133).** Removed unused `overlapGhosts` and `loopPhaseOffsets` private forwarding properties from ParsekFlight — zero internal callers, external code accesses `engine.*` directly.
 - **Centralize time conversion system (#187).** Created `ParsekTimeFormat` static class as single source of truth for calendar-aware time formatting. `FormatDuration` (compact: "2d 3h"), `FormatDurationFull` (all units: "1y, 2d, 3h"), and `FormatCountdown` ("T-2d 3h 15m 5s") all respect `GameSettings.KERBIN_TIME`. Replaced 4 duplicate `FormatDuration` implementations (RecordingsTableUI, MergeDialog, TimelineEntryDisplay, ParsekUI) and moved calendar constants from SelectiveSpawnUI. MergeDialog now correctly shows days/years for long recordings.
+- **Timeline per-frame allocation cleanup.** Deduplicated vesselNameById dictionary, replaced `OrderBy().ToList()` with in-place `Sort()`, cached retired kerbals and stats text (rebuilt only on filter change), added `Dictionary<string, Recording>` for O(1) `FindRecordingById` lookup (was O(N) per row).
 
 ### Tests
 

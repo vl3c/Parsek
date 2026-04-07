@@ -133,7 +133,7 @@ After T25 extraction, ParsekFlight still has forwarding properties (`ghostStates
 
 **Priority:** Low — tech debt, no functional impact
 
-**Status:** Partially fixed — removed 6 dead forwarding methods, inlined 4 remaining call sites. 7 forwarding properties retained as ergonomic aliases — `ghostStates` alone has 17 usages. Actual indirection was ~40 lines, not ~500.
+**Status:** Resolved — removed 6 dead forwarding methods, inlined 4 call sites, removed 2 dead private forwarding properties (`overlapGhosts`, `loopPhaseOffsets` — zero internal callers). 3 remaining properties (`ghostStates`, `activeExplosions`, `loadedAnchorVessels`) have active internal usages.
 
 ## ~~154. parsek_38.png texture compression warning~~
 
@@ -153,7 +153,7 @@ Areas identified by code path simulation that lack unit tests:
 
 **Priority:** Low — test infrastructure, requires Unity runtime
 
-**Status:** Partially fixed — item 4 done (7 tests). Items 1-3 deferred to in-game testing.
+**Status:** Partially fixed — item 4 done (7 tests). Items 1-3 deferred to in-game testing. Decision logic for items 1 and 3 extracted to static/pure methods and fully tested (`DecideOnVesselSwitch`, `ShouldSplitAtAtmosphereBoundary`). Only integration paths remain untestable without Unity runtime.
 
 ## ~~157. Green sphere ghost for debris after ghost-only merge decision~~
 
@@ -267,6 +267,10 @@ Two compounding issues: (1) `TerminalOrbitBody` is null on all recordings at loa
 When a vessel crashes during an active recording, the recorder is stopped and committed before the coalescer's 0.5s window elapses. By the time the coalescer emits the BREAKUP event, there is no active tree or recorder to attach it to. The main vessel recording is saved but the crash debris tree structure is lost.
 
 **Priority:** Low — the vessel recording itself is preserved; only debris ghosts are missing.
+
+**Fix:** `ShowPostDestructionMergeDialog` now waits for the crash coalescer's 0.5s window to expire before stopping the recorder. `TickCrashCoalescer` in Update() naturally emits the BREAKUP while the recorder is still alive, allowing `PromoteToTreeForBreakup` to create the tree with debris child recordings. A 5s real-time timeout (via `Time.unscaledTime`) prevents infinite wait if UT stops advancing (game pause). After tree creation, the continuation recorder is marked `VesselDestroyedDuringRecording = true` (it never saw the original `OnVesselWillDestroy` event) and control redirects to `ShowPostDestructionTreeMergeDialog`.
+
+**Status:** Fixed
 
 ## ~~219. Ghost creation fails for orbital debris chain ("no orbit data")~~
 

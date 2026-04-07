@@ -62,8 +62,6 @@ namespace Parsek
         // so existing ParsekFlight code accesses engine-owned collections transparently.
         private Dictionary<int, GhostPlaybackState> ghostStates => engine.ghostStates;
         private List<GameObject> activeExplosions => engine.activeExplosions;
-        private Dictionary<int, List<GhostPlaybackState>> overlapGhosts => engine.overlapGhosts;
-        private Dictionary<int, double> loopPhaseOffsets => engine.loopPhaseOffsets;
 
         // Cached TimelineGhosts dictionary — rebuilt once per frame on first access (T20)
         private Dictionary<int, GameObject> cachedTimelineGhosts = new Dictionary<int, GameObject>();
@@ -1044,6 +1042,48 @@ namespace Parsek
             // The Harmony patch on FlightResultsDialog.Display suppresses KSP's
             // crash report until the merge dialog is resolved — no hardcoded delay needed.
             yield return null;
+
+            // (#218) Wait for crash coalescer before stopping recorder.
+            // TickCrashCoalescer runs each Update frame. Once the 0.5s window expires,
+            // it emits BREAKUP → ProcessBreakupEvent sees recorder alive →
+            // PromoteToTreeForBreakup creates a tree with debris child recordings.
+            if (crashCoalescer != null && crashCoalescer.HasPendingBreakup)
+            {
+                ParsekLog.Info("Flight",
+                    "ShowPostDestructionMergeDialog: waiting for crash coalescer");
+                float coalescerWaitStart = Time.unscaledTime;
+                while (crashCoalescer.HasPendingBreakup)
+                {
+                    if (Time.unscaledTime - coalescerWaitStart > 5f)
+                    {
+                        ParsekLog.Warn("Flight",
+                            "ShowPostDestructionMergeDialog: coalescer wait timed out (5s real-time)");
+                        crashCoalescer.Reset();
+                        break;
+                    }
+                    yield return null;
+                }
+
+                // PromoteToTreeForBreakup created a tree — hand off to tree handler.
+                // Mark continuation recorder as vessel-destroyed: PromoteToTreeForBreakup
+                // starts a new recorder that never saw OnVesselWillDestroy, so its
+                // VesselDestroyedDuringRecording is false. Without this,
+                // ShowPostDestructionTreeMergeDialog's guard would incorrectly abort.
+                if (activeTree != null)
+                {
+                    if (recorder != null)
+                        recorder.VesselDestroyedDuringRecording = true;
+                    ParsekLog.Info("Flight",
+                        "ShowPostDestructionMergeDialog: coalescer promoted to tree — " +
+                        "redirecting to tree destruction handler");
+                    treeDestructionDialogPending = true;
+                    StartCoroutine(ShowPostDestructionTreeMergeDialog());
+                    yield break;
+                }
+                // If activeTree is null, PromoteToTreeForBreakup failed (CaptureAtStop null)
+                // and FallbackCommitSplitRecorder handled the data. Fall through to existing
+                // guards — recorder-null or HasPending will exit cleanly.
+            }
 
             // Guard: only proceed if recorder still exists and vessel was destroyed
             if (recorder == null || !recorder.VesselDestroyedDuringRecording)
