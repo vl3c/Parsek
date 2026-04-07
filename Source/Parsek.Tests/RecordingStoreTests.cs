@@ -880,6 +880,90 @@ namespace Parsek.Tests
                 true, "Valentina Kerman", replacements));
         }
 
+        // --- Bug #233: spawned EVA vessel PID guard ---
+
+        [Fact]
+        public void ShouldRemoveEvaVessel_SpawnedPidMatch_ReturnsFalse()
+        {
+            var replacements = new Dictionary<string, string>
+            {
+                { "Valentina Kerman", "Agasel Kerman" }
+            };
+            var spawnedPids = new HashSet<uint> { 12345 };
+
+            // Vessel PID matches a spawned recording — should NOT be removed
+            Assert.False(CrewReservationManager.ShouldRemoveEvaVessel(
+                true, "Valentina Kerman", replacements, 12345, spawnedPids));
+        }
+
+        [Fact]
+        public void ShouldRemoveEvaVessel_SpawnedPidNoMatch_ReturnsTrue()
+        {
+            var replacements = new Dictionary<string, string>
+            {
+                { "Valentina Kerman", "Agasel Kerman" }
+            };
+            var spawnedPids = new HashSet<uint> { 99999 };
+
+            // Vessel PID does NOT match — should be removed
+            Assert.True(CrewReservationManager.ShouldRemoveEvaVessel(
+                true, "Valentina Kerman", replacements, 12345, spawnedPids));
+        }
+
+        [Fact]
+        public void ShouldRemoveEvaVessel_NullSpawnedPids_ReturnsTrue()
+        {
+            var replacements = new Dictionary<string, string>
+            {
+                { "Valentina Kerman", "Agasel Kerman" }
+            };
+
+            // No spawned PIDs set — backward compat, still removes
+            Assert.True(CrewReservationManager.ShouldRemoveEvaVessel(
+                true, "Valentina Kerman", replacements, 12345, null));
+        }
+
+        [Fact]
+        public void ShouldRemoveEvaVessel_ZeroPid_SkipsPidCheck()
+        {
+            var replacements = new Dictionary<string, string>
+            {
+                { "Valentina Kerman", "Agasel Kerman" }
+            };
+            var spawnedPids = new HashSet<uint> { 0 }; // should not match pid=0
+
+            // pid=0 means unknown — don't check against set
+            Assert.True(CrewReservationManager.ShouldRemoveEvaVessel(
+                true, "Valentina Kerman", replacements, 0, spawnedPids));
+        }
+
+        // --- BuildSpawnedVesselPidSet ---
+
+        [Fact]
+        public void BuildSpawnedVesselPidSet_CollectsNonZeroPids()
+        {
+            var recordings = new List<Recording>
+            {
+                new Recording { SpawnedVesselPersistentId = 1001 },
+                new Recording { SpawnedVesselPersistentId = 0 },    // not spawned
+                new Recording { SpawnedVesselPersistentId = 2002 },
+            };
+
+            var pids = CrewReservationManager.BuildSpawnedVesselPidSet(recordings);
+
+            Assert.Equal(2, pids.Count);
+            Assert.Contains((uint)1001, pids);
+            Assert.Contains((uint)2002, pids);
+            Assert.DoesNotContain((uint)0, pids);
+        }
+
+        [Fact]
+        public void BuildSpawnedVesselPidSet_NullRecordings_ReturnsEmpty()
+        {
+            var pids = CrewReservationManager.BuildSpawnedVesselPidSet(null);
+            Assert.Empty(pids);
+        }
+
         #region Serialization Log Assertions
 
         [Fact]
