@@ -1,6 +1,6 @@
 # Design: Logistics Routes (Phase 11 + 12)
 
-## Status: Step 2 — Gameplay Scenarios (in progress)
+## Status: Step 2 — Gameplay Scenarios (complete, ready for Step 3 formalization)
 
 We are walking through concrete gameplay simulations to validate that the system works at an abstract level before formalizing the design. The vision and research are done; we need more scenarios to understand edge cases and confirm the right abstractions.
 
@@ -99,7 +99,7 @@ No existing KSP mod does cross-vessel physical resource transfer on unloaded ves
 **Route derived automatically:**
 - Delivery = pre-dock (195 LF) minus pre-undock (45 LF) = **150 LF per cycle**
 - Origin: KSC (free — no deduction needed)
-- Destination: base vessel PID (from dock event)
+- Destination: base location (coordinates from dock point, 50m radius)
 - Minimum cycle interval: recording duration (the drive takes as long as it took)
 
 **Each cycle:**
@@ -130,7 +130,7 @@ No existing KSP mod does cross-vessel physical resource transfer on unloaded ves
 **Route derived:**
 - Delivery = pre-dock (730 MP) minus pre-undock (80 MP) = **650 MP per cycle**
 - Origin: KSC (free)
-- Destination: Kerbin Station PID (from dock event)
+- Destination: Kerbin Station location (coordinates from dock point, 50m radius)
 - Transit time: recording duration (~40 min)
 
 **Visual behavior:**
@@ -289,7 +289,7 @@ internal static Dictionary<string, double> ComputeResourceDelta(
 
 ### Route identity
 
-A Route is a **separate entity** from a Recording, with its own UI and state. It uses the recording's loop system as its execution basis (loop timing, ghost replay, cycle events), but has its own fields: origin/destination vessel PIDs, delivery manifest, dispatch history, route status. Requires dedicated UI for route management.
+A Route is a **separate entity** from a Recording, with its own UI and state. It uses the recording's loop system as its execution basis (loop timing, ghost replay, cycle events), but has its own fields: origin/destination locations (coordinates + radius), delivery manifest, dispatch history, route status. Requires dedicated UI for route management.
 
 ### Route validation — dock + transfer + undock required
 
@@ -342,15 +342,21 @@ The transport vessel is conceptual — it defines what gets moved and how long t
 
 ### Endpoints are locations, not vessel PIDs
 
-Both origin and destination are **locations** — coordinates derived from the recording's start/end points, with a 50m proximity radius. Any vessel with available tank capacity within 50m of the endpoint receives resources (destination) or supplies them (origin).
+Primary identification is the **vessel PID from the dock event**. The endpoint behavior differs by situation:
+
+- **Surface endpoints:** If the PID vessel is still present, use it. If the PID vessel is gone (destroyed, recovered, rebuilt), fall back to **50m proximity** at the recorded coordinates. This handles rebuilt bases — a new vessel at the same spot automatically becomes the endpoint.
+- **Orbital endpoints:** PID is the **only match**. Orbital coordinates change every second, so proximity fallback does not work. If an orbital station is destroyed and rebuilt, the player must re-target the route.
+
+Any vessel matching the endpoint (by PID or by surface proximity) with available tank capacity receives resources (destination) or supplies them (origin).
 
 This means:
-- **Destination destroyed and rebuilt** → route auto-reconnects to the new vessel at the same location
-- **Origin vessel recovered** → route pauses until new tanks appear at the origin location
-- **No re-targeting needed** — the route is tied to a place, not a specific vessel
+- **Surface destination destroyed and rebuilt** → route auto-reconnects to the new vessel at the same location via proximity fallback
+- **Orbital destination destroyed and rebuilt** → route pauses; player must re-target to the new station's PID
+- **Origin vessel recovered** → route pauses until new tanks appear at the origin location (surface) or a new vessel with matching PID exists (orbital)
+- **No re-targeting needed for surface bases** — the route is tied to a place, not a specific vessel
 - **Compatible with transfer tubes, claws, any docking method** — docking port only matters during the initial recording to validate the route. Later cycles are abstracted.
 
-The dock event during recording defines WHERE the endpoint is (coordinates). The route doesn't track which specific vessel was docked to.
+The dock event during recording defines WHERE the endpoint is (coordinates + PID). For surface endpoints, the route primarily tracks the location. For orbital endpoints, the route tracks the vessel PID.
 
 ### Loop timing — realism and fidelity
 
@@ -368,6 +374,8 @@ No physical vessel during transit. Deduct at origin (if non-KSC), wait recording
 ### Resource modification on unloaded vessels
 
 Direct `ProtoPartResourceSnapshot.amount` modification. Proven pattern across multiple mods. Distribute delivery across all vessels within 50m of endpoint with available tank capacity, respect `flowState`, clamp to `maxAmount`.
+
+**Note:** If the destination vessel is loaded (player is physically present within physics range), use `Part.RequestResource()` instead of `ProtoPartResourceSnapshot`.
 
 ### Smart deduction — don't waste origin resources
 
@@ -404,7 +412,6 @@ Resource manifests are additive metadata on recordings. No format version bump. 
 - **Route UI specifics:** Where does route management live? Separate window? Tab in Recordings Manager?
 - **Map view integration:** Route lines connecting origin and destination?
 - **Dispatch ordering for competing routes:** If two routes share an origin, which dispatches first when resources are limited? FIFO? Priority?
-- **Proportional cost for partial delivery:** If destination can only accept 1/3 of the delivery, does origin pay 1/3 of the transit fuel cost? Or full cost? Proportional is more realistic but adds complexity.
 
 ---
 

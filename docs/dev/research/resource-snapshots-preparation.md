@@ -215,11 +215,13 @@ Multiple mods use this pattern (BackgroundProcessing, StageRecovery, and others)
 ### Delivery pattern for Parsek
 
 ```csharp
-// Find destination vessel (unloaded)
-Vessel destVessel = FlightGlobals.Vessels.FirstOrDefault(v => v.persistentId == destPid);
-ProtoVessel dest = destVessel.protoVessel;
+// Find destination vessels using location-based matching:
+// - Try vessel PID from dock event first
+// - For surface endpoints, fall back to all vessels within 50m of destination coordinates
+// - For orbital endpoints, PID is the only match (coordinates change every second)
+// Iterate each matching vessel's protoVessel.protoPartSnapshots,
+// distributing resources across their ProtoPartResourceSnapshot entries.
 
-// Add resources, distributing across tanks
 foreach (var entry in deliveryManifest)
 {
     double remaining = entry.Value;
