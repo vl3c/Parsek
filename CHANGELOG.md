@@ -4,7 +4,16 @@ All notable changes to Parsek are documented here.
 
 ---
 
-## 0.7.2
+## 0.7.1
+
+### Bug Fixes
+
+- **Fix Settings window GUILayout exception (#217).** The ghost soft caps toggle caused an IMGUI Layout/Repaint mismatch: the early `return` in `DrawGhostSettings` skipped slider controls when caps were disabled, but a toggle click between passes changed the control count. 72 exceptions per session, window stuck at 10px. Fix: sliders always drawn, grayed out via `GUI.enabled` when caps disabled.
+- **Fix W (watch) button staying enabled on debris boosters (#194).** After booster separation, one debris recording could have an active ghost with the W button enabled. Added `IsDebris` guard to watch eligibility check and "Debris is not watchable" tooltip.
+- **Fix vessels and EVA kerbals spawning high in the air (#231).** Vessels with `terminal=Landed` spawned at their last trajectory point altitude (still descending), fell, and exploded. Three spawn paths lacked altitude clamping (flight scene, KSC, tree leaves). Now all paths clamp LANDED to terrain+2m clearance, override snapshot position AND rotation from the last trajectory point. Vessels spawn in their near-landing orientation instead of mid-flight descent pose.
+- **Fix ghost map markers missing / wrong positions after save/load (#203).** `SaveRecordingMetadata` / `LoadRecordingMetadata` (standalone recordings) never serialized the 8 terminal orbit fields. After save/load, all standalone recordings had `TerminalOrbitBody = null`, so `HasOrbitData` returned false and no ghost map ProtoVessels could be created. Tree recordings were unaffected (separate serialization path). Now serialized in both paths.
+- **Fix tree root recording showing T+ countdown instead of terminal state (#186).** Continuation sampling extends a committed recording's `EndUT` past current time, causing the status column to show "T+5m 23s" instead of "Landed". Now checks `TerminalStateValue` in all three status paths (row display, group aggregate, sort key). Group status also shows the best non-debris terminal state instead of generic "past".
+- **Fix green sphere fallback for debris ghosts with no snapshot (#232).** Debris from mid-air booster collisions had no vessel snapshot, causing distracting green spheres during watch mode playback. Now skips ghost creation entirely for snapshotless debris. Non-debris keeps sphere fallback as safety net.
 
 ### Spawn System Hardening
 
@@ -15,23 +24,13 @@ All notable changes to Parsek are documented here.
 - **Post-spawn velocity zeroing (#239).** `ApplyPostSpawnStabilization` zeroes linear and angular velocity on freshly spawned surface vessels (LANDED/SPLASHED/PRELAUNCH) to prevent physics jitter. Orbital spawns are excluded via `ShouldZeroVelocityAfterSpawn` guard.
 - **isBackingUp investigation (#236).** Confirmed via decompilation that `Vessel.BackupVessel()` sets `isBackingUp = true` internally. No fix needed — added documentation comment.
 
-### Tests
-
-- 32 new test cases (identity regeneration, PID collection, robotics patching, velocity zeroing, log assertions). 4974 total passing.
-
----
-
-## 0.7.1
-
-### Bug Fixes
-
-- **Fix Settings window GUILayout exception (#217).** The ghost soft caps toggle caused an IMGUI Layout/Repaint mismatch: the early `return` in `DrawGhostSettings` skipped slider controls when caps were disabled, but a toggle click between passes changed the control count. 72 exceptions per session, window stuck at 10px. Fix: sliders always drawn, grayed out via `GUI.enabled` when caps disabled.
-- **Fix W (watch) button staying enabled on debris boosters (#194).** After booster separation, one debris recording could have an active ghost with the W button enabled. Added `IsDebris` guard to watch eligibility check and "Debris is not watchable" tooltip.
-- **Fix vessels and EVA kerbals spawning high in the air (#231).** Vessels with `terminal=Landed` spawned at their last trajectory point altitude (still descending), fell, and exploded. Three spawn paths lacked altitude clamping (flight scene, KSC, tree leaves). Now all paths clamp LANDED to terrain+2m clearance, override snapshot position AND rotation from the last trajectory point. Vessels spawn in their near-landing orientation instead of mid-flight descent pose.
-
 ### Code Quality
 
-- **Centralize time conversion system (#187).** Created `ParsekTimeFormat` static class as single source of truth for calendar-aware time formatting. `FormatDuration` (compact: "2d 3h"), `FormatDurationFull` (all units: "1y, 2d, 3h"), and `FormatCountdown` ("T-2d 3h 15m 5s") all respect `GameSettings.KERBIN_TIME`. Replaced 4 duplicate `FormatDuration` implementations (RecordingsTableUI, MergeDialog, TimelineEntryDisplay, ParsekUI) and moved calendar constants from SelectiveSpawnUI. MergeDialog now correctly shows days/years for long recordings. 37 new tests covering both Kerbin and Earth calendars, 4912 total.
+- **Centralize time conversion system (#187).** Created `ParsekTimeFormat` static class as single source of truth for calendar-aware time formatting. `FormatDuration` (compact: "2d 3h"), `FormatDurationFull` (all units: "1y, 2d, 3h"), and `FormatCountdown` ("T-2d 3h 15m 5s") all respect `GameSettings.KERBIN_TIME`. Replaced 4 duplicate `FormatDuration` implementations (RecordingsTableUI, MergeDialog, TimelineEntryDisplay, ParsekUI) and moved calendar constants from SelectiveSpawnUI. MergeDialog now correctly shows days/years for long recordings.
+
+### Tests
+
+- 76 new test cases. 4981 total passing.
 
 ---
 

@@ -1395,6 +1395,14 @@ namespace Parsek
         /// </summary>
         internal void SpawnGhost(int index, IPlaybackTrajectory traj)
         {
+            // Debris with no snapshot would produce a distracting green sphere — skip entirely (#232)
+            if (traj.IsDebris && GhostVisualBuilder.GetGhostSnapshot(traj) == null)
+            {
+                ParsekLog.Verbose("Engine",
+                    $"Ghost #{index} \"{traj.VesselName}\": debris with no snapshot, skipping");
+                return;
+            }
+
             frameSpawnCount++;
             completedEventFired.Remove(index); // Reset dedup for time-jump backward
 

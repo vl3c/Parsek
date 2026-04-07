@@ -1872,6 +1872,19 @@ namespace Parsek
             if (!string.IsNullOrEmpty(rec.LaunchSiteName))
                 recNode.AddValue("launchSiteName", rec.LaunchSiteName);
 
+            // Terminal orbit fields (only when Orbiting or SubOrbital)
+            if (!string.IsNullOrEmpty(rec.TerminalOrbitBody))
+            {
+                recNode.AddValue("tOrbInc", rec.TerminalOrbitInclination.ToString("R", CultureInfo.InvariantCulture));
+                recNode.AddValue("tOrbEcc", rec.TerminalOrbitEccentricity.ToString("R", CultureInfo.InvariantCulture));
+                recNode.AddValue("tOrbSma", rec.TerminalOrbitSemiMajorAxis.ToString("R", CultureInfo.InvariantCulture));
+                recNode.AddValue("tOrbLan", rec.TerminalOrbitLAN.ToString("R", CultureInfo.InvariantCulture));
+                recNode.AddValue("tOrbArgPe", rec.TerminalOrbitArgumentOfPeriapsis.ToString("R", CultureInfo.InvariantCulture));
+                recNode.AddValue("tOrbMna", rec.TerminalOrbitMeanAnomalyAtEpoch.ToString("R", CultureInfo.InvariantCulture));
+                recNode.AddValue("tOrbEpoch", rec.TerminalOrbitEpoch.ToString("R", CultureInfo.InvariantCulture));
+                recNode.AddValue("tOrbBody", rec.TerminalOrbitBody);
+            }
+
             if (!rec.PlaybackEnabled)
                 recNode.AddValue("playbackEnabled", rec.PlaybackEnabled.ToString());
             if (rec.Hidden)
@@ -2025,6 +2038,20 @@ namespace Parsek
             rec.StartSituation = recNode.GetValue("startSituation");
             rec.EndBiome = recNode.GetValue("endBiome");
             rec.LaunchSiteName = recNode.GetValue("launchSiteName");
+            // Terminal orbit fields
+            string tOrbBody = recNode.GetValue("tOrbBody");
+            if (!string.IsNullOrEmpty(tOrbBody))
+            {
+                rec.TerminalOrbitBody = tOrbBody;
+                double.TryParse(recNode.GetValue("tOrbInc"), NumberStyles.Float, CultureInfo.InvariantCulture, out rec.TerminalOrbitInclination);
+                double.TryParse(recNode.GetValue("tOrbEcc"), NumberStyles.Float, CultureInfo.InvariantCulture, out rec.TerminalOrbitEccentricity);
+                double.TryParse(recNode.GetValue("tOrbSma"), NumberStyles.Float, CultureInfo.InvariantCulture, out rec.TerminalOrbitSemiMajorAxis);
+                double.TryParse(recNode.GetValue("tOrbLan"), NumberStyles.Float, CultureInfo.InvariantCulture, out rec.TerminalOrbitLAN);
+                double.TryParse(recNode.GetValue("tOrbArgPe"), NumberStyles.Float, CultureInfo.InvariantCulture, out rec.TerminalOrbitArgumentOfPeriapsis);
+                double.TryParse(recNode.GetValue("tOrbMna"), NumberStyles.Float, CultureInfo.InvariantCulture, out rec.TerminalOrbitMeanAnomalyAtEpoch);
+                double.TryParse(recNode.GetValue("tOrbEpoch"), NumberStyles.Float, CultureInfo.InvariantCulture, out rec.TerminalOrbitEpoch);
+            }
+
             string playbackEnabledStr = recNode.GetValue("playbackEnabled");
             if (playbackEnabledStr != null)
             {

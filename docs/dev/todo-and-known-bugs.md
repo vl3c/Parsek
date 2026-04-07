@@ -216,11 +216,15 @@ After an EVA, the vessel left behind is a static recording (ghost) right up to t
 
 **Status:** Fixed
 
-## 186. Initial launch recording shows T+ countdown instead of "past" status
+## ~~186. Initial launch recording shows T+ countdown instead of "past" status~~
 
 In the Parsek recordings window, the initial launch recording (parent of a tree) shows "T+5m 23s" in the Status column while child recordings show "Landed". It may be more appropriate to show "past" or the terminal state. Additionally, these tree recordings have no Phase column value.
 
-**Status:** TODO
+**Root cause:** Continuation sampling appends trajectory points to committed recordings, extending their `EndUT` past the current time. The status logic (`DrawRecordingRow`, `GetGroupStatus`, `GetStatusOrder`) compared only `now <= rec.EndUT` to classify a recording as "active", without checking whether the recording was already committed with a terminal state.
+
+**Fix:** Added `&& !rec.TerminalStateValue.HasValue` guard to all three status classification paths: individual row display, group/chain aggregate status, and sort key computation. Recordings with a terminal state now always show their terminal state (e.g., "Landed", "Orbiting") regardless of `EndUT`. Group status also picks the best non-debris terminal state instead of always showing "past". Phase column is empty by design for tree roots (different children may have different phases).
+
+**Status:** Fixed
 
 ## ~~187. Centralize time conversion system~~
 
@@ -261,11 +265,15 @@ The popup spawned via `PopupDialog.SpawnPopupDialog` consistently appears at scr
 
 **Status:** TODO — deferred
 
-## 203. Green dot ghost markers at wrong positions near Mun after scene reload
+## ~~203. Green dot ghost markers at wrong positions near Mun after scene reload~~
 
 Two compounding issues: (1) `TerminalOrbitBody` is null on all recordings at load time — `HasOrbitData(Recording)` returns false for all 62 recordings, preventing ProtoVessel creation from the initial scan. (2) After FLIGHT→FLIGHT scene reload, ghost map vessel positions jump from Mun-relative (~11M m) to world-frame (~2B m) — the coordinate frame shifts during scene reload and positions aren't corrected.
 
-**Status:** TODO — needs investigation into why TerminalOrbitBody is never set, and coordinate frame correction after scene reload.
+**Root cause:** `SaveRecordingMetadata` / `LoadRecordingMetadata` (used by standalone recordings) never serialized the 8 terminal orbit fields (`tOrbBody`, `tOrbInc`, `tOrbEcc`, `tOrbSma`, `tOrbLan`, `tOrbArgPe`, `tOrbMna`, `tOrbEpoch`). Tree recordings were unaffected because `RecordingTree.SaveRecordingInto` / `LoadRecordingFrom` already handled these fields. After save/load, all standalone recordings had `TerminalOrbitBody = null`, so `HasOrbitData` returned false and no ghost map ProtoVessels could be created. Issue (2) was a consequence: without valid orbit data, ghost positions computed from stale or zero orbital elements produced world-frame coordinates instead of body-relative.
+
+**Fix:** Added terminal orbit field serialization to `SaveRecordingMetadata` and `LoadRecordingMetadata`, matching the existing pattern in `RecordingTree`.
+
+**Status:** Fixed
 
 ## ~~217. Settings window GUILayout exception (Layout/Repaint mismatch)~~
 
@@ -359,15 +367,13 @@ Vessels and EVA kerbals with `terminal=Landed` spawned at their last trajectory 
 
 **Status:** Fixed
 
-## 232. Green sphere fallback for debris ghosts with no snapshot
+## ~~232. Green sphere fallback for debris ghosts with no snapshot~~
 
 Debris recordings from mid-air booster collisions have no vessel snapshot. The ghost visual builder falls back to a green sphere. User sees distracting green balls appearing during watch mode playback. KSC ghost path already skips ghosts with no snapshot (`ParsekKSC.cs:473`); flight scene should do the same for debris.
 
-**Fix:** In `GhostPlaybackEngine`, skip ghost creation entirely for debris with no snapshot (instead of sphere fallback). Non-debris keeps sphere fallback as safety net.
+**Fix:** Early return in `SpawnGhost` when `traj.IsDebris && GetGhostSnapshot(traj) == null` — skips ghost creation entirely with a log message. Non-debris keeps sphere fallback as safety net. Confirmed in log: ghosts #8 and #10 ("Kerbal X Debris") were hitting sphere fallback with `parts=0`.
 
-**Priority:** Low — cosmetic, only visible during booster breakup playback
-
-**Status:** TODO
+**Status:** Fixed
 
 ## 233. Spawned EVA vessel deleted by crew reservation on scene re-entry
 

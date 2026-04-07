@@ -187,7 +187,7 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void GroupStatus_AllPast_ReturnsPast()
+        public void GroupStatus_AllPast_NoTerminal_ReturnsPast()
         {
             var committed = new List<Recording>
             {
@@ -200,6 +200,67 @@ namespace Parsek.Tests
             ParsekUI.GetGroupStatus(descendants, committed, 500, out text, out order);
             Assert.Equal(2, order);
             Assert.Equal("past", text);
+        }
+
+        [Fact]
+        public void GroupStatus_AllPast_WithTerminal_ShowsTerminalState()
+        {
+            var rec1 = MakeRec(100, 200);
+            var rec2 = MakeRec(300, 400);
+            rec2.TerminalStateValue = TerminalState.Landed;
+            var committed = new List<Recording> { rec1, rec2 };
+            var descendants = new HashSet<int> { 0, 1 };
+            string text;
+            int order;
+            ParsekUI.GetGroupStatus(descendants, committed, 500, out text, out order);
+            Assert.Equal(2, order);
+            Assert.Equal("Landed", text);
+        }
+
+        [Fact]
+        public void GroupStatus_TerminatedRecording_NotTreatedAsActive()
+        {
+            // Recording with EndUT > now but TerminalStateValue set (continuation extended it)
+            var rec = MakeRec(100, 600);
+            rec.TerminalStateValue = TerminalState.Orbiting;
+            var committed = new List<Recording> { rec };
+            var descendants = new HashSet<int> { 0 };
+            string text;
+            int order;
+            ParsekUI.GetGroupStatus(descendants, committed, 500, out text, out order);
+            Assert.Equal(2, order); // past, not active
+            Assert.Equal("Orbiting", text);
+        }
+
+        [Fact]
+        public void GroupStatus_MultipleTerminals_PicksLatestEnding()
+        {
+            var rec1 = MakeRec(100, 200);
+            rec1.TerminalStateValue = TerminalState.Landed;
+            var rec2 = MakeRec(100, 400);
+            rec2.TerminalStateValue = TerminalState.Orbiting;
+            var committed = new List<Recording> { rec1, rec2 };
+            var descendants = new HashSet<int> { 0, 1 };
+            string text;
+            int order;
+            ParsekUI.GetGroupStatus(descendants, committed, 500, out text, out order);
+            Assert.Equal(2, order);
+            Assert.Equal("Orbiting", text); // rec2 ends later
+        }
+
+        [Fact]
+        public void GroupStatus_DebrisTerminal_ShowsPast()
+        {
+            var rec = MakeRec(100, 200);
+            rec.TerminalStateValue = TerminalState.Destroyed;
+            rec.IsDebris = true;
+            var committed = new List<Recording> { rec };
+            var descendants = new HashSet<int> { 0 };
+            string text;
+            int order;
+            ParsekUI.GetGroupStatus(descendants, committed, 500, out text, out order);
+            Assert.Equal(2, order);
+            Assert.Equal("past", text); // debris terminal not shown
         }
 
         // ── GetRecordingSortKey ──
