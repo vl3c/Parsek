@@ -106,6 +106,8 @@ namespace Parsek
         private const float ColW_MaxSpd = 65f;
         private const float ColW_Dist = 65f;
         private const float ColW_Pts = 35f;
+        private const float ColW_StartPos = 120f;
+        private const float ColW_EndPos = 120f;
 
         // Loop period editing — buffer used while text field is focused
         private int loopPeriodFocusedRi = -1;
@@ -377,6 +379,8 @@ namespace Parsek
                 GUILayout.Label("MaxSpd", GUILayout.Width(ColW_MaxSpd));
                 GUILayout.Label("Dist", GUILayout.Width(ColW_Dist));
                 GUILayout.Label("Pts", GUILayout.Width(ColW_Pts));
+                GUILayout.Label("Start", GUILayout.Width(ColW_StartPos));
+                GUILayout.Label("End", GUILayout.Width(ColW_EndPos));
             }
 
             DrawSortableHeader("Status", SortColumn.Status, ColW_Status);
@@ -443,8 +447,8 @@ namespace Parsek
                 {
                     showExpandedStats = !showExpandedStats;
                     ParsekLog.Verbose("UI", $"Recordings Stats toggled: {(showExpandedStats ? "expanded" : "collapsed")}");
-                    if (showExpandedStats && recordingsWindowRect.width < 1324f)
-                        recordingsWindowRect.width = 1324f;
+                    if (showExpandedStats && recordingsWindowRect.width < 1564f)
+                        recordingsWindowRect.width = 1564f;
                     else if (!showExpandedStats)
                         recordingsWindowRect.width = 1106f;
                 }
@@ -689,6 +693,8 @@ namespace Parsek
                 GUILayout.Label(FormatSpeed(stats.maxSpeed), GUILayout.Width(ColW_MaxSpd));
                 GUILayout.Label(FormatDistance(stats.distanceTravelled), GUILayout.Width(ColW_Dist));
                 GUILayout.Label(stats.pointCount.ToString(), GUILayout.Width(ColW_Pts));
+                GUILayout.Label(FormatStartPosition(rec), GUILayout.Width(ColW_StartPos));
+                GUILayout.Label(FormatEndPosition(rec), GUILayout.Width(ColW_EndPos));
             }
 
             // Status (#98: merged countdown into status column)
@@ -1050,6 +1056,8 @@ namespace Parsek
                 GUILayout.Label("", GUILayout.Width(ColW_MaxSpd));
                 GUILayout.Label("", GUILayout.Width(ColW_Dist));
                 GUILayout.Label("", GUILayout.Width(ColW_Pts));
+                GUILayout.Label("", GUILayout.Width(ColW_StartPos));
+                GUILayout.Label("", GUILayout.Width(ColW_EndPos));
             }
 
             // Status (closest active T- among descendants)
@@ -1331,6 +1339,8 @@ namespace Parsek
                 GUILayout.Label("", GUILayout.Width(ColW_MaxSpd));
                 GUILayout.Label("", GUILayout.Width(ColW_Dist));
                 GUILayout.Label("", GUILayout.Width(ColW_Pts));
+                GUILayout.Label("", GUILayout.Width(ColW_StartPos));
+                GUILayout.Label("", GUILayout.Width(ColW_EndPos));
             }
 
             // Status (closest active among chain members)
@@ -1814,6 +1824,65 @@ namespace Parsek
             if (meters < 1000) return $"{(int)meters}m";
             if (meters < 1000000) return (meters / 1000).ToString("F1", System.Globalization.CultureInfo.InvariantCulture) + "km";
             return (meters / 1000000).ToString("F1", System.Globalization.CultureInfo.InvariantCulture) + "Mm";
+        }
+
+        /// <summary>
+        /// Formats the recording start position for the expanded stats column.
+        /// Matches timeline style: "from {site} on {body}", "at {biome} on {body}", "on {body}".
+        /// </summary>
+        internal static string FormatStartPosition(Recording rec)
+        {
+            if (!string.IsNullOrEmpty(rec.LaunchSiteName) && !string.IsNullOrEmpty(rec.StartBodyName))
+                return rec.LaunchSiteName + ", " + rec.StartBodyName;
+            if (!string.IsNullOrEmpty(rec.LaunchSiteName))
+                return rec.LaunchSiteName;
+            if (!string.IsNullOrEmpty(rec.StartBiome) && !string.IsNullOrEmpty(rec.StartBodyName))
+                return rec.StartBiome + ", " + rec.StartBodyName;
+            if (!string.IsNullOrEmpty(rec.StartBodyName))
+                return rec.StartBodyName;
+            return "-";
+        }
+
+        /// <summary>
+        /// Formats the recording end position for the expanded stats column.
+        /// Matches timeline style: "{biome}, {body}" for surface, "Orbiting {body}" for orbital.
+        /// </summary>
+        internal static string FormatEndPosition(Recording rec)
+        {
+            if (!rec.TerminalStateValue.HasValue)
+                return "-";
+
+            string body = rec.TerminalOrbitBody;
+            if (string.IsNullOrEmpty(body) && !string.IsNullOrEmpty(rec.StartBodyName))
+                body = rec.StartBodyName;
+
+            switch (rec.TerminalStateValue.Value)
+            {
+                case TerminalState.Orbiting:
+                    return !string.IsNullOrEmpty(body) ? "Orbiting " + body : "Orbiting";
+                case TerminalState.Docked:
+                    return !string.IsNullOrEmpty(body) ? "Docked, " + body : "Docked";
+
+                case TerminalState.Landed:
+                case TerminalState.Splashed:
+                    if (!string.IsNullOrEmpty(rec.EndBiome) && !string.IsNullOrEmpty(body))
+                        return rec.EndBiome + ", " + body;
+                    if (!string.IsNullOrEmpty(body))
+                        return body;
+                    return rec.TerminalStateValue.Value.ToString();
+
+                case TerminalState.Destroyed:
+                    return !string.IsNullOrEmpty(body) ? "Destroyed, " + body : "Destroyed";
+                case TerminalState.Recovered:
+                    return !string.IsNullOrEmpty(body) ? "Recovered, " + body : "Recovered";
+                case TerminalState.SubOrbital:
+                    return !string.IsNullOrEmpty(body) ? "SubOrbital, " + body : "SubOrbital";
+                case TerminalState.Boarded:
+                    return "Boarded";
+
+                default:
+                    return "-";
+            }
         }
 
         /// <summary>
