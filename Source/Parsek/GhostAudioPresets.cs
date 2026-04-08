@@ -137,13 +137,17 @@ namespace Parsek
 
         /// <summary>
         /// Build the default volume curve for ghost engine audio.
-        /// Linear: power 0 → volume 0, power 1 → volume 1.
+        /// Boosted: power 0 → volume 0, power 1 → volume 2.0.
+        /// The 2x multiplier compensates for KSP's SHIP_VOLUME (~0.5) and
+        /// atmosphere attenuation that stack-multiply the final volume down.
+        /// AudioSource.volume is clamped to [0,1] by Unity, but PlayOneShot
+        /// volumeScale and spatial blend allow effective volumes above 1.
         /// </summary>
         internal static FloatCurve BuildDefaultVolumeCurve()
         {
             var curve = new FloatCurve();
-            curve.Add(0f, 0f, 0f, 1f);
-            curve.Add(1f, 1f, 1f, 0f);
+            curve.Add(0f, 0f, 0f, 2f);
+            curve.Add(1f, 2f, 2f, 0f);
             return curve;
         }
 
