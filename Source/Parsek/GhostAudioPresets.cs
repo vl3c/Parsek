@@ -142,13 +142,24 @@ namespace Parsek
         /// </summary>
         /// <summary>
         /// Build the volume curve for a ghost engine based on clip type.
-        /// All ghost engines use a 1:1 power-to-volume curve — the custom rolloff
-        /// curve handles spatial attenuation, and ComputeGhostAudioVolume applies
-        /// settings × SHIP_VOLUME × atmosphere.
+        /// Rockets get 2x boost — they need to punch through at distance.
+        /// Jets/ion stay at 1x — already audible at stock levels.
         /// </summary>
         internal static FloatCurve BuildVolumeCurve(string clipPath)
         {
-            return BuildDefaultVolumeCurve();
+            bool isRocket = clipPath != null && clipPath.Contains("rocket");
+            var curve = new FloatCurve();
+            if (isRocket)
+            {
+                curve.Add(0f, 0f, 0f, 2f);
+                curve.Add(1f, 2f, 2f, 0f);
+            }
+            else
+            {
+                curve.Add(0f, 0f, 0f, 1f);
+                curve.Add(1f, 1f, 1f, 0f);
+            }
+            return curve;
         }
 
         internal static FloatCurve BuildDefaultVolumeCurve()
