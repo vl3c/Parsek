@@ -316,6 +316,60 @@ namespace Parsek.Tests
             Assert.False(DiagnosticsState.hasCachedSnapshot);
             Assert.Equal(0.0, DiagnosticsState.cachedSnapshotUT);
         }
+
+        [Fact]
+        public void WaypointCache_SequentialAccess_CountsAsHit()
+        {
+            // Build a trajectory with 10 points at UT 0,1,2,...,9
+            var points = new List<TrajectoryPoint>();
+            for (int i = 0; i < 10; i++)
+                points.Add(new TrajectoryPoint { ut = i });
+
+            int cachedIndex = 0;
+
+            // Sequential lookups: UT 0.5, 1.5, 2.5, ... should all be cache hits
+            // (first call seeds the cache, subsequent calls hit cached or next-index)
+            for (int i = 0; i < 8; i++)
+            {
+                TrajectoryMath.FindWaypointIndex(points, ref cachedIndex, i + 0.5);
+            }
+
+            Assert.True(DiagnosticsState.health.waypointCacheHits > 0,
+                $"Expected cache hits > 0, got {DiagnosticsState.health.waypointCacheHits}");
+            Assert.Equal(0, DiagnosticsState.health.waypointCacheMisses);
+        }
+
+        [Fact]
+        public void WaypointCache_RandomJump_CountsAsMiss()
+        {
+            // Build a trajectory with 20 points at UT 0,1,2,...,19
+            var points = new List<TrajectoryPoint>();
+            for (int i = 0; i < 20; i++)
+                points.Add(new TrajectoryPoint { ut = i });
+
+            int cachedIndex = 0;
+
+            // First call at UT 0.5 seeds the cache (binary search = miss)
+            TrajectoryMath.FindWaypointIndex(points, ref cachedIndex, 0.5);
+
+            // Jump far away — cached index 0 won't cover UT 15.5, nor will index 1
+            TrajectoryMath.FindWaypointIndex(points, ref cachedIndex, 15.5);
+
+            Assert.True(DiagnosticsState.health.waypointCacheMisses > 0,
+                $"Expected cache misses > 0, got {DiagnosticsState.health.waypointCacheMisses}");
+        }
+
+        [Fact]
+        public void WaypointCache_Reset_ZeroesBoth()
+        {
+            DiagnosticsState.health.waypointCacheHits = 42;
+            DiagnosticsState.health.waypointCacheMisses = 7;
+
+            DiagnosticsState.health.Reset();
+
+            Assert.Equal(0, DiagnosticsState.health.waypointCacheHits);
+            Assert.Equal(0, DiagnosticsState.health.waypointCacheMisses);
+        }
     }
 
     #endregion
