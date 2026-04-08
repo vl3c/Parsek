@@ -26,6 +26,7 @@ namespace Parsek
         public Dictionary<ulong, AudioGhostInfo> audioInfos; // engine/RCS audio — keyed same as engineInfos/rcsInfos
         public OneShotAudioInfo oneShotAudio;                // shared one-shot source for decouple/explosion sounds
         public bool audioMuted;                              // true during high warp or when ghost hidden
+        public float atmosphereFactor;                       // 0 in vacuum, 1 at sea level — updated per frame
         public Dictionary<ulong, RoboticGhostInfo> roboticInfos; // key = EncodeEngineKey(pid, moduleIndex)
         public Dictionary<uint, DeployableGhostInfo> deployableInfos;
         public Dictionary<uint, HeatGhostInfo> heatInfos;

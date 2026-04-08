@@ -1397,9 +1397,10 @@ namespace Parsek
             float settingsVolume = ParsekSettings.Current?.ghostAudioVolume ?? 0.7f;
             float shipVolume = GameSettings.SHIP_VOLUME;
 
-            if (power > 0f && settingsVolume > 0f)
+            if (power > 0f && settingsVolume > 0f && state.atmosphereFactor > 0.001f)
             {
-                float vol = info.volumeCurve.Evaluate(power) * settingsVolume * shipVolume;
+                float vol = info.volumeCurve.Evaluate(power) * settingsVolume * shipVolume
+                    * state.atmosphereFactor;
                 float pitch = info.pitchCurve.Evaluate(power);
                 info.audioSource.volume = vol;
                 info.audioSource.pitch = pitch;
@@ -1448,6 +1449,7 @@ namespace Parsek
         {
             if (state.oneShotAudio?.audioSource == null) return;
             if (state.audioMuted) return;
+            if (state.atmosphereFactor < 0.001f) return; // no sound in vacuum
 
             float settingsVolume = ParsekSettings.Current?.ghostAudioVolume ?? 0.7f;
             if (settingsVolume <= 0f) return;
@@ -1458,7 +1460,7 @@ namespace Parsek
             var clip = GameDatabase.Instance.GetAudioClip(clipPath);
             if (clip == null) return;
 
-            float vol = settingsVolume * GameSettings.SHIP_VOLUME;
+            float vol = settingsVolume * GameSettings.SHIP_VOLUME * state.atmosphereFactor;
             state.oneShotAudio.audioSource.PlayOneShot(clip, vol);
             ParsekLog.Verbose("GhostAudio",
                 $"One-shot played: {eventType} clip='{clipPath}' vol={vol:F2}");
@@ -1514,6 +1516,78 @@ namespace Parsek
             }
             if (stopped > 0)
                 ParsekLog.Verbose("GhostAudio", $"Loop restart: stopped {stopped} looping audio source(s)");
+        }
+
+        /// <summary>
+        /// Update atmosphere attenuation factor for ghost audio. Called per frame.
+        /// Returns 0 in vacuum (no atmosphere or above atmosphere depth), 1 at sea level,
+        /// with smooth falloff at high altitude.
+        /// </summary>
+        internal static float ComputeAtmosphereFactor(string bodyName, double altitude)
+        {
+            if (string.IsNullOrEmpty(bodyName)) return 0f;
+
+            CelestialBody body = FlightGlobals.Bodies?.Find(b => b.name == bodyName);
+            if (body == null || !body.atmosphere) return 0f;
+            if (altitude >= body.atmosphereDepth) return 0f;
+            if (altitude <= 0) return 1f;
+
+            // Smooth cubic falloff: factor = (1 - alt/depth)^2
+            // At sea level: 1.0. At half atmosphere depth: 0.25. At atmosphere edge: 0.0.
+            // This approximates exponential density falloff without calling GetDensity.
+            float ratio = (float)(altitude / body.atmosphereDepth);
+            float factor = (1f - ratio) * (1f - ratio);
+            return factor;
+        }
+
+        /// <summary>
+        /// Per-frame update of atmosphere factor and volume adjustment for all playing audio sources.
+        /// Must be called every frame for ghosts with active audio to ensure smooth fade in/out
+        /// as ghost ascends/descends through atmosphere.
+        /// </summary>
+        internal static void UpdateAudioAtmosphere(GhostPlaybackState state)
+        {
+            if (state == null || state.audioInfos == null || state.audioMuted) return;
+
+            float newFactor = ComputeAtmosphereFactor(state.lastInterpolatedBodyName,
+                state.lastInterpolatedAltitude);
+
+            // Log transitions (vacuum↔atmosphere)
+            bool wasInVacuum = state.atmosphereFactor < 0.001f;
+            bool nowInVacuum = newFactor < 0.001f;
+            if (wasInVacuum != nowInVacuum)
+            {
+                ParsekLog.VerboseRateLimited("GhostAudio", $"atm-transition-{state.vesselName}",
+                    nowInVacuum
+                        ? $"Ghost '{state.vesselName}' entered vacuum — audio silent"
+                        : $"Ghost '{state.vesselName}' entered atmosphere — audio enabled (factor={newFactor:F3})",
+                    2.0);
+            }
+
+            state.atmosphereFactor = newFactor;
+
+            // Adjust volume of all currently-playing audio sources
+            float settingsVolume = ParsekSettings.Current?.ghostAudioVolume ?? 0.7f;
+            float shipVolume = GameSettings.SHIP_VOLUME;
+
+            foreach (var info in state.audioInfos.Values)
+            {
+                if (info.audioSource == null) continue;
+
+                if (newFactor < 0.001f)
+                {
+                    // In vacuum — stop playing audio sources
+                    if (info.audioSource.isPlaying)
+                        info.audioSource.Stop();
+                }
+                else if (info.currentPower > 0f && info.audioSource.isPlaying)
+                {
+                    // Update volume with atmosphere attenuation
+                    float vol = info.volumeCurve.Evaluate(info.currentPower)
+                        * settingsVolume * shipVolume * newFactor;
+                    info.audioSource.volume = vol;
+                }
+            }
         }
 
         #endregion

@@ -447,6 +447,10 @@ namespace Parsek
                 GhostPlaybackLogic.RestoreAllRcsEmissions(state);
                 GhostPlaybackLogic.UnmuteAllAudio(state);
             }
+
+            // Per-frame atmosphere attenuation — smoothly fade audio as ghost ascends/descends.
+            // Runs after part events (which may start/stop audio) and after mute/unmute.
+            GhostPlaybackLogic.UpdateAudioAtmosphere(state);
         }
 
         /// <summary>

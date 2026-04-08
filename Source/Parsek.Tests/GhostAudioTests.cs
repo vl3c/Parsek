@@ -119,5 +119,24 @@ namespace Parsek.Tests
         }
 
         #endregion
+
+        #region Atmosphere Factor
+
+        [Fact]
+        public void ComputeAtmosphereFactor_NullBodyName_ReturnsZero()
+        {
+            Assert.Equal(0f, GhostPlaybackLogic.ComputeAtmosphereFactor(null, 1000));
+        }
+
+        [Fact]
+        public void ComputeAtmosphereFactor_EmptyBodyName_ReturnsZero()
+        {
+            Assert.Equal(0f, GhostPlaybackLogic.ComputeAtmosphereFactor("", 1000));
+        }
+
+        // Body-dependent tests (ComputeAtmosphereFactor with real CelestialBody) require
+        // Unity runtime — covered by in-game tests instead.
+
+        #endregion
     }
 }
