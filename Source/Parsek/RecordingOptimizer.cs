@@ -157,10 +157,11 @@ namespace Parsek
 
                 for (int s = 1; s < rec.TrackSections.Count; s++)
                 {
-                    // Only split where coarse environment class changes
-                    // (ExoPropulsive/ExoBallistic are the same class — engine on/off is too granular)
-                    if (SplitEnvironmentClass(rec.TrackSections[s].environment)
-                        == SplitEnvironmentClass(rec.TrackSections[s - 1].environment))
+                    // Split where coarse environment class changes OR body changes (#251)
+                    bool envChanged = SplitEnvironmentClass(rec.TrackSections[s].environment)
+                        != SplitEnvironmentClass(rec.TrackSections[s - 1].environment);
+                    bool bodyChanged = SectionBodyChanged(rec.TrackSections[s - 1], rec.TrackSections[s]);
+                    if (!envChanged && !bodyChanged)
                         continue;
 
                     if (CanAutoSplit(rec, s))
@@ -190,9 +191,11 @@ namespace Parsek
 
                 for (int s = 1; s < rec.TrackSections.Count; s++)
                 {
-                    // Only split where coarse environment class changes
-                    if (SplitEnvironmentClass(rec.TrackSections[s].environment)
-                        == SplitEnvironmentClass(rec.TrackSections[s - 1].environment))
+                    // Split where coarse environment class changes OR body changes (#251)
+                    bool envChanged = SplitEnvironmentClass(rec.TrackSections[s].environment)
+                        != SplitEnvironmentClass(rec.TrackSections[s - 1].environment);
+                    bool bodyChanged = SectionBodyChanged(rec.TrackSections[s - 1], rec.TrackSections[s]);
+                    if (!envChanged && !bodyChanged)
                         continue;
 
                     if (CanAutoSplitIgnoringGhostTriggers(rec, s))
@@ -524,6 +527,29 @@ namespace Parsek
         /// at Atmospheric↔Exo, Exo↔Approach, Approach↔Surface transitions.
         /// Approach is its own class so landing/takeoff on airless bodies can be looped.
         /// </summary>
+        /// <summary>
+        /// Returns true if two adjacent TrackSections have different celestial bodies.
+        /// Detects SOI transitions that should produce a recording split (#251).
+        /// Uses orbit segment body if available, otherwise first trajectory point body.
+        /// </summary>
+        internal static bool SectionBodyChanged(TrackSection prev, TrackSection next)
+        {
+            string prevBody = GetSectionBody(prev);
+            string nextBody = GetSectionBody(next);
+            if (string.IsNullOrEmpty(prevBody) || string.IsNullOrEmpty(nextBody))
+                return false;
+            return prevBody != nextBody;
+        }
+
+        private static string GetSectionBody(TrackSection section)
+        {
+            if (section.checkpoints != null && section.checkpoints.Count > 0)
+                return section.checkpoints[0].bodyName;
+            if (section.frames != null && section.frames.Count > 0)
+                return section.frames[0].bodyName;
+            return null;
+        }
+
         internal static int SplitEnvironmentClass(SegmentEnvironment env)
         {
             switch (env)

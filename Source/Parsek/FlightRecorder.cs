@@ -5114,6 +5114,16 @@ namespace Parsek
             // A spinning vessel crossing an SOI boundary will use orbital-frame rotation (not spin-forward)
             // for the new segment. This is an acceptable v1 limitation.
 
+            // Close current TrackSection and start a new one at the SOI boundary (#251).
+            // Without this, a single TrackSection spans both SOIs and the optimizer cannot
+            // split at the SOI boundary (it only splits at section boundaries).
+            double soiUT = Planetarium.GetUniversalTime();
+            CloseCurrentTrackSection(soiUT);
+            SegmentEnvironment currentEnv = environmentHysteresis != null
+                ? environmentHysteresis.CurrentEnvironment
+                : SegmentEnvironment.ExoBallistic;
+            StartNewTrackSection(currentEnv, ReferenceFrame.Absolute, soiUT);
+
             // Reseed atmosphere and altitude state for the new body
             ReseedAtmosphereState(v);
             ReseedAltitudeState(v);
