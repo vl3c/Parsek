@@ -1186,20 +1186,27 @@ namespace Parsek
                 GUILayout.Label("", GUILayout.Width(ColW_Rewind));
             }
 
-            // Hide group checkbox
-            bool groupHidden = GroupHierarchyStore.IsGroupHidden(groupName);
+            // Hide group checkbox — toggles Hidden on all member recordings
+            int hiddenCount = 0;
+            foreach (int idx in descendants)
+                if (committed[idx].Hidden) hiddenCount++;
+            bool allHidden = memberCount > 0 && hiddenCount == memberCount;
             GUILayout.BeginHorizontal(GUILayout.Width(ColW_Hide));
             GUILayout.FlexibleSpace();
-            bool newGroupHidden = GUILayout.Toggle(groupHidden, "");
+            bool newAllHidden = GUILayout.Toggle(allHidden, "");
             GUILayout.FlexibleSpace();
             GUILayout.EndHorizontal();
-            if (newGroupHidden != groupHidden)
+            if (newAllHidden != allHidden)
             {
-                if (newGroupHidden)
+                foreach (int idx in descendants)
+                    committed[idx].Hidden = newAllHidden;
+                // Also update group-level visibility
+                if (newAllHidden)
                     GroupHierarchyStore.AddHiddenGroup(groupName);
                 else
                     GroupHierarchyStore.RemoveHiddenGroup(groupName);
-                ParsekLog.Info("UI", $"Group '{groupName}' hidden={newGroupHidden}");
+                ParsekLog.Info("UI",
+                    $"Group '{groupName}' hide-all={newAllHidden} ({memberCount} recordings)");
             }
 
             GUILayout.EndHorizontal();
@@ -1877,7 +1884,21 @@ namespace Parsek
         internal static string FormatEndPosition(Recording rec, string parentVesselName = null)
         {
             if (!rec.TerminalStateValue.HasValue)
+            {
+                // No terminal state (chain mid-segment or interior tree recording).
+                // Fall back to segment phase + body from last trajectory point.
+                string segBody = rec.SegmentBodyName;
+                if (string.IsNullOrEmpty(segBody) && rec.Points != null && rec.Points.Count > 0)
+                    segBody = rec.Points[rec.Points.Count - 1].bodyName;
+                if (string.IsNullOrEmpty(segBody))
+                    segBody = rec.StartBodyName;
+
+                if (!string.IsNullOrEmpty(rec.SegmentPhase) && !string.IsNullOrEmpty(segBody))
+                    return segBody + " " + rec.SegmentPhase;
+                if (!string.IsNullOrEmpty(segBody))
+                    return segBody;
                 return "-";
+            }
 
             string body = rec.TerminalOrbitBody;
             if (string.IsNullOrEmpty(body) && !string.IsNullOrEmpty(rec.StartBodyName))

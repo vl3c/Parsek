@@ -201,7 +201,29 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void End_NoTerminalState_ReturnsDash()
+        public void End_NoTerminalState_WithSegmentPhase_ShowsBodyPhase()
+        {
+            var rec = new Recording
+            {
+                SegmentPhase = "exo",
+                SegmentBodyName = "Kerbin"
+            };
+            Assert.Equal("Kerbin exo", RecordingsTableUI.FormatEndPosition(rec));
+        }
+
+        [Fact]
+        public void End_NoTerminalState_WithLastPoint_ShowsBody()
+        {
+            var rec = new Recording();
+            rec.Points = new System.Collections.Generic.List<TrajectoryPoint>
+            {
+                new TrajectoryPoint { bodyName = "Mun" }
+            };
+            Assert.Equal("Mun", RecordingsTableUI.FormatEndPosition(rec));
+        }
+
+        [Fact]
+        public void End_NoTerminalState_NoData_ReturnsDash()
         {
             Assert.Equal("-", RecordingsTableUI.FormatEndPosition(new Recording()));
         }
