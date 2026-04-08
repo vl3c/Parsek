@@ -343,6 +343,12 @@ namespace Parsek
             double ghostDist = Vector3d.Distance(ctx.activeVesselPos,
                 (Vector3d)state.ghost.transform.position);
             var zoneResult = positioner.ApplyZoneRendering(i, state, traj, ghostDist, ctx.protectedIndex);
+
+            // Flag events spawn permanent world vessels — apply regardless of zone distance (#249).
+            // Unlike visual part events (mesh toggles), flags are independent entities that must
+            // exist whether or not the ghost is visible.
+            GhostPlaybackLogic.ApplyFlagEvents(state, traj, ctx.currentUT);
+
             if (zoneResult.hiddenByZone) return true;
 
             // Position the ghost
@@ -432,7 +438,7 @@ namespace Parsek
             if (!skipPartEvents)
             {
                 GhostPlaybackLogic.ApplyPartEvents(index, traj, ut, state);
-                GhostPlaybackLogic.ApplyFlagEvents(state, traj, ut);
+                // Flag events are applied earlier in RenderInRangeGhost, before zone check (#249).
             }
 
             UpdateReentryFx(index, state, traj.VesselName, warpRate);
