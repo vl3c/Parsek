@@ -152,8 +152,8 @@ namespace Parsek
             var curve = new FloatCurve();
             if (isRocket)
             {
-                curve.Add(0f, 0f, 0f, 2f);
-                curve.Add(1f, 2f, 2f, 0f);
+                curve.Add(0f, 0f, 0f, 1.2f);
+                curve.Add(1f, 1.2f, 1.2f, 0f);
             }
             else if (isJet)
             {
