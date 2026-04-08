@@ -2243,7 +2243,7 @@ namespace Parsek
         {
             source.rolloffMode = AudioRolloffMode.Logarithmic;
             source.minDistance = 30f; // logarithmic: vol = minDist/dist, so 30/300m=10%, 30/1km=3%
-            source.maxDistance = 10000f;
+            source.maxDistance = 5000f;
         }
 
         #endregion
