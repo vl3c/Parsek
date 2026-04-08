@@ -507,13 +507,19 @@ During the EVA on the Mun surface, the map icons for KerbalX and Bob appeared in
 
 **Priority:** Medium — map view accuracy for landed ghosts
 
-## 248. Bob recording shows Destroyed terminal state after boarding
+## 248. EVA boarding misclassified as vessel destruction (Bob shows Destroyed after boarding)
 
-One of the Bob EVA recordings says Bob was destroyed, even though the player thought Bob was boarded back. However, log analysis shows Bob genuinely died on the Mun surface (UT 27721, terminal=Destroyed, situation=LANDED, body=Mun, 889 trajectory points over ~455s). A second Bob EVA occurred later on Kerbin (169 points, terminal=Landed). The user may have confused which Bob recording showed Destroyed. Needs in-game verification.
+Bob's first EVA recording on the Mun gets `terminal=Destroyed` instead of `terminal=Boarded` because the boarding event is misclassified as a normal vessel switch in tree mode.
+
+**Root cause:** Race condition — no physics frame runs between `onCrewBoardVessel` and `onVesselChange`. `DecideOnVesselSwitch` (in `OnPhysicsFrame`) never executes, so `ChainToVesselPending` is never set. `OnVesselSwitchComplete` falls through to the generic tree vessel-switch path: transitions the EVA vessel to background, KSP destroys the EVA vessel (standard boarding behavior), `DeferredDestructionCheck` sees the vessel is gone, `IsTrulyDestroyed` returns true → `TerminalState = Destroyed`. The `pendingBoardingTargetPid` was set correctly by `onCrewBoardVessel` but `OnVesselSwitchComplete` never checks it. The boarding confirmation expires unused 10 frames later.
+
+**Fix:** In `OnVesselSwitchComplete`, check `pendingBoardingTargetPid != 0 && recorder.RecordingStartedAsEva` before the `ChainToVesselPending` guard at line 1333. If detected, either set `ChainToVesselPending = true` so `HandleTreeBoardMerge` runs normally, or handle the boarding transition inline (flush EVA data, set `TerminalState.Boarded`, create the merge branch).
+
+**Key locations:** `ParsekFlight.OnVesselSwitchComplete` (line 1302), `FlightRecorder.DecideOnVesselSwitch` (line 5312, correct but never runs), `ParsekFlight.HandleTreeBoardMerge` (line 4232, sets Boarded but never invoked), `DeferredDestructionCheck` (line 3050, incorrectly classifies as destruction).
 
 **Observed in:** Mun mission 2026-04-08.
 
-**Priority:** Low — may not be a bug (Bob actually died in the first EVA); needs confirmation
+**Priority:** High — EVA boarding always hits this race; affects terminal state, timeline, spawn decisions
 
 ## 249. Planted flag not visible during ghost playback
 
