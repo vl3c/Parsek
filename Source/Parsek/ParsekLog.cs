@@ -117,6 +117,53 @@ namespace Parsek
             rateLimitStateByKey[compositeKey] = state;
         }
 
+        /// <summary>
+        /// Rate-limited warning. Same throttling as VerboseRateLimited but emits at WARN level
+        /// unconditionally (not gated on IsVerboseEnabled). Used for budget threshold warnings
+        /// that should be visible even when verbose logging is disabled.
+        /// </summary>
+        public static void WarnRateLimited(
+            string subsystem,
+            string key,
+            string message,
+            double minIntervalSeconds = DefaultRateLimitSeconds)
+        {
+            if (string.IsNullOrEmpty(key))
+            {
+                Warn(subsystem, message);
+                return;
+            }
+
+            string compositeKey = $"W|{subsystem}|{key}";
+            double now = GetLogClockSeconds();
+            if (!rateLimitStateByKey.TryGetValue(compositeKey, out var state))
+            {
+                rateLimitStateByKey[compositeKey] = new RateLimitState
+                {
+                    lastEmitSeconds = now,
+                    suppressedCount = 0
+                };
+                Warn(subsystem, message);
+                return;
+            }
+
+            if ((now - state.lastEmitSeconds) >= minIntervalSeconds)
+            {
+                string suffix = state.suppressedCount > 0
+                    ? $" | suppressed={state.suppressedCount}"
+                    : string.Empty;
+                Warn(subsystem, $"{message}{suffix}");
+                state.lastEmitSeconds = now;
+                state.suppressedCount = 0;
+            }
+            else
+            {
+                state.suppressedCount++;
+            }
+
+            rateLimitStateByKey[compositeKey] = state;
+        }
+
         private static double GetLogClockSeconds()
         {
             if (ClockOverrideForTesting != null)
