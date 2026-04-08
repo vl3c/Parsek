@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.IO;
 using System.Linq;
 using KSP.UI.Screens;
 using UnityEngine;
@@ -4022,6 +4023,11 @@ namespace Parsek
 
             SubscribePartEvents();
 
+            // Initialize diagnostics growth rate tracking
+            DiagnosticsState.activeGrowthRate = default;
+            DiagnosticsState.hasActiveGrowthRate = true;
+            BootstrapAvgBytesPerPoint();
+
             ParsekLog.Info("Recorder", $"Recording started (physics-frame sampling{(isPromotion ? ", promotion" : "")})");
             if (!isPromotion)
                 ParsekLog.ScreenMessage("Recording STARTED", 2f);
@@ -4437,6 +4443,19 @@ namespace Parsek
             UnsubscribePartEvents();
             IsRecording = false;
 
+            // Finalize diagnostics growth rate tracking
+            if (DiagnosticsState.hasActiveGrowthRate)
+            {
+                var finalGr = DiagnosticsState.activeGrowthRate;
+                ParsekLog.Verbose("Diagnostics",
+                    string.Format(CultureInfo.InvariantCulture,
+                        "Recording growth rate at stop: {0} points, {1} events, {2:F1}s elapsed, " +
+                        "{3:F2} pts/s, {4:F2} evts/s, est {5} bytes",
+                        finalGr.totalPoints, finalGr.totalEvents, finalGr.elapsedSeconds,
+                        finalGr.pointsPerSecond, finalGr.eventsPerSecond, finalGr.estimatedFinalBytes));
+                DiagnosticsState.hasActiveGrowthRate = false;
+            }
+
             // Optionally emit terminal shutdown events for engines/RCS/robotics still active (bug #108)
             if (emitTerminalEvents)
             {
@@ -4807,6 +4826,28 @@ namespace Parsek
             }
 
             RefreshBackupSnapshot(v, "periodic");
+
+            // Update diagnostics growth rate
+            if (DiagnosticsState.hasActiveGrowthRate)
+            {
+                var gr = DiagnosticsState.activeGrowthRate;
+                gr.totalPoints = Recording.Count;
+                gr.totalEvents = PartEvents.Count;
+                double startUT = Recording.Count > 0 ? Recording[0].ut : point.ut;
+                gr.elapsedSeconds = point.ut - startUT;
+                if (gr.elapsedSeconds > 0)
+                {
+                    gr.pointsPerSecond = gr.totalPoints / gr.elapsedSeconds;
+                    gr.eventsPerSecond = gr.totalEvents / gr.elapsedSeconds;
+                }
+                else
+                {
+                    gr.pointsPerSecond = 0;
+                    gr.eventsPerSecond = 0;
+                }
+                gr.estimatedFinalBytes = (long)(gr.totalPoints * DiagnosticsState.avgBytesPerPoint + gr.totalEvents * 40);
+                DiagnosticsState.activeGrowthRate = gr;
+            }
 
             if (Recording.Count % 10 == 0)
             {
@@ -5295,7 +5336,8 @@ namespace Parsek
 
             if (elapsedMs >= snapshotPerfLogThresholdMs)
             {
-                ParsekLog.Verbose("Recorder", 
+                DiagnosticsState.health.snapshotRefreshSpikes++;
+                ParsekLog.Verbose("Recorder",
                     $"Snapshot backup cost ({reason}): {elapsedMs:F1}ms " +
                     $"pid={vessel.persistentId}, points={Recording.Count}");
             }
@@ -5307,6 +5349,71 @@ namespace Parsek
             if (force) return true;
             if (lastSnapshotRefreshUT == double.MinValue) return true;
             return currentUT - lastSnapshotRefreshUT >= intervalUT;
+        }
+
+        /// <summary>
+        /// Bootstraps DiagnosticsState.avgBytesPerPoint from committed recordings' .prec files.
+        /// Called once at recording start. If no committed recordings exist, keeps the default (85).
+        /// </summary>
+        private static void BootstrapAvgBytesPerPoint()
+        {
+            try
+            {
+                var committed = RecordingStore.CommittedRecordings;
+                if (committed == null || committed.Count == 0)
+                {
+                    ParsekLog.Verbose("Diagnostics", "avgBytesPerPoint bootstrap: no committed recordings, using default 85");
+                    return;
+                }
+
+                long totalBytes = 0;
+                int totalPoints = 0;
+                int filesChecked = 0;
+
+                for (int i = 0; i < committed.Count; i++)
+                {
+                    var rec = committed[i];
+                    if (rec == null || rec.Points == null || rec.Points.Count == 0)
+                        continue;
+
+                    string relativePath = RecordingPaths.BuildTrajectoryRelativePath(rec.RecordingId);
+                    string fullPath = RecordingPaths.ResolveSaveScopedPath(relativePath);
+                    if (string.IsNullOrEmpty(fullPath))
+                        continue;
+
+                    try
+                    {
+                        var fi = new FileInfo(fullPath);
+                        if (fi.Exists)
+                        {
+                            totalBytes += fi.Length;
+                            totalPoints += rec.Points.Count;
+                            filesChecked++;
+                        }
+                    }
+                    catch
+                    {
+                        // Skip files that can't be stat'd
+                    }
+                }
+
+                if (totalPoints > 0)
+                {
+                    DiagnosticsState.avgBytesPerPoint = (double)totalBytes / totalPoints;
+                    ParsekLog.Verbose("Diagnostics",
+                        string.Format(CultureInfo.InvariantCulture,
+                            "avgBytesPerPoint bootstrapped: {0:F1} bytes/pt from {1} files ({2} bytes, {3} points)",
+                            DiagnosticsState.avgBytesPerPoint, filesChecked, totalBytes, totalPoints));
+                }
+                else
+                {
+                    ParsekLog.Verbose("Diagnostics", "avgBytesPerPoint bootstrap: no .prec files found, using default 85");
+                }
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.Verbose("Diagnostics", $"avgBytesPerPoint bootstrap failed: {ex.Message}");
+            }
         }
 
         internal static VesselSwitchDecision DecideOnVesselSwitch(

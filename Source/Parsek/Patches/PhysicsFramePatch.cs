@@ -1,3 +1,5 @@
+using System.Diagnostics;
+using System.Globalization;
 using HarmonyLib;
 using UnityEngine;
 
@@ -25,6 +27,8 @@ namespace Parsek.Patches
         /// for non-active vessels in the tree.
         /// </summary>
         internal static BackgroundRecorder BackgroundRecorderInstance;
+
+        private static readonly Stopwatch recordingStopwatch = new Stopwatch();
 
         static void Postfix(VesselPrecalculate __instance)
         {
@@ -54,7 +58,22 @@ namespace Parsek.Patches
                 }
                 else if (__instance.gameObject == v.gameObject)
                 {
+                    recordingStopwatch.Restart();
                     ActiveRecorder.OnPhysicsFrame(v);
+                    recordingStopwatch.Stop();
+
+                    long elapsedUs = recordingStopwatch.ElapsedTicks * 1000000L / Stopwatch.Frequency;
+                    DiagnosticsState.recordingBudget.totalMicroseconds = elapsedUs;
+
+                    double totalMs = elapsedUs / 1000.0;
+                    if (totalMs > 4.0)
+                    {
+                        ParsekLog.WarnRateLimited("Diagnostics", "recording-budget",
+                            string.Format(CultureInfo.InvariantCulture,
+                                "Recording frame exceeded budget: {0:F2}ms for vessel \"{1}\"",
+                                totalMs, v.vesselName),
+                            30.0);
+                    }
                 }
             }
 
