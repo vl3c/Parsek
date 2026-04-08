@@ -2239,30 +2239,11 @@ namespace Parsek
             return source;
         }
 
-        /// <summary>
-        /// Custom rolloff curve for ghost audio — gentler than logarithmic, more spatial than linear.
-        /// Full volume within 200m, smooth drop to ~50% at 2km, ~20% at 5km, silent at 15km.
-        /// Uses sqrt-shaped falloff: drops noticeably with distance but stays audible at several km.
-        /// </summary>
         private static void ConfigureGhostRolloff(AudioSource source)
         {
-            source.rolloffMode = AudioRolloffMode.Custom;
-            source.minDistance = 200f;
-            source.maxDistance = 15000f;
-
-            // Custom curve: normalized distance (0=minDistance, 1=maxDistance) → volume (0-1).
-            // Keyframes at strategic distances for a sqrt-like shape.
-            var curve = new UnityEngine.AnimationCurve();
-            curve.AddKey(0f / 15000f, 1.0f);     // 0m: full
-            curve.AddKey(200f / 15000f, 1.0f);    // 200m: full (minDistance zone)
-            curve.AddKey(500f / 15000f, 0.75f);   // 500m: 75%
-            curve.AddKey(1000f / 15000f, 0.55f);  // 1km: 55%
-            curve.AddKey(2000f / 15000f, 0.40f);  // 2km: 40%
-            curve.AddKey(5000f / 15000f, 0.20f);  // 5km: 20%
-            curve.AddKey(10000f / 15000f, 0.05f); // 10km: 5%
-            curve.AddKey(1.0f, 0.0f);             // 15km: silent
-
-            source.SetCustomCurve(AudioSourceCurveType.CustomRolloff, curve);
+            source.rolloffMode = AudioRolloffMode.Logarithmic;
+            source.minDistance = 10f;
+            source.maxDistance = 10000f;
         }
 
         #endregion

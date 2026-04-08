@@ -150,15 +150,10 @@ namespace Parsek
             bool isRocket = clipPath != null && clipPath.Contains("rocket");
             bool isJet = clipPath != null && clipPath.Contains("jet");
             var curve = new FloatCurve();
-            if (isRocket)
+            if (isJet)
             {
-                curve.Add(0f, 0f, 0f, 1.2f);
-                curve.Add(1f, 1.2f, 1.2f, 0f);
-            }
-            else if (isJet)
-            {
-                curve.Add(0f, 0f, 0f, 0.7f);
-                curve.Add(1f, 0.7f, 0.7f, 0f);
+                curve.Add(0f, 0f, 0f, 0.5f);
+                curve.Add(1f, 0.5f, 0.5f, 0f);
             }
             else
             {
