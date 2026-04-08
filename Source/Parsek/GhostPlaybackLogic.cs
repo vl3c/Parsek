@@ -803,7 +803,6 @@ namespace Parsek
                         StopEngineFxForPart(state, evt.partPersistentId);
                         StopRcsFxForPart(state, evt.partPersistentId);
                         StopAudioForPart(state, evt.partPersistentId);
-                        PlayOneShotAtGhost(state, evt.eventType);
                         ApplyHeatState(state, evt, HeatLevel.Cold);
                         SpawnPartPuffAtPart(ghost, evt.partPersistentId);
                         if (tree != null)

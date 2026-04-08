@@ -130,7 +130,6 @@ namespace Parsek
         {
             switch (eventType)
             {
-                case PartEventType.Decoupled: return "sound_decoupler_fire";
                 case PartEventType.Destroyed: return "sound_explosion_large";
                 default: return null;
             }

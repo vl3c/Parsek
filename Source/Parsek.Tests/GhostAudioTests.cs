@@ -58,7 +58,6 @@ namespace Parsek.Tests
         #region One-Shot Clip Resolution
 
         [Theory]
-        [InlineData(PartEventType.Decoupled, "sound_decoupler_fire")]
         [InlineData(PartEventType.Destroyed, "sound_explosion_large")]
         public void ResolveOneShotClip_KnownTypes(PartEventType eventType, string expectedClip)
         {
@@ -66,6 +65,7 @@ namespace Parsek.Tests
         }
 
         [Theory]
+        [InlineData(PartEventType.Decoupled)]
         [InlineData(PartEventType.EngineIgnited)]
         [InlineData(PartEventType.ParachuteDeployed)]
         [InlineData(PartEventType.LightOn)]
