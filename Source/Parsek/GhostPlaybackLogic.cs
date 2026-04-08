@@ -1501,7 +1501,7 @@ namespace Parsek
         /// </summary>
         internal static float ComputeGhostAudioVolume(float curveValue, float atmosphereFactor)
         {
-            float settingsVolume = ParsekSettings.Current?.ghostAudioVolume ?? 0.8f;
+            float settingsVolume = ParsekSettings.Current?.ghostAudioVolume ?? 1.0f;
             return curveValue * settingsVolume * GameSettings.SHIP_VOLUME * atmosphereFactor;
         }
 

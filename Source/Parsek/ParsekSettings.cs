@@ -43,8 +43,10 @@ namespace Parsek
         public float autoLoopIntervalSeconds = 10.0f;
         public int autoLoopTimeUnit = 0; // 0=Sec, 1=Min, 2=Hour
 
-        // Ghost audio volume multiplier (0 = muted, 1 = full volume)
-        public float ghostAudioVolume = 0.8f;
+        [GameParameters.CustomFloatParameterUI("Ghost audio volume", minValue = 0f, maxValue = 1f,
+            stepCount = 20, displayFormat = "P0",
+            toolTip = "Volume multiplier for ghost vessel audio (engines, decouplers, explosions). 0 = muted.")]
+        public float ghostAudioVolume = 1.0f;
 
         // Ghost camera cutoff distance in km — watch mode auto-exits beyond this.
         public float ghostCameraCutoffKm = 300f;
