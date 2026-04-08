@@ -4028,7 +4028,11 @@ namespace Parsek
             DiagnosticsState.hasActiveGrowthRate = true;
             BootstrapAvgBytesPerPoint();
 
-            ParsekLog.Info("Recorder", $"Recording started (physics-frame sampling{(isPromotion ? ", promotion" : "")})");
+            int partCount = v.parts != null ? v.parts.Count : 0;
+            ParsekLog.Info("Recorder",
+                string.Format(CultureInfo.InvariantCulture,
+                    "Recording started: vessel=\"{0}\", parts={1}, points=0{2}",
+                    v.vesselName, partCount, isPromotion ? ", promotion" : ""));
             if (!isPromotion)
                 ParsekLog.ScreenMessage("Recording STARTED", 2f);
         }

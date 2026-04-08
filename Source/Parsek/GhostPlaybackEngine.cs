@@ -326,13 +326,7 @@ namespace Parsek
                 Time.realtimeSinceStartup, totalMicroseconds);
 
             // Budget threshold warning (8ms = half of 16.6ms frame budget at 60fps)
-            double totalMs = totalMicroseconds / 1000.0;
-            if (totalMs > 8.0)
-            {
-                ParsekLog.WarnRateLimited("Diagnostics", "playback-budget",
-                    $"Playback frame budget exceeded: {totalMs.ToString("F1", System.Globalization.CultureInfo.InvariantCulture)}ms " +
-                    $"({ghostsProcessed} ghosts, warp: {ctx.warpRate.ToString("F0", System.Globalization.CultureInfo.InvariantCulture)}x)", 30.0);
-            }
+            DiagnosticsComputation.CheckPlaybackBudgetThreshold(totalMicroseconds, ghostsProcessed, ctx.warpRate);
         }
 
         /// <summary>
@@ -512,9 +506,9 @@ namespace Parsek
                 {
                     if (!softCapTriggeredThisFrame)
                     {
-                        ParsekLog.Info("Engine",
-                            $"SoftCap triggered: zone1={cachedZone1Ghosts.Count} zone2={cachedZone2Ghosts.Count} " +
-                            $"actions={capActions.Count}");
+                        ParsekLog.VerboseRateLimited("Diagnostics", "soft-cap-activation",
+                            $"Soft cap activation: zone1={cachedZone1Ghosts.Count} zone2={cachedZone2Ghosts.Count} " +
+                            $"actions={capActions.Count}", 30.0);
                         softCapTriggeredThisFrame = true;
                         DiagnosticsState.health.softCapActivations++;
                     }

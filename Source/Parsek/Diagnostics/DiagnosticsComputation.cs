@@ -446,6 +446,93 @@ namespace Parsek
             return report;
         }
 
+        // ------------------------------------------------------------------
+        // Budget threshold checks (testable static methods)
+        // ------------------------------------------------------------------
+
+        /// <summary>
+        /// Playback budget warning threshold in milliseconds.
+        /// At 60 FPS, a frame is 16.6ms — 8ms is about half the budget.
+        /// </summary>
+        internal const double PlaybackBudgetThresholdMs = 8.0;
+
+        /// <summary>
+        /// Recording budget warning threshold in milliseconds.
+        /// </summary>
+        internal const double RecordingBudgetThresholdMs = 4.0;
+
+        /// <summary>
+        /// Checks the playback budget and emits a rate-limited WARN if exceeded.
+        /// Called by GhostPlaybackEngine after each frame. Pure static, testable.
+        /// </summary>
+        internal static void CheckPlaybackBudgetThreshold(long totalMicroseconds, int ghostsProcessed, float warpRate)
+        {
+            double totalMs = totalMicroseconds / 1000.0;
+            if (totalMs > PlaybackBudgetThresholdMs)
+            {
+                ParsekLog.WarnRateLimited("Diagnostics", "playback-budget",
+                    string.Format(Inv,
+                        "Playback frame budget exceeded: {0}ms ({1} ghosts, warp: {2}x)",
+                        totalMs.ToString("F1", Inv), ghostsProcessed, warpRate.ToString("F0", Inv)),
+                    30.0);
+            }
+        }
+
+        /// <summary>
+        /// Checks the recording budget and emits a rate-limited WARN if exceeded.
+        /// Called by PhysicsFramePatch after each physics frame. Pure static, testable.
+        /// </summary>
+        internal static void CheckRecordingBudgetThreshold(long totalMicroseconds, string vesselName)
+        {
+            double totalMs = totalMicroseconds / 1000.0;
+            if (totalMs > RecordingBudgetThresholdMs)
+            {
+                ParsekLog.WarnRateLimited("Diagnostics", "recording-budget",
+                    string.Format(Inv,
+                        "Recording frame exceeded budget: {0}ms for vessel \"{1}\"",
+                        totalMs.ToString("F2", Inv), vesselName ?? "?"),
+                    30.0);
+            }
+        }
+
+        // ------------------------------------------------------------------
+        // EmitSceneLoadSnapshot
+        // ------------------------------------------------------------------
+
+        /// <summary>
+        /// Emits a one-shot Verbose log line with memory snapshot and ghost count after scene load.
+        /// Designed for once-per-scene-load usage — no rate limiting needed.
+        /// Pure static method, testable without Unity.
+        /// </summary>
+        internal static void EmitSceneLoadSnapshot(int recordingCount, string sceneName)
+        {
+            var recordings = RecordingStore.CommittedRecordings;
+            int totalPts = 0, totalEvts = 0, totalSegs = 0;
+            if (recordings != null)
+            {
+                for (int i = 0; i < recordings.Count; i++)
+                {
+                    var rec = recordings[i];
+                    if (rec == null) continue;
+                    totalPts += rec.Points != null ? rec.Points.Count : 0;
+                    totalEvts += rec.PartEvents != null ? rec.PartEvents.Count : 0;
+                    totalSegs += rec.OrbitSegments != null ? rec.OrbitSegments.Count : 0;
+                }
+            }
+
+            long estimatedMemory = (long)totalPts * 136L + (long)totalEvts * 88L + (long)totalSegs * 120L;
+            int ghostCount = DiagnosticsState.playbackBudget.ghostsProcessed;
+
+            ParsekLog.Verbose("Diagnostics",
+                string.Format(Inv,
+                    "Scene load complete ({0}): {1} recordings, ~{2} memory est ({3} pts, {4} evts, {5} segs), {6} ghosts",
+                    sceneName ?? "?",
+                    recordingCount,
+                    FormatBytes(estimatedMemory),
+                    totalPts, totalEvts, totalSegs,
+                    ghostCount));
+        }
+
         /// <summary>
         /// Reset test-only state. Call from test cleanup.
         /// </summary>

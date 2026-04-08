@@ -1,5 +1,4 @@
 using System.Diagnostics;
-using System.Globalization;
 using HarmonyLib;
 using UnityEngine;
 
@@ -65,15 +64,7 @@ namespace Parsek.Patches
                     long elapsedUs = recordingStopwatch.ElapsedTicks * 1000000L / Stopwatch.Frequency;
                     DiagnosticsState.recordingBudget.totalMicroseconds = elapsedUs;
 
-                    double totalMs = elapsedUs / 1000.0;
-                    if (totalMs > 4.0)
-                    {
-                        ParsekLog.WarnRateLimited("Diagnostics", "recording-budget",
-                            string.Format(CultureInfo.InvariantCulture,
-                                "Recording frame exceeded budget: {0:F2}ms for vessel \"{1}\"",
-                                totalMs, v.vesselName),
-                            30.0);
-                    }
+                    DiagnosticsComputation.CheckRecordingBudgetThreshold(elapsedUs, v.vesselName);
                 }
             }
 

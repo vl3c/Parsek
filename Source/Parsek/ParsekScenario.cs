@@ -300,6 +300,7 @@ namespace Parsek
                     {
                         HandleRewindOnLoad(node, recordings);
                         WriteLoadTiming(sw, recordings.Count);
+                        DiagnosticsComputation.EmitSceneLoadSnapshot(recordings.Count, HighLogic.LoadedScene.ToString());
                         return;
                     }
 
@@ -585,6 +586,7 @@ namespace Parsek
                     LedgerOrchestrator.RecalculateAndPatch();
                     ParsekLog.Info("Scenario", $"{(isRevert ? "Revert" : "Scene change")} — preserving {recordings.Count} session recordings");
                     WriteLoadTiming(sw, recordings.Count);
+                    DiagnosticsComputation.EmitSceneLoadSnapshot(recordings.Count, HighLogic.LoadedScene.ToString());
                     return;
                 }
 
@@ -723,6 +725,9 @@ namespace Parsek
                 }
 
                 WriteLoadTiming(sw, recordings.Count);
+
+                // Scene load memory snapshot (once per load, after all recordings are loaded)
+                DiagnosticsComputation.EmitSceneLoadSnapshot(recordings.Count, HighLogic.LoadedScene.ToString());
             }
             finally
             {
