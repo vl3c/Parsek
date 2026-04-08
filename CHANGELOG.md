@@ -4,6 +4,26 @@ All notable changes to Parsek are documented here.
 
 ---
 
+## 0.7.2
+
+### Maintenance
+
+- **Bump version to 0.7.2.**
+- **Close #156 (lifecycle test coverage).** All decision logic was already extracted to pure/static methods and fully unit tested. Remaining integration gaps are mechanical flag-passing with no complex logic — risk too low to justify in-game tests requiring orbital maneuvers or partial vessel loading.
+- **Close #188 (map clutter during ascent).** Spawned surface vessels appearing in map view is expected behavior — they're real KSP vessels.
+- **Defer #189b (ghost escape orbit line).** Cosmetic rendering issue, deferred to Phase 11.5 alongside T25 (fairing truss) and other visual polish.
+- **Defer T43 (mod compatibility testing).** Moved to last phase of roadmap — v1 targets stock only.
+
+### In-Game Tests
+
+- **SpawnHealth** (3 tests): Verify spawn state invariants on committed recordings — no stuck `SpawnAbandoned` flags, `SpawnDeathCount` within bounds, spawned vessel PID consistency with terminal state. Regression coverage for #132, #112, #149.
+- **ContinuationIntegrity** (2 tests): Verify `ContinuationBoundaryIndex` is cleared (-1) on all committed recordings and pre-continuation backup snapshots are not lingering. Regression coverage for #95.
+- **RewindSaves** (1 test): Verify every tree branch recording can resolve a rewind save through its tree root via `GetRewindRecording`. Regression coverage for #159, #166.
+- **TerminalOrbit** (2 tests): Verify orbital/docked recordings have `TerminalOrbitBody` populated and orbit segment body names resolve to real `CelestialBody` instances. Regression coverage for #203, #219.
+- **CrewReservationLive** (2 tests): Verify `BuildSpawnedVesselPidSet` contains all spawned vessel PIDs and spawned vessel PIDs don't conflict with ghost map vessel PIDs. Regression coverage for #233, #46.
+
+---
+
 ## 0.7.1
 
 ### Bug Fixes
