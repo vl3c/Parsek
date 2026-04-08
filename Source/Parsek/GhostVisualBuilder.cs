@@ -2215,8 +2215,10 @@ namespace Parsek
             var source = ghostRoot.AddComponent<AudioSource>();
             source.spatialBlend = 1f;
             source.dopplerLevel = 0f;
-            source.rolloffMode = AudioRolloffMode.Logarithmic;
-            source.maxDistance = 15000f; // match engine range for audible explosions
+            source.rolloffMode = AudioRolloffMode.Linear;
+            source.minDistance = 100f;
+            source.maxDistance = 15000f;
+            source.priority = 64; // high priority — don't get culled by KSP's own audio
             source.loop = false;
             source.playOnAwake = false;
             source.volume = 1f; // base volume=1 — PlayOneShot volumeScale multiplies against this
@@ -2231,8 +2233,10 @@ namespace Parsek
             source.clip = clip;
             source.spatialBlend = 1f;
             source.dopplerLevel = 0f;
-            source.rolloffMode = AudioRolloffMode.Logarithmic;
-            source.maxDistance = 15000f;
+            source.rolloffMode = AudioRolloffMode.Linear;
+            source.minDistance = 100f;  // full volume within 100m
+            source.maxDistance = 15000f; // fade to zero at 15km
+            source.priority = 64; // high priority — don't get culled by KSP's own audio
             source.loop = loop;
             source.playOnAwake = false;
             source.volume = 0f;
