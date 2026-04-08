@@ -527,6 +527,7 @@ namespace Parsek
         /// at Atmospheric↔Exo, Exo↔Approach, Approach↔Surface transitions.
         /// Approach is its own class so landing/takeoff on airless bodies can be looped.
         /// </summary>
+
         /// <summary>
         /// Returns true if two adjacent TrackSections have different celestial bodies.
         /// Detects SOI transitions that should produce a recording split (#251).

@@ -1880,13 +1880,15 @@ namespace Parsek
         /// <summary>
         /// Formats the recording end position for the expanded stats column.
         /// Matches timeline style: "Orbiting {body}", "{biome}, {body}", "Boarded {vessel}".
+        /// Body fallback priority for terminal recordings: TerminalOrbitBody → StartBodyName.
+        /// Body fallback priority for mid-segments: SegmentBodyName → last point body → StartBodyName.
         /// </summary>
         internal static string FormatEndPosition(Recording rec, string parentVesselName = null)
         {
             if (!rec.TerminalStateValue.HasValue)
             {
                 // No terminal state (chain mid-segment or interior tree recording).
-                // Fall back to segment phase + body from last trajectory point.
+                // Fallback: SegmentBodyName → last trajectory point body → StartBodyName.
                 string segBody = rec.SegmentBodyName;
                 if (string.IsNullOrEmpty(segBody) && rec.Points != null && rec.Points.Count > 0)
                     segBody = rec.Points[rec.Points.Count - 1].bodyName;

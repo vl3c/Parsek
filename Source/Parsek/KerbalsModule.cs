@@ -277,6 +277,32 @@ namespace Parsek
         ///   TerminalState is intact state   -> if in snapshot: Aboard, else Dead (EVA'd and lost)
         ///   (Orbiting/Landed/Splashed/SubOrbital)
         /// </summary>
+        /// <summary>
+        /// Replaces stand-in names in a crew list with their original kerbal names (#254).
+        /// The replacements dict maps original→stand-in; this reverses the lookup.
+        /// </summary>
+        internal static void ReverseMapCrewNames(List<string> crew,
+            IReadOnlyDictionary<string, string> replacements, string vesselNameForLog)
+        {
+            for (int i = 0; i < crew.Count; i++)
+            {
+                foreach (var kvp in replacements)
+                {
+                    if (kvp.Value == crew[i])
+                    {
+                        if (vesselNameForLog != null)
+                        {
+                            ParsekLog.Info(Tag,
+                                $"PopulateCrewEndStates: reverse-mapped stand-in '{crew[i]}' " +
+                                $"back to original '{kvp.Key}' in recording '{vesselNameForLog}'");
+                        }
+                        crew[i] = kvp.Key;
+                        break;
+                    }
+                }
+            }
+        }
+
         internal static KerbalEndState InferCrewEndState(
             string crewName,
             TerminalState? terminalState,
@@ -359,35 +385,11 @@ namespace Parsek
             // committed and swapped crew on the live vessel. Without this reverse-map, the
             // stand-in gets reserved too, triggering a cascading chain of replacements.
             var replacements = CrewReservationManager.CrewReplacements;
-            for (int i = 0; i < startingCrew.Count; i++)
-            {
-                foreach (var kvp in replacements)
-                {
-                    if (kvp.Value == startingCrew[i])
-                    {
-                        ParsekLog.Info(Tag,
-                            $"PopulateCrewEndStates: reverse-mapped stand-in '{startingCrew[i]}' " +
-                            $"back to original '{kvp.Key}' in recording '{rec.VesselName}'");
-                        startingCrew[i] = kvp.Key;
-                        break;
-                    }
-                }
-            }
+            ReverseMapCrewNames(startingCrew, replacements, rec.VesselName);
 
             // Extract end-of-recording crew from vessel snapshot (if available)
             var endCrew = CrewReservationManager.ExtractCrewFromSnapshot(rec.VesselSnapshot);
-            // Also reverse-map end crew
-            for (int i = 0; i < endCrew.Count; i++)
-            {
-                foreach (var kvp in replacements)
-                {
-                    if (kvp.Value == endCrew[i])
-                    {
-                        endCrew[i] = kvp.Key;
-                        break;
-                    }
-                }
-            }
+            ReverseMapCrewNames(endCrew, replacements, null);
             var endCrewSet = new HashSet<string>(endCrew);
 
             rec.CrewEndStates = new Dictionary<string, KerbalEndState>();
