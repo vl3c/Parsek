@@ -299,6 +299,7 @@ namespace Parsek
                         // If spawn was blocked, hold the ghost (#96)
                         if (!spawned && evt.GhostWasActive)
                         {
+                            DiagnosticsState.health.spawnFailures++;
                             heldGhosts[evt.Index] = new HeldGhostInfo
                             {
                                 holdStartTime = Time.time,
@@ -387,6 +388,7 @@ namespace Parsek
                 {
                     case HeldGhostAction.RetrySpawn:
                         // Recording is valid and not yet spawned — retry
+                        DiagnosticsState.health.spawnRetries++;
                         if (retryTimeUpdates == null) retryTimeUpdates = new List<KeyValuePair<int, float>>();
                         retryTimeUpdates.Add(new KeyValuePair<int, float>(index, now));
                         host.SpawnVesselOrChainTipFromPolicy(committed[index], index);

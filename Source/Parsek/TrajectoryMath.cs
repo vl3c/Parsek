@@ -134,6 +134,7 @@ namespace Parsek
                 if (points[cachedIndex].ut <= targetUT &&
                     points[cachedIndex + 1].ut > targetUT)
                 {
+                    DiagnosticsState.health.waypointCacheHits++;
                     return cachedIndex;
                 }
 
@@ -143,6 +144,7 @@ namespace Parsek
                     points[nextIndex + 1].ut > targetUT)
                 {
                     cachedIndex = nextIndex;
+                    DiagnosticsState.health.waypointCacheHits++;
                     return nextIndex;
                 }
             }
@@ -158,6 +160,7 @@ namespace Parsek
                 if (points[mid].ut <= targetUT && points[mid + 1].ut > targetUT)
                 {
                     cachedIndex = mid;
+                    DiagnosticsState.health.waypointCacheMisses++;
                     return mid;
                 }
                 else if (points[mid].ut > targetUT)
@@ -176,6 +179,7 @@ namespace Parsek
                 if (points[i].ut <= targetUT && points[i + 1].ut > targetUT)
                 {
                     cachedIndex = i;
+                    DiagnosticsState.health.waypointCacheMisses++;
                     ParsekLog.VerboseRateLimited("TrajectoryMath", "waypoint-linear-fallback-hit",
                         $"Linear fallback used for targetUT={targetUT:F3}, idx={i}", 5.0);
                     return i;

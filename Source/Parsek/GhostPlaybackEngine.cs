@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using UnityEngine;
 
 namespace Parsek
@@ -58,6 +59,10 @@ namespace Parsek
         private int frameSpawnCount;
         private int frameDestroyCount;
 
+        // Diagnostics: reusable Stopwatches (allocated once, no per-frame GC)
+        private readonly Stopwatch updateStopwatch = new Stopwatch();
+        private readonly Stopwatch spawnStopwatch = new Stopwatch();
+
         // Deferred event lists (reused per frame to avoid GC allocation)
         private readonly List<PlaybackCompletedEvent> deferredCompletedEvents = new List<PlaybackCompletedEvent>();
         private readonly List<GhostLifecycleEvent> deferredCreatedEvents = new List<GhostLifecycleEvent>();
@@ -109,10 +114,19 @@ namespace Parsek
             TrajectoryPlaybackFlags[] flags,
             FrameContext ctx)
         {
-            if (trajectories == null || trajectories.Count == 0) return;
-            if (positioner == null) return; // Not yet wired (Phase 7)
+            if (trajectories == null || trajectories.Count == 0)
+            {
+                DiagnosticsState.playbackBudget = default;
+                return;
+            }
+            if (positioner == null)
+            {
+                DiagnosticsState.playbackBudget = default;
+                return; // Not yet wired (Phase 7)
+            }
             if (flags == null || flags.Length < trajectories.Count)
             {
+                DiagnosticsState.playbackBudget = default;
                 ParsekLog.Warn("Engine", $"UpdatePlayback: flags array mismatch (flags={flags?.Length ?? 0} trajectories={trajectories.Count})");
                 return;
             }
@@ -128,6 +142,14 @@ namespace Parsek
             deferredCreatedEvents.Clear();
             frameSpawnCount = 0;
             frameDestroyCount = 0;
+
+            // Diagnostics: start total frame timing
+            updateStopwatch.Restart();
+            // Reset spawn timer to zero — Start()/Stop() pairs inside SpawnGhost
+            // accumulate across multiple spawns per frame (Start resumes, not resets)
+            spawnStopwatch.Reset();
+            long spawnMicroseconds = 0;
+            int ghostsProcessed = 0;
 
             for (int i = 0; i < trajectories.Count; i++)
             {
@@ -157,6 +179,7 @@ namespace Parsek
                 GhostPlaybackState state;
                 ghostStates.TryGetValue(i, out state);
                 bool ghostActive = state != null && state.ghost != null;
+                if (ghostActive) ghostsProcessed++;
 
                 // === Loop dispatch (before main rendering) ===
                 if (ShouldLoopPlayback(traj))
@@ -299,6 +322,22 @@ namespace Parsek
 
             for (int i = 0; i < deferredCompletedEvents.Count; i++)
                 OnPlaybackCompleted?.Invoke(deferredCompletedEvents[i]);
+
+            // Diagnostics: stop total frame timing and write results
+            updateStopwatch.Stop();
+            long totalMicroseconds = updateStopwatch.ElapsedTicks * 1000000L / Stopwatch.Frequency;
+            spawnMicroseconds = spawnStopwatch.ElapsedTicks * 1000000L / Stopwatch.Frequency;
+
+            DiagnosticsState.playbackBudget.totalMicroseconds = totalMicroseconds;
+            DiagnosticsState.playbackBudget.spawnMicroseconds = spawnMicroseconds;
+            DiagnosticsState.playbackBudget.ghostsProcessed = ghostsProcessed;
+            DiagnosticsState.playbackBudget.warpRate = ctx.warpRate;
+
+            DiagnosticsState.playbackFrameHistory.Append(
+                Time.realtimeSinceStartup, totalMicroseconds);
+
+            // Budget threshold warning (8ms = half of 16.6ms frame budget at 60fps)
+            DiagnosticsComputation.CheckPlaybackBudgetThreshold(totalMicroseconds, ghostsProcessed, ctx.warpRate);
         }
 
         /// <summary>
@@ -494,10 +533,11 @@ namespace Parsek
                 {
                     if (!softCapTriggeredThisFrame)
                     {
-                        ParsekLog.Info("Engine",
-                            $"SoftCap triggered: zone1={cachedZone1Ghosts.Count} zone2={cachedZone2Ghosts.Count} " +
-                            $"actions={capActions.Count}");
+                        ParsekLog.VerboseRateLimited("Diagnostics", "soft-cap-activation",
+                            $"Soft cap activation: zone1={cachedZone1Ghosts.Count} zone2={cachedZone2Ghosts.Count} " +
+                            $"actions={capActions.Count}", 30.0);
                         softCapTriggeredThisFrame = true;
+                        DiagnosticsState.health.softCapActivations++;
                     }
 
                     foreach (var capKvp in capActions)
@@ -518,6 +558,7 @@ namespace Parsek
                                     ? trajectories[capIdx] : null;
                                 DestroyGhost(capIdx, capTraj, reason: "soft cap despawn");
                                 softCapSuppressed.Add(capIdx);
+                                DiagnosticsState.health.softCapDespawns++;
                                 break;
                             case GhostCapAction.SimplifyToOrbitLine:
                                 GhostPlaybackState simplifyState;
@@ -1422,6 +1463,7 @@ namespace Parsek
                 return;
             }
 
+            spawnStopwatch.Start();
             frameSpawnCount++;
             completedEventFired.Remove(index); // Reset dedup for time-jump backward
 
@@ -1486,6 +1528,9 @@ namespace Parsek
                 $"Ghost #{index} \"{traj?.VesselName}\" spawned ({buildType}, " +
                 $"parts={state.partTree?.Count ?? 0} engines={state.engineInfos?.Count ?? 0} " +
                 $"rcs={state.rcsInfos?.Count ?? 0})", 1.0);
+
+            spawnStopwatch.Stop();
+            DiagnosticsState.health.ghostBuildsThisSession++;
         }
 
         /// <summary>
@@ -1587,6 +1632,7 @@ namespace Parsek
             ghostStates.Remove(index);
             loopPhaseOffsets.Remove(index);
             completedEventFired.Remove(index);
+            DiagnosticsState.health.ghostDestroysThisSession++;
         }
 
         /// <summary>

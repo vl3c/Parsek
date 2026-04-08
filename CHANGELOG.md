@@ -10,6 +10,14 @@ All notable changes to Parsek are documented here.
 
 - **Ghost positional audio.** Ghost vessels now emit 3D positional engine sounds — hear rockets in the distance, decoupler pops on staging, and explosions on impact. Sound fades naturally with distance via Unity spatial audio and attenuates through the atmosphere (silent in vacuum). Engine clip selection uses a built-in preset map based on propellant type and thrust class (liquid/solid/ion/jet). One-shot sounds for decouple and explosion events. Ghost audio volume slider in Settings (default 100%). Capped at 4 AudioSources per ghost. Audio muted during high time warp, for overlap ghosts, and for soft-cap-reduced ghosts. Compatible with RocketSoundEnhancement (RSE).
 
+### Observability (Phase 11.5)
+
+- **Diagnostics report.** Full metrics snapshot accessible via in-game test runner (Ctrl+Shift+T) or Settings > Diagnostics button. Reports storage breakdown per recording (file sizes, bytes/sec efficiency), memory estimate, playback/recording frame budgets with rolling averages, save/load timing, and health counters (waypoint cache hit rate, snapshot spikes, spawn failures, ghost builds/destroys, GC gen0). Simultaneously dumps to KSP.log.
+- **Per-recording storage tooltip.** Hover over a recording in the Recordings Manager to see file sizes (trajectory, vessel snapshot, ghost snapshot) and storage efficiency.
+- **Automatic budget warnings.** KSP.log emits `[WARN]` when playback exceeds 8ms/frame or recording exceeds 4ms/frame, rate-limited to once per 30 seconds. Scene load, save/load timing, and recording start/stop logged at Verbose level.
+- **Recording growth rate.** Points/sec, events/sec, and projected file size tracked during active recording.
+- **`ParsekLog.WarnRateLimited`.** New logging API for rate-limited warnings that emit unconditionally (not gated by verbose setting).
+
 ### Maintenance
 
 - **Bump version to 0.7.2.**

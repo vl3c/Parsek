@@ -397,6 +397,13 @@ namespace Parsek
             {
                 parentUI.ToggleTestRunner();
             }
+
+            if (GUILayout.Button(new GUIContent("Run Diagnostics Report",
+                "Compute full diagnostics snapshot and dump report to KSP.log")))
+            {
+                ParsekLog.Info("UI", "Run Diagnostics Report button clicked");
+                DiagnosticsComputation.RunDiagnosticsReport();
+            }
         }
 
         private void DrawSamplingSettings(ParsekSettings s)

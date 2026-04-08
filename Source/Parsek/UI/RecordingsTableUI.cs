@@ -2187,6 +2187,22 @@ namespace Parsek
             if (stats.maxRange > 0)
                 text += $"\nMax Range: {FormatDistance(stats.maxRange)}";
 
+            // Observability: append storage breakdown from cached file sizes
+            try
+            {
+                double currentUT = Planetarium.GetUniversalTime();
+                var storage = DiagnosticsComputation.GetCachedStorageBreakdown(rec, currentUT);
+                if (storage.totalBytes > 0)
+                {
+                    text += $"\nStorage: {DiagnosticsComputation.FormatBytes(storage.totalBytes)}" +
+                            $" (trajectory: {DiagnosticsComputation.FormatBytes(storage.trajectoryFileBytes)}" +
+                            $", vessel: {DiagnosticsComputation.FormatBytes(storage.vesselSnapshotBytes)}" +
+                            $", ghost: {DiagnosticsComputation.FormatBytes(storage.ghostSnapshotBytes)})";
+                    text += $"\nEfficiency: {DiagnosticsComputation.FormatBytes((long)storage.bytesPerSecond)}/s of flight time";
+                }
+            }
+            catch { /* Non-KSP context or Planetarium unavailable */ }
+
             EnsureTooltipStyle();
 
             GUIContent content = new GUIContent(text);
