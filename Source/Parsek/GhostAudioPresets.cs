@@ -136,18 +136,34 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Build the default volume curve for ghost engine audio.
-        /// Boosted: power 0 → volume 0, power 1 → volume 2.0.
-        /// The 2x multiplier compensates for KSP's SHIP_VOLUME (~0.5) and
-        /// atmosphere attenuation that stack-multiply the final volume down.
-        /// AudioSource.volume is clamped to [0,1] by Unity, but PlayOneShot
-        /// volumeScale and spatial blend allow effective volumes above 1.
+        /// Build the volume curve for a ghost engine based on clip type.
+        /// Rockets get 2x boost to compensate for SHIP_VOLUME (~0.5) + atmosphere attenuation.
+        /// Jets/ion stay at 1x — they're already audible at stock levels.
         /// </summary>
+        internal static FloatCurve BuildVolumeCurve(string clipPath)
+        {
+            bool isRocket = clipPath != null
+                && (clipPath.Contains("rocket") || clipPath.Contains("explosion"));
+            var curve = new FloatCurve();
+            if (isRocket)
+            {
+                curve.Add(0f, 0f, 0f, 2f);
+                curve.Add(1f, 2f, 2f, 0f);
+            }
+            else
+            {
+                curve.Add(0f, 0f, 0f, 1f);
+                curve.Add(1f, 1f, 1f, 0f);
+            }
+            return curve;
+        }
+
+        /// <summary>Backward compat for callers that don't have a clip path.</summary>
         internal static FloatCurve BuildDefaultVolumeCurve()
         {
             var curve = new FloatCurve();
-            curve.Add(0f, 0f, 0f, 2f);
-            curve.Add(1f, 2f, 2f, 0f);
+            curve.Add(0f, 0f, 0f, 1f);
+            curve.Add(1f, 1f, 1f, 0f);
             return curve;
         }
 

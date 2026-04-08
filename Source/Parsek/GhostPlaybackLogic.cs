@@ -1490,9 +1490,15 @@ namespace Parsek
 
             float vol = ComputeGhostAudioVolume(GhostAudioPresets.OneShotVolumeScale, state.atmosphereFactor);
             if (vol <= 0f) return;
-            state.oneShotAudio.audioSource.PlayOneShot(clip, vol);
+
+            // Play explosion as non-spatial (2D) audio — ghost may be hundreds of km away
+            // where 3D rolloff makes it inaudible. Explosions are dramatic events that should
+            // always be heard regardless of distance (atmosphere still attenuates).
+            var src = state.oneShotAudio.audioSource;
+            src.spatialBlend = 0f;
+            src.PlayOneShot(clip, vol);
             ParsekLog.Verbose("GhostAudio",
-                $"One-shot played: {eventType} clip='{clipPath}' vol={vol:F2}");
+                $"One-shot played: {eventType} clip='{clipPath}' vol={vol:F2} (non-spatial)");
         }
 
         /// <summary>

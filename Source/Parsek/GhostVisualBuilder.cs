@@ -2185,7 +2185,7 @@ namespace Parsek
                         moduleIndex = i,
                         audioSource = source,
                         clip = clip,
-                        volumeCurve = GhostAudioPresets.BuildDefaultVolumeCurve(),
+                        volumeCurve = GhostAudioPresets.BuildVolumeCurve(clipPath),
                         pitchCurve = GhostAudioPresets.BuildDefaultPitchCurve(),
                         currentPower = 0f
                     });
