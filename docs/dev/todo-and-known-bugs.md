@@ -68,7 +68,7 @@ Four new fields on Recording: `StartBodyName`, `StartBiome`, `StartSituation`, `
 
 Test game actions system with popular mods: CustomBarnKit (non-standard facility tiers may break level conversion formula), Strategia (different strategy IDs/transform mechanics), Contract Configurator (contract snapshot round-trip across CC versions). Requires KSP runtime with mods installed. Investigation notes in `docs/dev/mod-compatibility-notes.md`.
 
-**Priority:** Low — v1 targets stock only, mod compat is best-effort
+**Priority:** Last phase of roadmap — v1 targets stock only, mod compat is best-effort
 
 ---
 
@@ -143,17 +143,15 @@ KSP warns `Texture resolution is not valid for compression` for the 38x38 toolba
 
 **Status:** Fixed
 
-## 156. Missing test coverage from lifecycle simulation
+## ~~156. Missing test coverage from lifecycle simulation~~
 
 Areas identified by code path simulation that lack unit tests:
 
-1. `HandleVesselSwitchDuringRecording` with `Stop` decision — no test verifies recording data is committed/stashed rather than orphaned (fixed by #155, no regression test — requires Unity runtime)
-2. `CacheEngineModules` with partially-loaded vessel — null vessel tested; null part entries require Unity `Vessel` instance (not feasible in unit tests)
-3. `CheckAtmosphereBoundary` → `HandleAtmosphereBoundarySplit` → `HandleSoiChangeSplit` in sequence — requires full `FlightRecorder` instance state (in-game integration test only)
+1. `HandleVesselSwitchDuringRecording` with `Stop` decision — decision logic (`DecideOnVesselSwitch`) fully unit tested. Integration path is linear teardown (BuildCaptureRecording → null patch → IsRecording=false), same pattern as every other branch.
+2. `CacheEngineModules` with partially-loaded vessel — single `if (p == null) continue` guard. Cannot reliably reproduce partial loading in tests.
+3. `CheckAtmosphereBoundary` → `HandleAtmosphereBoundarySplit` chain — predicate `ShouldSplitAtAtmosphereBoundary` fully unit tested. Integration requires crossing atmosphere boundary (70km altitude), not feasible without orbital maneuver.
 
-**Priority:** Low — test infrastructure, requires Unity runtime
-
-**Status:** Partially fixed — item 4 done (7 tests). Items 1-3 deferred to in-game testing. Decision logic for items 1 and 3 extracted to static/pure methods and fully tested (`DecideOnVesselSwitch`, `ShouldSplitAtAtmosphereBoundary`). Only integration paths remain untestable without Unity runtime.
+**Status:** Resolved — all decision logic extracted to pure/static methods and fully unit tested. Remaining gaps are mechanical integration (set flag → read flag → stop/restart) with no complex logic. Risk too low to justify the cost of in-game tests requiring orbital maneuvers or partial vessel loading.
 
 ## ~~157. Green sphere ghost for debris after ghost-only merge decision~~
 
@@ -213,11 +211,11 @@ All time formatting (FormatDuration, FormatCountdown, KSPUtil.PrintDateCompact) 
 
 **Status:** Fixed
 
-## 188. Spawned surface vessels clutter map view during ascent
+## ~~188. Spawned surface vessels clutter map view during ascent~~
 
-During ascent, map view shows green dot icons for past recordings' spawned vessels sitting on the ground. These are real KSP vessels spawned at recording end — they correctly show in map view because they're actual vessels. But they're distracting during flight. Consider options: defer surface vessel spawns until tracking station visit, add a map filter toggle, or mark spawned ground vessels as debris type to reduce visual clutter.
+During ascent, map view shows green dot icons for past recordings' spawned vessels sitting on the ground. These are real KSP vessels spawned at recording end — they correctly show in map view because they're actual vessels. This is expected behavior — they're real vessels and map view correctly shows them.
 
-**Status:** TODO
+**Status:** Closed — not a bug, expected KSP behavior
 
 ## 189b. Ghost escape orbit line stops short of Kerbin SOI edge
 
@@ -228,7 +226,7 @@ For hyperbolic escape orbits, KSP's `OrbitRendererBase.UpdateSpline` draws the g
 2. Extend the orbit line beyond the hyperbola asymptote with a straight-line segment to the SOI exit point
 3. Give the ghost a `PatchedConicSolver` (complex, may conflict with KSP internals)
 
-**Status:** TODO — needs custom rendering solution
+**Priority:** Deferred to Phase 11.5 (Recording Optimization & Observability) — cosmetic, same tier as T25 fairing truss
 
 ## ~~194. W (watch) button stays enabled on one booster after separation~~
 
@@ -448,6 +446,18 @@ Root cause: the terminal state filter was appropriate for proto-vessel ghosts (w
 Additionally, proto-vessel ghosts created by deferred commit (merge/approval dialog) took up to 2 seconds to appear because `UpdateTrackingStationGhostLifecycle` only ran on a fixed interval.
 
 **Status:** Fixed — removed terminal state filter from atmospheric marker path. Extracted `ShouldDrawAtmosphericMarker` as testable pure method. Added committed-count change detection in `Update()` to force immediate lifecycle tick after dialog commits.
+
+## 241. Ghost fuel tanks have wrong color variant
+
+Some fuel tanks on ghost vessels display with the wrong color/texture variant during playback. The ghost visual builder clones the prefab model, but KSP fuel tanks can have multiple texture variants (e.g., Orange, White, Gray via `ModulePartVariants`). The variant selection from the vessel snapshot may not be applied to the ghost clone.
+
+**Priority:** Low — cosmetic, ghost shape is correct
+
+## 242. Ghost engine smoke emits perpendicular to flame direction
+
+On some engines, the smoke/exhaust particle effect fires sideways (perpendicular to the thrust axis) instead of along it. The flame plume itself is oriented correctly but the secondary smoke effect has a wrong emission direction. Likely a particle system `rotation` or `shape.rotation` not being transformed correctly when cloning engine FX from the prefab EFFECTS config.
+
+**Priority:** Low — cosmetic, only noticeable on certain engine models
 
 ---
 
