@@ -259,6 +259,7 @@ namespace Parsek
         {
             DiagnosticsState.ResetSessionCounters();
             var sw = Stopwatch.StartNew();
+            int loadedRecordingCount = 0;
             try
             {
                 // Reset deferred dialog flag and clear input lock (dialog may have been
@@ -267,6 +268,7 @@ namespace Parsek
                 InputLockManager.RemoveControlLock("ParsekMergeDialog");
 
                 var recordings = RecordingStore.CommittedRecordings;
+                loadedRecordingCount = recordings.Count;
 
                 RegisterMainMenuHook();
                 DetectSaveFolderChange();
@@ -722,8 +724,8 @@ namespace Parsek
             }
             finally
             {
-                if (sw.IsRunning)
-                    sw.Stop();
+                // Always capture timing, even on exception (matches OnSave pattern)
+                WriteLoadTiming(sw, loadedRecordingCount);
             }
         }
 

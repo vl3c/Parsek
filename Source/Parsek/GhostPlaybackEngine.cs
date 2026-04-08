@@ -145,6 +145,8 @@ namespace Parsek
 
             // Diagnostics: start total frame timing
             updateStopwatch.Restart();
+            // Reset spawn timer to zero — Start()/Stop() pairs inside SpawnGhost
+            // accumulate across multiple spawns per frame (Start resumes, not resets)
             spawnStopwatch.Reset();
             long spawnMicroseconds = 0;
             int ghostsProcessed = 0;
