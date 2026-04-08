@@ -23,6 +23,9 @@ namespace Parsek
         public Dictionary<uint, JettisonGhostInfo> jettisonInfos;
         public Dictionary<ulong, EngineGhostInfo> engineInfos; // key = EncodeEngineKey(pid, moduleIndex)
         public Dictionary<ulong, RcsGhostInfo> rcsInfos;   // separate from engineInfos — keys can overlap for same part
+        public Dictionary<ulong, AudioGhostInfo> audioInfos; // engine/RCS audio — keyed same as engineInfos/rcsInfos
+        public OneShotAudioInfo oneShotAudio;                // shared one-shot source for decouple/explosion sounds
+        public bool audioMuted;                              // true during high warp or when ghost hidden
         public Dictionary<ulong, RoboticGhostInfo> roboticInfos; // key = EncodeEngineKey(pid, moduleIndex)
         public Dictionary<uint, DeployableGhostInfo> deployableInfos;
         public Dictionary<uint, HeatGhostInfo> heatInfos;

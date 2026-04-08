@@ -121,6 +121,22 @@ namespace Parsek
         public float speedScale = 1f;
     }
 
+    internal class AudioGhostInfo
+    {
+        public uint partPersistentId;
+        public int moduleIndex;
+        public AudioSource audioSource;
+        public AudioClip clip;
+        public FloatCurve volumeCurve;
+        public FloatCurve pitchCurve;
+        public float currentPower;
+    }
+
+    internal class OneShotAudioInfo
+    {
+        public AudioSource audioSource;
+    }
+
     internal enum RoboticVisualMode
     {
         Rotational,
@@ -214,5 +230,7 @@ namespace Parsek
         public List<RcsGhostInfo> rcsInfos;
         public List<RoboticGhostInfo> roboticInfos;
         public List<ColorChangerGhostInfo> colorChangerInfos;
+        public List<AudioGhostInfo> audioInfos;
+        public OneShotAudioInfo oneShotAudio;
     }
 }

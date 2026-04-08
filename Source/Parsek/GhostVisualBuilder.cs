@@ -314,6 +314,7 @@ namespace Parsek
             var collectedRcsInfos = new List<RcsGhostInfo>();
             var collectedRoboticInfos = new List<RoboticGhostInfo>();
             var collectedColorChangerInfos = new List<ColorChangerGhostInfo>();
+            var collectedAudioInfos = new List<AudioGhostInfo>();
 
             for (int i = 0; i < partNodes.Length; i++)
             {
@@ -392,6 +393,11 @@ namespace Parsek
                     collectedRoboticInfos.AddRange(partRoboticInfos);
                 if (partColorChangerInfos != null)
                     collectedColorChangerInfos.AddRange(partColorChangerInfos);
+
+                // Build audio sources for engines and RCS on this part
+                var partAudioInfos = TryBuildAudioFX(ap.partPrefab, persistentId, partName, root);
+                if (partAudioInfos != null)
+                    collectedAudioInfos.AddRange(partAudioInfos);
             }
 
             ParsekLog.VerboseRateLimited("GhostVisual", $"ghost_built_{rootName}",
@@ -421,6 +427,8 @@ namespace Parsek
                 rcsInfos = collectedRcsInfos.Count > 0 ? collectedRcsInfos : null,
                 roboticInfos = collectedRoboticInfos.Count > 0 ? collectedRoboticInfos : null,
                 colorChangerInfos = collectedColorChangerInfos.Count > 0 ? collectedColorChangerInfos : null,
+                audioInfos = collectedAudioInfos.Count > 0 ? collectedAudioInfos : null,
+                oneShotAudio = BuildOneShotAudioSource(root),
             };
         }
 
@@ -2134,6 +2142,104 @@ namespace Parsek
             return smokePs;
         }
 
+
+        #region Ghost Audio FX
+
+        /// <summary>
+        /// Build AudioSource components for engine and RCS modules on a ghost part.
+        /// Returns a list of AudioGhostInfo (one per engine + RCS module), capped at
+        /// MaxAudioSourcesPerGhost across the entire ghost.
+        /// </summary>
+        internal static List<AudioGhostInfo> TryBuildAudioFX(
+            Part prefab, uint persistentId, string partName, GameObject ghostRoot)
+        {
+            if (prefab == null || ghostRoot == null) return null;
+
+            // Find the ghost part GO by persistentId
+            Transform partTransform = ghostRoot.transform.Find($"ghost_part_{persistentId}");
+            if (partTransform == null) return null;
+
+            var result = new List<AudioGhostInfo>();
+
+            // Engine audio
+            var engines = prefab.Modules.GetModules<ModuleEngines>();
+            if (engines != null)
+            {
+                for (int i = 0; i < engines.Count; i++)
+                {
+                    string clipPath = GhostAudioPresets.ResolveEngineAudioClip(prefab, i);
+                    if (clipPath == null) continue;
+
+                    AudioClip clip = GameDatabase.Instance.GetAudioClip(clipPath);
+                    if (clip == null)
+                    {
+                        ParsekLog.Warn("GhostAudio",
+                            $"AudioClip not found: '{clipPath}' for engine on '{partName}' pid={persistentId}");
+                        continue;
+                    }
+
+                    var source = CreateGhostAudioSource(partTransform.gameObject, clip, loop: true);
+                    result.Add(new AudioGhostInfo
+                    {
+                        partPersistentId = persistentId,
+                        moduleIndex = i,
+                        audioSource = source,
+                        clip = clip,
+                        volumeCurve = GhostAudioPresets.BuildDefaultVolumeCurve(),
+                        pitchCurve = GhostAudioPresets.BuildDefaultPitchCurve(),
+                        currentPower = 0f
+                    });
+                }
+            }
+
+            // RCS audio omitted — RCS sounds are too subtle to be audible at ghost distances.
+            // Engine audio alone is sufficient for the "hear a rocket in the distance" goal.
+
+            if (result.Count > 0)
+            {
+                ParsekLog.Verbose("GhostAudio",
+                    $"Built {result.Count} audio source(s) for '{partName}' pid={persistentId}");
+            }
+
+            return result.Count > 0 ? result : null;
+        }
+
+        /// <summary>
+        /// Build a single non-looping AudioSource on the ghost root for one-shot events
+        /// (decouple, explosion). Returns null if root is null.
+        /// </summary>
+        internal static OneShotAudioInfo BuildOneShotAudioSource(GameObject ghostRoot)
+        {
+            if (ghostRoot == null) return null;
+
+            var source = ghostRoot.AddComponent<AudioSource>();
+            source.spatialBlend = 1f;
+            source.dopplerLevel = 0f;
+            source.rolloffMode = AudioRolloffMode.Logarithmic;
+            source.maxDistance = 2500f;
+            source.loop = false;
+            source.playOnAwake = false;
+            source.volume = 1f; // base volume=1 — PlayOneShot volumeScale multiplies against this
+
+            ParsekLog.Verbose("GhostAudio", $"Built one-shot audio source on '{ghostRoot.name}'");
+            return new OneShotAudioInfo { audioSource = source };
+        }
+
+        private static AudioSource CreateGhostAudioSource(GameObject go, AudioClip clip, bool loop)
+        {
+            var source = go.AddComponent<AudioSource>();
+            source.clip = clip;
+            source.spatialBlend = 1f;
+            source.dopplerLevel = 0f;
+            source.rolloffMode = AudioRolloffMode.Logarithmic;
+            source.maxDistance = 2500f;
+            source.loop = loop;
+            source.playOnAwake = false;
+            source.volume = 0f;
+            return source;
+        }
+
+        #endregion
 
         private static List<RcsGhostInfo> TryBuildRcsFX(
             Part prefab, uint persistentId, string partName,

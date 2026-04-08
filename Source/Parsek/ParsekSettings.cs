@@ -43,6 +43,9 @@ namespace Parsek
         public float autoLoopIntervalSeconds = 10.0f;
         public int autoLoopTimeUnit = 0; // 0=Sec, 1=Min, 2=Hour
 
+        // Ghost audio volume multiplier (0 = muted, 1 = full volume)
+        public float ghostAudioVolume = 0.7f;
+
         // Ghost camera cutoff distance in km — watch mode auto-exits beyond this.
         public float ghostCameraCutoffKm = 300f;
 
