@@ -144,7 +144,14 @@ namespace Parsek
             Recording rec, int recordingIndex, double currentUT,
             HashSet<string> supersededIds)
         {
-            if (GhostMapPresence.HasGhostVesselForRecording(recordingIndex)) return false;
+            // A ProtoVessel exists but its icon may be suppressed (below atmosphere).
+            // When suppressed, the atmospheric marker should still draw.
+            if (GhostMapPresence.HasGhostVesselForRecording(recordingIndex))
+            {
+                uint ghostPid = GhostMapPresence.GetGhostVesselPidForRecording(recordingIndex);
+                if (ghostPid == 0 || !GhostMapPresence.IsIconSuppressed(ghostPid))
+                    return false;
+            }
             if (rec == null) return false;
             if (rec.IsDebris) return false;
             if (rec.Points == null || rec.Points.Count == 0) return false;

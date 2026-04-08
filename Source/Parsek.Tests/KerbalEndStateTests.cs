@@ -433,5 +433,54 @@ namespace Parsek.Tests
         }
 
         #endregion
+
+        #region PopulateCrewEndStates — Stand-in Reverse-Map (#254)
+
+        /// <summary>
+        /// When a snapshot contains a stand-in name (e.g., Leia instead of Jeb),
+        /// PopulateCrewEndStates should reverse-map it back to the original kerbal.
+        /// Guards: prevents cascading crew replacement chains.
+        /// </summary>
+        [Fact]
+        public void PopulateCrewEndStates_ReverseMapStandInNames()
+        {
+            // Set up: Jeb is reserved, Leia is his stand-in
+            CrewReservationManager.SetReplacement("Jebediah Kerman", "Leia Kerman");
+
+            // Build snapshots with Leia (the stand-in) as crew
+            var ghostSnap = new ConfigNode("VESSEL");
+            var part1 = ghostSnap.AddNode("PART");
+            part1.AddValue("crew", "Leia Kerman");
+
+            var vesselSnap = new ConfigNode("VESSEL");
+            var part2 = vesselSnap.AddNode("PART");
+            part2.AddValue("crew", "Leia Kerman");
+
+            var rec = new Recording
+            {
+                VesselName = "Kerbal X",
+                RecordingId = "test-reverse-map",
+                TerminalStateValue = TerminalState.Landed,
+                GhostVisualSnapshot = ghostSnap,
+                VesselSnapshot = vesselSnap
+            };
+
+            KerbalsModule.PopulateCrewEndStates(rec);
+
+            // Should have Jeb (original), not Leia (stand-in)
+            Assert.NotNull(rec.CrewEndStates);
+            Assert.True(rec.CrewEndStates.ContainsKey("Jebediah Kerman"),
+                "CrewEndStates should contain original name 'Jebediah Kerman', not stand-in 'Leia Kerman'");
+            Assert.False(rec.CrewEndStates.ContainsKey("Leia Kerman"),
+                "CrewEndStates should NOT contain stand-in name 'Leia Kerman'");
+            Assert.Equal(KerbalEndState.Aboard, rec.CrewEndStates["Jebediah Kerman"]);
+
+            // Verify log mentions the reverse-map
+            Assert.Contains(logLines, l => l.Contains("reverse-mapped") && l.Contains("Leia Kerman") && l.Contains("Jebediah Kerman"));
+
+            CrewReservationManager.ResetReplacementsForTesting();
+        }
+
+        #endregion
     }
 }

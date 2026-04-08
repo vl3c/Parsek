@@ -12,7 +12,7 @@ namespace Parsek
         internal const float HeavyThrustThreshold = 300f; // kN
         internal const float MediumThrustThreshold = 50f;  // kN
         internal const int MaxAudioSourcesPerGhost = 4;
-        internal const float OneShotVolumeScale = 0.25f; // one-shot events (decouple/explosion) are quieter than looping engines
+        internal const float OneShotVolumeScale = 0.5f;
 
         private static readonly Dictionary<string, string> presetMap = new Dictionary<string, string>
         {
@@ -136,9 +136,33 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Build the default volume curve for ghost engine audio.
-        /// Linear: power 0 → volume 0, power 1 → volume 1.
+        /// Build the volume curve for a ghost engine based on clip type.
+        /// Rockets get 2x boost to compensate for SHIP_VOLUME (~0.5) + atmosphere attenuation.
+        /// Jets/ion stay at 1x — they're already audible at stock levels.
         /// </summary>
+        /// <summary>
+        /// Build the volume curve for a ghost engine based on clip type.
+        /// Rockets get 2x boost — they need to punch through at distance.
+        /// Jets/ion stay at 1x — already audible at stock levels.
+        /// </summary>
+        internal static FloatCurve BuildVolumeCurve(string clipPath)
+        {
+            bool isRocket = clipPath != null && clipPath.Contains("rocket");
+            bool isJet = clipPath != null && clipPath.Contains("jet");
+            var curve = new FloatCurve();
+            if (isJet)
+            {
+                curve.Add(0f, 0f, 0f, 0.4f);
+                curve.Add(1f, 0.4f, 0.4f, 0f);
+            }
+            else
+            {
+                curve.Add(0f, 0f, 0f, 1f);
+                curve.Add(1f, 1f, 1f, 0f);
+            }
+            return curve;
+        }
+
         internal static FloatCurve BuildDefaultVolumeCurve()
         {
             var curve = new FloatCurve();

@@ -2185,7 +2185,7 @@ namespace Parsek
                         moduleIndex = i,
                         audioSource = source,
                         clip = clip,
-                        volumeCurve = GhostAudioPresets.BuildDefaultVolumeCurve(),
+                        volumeCurve = GhostAudioPresets.BuildVolumeCurve(clipPath),
                         pitchCurve = GhostAudioPresets.BuildDefaultPitchCurve(),
                         currentPower = 0f
                     });
@@ -2215,8 +2215,8 @@ namespace Parsek
             var source = ghostRoot.AddComponent<AudioSource>();
             source.spatialBlend = 1f;
             source.dopplerLevel = 0f;
-            source.rolloffMode = AudioRolloffMode.Logarithmic;
-            source.maxDistance = 500f; // stock-like range for one-shot events (decouple/explosion)
+            ConfigureGhostRolloff(source);
+            source.priority = 128; // same as KSP default — compete equally for voice channels
             source.loop = false;
             source.playOnAwake = false;
             source.volume = 1f; // base volume=1 — PlayOneShot volumeScale multiplies against this
@@ -2231,12 +2231,19 @@ namespace Parsek
             source.clip = clip;
             source.spatialBlend = 1f;
             source.dopplerLevel = 0f;
-            source.rolloffMode = AudioRolloffMode.Logarithmic;
-            source.maxDistance = 2500f;
+            ConfigureGhostRolloff(source);
+            source.priority = 128; // same as KSP default — compete equally for voice channels
             source.loop = loop;
             source.playOnAwake = false;
             source.volume = 0f;
             return source;
+        }
+
+        private static void ConfigureGhostRolloff(AudioSource source)
+        {
+            source.rolloffMode = AudioRolloffMode.Logarithmic;
+            source.minDistance = 30f; // logarithmic: vol = minDist/dist, so 30/300m=10%, 30/1km=3%
+            source.maxDistance = 5000f;
         }
 
         #endregion

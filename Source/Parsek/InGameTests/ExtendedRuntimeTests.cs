@@ -1180,4 +1180,388 @@ namespace Parsek.InGameTests
                 $"Overlap detected 5km from active vessel (blocker={result.blockerName}, dist={result.closestDistance:F0}m)");
         }
     }
+
+    // ════════════════════════════════════════════════════════════════
+    //  Spawn Health — spawn state invariants on committed recordings
+    // ════════════════════════════════════════════════════════════════
+
+    /// <summary>
+    /// Validates spawn-related state on committed recordings. Catches stuck flags
+    /// from #132 (spawn-death detection), #112 (duplicate blocker recovery),
+    /// and #149 (deferred spawn split-brain).
+    /// </summary>
+    public class SpawnHealthTests
+    {
+        [InGameTest(Category = "SpawnHealth",
+            Description = "No committed recording has SpawnAbandoned=true (should reset on scene entry)")]
+        public void NoStuckSpawnAbandoned()
+        {
+            var recordings = RecordingStore.CommittedRecordings;
+            int abandoned = 0;
+
+            foreach (var rec in recordings)
+            {
+                if (rec.SpawnAbandoned)
+                {
+                    abandoned++;
+                    ParsekLog.Warn("TestRunner",
+                        $"Recording '{rec.RecordingId}' ({rec.VesselName}) has SpawnAbandoned=true");
+                }
+            }
+
+            ParsekLog.Verbose("TestRunner",
+                $"Spawn abandoned check: {recordings.Count} recordings, {abandoned} stuck");
+            InGameAssert.AreEqual(0, abandoned,
+                $"{abandoned} recording(s) have SpawnAbandoned stuck true (should be transient)");
+        }
+
+        [InGameTest(Category = "SpawnHealth",
+            Description = "SpawnDeathCount is within bounds on all committed recordings")]
+        public void SpawnDeathCountWithinBounds()
+        {
+            var recordings = RecordingStore.CommittedRecordings;
+            int violations = 0;
+
+            foreach (var rec in recordings)
+            {
+                if (rec.SpawnDeathCount < 0 || rec.SpawnDeathCount > 10)
+                {
+                    violations++;
+                    ParsekLog.Warn("TestRunner",
+                        $"Recording '{rec.RecordingId}' ({rec.VesselName}) has SpawnDeathCount={rec.SpawnDeathCount}");
+                }
+            }
+
+            InGameAssert.AreEqual(0, violations,
+                $"{violations} recording(s) have out-of-bounds SpawnDeathCount");
+        }
+
+        [InGameTest(Category = "SpawnHealth",
+            Description = "SpawnedVesselPersistentId is nonzero only on recordings that should spawn")]
+        public void SpawnedPidConsistency()
+        {
+            var recordings = RecordingStore.CommittedRecordings;
+            int spawnedCount = 0, destroyedWithSpawn = 0;
+
+            foreach (var rec in recordings)
+            {
+                if (rec.SpawnedVesselPersistentId != 0)
+                {
+                    spawnedCount++;
+                    // A destroyed vessel shouldn't have a spawned PID (it gets recovered)
+                    if (rec.VesselDestroyed && rec.TerminalStateValue == TerminalState.Destroyed)
+                    {
+                        destroyedWithSpawn++;
+                        ParsekLog.Warn("TestRunner",
+                            $"Recording '{rec.RecordingId}' ({rec.VesselName}) is Destroyed but has SpawnedVesselPersistentId={rec.SpawnedVesselPersistentId}");
+                    }
+                }
+            }
+
+            ParsekLog.Verbose("TestRunner",
+                $"Spawned PIDs: {spawnedCount} of {recordings.Count} recordings have spawned vessels");
+            InGameAssert.AreEqual(0, destroyedWithSpawn,
+                $"{destroyedWithSpawn} destroyed recording(s) still have spawned vessel PID");
+        }
+    }
+
+    // ════════════════════════════════════════════════════════════════
+    //  Continuation Integrity — boundary and snapshot state (#95)
+    // ════════════════════════════════════════════════════════════════
+
+    /// <summary>
+    /// Validates continuation boundary state on committed recordings.
+    /// Catches #95 (continuation data persisting through revert) and
+    /// #95 items 3-5 (pre-continuation snapshot corruption).
+    /// </summary>
+    public class ContinuationIntegrityTests
+    {
+        [InGameTest(Category = "ContinuationIntegrity",
+            Description = "ContinuationBoundaryIndex is -1 on all committed recordings (cleared on commit)")]
+        public void BoundaryIndexClearedOnCommit()
+        {
+            var recordings = RecordingStore.CommittedRecordings;
+            int stuck = 0;
+
+            foreach (var rec in recordings)
+            {
+                if (rec.ContinuationBoundaryIndex >= 0)
+                {
+                    stuck++;
+                    ParsekLog.Warn("TestRunner",
+                        $"Recording '{rec.RecordingId}' ({rec.VesselName}) has ContinuationBoundaryIndex={rec.ContinuationBoundaryIndex} (expected -1)");
+                }
+            }
+
+            // Also check tree recordings
+            foreach (var tree in RecordingStore.CommittedTrees)
+            {
+                foreach (var kvp in tree.Recordings)
+                {
+                    if (kvp.Value.ContinuationBoundaryIndex >= 0)
+                    {
+                        stuck++;
+                        ParsekLog.Warn("TestRunner",
+                            $"Tree recording '{kvp.Key}' ({kvp.Value.VesselName}) has ContinuationBoundaryIndex={kvp.Value.ContinuationBoundaryIndex}");
+                    }
+                }
+            }
+
+            ParsekLog.Verbose("TestRunner",
+                $"Continuation boundary check: {stuck} recording(s) have non-cleared boundary index");
+            InGameAssert.AreEqual(0, stuck,
+                $"{stuck} committed recording(s) have ContinuationBoundaryIndex >= 0 (should be -1 after commit)");
+        }
+
+        [InGameTest(Category = "ContinuationIntegrity",
+            Description = "No committed recording has pre-continuation backup snapshots (should be cleared on bake)")]
+        public void BackupSnapshotsCleared()
+        {
+            var recordings = RecordingStore.CommittedRecordings;
+            int lingering = 0;
+
+            foreach (var rec in recordings)
+            {
+                if (rec.PreContinuationVesselSnapshot != null || rec.PreContinuationGhostSnapshot != null)
+                {
+                    lingering++;
+                    ParsekLog.Warn("TestRunner",
+                        $"Recording '{rec.RecordingId}' ({rec.VesselName}) has lingering pre-continuation backup snapshot(s)");
+                }
+            }
+
+            ParsekLog.Verbose("TestRunner",
+                $"Backup snapshot check: {lingering} recording(s) have un-cleared backups");
+            InGameAssert.AreEqual(0, lingering,
+                $"{lingering} committed recording(s) have pre-continuation backup snapshots (should be cleared on bake or rollback)");
+        }
+    }
+
+    // ════════════════════════════════════════════════════════════════
+    //  Rewind Save Resolution — tree branches resolve rewind saves (#159, #166)
+    // ════════════════════════════════════════════════════════════════
+
+    /// <summary>
+    /// Validates that tree branch recordings can resolve rewind saves through
+    /// their tree root. Catches #159/#166 (R button absent on tree branches).
+    /// </summary>
+    public class RewindSaveTests
+    {
+        [InGameTest(Category = "RewindSaves",
+            Description = "Every tree branch recording resolves a rewind save via GetRewindRecording")]
+        public void TreeBranchesResolveRewindSave()
+        {
+            var trees = RecordingStore.CommittedTrees;
+            if (trees.Count == 0) InGameAssert.Skip("No committed trees");
+
+            int branches = 0, resolved = 0, noSave = 0;
+
+            foreach (var tree in trees)
+            {
+                // Root should have the rewind save
+                Recording rootRec = null;
+                if (!string.IsNullOrEmpty(tree.RootRecordingId))
+                    tree.Recordings.TryGetValue(tree.RootRecordingId, out rootRec);
+
+                bool rootHasSave = rootRec != null && !string.IsNullOrEmpty(rootRec.RewindSaveFileName);
+
+                foreach (var kvp in tree.Recordings)
+                {
+                    var rec = kvp.Value;
+                    if (string.IsNullOrEmpty(rec.ParentRecordingId)) continue; // skip root
+                    branches++;
+
+                    var owner = RecordingStore.GetRewindRecording(rec);
+                    if (owner != null)
+                        resolved++;
+                    else if (rootHasSave)
+                    {
+                        noSave++;
+                        ParsekLog.Warn("TestRunner",
+                            $"Tree branch '{rec.RecordingId}' ({rec.VesselName}) in tree '{tree.Id}' " +
+                            $"cannot resolve rewind save — root has save but lookup failed");
+                    }
+                }
+            }
+
+            if (branches == 0) InGameAssert.Skip("No tree branch recordings to check");
+
+            ParsekLog.Info("TestRunner",
+                $"Rewind saves: {resolved}/{branches} tree branches resolve a rewind save, {noSave} failed");
+            InGameAssert.AreEqual(0, noSave,
+                $"{noSave} tree branch recording(s) fail to resolve rewind save despite root having one");
+        }
+    }
+
+    // ════════════════════════════════════════════════════════════════
+    //  Terminal Orbit Completeness — orbital recordings have orbit data (#203, #219)
+    // ════════════════════════════════════════════════════════════════
+
+    /// <summary>
+    /// Validates that recordings with orbital terminal states have complete terminal
+    /// orbit data. Catches #203 (standalone recordings missing terminal orbit fields)
+    /// and #219 (debris chain "no orbit data" errors).
+    /// </summary>
+    public class TerminalOrbitTests
+    {
+        [InGameTest(Category = "TerminalOrbit",
+            Description = "Orbital/Docked terminal recordings have TerminalOrbitBody populated")]
+        public void OrbitalRecordingsHaveTerminalOrbit()
+        {
+            var recordings = RecordingStore.CommittedRecordings;
+            int orbital = 0, withOrbit = 0, missing = 0;
+
+            foreach (var rec in recordings)
+            {
+                if (rec.TerminalStateValue != TerminalState.Orbiting &&
+                    rec.TerminalStateValue != TerminalState.Docked)
+                    continue;
+
+                orbital++;
+                if (!string.IsNullOrEmpty(rec.TerminalOrbitBody))
+                {
+                    withOrbit++;
+                    // Also verify body resolves
+                    var body = FlightGlobals.GetBodyByName(rec.TerminalOrbitBody);
+                    if (body == null)
+                        ParsekLog.Warn("TestRunner",
+                            $"Recording '{rec.RecordingId}' TerminalOrbitBody='{rec.TerminalOrbitBody}' does not resolve");
+                }
+                else
+                {
+                    missing++;
+                    ParsekLog.Warn("TestRunner",
+                        $"Recording '{rec.RecordingId}' ({rec.VesselName}) is {rec.TerminalStateValue} but has no TerminalOrbitBody");
+                }
+            }
+
+            // Also check tree recordings
+            foreach (var tree in RecordingStore.CommittedTrees)
+            {
+                foreach (var kvp in tree.Recordings)
+                {
+                    var rec = kvp.Value;
+                    if (rec.TerminalStateValue != TerminalState.Orbiting &&
+                        rec.TerminalStateValue != TerminalState.Docked)
+                        continue;
+
+                    orbital++;
+                    if (!string.IsNullOrEmpty(rec.TerminalOrbitBody))
+                        withOrbit++;
+                    else
+                    {
+                        missing++;
+                        ParsekLog.Warn("TestRunner",
+                            $"Tree recording '{kvp.Key}' ({rec.VesselName}) is {rec.TerminalStateValue} but has no TerminalOrbitBody");
+                    }
+                }
+            }
+
+            if (orbital == 0) InGameAssert.Skip("No orbital/docked recordings to check");
+
+            ParsekLog.Info("TestRunner",
+                $"Terminal orbit data: {withOrbit}/{orbital} orbital recordings have TerminalOrbitBody, {missing} missing");
+            InGameAssert.AreEqual(0, missing,
+                $"{missing} orbital recording(s) missing TerminalOrbitBody (regression of #203/#219)");
+        }
+
+        [InGameTest(Category = "TerminalOrbit",
+            Description = "Orbit segment bodies all resolve to valid CelestialBodies")]
+        public void OrbitSegmentBodiesResolve()
+        {
+            var recordings = RecordingStore.CommittedRecordings;
+            int segments = 0, unresolved = 0;
+
+            foreach (var rec in recordings)
+            {
+                if (rec.OrbitSegments == null) continue;
+                foreach (var seg in rec.OrbitSegments)
+                {
+                    segments++;
+                    if (string.IsNullOrEmpty(seg.bodyName) || FlightGlobals.GetBodyByName(seg.bodyName) == null)
+                    {
+                        unresolved++;
+                        ParsekLog.Warn("TestRunner",
+                            $"Recording '{rec.RecordingId}' orbit segment body='{seg.bodyName ?? "null"}' does not resolve");
+                    }
+                }
+            }
+
+            if (segments == 0) InGameAssert.Skip("No orbit segments to check");
+
+            ParsekLog.Verbose("TestRunner",
+                $"Orbit segment bodies: {segments - unresolved}/{segments} resolve");
+            InGameAssert.AreEqual(0, unresolved,
+                $"{unresolved} orbit segment(s) have unresolvable body names");
+        }
+    }
+
+    // ════════════════════════════════════════════════════════════════
+    //  Crew Reservation Live — spawned vessel PID consistency (#233)
+    // ════════════════════════════════════════════════════════════════
+
+    /// <summary>
+    /// Validates crew reservation system state with live game data.
+    /// Catches #233 (spawned EVA vessel deleted by crew reservation)
+    /// and #46 (EVA kerbals disappear after spawn).
+    /// </summary>
+    public class CrewReservationLiveTests
+    {
+        [InGameTest(Category = "CrewReservationLive",
+            Description = "BuildSpawnedVesselPidSet contains all non-zero SpawnedVesselPersistentIds")]
+        public void SpawnedPidSetComplete()
+        {
+            var recordings = RecordingStore.CommittedRecordings;
+            var pidSet = CrewReservationManager.BuildSpawnedVesselPidSet(recordings);
+
+            int spawnedCount = 0, missing = 0;
+            foreach (var rec in recordings)
+            {
+                if (rec.SpawnedVesselPersistentId == 0) continue;
+                spawnedCount++;
+
+                if (!pidSet.Contains(rec.SpawnedVesselPersistentId))
+                {
+                    missing++;
+                    ParsekLog.Warn("TestRunner",
+                        $"Recording '{rec.RecordingId}' SpawnedPID={rec.SpawnedVesselPersistentId} not in BuildSpawnedVesselPidSet");
+                }
+            }
+
+            if (spawnedCount == 0) InGameAssert.Skip("No spawned vessel PIDs");
+
+            ParsekLog.Verbose("TestRunner",
+                $"Spawned PID set: {pidSet.Count} PIDs in set, {spawnedCount} recordings with spawned vessels, {missing} missing");
+            InGameAssert.AreEqual(0, missing,
+                $"{missing} spawned vessel PID(s) missing from BuildSpawnedVesselPidSet");
+        }
+
+        [InGameTest(Category = "CrewReservationLive",
+            Description = "Spawned vessel PIDs that reference loaded vessels are not ghost map vessels")]
+        public void SpawnedVesselsNotGhosts()
+        {
+            var recordings = RecordingStore.CommittedRecordings;
+            int checked_ = 0, conflicts = 0;
+
+            foreach (var rec in recordings)
+            {
+                if (rec.SpawnedVesselPersistentId == 0) continue;
+                checked_++;
+
+                if (GhostMapPresence.IsGhostMapVessel(rec.SpawnedVesselPersistentId))
+                {
+                    conflicts++;
+                    ParsekLog.Warn("TestRunner",
+                        $"Recording '{rec.RecordingId}' SpawnedPID={rec.SpawnedVesselPersistentId} is also a ghost map vessel (PID conflict)");
+                }
+            }
+
+            if (checked_ == 0) InGameAssert.Skip("No spawned vessel PIDs to check");
+
+            ParsekLog.Verbose("TestRunner",
+                $"Spawned/ghost PID check: {checked_} spawned vessels, {conflicts} ghost conflicts");
+            InGameAssert.AreEqual(0, conflicts,
+                $"{conflicts} spawned vessel PID(s) conflict with ghost map vessels");
+        }
+    }
 }

@@ -664,10 +664,12 @@ namespace Parsek
                     chainTipIndexBuffer[chainId] = kvp.Key;
             }
 
-            // Second pass: draw markers, skipping non-tip chain members and debris
+            // Second pass: draw markers, skipping non-tip chain members and debris.
+            // Skip hidden ghosts (#245/#247): their transform.position is stale after
+            // FloatingOrigin shifts and projects to wrong map locations.
             foreach (var kvp in flight.TimelineGhosts)
             {
-                if (kvp.Value == null) continue;
+                if (kvp.Value == null || !kvp.Value.activeSelf) continue;
                 // Skip if native KSP icon is active (ProtoVessel exists and icon not suppressed).
                 // When the Harmony patch suppresses the icon (below atmosphere), we draw
                 // our custom marker at the ghost mesh position instead.

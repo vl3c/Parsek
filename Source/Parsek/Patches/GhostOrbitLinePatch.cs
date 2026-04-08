@@ -133,28 +133,38 @@ namespace Parsek.Patches
             if (line == null)
                 return;
 
+            // Atmosphere suppression — shared by both segment-based and terminal-orbit ghosts.
+            // Below the atmosphere boundary, Keplerian orbits are meaningless (drag makes them
+            // flicker wildly). Suppress the orbit line and icon, letting the trajectory-interpolated
+            // atmospheric marker take over.
+            CelestialBody body = __instance.driver?.referenceBody;
+            bool belowAtmosphere = body != null && body.atmosphere
+                && __instance.vessel.orbit != null
+                && __instance.vessel.orbit.altitude < body.atmosphereDepth;
+
             // Segment-based ghosts: the orbit line is clipped by GhostOrbitArcPatch.
             // When UT is past the recording bounds, hide the line entirely.
             if (GhostMapPresence.ghostOrbitBounds.TryGetValue(pid, out var timeBounds))
             {
                 double currentUT = Planetarium.GetUniversalTime();
-                if (currentUT > timeBounds.endUT || currentUT < timeBounds.startUT)
+                if (currentUT > timeBounds.endUT || currentUT < timeBounds.startUT || belowAtmosphere)
                 {
                     line.active = false;
                     __instance.drawIcons = OrbitRendererBase.DrawIcons.NONE;
+                    if (belowAtmosphere)
+                        GhostMapPresence.ghostsWithSuppressedIcon.Add(pid);
                     return;
                 }
 
-                // On arc — show line and vessel icon only (no Ap/Pe/AN/DN)
+                // On arc, above atmosphere — show line and vessel icon only (no Ap/Pe/AN/DN)
                 line.active = true;
                 __instance.drawIcons = OrbitRendererBase.DrawIcons.OBJ;
+                GhostMapPresence.ghostsWithSuppressedIcon.Remove(pid);
                 return;
             }
 
-            // Non-segment ghosts (terminal orbits): atmosphere-based suppression only
-            CelestialBody body = __instance.driver?.referenceBody;
-            if (body != null && body.atmosphere && __instance.vessel.orbit != null
-                && __instance.vessel.orbit.altitude < body.atmosphereDepth)
+            // Non-segment ghosts (terminal orbits): atmosphere-based suppression
+            if (belowAtmosphere)
             {
                 line.active = false;
                 __instance.drawIcons = OrbitRendererBase.DrawIcons.NONE;

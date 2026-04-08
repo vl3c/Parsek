@@ -68,7 +68,7 @@ Four new fields on Recording: `StartBodyName`, `StartBiome`, `StartSituation`, `
 
 Test game actions system with popular mods: CustomBarnKit (non-standard facility tiers may break level conversion formula), Strategia (different strategy IDs/transform mechanics), Contract Configurator (contract snapshot round-trip across CC versions). Requires KSP runtime with mods installed. Investigation notes in `docs/dev/mod-compatibility-notes.md`.
 
-**Priority:** Low — v1 targets stock only, mod compat is best-effort
+**Priority:** Last phase of roadmap — v1 targets stock only, mod compat is best-effort
 
 ---
 
@@ -143,17 +143,15 @@ KSP warns `Texture resolution is not valid for compression` for the 38x38 toolba
 
 **Status:** Fixed
 
-## 156. Missing test coverage from lifecycle simulation
+## ~~156. Missing test coverage from lifecycle simulation~~
 
 Areas identified by code path simulation that lack unit tests:
 
-1. `HandleVesselSwitchDuringRecording` with `Stop` decision — no test verifies recording data is committed/stashed rather than orphaned (fixed by #155, no regression test — requires Unity runtime)
-2. `CacheEngineModules` with partially-loaded vessel — null vessel tested; null part entries require Unity `Vessel` instance (not feasible in unit tests)
-3. `CheckAtmosphereBoundary` → `HandleAtmosphereBoundarySplit` → `HandleSoiChangeSplit` in sequence — requires full `FlightRecorder` instance state (in-game integration test only)
+1. `HandleVesselSwitchDuringRecording` with `Stop` decision — decision logic (`DecideOnVesselSwitch`) fully unit tested. Integration path is linear teardown (BuildCaptureRecording → null patch → IsRecording=false), same pattern as every other branch.
+2. `CacheEngineModules` with partially-loaded vessel — single `if (p == null) continue` guard. Cannot reliably reproduce partial loading in tests.
+3. `CheckAtmosphereBoundary` → `HandleAtmosphereBoundarySplit` chain — predicate `ShouldSplitAtAtmosphereBoundary` fully unit tested. Integration requires crossing atmosphere boundary (70km altitude), not feasible without orbital maneuver.
 
-**Priority:** Low — test infrastructure, requires Unity runtime
-
-**Status:** Partially fixed — item 4 done (7 tests). Items 1-3 deferred to in-game testing. Decision logic for items 1 and 3 extracted to static/pure methods and fully tested (`DecideOnVesselSwitch`, `ShouldSplitAtAtmosphereBoundary`). Only integration paths remain untestable without Unity runtime.
+**Status:** Resolved — all decision logic extracted to pure/static methods and fully unit tested. Remaining gaps are mechanical integration (set flag → read flag → stop/restart) with no complex logic. Risk too low to justify the cost of in-game tests requiring orbital maneuvers or partial vessel loading.
 
 ## ~~157. Green sphere ghost for debris after ghost-only merge decision~~
 
@@ -213,11 +211,11 @@ All time formatting (FormatDuration, FormatCountdown, KSPUtil.PrintDateCompact) 
 
 **Status:** Fixed
 
-## 188. Spawned surface vessels clutter map view during ascent
+## ~~188. Spawned surface vessels clutter map view during ascent~~
 
-During ascent, map view shows green dot icons for past recordings' spawned vessels sitting on the ground. These are real KSP vessels spawned at recording end — they correctly show in map view because they're actual vessels. But they're distracting during flight. Consider options: defer surface vessel spawns until tracking station visit, add a map filter toggle, or mark spawned ground vessels as debris type to reduce visual clutter.
+During ascent, map view shows green dot icons for past recordings' spawned vessels sitting on the ground. These are real KSP vessels spawned at recording end — they correctly show in map view because they're actual vessels. This is expected behavior — they're real vessels and map view correctly shows them.
 
-**Status:** TODO
+**Status:** Closed — not a bug, expected KSP behavior
 
 ## 189b. Ghost escape orbit line stops short of Kerbin SOI edge
 
@@ -228,7 +226,7 @@ For hyperbolic escape orbits, KSP's `OrbitRendererBase.UpdateSpline` draws the g
 2. Extend the orbit line beyond the hyperbola asymptote with a straight-line segment to the SOI exit point
 3. Give the ghost a `PatchedConicSolver` (complex, may conflict with KSP internals)
 
-**Status:** TODO — needs custom rendering solution
+**Priority:** Deferred to Phase 11.5 (Recording Optimization & Observability) — cosmetic, same tier as T25 fairing truss
 
 ## ~~194. W (watch) button stays enabled on one booster after separation~~
 
@@ -448,6 +446,156 @@ Root cause: the terminal state filter was appropriate for proto-vessel ghosts (w
 Additionally, proto-vessel ghosts created by deferred commit (merge/approval dialog) took up to 2 seconds to appear because `UpdateTrackingStationGhostLifecycle` only ran on a fixed interval.
 
 **Status:** Fixed — removed terminal state filter from atmospheric marker path. Extracted `ShouldDrawAtmosphericMarker` as testable pure method. Added committed-count change detection in `Update()` to force immediate lifecycle tick after dialog commits.
+
+## 241. Ghost fuel tanks have wrong color variant
+
+Some fuel tanks on ghost vessels display with the wrong color/texture variant during playback. The ghost visual builder clones the prefab model, but KSP fuel tanks can have multiple texture variants (e.g., Orange, White, Gray via `ModulePartVariants`). The variant selection from the vessel snapshot may not be applied to the ghost clone.
+
+**Priority:** Low — cosmetic, ghost shape is correct
+
+## 242. Ghost engine smoke emits perpendicular to flame direction
+
+On some engines, the smoke/exhaust particle effect fires sideways (perpendicular to the thrust axis) instead of along it. The flame plume itself is oriented correctly but the secondary smoke effect has a wrong emission direction. Likely a particle system `rotation` or `shape.rotation` not being transformed correctly when cloning engine FX from the prefab EFFECTS config.
+
+**Priority:** Low — cosmetic, only noticeable on certain engine models
+
+## ~~243. Watch camera does not reset to anchor at distance limit~~
+
+When the ghost passes the user-configured distance limit (e.g. 3000 km set in Settings), the watch camera should snap back to the anchor vessel. Instead it stays on the ghost.
+
+**Observed in:** Mun mission 2026-04-08. Logs in `logs/2026-04-08_mun-mission/`.
+
+**Status:** Fixed — removed unconditional orbital exemption from ShouldExitWatchForCutoff.
+
+## ~~244. ProtoVessel not generated during Mun transit (icon-only the entire way)
+
+While the vessel was travelling from Kerbin to Mun on a transfer orbit, a ProtoVessel ghost was never created — the ghost stayed as an icon-only marker the entire transit. Should have transitioned to orbit-line ProtoVessel once above atmosphere.
+
+**Root cause:** `CheckPendingMapVessels` rate-limited orbit update calls `FindOrbitSegment` which returns null in gaps between orbit segments (normal — every off-rails burn creates a gap). The code at `ParsekPlaybackPolicy.cs:791-796` interprets null as "past all orbit segments" and permanently removes the ProtoVessel + removes the index from `lastMapOrbitByIndex`. The index is never re-added to `pendingMapVessels`, so when the next segment starts (1.4s later), nothing creates a new ProtoVessel. The ghost stays icon-only for the rest of the flight (including the entire Kerbin→Mun transfer orbit and all Mun orbit segments).
+
+**Fix:** When `FindOrbitSegment` returns null, check if there are future orbit segments (`startUT > currentUT`). If so, re-add to `pendingMapVessels` instead of permanently dropping.
+
+**Observed in:** Mun mission 2026-04-08. Logs in `logs/2026-04-08_mun-mission/`.
+
+**Status:** Fixed — re-queue to pendingMapVessels when future orbit segments exist.
+
+## ~~245. Ghost icon position incorrect during warp with Mun focus~~
+
+With focus view set on Mun and warping at slow speed, the ghost icon position was incorrect (not tracking the vessel's actual trajectory).
+
+**Observed in:** Mun mission 2026-04-08.
+
+**Root cause:** Hidden ghosts (beyond visual range, `SetActive(false)`) have stale `transform.position` after FloatingOrigin shifts. `DrawMapMarkers` drew markers at stale world-space positions.
+
+**Status:** Fixed — skip `!activeSelf` ghosts in DrawMapMarkers. Same fix as #247.
+
+## ~~246. EVA on Mun generates multiple "Mun approach" recordings instead of one EVA recording
+
+Bob's EVA on the Mun surface generated a bunch of "Mun approach" segment recordings instead of a single EVA recording. The atmosphere/altitude boundary splitting logic is firing incorrectly on the surface of an airless body.
+
+**Root cause:** EVA kerbal on Mun surface oscillates between `LANDED` and `FLYING`/`SUB_ORBITAL` situations during walks/hops. `EnvironmentDetector.Classify` checks `situation` first — when LANDED, returns Surface correctly. But when KSP briefly flips to FLYING (EVA physics jitter, jetpack hops), the function falls through the surface check, skips the atmosphere check (Mun has no atmosphere), and hits the airless approach check: `altitude (2785m) < approachAltitude (25000m)` → returns `Approach`. The 0.5s Surface↔Approach debounce is too short, producing 16 alternating Surface/Approach track sections over a 455s EVA. The optimizer then splits at each environment-class boundary.
+
+**Fix:** In `EnvironmentDetector.Classify`, force `Surface` when altitude is very low above terrain on an airless body (e.g., < 100m AGL) regardless of KSP's vessel situation. Also increase the Surface↔Approach debounce to match `SurfaceSpeedDebounceSeconds` (3.0s).
+
+**Observed in:** Mun mission 2026-04-08.
+
+**Status:** Fixed — near-surface override (< 100m AGL on airless body) + increased Surface↔Approach debounce to 3.0s.
+
+## ~~247. Ghost icons show in Mun orbit for landed vessel and EVA kerbal
+
+During the EVA on the Mun surface, the map icons for KerbalX and Bob appeared in Mun orbit instead of on the surface. The ProtoVessel ghost orbital elements don't represent the surface position correctly.
+
+**Observed in:** Mun mission 2026-04-08.
+
+**Status:** Fixed — same root cause and fix as #245 (stale transform.position on hidden ghosts).
+
+## ~~248. EVA boarding misclassified~~ as vessel destruction (Bob shows Destroyed after boarding)
+
+Bob's first EVA recording on the Mun gets `terminal=Destroyed` instead of `terminal=Boarded` because the boarding event is misclassified as a normal vessel switch in tree mode.
+
+**Root cause:** Race condition — no physics frame runs between `onCrewBoardVessel` and `onVesselChange`. `DecideOnVesselSwitch` (in `OnPhysicsFrame`) never executes, so `ChainToVesselPending` is never set. `OnVesselSwitchComplete` falls through to the generic tree vessel-switch path: transitions the EVA vessel to background, KSP destroys the EVA vessel (standard boarding behavior), `DeferredDestructionCheck` sees the vessel is gone, `IsTrulyDestroyed` returns true → `TerminalState = Destroyed`. The `pendingBoardingTargetPid` was set correctly by `onCrewBoardVessel` but `OnVesselSwitchComplete` never checks it. The boarding confirmation expires unused 10 frames later.
+
+**Fix:** In `OnVesselSwitchComplete`, check `pendingBoardingTargetPid != 0 && recorder.RecordingStartedAsEva` before the `ChainToVesselPending` guard at line 1333. If detected, either set `ChainToVesselPending = true` so `HandleTreeBoardMerge` runs normally, or handle the boarding transition inline (flush EVA data, set `TerminalState.Boarded`, create the merge branch).
+
+**Key locations:** `ParsekFlight.OnVesselSwitchComplete` (line 1302), `FlightRecorder.DecideOnVesselSwitch` (line 5312, correct but never runs), `ParsekFlight.HandleTreeBoardMerge` (line 4232, sets Boarded but never invoked), `DeferredDestructionCheck` (line 3050, incorrectly classifies as destruction).
+
+**Observed in:** Mun mission 2026-04-08.
+
+**Status:** Fixed — check pendingBoardingTargetPid in OnVesselSwitchComplete before ChainToVesselPending guard.
+
+## ~~249. Planted flag not visible during ghost playback~~
+
+While watching the Mun recording, a flag planted during the original EVA did not appear during playback. The flag was correctly captured (`FlagEvent` in recording) but never spawned because `ApplyFlagEvents` was gated behind the `hiddenByZone` early return in `RenderInRangeGhost`. The ghost was in the Beyond zone (Mun from Kerbin = 11.4 Mm).
+
+**Root cause:** Flag events are fundamentally different from visual part events (mesh toggles) — they spawn permanent world vessels. They were incorrectly treated as visual effects and skipped when the ghost was hidden.
+
+**Status:** Fixed — moved `ApplyFlagEvents` before the zone-based rendering skip in `RenderInRangeGhost`.
+
+## ~~250. End column shows "-" for almost all recordings~~
+
+In the recordings window expanded stats, almost all recordings show "-" in the End column. Only the final mission recordings (leaves) have an end entry. Interior tree recordings and chain mid-segments have null `TerminalStateValue` by design — only leaf recordings get terminal states.
+
+**Root cause:** `FormatEndPosition` returns "-" when `TerminalStateValue` is null. This is correct for individual recordings, but the UI should propagate the leaf's terminal state to chain groups or show the chain tip's end position. Alternatively, chain mid-segments could inherit the next segment's start position as their end.
+
+**Observed in:** Mun mission 2026-04-08.
+
+**Status:** Fixed — FormatEndPosition falls back to SegmentBodyName + SegmentPhase for mid-segments.
+
+## ~~251. Recording phase label not updated after SOI change back to Kerbin~~
+
+On return from Mun, after exiting the Mun's SOI back into Kerbin's SOI, the recording status/phase should show "Kerbin exo" (exoatmospheric around Kerbin). Instead it still shows the Mun phase or no phase.
+
+**Root cause:** `OnVesselSOIChanged` closed the orbit segment but not the TrackSection. A single section spanned both SOIs with the same environment class (ExoBallistic). The optimizer only split on environment class changes, so no split occurred. `SegmentBodyName` derived from `Points[0].bodyName` used the old SOI body.
+
+**Status:** Fixed — close/reopen TrackSection at SOI boundary + split on body change in optimizer.
+
+## ~~252. Recording groups have no hide checkbox~~
+
+Group headers in the recordings window do not have a hide checkbox to toggle hide for all recordings in the group at once. Only individual recordings have hide toggles.
+
+**Status:** Fixed — group hide checkbox now toggles Hidden on all member recordings.
+
+## 253. Kerbin texture disappears during capsule descent watch at ~1100 km
+
+While watching the recording of capsule descent, the Kerbin terrain/atmosphere texture disappeared when the camera anchor was approximately 1100 km from the camera. This is a KSP/Unity scaled-space transition issue: KSP switches between the high-detail terrain mesh and the scaled-space sphere at a distance threshold that depends on camera position relative to the body. When the watch camera is anchored on a vessel far from the ghost (which is near Kerbin), the camera-to-body distance calculation may exceed KSP's scaledSpace transition threshold, causing the terrain to unload.
+
+**Observed in:** Mun mission 2026-04-08.
+
+**Priority:** Low — KSP engine limitation, not fixable from mod code without overriding PQS/scaledSpace transition logic. Workaround: reduce watch cutoff distance in Settings.
+
+## ~~254. Capsule spawned with wrong crew (Siemon instead of Jeb)~~
+
+At the end of the mission, the capsule was spawned with Siemon Kerman inside instead of Jebediah Kerman. The crew reservation/swap system assigned the wrong replacement, or the snapshot crew data was incorrect.
+
+**Root cause:** Double-swap cascade. (1) First recording commits: Jeb reserved → Leia hired as depth-0 stand-in → live vessel swapped Jeb→Leia. (2) Second recording captures the vessel snapshot which now contains Leia (the stand-in, not Jeb). (3) Second recording commits: `PopulateCrewEndStates` sees Leia as a real crew member → reserves Leia → generates Siemon as Leia's depth-0 stand-in → live vessel swapped Leia→Siemon. The recording system doesn't know that Leia is a temporary replacement for Jeb — it treats stand-in names as real crew.
+
+**Fix:** In `PopulateCrewEndStates` or the snapshot capture path, reverse-map stand-in names back to their original kerbals using `crewReplacements` before creating new reservations. If a crew member in the snapshot is already a known replacement, use the original kerbal's name instead.
+
+**Observed in:** Mun mission 2026-04-08.
+
+**Status:** Fixed — reverse-map stand-in names through CrewReplacements before inferring end states.
+
+## ~~255. Engine FX killed during ghost playback after booster decouple~~
+
+During ghost playback of a Kerbal X, the first two booster pairs decouple with engine FX visible, but when the last pair separates and after, all engine FX are off — the Mainsail plume disappears even though it should still be firing.
+
+**Root cause:** `StopRecordingForChainBoundary` calls `FinalizeRecordingState(emitTerminalEvents: true)` which appends `EngineShutdown` events for all active engines (including the Mainsail). When the joint break is classified as `DebrisSplit` (boosters = uncontrolled debris), `ResumeAfterFalseAlarm` continues recording but does not remove the orphaned shutdown events from `PartEvents`. Each booster decouple adds another orphaned `EngineShutdown` for the Mainsail.
+
+**Status:** Fixed — save `PartEvents.Count` before finalization, truncate back in `ResumeAfterFalseAlarm`.
+
+## TODO — Nice to have
+
+### T53. Watch camera mode selection
+
+Allow the player to change the camera mode during ghost watch playback. Currently the camera is always fixed-orientation relative to the ghost. A mode where the ground is oriented at the bottom of the screen (horizon-locked) would be more intuitive for atmospheric flight and surface operations.
+
+**Priority:** Nice-to-have
+
+### T54. Timeline spawn entries should show landing location
+
+Some timeline "Spawn:" lines show generic "Landed" without specifying where. Should include biome and body context when available, matching the recordings table End column format.
+
+**Priority:** Low — timeline display completeness
 
 ---
 

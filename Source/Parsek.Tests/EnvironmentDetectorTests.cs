@@ -482,6 +482,55 @@ namespace Parsek.Tests
             Assert.Equal(SegmentEnvironment.SurfaceStationary, result);
         }
 
+        [Fact]
+        public void Classify_AirlessNearSurfaceFlyingSituation_ReturnsSurface()
+        {
+            // EVA kerbal on Mun with situation=FLYING (physics jitter) at 50m altitude.
+            // Should return Surface, not Approach (#246).
+            var result = EnvironmentDetector.Classify(
+                hasAtmosphere: false,
+                altitude: 50,
+                atmosphereDepth: 0,
+                situation: 8, // FLYING
+                srfSpeed: 2.0,
+                hasActiveThrust: false,
+                approachAltitude: 25000);
+
+            Assert.Equal(SegmentEnvironment.SurfaceMobile, result);
+        }
+
+        [Fact]
+        public void Classify_AirlessNearSurfaceSubOrbitalSituation_ReturnsSurface()
+        {
+            // EVA kerbal on Mun with situation=SUB_ORBITAL (jetpack hop) at 20m altitude.
+            var result = EnvironmentDetector.Classify(
+                hasAtmosphere: false,
+                altitude: 20,
+                atmosphereDepth: 0,
+                situation: 16, // SUB_ORBITAL
+                srfSpeed: 0.05,
+                hasActiveThrust: false,
+                approachAltitude: 25000);
+
+            Assert.Equal(SegmentEnvironment.SurfaceStationary, result);
+        }
+
+        [Fact]
+        public void Classify_AirlessAt150m_ReturnsApproach_NotSurface()
+        {
+            // 150m is above the 100m near-surface threshold — normal Approach.
+            var result = EnvironmentDetector.Classify(
+                hasAtmosphere: false,
+                altitude: 150,
+                atmosphereDepth: 0,
+                situation: 8, // FLYING
+                srfSpeed: 50,
+                hasActiveThrust: false,
+                approachAltitude: 25000);
+
+            Assert.Equal(SegmentEnvironment.Approach, result);
+        }
+
         #endregion
 
         #region Classify — Surface takes priority over atmosphere
@@ -764,16 +813,17 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void GetDebounceFor_ApproachToSurface_ReturnsSurfaceAtmosphericDebounce()
+        public void GetDebounceFor_ApproachToSurface_ReturnsApproachDebounce()
         {
-            // Rough Mun landing can bounce between LANDED and SUB_ORBITAL
-            Assert.Equal(EnvironmentHysteresis.SurfaceAtmosphericDebounceSeconds, EnvironmentHysteresis.GetDebounceFor(
+            // Rough Mun landing / EVA hopping can bounce between LANDED and SUB_ORBITAL.
+            // Uses ApproachDebounceSeconds (3.0s) to filter EVA physics jitter (#246).
+            Assert.Equal(EnvironmentHysteresis.ApproachDebounceSeconds, EnvironmentHysteresis.GetDebounceFor(
                 SegmentEnvironment.Approach, SegmentEnvironment.SurfaceMobile));
-            Assert.Equal(EnvironmentHysteresis.SurfaceAtmosphericDebounceSeconds, EnvironmentHysteresis.GetDebounceFor(
+            Assert.Equal(EnvironmentHysteresis.ApproachDebounceSeconds, EnvironmentHysteresis.GetDebounceFor(
                 SegmentEnvironment.Approach, SegmentEnvironment.SurfaceStationary));
-            Assert.Equal(EnvironmentHysteresis.SurfaceAtmosphericDebounceSeconds, EnvironmentHysteresis.GetDebounceFor(
+            Assert.Equal(EnvironmentHysteresis.ApproachDebounceSeconds, EnvironmentHysteresis.GetDebounceFor(
                 SegmentEnvironment.SurfaceMobile, SegmentEnvironment.Approach));
-            Assert.Equal(EnvironmentHysteresis.SurfaceAtmosphericDebounceSeconds, EnvironmentHysteresis.GetDebounceFor(
+            Assert.Equal(EnvironmentHysteresis.ApproachDebounceSeconds, EnvironmentHysteresis.GetDebounceFor(
                 SegmentEnvironment.SurfaceStationary, SegmentEnvironment.Approach));
         }
 

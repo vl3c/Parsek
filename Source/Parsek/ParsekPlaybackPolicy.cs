@@ -775,6 +775,7 @@ namespace Parsek
             // 2a. Segment-based orbit updates (existing)
             List<KeyValuePair<int, (string body, double sma, double ecc)>> orbitUpdates = null;
             List<int> toRemoveFromMap = null;
+            List<int> toRequeue = null;
 
             foreach (var kvp in lastMapOrbitByIndex)
             {
@@ -786,11 +787,27 @@ namespace Parsek
 
                 OrbitSegment? seg = TrajectoryMath.FindOrbitSegment(rec.OrbitSegments, currentUT);
 
-                // UT is past all orbit segments — ghost is no longer orbital (landed, destroyed, etc.).
-                // Remove the ghost map ProtoVessel so the stale orbit line disappears.
+                // No orbit segment at current UT — either in a gap between segments or
+                // truly past all segments. Check if future segments exist.
                 if (!seg.HasValue)
                 {
-                    GhostMapPresence.RemoveGhostVesselForRecording(idx, "left-orbit-segments");
+                    bool hasFutureSegment = false;
+                    var segs = rec.OrbitSegments;
+                    for (int s = 0; s < segs.Count; s++)
+                    {
+                        if (segs[s].startUT > currentUT) { hasFutureSegment = true; break; }
+                    }
+
+                    GhostMapPresence.RemoveGhostVesselForRecording(idx,
+                        hasFutureSegment ? "gap-between-orbit-segments" : "left-orbit-segments");
+
+                    if (hasFutureSegment)
+                    {
+                        // Re-add to pending so the next segment creates a new ProtoVessel
+                        if (toRequeue == null) toRequeue = new List<int>();
+                        toRequeue.Add(idx);
+                    }
+
                     if (toRemoveFromMap == null) toRemoveFromMap = new List<int>();
                     toRemoveFromMap.Add(idx);
                     continue;
@@ -816,6 +833,23 @@ namespace Parsek
             {
                 for (int i = 0; i < toRemoveFromMap.Count; i++)
                     lastMapOrbitByIndex.Remove(toRemoveFromMap[i]);
+            }
+            if (toRequeue != null)
+            {
+                for (int i = 0; i < toRequeue.Count; i++)
+                {
+                    int idx = toRequeue[i];
+                    if (!pendingMapVessels.ContainsKey(idx) && idx < committed.Count)
+                    {
+                        var traj = committed[idx] as IPlaybackTrajectory;
+                        if (traj != null)
+                        {
+                            pendingMapVessels[idx] = traj;
+                            ParsekLog.Verbose("MapPresence",
+                                $"Re-queued recording #{idx} to pendingMapVessels (gap between orbit segments)");
+                        }
+                    }
+                }
             }
 
             // 2b. State-vector orbit updates (new — physics-only suborbital)

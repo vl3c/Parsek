@@ -627,7 +627,8 @@ namespace Parsek
         /// Shared between SpawnTimelineGhost and StartPlayback to eliminate code duplication.
         /// </summary>
         internal static void PopulateGhostInfoDictionaries(
-            GhostPlaybackState state, GhostBuildResult result)
+            GhostPlaybackState state, GhostBuildResult result,
+            IPlaybackTrajectory traj = null)
         {
             if (result == null) return;
 
@@ -729,6 +730,38 @@ namespace Parsek
             }
 
             state.oneShotAudio = result.oneShotAudio;
+
+            // Auto-start audio for engines that have no EngineIgnited event in the recording.
+            // This handles debris boosters whose SRB engines were already running at breakup
+            // time — the child recording has no seed events for these engines.
+            if (state.audioInfos != null && state.audioInfos.Count > 0 && traj != null && traj.PartEvents != null)
+            {
+                var engineKeysWithEvents = new HashSet<ulong>();
+                for (int pe = 0; pe < traj.PartEvents.Count; pe++)
+                {
+                    var evt = traj.PartEvents[pe];
+                    if (evt.eventType == PartEventType.EngineIgnited || evt.eventType == PartEventType.EngineThrottle)
+                        engineKeysWithEvents.Add(FlightRecorder.EncodeEngineKey(evt.partPersistentId, evt.moduleIndex));
+                }
+
+                foreach (var kvp in state.audioInfos)
+                {
+                    if (!engineKeysWithEvents.Contains(kvp.Key))
+                    {
+                        // No engine event for this audio source — auto-start at full power
+                        kvp.Value.currentPower = 1f;
+                        if (kvp.Value.audioSource != null)
+                        {
+                            kvp.Value.audioSource.volume = 0f; // will be set by UpdateAudioAtmosphere
+                            kvp.Value.audioSource.loop = true;
+                            kvp.Value.audioSource.Play();
+                        }
+                        ParsekLog.Verbose("GhostAudio",
+                            $"Auto-started audio for orphan engine key={kvp.Key} " +
+                            $"(no EngineIgnited event — likely debris booster)");
+                    }
+                }
+            }
 
         }
 
@@ -1445,7 +1478,8 @@ namespace Parsek
         internal static void PlayOneShotAtGhost(GhostPlaybackState state, PartEventType eventType)
         {
             if (state.oneShotAudio?.audioSource == null) return;
-            if (state.audioMuted) return;
+            // One-shot events (explosions) bypass audioMuted — they're dramatic moments
+            // that should always be audible, even for overlap ghosts about to expire.
             if (state.atmosphereFactor < 0.001f) return; // no sound in vacuum
 
             string clipPath = GhostAudioPresets.ResolveOneShotClip(eventType);
@@ -1456,6 +1490,7 @@ namespace Parsek
 
             float vol = ComputeGhostAudioVolume(GhostAudioPresets.OneShotVolumeScale, state.atmosphereFactor);
             if (vol <= 0f) return;
+
             state.oneShotAudio.audioSource.PlayOneShot(clip, vol);
             ParsekLog.Verbose("GhostAudio",
                 $"One-shot played: {eventType} clip='{clipPath}' vol={vol:F2}");
@@ -2726,12 +2761,11 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Orbital-aware version: orbital recordings are exempt from the cutoff
-        /// because they naturally travel far from the active vessel during ascent/orbit.
+        /// Orbital-aware version: if the user has configured a cutoff, always respect it
+        /// regardless of recording type. The cutoff is explicitly user-configured (#243).
         /// </summary>
         internal static bool ShouldExitWatchForCutoff(double ghostDistanceMeters, float cutoffKm, bool isOrbitalRecording)
         {
-            if (isOrbitalRecording) return false;
             return ghostDistanceMeters >= cutoffKm * 1000.0;
         }
 
