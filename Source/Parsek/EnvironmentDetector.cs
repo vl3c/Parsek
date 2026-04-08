@@ -37,6 +37,17 @@ namespace Parsek
                     : SegmentEnvironment.SurfaceStationary;
             }
 
+            // Airless body near-surface override: KSP's EVA physics jitter causes the vessel
+            // situation to briefly flip from LANDED to FLYING/SUB_ORBITAL during walks and hops.
+            // At very low altitude on an airless body, force Surface classification regardless
+            // of the transient situation flag. 100m AGL covers EVA jetpack hops (~20m typical).
+            if (!hasAtmosphere && approachAltitude > 0 && altitude < 100.0 && situation != 32)
+            {
+                return srfSpeed > 0.1
+                    ? SegmentEnvironment.SurfaceMobile
+                    : SegmentEnvironment.SurfaceStationary;
+            }
+
             if (hasAtmosphere && altitude < atmosphereDepth)
                 return SegmentEnvironment.Atmospheric;
 
@@ -163,10 +174,12 @@ namespace Parsek
                 ((from == SegmentEnvironment.ExoBallistic || from == SegmentEnvironment.ExoPropulsive) && to == SegmentEnvironment.Approach))
                 return ApproachDebounceSeconds;
 
-            // Approach/surface bounce on airless bodies (rough landings, hopping)
+            // Approach/surface bounce on airless bodies (rough landings, EVA hopping).
+            // 3.0s matches SurfaceSpeedDebounceSeconds — EVA physics jitter on the Mun
+            // can produce situation flips lasting ~1-2s during walks and jetpack hops.
             if ((from == SegmentEnvironment.Approach && (to == SegmentEnvironment.SurfaceMobile || to == SegmentEnvironment.SurfaceStationary)) ||
                 ((from == SegmentEnvironment.SurfaceMobile || from == SegmentEnvironment.SurfaceStationary) && to == SegmentEnvironment.Approach))
-                return SurfaceAtmosphericDebounceSeconds;
+                return ApproachDebounceSeconds;
 
             // All other transitions: no debounce (immediate)
             return 0.0;
