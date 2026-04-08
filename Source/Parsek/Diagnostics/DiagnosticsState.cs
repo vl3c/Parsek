@@ -20,6 +20,10 @@ namespace Parsek
         internal static RecordingGrowthRate activeGrowthRate;
         internal static bool hasActiveGrowthRate;
 
+        // Save/load timing (updated on each OnSave/OnLoad)
+        internal static SaveLoadTiming lastSaveTiming;
+        internal static SaveLoadTiming lastLoadTiming;
+
         // Health counters (reset per scene load)
         internal static HealthCounters health;
 
@@ -67,6 +71,8 @@ namespace Parsek
         {
             playbackBudget = default;
             recordingBudget = default;
+            lastSaveTiming = default;
+            lastLoadTiming = default;
             playbackFrameHistory.Reset();
             activeGrowthRate = default;
             hasActiveGrowthRate = false;
