@@ -1332,6 +1332,23 @@ namespace Parsek
             // Don't promote during pending board merge — the board handler in Update() owns this.
             if (recorder != null && recorder.ChainToVesselPending) return;
 
+            // Boarding detection: onCrewBoardVessel fires before onVesselChange, but no
+            // physics frame runs in between — so DecideOnVesselSwitch (in OnPhysicsFrame)
+            // never gets a chance to set ChainToVesselPending. Detect this case here and
+            // set the flag so HandleTreeBoardMerge runs in Update() (#248).
+            if (recorder != null && recorder.IsRecording
+                && pendingBoardingTargetPid != 0
+                && recorder.RecordingStartedAsEva
+                && newVessel.persistentId == pendingBoardingTargetPid)
+            {
+                recorder.ChainToVesselPending = true;
+                ParsekLog.Info("Flight",
+                    $"OnVesselSwitchComplete: detected boarding from EVA " +
+                    $"(evaPid={recorder.RecordingVesselId}, targetPid={pendingBoardingTargetPid}) " +
+                    $"— set ChainToVesselPending");
+                return;
+            }
+
             // If the current recorder is still active (OnPhysicsFrame didn't catch the switch,
             // e.g. because isOnRails was true), transition it to background now
             if (recorder != null && recorder.IsRecording && !recorder.IsBackgrounded
