@@ -597,6 +597,60 @@ Some timeline "Spawn:" lines show generic "Landed" without specifying where. Sho
 
 **Priority:** Low — timeline display completeness
 
+## 256. EVA recording runaway sampling — 138K points in 33 seconds
+
+"Bob Kerman" EVA recording (rec[28]) produced 138,648 trajectory points in 33 seconds (4,200 pts/sec). The adaptive sampler should cap at ~3-5 pts/sec. This single recording is 86.9 MB — 93% of the save's total Parsek storage and the primary cause of the 8.7-second initial load time.
+
+**Likely cause:** EVA physics jitter on the surface causes velocity direction to oscillate every frame, defeating the 2-degree direction-change threshold in `ShouldRecordPoint`. The speed-change threshold (5%) may also trigger constantly during surface contact bouncing.
+
+**Investigate:** Check `FlightRecorder.ShouldRecordPoint` behavior during EVA on surfaces. May need EVA-specific sampling overrides (larger thresholds or minimum interval floor for EVA vessels).
+
+**Priority:** High — directly causes performance and storage issues
+
+## 257. Orbit segment with negative SMA (hyperbolic escape)
+
+In-game test `OrbitSegmentBodiesValid` fails: "Orbit segment for 'Mun' has non-positive SMA=-931047.895195401". Negative SMA is physically correct for hyperbolic orbits (eccentricity > 1) but the test asserts positive SMA.
+
+**Investigate:** Determine whether the orbit segment was captured during a hyperbolic escape trajectory (expected — fix the test to allow e>1 with negative SMA) or whether the data is corrupted (fix the recording).
+
+**Priority:** Medium — test assertion may be wrong, not the data
+
+## 258. Non-chronological trajectory points in recording
+
+In-game test `CommittedRecordingsHaveValidData` fails: recording `ab105395ae5547b0b70c1eb9bb41ca9f` has point 159 UT going backward by ~33 seconds. Trajectory points should be monotonically increasing in UT.
+
+**Investigate:** Check whether this recording was involved in a revert, time jump, or continuation rollback that left stale points. May also be related to #256 (EVA recording issues). Consider whether `StopRecording` should sort or validate point order.
+
+**Priority:** Medium — data integrity issue
+
+## 259. Orbital recordings missing TerminalOrbitBody
+
+In-game test `OrbitalRecordingsHaveTerminalOrbit` reports 4 orbital recordings without `TerminalOrbitBody` set. This is a regression guard for #203/#219.
+
+**Investigate:** Identify which 4 recordings are affected. Check `FinalizeRecordingState` in `FlightRecorder.cs` — what condition causes `TerminalOrbitBody` to be skipped? Likely recordings that ended via chain boundary or tree promotion rather than normal stop.
+
+**Priority:** Medium — affects orbital ghost spawn accuracy
+
+## 260. Diagnostics storage scan warns on .pcrf files that never exist
+
+Every recording triggers a "Missing sidecar file" warning for `.pcrf` (ghost geometry reference). The `.pcrf` path is defined in `RecordingPaths.BuildGhostGeometryRelativePath` but no code ever writes these files — it's an unimplemented placeholder.
+
+**Fix:** Remove `.pcrf` from the diagnostics storage scan in `DiagnosticsComputation.ComputeStorageBreakdown`. Keep the path definition in `RecordingPaths` for future use but don't scan for it. Also remove from `StorageBreakdown` struct (geometryFileBytes always 0).
+
+**Priority:** Low — cosmetic log noise, no functional impact
+
+## 261. Diagnostics playback budget shows 0.0 ms instead of N/A on first frame
+
+The diagnostics report shows "Playback budget: 0.0 ms avg, 0.0 ms peak" when run before the rolling buffer has any entries, rather than "N/A" as specified in the design doc (edge case E10). The `FormatReport` N/A logic may not be checking the right condition.
+
+**Priority:** Low — cosmetic, only visible if report is run immediately after scene load
+
+## 262. Diagnostics missing _vessel.craft warnings for tree sub-recordings
+
+Tree sub-recordings (debris, EVA branches) may not have their own `_vessel.craft` file — they share the tree root's snapshot. The storage scan warns "Missing sidecar file" for each of these. Should skip the warning for recordings that are tree members and don't own their own vessel snapshot.
+
+**Priority:** Low — cosmetic log noise
+
 ---
 
 # In-Game Tests
