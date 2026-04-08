@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using UnityEngine;
 
 namespace Parsek
@@ -57,6 +58,10 @@ namespace Parsek
         // Per-frame batch counters (avoid per-ghost log spam)
         private int frameSpawnCount;
         private int frameDestroyCount;
+
+        // Diagnostics: reusable Stopwatches (allocated once, no per-frame GC)
+        private readonly Stopwatch updateStopwatch = new Stopwatch();
+        private readonly Stopwatch spawnStopwatch = new Stopwatch();
 
         // Deferred event lists (reused per frame to avoid GC allocation)
         private readonly List<PlaybackCompletedEvent> deferredCompletedEvents = new List<PlaybackCompletedEvent>();
@@ -129,6 +134,12 @@ namespace Parsek
             frameSpawnCount = 0;
             frameDestroyCount = 0;
 
+            // Diagnostics: start total frame timing
+            updateStopwatch.Restart();
+            spawnStopwatch.Reset();
+            long spawnMicroseconds = 0;
+            int ghostsProcessed = 0;
+
             for (int i = 0; i < trajectories.Count; i++)
             {
                 var traj = trajectories[i];
@@ -157,6 +168,7 @@ namespace Parsek
                 GhostPlaybackState state;
                 ghostStates.TryGetValue(i, out state);
                 bool ghostActive = state != null && state.ghost != null;
+                if (ghostActive) ghostsProcessed++;
 
                 // === Loop dispatch (before main rendering) ===
                 if (ShouldLoopPlayback(traj))
@@ -299,6 +311,28 @@ namespace Parsek
 
             for (int i = 0; i < deferredCompletedEvents.Count; i++)
                 OnPlaybackCompleted?.Invoke(deferredCompletedEvents[i]);
+
+            // Diagnostics: stop total frame timing and write results
+            updateStopwatch.Stop();
+            long totalMicroseconds = updateStopwatch.ElapsedTicks * 1000000L / Stopwatch.Frequency;
+            spawnMicroseconds = spawnStopwatch.ElapsedTicks * 1000000L / Stopwatch.Frequency;
+
+            DiagnosticsState.playbackBudget.totalMicroseconds = totalMicroseconds;
+            DiagnosticsState.playbackBudget.spawnMicroseconds = spawnMicroseconds;
+            DiagnosticsState.playbackBudget.ghostsProcessed = ghostsProcessed;
+            DiagnosticsState.playbackBudget.warpRate = ctx.warpRate;
+
+            DiagnosticsState.playbackFrameHistory.Append(
+                Time.realtimeSinceStartup, totalMicroseconds);
+
+            // Budget threshold warning (8ms = half of 16.6ms frame budget at 60fps)
+            double totalMs = totalMicroseconds / 1000.0;
+            if (totalMs > 8.0)
+            {
+                ParsekLog.WarnRateLimited("Diagnostics", "playback-budget",
+                    $"Playback frame budget exceeded: {totalMs.ToString("F1", System.Globalization.CultureInfo.InvariantCulture)}ms " +
+                    $"({ghostsProcessed} ghosts, warp: {ctx.warpRate.ToString("F0", System.Globalization.CultureInfo.InvariantCulture)}x)", 30.0);
+            }
         }
 
         /// <summary>
@@ -482,6 +516,7 @@ namespace Parsek
                             $"SoftCap triggered: zone1={cachedZone1Ghosts.Count} zone2={cachedZone2Ghosts.Count} " +
                             $"actions={capActions.Count}");
                         softCapTriggeredThisFrame = true;
+                        DiagnosticsState.health.softCapActivations++;
                     }
 
                     foreach (var capKvp in capActions)
@@ -502,6 +537,7 @@ namespace Parsek
                                     ? trajectories[capIdx] : null;
                                 DestroyGhost(capIdx, capTraj, reason: "soft cap despawn");
                                 softCapSuppressed.Add(capIdx);
+                                DiagnosticsState.health.softCapDespawns++;
                                 break;
                             case GhostCapAction.SimplifyToOrbitLine:
                                 GhostPlaybackState simplifyState;
@@ -1403,6 +1439,7 @@ namespace Parsek
                 return;
             }
 
+            spawnStopwatch.Start();
             frameSpawnCount++;
             completedEventFired.Remove(index); // Reset dedup for time-jump backward
 
@@ -1467,6 +1504,9 @@ namespace Parsek
                 $"Ghost #{index} \"{traj?.VesselName}\" spawned ({buildType}, " +
                 $"parts={state.partTree?.Count ?? 0} engines={state.engineInfos?.Count ?? 0} " +
                 $"rcs={state.rcsInfos?.Count ?? 0})", 1.0);
+
+            spawnStopwatch.Stop();
+            DiagnosticsState.health.ghostBuildsThisSession++;
         }
 
         /// <summary>
@@ -1547,6 +1587,7 @@ namespace Parsek
             ghostStates.Remove(index);
             loopPhaseOffsets.Remove(index);
             completedEventFired.Remove(index);
+            DiagnosticsState.health.ghostDestroysThisSession++;
         }
 
         /// <summary>
