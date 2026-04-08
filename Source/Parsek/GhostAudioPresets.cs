@@ -12,7 +12,7 @@ namespace Parsek
         internal const float HeavyThrustThreshold = 300f; // kN
         internal const float MediumThrustThreshold = 50f;  // kN
         internal const int MaxAudioSourcesPerGhost = 4;
-        internal const float OneShotVolumeScale = 0.25f; // one-shot events (decouple/explosion) are quieter than looping engines
+        internal const float OneShotVolumeScale = 0.7f; // one-shot events (explosion) — louder than engines, they're dramatic moments
 
         private static readonly Dictionary<string, string> presetMap = new Dictionary<string, string>
         {

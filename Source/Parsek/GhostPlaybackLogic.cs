@@ -1445,7 +1445,8 @@ namespace Parsek
         internal static void PlayOneShotAtGhost(GhostPlaybackState state, PartEventType eventType)
         {
             if (state.oneShotAudio?.audioSource == null) return;
-            if (state.audioMuted) return;
+            // One-shot events (explosions) bypass audioMuted — they're dramatic moments
+            // that should always be audible, even for overlap ghosts about to expire.
             if (state.atmosphereFactor < 0.001f) return; // no sound in vacuum
 
             string clipPath = GhostAudioPresets.ResolveOneShotClip(eventType);

@@ -2216,7 +2216,7 @@ namespace Parsek
             source.spatialBlend = 1f;
             source.dopplerLevel = 0f;
             source.rolloffMode = AudioRolloffMode.Logarithmic;
-            source.maxDistance = 500f; // stock-like range for one-shot events (decouple/explosion)
+            source.maxDistance = 5000f; // explosions should be audible from a distance
             source.loop = false;
             source.playOnAwake = false;
             source.volume = 1f; // base volume=1 — PlayOneShot volumeScale multiplies against this
@@ -2232,7 +2232,7 @@ namespace Parsek
             source.spatialBlend = 1f;
             source.dopplerLevel = 0f;
             source.rolloffMode = AudioRolloffMode.Logarithmic;
-            source.maxDistance = 2500f;
+            source.maxDistance = 5000f;
             source.loop = loop;
             source.playOnAwake = false;
             source.volume = 0f;
