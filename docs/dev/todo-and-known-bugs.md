@@ -541,13 +541,13 @@ In the recordings window expanded stats, almost all recordings show "-" in the E
 
 **Status:** Fixed — FormatEndPosition falls back to SegmentBodyName + SegmentPhase for mid-segments.
 
-## 251. Recording phase label not updated after SOI change back to Kerbin
+## ~~251. Recording phase label not updated after SOI change back to Kerbin~~
 
 On return from Mun, after exiting the Mun's SOI back into Kerbin's SOI, the recording status/phase should show "Kerbin exo" (exoatmospheric around Kerbin). Instead it still shows the Mun phase or no phase.
 
-**Observed in:** Mun mission 2026-04-08.
+**Root cause:** `OnVesselSOIChanged` closed the orbit segment but not the TrackSection. A single section spanned both SOIs with the same environment class (ExoBallistic). The optimizer only split on environment class changes, so no split occurred. `SegmentBodyName` derived from `Points[0].bodyName` used the old SOI body.
 
-**Priority:** Low — phase label accuracy
+**Status:** Fixed — close/reopen TrackSection at SOI boundary + split on body change in optimizer.
 
 ## ~~252. Recording groups have no hide checkbox~~
 
