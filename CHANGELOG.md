@@ -14,6 +14,22 @@ All notable changes to Parsek are documented here.
 - **Defer #189b (ghost escape orbit line).** Cosmetic rendering issue, deferred to Phase 11.5 alongside T25 (fairing truss) and other visual polish.
 - **Defer T43 (mod compatibility testing).** Moved to last phase of roadmap — v1 targets stock only.
 
+### UI
+
+- **Start/End position columns in expanded recordings table.** Two new columns show where each recording started (launch site, EVA source vessel, situation+biome+body) and ended (terminal state with location context, or segment phase+body for mid-segments). Parent vessel name resolved for EVA recordings.
+- **Group hide checkbox toggles all member recordings (#252).** Previously only toggled group-level visibility without affecting individual recording Hidden flags.
+
+### Bug Fixes (Mun Mission Playtest)
+
+- **Fix ProtoVessel permanently lost in orbit segment gap (#244).** `CheckPendingMapVessels` removed the ProtoVessel when `FindOrbitSegment` returned null during a gap between segments (normal during burns) and never re-queued it. The ghost stayed icon-only for the entire Kerbin→Mun transfer. Now checks for future segments and re-queues to `pendingMapVessels`.
+- **Fix EVA on airless body generating multiple "approach" segments (#246).** EVA kerbal on Mun surface oscillated between LANDED and FLYING/SUB_ORBITAL during walks/hops. `EnvironmentDetector.Classify` fell through to the Approach check. Added near-surface override (< 100m AGL on airless body forces Surface) and increased Surface↔Approach debounce from 0.5s to 3.0s.
+- **Fix EVA boarding misclassified as vessel destruction (#248).** No physics frame ran between `onCrewBoardVessel` and `onVesselChange`, so `DecideOnVesselSwitch` never set `ChainToVesselPending`. The EVA vessel was backgrounded, KSP destroyed it, and `DeferredDestructionCheck` set Destroyed. Now `OnVesselSwitchComplete` checks `pendingBoardingTargetPid` and sets `ChainToVesselPending` for `HandleTreeBoardMerge`.
+- **Fix capsule spawned with wrong crew — cascading stand-in replacements (#254).** Recording snapshots captured stand-in names (Leia instead of Jeb). `PopulateCrewEndStates` reserved the stand-in, generating Siemon as depth-1 replacement. Now reverse-maps stand-in names through `CrewReplacements` before inferring end states.
+- **Fix ghost map markers at wrong positions for hidden ghosts (#245, #247).** Hidden ghosts (beyond visual range) had stale `transform.position` after FloatingOrigin shifts. Custom map markers projected these to wrong locations — landed Mun ghosts appeared in orbit. Now skips `!activeSelf` ghosts in `DrawMapMarkers`.
+- **Fix watch camera ignoring user-configured distance cutoff for orbital recordings (#243).** Orbital recordings were unconditionally exempt from the cutoff. A ghost at 11.5 Mm stayed watched despite 3000 km limit. Removed the orbital exemption.
+- **Fix End column showing "-" for chain mid-segments (#250).** `FormatEndPosition` now falls back to `SegmentBodyName` + `SegmentPhase` (e.g., "Kerbin exo") for recordings without terminal state.
+- **Fix ghost orbit line not suppressed below atmosphere for segment-based ghosts.** Segment-based ProtoVessels skipped the atmosphere altitude check — orbit lines showed below atmosphere boundary. Both segment-based and terminal-orbit ghosts now use the same `body.atmosphereDepth` suppression. Tracking station atmospheric marker also fixed to draw when ProtoVessel icon is suppressed.
+
 ### In-Game Tests
 
 - **SpawnHealth** (3 tests): Verify spawn state invariants on committed recordings — no stuck `SpawnAbandoned` flags, `SpawnDeathCount` within bounds, spawned vessel PID consistency with terminal state. Regression coverage for #132, #112, #149.

@@ -557,11 +557,11 @@ Group headers in the recordings window do not have a hide checkbox to toggle hid
 
 ## 253. Kerbin texture disappears during capsule descent watch at ~1100 km
 
-While watching the recording of capsule descent, the Kerbin terrain/atmosphere texture disappeared when the camera anchor was approximately 1100 km from the camera. Likely a Unity LOD or scaled-space transition issue at that camera distance.
+While watching the recording of capsule descent, the Kerbin terrain/atmosphere texture disappeared when the camera anchor was approximately 1100 km from the camera. This is a KSP/Unity scaled-space transition issue: KSP switches between the high-detail terrain mesh and the scaled-space sphere at a distance threshold that depends on camera position relative to the body. When the watch camera is anchored on a vessel far from the ghost (which is near Kerbin), the camera-to-body distance calculation may exceed KSP's scaledSpace transition threshold, causing the terrain to unload.
 
 **Observed in:** Mun mission 2026-04-08.
 
-**Priority:** Low — cosmetic, camera distance edge case
+**Priority:** Low — KSP engine limitation, not fixable from mod code without overriding PQS/scaledSpace transition logic. Workaround: reduce watch cutoff distance in Settings.
 
 ## ~~254. Capsule spawned with wrong crew (Siemon instead of Jeb)~~
 
