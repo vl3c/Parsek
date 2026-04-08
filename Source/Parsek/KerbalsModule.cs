@@ -354,8 +354,40 @@ namespace Parsek
                 return;
             }
 
+            // Reverse-map stand-in names back to originals (#254). The recording snapshot
+            // may contain stand-in kerbals (e.g., Leia instead of Jeb) if a prior recording
+            // committed and swapped crew on the live vessel. Without this reverse-map, the
+            // stand-in gets reserved too, triggering a cascading chain of replacements.
+            var replacements = CrewReservationManager.CrewReplacements;
+            for (int i = 0; i < startingCrew.Count; i++)
+            {
+                foreach (var kvp in replacements)
+                {
+                    if (kvp.Value == startingCrew[i])
+                    {
+                        ParsekLog.Info(Tag,
+                            $"PopulateCrewEndStates: reverse-mapped stand-in '{startingCrew[i]}' " +
+                            $"back to original '{kvp.Key}' in recording '{rec.VesselName}'");
+                        startingCrew[i] = kvp.Key;
+                        break;
+                    }
+                }
+            }
+
             // Extract end-of-recording crew from vessel snapshot (if available)
             var endCrew = CrewReservationManager.ExtractCrewFromSnapshot(rec.VesselSnapshot);
+            // Also reverse-map end crew
+            for (int i = 0; i < endCrew.Count; i++)
+            {
+                foreach (var kvp in replacements)
+                {
+                    if (kvp.Value == endCrew[i])
+                    {
+                        endCrew[i] = kvp.Key;
+                        break;
+                    }
+                }
+            }
             var endCrewSet = new HashSet<string>(endCrew);
 
             rec.CrewEndStates = new Dictionary<string, KerbalEndState>();
