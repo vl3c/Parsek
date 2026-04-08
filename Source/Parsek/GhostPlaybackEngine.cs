@@ -114,10 +114,19 @@ namespace Parsek
             TrajectoryPlaybackFlags[] flags,
             FrameContext ctx)
         {
-            if (trajectories == null || trajectories.Count == 0) return;
-            if (positioner == null) return; // Not yet wired (Phase 7)
+            if (trajectories == null || trajectories.Count == 0)
+            {
+                DiagnosticsState.playbackBudget = default;
+                return;
+            }
+            if (positioner == null)
+            {
+                DiagnosticsState.playbackBudget = default;
+                return; // Not yet wired (Phase 7)
+            }
             if (flags == null || flags.Length < trajectories.Count)
             {
+                DiagnosticsState.playbackBudget = default;
                 ParsekLog.Warn("Engine", $"UpdatePlayback: flags array mismatch (flags={flags?.Length ?? 0} trajectories={trajectories.Count})");
                 return;
             }

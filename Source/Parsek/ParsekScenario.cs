@@ -30,6 +30,8 @@ namespace Parsek
         public override void OnSave(ConfigNode node)
         {
             var sw = Stopwatch.StartNew();
+            int recordingCount = 0;
+            int dirtyCount = 0;
             try
             {
                 SafetyNetAutoCommitPending();
@@ -50,10 +52,10 @@ namespace Parsek
                 node.RemoveNodes("RECORDING");
 
                 var recordings = RecordingStore.CommittedRecordings;
+                recordingCount = recordings.Count;
                 ParsekLog.Info("Scenario", $"OnSave: saving {recordings.Count} committed recordings, epoch={MilestoneStore.CurrentEpoch}");
 
                 // Count dirty recordings before save (SaveRecordingFiles clears FilesDirty)
-                int dirtyCount = 0;
                 for (int i = 0; i < recordings.Count; i++)
                 {
                     if (recordings[i].FilesDirty)
@@ -82,23 +84,12 @@ namespace Parsek
                 }
 
                 lastOnSaveScene = HighLogic.LoadedScene;
-
-                sw.Stop();
-                DiagnosticsState.lastSaveTiming = new SaveLoadTiming
-                {
-                    totalMilliseconds = sw.ElapsedMilliseconds,
-                    recordingsProcessed = recordings.Count,
-                    dirtyRecordingsWritten = dirtyCount
-                };
-                ParsekLog.Verbose("Diagnostics",
-                    string.Format(CultureInfo.InvariantCulture,
-                        "OnSave: {0}ms ({1} dirty of {2})",
-                        sw.ElapsedMilliseconds, dirtyCount, recordings.Count));
             }
             finally
             {
                 if (sw.IsRunning)
                     sw.Stop();
+                WriteSaveTiming(sw, recordingCount, dirtyCount);
             }
         }
 
@@ -872,6 +863,26 @@ namespace Parsek
                 string.Format(CultureInfo.InvariantCulture,
                     "OnLoad: {0}ms ({1} recordings)",
                     sw.ElapsedMilliseconds, recordingCount));
+        }
+
+        /// <summary>
+        /// Writes OnSave timing to DiagnosticsState and logs a summary.
+        /// Called from the finally block of OnSave to ensure timing is captured
+        /// even if an exception occurs during the save process.
+        /// </summary>
+        private static void WriteSaveTiming(Stopwatch sw, int recordingCount, int dirtyCount)
+        {
+            sw.Stop();
+            DiagnosticsState.lastSaveTiming = new SaveLoadTiming
+            {
+                totalMilliseconds = sw.ElapsedMilliseconds,
+                recordingsProcessed = recordingCount,
+                dirtyRecordingsWritten = dirtyCount
+            };
+            ParsekLog.Verbose("Diagnostics",
+                string.Format(CultureInfo.InvariantCulture,
+                    "OnSave: {0}ms ({1} dirty of {2})",
+                    sw.ElapsedMilliseconds, dirtyCount, recordingCount));
         }
 
         /// <summary>
