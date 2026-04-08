@@ -12,7 +12,7 @@ namespace Parsek
         internal const float HeavyThrustThreshold = 300f; // kN
         internal const float MediumThrustThreshold = 50f;  // kN
         internal const int MaxAudioSourcesPerGhost = 4;
-        internal const float OneShotVolumeScale = 0.7f; // one-shot events (explosion) — louder than engines, they're dramatic moments
+        internal const float OneShotVolumeScale = 0.5f;
 
         private static readonly Dictionary<string, string> presetMap = new Dictionary<string, string>
         {
@@ -152,8 +152,8 @@ namespace Parsek
             var curve = new FloatCurve();
             if (isJet)
             {
-                curve.Add(0f, 0f, 0f, 0.5f);
-                curve.Add(1f, 0.5f, 0.5f, 0f);
+                curve.Add(0f, 0f, 0f, 0.4f);
+                curve.Add(1f, 0.4f, 0.4f, 0f);
             }
             else
             {
