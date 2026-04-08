@@ -459,15 +459,15 @@ On some engines, the smoke/exhaust particle effect fires sideways (perpendicular
 
 **Priority:** Low — cosmetic, only noticeable on certain engine models
 
-## 243. Watch camera does not reset to anchor at distance limit
+## ~~243. Watch camera does not reset to anchor at distance limit~~
 
 When the ghost passes the user-configured distance limit (e.g. 3000 km set in Settings), the watch camera should snap back to the anchor vessel. Instead it stays on the ghost.
 
 **Observed in:** Mun mission 2026-04-08. Logs in `logs/2026-04-08_mun-mission/`.
 
-**Priority:** Medium — watch mode usability
+**Status:** Fixed — removed unconditional orbital exemption from ShouldExitWatchForCutoff.
 
-## 244. ProtoVessel not generated during Mun transit (icon-only the entire way)
+## ~~244. ProtoVessel not generated during Mun transit (icon-only the entire way)
 
 While the vessel was travelling from Kerbin to Mun on a transfer orbit, a ProtoVessel ghost was never created — the ghost stayed as an icon-only marker the entire transit. Should have transitioned to orbit-line ProtoVessel once above atmosphere.
 
@@ -477,17 +477,19 @@ While the vessel was travelling from Kerbin to Mun on a transfer orbit, a ProtoV
 
 **Observed in:** Mun mission 2026-04-08. Logs in `logs/2026-04-08_mun-mission/`.
 
-**Priority:** High — core map view feature broken for interplanetary transit
+**Status:** Fixed — re-queue to pendingMapVessels when future orbit segments exist.
 
-## 245. Ghost icon position incorrect during warp with Mun focus
+## ~~245. Ghost icon position incorrect during warp with Mun focus~~
 
 With focus view set on Mun and warping at slow speed, the ghost icon position was incorrect (not tracking the vessel's actual trajectory).
 
 **Observed in:** Mun mission 2026-04-08.
 
-**Priority:** Medium — map view accuracy during warp
+**Root cause:** Hidden ghosts (beyond visual range, `SetActive(false)`) have stale `transform.position` after FloatingOrigin shifts. `DrawMapMarkers` drew markers at stale world-space positions.
 
-## 246. EVA on Mun generates multiple "Mun approach" recordings instead of one EVA recording
+**Status:** Fixed — skip `!activeSelf` ghosts in DrawMapMarkers. Same fix as #247.
+
+## ~~246. EVA on Mun generates multiple "Mun approach" recordings instead of one EVA recording
 
 Bob's EVA on the Mun surface generated a bunch of "Mun approach" segment recordings instead of a single EVA recording. The atmosphere/altitude boundary splitting logic is firing incorrectly on the surface of an airless body.
 
@@ -497,17 +499,17 @@ Bob's EVA on the Mun surface generated a bunch of "Mun approach" segment recordi
 
 **Observed in:** Mun mission 2026-04-08.
 
-**Priority:** High — recording segmentation is fundamentally wrong for surface EVA on airless bodies
+**Status:** Fixed — near-surface override (< 100m AGL on airless body) + increased Surface↔Approach debounce to 3.0s.
 
-## 247. Ghost icons show in Mun orbit for landed vessel and EVA kerbal
+## ~~247. Ghost icons show in Mun orbit for landed vessel and EVA kerbal
 
 During the EVA on the Mun surface, the map icons for KerbalX and Bob appeared in Mun orbit instead of on the surface. The ProtoVessel ghost orbital elements don't represent the surface position correctly.
 
 **Observed in:** Mun mission 2026-04-08.
 
-**Priority:** Medium — map view accuracy for landed ghosts
+**Status:** Fixed — same root cause and fix as #245 (stale transform.position on hidden ghosts).
 
-## 248. EVA boarding misclassified as vessel destruction (Bob shows Destroyed after boarding)
+## ~~248. EVA boarding misclassified~~ as vessel destruction (Bob shows Destroyed after boarding)
 
 Bob's first EVA recording on the Mun gets `terminal=Destroyed` instead of `terminal=Boarded` because the boarding event is misclassified as a normal vessel switch in tree mode.
 
@@ -519,7 +521,7 @@ Bob's first EVA recording on the Mun gets `terminal=Destroyed` instead of `termi
 
 **Observed in:** Mun mission 2026-04-08.
 
-**Priority:** High — EVA boarding always hits this race; affects terminal state, timeline, spawn decisions
+**Status:** Fixed — check pendingBoardingTargetPid in OnVesselSwitchComplete before ChainToVesselPending guard.
 
 ## 249. Planted flag not visible during ghost playback
 
@@ -529,7 +531,7 @@ While watching the Mun recording, a flag planted during the original EVA did not
 
 **Priority:** Medium — flag planting is a major EVA milestone and switching to the flag is a key use case
 
-## 250. End column shows "-" for almost all recordings
+## ~~250. End column shows "-" for almost all recordings~~
 
 In the recordings window expanded stats, almost all recordings show "-" in the End column. Only the final mission recordings (leaves) have an end entry. Interior tree recordings and chain mid-segments have null `TerminalStateValue` by design — only leaf recordings get terminal states.
 
@@ -537,7 +539,7 @@ In the recordings window expanded stats, almost all recordings show "-" in the E
 
 **Observed in:** Mun mission 2026-04-08.
 
-**Priority:** Medium — UI data completeness
+**Status:** Fixed — FormatEndPosition falls back to SegmentBodyName + SegmentPhase for mid-segments.
 
 ## 251. Recording phase label not updated after SOI change back to Kerbin
 
@@ -547,11 +549,11 @@ On return from Mun, after exiting the Mun's SOI back into Kerbin's SOI, the reco
 
 **Priority:** Low — phase label accuracy
 
-## 252. Recording groups have no hide checkbox
+## ~~252. Recording groups have no hide checkbox~~
 
 Group headers in the recordings window do not have a hide checkbox to toggle hide for all recordings in the group at once. Only individual recordings have hide toggles.
 
-**Priority:** Low — UI convenience, workaround is to hide individually
+**Status:** Fixed — group hide checkbox now toggles Hidden on all member recordings.
 
 ## 253. Kerbin texture disappears during capsule descent watch at ~1100 km
 
@@ -561,7 +563,7 @@ While watching the recording of capsule descent, the Kerbin terrain/atmosphere t
 
 **Priority:** Low — cosmetic, camera distance edge case
 
-## 254. Capsule spawned with wrong crew (Siemon instead of Jeb)
+## ~~254. Capsule spawned with wrong crew (Siemon instead of Jeb)~~
 
 At the end of the mission, the capsule was spawned with Siemon Kerman inside instead of Jebediah Kerman. The crew reservation/swap system assigned the wrong replacement, or the snapshot crew data was incorrect.
 
@@ -571,7 +573,7 @@ At the end of the mission, the capsule was spawned with Siemon Kerman inside ins
 
 **Observed in:** Mun mission 2026-04-08.
 
-**Priority:** High — crew identity is a core feature
+**Status:** Fixed — reverse-map stand-in names through CrewReplacements before inferring end states.
 
 ## TODO — Nice to have
 
