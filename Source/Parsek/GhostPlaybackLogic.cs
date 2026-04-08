@@ -1455,7 +1455,7 @@ namespace Parsek
             var clip = GameDatabase.Instance.GetAudioClip(clipPath);
             if (clip == null) return;
 
-            float vol = ComputeGhostAudioVolume(1f, state.atmosphereFactor);
+            float vol = ComputeGhostAudioVolume(GhostAudioPresets.OneShotVolumeScale, state.atmosphereFactor);
             if (vol <= 0f) return;
             state.oneShotAudio.audioSource.PlayOneShot(clip, vol);
             ParsekLog.Verbose("GhostAudio",
@@ -1501,7 +1501,7 @@ namespace Parsek
         /// </summary>
         internal static float ComputeGhostAudioVolume(float curveValue, float atmosphereFactor)
         {
-            float settingsVolume = ParsekSettings.Current?.ghostAudioVolume ?? 0.7f;
+            float settingsVolume = ParsekSettings.Current?.ghostAudioVolume ?? 0.8f;
             return curveValue * settingsVolume * GameSettings.SHIP_VOLUME * atmosphereFactor;
         }
 
