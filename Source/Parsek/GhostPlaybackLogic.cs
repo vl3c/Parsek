@@ -734,7 +734,7 @@ namespace Parsek
             // Auto-start audio for engines that have no EngineIgnited event in the recording.
             // This handles debris boosters whose SRB engines were already running at breakup
             // time — the child recording has no seed events for these engines.
-            if (state.audioInfos != null && state.audioInfos.Count > 0 && traj.PartEvents != null)
+            if (state.audioInfos != null && state.audioInfos.Count > 0 && traj != null && traj.PartEvents != null)
             {
                 var engineKeysWithEvents = new HashSet<ulong>();
                 for (int pe = 0; pe < traj.PartEvents.Count; pe++)

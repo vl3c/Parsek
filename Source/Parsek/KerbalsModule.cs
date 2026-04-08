@@ -277,6 +277,7 @@ namespace Parsek
         ///   TerminalState is intact state   -> if in snapshot: Aboard, else Dead (EVA'd and lost)
         ///   (Orbiting/Landed/Splashed/SubOrbital)
         /// </summary>
+
         /// <summary>
         /// Replaces stand-in names in a crew list with their original kerbal names (#254).
         /// The replacements dict maps original→stand-in; this reverses the lookup.
