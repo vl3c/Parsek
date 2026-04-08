@@ -627,7 +627,8 @@ namespace Parsek
         /// Shared between SpawnTimelineGhost and StartPlayback to eliminate code duplication.
         /// </summary>
         internal static void PopulateGhostInfoDictionaries(
-            GhostPlaybackState state, GhostBuildResult result)
+            GhostPlaybackState state, GhostBuildResult result,
+            IPlaybackTrajectory traj = null)
         {
             if (result == null) return;
 
@@ -729,6 +730,38 @@ namespace Parsek
             }
 
             state.oneShotAudio = result.oneShotAudio;
+
+            // Auto-start audio for engines that have no EngineIgnited event in the recording.
+            // This handles debris boosters whose SRB engines were already running at breakup
+            // time — the child recording has no seed events for these engines.
+            if (state.audioInfos != null && state.audioInfos.Count > 0 && traj.PartEvents != null)
+            {
+                var engineKeysWithEvents = new HashSet<ulong>();
+                for (int pe = 0; pe < traj.PartEvents.Count; pe++)
+                {
+                    var evt = traj.PartEvents[pe];
+                    if (evt.eventType == PartEventType.EngineIgnited || evt.eventType == PartEventType.EngineThrottle)
+                        engineKeysWithEvents.Add(FlightRecorder.EncodeEngineKey(evt.partPersistentId, evt.moduleIndex));
+                }
+
+                foreach (var kvp in state.audioInfos)
+                {
+                    if (!engineKeysWithEvents.Contains(kvp.Key))
+                    {
+                        // No engine event for this audio source — auto-start at full power
+                        kvp.Value.currentPower = 1f;
+                        if (kvp.Value.audioSource != null)
+                        {
+                            kvp.Value.audioSource.volume = 0f; // will be set by UpdateAudioAtmosphere
+                            kvp.Value.audioSource.loop = true;
+                            kvp.Value.audioSource.Play();
+                        }
+                        ParsekLog.Verbose("GhostAudio",
+                            $"Auto-started audio for orphan engine key={kvp.Key} " +
+                            $"(no EngineIgnited event — likely debris booster)");
+                    }
+                }
+            }
 
         }
 

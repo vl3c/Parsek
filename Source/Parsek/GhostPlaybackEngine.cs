@@ -1468,7 +1468,7 @@ namespace Parsek
                 state.materials = m != null ? new List<Material> { m } : new List<Material>();
             }
 
-            GhostPlaybackLogic.PopulateGhostInfoDictionaries(state, buildResult);
+            GhostPlaybackLogic.PopulateGhostInfoDictionaries(state, buildResult, traj);
             GhostPlaybackLogic.InitializeInventoryPlacementVisibility(traj, state);
 
             state.reentryFxInfo = GhostVisualBuilder.TryBuildReentryFx(
