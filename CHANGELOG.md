@@ -4,6 +4,14 @@ All notable changes to Parsek are documented here.
 
 ---
 
+## 0.7.2
+
+### New Features
+
+- **Ghost positional audio.** Ghost vessels now emit 3D positional engine sounds — hear rockets in the distance, decoupler pops on staging, and explosions on impact. Sound fades naturally with distance via Unity spatial audio and attenuates through the atmosphere (silent in vacuum). Engine clip selection uses a built-in preset map based on propellant type and thrust class (liquid/solid/ion/jet). One-shot sounds for decouple and explosion events. Ghost audio volume slider in Settings (default 100%). Capped at 4 AudioSources per ghost. Audio muted during high time warp, for overlap ghosts, and for soft-cap-reduced ghosts. Compatible with RocketSoundEnhancement (RSE).
+
+---
+
 ## 0.7.1
 
 ### Bug Fixes

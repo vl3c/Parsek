@@ -23,6 +23,12 @@ namespace Parsek
         public Dictionary<uint, JettisonGhostInfo> jettisonInfos;
         public Dictionary<ulong, EngineGhostInfo> engineInfos; // key = EncodeEngineKey(pid, moduleIndex)
         public Dictionary<ulong, RcsGhostInfo> rcsInfos;   // separate from engineInfos — keys can overlap for same part
+        public Dictionary<ulong, AudioGhostInfo> audioInfos; // engine/RCS audio — keyed same as engineInfos/rcsInfos
+        public OneShotAudioInfo oneShotAudio;                // shared one-shot source for decouple/explosion sounds
+        public bool audioMuted;                              // true during high warp or when ghost hidden
+        public float atmosphereFactor = 1f;                  // 0 in vacuum, 1 at sea level — updated per frame. Init 1 so first-frame events aren't swallowed.
+        public CelestialBody cachedAudioBody;                // cached body for atmosphere lookup (avoid per-frame Find)
+        public string cachedAudioBodyName;                   // body name the cache was built for
         public Dictionary<ulong, RoboticGhostInfo> roboticInfos; // key = EncodeEngineKey(pid, moduleIndex)
         public Dictionary<uint, DeployableGhostInfo> deployableInfos;
         public Dictionary<uint, HeatGhostInfo> heatInfos;

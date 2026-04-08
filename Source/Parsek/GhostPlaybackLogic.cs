@@ -700,6 +700,36 @@ namespace Parsek
             if (result.colorChangerInfos != null)
                 state.colorChangerInfos = GhostVisualBuilder.GroupColorChangersByPartId(result.colorChangerInfos);
 
+            if (result.audioInfos != null)
+            {
+                // Cap audio sources per ghost to prevent channel exhaustion.
+                // Keeps the first N entries in build order (largest parts tend to be listed first
+                // in snapshot). No explicit sort — not worth the complexity for a 4-source cap.
+                var audioList = result.audioInfos;
+                if (audioList.Count > GhostAudioPresets.MaxAudioSourcesPerGhost)
+                {
+                    for (int i = GhostAudioPresets.MaxAudioSourcesPerGhost; i < audioList.Count; i++)
+                    {
+                        if (audioList[i].audioSource != null)
+                            UnityEngine.Object.Destroy(audioList[i].audioSource);
+                    }
+                    audioList = audioList.GetRange(0, GhostAudioPresets.MaxAudioSourcesPerGhost);
+                    ParsekLog.Verbose("GhostAudio",
+                        $"Capped audio sources to {GhostAudioPresets.MaxAudioSourcesPerGhost} " +
+                        $"(was {result.audioInfos.Count})");
+                }
+
+                state.audioInfos = new Dictionary<ulong, AudioGhostInfo>();
+                for (int i = 0; i < audioList.Count; i++)
+                {
+                    ulong key = FlightRecorder.EncodeEngineKey(
+                        audioList[i].partPersistentId, audioList[i].moduleIndex);
+                    state.audioInfos[key] = audioList[i];
+                }
+            }
+
+            state.oneShotAudio = result.oneShotAudio;
+
         }
 
         #endregion
@@ -772,6 +802,7 @@ namespace Parsek
                     case PartEventType.Decoupled:
                         StopEngineFxForPart(state, evt.partPersistentId);
                         StopRcsFxForPart(state, evt.partPersistentId);
+                        StopAudioForPart(state, evt.partPersistentId);
                         ApplyHeatState(state, evt, HeatLevel.Cold);
                         SpawnPartPuffAtPart(ghost, evt.partPersistentId);
                         if (tree != null)
@@ -784,6 +815,8 @@ namespace Parsek
                     case PartEventType.Destroyed:
                         StopEngineFxForPart(state, evt.partPersistentId);
                         StopRcsFxForPart(state, evt.partPersistentId);
+                        StopAudioForPart(state, evt.partPersistentId);
+                        PlayOneShotAtGhost(state, evt.eventType);
                         ApplyHeatState(state, evt, HeatLevel.Cold);
                         SpawnPartPuffAtPart(ghost, evt.partPersistentId);
                         HideGhostPart(ghost, evt.partPersistentId);
@@ -847,16 +880,19 @@ namespace Parsek
                         // for backward compatibility. New recordings skip zero-throttle
                         // engine seeds entirely (PartStateSeeder.EmitEngineSeedEvents).
                         SetEngineEmission(state, evt, System.Math.Max(evt.value, 0.01f));
+                        SetEngineAudio(state, evt, System.Math.Max(evt.value, 0.01f));
                         ApplyHeatState(state, evt, HeatLevel.Hot);
                         break;
                     case PartEventType.EngineShutdown:
                         SetEngineEmission(state, evt, 0f);
+                        SetEngineAudio(state, evt, 0f);
                         // Also reset heat animation glow — engine nozzles stay emissive
                         // after shutdown if ThermalAnimationCold hasn't fired yet.
                         ApplyHeatState(state, evt, HeatLevel.Cold);
                         break;
                     case PartEventType.EngineThrottle:
                         SetEngineEmission(state, evt, evt.value);
+                        SetEngineAudio(state, evt, evt.value);
                         ApplyHeatState(state, evt, HeatLevel.Hot);
                         break;
                     case PartEventType.DeployableExtended:
@@ -1329,6 +1365,220 @@ namespace Parsek
                 }
             }
         }
+
+        #region Ghost Audio Control
+
+        /// <summary>
+        /// Set engine audio volume/pitch from recorded throttle power.
+        /// Called alongside SetEngineEmission for EngineIgnited/Throttle/Shutdown events.
+        /// </summary>
+        internal static void SetEngineAudio(GhostPlaybackState state, PartEvent evt, float power)
+        {
+            if (state.audioInfos == null) return;
+            if (state.audioMuted)
+            {
+                // Ensure source is stopped if muted (e.g., during warp)
+                ulong mutedKey = FlightRecorder.EncodeEngineKey(evt.partPersistentId, evt.moduleIndex);
+                AudioGhostInfo mutedInfo;
+                if (state.audioInfos.TryGetValue(mutedKey, out mutedInfo) &&
+                    mutedInfo.audioSource != null && mutedInfo.audioSource.isPlaying)
+                    mutedInfo.audioSource.Stop();
+                return;
+            }
+
+            ulong key = FlightRecorder.EncodeEngineKey(evt.partPersistentId, evt.moduleIndex);
+            AudioGhostInfo info;
+            if (!state.audioInfos.TryGetValue(key, out info)) return;
+            if (info.audioSource == null) return;
+
+            info.currentPower = power;
+
+            if (power > 0f && state.atmosphereFactor > 0.001f)
+            {
+                float vol = ComputeGhostAudioVolume(
+                    info.volumeCurve.Evaluate(power), state.atmosphereFactor);
+                if (vol <= 0f) { if (info.audioSource.isPlaying) info.audioSource.Stop(); return; }
+                float pitch = info.pitchCurve.Evaluate(power);
+                info.audioSource.volume = vol;
+                info.audioSource.pitch = pitch;
+                if (!info.audioSource.isPlaying)
+                {
+                    info.audioSource.clip = info.clip;
+                    info.audioSource.Play();
+                    ParsekLog.VerboseRateLimited("GhostAudio",
+                        $"audio-start-{evt.partPersistentId}-{evt.moduleIndex}",
+                        $"Engine audio started: pid={evt.partPersistentId} midx={evt.moduleIndex} " +
+                        $"power={power:F2} vol={vol:F2} pitch={pitch:F2}", 5.0);
+                }
+            }
+            else
+            {
+                if (info.audioSource.isPlaying)
+                {
+                    info.audioSource.Stop();
+                    ParsekLog.VerboseRateLimited("GhostAudio",
+                        $"audio-stop-{evt.partPersistentId}-{evt.moduleIndex}",
+                        $"Engine audio stopped: pid={evt.partPersistentId} midx={evt.moduleIndex}", 5.0);
+                }
+            }
+        }
+
+        /// <summary>
+        /// Stop all audio sources for a given part (by PID).
+        /// Used defensively on decouple/destroy.
+        /// </summary>
+        internal static void StopAudioForPart(GhostPlaybackState state, uint partPersistentId)
+        {
+            if (state?.audioInfos == null) return;
+            foreach (var info in state.audioInfos.Values)
+            {
+                if (info.partPersistentId != partPersistentId) continue;
+                if (info.audioSource != null && info.audioSource.isPlaying)
+                    info.audioSource.Stop();
+            }
+        }
+
+        /// <summary>
+        /// Play a one-shot sound effect at the ghost root position.
+        /// Used for decouple and explosion events.
+        /// </summary>
+        internal static void PlayOneShotAtGhost(GhostPlaybackState state, PartEventType eventType)
+        {
+            if (state.oneShotAudio?.audioSource == null) return;
+            if (state.audioMuted) return;
+            if (state.atmosphereFactor < 0.001f) return; // no sound in vacuum
+
+            string clipPath = GhostAudioPresets.ResolveOneShotClip(eventType);
+            if (clipPath == null) return;
+
+            var clip = GameDatabase.Instance.GetAudioClip(clipPath);
+            if (clip == null) return;
+
+            float vol = ComputeGhostAudioVolume(GhostAudioPresets.OneShotVolumeScale, state.atmosphereFactor);
+            if (vol <= 0f) return;
+            state.oneShotAudio.audioSource.PlayOneShot(clip, vol);
+            ParsekLog.Verbose("GhostAudio",
+                $"One-shot played: {eventType} clip='{clipPath}' vol={vol:F2}");
+        }
+
+        /// <summary>
+        /// Mute all ghost audio sources (during high warp or ghost hidden).
+        /// </summary>
+        internal static void MuteAllAudio(GhostPlaybackState state)
+        {
+            if (state == null) return;
+            if (state.audioMuted) return;
+            state.audioMuted = true;
+
+            if (state.audioInfos != null)
+            {
+                foreach (var info in state.audioInfos.Values)
+                {
+                    if (info.audioSource != null && info.audioSource.isPlaying)
+                        info.audioSource.Stop();
+                }
+            }
+            if (state.oneShotAudio?.audioSource != null)
+                state.oneShotAudio.audioSource.Stop();
+        }
+
+        /// <summary>
+        /// Unmute ghost audio. Active engines will resume on next throttle event.
+        /// </summary>
+        internal static void UnmuteAllAudio(GhostPlaybackState state)
+        {
+            if (state == null) return;
+            if (!state.audioMuted) return;
+            state.audioMuted = false;
+            // Audio restores naturally via next ApplyPartEvents cycle.
+        }
+
+        /// <summary>
+        /// Compute the ghost audio volume for a given power level and atmosphere state.
+        /// Centralizes the volume formula so SetEngineAudio, PlayOneShotAtGhost, and
+        /// UpdateAudioAtmosphere all use the same calculation.
+        /// </summary>
+        internal static float ComputeGhostAudioVolume(float curveValue, float atmosphereFactor)
+        {
+            float settingsVolume = ParsekSettings.Current?.ghostAudioVolume ?? 1.0f;
+            return curveValue * settingsVolume * GameSettings.SHIP_VOLUME * atmosphereFactor;
+        }
+
+        /// <summary>
+        /// Compute atmosphere attenuation factor for ghost audio.
+        /// Returns 0 in vacuum (no atmosphere or above atmosphere depth), 1 at sea level,
+        /// with smooth quadratic falloff at high altitude.
+        /// Uses cached CelestialBody on state to avoid per-frame linear search.
+        /// </summary>
+        internal static float ComputeAtmosphereFactor(GhostPlaybackState state)
+        {
+            string bodyName = state.lastInterpolatedBodyName;
+            double altitude = state.lastInterpolatedAltitude;
+
+            if (string.IsNullOrEmpty(bodyName)) return 0f;
+
+            // Cache the CelestialBody lookup — body only changes on SOI transitions.
+            CelestialBody body = state.cachedAudioBody;
+            if (body == null || state.cachedAudioBodyName != bodyName)
+            {
+                body = FlightGlobals.Bodies?.Find(b => b.name == bodyName);
+                state.cachedAudioBody = body;
+                state.cachedAudioBodyName = bodyName;
+            }
+
+            if (body == null || !body.atmosphere) return 0f;
+            if (altitude >= body.atmosphereDepth) return 0f;
+            if (altitude <= 0) return 1f;
+
+            // Quadratic falloff: factor = (1 - alt/depth)^2
+            // Sea level: 1.0. Half depth: 0.25. Edge: 0.0.
+            float ratio = (float)(altitude / body.atmosphereDepth);
+            float factor = (1f - ratio) * (1f - ratio);
+            return factor;
+        }
+
+        /// <summary>
+        /// Per-frame update of atmosphere factor and volume adjustment for all playing audio sources.
+        /// Ensures smooth fade as ghost ascends/descends through atmosphere.
+        /// </summary>
+        internal static void UpdateAudioAtmosphere(GhostPlaybackState state)
+        {
+            if (state == null || state.audioInfos == null || state.audioMuted) return;
+
+            float newFactor = ComputeAtmosphereFactor(state);
+
+            // Log transitions (vacuum / atmosphere)
+            bool wasInVacuum = state.atmosphereFactor < 0.001f;
+            bool nowInVacuum = newFactor < 0.001f;
+            if (wasInVacuum != nowInVacuum)
+            {
+                ParsekLog.VerboseRateLimited("GhostAudio", $"atm-transition-{state.vesselName}",
+                    nowInVacuum
+                        ? $"Ghost '{state.vesselName}' entered vacuum — audio silent"
+                        : $"Ghost '{state.vesselName}' entered atmosphere — audio enabled (factor={newFactor:F3})",
+                    2.0);
+            }
+
+            state.atmosphereFactor = newFactor;
+
+            foreach (var info in state.audioInfos.Values)
+            {
+                if (info.audioSource == null) continue;
+
+                if (newFactor < 0.001f)
+                {
+                    if (info.audioSource.isPlaying)
+                        info.audioSource.Stop();
+                }
+                else if (info.currentPower > 0f && info.audioSource.isPlaying)
+                {
+                    info.audioSource.volume = ComputeGhostAudioVolume(
+                        info.volumeCurve.Evaluate(info.currentPower), newFactor);
+                }
+            }
+        }
+
+        #endregion
 
         /// <summary>
         /// Stop and clear all engine FX particle systems across every engine info in the state.
