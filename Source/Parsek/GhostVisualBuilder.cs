@@ -2216,7 +2216,7 @@ namespace Parsek
             source.spatialBlend = 1f;
             source.dopplerLevel = 0f;
             ConfigureGhostRolloff(source);
-            source.priority = 64; // high priority — don't get culled by KSP's own audio
+            source.priority = 200; // low priority — yield to KSP's own vessel audio (default 128)
             source.loop = false;
             source.playOnAwake = false;
             source.volume = 1f; // base volume=1 — PlayOneShot volumeScale multiplies against this
@@ -2232,7 +2232,7 @@ namespace Parsek
             source.spatialBlend = 1f;
             source.dopplerLevel = 0f;
             ConfigureGhostRolloff(source);
-            source.priority = 64; // high priority — don't get culled by KSP's own audio
+            source.priority = 200; // low priority — yield to KSP's own vessel audio (default 128)
             source.loop = loop;
             source.playOnAwake = false;
             source.volume = 0f;
