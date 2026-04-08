@@ -2232,7 +2232,7 @@ namespace Parsek
             source.spatialBlend = 1f;
             source.dopplerLevel = 0f;
             source.rolloffMode = AudioRolloffMode.Logarithmic;
-            source.maxDistance = 5000f;
+            source.maxDistance = 15000f;
             source.loop = loop;
             source.playOnAwake = false;
             source.volume = 0f;
