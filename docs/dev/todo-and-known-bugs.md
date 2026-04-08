@@ -471,7 +471,11 @@ When the ghost passes the user-configured distance limit (e.g. 3000 km set in Se
 
 While the vessel was travelling from Kerbin to Mun on a transfer orbit, a ProtoVessel ghost was never created — the ghost stayed as an icon-only marker the entire transit. Should have transitioned to orbit-line ProtoVessel once above atmosphere.
 
-**Observed in:** Mun mission 2026-04-08.
+**Root cause:** `CheckPendingMapVessels` rate-limited orbit update calls `FindOrbitSegment` which returns null in gaps between orbit segments (normal — every off-rails burn creates a gap). The code at `ParsekPlaybackPolicy.cs:791-796` interprets null as "past all orbit segments" and permanently removes the ProtoVessel + removes the index from `lastMapOrbitByIndex`. The index is never re-added to `pendingMapVessels`, so when the next segment starts (1.4s later), nothing creates a new ProtoVessel. The ghost stays icon-only for the rest of the flight (including the entire Kerbin→Mun transfer orbit and all Mun orbit segments).
+
+**Fix:** When `FindOrbitSegment` returns null, check if there are future orbit segments (`startUT > currentUT`). If so, re-add to `pendingMapVessels` instead of permanently dropping.
+
+**Observed in:** Mun mission 2026-04-08. Logs in `logs/2026-04-08_mun-mission/`.
 
 **Priority:** High — core map view feature broken for interplanetary transit
 
@@ -485,7 +489,11 @@ With focus view set on Mun and warping at slow speed, the ghost icon position wa
 
 ## 246. EVA on Mun generates multiple "Mun approach" recordings instead of one EVA recording
 
-Bob's EVA on the Mun surface generated a bunch of "Mun approach" segment recordings instead of a single EVA recording. The atmosphere/altitude boundary splitting logic is likely firing incorrectly on the surface of an airless body.
+Bob's EVA on the Mun surface generated a bunch of "Mun approach" segment recordings instead of a single EVA recording. The atmosphere/altitude boundary splitting logic is firing incorrectly on the surface of an airless body.
+
+**Root cause:** EVA kerbal on Mun surface oscillates between `LANDED` and `FLYING`/`SUB_ORBITAL` situations during walks/hops. `EnvironmentDetector.Classify` checks `situation` first — when LANDED, returns Surface correctly. But when KSP briefly flips to FLYING (EVA physics jitter, jetpack hops), the function falls through the surface check, skips the atmosphere check (Mun has no atmosphere), and hits the airless approach check: `altitude (2785m) < approachAltitude (25000m)` → returns `Approach`. The 0.5s Surface↔Approach debounce is too short, producing 16 alternating Surface/Approach track sections over a 455s EVA. The optimizer then splits at each environment-class boundary.
+
+**Fix:** In `EnvironmentDetector.Classify`, force `Surface` when altitude is very low above terrain on an airless body (e.g., < 100m AGL) regardless of KSP's vessel situation. Also increase the Surface↔Approach debounce to match `SurfaceSpeedDebounceSeconds` (3.0s).
 
 **Observed in:** Mun mission 2026-04-08.
 
@@ -501,11 +509,11 @@ During the EVA on the Mun surface, the map icons for KerbalX and Bob appeared in
 
 ## 248. Bob recording shows Destroyed terminal state after boarding
 
-One of the Bob EVA recordings says Bob was destroyed, even though the player boarded Bob back onto Kerbal X normally. The terminal state assignment for EVA boarding is incorrect in some code path.
+One of the Bob EVA recordings says Bob was destroyed, even though the player thought Bob was boarded back. However, log analysis shows Bob genuinely died on the Mun surface (UT 27721, terminal=Destroyed, situation=LANDED, body=Mun, 889 trajectory points over ~455s). A second Bob EVA occurred later on Kerbin (169 points, terminal=Landed). The user may have confused which Bob recording showed Destroyed. Needs in-game verification.
 
 **Observed in:** Mun mission 2026-04-08.
 
-**Priority:** High — incorrect terminal state corrupts timeline and spawn decisions
+**Priority:** Low — may not be a bug (Bob actually died in the first EVA); needs confirmation
 
 ## 249. Planted flag not visible during ghost playback
 
@@ -517,7 +525,9 @@ While watching the Mun recording, a flag planted during the original EVA did not
 
 ## 250. End column shows "-" for almost all recordings
 
-In the recordings window expanded stats, almost all recordings show "-" in the End column. Only the final mission recordings have an end entry. The `EndBiome`/`TerminalOrbitBody`/`TerminalStateValue` fields are likely not being populated for intermediate tree recordings or chain segments.
+In the recordings window expanded stats, almost all recordings show "-" in the End column. Only the final mission recordings (leaves) have an end entry. Interior tree recordings and chain mid-segments have null `TerminalStateValue` by design — only leaf recordings get terminal states.
+
+**Root cause:** `FormatEndPosition` returns "-" when `TerminalStateValue` is null. This is correct for individual recordings, but the UI should propagate the leaf's terminal state to chain groups or show the chain tip's end position. Alternatively, chain mid-segments could inherit the next segment's start position as their end.
 
 **Observed in:** Mun mission 2026-04-08.
 
@@ -548,6 +558,10 @@ While watching the recording of capsule descent, the Kerbin terrain/atmosphere t
 ## 254. Capsule spawned with wrong crew (Siemon instead of Jeb)
 
 At the end of the mission, the capsule was spawned with Siemon Kerman inside instead of Jebediah Kerman. The crew reservation/swap system assigned the wrong replacement, or the snapshot crew data was incorrect.
+
+**Root cause:** Double-swap cascade. (1) First recording commits: Jeb reserved → Leia hired as depth-0 stand-in → live vessel swapped Jeb→Leia. (2) Second recording captures the vessel snapshot which now contains Leia (the stand-in, not Jeb). (3) Second recording commits: `PopulateCrewEndStates` sees Leia as a real crew member → reserves Leia → generates Siemon as Leia's depth-0 stand-in → live vessel swapped Leia→Siemon. The recording system doesn't know that Leia is a temporary replacement for Jeb — it treats stand-in names as real crew.
+
+**Fix:** In `PopulateCrewEndStates` or the snapshot capture path, reverse-map stand-in names back to their original kerbals using `crewReplacements` before creating new reservations. If a crew member in the snapshot is already a known replacement, use the original kerbal's name instead.
 
 **Observed in:** Mun mission 2026-04-08.
 
