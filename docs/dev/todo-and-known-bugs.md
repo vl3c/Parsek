@@ -523,13 +523,13 @@ Bob's first EVA recording on the Mun gets `terminal=Destroyed` instead of `termi
 
 **Status:** Fixed — check pendingBoardingTargetPid in OnVesselSwitchComplete before ChainToVesselPending guard.
 
-## 249. Planted flag not visible during ghost playback
+## ~~249. Planted flag not visible during ghost playback~~
 
-While watching the Mun recording, a flag planted during the original EVA did not appear during playback. Flags are KSP vessels — they should either be spawned as part of the recording tree or captured as a separate recording. This blocks the ability to switch to the flag and watch the takeoff from the surface.
+While watching the Mun recording, a flag planted during the original EVA did not appear during playback. The flag was correctly captured (`FlagEvent` in recording) but never spawned because `ApplyFlagEvents` was gated behind the `hiddenByZone` early return in `RenderInRangeGhost`. The ghost was in the Beyond zone (Mun from Kerbin = 11.4 Mm).
 
-**Observed in:** Mun mission 2026-04-08.
+**Root cause:** Flag events are fundamentally different from visual part events (mesh toggles) — they spawn permanent world vessels. They were incorrectly treated as visual effects and skipped when the ghost was hidden.
 
-**Priority:** Medium — flag planting is a major EVA milestone and switching to the flag is a key use case
+**Status:** Fixed — moved `ApplyFlagEvents` before the zone-based rendering skip in `RenderInRangeGhost`.
 
 ## ~~250. End column shows "-" for almost all recordings~~
 
