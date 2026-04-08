@@ -4,8 +4,10 @@ namespace Parsek.Tests
 {
     public class PositionFormatTests
     {
+        // ── Start position ──
+
         [Fact]
-        public void FormatStartPosition_LaunchSiteAndBody()
+        public void Start_LaunchSiteAndBody()
         {
             var rec = new Recording
             {
@@ -17,14 +19,67 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void FormatStartPosition_LaunchSiteOnly_WhenNoBody()
+        public void Start_LaunchSiteOnly()
         {
-            var rec = new Recording { LaunchSiteName = "LaunchPad" };
-            Assert.Equal("LaunchPad", RecordingsTableUI.FormatStartPosition(rec));
+            var rec = new Recording { LaunchSiteName = "Runway" };
+            Assert.Equal("Runway", RecordingsTableUI.FormatStartPosition(rec));
         }
 
         [Fact]
-        public void FormatStartPosition_BiomeAndBody_WhenNoLaunchSite()
+        public void Start_Eva_WithParentVessel()
+        {
+            var rec = new Recording { EvaCrewName = "Jeb" };
+            Assert.Equal("EVA from Mun Lander", RecordingsTableUI.FormatStartPosition(rec, "Mun Lander"));
+        }
+
+        [Fact]
+        public void Start_Eva_NoParent_FallsBackToLocation()
+        {
+            var rec = new Recording
+            {
+                EvaCrewName = "Jeb",
+                StartBiome = "Highlands",
+                StartBodyName = "Mun"
+            };
+            Assert.Equal("EVA, Highlands, Mun", RecordingsTableUI.FormatStartPosition(rec));
+        }
+
+        [Fact]
+        public void Start_Eva_NoParent_BodyOnly()
+        {
+            var rec = new Recording
+            {
+                EvaCrewName = "Jeb",
+                StartBodyName = "Kerbin"
+            };
+            Assert.Equal("EVA, Kerbin", RecordingsTableUI.FormatStartPosition(rec));
+        }
+
+        [Fact]
+        public void Start_SituationBiomeBody()
+        {
+            var rec = new Recording
+            {
+                StartSituation = "Flying",
+                StartBiome = "Shores",
+                StartBodyName = "Kerbin"
+            };
+            Assert.Equal("Flying, Shores, Kerbin", RecordingsTableUI.FormatStartPosition(rec));
+        }
+
+        [Fact]
+        public void Start_SituationAndBody_NoBiome()
+        {
+            var rec = new Recording
+            {
+                StartSituation = "Orbiting",
+                StartBodyName = "Mun"
+            };
+            Assert.Equal("Orbiting, Mun", RecordingsTableUI.FormatStartPosition(rec));
+        }
+
+        [Fact]
+        public void Start_BiomeAndBody_NoSituation()
         {
             var rec = new Recording
             {
@@ -35,21 +90,22 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void FormatStartPosition_BodyOnly_WhenNoBiome()
+        public void Start_BodyOnly()
         {
             var rec = new Recording { StartBodyName = "Kerbin" };
             Assert.Equal("Kerbin", RecordingsTableUI.FormatStartPosition(rec));
         }
 
         [Fact]
-        public void FormatStartPosition_Dash_WhenEmpty()
+        public void Start_Empty_ReturnsDash()
         {
-            var rec = new Recording();
-            Assert.Equal("-", RecordingsTableUI.FormatStartPosition(rec));
+            Assert.Equal("-", RecordingsTableUI.FormatStartPosition(new Recording()));
         }
 
+        // ── End position ──
+
         [Fact]
-        public void FormatEndPosition_Orbiting_WithBody()
+        public void End_Orbiting()
         {
             var rec = new Recording
             {
@@ -60,7 +116,14 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void FormatEndPosition_Docked_WithBody()
+        public void End_Orbiting_NoBody()
+        {
+            var rec = new Recording { TerminalStateValue = TerminalState.Orbiting };
+            Assert.Equal("Orbiting", RecordingsTableUI.FormatEndPosition(rec));
+        }
+
+        [Fact]
+        public void End_Docked()
         {
             var rec = new Recording
             {
@@ -71,7 +134,7 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void FormatEndPosition_Landed_BiomeAndBody()
+        public void End_Landed_BiomeAndBody()
         {
             var rec = new Recording
             {
@@ -83,46 +146,7 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void FormatEndPosition_Splashed_BodyOnly()
-        {
-            var rec = new Recording
-            {
-                TerminalStateValue = TerminalState.Splashed,
-                StartBodyName = "Kerbin"
-            };
-            Assert.Equal("Kerbin", RecordingsTableUI.FormatEndPosition(rec));
-        }
-
-        [Fact]
-        public void FormatEndPosition_Destroyed_WithBody()
-        {
-            var rec = new Recording
-            {
-                TerminalStateValue = TerminalState.Destroyed,
-                StartBodyName = "Kerbin"
-            };
-            Assert.Equal("Destroyed, Kerbin", RecordingsTableUI.FormatEndPosition(rec));
-        }
-
-        [Fact]
-        public void FormatEndPosition_SubOrbital_NoBody()
-        {
-            var rec = new Recording
-            {
-                TerminalStateValue = TerminalState.SubOrbital
-            };
-            Assert.Equal("SubOrbital", RecordingsTableUI.FormatEndPosition(rec));
-        }
-
-        [Fact]
-        public void FormatEndPosition_NoTerminalState_ReturnsDash()
-        {
-            var rec = new Recording();
-            Assert.Equal("-", RecordingsTableUI.FormatEndPosition(rec));
-        }
-
-        [Fact]
-        public void FormatEndPosition_Landed_FallsBackToStartBody()
+        public void End_Landed_FallsBackToStartBody()
         {
             var rec = new Recording
             {
@@ -134,24 +158,85 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void FormatEndPosition_Boarded_IgnoresBody()
+        public void End_Splashed_BodyOnly()
         {
             var rec = new Recording
             {
-                TerminalStateValue = TerminalState.Boarded,
+                TerminalStateValue = TerminalState.Splashed,
                 StartBodyName = "Kerbin"
             };
+            Assert.Equal("Kerbin", RecordingsTableUI.FormatEndPosition(rec));
+        }
+
+        [Fact]
+        public void End_Destroyed()
+        {
+            var rec = new Recording
+            {
+                TerminalStateValue = TerminalState.Destroyed,
+                StartBodyName = "Kerbin"
+            };
+            Assert.Equal("Destroyed, Kerbin", RecordingsTableUI.FormatEndPosition(rec));
+        }
+
+        [Fact]
+        public void End_SubOrbital_NoBody()
+        {
+            var rec = new Recording { TerminalStateValue = TerminalState.SubOrbital };
+            Assert.Equal("SubOrbital", RecordingsTableUI.FormatEndPosition(rec));
+        }
+
+        [Fact]
+        public void End_Boarded_WithParentVessel()
+        {
+            var rec = new Recording { TerminalStateValue = TerminalState.Boarded };
+            Assert.Equal("Boarded Mun Lander", RecordingsTableUI.FormatEndPosition(rec, "Mun Lander"));
+        }
+
+        [Fact]
+        public void End_Boarded_NoParent()
+        {
+            var rec = new Recording { TerminalStateValue = TerminalState.Boarded };
             Assert.Equal("Boarded", RecordingsTableUI.FormatEndPosition(rec));
         }
 
         [Fact]
-        public void FormatEndPosition_Orbiting_NoBody()
+        public void End_NoTerminalState_WithSegmentPhase_ShowsBodyPhase()
         {
             var rec = new Recording
             {
-                TerminalStateValue = TerminalState.Orbiting
+                SegmentPhase = "exo",
+                SegmentBodyName = "Kerbin"
             };
-            Assert.Equal("Orbiting", RecordingsTableUI.FormatEndPosition(rec));
+            Assert.Equal("Kerbin exo", RecordingsTableUI.FormatEndPosition(rec));
+        }
+
+        [Fact]
+        public void End_NoTerminalState_WithLastPoint_ShowsBody()
+        {
+            var rec = new Recording();
+            rec.Points = new System.Collections.Generic.List<TrajectoryPoint>
+            {
+                new TrajectoryPoint { bodyName = "Mun" }
+            };
+            Assert.Equal("Mun", RecordingsTableUI.FormatEndPosition(rec));
+        }
+
+        [Fact]
+        public void End_NoTerminalState_NoData_ReturnsDash()
+        {
+            Assert.Equal("-", RecordingsTableUI.FormatEndPosition(new Recording()));
+        }
+
+        [Fact]
+        public void End_Recovered()
+        {
+            var rec = new Recording
+            {
+                TerminalStateValue = TerminalState.Recovered,
+                StartBodyName = "Kerbin"
+            };
+            Assert.Equal("Recovered, Kerbin", RecordingsTableUI.FormatEndPosition(rec));
         }
     }
 }

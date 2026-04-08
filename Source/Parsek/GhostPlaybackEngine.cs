@@ -382,6 +382,12 @@ namespace Parsek
             double ghostDist = Vector3d.Distance(ctx.activeVesselPos,
                 (Vector3d)state.ghost.transform.position);
             var zoneResult = positioner.ApplyZoneRendering(i, state, traj, ghostDist, ctx.protectedIndex);
+
+            // Flag events spawn permanent world vessels — apply regardless of zone distance (#249).
+            // Unlike visual part events (mesh toggles), flags are independent entities that must
+            // exist whether or not the ghost is visible.
+            GhostPlaybackLogic.ApplyFlagEvents(state, traj, ctx.currentUT);
+
             if (zoneResult.hiddenByZone) return true;
 
             // Position the ghost
@@ -471,15 +477,25 @@ namespace Parsek
             if (!skipPartEvents)
             {
                 GhostPlaybackLogic.ApplyPartEvents(index, traj, ut, state);
-                GhostPlaybackLogic.ApplyFlagEvents(state, traj, ut);
+                // Flag events are applied earlier in RenderInRangeGhost, before zone check (#249).
             }
 
             UpdateReentryFx(index, state, traj.VesselName, warpRate);
 
             if (suppressVisualFx)
+            {
                 GhostPlaybackLogic.StopAllRcsEmissions(state);
+                GhostPlaybackLogic.MuteAllAudio(state);
+            }
             else
+            {
                 GhostPlaybackLogic.RestoreAllRcsEmissions(state);
+                GhostPlaybackLogic.UnmuteAllAudio(state);
+            }
+
+            // Per-frame atmosphere attenuation — smoothly fade audio as ghost ascends/descends.
+            // Runs after part events (which may start/stop audio) and after mute/unmute.
+            GhostPlaybackLogic.UpdateAudioAtmosphere(state);
         }
 
         /// <summary>
@@ -552,8 +568,9 @@ namespace Parsek
                                     if (simplifyState.ghost.activeSelf)
                                         simplifyState.ghost.SetActive(false);
                                     simplifyState.simplified = true;
+                                    GhostPlaybackLogic.MuteAllAudio(simplifyState);
                                     ParsekLog.Verbose("Engine",
-                                        $"SoftCap: SimplifyToOrbitLine ghost #{capIdx} \"{vesselName}\" — mesh hidden");
+                                        $"SoftCap: SimplifyToOrbitLine ghost #{capIdx} \"{vesselName}\" — mesh hidden, audio muted");
                                 }
                                 break;
                             case GhostCapAction.ReduceFidelity:
@@ -562,8 +579,9 @@ namespace Parsek
                                     reduceState?.ghost != null && !reduceState.fidelityReduced)
                                 {
                                     GhostPlaybackLogic.ReduceGhostFidelity(reduceState);
+                                    GhostPlaybackLogic.MuteAllAudio(reduceState);
                                     ParsekLog.Verbose("Engine",
-                                        $"SoftCap: ReduceFidelity ghost #{capIdx} \"{vesselName}\"");
+                                        $"SoftCap: ReduceFidelity ghost #{capIdx} \"{vesselName}\", audio muted");
                                 }
                                 break;
                         }
@@ -819,9 +837,10 @@ namespace Parsek
                 if (primaryActive && primaryState != null && primaryState.ghost != null)
                 {
                     ghostStates.Remove(index);
+                    GhostPlaybackLogic.MuteAllAudio(primaryState); // overlap ghosts get no audio
                     overlaps.Add(primaryState);
                     ParsekLog.VerboseRateLimited("Engine", "overlap-move",
-                        $"Ghost #{index} cycle={primaryState.loopCycleIndex} moved to overlap list");
+                        $"Ghost #{index} cycle={primaryState.loopCycleIndex} moved to overlap list (audio muted)");
                 }
                 else if (primaryActive)
                 {
@@ -1491,7 +1510,7 @@ namespace Parsek
                 state.materials = m != null ? new List<Material> { m } : new List<Material>();
             }
 
-            GhostPlaybackLogic.PopulateGhostInfoDictionaries(state, buildResult);
+            GhostPlaybackLogic.PopulateGhostInfoDictionaries(state, buildResult, traj);
             GhostPlaybackLogic.InitializeInventoryPlacementVisibility(traj, state);
 
             state.reentryFxInfo = GhostVisualBuilder.TryBuildReentryFx(
@@ -1539,6 +1558,27 @@ namespace Parsek
             if (state.rcsInfos != null)
                 foreach (var info in state.rcsInfos.Values)
                     GhostPlaybackLogic.DetachAndLingerParticleSystems(info.particleSystems, info.kspEmitters);
+
+            // Stop all ghost audio sources before destroying the GO hierarchy.
+            int audioStopped = 0;
+            if (state.audioInfos != null)
+            {
+                foreach (var info in state.audioInfos.Values)
+                {
+                    if (info.audioSource != null && info.audioSource.isPlaying)
+                    {
+                        info.audioSource.Stop();
+                        audioStopped++;
+                    }
+                }
+            }
+            if (state.oneShotAudio?.audioSource != null && state.oneShotAudio.audioSource.isPlaying)
+            {
+                state.oneShotAudio.audioSource.Stop();
+                audioStopped++;
+            }
+            if (audioStopped > 0)
+                ParsekLog.Verbose("GhostAudio", $"Cleanup: stopped {audioStopped} audio source(s) for '{state.vesselName}'");
 
             DestroyReentryFxResources(state.reentryFxInfo);
 

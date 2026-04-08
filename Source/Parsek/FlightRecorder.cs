@@ -118,6 +118,10 @@ namespace Parsek
         // Joint break split detection: set by OnPartJointBreak, consumed by ParsekFlight.Update()
         public bool HasPendingJointBreakCheck { get; private set; }
 
+        // Saved PartEvents count before chain boundary stop — used by ResumeAfterFalseAlarm
+        // to truncate orphaned terminal events added by FinalizeRecordingState.
+        private int partEventCountBeforeChainStop = -1;
+
         /// <summary>
         /// Consumes the pending joint break flag, returning whether a check was pending.
         /// </summary>
@@ -4505,6 +4509,9 @@ namespace Parsek
         /// </summary>
         public void StopRecordingForChainBoundary()
         {
+            // Save state before finalization so ResumeAfterFalseAlarm can undo terminal events
+            partEventCountBeforeChainStop = PartEvents.Count;
+
             FinalizeRecordingState(
                 emitTerminalEvents: true,
                 clearRelativeMode: true,
@@ -4547,6 +4554,20 @@ namespace Parsek
             }
 
             IsRecording = true;
+
+            // Undo orphaned terminal events added by FinalizeRecordingState (#255).
+            // StopRecordingForChainBoundary emits EngineShutdown/RCSStop events for all
+            // active engines. If the split turns out to be a false alarm (debris only),
+            // these events are wrong — the engines are still running.
+            if (partEventCountBeforeChainStop >= 0 && partEventCountBeforeChainStop < PartEvents.Count)
+            {
+                int removed = PartEvents.Count - partEventCountBeforeChainStop;
+                PartEvents.RemoveRange(partEventCountBeforeChainStop, removed);
+                ParsekLog.Info("Recorder",
+                    $"ResumeAfterFalseAlarm: removed {removed} orphaned terminal event(s) " +
+                    $"(PartEvents count: {PartEvents.Count})");
+            }
+            partEventCountBeforeChainStop = -1;
 
             // Restore rewind save from CaptureAtStop — StopRecordingForChainBoundary
             // cleared RewindSaveFileName after copying it to CaptureAtStop, so if we
@@ -5158,6 +5179,16 @@ namespace Parsek
             // is unavailable here. Spin data is only captured at the initial go-on-rails boundary.
             // A spinning vessel crossing an SOI boundary will use orbital-frame rotation (not spin-forward)
             // for the new segment. This is an acceptable v1 limitation.
+
+            // Close current TrackSection and start a new one at the SOI boundary (#251).
+            // Without this, a single TrackSection spans both SOIs and the optimizer cannot
+            // split at the SOI boundary (it only splits at section boundaries).
+            double soiUT = Planetarium.GetUniversalTime();
+            CloseCurrentTrackSection(soiUT);
+            SegmentEnvironment currentEnv = environmentHysteresis != null
+                ? environmentHysteresis.CurrentEnvironment
+                : SegmentEnvironment.ExoBallistic;
+            StartNewTrackSection(currentEnv, ReferenceFrame.Absolute, soiUT);
 
             // Reseed atmosphere and altitude state for the new body
             ReseedAtmosphereState(v);

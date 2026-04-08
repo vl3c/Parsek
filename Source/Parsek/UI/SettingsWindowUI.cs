@@ -288,6 +288,24 @@ namespace Parsek
             GUILayout.Label("Ghosts", GUI.skin.box);
 
             GUILayout.BeginHorizontal();
+            GUILayout.Label(new GUIContent("Ghost audio",
+                "Volume multiplier for ghost vessel audio (engines, RCS, events). 0% = muted."),
+                GUILayout.Width(85));
+            float newAudioVol = GUILayout.HorizontalSlider(s.ghostAudioVolume, 0f, 1f);
+            GUILayout.Label(
+                UnityEngine.Mathf.RoundToInt(newAudioVol * 100f).ToString() + "%",
+                GUILayout.Width(35));
+            GUILayout.EndHorizontal();
+            if (UnityEngine.Mathf.Abs(newAudioVol - s.ghostAudioVolume) > 0.001f)
+            {
+                s.ghostAudioVolume = newAudioVol;
+                ParsekLog.VerboseRateLimited("UI", "ghostAudioVolume",
+                    $"Ghost audio volume set to {newAudioVol:F2}", 1.0);
+            }
+
+            GUILayout.Space(SpacingSmall);
+
+            GUILayout.BeginHorizontal();
             GUILayout.Label(new GUIContent("Camera cutoff",
                 "Watch mode auto-exits when ghost exceeds this distance from the active vessel"),
                 GUILayout.Width(85));

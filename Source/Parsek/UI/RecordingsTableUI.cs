@@ -693,8 +693,9 @@ namespace Parsek
                 GUILayout.Label(FormatSpeed(stats.maxSpeed), GUILayout.Width(ColW_MaxSpd));
                 GUILayout.Label(FormatDistance(stats.distanceTravelled), GUILayout.Width(ColW_Dist));
                 GUILayout.Label(stats.pointCount.ToString(), GUILayout.Width(ColW_Pts));
-                GUILayout.Label(FormatStartPosition(rec), GUILayout.Width(ColW_StartPos));
-                GUILayout.Label(FormatEndPosition(rec), GUILayout.Width(ColW_EndPos));
+                string parentVessel = ResolveParentVesselName(rec, committed);
+                GUILayout.Label(FormatStartPosition(rec, parentVessel), GUILayout.Width(ColW_StartPos));
+                GUILayout.Label(FormatEndPosition(rec, parentVessel), GUILayout.Width(ColW_EndPos));
             }
 
             // Status (#98: merged countdown into status column)
@@ -1185,20 +1186,27 @@ namespace Parsek
                 GUILayout.Label("", GUILayout.Width(ColW_Rewind));
             }
 
-            // Hide group checkbox
-            bool groupHidden = GroupHierarchyStore.IsGroupHidden(groupName);
+            // Hide group checkbox — toggles Hidden on all member recordings
+            int hiddenCount = 0;
+            foreach (int idx in descendants)
+                if (committed[idx].Hidden) hiddenCount++;
+            bool allHidden = memberCount > 0 && hiddenCount == memberCount;
             GUILayout.BeginHorizontal(GUILayout.Width(ColW_Hide));
             GUILayout.FlexibleSpace();
-            bool newGroupHidden = GUILayout.Toggle(groupHidden, "");
+            bool newAllHidden = GUILayout.Toggle(allHidden, "");
             GUILayout.FlexibleSpace();
             GUILayout.EndHorizontal();
-            if (newGroupHidden != groupHidden)
+            if (newAllHidden != allHidden)
             {
-                if (newGroupHidden)
+                foreach (int idx in descendants)
+                    committed[idx].Hidden = newAllHidden;
+                // Also update group-level visibility
+                if (newAllHidden)
                     GroupHierarchyStore.AddHiddenGroup(groupName);
                 else
                     GroupHierarchyStore.RemoveHiddenGroup(groupName);
-                ParsekLog.Info("UI", $"Group '{groupName}' hidden={newGroupHidden}");
+                ParsekLog.Info("UI",
+                    $"Group '{groupName}' hide-all={newAllHidden} ({memberCount} recordings)");
             }
 
             GUILayout.EndHorizontal();
@@ -1827,30 +1835,72 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Formats the recording start position for the expanded stats column.
-        /// Matches timeline style: "from {site} on {body}", "at {biome} on {body}", "on {body}".
+        /// Resolves the parent vessel name for EVA recordings by looking up ParentRecordingId.
+        /// Returns null if not an EVA or parent not found.
         /// </summary>
-        internal static string FormatStartPosition(Recording rec)
+        internal static string ResolveParentVesselName(Recording rec, List<Recording> committed)
         {
-            if (!string.IsNullOrEmpty(rec.LaunchSiteName) && !string.IsNullOrEmpty(rec.StartBodyName))
-                return rec.LaunchSiteName + ", " + rec.StartBodyName;
+            if (string.IsNullOrEmpty(rec.EvaCrewName) || string.IsNullOrEmpty(rec.ParentRecordingId))
+                return null;
+            for (int i = 0; i < committed.Count; i++)
+                if (committed[i].RecordingId == rec.ParentRecordingId)
+                    return committed[i].VesselName;
+            // Also check tree recordings
+            foreach (var tree in RecordingStore.CommittedTrees)
+                foreach (var kvp in tree.Recordings)
+                    if (kvp.Key == rec.ParentRecordingId)
+                        return kvp.Value.VesselName;
+            return null;
+        }
+
+        /// <summary>
+        /// Formats the recording start position for the expanded stats column.
+        /// Priority: launch site > EVA from vessel > situation + biome + body > biome + body > body.
+        /// </summary>
+        internal static string FormatStartPosition(Recording rec, string parentVesselName = null)
+        {
+            // EVA: show source vessel
+            if (!string.IsNullOrEmpty(rec.EvaCrewName))
+            {
+                if (!string.IsNullOrEmpty(parentVesselName))
+                    return "EVA from " + parentVesselName;
+                return FormatSituationLocation(rec.StartSituation, rec.StartBiome, rec.StartBodyName, "EVA");
+            }
+
+            // Launch from a site
             if (!string.IsNullOrEmpty(rec.LaunchSiteName))
-                return rec.LaunchSiteName;
-            if (!string.IsNullOrEmpty(rec.StartBiome) && !string.IsNullOrEmpty(rec.StartBodyName))
-                return rec.StartBiome + ", " + rec.StartBodyName;
-            if (!string.IsNullOrEmpty(rec.StartBodyName))
-                return rec.StartBodyName;
-            return "-";
+                return !string.IsNullOrEmpty(rec.StartBodyName)
+                    ? rec.LaunchSiteName + ", " + rec.StartBodyName
+                    : rec.LaunchSiteName;
+
+            // General: use situation + biome + body
+            return FormatSituationLocation(rec.StartSituation, rec.StartBiome, rec.StartBodyName, null);
         }
 
         /// <summary>
         /// Formats the recording end position for the expanded stats column.
-        /// Matches timeline style: "{biome}, {body}" for surface, "Orbiting {body}" for orbital.
+        /// Matches timeline style: "Orbiting {body}", "{biome}, {body}", "Boarded {vessel}".
+        /// Body fallback priority for terminal recordings: TerminalOrbitBody → StartBodyName.
+        /// Body fallback priority for mid-segments: SegmentBodyName → last point body → StartBodyName.
         /// </summary>
-        internal static string FormatEndPosition(Recording rec)
+        internal static string FormatEndPosition(Recording rec, string parentVesselName = null)
         {
             if (!rec.TerminalStateValue.HasValue)
+            {
+                // No terminal state (chain mid-segment or interior tree recording).
+                // Fallback: SegmentBodyName → last trajectory point body → StartBodyName.
+                string segBody = rec.SegmentBodyName;
+                if (string.IsNullOrEmpty(segBody) && rec.Points != null && rec.Points.Count > 0)
+                    segBody = rec.Points[rec.Points.Count - 1].bodyName;
+                if (string.IsNullOrEmpty(segBody))
+                    segBody = rec.StartBodyName;
+
+                if (!string.IsNullOrEmpty(rec.SegmentPhase) && !string.IsNullOrEmpty(segBody))
+                    return segBody + " " + rec.SegmentPhase;
+                if (!string.IsNullOrEmpty(segBody))
+                    return segBody;
                 return "-";
+            }
 
             string body = rec.TerminalOrbitBody;
             if (string.IsNullOrEmpty(body) && !string.IsNullOrEmpty(rec.StartBodyName))
@@ -1878,11 +1928,39 @@ namespace Parsek
                 case TerminalState.SubOrbital:
                     return !string.IsNullOrEmpty(body) ? "SubOrbital, " + body : "SubOrbital";
                 case TerminalState.Boarded:
-                    return "Boarded";
+                    return !string.IsNullOrEmpty(parentVesselName)
+                        ? "Boarded " + parentVesselName
+                        : "Boarded";
 
                 default:
                     return "-";
             }
+        }
+
+        /// <summary>
+        /// Formats situation + biome + body into a compact location string.
+        /// "Flying, Shores, Kerbin" or "Orbiting, Kerbin" or "Kerbin" etc.
+        /// </summary>
+        private static string FormatSituationLocation(string situation, string biome, string body, string prefix)
+        {
+            // Build: "{prefix/situation}, {biome}, {body}" with missing parts omitted
+            bool hasSit = !string.IsNullOrEmpty(situation);
+            bool hasBiome = !string.IsNullOrEmpty(biome);
+            bool hasBody = !string.IsNullOrEmpty(body);
+
+            string label = prefix ?? (hasSit ? situation : null);
+
+            if (label != null && hasBiome && hasBody)
+                return label + ", " + biome + ", " + body;
+            if (label != null && hasBody)
+                return label + ", " + body;
+            if (hasBiome && hasBody)
+                return biome + ", " + body;
+            if (hasBody)
+                return body;
+            if (label != null)
+                return label;
+            return "-";
         }
 
         /// <summary>
@@ -2109,19 +2187,21 @@ namespace Parsek
             if (stats.maxRange > 0)
                 text += $"\nMax Range: {FormatDistance(stats.maxRange)}";
 
-            // Storage breakdown (cached, no per-frame I/O)
-            double currentUT = 0.0;
-            try { currentUT = Planetarium.GetUniversalTime(); }
-            catch { /* not available outside KSP */ }
-            var storage = DiagnosticsComputation.GetCachedStorageBreakdown(rec, currentUT);
-            if (storage.totalBytes > 0)
+            // Observability: append storage breakdown from cached file sizes
+            try
             {
-                text += $"\nStorage: {DiagnosticsComputation.FormatBytes(storage.totalBytes)}" +
-                    $" (trajectory: {DiagnosticsComputation.FormatBytes(storage.trajectoryFileBytes)}" +
-                    $", vessel: {DiagnosticsComputation.FormatBytes(storage.vesselSnapshotBytes)}" +
-                    $", ghost: {DiagnosticsComputation.FormatBytes(storage.ghostSnapshotBytes)})";
-                text += $"\nEfficiency: {DiagnosticsComputation.FormatBytes((long)storage.bytesPerSecond)}/s of flight time";
+                double currentUT = Planetarium.GetUniversalTime();
+                var storage = DiagnosticsComputation.GetCachedStorageBreakdown(rec, currentUT);
+                if (storage.totalBytes > 0)
+                {
+                    text += $"\nStorage: {DiagnosticsComputation.FormatBytes(storage.totalBytes)}" +
+                            $" (trajectory: {DiagnosticsComputation.FormatBytes(storage.trajectoryFileBytes)}" +
+                            $", vessel: {DiagnosticsComputation.FormatBytes(storage.vesselSnapshotBytes)}" +
+                            $", ghost: {DiagnosticsComputation.FormatBytes(storage.ghostSnapshotBytes)})";
+                    text += $"\nEfficiency: {DiagnosticsComputation.FormatBytes((long)storage.bytesPerSecond)}/s of flight time";
+                }
             }
+            catch { /* Non-KSP context or Planetarium unavailable */ }
 
             EnsureTooltipStyle();
 
