@@ -575,6 +575,14 @@ At the end of the mission, the capsule was spawned with Siemon Kerman inside ins
 
 **Status:** Fixed — reverse-map stand-in names through CrewReplacements before inferring end states.
 
+## ~~255. Engine FX killed during ghost playback after booster decouple~~
+
+During ghost playback of a Kerbal X, the first two booster pairs decouple with engine FX visible, but when the last pair separates and after, all engine FX are off — the Mainsail plume disappears even though it should still be firing.
+
+**Root cause:** `StopRecordingForChainBoundary` calls `FinalizeRecordingState(emitTerminalEvents: true)` which appends `EngineShutdown` events for all active engines (including the Mainsail). When the joint break is classified as `DebrisSplit` (boosters = uncontrolled debris), `ResumeAfterFalseAlarm` continues recording but does not remove the orphaned shutdown events from `PartEvents`. Each booster decouple adds another orphaned `EngineShutdown` for the Mainsail.
+
+**Status:** Fixed — save `PartEvents.Count` before finalization, truncate back in `ResumeAfterFalseAlarm`.
+
 ## TODO — Nice to have
 
 ### T53. Watch camera mode selection
