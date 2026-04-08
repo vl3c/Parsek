@@ -2476,12 +2476,11 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Orbital-aware version: orbital recordings are exempt from the cutoff
-        /// because they naturally travel far from the active vessel during ascent/orbit.
+        /// Orbital-aware version: if the user has configured a cutoff, always respect it
+        /// regardless of recording type. The cutoff is explicitly user-configured (#243).
         /// </summary>
         internal static bool ShouldExitWatchForCutoff(double ghostDistanceMeters, float cutoffKm, bool isOrbitalRecording)
         {
-            if (isOrbitalRecording) return false;
             return ghostDistanceMeters >= cutoffKm * 1000.0;
         }
 
