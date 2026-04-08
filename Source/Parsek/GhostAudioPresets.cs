@@ -122,14 +122,6 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Resolve the audio clip path for an RCS module. Always returns sound_rocket_mini.
-        /// </summary>
-        internal static string ResolveRcsAudioClip()
-        {
-            return "sound_rocket_mini";
-        }
-
-        /// <summary>
         /// Resolve the audio clip path for a one-shot event (decouple, explosion).
         /// Returns null for event types that have no associated sound.
         /// </summary>

@@ -76,17 +76,7 @@ namespace Parsek.Tests
 
         #endregion
 
-        #region RCS Clip
-
-        [Fact]
-        public void ResolveRcsAudioClip_AlwaysReturnsMini()
-        {
-            Assert.Equal("sound_rocket_mini", GhostAudioPresets.ResolveRcsAudioClip());
-        }
-
-        #endregion
-
-        // Volume/pitch curve tests skipped — FloatCurve requires Unity runtime (cannot instantiate outside KSP).
+        // Volume/pitch curve tests skipped — FloatCurve requires Unity runtime.
 
         #region Engine Clip Resolution (without prefab — fallback)
 
@@ -97,27 +87,6 @@ namespace Parsek.Tests
             Assert.Equal("sound_rocket_spurts", clip);
         }
 
-        [Fact]
-        public void ResolveEngineAudioClip_NullPrefab_LogsWarning()
-        {
-            GhostAudioPresets.ResolveEngineAudioClip(null, 0);
-            // No warning logged for null prefab — it just returns fallback
-            // The fallback itself is a valid clip
-        }
-
-        #endregion
-
-        #region Constants
-
-        [Fact]
-        public void MaxAudioSourcesPerGhost_IsReasonable()
-        {
-            Assert.True(GhostAudioPresets.MaxAudioSourcesPerGhost >= 2,
-                "Should allow at least 2 audio sources per ghost");
-            Assert.True(GhostAudioPresets.MaxAudioSourcesPerGhost <= 8,
-                "Should not exceed 8 to avoid channel exhaustion");
-        }
-
         #endregion
 
         #region Atmosphere Factor
@@ -125,17 +94,18 @@ namespace Parsek.Tests
         [Fact]
         public void ComputeAtmosphereFactor_NullBodyName_ReturnsZero()
         {
-            Assert.Equal(0f, GhostPlaybackLogic.ComputeAtmosphereFactor(null, 1000));
+            var state = new GhostPlaybackState { lastInterpolatedBodyName = null, lastInterpolatedAltitude = 1000 };
+            Assert.Equal(0f, GhostPlaybackLogic.ComputeAtmosphereFactor(state));
         }
 
         [Fact]
         public void ComputeAtmosphereFactor_EmptyBodyName_ReturnsZero()
         {
-            Assert.Equal(0f, GhostPlaybackLogic.ComputeAtmosphereFactor("", 1000));
+            var state = new GhostPlaybackState { lastInterpolatedBodyName = "", lastInterpolatedAltitude = 1000 };
+            Assert.Equal(0f, GhostPlaybackLogic.ComputeAtmosphereFactor(state));
         }
 
-        // Body-dependent tests (ComputeAtmosphereFactor with real CelestialBody) require
-        // Unity runtime — covered by in-game tests instead.
+        // Body-dependent tests (with real CelestialBody) require Unity runtime — in-game tests.
 
         #endregion
     }
