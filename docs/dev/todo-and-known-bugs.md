@@ -611,33 +611,41 @@ Some timeline "Spawn:" lines show generic "Landed" without specifying where. Sho
 
 In-game test `OrbitSegmentBodiesValid` fails: "Orbit segment for 'Mun' has non-positive SMA=-931047.895195401". Negative SMA is physically correct for hyperbolic orbits (eccentricity > 1) but the test asserts positive SMA.
 
-**Investigate:** Determine whether the orbit segment was captured during a hyperbolic escape trajectory (expected — fix the test to allow e>1 with negative SMA) or whether the data is corrupted (fix the recording).
+**Root cause:** Test assertion bug. Hyperbolic escape orbits have negative SMA by definition. `CreateOrbitSegmentFromVessel` correctly copies `v.orbit.semiMajorAxis`.
 
-**Priority:** Medium — test assertion may be wrong, not the data
+**Fix:** Test now skips the `SMA > 0` assertion when `eccentricity > 1.0` (hyperbolic orbit).
+
+**Status:** Fixed
 
 ## 258. Non-chronological trajectory points in recording
 
-In-game test `CommittedRecordingsHaveValidData` fails: recording `ab105395ae5547b0b70c1eb9bb41ca9f` has point 159 UT going backward by ~33 seconds. Trajectory points should be monotonically increasing in UT.
+In-game test `CommittedRecordingsHaveValidData` fails: recording `ab105395ae5547b0b70c1eb9bb41ca9f` (Bob Kerman EVA) has point 159 UT going backward by ~33 seconds. Trajectory points should be monotonically increasing in UT.
 
-**Investigate:** Check whether this recording was involved in a revert, time jump, or continuation rollback that left stale points. May also be related to #256 (EVA recording issues). Consider whether `StopRecording` should sort or validate point order.
+**Root cause:** Quickload during recording resets game time to quicksave UT, but the recorder continued appending points without trimming the stale future-timeline data. `CommitRecordedPoint` and `SamplePosition` had no time monotonicity guard.
 
-**Priority:** Medium — data integrity issue
+**Fix:** Added `TrimRecordingToUT` method to `FlightRecorder`. Both `CommitRecordedPoint` and `SamplePosition` now detect time regression (UT going backward by >1s) and trim stale points, part events, and orbit segments before appending the new point.
+
+**Status:** Fixed (prospective — existing corrupted recording data will still fail; fix prevents recurrence)
 
 ## 259. Orbital recordings missing TerminalOrbitBody
 
 In-game test `OrbitalRecordingsHaveTerminalOrbit` reports 4 orbital recordings without `TerminalOrbitBody` set. This is a regression guard for #203/#219.
 
-**Investigate:** Identify which 4 recordings are affected. Check `FinalizeRecordingState` in `FlightRecorder.cs` — what condition causes `TerminalOrbitBody` to be skipped? Likely recordings that ended via chain boundary or tree promotion rather than normal stop.
+**Root cause:** Three code paths set `TerminalStateValue` to Orbiting/Docked without also calling `CaptureTerminalOrbit`: (1) `CaptureSceneExitState` in ParsekFlight, (2) vessel-switch chain termination in ChainSegmentManager, (3) debris recording end in BackgroundRecorder. Then `FinalizeIndividualRecording` skips orbit capture because `TerminalStateValue.HasValue` is already true.
 
-**Priority:** Medium — affects orbital ghost spawn accuracy
+**Fix:** Added `CaptureTerminalOrbit` calls to all three source paths. Added defensive backfill in `FinalizeIndividualRecording`: when `TerminalStateValue` is Orbiting/SubOrbital/Docked but `TerminalOrbitBody` is null, try vessel orbit capture or fall back to last orbit segment.
 
-## 260. Diagnostics storage scan warns on .pcrf files that never exist
+**Status:** Fixed
 
-Every recording triggers a "Missing sidecar file" warning for `.pcrf` (ghost geometry reference). The `.pcrf` path is defined in `RecordingPaths.BuildGhostGeometryRelativePath` but no code ever writes these files — it's an unimplemented placeholder.
+## 260. Remove .pcrf ghost geometry scaffolding
 
-**Fix:** Remove `.pcrf` from the diagnostics storage scan in `DiagnosticsComputation.ComputeStorageBreakdown`. Keep the path definition in `RecordingPaths` for future use but don't scan for it. Also remove from `StorageBreakdown` struct (geometryFileBytes always 0).
+`.pcrf` (ghost geometry cache) was planned to cache pre-built ghost meshes to avoid PartLoader resolution on every spawn. Never implemented — `GhostVisualBuilder` always builds from the vessel snapshot directly. The path definition in `RecordingPaths.BuildGhostGeometryRelativePath`, the suffix in `RecordingStore.RecordingFileSuffixes`, and the `geometryFileBytes` field in `StorageBreakdown` are dead scaffolding.
 
-**Priority:** Low — cosmetic log noise, no functional impact
+Ghost mesh builds are 10-25ms one-shot costs (not per-frame), and diagnostics show only ~22 builds per session. Not worth implementing — if ghost build cost ever matters, GameObject reuse (reset state instead of destroy/rebuild) would be simpler.
+
+**Fix:** Remove `BuildGhostGeometryRelativePath` from `RecordingPaths`, remove `.pcrf` from `RecordingFileSuffixes`, remove `geometryFileBytes` from `StorageBreakdown`, remove the `.pcrf` stat call from `DiagnosticsComputation.ComputeStorageBreakdown`.
+
+**Priority:** Low — cleanup, eliminates ~52 spurious "Missing sidecar file" warnings per diagnostics scan
 
 ## 261. Diagnostics playback budget shows 0.0 ms instead of N/A on first frame
 
