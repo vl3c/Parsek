@@ -95,15 +95,26 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void PersistFinalizedRecording_ContextString_IsIncludedInBothSuccessAndFailureLogs()
+        public void PersistFinalizedRecording_ContextString_IsIncludedInFailureLog()
         {
             // The context string is the diagnostic breadcrumb that identifies WHICH
             // finalization site triggered the write (destroy / shutdown / etc.). It
-            // must be present in every log line so next-playtest triage can match
-            // the log entry back to the source code site.
+            // must be present in the log line so next-playtest triage can match the
+            // log entry back to the source code site.
+            //
+            // This test only exercises the failure path: triggering the success
+            // path requires a live KSP save folder (HighLogic.SaveFolder +
+            // KSPUtil.ApplicationRootPath), which unit tests can't set up. The
+            // success log assertion ("wrote sidecar for recId=…") is deferred to
+            // the in-game Kerbal X playtest.
+            //
+            // The path-traversal pid here ("../../etc/passwd") doubles as an
+            // implicit verification that RecordingPaths.ValidateRecordingId
+            // rejects the input — without that rejection, SaveRecordingFiles
+            // would attempt a real file write outside the save folder.
             var rec = new Recording
             {
-                RecordingId = "../../etc/passwd", // path traversal — rejected by ValidateRecordingId
+                RecordingId = "../../etc/passwd", // rejected by ValidateRecordingId
                 VesselName = "test"
             };
 
