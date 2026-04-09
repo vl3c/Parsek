@@ -224,8 +224,13 @@ namespace Parsek
             treeRec.FlagEvents.AddRange(recorder.FlagEvents);
             treeRec.TrackSections.AddRange(recorder.TrackSections);
 
-            // Sort events chronologically — mixed sources can produce out-of-order data
-            treeRec.PartEvents.Sort((a, b) => a.ut.CompareTo(b.ut));
+            // Sort events chronologically — mixed sources can produce out-of-order data.
+            // PartEvents MUST use a STABLE sort so same-UT terminal Shutdowns stay before
+            // continuation seed EngineIgnited events (#287). LINQ OrderBy is stable;
+            // List<T>.Sort(Comparison) is not.
+            var sortedPartEvents = FlightRecorder.StableSortPartEventsByUT(treeRec.PartEvents);
+            treeRec.PartEvents.Clear();
+            treeRec.PartEvents.AddRange(sortedPartEvents);
             treeRec.FlagEvents.Sort((a, b) => a.ut.CompareTo(b.ut));
 
             // Populate VesselPersistentId if not already set
@@ -1608,8 +1613,12 @@ namespace Parsek
             treeRec.FlagEvents.AddRange(rec.FlagEvents);
             treeRec.TrackSections.AddRange(rec.TrackSections);
 
-            // Sort part/flag events chronologically (mixed event sources may produce non-chronological order)
-            treeRec.PartEvents.Sort((a, b) => a.ut.CompareTo(b.ut));
+            // Sort part/flag events chronologically. PartEvents MUST use a STABLE sort so
+            // same-UT events retain their insertion order — critical for terminal-vs-ignited
+            // ordering across tree promotion boundaries (#287).
+            var sortedPartEventsFlush = FlightRecorder.StableSortPartEventsByUT(treeRec.PartEvents);
+            treeRec.PartEvents.Clear();
+            treeRec.PartEvents.AddRange(sortedPartEventsFlush);
             treeRec.FlagEvents.Sort((a, b) => a.ut.CompareTo(b.ut));
 
             // Mark dirty so the next OnSave persists the flushed data to disk.
@@ -1740,7 +1749,10 @@ namespace Parsek
                 target.OrbitSegments.AddRange(source.OrbitSegments);
                 target.PartEvents.AddRange(source.PartEvents);
                 target.TrackSections.AddRange(source.TrackSections);
-                target.PartEvents.Sort((a, b) => a.ut.CompareTo(b.ut));
+                // STABLE sort: same-UT events preserve insertion order (#287).
+                var sortedAppend = FlightRecorder.StableSortPartEventsByUT(target.PartEvents);
+                target.PartEvents.Clear();
+                target.PartEvents.AddRange(sortedAppend);
                 // Mark dirty so the next OnSave persists the appended data to
                 // the .prec sidecar. Without this, data lives only in memory
                 // and is lost on scene reload (see Recording.MarkFilesDirty

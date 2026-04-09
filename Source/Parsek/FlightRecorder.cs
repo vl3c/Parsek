@@ -122,6 +122,14 @@ namespace Parsek
         // to truncate orphaned terminal events added by FinalizeRecordingState.
         private int partEventCountBeforeChainStop = -1;
 
+        // Exact terminal events appended by the most recent FinalizeRecordingState call with
+        // emitTerminalEvents=true. ResumeAfterFalseAlarm uses this list to remove the orphaned
+        // terminals by content-matching rather than index arithmetic. Index-based removal
+        // (see #255/#263/#281) is brittle across unstable sort paths (flush/merge) and any
+        // code path that appends events between stop and resume — it has caused spurious
+        // terminal Shutdowns to survive into committed recordings (#287).
+        private List<PartEvent> lastEmittedTerminalEvents;
+
         /// <summary>
         /// Consumes the pending joint break flag, returning whether a check was pending.
         /// </summary>
@@ -4615,6 +4623,14 @@ namespace Parsek
                     activeEngineKeys, activeRcsKeys, activeRoboticKeys,
                     lastRoboticPosition, terminalUT, "Recorder");
                 PartEvents.AddRange(terminalEvts);
+                // Save the exact terminal events so ResumeAfterFalseAlarm can remove them
+                // by content-match (#287). Index-based RemoveRange is brittle across unstable
+                // sort paths and any code path that appends events between stop and resume.
+                lastEmittedTerminalEvents = terminalEvts;
+            }
+            else
+            {
+                lastEmittedTerminalEvents = null;
             }
 
             // Sort part/flag events chronologically (mixed event sources may produce
@@ -4646,9 +4662,91 @@ namespace Parsek
         internal void StableSortPartEventsByUT()
         {
             if (PartEvents.Count < 2) return;
-            var sorted = PartEvents.OrderBy(e => e.ut).ToList();
+            var sorted = StableSortPartEventsByUT(PartEvents);
             PartEvents.Clear();
             PartEvents.AddRange(sorted);
+        }
+
+        /// <summary>
+        /// Static helper for stable UT-sorting of a <see cref="PartEvent"/> list. Returns a
+        /// new list with equal-UT events in their original insertion order. Call sites that
+        /// merge multiple event sources (tree flushes, session merger, recording optimizer)
+        /// must use this instead of <c>List&lt;T&gt;.Sort(Comparison)</c> to preserve the
+        /// terminal-vs-ignited ordering at chain boundaries (#263, #287).
+        /// Always returns a NEW list (even for null/small inputs) so callers can safely
+        /// Clear the source list before copying back, without aliasing issues.
+        /// </summary>
+        internal static List<PartEvent> StableSortPartEventsByUT(List<PartEvent> events)
+        {
+            if (events == null) return new List<PartEvent>();
+            if (events.Count < 2) return new List<PartEvent>(events);
+            return events.OrderBy(e => e.ut).ToList();
+        }
+
+        /// <summary>
+        /// Removes the exact terminal events saved by the most recent FinalizeRecordingState
+        /// call from <see cref="PartEvents"/> by content-matching on (ut, pid, eventType,
+        /// moduleIndex). Robust against sort reordering — unlike the index-based RemoveRange
+        /// it replaces (#287). Returns the number of terminal events removed.
+        /// </summary>
+        internal int RemoveLastEmittedTerminals()
+        {
+            if (lastEmittedTerminalEvents == null || lastEmittedTerminalEvents.Count == 0)
+                return 0;
+
+            int removed = 0;
+            int notFound = 0;
+            for (int i = 0; i < lastEmittedTerminalEvents.Count; i++)
+            {
+                var target = lastEmittedTerminalEvents[i];
+                int idx = FindTerminalEventIndex(PartEvents, target);
+                if (idx >= 0)
+                {
+                    PartEvents.RemoveAt(idx);
+                    removed++;
+                }
+                else
+                {
+                    notFound++;
+                }
+            }
+
+            if (notFound > 0)
+            {
+                ParsekLog.Warn("Recorder",
+                    $"RemoveLastEmittedTerminals: {notFound} terminal event(s) not found in PartEvents " +
+                    $"(expected {lastEmittedTerminalEvents.Count}, removed {removed}) — possible race " +
+                    $"condition with intervening flush/sort");
+            }
+
+            lastEmittedTerminalEvents = null;
+            return removed;
+        }
+
+        /// <summary>
+        /// Pure helper: finds the index of the first <see cref="PartEvent"/> in
+        /// <paramref name="list"/> that matches <paramref name="target"/> by
+        /// (ut, partPersistentId, eventType, moduleIndex). Returns -1 if not found.
+        /// Ignores <c>partName</c> and <c>value</c> because terminal events stamp
+        /// <c>partName="unknown"</c> while a natural event with the same (ut, pid, type,
+        /// midx) tuple would not realistically coexist in the list (the active-key set
+        /// gates both emission sites).
+        /// </summary>
+        internal static int FindTerminalEventIndex(List<PartEvent> list, PartEvent target)
+        {
+            if (list == null) return -1;
+            for (int i = 0; i < list.Count; i++)
+            {
+                var e = list[i];
+                if (e.ut == target.ut
+                    && e.partPersistentId == target.partPersistentId
+                    && e.eventType == target.eventType
+                    && e.moduleIndex == target.moduleIndex)
+                {
+                    return i;
+                }
+            }
+            return -1;
         }
 
         public void StopRecording()
@@ -4742,12 +4840,18 @@ namespace Parsek
             // StopRecordingForChainBoundary emits EngineShutdown/RCSStop events for all
             // active engines. If the split turns out to be a false alarm (debris only),
             // these events are wrong — the engines are still running.
-            if (partEventCountBeforeChainStop >= 0 && partEventCountBeforeChainStop < PartEvents.Count)
+            //
+            // Content-based removal (#287): we match each saved terminal event against
+            // PartEvents by (ut, pid, type, midx) and remove the matching entry. This is
+            // robust across unstable sort paths and any code that appends events between
+            // stop and resume — index-based RemoveRange was brittle and left spurious
+            // terminal Shutdowns in committed recordings, causing engine FX to turn off
+            // permanently after booster staging (bug #287 2026-04-09 Kerbal X playtest).
+            int contentRemoved = RemoveLastEmittedTerminals();
+            if (contentRemoved > 0)
             {
-                int removed = PartEvents.Count - partEventCountBeforeChainStop;
-                PartEvents.RemoveRange(partEventCountBeforeChainStop, removed);
                 ParsekLog.Info("Recorder",
-                    $"ResumeAfterFalseAlarm: removed {removed} orphaned terminal event(s) " +
+                    $"ResumeAfterFalseAlarm: removed {contentRemoved} orphaned terminal event(s) " +
                     $"(PartEvents count: {PartEvents.Count})");
             }
             partEventCountBeforeChainStop = -1;

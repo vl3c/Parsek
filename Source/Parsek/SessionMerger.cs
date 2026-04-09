@@ -409,7 +409,9 @@ namespace Parsek
 
         /// <summary>
         /// Merges two PartEvent lists, deduplicating by (ut, partPersistentId, eventType)
-        /// and sorting by UT.
+        /// and sorting by UT with stable semantics so same-UT events keep their insertion
+        /// order — critical for terminal Shutdowns at chain boundaries to stay before
+        /// continuation seed EngineIgnited events (#287).
         /// </summary>
         internal static List<PartEvent> MergePartEvents(List<PartEvent> eventsA, List<PartEvent> eventsB)
         {
@@ -419,7 +421,7 @@ namespace Parsek
             AddEventsWithDedup(merged, seen, eventsA);
             AddEventsWithDedup(merged, seen, eventsB);
 
-            merged.Sort((a, b) => a.ut.CompareTo(b.ut));
+            merged = FlightRecorder.StableSortPartEventsByUT(merged);
 
             ParsekLog.Verbose(Tag,
                 $"MergePartEvents: inputA={eventsA?.Count ?? 0} inputB={eventsB?.Count ?? 0} " +

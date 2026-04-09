@@ -220,11 +220,15 @@ namespace Parsek
             if (absorbed.Points != null && absorbed.Points.Count > 0)
                 target.Points.AddRange(absorbed.Points);
 
-            // 2. Merge + re-sort PartEvents by UT
+            // 2. Merge + re-sort PartEvents by UT.
+            // STABLE sort: same-UT events preserve insertion order so terminal Shutdowns
+            // stay before continuation seed EngineIgnited events (#287).
             if (absorbed.PartEvents != null && absorbed.PartEvents.Count > 0)
             {
                 target.PartEvents.AddRange(absorbed.PartEvents);
-                target.PartEvents.Sort((a, b) => a.ut.CompareTo(b.ut));
+                var sortedMerge = FlightRecorder.StableSortPartEventsByUT(target.PartEvents);
+                target.PartEvents.Clear();
+                target.PartEvents.AddRange(sortedMerge);
             }
 
             // 3. Merge + re-sort SegmentEvents by UT
