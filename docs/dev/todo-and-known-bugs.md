@@ -659,6 +659,35 @@ Tree sub-recordings (debris, EVA branches) may not have their own `_vessel.craft
 
 **Priority:** Low — cosmetic log noise
 
+## 263. Ghost mesh inaccurate after decoupling boosters
+
+During the 2026-04-09 KerbalX playtest, the ghost visual showed 3 boosters still attached to the final stage even after they should have decoupled. Two compounding root causes:
+
+1. **Snapshot not refreshed on decouple:** `FlightRecorder.initialGhostVisualSnapshot` (FlightRecorder.cs:4223-4225) is captured ONCE at recording start and reused via `BuildCaptureRecording` (FlightRecorder.cs:4394-4396). The ghost mesh is built from this snapshot plus part-hiding events during playback. If a decouple happens mid-recording, the snapshot still contains the attached boosters; only the `Decoupled` PartEvent hides them during playback via `HidePartSubtree`.
+
+2. **Half of decouple events dropped (race condition):** 6 decouple events fire in pairs when radial decouplers separate (core side + booster side), ~4ms apart. Only the 3 core-side pids (2057942744/3027027466/3271565278) end up in the committed `.prec` file. The 3 booster-side pids (1009856088/2130796824/633147235) are dropped — they're emitted after the booster-side pid has migrated to the new debris vessel, so the Kerbal X recorder filters them out, and the debris `BackgroundRecorder` doesn't exist yet to capture them. Neither recording has these events.
+
+**Evidence:**
+- KSP.log lines 9241-9620: 6 decouple events logged in pairs at 10:33:50, 10:34:05, 10:34:22
+- Committed recordings (`db2e7ab6…prec`): only 3 core-side decouple events present
+- All 6 decoupler pids present in ghost.craft snapshot
+
+**Fix plan (two-part):**
+1. Refresh `initialGhostVisualSnapshot` on decouple (in `OnPartUndock` before chain boundary stop) so the snapshot reflects post-decouple state. Alternative: record a part-hiding event for booster-side pids explicitly.
+2. Capture booster-side decouple events: either hold them in a pending buffer until the debris `BackgroundRecorder` exists, or emit a "paired decouple" event with both pids so HidePartSubtree can hide both halves.
+
+**Priority:** Medium — visible ghost corruption on any decoupling craft
+
+## 264. EVA kerbal not spawned at exact recorded final position
+
+During the 2026-04-09 Butterfly Rover playtest, Valentina's EVA ended near the rover. When her ghost vessel was spawned from the recording, she was placed on top of the rover instead of at her exact recorded final position. The two terminal positions were ~170 m apart (lat/lon differ by ~0.0009°/0.0012°), so spawn should have been clearly distinct.
+
+**Root cause:** `VesselSpawner.ResolveSpawnPosition` correctly identifies EVA recordings and extracts the trajectory endpoint lat/lon/alt (VesselSpawner.cs:510-572). `OverrideSnapshotPosition` updates the snapshot ConfigNode with the resolved position (VesselSpawner.cs:1002-1023). But `RespawnVessel` (VesselSpawner.cs:43-99) then loads the ConfigNode and lets KSP spawn the vessel — and KSP's physics-init auto-snaps EVA kerbals to nearby parent vessels, overriding the ConfigNode position. The collision-avoidance check at VesselSpawner.cs:426-427 explicitly skips EVAs, so the recorded position survives the guard but not the KSP physics init.
+
+**Fix plan:** Route EVA vessels through `SpawnAtPosition` (VesselSpawner.cs:115-199) instead of `RespawnVessel`. `SpawnAtPosition` explicitly constructs the world position and velocity before the first physics frame runs, which is the same path used for orbital vessels (see VesselSpawner.cs:319-341). Alternative: add a post-spawn correction step that locks the transform position after `RespawnVessel` returns, before KSP's auto-snap kicks in on the next `FixedUpdate`.
+
+**Priority:** Medium — EVA spawn accuracy is a stated design goal
+
 ---
 
 # In-Game Tests
