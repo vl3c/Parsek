@@ -4241,6 +4241,12 @@ namespace Parsek
                 Recording.Add(anchor);
                 lastRecordedUT = anchorUT;
                 lastRecordedVelocity = anchor.velocity;
+                // Mirror lastRecordedVelocity: the anchor is a full TrajectoryPoint with
+                // an altitude field, and HandleSoiAutoSplit's "approach vs exo" decision
+                // reads LastRecordedAltitude. Without this, a chain continuation that
+                // hits an SOI split before the first live sample would misclassify the
+                // fromPhase as "exo" (because the cached altitude is still NaN).
+                LastRecordedAltitude = anchor.altitude;
                 BoundaryAnchor = null;
                 ParsekLog.Verbose("Recorder", $"Boundary anchor inserted at UT {anchorUT:F3}");
             }
