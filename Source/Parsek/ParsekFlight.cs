@@ -923,11 +923,40 @@ namespace Parsek
             if (scene == GameScenes.FLIGHT)
             {
                 // FLIGHT→FLIGHT: the player quickloaded, reverted, or vessel-switched
-                // into a scene reload. We can't tell which until ParsekScenario.OnLoad
-                // runs. Stash the tree WITHOUT finalization; OnLoad's revert detection
-                // dispatch will either restore-and-resume (quickload) or finalize-and-commit
+                // into a scene reload. We can't fully tell which until OnLoad runs,
+                // but we CAN check the live vesselSwitchPending flag (set by KSP's
+                // onVesselSwitching event, which fires before OnSceneChangeRequested).
+                //
+                // Bug #266: when this is a vessel switch, pre-transition the tree at
+                // stash time — flush the recorder, move the active recording's PID
+                // into BackgroundMap, null ActiveRecordingId — and stash as
+                // LimboVesselSwitch. The restore coroutine just reinstalls and
+                // optionally promotes the new vessel from BackgroundMap. This
+                // preserves the in-progress mission across the scene reload, exactly
+                // matching the in-session OnVesselSwitchComplete behavior.
+                //
+                // Otherwise (quickload, revert, or any case where we can't safely
+                // pre-transition — see CanPreTransitionForVesselSwitch), fall back
+                // to the legacy Limbo stash. OnLoad's revert detection dispatch will
+                // then either restore-and-resume (quickload) or finalize-and-commit
                 // (revert). See docs/dev/plans/quickload-resume-recording.md (Bug C).
-                StashActiveTreeAsPendingLimbo(commitUT);
+                bool isVesselSwitch = ParsekScenario.IsVesselSwitchPendingFresh();
+                if (isVesselSwitch && CanPreTransitionForVesselSwitch())
+                {
+                    StashActiveTreeForVesselSwitch(commitUT);
+                }
+                else
+                {
+                    if (isVesselSwitch)
+                    {
+                        ParsekLog.Info("Flight",
+                            "FinalizeTreeOnSceneChange: vessel switch detected but " +
+                            "pre-transition is unsafe (pendingTreeDockMerge / " +
+                            "pendingSplit) — falling back to legacy Limbo stash; " +
+                            "OnLoad safety net will finalize");
+                    }
+                    StashActiveTreeAsPendingLimbo(commitUT);
+                }
             }
             else if (!ParsekScenario.IsAutoMerge)
             {
@@ -3998,15 +4027,25 @@ namespace Parsek
             // the entire launch tree (bug observed 2026-04-09 playtest; see CHANGELOG).
             ResetFlightReadyState();
 
-            // Quickload-resume: ParsekScenario.OnLoad detected a pending-Limbo tree on
-            // the !isRevert branch and deferred restore to this point. Starts a coroutine
-            // that matches the active vessel by name, wires a fresh recorder to the
-            // restored tree, and resumes recording via StartRecording(isPromotion: true)
-            // so bug A's seed-event skip prevents duplicate events at the quickload UT.
-            if (ParsekScenario.ScheduleActiveTreeRestoreOnFlightReady)
+            // Active-tree restore: ParsekScenario.OnLoad detected a pending tree on the
+            // !isRevert branch and deferred restore to this point. Two modes:
+            //   - Quickload (existing path): name-match against active vessel and resume.
+            //   - VesselSwitch (#266): tree was pre-transitioned at stash time, just
+            //     reinstall it and (optionally) promote the new active vessel from
+            //     BackgroundMap.
+            var restoreMode = ParsekScenario.ScheduleActiveTreeRestoreOnFlightReady;
+            if (restoreMode != ParsekScenario.ActiveTreeRestoreMode.None)
             {
-                ParsekScenario.ScheduleActiveTreeRestoreOnFlightReady = false;
-                StartCoroutine(RestoreActiveTreeFromPending());
+                ParsekScenario.ScheduleActiveTreeRestoreOnFlightReady =
+                    ParsekScenario.ActiveTreeRestoreMode.None;
+                if (restoreMode == ParsekScenario.ActiveTreeRestoreMode.VesselSwitch)
+                {
+                    StartCoroutine(RestoreActiveTreeFromPendingForVesselSwitch());
+                }
+                else
+                {
+                    StartCoroutine(RestoreActiveTreeFromPending());
+                }
             }
 
             // Belt-and-suspenders: recover orphaned spawned vessels that survived
@@ -5552,6 +5591,97 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Bug #266: vessel-switch restore coroutine. The pending tree was pre-transitioned
+        /// at stash time (recorder flushed, old active recording moved into BackgroundMap,
+        /// ActiveRecordingId nulled), so the restore is much simpler than the quickload
+        /// path: pop the tree, install as <c>activeTree</c>, attach a fresh
+        /// <c>BackgroundRecorder</c>, and inspect the new active vessel:
+        /// <list type="bullet">
+        ///   <item>If its PID is in <c>tree.BackgroundMap</c> (round-trip — the player
+        ///   returned to a vessel that's part of this tree), promote it via the existing
+        ///   <see cref="PromoteRecordingFromBackground"/> path.</item>
+        ///   <item>Otherwise leave <c>recorder = null</c> — the new vessel is an outsider
+        ///   from this tree's perspective, identical to the in-session
+        ///   <c>OnVesselSwitchComplete</c> outcome at lines 1539–1543 when
+        ///   <c>BackgroundMap.TryGetValue</c> returns false.</item>
+        /// </list>
+        /// </summary>
+        IEnumerator RestoreActiveTreeFromPendingForVesselSwitch()
+        {
+            ParsekLog.RecState("RestoreSwitch:start", CaptureRecorderState());
+            if (!RecordingStore.HasPendingTree
+                || RecordingStore.PendingTreeStateValue != PendingTreeState.LimboVesselSwitch)
+            {
+                ParsekLog.Verbose("Flight",
+                    "RestoreActiveTreeFromPendingForVesselSwitch: no pending-LimboVesselSwitch tree, skipping");
+                yield break;
+            }
+
+            // Wait up to ~1 second for FlightGlobals.ActiveVessel to populate.
+            // Vessel switches via TS reload don't need name matching (we don't care
+            // who the player landed on — we just need a non-null active vessel so we
+            // can check whether it's in BackgroundMap).
+            float deadline = UnityEngine.Time.time + 1f;
+            while (UnityEngine.Time.time < deadline && FlightGlobals.ActiveVessel == null)
+                yield return null;
+
+            // Pop the tree (non-destructive — preserves sidecar files) and install
+            // as the live active tree.
+            activeTree = RecordingStore.PopPendingTree();
+            if (activeTree == null)
+            {
+                ParsekLog.Warn("Flight",
+                    "RestoreActiveTreeFromPendingForVesselSwitch: PopPendingTree returned null after " +
+                    "we verified the tree exists");
+                yield break;
+            }
+
+            // Re-attach the BackgroundRecorder for the tree (the previous instance was
+            // shut down in FinalizeTreeOnSceneChange before the scene reload).
+            if (backgroundRecorder == null)
+            {
+                backgroundRecorder = new BackgroundRecorder(activeTree);
+                backgroundRecorder.SubscribePartEvents();
+                Patches.PhysicsFramePatch.BackgroundRecorderInstance = backgroundRecorder;
+            }
+
+            // Inspect the new active vessel for promotion.
+            var newActive = FlightGlobals.ActiveVessel;
+            if (newActive == null)
+            {
+                ParsekLog.Info("Flight",
+                    $"RestoreActiveTreeFromPendingForVesselSwitch: tree '{activeTree.TreeName}' reinstalled, " +
+                    "but no active vessel resolved within wait window — outsider state, recorder stays null");
+            }
+            else
+            {
+                uint newPid = newActive.persistentId;
+                if (activeTree.BackgroundMap.TryGetValue(newPid, out string bgRecId))
+                {
+                    // Round-trip case: the player returned to a vessel that this tree
+                    // is already tracking. Promote it via the existing in-session path.
+                    backgroundRecorder?.OnVesselRemovedFromBackground(newPid);
+                    PromoteRecordingFromBackground(bgRecId, newActive);
+                    ParsekLog.Info("Flight",
+                        $"RestoreActiveTreeFromPendingForVesselSwitch: promoted vessel '{newActive.vesselName}' " +
+                        $"(pid={newPid}) from BackgroundMap — round-trip via TS / scene-reload switch");
+                }
+                else
+                {
+                    // Outsider case: the new active vessel has no recording context in
+                    // this tree. recorder stays null. Future switches back to a tree
+                    // member will trigger OnVesselSwitchComplete → PromoteFromBackground.
+                    ParsekLog.Info("Flight",
+                        $"RestoreActiveTreeFromPendingForVesselSwitch: tree '{activeTree.TreeName}' reinstalled " +
+                        $"as outsider for active vessel '{newActive.vesselName}' (pid={newPid}, not in " +
+                        $"BackgroundMap) — recorder stays null until next switch promotes a tree member");
+                }
+            }
+
+            ParsekLog.RecState("RestoreSwitch:after-install", CaptureRecorderState());
+        }
+
+        /// <summary>
         /// Flight→Flight stash path (Bug C fix): stashes the active tree into the
         /// pending-Limbo slot WITHOUT finalizing terminal state. ParsekScenario.OnLoad
         /// decides, based on revert vs quickload detection, whether to finalize-and-commit
@@ -5626,6 +5756,156 @@ namespace Parsek
                 $"StashActiveTreeAsPendingLimbo: stashed tree '{activeTree.TreeName}' as Limbo " +
                 $"({activeTree.Recordings.Count} recording(s)) — OnLoad will dispatch");
             ParsekLog.RecState("StashTreeLimbo:post", CaptureRecorderState());
+        }
+
+        /// <summary>
+        /// Bug #266: returns true if the active tree can safely be pre-transitioned
+        /// for a vessel-switch stash. Bails out on the same conditions that the
+        /// in-session <see cref="OnVesselSwitchComplete"/> path bails on
+        /// (<c>pendingTreeDockMerge</c>, pending split / chain-to-vessel windows),
+        /// because those states have continuation logic that runs in <c>Update()</c>
+        /// after the switch completes — and <c>Update()</c> never runs across a
+        /// scene reload. Falling back to the legacy Limbo stash on these is the
+        /// safer option (the safety net in <c>OnLoad</c> will finalize, matching
+        /// pre-#266 behavior for these edge cases).
+        /// </summary>
+        bool CanPreTransitionForVesselSwitch()
+        {
+            if (activeTree == null) return false;
+            if (pendingTreeDockMerge) return false;
+            if (pendingSplitRecorder != null || pendingSplitInProgress) return false;
+            if (recorder != null && recorder.ChainToVesselPending) return false;
+            return true;
+        }
+
+        /// <summary>
+        /// Bug #266: pure helper that mirrors the in-session
+        /// <see cref="OnVesselSwitchComplete"/> BackgroundMap transition. Moves the
+        /// tree's active recording into <c>BackgroundMap</c> and nulls
+        /// <c>ActiveRecordingId</c>. Returns <c>true</c> if a BackgroundMap entry
+        /// was actually inserted (valid <c>ActiveRecordingId</c> + non-zero PID),
+        /// <c>false</c> in degenerate cases where the tree is still nulled but no
+        /// background entry was added — the restore path will then treat the new
+        /// active vessel as an outsider.
+        ///
+        /// <para>PID source priority: <paramref name="recorderVesselPid"/> (the
+        /// live recorder PID at stash time) takes precedence over the tree
+        /// recording's persisted <c>VesselPersistentId</c>, which may lag behind
+        /// across docking / boarding edge cases.</para>
+        /// </summary>
+        internal static bool ApplyPreTransitionForVesselSwitch(
+            RecordingTree tree, uint recorderVesselPid)
+        {
+            if (tree == null) return false;
+            string oldActiveRecId = tree.ActiveRecordingId;
+            uint oldVesselPid = recorderVesselPid;
+
+            if (oldVesselPid == 0
+                && !string.IsNullOrEmpty(oldActiveRecId)
+                && tree.Recordings.TryGetValue(oldActiveRecId, out var oldRec))
+            {
+                oldVesselPid = oldRec.VesselPersistentId;
+            }
+
+            bool moved = false;
+            if (!string.IsNullOrEmpty(oldActiveRecId) && oldVesselPid != 0)
+            {
+                tree.BackgroundMap[oldVesselPid] = oldActiveRecId;
+                moved = true;
+            }
+            tree.ActiveRecordingId = null;
+            return moved;
+        }
+
+        /// <summary>
+        /// Bug #266: stash the active tree for a vessel-switch-induced FLIGHT→FLIGHT
+        /// scene reload. Pre-transitions the tree at stash time so the restore
+        /// coroutine just has to reinstall it: flushes the recorder, moves the
+        /// active recording's vessel PID into <c>BackgroundMap</c>, nulls
+        /// <c>ActiveRecordingId</c>, then stashes as <see cref="PendingTreeState.LimboVesselSwitch"/>.
+        ///
+        /// <para>This mirrors the in-session <see cref="OnVesselSwitchComplete"/> path
+        /// at lines 1493–1534, except the <c>activeTree</c> reference must cross the
+        /// scene boundary via <see cref="RecordingStore.PendingTree"/> because the
+        /// <see cref="ParsekFlight"/> singleton is destroyed on scene reload.</para>
+        /// </summary>
+        void StashActiveTreeForVesselSwitch(double commitUT)
+        {
+            if (activeTree == null) return;
+
+            ParsekLog.Info("Flight",
+                $"StashActiveTreeForVesselSwitch: pre-transitioning tree '{activeTree.TreeName}' " +
+                $"at UT={commitUT:F1} (activeRecId={activeTree.ActiveRecordingId ?? "<null>"})");
+            ParsekLog.RecState("StashTreeForSwitch:entry", CaptureRecorderState());
+
+            // 1. Flush the recorder buffers into the active tree's current recording
+            //    WITHOUT setting terminal state. Same shape as the in-session path.
+            string oldActiveRecId = activeTree.ActiveRecordingId;
+            uint oldVesselPid = 0;
+            if (recorder != null)
+            {
+                if (recorder.IsRecording)
+                {
+                    if (recorder.IsBackgrounded)
+                        recorder.IsRecording = false;
+                    else
+                        recorder.ForceStop();
+                }
+                FlushRecorderToTreeRecording(recorder, activeTree);
+
+                // Copy rewind save filename to the tree's root recording so the R button
+                // still works after a potential future revert on this tree.
+                string rewindSave = recorder.CaptureAtStop?.RewindSaveFileName
+                    ?? recorder.RewindSaveFileName;
+                if (!string.IsNullOrEmpty(rewindSave)
+                    && !string.IsNullOrEmpty(activeTree.RootRecordingId))
+                {
+                    if (activeTree.Recordings.TryGetValue(activeTree.RootRecordingId, out var rootRec))
+                    {
+                        rootRec.RewindSaveFileName = rewindSave;
+                    }
+                }
+
+                oldVesselPid = recorder.RecordingVesselId;
+            }
+
+            // 2. Close background recorder orbit segments and flush their data into
+            //    tree recordings. Does NOT set terminal state.
+            if (backgroundRecorder != null)
+                backgroundRecorder.FinalizeAllForCommit(commitUT);
+
+            // 3. Pre-transition: move the old active recording's PID into BackgroundMap,
+            //    null ActiveRecordingId. From the BackgroundMap's point of view this is
+            //    identical to the in-session OnVesselSwitchComplete transition at
+            //    ParsekFlight.cs:1528–1536. Pure helper so unit tests can exercise the
+            //    PID-priority logic without booting Unity.
+            int bgPidsBefore = activeTree.BackgroundMap.Count;
+            bool moved = ApplyPreTransitionForVesselSwitch(activeTree, oldVesselPid);
+            if (moved)
+            {
+                ParsekLog.Info("Flight",
+                    $"StashActiveTreeForVesselSwitch: moved active recording '{oldActiveRecId}' " +
+                    $"to BackgroundMap (was {bgPidsBefore} entries, now " +
+                    $"{activeTree.BackgroundMap.Count})");
+            }
+            else
+            {
+                ParsekLog.Warn("Flight",
+                    $"StashActiveTreeForVesselSwitch: cannot move active recording to BackgroundMap " +
+                    $"(activeRecId='{oldActiveRecId ?? "<null>"}', oldPid={oldVesselPid}) — tree " +
+                    $"will be stashed with no active recording AND no background entry, restore " +
+                    $"will treat the new vessel as an outsider");
+            }
+
+            // 4. Stash as LimboVesselSwitch. The OnLoad dispatch routes this state to
+            //    the vessel-switch restore coroutine.
+            RecordingStore.StashPendingTree(activeTree, PendingTreeState.LimboVesselSwitch);
+
+            ParsekLog.Info("Flight",
+                $"StashActiveTreeForVesselSwitch: stashed tree '{activeTree.TreeName}' as " +
+                $"LimboVesselSwitch ({activeTree.Recordings.Count} recording(s), " +
+                $"{activeTree.BackgroundMap.Count} background entry(ies)) — OnLoad will dispatch");
+            ParsekLog.RecState("StashTreeForSwitch:post", CaptureRecorderState());
         }
 
         /// <summary>

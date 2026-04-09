@@ -52,6 +52,7 @@ Dev notes: technical narratives for the fixes below live in `docs/dev/todo-and-k
 ### Bug Fixes — Quickload-resume recording (Bugs C, H, I) — PR #160
 
 - Quicksave + quickload during an active recording no longer fragments the mission, produces partial ghost orbits, or scatters crew across orphan recordings.
+- `#266` Switching to a distant vessel via the Tracking Station now preserves the in-progress mission tree instead of finalizing it on scene reload.
 
 ### Bug Fixes — Mun Mission playtest
 
