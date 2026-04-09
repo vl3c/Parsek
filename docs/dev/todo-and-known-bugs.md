@@ -4,6 +4,73 @@ Previous entries (225 bugs, 51 TODOs — mostly resolved) archived in `done/todo
 
 ---
 
+## 282. Empty parent-continuation recordings created when background vessel splits after parent is already destroyed
+
+Surfaced by the post-PR-#167 Kerbal X playtest (2026-04-09 evening session, `KSP.log` ~20:42–20:46). PR #167 fixed bug #280 (debris trajectory data loss) — visual playback is correct, real debris recordings have data — but the same playtest still emits ~10 `Trajectory file missing for … — recording degraded (0 points)` warnings on every F9 reload, repeated across 3 reloads in a row.
+
+**Root cause** (traced via lifecycle log for `2a85eed8c33d4a7ea319c4ada8c6bc37`):
+1. Background debris vessel decouples / fragments while not loaded → `BackgroundRecorder.OnBackgroundPartJointBreak` schedules a deferred split check.
+2. The deferred check runs in `ProcessPendingSplitChecks` → `HandleBackgroundVesselSplit`.
+3. By the time the deferred check runs, the parent debris vessel has already been destroyed by KSP (further crash, terrain hit, or coalesced fragmentation).
+4. `HandleBackgroundVesselSplit` still creates a parent-continuation `Recording` with a fresh GUID and calls `OnVesselBackgrounded(parentPid)`.
+5. `OnVesselBackgrounded` takes the "vessel not found" path (line ~957), logs `Vessel backgrounded (not found): pid=… recId=2a85eed8…`, and does NOT create a `BackgroundVesselState` entry in `loadedStates` (no live vessel to track).
+6. Immediately after, the debris-end logic logs `Debris recording ended: vesselPid=… recId=2a85eed8… terminal=Destroyed`.
+7. The recording sits in `tree.Recordings` with zero `TrackSections`, zero `Points`, zero `PartEvents`, `TerminalState=Destroyed`. It's a logical-null leaf.
+8. On commit, the empty recording gets a 61-byte `.prec` sidecar (just `version=0` + `recordingId=…`).
+9. On the NEXT load, `LoadRecordingFiles` checks `File.Exists(precPath)` and reads the `.prec` — but the file IS there. Wait — the warning fires anyway. Either the file isn't created until AFTER the load that warns, or the empty file is treated as "missing" by some other check upstream.
+
+Either way, the user-facing symptoms are:
+- 10× `Trajectory file missing` warning lines on every reload (cosmetic noise, not data loss).
+- 10× `FinalizeTreeRecordings: leaf '…' has no playback data` WARN lines.
+- 10× empty 61-byte `.prec` files cluttering the recordings directory.
+- Possibly an empty / green-sphere ghost entry in the timeline if the UI doesn't filter `points=0 && terminal=Destroyed` recordings.
+
+**Impact**: Low. Visible debris ghosts that the user cares about (the actual booster fragments) DO have data and play back correctly — the user confirmed this in the post-PR-#167 playtest. The empty placeholders are an internal-state cleanup gap, not a data loss.
+
+**Fix candidates** (pick one or layer):
+1. **Don't create the parent continuation in the first place if the parent is dead.** In `HandleBackgroundVesselSplit`, check `FlightRecorder.FindVesselByPid(parentPid)` before creating `parentContRec`. If null, just emit the BranchPoint with the new child recordings and skip the parent continuation creation entirely. The parent's recording stays as-is (with whatever data it had pre-destruction) and gets its `ChildBranchPointId` set as before. Cleanest approach.
+2. **Suppress the load-time warning** for recordings with `TerminalStateValue == Destroyed && pointCount == 0` — these are expected-empty by design. Trade-off: hides a real bug if something else creates an empty `Destroyed` recording it shouldn't.
+3. **Filter empty Destroyed leafs from the tree** in `FinalizeTreeRecordings` or commit so they don't even reach disk. Aggressive — could remove legitimately-empty recordings (e.g., a vessel destroyed before any sample fired).
+
+Recommended: option 1 (don't create the placeholder).
+
+**Test plan**:
+- Unit test: simulate `HandleBackgroundVesselSplit` with `parentPid` not in `FlightGlobals.Vessels` → verify no `tree.Recordings[parentContRecId]` entry created.
+- Log assertion: count `Trajectory file missing` lines after a Kerbal X playtest with multiple background debris splits — should be 0.
+- Regression: existing fragment-survival tests still pass.
+
+**Priority**: Low. Cosmetic log noise + tiny disk waste; no gameplay impact. Worth fixing as a follow-up to keep the BackgroundRecorder lifecycle clean.
+
+---
+
+## 283. MergeTree boundary discontinuity warnings — possible ghost position pops at section boundaries
+
+Surfaced by the post-PR-#167 Kerbal X playtest. `MergeTree` emitted 8 `boundary discontinuity` WARN lines across 3 vessels:
+
+- `Kerbal X` — 77.38 m at section[1] ut=38.44, 53.17 m at section[2] ut=85.54
+- `Bill Kerman` — 3.79 m at section[1] ut=76.40, 49.12 m at section[3] ut=95.72
+- `Jebediah Kerman` — 5.43 m at ut=217.98, 6.04 m at ut=218.36, 6.14 m at ut=220.40, 6.14 m at ut=247.42
+
+Source: `SessionMerger.MergeTree`'s diagnostic that compares the last frame of section N to the first frame of section N+1 and warns if the gap exceeds a threshold. The discontinuity represents a position pop that ghost playback would render as a teleport at the section boundary.
+
+**Suspected causes** (need investigation):
+- **Atmosphere split (#258 sibling)**: when a recording is split at the atmosphere boundary, the optimizer uses the last in-atmo point and the first exo point — these can be at slightly different UTs, and any extrapolation gap during the boundary handling could produce a meter-scale jump.
+- **Reference frame transition** (Atmospheric → ExoBallistic): the conversion between absolute and orbital-checkpoint frames can introduce small position errors, especially around 70 km altitude.
+- **EVA boundary** (Bill / Jebediah): an EVA branch creates a new TrackSection at the boarding/disembarking UT — the parent vessel's last position vs the EVA kerbal's first position might not be perfectly co-located.
+- **Quickload-resume boundary**: PR #160's restore path may sample the first post-resume point at a slightly different position than the pre-F5 checkpoint anchor.
+
+**Investigation steps**:
+1. Reproduce in a focused test: launch a fresh vessel, climb past 70 km, F5+F9 once, EVA, board, finish recording.
+2. Check whether the discontinuity correlates with environment changes, reference frame transitions, EVA branches, or save/load events.
+3. For each kind of boundary, identify which side (last-of-prev or first-of-next) is the "wrong" sample and trace its source.
+4. Decide whether the fix is in the recording side (sample the boundary correctly) or the playback side (interpolate across the discontinuity).
+
+**Impact**: Low. The discontinuities are 3–77 m, which manifests as a small ghost teleport during playback at section boundaries. Not a data loss, not a gameplay blocker. May be visually noticeable on close-watch ghosts but not on map-view ghosts.
+
+**Priority**: Low. Cosmetic. Worth a focused investigation pass when working on related areas (TrackSection boundary handling, environment transition logic, EVA branching).
+
+---
+
 ## ~~280. Background debris recordings lose trajectory data on scene reload (second-order bug #273 gap)~~
 
 During the 2026-04-09 Kerbal X playtest after PR #163/#164 merged, the 6 booster debris recordings from the radial decoupler separations all came back as 0-point / 0-section recordings. The main Kerbal X recording (#263) was fine — 88 points, all 6 `Decoupled` events present (via the #263 fallback) — but the debris children that each accumulated 21–22 trajectory frames while backgrounded lost every sample.
