@@ -1529,6 +1529,45 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Pause all ghost audio sources for this state, preserving playback position.
+        /// Used by the game pause handler so ESC menu mutes ghost audio.
+        /// Unlike MuteAllAudio which calls Stop() (resetting position), this calls
+        /// Pause() so UnPauseAllAudio can resume exactly where it left off.
+        /// </summary>
+        internal static void PauseAllAudio(GhostPlaybackState state)
+        {
+            if (state == null) return;
+            if (state.audioInfos != null)
+            {
+                foreach (var info in state.audioInfos.Values)
+                {
+                    if (info.audioSource != null && info.audioSource.isPlaying)
+                        info.audioSource.Pause();
+                }
+            }
+            if (state.oneShotAudio?.audioSource != null && state.oneShotAudio.audioSource.isPlaying)
+                state.oneShotAudio.audioSource.Pause();
+        }
+
+        /// <summary>
+        /// Resume all ghost audio sources paused by PauseAllAudio.
+        /// </summary>
+        internal static void UnpauseAllAudio(GhostPlaybackState state)
+        {
+            if (state == null) return;
+            if (state.audioInfos != null)
+            {
+                foreach (var info in state.audioInfos.Values)
+                {
+                    if (info.audioSource != null)
+                        info.audioSource.UnPause();
+                }
+            }
+            if (state.oneShotAudio?.audioSource != null)
+                state.oneShotAudio.audioSource.UnPause();
+        }
+
+        /// <summary>
         /// Compute the ghost audio volume for a given power level and atmosphere state.
         /// Centralizes the volume formula so SetEngineAudio, PlayOneShotAtGhost, and
         /// UpdateAudioAtmosphere all use the same calculation.

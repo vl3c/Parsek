@@ -1669,6 +1669,54 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Pauses audio on all active ghost states (primary + overlap). Called when the KSP
+        /// pause menu opens (ESC). Preserves playback position via AudioSource.Pause() so
+        /// UnpauseAllGhostAudio can resume exactly where it left off.
+        /// </summary>
+        internal void PauseAllGhostAudio()
+        {
+            int pausedPrimary = 0, pausedOverlap = 0;
+            foreach (var kvp in ghostStates)
+            {
+                GhostPlaybackLogic.PauseAllAudio(kvp.Value);
+                pausedPrimary++;
+            }
+            foreach (var kvp in overlapGhosts)
+            {
+                for (int i = 0; i < kvp.Value.Count; i++)
+                {
+                    GhostPlaybackLogic.PauseAllAudio(kvp.Value[i]);
+                    pausedOverlap++;
+                }
+            }
+            ParsekLog.Verbose("GhostAudio",
+                $"PauseAllGhostAudio: paused {pausedPrimary} primary + {pausedOverlap} overlap ghost(s)");
+        }
+
+        /// <summary>
+        /// Resumes audio on all active ghost states. Called when the KSP pause menu closes.
+        /// </summary>
+        internal void UnpauseAllGhostAudio()
+        {
+            int resumedPrimary = 0, resumedOverlap = 0;
+            foreach (var kvp in ghostStates)
+            {
+                GhostPlaybackLogic.UnpauseAllAudio(kvp.Value);
+                resumedPrimary++;
+            }
+            foreach (var kvp in overlapGhosts)
+            {
+                for (int i = 0; i < kvp.Value.Count; i++)
+                {
+                    GhostPlaybackLogic.UnpauseAllAudio(kvp.Value[i]);
+                    resumedOverlap++;
+                }
+            }
+            ParsekLog.Verbose("GhostAudio",
+                $"UnpauseAllGhostAudio: resumed {resumedPrimary} primary + {resumedOverlap} overlap ghost(s)");
+        }
+
+        /// <summary>
         /// Checks whether the recording ended with destruction and spawns an explosion FX if so.
         /// Takes warpRate as parameter (engine does not read KSP globals directly).
         /// </summary>

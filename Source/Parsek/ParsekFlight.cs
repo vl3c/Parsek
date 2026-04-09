@@ -316,6 +316,8 @@ namespace Parsek
             GameEvents.onTimeWarpRateChanged.Add(OnTimeWarpRateChanged);
             MergeDialog.OnTreeCommitted += OnTreeCommittedFromMergeDialog;
             GameEvents.afterFlagPlanted.Add(OnAfterFlagPlanted);
+            GameEvents.onGamePause.Add(OnGamePause);
+            GameEvents.onGameUnpause.Add(OnGameUnpause);
 
             ui = new ParsekUI(this);
 
@@ -742,6 +744,8 @@ namespace Parsek
             GameEvents.onTimeWarpRateChanged.Remove(OnTimeWarpRateChanged);
             MergeDialog.OnTreeCommitted -= OnTreeCommittedFromMergeDialog;
             GameEvents.afterFlagPlanted.Remove(OnAfterFlagPlanted);
+            GameEvents.onGamePause.Remove(OnGamePause);
+            GameEvents.onGameUnpause.Remove(OnGameUnpause);
         }
 
         #endregion
@@ -3556,6 +3560,26 @@ namespace Parsek
             recorder.PartEvents.Add(evt);
 
             Log($"Part event captured: {eventType} '{evt.partName}' pid={evt.partPersistentId} via {sourceEvent}");
+        }
+
+        /// <summary>
+        /// Pauses all ghost audio when the KSP pause menu (ESC) opens. Stock KSP audio
+        /// mutes on pause but ghost AudioSources don't respond to any global mute.
+        /// Uses AudioSource.Pause() (not Stop()) to preserve playback position.
+        /// </summary>
+        void OnGamePause()
+        {
+            ParsekLog.Verbose("Flight", "OnGamePause: pausing ghost audio");
+            engine?.PauseAllGhostAudio();
+        }
+
+        /// <summary>
+        /// Resumes all ghost audio when the KSP pause menu closes.
+        /// </summary>
+        void OnGameUnpause()
+        {
+            ParsekLog.Verbose("Flight", "OnGameUnpause: resuming ghost audio");
+            engine?.UnpauseAllGhostAudio();
         }
 
         void OnAfterFlagPlanted(FlagSite flagSite)
