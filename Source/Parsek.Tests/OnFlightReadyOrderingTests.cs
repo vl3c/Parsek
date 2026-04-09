@@ -56,32 +56,51 @@ namespace Parsek.Tests
 
             string src = File.ReadAllText(parsekFlightPath);
 
-            // Isolate the OnFlightReady method body. The method signature is
-            // `void OnFlightReady()` and ends at the first closing brace that
-            // balances the opening one. A simple substring between the method
-            // declaration and the next top-level `private` / `public` /
-            // `internal` / `void` / `IEnumerator` declaration is good enough
-            // for this guard.
+            // Isolate the OnFlightReady method body by walking brace depth
+            // from the opening brace to its matching close. This is more
+            // robust than a fixed-size window — the method can grow without
+            // breaking the guard, and the landmarks are guaranteed to be
+            // searched inside the real method body, not spillover code.
             int methodStart = src.IndexOf("void OnFlightReady()", StringComparison.Ordinal);
             Assert.True(methodStart >= 0,
                 "OnFlightReady() method not found in ParsekFlight.cs — " +
                 "did the method get renamed? Update this regression test.");
 
-            // Scan forward until the next method declaration. Heuristic: a blank
-            // line followed by an indented method signature. For our purpose,
-            // grabbing the next ~8 KB of source starting at methodStart is safe.
-            int scanEnd = Math.Min(methodStart + 8192, src.Length);
-            string methodBody = src.Substring(methodStart, scanEnd - methodStart);
+            int openBrace = src.IndexOf('{', methodStart);
+            Assert.True(openBrace >= 0,
+                "OnFlightReady() has no opening brace after its signature — " +
+                "ParsekFlight.cs is malformed.");
+
+            int depth = 0;
+            int closeBrace = -1;
+            for (int i = openBrace; i < src.Length; i++)
+            {
+                char c = src[i];
+                if (c == '{') depth++;
+                else if (c == '}')
+                {
+                    depth--;
+                    if (depth == 0) { closeBrace = i; break; }
+                }
+            }
+            Assert.True(closeBrace >= 0,
+                "OnFlightReady() has unbalanced braces — ParsekFlight.cs is malformed.");
+
+            // methodBody spans from the method signature through its closing
+            // brace, inclusive. The indices returned by IndexOf are relative
+            // to this substring, so `resetIdx < restoreIdx` correctly compares
+            // positions within the real method body.
+            string methodBody = src.Substring(methodStart, closeBrace - methodStart + 1);
 
             int resetIdx = methodBody.IndexOf("ResetFlightReadyState();", StringComparison.Ordinal);
             int restoreIdx = methodBody.IndexOf(
                 "StartCoroutine(RestoreActiveTreeFromPending()",
                 StringComparison.Ordinal);
 
-            Assert.True(resetIdx > 0,
+            Assert.True(resetIdx >= 0,
                 "OnFlightReady() does not call ResetFlightReadyState() — " +
                 "the flight-ready reset must remain in OnFlightReady.");
-            Assert.True(restoreIdx > 0,
+            Assert.True(restoreIdx >= 0,
                 "OnFlightReady() does not call StartCoroutine(RestoreActiveTreeFromPending()) — " +
                 "the quickload-resume restore path is missing.");
 
@@ -96,16 +115,24 @@ namespace Parsek.Tests
         }
 
         /// <summary>
-        /// Phase-sequence test using the [RecState] TestSinkForTesting pattern.
-        /// Simulates the phase emissions that OnFlightReady should produce on a
-        /// quickload-resume where an active tree was stashed as pending-Limbo.
-        /// Asserts ResetFlightReady:entry fires before Restore:start, matched,
-        /// and after-start — the post-fix ordering that preserves the restored
-        /// activeTree. Uses manually-constructed snapshots instead of driving
-        /// the real ParsekFlight instance (which requires Unity).
+        /// Documentation-in-code for the expected post-fix phase sequence.
+        /// Uses the <see cref="ParsekLog.TestSinkForTesting"/> pattern to emit
+        /// five phases in the post-fix order and asserts they come back out
+        /// in that order. This test does NOT drive the real OnFlightReady
+        /// (which would require Unity) — so it cannot catch a regression
+        /// inside OnFlightReady itself. That job belongs to the file-scrape
+        /// test above. What this test does provide:
+        ///
+        ///   * A canonical phase-sequence example that future playtest-log
+        ///     readers can compare against.
+        ///   * A regression marker if a phase tag is renamed — the string
+        ///     literal assertions below will fail loudly.
+        ///   * A smoke test that the five distinct phases land in the log
+        ///     in insertion order (which is <see cref="ParsekLog.RecState"/>'s
+        ///     contract).
         /// </summary>
         [Fact]
-        public void PostFixPhaseSequence_ResetBeforeRestore()
+        public void PhaseSequence_DocumentsExpectedOrder()
         {
             var lines = new System.Collections.Generic.List<string>();
             ParsekLog.TestSinkForTesting = line => lines.Add(line);
@@ -192,6 +219,8 @@ namespace Parsek.Tests
             // Final state check: after the post-fix sequence, activeTree is restored
             // and alive. Pre-fix would leave activeTree=null with a standalone recording.
             Assert.Contains("mode=tree", recStateLines[4]);
+            // Partial match on "treeREGR" because RecorderStateSnapshot truncates
+            // tree ids to 8 characters in the rendered [RecState] line.
             Assert.Contains("treeREGR", recStateLines[4]);
         }
 
