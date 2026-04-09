@@ -105,41 +105,11 @@ namespace Parsek.Tests
 
         #endregion
 
-        #region BackgroundRecorder seed-event skip predicate
-
-        // BackgroundRecorder.InitializeLoadedState should skip PartStateSeeder.EmitSeedEvents
-        // when the target tree recording already has events. Testing the full method requires
-        // a live Vessel; test the predicate logic (Recording.PartEvents.Count > 0) directly.
-
-        [Fact]
-        public void SeedEventSkipPredicate_RecordingHasPartEvents_SkipsSeed()
-        {
-            var rec = new Recording { RecordingId = "with-events" };
-            rec.PartEvents.Add(new PartEvent
-            {
-                ut = 155.0,
-                eventType = PartEventType.DeployableExtended,
-                partPersistentId = 100,
-            });
-
-            // Mirror of the condition in BackgroundRecorder.cs:
-            //   else if (treeRecForSeed.PartEvents.Count > 0) { /* skip */ }
-            bool shouldSkip = rec.PartEvents.Count > 0;
-
-            Assert.True(shouldSkip);
-        }
-
-        [Fact]
-        public void SeedEventSkipPredicate_EmptyRecording_EmitsSeed()
-        {
-            var rec = new Recording { RecordingId = "empty" };
-
-            bool shouldSkip = rec.PartEvents.Count > 0;
-
-            Assert.False(shouldSkip);
-        }
-
-        #endregion
+        // BackgroundRecorder.InitializeLoadedState's seed-event skip predicate
+        // (treeRecForSeed.PartEvents.Count > 0) needs a live Vessel to exercise
+        // end-to-end. The predicate is trivial enough that a pure-logic test would
+        // just re-implement the condition and stay green through any code change —
+        // zero regression value. Deferred to in-game tests, tracked as #265.
 
         #region TimeRegressionThresholdSeconds constant
 
@@ -156,12 +126,15 @@ namespace Parsek.Tests
         public void TrimRecordingToUT_UsesInvariantCultureForLogging()
         {
             // The warn log built by TrimRecordingToUT formats several doubles. On
-            // comma-locale machines, the original code emitted "27 266,0" which breaks
-            // downstream log parsers. This test runs the trim under a comma-locale
-            // (de-DE) current culture and verifies the log line contains period
-            // decimals. Assertion is on the exact numeric token "105.5" which appears
-            // in the `delta=...` segment regardless of the recorder's private
-            // lastRecordedUT initial value.
+            // comma-locale machines (de-DE, fr-FR, etc.), the original code emitted
+            // "27 266,0" which breaks downstream log parsers. This test runs the
+            // trim under a comma-locale current culture and asserts the exact
+            // substring "from -1.0 to 105.5" appears — a freshly-constructed
+            // FlightRecorder has lastRecordedUT = -1 (the sentinel initialized in
+            // the field declaration), so this pins both the newUT formatting AND
+            // the lastRecordedUT formatting in one assertion. If someone later
+            // changes the initial value, the specific substring will change and
+            // the test will force us to notice.
             var prevCulture = System.Threading.Thread.CurrentThread.CurrentCulture;
             try
             {
@@ -177,11 +150,10 @@ namespace Parsek.Tests
 
                 string logLine = logLines.Find(l => l.Contains("Time regression detected"));
                 Assert.NotNull(logLine);
-                // 105.5 with period decimal should appear somewhere in the log line.
-                // If the code accidentally used the system culture (de-DE), it would
-                // emit "105,5" instead.
-                Assert.Contains("105.5", logLine);
-                Assert.DoesNotContain("105,5", logLine);
+                // Exact format assertion — locks in both lastRecordedUT and newUT formatting.
+                // If comma-locale leaked in, this would be "from -1,0 to 105,5".
+                Assert.Contains("from -1.0 to 105.5", logLine);
+                Assert.DoesNotContain("-1,0 to 105,5", logLine);
             }
             finally
             {

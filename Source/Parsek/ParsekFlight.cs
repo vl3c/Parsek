@@ -5276,21 +5276,36 @@ namespace Parsek
                 if (v != null)
                     CaptureTerminalOrbit(rec, v);
 
-                if (string.IsNullOrEmpty(rec.TerminalOrbitBody))
+                if (!string.IsNullOrEmpty(rec.TerminalOrbitBody))
                 {
-                    // Either the vessel wasn't found, or CaptureTerminalOrbit declined it —
-                    // fall back to the last orbit segment from BackgroundRecorder sampling.
-                    PopulateTerminalOrbitFromLastSegment(rec);
-                    ParsekLog.Info("Flight",
-                        $"FinalizeIndividualRecording: backfilled TerminalOrbitBody={rec.TerminalOrbitBody} " +
-                        $"for '{rec.RecordingId}' via orbit-segment fallback " +
-                        $"(terminal={rec.TerminalStateValue}, vesselFound={v != null})");
-                }
-                else
-                {
+                    // Live capture succeeded
                     ParsekLog.Info("Flight",
                         $"FinalizeIndividualRecording: backfilled TerminalOrbitBody={rec.TerminalOrbitBody} " +
                         $"for '{rec.RecordingId}' from live vessel (terminal={rec.TerminalStateValue})");
+                }
+                else
+                {
+                    // Live capture either didn't happen (v == null) or silently declined.
+                    // Try the last orbit segment from BackgroundRecorder sampling.
+                    PopulateTerminalOrbitFromLastSegment(rec);
+                    if (!string.IsNullOrEmpty(rec.TerminalOrbitBody))
+                    {
+                        ParsekLog.Info("Flight",
+                            $"FinalizeIndividualRecording: backfilled TerminalOrbitBody={rec.TerminalOrbitBody} " +
+                            $"for '{rec.RecordingId}' via orbit-segment fallback " +
+                            $"(terminal={rec.TerminalStateValue}, vesselFound={v != null})");
+                    }
+                    else
+                    {
+                        // Both sources declined. Recording commits with terminal state set
+                        // but no orbital metadata — ghost map presence will be degraded.
+                        // Loud warn so we notice in the playtest logs.
+                        ParsekLog.Warn("Flight",
+                            $"FinalizeIndividualRecording: backfill declined for '{rec.RecordingId}' " +
+                            $"(terminal={rec.TerminalStateValue}, vesselFound={v != null}, " +
+                            $"orbitSegments={rec.OrbitSegments?.Count ?? 0}) — " +
+                            "TerminalOrbitBody remains empty");
+                    }
                 }
             }
 

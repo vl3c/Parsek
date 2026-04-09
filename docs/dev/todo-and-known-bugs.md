@@ -688,6 +688,23 @@ During the 2026-04-09 Butterfly Rover playtest, Valentina's EVA ended near the r
 
 **Priority:** Medium — EVA spawn accuracy is a stated design goal
 
+## 265. Ghost audio + BackgroundRecorder seed-skip — in-game test coverage gap
+
+xUnit can't exercise any code path that touches `UnityEngine.AudioSource` (directly or transitively via the `audioInfos` foreach) because the test runner can't load `UnityEngine.AudioModule.dll` — attempts produce *"ECall methods must be packaged into a system module"* even for a null-state early return. This blocks unit test coverage for:
+
+- `GhostPlaybackLogic.PauseAllAudio` / `UnpauseAllAudio` null-guard and iteration paths
+- `GhostPlaybackEngine.PauseAllGhostAudio` / `UnpauseAllGhostAudio` loop paths
+- `BackgroundRecorder.InitializeLoadedState` seed-event skip predicate (needs a live Vessel + tree, not just the `PartEvents.Count > 0` check which would be tautological)
+- `ParsekFlight.FinalizeIndividualRecording` backfill order-of-operations (#259 fix) — needs a live Vessel
+
+**Fix plan:** add `InGameTest` coverage under `Source/Parsek/InGameTests/` that runs inside a live KSP runtime where these types actually work. Specifically:
+
+- A category under `[InGameTest(Category = "GhostAudio")]` that spawns a ghost with a known audio source, fires `GameEvents.onGamePause`, asserts the audio source is paused, fires `onGameUnpause`, asserts resume.
+- A `FinalizeTreeBackfill` in-game test that constructs a recording in memory with `TerminalStateValue = Orbiting` but empty `TerminalOrbitBody` and a mock orbit segment, runs the finalize path, asserts `TerminalOrbitBody` is populated via the fallback.
+- A `BackgroundRecorderSeedSkip` in-game test that initializes a background state on a recording that already has part events, asserts no duplicate seed events were emitted.
+
+**Priority:** Low — the code paths are simple enough that review caught the issues in commit 77bce7c, and the production playtest will exercise them end-to-end. In-game tests harden against future regressions.
+
 ---
 
 # In-Game Tests
