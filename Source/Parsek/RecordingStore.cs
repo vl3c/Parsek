@@ -236,6 +236,7 @@ namespace Parsek
 
             Log($"[Parsek] Stashed pending recording: {points.Count} points, " +
                 $"{pendingRecording.OrbitSegments.Count} orbit segments from {vesselName}");
+            ParsekLog.Verbose("RecordingStore", $"StashPending: {pendingRecording.DebugName}");
         }
 
         public static void CommitPending()
@@ -250,6 +251,7 @@ namespace Parsek
             committedRecordings.Add(pendingRecording);
             Log($"[Parsek] Committed recording from {pendingRecording.VesselName} " +
                 $"({pendingRecording.Points.Count} points). Total committed: {committedRecordings.Count}");
+            ParsekLog.Verbose("RecordingStore", $"CommitPending: {pendingRecording.DebugName}");
 
             // Flush to disk immediately to close the crash window.
             // If RunOptimizationPass runs after this, it will re-dirty modified
@@ -505,6 +507,8 @@ namespace Parsek
 
             Log($"[Parsek] Committed tree '{tree.TreeName}' ({tree.Recordings.Count} recordings). " +
                 $"Total committed: {committedRecordings.Count} recordings, {committedTrees.Count} trees");
+            foreach (var rec in tree.Recordings.Values)
+                ParsekLog.Verbose("RecordingStore", $"CommitTree: child {rec.DebugName}");
 
             // Capture a game state baseline at each commit
             GameStateStore.CaptureBaselineIfNeeded();
@@ -548,6 +552,12 @@ namespace Parsek
             {
                 PendingStashedThisTransition = true;
                 Log($"[Parsek] Stashed pending tree '{tree.TreeName}' ({tree.Recordings.Count} recordings, state={state})");
+                Recording activeStashRec = null;
+                if (!string.IsNullOrEmpty(tree.ActiveRecordingId))
+                    tree.Recordings.TryGetValue(tree.ActiveRecordingId, out activeStashRec);
+                if (activeStashRec != null)
+                    ParsekLog.Verbose("RecordingStore",
+                        $"StashPendingTree: active {activeStashRec.DebugName}");
             }
         }
 

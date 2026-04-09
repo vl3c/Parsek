@@ -27,6 +27,32 @@ namespace Parsek
         // are NOT reverts and must not trigger orphan strip/cleanup.
         private static bool vesselSwitchPending;
 
+        /// <summary>
+        /// Captures a recorder state snapshot from any scene. In flight scenes the
+        /// active <see cref="ParsekFlight"/> instance contributes its live recorder /
+        /// activeTree / chain manager state; in non-flight scenes those fields are
+        /// null and only the static <see cref="RecordingStore"/> pending slots
+        /// populate the snapshot. Used by OnSave/OnLoad lifecycle <c>[RecState]</c>
+        /// emit sites.
+        /// </summary>
+        private static RecorderStateSnapshot CaptureScenarioRecorderState()
+        {
+            var flight = ParsekFlight.Instance;
+            if (flight != null)
+                return flight.CaptureRecorderState();
+            return RecorderStateSnapshot.CaptureFromParts(
+                activeTree: null,
+                recorder: null,
+                pendingTree: RecordingStore.PendingTree,
+                pendingTreeState: RecordingStore.PendingTreeStateValue,
+                pendingStandalone: RecordingStore.Pending,
+                pendingSplitRecorder: null,
+                pendingSplitInProgress: false,
+                chain: null,
+                currentUT: Planetarium.fetch != null ? Planetarium.GetUniversalTime() : 0.0,
+                loadedScene: HighLogic.LoadedScene);
+        }
+
         public override void OnSave(ConfigNode node)
         {
             var sw = Stopwatch.StartNew();
@@ -34,6 +60,7 @@ namespace Parsek
             int dirtyCount = 0;
             try
             {
+                ParsekLog.RecState("OnSave:pre", CaptureScenarioRecorderState());
                 SafetyNetAutoCommitPending();
 
                 // Diagnostic: detect if HighLogic.SaveFolder changed since this scenario loaded.
@@ -84,6 +111,7 @@ namespace Parsek
                 }
 
                 lastOnSaveScene = HighLogic.LoadedScene;
+                ParsekLog.RecState("OnSave:post", CaptureScenarioRecorderState());
             }
             finally
             {
@@ -343,6 +371,7 @@ namespace Parsek
                 // ParsekSettings.Current so the rest of OnLoad sees the fresh values.
                 // Survives rewind (parsek_rw_* quicksaves), save/load, and KSP restart.
                 ParsekSettingsPersistence.ApplyTo(ParsekSettings.Current);
+                ParsekLog.RecState("OnLoad:settings-applied", CaptureScenarioRecorderState());
 
                 var recordings = RecordingStore.CommittedRecordings;
                 loadedRecordingCount = recordings.Count;
@@ -382,6 +411,7 @@ namespace Parsek
                     // affect the rest of OnLoad, but BEFORE revert detection so the
                     // pending slot is populated when it runs.
                     TryRestoreActiveTreeNode(node);
+                    ParsekLog.RecState("OnLoad:active-tree-restored", CaptureScenarioRecorderState());
 
                     // Detect revert vs scene change. On a revert, the quicksave is older:
                     // its epoch is lower (after a prior revert bumped it) or it has fewer
@@ -424,6 +454,9 @@ namespace Parsek
                         $"memoryRecordings={recordings.Count}, lastOnSaveScene={lastOnSaveScene}, " +
                         $"isFlightToFlight={isFlightToFlight}, isVesselSwitch={isVesselSwitch}, isRevert={isRevert}, " +
                         $"pendingTreeState={RecordingStore.PendingTreeStateValue}");
+                    ParsekLog.RecState(
+                        isRevert ? "OnLoad:revert-decided=Y" : "OnLoad:revert-decided=N",
+                        CaptureScenarioRecorderState());
                     if (isFlightToFlight && !isRevert && !isVesselSwitch)
                     {
                         ParsekLog.Info("Scenario",
@@ -623,6 +656,7 @@ namespace Parsek
                     if (RecordingStore.HasPendingTree
                         && RecordingStore.PendingTreeStateValue == PendingTreeState.Limbo)
                     {
+                        ParsekLog.RecState("OnLoad:limbo-dispatched", CaptureScenarioRecorderState());
                         if (isRevert || isVesselSwitch)
                         {
                             // Real revert: finalize the Limbo tree with a minimal static
@@ -902,6 +936,7 @@ namespace Parsek
         /// </summary>
         private void HandleRewindOnLoad(ConfigNode node, List<Recording> recordings)
         {
+            ParsekLog.RecState("HandleRewindOnLoad:entry", CaptureScenarioRecorderState());
             ParsekLog.Info("Rewind",
                 $"OnLoad: rewind detected, skipping .sfs recording/crew load " +
                 $"(using {recordings.Count} in-memory recordings)");
@@ -1011,6 +1046,7 @@ namespace Parsek
                 $"OnLoad: rewind complete at UT {RewindContext.RewindUT}. " +
                 $"Timeline: {recordings.Count} recordings");
             RewindContext.EndRewind();
+            ParsekLog.RecState("HandleRewindOnLoad:exit", CaptureScenarioRecorderState());
         }
 
         /// <summary>
@@ -1387,6 +1423,7 @@ namespace Parsek
                     $"TryRestoreActiveTreeNode: stashed active tree '{tree.TreeName}' " +
                     $"({tree.Recordings.Count} recording(s), activeRecId={tree.ActiveRecordingId ?? "<null>"}) " +
                     $"into pending-Limbo slot for revert-detection dispatch");
+                ParsekLog.RecState("TryRestoreActiveTreeNode:stashed", CaptureScenarioRecorderState());
                 return true;
             }
             return false;
@@ -1448,6 +1485,8 @@ namespace Parsek
             var tree = RecordingStore.PendingTree;
             if (tree == null) return;
 
+            ParsekLog.RecState("FinalizeLimboForRevert:entry", CaptureScenarioRecorderState());
+
             int finalized = 0;
             foreach (var kvp in tree.Recordings)
             {
@@ -1465,6 +1504,7 @@ namespace Parsek
             ParsekLog.Info("Scenario",
                 $"FinalizePendingLimboTreeForRevert: finalized {finalized} leaf recording(s) in " +
                 $"tree '{tree.TreeName}' — transitioned Limbo → Finalized");
+            ParsekLog.RecState("FinalizeLimboForRevert:post", CaptureScenarioRecorderState());
         }
 
         #region Deferred Merge Dialog
