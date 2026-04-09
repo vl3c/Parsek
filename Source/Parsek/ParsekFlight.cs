@@ -5617,13 +5617,17 @@ namespace Parsek
                 yield break;
             }
 
-            // Wait up to ~1 second for FlightGlobals.ActiveVessel to populate.
-            // Vessel switches via TS reload don't need name matching (we don't care
-            // who the player landed on — we just need a non-null active vessel so we
-            // can check whether it's in BackgroundMap).
-            float deadline = UnityEngine.Time.time + 1f;
+            // Wait up to ~3 seconds for FlightGlobals.ActiveVessel to populate.
+            // Aligned with the existing quickload-resume coroutine
+            // (RestoreActiveTreeFromPending, ~5470) so both restore paths use the
+            // same wait budget — easier to reason about and tune in playtest.
+            // Unlike the quickload path we don't name-match: we just need a
+            // non-null active vessel so we can check whether it's in BackgroundMap.
+            const float WaitBudgetSeconds = 3f;
+            float deadline = UnityEngine.Time.time + WaitBudgetSeconds;
             while (UnityEngine.Time.time < deadline && FlightGlobals.ActiveVessel == null)
                 yield return null;
+            bool waitTimedOut = FlightGlobals.ActiveVessel == null;
 
             // Pop the tree (non-destructive — preserves sidecar files) and install
             // as the live active tree.
@@ -5649,12 +5653,29 @@ namespace Parsek
             var newActive = FlightGlobals.ActiveVessel;
             if (newActive == null)
             {
-                ParsekLog.Info("Flight",
+                // Wait budget exhausted with no ActiveVessel: log Warn so playtest
+                // logs surface the missed promotion. The tree is reinstalled but
+                // any potential round-trip cannot be tested at this point.
+                // Subsequent OnVesselSwitchComplete events from the live game
+                // will still drive promotion via the in-session path.
+                ParsekLog.Warn("Flight",
                     $"RestoreActiveTreeFromPendingForVesselSwitch: tree '{activeTree.TreeName}' reinstalled, " +
-                    "but no active vessel resolved within wait window — outsider state, recorder stays null");
+                    $"but no active vessel resolved within {WaitBudgetSeconds:F0}s wait window " +
+                    $"(timedOut={waitTimedOut}) — outsider state, recorder stays null. Round-trip " +
+                    "promotion (if any) will be missed; subsequent OnVesselSwitchComplete will recover.");
             }
             else
             {
+                // PID-stability assumption: TS-mediated FLIGHT→FLIGHT vessel switches
+                // do NOT regenerate persistentId. The protoVessel persists through the
+                // scene reload with the same PID it had at stash time, so we can look
+                // up BackgroundMap directly without the PID-remap dance the quickload
+                // path needs (RestoreActiveTreeFromPending ~5520-5535). Verified in
+                // logs/2026-04-09_f5f9_verify/KSP.log: pid 2708531065 survives the
+                // reload unchanged. If a future KSP version regenerates PIDs on TS
+                // switch, the round-trip promotion will silently fail and the player
+                // will land in the outsider branch — visible as a missing
+                // "promoted vessel" log line.
                 uint newPid = newActive.persistentId;
                 if (activeTree.BackgroundMap.TryGetValue(newPid, out string bgRecId))
                 {
@@ -5833,6 +5854,25 @@ namespace Parsek
         {
             if (activeTree == null) return;
 
+            // Defensive: enforce the same invariants that CanPreTransitionForVesselSwitch
+            // checks. This method is only safe to call when those guards are clear,
+            // because the in-flight continuation states (dock merge / split / chain-to-
+            // vessel) need Update() logic that won't run across a scene reload. If a
+            // future change adds a new state to CanPreTransitionForVesselSwitch but
+            // forgets the stash-side check, this re-validation logs a Warn and routes
+            // to the legacy Limbo stash so we never silently ship a corrupt state.
+            if (!CanPreTransitionForVesselSwitch())
+            {
+                ParsekLog.Warn("Flight",
+                    "StashActiveTreeForVesselSwitch: pre-transition guards no longer hold " +
+                    $"(pendingTreeDockMerge={pendingTreeDockMerge}, pendingSplitRecorder={pendingSplitRecorder != null}, " +
+                    $"pendingSplitInProgress={pendingSplitInProgress}, " +
+                    $"chainToVesselPending={(recorder != null && recorder.ChainToVesselPending)}) — " +
+                    "falling back to legacy Limbo stash; OnLoad safety net will finalize");
+                StashActiveTreeAsPendingLimbo(commitUT);
+                return;
+            }
+
             ParsekLog.Info("Flight",
                 $"StashActiveTreeForVesselSwitch: pre-transitioning tree '{activeTree.TreeName}' " +
                 $"at UT={commitUT:F1} (activeRecId={activeTree.ActiveRecordingId ?? "<null>"})");
@@ -5890,11 +5930,18 @@ namespace Parsek
             }
             else
             {
-                ParsekLog.Warn("Flight",
-                    $"StashActiveTreeForVesselSwitch: cannot move active recording to BackgroundMap " +
-                    $"(activeRecId='{oldActiveRecId ?? "<null>"}', oldPid={oldVesselPid}) — tree " +
-                    $"will be stashed with no active recording AND no background entry, restore " +
-                    $"will treat the new vessel as an outsider");
+                // Expected, NOT a problem: this is the outsider-chain case where the
+                // tree was already in outsider state at stash time (player switched
+                // from an outsider vessel to another outsider, both via TS reload).
+                // ActiveRecordingId is already null and there's no recording PID to
+                // index. The tree restores cleanly with the existing BackgroundMap
+                // entries from prior hops; the new active vessel is checked against
+                // those in the restore coroutine.
+                ParsekLog.Info("Flight",
+                    $"StashActiveTreeForVesselSwitch: no active recording to move " +
+                    $"(activeRecId='{oldActiveRecId ?? "<null>"}', oldPid={oldVesselPid}) — " +
+                    "outsider-chain stash; tree carries existing BackgroundMap entries " +
+                    $"({activeTree.BackgroundMap.Count}) across the reload");
             }
 
             // 4. Stash as LimboVesselSwitch. The OnLoad dispatch routes this state to

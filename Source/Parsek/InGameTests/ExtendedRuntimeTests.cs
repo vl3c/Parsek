@@ -942,17 +942,17 @@ namespace Parsek.InGameTests
         }
 
         [InGameTest(Category = "SceneAndPatch", Scene = GameScenes.FLIGHT,
-            Description = "Bug #266: outsider-state active tree (no live recorder) survives OnSave+OnLoad round-trip")]
-        public void OutsiderActiveTreeSurvivesOnSaveOnLoadRoundTrip_Bug266()
+            Description = "Bug #266: outsider-state tree ConfigNode parses back with null ActiveRecordingId and routes to LimboVesselSwitch")]
+        public void OutsiderActiveTreeParsesAndRoutesToLimboVesselSwitch_Bug266()
         {
             // Bug #266 acceptance test: a tree in "outsider state" — alive but with
-            // no active recording, populated BackgroundMap — must serialize through
-            // OnSave and re-stash as LimboVesselSwitch on OnLoad. Without the fix,
-            // OnSave bails on `recorder == null` and the tree is silently lost.
-            //
-            // Synthesizes the state directly rather than driving a real vessel
-            // switch (which would require a scene reload). The reload path is
-            // tested by manual playtest.
+            // no active recording — must serialize as a RECORDING_TREE node with
+            // null activeRecordingId AND the OnLoad dispatch must route that node
+            // to LimboVesselSwitch (not Limbo). This test exercises only the
+            // ConfigNode round-trip and the dispatch decision; it does NOT drive
+            // ParsekScenario.OnSave/OnLoad end-to-end (that would mutate live state
+            // mid-flight, which we can't do safely). The full save/load cycle is
+            // covered by manual playtest.
             var scenario = Object.FindObjectOfType<ParsekScenario>();
             if (scenario == null) InGameAssert.Skip("No ParsekScenario instance");
 
