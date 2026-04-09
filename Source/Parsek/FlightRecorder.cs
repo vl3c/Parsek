@@ -208,6 +208,17 @@ namespace Parsek
         private Vector3 lastRecordedVelocity;
 
         /// <summary>
+        /// UT of the most recently sampled trajectory point. <c>double.NaN</c>
+        /// if no point has been sampled yet (matches the never-sampled sentinel
+        /// the snapshot logger expects). Exposed read-only for the
+        /// <c>[RecState]</c> observability dump — the recorder's
+        /// <see cref="Recording"/> buffer is not a reliable proxy because it
+        /// can be cleared by <c>FlushRecorderIntoActiveTreeForSerialization</c>
+        /// while sampling continues.
+        /// </summary>
+        internal double LastRecordedUT => lastRecordedUT < 0 ? double.NaN : lastRecordedUT;
+
+        /// <summary>
         /// Altitude (m) of the most recently committed point. Double.NaN until the
         /// first point is recorded. Exposed so callers (e.g. HandleSoiAutoSplit in
         /// ParsekFlight) can read the "last known altitude" without depending on
@@ -4120,10 +4131,18 @@ namespace Parsek
             BootstrapAvgBytesPerPoint();
 
             int partCount = v.parts != null ? v.parts.Count : 0;
+            string treeRecDbg = "-";
+            if (ActiveTree != null && !string.IsNullOrEmpty(ActiveTree.ActiveRecordingId)
+                && ActiveTree.Recordings != null
+                && ActiveTree.Recordings.TryGetValue(ActiveTree.ActiveRecordingId, out var activeTreeRec)
+                && activeTreeRec != null)
+            {
+                treeRecDbg = activeTreeRec.DebugName;
+            }
             ParsekLog.Info("Recorder",
                 string.Format(CultureInfo.InvariantCulture,
-                    "Recording started: vessel=\"{0}\", parts={1}, points=0{2}",
-                    v.vesselName, partCount, isPromotion ? ", promotion" : ""));
+                    "Recording started: vessel=\"{0}\", parts={1}, points=0{2}, treeRec={3}",
+                    v.vesselName, partCount, isPromotion ? ", promotion" : "", treeRecDbg));
             if (!isPromotion)
                 ParsekLog.ScreenMessage("Recording STARTED", 2f);
         }

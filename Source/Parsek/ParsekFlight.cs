@@ -164,6 +164,25 @@ namespace Parsek
         internal FlightRecorder ActiveRecorderForSerialization => recorder;
 
         /// <summary>
+        /// Captures a structured snapshot of every recorder-relevant field at the
+        /// current instant. Used by <see cref="ParsekLog.RecState"/> emit sites for
+        /// the structured <c>[RecState]</c> diagnostic dump. Pure data gather — no
+        /// side effects, safe to call from any lifecycle event handler.
+        /// </summary>
+        internal RecorderStateSnapshot CaptureRecorderState() =>
+            RecorderStateSnapshot.CaptureFromParts(
+                activeTree,
+                recorder,
+                RecordingStore.PendingTree,
+                RecordingStore.PendingTreeStateValue,
+                RecordingStore.Pending,
+                pendingSplitRecorder,
+                pendingSplitInProgress,
+                chainManager,
+                Planetarium.GetUniversalTime(),
+                HighLogic.LoadedScene);
+
+        /// <summary>
         /// Flushes the active recorder's buffered points/events into the active tree's
         /// current recording, WITHOUT stopping the recorder or clearing its state. Called
         /// by <see cref="ParsekScenario.OnSave"/> via <c>SaveActiveTreeIfAny</c> so the
@@ -179,6 +198,7 @@ namespace Parsek
         {
             if (recorder == null || activeTree == null) return;
 
+            ParsekLog.RecState("FlushRecorderIntoActiveTree:entry", CaptureRecorderState());
             string recId = activeTree.ActiveRecordingId;
             if (recId == null)
             {
@@ -232,6 +252,7 @@ namespace Parsek
                 $"(+{treeRec.Points.Count - prevPointCount}), " +
                 $"{treeRec.PartEvents.Count} part events " +
                 $"(+{treeRec.PartEvents.Count - prevEventCount}))");
+            ParsekLog.RecState("FlushRecorderIntoActiveTree:post", CaptureRecorderState());
         }
 
         // Debris persistence enforcement: saved original value when Parsek overrides it
@@ -842,6 +863,7 @@ namespace Parsek
             sceneChangeInProgress = true;
             RecordingStore.PendingDestinationScene = scene;
             ParsekLog.Info("Flight", $"Scene change requested: {scene}");
+            ParsekLog.RecState("OnSceneChangeRequested", CaptureRecorderState());
 
             // Exit watch mode on scene change
             if (watchMode.IsWatchingGhost)
@@ -876,6 +898,7 @@ namespace Parsek
         private void FinalizeTreeOnSceneChange(GameScenes scene)
         {
             double commitUT = Planetarium.GetUniversalTime();
+            ParsekLog.RecState("FinalizeTreeOnSceneChange:entry", CaptureRecorderState());
 
             // Checkpoint all background vessels before finalization.
             // This captures clean orbital reference points at the scene-change boundary.
@@ -924,6 +947,7 @@ namespace Parsek
 
         private void StashPendingOnSceneChange()
         {
+            ParsekLog.RecState("StashPendingOnSceneChange:entry", CaptureRecorderState());
             bool wasDestroyed = recorder.VesselDestroyedDuringRecording;
 
             // Stop recording if active
@@ -968,6 +992,7 @@ namespace Parsek
 
             recorder = null;
             lastPlaybackIndex = 0;
+            ParsekLog.RecState("StashPendingOnSceneChange:post", CaptureRecorderState());
         }
 
         /// <summary>
@@ -1051,6 +1076,8 @@ namespace Parsek
         {
             if (v != null && GhostMapPresence.IsGhostMapVessel(v.persistentId)) return;
 
+            ParsekLog.RecState("OnVesselWillDestroy:entry", CaptureRecorderState());
+
             // Watch mode: handle vessel destruction (null saved camera, exit if active vessel destroyed)
             watchMode.OnVesselWillDestroy(v);
 
@@ -1133,6 +1160,8 @@ namespace Parsek
         /// </summary>
         IEnumerator ShowPostDestructionMergeDialog()
         {
+            ParsekLog.RecState("ShowPostDestructionMergeDialog:entry", CaptureRecorderState());
+
             // Wait one frame to let the destruction sequence complete.
             // The Harmony patch on FlightResultsDialog.Display suppresses KSP's
             // crash report until the merge dialog is resolved — no hardcoded delay needed.
@@ -1290,6 +1319,8 @@ namespace Parsek
         /// </summary>
         IEnumerator ShowPostDestructionTreeMergeDialog()
         {
+            ParsekLog.RecState("ShowPostDestructionTreeMergeDialog:entry", CaptureRecorderState());
+
             // Wait one frame for destruction events to settle
             yield return null;
 
@@ -1398,6 +1429,8 @@ namespace Parsek
         {
             if (newVessel != null && GhostMapPresence.IsGhostMapVessel(newVessel.persistentId)) return;
 
+            ParsekLog.RecState("OnVesselSwitchComplete:entry", CaptureRecorderState());
+
             // Watch mode: re-target camera to ghost — KSP reparents pivot on vessel switch.
             // Don't early-return: tree vessel-switch logic below must still run so that
             // programmatic switches (e.g. docking absorbs a vessel) properly transition
@@ -1497,6 +1530,7 @@ namespace Parsek
                 backgroundRecorder?.OnVesselRemovedFromBackground(newPid);
                 PromoteRecordingFromBackground(backgroundRecordingId, newVessel);
             }
+            ParsekLog.RecState("OnVesselSwitchComplete:post", CaptureRecorderState());
         }
 
         /// <summary>
@@ -1559,6 +1593,8 @@ namespace Parsek
         {
             if (activeTree == null || newVessel == null) return;
 
+            ParsekLog.RecState("PromoteFromBackground:entry", CaptureRecorderState());
+
             // Remove from BackgroundMap
             activeTree.BackgroundMap.Remove(newVessel.persistentId);
 
@@ -1587,6 +1623,7 @@ namespace Parsek
 
             ParsekLog.Info("Flight", $"Promoted recording '{backgroundRecordingId}' from background " +
                 $"(pid={newVessel.persistentId})");
+            ParsekLog.RecState("PromoteFromBackground:exit", CaptureRecorderState());
         }
 
         #region Split Event Detection (Tree Branching)
@@ -1798,6 +1835,7 @@ namespace Parsek
         void CreateSplitBranch(BranchPointType branchType, Vessel activeVessel, Vessel backgroundVessel,
             double branchUT, string evaCrewName = null, uint evaVesselPid = 0)
         {
+            ParsekLog.RecState("CreateSplitBranch:entry", CaptureRecorderState());
             if (pendingSplitRecorder == null)
             {
                 ParsekLog.Warn("Flight", "CreateSplitBranch: no pending split recorder — aborting");
@@ -1965,6 +2003,7 @@ namespace Parsek
                 $"bp={bp.Id}, activeChild={activeChild.RecordingId} (pid={activeChild.VesselPersistentId}), " +
                 $"bgChild={bgChild.RecordingId} (pid={bgChild.VesselPersistentId})" +
                 (evaCrewName != null ? $", evaCrew={evaCrewName}" : ""));
+            ParsekLog.RecState("CreateSplitBranch:exit", CaptureRecorderState());
         }
 
         /// <summary>
@@ -2102,6 +2141,7 @@ namespace Parsek
         /// </summary>
         void FallbackCommitSplitRecorder(FlightRecorder splitRec)
         {
+            ParsekLog.RecState("FallbackCommitSplitRecorder:entry", CaptureRecorderState());
             if (splitRec?.CaptureAtStop == null) return;
 
             var captured = splitRec.CaptureAtStop;
@@ -2204,6 +2244,7 @@ namespace Parsek
         /// </summary>
         void ResumeSplitRecorder(FlightRecorder splitRec, string reason)
         {
+            ParsekLog.RecState("ResumeSplitRecorder:entry", CaptureRecorderState());
             if (splitRec == null)
             {
                 ParsekLog.Warn("Flight", $"ResumeSplitRecorder: no recorder to resume ({reason})");
@@ -2854,6 +2895,8 @@ namespace Parsek
         /// </summary>
         void PromoteToTreeForBreakup(BranchPoint breakupBp)
         {
+            ParsekLog.RecState("PromoteToTreeForBreakup:entry", CaptureRecorderState());
+
             // 1. Stop recorder to capture all accumulated data
             recorder.StopRecordingForChainBoundary();
             var splitRecorder = recorder;
@@ -3053,6 +3096,7 @@ namespace Parsek
                 $"skippedTrivial={skippedDebris}, " +
                 $"controlled={controlledPids?.Count ?? 0}, " +
                 $"breakup={breakupBp.Id}");
+            ParsekLog.RecState("PromoteToTreeForBreakup:exit", CaptureRecorderState());
         }
 
         #endregion
@@ -3355,6 +3399,7 @@ namespace Parsek
 
         void OnCrewBoardVessel(GameEvents.FromToAction<Part, Part> data)
         {
+            ParsekLog.RecState("OnCrewBoardVessel:entry", CaptureRecorderState());
             if (chainManager.ActiveChainId == null && activeTree == null)
             {
                 ParsekLog.Verbose("Flight", "OnCrewBoardVessel: no active chain or tree — ignoring");
@@ -3380,6 +3425,7 @@ namespace Parsek
 
         void OnCrewOnEva(GameEvents.FromToAction<Part, Part> data)
         {
+            ParsekLog.RecState("OnCrewOnEva:entry", CaptureRecorderState());
             // Mid-recording EVA: tree branch (replaces legacy chain continuation)
             if (IsRecording)
             {
@@ -3580,6 +3626,7 @@ namespace Parsek
 
         void OnPartCouple(GameEvents.FromToAction<Part, Part> data)
         {
+            ParsekLog.RecState("OnPartCouple:entry", CaptureRecorderState());
             if (data.to?.vessel == null) return;
             uint mergedPid = data.to.vessel.persistentId;
 
@@ -3679,6 +3726,7 @@ namespace Parsek
 
         void OnPartUndock(Part undockedPart)
         {
+            ParsekLog.RecState("OnPartUndock:entry", CaptureRecorderState());
             if (recorder == null || !recorder.IsRecording) return;
             if (pendingSplitInProgress) return; // another split is already being processed
             if (undockedPart?.vessel == null)
@@ -3879,6 +3927,7 @@ namespace Parsek
         void OnFlightReady()
         {
             Log("Flight ready. Checking for pending recordings...");
+            ParsekLog.RecState("OnFlightReady", CaptureRecorderState());
 
             // Safety net: if FlightResultsPatch has a pending message that was never replayed
             // (e.g., tree destruction path didn't fire), replay it now
@@ -4887,6 +4936,7 @@ namespace Parsek
 
             uint pid = FlightGlobals.ActiveVessel != null ? FlightGlobals.ActiveVessel.persistentId : 0;
             ParsekLog.Info("Flight", $"StartRecording succeeded: pid={pid}, chainActive={chainManager.ActiveChainId != null}, tree={activeTree != null}");
+            ParsekLog.RecState("StartRecording:post", CaptureRecorderState());
         }
 
         /// <summary>
@@ -5251,6 +5301,7 @@ namespace Parsek
             if (activeTree == null) return;
 
             ParsekLog.Info("Flight", $"CommitTreeRevert: finalizing tree at UT={commitUT:F1}");
+            ParsekLog.RecState("CommitTreeRevert:entry", CaptureRecorderState());
 
             // Finalize all recordings (active + background)
             FinalizeTreeRecordings(activeTree, commitUT, isSceneExit: false);
@@ -5260,6 +5311,7 @@ namespace Parsek
 
             ParsekLog.Info("Flight",
                 $"CommitTreeRevert: stashed pending tree '{activeTree.TreeName}' with snapshots preserved");
+            ParsekLog.RecState("CommitTreeRevert:post", CaptureRecorderState());
         }
 
         /// <summary>
@@ -5281,6 +5333,7 @@ namespace Parsek
         /// </summary>
         IEnumerator RestoreActiveTreeFromPending()
         {
+            ParsekLog.RecState("Restore:start", CaptureRecorderState());
             if (!RecordingStore.HasPendingTree
                 || RecordingStore.PendingTreeStateValue != PendingTreeState.Limbo)
             {
@@ -5363,6 +5416,7 @@ namespace Parsek
             // After a parent-fallback match, the rest of the coroutine uses matchedRec/matchedRecId
             activeRec = matchedRec;
             activeRecId = matchedRecId;
+            ParsekLog.RecState("Restore:matched", CaptureRecorderState());
 
             // PID remap: KSP may have regenerated the persistentId across quickload.
             // Tree.BackgroundMap is keyed by PID, so update any old-PID entries too.
@@ -5434,6 +5488,7 @@ namespace Parsek
             ParsekLog.Info("Flight",
                 $"RestoreActiveTreeFromPending: resumed recording tree '{activeTree.TreeName}' " +
                 $"activeRec='{activeRecId}' vessel='{targetName}' pid={newPid} at UT={Planetarium.GetUniversalTime():F1}");
+            ParsekLog.RecState("Restore:after-start", CaptureRecorderState());
         }
 
         /// <summary>
@@ -5454,6 +5509,7 @@ namespace Parsek
             ParsekLog.Info("Flight",
                 $"StashActiveTreeAsPendingLimbo: stashing tree '{activeTree.TreeName}' at UT={commitUT:F1} " +
                 $"(activeRecId={activeTree.ActiveRecordingId ?? "<null>"})");
+            ParsekLog.RecState("StashTreeLimbo:entry", CaptureRecorderState());
 
             // Flush active recorder's buffered points/events into the active tree's
             // current recording, without setting terminal state. FinalizeRecorderForLimbo
@@ -5509,6 +5565,7 @@ namespace Parsek
             ParsekLog.Info("Flight",
                 $"StashActiveTreeAsPendingLimbo: stashed tree '{activeTree.TreeName}' as Limbo " +
                 $"({activeTree.Recordings.Count} recording(s)) — OnLoad will dispatch");
+            ParsekLog.RecState("StashTreeLimbo:post", CaptureRecorderState());
         }
 
         /// <summary>
@@ -5520,6 +5577,7 @@ namespace Parsek
             if (activeTree == null) return;
 
             ParsekLog.Info("Flight", $"CommitTreeSceneExit: finalizing tree at UT={commitUT:F1}");
+            ParsekLog.RecState("CommitTreeSceneExit:entry", CaptureRecorderState());
 
             // Finalize all recordings
             FinalizeTreeRecordings(activeTree, commitUT, isSceneExit: true);
@@ -5534,6 +5592,7 @@ namespace Parsek
             RecordingStore.StashPendingTree(activeTree);
 
             ParsekLog.Info("Flight", $"CommitTreeSceneExit: stashed pending tree '{activeTree.TreeName}'");
+            ParsekLog.RecState("CommitTreeSceneExit:post", CaptureRecorderState());
         }
 
         /// <summary>
