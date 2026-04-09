@@ -348,6 +348,69 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Records a fallback Decoupled PartEvent for a part that split off into a new vessel.
+        /// Called by <see cref="ParsekFlight.DeferredJointBreakCheck"/> after the vessel-split
+        /// classification, once per new vessel's root part. This is a safety net for bug #263:
+        /// when a symmetry group of radial decouplers fires, individual <c>onPartJointBreak</c>
+        /// events race with KSP's vessel-split processing, and some may be dropped mid-pipeline,
+        /// leaving decoupled subtrees visible on the ghost during playback.
+        ///
+        /// The deferred scan is deterministic — every new debris vessel has exactly one root
+        /// part, and that root is by construction the part that separated from the recording
+        /// vessel, so emitting a <c>Decoupled</c> event for it hides the correct subtree.
+        ///
+        /// <para><b>Dedup source:</b> scans <see cref="PartEvents"/> directly for an existing
+        /// <see cref="PartEventType.Decoupled"/> entry with the same pid, rather than the
+        /// parallel <see cref="decoupledPartIds"/> tracking set. <c>decoupledPartIds</c>
+        /// tracks "events OnPartJointBreak attempted to emit" but can drift out of sync
+        /// with the actual serialized list if events are dropped or stripped downstream.
+        /// Scanning the list is the only way to ensure the fallback recovers genuinely
+        /// missing events. <c>PartEvents</c> is small at deferred-check time (~tens of
+        /// entries), so the linear scan is negligible relative to the Unity physics cost
+        /// that precedes it.</para>
+        /// </summary>
+        /// <param name="partPid">The persistent ID of the new vessel's root part.</param>
+        /// <param name="partName">The root part's name (for logging/serialization).</param>
+        /// <param name="ut">Universal time to stamp on the event.</param>
+        /// <returns>1 if a new event was added, 0 if <see cref="PartEvents"/> already contains a Decoupled entry for this pid.</returns>
+        internal int RecordFallbackDecoupleEvent(uint partPid, string partName, double ut)
+        {
+            // Dedup against the serialized list (source of truth), NOT the parallel
+            // decoupledPartIds set. decoupledPartIds is a fast-path tracker for
+            // OnPartJointBreak's own cycle-level dedup; it can be stale relative to
+            // PartEvents if events were added there but then dropped or stripped
+            // downstream. The fallback must check what will actually be serialized,
+            // otherwise it silently skips the exact cases it was written to recover.
+            for (int i = 0; i < PartEvents.Count; i++)
+            {
+                var existing = PartEvents[i];
+                if (existing.eventType == PartEventType.Decoupled && existing.partPersistentId == partPid)
+                {
+                    ParsekLog.Verbose("Recorder",
+                        $"RecordFallbackDecoupleEvent: pid={partPid} already has a Decoupled PartEvent, skipping");
+                    return 0;
+                }
+            }
+
+            // Keep decoupledPartIds in sync so any subsequent OnPartJointBreak for
+            // the same pid (unlikely but defensive) short-circuits via its own fast path.
+            decoupledPartIds.Add(partPid);
+
+            PartEvents.Add(new PartEvent
+            {
+                ut = ut,
+                partPersistentId = partPid,
+                eventType = PartEventType.Decoupled,
+                partName = partName ?? "unknown",
+                value = 0f,
+                moduleIndex = 0
+            });
+            ParsekLog.Info("Recorder",
+                $"Fallback Decoupled event recorded: '{partName}' pid={partPid} at UT={ut.ToString("F2", CultureInfo.InvariantCulture)}");
+            return 1;
+        }
+
+        /// <summary>
         /// Determines whether a joint break is structural (real separation) or non-structural
         /// (e.g., wheel suspension stress). Only the structural attachJoint indicates real decoupling.
         /// </summary>
