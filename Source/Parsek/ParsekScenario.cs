@@ -403,7 +403,7 @@ namespace Parsek
 
             // Persist bulk data for active-tree recordings (same pattern as committed trees).
             //
-            // Observability (2026-04-09 debris-flow investigation, bug #276): track how many
+            // Observability (2026-04-09 debris-flow investigation, bug #280): track how many
             // of the iterated recordings were dirty vs saved, so future playtest logs can
             // diagnose any FilesDirty-propagation gap. The outer `wrote ACTIVE tree ... (N
             // recording(s))` log only reports the total iteration count, which hid the fact

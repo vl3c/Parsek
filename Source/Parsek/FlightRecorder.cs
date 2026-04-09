@@ -4604,7 +4604,7 @@ namespace Parsek
 
             // Sort part/flag events chronologically (mixed event sources may produce
             // non-chronological order). PartEvents MUST use a STABLE sort so that
-            // same-UT events retain their insertion order: bug #277 showed that an
+            // same-UT events retain their insertion order: bug #281 showed that an
             // unstable List<T>.Sort can shuffle decouple events (OnPartJointBreak,
             // added first) into the terminal-event range (FinalizeRecordingState
             // appends, added second) when they share a physics-frame UT — and then
@@ -4668,7 +4668,7 @@ namespace Parsek
         {
             // Save state before finalization so ResumeAfterFalseAlarm can undo terminal events.
             //
-            // Invariant (bug #277): this index-based save-point relies on
+            // Invariant (bug #281): this index-based save-point relies on
             // FinalizeRecordingState using a STABLE sort when it re-orders PartEvents.
             // Terminal events are emitted at `Planetarium.GetUniversalTime()` during
             // the finalize call, so every pre-stop PartEvent has `ut <= terminalUT`.

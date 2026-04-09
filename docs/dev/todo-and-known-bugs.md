@@ -4,7 +4,7 @@ Previous entries (225 bugs, 51 TODOs — mostly resolved) archived in `done/todo
 
 ---
 
-## ~~276. Background debris recordings lose trajectory data on scene reload (second-order bug #273 gap)~~
+## ~~280. Background debris recordings lose trajectory data on scene reload (second-order bug #273 gap)~~
 
 During the 2026-04-09 Kerbal X playtest after PR #163/#164 merged, the 6 booster debris recordings from the radial decoupler separations all came back as 0-point / 0-section recordings. The main Kerbal X recording (#263) was fine — 88 points, all 6 `Decoupled` events present (via the #263 fallback) — but the debris children that each accumulated 21–22 trajectory frames while backgrounded lost every sample.
 
@@ -24,7 +24,7 @@ During the 2026-04-09 Kerbal X playtest after PR #163/#164 merged, the 6 booster
 - `Shutdown` — persists after each per-vessel flush during scene-change / tree teardown.
 - `HandleBackgroundVesselSplit` — already covered indirectly because `OnBackgroundVesselWillDestroy` fires before the deferred split check for the destroy case. Split-but-not-destroyed path does not flush TrackSections to disk because the vessel's state survives into a continuation recording.
 
-**Observability added alongside the fix** (bug #276 diagnostic, no behavior change):
+**Observability added alongside the fix** (bug #280 diagnostic, no behavior change):
 - `SaveActiveTreeIfAny` now logs `SaveActiveTreeIfAny: iterated N recording(s), D dirty, S saved, F failed` so any future FilesDirty-propagation gap is visible in KSP.log without code archaeology. The previous `wrote ACTIVE tree … (N recording(s))` log only reported the iteration count.
 - `PersistFinalizedRecording` logs `wrote sidecar for recId=…` at Verbose on success, `failed to write sidecar` at Warn on failure.
 
@@ -34,7 +34,7 @@ During the 2026-04-09 Kerbal X playtest after PR #163/#164 merged, the 6 booster
 
 ---
 
-## ~~277. ResumeAfterFalseAlarm index-based RemoveRange can drop decoupled events that share a UT with terminal events (bug #263 root cause)~~
+## ~~281. ResumeAfterFalseAlarm index-based RemoveRange can drop decoupled events that share a UT with terminal events (bug #263 root cause)~~
 
 The bug #263 fix (PR #161) added a `DeferredJointBreakCheck` fallback that recovers `Decoupled` PartEvents lost somewhere in the recorder → tree pipeline. Post-merge investigation into the 2026-04-09 Kerbal X playtest pinpointed WHERE they were being lost: `FlightRecorder.FinalizeRecordingState` sorts `PartEvents` by UT AFTER appending terminal engine-shutdown events, but `StopRecordingForChainBoundary` saved `partEventCountBeforeChainStop = PartEvents.Count` BEFORE the finalize. Then `ResumeAfterFalseAlarm` does `PartEvents.RemoveRange(partEventCountBeforeChainStop, N)` — an index-based removal.
 

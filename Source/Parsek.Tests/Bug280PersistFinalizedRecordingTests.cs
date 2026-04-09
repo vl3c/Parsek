@@ -6,7 +6,7 @@ namespace Parsek.Tests
 {
     /// <summary>
     /// Tests for <see cref="BackgroundRecorder.PersistFinalizedRecording"/> — the
-    /// helper introduced for bug #276 that writes a background recording's .prec
+    /// helper introduced for bug #280 that writes a background recording's .prec
     /// sidecar immediately at finalization time, bypassing OnSave's FilesDirty
     /// round-trip. The helper's contract is thin (null-check + SaveRecordingFiles
     /// + success/failure logging), but the logging contract is load-bearing: the
@@ -18,11 +18,11 @@ namespace Parsek.Tests
     /// don't need a live KSP runtime.
     /// </summary>
     [Collection("Sequential")]
-    public class Bug276PersistFinalizedRecordingTests : IDisposable
+    public class Bug280PersistFinalizedRecordingTests : IDisposable
     {
         private readonly List<string> logLines = new List<string>();
 
-        public Bug276PersistFinalizedRecordingTests()
+        public Bug280PersistFinalizedRecordingTests()
         {
             RecordingStore.SuppressLogging = true;
             ParsekLog.ResetTestOverrides();

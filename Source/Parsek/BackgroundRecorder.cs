@@ -1162,7 +1162,7 @@ namespace Parsek
                 if (tree.Recordings.TryGetValue(loadedState.recordingId, out flushRec))
                 {
                     FlushTrackSectionsToRecording(loadedState, flushRec);
-                    // Bug #276: persist the flushed data to disk IMMEDIATELY at
+                    // Bug #280: persist the flushed data to disk IMMEDIATELY at
                     // finalization time. Relying on OnSave to see FilesDirty and write
                     // the file has proven fragile — the 2026-04-09 playtest showed
                     // destroyed debris recordings consistently losing their 22-frame
@@ -1194,7 +1194,7 @@ namespace Parsek
         /// missing files produced 0-point recordings, and the subsequent CommitTree
         /// pass wrote those empty recordings over the in-memory data. Persisting at
         /// flush time closes the window between "data exists in memory" and "data
-        /// exists on disk" (bug #276).
+        /// exists on disk" (bug #280).
         /// </summary>
         internal static void PersistFinalizedRecording(Recording rec, string context)
         {
@@ -1243,7 +1243,7 @@ namespace Parsek
                 if (tree.Recordings.TryGetValue(state.recordingId, out flushRec))
                 {
                     FlushTrackSectionsToRecording(state, flushRec);
-                    // Bug #276: persist flushed data immediately (see PersistFinalizedRecording docs).
+                    // Bug #280: persist flushed data immediately (see PersistFinalizedRecording docs).
                     PersistFinalizedRecording(flushRec, $"Shutdown pid={state.vesselPid}");
                 }
             }
