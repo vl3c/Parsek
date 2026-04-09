@@ -9,7 +9,7 @@ namespace Parsek.Tests
     ///
     /// Root cause: <c>ResumeAfterFalseAlarm</c>'s index-based <c>RemoveRange</c> was brittle
     /// against any code path that reordered or appended PartEvents between
-    /// <c>StopRecordingForChainBoundary</c> and the resume call — particularly the four
+    /// <c>StopRecordingForChainBoundary</c> and the resume call — particularly the five
     /// unstable <c>List&lt;T&gt;.Sort((a,b) =&gt; a.ut.CompareTo(b.ut))</c> call sites in
     /// flush/merge paths. The fix switches to content-based removal: FinalizeRecordingState
     /// now saves the exact terminal events it emitted, and ResumeAfterFalseAlarm removes
@@ -130,10 +130,10 @@ namespace Parsek.Tests
                     partName = "radialDecoupler1-2"
                 });
 
-                // Simulate FinalizeRecordingState appending 3 terminal engine shutdowns.
-                // We call EmitTerminalEngineAndRcsEvents directly to get the real events,
-                // then save them via reflection to lastEmittedTerminalEvents. This mirrors
-                // the production flow where FinalizeRecordingState saves the reference.
+                // Simulate FinalizeRecordingState appending 3 terminal engine shutdowns by
+                // calling EmitTerminalEngineAndRcsEvents directly, appending to PartEvents,
+                // and stashing the reference in lastEmittedTerminalEvents (internal field
+                // — InternalsVisibleTo(Parsek.Tests) grants direct access, no reflection).
                 var activeEngines = new HashSet<ulong>
                 {
                     FlightRecorder.EncodeEngineKey(2485666303, 0),
@@ -143,14 +143,7 @@ namespace Parsek.Tests
                 var terminals = FlightRecorder.EmitTerminalEngineAndRcsEvents(
                     activeEngines, null, null, null, 87.94, "Recorder");
                 rec.PartEvents.AddRange(terminals);
-
-                // Assign to lastEmittedTerminalEvents via reflection so we can call
-                // RemoveLastEmittedTerminals without going through StopRecordingForChainBoundary
-                var field = typeof(FlightRecorder).GetField(
-                    "lastEmittedTerminalEvents",
-                    System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
-                Assert.NotNull(field);
-                field.SetValue(rec, terminals);
+                rec.lastEmittedTerminalEvents = terminals;
 
                 Assert.Equal(5, rec.PartEvents.Count); // 2 decouples + 3 terminals
 
@@ -211,10 +204,8 @@ namespace Parsek.Tests
                     activeEngines, null, null, null, 26.08, "Recorder");
                 rec.PartEvents.AddRange(terminals);
 
-                var field = typeof(FlightRecorder).GetField(
-                    "lastEmittedTerminalEvents",
-                    System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
-                field.SetValue(rec, terminals);
+                // Direct access via internal (InternalsVisibleTo(Parsek.Tests))
+                rec.lastEmittedTerminalEvents = terminals;
 
                 // SIMULATE UNSTABLE SORT: shuffle the PartEvents list into an adversarial order
                 // where a terminal is BEFORE a decouple (as the 2026-04-09 Kerbal X playtest

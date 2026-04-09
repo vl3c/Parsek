@@ -43,7 +43,7 @@ All 5466 tests pass.
 
 **Observability:** `ResumeAfterFalseAlarm`'s log line continues to report the number removed. A new `Warn` fires if any saved terminal isn't found in `PartEvents` at resume time (`RemoveLastEmittedTerminals: N terminal event(s) not found`) — that's a canary for any future race condition that manages to drop a terminal between emit and resume.
 
-**Follow-up note:** The existing `StopRecordingForChainBoundary.partEventCountBeforeChainStop` field is now unused for its original purpose but kept as-is (not removed in this PR) for potential future use as a "where did the terminals originally land" reference point. Bug #281's `StableSortPartEventsByUT` instance method is preserved and still called from `FinalizeRecordingState`.
+**Cleanup:** The old `partEventCountBeforeChainStop` private field + its 10-line bug #281 invariant comment in `StopRecordingForChainBoundary` were deleted — content-based removal obviates them and the stale comment was actively misleading. Bug #281's `StableSortPartEventsByUT` instance method is preserved and still called from `FinalizeRecordingState`. `FlagEvents` and `SegmentEvents` sort sites were also converted to stable via a new generic `FlightRecorder.StableSortByUT<T>(list, utSelector)` helper so every flush/merge site uses the same ordering semantics.
 
 **Status:** Fixed
 

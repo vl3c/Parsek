@@ -227,11 +227,14 @@ namespace Parsek
             // Sort events chronologically — mixed sources can produce out-of-order data.
             // PartEvents MUST use a STABLE sort so same-UT terminal Shutdowns stay before
             // continuation seed EngineIgnited events (#287). LINQ OrderBy is stable;
-            // List<T>.Sort(Comparison) is not.
+            // List<T>.Sort(Comparison) is not. FlagEvents uses the same stable pattern
+            // for consistency across every flush/merge site.
             var sortedPartEvents = FlightRecorder.StableSortPartEventsByUT(treeRec.PartEvents);
             treeRec.PartEvents.Clear();
             treeRec.PartEvents.AddRange(sortedPartEvents);
-            treeRec.FlagEvents.Sort((a, b) => a.ut.CompareTo(b.ut));
+            var sortedFlagEvents = FlightRecorder.StableSortByUT(treeRec.FlagEvents, e => e.ut);
+            treeRec.FlagEvents.Clear();
+            treeRec.FlagEvents.AddRange(sortedFlagEvents);
 
             // Populate VesselPersistentId if not already set
             if (treeRec.VesselPersistentId == 0 && recorder.RecordingVesselId != 0)
@@ -1615,11 +1618,14 @@ namespace Parsek
 
             // Sort part/flag events chronologically. PartEvents MUST use a STABLE sort so
             // same-UT events retain their insertion order — critical for terminal-vs-ignited
-            // ordering across tree promotion boundaries (#287).
+            // ordering across tree promotion boundaries (#287). FlagEvents uses the same
+            // stable pattern for consistency across every flush/merge site.
             var sortedPartEventsFlush = FlightRecorder.StableSortPartEventsByUT(treeRec.PartEvents);
             treeRec.PartEvents.Clear();
             treeRec.PartEvents.AddRange(sortedPartEventsFlush);
-            treeRec.FlagEvents.Sort((a, b) => a.ut.CompareTo(b.ut));
+            var sortedFlagEventsFlush = FlightRecorder.StableSortByUT(treeRec.FlagEvents, e => e.ut);
+            treeRec.FlagEvents.Clear();
+            treeRec.FlagEvents.AddRange(sortedFlagEventsFlush);
 
             // Mark dirty so the next OnSave persists the flushed data to disk.
             // Without this, the in-memory points are lost on scene reload.

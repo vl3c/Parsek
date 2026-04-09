@@ -231,11 +231,14 @@ namespace Parsek
                 target.PartEvents.AddRange(sortedMerge);
             }
 
-            // 3. Merge + re-sort SegmentEvents by UT
+            // 3. Merge + re-sort SegmentEvents by UT with STABLE semantics for consistency
+            // with the PartEvents path (#287) — same-UT events keep their insertion order.
             if (absorbed.SegmentEvents != null && absorbed.SegmentEvents.Count > 0)
             {
                 target.SegmentEvents.AddRange(absorbed.SegmentEvents);
-                target.SegmentEvents.Sort((a, b) => a.ut.CompareTo(b.ut));
+                var sortedSegs = FlightRecorder.StableSortByUT(target.SegmentEvents, e => e.ut);
+                target.SegmentEvents.Clear();
+                target.SegmentEvents.AddRange(sortedSegs);
             }
 
             // 4. Concatenate TrackSections

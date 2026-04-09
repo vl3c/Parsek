@@ -118,17 +118,13 @@ namespace Parsek
         // Joint break split detection: set by OnPartJointBreak, consumed by ParsekFlight.Update()
         public bool HasPendingJointBreakCheck { get; private set; }
 
-        // Saved PartEvents count before chain boundary stop — used by ResumeAfterFalseAlarm
-        // to truncate orphaned terminal events added by FinalizeRecordingState.
-        private int partEventCountBeforeChainStop = -1;
-
         // Exact terminal events appended by the most recent FinalizeRecordingState call with
         // emitTerminalEvents=true. ResumeAfterFalseAlarm uses this list to remove the orphaned
         // terminals by content-matching rather than index arithmetic. Index-based removal
-        // (see #255/#263/#281) is brittle across unstable sort paths (flush/merge) and any
-        // code path that appends events between stop and resume — it has caused spurious
-        // terminal Shutdowns to survive into committed recordings (#287).
-        private List<PartEvent> lastEmittedTerminalEvents;
+        // (see #255/#263/#281) was brittle across unstable sort paths (flush/merge) and any
+        // code path that appends events between stop and resume — it caused spurious terminal
+        // Shutdowns to survive into committed recordings (#287).
+        internal List<PartEvent> lastEmittedTerminalEvents;
 
         /// <summary>
         /// Consumes the pending joint break flag, returning whether a check was pending.
@@ -4633,24 +4629,18 @@ namespace Parsek
                 lastEmittedTerminalEvents = null;
             }
 
-            // Sort part/flag events chronologically (mixed event sources may produce
-            // non-chronological order). PartEvents MUST use a STABLE sort so that
-            // same-UT events retain their insertion order: bug #281 showed that an
-            // unstable List<T>.Sort can shuffle decouple events (OnPartJointBreak,
-            // added first) into the terminal-event range (FinalizeRecordingState
-            // appends, added second) when they share a physics-frame UT — and then
-            // ResumeAfterFalseAlarm's index-based RemoveRange would wrongly drop the
-            // decouples along with the terminals. LINQ OrderBy is stable; List<T>.Sort
-            // is not.
+            // Sort part/flag events chronologically with STABLE semantics so same-UT
+            // events retain their insertion order. See #263/#287 for the root-cause
+            // narrative — LINQ OrderBy is stable; List<T>.Sort(Comparison) is not.
             StableSortPartEventsByUT();
 
-            // FlagEvents can use the standard unstable sort: there is no analogous
-            // index-based removal path for flags (ResumeAfterFalseAlarm only touches
-            // PartEvents), and flag events are rare enough that same-UT ties are
-            // extremely unlikely. If either invariant changes — flags getting a
-            // rollback path, or high-frequency flag emission — switch this to the
-            // stable helper pattern and add an equivalent regression test.
-            FlagEvents.Sort((a, b) => a.ut.CompareTo(b.ut));
+            // FlagEvents also uses stable sort for consistency — bug #287 established
+            // that every flush/merge site should use stable semantics so future code
+            // that adds a rollback path or high-frequency flag emission cannot silently
+            // regress on same-UT ordering.
+            var sortedFlags = StableSortByUT(FlagEvents, e => e.ut);
+            FlagEvents.Clear();
+            FlagEvents.AddRange(sortedFlags);
         }
 
         /// <summary>
@@ -4661,7 +4651,8 @@ namespace Parsek
         /// </summary>
         internal void StableSortPartEventsByUT()
         {
-            if (PartEvents.Count < 2) return;
+            // The static helper handles 0/1-element lists by returning a new empty/copy
+            // list — Clear+AddRange stays safe for those cases, no need for a short-circuit.
             var sorted = StableSortPartEventsByUT(PartEvents);
             PartEvents.Clear();
             PartEvents.AddRange(sorted);
@@ -4678,9 +4669,22 @@ namespace Parsek
         /// </summary>
         internal static List<PartEvent> StableSortPartEventsByUT(List<PartEvent> events)
         {
-            if (events == null) return new List<PartEvent>();
-            if (events.Count < 2) return new List<PartEvent>(events);
-            return events.OrderBy(e => e.ut).ToList();
+            return StableSortByUT(events, e => e.ut);
+        }
+
+        /// <summary>
+        /// Generic stable UT-sort helper for any event type with a UT double. Returns a NEW
+        /// list (never the same reference as input) so callers can safely Clear+AddRange.
+        /// Uses LINQ <c>OrderBy</c> which is documented stable — same-UT events keep their
+        /// insertion order. Used for <see cref="FlagEvent"/> and <see cref="SegmentEvent"/>
+        /// sorts at flush/merge sites so the sort semantics stay consistent with the
+        /// <see cref="PartEvent"/> path and future same-UT hazards cannot silently regress.
+        /// </summary>
+        internal static List<T> StableSortByUT<T>(List<T> list, System.Func<T, double> utSelector)
+        {
+            if (list == null) return new List<T>();
+            if (list.Count < 2) return new List<T>(list);
+            return list.OrderBy(utSelector).ToList();
         }
 
         /// <summary>
@@ -4779,20 +4783,9 @@ namespace Parsek
         /// </summary>
         public void StopRecordingForChainBoundary()
         {
-            // Save state before finalization so ResumeAfterFalseAlarm can undo terminal events.
-            //
-            // Invariant (bug #281): this index-based save-point relies on
-            // FinalizeRecordingState using a STABLE sort when it re-orders PartEvents.
-            // Terminal events are emitted at `Planetarium.GetUniversalTime()` during
-            // the finalize call, so every pre-stop PartEvent has `ut <= terminalUT`.
-            // A stable sort keeps pre-stop entries before same-UT terminals, which
-            // means ResumeAfterFalseAlarm's `RemoveRange(partEventCountBeforeChainStop,
-            // N)` only touches the terminals. If any future code path ever inserts a
-            // pre-stop event at ut > terminalUT (e.g., a look-ahead predictor), this
-            // invariant breaks and the index-based save-point stops working — migrate
-            // to content-based terminal removal at that point.
-            partEventCountBeforeChainStop = PartEvents.Count;
-
+            // FinalizeRecordingState stashes the exact terminal events it emits in
+            // lastEmittedTerminalEvents; ResumeAfterFalseAlarm uses that list to remove
+            // them by content-match if this stop turns out to be a false alarm (#287).
             FinalizeRecordingState(
                 emitTerminalEvents: true,
                 clearRelativeMode: true,
@@ -4854,7 +4847,6 @@ namespace Parsek
                     $"ResumeAfterFalseAlarm: removed {contentRemoved} orphaned terminal event(s) " +
                     $"(PartEvents count: {PartEvents.Count})");
             }
-            partEventCountBeforeChainStop = -1;
 
             // Restore rewind save from CaptureAtStop — StopRecordingForChainBoundary
             // cleared RewindSaveFileName after copying it to CaptureAtStop, so if we
