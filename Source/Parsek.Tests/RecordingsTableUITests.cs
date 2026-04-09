@@ -47,6 +47,116 @@ namespace Parsek.Tests
             return rec;
         }
 
+        private static Recording MakeRecWithId(string id, string name = "Test")
+        {
+            var rec = new Recording { RecordingId = id, VesselName = name };
+            rec.Points.Add(new TrajectoryPoint { ut = 100.0 });
+            return rec;
+        }
+
+        // ── PruneStaleWatchEntries (bug #279 follow-up) ──
+
+        [Fact]
+        public void PruneStaleWatchEntries_RemovesEntriesForDeletedRecordings()
+        {
+            // Bug #279 follow-up: a rewound/truncated recording's id leaves
+            // the committed list. The transition cache must drop the entry
+            // so that (a) the dict doesn't grow unbounded over a long
+            // session and (b) a future recording with a similar id (or a
+            // future code path that resurrects the id) doesn't see stale
+            // canWatch state from the deleted recording.
+            var perRow = new Dictionary<string, bool>
+            {
+                ["live-1"] = true,
+                ["live-2"] = false,
+                ["deleted-3"] = true,
+                ["deleted-4"] = false,
+            };
+            var perGroup = new Dictionary<string, bool>
+            {
+                ["GroupA/live-1"] = true,
+                ["GroupB/deleted-3"] = false,
+            };
+            var committed = new List<Recording>
+            {
+                MakeRecWithId("live-1"),
+                MakeRecWithId("live-2"),
+            };
+
+            RecordingsTableUI.PruneStaleWatchEntries(perRow, perGroup, committed);
+
+            Assert.Equal(2, perRow.Count);
+            Assert.True(perRow.ContainsKey("live-1"));
+            Assert.True(perRow.ContainsKey("live-2"));
+            Assert.False(perRow.ContainsKey("deleted-3"));
+            Assert.False(perRow.ContainsKey("deleted-4"));
+
+            Assert.Single(perGroup);
+            Assert.True(perGroup.ContainsKey("GroupA/live-1"));
+            Assert.False(perGroup.ContainsKey("GroupB/deleted-3"));
+        }
+
+        [Fact]
+        public void PruneStaleWatchEntries_EmptyCommitted_ClearsBothDicts()
+        {
+            // Edge: the committed list is empty (e.g., user truncated
+            // everything). Both dicts should be cleared so we don't carry
+            // stale state into the next session of recordings.
+            var perRow = new Dictionary<string, bool> { ["a"] = true, ["b"] = false };
+            var perGroup = new Dictionary<string, bool> { ["G/a"] = true };
+            var committed = new List<Recording>();
+
+            RecordingsTableUI.PruneStaleWatchEntries(perRow, perGroup, committed);
+
+            Assert.Empty(perRow);
+            Assert.Empty(perGroup);
+        }
+
+        [Fact]
+        public void PruneStaleWatchEntries_NullCommitted_ClearsBothDicts()
+        {
+            // Defensive: a null committed list (e.g., during a teardown
+            // window) should not throw. Clear the dicts and return.
+            var perRow = new Dictionary<string, bool> { ["a"] = true };
+            var perGroup = new Dictionary<string, bool> { ["G/a"] = true };
+
+            RecordingsTableUI.PruneStaleWatchEntries(perRow, perGroup, null);
+
+            Assert.Empty(perRow);
+            Assert.Empty(perGroup);
+        }
+
+        [Fact]
+        public void PruneStaleWatchEntries_GroupKeyWithoutSlash_DroppedDefensively()
+        {
+            // Defensive: any group dict key that doesn't follow the
+            // "{groupName}/{recordingId}" convention is dropped on the
+            // next prune so a code-bug that produces malformed keys
+            // doesn't permanently leak entries.
+            var perRow = new Dictionary<string, bool>();
+            var perGroup = new Dictionary<string, bool>
+            {
+                ["malformed-no-slash"] = true,
+                ["G/live-1"] = true,
+            };
+            var committed = new List<Recording> { MakeRecWithId("live-1") };
+
+            RecordingsTableUI.PruneStaleWatchEntries(perRow, perGroup, committed);
+
+            Assert.Single(perGroup);
+            Assert.True(perGroup.ContainsKey("G/live-1"));
+        }
+
+        [Fact]
+        public void PruneStaleWatchEntries_NullDicts_DoesNotThrow()
+        {
+            // Defensive: callers may pass null dicts (e.g. during early
+            // initialization before the field is assigned). Should no-op.
+            var committed = new List<Recording> { MakeRecWithId("live-1") };
+            RecordingsTableUI.PruneStaleWatchEntries(null, null, committed);
+            // No assertion — just verifying no exception.
+        }
+
         // ── GetRecordingSortKey ──
 
         [Fact]

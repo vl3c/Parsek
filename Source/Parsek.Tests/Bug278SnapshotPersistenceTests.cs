@@ -5,47 +5,12 @@ using Xunit;
 namespace Parsek.Tests
 {
     /// <summary>
-    /// Tests for the bug #278 follow-up safety nets shipped in PR #177 alongside
-    /// the bug #279 logging.
-    ///
-    /// **Background.** The user-visible bug #278 was fixed in PR #176 by
-    /// changing <c>FinalizePendingLimboTreeForRevert</c> to use real vessel
-    /// situation instead of blanket-stamping every leaf as Destroyed. PR #177
-    /// (this set) adds two follow-up safety nets that the PR #176 fix does not
-    /// itself need but that close real coverage gaps in the surrounding
-    /// snapshot-persistence path:
-    ///
-    /// 1. <see cref="BackgroundRecorder.PersistFinalizedRecording"/> is now
-    ///    called from <c>EndDebrisRecording</c>, mirroring the #280 wiring
-    ///    into the <c>CheckDebrisTTL</c> termination path that the original
-    ///    #280 fix had not covered. Pinned by
-    ///    <see cref="EndDebrisRecording_PersistContextString_AppearsInFailureLog"/>.
-    /// 2. <c>RecordingStore.SaveRecordingFiles</c> no longer destructively
-    ///    deletes <c>_vessel.craft</c> when in-memory <c>VesselSnapshot</c> is
-    ///    null. Inspected by code review (not unit-testable in this environment
-    ///    because <c>SaveRecordingFiles</c> requires a real KSP save folder).
-    ///
-    /// **Test scope.** Driving the full
-    /// <c>CheckDebrisTTL → EndDebrisRecording</c> path from a unit test is not
-    /// feasible: <c>EndDebrisRecording</c> calls
-    /// <c>OnVesselRemovedFromBackground</c>, which calls
-    /// <c>Planetarium.GetUniversalTime()</c> — a Unity static that throws
-    /// <c>NullReferenceException</c> in test environments where Unity is not
-    /// initialized. Refactoring those call paths is out of scope for this PR.
-    /// Instead, these tests pin two observable contracts that together cover
-    /// the wiring:
-    ///
-    /// 1. The <c>EndDebrisRecording pid={vesselPid}</c> context string format
-    ///    used at the call site is preserved (so a future rename produces a
-    ///    test failure that prompts a deliberate update).
-    /// 2. The breadcrumb is distinguishable from the existing #280
-    ///    <c>OnBackgroundVesselWillDestroy</c> / <c>Shutdown</c> contexts so
-    ///    next-playtest triage can tell which finalization site fired.
-    ///
-    /// End-to-end behavior is verified by the next Kerbal X in-game playtest
-    /// (load <c>s32</c>, repeat the launch + radial booster crash sequence;
-    /// expect <c>BuildDefaultVesselDecisions.*hasSnapshot=True</c> in the
-    /// resulting log).
+    /// Source-text pins for the bug #278 follow-up safety nets shipped in PR
+    /// #177 alongside the bug #279 logging. See
+    /// <c>docs/dev/plans/bugs-269-278-279-fix-plan.md</c> for the rationale and
+    /// the full chain trace. Driving the runtime paths from unit tests is not
+    /// feasible (Unity statics throw); these tests pin the call sites by source
+    /// inspection so a refactor that breaks the chain is caught at test time.
     /// </summary>
     [Collection("Sequential")]
     public class Bug278SnapshotPersistenceTests : IDisposable
@@ -54,23 +19,16 @@ namespace Parsek.Tests
 
         public Bug278SnapshotPersistenceTests()
         {
-            RecordingStore.SuppressLogging = true;
-            RecordingStore.ResetForTesting();
-            MilestoneStore.ResetForTesting();
-            GameStateStore.SuppressLogging = true;
             ParsekLog.ResetTestOverrides();
             ParsekLog.SuppressLogging = false;
-            ParsekLog.TestSinkForTesting = line => logLines.Add(line);
             ParsekLog.VerboseOverrideForTesting = true;
+            ParsekLog.TestSinkForTesting = line => logLines.Add(line);
         }
 
         public void Dispose()
         {
             ParsekLog.ResetTestOverrides();
             ParsekLog.SuppressLogging = true;
-            RecordingStore.SuppressLogging = true;
-            RecordingStore.ResetForTesting();
-            MilestoneStore.ResetForTesting();
         }
 
         /// <summary>
@@ -204,6 +162,54 @@ namespace Parsek.Tests
             // bug #278 follow-up comment). If anyone re-introduces File.Delete
             // on the vesselPath, this test fails and they re-read the chain.
             Assert.DoesNotContain("File.Delete(vesselPath)", storeSrc);
+        }
+
+        /// <summary>
+        /// Source-text regression pin for the EndDebrisRecording wire-up. The
+        /// runtime test path that proves this call is reached cannot run in unit
+        /// tests because <c>EndDebrisRecording → OnVesselRemovedFromBackground →
+        /// Planetarium.GetUniversalTime()</c> throws under Unity-static-free
+        /// conditions. So we pin the call site by source text instead. If anyone
+        /// removes the <c>PersistFinalizedRecording(rec, $"EndDebrisRecording
+        /// pid={vesselPid}")</c> line from <c>BackgroundRecorder.cs</c>, this test
+        /// fails and the refactor author re-evaluates whether the #280 wiring gap
+        /// for the TTL/out-of-bubble paths is still acceptable.
+        /// </summary>
+        [Fact]
+        public void EndDebrisRecording_HasPersistFinalizedRecordingCall_PinnedBySourceInspection()
+        {
+            string srcRoot = System.IO.Path.GetFullPath(
+                System.IO.Path.Combine(System.AppDomain.CurrentDomain.BaseDirectory,
+                    "..", "..", "..", "..", "Parsek"));
+
+            string bgRecSrc = System.IO.File.ReadAllText(
+                System.IO.Path.Combine(srcRoot, "BackgroundRecorder.cs"));
+
+            // The exact call site format. Must match the string asserted by
+            // EndDebrisRecording_PersistContextString_AppearsInFailureLog.
+            Assert.Contains(
+                "PersistFinalizedRecording(rec, $\"EndDebrisRecording pid={vesselPid}\")",
+                bgRecSrc);
+
+            // The wire-up must live inside EndDebrisRecording, not somewhere
+            // adjacent. Verify the EndDebrisRecording method exists and the
+            // PersistFinalizedRecording call appears after the
+            // OnVesselRemovedFromBackground flush so the persisted data
+            // includes the TrackSection flush.
+            int methodStart = bgRecSrc.IndexOf("private void EndDebrisRecording(uint vesselPid");
+            Assert.True(methodStart > 0,
+                "EndDebrisRecording method signature not found in BackgroundRecorder.cs");
+
+            int flushIdx = bgRecSrc.IndexOf("OnVesselRemovedFromBackground(vesselPid)", methodStart);
+            int persistIdx = bgRecSrc.IndexOf(
+                "PersistFinalizedRecording(rec, $\"EndDebrisRecording", methodStart);
+            Assert.True(flushIdx > 0,
+                "OnVesselRemovedFromBackground call not found inside EndDebrisRecording");
+            Assert.True(persistIdx > 0,
+                "PersistFinalizedRecording call not found inside EndDebrisRecording");
+            Assert.True(persistIdx > flushIdx,
+                "PersistFinalizedRecording must be called AFTER OnVesselRemovedFromBackground " +
+                "so the flush data is included in the persisted sidecar");
         }
     }
 }

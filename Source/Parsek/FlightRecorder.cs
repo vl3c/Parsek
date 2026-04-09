@@ -5609,10 +5609,14 @@ namespace Parsek
             // The FlightGlobals.Vessels accessor triggers FlightGlobals' static
             // initializer (Quaternion.Euler ECall), which throws in unit-test
             // environments where Unity native methods are unavailable. Wrap the
-            // first access so test-only callers (e.g. BackgroundRecorder
-            // CheckDebrisTTL/EndDebrisRecording paths exercised by
-            // Bug278SnapshotPersistenceTests) get a clean null instead of a
-            // TypeInitializationException. Production behavior is unchanged.
+            // first access so any future test-only caller that drives a recorder
+            // path through this method gets a clean null instead of a
+            // TypeInitializationException. Current unit tests of
+            // FinalizeIndividualRecording (Bug278FinalizeLimboTests) all pass
+            // pid=0, which short-circuits before this method is reached, so the
+            // catch is currently unreachable from the test suite — kept as
+            // defensive scaffolding for future test paths. Production behavior
+            // is unchanged.
             var vessels = TryGetFlightGlobalsVessels();
             if (vessels == null) return null;
             for (int i = 0; i < vessels.Count; i++)
