@@ -264,7 +264,7 @@ namespace Parsek
             // the extended trajectory. Continuation sampling extends a
             // committed recording's Points after commit, so without this the
             // .prec file stays frozen at the pre-continuation state on reload.
-            rec.FilesDirty = true;
+            rec.MarkFilesDirty();
             lastUT = ut;
             lastVel = velocity;
         }
@@ -413,7 +413,7 @@ namespace Parsek
             // Mark dirty so the newly-created continuation gets its .prec
             // written on the next OnSave. Without this the recording is
             // added to the committed list with an empty sidecar file.
-            contRec.FilesDirty = true;
+            contRec.MarkFilesDirty();
 
             RecordingStore.CommittedRecordings.Add(contRec);
             UndockContinuationRecIdx = RecordingStore.CommittedRecordings.Count - 1;

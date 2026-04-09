@@ -1134,13 +1134,16 @@ namespace Parsek
                     string watchLabel = isWatching ? "W*" : "W";
                     // Same tooltip policy as the per-row W button: explain
                     // !hasGhost explicitly so the user knows WHY it's disabled.
+                    // Uses "camera cutoff" wording consistently with the per-row
+                    // button — the setting it refers to is ghostCameraCutoffKm,
+                    // so "visual range" was imprecise.
                     string watchTooltip;
                     if (!hasGhost)
                         watchTooltip = "No active ghost — recording is in the past/future or has no trajectory points";
                     else if (!sameBody)
                         watchTooltip = "Ghost is on a different body";
                     else if (!inRange)
-                        watchTooltip = "Ghost is beyond visual range";
+                        watchTooltip = "Ghost is beyond camera cutoff";
                     else
                         watchTooltip = isWatching ? "Exit watch mode" : "Follow ghost in watch mode";
                     if (GUILayout.Button(new GUIContent(watchLabel, watchTooltip), GUILayout.Width(ColW_Watch)))

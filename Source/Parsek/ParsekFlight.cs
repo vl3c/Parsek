@@ -1574,7 +1574,7 @@ namespace Parsek
 
             // Mark dirty so the next OnSave persists the flushed data to disk.
             // Without this, the in-memory points are lost on scene reload.
-            treeRec.FilesDirty = true;
+            treeRec.MarkFilesDirty();
 
             // Populate VesselPersistentId (required for RebuildBackgroundMap after save/load)
             if (treeRec.VesselPersistentId == 0 && rec.RecordingVesselId != 0)
@@ -1703,9 +1703,9 @@ namespace Parsek
                 target.PartEvents.Sort((a, b) => a.ut.CompareTo(b.ut));
                 // Mark dirty so the next OnSave persists the appended data to
                 // the .prec sidecar. Without this, data lives only in memory
-                // and is lost on scene reload (TryRestoreActiveTreeNode will
-                // read an empty .prec file and produce a 0-point recording).
-                target.FilesDirty = true;
+                // and is lost on scene reload (see Recording.MarkFilesDirty
+                // docstring and CHANGELOG 2026-04-09 bug #273).
+                target.MarkFilesDirty();
             }
             target.ExplicitEndUT = endUT;
         }
@@ -1905,8 +1905,9 @@ namespace Parsek
                         rootRec.ExplicitStartUT = rootRec.Points[0].ut;
                     // Mark dirty so the captured trajectory reaches disk on the
                     // next OnSave. Mirror of the PromoteToTreeForBreakup fix —
-                    // same quickload-resume data-loss hole (PR #164).
-                    rootRec.FilesDirty = true;
+                    // same quickload-resume data-loss hole. See CHANGELOG
+                    // 2026-04-09 bug #273.
+                    rootRec.MarkFilesDirty();
                 }
 
                 activeTree.Recordings[rootRecId] = rootRec;
@@ -2978,8 +2979,8 @@ namespace Parsek
             // This is load-bearing for quickload-resume: without it, the root
             // recording never gets a .prec file written during in-flight saves,
             // and on scene reload the freshly-loaded tree has 0 points for this
-            // recording. Observed 2026-04-09 playtest (PR #164).
-            rootRec.FilesDirty = true;
+            // recording. See CHANGELOG 2026-04-09 bug #273.
+            rootRec.MarkFilesDirty();
 
             activeTree.Recordings[rootRecId] = rootRec;
             activeTree.ActiveRecordingId = rootRecId;

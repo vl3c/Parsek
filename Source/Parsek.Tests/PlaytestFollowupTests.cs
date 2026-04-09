@@ -1,5 +1,7 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
+using System.Text.RegularExpressions;
 using Xunit;
 
 namespace Parsek.Tests
@@ -184,10 +186,94 @@ namespace Parsek.Tests
         [Fact]
         public void IsVesselSwitchFlagFresh_MaxAgeConstantValue()
         {
-            // Lock in the max-age cap so a reviewer changing it notices the test
-            // that documents the rationale (tracking-station reload completes well
-            // under 6 seconds at 50 FPS, EVA leakage is typically minutes = 10000+ frames)
+            // This is a review speed bump, not a correctness check — the
+            // production constant and the assertion below are the same number,
+            // so the test is tautological by construction. Its real purpose is
+            // to force a reviewer who changes the constant to also delete this
+            // test, which then prompts them to re-read the rationale comment on
+            // VesselSwitchPendingMaxAgeFrames (tracking-station reload ~1-2
+            // frames, EVA leakage ~10000+ frames, cap at 300 ~6s at 50 FPS).
             Assert.Equal(300, ParsekScenario.VesselSwitchPendingMaxAgeFrames);
+        }
+
+        // ----- Source-scrape regression guards for bug #273 -----
+
+        /// <summary>
+        /// Source-level regression guards for the six sites fixed in bug #273.
+        /// Each of these methods mutates a tree Recording's Points / PartEvents /
+        /// OrbitSegments / TrackSections in-flight, and must mark the recording
+        /// dirty so the next OnSave persists the data to the .prec sidecar file.
+        /// A regression that removes the <c>MarkFilesDirty()</c> call would
+        /// silently reintroduce the 2026-04-09 data-loss bug.
+        ///
+        /// The guards grep the source file for each target method and assert its
+        /// body contains at least one <c>MarkFilesDirty()</c> call. The file
+        /// scrape is deliberately simple — it's not an AST walk, just a body
+        /// substring search bounded by brace depth — because the goal is to
+        /// catch accidental removal of a single line, not to prove semantic
+        /// correctness.
+        /// </summary>
+        [Theory]
+        [InlineData("ParsekFlight.cs", "void PromoteToTreeForBreakup(BranchPoint")]
+        [InlineData("ParsekFlight.cs", "void CreateSplitBranch(BranchPointType")]
+        [InlineData("ParsekFlight.cs", "static void AppendCapturedDataToRecording(")]
+        [InlineData("ParsekFlight.cs", "void FlushRecorderToTreeRecording(FlightRecorder")]
+        [InlineData("ChainSegmentManager.cs", "void SampleContinuationVessel(")]
+        [InlineData("ChainSegmentManager.cs", "void StartUndockContinuation(uint")]
+        public void Bug273_MethodBody_ContainsMarkFilesDirtyCall(string fileName, string methodSignature)
+        {
+            string path = LocateSourceFile(fileName);
+            Assert.True(File.Exists(path),
+                $"Could not locate {fileName} for source scrape. " +
+                "Update LocateSourceFile if the project layout changed.");
+
+            string src = File.ReadAllText(path);
+            int sigIdx = src.IndexOf(methodSignature, StringComparison.Ordinal);
+            Assert.True(sigIdx >= 0,
+                $"Method '{methodSignature}' not found in {fileName}. " +
+                $"Did the signature change? Update this regression test to match.");
+
+            // Walk brace depth to find the matching close brace for this method.
+            int openBrace = src.IndexOf('{', sigIdx);
+            Assert.True(openBrace >= 0, $"No opening brace after '{methodSignature}' in {fileName}");
+
+            int depth = 0;
+            int closeBrace = -1;
+            for (int i = openBrace; i < src.Length; i++)
+            {
+                char c = src[i];
+                if (c == '{') depth++;
+                else if (c == '}')
+                {
+                    depth--;
+                    if (depth == 0) { closeBrace = i; break; }
+                }
+            }
+            Assert.True(closeBrace >= 0, $"Unbalanced braces in '{methodSignature}' in {fileName}");
+
+            string body = src.Substring(openBrace, closeBrace - openBrace + 1);
+
+            Assert.Contains("MarkFilesDirty", body);
+        }
+
+        /// <summary>
+        /// Walks up from the test binary directory looking for
+        /// <c>Source/Parsek/&lt;filename&gt;</c> so the scrape works regardless
+        /// of where <c>dotnet test</c> is invoked from. Matches the LocateParsekFlightSource
+        /// pattern in <see cref="OnFlightReadyOrderingTests"/>.
+        /// </summary>
+        private static string LocateSourceFile(string fileName)
+        {
+            string dir = AppDomain.CurrentDomain.BaseDirectory;
+            for (int i = 0; i < 10 && !string.IsNullOrEmpty(dir); i++)
+            {
+                string candidate = Path.Combine(dir, "Source", "Parsek", fileName);
+                if (File.Exists(candidate)) return candidate;
+                dir = Path.GetDirectoryName(dir);
+            }
+            return Path.GetFullPath(Path.Combine(
+                AppDomain.CurrentDomain.BaseDirectory,
+                "..", "..", "..", "..", "Parsek", fileName));
         }
     }
 }

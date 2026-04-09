@@ -2808,6 +2808,11 @@ namespace Parsek
         private void OnVesselSwitching(Vessel from, Vessel to)
         {
             vesselSwitchPending = true;
+            // Time.frameCount is monotonic across scene loads within a single
+            // KSP session (Unity only resets it on application restart, not on
+            // scene change), so the staleness check in OnLoad can rely on the
+            // difference between the stamp here and the frame count at
+            // scene-load time being a meaningful "frames elapsed" measurement.
             vesselSwitchPendingFrame = UnityEngine.Time.frameCount;
             ParsekLog.Info("Scenario",
                 $"Vessel switch detected: '{from?.vesselName}' → '{to?.vesselName}' — " +

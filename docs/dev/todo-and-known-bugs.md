@@ -783,12 +783,13 @@ Exposed by the post-PR-#163 playtest trail. The player launched, decoupled (prom
 
 ---
 
-## ~~273. Tree root recording trajectory lost on scene reload~~
+## ~~273. Tree recording trajectory lost on scene reload (FilesDirty audit)~~
 
 After PR #163 fixed the OnFlightReady ordering bug, a second F5/F9 playtest with an active tree showed the Kerbal X launch recording (88+ points) coming back from the save with 0 points. Sidecar file on disk: 61 bytes (just the header — no POINT nodes).
 
-**Root cause:** Tree recordings created / mutated in-flight by these six sites all modified `Recording.Points`/`PartEvents`/etc. without setting `FilesDirty = true`:
+**Root cause:** Tree recordings created / mutated in-flight at ~33 sites across `ParsekFlight.cs`, `ChainSegmentManager.cs`, and `BackgroundRecorder.cs` modified `Recording.Points`/`PartEvents`/etc. without setting `FilesDirty = true`. `SaveActiveTreeIfAny` only calls `SaveRecordingFiles` for recordings where `FilesDirty == true`, so none of those recordings ever had their `.prec` sidecars written during in-flight F5 saves. On scene reload, `TryRestoreActiveTreeNode` read the empty `.prec` files and produced 0-point recordings. The in-memory tree (with the actual trajectory data) was then discarded by the new load, and `FinalizeTreeCommit`'s final dirty pass wrote 61-byte empty files as the "authoritative" on-disk state.
 
+**Fix (initial scope, ParsekFlight + ChainSegmentManager):**
 1. `ParsekFlight.PromoteToTreeForBreakup` — creates rootRec from standalone `CaptureAtStop` on first breakup
 2. `ParsekFlight.CreateSplitBranch` (first-split path) — creates rootRec from standalone `CaptureAtStop` on first split
 3. `ParsekFlight.AppendCapturedDataToRecording` — static helper called from `CreateSplitBranch` subsequent-split path and `CreateMergeBranch`
@@ -796,9 +797,23 @@ After PR #163 fixed the OnFlightReady ordering bug, a second F5/F9 playtest with
 5. `ChainSegmentManager.SampleContinuationVessel` — extends a committed recording's trajectory with continuation samples after EVA
 6. `ChainSegmentManager.StartUndockContinuation` — creates a new committed recording with a seed point for the undocked sibling vessel
 
-`SaveActiveTreeIfAny` only calls `SaveRecordingFiles` for recordings where `FilesDirty == true`, so none of those recordings ever had their `.prec` sidecars written during in-flight F5 saves. On scene reload, `TryRestoreActiveTreeNode` read the empty `.prec` files and produced 0-point recordings. The in-memory tree (with the actual trajectory data) was then discarded by the new load, and `FinalizeTreeCommit`'s final dirty pass wrote the 61-byte empty files as the "authoritative" on-disk state.
+**Fix (extended scope, BackgroundRecorder — from PR #164 review):**
 
-**Fix:** Mark `FilesDirty = true` at all six data-mutation sites so dirty recordings reach their sidecar files on the next in-flight save, before any scene reload can discard the in-memory tree. xUnit regression tests cover `AppendCapturedDataToRecording` (non-null source marks dirty, null source leaves flag alone, existing points preserved).
+Code review on the initial fix flagged that `BackgroundRecorder.cs` contained 27 more mutation sites (`treeRec.PartEvents.Add` / `.Points.Add` / `.OrbitSegments.Add` / `.TrackSections.Add`) with zero `FilesDirty` marks — the same class of bug, not exercised by the foreground Kerbal X playtest but latent for any F5/F9 scenario with background-tracked vessels. Extended the fix to cover all of BackgroundRecorder:
+
+- `OnBackgroundPartDie` (part death event)
+- `OnBackgroundPartJointBreak` (decouple event)
+- `OnBackgroundPhysicsFrame` (trajectory point sampling)
+- `CloseOrbitSegment` (on-rails orbit segment emission)
+- `SampleBoundaryPoint` (on-rails → physics boundary)
+- `FlushTrackSectionsToRecording` (finalization)
+- `PollPartEvents` — 17 child `CheckXState` methods (parachute, jettison, engine, RCS, deployable, ladder, animation group, aero surface, control surface, robot arm, heat, generic animation, light, gear, cargo bay, fairing, robotic). Uses a count-delta pattern: capture `treeRec.PartEvents.Count` before polling, compare after, mark dirty only if the delta is positive. Single guard covers 19 individual `.Add` calls without 19 inline dirty-mark lines.
+
+**Helper:** Introduced `Recording.MarkFilesDirty()` instance method with a comprehensive docstring pointing at this entry, making the invariant grep-able and discoverable from IDE hover. All new sites (ParsekFlight + ChainSegmentManager + BackgroundRecorder) use the helper. Pre-existing `FilesDirty = true` direct assignments in `RecordingStore.cs` are left alone (they work; scope creep to churn them).
+
+**Tests:**
+- xUnit: 3 tests for `AppendCapturedDataToRecording` (non-null source marks dirty, null source leaves flag alone, existing points preserved)
+- Source-scrape regression guards (`Bug273_MethodBody_ContainsMarkFilesDirtyCall`) — one `[Theory]` test with 6 `[InlineData]` rows, one per fix site. Each finds the method body via brace-depth walk and asserts it contains a `MarkFilesDirty()` call. Catches accidental removal of a single line in any of the 6 named methods.
 
 ---
 
