@@ -879,5 +879,69 @@ namespace Parsek.Tests
         }
 
         #endregion
+
+        #region IsSurfaceEnvironment / IsSurfaceForAnchorDetection (bug #256 D-companion)
+
+        [Theory]
+        [InlineData(SegmentEnvironment.SurfaceMobile, true)]
+        [InlineData(SegmentEnvironment.SurfaceStationary, true)]
+        [InlineData(SegmentEnvironment.Atmospheric, false)]
+        [InlineData(SegmentEnvironment.Approach, false)]
+        [InlineData(SegmentEnvironment.ExoBallistic, false)]
+        [InlineData(SegmentEnvironment.ExoPropulsive, false)]
+        public void IsSurfaceEnvironment_OnlyTrueForSurfaceStates(SegmentEnvironment env, bool expected)
+        {
+            Assert.Equal(expected, EnvironmentDetector.IsSurfaceEnvironment(env));
+        }
+
+        [Fact]
+        public void IsSurfaceForAnchorDetection_PrefersDebouncedEnvironment()
+        {
+            // KSP raw situation says FLYING (8), but the debounced environment is
+            // SurfaceMobile (still walking on the Mun, just transient jitter to FLYING).
+            // Function must trust the debounced classification.
+            var result = EnvironmentDetector.IsSurfaceForAnchorDetection(
+                hasEnvironment: true,
+                envHint: SegmentEnvironment.SurfaceMobile,
+                situation: 8); // FLYING
+
+            Assert.True(result);
+        }
+
+        [Fact]
+        public void IsSurfaceForAnchorDetection_DebouncedFlyingTrumpsLandedSituation()
+        {
+            // Inverse: KSP raw situation says LANDED (1), but the debounced environment
+            // says Atmospheric. Trust the debounced classification.
+            var result = EnvironmentDetector.IsSurfaceForAnchorDetection(
+                hasEnvironment: true,
+                envHint: SegmentEnvironment.Atmospheric,
+                situation: 1); // LANDED
+
+            Assert.False(result);
+        }
+
+        [Theory]
+        [InlineData(1, true)]   // LANDED
+        [InlineData(2, true)]   // SPLASHED
+        [InlineData(4, true)]   // PRELAUNCH
+        [InlineData(8, false)]  // FLYING
+        [InlineData(16, false)] // SUB_ORBITAL
+        [InlineData(32, false)] // ORBITING
+        [InlineData(64, false)] // ESCAPING
+        public void IsSurfaceForAnchorDetection_FallsBackToSituation_WhenNoEnvironment(
+            int situation, bool expected)
+        {
+            // No environment classifier available — must fall back to raw situation.
+            // envHint is ignored when hasEnvironment=false (passing ExoBallistic to prove it).
+            var result = EnvironmentDetector.IsSurfaceForAnchorDetection(
+                hasEnvironment: false,
+                envHint: SegmentEnvironment.ExoBallistic,
+                situation: situation);
+
+            Assert.Equal(expected, result);
+        }
+
+        #endregion
     }
 }

@@ -670,9 +670,12 @@ The adaptive sampler had no minimum interval floor, only a max-interval backstop
 
 **Fix:** Added `minInterval` parameter to `TrajectoryMath.ShouldRecordPoint` — a hard floor checked after the first-point exception and after the max-interval backstop (so degenerate `min > max` configs still produce samples). New `ParsekSettings.minSampleInterval` field with 0.05–1.0 s slider, default 0.2 s. The default matches `ProximityRateSelector.DockingInterval` for recorder mode parity. `FlightRecorder`, `ChainSegmentManager.SampleContinuationVessel`, and `BackgroundRecorder.OnBackgroundPhysicsFrame` all pass through the new parameter; the background path additionally folds its separate `state.lastSampleUT` proximity gate into the new floor parameter (single source of truth, dead `lastSampleUT` field removed).
 
+**Companion fix (D):** `FlightRecorder.UpdateAnchorDetection` previously used raw `v.situation` for the `onSurface` check, which can flip-flop LANDED↔FLYING per frame during EVA jitter near a flying vessel. Replaced with new `EnvironmentDetector.IsSurfaceForAnchorDetection` which prefers the debounced environment classification when available (mirrors the #246 near-surface override pattern), falling back to raw situation when no classifier is initialized. Narrow but related to the same jitter source.
+
 **Tests:**
 - 7 new xUnit tests in `AdaptiveSamplingTests.cs`: floor blocks within window, allows after, doesn't block first point, doesn't block max backstop (degenerate config), EVA walking pattern caps at ~5 commits/s, high-speed ascent has no commit-count loss vs legacy, regression guard for `minInterval=0` legacy preservation.
 - 22 pre-existing `AdaptiveSamplingTests.cs` cases updated to pass `MinInterval = 0f` constant — explicit regression guard against accidentally enabling the floor in legacy tests.
+- 3 new xUnit theory groups in `EnvironmentDetectorTests.cs` for `IsSurfaceEnvironment` and `IsSurfaceForAnchorDetection` covering the 6 environment values, the LANDED-vs-debounced-Atmospheric inversion, the FLYING-vs-debounced-SurfaceMobile inversion, and the 7 fallback situation values.
 - 1 new in-game test `MinSampleIntervalCapsEvaJitter` in `RuntimeTests.cs` (Category=TrajectoryMath) that reads the live `ParsekSettings.Current?.minSampleInterval`, asserts it is in `(0, 1]`, runs the EVA-jitter simulation against the live settings, and asserts ≤ 7 commits over 1 s (regression guard against settings load failures).
 
 **Status:** Fixed

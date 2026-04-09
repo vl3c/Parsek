@@ -3991,9 +3991,16 @@ namespace Parsek
             // docking approaches, not pad neighbors. Surface vessels are pinned to the
             // ground and don't need relative positioning. Also handles the case where a
             // vessel lands near a base — exits RELATIVE mode on landing.
-            bool onSurface = v.situation == Vessel.Situations.LANDED
-                          || v.situation == Vessel.Situations.SPLASHED
-                          || v.situation == Vessel.Situations.PRELAUNCH;
+            //
+            // Use the debounced environment classification when available (hysteresis
+            // filters EVA situation jitter — see #246 for the precedent fix); fall back
+            // to raw v.situation when the classifier hasn't been initialized yet.
+            bool onSurface = EnvironmentDetector.IsSurfaceForAnchorDetection(
+                hasEnvironment: environmentHysteresis != null,
+                envHint: environmentHysteresis != null
+                    ? environmentHysteresis.CurrentEnvironment
+                    : SegmentEnvironment.ExoBallistic,
+                situation: (int)v.situation);
             if (onSurface && isRelativeMode)
             {
                 // Was flying in RELATIVE mode, just landed — exit RELATIVE

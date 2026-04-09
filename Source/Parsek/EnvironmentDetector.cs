@@ -65,6 +65,34 @@ namespace Parsek
 
             return SegmentEnvironment.ExoBallistic;
         }
+
+        /// <summary>
+        /// Returns true if the SegmentEnvironment value represents a surface state
+        /// (SurfaceMobile or SurfaceStationary). Pure helper used by anchor / surface
+        /// guards that previously relied on raw vessel.situation, which is jittery
+        /// during EVA on airless bodies.
+        /// </summary>
+        internal static bool IsSurfaceEnvironment(SegmentEnvironment env)
+            => env == SegmentEnvironment.SurfaceMobile
+            || env == SegmentEnvironment.SurfaceStationary;
+
+        /// <summary>
+        /// Determines whether a vessel should be treated as "on the surface" for anchor
+        /// detection / surface-only behaviors. Prefers the debounced environment
+        /// classification (which has hysteresis to filter EVA jitter — see #246) when
+        /// available; falls back to the raw KSP situation enum when no environment
+        /// classifier is initialized (defensive — early in StartRecording, etc.).
+        /// </summary>
+        /// <param name="hasEnvironment">true if envHint should be used; false to fall back to situation</param>
+        /// <param name="envHint">the debounced environment classification</param>
+        /// <param name="situation">(int)vessel.situation (LANDED=1, SPLASHED=2, PRELAUNCH=4)</param>
+        internal static bool IsSurfaceForAnchorDetection(
+            bool hasEnvironment, SegmentEnvironment envHint, int situation)
+        {
+            if (hasEnvironment)
+                return IsSurfaceEnvironment(envHint);
+            return situation == 1 || situation == 2 || situation == 4;
+        }
     }
 
     /// <summary>
