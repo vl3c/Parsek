@@ -938,6 +938,8 @@ namespace Parsek
                 RecordingStore.Pending.SceneExitSituation = (int)sit;
                 RecordingStore.Pending.TerminalStateValue =
                     RecordingTree.DetermineTerminalState((int)sit, FlightGlobals.ActiveVessel);
+                CaptureTerminalOrbit(RecordingStore.Pending, FlightGlobals.ActiveVessel);
+                CaptureTerminalPosition(RecordingStore.Pending, FlightGlobals.ActiveVessel);
             }
 
             // Fallback: if the vessel was destroyed during recording,
@@ -5231,6 +5233,31 @@ namespace Parsek
                 }
             }
 
+            // Backfill terminal orbit for recordings that had TerminalStateValue set early
+            // (CaptureSceneExitState, ChainSegmentManager, BackgroundRecorder) without
+            // a corresponding CaptureTerminalOrbit call. (#203/#219 regression)
+            if (isLeaf && string.IsNullOrEmpty(rec.TerminalOrbitBody)
+                && rec.TerminalStateValue.HasValue
+                && (rec.TerminalStateValue.Value == TerminalState.Orbiting
+                    || rec.TerminalStateValue.Value == TerminalState.SubOrbital
+                    || rec.TerminalStateValue.Value == TerminalState.Docked))
+            {
+                Vessel v = rec.VesselPersistentId != 0
+                    ? FlightRecorder.FindVesselByPid(rec.VesselPersistentId)
+                    : null;
+                if (v != null)
+                {
+                    CaptureTerminalOrbit(rec, v);
+                    ParsekLog.Info("Flight",
+                        $"FinalizeIndividualRecording: backfilled TerminalOrbitBody={rec.TerminalOrbitBody} " +
+                        $"for '{rec.RecordingId}' (terminal={rec.TerminalStateValue})");
+                }
+                else
+                {
+                    PopulateTerminalOrbitFromLastSegment(rec);
+                }
+            }
+
             // Warn if leaf has no playback data
             if (isLeaf && rec.Points.Count == 0 && rec.OrbitSegments.Count == 0 && !rec.SurfacePos.HasValue)
                 ParsekLog.Warn("Flight", $"FinalizeTreeRecordings: leaf '{rec.RecordingId}' has no playback data");
@@ -5512,7 +5539,7 @@ namespace Parsek
         /// <summary>
         /// Captures terminal orbit parameters from a vessel's current orbit.
         /// </summary>
-        static void CaptureTerminalOrbit(Recording rec, Vessel vessel)
+        internal static void CaptureTerminalOrbit(Recording rec, Vessel vessel)
         {
             if (vessel == null || vessel.orbit == null) return;
 

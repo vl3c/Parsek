@@ -4839,6 +4839,13 @@ namespace Parsek
         /// </summary>
         private void CommitRecordedPoint(TrajectoryPoint point, Vessel v)
         {
+            // Guard: detect time regression (quickload/revert during recording).
+            // Trim all points recorded after the new time to maintain monotonicity.
+            if (Recording.Count > 0 && point.ut < lastRecordedUT - 1.0)
+            {
+                TrimRecordingToUT(point.ut);
+            }
+
             Recording.Add(point);
             lastRecordedUT = point.ut;
             lastRecordedVelocity = point.velocity;
@@ -4882,6 +4889,63 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Trims the recording buffer back to before the given UT.
+        /// Called when a quickload/revert causes game time to regress, making
+        /// previously-recorded points invalid (alternate timeline data).
+        /// Also trims PartEvents, OrbitSegments, and TrackSection frames.
+        /// </summary>
+        internal void TrimRecordingToUT(double newUT)
+        {
+            int oldCount = Recording.Count;
+
+            // Binary search: find first point with UT >= newUT
+            int trimIdx = Recording.Count;
+            for (int i = 0; i < Recording.Count; i++)
+            {
+                if (Recording[i].ut >= newUT)
+                {
+                    trimIdx = i;
+                    break;
+                }
+            }
+
+            if (trimIdx < Recording.Count)
+                Recording.RemoveRange(trimIdx, Recording.Count - trimIdx);
+
+            // Trim PartEvents after newUT
+            int oldPartEvents = PartEvents.Count;
+            PartEvents.RemoveAll(e => e.ut >= newUT);
+
+            // Trim OrbitSegments that start after newUT
+            int oldOrbitSegs = OrbitSegments.Count;
+            OrbitSegments.RemoveAll(s => s.startUT >= newUT);
+
+            // Trim current TrackSection frames
+            if (trackSectionActive && currentTrackSection.frames != null)
+            {
+                int frameTrimIdx = currentTrackSection.frames.Count;
+                for (int i = 0; i < currentTrackSection.frames.Count; i++)
+                {
+                    if (currentTrackSection.frames[i].ut >= newUT)
+                    {
+                        frameTrimIdx = i;
+                        break;
+                    }
+                }
+                if (frameTrimIdx < currentTrackSection.frames.Count)
+                    currentTrackSection.frames.RemoveRange(frameTrimIdx,
+                        currentTrackSection.frames.Count - frameTrimIdx);
+            }
+
+            ParsekLog.Warn("Recorder",
+                $"Time regression detected: UT went from {lastRecordedUT:F1} to {newUT:F1} " +
+                $"(delta={newUT - lastRecordedUT:F1}s). Trimmed recording: " +
+                $"points {oldCount}→{Recording.Count}, " +
+                $"partEvents {oldPartEvents}→{PartEvents.Count}, " +
+                $"orbitSegments {oldOrbitSegs}→{OrbitSegments.Count}");
+        }
+
+        /// <summary>
         /// Constructs a TrajectoryPoint from the vessel's current state and the given velocity.
         /// Extracted to deduplicate the identical construction in OnPhysicsFrame and SamplePosition.
         /// </summary>
@@ -4919,6 +4983,12 @@ namespace Parsek
                 : (Vector3)(v.rb_velocityD + Krakensbane.GetFrameVelocity());
 
             TrajectoryPoint point = BuildTrajectoryPoint(v, currentVelocity);
+
+            // Guard: detect time regression (quickload/revert during recording)
+            if (Recording.Count > 0 && point.ut < lastRecordedUT - 1.0)
+            {
+                TrimRecordingToUT(point.ut);
+            }
 
             Recording.Add(point);
             lastRecordedUT = point.ut;
