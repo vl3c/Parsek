@@ -542,9 +542,15 @@ namespace Parsek
                     ConfigNode[] savedTreeNodes = node.GetNodes("RECORDING_TREE");
                     if (savedTreeNodes.Length > 0)
                     {
-                        // Rebuild tree mutable state from saved tree nodes
+                        // Rebuild tree mutable state from saved tree nodes.
+                        // Skip active-tree (in-flight) marker nodes: their recordings live
+                        // in pending-Limbo and are not in `recordings` (the committed list).
+                        // Matching against `recordings` would harmlessly fail today, but
+                        // the defensive skip avoids future refactors conflating the two.
                         foreach (var savedTreeNode in savedTreeNodes)
                         {
+                            if (IsActiveTreeNode(savedTreeNode)) continue;
+
                             ConfigNode[] savedTreeRecNodes = savedTreeNode.GetNodes("RECORDING");
                             foreach (var savedTreeRecNode in savedTreeRecNodes)
                             {
@@ -721,6 +727,25 @@ namespace Parsek
                 RecordingStore.ValidateChains();
 
                 LoadRecordingTrees(node, recordings);
+
+                // Cold-start active-tree restore (quickload-resume cold path).
+                // When the player quits KSP mid-flight and later relaunches + "Resume Saved
+                // Game", OnLoad runs with initialLoadDone=false and falls through to this
+                // block. TryRestoreActiveTreeNode here picks up any isActive=True tree
+                // from the save and stashes it into pending-Limbo so OnFlightReady's
+                // restore coroutine can resume recording — same path used by in-session
+                // quickload. Without this, cold-start resume silently drops the active
+                // tree and the player's in-progress mission fragments just like the
+                // original Bug C scenario.
+                if (TryRestoreActiveTreeNode(node))
+                {
+                    // Flag the coroutine to run on OnFlightReady so the active vessel is
+                    // available for name matching. Cold start always lands in flight for
+                    // a "Resume" action, so OnFlightReady will fire.
+                    ScheduleActiveTreeRestoreOnFlightReady = true;
+                    ParsekLog.Info("Scenario",
+                        "OnLoad: cold-start active tree detected — deferred to OnFlightReady for resume");
+                }
 
                 // Clean orphaned sidecar files (recordings deleted in previous sessions)
                 RecordingStore.CleanOrphanFiles();

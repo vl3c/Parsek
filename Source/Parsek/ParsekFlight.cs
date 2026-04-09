@@ -5212,16 +5212,49 @@ namespace Parsek
                 $"RestoreActiveTreeFromPending: waiting for vessel '{targetName}' to load " +
                 $"(activeRecId={activeRecId})");
 
-            // Wait up to 3 seconds for the current active vessel to match by name
+            // Wait up to 3 seconds for the current active vessel to match by name.
+            // Primary match = active recording's vessel name.
+            // Fallback (edge case 3): if the active recording was an EVA kerbal who got
+            // boarded between quicksave and quickload, match against the parent recording's
+            // vessel by walking ParentRecordingId up the EVA chain.
+            Recording matchedRec = activeRec;
+            string matchedRecId = activeRecId;
             float deadline = UnityEngine.Time.time + 3f;
             Vessel matched = null;
             while (UnityEngine.Time.time < deadline)
             {
                 var v = FlightGlobals.ActiveVessel;
-                if (v != null && v.vesselName == targetName)
+                if (v != null)
                 {
-                    matched = v;
-                    break;
+                    // Primary: active recording vessel name
+                    if (v.vesselName == targetName)
+                    {
+                        matched = v;
+                        break;
+                    }
+                    // Fallback: walk ParentRecordingId chain and try each parent's vessel name
+                    Recording probe = activeRec;
+                    int walkDepth = 0;
+                    while (walkDepth < 5 && !string.IsNullOrEmpty(probe?.ParentRecordingId))
+                    {
+                        if (!tree.Recordings.TryGetValue(probe.ParentRecordingId, out probe))
+                            break;
+                        if (probe != null && v.vesselName == probe.VesselName)
+                        {
+                            matched = v;
+                            matchedRec = probe;
+                            matchedRecId = probe.RecordingId;
+                            ParsekLog.Info("Flight",
+                                $"RestoreActiveTreeFromPending: fallback match — active vessel '{v.vesselName}' " +
+                                $"matches parent recording '{matchedRecId}' (original active was '{targetName}', " +
+                                $"EVA kerbal likely boarded between F5 and F9)");
+                            // Flip the tree's active-recording pointer to the parent
+                            tree.ActiveRecordingId = matchedRecId;
+                            break;
+                        }
+                        walkDepth++;
+                    }
+                    if (matched != null) break;
                 }
                 yield return null;
             }
@@ -5229,10 +5262,14 @@ namespace Parsek
             if (matched == null)
             {
                 ParsekLog.Warn("Flight",
-                    $"RestoreActiveTreeFromPending: vessel '{targetName}' not active within 3s — " +
-                    $"leaving tree in Limbo (user can trigger merge dialog via scene exit)");
+                    $"RestoreActiveTreeFromPending: vessel '{targetName}' (and no EVA parent fallback) " +
+                    "not active within 3s — leaving tree in Limbo (user can trigger merge dialog via scene exit)");
                 yield break;
             }
+
+            // After a parent-fallback match, the rest of the coroutine uses matchedRec/matchedRecId
+            activeRec = matchedRec;
+            activeRecId = matchedRecId;
 
             // PID remap: KSP may have regenerated the persistentId across quickload.
             // Tree.BackgroundMap is keyed by PID, so update any old-PID entries too.

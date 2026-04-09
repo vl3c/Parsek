@@ -285,6 +285,49 @@ namespace Parsek.Tests
             Assert.Equal(PendingTreeState.Limbo, RecordingStore.PendingTreeStateValue);
         }
 
+        [Fact]
+        public void TryRestoreActiveTreeNode_ParsesResumeHints()
+        {
+            var scenarioNode = new ConfigNode("PARSEK_SCENARIO");
+            var activeNode = scenarioNode.AddNode("RECORDING_TREE");
+            var activeTree = MakeTree("in_flight", "Mun Return", 1);
+            activeTree.Save(activeNode);
+            activeNode.AddValue("isActive", "True");
+            activeNode.AddValue("resumeRewindSave", "parsek_rw_abc123");
+            activeNode.AddValue("resumeBoundaryAnchorUT", "12345.67");
+
+            bool result = ParsekScenario.TryRestoreActiveTreeNode(scenarioNode);
+
+            Assert.True(result);
+            Assert.Equal("parsek_rw_abc123", ParsekScenario.pendingActiveTreeResumeRewindSave);
+            Assert.Equal(12345.67, ParsekScenario.pendingActiveTreeResumeBoundaryAnchorUT, 2);
+
+            // Cleanup for subsequent tests
+            ParsekScenario.pendingActiveTreeResumeRewindSave = null;
+            ParsekScenario.pendingActiveTreeResumeBoundaryAnchorUT = double.NaN;
+        }
+
+        [Fact]
+        public void TryRestoreActiveTreeNode_NoResumeHints_ClearsStaleValues()
+        {
+            // Pre-populate stale resume hints from a prior restore
+            ParsekScenario.pendingActiveTreeResumeRewindSave = "stale_save";
+            ParsekScenario.pendingActiveTreeResumeBoundaryAnchorUT = 999.0;
+
+            var scenarioNode = new ConfigNode("PARSEK_SCENARIO");
+            var activeNode = scenarioNode.AddNode("RECORDING_TREE");
+            var activeTree = MakeTree("in_flight", "Pad Walk", 1);
+            activeTree.Save(activeNode);
+            activeNode.AddValue("isActive", "True");
+            // No resumeRewindSave / resumeBoundaryAnchorUT
+
+            ParsekScenario.TryRestoreActiveTreeNode(scenarioNode);
+
+            // Rewind save becomes null (no key present), anchor UT becomes NaN
+            Assert.Null(ParsekScenario.pendingActiveTreeResumeRewindSave);
+            Assert.True(double.IsNaN(ParsekScenario.pendingActiveTreeResumeBoundaryAnchorUT));
+        }
+
         // ============================================================
         // isRevert logic: removal of || isFlightToFlight clause
         // ============================================================
