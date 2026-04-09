@@ -107,13 +107,17 @@ namespace Parsek
         /// <summary>
         /// Pure decision: returns true if the game clock regressed across a
         /// scene transition, i.e. the player quickloaded/reverted/rewound.
-        /// <paramref name="preChangeUT"/> is -1.0 when unset (no scene change
-        /// has been stamped, e.g. first load). Directly testable without Unity.
+        /// <paramref name="preChangeUT"/> is <c>-1.0</c> when unset (no scene
+        /// change has been stamped, e.g. first load). The strict <c>&lt; 0.0</c>
+        /// check (rather than <c>&lt;= 0.0</c>) preserves the legitimate
+        /// <c>preChangeUT == 0.0</c> case for fresh sandbox saves that start at
+        /// UT 0 — a scene change in the very first frame must still be able to
+        /// detect a backwards quickload. Directly testable without Unity.
         /// </summary>
         internal static bool IsQuickloadOnLoad(
             double preChangeUT, double currentUT, double epsilon)
         {
-            if (preChangeUT <= 0.0) return false;
+            if (preChangeUT < 0.0) return false;
             if (epsilon < 0.0) return false;
             return currentUT < preChangeUT - epsilon;
         }
@@ -642,12 +646,17 @@ namespace Parsek
                     // revert / rewind is the only legitimate way that happens.
                     // Captured in ParsekFlight.OnSceneChangeRequested via
                     // StampSceneChangeRequestedUT; consumed exactly once here.
-                    double loadedUT = Planetarium.fetch != null
+                    // Planetarium.fetch can theoretically be null during early
+                    // OnLoad in non-flight scenes; if so we have no clock to
+                    // compare and must NOT report a UT regression (would false-
+                    // positive a discard against any non-zero preChangeUT).
+                    bool planetariumReady = Planetarium.fetch != null;
+                    double loadedUT = planetariumReady
                         ? Planetarium.GetUniversalTime()
                         : 0.0;
                     double preChangeUT = lastSceneChangeRequestedUT;
                     lastSceneChangeRequestedUT = -1.0; // consume regardless of outcome
-                    bool utWentBackwards = IsQuickloadOnLoad(
+                    bool utWentBackwards = planetariumReady && IsQuickloadOnLoad(
                         preChangeUT, loadedUT, UtBackwardsEpsilon);
 
                     // Contradict a stale-but-fresh-classified vessel-switch flag on

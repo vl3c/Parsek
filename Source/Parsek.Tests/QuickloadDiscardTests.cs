@@ -72,6 +72,27 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void IsQuickloadOnLoad_PreChangeUtZero_AllowsBackwardsDetection()
+        {
+            // Pin: preChangeUT == 0.0 is a LEGITIMATE value for fresh sandbox
+            // saves that start at UT 0. The unset sentinel is -1.0, so the
+            // helper uses `< 0.0` (strict) rather than `<= 0.0`. A scene
+            // change at UT 0 followed by a quickload to UT 0 is not a
+            // backwards jump (currentUT == preChangeUT, no regression),
+            // and a forward UT advance correctly returns false.
+            Assert.False(ParsekScenario.IsQuickloadOnLoad(
+                preChangeUT: 0.0, currentUT: 0.0, epsilon: 0.1));
+            Assert.False(ParsekScenario.IsQuickloadOnLoad(
+                preChangeUT: 0.0, currentUT: 5.0, epsilon: 0.1));
+            // Belt-and-braces: a scene change happens at UT 0 and somehow
+            // OnLoad reads a *negative* UT — also flagged as quickload, since
+            // the time strictly went backwards (this should never happen but
+            // pinning the strict-less-than semantics protects future edits).
+            Assert.True(ParsekScenario.IsQuickloadOnLoad(
+                preChangeUT: 0.0, currentUT: -1.0, epsilon: 0.1));
+        }
+
+        [Fact]
         public void IsQuickloadOnLoad_UtUnchanged_ReturnsFalse()
         {
             // Normal FLIGHT→FLIGHT scene change without time manipulation:

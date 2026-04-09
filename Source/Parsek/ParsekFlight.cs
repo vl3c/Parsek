@@ -872,7 +872,8 @@ namespace Parsek
             ParsekScenario.StampSceneChangeRequestedUT(preChangeUT);
 
             ParsekLog.Info("Flight",
-                $"Scene change requested: {scene} at UT={preChangeUT:F2}");
+                "Scene change requested: " + scene + " at UT=" +
+                preChangeUT.ToString("F2", CultureInfo.InvariantCulture));
             ParsekLog.RecState("OnSceneChangeRequested", CaptureRecorderState());
 
             // Exit watch mode on scene change
