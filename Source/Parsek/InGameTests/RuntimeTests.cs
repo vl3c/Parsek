@@ -1198,5 +1198,290 @@ namespace Parsek.InGameTests
             ParsekLog.Verbose("TestRunner",
                 $"ParsekFlight active, IsRecording={ParsekFlight.Instance.IsRecording}");
         }
+
+        // ─────────────────────────────────────────────────────────────
+        //  #264 — EVA spawn position (in-flight)
+        // ─────────────────────────────────────────────────────────────
+
+        [InGameTest(Category = "EvaSpawnPosition", Scene = GameScenes.FLIGHT,
+            Description = "Spawned EVA kerbal lands within 10m of recorded endpoint and >=50m from parent vessel")]
+        public IEnumerator EvaSpawnAtRecordedEndpoint_NotOnParent()
+        {
+            var activeVessel = FlightGlobals.ActiveVessel;
+            if (activeVessel == null || activeVessel.GetCrewCount() == 0)
+            {
+                InGameAssert.Skip("needs Flight scene with a manned active vessel");
+                yield break;
+            }
+
+            var body = activeVessel.mainBody;
+            if (body == null)
+            {
+                InGameAssert.Skip("active vessel has no mainBody");
+                yield break;
+            }
+
+            const string testCrewName = "ParsekTestEvaEndpoint";
+            const uint fakePid = 912641001u;
+            ProtoCrewMember testKerbal = null;
+            Parsek.Recording rec = null;
+            Vessel spawnedVessel = null;
+
+            try
+            {
+                // Create a throwaway crew member so the kerbalEVA snapshot has a valid crew ref.
+                testKerbal = HighLogic.CurrentGame.CrewRoster.GetNewKerbal(
+                    ProtoCrewMember.KerbalType.Crew);
+                testKerbal.ChangeName(testCrewName);
+                testKerbal.rosterStatus = ProtoCrewMember.RosterStatus.Available;
+
+                // Start ~5 m off the active vessel and walk 100 m due north at 5 m per step.
+                // 5 m spacing matters: with stepMeters=1.5, ceil(5/1.5) = 4 sub-steps per
+                // segment, so the walkback path in #264 is actually exercised (not degenerated
+                // to point granularity).
+                double baseLat = activeVessel.latitude;
+                double baseLon = activeVessel.longitude;
+                double baseAlt = body.TerrainAltitude(baseLat, baseLon) + 0.5;
+                double latStepDeg = 5.0 / body.Radius * (180.0 / System.Math.PI);
+
+                int referenceBodyIndex = FlightGlobals.Bodies.IndexOf(body);
+                if (referenceBodyIndex < 0) referenceBodyIndex = 1; // Kerbin fallback
+
+                var snapshot = Parsek.InGameTests.Helpers.InGameKerbalEvaSnapshot.Build(
+                    testCrewName, baseLat, baseLon, baseAlt, referenceBodyIndex, fakePid);
+
+                rec = new Parsek.Recording
+                {
+                    RecordingId = "eva-spawn-test-endpoint-" + System.DateTime.UtcNow.Ticks,
+                    VesselName = testCrewName,
+                    VesselPersistentId = fakePid,
+                    EvaCrewName = testCrewName,
+                    VesselSnapshot = snapshot,
+                    TerminalStateValue = Parsek.TerminalState.Landed,
+                };
+                // 20 trajectory points stepping 5 m per point due north (~100 m total).
+                double ut0 = Planetarium.GetUniversalTime();
+                for (int i = 0; i < 20; i++)
+                {
+                    double lat = baseLat + (i * latStepDeg);
+                    double terrainAlt = body.TerrainAltitude(lat, baseLon) + 0.5;
+                    rec.Points.Add(new Parsek.TrajectoryPoint
+                    {
+                        ut = ut0 + i,
+                        latitude = lat,
+                        longitude = baseLon,
+                        altitude = terrainAlt,
+                        bodyName = body.name,
+                        rotation = Quaternion.identity,
+                        velocity = Vector3.zero,
+                    });
+                }
+                // (body name is already carried on each TrajectoryPoint)
+
+                // Sanity pre-assertion: computed bounds for the snapshot must NOT fall into
+                // the 2 m fallback path (which happens when PART.pos is missing). A valid
+                // kerbalEVA snapshot produces a ~2.5 m cube from the default half-extent.
+                Bounds kerbalBounds = Parsek.SpawnCollisionDetector.ComputeVesselBounds(snapshot);
+                InGameAssert.IsGreaterThan(kerbalBounds.size.magnitude, 1.0,
+                    "Snapshot ComputeVesselBounds should not be zero (PART pos missing?)");
+                InGameAssert.IsLessThan(kerbalBounds.size.magnitude, 10.0,
+                    "Snapshot ComputeVesselBounds should be a kerbal-sized cube (not a multi-part vessel)");
+
+                // Dispatch through the real spawn entry point
+                Parsek.VesselSpawner.SpawnOrRecoverIfTooClose(rec, 0);
+
+                // Let one physics frame run so OrbitDriver.updateFromParameters fires
+                yield return new WaitForFixedUpdate();
+                yield return new WaitForFixedUpdate();
+
+                InGameAssert.IsTrue(rec.VesselSpawned,
+                    "Recording.VesselSpawned should be true after SpawnOrRecoverIfTooClose");
+                InGameAssert.IsGreaterThan((double)rec.SpawnedVesselPersistentId, 0.0,
+                    "SpawnedVesselPersistentId should be non-zero");
+
+                spawnedVessel = Parsek.FlightRecorder.FindVesselByPid(rec.SpawnedVesselPersistentId);
+                InGameAssert.IsNotNull(spawnedVessel,
+                    "Spawned vessel should be findable by persistentId");
+
+                // Expected endpoint world position
+                var lastPt = rec.Points[rec.Points.Count - 1];
+                Vector3d expectedWorldPos = body.GetWorldSurfacePosition(
+                    lastPt.latitude, lastPt.longitude, lastPt.altitude);
+
+                double distFromEndpoint = Vector3d.Distance(spawnedVessel.CoMD, expectedWorldPos);
+                double distFromParent = Vector3d.Distance(spawnedVessel.CoMD, activeVessel.CoMD);
+
+                ParsekLog.Info("TestRunner",
+                    $"EvaSpawnAtRecordedEndpoint: distFromEndpoint={distFromEndpoint:F1} m, distFromParent={distFromParent:F1} m");
+
+                // Generous tolerance (10 m) to accommodate post-spawn physics settle +
+                // terrain-clamp clearance (+2 m) + rotating frame drift between the
+                // synchronous spawn and the CoMD read two FixedUpdates later.
+                InGameAssert.IsLessThan(distFromEndpoint, 10.0,
+                    $"Spawned kerbal should be within 10 m of recorded endpoint (was {distFromEndpoint:F1} m)");
+                InGameAssert.IsGreaterThan(distFromParent, 50.0,
+                    $"Spawned kerbal should be ≥50 m from parent vessel (was {distFromParent:F1} m; endpoint was ~100 m out)");
+            }
+            finally
+            {
+                // Cleanup: recover spawned vessel + remove test kerbal from roster
+                if (spawnedVessel != null && spawnedVessel.protoVessel != null)
+                {
+                    try
+                    {
+                        ShipConstruction.RecoverVesselFromFlight(
+                            spawnedVessel.protoVessel, HighLogic.CurrentGame.flightState, true);
+                    }
+                    catch (System.Exception ex)
+                    {
+                        ParsekLog.Warn("TestRunner",
+                            $"EvaSpawnAtRecordedEndpoint cleanup failed: {ex.Message}");
+                    }
+                }
+                if (testKerbal != null)
+                {
+                    try { HighLogic.CurrentGame.CrewRoster.Remove(testKerbal); }
+                    catch { /* best-effort */ }
+                }
+            }
+        }
+
+        [InGameTest(Category = "EvaSpawnPosition", Scene = GameScenes.FLIGHT,
+            Description = "EVA spawn walks back along trajectory when endpoint overlaps a loaded vessel")]
+        public IEnumerator EvaSpawnWalkbackOnOverlap()
+        {
+            var activeVessel = FlightGlobals.ActiveVessel;
+            if (activeVessel == null || activeVessel.GetCrewCount() == 0)
+            {
+                InGameAssert.Skip("needs Flight scene with a manned active vessel");
+                yield break;
+            }
+
+            var body = activeVessel.mainBody;
+            if (body == null)
+            {
+                InGameAssert.Skip("active vessel has no mainBody");
+                yield break;
+            }
+
+            const string testCrewName = "ParsekTestEvaWalkback";
+            const uint fakePid = 912641002u;
+            ProtoCrewMember testKerbal = null;
+            Parsek.Recording rec = null;
+            Vessel spawnedVessel = null;
+
+            // Capture log output so we can assert the walkback ran.
+            var captured = new List<string>();
+            System.Action<string> prevSink = ParsekLog.TestSinkForTesting;
+            ParsekLog.TestSinkForTesting = line => captured.Add(line);
+
+            try
+            {
+                testKerbal = HighLogic.CurrentGame.CrewRoster.GetNewKerbal(
+                    ProtoCrewMember.KerbalType.Crew);
+                testKerbal.ChangeName(testCrewName);
+                testKerbal.rosterStatus = ProtoCrewMember.RosterStatus.Available;
+
+                // Start 100 m away from the active vessel, walk TOWARD it, terminating
+                // at the active vessel's lat/lon. Trajectory last point is inside the
+                // parent bounding box, forcing walkback to trigger.
+                double targetLat = activeVessel.latitude;
+                double targetLon = activeVessel.longitude;
+                double targetAlt = body.TerrainAltitude(targetLat, targetLon) + 0.5;
+                double latStepDeg = 5.0 / body.Radius * (180.0 / System.Math.PI);
+                double startLat = targetLat - (19 * latStepDeg);
+
+                int referenceBodyIndex = FlightGlobals.Bodies.IndexOf(body);
+                if (referenceBodyIndex < 0) referenceBodyIndex = 1;
+
+                // Snapshot at start position (far from parent); trajectory converges on parent.
+                double startAlt = body.TerrainAltitude(startLat, targetLon) + 0.5;
+                var snapshot = Parsek.InGameTests.Helpers.InGameKerbalEvaSnapshot.Build(
+                    testCrewName, startLat, targetLon, startAlt, referenceBodyIndex, fakePid);
+
+                rec = new Parsek.Recording
+                {
+                    RecordingId = "eva-spawn-test-walkback-" + System.DateTime.UtcNow.Ticks,
+                    VesselName = testCrewName,
+                    VesselPersistentId = fakePid,
+                    EvaCrewName = testCrewName,
+                    VesselSnapshot = snapshot,
+                    TerminalStateValue = Parsek.TerminalState.Landed,
+                };
+                double ut0 = Planetarium.GetUniversalTime();
+                for (int i = 0; i < 20; i++)
+                {
+                    double lat = startLat + (i * latStepDeg);
+                    double terrainAlt = body.TerrainAltitude(lat, targetLon) + 0.5;
+                    rec.Points.Add(new Parsek.TrajectoryPoint
+                    {
+                        ut = ut0 + i,
+                        latitude = lat,
+                        longitude = targetLon,
+                        altitude = terrainAlt,
+                        bodyName = body.name,
+                        rotation = Quaternion.identity,
+                        velocity = Vector3.zero,
+                    });
+                }
+                // (body name is already carried on each TrajectoryPoint)
+
+                Parsek.VesselSpawner.SpawnOrRecoverIfTooClose(rec, 0);
+
+                yield return new WaitForFixedUpdate();
+                yield return new WaitForFixedUpdate();
+
+                InGameAssert.IsTrue(rec.VesselSpawned,
+                    "Recording.VesselSpawned should be true after walkback");
+                InGameAssert.IsFalse(rec.WalkbackExhausted,
+                    "Walkback should have found a clear position, not exhausted");
+
+                spawnedVessel = Parsek.FlightRecorder.FindVesselByPid(rec.SpawnedVesselPersistentId);
+                InGameAssert.IsNotNull(spawnedVessel,
+                    "Spawned vessel should be findable after walkback");
+
+                double distFromParent = Vector3d.Distance(spawnedVessel.CoMD, activeVessel.CoMD);
+                ParsekLog.Info("TestRunner",
+                    $"EvaSpawnWalkbackOnOverlap: distFromParent={distFromParent:F1} m");
+
+                // Should land clearly outside the parent vessel but not walk all the way
+                // back to trajectory start (~100 m away). Allow a wide band because the
+                // actual distance depends on the parent vessel's computed bounds + 5 m
+                // padding and both vary from craft to craft.
+                InGameAssert.IsGreaterThan(distFromParent, 2.0,
+                    $"Walkback should have moved the spawn off the parent (was {distFromParent:F1} m)");
+                InGameAssert.IsLessThan(distFromParent, 100.0,
+                    $"Walkback should not have walked back to trajectory start (was {distFromParent:F1} m)");
+
+                // Assert the walkback log line appeared
+                bool sawWalkbackLog = captured.Any(l =>
+                    l.Contains("[SpawnCollision]") &&
+                    l.Contains("WalkbackSubdivided: cleared"));
+                InGameAssert.IsTrue(sawWalkbackLog,
+                    "Expected 'WalkbackSubdivided: cleared' log line during spawn");
+            }
+            finally
+            {
+                ParsekLog.TestSinkForTesting = prevSink;
+                if (spawnedVessel != null && spawnedVessel.protoVessel != null)
+                {
+                    try
+                    {
+                        ShipConstruction.RecoverVesselFromFlight(
+                            spawnedVessel.protoVessel, HighLogic.CurrentGame.flightState, true);
+                    }
+                    catch (System.Exception ex)
+                    {
+                        ParsekLog.Warn("TestRunner",
+                            $"EvaSpawnWalkbackOnOverlap cleanup failed: {ex.Message}");
+                    }
+                }
+                if (testKerbal != null)
+                {
+                    try { HighLogic.CurrentGame.CrewRoster.Remove(testKerbal); }
+                    catch { /* best-effort */ }
+                }
+            }
+        }
     }
 }

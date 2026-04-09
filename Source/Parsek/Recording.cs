@@ -168,6 +168,7 @@ namespace Parsek
         public int SpawnAttempts;               // Number of failed spawn attempts (give up after 3)
         public int CollisionBlockCount;         // Consecutive collision-blocked frames (give up after MaxCollisionBlocks)
         public bool SpawnAbandoned;              // True after collision/death limit reached — prevents vessel-gone check from resetting (transient)
+        public bool WalkbackExhausted;           // True after TryWalkbackForEndOfRecordingSpawn scanned entire trajectory with no clear sub-step — distinct from SpawnAbandoned for diagnostics (transient, #264)
         public bool DuplicateBlockerRecovered;   // True after a same-name blocker was recovered once — prevents recovery loops (transient, #112)
         public int SpawnDeathCount;              // Spawn-then-die cycles: vessel spawned but immediately destroyed (transient)
         public int SceneExitSituation = -1;     // Vessel.Situations at scene exit (-1 = still in flight/unknown)

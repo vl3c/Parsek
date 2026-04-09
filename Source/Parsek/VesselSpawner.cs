@@ -116,7 +116,8 @@ namespace Parsek
             double lat, double lon, double alt,
             Vector3d velocity, double ut,
             HashSet<string> excludeCrew = null, bool preserveIdentity = false,
-            TerminalState? terminalState = null)
+            TerminalState? terminalState = null,
+            Quaternion? rotation = null)
         {
             try
             {
@@ -132,25 +133,34 @@ namespace Parsek
                 bool overWater = body.ocean && body.TerrainAltitude(lat, lon) < 0;
                 string sit = DetermineSituation(alt, overWater, velocity.magnitude, orbitalSpeed);
 
-                // Override: if terminal state says Orbiting but speed check returned FLYING,
-                // force ORBITING. The last trajectory point may be captured during ascent
-                // (suborbital velocity at that altitude) even though the vessel reached orbit.
-                // Without this, KSP's on-rails pressure check destroys the vessel (#176).
-                if (sit == "FLYING" && terminalState.HasValue
-                    && (terminalState.Value == TerminalState.Orbiting
-                        || terminalState.Value == TerminalState.Docked))
+                // Override FLYING situation from terminal state (#176 for Orbiting/Docked, #264
+                // for Landed/Splashed). Without this, an EVA kerbal walking at alt > 0 with
+                // low speed classifies as FLYING and hits the OrbitDriver updateMode=UPDATE
+                // stale-orbit bug on the first physics frame after load.
+                string overriddenSit = OverrideSituationFromTerminalState(sit, terminalState);
+                if (overriddenSit != sit)
                 {
                     ParsekLog.Info("Spawner",
-                        $"SpawnAtPosition: overriding sit FLYING → ORBITING " +
-                        $"(terminal={terminalState.Value}, speed={velocity.magnitude:F1}, " +
-                        $"orbitalSpeed={orbitalSpeed:F1}) — prevents on-rails pressure destruction (#176)");
-                    sit = "ORBITING";
+                        $"SpawnAtPosition: overriding sit {sit} → {overriddenSit} " +
+                        $"(terminal={terminalState}, speed={velocity.magnitude.ToString("F1", System.Globalization.CultureInfo.InvariantCulture)}, " +
+                        $"orbitalSpeed={orbitalSpeed.ToString("F1", System.Globalization.CultureInfo.InvariantCulture)}) — prevents stale-orbit / pressure destruction (#176, #264)");
+                    sit = overriddenSit;
                 }
 
                 ApplySituationToNode(spawnNode, sit);
                 ParsekLog.Verbose("Spawner",
-                    $"SpawnAtPosition: determined sit={sit} (alt={alt:F0}, speed={velocity.magnitude:F1}, " +
-                    $"orbitalSpeed={orbitalSpeed:F1}, overWater={overWater})");
+                    $"SpawnAtPosition: determined sit={sit} (alt={alt.ToString("F0", System.Globalization.CultureInfo.InvariantCulture)}, speed={velocity.magnitude.ToString("F1", System.Globalization.CultureInfo.InvariantCulture)}, " +
+                    $"orbitalSpeed={orbitalSpeed.ToString("F1", System.Globalization.CultureInfo.InvariantCulture)}, overWater={overWater})");
+
+                // Optional rotation override: for breakup-continuous spawns the last trajectory
+                // point's rotation represents the near-impact orientation; without this, the
+                // spawned vessel appears in its mid-flight tumbling pose. (#264 follow-up)
+                if (rotation.HasValue)
+                {
+                    spawnNode.SetValue("rot", KSPUtil.WriteQuaternion(rotation.Value), true);
+                    ParsekLog.Verbose("Spawner",
+                        $"SpawnAtPosition: rotation override applied (rot={rotation.Value})");
+                }
 
                 // Rebuild ORBIT subnode from position + velocity
                 var orbit = new Orbit();
@@ -255,8 +265,14 @@ namespace Parsek
             Vector3d spawnPos = body.GetWorldSurfacePosition(spawnLat, spawnLon, spawnAlt);
 
             bool isEva = !string.IsNullOrEmpty(rec.EvaCrewName);
-            if (CheckSpawnCollisions(rec, index, isEva, body, spawnLat, spawnLon, spawnPos))
-                return;
+            var collision = CheckSpawnCollisions(rec, index, isEva, body,
+                spawnLat, spawnLon, spawnAlt, spawnPos);
+            if (collision.blocked) return;
+            // Walkback may have rewritten the spawn coordinates (#264)
+            spawnLat = collision.lat;
+            spawnLon = collision.lon;
+            spawnAlt = collision.alt;
+            spawnPos = collision.pos;
 
             // EVA spawn position fix: update the snapshot's lat/lon/alt to the recording
             // endpoint. The snapshot was captured at EVA start (kerbal on the pod's ladder),
@@ -316,29 +332,63 @@ namespace Parsek
 
             LogSpawnContext(rec, closestDist);
 
-            // Orbital vessels: use SpawnAtPosition to build a correct orbit from the last
-            // trajectory point's position+velocity. RespawnVessel uses the raw snapshot orbit
-            // which was captured during ascent (suborbital) — KSP's on-rails pressure check
-            // destroys the vessel at periapsis. SpawnAtPosition constructs a new orbit and
-            // sets the correct situation from altitude+speed. (#171)
-            if (rec.TerminalStateValue == TerminalState.Orbiting
-                || rec.TerminalStateValue == TerminalState.Docked)
+            // SpawnAtPosition dispatch: orbital, EVA, and breakup-continuous all need the
+            // ORBIT subnode rebuilt from the endpoint's lat/lon/alt + velocity.
+            //
+            // - Orbital/Docked (#171): raw snapshot orbit was captured during ascent
+            //   (suborbital), KSP's on-rails pressure check would destroy the vessel at
+            //   periapsis. SpawnAtPosition constructs a new orbit + correct sit from
+            //   altitude+speed.
+            // - EVA (#264): the snapshot's stale ORBIT subnode (captured when the kerbal
+            //   was on the parent ladder) causes OrbitDriver.updateFromParameters to
+            //   overwrite the corrected transform with the parent position on the first
+            //   physics frame after load. SpawnAtPosition rebuilds the ORBIT from the
+            //   walked endpoint so the kerbal stays where recorded.
+            // - Breakup-continuous (#224 follow-up via #264): same stale-ORBIT mechanism.
+            //   Rotation is preserved via the new Quaternion? rotation parameter.
+            //
+            // The earlier OverrideSnapshotPosition calls on the EVA and breakup-continuous
+            // paths remain as defense-in-depth for the RespawnVessel fallback below: if
+            // SpawnAtPosition returns 0, RespawnVessel still sees the corrected snapshot
+            // lat/lon/alt (which at least places the kerbal correctly on frame 0 — the
+            // stale-orbit bug only re-fires on frame 1).
+            bool routeThroughSpawnAtPosition =
+                rec.TerminalStateValue == TerminalState.Orbiting
+                || rec.TerminalStateValue == TerminalState.Docked
+                || isEva
+                || isBreakupContinuous;
+            if (routeThroughSpawnAtPosition)
             {
                 Vector3d velocity = new Vector3d(lastPt.velocity.x, lastPt.velocity.y, lastPt.velocity.z);
                 double spawnUT = Planetarium.GetUniversalTime();
+                Quaternion? rotArg = isBreakupContinuous ? (Quaternion?)lastPt.rotation : null;
+
+                string pathLabel;
+                if (isEva) pathLabel = "EVA";
+                else if (isBreakupContinuous) pathLabel = "Breakup";
+                else pathLabel = "Orbital";
+
                 rec.SpawnedVesselPersistentId = SpawnAtPosition(
                     rec.VesselSnapshot, body, spawnLat, spawnLon, spawnAlt, velocity, spawnUT, excludeCrew,
-                    terminalState: rec.TerminalStateValue);
+                    terminalState: rec.TerminalStateValue,
+                    rotation: rotArg);
                 rec.VesselSpawned = rec.SpawnedVesselPersistentId != 0;
                 if (rec.VesselSpawned)
                 {
                     ParsekLog.Info("Spawner",
-                        $"Orbital vessel spawn for recording #{index} ({rec.VesselName}) via SpawnAtPosition");
+                        $"{pathLabel} vessel spawn for recording #{index} ({rec.VesselName}) via SpawnAtPosition");
                     ParsekLog.ScreenMessage($"Vessel '{rec.VesselName}' has appeared!", 4f);
+                    return;
                 }
-                else
-                    LogSpawnFailure(rec, index, maxSpawnAttempts);
-                return;
+
+                // SpawnAtPosition failed — fall through to RespawnVessel as last-resort.
+                // The earlier OverrideSnapshotPosition call on this path keeps the snapshot's
+                // lat/lon/alt pointing at the recorded endpoint so the fallback still produces
+                // a vessel at the right position on frame 0 (though the stale-orbit bug may
+                // re-appear on frame 1 — acceptable for a degraded fallback).
+                ParsekLog.Warn("Spawner",
+                    $"SpawnAtPosition returned 0 for #{index} ({rec.VesselName}) — " +
+                    $"falling through to RespawnVessel (degraded fallback)");
             }
 
             rec.SpawnedVesselPersistentId = RespawnVessel(rec.VesselSnapshot, excludeCrew);
@@ -385,12 +435,22 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Checks KSC exclusion zone and bounding box overlap collisions.
-        /// Returns true if the spawn is blocked (caller should return without spawning).
-        /// Resets CollisionBlockCount on successful (unblocked) path.
+        /// Checks KSC exclusion zone and bounding box overlap collisions. On bounding-box
+        /// overlap, runs the duplicate-blocker recovery path (#112) first; if that doesn't
+        /// clear the overlap, runs the subdivided trajectory walkback (#264) to find an
+        /// earlier collision-free sub-step. The walkback is now applied to EVA kerbals too
+        /// (the previous `!isEva` guard was removed because the endpoint-spawn path now
+        /// places EVAs accurately and can overlap with a parent vessel).
+        ///
+        /// Returns <c>blocked=true</c> to tell the caller to skip spawning this frame.
+        /// On successful walkback, returns <c>blocked=false</c> with the rewritten
+        /// <c>(lat, lon, alt, pos)</c>; the caller must honour these values when dispatching
+        /// to <c>SpawnAtPosition</c>/<c>RespawnVessel</c>. Resets CollisionBlockCount on a
+        /// clear or walkback-rewritten path.
         /// </summary>
-        private static bool CheckSpawnCollisions(Recording rec, int index, bool isEva,
-            CelestialBody body, double spawnLat, double spawnLon, Vector3d spawnPos)
+        private static (bool blocked, double lat, double lon, double alt, Vector3d pos) CheckSpawnCollisions(
+            Recording rec, int index, bool isEva, CelestialBody body,
+            double spawnLat, double spawnLon, double spawnAlt, Vector3d spawnPos)
         {
             // KSC exclusion zone — block spawn near the launch pad to prevent collisions
             // with KSC infrastructure that isn't in FlightGlobals.Vessels. (#170)
@@ -417,86 +477,177 @@ namespace Parsek
                         $"(lat={spawnLat:F4}, lon={spawnLon:F4}) — will retry next frame " +
                         $"(block={rec.CollisionBlockCount}/{MaxCollisionBlocks})");
                 }
-                return true;
+                return (true, spawnLat, spawnLon, spawnAlt, spawnPos);
             }
 
             // Bounding box overlap check — block spawn if overlapping a loaded vessel.
-            // Ghost continues at its last position; next frame retries via UpdateTimelinePlayback.
-            // Same collision detection system used by chain-tip spawns (SpawnCollisionDetector).
-            // EVA kerbals skip this (they spawn where recorded, too small to collide).
-            if (!isEva)
+            // Applies to EVA kerbals too (#264) — the previous skip was based on the
+            // assumption that EVAs spawn exactly where recorded, which was broken before
+            // the #264 fix landed.
+            Bounds spawnBounds = SpawnCollisionDetector.ComputeVesselBounds(rec.VesselSnapshot);
+            if (isEva)
             {
-                Bounds spawnBounds = SpawnCollisionDetector.ComputeVesselBounds(rec.VesselSnapshot);
-                var (overlap, overlapDist, blockerName, blockerVessel) =
-                    SpawnCollisionDetector.CheckOverlapAgainstLoadedVessels(spawnPos, spawnBounds, 5f);
-                if (overlap)
+                ParsekLog.VerboseRateLimited("Spawner", "eva-bounds-" + index,
+                    $"CheckSpawnCollisions: EVA bounds={spawnBounds.size} for #{index} ({rec.VesselName})");
+            }
+            var (overlap, overlapDist, blockerName, blockerVessel) =
+                SpawnCollisionDetector.CheckOverlapAgainstLoadedVessels(spawnPos, spawnBounds, 5f);
+            if (overlap)
+            {
+                // Precedence: duplicate-blocker-recovery FIRST (#112), walkback SECOND (#264).
+                // A quicksave-loaded duplicate takes one frame to recover via
+                // ShipConstruction.RecoverVesselFromFlight; if that clears the overlap, the
+                // original position is still valid and we must NOT walk back unnecessarily.
+                string resolvedRecName = Recording.ResolveLocalizedName(rec.VesselName);
+                if (!rec.DuplicateBlockerRecovered
+                    && blockerVessel != null
+                    && blockerVessel.loaded
+                    && ShouldRecoverBlockerVessel(blockerName, resolvedRecName))
                 {
-                    // Defensive duplicate recovery: if the blocker has the same name as the
-                    // recording being spawned, it is likely a quicksave-loaded duplicate that
-                    // survived cleanup after rewind. Recover it once to clear the spawn slot. (#112)
-                    // Name matching is the only available heuristic — after rewind, all
-                    // SpawnedVesselPersistentId values are reset to 0 so PID matching is not
-                    // possible. False positive (two same-name recordings at same position) is
-                    // narrow and non-destructive (vessel goes to KSC recovery, not deleted).
-                    string resolvedRecName = Recording.ResolveLocalizedName(rec.VesselName);
-                    if (!rec.DuplicateBlockerRecovered
-                        && blockerVessel != null
-                        && blockerVessel.loaded
-                        && ShouldRecoverBlockerVessel(blockerName, resolvedRecName))
-                    {
-                        ParsekLog.Warn("Spawner",
-                            $"Duplicate blocker detected for #{index} ({rec.VesselName}): " +
-                            $"recovering '{blockerName}' (pid={blockerVessel.persistentId}) at {overlapDist:F0}m — " +
-                            $"likely quicksave-loaded duplicate (#112)");
-                        ShipConstruction.RecoverVesselFromFlight(
-                            blockerVessel.protoVessel, HighLogic.CurrentGame.flightState, true);
-                        rec.DuplicateBlockerRecovered = true;
-                        rec.CollisionBlockCount = 0;
+                    ParsekLog.Warn("Spawner",
+                        $"Duplicate blocker detected for #{index} ({rec.VesselName}): " +
+                        $"recovering '{blockerName}' (pid={blockerVessel.persistentId}) at {overlapDist:F0}m — " +
+                        $"likely quicksave-loaded duplicate (#112)");
+                    ShipConstruction.RecoverVesselFromFlight(
+                        blockerVessel.protoVessel, HighLogic.CurrentGame.flightState, true);
+                    rec.DuplicateBlockerRecovered = true;
+                    rec.CollisionBlockCount = 0;
 
-                        // Re-check overlap after recovery — another vessel may still block
-                        var (stillOverlap, recheckDist, recheckName, _) =
-                            SpawnCollisionDetector.CheckOverlapAgainstLoadedVessels(spawnPos, spawnBounds, 5f);
-                        if (stillOverlap)
-                        {
-                            rec.CollisionBlockCount++;
-                            if (ShouldAbandonCollisionBlockedSpawn(rec.CollisionBlockCount, MaxCollisionBlocks))
-                            {
-                                rec.VesselSpawned = true;
-                                rec.SpawnAbandoned = true;
-                                ParsekLog.Warn("Spawner",
-                                    $"Spawn ABANDONED for #{index} ({rec.VesselName}): still blocked by " +
-                                    $"'{recheckName}' at {recheckDist:F0}m after duplicate recovery — giving up");
-                            }
-                            return true;
-                        }
-                        // Blocker removed, no other overlap — fall through to spawn
-                    }
-                    else
+                    // Re-check overlap after recovery — another vessel may still block
+                    var (stillOverlap, recheckDist, recheckName, _) =
+                        SpawnCollisionDetector.CheckOverlapAgainstLoadedVessels(spawnPos, spawnBounds, 5f);
+                    if (!stillOverlap)
                     {
-                        rec.CollisionBlockCount++;
-                        if (ShouldAbandonCollisionBlockedSpawn(rec.CollisionBlockCount, MaxCollisionBlocks))
-                        {
-                            rec.VesselSpawned = true;   // prevent ShouldSpawnAtRecordingEnd from returning true
-                            rec.SpawnAbandoned = true;  // prevent vessel-gone check from resetting VesselSpawned
-                            ParsekLog.Warn("Spawner",
-                                $"Spawn ABANDONED for #{index} ({rec.VesselName}): collision-blocked for " +
-                                $"{rec.CollisionBlockCount} consecutive frames by '{blockerName}' at {overlapDist:F0}m — " +
-                                $"giving up (max={MaxCollisionBlocks})");
-                        }
-                        else
-                        {
-                            ParsekLog.VerboseRateLimited("Spawner",
-                                "collision-block-" + index,
-                                $"Spawn blocked for #{index} ({rec.VesselName}): overlaps '{blockerName}' at {overlapDist:F0}m — " +
-                                $"will retry next frame (block={rec.CollisionBlockCount}/{MaxCollisionBlocks})");
-                        }
-                        return true;
+                        // Blocker removed, no other overlap — fall through to spawn at original position
+                        return (false, spawnLat, spawnLon, spawnAlt, spawnPos);
                     }
+
+                    ParsekLog.Verbose("Spawner",
+                        $"Post-recovery overlap persists for #{index}: '{recheckName}' at {recheckDist:F0}m — trying walkback");
+                    // Fall through to the walkback branch
                 }
+
+                // Walkback: if the recording has enough trajectory points, step backward with
+                // 1.5 m linear sub-steps until we find a clear position. (#264)
+                if (rec.Points != null && rec.Points.Count > 1)
+                {
+                    double walkLat, walkLon, walkAlt;
+                    bool walked = TryWalkbackForEndOfRecordingSpawn(
+                        rec, index, spawnBounds, body, out walkLat, out walkLon, out walkAlt);
+                    if (walked)
+                    {
+                        Vector3d walkPos = body.GetWorldSurfacePosition(walkLat, walkLon, walkAlt);
+                        rec.CollisionBlockCount = 0;
+                        ParsekLog.Info("Spawner",
+                            $"CheckSpawnCollisions: walkback rewrote spawn position for #{index} ({rec.VesselName}) — " +
+                            $"original overlap with '{blockerName}' at {overlapDist:F0}m cleared");
+                        return (false, walkLat, walkLon, walkAlt, walkPos);
+                    }
+                    // Walkback exhausted — TryWalkbackForEndOfRecordingSpawn already set
+                    // SpawnAbandoned / WalkbackExhausted / VesselSpawned. Report blocked.
+                    return (true, spawnLat, spawnLon, spawnAlt, spawnPos);
+                }
+
+                // Fallback for 1-point / empty trajectories (synthetic recordings):
+                // use the existing CollisionBlockCount / MaxCollisionBlocks retry path.
+                rec.CollisionBlockCount++;
+                if (ShouldAbandonCollisionBlockedSpawn(rec.CollisionBlockCount, MaxCollisionBlocks))
+                {
+                    rec.VesselSpawned = true;   // prevent ShouldSpawnAtRecordingEnd from returning true
+                    rec.SpawnAbandoned = true;  // prevent vessel-gone check from resetting VesselSpawned
+                    ParsekLog.Warn("Spawner",
+                        $"Spawn ABANDONED for #{index} ({rec.VesselName}): collision-blocked for " +
+                        $"{rec.CollisionBlockCount} consecutive frames by '{blockerName}' at {overlapDist:F0}m " +
+                        $"(single-point trajectory, no walkback possible) — giving up (max={MaxCollisionBlocks})");
+                }
+                else
+                {
+                    ParsekLog.VerboseRateLimited("Spawner",
+                        "collision-block-" + index,
+                        $"Spawn blocked for #{index} ({rec.VesselName}): overlaps '{blockerName}' at {overlapDist:F0}m " +
+                        $"(single-point trajectory) — will retry next frame (block={rec.CollisionBlockCount}/{MaxCollisionBlocks})");
+                }
+                return (true, spawnLat, spawnLon, spawnAlt, spawnPos);
             }
 
             // Reset collision block counter on successful spawn path
             rec.CollisionBlockCount = 0;
+            return (false, spawnLat, spawnLon, spawnAlt, spawnPos);
+        }
+
+        /// <summary>
+        /// Walk backward along the recording's trajectory with 1.5 m linear sub-steps,
+        /// looking for the first position whose bounding box does NOT overlap any loaded
+        /// vessel. On success, writes the walkback position into the out parameters and
+        /// returns true. On exhaustion (entire trajectory overlaps), marks the recording
+        /// with SpawnAbandoned + WalkbackExhausted + VesselSpawned and returns false.
+        ///
+        /// Used by CheckSpawnCollisions for end-of-recording spawns when the endpoint
+        /// overlaps a loaded vessel (typically the parent vessel for an EVA recording).
+        /// Unlike VesselGhoster's point-granularity walkback, this runs with metric-step
+        /// subdivision so fast-moving trajectories don't skip 10-50 m per iteration. (#264)
+        /// </summary>
+        internal static bool TryWalkbackForEndOfRecordingSpawn(
+            Recording rec, int index, Bounds spawnBounds, CelestialBody body,
+            out double walkLat, out double walkLon, out double walkAlt)
+        {
+            walkLat = 0;
+            walkLon = 0;
+            walkAlt = 0;
+
+            if (rec == null || rec.Points == null || rec.Points.Count == 0 || body == null)
+            {
+                ParsekLog.Verbose("Spawner",
+                    $"TryWalkbackForEndOfRecordingSpawn: rec/body null or empty trajectory for #{index} — cannot walkback");
+                return false;
+            }
+
+            var walkResult = SpawnCollisionDetector.WalkbackAlongTrajectorySubdivided(
+                rec.Points,
+                body.Radius,
+                SpawnCollisionDetector.DefaultWalkbackStepMeters,
+                (lat, lon, alt) => body.GetWorldSurfacePosition(lat, lon, alt),
+                worldPos =>
+                {
+                    var (ov, _, _, _) = SpawnCollisionDetector.CheckOverlapAgainstLoadedVessels(
+                        worldPos, spawnBounds, 5f);
+                    return ov;
+                });
+
+            if (walkResult.found)
+            {
+                walkLat = walkResult.lat;
+                walkLon = walkResult.lon;
+                walkAlt = walkResult.alt;
+
+                // Clamp altitude for surface terminals (#231) — the walkback candidate may be
+                // mid-flight altitude; ClampAltitudeForLanded puts the root part above terrain.
+                if (rec.TerminalStateValue == TerminalState.Landed)
+                {
+                    double terrainAlt = body.TerrainAltitude(walkLat, walkLon);
+                    walkAlt = ClampAltitudeForLanded(walkAlt, terrainAlt, index, rec.VesselName);
+                }
+                else if (rec.TerminalStateValue == TerminalState.Splashed && walkAlt > 0)
+                {
+                    walkAlt = 0;
+                }
+
+                ParsekLog.Info("Spawner",
+                    $"TryWalkbackForEndOfRecordingSpawn: found clear position for #{index} ({rec.VesselName}) " +
+                    $"lat={walkLat.ToString("F6", System.Globalization.CultureInfo.InvariantCulture)} " +
+                    $"lon={walkLon.ToString("F6", System.Globalization.CultureInfo.InvariantCulture)} " +
+                    $"alt={walkAlt.ToString("F1", System.Globalization.CultureInfo.InvariantCulture)}");
+                return true;
+            }
+
+            // Exhausted — mark the recording so the UI/diagnostics can distinguish this
+            // from the KSC-exclusion / MaxCollisionBlocks abandon paths.
+            rec.SpawnAbandoned = true;
+            rec.WalkbackExhausted = true;
+            rec.VesselSpawned = true; // prevent vessel-gone check from resetting VesselSpawned
+            ParsekLog.Warn("Spawner",
+                $"Spawn ABANDONED for #{index} ({rec.VesselName}): entire trajectory overlaps " +
+                $"with loaded vessels — walkback exhausted");
             return false;
         }
 
@@ -1668,6 +1819,8 @@ namespace Parsek
         /// <summary>
         /// Pure decision: determine vessel situation string from altitude, water presence,
         /// speed, and orbital speed. Used by SpawnAtPosition.
+        /// 4-way classifier: returns SPLASHED | LANDED | ORBITING | FLYING (never SUB_ORBITAL —
+        /// that's handled upstream by `ComputeCorrectedSituation` reading the stored snapshot sit).
         /// </summary>
         internal static string DetermineSituation(double alt, bool overWater, double speed, double orbitalSpeed)
         {
@@ -1678,6 +1831,42 @@ namespace Parsek
             if (speed > orbitalSpeed * 0.9)
                 return "ORBITING";
             return "FLYING";
+        }
+
+        /// <summary>
+        /// Pure decision: override a FLYING situation to match the recording's terminal state.
+        /// Returns the overridden situation string, or the input unchanged if no override applies.
+        ///
+        /// When DetermineSituation returns FLYING (alt &gt; 0, speed &lt; 0.9*orbitalSpeed), the
+        /// classifier can't tell whether the vessel was flying, walking (EVA), or stationary.
+        /// The recording's TerminalStateValue holds the authoritative answer. This override
+        /// was originally added for Orbiting/Docked terminals (#176) to prevent on-rails
+        /// pressure destruction; #264 extended it to Landed/Splashed for EVA kerbals walking
+        /// at alt &gt; 0, which would otherwise hit the OrbitDriver updateMode=UPDATE stale-orbit
+        /// bug on the first physics frame after load.
+        ///
+        /// Only fires when input is FLYING — if the classifier returned ORBITING due to high
+        /// speed, we trust that signal over a potentially stale terminal state (a fast-moving
+        /// vessel should not be forced into LANDED just because the recording ended with
+        /// Landed; that indicates data inconsistency and the safer path is orbital spawn).
+        /// </summary>
+        internal static string OverrideSituationFromTerminalState(string sit, TerminalState? terminalState)
+        {
+            if (sit != "FLYING" || !terminalState.HasValue)
+                return sit;
+
+            switch (terminalState.Value)
+            {
+                case TerminalState.Orbiting:
+                case TerminalState.Docked:
+                    return "ORBITING";
+                case TerminalState.Landed:
+                    return "LANDED";
+                case TerminalState.Splashed:
+                    return "SPLASHED";
+                default:
+                    return sit;
+            }
         }
 
         /// <summary>

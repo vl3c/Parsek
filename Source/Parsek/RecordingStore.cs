@@ -1766,6 +1766,7 @@ namespace Parsek
             rec.SpawnedVesselPersistentId = 0;
             rec.CollisionBlockCount = 0;
             rec.SpawnAbandoned = false;
+            rec.WalkbackExhausted = false;
             rec.DuplicateBlockerRecovered = false;
             rec.LastAppliedResourceIndex = -1;
 

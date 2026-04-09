@@ -1095,5 +1095,101 @@ namespace Parsek.Tests
         }
 
         #endregion
+
+        #region OverrideSituationFromTerminalState (#264 + #176 regression guard)
+
+        [Fact]
+        public void OverrideSituationFromTerminalState_FlyingLanded_ReturnsLanded()
+        {
+            string result = VesselSpawner.OverrideSituationFromTerminalState("FLYING", TerminalState.Landed);
+            Assert.Equal("LANDED", result);
+        }
+
+        [Fact]
+        public void OverrideSituationFromTerminalState_FlyingSplashed_ReturnsSplashed()
+        {
+            string result = VesselSpawner.OverrideSituationFromTerminalState("FLYING", TerminalState.Splashed);
+            Assert.Equal("SPLASHED", result);
+        }
+
+        [Fact]
+        public void OverrideSituationFromTerminalState_FlyingOrbiting_ReturnsOrbiting()
+        {
+            // Regression guard for #176 — this path used to be an inline override in SpawnAtPosition.
+            string result = VesselSpawner.OverrideSituationFromTerminalState("FLYING", TerminalState.Orbiting);
+            Assert.Equal("ORBITING", result);
+        }
+
+        [Fact]
+        public void OverrideSituationFromTerminalState_FlyingDocked_ReturnsOrbiting()
+        {
+            // Regression guard for #176.
+            string result = VesselSpawner.OverrideSituationFromTerminalState("FLYING", TerminalState.Docked);
+            Assert.Equal("ORBITING", result);
+        }
+
+        [Fact]
+        public void OverrideSituationFromTerminalState_FlyingSubOrbital_ReturnsFlyingUnchanged()
+        {
+            // SubOrbital terminal doesn't map to an explicit override — we don't force LANDED
+            // or ORBITING on a sub-orbital recording. The caller's decision logic decides.
+            string result = VesselSpawner.OverrideSituationFromTerminalState("FLYING", TerminalState.SubOrbital);
+            Assert.Equal("FLYING", result);
+        }
+
+        [Fact]
+        public void OverrideSituationFromTerminalState_LandedLandedInput_ReturnsUnchanged()
+        {
+            // Only fires on FLYING input. If DetermineSituation already returned LANDED,
+            // we don't re-override.
+            string result = VesselSpawner.OverrideSituationFromTerminalState("LANDED", TerminalState.Landed);
+            Assert.Equal("LANDED", result);
+        }
+
+        [Fact]
+        public void OverrideSituationFromTerminalState_OrbitingHighSpeedLandedTerminal_ReturnsOrbitingUnchanged()
+        {
+            // A high-velocity classifier result is trusted over a potentially stale terminal state —
+            // forcing LANDED on a fast-moving vessel would be dangerous. Only FLYING gets overridden.
+            string result = VesselSpawner.OverrideSituationFromTerminalState("ORBITING", TerminalState.Landed);
+            Assert.Equal("ORBITING", result);
+        }
+
+        [Fact]
+        public void OverrideSituationFromTerminalState_FlyingNullTerminal_ReturnsFlyingUnchanged()
+        {
+            string result = VesselSpawner.OverrideSituationFromTerminalState("FLYING", null);
+            Assert.Equal("FLYING", result);
+        }
+
+        [Fact]
+        public void OverrideSituationFromTerminalState_FlyingDestroyed_ReturnsFlyingUnchanged()
+        {
+            // Destroyed has no stable resting situation — no override.
+            string result = VesselSpawner.OverrideSituationFromTerminalState("FLYING", TerminalState.Destroyed);
+            Assert.Equal("FLYING", result);
+        }
+
+        [Fact]
+        public void OverrideSituationFromTerminalState_WalkingKerbalRepro_ProducesLanded()
+        {
+            // Butterfly Rover repro in pure-function form (#264).
+            // A kerbal walking on Kerbin's surface at 5m above terrain with 2 m/s speed has:
+            //   alt = 5.0  (ClampAltitudeForLanded + clearance)
+            //   overWater = false
+            //   speed = 2.0
+            //   orbitalSpeed ≈ 2296 (sqrt(GM/r) for Kerbin surface)
+            // DetermineSituation returns "FLYING" (alt > 0, speed < 0.9 * orbitalSpeed).
+            // Without OverrideSituationFromTerminalState, the kerbal spawns as FLYING and hits
+            // the OrbitDriver.updateMode=UPDATE stale-orbit bug.
+            string classified = VesselSpawner.DetermineSituation(
+                alt: 5.0, overWater: false, speed: 2.0, orbitalSpeed: 2296.0);
+            Assert.Equal("FLYING", classified);
+
+            string overridden = VesselSpawner.OverrideSituationFromTerminalState(classified, TerminalState.Landed);
+            Assert.Equal("LANDED", overridden);
+        }
+
+        #endregion
     }
 }

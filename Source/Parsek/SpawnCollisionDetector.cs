@@ -337,6 +337,135 @@ namespace Parsek
             return -1;
         }
 
+        /// <summary>Default walkback sub-step size in metres for the subdivided variant. (#264)</summary>
+        internal const float DefaultWalkbackStepMeters = 1.5f;
+
+        /// <summary>
+        /// Walk backward along a trajectory, subdividing each segment with linear lat/lon/alt
+        /// interpolation at a fixed metric step size, and return the first non-overlapping
+        /// candidate found while walking outward from the last point. (#264)
+        ///
+        /// Distance between consecutive points is measured with <see cref="SurfaceDistance"/>
+        /// (flat-Earth dx/dy approximation). At EVA scales (points ≤ tens of metres apart,
+        /// trajectories ≤ 1 km end-to-end) the flat approximation is accurate to well under 1% —
+        /// more than precise enough for step-count sizing on a 1.5 m granularity.
+        ///
+        /// Unlike the point-granularity <see cref="WalkbackAlongTrajectory"/> (used by
+        /// VesselGhoster for chain-tip spawns), this variant subdivides between points so a
+        /// walkback on a fast-moving trajectory advances in 1-2 m increments rather than
+        /// potentially skipping 10-50 m per step. Used by VesselSpawner for end-of-recording
+        /// spawns where an EVA kerbal's endpoint may be inside a loaded vessel's bounding box.
+        /// </summary>
+        /// <param name="points">Trajectory points to walk backward through.</param>
+        /// <param name="bodyRadius">Body radius in metres (for <see cref="SurfaceDistance"/>).</param>
+        /// <param name="stepMeters">Sub-step size in metres (e.g. <see cref="DefaultWalkbackStepMeters"/>).</param>
+        /// <param name="latLonAltToWorldPos">Converts a (lat, lon, alt) tuple to a world-space position.
+        /// At runtime: <c>(lat,lon,alt) =&gt; body.GetWorldSurfacePosition(lat,lon,alt)</c>. In tests:
+        /// a simple sphere projection.</param>
+        /// <param name="isOverlapping">Returns true if a vessel at the given world position overlaps
+        /// with any blocker. At runtime: calls <see cref="CheckOverlapAgainstLoadedVessels"/>.
+        /// In tests: a geometric predicate.</param>
+        /// <returns>
+        /// <c>(found=true, lat, lon, alt, worldPos)</c> on the first non-overlapping sub-step
+        /// encountered while walking outward from the last trajectory point;
+        /// <c>(found=false, 0, 0, 0, <see cref="Vector3d.zero"/>)</c> if the entire trajectory overlaps
+        /// or the input is null/empty.
+        /// </returns>
+        internal static (bool found, double lat, double lon, double alt, Vector3d worldPos)
+            WalkbackAlongTrajectorySubdivided(
+                List<TrajectoryPoint> points,
+                double bodyRadius,
+                float stepMeters,
+                Func<double, double, double, Vector3d> latLonAltToWorldPos,
+                Func<Vector3d, bool> isOverlapping)
+        {
+            if (points == null || points.Count == 0)
+            {
+                ParsekLog.Verbose(Tag, "WalkbackSubdivided: null or empty trajectory — returning (false, …)");
+                return (false, 0, 0, 0, Vector3d.zero);
+            }
+
+            if (stepMeters <= 0f)
+            {
+                ParsekLog.Warn(Tag,
+                    string.Format(IC, "WalkbackSubdivided: invalid stepMeters={0} — clamping to {1}",
+                        stepMeters.ToString("F2", IC), DefaultWalkbackStepMeters.ToString("F2", IC)));
+                stepMeters = DefaultWalkbackStepMeters;
+            }
+
+            // Base case: try the last point exactly. The caller already confirmed overlap at
+            // this position, but the test suite may call this helper directly with a cleared
+            // last point, so this is a safe base case.
+            int last = points.Count - 1;
+            var lastPt = points[last];
+            Vector3d lastWorldPos = latLonAltToWorldPos(lastPt.latitude, lastPt.longitude, lastPt.altitude);
+            if (!isOverlapping(lastWorldPos))
+            {
+                ParsekLog.Info(Tag,
+                    string.Format(IC,
+                        "WalkbackSubdivided: last point clear at index {0} (UT={1})",
+                        last, lastPt.ut.ToString("F2", IC)));
+                return (true, lastPt.latitude, lastPt.longitude, lastPt.altitude, lastWorldPos);
+            }
+
+            ParsekLog.Verbose(Tag,
+                string.Format(IC,
+                    "WalkbackSubdivided: walking back from index {0} (UT={1}) with step={2}m",
+                    last, lastPt.ut.ToString("F2", IC), stepMeters.ToString("F2", IC)));
+
+            int totalSubStepsChecked = 0;
+            for (int i = last; i >= 1; i--)
+            {
+                var segEnd = points[i];       // later in time (index i)
+                var segStart = points[i - 1]; // earlier in time (index i-1)
+                double dMeters = SurfaceDistance(segStart.latitude, segStart.longitude,
+                    segEnd.latitude, segEnd.longitude, bodyRadius);
+                int n = Math.Max(1, (int)Math.Ceiling(dMeters / stepMeters));
+
+                ParsekLog.Verbose(Tag,
+                    string.Format(IC,
+                        "WalkbackSubdivided: segment [{0}↔{1}] d={2}m n={3} stepping back",
+                        i - 1, i, dMeters.ToString("F2", IC), n));
+
+                for (int k = 1; k <= n; k++)
+                {
+                    double t = (double)k / (double)n;
+                    double lat = segEnd.latitude + (segStart.latitude - segEnd.latitude) * t;
+                    double lon = segEnd.longitude + (segStart.longitude - segEnd.longitude) * t;
+                    double alt = segEnd.altitude + (segStart.altitude - segEnd.altitude) * t;
+                    Vector3d worldPos = latLonAltToWorldPos(lat, lon, alt);
+                    totalSubStepsChecked++;
+                    bool overlaps = isOverlapping(worldPos);
+
+                    if (!overlaps)
+                    {
+                        ParsekLog.Info(Tag,
+                            string.Format(IC,
+                                "WalkbackSubdivided: cleared at segment [{0}↔{1}] step {2}/{3} lat={4} lon={5} alt={6} (total sub-steps checked={7})",
+                                i - 1, i, k, n,
+                                lat.ToString("F6", IC), lon.ToString("F6", IC),
+                                alt.ToString("F1", IC), totalSubStepsChecked));
+                        return (true, lat, lon, alt, worldPos);
+                    }
+
+                    // Rate-limit per-sub-step overlap log spam: 1 in 10 candidates
+                    if ((totalSubStepsChecked % 10) == 0)
+                    {
+                        ParsekLog.VerboseRateLimited(Tag, "walkback-substep-overlap",
+                            string.Format(IC,
+                                "WalkbackSubdivided: overlapping at sub-step {0}/{1} on segment [{2}↔{3}] (total={4})",
+                                k, n, i - 1, i, totalSubStepsChecked));
+                    }
+                }
+            }
+
+            ParsekLog.Warn(Tag,
+                string.Format(IC,
+                    "WalkbackSubdivided: entire trajectory overlaps after {0} sub-steps — returning (false, …) (walkback exhausted)",
+                    totalSubStepsChecked));
+            return (false, 0, 0, 0, Vector3d.zero);
+        }
+
         /// <summary>
         /// Pure helper for testing: converts a TrajectoryPoint's lat/lon/alt to a simple
         /// Cartesian position on a sphere of the given radius. Uses standard geographic
