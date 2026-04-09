@@ -138,6 +138,18 @@ After any change to enums, event types, serialized fields, or schema:
 3. Consider adding a synthetic recording for end-to-end testing
 4. Run `dotnet test` - all tests must pass
 
+## Documentation Updates — Per Commit, Not Per PR
+
+Before every commit that changes behavior (not just the first one in a PR), check whether these docs need updating and stage them in the same commit:
+
+- `CHANGELOG.md` — add or update the entry under the current version. On follow-up commits that change the fix approach, edit the existing entry rather than leaving the original wording stale.
+- `docs/dev/todo-and-known-bugs.md` — mark completed items as ~~done~~, add newly discovered items, and update the "Fix:" description on follow-up commits when the approach changes.
+- This file (`.claude/CLAUDE.md`) — update only when file layout, build commands, workflow, or key patterns change.
+
+**Follow-up commit trap:** When a review comment lands on an open PR and changes the fix approach, the CHANGELOG and todo entries written for the first commit become stale. The reviewer reads those docs as authoritative — they must match the code in the current HEAD. Before pushing the follow-up commit, re-read the existing doc entries for the bug/feature and update them to match the new approach.
+
+**Practical check:** after `git add`, run `git diff --cached` and ask: "does any of this contradict or supersede existing wording in CHANGELOG.md or todo-and-known-bugs.md?" If yes, stage the doc updates in the same commit.
+
 ## Workflow
 
 See `docs/dev/development-workflow.md` for the full feature development process (vision → scenarios → design doc → plan/build/review cycle).
