@@ -2559,7 +2559,8 @@ namespace Parsek
                         {
                             ParsekLog.Info("Flight",
                                 $"DeferredJointBreakCheck: added {fallbackAdded} fallback " +
-                                $"Decoupled event(s) for new vessel roots at UT={branchUT:F2}");
+                                $"Decoupled event(s) for new vessel roots at " +
+                                $"UT={branchUT.ToString("F2", System.Globalization.CultureInfo.InvariantCulture)}");
                         }
                     }
                 }
