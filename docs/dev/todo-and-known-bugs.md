@@ -928,13 +928,32 @@ xUnit can't exercise any code path that touches `UnityEngine.AudioSource` (direc
 
 **Priority:** Low — the code paths are simple enough that review caught the issues in commit 77bce7c, and the production playtest will exercise them end-to-end. In-game tests harden against future regressions.
 
-## 266. Tree-preservation on vessel switch (quickload-resume follow-up)
+## ~~266. Tree-preservation on vessel switch (quickload-resume follow-up)~~
 
-PR #160 routes `isVesselSwitch` through `FinalizePendingLimboTreeForRevert` to match mainline behavior, but the ideal outcome on a vessel switch (user clicks a distant vessel triggering FLIGHT→FLIGHT scene reload) is to keep the active tree alive with the old vessel backgrounded, so the mission doesn't fragment.
+PR #160 routed `isVesselSwitch` through `FinalizePendingLimboTreeForRevert` as a temporary punt — when the player clicked a distant vessel in the Tracking Station, the FLIGHT→FLIGHT scene reload destroyed the in-progress mission tree even though the in-session vessel-switch path (`OnVesselSwitchComplete`, `ParsekFlight.cs:1564-1572`) already handled this state correctly by moving the old vessel into `BackgroundMap`.
 
-**Fix plan:** On `Limbo + isVesselSwitch`, instead of finalizing the tree, move the old active recording's PID into `tree.BackgroundMap`, leave the tree in place (not stashed), install it back as `ParsekFlight.activeTree`, and start a fresh recorder only if the new active vessel has its own recording context. The next vessel switch back to the old vessel triggers `PromoteFromBackground` via the existing in-session switch path. Requires careful handling of the background recorder subscription lifecycle.
+**Smoking gun:** `logs/2026-04-09_f5f9_verify/KSP.log:11208-11390` (Tree `0529116f|Kerbal X` → `StashTreeLimbo` → `FinalizeLimboForRevert: finalized 1 leaf recording(s)` → `OnLoad: Limbo tree finalized on vessel switch (matches mainline behavior; tree-preservation-on-switch is a follow-up)`) and the same pattern in `logs/2026-04-09_recording-flow-bugs/KSP.log:12074-12287`.
 
-**Priority:** Medium — better than finalizing but not a regression, so can wait
+**Architectural challenge:** the `activeTree` field lives on the `ParsekFlight` MonoBehaviour, which is destroyed on scene reload. The tree must cross the scene boundary via `RecordingStore.PendingTree`. The previous restore coroutine (`RestoreActiveTreeFromPending`) name-matches the tree's active recording against the new active vessel — guaranteed to fail on a switch because the player picked a *different* vessel by definition.
+
+**Fix:** pre-transition the tree at stash time so the restore coroutine just has to reinstall it.
+
+1. **New `PendingTreeState.LimboVesselSwitch = 2`** (`RecordingStore.cs`) — distinguishes pre-transitioned trees from the legacy `Limbo` (untriaged) state.
+2. **`StashActiveTreeForVesselSwitch(commitUT)`** (`ParsekFlight.cs`) — flushes the recorder, calls the new pure helper `ApplyPreTransitionForVesselSwitch(tree, recorderVesselPid)` which moves the active recording's PID into `BackgroundMap` and nulls `ActiveRecordingId`, then stashes as `LimboVesselSwitch`. Recorder PID has priority over the tree-recording's persisted PID (the tree value can lag across docking / boarding edge cases).
+3. **`FinalizeTreeOnSceneChange` dispatcher** — checks `ParsekScenario.IsVesselSwitchPendingFresh()` (new live query exposing the existing freshness check) and routes to the new path. Bails out to legacy `StashActiveTreeAsPendingLimbo` when `pendingTreeDockMerge`, `pendingSplitRecorder`, or `recorder.ChainToVesselPending` is set — those need `Update()` continuation logic that never runs across a scene reload, and the safety-net finalize is the safer fallback (`CanPreTransitionForVesselSwitch`).
+4. **`RestoreActiveTreeFromPendingForVesselSwitch` coroutine** — pops the pre-transitioned tree, installs as `activeTree`, re-attaches `BackgroundRecorder`. If the new active vessel's PID is in `tree.BackgroundMap` (round-trip), promotes via existing `PromoteRecordingFromBackground`. Otherwise leaves `recorder = null` (outsider state — identical to the existing in-session outcome at `ParsekFlight.cs:1568-1572` when `BackgroundMap.TryGetValue` returns false).
+5. **`ActiveTreeRestoreMode` enum** (`None`/`Quickload`/`VesselSwitch`) replaces the previous `ScheduleActiveTreeRestoreOnFlightReady` bool to prevent the two restore paths from conflicting flags (review feedback).
+6. **`OnLoad` Limbo dispatch** (`ParsekScenario.cs`) — four-way decision tree: real revert → finalize; `LimboVesselSwitch` state → vessel-switch restore; `Limbo` + `isVesselSwitch` → safety-net finalize (stash bailed); else → quickload restore.
+7. **`SaveActiveTreeIfAny` outsider tolerance** — was guarded with `if (recorder == null) return;` which silently dropped outsider-state trees. Now serializes the tree without flush when `recorder == null`. The `recorder.RewindSaveFileName` access is null-guarded; the rewind save filename is preserved on the tree's root recording at stash time.
+8. **`TryRestoreActiveTreeNode` state pick** — picks `LimboVesselSwitch` when the loaded tree has null `ActiveRecordingId` (i.e. was saved in outsider state), `Limbo` otherwise. Handles both cold-start and in-session OnLoad paths.
+
+**Recorder-null audit:** per the review, `recorder == null && activeTree != null` is a novel cross-scene-reload state. Audit was much smaller than feared because the existing in-session `OnVesselSwitchComplete` already creates this state when the new vessel is not in `BackgroundMap` (`logs/2026-04-09_f5f9_verify/KSP.log:11466` shows `mode=tree tree=eda53668 rec=-` in production), so the rest of the codebase already tolerates it. New tolerance only needed in `SaveActiveTreeIfAny` (above).
+
+**Tests:**
+- `Source/Parsek.Tests/QuickloadResumeTests.cs` — 11 new tests: `LimboDispatch_*` four-way decision table (revert, vessel-switch pre-transitioned, vessel-switch safety-net, quickload, cold-start outsider), `TryRestoreActiveTreeNode_TreeWith[out]ActiveRecording_StashesAs*`, `PreTransition_*` exercises the pure helper across recorder PID priority, fallback to tree-rec PID, null active rec, both PIDs zero, and BackgroundMap entry preservation across multi-hop switches.
+- `Source/Parsek/InGameTests/ExtendedRuntimeTests.cs` — `OutsiderActiveTreeParsesAndRoutesToLimboVesselSwitch_Bug266` (synthesizes an outsider tree from the live tree, asserts the ConfigNode round-trip preserves null `ActiveRecordingId` and that the OnLoad dispatch would route it to `LimboVesselSwitch`) and `PreTransitionForVesselSwitch_LiveTreeShape_Bug266` (validates the pure helper against the live `RecordingTree` shape). The full `OnSave/OnLoad` round-trip is deferred to manual playtest because mutating live `ParsekScenario` state mid-flight isn't safe inside a single in-game test.
+
+**Deferred:** mid-flight `pendingSplitRecorder` preservation across vessel-switch reloads — the in-flight split window cannot survive a scene tear-down, so the safety-net finalize fires for that edge case (matches pre-#266 behavior). `BoundaryAnchor` is also still discarded on the restore (existing limitation, see `RestoreActiveTreeFromPending` :5520-5524 comment). Both are noise rather than data loss; the critical path (preserve the tree across normal TS-mediated switches) is fixed.
 
 ## 267. Quickload-resume: restore coroutine reentrancy guard
 
@@ -1069,7 +1088,7 @@ With `spawnable=0` the whole tree is non-spawnable and no capsule ends up on the
 
 ---
 
-## 277. Wrong crew spawned at recording end (2026-04-09 playtest)
+## ~~277. Wrong crew spawned at recording end (2026-04-09 playtest)~~
 
 Reported in the 2026-04-09 playtest (`logs/2026-04-09_recording-flow-bugs/`). The Kerbal X rocket crew was Jeb (Pilot) / Bill (Engineer) / Bob (Scientist), but at merge-dialog time only two of the three stand-in swaps succeeded.
 
@@ -1082,19 +1101,40 @@ Reported in the 2026-04-09 playtest (`logs/2026-04-09_recording-flow-bugs/`). Th
 12840: [CrewReservation] Removed 1 reserved EVA vessel(s)
 ```
 
-Only 2 swaps completed. The Bob→Carsy swap never ran because Bob was on an EVA vessel (rec `d768a28f`) at the moment of merge rather than in the command pod. The code took the "Removing reserved EVA vessel" branch and kicked Carsy out of the reservation pool without ever placing her in any vessel. Net result: the command pod ends up with `Zelsted + Siford + the original Bob`, and the scientist slot is still the pre-merge Bob rather than the stand-in Carsy. The merge dialog reports `spawnable=0` (see also bug #278) so the user never sees the resulting crew assignment in-flight, but the roster is still wrong.
+Only 2 swaps completed. The Bob→Carsy swap never ran because Bob was on an EVA vessel (rec `d768a28f`) at the moment of merge rather than in the command pod. The code took the "Removing reserved EVA vessel" branch and kicked Carsy out of the reservation pool without ever placing her in any vessel. Net result: the command pod ends up with `Zelsted + Siford + (empty Bob seat)`, Carsy floats unused in the roster, and `RescueReservedCrewAfterEvaRemoval` flips Bob back from Missing to Available — so the original Bob is also still usable, doubling the wrongness. The merge dialog reports `spawnable=0` (see also bug #278) so the user never sees the resulting crew assignment in-flight, but the roster is still wrong.
 
-**Fix direction:** `CrewReservationManager.SwapCrewInPart` (or equivalent — confirm exact name) handles the in-pod case; the EVA-at-merge-time case falls through to the "remove reserved EVA vessel" branch and silently drops the reservation. Either:
-- (a) If the kerbal being swapped out is currently on an EVA vessel, recover-and-place — move the stand-in into the command pod's scientist slot at merge time, regardless of where the original was.
-- (b) Or: block the merge dialog with an error when an EVA-reserved kerbal can't be swapped, so the user knows the crew assignment is incomplete.
+**Long-standing latent footprint.** The diagnostic line `"Crew swap on flight ready: 0 swapped (N reservations exist but no matches on active vessel)"` (logged from `ParsekFlight.cs:4082`) appears in **at least 8 older session logs** going back to 2026-03-22 — sessions 2/3/4/5, the 2026-03-24 rewind bug log, the 2026-03-14 EVA dupe log. This is a several-week-old latent bug where stand-ins are silently misplaced; the 2026-04-09 playtest is the first session where the user-visible symptom (wrong crew in pod) was clearly traced.
 
-Option (a) is probably right — the user's intent is "generate stand-in crew for this flight". EVA'd kerbals at merge time should still be replaced.
+**Root cause.** `CrewReservationManager.SwapReservedCrewInFlight` (`Source/Parsek/CrewReservationManager.cs:151`) only iterates `FlightGlobals.ActiveVessel.parts → protoModuleCrew`. The first-pass loop can swap a reservation only when the original kerbal is currently seated in a part of the active vessel. When the original is on a separate EVA vessel (a pre-revert artifact kept alive by Parsek's tree-finalization path), the loop never sees them, the reservation goes unhandled, and `RemoveReservedEvaVessels` (called at the end of the same method) then deletes the EVA vessel without ever placing the stand-in anywhere.
 
-**Tests needed:**
-- Unit: `CrewReservationManager` swap with EVA'd original — assert stand-in is placed in the pod, original remains on the EVA vessel (or is removed with the reservation, depending on chosen semantics).
-- Integration: reproduce the 2026-04-09 scenario (crew goes EVA, commands merge) — assert all three crew slots get stand-ins.
+**Fix.** Add an orphan-placement second pass to `SwapReservedCrewInFlight`:
 
-**Priority:** High — crew correctness is user-visible and sticky (wrong roster persists across sessions).
+1. **First pass tracks swapped originals** in a new local `HashSet<string> swappedOriginals` instead of just counting.
+2. **`PlaceOrphanedReplacements`** iterates `crewReplacements`. For each entry whose original is not in `swappedOriginals`:
+   - **Defensive guard**: short-circuit if the original is still seated on the active vessel (Pass 1 may have left them unprocessed via a `failCount` branch like replacement-not-in-roster). Prevents double-placement.
+   - Skip if the replacement is not in the roster (Warn) or is Dead (Warn).
+   - **Rescue Missing replacements** by setting back to Available before placement, mirroring the existing `ReserveCrewIn` Missing-rescue pattern.
+   - Skip if the replacement is already on the active vessel (Info).
+   - Call new pure helper `ResolveOrphanSeatFromSnapshots(originalName, snapshots, reverseMap)` which scans `RecordingStore.CommittedRecordings` for any `GhostVisualSnapshot` PART node that lists the original in its `crew` values. Returns `(PartPid, PartName)`.
+     - `GhostVisualSnapshot` is used (not `VesselSnapshot`) because it's captured at recording start and contains crew who later EVA'd; `VesselSnapshot` is end-of-recording and would not contain EVA'd crew.
+     - Reverse-stand-in mapping handles snapshots from later recordings whose crew lists already contain stand-in names from earlier ones (mirrors `KerbalsModule.ReverseMapCrewNames`).
+     - Match key is the kerbal name itself. `VesselName` comparison is intentionally NOT used because two launches can share a vessel name and would falsely cross-match.
+   - `FindTargetPartForOrphan(pid, name)` walks `ActiveVessel.parts` with a **strict two-tier match** (PR #175 review): prefer `Part.persistentId == snapshotPartPid` (most reliable for post-revert vessels), then fall back to the first part with matching `partInfo.name` and free capacity. There is intentionally **no "any free seat" tier 3** — a misplaced stand-in (e.g. dropped into a passenger cabin instead of the command pod) is worse than an unplaced one and would silently mask the bug being fixed.
+   - Place via `Part.AddCrewmember(replacement)` (the non-indexed overload — KSP picks a free seat in the part). Avoids the unverified `AddCrewmemberAt`-on-empty-seat semantic.
+   - Add the original to `swappedOriginals` so `RemoveReservedEvaVessels` proceeds cleanly afterwards.
+3. **Single `SpawnCrew` / `onVesselCrewWasModified` firing** at the end if the combined swap count > 0 (was previously only the first-pass count).
+4. **Distinct skip/fail counters** in the aggregate summary log (PR #175 review): `rescuedFromMissing`, `skippedReplacementNotInRoster`, `skippedDeadOrMissingReplacement`, `skippedAlreadyOnActiveVessel`, `skippedOriginalStillOnActiveVessel`, `skippedSnapshotMiss`, `skippedNoMatchingPart`. Infrastructural failures use `Warn`; expected-skip cases (already-on-vessel, original-still-seated) use `Info`.
+5. **Up-front active-vessel crew name set** built once per swap (PR #175 review): O(parts × crew) build then O(1) lookups in the orphan loop, replacing the previous O(parts × crew) per orphan in `IsReplacementOnActiveVessel`. The local set is updated as placements happen so a subsequent orphan that maps to the same kerbal doesn't false-collide.
+
+Seat resolution lives at swap time rather than capturing it earlier in `SetReplacement` because `SetReplacement` runs on every commit/recalculate cycle (hot path) and would pay the snapshot-walk cost even when no orphan exists. The orphan pass only runs when the swap actually fails to place every replacement.
+
+**Tests** (`Source/Parsek.Tests/Bug277OrphanCrewPlacementTests.cs`, 16 cases): pure-helper coverage of `ResolveOrphanSeatFromSnapshots` — single-part match, multi-part match (returns the part containing the original), multi-snapshot first-wins, original not in any snapshot returns NotFound, null original / null enumerable / null snapshot in list, parts with no `crew` values are skipped, missing `pid` returns 0, missing `name` returns "", reverse-map lookup catches stand-ins in later recordings, reverse-map missing entry doesn't false-match, regression case using exact 2026-04-09 Kerbal X scenario.
+
+In-game tests (`Source/Parsek/InGameTests/RuntimeTests.cs`):
+- `Bug277_AddCrewmemberOnFreeSeat_Works` — validates the live `Part.AddCrewmember` API path on a free seat against the active vessel and rolls back.
+- `Bug277_PlaceOrphanedReplacements_PlacesStandinFromSnapshot` — full end-to-end integration test (PR #175 review). Builds a synthetic snapshot referencing a real part on the active vessel, registers a fake reservation, calls `PlaceOrphanedReplacements` directly (skipping the surrounding `SpawnCrew` + `RemoveReservedEvaVessels` side effects), asserts the stand-in landed in the right part, then rolls everything back. `PlaceOrphanedReplacements` is `internal` to support this.
+
+**Status:** Fixed.
 
 ---
 

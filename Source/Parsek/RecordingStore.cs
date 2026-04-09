@@ -30,6 +30,20 @@ namespace Parsek
         /// See <c>docs/dev/plans/quickload-resume-recording.md</c>.
         /// </summary>
         Limbo = 1,
+
+        /// <summary>
+        /// Tree was pre-transitioned for a vessel switch that triggers a FLIGHT→FLIGHT
+        /// scene reload (e.g. clicking an unloaded vessel in the tracking station).
+        /// At stash time the recorder was flushed, the previous active recording's
+        /// vessel PID was inserted into <c>BackgroundMap</c>, and
+        /// <c>ActiveRecordingId</c> was nulled — exactly the state the in-session
+        /// <c>OnVesselSwitchComplete</c> path produces. The OnLoad dispatch routes
+        /// this state through the dedicated vessel-switch restore coroutine, which
+        /// reinstalls the tree and either promotes the new active vessel from
+        /// <c>BackgroundMap</c> (round-trip) or leaves the recorder null (outsider).
+        /// See bug #266 in <c>docs/dev/todo-and-known-bugs.md</c>.
+        /// </summary>
+        LimboVesselSwitch = 2,
     }
 
     /// <summary>
