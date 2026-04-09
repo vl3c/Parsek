@@ -120,6 +120,17 @@ namespace Parsek
         private Dictionary<int, bool> lastCanRewind = new Dictionary<int, bool>();
         private Dictionary<int, bool> lastCanFF = new Dictionary<int, bool>();
 
+        // Watch button enabled-state tracking for transition logging (bug #279).
+        // Both dicts are keyed by RecordingId (stable across rewind/truncate
+        // index reuse, unlike the existing index-keyed lastCanFF/lastCanRewind
+        // which the bug #279 review flagged as a follow-up cleanup target).
+        // Group entries are prefixed with "{groupName}/" so two groups whose
+        // main recording happens to share an id (impossible today, but cheap
+        // insurance) still get distinct entries. Pruned each table draw via
+        // PruneStaleWatchTransitionEntries.
+        private Dictionary<string, bool> lastCanWatchByRecId = new Dictionary<string, bool>();
+        private Dictionary<string, bool> lastCanWatchByGroup = new Dictionary<string, bool>();
+
         // Cached styles for status labels
         private GUIStyle statusStyleFuture;
         private GUIStyle statusStyleActive;
@@ -326,6 +337,88 @@ namespace Parsek
             phaseStyleApproach.normal.textColor = new Color(0.4f, 0.7f, 1f); // sky blue
         }
 
+        /// <summary>
+        /// Bug #279 follow-up: removes lastCanWatchByRecId / lastCanWatchByGroup
+        /// entries whose RecordingId is no longer present in the committed
+        /// recording list. Called once per <see cref="DrawRecordingsWindow"/>
+        /// invocation. Delegates to <see cref="PruneStaleWatchEntries"/> so the
+        /// pruning logic is testable without instantiating RecordingsTableUI
+        /// (which requires a live ParsekUI / Unity GameObject).
+        /// </summary>
+        internal void PruneStaleWatchTransitionEntries(List<Recording> committed)
+        {
+            PruneStaleWatchEntries(lastCanWatchByRecId, lastCanWatchByGroup, committed);
+        }
+
+        /// <summary>
+        /// Pure static prune logic for the watch-transition dicts. Removes
+        /// every key whose recording ID is not present in <paramref name="committed"/>.
+        /// Per-row dict keys ARE recording ids; group dict keys are
+        /// "{groupName}/{recordingId}" and we extract the trailing segment.
+        /// Both dicts are cleared if the committed list is empty/null. Callers
+        /// pass references to the live dictionaries — the method mutates them
+        /// in place.
+        /// </summary>
+        internal static void PruneStaleWatchEntries(
+            Dictionary<string, bool> lastCanWatchByRecId,
+            Dictionary<string, bool> lastCanWatchByGroup,
+            List<Recording> committed)
+        {
+            if (committed == null || committed.Count == 0)
+            {
+                lastCanWatchByRecId?.Clear();
+                lastCanWatchByGroup?.Clear();
+                return;
+            }
+
+            // Build a HashSet of live recording IDs once for O(1) lookup.
+            var liveIds = new HashSet<string>();
+            for (int i = 0; i < committed.Count; i++)
+            {
+                var id = committed[i].RecordingId;
+                if (!string.IsNullOrEmpty(id))
+                    liveIds.Add(id);
+            }
+
+            // Per-row dict: prune by direct id membership.
+            if (lastCanWatchByRecId != null && lastCanWatchByRecId.Count > 0)
+            {
+                List<string> stale = null;
+                foreach (var key in lastCanWatchByRecId.Keys)
+                {
+                    if (!liveIds.Contains(key))
+                    {
+                        if (stale == null) stale = new List<string>();
+                        stale.Add(key);
+                    }
+                }
+                if (stale != null)
+                    for (int i = 0; i < stale.Count; i++)
+                        lastCanWatchByRecId.Remove(stale[i]);
+            }
+
+            // Group dict: extract the trailing "/{recordingId}" segment and
+            // check membership. Keys without a "/" (shouldn't happen) are
+            // dropped defensively.
+            if (lastCanWatchByGroup != null && lastCanWatchByGroup.Count > 0)
+            {
+                List<string> stale = null;
+                foreach (var key in lastCanWatchByGroup.Keys)
+                {
+                    int slash = key.LastIndexOf('/');
+                    string recId = slash >= 0 ? key.Substring(slash + 1) : null;
+                    if (string.IsNullOrEmpty(recId) || !liveIds.Contains(recId))
+                    {
+                        if (stale == null) stale = new List<string>();
+                        stale.Add(key);
+                    }
+                }
+                if (stale != null)
+                    for (int i = 0; i < stale.Count; i++)
+                        lastCanWatchByGroup.Remove(stale[i]);
+            }
+        }
+
         private void HandleRecordingsDefocus(List<Recording> committed)
         {
             // Click outside active rename field -> commit and close
@@ -483,6 +576,16 @@ namespace Parsek
         {
             var committed = RecordingStore.CommittedRecordings;
             double now = Planetarium.GetUniversalTime();
+
+            // Bug #279 follow-up: drop watch-transition cache entries whose
+            // RecordingId is no longer in the committed list (rewind, truncate,
+            // recording deletion). Without this, the dicts grow unbounded over
+            // a long session and a removed recording's stale state could
+            // theoretically be revived if a future code path resurrected the
+            // ID. The pre-existing lastCanFF/lastCanRewind dicts have the same
+            // unbounded-growth shape but are deferred to a separate cleanup
+            // pass per the bug #279 review.
+            PruneStaleWatchTransitionEntries(committed);
 
             HandleRecordingsDefocus(committed);
 
@@ -771,6 +874,32 @@ namespace Parsek
                 bool inRange = flight.IsGhostWithinVisualRange(ri);
                 bool isWatching = flight.WatchedRecordingIndex == ri;
                 bool canWatch = hasGhost && sameBody && inRange && !rec.IsDebris;
+
+                // Bug #279: log enabled/disabled transitions at INFO level so future
+                // playtests can distinguish "user didn't try" from "UI was broken".
+                // Mirrors the existing FF/R transition pattern, but at Info because
+                // the Watch button is the headline user-facing affordance and the
+                // 2026-04-09 playtest report had no usable signal in the verbose-only
+                // logs covering the impacted window. Keyed by RecordingId (not row
+                // index) so a rewound/truncated recording reusing an old row index
+                // doesn't inherit the previous occupant's cached canWatch and emit
+                // a spurious transition log line.
+                string watchKey = rec.RecordingId;
+                bool prevCanWatch;
+                if (!string.IsNullOrEmpty(watchKey)
+                    && (!lastCanWatchByRecId.TryGetValue(watchKey, out prevCanWatch) || prevCanWatch != canWatch))
+                {
+                    lastCanWatchByRecId[watchKey] = canWatch;
+                    string reason = canWatch ? "enabled"
+                        : rec.IsDebris ? "disabled (debris)"
+                        : !hasGhost ? "disabled (no ghost)"
+                        : !sameBody ? "disabled (different body)"
+                        : !inRange ? "disabled (out of range)"
+                        : "disabled (unknown)";
+                    ParsekLog.Info("UI",
+                        $"Watch button #{ri} \"{rec.VesselName}\" {reason} " +
+                        $"(hasGhost={hasGhost} sameBody={sameBody} inRange={inRange} debris={rec.IsDebris})");
+                }
 
                 GUI.enabled = canWatch;
                 string watchLabel = isWatching ? "W*" : "W";
@@ -1128,7 +1257,47 @@ namespace Parsek
                     bool sameBody = flight.IsGhostOnSameBody(mainIdx);
                     bool inRange = flight.IsGhostWithinVisualRange(mainIdx);
                     bool isWatching = flight.WatchedRecordingIndex == mainIdx;
+                    // No IsDebris check needed: FindGroupMainRecordingIndex
+                    // (RecordingsTableUI.cs:~2021) already excludes debris from
+                    // the candidate set, so mainIdx is never a debris row.
                     bool canWatch = hasGhost && sameBody && inRange;
+
+                    // Bug #279: log enabled/disabled transitions for the group W
+                    // button at INFO level. Group key combines group name + the
+                    // RecordingId of the current main recording. RecordingId is
+                    // stable across rewind/truncate index reuse, so a group whose
+                    // main recording is replaced (e.g., truncate followed by a
+                    // new launch) doesn't carry over the previous main's cached
+                    // canWatch and emit a spurious transition.
+                    //
+                    // Skip the cache+log entirely if the main recording has a
+                    // null/empty RecordingId. Mirrors the per-row guard above.
+                    // Without this, the group dict would cache "{groupName}/",
+                    // log once, get pruned by PruneStaleWatchEntries on the
+                    // next draw (empty trailing recId → stale), and re-add on
+                    // the draw after that — a spam loop. RecordingId being
+                    // null/empty shouldn't happen in practice (all recordings
+                    // get a GUID at construction), but the defensive guard is
+                    // free and matches the per-row site for consistency.
+                    string mainRecId = committed[mainIdx].RecordingId;
+                    if (!string.IsNullOrEmpty(mainRecId))
+                    {
+                        string groupWatchKey = groupName + "/" + mainRecId;
+                        bool prevGroupCanWatch;
+                        if (!lastCanWatchByGroup.TryGetValue(groupWatchKey, out prevGroupCanWatch)
+                            || prevGroupCanWatch != canWatch)
+                        {
+                            lastCanWatchByGroup[groupWatchKey] = canWatch;
+                            string reason = canWatch ? "enabled"
+                                : !hasGhost ? "disabled (no ghost)"
+                                : !sameBody ? "disabled (different body)"
+                                : !inRange ? "disabled (out of range)"
+                                : "disabled (unknown)";
+                            ParsekLog.Info("UI",
+                                $"Group Watch button '{groupName}' main=#{mainIdx} \"{committed[mainIdx].VesselName}\" {reason} " +
+                                $"(hasGhost={hasGhost} sameBody={sameBody} inRange={inRange})");
+                        }
+                    }
 
                     GUI.enabled = canWatch;
                     string watchLabel = isWatching ? "W*" : "W";

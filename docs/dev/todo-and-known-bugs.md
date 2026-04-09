@@ -139,6 +139,27 @@ Source: `SessionMerger.MergeTree`'s diagnostic that compares the last frame of s
 
 ---
 
+## 286. Full-tree crash leaves nothing to continue with — `CanPersistVessel` blocks all `Destroyed` leaves
+
+Surfaced as the user-facing complaint behind bug #278 ("nothing to continue playing with after a crash recording"). #278's snapshot-loss fix restores the in-memory `hasSnapshot=True` state for background-split debris, but the merge dialog's `CanPersistVessel` predicate at `MergeDialog.cs:450-467` hard-blocks any leaf whose `TerminalStateValue ∈ {Destroyed, Recovered, Docked, Boarded}` regardless of snapshot availability. When the player crashes the entire launch tree (root vessel + all debris destroyed), every leaf falls into one of those gated states, the merge dialog reports `spawnable=0`, and no vessel ends up on the surface for the player to continue with.
+
+Bob Kerman EVA in the 2026-04-09 playtest log line 11548 illustrates the gating shape: `terminal=Destroyed hasSnapshot=True canPersist=False`. The snapshot survives, the policy blocks the spawn.
+
+**This is a design decision, not a bug.** Three options for the next user discussion:
+
+- **(a) Pre-crash F5 fallback.** When no leaf satisfies `CanPersistVessel`, fall back to spawning the player's most recent quicksave's vessel state. Pro: works without changing recording semantics; the F5 represents an implicit "checkpoint." Con: requires tracking the F5 vessel state across the merge cycle, and the spawned state may not match where the player expects (e.g., F5 was at 50 km altitude, recording continued past F5 to a crash on the ground).
+- **(b) Relax `Destroyed` gating when snapshot exists.** Allow `terminal=Destroyed` to spawn from snapshot for at least the root leaf. Pro: minimal change. Con: the snapshot represents a moment-in-time; for a vessel destroyed by physics, the snapshot at split-time may be from many seconds before the crash, in a different orbit/altitude/orientation. Spawning from it could deposit the vessel in a physically-impossible state (e.g., underwater, mid-air, intersecting terrain).
+- **(c) Status quo + UX message.** Leave the gating unchanged but surface a clear merge-dialog message: "All recording branches ended in failure (crash/dock/recover) — no vessel can be continued. Use the Tracking Station or load your last quicksave to continue playing." Pro: zero behavioral change, clearly communicates the situation. Con: doesn't actually solve the user's "nothing to continue with" complaint.
+
+**Investigation needed before fix:**
+- Confirm whether KSP players actually expect crashes to be "playable from a checkpoint" (vs. quicksave-only). The Parsek model is closer to flight-replay than save-state, so option (c) may be the most defensible default.
+- For option (a), enumerate the failure modes: what if the F5 is from a different vessel, a different scene, or there's no F5 at all?
+- For option (b), enumerate the safety net: terrain clamping, orbital validity checks, attitude reset, fuel restoration. This is a lot of new code.
+
+**Priority:** Medium. The user explicitly raised this as the headline complaint behind #278. #278's fix closes the technical bug but does not resolve the user complaint. Reaching a decision is more important than the implementation effort.
+
+---
+
 ## ~~280. Background debris recordings lose trajectory data on scene reload (second-order bug #273 gap)~~
 
 During the 2026-04-09 Kerbal X playtest after PR #163/#164 merged, the 6 booster debris recordings from the radial decoupler separations all came back as 0-point / 0-section recordings. The main Kerbal X recording (#263) was fine — 88 points, all 6 `Decoupled` events present (via the #263 fallback) — but the debris children that each accumulated 21–22 trajectory frames while backgrounded lost every sample.
@@ -975,9 +996,31 @@ The old `CommitTreeRevert` preserved vessel snapshots so the merge dialog could 
 
 PR #160 ships with 29 unit tests covering static state transitions, dispatch decisions, and isolated predicates, but the full scenario — quicksave → scene reload → quickload → restore coroutine → resumed recording appends to same chain segment — can only run inside live KSP.
 
-**Fix plan:** Add an `InGameTests/RuntimeTests.cs` category `[InGameTest(Category = "QuickloadResume", Scene = GameScenes.FLIGHT)]` covering: (1) quickload mid-recording resumes with same `activeRecordingId` and points match pre-F5 UT; (2) real revert finalizes the tree (merge dialog if autoMerge off); (3) vessel switch finalizes the tree (temporary — update when #266 lands); (4) double-F9 idempotency; (5) quickload into a non-flight scene does not try to restore; (6) rewind path (via R button) does not conflict with restore; (7) cold-start "resume saved game" triggers restore via OnFlightReady.
+**Fix plan (revised post-review — see `docs/dev/plans/bugs-269-278-279-fix-plan.md`):**
 
-**Priority:** Medium — the Unity-dependent gaps in PR #160's unit tests should close before the next major refactor
+**P0 — make `TestRunnerShortcut` survive scene transitions.** Currently `[KSPAddon(KSPAddon.Startup.EveryScene, false)]` with no `DontDestroyOnLoad`, so any test coroutine started there dies the instant KSP unloads the scene for F5/F9/quickload. Change to `[KSPAddon(KSPAddon.Startup.Instantly, true)]` + `DontDestroyOnLoad(gameObject)` in `Awake`, mirroring the `ParsekHarmony.cs:49` pattern. This is the simplest possible bridge — no separate `InGameTestStateBridge` class needed (the original Plan A draft had one; review noted it was over-engineered). Add a canary test `BridgeSurvivesSceneTransition` that stashes a sentinel pre-F9 and asserts it's still present post-F9; mark the whole `QuickloadResume` category as skipped if the canary fails.
+
+**Tests to ship:**
+1. `Quickload_MidRecording_ResumesSameActiveRecordingId` (FLIGHT) — same `activeRecordingId`, points match pre-F5 UT.
+2. `RealRevert_FinalizesTree_ShowsMergeDialogWhenAutoMergeOff` (FLIGHT) — bump `MilestoneStore.CurrentEpoch` between F5 and F9 to force `isRevert=true`; assert finalization, merge dialog pending. Restore epoch in `try/finally`.
+3. `DoubleF9_Idempotent_NoDoubleStart` (FLIGHT) — chained two restores via the bridge; assert same activeRecId across both, single `RestoreActiveTreeFromPending` log line per reload.
+4. `QuickloadIntoNonFlightScene_DoesNotRestore` (FLIGHT→SPACECENTER variant) — set `ScheduleActiveTreeRestoreOnFlightReady`, switch to SPACECENTER, assert flag unconsumed and `activeTree == null`.
+5. `RewindButton_DoesNotConflictWithRestore` (FLIGHT) — invoke `RecordingStore.InitiateRewind` programmatically; assert the `TryRestoreActiveTreeNode: skipped (rewind in progress)` log line and `activeTree == null` post-rewind.
+
+**Tests deferred:**
+- **Vessel-switch finalize test** — original Plan A draft proposed an in-process `FlightGlobals.SetActiveVessel` test, but review correctly flagged this does NOT trigger `FinalizePendingLimboTreeForRevert` (that path requires a full scene reload via `OnVesselSwitching → vesselSwitchPending` → next `OnLoad`). Defer until bug #266 lands and the temporary "vessel switch = finalize" contract is removed.
+- **Cold-start "resume saved game" test** — the manual-sentinel + restart-KSP variant is not a test (it's a manual procedure). Document as a manual QA step in `docs/dev/manual-testing/cold-start-quickload-resume.md`. The "lite" variant (synthetic ConfigNode driven through `TryRestoreActiveTreeNode`) is too divergent from the real cold-start path to provide useful coverage.
+
+**Helpers needed:**
+- `Source/Parsek/InGameTests/Helpers/QuickloadResumeHelpers.cs` — `RequireFlightWithRecorder`, `CaptureRecordingSnapshot`, `TriggerQuicksave` (wraps `GamePersistence.SaveGame`), `TriggerQuickload` (wraps `GamePersistence.LoadGame` + `HighLogic.LoadScene(GameScenes.FLIGHT)` — NOT the rewind path at `RecordingStore.cs:2217-2242` which targets `SPACECENTER`), assertion helpers.
+- State reset between tests: any test mutating `MilestoneStore.CurrentEpoch` or `ParsekSettings.Current.autoMerge` MUST restore in `try/finally`.
+
+**Testing-the-tests safeguards:**
+- Bridge canary must pass before any QuickloadResume test runs.
+- Each Phase-2 assertion begins with `IsTrue(bridge.PhaseReached == ExecutedPhase2, "Phase 2 never executed")`.
+- Each test asserts a specific log line was emitted via `ParsekLog.TestSinkForTesting`.
+
+**Priority:** Medium — the Unity-dependent gaps in PR #160's unit tests should close before the next major refactor. Will ship as a separate PR; the in-game test framework changes are out of scope for the #278/#279 bug-fix work.
 
 ## 270. Sidecar file (.prec) version staleness across save points
 
@@ -1041,20 +1084,24 @@ Applied to both the per-row W button and the group-level W button. Purely cosmet
 
 ---
 
-## 279. Watch button unavailable from F5 moment onwards (2026-04-09 playtest)
+## ~~279. Watch button unavailable from F5 moment onwards (2026-04-09 playtest)~~
 
 Reported alongside bugs #276/#277/#278 in the 2026-04-09 playtest session (`logs/2026-04-09_recording-flow-bugs/`). After F5 at UT 369.2, the Watch button for the Kerbal X tree and its children was effectively unusable for the rest of the flight — the user couldn't preview any of the just-recorded flight data.
 
-**Likely conflated with bug #278.** If the whole Kerbal X tree ends up with `spawnable=0` because every leaf has `hasSnapshot=False canPersist=False terminal=Destroyed` (see bug #278), then every W button on every leaf is correctly disabled by the existing "no spawnable ghost" gate — it's a side effect of the debris-snapshot-TTL bug, not a separate UI issue. Fix #278 first and re-test.
+**Diagnosis:** confirmed downstream of bug #278. With every Kerbal X Debris leaf showing `terminal=Destroyed canPersist=False` after the limbo finalize blanket-stamp, ghost building was skipped for the whole tree, `WatchModeController.HasActiveGhost(idx)` returned false for the main Kerbal X recording (which is what `FindGroupMainRecordingIndex` selects for the group W button), and the per-row buttons had no ghosts to follow either. Not a UI bug — a downstream symptom of the limbo-finalize stamping.
 
-**Direct log evidence is thin:** only two `[VERBOSE][UI]` disabled-state lines in the whole playtest log, both from rewind (`Rewind already in progress`). No Watch click events logged in the 17:44:38 → 17:47:21 window. That's either "user didn't click" or "click was silently ignored" — the UI code's disabled-state log lines are verbose-level and the row-level gating may not log on every poll. Add an `[INFO]` log at the Watch row when the disabled state flips, so future playtests can distinguish "user didn't try" from "UI was broken".
+**Fix:** No standalone fix beyond bug #278's PR #176 (which stops the blanket-Destroyed stamp so leaves keep their real terminal state and `canPersist=True`). The Watch button gating predicates at `RecordingsTableUI.cs:769-800` (per-row) and `RecordingsTableUI.cs:1127-1157` (group) were audited and found to already cover all four disabled branches (`IsDebris`, `!hasGhost`, `!sameBody`, `!inRange`) with explicit tooltips after the bug #275 pass.
 
-**Investigation remaining:**
-- Confirm the hypothesis: reproduce bug #278 in isolation, verify that fixing it restores Watch availability.
-- Audit `ParsekUI` / `RecordingsTableUI` Watch button gating predicates. List every condition under which it greys out, and make sure each has a tooltip (#275 was the last pass at this — the 2026-04-09 playtest suggests there's still coverage missing).
-- Add instrumented logging of Watch button state transitions (enabled → disabled and vice versa) at INFO level, keyed by recording id.
+**Observability follow-through (PR #177):** Added INFO-level logging when the Watch button enabled state flips, keyed by recording index (per-row) or `groupName/mainIdx` (group). The previous diagnostic gap — only two `[VERBOSE][UI]` disabled-state lines in the whole 2026-04-09 playtest log, both irrelevant to the Watch button — is closed. Future playtests can distinguish "user didn't try" from "UI was broken" from a single grep on the `[INFO][UI] Watch button` lines.
 
-**Priority:** Medium — blocks on #278 investigation. If #278's fix restores availability, this entry becomes the "add disabled-state transition logging" follow-up and can drop to Low.
+```
+RecordingsTableUI.cs lastCanWatchByIndex / lastCanWatchByGroup dictionaries
+mirror the existing lastCanFF / lastCanRewind transition-logging pattern.
+ParsekLog.Info on transition; no log on stable state (handles OnGUI's
+multi-event-per-frame firing without spam).
+```
+
+**Status:** Fixed.
 
 ---
 
@@ -1064,27 +1111,19 @@ After the Kerbal X flight in the 2026-04-09 playtest, no vessel was spawned at e
 
 **Root cause** (re-diagnosed against current main, not the bug-as-filed): `ParsekScenario.FinalizePendingLimboTreeForRevert` (the OnLoad handler that finalizes a Limbo tree on revert OR vessel switch) was blanket-stamping every leaf without an existing `TerminalStateValue` as `Destroyed`. The original limbo dispatch comment says terminal state is "deferred to OnLoad's dispatch once it knows whether this is a revert or a quickload", but the deferred handler shortcut to Destroyed instead of doing the situation-aware work the live commit path does. An EVA kerbal walking on the surface (`v.situation = LANDED`) at the moment of the switch got stamped Destroyed even though the vessel was still loaded in `FlightGlobals`. Confirmed in both the 17:42 pre-#280 log (Bob Kerman, L11548) and the 20:52 post-#280 log (every leaf is `terminal=Destroyed canPersist=False`, snapshots preserved by #280's fix but still unspawnable). The bug-as-filed thought this was about snapshot loss; that part is bug #280's territory and was fixed in PR #167. The remaining damage is the blanket-Destroyed stamp.
 
-**Fix:** `FinalizePendingLimboTreeForRevert` now routes through `ParsekFlight.FinalizeIndividualRecording` per leaf (the same helper `FinalizeTreeRecordings` uses on the live commit path), then `EnsureActiveRecordingTerminalState` for the active non-leaf case, then `PruneZeroPointLeaves` to drop empty placeholders. `FinalizeIndividualRecording` looks up each leaf's vessel via `FlightRecorder.FindVesselByPid`; if alive in `FlightGlobals`, it uses `RecordingTree.DetermineTerminalState((int)v.situation, v)` + `CaptureTerminalOrbit` + `CaptureTerminalPosition`. If gone, it falls back to `Destroyed` + `PopulateTerminalOrbitFromLastSegment` (preserving the previous behavior for the vessel-gone case). Surviving leaves keep their real situation and remain `canPersist=True`. Promoted three helpers from `private` to `internal static`: `FinalizeIndividualRecording`, `EnsureActiveRecordingTerminalState`, `PruneZeroPointLeaves`. Replaced one `Log(...)` instance call with `ParsekLog.Verbose("Flight", ...)` so the method body is static-clean.
+**Fix (PR #176):** `FinalizePendingLimboTreeForRevert` now routes through `ParsekFlight.FinalizeIndividualRecording` per leaf (the same helper `FinalizeTreeRecordings` uses on the live commit path), then `EnsureActiveRecordingTerminalState` for the active non-leaf case, then `PruneZeroPointLeaves` to drop empty placeholders. `FinalizeIndividualRecording` looks up each leaf's vessel via `FlightRecorder.FindVesselByPid`; if alive in `FlightGlobals`, it uses `RecordingTree.DetermineTerminalState((int)v.situation, v)` + `CaptureTerminalOrbit` + `CaptureTerminalPosition`. If gone, it falls back to `Destroyed` + `PopulateTerminalOrbitFromLastSegment` (preserving the previous behavior for the vessel-gone case). Surviving leaves keep their real situation and remain `canPersist=True`. Promoted three helpers from `private` to `internal static`: `FinalizeIndividualRecording`, `EnsureActiveRecordingTerminalState`, `PruneZeroPointLeaves`. Replaced one `Log(...)` instance call with `ParsekLog.Verbose("Flight", ...)` so the method body is static-clean.
 
 **Side effect (intentional, consistency win):** the per-recording finalize now also runs `ExplicitStartUT`/`ExplicitEndUT` bookkeeping on every recording in the tree, including non-leaves. The previous limbo finalize skipped non-leaves entirely. The live commit path (`FinalizeTreeRecordings`) was already doing this — the limbo path was the inconsistent one, so widening it brings the two paths in line. Logged here so future-you (or future-reviewer) doesn't flag it as an unintentional behavior change.
 
 **Tests:** 8 new in `Bug278FinalizeLimboTests.cs` covering the vessel-gone fallback, the existing-state preservation, the non-leaf skip, the explicit-UT bookkeeping, the active-recording-already-terminal short-circuit, the no-active-id no-op, and `PruneZeroPointLeaves` removing empty placeholders. The vessel-found-live branch needs a live KSP runtime (covered by the next in-game playtest).
 
-**Status:** Fixed
+**Follow-ups (PR #177):** Two follow-up changes shipped in the next PR alongside the #279 logging:
 
-Shared root cause with the booster-debris-ghost-not-rendered bug (tracked separately by a parallel investigation — look for the entry added alongside the 2026-04-09 playtest batch): the 27 `Kerbal X Debris` sub-recordings in the tree all have `hasSnapshot=False canPersist=False terminal=Destroyed` at merge time (L11539–11547), even though `BgRecorder` logged `hasSnapshot=True` when each debris vessel was split off (L9700 etc.). The snapshots are captured at split time but lost somewhere between capture and merge — the current best hypothesis is the 60 s TTL flush that runs when the debris vessel is destroyed.
+1. **`RecordingStore.SaveRecordingFiles` destructive-delete fix (real regression caught by PR #176).** PR #176's per-leaf `FinalizeIndividualRecording` route reaches the vessel-gone branch at `ParsekFlight.cs:6137` ("rec.VesselSnapshot = null") for any leaf whose vessel is gone at limbo finalize time. The dispatch flow then runs `CommitPendingTree → CommitTree → FinalizeTreeCommit`, which sets `rec.FilesDirty = true` for every recording (`RecordingStore.cs:503`) and calls `FlushDirtyFiles → SaveRecordingFiles` immediately. Without the follow-up fix, `SaveRecordingFiles` saw the just-nulled `VesselSnapshot`, took the destructive-delete branch, and **wiped the on-disk `_vessel.craft` that #280's PR #167 had previously persisted via `OnBackgroundVesselWillDestroy`**. Net effect: PR #176 inadvertently re-introduced the snapshot loss for the vessel-gone-at-limbo case. PR #177 removes the destructive-delete branch — stale-cleanup is the responsibility of explicit deletion paths (`DeleteRecordingFiles`), not of every save. Pinned by `Bug278SnapshotPersistenceTests.DestructiveDelete_RegressionChain_IsReachable_DocumentedBySourceInspection`.
 
-```
-11559: [MergeDialog] Tree merge dialog: tree='Kerbal X', recordings=29, spawnable=0
-```
+2. **`BackgroundRecorder.EndDebrisRecording` persists at finalization (defense-in-depth).** The #280 fix in PR #167 wired `PersistFinalizedRecording` into `OnBackgroundVesselWillDestroy` and `Shutdown` but not into `EndDebrisRecording`, the `CheckDebrisTTL` termination site for both the TTL-expired branch (vessel still alive after 60 s) and the out-of-bubble branch (`!v.loaded`). PR #177 mirrors the call so all three finalization sites match. Not a root cause of #278 (those debris went through `OnBackgroundVesselWillDestroy`), but closes a real coverage gap that would surface as data loss for long-lived debris that hasn't crashed by the time the player triggers a scene reload.
 
-With `spawnable=0` the whole tree is non-spawnable and no capsule ends up on the surface after Kerbal X's final crash — even the root Kerbal X section (which has trajectory data) is not spawned because it terminates `Destroyed` too.
-
-**Investigation target:** `BgRecorder` → `Recording.Snapshot` → TTL expiry path. Trace why a snapshot captured with `hasSnapshot=True` comes back as `hasSnapshot=False` at merge. Suspect `OnVesselWillDestroy` hook or the 60 s TTL timer clearing the snapshot field along with the vessel reference.
-
-**Related:** the booster-debris-ghost-not-rendered bug is being investigated by a parallel agent and shares this root cause. Their fix may resolve this one too. Re-scope after their diagnosis lands.
-
-**Priority:** High — this is the user's main "nothing to continue playing with after a crash recording" complaint, and it also cascades into bug #279 (Watch unavailable, because `spawnable=0` disables W buttons).
+**Status:** Fixed.
 
 ---
 
