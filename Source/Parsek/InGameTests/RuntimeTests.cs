@@ -1243,33 +1243,36 @@ namespace Parsek.InGameTests
             int savedCommittedCount = RecordingStore.CommittedRecordings.Count;
             int beforeCrewCount = target.protoModuleCrew.Count;
 
-            // Test isolation (PR #175 follow-up review): clear all real reservations
-            // up front. PlaceOrphanedReplacements iterates the entire crewReplacements
-            // dict, so any pre-existing real reservation with an unplaced orphan
-            // (which is exactly the bug-#277 scenario this test exists to validate)
-            // could cause a real stand-in to leak into the active vessel as a side
-            // effect. Restore from savedReplacements in finally.
-            CrewReservationManager.ClearReplacementsInternal();
-
-            // Build a synthetic snapshot whose PART node references the live
-            // target part by pid + name and lists the fake original.
-            var snapshot = new ConfigNode("VESSEL");
-            var partNode = snapshot.AddNode("PART");
-            partNode.AddValue("name", target.partInfo.name);
-            partNode.AddValue("pid", target.persistentId.ToString());
-            partNode.AddValue("crew", fakeOriginal);
-
-            var syntheticRecording = new Recording
-            {
-                RecordingId = "test-orphan-277-" + System.Guid.NewGuid().ToString("N").Substring(0, 8),
-                VesselName = "Bug277TestVessel",
-                GhostVisualSnapshot = snapshot
-            };
-
+            // Hoisted so the finally block can remove it from CommittedRecordings.
+            Recording syntheticRecording = null;
             bool addedToCommitted = false;
             bool placedCrew = false;
             try
             {
+                // Test isolation (PR #175 follow-up review): clear all real
+                // reservations FIRST, inside the try, so any subsequent throw is
+                // still cleaned up by finally. PlaceOrphanedReplacements iterates
+                // the entire crewReplacements dict, so any pre-existing real
+                // reservation with an unplaced orphan (which is exactly the
+                // bug-#277 scenario this test exists to validate) could leak a
+                // real stand-in into the active vessel as a side effect.
+                CrewReservationManager.ClearReplacementsInternal();
+
+                // Build a synthetic snapshot whose PART node references the live
+                // target part by pid + name and lists the fake original.
+                var snapshot = new ConfigNode("VESSEL");
+                var partNode = snapshot.AddNode("PART");
+                partNode.AddValue("name", target.partInfo.name);
+                partNode.AddValue("pid", target.persistentId.ToString());
+                partNode.AddValue("crew", fakeOriginal);
+
+                syntheticRecording = new Recording
+                {
+                    RecordingId = "test-orphan-277-" + System.Guid.NewGuid().ToString("N").Substring(0, 8),
+                    VesselName = "Bug277TestVessel",
+                    GhostVisualSnapshot = snapshot
+                };
+
                 // Inject synthetic recording so the snapshot scan finds the fake original.
                 RecordingStore.CommittedRecordings.Add(syntheticRecording);
                 addedToCommitted = true;
