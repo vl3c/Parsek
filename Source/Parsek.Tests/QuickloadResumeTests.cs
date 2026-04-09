@@ -486,38 +486,234 @@ namespace Parsek.Tests
         }
 
         /// <summary>
-        /// Mirrors the Limbo-dispatch decision in ParsekScenario.OnLoad. Returns
-        /// true if the tree should be finalized-and-committed, false if it should
-        /// be deferred to the restore coroutine for quickload-resume.
+        /// Disposition the OnLoad Limbo-dispatch can take. Mirrors the four branches
+        /// in ParsekScenario.cs after the bug #266 fix:
+        /// <list type="bullet">
+        ///   <item><c>Finalize</c> — real revert (terminal state set, merge dialog).</item>
+        ///   <item><c>VesselSwitchRestore</c> — pre-transitioned tree (#266) reinstalled
+        ///   via the new restore coroutine.</item>
+        ///   <item><c>QuickloadRestore</c> — quickload / cold-start, name-match resume.</item>
+        ///   <item><c>SafetyNetFinalize</c> — Limbo state but the OnLoad classifier still
+        ///   says vessel switch (the stash didn't pre-transition because a guard bailed,
+        ///   e.g. pendingTreeDockMerge). Falls back to pre-#266 finalize.</item>
+        /// </list>
         /// </summary>
-        private static bool ComputeShouldFinalizeOnDispatch(bool isRevert, bool isVesselSwitch)
+        internal enum LimboDispatchOutcome
         {
-            return isRevert || isVesselSwitch;
+            Finalize = 0,
+            VesselSwitchRestore = 1,
+            QuickloadRestore = 2,
+            SafetyNetFinalize = 3,
+        }
+
+        /// <summary>
+        /// Mirrors the Limbo-dispatch decision in ParsekScenario.OnLoad after the
+        /// bug #266 fix. Pure function — keeps the four-way decision tree unit-testable.
+        /// </summary>
+        internal static LimboDispatchOutcome ComputeLimboDispatch(
+            bool isRevert, bool isVesselSwitch, PendingTreeState pendState)
+        {
+            if (isRevert) return LimboDispatchOutcome.Finalize;
+            if (pendState == PendingTreeState.LimboVesselSwitch)
+                return LimboDispatchOutcome.VesselSwitchRestore;
+            if (isVesselSwitch) return LimboDispatchOutcome.SafetyNetFinalize;
+            return LimboDispatchOutcome.QuickloadRestore;
         }
 
         [Fact]
         public void LimboDispatch_Revert_Finalizes()
         {
-            Assert.True(ComputeShouldFinalizeOnDispatch(isRevert: true, isVesselSwitch: false));
+            // Real revert wipes the in-progress mission regardless of state.
+            Assert.Equal(LimboDispatchOutcome.Finalize,
+                ComputeLimboDispatch(isRevert: true, isVesselSwitch: false,
+                    pendState: PendingTreeState.Limbo));
         }
 
         [Fact]
-        public void LimboDispatch_VesselSwitch_Finalizes()
+        public void LimboDispatch_Revert_OverridesLimboVesselSwitch()
         {
-            // Vessel switch path: the new active vessel is by definition different from
-            // the tree's recorded vessel, so RestoreActiveTreeFromPending's name-match
-            // would fail. We match mainline's CommitTreeRevert behavior instead (finalize
-            // on vessel switch) until tree-preservation-on-switch is implemented as a
-            // follow-up.
-            Assert.True(ComputeShouldFinalizeOnDispatch(isRevert: false, isVesselSwitch: true));
+            // Even if the stash pre-transitioned for a vessel switch, a real revert
+            // (epoch/count regression) takes priority. The pre-#266 behavior is
+            // preserved for the revert path.
+            Assert.Equal(LimboDispatchOutcome.Finalize,
+                ComputeLimboDispatch(isRevert: true, isVesselSwitch: true,
+                    pendState: PendingTreeState.LimboVesselSwitch));
         }
 
         [Fact]
-        public void LimboDispatch_Quickload_DefersToResume()
+        public void LimboDispatch_VesselSwitch_PreTransitioned_Restores_Bug266()
+        {
+            // Bug #266: tree was pre-transitioned at stash time
+            // (StashActiveTreeForVesselSwitch). OnLoad routes to the vessel-switch
+            // restore coroutine instead of finalizing. The mission is preserved
+            // across the FLIGHT→FLIGHT scene reload.
+            Assert.Equal(LimboDispatchOutcome.VesselSwitchRestore,
+                ComputeLimboDispatch(isRevert: false, isVesselSwitch: true,
+                    pendState: PendingTreeState.LimboVesselSwitch));
+        }
+
+        [Fact]
+        public void LimboDispatch_VesselSwitch_NotPreTransitioned_FinalizesViaSafetyNet_Bug266()
+        {
+            // Safety net: vessel-switch detected at OnLoad time, but the stash did
+            // NOT pre-transition (the in-flight pre-transition guard bailed because
+            // pendingTreeDockMerge / pendingSplit was active). Fall back to pre-#266
+            // finalize behavior — better to lose the tree than to leak a half-
+            // transitioned state into the restore path.
+            Assert.Equal(LimboDispatchOutcome.SafetyNetFinalize,
+                ComputeLimboDispatch(isRevert: false, isVesselSwitch: true,
+                    pendState: PendingTreeState.Limbo));
+        }
+
+        [Fact]
+        public void LimboDispatch_Quickload_DefersToQuickloadRestore()
         {
             // Quickload / cold-start resume: tree should be restored-and-resumed,
             // not finalized.
-            Assert.False(ComputeShouldFinalizeOnDispatch(isRevert: false, isVesselSwitch: false));
+            Assert.Equal(LimboDispatchOutcome.QuickloadRestore,
+                ComputeLimboDispatch(isRevert: false, isVesselSwitch: false,
+                    pendState: PendingTreeState.Limbo));
+        }
+
+        [Fact]
+        public void LimboDispatch_LimboVesselSwitch_WithoutSwitchFlag_StillRestores_Bug266()
+        {
+            // Cold-start path: the .sfs holds a LimboVesselSwitch tree (player F5'd
+            // in outsider state, then quit, then resumed). vesselSwitchPending is
+            // false because no live switch happened in this session, but the saved
+            // state still needs the vessel-switch restore.
+            Assert.Equal(LimboDispatchOutcome.VesselSwitchRestore,
+                ComputeLimboDispatch(isRevert: false, isVesselSwitch: false,
+                    pendState: PendingTreeState.LimboVesselSwitch));
+        }
+
+        // ============================================================
+        // Bug #266: TryRestoreActiveTreeNode picks state based on
+        // whether the saved tree has an active recording.
+        // ============================================================
+
+        [Fact]
+        public void TryRestoreActiveTreeNode_TreeWithActiveRecording_StashesAsLimbo_Bug266()
+        {
+            // Tree has a populated ActiveRecordingId — quickload-resume path.
+            var scenarioNode = new ConfigNode("PARSEK_SCENARIO");
+            var activeNode = scenarioNode.AddNode("RECORDING_TREE");
+            var tree = MakeTree("tree_alive", "Live Recording", 2);
+            // MakeTree sets ActiveRecordingId = "root_tree_alive" by default.
+            tree.Save(activeNode);
+            activeNode.AddValue("isActive", "True");
+
+            ParsekScenario.TryRestoreActiveTreeNode(scenarioNode);
+
+            Assert.Equal(PendingTreeState.Limbo, RecordingStore.PendingTreeStateValue);
+        }
+
+        [Fact]
+        public void TryRestoreActiveTreeNode_TreeWithoutActiveRecording_StashesAsLimboVesselSwitch_Bug266()
+        {
+            // Outsider state: tree was alive at OnSave time but had no active
+            // recording (player switched to a vessel with no recording context).
+            // Bug #266: stash as LimboVesselSwitch so the restore coroutine
+            // doesn't try to name-match a non-existent active vessel.
+            var scenarioNode = new ConfigNode("PARSEK_SCENARIO");
+            var activeNode = scenarioNode.AddNode("RECORDING_TREE");
+            var tree = MakeTree("tree_outsider", "Outsider Hop", 2);
+            tree.ActiveRecordingId = null; // outsider state
+            tree.Save(activeNode);
+            activeNode.AddValue("isActive", "True");
+
+            ParsekScenario.TryRestoreActiveTreeNode(scenarioNode);
+
+            Assert.Equal(PendingTreeState.LimboVesselSwitch, RecordingStore.PendingTreeStateValue);
+            Assert.Null(RecordingStore.PendingTree.ActiveRecordingId);
+            Assert.Contains(logLines, l => l.Contains("LimboVesselSwitch"));
+        }
+
+        // ============================================================
+        // Bug #266: pre-transition logic — calls the real production
+        // helper ParsekFlight.ApplyPreTransitionForVesselSwitch so the
+        // tests stay locked to the actual implementation.
+        // ============================================================
+
+        [Fact]
+        public void PreTransition_RecorderPidPreferred_MovesActiveToBackgroundMap_Bug266()
+        {
+            var tree = MakeTree("tree_t", "Launch", 2);
+            tree.Recordings["root_tree_t"].VesselPersistentId = 999; // stale
+            // recorder PID is the live source of truth
+            uint recorderPid = 12345;
+
+            bool moved = ParsekFlight.ApplyPreTransitionForVesselSwitch(tree, recorderPid);
+
+            Assert.True(moved);
+            Assert.Null(tree.ActiveRecordingId);
+            Assert.True(tree.BackgroundMap.ContainsKey(12345));
+            Assert.Equal("root_tree_t", tree.BackgroundMap[12345]);
+            // Stale tree-rec PID is NOT used since recorder PID was live
+            Assert.False(tree.BackgroundMap.ContainsKey(999));
+        }
+
+        [Fact]
+        public void PreTransition_FallbackToTreeRecPid_WhenRecorderPidZero_Bug266()
+        {
+            var tree = MakeTree("tree_t", "Launch", 2);
+            tree.Recordings["root_tree_t"].VesselPersistentId = 4242;
+
+            // Recorder PID = 0 (e.g. recorder was already torn down before stash)
+            bool moved = ParsekFlight.ApplyPreTransitionForVesselSwitch(tree, 0);
+
+            Assert.True(moved);
+            Assert.Null(tree.ActiveRecordingId);
+            Assert.True(tree.BackgroundMap.ContainsKey(4242));
+            Assert.Equal("root_tree_t", tree.BackgroundMap[4242]);
+        }
+
+        [Fact]
+        public void PreTransition_NullActiveRec_NullsAndDoesNotMove_Bug266()
+        {
+            var tree = MakeTree("tree_t", "Launch", 2);
+            tree.ActiveRecordingId = null;
+
+            bool moved = ParsekFlight.ApplyPreTransitionForVesselSwitch(tree, 12345);
+
+            Assert.False(moved);
+            Assert.Null(tree.ActiveRecordingId);
+            Assert.Empty(tree.BackgroundMap);
+        }
+
+        [Fact]
+        public void PreTransition_BothPidsZero_NullsAndDoesNotMove_Bug266()
+        {
+            var tree = MakeTree("tree_t", "Launch", 2);
+            tree.Recordings["root_tree_t"].VesselPersistentId = 0;
+
+            // No PID source available (degenerate case — recorder gone, tree
+            // recording was never populated). Tree is still nulled out, but
+            // there's no entry in BackgroundMap. Restore will treat the new
+            // active vessel as outsider regardless of who it is.
+            bool moved = ParsekFlight.ApplyPreTransitionForVesselSwitch(tree, 0);
+
+            Assert.False(moved);
+            Assert.Null(tree.ActiveRecordingId);
+            Assert.Empty(tree.BackgroundMap);
+        }
+
+        [Fact]
+        public void PreTransition_PreservesExistingBackgroundMapEntries_Bug266()
+        {
+            // Round-trip case: tree already has background entries from prior
+            // hops. The new switch should add a new entry, not clear existing ones.
+            var tree = MakeTree("tree_t", "Multi-Hop", 3);
+            tree.BackgroundMap[5555] = "child_tree_t_1";
+            tree.BackgroundMap[6666] = "child_tree_t_2";
+
+            bool moved = ParsekFlight.ApplyPreTransitionForVesselSwitch(tree, 7777);
+
+            Assert.True(moved);
+            Assert.Equal(3, tree.BackgroundMap.Count);
+            Assert.Equal("child_tree_t_1", tree.BackgroundMap[5555]);
+            Assert.Equal("child_tree_t_2", tree.BackgroundMap[6666]);
+            Assert.Equal("root_tree_t", tree.BackgroundMap[7777]);
         }
 
         // ============================================================

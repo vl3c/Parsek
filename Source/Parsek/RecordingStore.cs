@@ -30,6 +30,20 @@ namespace Parsek
         /// See <c>docs/dev/plans/quickload-resume-recording.md</c>.
         /// </summary>
         Limbo = 1,
+
+        /// <summary>
+        /// Tree was pre-transitioned for a vessel switch that triggers a FLIGHT→FLIGHT
+        /// scene reload (e.g. clicking an unloaded vessel in the tracking station).
+        /// At stash time the recorder was flushed, the previous active recording's
+        /// vessel PID was inserted into <c>BackgroundMap</c>, and
+        /// <c>ActiveRecordingId</c> was nulled — exactly the state the in-session
+        /// <c>OnVesselSwitchComplete</c> path produces. The OnLoad dispatch routes
+        /// this state through the dedicated vessel-switch restore coroutine, which
+        /// reinstalls the tree and either promotes the new active vessel from
+        /// <c>BackgroundMap</c> (round-trip) or leaves the recorder null (outsider).
+        /// See bug #266 in <c>docs/dev/todo-and-known-bugs.md</c>.
+        /// </summary>
+        LimboVesselSwitch = 2,
     }
 
     /// <summary>
@@ -3074,17 +3088,20 @@ namespace Parsek
                 {
                     SafeWriteConfigNode(rec.VesselSnapshot, vesselPath);
                 }
-                // Bug #278: do NOT delete an existing _vessel.craft when in-memory
-                // VesselSnapshot is null. The in-memory copy is transient — multiple
-                // code paths null it during finalization (e.g., FinalizeIndividualRecording
-                // at ParsekFlight.cs:5810 when the vessel pid is gone, or the auto-
-                // unreserve-crew pass at ParsekScenario.cs:1131-1140 after the spawn
-                // window closes). The on-disk sidecar is the persistent record and
-                // must survive these in-memory clearings, otherwise a save during a
-                // transient null window destroys data that was previously persisted
-                // via PersistFinalizedRecording (#280). Stale-cleanup is the
-                // responsibility of explicit recording-deletion paths
-                // (DeleteRecordingFiles), not of every save.
+                // Bug #278 follow-up (PR #177, defense-in-depth): do NOT delete an
+                // existing _vessel.craft when in-memory VesselSnapshot is null. PR
+                // #176's #278 fix routes FinalizePendingLimboTreeForRevert through
+                // FinalizeIndividualRecording per leaf, which still hits the
+                // defensive null at ParsekFlight.cs:5810 ("rec.VesselSnapshot = null"
+                // when the vessel pid lookup fails) for vessel-gone debris. The
+                // auto-unreserve-crew pass at ParsekScenario.cs:1131-1140 also nulls
+                // the snapshot after the spawn window closes. Both leave the recording
+                // with a transient in-memory null while the on-disk sidecar (written
+                // earlier by PersistFinalizedRecording from PR #167's #280 fix) is
+                // intact. The previous behavior — destructively delete the sidecar —
+                // would race with these null-out sites and destroy persisted data on
+                // the next OnSave. Stale-cleanup is the responsibility of explicit
+                // recording-deletion paths (DeleteRecordingFiles), not of every save.
 
                 // Save _ghost.craft (write once — immutable after creation)
                 if (rec.GhostVisualSnapshot != null)

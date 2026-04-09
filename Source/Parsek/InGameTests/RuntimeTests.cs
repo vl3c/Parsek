@@ -1073,6 +1073,267 @@ namespace Parsek.InGameTests
             ParsekLog.Info("TestRunner",
                 $"ReservedCrewNotAssigned: checked roster, {problems.Count} problem(s)");
         }
+
+        [InGameTest(Category = "CrewReservation", Scene = GameScenes.FLIGHT,
+            Description = "Bug #277: Part.AddCrewmember works on a free seat (validates orphan placement live API)")]
+        public void Bug277_AddCrewmemberOnFreeSeat_Works()
+        {
+            // The bug #277 fix relies on Part.AddCrewmember(ProtoCrewMember) (the
+            // non-indexed overload) successfully placing a kerbal into a free seat
+            // of a part. This test exercises that exact API path on a live vessel
+            // and rolls back to leave state untouched.
+
+            var av = FlightGlobals.ActiveVessel;
+            if (av == null)
+            {
+                InGameAssert.Skip("No active vessel");
+                return;
+            }
+
+            // Find a part with at least one free seat.
+            Part target = null;
+            for (int i = 0; i < av.parts.Count; i++)
+            {
+                var p = av.parts[i];
+                if (p != null && p.CrewCapacity > 0 && p.protoModuleCrew.Count < p.CrewCapacity)
+                {
+                    target = p;
+                    break;
+                }
+            }
+            if (target == null)
+            {
+                InGameAssert.Skip("Active vessel has no part with a free crew seat");
+                return;
+            }
+
+            // Find a free Available kerbal in the roster.
+            var roster = HighLogic.CurrentGame?.CrewRoster;
+            if (roster == null)
+            {
+                InGameAssert.Skip("No crew roster");
+                return;
+            }
+            ProtoCrewMember candidate = null;
+            foreach (ProtoCrewMember pcm in roster.Crew)
+            {
+                if (pcm.rosterStatus == ProtoCrewMember.RosterStatus.Available
+                    && pcm.type == ProtoCrewMember.KerbalType.Crew)
+                {
+                    candidate = pcm;
+                    break;
+                }
+            }
+            if (candidate == null)
+            {
+                InGameAssert.Skip("No Available crew kerbal in roster");
+                return;
+            }
+
+            int beforeCount = target.protoModuleCrew.Count;
+            int beforeCapacityRemaining = target.CrewCapacity - beforeCount;
+
+            target.AddCrewmember(candidate);
+            try
+            {
+                int afterCount = target.protoModuleCrew.Count;
+                InGameAssert.AreEqual(beforeCount + 1, afterCount,
+                    $"AddCrewmember should have added 1 to part crew count " +
+                    $"(before={beforeCount}, after={afterCount}, capacity={target.CrewCapacity})");
+                InGameAssert.IsTrue(target.protoModuleCrew.Contains(candidate),
+                    $"After AddCrewmember, part should contain '{candidate.name}' in protoModuleCrew");
+                ParsekLog.Info("TestRunner",
+                    $"Bug277 live API check: AddCrewmember placed '{candidate.name}' in '{target.partInfo.title}' " +
+                    $"(remaining capacity was {beforeCapacityRemaining}, now {target.CrewCapacity - afterCount})");
+            }
+            finally
+            {
+                // Roll back: remove the test kerbal so we don't pollute the vessel state.
+                target.RemoveCrewmember(candidate);
+                InGameAssert.AreEqual(beforeCount, target.protoModuleCrew.Count,
+                    $"Rollback failed: expected count {beforeCount}, got {target.protoModuleCrew.Count}");
+            }
+        }
+
+        [InGameTest(Category = "CrewReservation", Scene = GameScenes.FLIGHT,
+            Description = "Bug #277: PlaceOrphanedReplacements end-to-end places stand-in from synthetic snapshot (orphan-without-real-original variant)")]
+        public void Bug277_PlaceOrphanedReplacements_PlacesStandinFromSnapshot()
+        {
+            // End-to-end integration test for the bug #277 orphan placement pass.
+            // Builds a synthetic snapshot referencing a real part on the active
+            // vessel, registers a fake reservation, calls PlaceOrphanedReplacements
+            // directly (skipping the SpawnCrew + RemoveReservedEvaVessels side
+            // effects of full SwapReservedCrewInFlight), asserts the stand-in
+            // landed in the right part, then rolls everything back.
+            //
+            // Scenario covered: orphan whose original kerbal does NOT exist in the
+            // roster at all. The actual bug-#277 in-game scenario is "orphan whose
+            // original is alive on a separate EVA vessel" — that's hard to set up
+            // safely from a runtime test. The code path under test is identical
+            // (snapshot scan → seat lookup → live part match → AddCrewmember); only
+            // the original-kerbal-existence side condition differs. Pass 1 doesn't
+            // see the original in either scenario, so Pass 2 is what runs.
+
+            var av = FlightGlobals.ActiveVessel;
+            if (av == null)
+            {
+                InGameAssert.Skip("No active vessel");
+                return;
+            }
+
+            // Find a part with a free seat to use as the placement target.
+            Part target = null;
+            for (int i = 0; i < av.parts.Count; i++)
+            {
+                var p = av.parts[i];
+                if (p != null && p.CrewCapacity > 0 && p.protoModuleCrew.Count < p.CrewCapacity
+                    && p.partInfo != null && !string.IsNullOrEmpty(p.partInfo.name))
+                {
+                    target = p;
+                    break;
+                }
+            }
+            if (target == null)
+            {
+                InGameAssert.Skip("Active vessel has no part with a free crew seat");
+                return;
+            }
+
+            // Find a free Available Crew kerbal not currently on the active vessel.
+            var roster = HighLogic.CurrentGame?.CrewRoster;
+            if (roster == null)
+            {
+                InGameAssert.Skip("No crew roster");
+                return;
+            }
+            var activeCrewNames = new HashSet<string>();
+            for (int p = 0; p < av.parts.Count; p++)
+            {
+                var crew = av.parts[p].protoModuleCrew;
+                for (int c = 0; c < crew.Count; c++)
+                {
+                    if (crew[c] != null && !string.IsNullOrEmpty(crew[c].name))
+                        activeCrewNames.Add(crew[c].name);
+                }
+            }
+            ProtoCrewMember standIn = null;
+            foreach (ProtoCrewMember pcm in roster.Crew)
+            {
+                if (pcm.rosterStatus == ProtoCrewMember.RosterStatus.Available
+                    && pcm.type == ProtoCrewMember.KerbalType.Crew
+                    && !activeCrewNames.Contains(pcm.name))
+                {
+                    standIn = pcm;
+                    break;
+                }
+            }
+            if (standIn == null)
+            {
+                InGameAssert.Skip("No Available crew kerbal in roster (not already on active vessel)");
+                return;
+            }
+
+            // Pick a fake "original" name that does not exist in the roster.
+            string fakeOriginal = "Bug277Test_" + System.Guid.NewGuid().ToString("N").Substring(0, 8) + " Kerman";
+
+            // Save state for rollback.
+            var savedReplacements = new Dictionary<string, string>();
+            foreach (var kvp in CrewReservationManager.CrewReplacements)
+                savedReplacements[kvp.Key] = kvp.Value;
+            int savedCommittedCount = RecordingStore.CommittedRecordings.Count;
+            int beforeCrewCount = target.protoModuleCrew.Count;
+
+            // Hoisted so the finally block can remove it from CommittedRecordings.
+            Recording syntheticRecording = null;
+            bool addedToCommitted = false;
+            bool placedCrew = false;
+            try
+            {
+                // Test isolation (PR #175 follow-up review): clear all real
+                // reservations FIRST, inside the try, so any subsequent throw is
+                // still cleaned up by finally. PlaceOrphanedReplacements iterates
+                // the entire crewReplacements dict, so any pre-existing real
+                // reservation with an unplaced orphan (which is exactly the
+                // bug-#277 scenario this test exists to validate) could leak a
+                // real stand-in into the active vessel as a side effect.
+                CrewReservationManager.ClearReplacementsInternal();
+
+                // Build a synthetic snapshot whose PART node references the live
+                // target part by pid + name and lists the fake original.
+                var snapshot = new ConfigNode("VESSEL");
+                var partNode = snapshot.AddNode("PART");
+                partNode.AddValue("name", target.partInfo.name);
+                partNode.AddValue("pid", target.persistentId.ToString());
+                partNode.AddValue("crew", fakeOriginal);
+
+                syntheticRecording = new Recording
+                {
+                    RecordingId = "test-orphan-277-" + System.Guid.NewGuid().ToString("N").Substring(0, 8),
+                    VesselName = "Bug277TestVessel",
+                    GhostVisualSnapshot = snapshot
+                };
+
+                // Inject synthetic recording so the snapshot scan finds the fake original.
+                RecordingStore.CommittedRecordings.Add(syntheticRecording);
+                addedToCommitted = true;
+
+                // Register ONLY the fake reservation. The dict was cleared above,
+                // so PlaceOrphanedReplacements will iterate exactly one entry.
+                CrewReservationManager.SetReplacement(fakeOriginal, standIn.name);
+
+                // Run just the orphan-placement pass with an empty swappedOriginals
+                // set. This avoids triggering RemoveReservedEvaVessels and SpawnCrew
+                // side effects from full SwapReservedCrewInFlight.
+                var swappedOriginals = new HashSet<string>();
+                int placed = CrewReservationManager.PlaceOrphanedReplacements(roster, swappedOriginals);
+
+                // Validate placement.
+                InGameAssert.IsGreaterThan(placed, 0,
+                    $"PlaceOrphanedReplacements should have placed at least 1 stand-in (placed={placed})");
+                placedCrew = target.protoModuleCrew.Contains(standIn);
+                InGameAssert.IsTrue(placedCrew,
+                    $"Stand-in '{standIn.name}' should be in target part '{target.partInfo.title}' " +
+                    $"after orphan placement");
+                InGameAssert.IsTrue(swappedOriginals.Contains(fakeOriginal),
+                    $"Fake original '{fakeOriginal}' should be in swappedOriginals after placement");
+                InGameAssert.AreEqual(beforeCrewCount + 1, target.protoModuleCrew.Count,
+                    $"Target part crew count should have increased by 1 " +
+                    $"(before={beforeCrewCount}, after={target.protoModuleCrew.Count})");
+
+                ParsekLog.Info("TestRunner",
+                    $"Bug277 end-to-end: orphan placement placed '{standIn.name}' " +
+                    $"in '{target.partInfo.title}' from synthetic snapshot");
+            }
+            finally
+            {
+                // Roll back placement first so the part returns to its original state.
+                if (placedCrew && target.protoModuleCrew.Contains(standIn))
+                    target.RemoveCrewmember(standIn);
+
+                // Restore replacements: clear (drops the fake too) and replay the
+                // saved set. Always run regardless of where the test failed —
+                // ClearReplacementsInternal at the top means crewReplacements is in
+                // an unknown state if we don't restore.
+                CrewReservationManager.ClearReplacementsInternal();
+                foreach (var kvp in savedReplacements)
+                    CrewReservationManager.SetReplacement(kvp.Key, kvp.Value);
+
+                // Remove the synthetic recording from the committed list.
+                if (addedToCommitted)
+                    RecordingStore.CommittedRecordings.Remove(syntheticRecording);
+
+                // Verify rollback.
+                InGameAssert.AreEqual(beforeCrewCount, target.protoModuleCrew.Count,
+                    $"Rollback failed: target part crew count not restored " +
+                    $"(expected={beforeCrewCount}, actual={target.protoModuleCrew.Count})");
+                InGameAssert.AreEqual(savedCommittedCount, RecordingStore.CommittedRecordings.Count,
+                    $"Rollback failed: CommittedRecordings count not restored " +
+                    $"(expected={savedCommittedCount}, actual={RecordingStore.CommittedRecordings.Count})");
+                InGameAssert.AreEqual(savedReplacements.Count, CrewReservationManager.CrewReplacements.Count,
+                    $"Rollback failed: crewReplacements count not restored " +
+                    $"(expected={savedReplacements.Count}, actual={CrewReservationManager.CrewReplacements.Count})");
+            }
+        }
     }
 
     /// <summary>
@@ -1650,6 +1911,98 @@ namespace Parsek.InGameTests
                     catch { /* best-effort */ }
                 }
             }
+        }
+
+        // ─────────────────────────────────────────────────────────────
+        //  #278 — Limbo finalize uses real vessel situation
+        // ─────────────────────────────────────────────────────────────
+
+        [InGameTest(Category = "FinalizeLimbo", Scene = GameScenes.FLIGHT,
+            Description = "FinalizeIndividualRecording on a live active vessel uses the real situation, not Destroyed (#278)")]
+        public void FinalizeIndividualRecording_LiveActiveVessel_UsesRealSituation()
+        {
+            var activeVessel = FlightGlobals.ActiveVessel;
+            if (activeVessel == null)
+            {
+                InGameAssert.Skip("needs Flight scene with an active vessel");
+                return;
+            }
+
+            // Build a leaf recording wired to the active vessel's pid. The
+            // pre-#278 FinalizePendingLimboTreeForRevert blanket-stamped this
+            // kind of leaf as Destroyed; the fix routes through
+            // FinalizeIndividualRecording, which looks the vessel up by pid
+            // and uses RecordingTree.DetermineTerminalState against
+            // vessel.situation. For any vessel still loaded in FlightGlobals
+            // (PRELAUNCH on the pad, LANDED for a walking kerbal, ORBITING in
+            // orbit, …) the result must NOT be Destroyed — Destroyed is the
+            // fallback for the vessel-is-gone branch only.
+            var rec = new Parsek.Recording
+            {
+                RecordingId = "bug278-live-vessel-" + System.DateTime.UtcNow.Ticks,
+                VesselName = activeVessel.vesselName,
+                VesselPersistentId = activeVessel.persistentId,
+                ChildBranchPointId = null, // leaf
+                ExplicitStartUT = double.NaN,
+                ExplicitEndUT = double.NaN,
+            };
+            rec.Points.Add(new Parsek.TrajectoryPoint
+            {
+                ut = Planetarium.GetUniversalTime() - 5.0,
+                latitude = activeVessel.latitude,
+                longitude = activeVessel.longitude,
+                altitude = activeVessel.altitude,
+                bodyName = activeVessel.mainBody?.name ?? "Kerbin",
+                rotation = Quaternion.identity,
+                velocity = Vector3.zero,
+            });
+
+            var sit = activeVessel.situation;
+            ParsekFlight.FinalizeIndividualRecording(
+                rec, Planetarium.GetUniversalTime(), isSceneExit: true);
+
+            InGameAssert.IsTrue(rec.TerminalStateValue.HasValue,
+                "FinalizeIndividualRecording must always set a terminal state on a leaf");
+            InGameAssert.IsTrue(
+                rec.TerminalStateValue.Value != Parsek.TerminalState.Destroyed,
+                $"Live active vessel '{activeVessel.vesselName}' (situation={sit}) " +
+                $"must not be classified as Destroyed — that's the bug #278 regression. " +
+                $"Got terminalState={rec.TerminalStateValue.Value}.");
+
+            ParsekLog.Verbose("TestRunner",
+                $"Bug278 in-game test: vessel='{activeVessel.vesselName}' " +
+                $"situation={sit} → terminalState={rec.TerminalStateValue.Value}");
+        }
+
+        [InGameTest(Category = "FinalizeLimbo", Scene = GameScenes.FLIGHT,
+            Description = "FinalizeIndividualRecording leaves an existing terminal state untouched (#278 regression guard)")]
+        public void FinalizeIndividualRecording_LiveActiveVessel_PreservesExistingTerminalState()
+        {
+            var activeVessel = FlightGlobals.ActiveVessel;
+            if (activeVessel == null)
+            {
+                InGameAssert.Skip("needs Flight scene with an active vessel");
+                return;
+            }
+
+            // A leaf that was already classified Splashed elsewhere (e.g. by
+            // EndDebrisRecording during the live flight) must NOT be reclassified
+            // by the limbo finalize. The `if (isLeaf && !rec.TerminalStateValue.HasValue)`
+            // guard inside FinalizeIndividualRecording is what protects this.
+            var rec = new Parsek.Recording
+            {
+                RecordingId = "bug278-preserve-" + System.DateTime.UtcNow.Ticks,
+                VesselName = activeVessel.vesselName,
+                VesselPersistentId = activeVessel.persistentId,
+                ChildBranchPointId = null,
+                TerminalStateValue = Parsek.TerminalState.Splashed,
+            };
+
+            ParsekFlight.FinalizeIndividualRecording(
+                rec, Planetarium.GetUniversalTime(), isSceneExit: true);
+
+            InGameAssert.AreEqual(Parsek.TerminalState.Splashed,
+                rec.TerminalStateValue.Value);
         }
     }
 }

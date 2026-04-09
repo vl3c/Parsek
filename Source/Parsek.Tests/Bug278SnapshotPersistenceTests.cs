@@ -5,42 +5,47 @@ using Xunit;
 namespace Parsek.Tests
 {
     /// <summary>
-    /// Tests for bug #278 — debris snapshots lost between BackgroundRecorder
-    /// split-time capture and MergeDialog.BuildDefaultVesselDecisions.
+    /// Tests for the bug #278 follow-up safety nets shipped in PR #177 alongside
+    /// the bug #279 logging.
     ///
-    /// The 2026-04-09 Kerbal X playtest log
-    /// (logs/2026-04-09_recording-flow-bugs/KSP.log) showed that 27 Kerbal X
-    /// Debris recordings finalized via the
-    /// CheckDebrisTTL → EndDebrisRecording (v == null branch) path. The #280
-    /// fix added PersistFinalizedRecording to OnBackgroundVesselWillDestroy and
-    /// Shutdown but left EndDebrisRecording uncovered.
+    /// **Background.** The user-visible bug #278 was fixed in PR #176 by
+    /// changing <c>FinalizePendingLimboTreeForRevert</c> to use real vessel
+    /// situation instead of blanket-stamping every leaf as Destroyed. PR #177
+    /// (this set) adds two follow-up safety nets that the PR #176 fix does not
+    /// itself need but that close real coverage gaps in the surrounding
+    /// snapshot-persistence path:
     ///
-    /// **Test scope.** Driving the full CheckDebrisTTL → EndDebrisRecording
-    /// path from a unit test is not feasible: EndDebrisRecording calls
-    /// OnVesselRemovedFromBackground, which calls
+    /// 1. <see cref="BackgroundRecorder.PersistFinalizedRecording"/> is now
+    ///    called from <c>EndDebrisRecording</c>, mirroring the #280 wiring
+    ///    into the <c>CheckDebrisTTL</c> termination path that the original
+    ///    #280 fix had not covered. Pinned by
+    ///    <see cref="EndDebrisRecording_PersistContextString_AppearsInFailureLog"/>.
+    /// 2. <c>RecordingStore.SaveRecordingFiles</c> no longer destructively
+    ///    deletes <c>_vessel.craft</c> when in-memory <c>VesselSnapshot</c> is
+    ///    null. Inspected by code review (not unit-testable in this environment
+    ///    because <c>SaveRecordingFiles</c> requires a real KSP save folder).
+    ///
+    /// **Test scope.** Driving the full
+    /// <c>CheckDebrisTTL → EndDebrisRecording</c> path from a unit test is not
+    /// feasible: <c>EndDebrisRecording</c> calls
+    /// <c>OnVesselRemovedFromBackground</c>, which calls
     /// <c>Planetarium.GetUniversalTime()</c> — a Unity static that throws
-    /// NullReferenceException in test environments where Unity is not
-    /// initialized. Refactoring all of these to be test-friendly is well
-    /// outside the scope of this fix. Instead, these tests pin two
-    /// observable contracts that together cover the wiring:
+    /// <c>NullReferenceException</c> in test environments where Unity is not
+    /// initialized. Refactoring those call paths is out of scope for this PR.
+    /// Instead, these tests pin two observable contracts that together cover
+    /// the wiring:
     ///
-    /// 1. The `EndDebrisRecording pid={vesselPid}` context string format used
-    ///    in the call site is preserved (so a future rename of the helper
-    ///    invocation site fails this test, prompting a deliberate update).
-    /// 2. The `PersistFinalizedRecording` helper itself is exercised by the
-    ///    existing <see cref="Bug280PersistFinalizedRecordingTests"/> suite.
+    /// 1. The <c>EndDebrisRecording pid={vesselPid}</c> context string format
+    ///    used at the call site is preserved (so a future rename produces a
+    ///    test failure that prompts a deliberate update).
+    /// 2. The breadcrumb is distinguishable from the existing #280
+    ///    <c>OnBackgroundVesselWillDestroy</c> / <c>Shutdown</c> contexts so
+    ///    next-playtest triage can tell which finalization site fired.
     ///
     /// End-to-end behavior is verified by the next Kerbal X in-game playtest
-    /// (load `s32`, repeat the launch + radial booster crash sequence; expect
-    /// `BuildDefaultVesselDecisions.*hasSnapshot=True` in the resulting log).
-    ///
-    /// The destructive-delete fix at RecordingStore.cs:3077-3086 (removal of
-    /// the auto-deletion of `_vessel.craft` when in-memory snapshot is null)
-    /// is also not unit-testable in this environment because SaveRecordingFiles
-    /// requires a real KSP save folder. The change was inspected against
-    /// MergeDialog/ChainSegmentManager callers and validated against the
-    /// cascading-fix logic in the plan doc
-    /// (docs/dev/plans/bugs-269-278-279-fix-plan.md).
+    /// (load <c>s32</c>, repeat the launch + radial booster crash sequence;
+    /// expect <c>BuildDefaultVesselDecisions.*hasSnapshot=True</c> in the
+    /// resulting log).
     /// </summary>
     [Collection("Sequential")]
     public class Bug278SnapshotPersistenceTests : IDisposable

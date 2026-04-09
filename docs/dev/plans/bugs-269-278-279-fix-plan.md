@@ -1,6 +1,12 @@
 # Fix Plan: Bugs #269, #278, #279
 
-Status: drafted 2026-04-09 (post-review). Implementation underway in `investigate-269-279` branch.
+Status: drafted 2026-04-09 (post-review), revised 2026-04-10 after merging origin/main.
+
+**Revision note (2026-04-10):** While this branch was open, PR #176 merged a different fix for #278 with the **correct** root-cause diagnosis (this draft's diagnosis was wrong). The PR #176 fix changed `FinalizePendingLimboTreeForRevert` to use real vessel situation instead of blanket-stamping leaves as Destroyed. The snapshot-loss part of the original #278 hypothesis was already covered by #280's PR #167. This plan has been updated to reflect that:
+
+- The "Phase 2" snapshot persistence work in this PR is **defense-in-depth, not the #278 root cause**. It closes real coverage gaps in #280's wiring (the TTL/destroyed sub-path of `CheckDebrisTTL`) and removes a destructive-delete race in `SaveRecordingFiles`. Both are safety nets that harden the persistence path against future regressions; neither is needed for the user-visible #278 symptom which PR #176 already fixed.
+- The #279 logging work is unchanged — independent of the #278 root cause, still valid.
+- The #286 user-facing complaint entry is unchanged — independent design discussion.
 
 ## Background
 

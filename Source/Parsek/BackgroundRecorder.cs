@@ -773,16 +773,18 @@ namespace Parsek
             OnVesselRemovedFromBackground(vesselPid);
             tree.BackgroundMap.Remove(vesselPid);
 
-            // Bug #278: persist the flushed data + snapshot to disk IMMEDIATELY at
-            // finalization. The #280 fix added PersistFinalizedRecording to
-            // OnBackgroundVesselWillDestroy and Shutdown, but EndDebrisRecording
-            // (called from CheckDebrisTTL when a debris vessel is destroyed/despawned
-            // or when its 60s TTL expires) was left uncovered. The 2026-04-09 Kerbal X
-            // playtest log shows this path was the actual finalization site for many
-            // of the lost-snapshot debris — they finalized via the v == null branch of
-            // CheckDebrisTTL → EndDebrisRecording, never went through
-            // OnBackgroundVesselWillDestroy, and so lost their snapshots on F9 reload.
-            // Mirroring PersistFinalizedRecording here closes the TTL gap.
+            // Bug #280 follow-up (PR #177): persist the flushed data + snapshot to
+            // disk IMMEDIATELY at finalization. The #280 fix (PR #167) wired
+            // PersistFinalizedRecording into OnBackgroundVesselWillDestroy and
+            // Shutdown but left EndDebrisRecording — the CheckDebrisTTL termination
+            // site for both the v == null "destroyed/despawned" branch and the 60s
+            // TTL expiry branch — uncovered. PR #176's #278 fix removed the
+            // user-visible symptom by stopping the blanket-Destroyed stamp in
+            // FinalizePendingLimboTreeForRevert, but the underlying #280 wiring
+            // gap remains and would re-surface as data loss the moment a future
+            // change reintroduces a code path that depends on the TTL/destroyed
+            // sub-path persisting at finalization. Mirroring the call here closes
+            // the gap so the TTL path matches the destroy/shutdown paths.
             if (rec != null)
             {
                 PersistFinalizedRecording(rec, $"EndDebrisRecording pid={vesselPid}");
