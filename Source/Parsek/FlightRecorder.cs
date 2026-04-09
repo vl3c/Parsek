@@ -4856,7 +4856,10 @@ namespace Parsek
         {
             // Guard: detect time regression (quickload/revert during recording).
             // Trim all points recorded after the new time to maintain monotonicity.
-            if (Recording.Count > 0 && point.ut < lastRecordedUT - 1.0)
+            // Callers (this method + SamplePosition) reset lastRecordedUT to point.ut
+            // immediately after the trim returns, so the stale value inside
+            // TrimRecordingToUT's log line is fine — it reflects the pre-trim state.
+            if (Recording.Count > 0 && point.ut < lastRecordedUT - TimeRegressionThresholdSeconds)
             {
                 TrimRecordingToUT(point.ut);
             }
@@ -4904,6 +4907,14 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Minimum backwards UT jump (seconds) that triggers a quickload/revert trim.
+        /// Guards against false positives from sub-second time-warp boundary jitter
+        /// while still catching user-initiated F9 (which typically rewinds tens of
+        /// seconds or more).
+        /// </summary>
+        internal const double TimeRegressionThresholdSeconds = 1.0;
+
+        /// <summary>
         /// Trims the recording buffer back to before the given UT.
         /// Called when a quickload/revert causes game time to regress, making
         /// previously-recorded points invalid (alternate timeline data).
@@ -4913,7 +4924,10 @@ namespace Parsek
         {
             int oldCount = Recording.Count;
 
-            // Binary search: find first point with UT >= newUT
+            // Linear scan: find first point with UT >= newUT. Points are monotonic
+            // by construction (guard in CommitRecordedPoint), so binary search would
+            // work, but recording sizes are bounded at low thousands and linear is
+            // clearer. Revisit if profiling shows this is hot.
             int trimIdx = Recording.Count;
             for (int i = 0; i < Recording.Count; i++)
             {
@@ -4952,9 +4966,13 @@ namespace Parsek
                         currentTrackSection.frames.Count - frameTrimIdx);
             }
 
+            // Locale-safe formatting (comma-locale machines would otherwise write "27 266,0"
+            // which breaks downstream log parsers).
+            var ic = System.Globalization.CultureInfo.InvariantCulture;
             ParsekLog.Warn("Recorder",
-                $"Time regression detected: UT went from {lastRecordedUT:F1} to {newUT:F1} " +
-                $"(delta={newUT - lastRecordedUT:F1}s). Trimmed recording: " +
+                $"Time regression detected: UT went from {lastRecordedUT.ToString("F1", ic)} to " +
+                $"{newUT.ToString("F1", ic)} " +
+                $"(delta={(newUT - lastRecordedUT).ToString("F1", ic)}s). Trimmed recording: " +
                 $"points {oldCount}→{Recording.Count}, " +
                 $"partEvents {oldPartEvents}→{PartEvents.Count}, " +
                 $"orbitSegments {oldOrbitSegs}→{OrbitSegments.Count}");
@@ -5000,7 +5018,7 @@ namespace Parsek
             TrajectoryPoint point = BuildTrajectoryPoint(v, currentVelocity);
 
             // Guard: detect time regression (quickload/revert during recording)
-            if (Recording.Count > 0 && point.ut < lastRecordedUT - 1.0)
+            if (Recording.Count > 0 && point.ut < lastRecordedUT - TimeRegressionThresholdSeconds)
             {
                 TrimRecordingToUT(point.ut);
             }

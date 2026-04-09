@@ -5269,16 +5269,28 @@ namespace Parsek
                 Vessel v = rec.VesselPersistentId != 0
                     ? FlightRecorder.FindVesselByPid(rec.VesselPersistentId)
                     : null;
+                // Try live vessel first — CaptureTerminalOrbit silently no-ops if the
+                // vessel's orbit is null or its situation doesn't match the accepted set
+                // (ORBITING/SUB_ORBITAL/FLYING/ESCAPING). In that case we still need a
+                // fallback, so we check TerminalOrbitBody AFTER the live capture attempt.
                 if (v != null)
-                {
                     CaptureTerminalOrbit(rec, v);
+
+                if (string.IsNullOrEmpty(rec.TerminalOrbitBody))
+                {
+                    // Either the vessel wasn't found, or CaptureTerminalOrbit declined it —
+                    // fall back to the last orbit segment from BackgroundRecorder sampling.
+                    PopulateTerminalOrbitFromLastSegment(rec);
                     ParsekLog.Info("Flight",
                         $"FinalizeIndividualRecording: backfilled TerminalOrbitBody={rec.TerminalOrbitBody} " +
-                        $"for '{rec.RecordingId}' (terminal={rec.TerminalStateValue})");
+                        $"for '{rec.RecordingId}' via orbit-segment fallback " +
+                        $"(terminal={rec.TerminalStateValue}, vesselFound={v != null})");
                 }
                 else
                 {
-                    PopulateTerminalOrbitFromLastSegment(rec);
+                    ParsekLog.Info("Flight",
+                        $"FinalizeIndividualRecording: backfilled TerminalOrbitBody={rec.TerminalOrbitBody} " +
+                        $"for '{rec.RecordingId}' from live vessel (terminal={rec.TerminalStateValue})");
                 }
             }
 

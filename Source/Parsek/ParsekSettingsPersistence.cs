@@ -45,12 +45,16 @@ namespace Parsek
         private static bool loaded;
 
         /// <summary>
-        /// Resolves the settings file path under GameData/Parsek/.
+        /// Resolves the settings file path under GameData/Parsek/PluginData/.
+        /// PluginData is the KSP convention for runtime-written, non-asset state:
+        /// it's excluded from ModuleManager's patch cache, survives mod updates
+        /// (as long as the user doesn't wipe the folder), and is the standard
+        /// place mods store per-installation settings.
         /// </summary>
         internal static string GetFilePath()
         {
             string root = KSPUtil.ApplicationRootPath ?? "";
-            return Path.Combine(root, "GameData", "Parsek", FileName);
+            return Path.Combine(root, "GameData", "Parsek", "PluginData", FileName);
         }
 
         /// <summary>

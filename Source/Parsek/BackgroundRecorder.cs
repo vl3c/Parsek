@@ -1452,7 +1452,14 @@ namespace Parsek
             Recording treeRecForSeed;
             if (!tree.Recordings.TryGetValue(recordingId, out treeRecForSeed))
             {
-                // Tree recording not found — don't attempt to seed events into a null target
+                // Tree recording not found — unexpected state. The caller supplied a recordingId
+                // that doesn't exist in the tree's Recordings dict, which means a lifecycle bug
+                // somewhere upstream (tree corrupted, recording deleted without updating the
+                // background map, race between StopRecording and InitializeLoadedState, etc.).
+                // Log loud so we notice; seeding is skipped because there's no target anyway.
+                ParsekLog.Warn("BgRecorder",
+                    $"InitializeLoadedState: tree recording '{recordingId}' not found for " +
+                    $"pid={vesselPid} — skipping seed events (upstream lifecycle bug)");
             }
             else if (treeRecForSeed.PartEvents.Count > 0)
             {
