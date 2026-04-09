@@ -665,16 +665,18 @@ During the 2026-04-09 KerbalX playtest, the ghost visual showed 3 boosters still
 
 **Root cause:** When a symmetry group of radial decouplers fires, the 6 individual `onPartJointBreak` events race with KSP's vessel-split processing (`Part.decouple()` creates the new vessel and calls `CleanSymmetryVesselReferencesRecursively` before `PartJoint.OnJointBreak` fires). Events captured by `FlightRecorder.OnPartJointBreak` then travel through `StopRecordingForChainBoundary` → `ResumeAfterFalseAlarm` → tree promotion → `FlushRecorderToTreeRecording`, and somewhere in that pipeline half of the events consistently disappear. Exact drop point was not conclusively identified from logs alone (all 6 events appear in the verbose `[Recorder] Part event: Decoupled` output, but only 3 per pair end up in `tree.PartEvents` at `SessionMerger` time).
 
-**Fix:** Deterministic safety net in `DeferredJointBreakCheck`. After classifying a joint break as `DebrisSplit`/`StructuralSplit` and calling `ResumeSplitRecorder`, scan `newVesselPids` and emit a `Decoupled` PartEvent for each new debris vessel's root part via `FlightRecorder.RecordFallbackDecoupleEvent` (deduped against `decoupledPartIds`). Every new debris vessel has exactly one root part, and that root is by construction the part that separated from the recording vessel, so emitting a `Decoupled` event for it hides the correct subtree through `HidePartSubtree`. Must run *after* `ResumeSplitRecorder` so the fallback events survive `ResumeAfterFalseAlarm`'s terminal-event trim.
+**Fix:** Deterministic safety net in `DeferredJointBreakCheck`. After classifying a joint break as `DebrisSplit`/`StructuralSplit` and calling `ResumeSplitRecorder`, scan `newVesselPids` and emit a `Decoupled` PartEvent for each new debris vessel's root part via `FlightRecorder.RecordFallbackDecoupleEvent`. Every new debris vessel has exactly one root part, and that root is by construction the part that separated from the recording vessel, so emitting a `Decoupled` event for it hides the correct subtree through `HidePartSubtree`. Must run *after* `ResumeSplitRecorder` so the fallback events survive `ResumeAfterFalseAlarm`'s terminal-event trim.
 
-When `OnPartJointBreak` already captured all events naturally, the fallback is a no-op (dedup via `decoupledPartIds`). When any event is lost mid-pipeline, the fallback recovers it from the authoritative post-split vessel topology.
+**Dedup source:** scans `PartEvents` directly for an existing `Decoupled` entry with matching pid, NOT the parallel `decoupledPartIds` tracking set. PR #161 review (by code-reviewer) caught that the original implementation checked `decoupledPartIds`, which `OnPartJointBreak` populates at the same time as `PartEvents.Add` — so if all 6 events appeared in the verbose log (as they did in the 2026-04-09 playtest), they were all in `decoupledPartIds` and the fallback would silently skip every recovery attempt. `decoupledPartIds` is never pruned when events are stripped downstream, so it can drift out of sync with the serialized list. The fallback must check what will actually be serialized. `PartEvents` is small at deferred-check time (tens of entries), so the linear scan is negligible.
+
+When `OnPartJointBreak` already captured all events naturally and they survived the pipeline, the fallback is a no-op. When events are dropped anywhere between OnPartJointBreak and file write, the fallback recovers them from the authoritative post-split vessel topology.
 
 **Key locations:**
-- `FlightRecorder.RecordFallbackDecoupleEvent` — pure-ish method with dedup (testable)
+- `FlightRecorder.RecordFallbackDecoupleEvent` — `internal`, scans `PartEvents` for dedup (testable)
 - `ParsekFlight.EmitFallbackDecoupleEventsForNewVessels` — resolves new vessels (live + captured), emits events
 - `ParsekFlight.DeferredJointBreakCheck` — calls the fallback after `ResumeSplitRecorder`
 
-**Tests:** `Bug263DecoupleFallbackTests.cs` — 5 unit tests covering add/dedup/null-name/6-pid-sequence/override-suppression.
+**Tests:** `Bug263DecoupleFallbackTests.cs` — 7 unit tests, critically including `RecordFallbackDecoupleEvent_RecoversEvent_WhenPartEventsDroppedButDecoupledSetStale` which fails deterministically against the pre-review dedup logic (regression guard for the review-identified gap).
 
 **Status:** Fixed
 
