@@ -3232,7 +3232,7 @@ namespace Parsek
 
                 DeserializeTrajectoryFrom(precNode, rec);
 
-                // #287: eagerly populate TerminalOrbit cache from the last orbit segment if
+                // #288: eagerly populate TerminalOrbit cache from the last orbit segment if
                 // the recording was loaded with empty cache fields. Without this, GhostMap
                 // and other consumers see an empty TerminalOrbit cache and fail to create
                 // map vessels for non-finalized recordings (forces the user to press W to

@@ -115,23 +115,9 @@ xUnit tests for the Part B force-write iteration are not feasible without invasi
 
 ---
 
-## 288. Kerbal X engine flames disappear in ghost playback after booster staging
+## ~~288. Ghost map icon hidden after re-entry until W (Watch) is pressed — Recording.TerminalOrbit cache empty~~
 
-User report: *"the kerbalx engine flames in the ghost were turned off after staging the boosters (no effects — check recording?)"*.
-
-**Investigation needed**: check whether `EngineThrottle`/`EngineShutdown` events are properly recorded for the center mainsail engine across the staging event. From the playtest log:
-- 00:46:22: `EngineThrottle 'liquidEngineMainsail.v2' pid=2485666303 midx=0 val=1.00` — full throttle on launch
-- 00:46:35: `EngineShutdown 'liquidEngine2' pid=2521119570 midx=0 val=0.00` — booster shutdown (correct)
-- 00:46:35: `EngineShutdown 'liquidEngine2' pid=545928558 midx=0 val=0.00` — booster shutdown (correct)
-- 00:46:37: `Terminal event: EngineShutdown pid=2485666303 midx=0 at UT=26.90` — **mainsail terminal shutdown at UT=26.9** ← suspicious
-
-Why did the mainsail receive a "Terminal event: EngineShutdown" at UT=26.9 (just after staging)? The mainsail should keep firing until orbital insertion. The "Terminal event" log path is in `Recorder.cs` and fires when an engine module's recording is being closed (e.g., on vessel destruction). Need to confirm whether the mainsail event was a real shutdown, a stale leftover from booster decoupling, or a `vessel.parts` re-enumeration glitch.
-
-**Status**: Open — needs confirmation by reading `Recorder.CheckEngineState` and the staging boundary path.
-
----
-
-## ~~287. Ghost map icon hidden after re-entry until W (Watch) is pressed — Recording.TerminalOrbit cache empty~~
+> **Renumbered from #287** on 2026-04-10. Main shipped a different fix (PR #178, "Spurious terminal EngineShutdown events survive into committed recordings") under #287 while this branch was open. This bug is the second one to claim #287, so it's been moved to #288 to keep the bug-tracking namespace unambiguous. (The #288 slot was previously a stub for "Kerbal X engine flames disappear after staging" — that exact bug is what main fixed as #287, so the stub was a duplicate and has been removed.)
 
 User report: *"on the atmo re-entry from kerbin orbit I had to push the W button for the ghost icon to be visible in map view (it should always be visible)"*.
 
@@ -153,8 +139,6 @@ All 17 recordings were filtered out: 10 debris (no map vessel by design), 1 supe
 
 **Why pressing W "fixes" it**: `WatchModeController` reads `OrbitSegments` directly when entering Watch mode, bypassing the broken `TerminalOrbit` cache. So pressing W incidentally builds the icon by going through a different code path. This is the user's accidental workaround.
 
-**Fix**: Have `GhostMap.HasOrbitData(Recording)` (and any other consumer of `TerminalOrbit`) fall back to `OrbitSegments[OrbitSegments.Count-1]` when `TerminalOrbit.body == null`. Cleanest fix: populate `TerminalOrbit` eagerly on every recording load from the last `OrbitSegment`. The data is already there — only the cache is stale.
-
 **Fix**: Eager-populate the `TerminalOrbit*` cache from the last `OrbitSegment` at sidecar-load time. Added a guarded call to `ParsekFlight.PopulateTerminalOrbitFromLastSegment(rec)` in `RecordingStore.LoadRecordingFiles` immediately after `DeserializeTrajectoryFrom` returns (which is where `OrbitSegments` gets populated). The call is only made when `TerminalOrbitBody` is empty AND `OrbitSegments` has data — the helper itself has a "do not overwrite" guard, so it's safe. Logs `Eager-populated TerminalOrbit for {recId} from last orbit segment (body={body}, sma={sma})` so playtest logs can confirm the fix is active.
 
 **Why this is the right scope**: an earlier draft also added a read-side fallback in `GhostMapPresence.HasOrbitData(Recording)` to check `OrbitSegments[Count-1]` when the cache is empty. That broke the existing `ShouldCreate_NullTerminal_WithSegment_UTPastRange_Skipped` test, which encoded a different policy: "an in-progress recording with currentUT past all known segments should NOT be displayed as a stable orbit". The eager-populate-only approach handles the user's case (recordings loaded from disk after a scene transition) without changing the read-side semantics for in-memory recordings or in-progress test scenarios. Active recordings that grow segments mid-flight don't need the cache because the active vessel's map icon is handled by KSP, not Parsek's ghost system.
@@ -162,6 +146,51 @@ All 17 recordings were filtered out: 10 debris (no map vessel by design), 1 supe
 **Tests**: Existing `WithOrbitSegments_PopulatesTerminalOrbit` and `UsesLastSegment_NotFirst` tests in `BugFixTests.cs` already cover the helper. The new conditional call site in `LoadRecordingFiles` is a simple guard + delegate.
 
 **Status**: Fixed.
+
+---
+
+## ~~287. Spurious terminal EngineShutdown events survive into committed recordings — ghost engine flames go off permanently after booster staging~~
+
+Surfaced by the 2026-04-09 Kerbal X playtest (`logs/2026-04-09_1117_kerbalx-rover`). The user reported that the ghost's KerbalX engine flames (Mainsail + booster liquidEngine2) turned off after staging the boosters and never came back, even though in reality the Mainsail kept burning through orbit insertion.
+
+**Evidence from committed recording `db2e7ab62c6847e0b439237a41172602.prec`:**
+- UT 72.40: `EngineShutdown pid=1782153286 part=unknown` (a liquidEngine2 booster that shouldn't be shutdown yet)
+- UT 87.94: `EngineShutdown pid=2527095907 part=unknown` (booster engine, still running at this UT in reality)
+- UT 104.86: `EngineShutdown pid=2527095907 part=unknown` (same pid, same spurious shutdown pattern)
+
+Each spurious Shutdown is accompanied by a `Decoupled` event from `OnPartJointBreak` at the same UT — but the file is missing one of the paired Decoupleds that the log confirms was emitted. So each boundary shows: 1 real Decoupled + 1 spurious terminal (with 1 Decoupled + 2 terminals missing/extra). The terminal event (with `part="unknown"`) is the smoking gun: only `EmitTerminalEngineAndRcsEvents` in `FlightRecorder.cs` stamps `partName="unknown"` as a literal.
+
+**Log verification:** `ResumeAfterFalseAlarm: removed 5/3/3 orphaned terminal event(s)` at lines 9290, 9494, 9663 of the KSP.log say the terminals WERE removed from the live recorder at each boundary. Yet the saved `.prec` file still has one per boundary.
+
+**Root cause:** `ResumeAfterFalseAlarm`'s index-based `PartEvents.RemoveRange(partEventCountBeforeChainStop, N)` was brittle against any code path that reordered the list between `StopRecordingForChainBoundary` and the resume call. Five call sites used the unstable `List<T>.Sort((a, b) => a.ut.CompareTo(b.ut))` pattern during flush/merge:
+1. `ParsekFlight.FlushRecorderIntoActiveTreeForSerialization` (line 228)
+2. `ParsekFlight.FlushRecorderToTreeRecording` (line 1612)
+3. `ParsekFlight.AppendCapturedDataToRecording` (line 1743)
+4. `RecordingOptimizer.MergeInto` (line 227)
+5. `SessionMerger.MergePartEvents` (line 422)
+
+When the tree root's events were merged with continuation recorder events at OnSave / MergeTree / commit time, an unstable sort could scramble same-UT events. In the Kerbal X case, a terminal Shutdown at UT 72.94 from the tree root and a seed EngineIgnited at the same UT from the continuation could end up in `Ignited-then-Shutdown` order in the committed `.prec`, leaving playback's `ApplyPartEvents` to call `SetEngineEmission(0f)` as the final event at that UT — flame OFF.
+
+**Fix (two prongs):**
+
+1. **Content-based terminal removal** — `FinalizeRecordingState` now saves the exact terminal events it emitted in a new private `lastEmittedTerminalEvents` field. `ResumeAfterFalseAlarm` calls a new `RemoveLastEmittedTerminals()` helper that matches each saved event against `PartEvents` by `(ut, pid, eventType, moduleIndex)` and removes the matching entry. Robust against any sort reordering or intervening append, because removal is by content not position. New `FlightRecorder.FindTerminalEventIndex(list, target)` pure helper does the (ut, pid, type, midx) tuple match.
+
+2. **Stable sort at all merge sites** — new `FlightRecorder.StableSortPartEventsByUT(List<PartEvent>)` static overload returns a NEW list via LINQ `OrderBy` (stable). All five call sites above replaced their `List<T>.Sort` with this helper. Clear+AddRange pattern: `var sorted = StableSortPartEventsByUT(target.PartEvents); target.PartEvents.Clear(); target.PartEvents.AddRange(sorted);`. The static helper is careful to always return a NEW list (even for null/single-element inputs) to prevent aliasing when callers do the Clear+AddRange dance.
+
+**Tests (`Bug287TerminalCleanupTests.cs`, 10 new xUnit tests):**
+- `FindTerminalEventIndex_EmptyList_ReturnsMinusOne` / `MatchByTuple_IgnoresPartName` / `NoMatch_ReturnsMinusOne` / `MatchesFirstOccurrence`
+- `ResumeAfterFalseAlarm_ContentBasedRemoval_PreservesDecouplesAndRemovesTerminals` — end-to-end: 2 decouples + 3 terminals → 2 decouples remain
+- `RemoveLastEmittedTerminals_SurvivesUnstableSortReordering` — adversarial shuffle proves content-based removal works even when the list is scrambled
+- `StableSort_TreeMergeAtSameUT_KeepsShutdownsBeforeIgnitedSeeds` — regression guard for the exact 2026-04-09 scenario (5 tree-root terminal Shutdowns + 5 continuation seed Ignited events all at UT 72.94)
+- `StableSortPartEventsByUT_Static_NullInput_ReturnsEmptyList` / `SingleElement_ReturnsNewList` / `ClearThenCopyBack_WorksWithSmallLists` — aliasing regression guard (caught by `AppendCapturedDataTests` on the first fix iteration)
+
+All 5466 tests pass.
+
+**Observability:** `ResumeAfterFalseAlarm`'s log line continues to report the number removed. A new `Warn` fires if any saved terminal isn't found in `PartEvents` at resume time (`RemoveLastEmittedTerminals: N terminal event(s) not found`) — that's a canary for any future race condition that manages to drop a terminal between emit and resume.
+
+**Cleanup:** The old `partEventCountBeforeChainStop` private field + its 10-line bug #281 invariant comment in `StopRecordingForChainBoundary` were deleted — content-based removal obviates them and the stale comment was actively misleading. Bug #281's `StableSortPartEventsByUT` instance method is preserved and still called from `FinalizeRecordingState`. `FlagEvents` and `SegmentEvents` sort sites were also converted to stable via a new generic `FlightRecorder.StableSortByUT<T>(list, utSelector)` helper so every flush/merge site uses the same ordering semantics.
+
+**Status:** Fixed
 
 ---
 
