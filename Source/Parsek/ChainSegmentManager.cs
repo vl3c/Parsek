@@ -106,6 +106,8 @@ namespace Parsek
         }
 
         // Continuation adaptive sampling thresholds (read from settings, same as FlightRecorder)
+        private static float ContinuationMinInterval =>
+            ParsekSettings.Current?.minSampleInterval ?? 0.2f;
         private static float ContinuationMaxInterval =>
             ParsekSettings.Current?.maxSampleInterval ?? 3.0f;
         private static float ContinuationVelDirThreshold =>
@@ -233,7 +235,8 @@ namespace Parsek
                 : (Vector3)(v.rb_velocityD + Krakensbane.GetFrameVelocity());
 
             if (!TrajectoryMath.ShouldRecordPoint(velocity, lastVel,
-                ut, lastUT, ContinuationMaxInterval,
+                ut, lastUT,
+                ContinuationMinInterval, ContinuationMaxInterval,
                 ContinuationVelDirThreshold, ContinuationSpeedThreshold))
                 return;
 

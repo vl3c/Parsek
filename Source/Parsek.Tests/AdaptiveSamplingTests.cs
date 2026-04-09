@@ -6,6 +6,11 @@ namespace Parsek.Tests
 {
     public class AdaptiveSamplingTests
     {
+        // Default test thresholds. MinInterval = 0 disables the floor for legacy
+        // tests so they exercise the velocity gates the same way they always have.
+        // Tests that exercise the floor explicitly use a non-zero MinInterval and
+        // override the constants locally.
+        private const float MinInterval = 0f;
         private const float MaxInterval = 3.0f;
         private const float VelDirThreshold = 2.0f;
         private const float SpeedThreshold = 0.05f;
@@ -16,7 +21,7 @@ namespace Parsek.Tests
             var result = TrajectoryMath.ShouldRecordPoint(
                 Vector3.zero, Vector3.zero,
                 currentUT: 100, lastRecordedUT: -1,
-                MaxInterval, VelDirThreshold, SpeedThreshold);
+                MinInterval, MaxInterval, VelDirThreshold, SpeedThreshold);
 
             Assert.True(result);
         }
@@ -29,7 +34,7 @@ namespace Parsek.Tests
             var result = TrajectoryMath.ShouldRecordPoint(
                 vel, vel,
                 currentUT: 103.1, lastRecordedUT: 100,
-                MaxInterval, VelDirThreshold, SpeedThreshold);
+                MinInterval, MaxInterval, VelDirThreshold, SpeedThreshold);
 
             Assert.True(result);
         }
@@ -41,7 +46,7 @@ namespace Parsek.Tests
             var result = TrajectoryMath.ShouldRecordPoint(
                 vel, vel,
                 currentUT: 100.5, lastRecordedUT: 100,
-                MaxInterval, VelDirThreshold, SpeedThreshold);
+                MinInterval, MaxInterval, VelDirThreshold, SpeedThreshold);
 
             Assert.False(result);
         }
@@ -56,7 +61,7 @@ namespace Parsek.Tests
             var result = TrajectoryMath.ShouldRecordPoint(
                 current, last,
                 currentUT: 100.2, lastRecordedUT: 100,
-                MaxInterval, VelDirThreshold, SpeedThreshold);
+                MinInterval, MaxInterval, VelDirThreshold, SpeedThreshold);
 
             Assert.True(result);
         }
@@ -71,7 +76,7 @@ namespace Parsek.Tests
             var result = TrajectoryMath.ShouldRecordPoint(
                 current, last,
                 currentUT: 100.2, lastRecordedUT: 100,
-                MaxInterval, VelDirThreshold, SpeedThreshold);
+                MinInterval, MaxInterval, VelDirThreshold, SpeedThreshold);
 
             Assert.False(result);
         }
@@ -86,7 +91,7 @@ namespace Parsek.Tests
             var result = TrajectoryMath.ShouldRecordPoint(
                 current, last,
                 currentUT: 100.2, lastRecordedUT: 100,
-                MaxInterval, VelDirThreshold, SpeedThreshold);
+                MinInterval, MaxInterval, VelDirThreshold, SpeedThreshold);
 
             Assert.True(result);
         }
@@ -101,7 +106,7 @@ namespace Parsek.Tests
             var result = TrajectoryMath.ShouldRecordPoint(
                 current, last,
                 currentUT: 100.2, lastRecordedUT: 100,
-                MaxInterval, VelDirThreshold, SpeedThreshold);
+                MinInterval, MaxInterval, VelDirThreshold, SpeedThreshold);
 
             Assert.True(result);
         }
@@ -116,7 +121,7 @@ namespace Parsek.Tests
             var result = TrajectoryMath.ShouldRecordPoint(
                 current, last,
                 currentUT: 100.2, lastRecordedUT: 100,
-                MaxInterval, VelDirThreshold, SpeedThreshold);
+                MinInterval, MaxInterval, VelDirThreshold, SpeedThreshold);
 
             Assert.False(result);
         }
@@ -128,7 +133,7 @@ namespace Parsek.Tests
             var result = TrajectoryMath.ShouldRecordPoint(
                 Vector3.zero, Vector3.zero,
                 currentUT: 100.5, lastRecordedUT: 100,
-                MaxInterval, VelDirThreshold, SpeedThreshold);
+                MinInterval, MaxInterval, VelDirThreshold, SpeedThreshold);
 
             Assert.False(result);
 
@@ -136,7 +141,7 @@ namespace Parsek.Tests
             var result2 = TrajectoryMath.ShouldRecordPoint(
                 Vector3.zero, Vector3.zero,
                 currentUT: 103.1, lastRecordedUT: 100,
-                MaxInterval, VelDirThreshold, SpeedThreshold);
+                MinInterval, MaxInterval, VelDirThreshold, SpeedThreshold);
 
             Assert.True(result2);
         }
@@ -151,7 +156,7 @@ namespace Parsek.Tests
             var result = TrajectoryMath.ShouldRecordPoint(
                 current, last,
                 currentUT: 100.2, lastRecordedUT: 100,
-                MaxInterval, VelDirThreshold, SpeedThreshold);
+                MinInterval, MaxInterval, VelDirThreshold, SpeedThreshold);
 
             Assert.True(result);
         }
@@ -164,7 +169,7 @@ namespace Parsek.Tests
             var result = TrajectoryMath.ShouldRecordPoint(
                 vel, vel,
                 currentUT: 103, lastRecordedUT: 100,
-                MaxInterval, VelDirThreshold, SpeedThreshold);
+                MinInterval, MaxInterval, VelDirThreshold, SpeedThreshold);
 
             Assert.True(result);
         }
@@ -182,7 +187,7 @@ namespace Parsek.Tests
             var result = TrajectoryMath.ShouldRecordPoint(
                 current, last,
                 currentUT: 100.2, lastRecordedUT: 100,
-                MaxInterval, VelDirThreshold, SpeedThreshold);
+                MinInterval, MaxInterval, VelDirThreshold, SpeedThreshold);
 
             // 0.01 / 0.1 = 0.1 > 0.05, so it records
             Assert.True(result);
@@ -198,7 +203,7 @@ namespace Parsek.Tests
             var result = TrajectoryMath.ShouldRecordPoint(
                 current, last,
                 currentUT: 100.2, lastRecordedUT: 100,
-                MaxInterval, VelDirThreshold, SpeedThreshold);
+                MinInterval, MaxInterval, VelDirThreshold, SpeedThreshold);
 
             Assert.False(result);
         }
@@ -213,7 +218,7 @@ namespace Parsek.Tests
             var result = TrajectoryMath.ShouldRecordPoint(
                 nan, normal,
                 currentUT: 100.5, lastRecordedUT: 100,
-                MaxInterval, VelDirThreshold, SpeedThreshold);
+                MinInterval, MaxInterval, VelDirThreshold, SpeedThreshold);
 
             // Should not throw — result depends on whether NaN comparisons trigger thresholds
             // NaN comparisons return false, so neither direction nor speed triggers fire
@@ -230,7 +235,7 @@ namespace Parsek.Tests
             var result = TrajectoryMath.ShouldRecordPoint(
                 inf, normal,
                 currentUT: 100.5, lastRecordedUT: 100,
-                MaxInterval, VelDirThreshold, SpeedThreshold);
+                MinInterval, MaxInterval, VelDirThreshold, SpeedThreshold);
 
             // Infinity speed change should trigger recording
             Assert.True(result);
@@ -243,7 +248,7 @@ namespace Parsek.Tests
             var result = TrajectoryMath.ShouldRecordPoint(
                 vel, vel,
                 currentUT: 100, lastRecordedUT: 100,
-                MaxInterval, VelDirThreshold, SpeedThreshold);
+                MinInterval, MaxInterval, VelDirThreshold, SpeedThreshold);
 
             Assert.False(result);
         }
@@ -255,10 +260,172 @@ namespace Parsek.Tests
             var result = TrajectoryMath.ShouldRecordPoint(
                 vel, vel,
                 currentUT: 99, lastRecordedUT: 100,
-                MaxInterval, VelDirThreshold, SpeedThreshold);
+                MinInterval, MaxInterval, VelDirThreshold, SpeedThreshold);
 
             // Negative interval: 99-100 = -1, not >= 3
             Assert.False(result);
+        }
+
+        // --- Min interval floor tests (bug #256) ---
+
+        [Fact]
+        public void MinInterval_BlocksWithinFloorWindow()
+        {
+            // 10 -> 11 m/s (10% speed change) would normally fire the speed gate,
+            // but the elapsed (0.1s) is below the 0.2s floor.
+            var last = new Vector3(10, 0, 0);
+            var current = new Vector3(11, 0, 0);
+
+            var result = TrajectoryMath.ShouldRecordPoint(
+                current, last,
+                currentUT: 100.1, lastRecordedUT: 100,
+                minInterval: 0.2f, MaxInterval, VelDirThreshold, SpeedThreshold);
+
+            Assert.False(result);
+        }
+
+        [Fact]
+        public void MinInterval_AllowsAfterFloor()
+        {
+            // Same velocity change, elapsed (0.25s) past the floor — velocity gate fires.
+            var last = new Vector3(10, 0, 0);
+            var current = new Vector3(11, 0, 0);
+
+            var result = TrajectoryMath.ShouldRecordPoint(
+                current, last,
+                currentUT: 100.25, lastRecordedUT: 100,
+                minInterval: 0.2f, MaxInterval, VelDirThreshold, SpeedThreshold);
+
+            Assert.True(result);
+        }
+
+        [Fact]
+        public void MinInterval_DoesNotBlockFirstPoint()
+        {
+            // First point ignores all thresholds, including the floor.
+            var result = TrajectoryMath.ShouldRecordPoint(
+                Vector3.zero, Vector3.zero,
+                currentUT: 100, lastRecordedUT: -1,
+                minInterval: 0.2f, MaxInterval, VelDirThreshold, SpeedThreshold);
+
+            Assert.True(result);
+        }
+
+        [Fact]
+        public void MinInterval_DoesNotBlockMaxIntervalBackstop()
+        {
+            // Degenerate config: minInterval > maxInterval. Max-interval backstop must
+            // still fire so the recorder doesn't starve. Same velocity, elapsed > max.
+            var vel = new Vector3(10, 0, 0);
+            var result = TrajectoryMath.ShouldRecordPoint(
+                vel, vel,
+                currentUT: 105, lastRecordedUT: 100,
+                minInterval: 10f, MaxInterval, VelDirThreshold, SpeedThreshold);
+
+            Assert.True(result);
+        }
+
+        [Fact]
+        public void MinInterval_EvaWalkingPattern_CapsAtFiveHz()
+        {
+            // Simulate an EVA walking on the surface: every physics frame (50 Hz)
+            // the velocity wiggles enough to defeat the velocity gates without the
+            // floor (~1 m/s walking with 0.05 m/s perpendicular noise = ~2.86°
+            // direction change). With the 0.2s floor, max commits should be ~5/sec.
+            double lastRecordedUT = -1;
+            Vector3 lastRecordedVelocity = Vector3.zero;
+            int commits = 0;
+
+            // 50 frames over 1 second of UT (50 Hz physics)
+            for (int i = 0; i < 50; i++)
+            {
+                double ut = i * 0.02; // 50 Hz
+                // Walking velocity ~1 m/s with per-frame perpendicular noise
+                float noise = (i % 2 == 0) ? 0.05f : -0.05f;
+                var vel = new Vector3(1f, 0, noise);
+
+                bool record = TrajectoryMath.ShouldRecordPoint(
+                    vel, lastRecordedVelocity, ut, lastRecordedUT,
+                    minInterval: 0.2f, MaxInterval, VelDirThreshold, SpeedThreshold);
+
+                if (record)
+                {
+                    commits++;
+                    lastRecordedUT = ut;
+                    lastRecordedVelocity = vel;
+                }
+            }
+
+            // 1 second of recording with 0.2s floor → 5 commits max (plus the first-point
+            // exception → up to 6). Without the floor, this loop would commit ~50 times.
+            Assert.True(commits <= 6, $"Expected ≤6 commits with 0.2s floor, got {commits}");
+            Assert.True(commits >= 4, $"Expected ≥4 commits at floor cadence, got {commits}");
+        }
+
+        [Fact]
+        public void MinInterval_HighSpeedAscent_NoLossVsLegacy()
+        {
+            // Atmospheric ascent: 1000 → 1100 m/s with steady direction. Velocity gates
+            // dominate well above the floor. Adding the floor must not reduce commit count
+            // below the legacy (no-floor) baseline because the velocity gates fire at >5 Hz.
+            // 50 frames over 1 second at 50 Hz physics.
+
+            // Run with no floor
+            int commitsLegacy = SimulateAscent(minIntervalForRun: 0f);
+
+            // Run with 0.2s floor
+            int commitsWithFloor = SimulateAscent(minIntervalForRun: 0.2f);
+
+            // The floor must not cap below the legacy commit count for normal ascents.
+            // (In practice both should be around the same value because acceleration is
+            //  bounded and the gates fire at intervals > 0.2s.)
+            Assert.True(commitsWithFloor >= commitsLegacy - 1,
+                $"Floor must not over-restrict ascent sampling: legacy={commitsLegacy}, floor={commitsWithFloor}");
+        }
+
+        private static int SimulateAscent(float minIntervalForRun)
+        {
+            double lastRecordedUT = -1;
+            Vector3 lastRecordedVelocity = Vector3.zero;
+            int commits = 0;
+            for (int i = 0; i < 50; i++)
+            {
+                double ut = i * 0.02;
+                // Linear acceleration 1000→1100 m/s over 1 second
+                float speed = 1000f + (i / 50f) * 100f;
+                var vel = new Vector3(speed, 0, 0);
+
+                bool record = TrajectoryMath.ShouldRecordPoint(
+                    vel, lastRecordedVelocity, ut, lastRecordedUT,
+                    minIntervalForRun, MaxInterval, VelDirThreshold, SpeedThreshold);
+
+                if (record)
+                {
+                    commits++;
+                    lastRecordedUT = ut;
+                    lastRecordedVelocity = vel;
+                }
+            }
+            return commits;
+        }
+
+        [Fact]
+        public void MinInterval_ZeroPreservesLegacyBehavior()
+        {
+            // Regression guard: minInterval=0 must produce identical results to the
+            // pre-fix version of ShouldRecordPoint. This is what all existing tests
+            // assert via the MinInterval=0 const, but assert it explicitly here too.
+            var last = new Vector3(10, 0, 0);
+            var current = new Vector3(11, 0, 0); // 10% speed change
+
+            // Even at 0.01s elapsed (well inside any floor), should record because
+            // the velocity gate fires and the floor is disabled.
+            var result = TrajectoryMath.ShouldRecordPoint(
+                current, last,
+                currentUT: 100.01, lastRecordedUT: 100,
+                minInterval: 0f, MaxInterval, VelDirThreshold, SpeedThreshold);
+
+            Assert.True(result);
         }
 
         // --- FindFirstMovingPoint tests ---

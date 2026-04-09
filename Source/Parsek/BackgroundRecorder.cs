@@ -110,7 +110,6 @@ namespace Parsek
 
             // Proximity-based sample interval tracking
             public double currentSampleInterval = ProximityRateSelector.OutOfRangeInterval;
-            public double lastSampleUT = -1;
 
             // Part event tracking (mirrors FlightRecorder's instance fields)
             public Dictionary<uint, int> parachuteStates = new Dictionary<uint, int>();
@@ -866,13 +865,10 @@ namespace Parsek
                 return;
             }
 
-            // Gate sampling by proximity-based interval
-            if (state.lastSampleUT >= 0 && (ut - state.lastSampleUT) < proximityInterval)
-            {
-                return;
-            }
-
-            // Adaptive sampling (velocity-based within the proximity-gated window)
+            // Adaptive sampling (velocity-based, gated by the proximity interval as min floor).
+            // proximityInterval doubles as ShouldRecordPoint's minInterval — single source of
+            // truth for the rate floor (foreground uses the settings minSampleInterval; both
+            // paths now flow through the same function for the same purpose).
             Vector3 currentVelocity = (Vector3)(bgVessel.rb_velocityD + Krakensbane.GetFrameVelocity());
 
             float maxSampleInterval = ParsekSettings.Current?.maxSampleInterval ?? 3.0f;
@@ -880,7 +876,9 @@ namespace Parsek
             float speedChangeThreshold = (ParsekSettings.Current?.speedChangeThreshold ?? 5.0f) / 100f;
 
             if (!TrajectoryMath.ShouldRecordPoint(currentVelocity, state.lastRecordedVelocity,
-                ut, state.lastRecordedUT, maxSampleInterval, velocityDirThreshold, speedChangeThreshold))
+                ut, state.lastRecordedUT,
+                (float)proximityInterval, maxSampleInterval,
+                velocityDirThreshold, speedChangeThreshold))
             {
                 return;
             }
@@ -903,7 +901,6 @@ namespace Parsek
             treeRec.MarkFilesDirty();
             state.lastRecordedUT = point.ut;
             state.lastRecordedVelocity = point.velocity;
-            state.lastSampleUT = ut;
 
             // Dual-write: also add to current TrackSection's frames list
             if (state.trackSectionActive && state.currentTrackSection.frames != null)
@@ -2785,18 +2782,6 @@ namespace Parsek
             if (loadedStates.TryGetValue(vesselPid, out state))
                 return state.currentSampleInterval;
             return double.MaxValue;
-        }
-
-        /// <summary>
-        /// For testing: gets the last sample UT for a loaded vessel.
-        /// Returns -1 if no loaded state exists.
-        /// </summary>
-        internal double GetLastSampleUTForTesting(uint vesselPid)
-        {
-            BackgroundVesselState state;
-            if (loadedStates.TryGetValue(vesselPid, out state))
-                return state.lastSampleUT;
-            return -1;
         }
 
         /// <summary>

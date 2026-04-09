@@ -178,6 +178,7 @@ namespace Parsek
                 s.autoRecordOnEva = true;
                 s.autoMerge = false;
                 s.verboseLogging = true;
+                s.minSampleInterval = 0.2f;
                 s.maxSampleInterval = 3.0f;
                 s.velocityDirThreshold = 2.0f;
                 s.speedChangeThreshold = 5.0f;
@@ -415,6 +416,19 @@ namespace Parsek
         private void DrawSamplingSettings(ParsekSettings s)
         {
             GUILayout.Label("Sampling", GUI.skin.box);
+
+            GUILayout.BeginHorizontal();
+            GUILayout.Label(new GUIContent($"Min interval: {s.minSampleInterval:F2}s",
+                "Minimum seconds between trajectory samples — caps sample rate during slow/jittery motion (e.g. EVA on surface)"),
+                GUILayout.Width(140));
+            float minSampleInterval = GUILayout.HorizontalSlider(s.minSampleInterval, 0.05f, 1f);
+            if (Mathf.Abs(minSampleInterval - s.minSampleInterval) > 0.0001f)
+            {
+                s.minSampleInterval = minSampleInterval;
+                ParsekLog.VerboseRateLimited("UI", "sampling.minSampleInterval",
+                    $"Setting changed: minSampleInterval={s.minSampleInterval:F2}s", 1.0);
+            }
+            GUILayout.EndHorizontal();
 
             GUILayout.BeginHorizontal();
             GUILayout.Label($"Max interval: {s.maxSampleInterval:F1}s", GUILayout.Width(140));

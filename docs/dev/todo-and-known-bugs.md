@@ -657,15 +657,25 @@ Some timeline "Spawn:" lines show generic "Landed" without specifying where. Sho
 
 **Priority:** Low — timeline display completeness
 
-## 256. EVA recording runaway sampling — 138K points in 33 seconds
+## ~~256. EVA recording runaway sampling — slow-motion adaptive sampler defeated~~
 
-"Bob Kerman" EVA recording (rec[28]) produced 138,648 trajectory points in 33 seconds (4,200 pts/sec). The adaptive sampler should cap at ~3-5 pts/sec. This single recording is 86.9 MB — 93% of the save's total Parsek storage and the primary cause of the 8.7-second initial load time.
+The adaptive sampler had no minimum interval floor, only a max-interval backstop and velocity-based gates. EVA kerbals walking on a surface defeated the velocity gates on every physics frame, producing 1 commit per frame (~28 pts/s for the verified Bob-on-Mun recording at `logs/2026-04-08_mun-mission/Recordings/ab105395ae5547b0b70c1eb9bb41ca9f.prec`, 238 points / 8.34 s). The original bug-report figure of "138K points in 33 s = 4200 pts/s" came from a pre-format-v0 (PR #114) artifact and is not reproducible from current code — at 50 Hz physics and 1 `Recording.Add` per `OnPhysicsFrame`, the absolute ceiling is ~50 pts/s. The architectural defect is real but its current-code magnitude is ~10× the 3 pts/s target, not 1000×.
 
-**Likely cause:** EVA physics jitter on the surface causes velocity direction to oscillate every frame, defeating the 2-degree direction-change threshold in `ShouldRecordPoint`. The speed-change threshold (5%) may also trigger constantly during surface contact bouncing.
+**Three threshold-defeat mechanisms for slow-moving vessels:**
+1. **Direction gate angular sensitivity at low speed:** at 1 m/s walking pace, a 0.05 m/s perpendicular noise component = `arctan(0.05/1) ≈ 2.86°` → exceeds the 2° gate every frame.
+2. **Speed gate floor + low base speed:** `Mathf.Max(lastSpeed, 0.1f)` makes the divisor 0.1 at very low speeds, so any 5+ mm/s change is ≥ 5% → fires the speed gate.
+3. **Direction gate skipped at near-zero speed** (`currentSpeed ≤ 0.1f`), leaving only the speed gate which fires per #2.
 
-**Investigate:** Check `FlightRecorder.ShouldRecordPoint` behavior during EVA on surfaces. May need EVA-specific sampling overrides (larger thresholds or minimum interval floor for EVA vessels).
+**Foreground/background asymmetry:** `BackgroundRecorder.OnBackgroundPhysicsFrame` already has a hard floor via `ProximityRateSelector` (0.2 / 0.5 / 2.0 s tiers). `FlightRecorder.OnPhysicsFrame` had only the velocity gates. This is the architectural gap closed by the fix.
 
-**Priority:** High — directly causes performance and storage issues
+**Fix:** Added `minInterval` parameter to `TrajectoryMath.ShouldRecordPoint` — a hard floor checked after the first-point exception and after the max-interval backstop (so degenerate `min > max` configs still produce samples). New `ParsekSettings.minSampleInterval` field with 0.05–1.0 s slider, default 0.2 s. The default matches `ProximityRateSelector.DockingInterval` for recorder mode parity. `FlightRecorder`, `ChainSegmentManager.SampleContinuationVessel`, and `BackgroundRecorder.OnBackgroundPhysicsFrame` all pass through the new parameter; the background path additionally folds its separate `state.lastSampleUT` proximity gate into the new floor parameter (single source of truth, dead `lastSampleUT` field removed).
+
+**Tests:**
+- 7 new xUnit tests in `AdaptiveSamplingTests.cs`: floor blocks within window, allows after, doesn't block first point, doesn't block max backstop (degenerate config), EVA walking pattern caps at ~5 commits/s, high-speed ascent has no commit-count loss vs legacy, regression guard for `minInterval=0` legacy preservation.
+- 22 pre-existing `AdaptiveSamplingTests.cs` cases updated to pass `MinInterval = 0f` constant — explicit regression guard against accidentally enabling the floor in legacy tests.
+- 1 new in-game test `MinSampleIntervalCapsEvaJitter` in `RuntimeTests.cs` (Category=TrajectoryMath) that reads the live `ParsekSettings.Current?.minSampleInterval`, asserts it is in `(0, 1]`, runs the EVA-jitter simulation against the live settings, and asserts ≤ 7 commits over 1 s (regression guard against settings load failures).
+
+**Status:** Fixed
 
 ## 257. Orbit segment with negative SMA (hyperbolic escape)
 

@@ -189,6 +189,8 @@ namespace Parsek
         public ConfigNode InitialGhostVisualSnapshot => initialGhostVisualSnapshot;
 
         // Adaptive sampling thresholds (read from settings, fallback to defaults)
+        private static float minSampleInterval =>
+            ParsekSettings.Current?.minSampleInterval ?? 0.2f;
         private static float maxSampleInterval =>
             ParsekSettings.Current?.maxSampleInterval ?? 3.0f;
         private static float velocityDirThreshold =>
@@ -4881,7 +4883,7 @@ namespace Parsek
 
             if (!TrajectoryMath.ShouldRecordPoint(currentVelocity, lastRecordedVelocity,
                 Planetarium.GetUniversalTime(), lastRecordedUT,
-                maxSampleInterval, velocityDirThreshold, speedChangeThreshold))
+                minSampleInterval, maxSampleInterval, velocityDirThreshold, speedChangeThreshold))
             {
                 ParsekLog.VerboseRateLimited("Recorder", "sample-skipped",
                     $"Sample skipped at ut={Planetarium.GetUniversalTime():F2}; waiting for threshold trigger", 2.0);

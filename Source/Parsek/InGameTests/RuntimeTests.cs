@@ -75,7 +75,7 @@ namespace Parsek.InGameTests
         {
             var vel1 = new Vector3(100, 0, 0);
             var vel2 = new Vector3(0, 100, 0); // 90 degree change
-            bool result = TrajectoryMath.ShouldRecordPoint(vel2, vel1, 10.0, 9.5, 3f, 2f, 5f);
+            bool result = TrajectoryMath.ShouldRecordPoint(vel2, vel1, 10.0, 9.5, 0f, 3f, 2f, 5f);
             InGameAssert.IsTrue(result, "Should record when velocity direction changes 90 degrees");
         }
 
@@ -83,7 +83,7 @@ namespace Parsek.InGameTests
         public void ShouldRecordPointRespectsMaxInterval()
         {
             var vel = new Vector3(100, 0, 0);
-            bool result = TrajectoryMath.ShouldRecordPoint(vel, vel, 20.0, 16.0, 3f, 2f, 5f);
+            bool result = TrajectoryMath.ShouldRecordPoint(vel, vel, 20.0, 16.0, 0f, 3f, 2f, 5f);
             InGameAssert.IsTrue(result, "Should record when interval > maxSampleInterval");
         }
 
@@ -91,7 +91,7 @@ namespace Parsek.InGameTests
         public void ShouldRecordPointReturnsFalseWhenStable()
         {
             var vel = new Vector3(100, 0, 0);
-            bool result = TrajectoryMath.ShouldRecordPoint(vel, vel, 10.1, 10.0, 3f, 2f, 5f);
+            bool result = TrajectoryMath.ShouldRecordPoint(vel, vel, 10.1, 10.0, 0f, 3f, 2f, 5f);
             InGameAssert.IsFalse(result, "Should not record when velocity stable and within interval");
         }
 
@@ -143,6 +143,59 @@ namespace Parsek.InGameTests
             int cached = 0;
             int idx = TrajectoryMath.FindWaypointIndex(points, ref cached, 250);
             InGameAssert.AreEqual(1, idx, "Should find index 1 for ut=250 (between 200 and 300)");
+        }
+
+        [InGameTest(Category = "TrajectoryMath",
+            Description = "Live ParsekSettings.minSampleInterval caps EVA-jitter sample rate (bug #256 regression guard)")]
+        public void MinSampleIntervalCapsEvaJitter()
+        {
+            // Validates that the live game-loaded ParsekSettings.minSampleInterval is
+            // a sane non-zero value AND that ShouldRecordPoint with that value caps the
+            // simulated EVA walking pattern at ~5 Hz. Regression guard for bug #256.
+            float minInterval = ParsekSettings.Current?.minSampleInterval ?? 0.2f;
+            InGameAssert.IsGreaterThan(minInterval, 0.0f,
+                "minSampleInterval must be > 0 in the live game (bug #256 floor would be disabled)");
+            InGameAssert.IsLessThan((double)minInterval, 1.01,
+                "minSampleInterval should be ≤ 1 second (anything larger conflicts with max-interval backstop)");
+
+            float maxInterval = ParsekSettings.Current?.maxSampleInterval ?? 3.0f;
+            float velDirThreshold = ParsekSettings.Current?.velocityDirThreshold ?? 2.0f;
+            float speedThreshold = (ParsekSettings.Current?.speedChangeThreshold ?? 5.0f) / 100f;
+
+            // Simulate 50 frames at 50 Hz (1 second of physics) with EVA-style velocity
+            // jitter that would defeat the velocity gates without the floor:
+            // ~1 m/s walking with per-frame perpendicular noise → ~2.86° direction swing
+            double lastRecordedUT = -1;
+            Vector3 lastRecordedVelocity = Vector3.zero;
+            int commits = 0;
+            for (int i = 0; i < 50; i++)
+            {
+                double ut = i * 0.02; // 50 Hz
+                float noise = (i % 2 == 0) ? 0.05f : -0.05f;
+                var vel = new Vector3(1f, 0, noise);
+
+                bool record = TrajectoryMath.ShouldRecordPoint(
+                    vel, lastRecordedVelocity, ut, lastRecordedUT,
+                    minInterval, maxInterval, velDirThreshold, speedThreshold);
+
+                if (record)
+                {
+                    commits++;
+                    lastRecordedUT = ut;
+                    lastRecordedVelocity = vel;
+                }
+            }
+
+            // With minInterval=0.2s, max commits = ⌊1 / 0.2⌋ + 1 (first-point exception) = 6.
+            // Without the floor, the loop commits ~50 times (one per frame).
+            // Allow up to 7 to account for boundary timing tolerance with non-default settings.
+            InGameAssert.IsLessThan((double)commits, 8.0,
+                $"Floor should cap commits ≤ 7 over 1s; got {commits} (minInterval={minInterval:F2}s)");
+            InGameAssert.IsGreaterThan(commits, 2,
+                $"Floor should still allow ≥3 commits over 1s; got {commits}");
+
+            ParsekLog.Verbose("TestRunner",
+                $"MinSampleIntervalCapsEvaJitter: live minInterval={minInterval:F2}s produced {commits} commits over 1s of simulated EVA jitter");
         }
 
         #endregion
