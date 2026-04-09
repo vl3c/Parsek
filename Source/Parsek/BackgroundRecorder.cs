@@ -473,6 +473,10 @@ namespace Parsek
             // The continuation stays at the same Generation as the parent — it's
             // the same logical vessel, just with fewer parts. Only spinoff children
             // get parentGeneration + 1.
+            // NOTE: with MaxRecordingGeneration=1 the cap above this point already
+            // returned for any parentRec.Generation >= 1, so today this assignment
+            // is always Generation=0. Kept explicit so future cap bumps (e.g.
+            // MaxRecordingGeneration=2) just work without re-auditing this site.
             string parentContRecId = System.Guid.NewGuid().ToString("N");
             var parentContRec = new Recording
             {

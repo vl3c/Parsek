@@ -353,6 +353,11 @@ namespace Parsek
             if (rec.IsDebris)
                 recNode.AddValue("isDebris", rec.IsDebris.ToString());
 
+            // Cascade depth (#284). Only written when non-zero so existing
+            // gen-0 recordings stay byte-identical and old saves stay clean.
+            if (rec.Generation > 0)
+                recNode.AddValue("generation", rec.Generation.ToString(ic));
+
             // Crew end states (kerbals module)
             RecordingStore.SerializeCrewEndStates(recNode, rec);
         }
@@ -673,6 +678,15 @@ namespace Parsek
                 bool isDebris;
                 if (bool.TryParse(isDebrisStr, out isDebris))
                     rec.IsDebris = isDebris;
+            }
+
+            // Cascade depth (#284). Missing key = 0 (legacy save or gen-0 recording).
+            string generationStr = recNode.GetValue("generation");
+            if (generationStr != null)
+            {
+                int generation;
+                if (int.TryParse(generationStr, NumberStyles.Integer, ic, out generation))
+                    rec.Generation = generation;
             }
 
             // Crew end states (kerbals module)

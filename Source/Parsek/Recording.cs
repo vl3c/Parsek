@@ -37,10 +37,10 @@ namespace Parsek
         // splits whose parent is at Generation >= MaxRecordingGeneration are skipped
         // entirely — fragments-of-fragments stay alive in KSP but Parsek does not
         // track them. See bug #284 and BackgroundRecorder.HandleBackgroundVesselSplit.
-        // Not serialized: only matters during the live tree session for split decisions;
-        // recordings reloaded from disk default to 0, which is the conservative choice
-        // (allows future splits if the recording somehow keeps growing post-reload).
-        [NonSerialized] public int Generation;
+        // Persisted in .sfs (RecordingTree.SaveRecordingInto/LoadRecordingFrom) so the
+        // cascade cap remains correct after F5/F9 — without persistence, a gen-1 booster
+        // would reload as gen-0 and a subsequent breakup would slip past the cap.
+        public int Generation;
 
         // Loop sync: debris follows parent recording's loop clock (-1 = independent).
         // Index into CommittedRecordings / engine trajectories list. Recomputed on every

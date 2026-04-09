@@ -759,24 +759,104 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void HandleBackgroundVesselSplit_TreeStructureSimulation_Gen1ParentSkipsBranch()
+        public void CreateBreakupChildRecording_PropagatesGeneration_Gen0Parent_ChildIsGen1()
         {
-            // We can't call HandleBackgroundVesselSplit directly (FlightGlobals).
-            // Simulate the gate decision: if parent gen >= 1, the caller should
-            // not invoke BuildBackgroundSplitBranchData at all and the tree must
-            // remain unchanged. Verify the helper would direct that path.
-            var tree = MakeTree((100, "rec_bg"));
-            tree.Recordings["rec_bg"].Generation = 1;
-            int initialRecCount = tree.Recordings.Count;
-            int initialBpCount = tree.BranchPoints.Count;
+            // Active rocket (gen=0) crashes → debris children must be gen=1.
+            // Used by ProcessBreakupEvent and PromoteToTreeForBreakup.
+            var tree = new RecordingTree { Id = "t1", TreeName = "Test" };
+            var bp = new BranchPoint { Id = "bp1", UT = 100 };
 
-            bool shouldSkip = BackgroundRecorder.ShouldSkipForCascadeCap(
-                tree.Recordings["rec_bg"].Generation);
+            var rec = ParsekFlight.CreateBreakupChildRecording(
+                tree, bp, 42, null, true, "Debris",
+                fallbackSnapshot: null, parentGeneration: 0);
 
-            Assert.True(shouldSkip);
-            // No branch built, no children added — tree state unchanged.
-            Assert.Equal(initialRecCount, tree.Recordings.Count);
-            Assert.Equal(initialBpCount, tree.BranchPoints.Count);
+            Assert.Equal(1, rec.Generation);
+        }
+
+        [Fact]
+        public void CreateBreakupChildRecording_PropagatesGeneration_Gen1Parent_ChildIsGen2()
+        {
+            // Player flying a gen=1 booster crashes it → fragments would be gen=2.
+            // The pure builder propagates without enforcing the cap (cap lives in
+            // HandleBackgroundVesselSplit, not in the active path).
+            var tree = new RecordingTree { Id = "t1", TreeName = "Test" };
+            var bp = new BranchPoint { Id = "bp1", UT = 100 };
+
+            var rec = ParsekFlight.CreateBreakupChildRecording(
+                tree, bp, 42, null, true, "Debris",
+                fallbackSnapshot: null, parentGeneration: 1);
+
+            Assert.Equal(2, rec.Generation);
+        }
+
+        [Fact]
+        public void CreateBreakupChildRecording_DefaultParentGeneration_ChildIsGen1()
+        {
+            // Optional parameter default = 0 — preserves existing test behavior
+            // for legacy callers that don't care about generation.
+            var tree = new RecordingTree { Id = "t1", TreeName = "Test" };
+            var bp = new BranchPoint { Id = "bp1", UT = 100 };
+
+            var rec = ParsekFlight.CreateBreakupChildRecording(
+                tree, bp, 42, null, true, "Debris");
+
+            Assert.Equal(1, rec.Generation);
+        }
+
+        [Fact]
+        public void RecordingTree_SaveLoadRoundTrip_PreservesGeneration()
+        {
+            // Verify cascade depth survives the .sfs persistence path so a
+            // gen=1 booster doesn't reload as gen=0 and slip past the cap on
+            // a subsequent breakup after F5/F9.
+            var rec = new Recording
+            {
+                RecordingId = "test_round_trip",
+                VesselName = "Test Booster",
+                VesselPersistentId = 42,
+                Generation = 1
+            };
+
+            var node = new ConfigNode("RECORDING");
+            RecordingTree.SaveRecordingInto(node, rec);
+
+            var loaded = new Recording();
+            RecordingTree.LoadRecordingFrom(node, loaded);
+
+            Assert.Equal(1, loaded.Generation);
+        }
+
+        [Fact]
+        public void RecordingTree_SaveRecordingInto_OmitsGenerationWhenZero()
+        {
+            // Gen-0 recordings stay byte-identical to legacy saves — the
+            // "generation" key is only written for non-default values.
+            var rec = new Recording
+            {
+                RecordingId = "test_gen0",
+                VesselName = "Test",
+                VesselPersistentId = 42,
+                Generation = 0
+            };
+
+            var node = new ConfigNode("RECORDING");
+            RecordingTree.SaveRecordingInto(node, rec);
+
+            Assert.Null(node.GetValue("generation"));
+        }
+
+        [Fact]
+        public void RecordingTree_LoadRecordingFrom_LegacyNodeWithoutGeneration_DefaultsToZero()
+        {
+            // Legacy .sfs files have no "generation" key — must load as gen=0.
+            var node = new ConfigNode("RECORDING");
+            node.AddValue("recordingId", "legacy_id");
+            node.AddValue("vesselName", "Old Recording");
+
+            var rec = new Recording();
+            RecordingTree.LoadRecordingFrom(node, rec);
+
+            Assert.Equal(0, rec.Generation);
         }
 
         #endregion

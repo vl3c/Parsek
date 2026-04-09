@@ -24,22 +24,23 @@ Surfaced by the post-PR-#167 Kerbal X investigation (worktree `Parsek-investigat
 
 **Fix** (this PR — cap at gen=1):
 
-- New `Recording.Generation` field (`int`, `[NonSerialized]`, default 0). Tracks cascade depth from the primary recording. 0 = active vessel; 1 = primary debris (boosters/fairings decoupled by gen-0); 2+ = fragments-of-fragments.
+- New `Recording.Generation` field (`int`, default 0). Tracks cascade depth from the primary recording. 0 = active vessel; 1 = primary debris (boosters/fairings decoupled by gen-0); 2+ = fragments-of-fragments.
 - New `BackgroundRecorder.MaxRecordingGeneration = 1` constant + `BackgroundRecorder.ShouldSkipForCascadeCap(int parentGeneration)` pure helper.
-- New gate at the top of `BackgroundRecorder.HandleBackgroundVesselSplit` (after the empty-children early-out): if `parentRec.Generation >= MaxRecordingGeneration`, log `Cascade depth cap fired: ...skippedChildren=N` at Info and return without creating any branch, child recordings, or parent continuation. The parent's existing recording continues sampling unchanged into its current `BackgroundVesselState`; the new fragment vessels remain alive in KSP but become Parsek-orphans.
+- New gate at the top of `BackgroundRecorder.HandleBackgroundVesselSplit` (after the empty-children early-out so the log line includes `skippedChildren=N`): if `parentRec.Generation >= MaxRecordingGeneration`, log `Cascade depth cap fired: ...skippedChildren=N` at Info and return without creating any branch, child recordings, or parent continuation. The parent's existing recording continues sampling unchanged into its current `BackgroundVesselState`; the new fragment vessels remain alive in KSP but become Parsek-orphans.
 - `Generation` is propagated through every recording-creation path:
   - `BackgroundRecorder.BuildBackgroundSplitBranchData` — children get `parentGeneration + 1`. The pure builder does NOT itself enforce the cap; the cap lives in `HandleBackgroundVesselSplit` (separation of concerns).
-  - `BackgroundRecorder.HandleBackgroundVesselSplit` — the parent continuation recording inherits `parentRec.Generation` (same logical vessel = same gen).
+  - `BackgroundRecorder.HandleBackgroundVesselSplit` — the parent continuation recording inherits `parentRec.Generation` (same logical vessel = same gen). With `MaxRecordingGeneration=1` this is currently always 0 because the cap returns first; the assignment is kept explicit so a future cap bump (e.g. to 2) just works without re-auditing this site.
   - `ParsekFlight.BuildSplitBranchData` — `activeChild` keeps `parentGeneration` (same vessel continues), `bgChild` gets `parentGeneration + 1` (spinoff).
   - `ParsekFlight.CreateBreakupChildRecording` — debris children inherit `parentGeneration + 1`. Call sites in `ProcessBreakupEvent` use `activeRec.Generation`; call sites in `PromoteToTreeForBreakup` use `rootRec.Generation`.
   - `Recording.ApplyPersistenceArtifactsFrom` — copies `Generation` so the StashPending/commit round-trip preserves it.
   - `RecordingOptimizer.SplitAtSection` — both halves share the same `Generation` (same vessel split into two segments).
+- **Persisted in `.sfs` via `RecordingTree.SaveRecordingInto`/`LoadRecordingFrom`.** Only written when non-zero so existing gen-0 recordings stay byte-identical and old saves load cleanly. Without persistence, F5/F9 between a booster decouple and the booster's eventual breakup would silently reset the booster's recording to gen=0 and let the cap miss the secondary breakup; persistence closes that window.
 
 The active path (`CreateBreakupChildRecording`, `BuildSplitBranchData`) does NOT have a gate added. Player-initiated splits are explicit user actions; the cascading-debris problem is exclusively a background-side effect of physics breakup. The active path still propagates `Generation` correctly so that any background descendants of an active gen-1+ vessel will hit the gate when they split.
 
 **Side effect — incidentally fixes all 10 #282 placeholders in the reference playtest**: every parent PID for the 10 `Vessel backgrounded (not found)` events in the post-PR-#167 log was at `Generation >= 1` (5× gen-1 boosters from the active-vessel breakup path, 5× gen-2/3 fragments from earlier bg splits). The new gate fires before the not-found path is reached, so no empty placeholder is ever created. **Bug #282 is left open** because the underlying root cause (deferred check fires after parent destruction) could still bite in a hypothetical gen-0 scenario, even though the current data shows zero such occurrences.
 
-**Tests added** (`Source/Parsek.Tests/BackgroundSplitTests.cs`):
+**Tests added** (`Source/Parsek.Tests/BackgroundSplitTests.cs` + `RecordingOptimizerTests.cs`):
 
 - `Recording_DefaultGeneration_IsZero`
 - `MaxRecordingGeneration_IsOne`
@@ -50,8 +51,14 @@ The active path (`CreateBreakupChildRecording`, `BuildSplitBranchData`) does NOT
 - `BuildBackgroundSplitBranchData_DefaultParentGeneration_IsZero`
 - `BuildSplitBranchData_PropagatesGeneration_BgChildPlusOne_ActiveChildSame`
 - `BuildSplitBranchData_Gen1Parent_ActiveStaysGen1_BgChildBecomesGen2`
+- `CreateBreakupChildRecording_PropagatesGeneration_Gen0Parent_ChildIsGen1`
+- `CreateBreakupChildRecording_PropagatesGeneration_Gen1Parent_ChildIsGen2`
+- `CreateBreakupChildRecording_DefaultParentGeneration_ChildIsGen1`
 - `Recording_ApplyPersistenceArtifactsFrom_CopiesGeneration`
-- `HandleBackgroundVesselSplit_TreeStructureSimulation_Gen1ParentSkipsBranch`
+- `RecordingTree_SaveLoadRoundTrip_PreservesGeneration` (verifies the .sfs persistence path)
+- `RecordingTree_SaveRecordingInto_OmitsGenerationWhenZero` (gen-0 recordings stay byte-identical)
+- `RecordingTree_LoadRecordingFrom_LegacyNodeWithoutGeneration_DefaultsToZero` (forward compat with legacy saves)
+- `RecordingOptimizerTests.SplitAtSection_CopiesGeneration` (both halves share gen)
 
 `HandleBackgroundVesselSplit` itself can't be unit-tested directly (`FlightGlobals.Vessels` access). Coverage is via the pure helpers + the next in-game playtest (count of `Cascade depth cap fired` log lines should match the count of secondary-breakup events; debris recording count for a Kerbal X launch should drop from 25 → ~4–6).
 
