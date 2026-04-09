@@ -764,27 +764,33 @@ In-game test `OrbitalRecordingsHaveTerminalOrbit` reports 4 orbital recordings w
 
 **Status:** Fixed
 
-## 260. Remove .pcrf ghost geometry scaffolding
+## ~~260. Remove .pcrf ghost geometry scaffolding~~
 
-`.pcrf` (ghost geometry cache) was planned to cache pre-built ghost meshes to avoid PartLoader resolution on every spawn. Never implemented — `GhostVisualBuilder` always builds from the vessel snapshot directly. The path definition in `RecordingPaths.BuildGhostGeometryRelativePath`, the suffix in `RecordingStore.RecordingFileSuffixes`, and the `geometryFileBytes` field in `StorageBreakdown` are dead scaffolding.
+`.pcrf` (ghost geometry cache) was planned to cache pre-built ghost meshes to avoid PartLoader resolution on every spawn. Never implemented — `GhostVisualBuilder` always builds from the vessel snapshot directly. Fields were loaded from ConfigNode (`ghostGeometryPath` / `ghostGeometryAvailable` / `ghostGeometryError`) but never written, so they always defaulted on next save anyway.
 
-Ghost mesh builds are 10-25ms one-shot costs (not per-frame), and diagnostics show only ~22 builds per session. Not worth implementing — if ghost build cost ever matters, GameObject reuse (reset state instead of destroy/rebuild) would be simpler.
+**Fix:** Deleted `BuildGhostGeometryRelativePath` from `RecordingPaths`; removed `GhostGeometryRelativePath` / `GhostGeometryAvailable` / `GhostGeometryCaptureError` fields from `Recording`; removed `.pcrf` from `RecordingStore.RecordingFileSuffixes` (orphan-detection); removed `geometryFileBytes` from `StorageBreakdown`; removed the `.pcrf` stat call from `DiagnosticsComputation.ComputeStorageBreakdown`; removed the no-op load blocks from `ParsekScenario` and `RecordingTree`; removed the `RecordingOptimizer.MergeInto` / `SplitAtSection` invalidation lines (no field to clear). 5 test sites updated, 4 doc files updated.
 
-**Fix:** Remove `BuildGhostGeometryRelativePath` from `RecordingPaths`, remove `.pcrf` from `RecordingFileSuffixes`, remove `geometryFileBytes` from `StorageBreakdown`, remove the `.pcrf` stat call from `DiagnosticsComputation.ComputeStorageBreakdown`.
+**Legacy file cleanup (PR #168 review follow-up):** Code review caught that simply removing `.pcrf` from `RecordingFileSuffixes` made `ExtractRecordingIdFromFileName` return null for `*.pcrf` files, which the orphan scan then treated as "unrecognized" and skipped — leaving stale `.pcrf` files on disk forever. Added `LegacyRecordingFileSuffixes = { ".pcrf" }` array and an `IsLegacySidecarFile` pure helper; `CleanOrphanFiles` now unconditionally deletes legacy sidecars in addition to its existing orphan-by-id-mismatch cleanup. Logged separately as "legacy sidecar file(s)" for visibility. New `IsLegacySidecarFile_Works` Theory test (9 cases).
 
-**Priority:** Low — cleanup, eliminates ~52 spurious "Missing sidecar file" warnings per diagnostics scan
+**Status:** Fixed
 
-## 261. Diagnostics playback budget shows 0.0 ms instead of N/A on first frame
+## ~~261. Diagnostics playback budget shows 0.0 ms instead of N/A on first frame~~
 
-The diagnostics report shows "Playback budget: 0.0 ms avg, 0.0 ms peak" when run before the rolling buffer has any entries, rather than "N/A" as specified in the design doc (edge case E10). The `FormatReport` N/A logic may not be checking the right condition.
+The diagnostics report showed "Playback budget: 0.0 ms avg, 0.0 ms peak (0.0s window)" instead of "N/A" in the rolling-window edge case.
 
-**Priority:** Low — cosmetic, only visible if report is run immediately after scene load
+**Root cause:** Two layers. (1) `FormatReport` checked `playbackFrameHistory.IsEmpty` against the **live** buffer but formatted values from a **stale** snapshot — race window where buffer is non-empty but snapshot is from when it wasn't. (2) Even reading the snapshot, the existing avg/peak/window fields can't distinguish "no data" from "data is genuinely 0.0 ms" when the buffer has entries that are all *outside* the 4 s rolling window: `ComputeStats` writes 0/0/0 and returns, but `IsEmpty` says false.
 
-## 262. Diagnostics missing _vessel.craft warnings for tree sub-recordings
+**Fix:** Added `playbackEntriesInWindow` to `MetricSnapshot`, populated from a new 4th `out` parameter on `RollingTimingBuffer.ComputeStats`. `FormatReport` now reads `snapshot.playbackEntriesInWindow > 0` instead of querying the live buffer — it's a pure function of its snapshot argument for the playback line. New regression test `E10b_StaleEntriesOutsideWindow_FormatShowsNA` covers the buffer-non-empty-but-window-empty case; new `RollingTimingBuffer` test `ComputeStats_AllEntriesOutsideWindow_ReportsZeroEntries` covers the underlying primitive.
 
-Tree sub-recordings (debris, EVA branches) may not have their own `_vessel.craft` file — they share the tree root's snapshot. The storage scan warns "Missing sidecar file" for each of these. Should skip the warning for recordings that are tree members and don't own their own vessel snapshot.
+**Status:** Fixed
 
-**Priority:** Low — cosmetic log noise
+## ~~262. Diagnostics missing _vessel.craft warnings for tree sub-recordings~~
+
+Tree continuation recordings, ghost-only-merged debris, and chain mid-segments legitimately have null `VesselSnapshot` / `GhostVisualSnapshot` in memory, and `RecordingStore.SaveRecordingFiles` only writes `_vessel.craft` / `_ghost.craft` when the corresponding in-memory snapshot is non-null. The diagnostics storage scan was warning "Missing sidecar file" for every such recording on every scan.
+
+**Fix:** New pure predicate `DiagnosticsComputation.ShouldExpectSidecarFile(rec, type)` mirrors the save-side write conditions: `.prec` always expected, `_vessel.craft` only when `rec.VesselSnapshot != null`, `_ghost.craft` only when `rec.GhostVisualSnapshot != null`. `SafeGetFileSize` gained a `warnIfMissing` parameter; `ComputeStorageBreakdown` passes `false` for the snapshot files when the predicate says no file is expected. `.prec` keeps warning on missing (always written = always expected). 4 unit tests for the predicate (trajectory always, vessel gated, ghost gated, null recording).
+
+**Status:** Fixed
 
 ## ~~263. Ghost mesh inaccurate after decoupling boosters~~
 
@@ -821,7 +827,7 @@ During the 2026-04-09 Butterfly Rover playtest, Valentina's EVA ended near the r
 - `VesselGhoster.TryWalkbackSpawn` at `VesselGhoster.cs:421-432` uses the same old lat/lon/alt override pattern (writes lat/lon/alt, calls `RespawnVessel`) — safe for LANDED chain tips where `updateMode = IDLE` but potentially broken for FLYING tips. Should migrate to `SpawnAtPosition` + `WalkbackAlongTrajectorySubdivided`.
 - `ParsekFlight.SpawnTreeLeaves` at `ParsekFlight.cs:5926-5991` (scene-load tree leaf spawn) doesn't route EVA through `SpawnAtPosition` either. Same stale-orbit bug reproduces when resuming a saved game where a tree has a leaf EVA waiting to spawn.
 - `ParsekKSC.cs:780-847` (KSC-scene spawn path) uses the same old `OverrideSnapshotPosition` + `RespawnVessel` pattern. An EVA recording that's still pending spawn when the player returns to KSC routes through this path. Low probability but not zero.
-- `VesselSpawner.StripEvaLadderState` (`VesselSpawner.cs:1034`) writes the literal FSM state `"idle"` which is not a valid `KerbalEVA` state name (real names are `st_idle_gr` / `st_idle_fl` / `st_swim_idle`). `StartEVA` catches the unknown-state exception and falls back to a `SurfaceContact`-driven default state so this is functionally correct but cosmetically broken. Either use a real state name or remove the assignment entirely and let the fallback handle it.
+- ~~`VesselSpawner.StripEvaLadderState` (`VesselSpawner.cs:1034`) writes the literal FSM state `"idle"` which is not a valid `KerbalEVA` state name (real names are `st_idle_gr` / `st_idle_fl` / `st_swim_idle`). `StartEVA` catches the unknown-state exception and falls back to a `SurfaceContact`-driven default state so this is functionally correct but cosmetically broken.~~ **Fixed:** replaced `SetValue("state", "idle", true)` with `RemoveValue("state")` so the FSM initializes fresh with the correct `st_*` name picked by `KerbalEVA.StartEVA` based on situation.
 - Triple-correction-layer cleanup: `CorrectUnsafeSnapshotSituation` (runs in `PrepareSnapshotForSpawn`) corrects `snapshot.sit`, then `SpawnAtPosition.DetermineSituation` ignores `snapshot.sit` and recomputes, then `OverrideSituationFromTerminalState` is a third layer. Replacing `DetermineSituation` with "read corrected `snapshot.sit` first, fall through to altitude/velocity classifier only if still FLYING" would produce a cleaner invariant with no new helper.
 
 ## 265. Ghost audio + BackgroundRecorder seed-skip — in-game test coverage gap

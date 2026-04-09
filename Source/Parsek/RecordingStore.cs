@@ -1520,7 +1520,6 @@ namespace Parsek
             DeleteFileIfExists(RecordingPaths.BuildTrajectoryRelativePath(rec.RecordingId));
             DeleteFileIfExists(RecordingPaths.BuildVesselSnapshotRelativePath(rec.RecordingId));
             DeleteFileIfExists(RecordingPaths.BuildGhostSnapshotRelativePath(rec.RecordingId));
-            DeleteFileIfExists(RecordingPaths.BuildGhostGeometryRelativePath(rec.RecordingId));
 
             if (!string.IsNullOrEmpty(rec.RewindSaveFileName))
                 DeleteFileIfExists(RecordingPaths.BuildRewindSaveRelativePath(rec.RewindSaveFileName));
@@ -1546,7 +1545,14 @@ namespace Parsek
         /// <summary>
         /// Known sidecar file suffixes for recording files. Used for orphan detection.
         /// </summary>
-        private static readonly string[] RecordingFileSuffixes = { ".prec", "_vessel.craft", "_ghost.craft", ".pcrf" };
+        private static readonly string[] RecordingFileSuffixes = { ".prec", "_vessel.craft", "_ghost.craft" };
+
+        /// <summary>
+        /// Suffixes for recording files written by previous Parsek versions but no longer
+        /// used. CleanOrphanFiles deletes any of these unconditionally — they are by
+        /// definition stale (the format that wrote them no longer exists).
+        /// </summary>
+        private static readonly string[] LegacyRecordingFileSuffixes = { ".pcrf" };
 
         /// <summary>
         /// Extracts the recording ID from a sidecar filename by stripping known suffixes.
@@ -1563,6 +1569,25 @@ namespace Parsek
                     return fileName.Substring(0, fileName.Length - RecordingFileSuffixes[i].Length);
             }
             return null;
+        }
+
+        /// <summary>
+        /// True if <paramref name="fileName"/> matches a legacy sidecar suffix that no
+        /// longer corresponds to live Parsek code. Pure helper for orphan-cleanup
+        /// (#260 follow-up — old saves can have .pcrf files left over from the dead
+        /// ghost-geometry scaffolding; they have no current consumer and should be
+        /// removed unconditionally rather than left as "unrecognized" forever).
+        /// </summary>
+        internal static bool IsLegacySidecarFile(string fileName)
+        {
+            if (string.IsNullOrEmpty(fileName))
+                return false;
+            for (int i = 0; i < LegacyRecordingFileSuffixes.Length; i++)
+            {
+                if (fileName.EndsWith(LegacyRecordingFileSuffixes[i], StringComparison.OrdinalIgnoreCase))
+                    return true;
+            }
+            return false;
         }
 
         /// <summary>
@@ -1619,6 +1644,7 @@ namespace Parsek
                 $"CleanOrphanFiles: scanning {files.Length} file(s) against {knownIds.Count} known recording ID(s)");
 
             int orphanCount = 0;
+            int legacyCount = 0;
             int skippedUnrecognized = 0;
             for (int i = 0; i < files.Length; i++)
             {
@@ -1626,6 +1652,22 @@ namespace Parsek
                 string extractedId = ExtractRecordingIdFromFileName(fileName);
                 if (extractedId == null)
                 {
+                    // Legacy sidecars (e.g. .pcrf from the removed ghost-geometry scaffolding,
+                    // #260) have no current consumer — delete unconditionally.
+                    if (IsLegacySidecarFile(fileName))
+                    {
+                        try
+                        {
+                            File.Delete(files[i]);
+                            legacyCount++;
+                            ParsekLog.Verbose("RecordingStore", $"Deleted legacy sidecar file: {fileName}");
+                        }
+                        catch (Exception ex)
+                        {
+                            ParsekLog.Warn("RecordingStore", $"Failed to delete legacy sidecar file '{fileName}': {ex.Message}");
+                        }
+                        continue;
+                    }
                     skippedUnrecognized++;
                     continue; // Not a recognized sidecar file — leave it alone
                 }
@@ -1645,9 +1687,10 @@ namespace Parsek
                 }
             }
 
-            if (orphanCount > 0)
+            if (orphanCount > 0 || legacyCount > 0)
                 ParsekLog.Info("RecordingStore",
                     $"Cleaned {orphanCount} orphaned recording file(s)" +
+                    (legacyCount > 0 ? $", {legacyCount} legacy sidecar file(s)" : "") +
                     (skippedUnrecognized > 0 ? $", skipped {skippedUnrecognized} unrecognized file(s)" : ""));
             else
                 ParsekLog.Verbose("RecordingStore",

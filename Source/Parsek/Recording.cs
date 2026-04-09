@@ -98,9 +98,6 @@ namespace Parsek
         public int ChainIndex = -1;  // -1 = not chained; 0-based position within chain
         public int ChainBranch;      // 0 = primary path; >0 = parallel continuation (ghost-only, no spawn)
         public string VesselName = "";
-        public string GhostGeometryRelativePath;
-        public bool GhostGeometryAvailable;
-        public string GhostGeometryCaptureError;
 
         // --- Tree linkage (null for legacy/standalone recordings) ---
         public string TreeId;                          // null = standalone (pre-tree recording)

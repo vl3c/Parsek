@@ -245,7 +245,6 @@ namespace Parsek.Tests
             Assert.Equal(0L, bd.trajectoryFileBytes);
             Assert.Equal(0L, bd.vesselSnapshotBytes);
             Assert.Equal(0L, bd.ghostSnapshotBytes);
-            Assert.Equal(0L, bd.geometryFileBytes);
             Assert.Equal(0L, bd.totalBytes);
             // Metadata counts should still be populated from the recording object
             Assert.Equal(100, bd.pointCount);
@@ -293,9 +292,8 @@ namespace Parsek.Tests
         [Fact]
         public void E10_EmptyRollingBuffer_FormatShowsNA()
         {
-            // Rolling buffer is empty after ResetForTesting
-            Assert.True(DiagnosticsState.playbackFrameHistory.IsEmpty);
-
+            // Default snapshot has playbackEntriesInWindow = 0, which is the gate signal.
+            // FormatReport now reads this from the snapshot, not from the live buffer (#261).
             var snap = new MetricSnapshot
             {
                 perRecording = new StorageBreakdown[0]
@@ -307,6 +305,154 @@ namespace Parsek.Tests
             // Playback budget line must not show "0.0 ms avg" which would be misleading.
             // (Recording budget line legitimately shows "0.0 ms avg" since that's raw data, not rolling.)
             Assert.DoesNotContain("Playback budget: 0.0 ms avg", report);
+        }
+
+        // =====================================================================
+        // Bug #261: Rolling buffer has entries but all are outside the 4s window.
+        // Pre-fix, FormatReport read playbackFrameHistory.IsEmpty against the
+        // live buffer, saw "not empty", and printed the snapshot's
+        // 0.0/0.0/0.0 values as "Playback budget: 0.0 ms avg, 0.0 ms peak (0.0s window)".
+        // Post-fix, the gate reads snap.playbackEntriesInWindow which is the
+        // count returned by ComputeStats — when entries are all outside the
+        // window, the count is 0 regardless of buffer.IsEmpty.
+        // =====================================================================
+
+        [Fact]
+        public void E10b_StaleEntriesOutsideWindow_FormatShowsNA()
+        {
+            var snap = new MetricSnapshot
+            {
+                perRecording = new StorageBreakdown[0],
+                // Simulate the regression: ComputeStats wrote 0.0 values
+                // because the buffer had entries but none were in the window
+                playbackAvgTotalMs = 0.0,
+                playbackPeakTotalMs = 0.0,
+                playbackWindowDurationSeconds = 0.0,
+                playbackEntriesInWindow = 0,  // This is what saves us
+            };
+
+            string report = DiagnosticsComputation.FormatReport(snap);
+
+            Assert.Contains("Playback budget: N/A", report);
+            Assert.DoesNotContain("Playback budget: 0.0 ms avg", report);
+        }
+
+        [Fact]
+        public void E10c_RealDataInWindow_FormatShowsValues()
+        {
+            // Sanity check: when entriesInWindow > 0, format the actual values.
+            var snap = new MetricSnapshot
+            {
+                perRecording = new StorageBreakdown[0],
+                playbackAvgTotalMs = 4.2,
+                playbackPeakTotalMs = 8.1,
+                playbackWindowDurationSeconds = 4.0,
+                playbackEntriesInWindow = 240,
+            };
+
+            string report = DiagnosticsComputation.FormatReport(snap);
+
+            Assert.Contains("Playback budget: 4.2 ms avg, 8.1 ms peak (4.0s window)", report);
+            Assert.DoesNotContain("Playback budget: N/A", report);
+        }
+
+        // =====================================================================
+        // Bug #262: ShouldExpectSidecarFile pure predicate
+        // Mirrors RecordingStore.SaveRecordingFiles' write conditions:
+        //   .prec → always
+        //   _vessel.craft → only when rec.VesselSnapshot != null
+        //   _ghost.craft → only when rec.GhostVisualSnapshot != null
+        // Tree continuation recordings, ghost-only-merged debris, and chain
+        // mid-segments legitimately have null snapshots and no sidecar file.
+        // =====================================================================
+
+        [Fact]
+        public void ShouldExpectSidecarFile_TrajectoryAlways()
+        {
+            var withBoth = new Recording { VesselSnapshot = new ConfigNode("V"), GhostVisualSnapshot = new ConfigNode("G") };
+            var withNeither = new Recording();
+
+            Assert.True(DiagnosticsComputation.ShouldExpectSidecarFile(withBoth,
+                DiagnosticsComputation.SidecarFileType.Trajectory));
+            Assert.True(DiagnosticsComputation.ShouldExpectSidecarFile(withNeither,
+                DiagnosticsComputation.SidecarFileType.Trajectory));
+        }
+
+        [Fact]
+        public void ShouldExpectSidecarFile_VesselSnapshotGated()
+        {
+            var withVessel = new Recording { VesselSnapshot = new ConfigNode("V") };
+            var withoutVessel = new Recording();
+
+            Assert.True(DiagnosticsComputation.ShouldExpectSidecarFile(withVessel,
+                DiagnosticsComputation.SidecarFileType.VesselSnapshot));
+            Assert.False(DiagnosticsComputation.ShouldExpectSidecarFile(withoutVessel,
+                DiagnosticsComputation.SidecarFileType.VesselSnapshot));
+        }
+
+        [Fact]
+        public void ShouldExpectSidecarFile_GhostSnapshotGated()
+        {
+            var withGhost = new Recording { GhostVisualSnapshot = new ConfigNode("G") };
+            var withoutGhost = new Recording();
+
+            Assert.True(DiagnosticsComputation.ShouldExpectSidecarFile(withGhost,
+                DiagnosticsComputation.SidecarFileType.GhostSnapshot));
+            Assert.False(DiagnosticsComputation.ShouldExpectSidecarFile(withoutGhost,
+                DiagnosticsComputation.SidecarFileType.GhostSnapshot));
+        }
+
+        [Fact]
+        public void ShouldExpectSidecarFile_NullRecording_AlwaysFalse()
+        {
+            Assert.False(DiagnosticsComputation.ShouldExpectSidecarFile(null,
+                DiagnosticsComputation.SidecarFileType.Trajectory));
+            Assert.False(DiagnosticsComputation.ShouldExpectSidecarFile(null,
+                DiagnosticsComputation.SidecarFileType.VesselSnapshot));
+            Assert.False(DiagnosticsComputation.ShouldExpectSidecarFile(null,
+                DiagnosticsComputation.SidecarFileType.GhostSnapshot));
+        }
+
+        // =====================================================================
+        // Bug #262: SafeGetFileSize warning gate — verifies that the file-level
+        // helper actually suppresses the "Missing sidecar file" warning when
+        // warnIfMissing=false. Closes the loop between ShouldExpectSidecarFile
+        // (predicate, tested above) and the integration in ComputeStorageBreakdown.
+        // =====================================================================
+
+        [Fact]
+        public void SafeGetFileSize_MissingFile_WarnIfMissingTrue_LogsWarning()
+        {
+            string nonExistent = System.IO.Path.Combine(
+                System.IO.Path.GetTempPath(), $"parsek_test_{System.Guid.NewGuid():N}.prec");
+
+            long size = DiagnosticsComputation.SafeGetFileSize(nonExistent, warnIfMissing: true);
+
+            Assert.Equal(0L, size);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Diagnostics]") && l.Contains("Missing sidecar file") && l.Contains(nonExistent));
+        }
+
+        [Fact]
+        public void SafeGetFileSize_MissingFile_WarnIfMissingFalse_NoWarning()
+        {
+            string nonExistent = System.IO.Path.Combine(
+                System.IO.Path.GetTempPath(), $"parsek_test_{System.Guid.NewGuid():N}_vessel.craft");
+
+            long size = DiagnosticsComputation.SafeGetFileSize(nonExistent, warnIfMissing: false);
+
+            Assert.Equal(0L, size);
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("Missing sidecar file") && l.Contains(nonExistent));
+        }
+
+        [Fact]
+        public void SafeGetFileSize_NullPath_NoWarning()
+        {
+            long size = DiagnosticsComputation.SafeGetFileSize(null, warnIfMissing: true);
+
+            Assert.Equal(0L, size);
+            Assert.DoesNotContain(logLines, l => l.Contains("Missing sidecar file"));
         }
 
         // =====================================================================

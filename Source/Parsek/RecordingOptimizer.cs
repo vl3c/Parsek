@@ -270,11 +270,7 @@ namespace Parsek
             if (target.AntennaSpecs == null && absorbed.AntennaSpecs != null)
                 target.AntennaSpecs = absorbed.AntennaSpecs;
 
-            // 12. Invalidate ghost geometry (covers only first half's vessel config)
-            target.GhostGeometryAvailable = false;
-            target.GhostGeometryRelativePath = null;
-
-            // 13. Invalidate cached stats
+            // 12. Invalidate cached stats
             target.CachedStats = null;
             target.CachedStatsPointCount = 0;
 
@@ -472,12 +468,7 @@ namespace Parsek
             second.IsDebris = original.IsDebris;
             second.RecordingFormatVersion = original.RecordingFormatVersion;
 
-            // 12. Invalidate ghost geometry on both
-            original.GhostGeometryAvailable = false;
-            original.GhostGeometryRelativePath = null;
-            second.GhostGeometryAvailable = false;
-
-            // 13. Invalidate cached stats
+            // 12. Invalidate cached stats
             original.CachedStats = null;
             original.CachedStatsPointCount = 0;
 
