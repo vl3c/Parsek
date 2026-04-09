@@ -27,6 +27,7 @@ Dev notes: technical narratives for the fixes below live in `docs/dev/todo-and-k
 - `#261` Diagnostics report now shows `Playback budget: N/A` when the rolling buffer has no in-window entries, instead of `0.0 ms avg`.
 - `#262` Diagnostics storage scan no longer emits "Missing sidecar file" warnings for recordings that legitimately have null snapshots.
 - `#264` follow-up: `StripEvaLadderState` no longer writes an invalid literal to the EVA FSM `state` field.
+- `#256` Capped slow-motion trajectory sampling so EVA-on-surface recordings no longer accumulate one point per physics frame; new `Min sample interval` slider in Settings (default 0.2 s).
 
 ### Bug Fixes — KerbalX + Butterfly Rover playtest (2026-04-09)
 

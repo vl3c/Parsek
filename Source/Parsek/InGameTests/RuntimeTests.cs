@@ -75,7 +75,7 @@ namespace Parsek.InGameTests
         {
             var vel1 = new Vector3(100, 0, 0);
             var vel2 = new Vector3(0, 100, 0); // 90 degree change
-            bool result = TrajectoryMath.ShouldRecordPoint(vel2, vel1, 10.0, 9.5, 3f, 2f, 5f);
+            bool result = TrajectoryMath.ShouldRecordPoint(vel2, vel1, 10.0, 9.5, 0f, 3f, 2f, 5f);
             InGameAssert.IsTrue(result, "Should record when velocity direction changes 90 degrees");
         }
 
@@ -83,7 +83,7 @@ namespace Parsek.InGameTests
         public void ShouldRecordPointRespectsMaxInterval()
         {
             var vel = new Vector3(100, 0, 0);
-            bool result = TrajectoryMath.ShouldRecordPoint(vel, vel, 20.0, 16.0, 3f, 2f, 5f);
+            bool result = TrajectoryMath.ShouldRecordPoint(vel, vel, 20.0, 16.0, 0f, 3f, 2f, 5f);
             InGameAssert.IsTrue(result, "Should record when interval > maxSampleInterval");
         }
 
@@ -91,7 +91,7 @@ namespace Parsek.InGameTests
         public void ShouldRecordPointReturnsFalseWhenStable()
         {
             var vel = new Vector3(100, 0, 0);
-            bool result = TrajectoryMath.ShouldRecordPoint(vel, vel, 10.1, 10.0, 3f, 2f, 5f);
+            bool result = TrajectoryMath.ShouldRecordPoint(vel, vel, 10.1, 10.0, 0f, 3f, 2f, 5f);
             InGameAssert.IsFalse(result, "Should not record when velocity stable and within interval");
         }
 
@@ -143,6 +143,77 @@ namespace Parsek.InGameTests
             int cached = 0;
             int idx = TrajectoryMath.FindWaypointIndex(points, ref cached, 250);
             InGameAssert.AreEqual(1, idx, "Should find index 1 for ut=250 (between 200 and 300)");
+        }
+
+        [InGameTest(Category = "TrajectoryMath",
+            Description = "Live ParsekSettings.minSampleInterval caps EVA-jitter sample rate (bug #256 regression guard)")]
+        public void MinSampleIntervalCapsEvaJitter()
+        {
+            // Validates that the live game-loaded ParsekSettings.minSampleInterval is
+            // a sane non-zero value AND that ShouldRecordPoint with that value caps the
+            // simulated jitter pattern at the rate the floor allows. Regression guard
+            // for bug #256.
+            //
+            // Bounds are computed dynamically from the live minInterval so the test passes
+            // for any valid setting (0.05–1.0 s slider range), not just the default.
+            float minInterval = ParsekSettings.Current?.minSampleInterval ?? 0.2f;
+            InGameAssert.IsGreaterThan(minInterval, 0.0f,
+                "minSampleInterval must be > 0 in the live game (bug #256 floor would be disabled)");
+            InGameAssert.IsLessThan((double)minInterval, 1.01,
+                "minSampleInterval should be ≤ 1 second (anything larger conflicts with max-interval backstop)");
+
+            float maxInterval = ParsekSettings.Current?.maxSampleInterval ?? 3.0f;
+            float velDirThreshold = ParsekSettings.Current?.velocityDirThreshold ?? 2.0f;
+            float speedThreshold = (ParsekSettings.Current?.speedChangeThreshold ?? 5.0f) / 100f;
+
+            // Simulate 50 frames at 50 Hz physics (~1 s) with a velocity vector that
+            // rotates 2.86°/frame around the up axis. That's parity-independent of
+            // commit timing — every frame after the floor unblocks defeats the 2°
+            // direction gate, isolating the floor as the only thing capping the rate.
+            const int frameCount = 50;
+            const double frameDelta = 0.02; // 50 Hz
+            double lastRecordedUT = -1;
+            Vector3 lastRecordedVelocity = Vector3.zero;
+            int commits = 0;
+            for (int i = 0; i < frameCount; i++)
+            {
+                double ut = i * frameDelta;
+                // 0.05 rad/frame ≈ 2.86°/frame — well above the 2° direction gate
+                float angle = i * 0.05f;
+                var vel = new Vector3(Mathf.Cos(angle), 0, Mathf.Sin(angle));
+
+                bool record = TrajectoryMath.ShouldRecordPoint(
+                    vel, lastRecordedVelocity, ut, lastRecordedUT,
+                    minInterval, maxInterval, velDirThreshold, speedThreshold);
+
+                if (record)
+                {
+                    commits++;
+                    lastRecordedUT = ut;
+                    lastRecordedVelocity = vel;
+                }
+            }
+
+            // Expected commit count: 1 (first-point exception) + ⌊(frameCount - 1) / floorFrames⌋
+            // where floorFrames = max(1, ⌈minInterval / frameDelta⌉).
+            // ±1 tolerance for sub-frame boundary timing.
+            int floorFrames = System.Math.Max(1,
+                (int)System.Math.Ceiling(minInterval / frameDelta));
+            int expectedCommits = 1 + (frameCount - 1) / floorFrames;
+            const int tolerance = 1;
+            int upperBound = expectedCommits + tolerance;
+            int lowerBound = System.Math.Max(0, expectedCommits - tolerance);
+
+            InGameAssert.IsLessThan((double)commits, (double)(upperBound + 1),
+                $"Floor should cap commits ≤ {upperBound} over {frameCount} frames; got {commits} " +
+                $"(minInterval={minInterval:F2}s, floorFrames={floorFrames}, expected≈{expectedCommits})");
+            InGameAssert.IsGreaterThan((double)commits, (double)(lowerBound - 1),
+                $"Floor should still allow ≥ {lowerBound} commits over {frameCount} frames; got {commits} " +
+                $"(minInterval={minInterval:F2}s, floorFrames={floorFrames}, expected≈{expectedCommits})");
+
+            ParsekLog.Verbose("TestRunner",
+                $"MinSampleIntervalCapsEvaJitter: live minInterval={minInterval:F2}s ({floorFrames} frames) " +
+                $"produced {commits} commits over {frameCount} frames (expected≈{expectedCommits})");
         }
 
         #endregion
