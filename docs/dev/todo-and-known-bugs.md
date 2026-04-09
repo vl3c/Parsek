@@ -766,6 +766,121 @@ Applied to both the per-row W button and the group-level W button. Purely cosmet
 
 ---
 
+## 279. Watch button unavailable from F5 moment onwards (2026-04-09 playtest)
+
+Reported alongside bugs #276/#277/#278 in the 2026-04-09 playtest session (`logs/2026-04-09_recording-flow-bugs/`). After F5 at UT 369.2, the Watch button for the Kerbal X tree and its children was effectively unusable for the rest of the flight — the user couldn't preview any of the just-recorded flight data.
+
+**Likely conflated with bug #278.** If the whole Kerbal X tree ends up with `spawnable=0` because every leaf has `hasSnapshot=False canPersist=False terminal=Destroyed` (see bug #278), then every W button on every leaf is correctly disabled by the existing "no spawnable ghost" gate — it's a side effect of the debris-snapshot-TTL bug, not a separate UI issue. Fix #278 first and re-test.
+
+**Direct log evidence is thin:** only two `[VERBOSE][UI]` disabled-state lines in the whole playtest log, both from rewind (`Rewind already in progress`). No Watch click events logged in the 17:44:38 → 17:47:21 window. That's either "user didn't click" or "click was silently ignored" — the UI code's disabled-state log lines are verbose-level and the row-level gating may not log on every poll. Add an `[INFO]` log at the Watch row when the disabled state flips, so future playtests can distinguish "user didn't try" from "UI was broken".
+
+**Investigation remaining:**
+- Confirm the hypothesis: reproduce bug #278 in isolation, verify that fixing it restores Watch availability.
+- Audit `ParsekUI` / `RecordingsTableUI` Watch button gating predicates. List every condition under which it greys out, and make sure each has a tooltip (#275 was the last pass at this — the 2026-04-09 playtest suggests there's still coverage missing).
+- Add instrumented logging of Watch button state transitions (enabled → disabled and vice versa) at INFO level, keyed by recording id.
+
+**Priority:** Medium — blocks on #278 investigation. If #278's fix restores availability, this entry becomes the "add disabled-state transition logging" follow-up and can drop to Low.
+
+---
+
+## 278. Capsule not spawned at end of recording (2026-04-09 playtest)
+
+After the Kerbal X flight in the 2026-04-09 playtest, no vessel was spawned at end-of-recording for the user to continue playing with. The Bob Kerman EVA recording is the only one that *could* have spawned (it had a snapshot), but it terminated `Destroyed` with `canPersist=False` — see `KSP.log:11548`.
+
+Shared root cause with the booster-debris-ghost-not-rendered bug (tracked separately by a parallel investigation — look for the entry added alongside the 2026-04-09 playtest batch): the 27 `Kerbal X Debris` sub-recordings in the tree all have `hasSnapshot=False canPersist=False terminal=Destroyed` at merge time (L11539–11547), even though `BgRecorder` logged `hasSnapshot=True` when each debris vessel was split off (L9700 etc.). The snapshots are captured at split time but lost somewhere between capture and merge — the current best hypothesis is the 60 s TTL flush that runs when the debris vessel is destroyed.
+
+```
+11559: [MergeDialog] Tree merge dialog: tree='Kerbal X', recordings=29, spawnable=0
+```
+
+With `spawnable=0` the whole tree is non-spawnable and no capsule ends up on the surface after Kerbal X's final crash — even the root Kerbal X section (which has trajectory data) is not spawned because it terminates `Destroyed` too.
+
+**Investigation target:** `BgRecorder` → `Recording.Snapshot` → TTL expiry path. Trace why a snapshot captured with `hasSnapshot=True` comes back as `hasSnapshot=False` at merge. Suspect `OnVesselWillDestroy` hook or the 60 s TTL timer clearing the snapshot field along with the vessel reference.
+
+**Related:** the booster-debris-ghost-not-rendered bug is being investigated by a parallel agent and shares this root cause. Their fix may resolve this one too. Re-scope after their diagnosis lands.
+
+**Priority:** High — this is the user's main "nothing to continue playing with after a crash recording" complaint, and it also cascades into bug #279 (Watch unavailable, because `spawnable=0` disables W buttons).
+
+---
+
+## 277. Wrong crew spawned at recording end (2026-04-09 playtest)
+
+Reported in the 2026-04-09 playtest (`logs/2026-04-09_recording-flow-bugs/`). The Kerbal X rocket crew was Jeb (Pilot) / Bill (Engineer) / Bob (Scientist), but at merge-dialog time only two of the three stand-in swaps succeeded.
+
+**Smoking gun at `KSP.log:12836-12840`:**
+```
+12836: [CrewReservation] Swapped 'Jebediah Kerman' → 'Zelsted Kerman'  in part 'Mk1-3 Command Pod'
+12837: [CrewReservation] Swapped 'Bill Kerman'     → 'Siford Kerman'   in part 'Mk1-3 Command Pod'
+12838: [CrewReservation] Crew swap complete: 2 succeeded — refreshed vessel crew display
+12839: [CrewReservation] Removing reserved EVA vessel 'Bob Kerman' (pid=1857874769)
+12840: [CrewReservation] Removed 1 reserved EVA vessel(s)
+```
+
+Only 2 swaps completed. The Bob→Carsy swap never ran because Bob was on an EVA vessel (rec `d768a28f`) at the moment of merge rather than in the command pod. The code took the "Removing reserved EVA vessel" branch and kicked Carsy out of the reservation pool without ever placing her in any vessel. Net result: the command pod ends up with `Zelsted + Siford + the original Bob`, and the scientist slot is still the pre-merge Bob rather than the stand-in Carsy. The merge dialog reports `spawnable=0` (see also bug #278) so the user never sees the resulting crew assignment in-flight, but the roster is still wrong.
+
+**Fix direction:** `CrewReservationManager.SwapCrewInPart` (or equivalent — confirm exact name) handles the in-pod case; the EVA-at-merge-time case falls through to the "remove reserved EVA vessel" branch and silently drops the reservation. Either:
+- (a) If the kerbal being swapped out is currently on an EVA vessel, recover-and-place — move the stand-in into the command pod's scientist slot at merge time, regardless of where the original was.
+- (b) Or: block the merge dialog with an error when an EVA-reserved kerbal can't be swapped, so the user knows the crew assignment is incomplete.
+
+Option (a) is probably right — the user's intent is "generate stand-in crew for this flight". EVA'd kerbals at merge time should still be replaced.
+
+**Tests needed:**
+- Unit: `CrewReservationManager` swap with EVA'd original — assert stand-in is placed in the pod, original remains on the EVA vessel (or is removed with the reservation, depending on chosen semantics).
+- Integration: reproduce the 2026-04-09 scenario (crew goes EVA, commands merge) — assert all three crew slots get stand-ins.
+
+**Priority:** High — crew correctness is user-visible and sticky (wrong roster persists across sessions).
+
+---
+
+## ~~276. F5 → EVA → F9 commits the EVA walk as an orphan recording instead of discarding it~~
+
+Exposed by the 2026-04-09 playtest with the save in `logs/2026-04-09_recording-flow-bugs/`. After the Kerbal X tree was merged at UT 369.2, the player F5'd, EVA'd Siford Kerman, walked ~24 s, then F9'd. Expected: the Siford EVA recording is discarded as part of the time-travel undo. Actual: it was committed as orphan standalone recording `6ea90fa7` (see `KSP.log:13568` — `OnSave: saving 30 committed recordings` immediately after the F9 return). The user repeated the pattern three times in a row (Siford, Megely, Katsey) and all three became committed orphans at UT 369.2.
+
+**Smoking gun in the `[RecState]` log:**
+```
+12901: Game State Saved to saves/s32/quicksave             # F5 at UT 369.2
+12920: [Scenario] Vessel switch detected: ... → 'Siford Kerman' (EVA)
+13009: [#117][StartRecording:post] mode=sa pid=1892431707 ut=373.1
+13107: [#120][OnSceneChangeRequested] ut=397.2              # F9 → scene teardown
+13116: [RecordingStore] Stashed pending recording: 178 points from Siford Kerman
+13184: [#123][OnLoad:settings-applied] ut=369.2             # UT regressed 397.2 → 369.2
+13194: [Scenario] OnLoad: revert detection — savedEpoch=0, currentEpoch=0,
+       savedRecNodes=0, savedTreeRecs=29, memoryRecordings=29, ...,
+       isVesselSwitch=True, isRevert=False
+13195: [#125][OnLoad:revert-decided=N]                      # neither revert nor discard ran
+13568: [Scenario] OnSave: saving 30 committed recordings    # orphan committed
+```
+
+**Root cause — two independent failures:**
+
+1. **`vesselSwitchPending` mis-classified as fresh.** The `onVesselSwitching` event fired at L12920 when Siford bailed out (EVA). PR #274 added a frame-count staleness cap of 300 frames (~6 s at 50 FPS) to filter out this kind of leakage. But under low render FPS at loaded KSC (`[WARN][Diagnostics] Playback frame budget exceeded: 26.3ms` + many active physics vessels → ~12 fps), 24 s of EVA walking only advances ~288 frames — *just* under the 300 cap. The stale flag was classified fresh at OnLoad time (L13194: `isVesselSwitch=True`).
+
+2. **Count/epoch revert signals don't fire for post-merge F5.** Even with `isVesselSwitch` correctly false, the remaining revert signal is `savedEpoch < currentEpoch || savedRecCount < memoryCount`. When F5 happens *after* a merge, both sides have the same 29 committed recordings and same epoch 0. Nothing trips `isRevert`, so the existing "discard pending stashed-this-transition" branch at `ParsekScenario.OnLoad` L567 never runs. The stashed Siford standalone survives to the next OnSave and is committed as orphan #30.
+
+**Fix — orthogonal UT-backwards signal:**
+
+Added a clock-regression check independent of vessel-switch/epoch/count. A quickload is the only legitimate way `Planetarium.GetUniversalTime()` can go backwards between `OnSceneChangeRequested` and the next `OnLoad` — time-warp, SOI transitions, and normal scene changes all preserve or advance UT. Rewinds short-circuit OnLoad at L441 via `RewindContext.IsRewinding` before revert detection runs, so that path is unaffected.
+
+1. **`ParsekScenario`**: added private static `lastSceneChangeRequestedUT = -1.0` and `StampSceneChangeRequestedUT(double)` setter.
+2. **`ParsekFlight.OnSceneChangeRequested`**: stamps `Planetarium.GetUniversalTime()` into it at the top of the method.
+3. **`ParsekScenario.OnLoad`** revert-detection block: reads and consumes the stamp. New pure helper `IsQuickloadOnLoad(preChangeUT, currentUT, epsilon=0.1)` — returns true when `currentUT < preChangeUT - epsilon`. If true *and* `isFlightToFlight`:
+   - Force `isVesselSwitch = false` (with a log line showing the flag age, so future diagnostics can see whether the 60-frame cap is also getting close to its limit).
+   - Call new `DiscardStashedOnQuickload(preChangeUT, currentUT)` helper, which discards `HasPending && PendingStashedThisTransition` (via existing `DiscardPending`, which deletes sidecar files) and discards `HasPendingTree && PendingStashedThisTransition && state != Limbo`. **Limbo pending trees are explicitly preserved** — they're the quickload-resume carrier for tree-mode F5/F9, handled by the existing `ScheduleActiveTreeRestoreOnFlightReady` path further down in OnLoad.
+   - Also clears `GameStateRecorder.PendingScienceSubjects` — the list is not serialized to .sfs so any entries accumulated between F5 and F9 are, by definition, from the discarded future timeline and would otherwise mis-attach to the next committed recording.
+
+4. **`VesselSwitchPendingMaxAgeFrames` tightened from 300 → 60** as defense in depth. At 60 fps this is ~1 s (plenty for a same-frame tracking-station reload), at 12 fps it's still 5 s — far under any realistic EVA walk duration. The count/staleness check from #274 remains the primary defense against EVA leakage; UT-backwards is the secondary defense against the specific F5-post-merge case where count/epoch signals are blind.
+
+5. **Reset sites**: `lastSceneChangeRequestedUT` is consumed to `-1.0` in OnLoad, and also reset in `OnMainMenuTransition` alongside `lastOnSaveScene` to prevent leakage across save loads.
+
+**Tests** (`QuickloadDiscardTests.cs`, 15 cases):
+- Pure helper: unset, unchanged, forward, backward, sub-epsilon noise, exact-epsilon boundary (strict `<` semantics), negative epsilon defensive refusal, and the exact Siford 397.2→369.2 playtest numbers as a named regression.
+- State + log assertions: pending standalone discard path, pending-not-this-transition preservation, non-Limbo tree discard, Limbo tree preservation (the tree-mode resume carrier), stale science subject clear, empty-state header-only logging.
+- Narrative regression: low-FPS EVA leak (288 frames) rejected by the tighter 60-frame cap — protects the primary defense.
+
+The `IsVesselSwitchFlagFresh_MaxAgeConstantValue` pin test (updated from 300 to 60) is the review speed bump — any future loosening of the cap must be justified at the test site.
+
+---
+
 ## ~~274. vesselSwitchPending stale-flag leak — F9 after EVA finalizes tree instead of resuming~~
 
 Exposed by the post-PR-#163 playtest trail. The player launched, decoupled (promoted standalone→tree), EVAed Bill Kerman, EVAed Bob Kerman, F5'd, then F9'd. Expected: restore-and-resume the tree. Actual: tree was auto-committed (lost in-flight continuity) + Kerbal X root recording came back with 0 points (bug #273).

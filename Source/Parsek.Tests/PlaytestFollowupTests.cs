@@ -191,9 +191,17 @@ namespace Parsek.Tests
             // so the test is tautological by construction. Its real purpose is
             // to force a reviewer who changes the constant to also delete this
             // test, which then prompts them to re-read the rationale comment on
-            // VesselSwitchPendingMaxAgeFrames (tracking-station reload ~1-2
-            // frames, EVA leakage ~10000+ frames, cap at 300 ~6s at 50 FPS).
-            Assert.Equal(300, ParsekScenario.VesselSwitchPendingMaxAgeFrames);
+            // VesselSwitchPendingMaxAgeFrames.
+            //
+            // Bug A (2026-04-09 playtest): lowered from 300 to 60 after an
+            // EVA-then-F9 sequence at ~12 render fps (loaded KSC) advanced
+            // only ~288 frames in 24 s, slipping under the old 300-frame cap
+            // and mis-classifying the stale flag as fresh. 60 frames is ~1 s
+            // at 60 fps — plenty for a same-frame tracking-station reload,
+            // tight enough that a 24 s EVA walk cannot slip under even at
+            // sub-10 fps. Combined with the UT-backwards signal in
+            // ParsekScenario.OnLoad, this is defense in depth.
+            Assert.Equal(60, ParsekScenario.VesselSwitchPendingMaxAgeFrames);
         }
 
         // ----- Source-scrape regression guards for bug #273 -----
