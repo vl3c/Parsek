@@ -224,9 +224,17 @@ namespace Parsek
             treeRec.FlagEvents.AddRange(recorder.FlagEvents);
             treeRec.TrackSections.AddRange(recorder.TrackSections);
 
-            // Sort events chronologically — mixed sources can produce out-of-order data
-            treeRec.PartEvents.Sort((a, b) => a.ut.CompareTo(b.ut));
-            treeRec.FlagEvents.Sort((a, b) => a.ut.CompareTo(b.ut));
+            // Sort events chronologically — mixed sources can produce out-of-order data.
+            // PartEvents MUST use a STABLE sort so same-UT terminal Shutdowns stay before
+            // continuation seed EngineIgnited events (#287). LINQ OrderBy is stable;
+            // List<T>.Sort(Comparison) is not. FlagEvents uses the same stable pattern
+            // for consistency across every flush/merge site.
+            var sortedPartEvents = FlightRecorder.StableSortPartEventsByUT(treeRec.PartEvents);
+            treeRec.PartEvents.Clear();
+            treeRec.PartEvents.AddRange(sortedPartEvents);
+            var sortedFlagEvents = FlightRecorder.StableSortByUT(treeRec.FlagEvents, e => e.ut);
+            treeRec.FlagEvents.Clear();
+            treeRec.FlagEvents.AddRange(sortedFlagEvents);
 
             // Populate VesselPersistentId if not already set
             if (treeRec.VesselPersistentId == 0 && recorder.RecordingVesselId != 0)
@@ -1608,9 +1616,16 @@ namespace Parsek
             treeRec.FlagEvents.AddRange(rec.FlagEvents);
             treeRec.TrackSections.AddRange(rec.TrackSections);
 
-            // Sort part/flag events chronologically (mixed event sources may produce non-chronological order)
-            treeRec.PartEvents.Sort((a, b) => a.ut.CompareTo(b.ut));
-            treeRec.FlagEvents.Sort((a, b) => a.ut.CompareTo(b.ut));
+            // Sort part/flag events chronologically. PartEvents MUST use a STABLE sort so
+            // same-UT events retain their insertion order — critical for terminal-vs-ignited
+            // ordering across tree promotion boundaries (#287). FlagEvents uses the same
+            // stable pattern for consistency across every flush/merge site.
+            var sortedPartEventsFlush = FlightRecorder.StableSortPartEventsByUT(treeRec.PartEvents);
+            treeRec.PartEvents.Clear();
+            treeRec.PartEvents.AddRange(sortedPartEventsFlush);
+            var sortedFlagEventsFlush = FlightRecorder.StableSortByUT(treeRec.FlagEvents, e => e.ut);
+            treeRec.FlagEvents.Clear();
+            treeRec.FlagEvents.AddRange(sortedFlagEventsFlush);
 
             // Mark dirty so the next OnSave persists the flushed data to disk.
             // Without this, the in-memory points are lost on scene reload.
@@ -1740,7 +1755,10 @@ namespace Parsek
                 target.OrbitSegments.AddRange(source.OrbitSegments);
                 target.PartEvents.AddRange(source.PartEvents);
                 target.TrackSections.AddRange(source.TrackSections);
-                target.PartEvents.Sort((a, b) => a.ut.CompareTo(b.ut));
+                // STABLE sort: same-UT events preserve insertion order (#287).
+                var sortedAppend = FlightRecorder.StableSortPartEventsByUT(target.PartEvents);
+                target.PartEvents.Clear();
+                target.PartEvents.AddRange(sortedAppend);
                 // Mark dirty so the next OnSave persists the appended data to
                 // the .prec sidecar. Without this, data lives only in memory
                 // and is lost on scene reload (see Recording.MarkFilesDirty

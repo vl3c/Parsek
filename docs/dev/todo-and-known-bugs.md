@@ -4,6 +4,51 @@ Previous entries (225 bugs, 51 TODOs — mostly resolved) archived in `done/todo
 
 ---
 
+## ~~287. Spurious terminal EngineShutdown events survive into committed recordings — ghost engine flames go off permanently after booster staging~~
+
+Surfaced by the 2026-04-09 Kerbal X playtest (`logs/2026-04-09_1117_kerbalx-rover`). The user reported that the ghost's KerbalX engine flames (Mainsail + booster liquidEngine2) turned off after staging the boosters and never came back, even though in reality the Mainsail kept burning through orbit insertion.
+
+**Evidence from committed recording `db2e7ab62c6847e0b439237a41172602.prec`:**
+- UT 72.40: `EngineShutdown pid=1782153286 part=unknown` (a liquidEngine2 booster that shouldn't be shutdown yet)
+- UT 87.94: `EngineShutdown pid=2527095907 part=unknown` (booster engine, still running at this UT in reality)
+- UT 104.86: `EngineShutdown pid=2527095907 part=unknown` (same pid, same spurious shutdown pattern)
+
+Each spurious Shutdown is accompanied by a `Decoupled` event from `OnPartJointBreak` at the same UT — but the file is missing one of the paired Decoupleds that the log confirms was emitted. So each boundary shows: 1 real Decoupled + 1 spurious terminal (with 1 Decoupled + 2 terminals missing/extra). The terminal event (with `part="unknown"`) is the smoking gun: only `EmitTerminalEngineAndRcsEvents` in `FlightRecorder.cs` stamps `partName="unknown"` as a literal.
+
+**Log verification:** `ResumeAfterFalseAlarm: removed 5/3/3 orphaned terminal event(s)` at lines 9290, 9494, 9663 of the KSP.log say the terminals WERE removed from the live recorder at each boundary. Yet the saved `.prec` file still has one per boundary.
+
+**Root cause:** `ResumeAfterFalseAlarm`'s index-based `PartEvents.RemoveRange(partEventCountBeforeChainStop, N)` was brittle against any code path that reordered the list between `StopRecordingForChainBoundary` and the resume call. Five call sites used the unstable `List<T>.Sort((a, b) => a.ut.CompareTo(b.ut))` pattern during flush/merge:
+1. `ParsekFlight.FlushRecorderIntoActiveTreeForSerialization` (line 228)
+2. `ParsekFlight.FlushRecorderToTreeRecording` (line 1612)
+3. `ParsekFlight.AppendCapturedDataToRecording` (line 1743)
+4. `RecordingOptimizer.MergeInto` (line 227)
+5. `SessionMerger.MergePartEvents` (line 422)
+
+When the tree root's events were merged with continuation recorder events at OnSave / MergeTree / commit time, an unstable sort could scramble same-UT events. In the Kerbal X case, a terminal Shutdown at UT 72.94 from the tree root and a seed EngineIgnited at the same UT from the continuation could end up in `Ignited-then-Shutdown` order in the committed `.prec`, leaving playback's `ApplyPartEvents` to call `SetEngineEmission(0f)` as the final event at that UT — flame OFF.
+
+**Fix (two prongs):**
+
+1. **Content-based terminal removal** — `FinalizeRecordingState` now saves the exact terminal events it emitted in a new private `lastEmittedTerminalEvents` field. `ResumeAfterFalseAlarm` calls a new `RemoveLastEmittedTerminals()` helper that matches each saved event against `PartEvents` by `(ut, pid, eventType, moduleIndex)` and removes the matching entry. Robust against any sort reordering or intervening append, because removal is by content not position. New `FlightRecorder.FindTerminalEventIndex(list, target)` pure helper does the (ut, pid, type, midx) tuple match.
+
+2. **Stable sort at all merge sites** — new `FlightRecorder.StableSortPartEventsByUT(List<PartEvent>)` static overload returns a NEW list via LINQ `OrderBy` (stable). All five call sites above replaced their `List<T>.Sort` with this helper. Clear+AddRange pattern: `var sorted = StableSortPartEventsByUT(target.PartEvents); target.PartEvents.Clear(); target.PartEvents.AddRange(sorted);`. The static helper is careful to always return a NEW list (even for null/single-element inputs) to prevent aliasing when callers do the Clear+AddRange dance.
+
+**Tests (`Bug287TerminalCleanupTests.cs`, 10 new xUnit tests):**
+- `FindTerminalEventIndex_EmptyList_ReturnsMinusOne` / `MatchByTuple_IgnoresPartName` / `NoMatch_ReturnsMinusOne` / `MatchesFirstOccurrence`
+- `ResumeAfterFalseAlarm_ContentBasedRemoval_PreservesDecouplesAndRemovesTerminals` — end-to-end: 2 decouples + 3 terminals → 2 decouples remain
+- `RemoveLastEmittedTerminals_SurvivesUnstableSortReordering` — adversarial shuffle proves content-based removal works even when the list is scrambled
+- `StableSort_TreeMergeAtSameUT_KeepsShutdownsBeforeIgnitedSeeds` — regression guard for the exact 2026-04-09 scenario (5 tree-root terminal Shutdowns + 5 continuation seed Ignited events all at UT 72.94)
+- `StableSortPartEventsByUT_Static_NullInput_ReturnsEmptyList` / `SingleElement_ReturnsNewList` / `ClearThenCopyBack_WorksWithSmallLists` — aliasing regression guard (caught by `AppendCapturedDataTests` on the first fix iteration)
+
+All 5466 tests pass.
+
+**Observability:** `ResumeAfterFalseAlarm`'s log line continues to report the number removed. A new `Warn` fires if any saved terminal isn't found in `PartEvents` at resume time (`RemoveLastEmittedTerminals: N terminal event(s) not found`) — that's a canary for any future race condition that manages to drop a terminal between emit and resume.
+
+**Cleanup:** The old `partEventCountBeforeChainStop` private field + its 10-line bug #281 invariant comment in `StopRecordingForChainBoundary` were deleted — content-based removal obviates them and the stale comment was actively misleading. Bug #281's `StableSortPartEventsByUT` instance method is preserved and still called from `FinalizeRecordingState`. `FlagEvents` and `SegmentEvents` sort sites were also converted to stable via a new generic `FlightRecorder.StableSortByUT<T>(list, utSelector)` helper so every flush/merge site uses the same ordering semantics.
+
+**Status:** Fixed
+
+---
+
 ## ~~284. Cascading background-vessel splits create recordings for fragments-of-fragments (and tiny single-part debris)~~
 
 Surfaced by the post-PR-#167 Kerbal X investigation (worktree `Parsek-investigations`, branch `investigation/post-167-followups`). One Kerbal X launch produced **25 debris-related recording entries**: 15 real BgRecorder child recordings (most for single-part vessels living < 0.1 s) plus 10 empty-placeholder recordings (matching #285, originally tracked as #282 before the merge collision with PR #172).
