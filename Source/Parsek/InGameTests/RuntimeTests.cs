@@ -1284,15 +1284,24 @@ namespace Parsek.InGameTests
                 Bounds kerbalBounds = Parsek.SpawnCollisionDetector.ComputeVesselBounds(snapshot);
                 InGameAssert.IsGreaterThan(kerbalBounds.size.magnitude, 1.0,
                     "Snapshot ComputeVesselBounds should not be zero (PART pos missing?)");
-                InGameAssert.IsLessThan(kerbalBounds.size.magnitude, 10.0,
-                    "Snapshot ComputeVesselBounds should be a kerbal-sized cube (not a multi-part vessel)");
+                // Expected ~4.33 (magnitude of a 2.5 m cube). Tight upper bound catches
+                // a regression that makes ComputeVesselBounds include world offsets or
+                // aggregate multiple parts.
+                InGameAssert.IsLessThan(kerbalBounds.size.magnitude, 6.0,
+                    "Snapshot ComputeVesselBounds should be a kerbal-sized cube (~4.33, not a multi-part vessel)");
 
                 // Dispatch through the real spawn entry point
                 Parsek.VesselSpawner.SpawnOrRecoverIfTooClose(rec, 0);
 
-                // Let one physics frame run so OrbitDriver.updateFromParameters fires
+                // Let several physics frames run so OrbitDriver.updateFromParameters
+                // fires and any stale-orbit overwrite would be visible. 3 FixedUpdates
+                // + a short WaitForSeconds gives margin against any KSP scheduler that
+                // defers the first OrbitDriver update — a false positive here would
+                // silently let the #264 stale-orbit bug pass the test.
                 yield return new WaitForFixedUpdate();
                 yield return new WaitForFixedUpdate();
+                yield return new WaitForFixedUpdate();
+                yield return new WaitForSeconds(0.1f);
 
                 InGameAssert.IsTrue(rec.VesselSpawned,
                     "Recording.VesselSpawned should be true after SpawnOrRecoverIfTooClose");

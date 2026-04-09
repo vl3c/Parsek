@@ -1821,6 +1821,17 @@ namespace Parsek
         /// speed, and orbital speed. Used by SpawnAtPosition.
         /// 4-way classifier: returns SPLASHED | LANDED | ORBITING | FLYING (never SUB_ORBITAL —
         /// that's handled upstream by `ComputeCorrectedSituation` reading the stored snapshot sit).
+        ///
+        /// NOTE: there are currently three layers of situation correction applied before a
+        /// spawn: (1) <see cref="ComputeCorrectedSituation"/> in `PrepareSnapshotForSpawn`
+        /// rewrites the snapshot's `sit` field based on the stored situation, (2) this
+        /// method ignores the corrected `snapshot.sit` and classifies fresh from
+        /// altitude+velocity, (3) <see cref="OverrideSituationFromTerminalState"/> then
+        /// overrides FLYING based on the recording's terminal state. The triple layering
+        /// is historical — a cleanup PR could replace this method with "read corrected
+        /// snapshot.sit first, fall through to altitude/velocity classifier only if still
+        /// FLYING/SUB_ORBITAL" for a cleaner invariant. Tracked under the #264 follow-ups
+        /// in docs/dev/todo-and-known-bugs.md.
         /// </summary>
         internal static string DetermineSituation(double alt, bool overWater, double speed, double orbitalSpeed)
         {

@@ -326,6 +326,27 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void WalkbackSubdivided_LastPointClear_LogsBaseCaseLine()
+        {
+            // Safe base-case path: caller already confirmed overlap at the last point,
+            // but if isOverlapping returns false for the last-point check we take the
+            // fast path and log a distinct "last point clear at index" line.
+            var points = new List<TrajectoryPoint>
+            {
+                Pt(0.0, 0.0, 70.0, 100.0),
+                Pt(MetersToLatDegrees(5.0, KerbinRadius), 0.0, 70.0, 101.0),
+            };
+
+            var result = SpawnCollisionDetector.WalkbackAlongTrajectorySubdivided(
+                points, KerbinRadius, 1.5f, PosClosure, _ => false);
+
+            Assert.True(result.found);
+            Assert.Contains(logLines, l =>
+                l.Contains("[SpawnCollision]") &&
+                l.Contains("WalkbackSubdivided: last point clear"));
+        }
+
+        [Fact]
         public void WalkbackSubdivided_Clears_LogsSuccessLine()
         {
             var points = new List<TrajectoryPoint>

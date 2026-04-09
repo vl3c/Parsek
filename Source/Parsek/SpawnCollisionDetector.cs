@@ -341,6 +341,15 @@ namespace Parsek
         internal const float DefaultWalkbackStepMeters = 1.5f;
 
         /// <summary>
+        /// Maximum sub-steps generated from a single trajectory segment. Clamps against
+        /// pathological orbital trajectories with multi-km adaptive-sample gaps (tens of
+        /// km between points would otherwise yield 30k+ sub-steps per segment, burning
+        /// main-thread time on the per-sub-step CheckOverlapAgainstLoadedVessels call).
+        /// Normal EVA-scale segments are well below this cap (100 m / 1.5 m step = 67).
+        /// </summary>
+        internal const int MaxSubStepsPerSegment = 500;
+
+        /// <summary>
         /// Walk backward along a trajectory, subdividing each segment with linear lat/lon/alt
         /// interpolation at a fixed metric step size, and return the first non-overlapping
         /// candidate found while walking outward from the last point. (#264)
@@ -420,7 +429,16 @@ namespace Parsek
                 var segStart = points[i - 1]; // earlier in time (index i-1)
                 double dMeters = SurfaceDistance(segStart.latitude, segStart.longitude,
                     segEnd.latitude, segEnd.longitude, bodyRadius);
-                int n = Math.Max(1, (int)Math.Ceiling(dMeters / stepMeters));
+                int nRaw = Math.Max(1, (int)Math.Ceiling(dMeters / stepMeters));
+                int n = Math.Min(nRaw, MaxSubStepsPerSegment);
+                if (n < nRaw)
+                {
+                    ParsekLog.Warn(Tag,
+                        string.Format(IC,
+                            "WalkbackSubdivided: segment [{0}↔{1}] d={2}m requested n={3} > max {4} — clamping (effective step = {5}m)",
+                            i - 1, i, dMeters.ToString("F2", IC), nRaw, MaxSubStepsPerSegment,
+                            (dMeters / n).ToString("F2", IC)));
+                }
 
                 ParsekLog.Verbose(Tag,
                     string.Format(IC,
