@@ -659,24 +659,24 @@ Tree sub-recordings (debris, EVA branches) may not have their own `_vessel.craft
 
 **Priority:** Low — cosmetic log noise
 
-## 263. Ghost mesh inaccurate after decoupling boosters
+## ~~263. Ghost mesh inaccurate after decoupling boosters~~
 
-During the 2026-04-09 KerbalX playtest, the ghost visual showed 3 boosters still attached to the final stage even after they should have decoupled. Two compounding root causes:
+During the 2026-04-09 KerbalX playtest, the ghost visual showed 3 boosters still attached to the final stage even after they should have decoupled. The snapshot held all 6 radial decouplers, but only 3 `Decoupled` PartEvents ended up in the committed `.prec` file, so `HidePartSubtree` hid only 3 of the 6 booster subtrees at playback.
 
-1. **Snapshot not refreshed on decouple:** `FlightRecorder.initialGhostVisualSnapshot` (FlightRecorder.cs:4223-4225) is captured ONCE at recording start and reused via `BuildCaptureRecording` (FlightRecorder.cs:4394-4396). The ghost mesh is built from this snapshot plus part-hiding events during playback. If a decouple happens mid-recording, the snapshot still contains the attached boosters; only the `Decoupled` PartEvent hides them during playback via `HidePartSubtree`.
+**Root cause:** When a symmetry group of radial decouplers fires, the 6 individual `onPartJointBreak` events race with KSP's vessel-split processing (`Part.decouple()` creates the new vessel and calls `CleanSymmetryVesselReferencesRecursively` before `PartJoint.OnJointBreak` fires). Events captured by `FlightRecorder.OnPartJointBreak` then travel through `StopRecordingForChainBoundary` → `ResumeAfterFalseAlarm` → tree promotion → `FlushRecorderToTreeRecording`, and somewhere in that pipeline half of the events consistently disappear. Exact drop point was not conclusively identified from logs alone (all 6 events appear in the verbose `[Recorder] Part event: Decoupled` output, but only 3 per pair end up in `tree.PartEvents` at `SessionMerger` time).
 
-2. **Half of decouple events dropped (race condition):** 6 decouple events fire in pairs when radial decouplers separate (core side + booster side), ~4ms apart. Only the 3 core-side pids (2057942744/3027027466/3271565278) end up in the committed `.prec` file. The 3 booster-side pids (1009856088/2130796824/633147235) are dropped — they're emitted after the booster-side pid has migrated to the new debris vessel, so the Kerbal X recorder filters them out, and the debris `BackgroundRecorder` doesn't exist yet to capture them. Neither recording has these events.
+**Fix:** Deterministic safety net in `DeferredJointBreakCheck`. After classifying a joint break as `DebrisSplit`/`StructuralSplit` and calling `ResumeSplitRecorder`, scan `newVesselPids` and emit a `Decoupled` PartEvent for each new debris vessel's root part via `FlightRecorder.RecordFallbackDecoupleEvent` (deduped against `decoupledPartIds`). Every new debris vessel has exactly one root part, and that root is by construction the part that separated from the recording vessel, so emitting a `Decoupled` event for it hides the correct subtree through `HidePartSubtree`. Must run *after* `ResumeSplitRecorder` so the fallback events survive `ResumeAfterFalseAlarm`'s terminal-event trim.
 
-**Evidence:**
-- KSP.log lines 9241-9620: 6 decouple events logged in pairs at 10:33:50, 10:34:05, 10:34:22
-- Committed recordings (`db2e7ab6…prec`): only 3 core-side decouple events present
-- All 6 decoupler pids present in ghost.craft snapshot
+When `OnPartJointBreak` already captured all events naturally, the fallback is a no-op (dedup via `decoupledPartIds`). When any event is lost mid-pipeline, the fallback recovers it from the authoritative post-split vessel topology.
 
-**Fix plan (two-part):**
-1. Refresh `initialGhostVisualSnapshot` on decouple (in `OnPartUndock` before chain boundary stop) so the snapshot reflects post-decouple state. Alternative: record a part-hiding event for booster-side pids explicitly.
-2. Capture booster-side decouple events: either hold them in a pending buffer until the debris `BackgroundRecorder` exists, or emit a "paired decouple" event with both pids so HidePartSubtree can hide both halves.
+**Key locations:**
+- `FlightRecorder.RecordFallbackDecoupleEvent` — pure-ish method with dedup (testable)
+- `ParsekFlight.EmitFallbackDecoupleEventsForNewVessels` — resolves new vessels (live + captured), emits events
+- `ParsekFlight.DeferredJointBreakCheck` — calls the fallback after `ResumeSplitRecorder`
 
-**Priority:** Medium — visible ghost corruption on any decoupling craft
+**Tests:** `Bug263DecoupleFallbackTests.cs` — 5 unit tests covering add/dedup/null-name/6-pid-sequence/override-suppression.
+
+**Status:** Fixed
 
 ## 264. EVA kerbal not spawned at exact recorded final position
 

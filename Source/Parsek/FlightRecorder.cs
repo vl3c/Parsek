@@ -348,6 +348,47 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Records a fallback Decoupled PartEvent for a part that split off into a new vessel.
+        /// Called by <see cref="ParsekFlight.DeferredJointBreakCheck"/> after the vessel-split
+        /// classification, once per new vessel's root part. This is a safety net for bug #263:
+        /// when a symmetry group of radial decouplers fires, individual <c>onPartJointBreak</c>
+        /// events race with KSP's vessel-split processing, and some may be dropped mid-pipeline,
+        /// leaving decoupled subtrees visible on the ghost during playback.
+        ///
+        /// The deferred scan is deterministic — every new debris vessel has exactly one root
+        /// part, and that root is by construction the part that separated from the recording
+        /// vessel, so emitting a <c>Decoupled</c> event for it hides the correct subtree.
+        /// Duplicates are filtered via <see cref="decoupledPartIds"/>.
+        /// </summary>
+        /// <param name="partPid">The persistent ID of the new vessel's root part.</param>
+        /// <param name="partName">The root part's name (for logging/serialization).</param>
+        /// <param name="ut">Universal time to stamp on the event.</param>
+        /// <returns>1 if a new event was added, 0 if the pid was already in the decoupled set.</returns>
+        public int RecordFallbackDecoupleEvent(uint partPid, string partName, double ut)
+        {
+            if (decoupledPartIds.Contains(partPid))
+            {
+                ParsekLog.Verbose("Recorder",
+                    $"RecordFallbackDecoupleEvent: pid={partPid} already in decoupled set, skipping");
+                return 0;
+            }
+            decoupledPartIds.Add(partPid);
+
+            PartEvents.Add(new PartEvent
+            {
+                ut = ut,
+                partPersistentId = partPid,
+                eventType = PartEventType.Decoupled,
+                partName = partName ?? "unknown",
+                value = 0f,
+                moduleIndex = 0
+            });
+            ParsekLog.Info("Recorder",
+                $"Fallback Decoupled event recorded: '{partName}' pid={partPid} at UT={ut.ToString("F2", CultureInfo.InvariantCulture)}");
+            return 1;
+        }
+
+        /// <summary>
         /// Determines whether a joint break is structural (real separation) or non-structural
         /// (e.g., wheel suspension stress). Only the structural attachJoint indicates real decoupling.
         /// </summary>

@@ -2541,6 +2541,27 @@ namespace Parsek
                     // to keep running to capture continued trajectory data.
                     ResumeSplitRecorder(pendingSplitRecorder,
                         $"joint break fed to coalescer (classification={classification})");
+
+                    // Bug #263 fallback: ensure a Decoupled event exists for every new
+                    // vessel's root part. When a symmetry group of radial decouplers fires,
+                    // individual onPartJointBreak events race with KSP's vessel-split
+                    // processing and some can be dropped mid-pipeline, leaving decoupled
+                    // subtrees visible on the ghost during playback. Scanning new vessel
+                    // roots post-split is deterministic — every new debris vessel has
+                    // exactly one root part, and that root is the part that separated
+                    // from the recording vessel. Must run AFTER ResumeSplitRecorder so
+                    // the events survive ResumeAfterFalseAlarm's terminal-event trim.
+                    if (recorder != null && recorder.IsRecording)
+                    {
+                        int fallbackAdded = EmitFallbackDecoupleEventsForNewVessels(
+                            recorder, newVesselPids, branchUT);
+                        if (fallbackAdded > 0)
+                        {
+                            ParsekLog.Info("Flight",
+                                $"DeferredJointBreakCheck: added {fallbackAdded} fallback " +
+                                $"Decoupled event(s) for new vessel roots at UT={branchUT:F2}");
+                        }
+                    }
                 }
             }
             finally
@@ -2552,6 +2573,71 @@ namespace Parsek
                 decoupleCreatedVessels?.Clear();
                 decoupleControllerStatus?.Clear();
             }
+        }
+
+        /// <summary>
+        /// Bug #263 safety net: for each new vessel created by a joint break, emits a fallback
+        /// <c>Decoupled</c> PartEvent on the recorder for the vessel's root part (if not already
+        /// decoupled). This catches decouple events that raced past the recorder's joint break
+        /// handler when a symmetry group of decouplers fires.
+        ///
+        /// Resolves the new vessel from live <see cref="FlightGlobals.Vessels"/> first, falling
+        /// back to <see cref="decoupleCreatedVessels"/> (captured synchronously during the split)
+        /// for debris that KSP may have already cleaned up by the deferred-check frame.
+        /// </summary>
+        /// <param name="rec">The (resumed) recorder to append events to.</param>
+        /// <param name="newVesselPids">Vessel PIDs that appeared as a result of the joint break.</param>
+        /// <param name="branchUT">Universal time to stamp on the fallback events.</param>
+        /// <returns>Number of new events added (0 if all pids were already in the recorder's decoupled set).</returns>
+        internal int EmitFallbackDecoupleEventsForNewVessels(
+            FlightRecorder rec, List<uint> newVesselPids, double branchUT)
+        {
+            if (rec == null || newVesselPids == null || newVesselPids.Count == 0)
+                return 0;
+
+            int added = 0;
+            for (int i = 0; i < newVesselPids.Count; i++)
+            {
+                uint newPid = newVesselPids[i];
+
+                // Resolve the new vessel. Prefer live FlightGlobals lookup; fall back to
+                // decoupleCreatedVessels captured synchronously during the split event.
+                Vessel newVessel = FlightRecorder.FindVesselByPid(newPid);
+                if (newVessel == null && decoupleCreatedVessels != null)
+                {
+                    for (int j = 0; j < decoupleCreatedVessels.Count; j++)
+                    {
+                        Vessel dv = decoupleCreatedVessels[j];
+                        if (dv != null && dv.persistentId == newPid)
+                        {
+                            newVessel = dv;
+                            break;
+                        }
+                    }
+                }
+
+                if (newVessel == null)
+                {
+                    ParsekLog.Verbose("Flight",
+                        $"EmitFallbackDecoupleEventsForNewVessels: vessel pid={newPid} not found, skipping");
+                    continue;
+                }
+
+                Part rootPart = newVessel.rootPart;
+                if (rootPart == null)
+                {
+                    ParsekLog.Verbose("Flight",
+                        $"EmitFallbackDecoupleEventsForNewVessels: vessel pid={newPid} has no rootPart, skipping");
+                    continue;
+                }
+
+                added += rec.RecordFallbackDecoupleEvent(
+                    rootPart.persistentId,
+                    rootPart.partInfo?.name,
+                    branchUT);
+            }
+
+            return added;
         }
 
         /// <summary>
