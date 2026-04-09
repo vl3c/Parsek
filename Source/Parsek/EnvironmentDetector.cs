@@ -82,15 +82,14 @@ namespace Parsek
         /// classification (which has hysteresis to filter EVA jitter — see #246) when
         /// available; falls back to the raw KSP situation enum when no environment
         /// classifier is initialized (defensive — early in StartRecording, etc.).
+        /// Pass <c>envHint = null</c> when the caller has no debounced classification.
         /// </summary>
-        /// <param name="hasEnvironment">true if envHint should be used; false to fall back to situation</param>
-        /// <param name="envHint">the debounced environment classification</param>
+        /// <param name="envHint">debounced environment classification, or null to use the situation fallback</param>
         /// <param name="situation">(int)vessel.situation (LANDED=1, SPLASHED=2, PRELAUNCH=4)</param>
-        internal static bool IsSurfaceForAnchorDetection(
-            bool hasEnvironment, SegmentEnvironment envHint, int situation)
+        internal static bool IsSurfaceForAnchorDetection(SegmentEnvironment? envHint, int situation)
         {
-            if (hasEnvironment)
-                return IsSurfaceEnvironment(envHint);
+            if (envHint.HasValue)
+                return IsSurfaceEnvironment(envHint.Value);
             return situation == 1 || situation == 2 || situation == 4;
         }
     }

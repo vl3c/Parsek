@@ -866,9 +866,10 @@ namespace Parsek
             }
 
             // Adaptive sampling (velocity-based, gated by the proximity interval as min floor).
-            // proximityInterval doubles as ShouldRecordPoint's minInterval — single source of
-            // truth for the rate floor (foreground uses the settings minSampleInterval; both
-            // paths now flow through the same function for the same purpose).
+            // proximityInterval is passed as ShouldRecordPoint's minInterval — single call
+            // path for the rate floor across foreground and background. The *value* still
+            // differs (foreground uses ParsekSettings.minSampleInterval; background uses the
+            // proximity tier from ProximityRateSelector), but the gating logic is unified.
             Vector3 currentVelocity = (Vector3)(bgVessel.rb_velocityD + Krakensbane.GetFrameVelocity());
 
             float maxSampleInterval = ParsekSettings.Current?.maxSampleInterval ?? 3.0f;

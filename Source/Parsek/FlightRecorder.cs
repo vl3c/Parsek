@@ -3996,10 +3996,7 @@ namespace Parsek
             // filters EVA situation jitter — see #246 for the precedent fix); fall back
             // to raw v.situation when the classifier hasn't been initialized yet.
             bool onSurface = EnvironmentDetector.IsSurfaceForAnchorDetection(
-                hasEnvironment: environmentHysteresis != null,
-                envHint: environmentHysteresis != null
-                    ? environmentHysteresis.CurrentEnvironment
-                    : SegmentEnvironment.ExoBallistic,
+                envHint: environmentHysteresis?.CurrentEnvironment,
                 situation: (int)v.situation);
             if (onSurface && isRelativeMode)
             {

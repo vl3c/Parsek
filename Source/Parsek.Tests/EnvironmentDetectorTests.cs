@@ -901,7 +901,6 @@ namespace Parsek.Tests
             // SurfaceMobile (still walking on the Mun, just transient jitter to FLYING).
             // Function must trust the debounced classification.
             var result = EnvironmentDetector.IsSurfaceForAnchorDetection(
-                hasEnvironment: true,
                 envHint: SegmentEnvironment.SurfaceMobile,
                 situation: 8); // FLYING
 
@@ -914,7 +913,6 @@ namespace Parsek.Tests
             // Inverse: KSP raw situation says LANDED (1), but the debounced environment
             // says Atmospheric. Trust the debounced classification.
             var result = EnvironmentDetector.IsSurfaceForAnchorDetection(
-                hasEnvironment: true,
                 envHint: SegmentEnvironment.Atmospheric,
                 situation: 1); // LANDED
 
@@ -932,11 +930,10 @@ namespace Parsek.Tests
         public void IsSurfaceForAnchorDetection_FallsBackToSituation_WhenNoEnvironment(
             int situation, bool expected)
         {
-            // No environment classifier available — must fall back to raw situation.
-            // envHint is ignored when hasEnvironment=false (passing ExoBallistic to prove it).
+            // No environment classifier available (envHint = null) — must fall back to
+            // raw situation.
             var result = EnvironmentDetector.IsSurfaceForAnchorDetection(
-                hasEnvironment: false,
-                envHint: SegmentEnvironment.ExoBallistic,
+                envHint: null,
                 situation: situation);
 
             Assert.Equal(expected, result);
