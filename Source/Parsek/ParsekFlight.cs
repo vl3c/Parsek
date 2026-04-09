@@ -4551,9 +4551,15 @@ namespace Parsek
                 fromPhase = "exo"; // was in space around atmospheric body
             else if (fromCB != null)
             {
+                // Use LastRecordedAltitude (cached field) instead of peeking at the
+                // Recording buffer. The buffer can legitimately be empty here because
+                // FlushRecorderIntoActiveTreeForSerialization clears it on every OnSave
+                // while IsRecording stays true. The cached field is updated every
+                // CommitRecordedPoint / SamplePosition, so it reflects the true last
+                // altitude regardless of whether a flush happened since.
                 double threshold = FlightRecorder.ComputeApproachAltitude(fromCB);
-                fromPhase = recorder.Recording.Count > 0 &&
-                    recorder.Recording[recorder.Recording.Count - 1].altitude < threshold
+                fromPhase = !double.IsNaN(recorder.LastRecordedAltitude)
+                    && recorder.LastRecordedAltitude < threshold
                     ? "approach" : "exo";
             }
             else
@@ -5305,14 +5311,16 @@ namespace Parsek
             // Restore recorder state persisted in the PARSEK_ACTIVE_TREE node
             if (!string.IsNullOrEmpty(ParsekScenario.pendingActiveTreeResumeRewindSave))
             {
-                recorder.RewindSaveFileName = ParsekScenario.pendingActiveTreeResumeRewindSave;
+                recorder.SetRewindSaveFileNameForRestore(
+                    ParsekScenario.pendingActiveTreeResumeRewindSave,
+                    "quickload-resume from PARSEK_ACTIVE_TREE");
                 ParsekScenario.pendingActiveTreeResumeRewindSave = null;
             }
-            // BoundaryAnchor UT is informational only — the TrajectoryPoint struct needs
-            // the full state, which we don't serialize. Skip restoring it; the worst case
-            // is a single extra boundary point on the next chain continuation, which is
-            // benign compared to losing the entire resume.
-            ParsekScenario.pendingActiveTreeResumeBoundaryAnchorUT = double.NaN;
+            // BoundaryAnchor is NOT restored — only the UT could round-trip through the
+            // save node, and reconstructing a TrajectoryPoint from a bare UT is not
+            // possible (needs lat/lon/alt/rotation/velocity). Leaving BoundaryAnchor
+            // unset produces one extra boundary point on the next chain continuation,
+            // which is benign. See SaveActiveTreeIfAny for the write-side comment.
 
             // Start recording as a promotion (isPromotion: true) so the Bug A seed-event
             // skip kicks in — no duplicate DeployableExtended / LightOn / etc. events at

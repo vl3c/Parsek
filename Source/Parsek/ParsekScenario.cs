@@ -219,12 +219,15 @@ namespace Parsek
             activeTree.Save(treeNode);
             treeNode.AddValue("isActive", "True");
 
-            // Persist recorder state needed to resume after quickload
+            // Persist recorder state needed to resume after quickload.
+            // NOTE: BoundaryAnchor is a TrajectoryPoint struct with lat/lon/alt/rotation/
+            // velocity, and serializing just the UT is insufficient to reconstruct it on
+            // restore — RestoreActiveTreeFromPending explicitly leaves BoundaryAnchor
+            // unset. Either serialize the full TrajectoryPoint or don't write anything;
+            // we chose the latter because a missing anchor just produces one extra
+            // boundary point on the next chain continuation, which is benign.
             if (!string.IsNullOrEmpty(recorder.RewindSaveFileName))
                 treeNode.AddValue("resumeRewindSave", recorder.RewindSaveFileName);
-            if (recorder.BoundaryAnchor.HasValue)
-                treeNode.AddValue("resumeBoundaryAnchorUT",
-                    recorder.BoundaryAnchor.Value.ut.ToString("R", CultureInfo.InvariantCulture));
 
             ParsekLog.Info("Scenario",
                 $"OnSave: wrote ACTIVE tree '{activeTree.TreeName}' ({activeRecCount} recording(s), " +
@@ -614,23 +617,38 @@ namespace Parsek
 
                     // Dispatch pending-Limbo trees (Bug C fix: quickload-resume).
                     // The tree was stashed without finalization in StashActiveTreeAsPendingLimbo.
-                    // Based on revert detection we now either finalize it (real revert)
-                    // or schedule a restore-and-resume coroutine (quickload / vessel switch).
+                    // Based on revert detection + vessel-switch flag, we now either
+                    // finalize it (real revert OR vessel switch) or schedule a
+                    // restore-and-resume coroutine (quickload).
                     if (RecordingStore.HasPendingTree
                         && RecordingStore.PendingTreeStateValue == PendingTreeState.Limbo)
                     {
-                        if (isRevert)
+                        if (isRevert || isVesselSwitch)
                         {
                             // Real revert: finalize the Limbo tree with a minimal static
-                            // finalization (vessel refs are gone, so terminal states fall
-                            // back to Destroyed with PopulateTerminalOrbitFromLastSegment).
-                            // Then flip state to Finalized so the existing auto-commit /
-                            // merge-dialog path handles it as before.
+                            // finalization (vessel refs are gone by this point, so terminal
+                            // states fall back to Destroyed + PopulateTerminalOrbitFromLastSegment).
+                            //
+                            // Vessel switch: the player moved focus to a different vessel.
+                            // The name-match in RestoreActiveTreeFromPending would fail
+                            // (the new active vessel is by definition not the tree's
+                            // recorded vessel), and the tree would be orphaned in Limbo.
+                            // Match mainline CommitTreeRevert behavior: finalize on vessel
+                            // switch. A future improvement could preserve the tree by
+                            // moving it to BackgroundMap + keeping it in committedTrees,
+                            // but that requires more vessel-switch-specific plumbing —
+                            // tracked as a follow-up in the design doc's "Risks" section.
                             FinalizePendingLimboTreeForRevert();
+                            if (isVesselSwitch && !isRevert)
+                            {
+                                ParsekLog.Info("Scenario",
+                                    "OnLoad: Limbo tree finalized on vessel switch " +
+                                    "(matches mainline behavior; tree-preservation-on-switch is a follow-up)");
+                            }
                         }
                         else
                         {
-                            // Quickload / vessel switch: defer restore to OnFlightReady.
+                            // Quickload or cold-start resume: defer restore to OnFlightReady.
                             // ParsekFlight.RestoreActiveTreeFromPending picks up the
                             // pending-Limbo tree and wires a fresh recorder to it.
                             ScheduleActiveTreeRestoreOnFlightReady = true;
@@ -1340,24 +1358,30 @@ namespace Parsek
                 foreach (var rec in tree.Recordings.Values)
                     RecordingStore.LoadRecordingFiles(rec);
 
+                // If the same tree id is already in committedTrees (e.g. the player
+                // quicksaved in flight, then exited to TS which committed the tree, then
+                // quickloaded — the in-memory committedTrees retains the T3 version even
+                // though the save file has the T2 active version), remove the committed
+                // copy so the active version is the single source of truth. Otherwise
+                // the next OnSave would write the tree twice with the same id.
+                RemoveCommittedTreeById(tree.Id);
+
+                // Pop any existing pending tree silently — StashActiveTreeAsPendingLimbo
+                // stashed the in-memory (future-timeline) version at OnSceneChangeRequested
+                // time; we want the freshly-loaded disk version (matches the quicksave UT
+                // the user is rewinding to). PopPendingTree is non-destructive (doesn't
+                // delete sidecar files), and avoids the "overwriting existing pending tree"
+                // warning on the expected-overwrite quickload path.
+                RecordingStore.PopPendingTree();
+
                 // Stash into pending-limbo — OnLoad's revert-detection dispatch decides
                 // the final disposition (restore-and-resume OR finalize-and-commit).
                 RecordingStore.StashPendingTree(tree, PendingTreeState.Limbo);
 
-                // Read resume hints back into pendingActiveTreeResumeHints for the
-                // restore coroutine
+                // Read resume hints for the restore coroutine (rewind save filename only;
+                // BoundaryAnchor can't round-trip because we only have the UT, not the
+                // full TrajectoryPoint state — restore leaves it unset).
                 pendingActiveTreeResumeRewindSave = treeNodes[t].GetValue("resumeRewindSave");
-                string anchorUTStr = treeNodes[t].GetValue("resumeBoundaryAnchorUT");
-                if (!string.IsNullOrEmpty(anchorUTStr)
-                    && double.TryParse(anchorUTStr, NumberStyles.Float, CultureInfo.InvariantCulture,
-                        out double anchorUT))
-                {
-                    pendingActiveTreeResumeBoundaryAnchorUT = anchorUT;
-                }
-                else
-                {
-                    pendingActiveTreeResumeBoundaryAnchorUT = double.NaN;
-                }
 
                 ParsekLog.Info("Scenario",
                     $"TryRestoreActiveTreeNode: stashed active tree '{tree.TreeName}' " +
@@ -1368,10 +1392,38 @@ namespace Parsek
             return false;
         }
 
+        /// <summary>
+        /// Removes a committed tree from <see cref="RecordingStore.CommittedTrees"/>
+        /// (and its recordings from the flat committed list) if a tree with the given id
+        /// exists. Used by the active-tree restore path to prevent duplicate-id collisions
+        /// when a prior TS/SPC commit left the tree in committedTrees at the same time
+        /// the disk save had it flagged active.
+        /// </summary>
+        private static void RemoveCommittedTreeById(string treeId)
+        {
+            if (string.IsNullOrEmpty(treeId)) return;
+
+            var committed = RecordingStore.CommittedTrees;
+            for (int i = committed.Count - 1; i >= 0; i--)
+            {
+                if (committed[i].Id != treeId) continue;
+
+                var stale = committed[i];
+                // Remove the tree's recordings from the flat CommittedRecordings list
+                var flatList = RecordingStore.CommittedRecordings;
+                foreach (var rec in stale.Recordings.Values)
+                    flatList.Remove(rec);
+
+                committed.RemoveAt(i);
+                ParsekLog.Info("Scenario",
+                    $"RemoveCommittedTreeById: removed stale committed copy of tree '{stale.TreeName}' " +
+                    $"(id={treeId}, {stale.Recordings.Count} recording(s)) — active-tree restore takes precedence");
+            }
+        }
+
         // Resume hints parsed from PARSEK_ACTIVE_TREE node, consumed by ParsekFlight
         // when it constructs the new recorder during the restore coroutine.
         internal static string pendingActiveTreeResumeRewindSave;
-        internal static double pendingActiveTreeResumeBoundaryAnchorUT = double.NaN;
 
         /// <summary>
         /// Signal to <see cref="ParsekFlight.OnFlightReady"/> that a pending-Limbo tree

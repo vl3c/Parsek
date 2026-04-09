@@ -161,7 +161,21 @@ namespace Parsek
         public double PreLaunchFunds { get; private set; }
         public double PreLaunchScience { get; private set; }
         public float PreLaunchReputation { get; private set; }
-        public string RewindSaveFileName { get; internal set; }
+        public string RewindSaveFileName { get; private set; }
+
+        /// <summary>
+        /// Sets <see cref="RewindSaveFileName"/> from the quickload-resume restore path,
+        /// logging the transition with a reason so the state change is visible in KSP.log.
+        /// The normal recording-start path uses <see cref="CaptureRewindSave"/> which
+        /// writes the field directly; this setter exists only for restore.
+        /// </summary>
+        internal void SetRewindSaveFileNameForRestore(string fileName, string reason)
+        {
+            string prev = RewindSaveFileName;
+            RewindSaveFileName = fileName;
+            ParsekLog.Info("Recorder",
+                $"RewindSaveFileName set for restore: '{prev ?? "<null>"}' → '{fileName ?? "<null>"}' ({reason})");
+        }
         public double RewindReservedFunds { get; private set; }
         public double RewindReservedScience { get; private set; }
         public float RewindReservedRep { get; private set; }
@@ -192,6 +206,16 @@ namespace Parsek
         internal const float AnimateHeatColdThreshold = 0.10f;
         private double lastRecordedUT = -1;
         private Vector3 lastRecordedVelocity;
+
+        /// <summary>
+        /// Altitude (m) of the most recently committed point. Double.NaN until the
+        /// first point is recorded. Exposed so callers (e.g. HandleSoiAutoSplit in
+        /// ParsekFlight) can read the "last known altitude" without depending on
+        /// the Recording buffer being populated — the buffer is cleared by
+        /// FlushRecorderIntoActiveTreeForSerialization on every OnSave while
+        /// IsRecording stays true.
+        /// </summary>
+        internal double LastRecordedAltitude { get; private set; } = double.NaN;
         private ConfigNode lastGoodVesselSnapshot;
         private ConfigNode initialGhostVisualSnapshot;
         private double lastSnapshotRefreshUT = double.MinValue;
@@ -4143,6 +4167,7 @@ namespace Parsek
             RecordingStartedAsEva = v.isEVA;
             lastRecordedUT = -1;
             lastRecordedVelocity = Vector3.zero;
+            LastRecordedAltitude = double.NaN;
 
             hasPersistentRotation = AssemblyLoader.loadedAssemblies.Any(
                 a => a.name == "PersistentRotation");
@@ -4867,6 +4892,7 @@ namespace Parsek
             Recording.Add(point);
             lastRecordedUT = point.ut;
             lastRecordedVelocity = point.velocity;
+            LastRecordedAltitude = point.altitude;
 
             // Dual-write: flat Points list + current TrackSection
             if (trackSectionActive && currentTrackSection.frames != null)
@@ -5026,6 +5052,7 @@ namespace Parsek
             Recording.Add(point);
             lastRecordedUT = point.ut;
             lastRecordedVelocity = point.velocity;
+            LastRecordedAltitude = point.altitude;
             ParsekLog.Verbose("Recorder", $"Boundary point sampled at UT={point.ut:F1}");
 
             // Dual-write: flat Points list + current TrackSection

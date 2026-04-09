@@ -286,7 +286,7 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void TryRestoreActiveTreeNode_ParsesResumeHints()
+        public void TryRestoreActiveTreeNode_ParsesResumeRewindSave()
         {
             var scenarioNode = new ConfigNode("PARSEK_SCENARIO");
             var activeNode = scenarioNode.AddNode("RECORDING_TREE");
@@ -294,38 +294,124 @@ namespace Parsek.Tests
             activeTree.Save(activeNode);
             activeNode.AddValue("isActive", "True");
             activeNode.AddValue("resumeRewindSave", "parsek_rw_abc123");
-            activeNode.AddValue("resumeBoundaryAnchorUT", "12345.67");
 
             bool result = ParsekScenario.TryRestoreActiveTreeNode(scenarioNode);
 
             Assert.True(result);
             Assert.Equal("parsek_rw_abc123", ParsekScenario.pendingActiveTreeResumeRewindSave);
-            Assert.Equal(12345.67, ParsekScenario.pendingActiveTreeResumeBoundaryAnchorUT, 2);
 
             // Cleanup for subsequent tests
             ParsekScenario.pendingActiveTreeResumeRewindSave = null;
-            ParsekScenario.pendingActiveTreeResumeBoundaryAnchorUT = double.NaN;
         }
 
         [Fact]
-        public void TryRestoreActiveTreeNode_NoResumeHints_ClearsStaleValues()
+        public void TryRestoreActiveTreeNode_NoResumeRewindSave_ClearsStaleValue()
         {
-            // Pre-populate stale resume hints from a prior restore
+            // Pre-populate a stale resume hint from a prior restore
             ParsekScenario.pendingActiveTreeResumeRewindSave = "stale_save";
-            ParsekScenario.pendingActiveTreeResumeBoundaryAnchorUT = 999.0;
 
             var scenarioNode = new ConfigNode("PARSEK_SCENARIO");
             var activeNode = scenarioNode.AddNode("RECORDING_TREE");
             var activeTree = MakeTree("in_flight", "Pad Walk", 1);
             activeTree.Save(activeNode);
             activeNode.AddValue("isActive", "True");
-            // No resumeRewindSave / resumeBoundaryAnchorUT
+            // No resumeRewindSave key
 
             ParsekScenario.TryRestoreActiveTreeNode(scenarioNode);
 
-            // Rewind save becomes null (no key present), anchor UT becomes NaN
+            // Value becomes null (no key present)
             Assert.Null(ParsekScenario.pendingActiveTreeResumeRewindSave);
-            Assert.True(double.IsNaN(ParsekScenario.pendingActiveTreeResumeBoundaryAnchorUT));
+        }
+
+        [Fact]
+        public void TryRestoreActiveTreeNode_DoesNotWriteDeadBoundaryAnchorUT()
+        {
+            // BoundaryAnchor can't round-trip (needs full TrajectoryPoint, not just UT),
+            // so we removed the resumeBoundaryAnchorUT serialization and parsing. This
+            // test documents that a save with a legacy resumeBoundaryAnchorUT key from
+            // an older build is simply ignored, not parsed back into anything.
+            var scenarioNode = new ConfigNode("PARSEK_SCENARIO");
+            var activeNode = scenarioNode.AddNode("RECORDING_TREE");
+            var activeTree = MakeTree("in_flight", "Legacy Save", 1);
+            activeTree.Save(activeNode);
+            activeNode.AddValue("isActive", "True");
+            activeNode.AddValue("resumeBoundaryAnchorUT", "99999.99"); // legacy key
+
+            bool result = ParsekScenario.TryRestoreActiveTreeNode(scenarioNode);
+
+            Assert.True(result);
+            // The active tree is still restored; we just don't try to parse the anchor.
+            Assert.Equal("Legacy Save", RecordingStore.PendingTree.TreeName);
+        }
+
+        [Fact]
+        public void TryRestoreActiveTreeNode_DedupeCommittedTreeById()
+        {
+            // Reviewer edge case: flight → quicksave (writes isActive=True) →
+            // exit to TS (commits tree into committedTrees) → quickload.
+            // In-memory committedTrees still has the T3 version, disk save has the
+            // T2 active version. Without dedupe, next OnSave writes the tree twice
+            // with the same id. TryRestoreActiveTreeNode must remove the committed
+            // copy before stashing the active copy.
+            var committedTree = MakeTree("tree_x", "Duplicate Id", 2);
+            RecordingStore.CommitTree(committedTree);
+            Assert.Contains(committedTree, RecordingStore.CommittedTrees);
+
+            // Build a save node with an isActive=True tree using the SAME id
+            var scenarioNode = new ConfigNode("PARSEK_SCENARIO");
+            var activeNode = scenarioNode.AddNode("RECORDING_TREE");
+            var activeTree = MakeTree("tree_x", "Duplicate Id (active)", 2);
+            activeTree.Save(activeNode);
+            activeNode.AddValue("isActive", "True");
+
+            ParsekScenario.TryRestoreActiveTreeNode(scenarioNode);
+
+            // Committed copy should be gone; pending-Limbo holds the active version.
+            Assert.DoesNotContain(
+                RecordingStore.CommittedTrees,
+                t => t.Id == "tree_x");
+            Assert.Equal("Duplicate Id (active)", RecordingStore.PendingTree.TreeName);
+            Assert.Equal(PendingTreeState.Limbo, RecordingStore.PendingTreeStateValue);
+        }
+
+        [Fact]
+        public void LastRecordedAltitude_DefaultsToNaN()
+        {
+            // LastRecordedAltitude caches the last committed point's altitude so
+            // HandleSoiAutoSplit can read it even after FlushRecorderIntoActiveTreeForSerialization
+            // clears the Recording buffer. The default is NaN (no points recorded yet),
+            // which HandleSoiAutoSplit treats as "exo" (no altitude → fall through to
+            // the default phase classification).
+            var recorder = new FlightRecorder();
+            Assert.True(double.IsNaN(recorder.LastRecordedAltitude));
+        }
+
+        [Fact]
+        public void TryRestoreActiveTreeNode_NoOverwriteWarningOnExpectedOverwrite()
+        {
+            // StashActiveTreeAsPendingLimbo stashes the in-memory (future-timeline) tree
+            // at OnSceneChangeRequested time. Then TryRestoreActiveTreeNode loads the
+            // fresh disk version and stashes it. Without the PopPendingTree call,
+            // StashPendingTree's overwrite-warning log fires on every successful
+            // quickload. With the fix, TryRestoreActiveTreeNode pops first, then stashes
+            // silently.
+            var staleInMemoryTree = MakeTree("tree_y", "Stale In-Memory", 1);
+            RecordingStore.StashPendingTree(staleInMemoryTree, PendingTreeState.Limbo);
+
+            logLines.Clear();
+
+            var scenarioNode = new ConfigNode("PARSEK_SCENARIO");
+            var activeNode = scenarioNode.AddNode("RECORDING_TREE");
+            var diskTree = MakeTree("tree_y", "Disk Version", 1);
+            diskTree.Save(activeNode);
+            activeNode.AddValue("isActive", "True");
+
+            ParsekScenario.TryRestoreActiveTreeNode(scenarioNode);
+
+            Assert.Equal("Disk Version", RecordingStore.PendingTree.TreeName);
+            // No "overwriting existing pending tree" warning on the expected-overwrite path
+            Assert.DoesNotContain(logLines,
+                l => l.Contains("overwriting existing pending tree"));
         }
 
         // ============================================================
@@ -397,6 +483,41 @@ namespace Parsek.Tests
             return !isVesselSwitch
                 && (savedEpoch < currentEpoch
                     || totalSavedRecCount < memoryRecordingsCount);
+        }
+
+        /// <summary>
+        /// Mirrors the Limbo-dispatch decision in ParsekScenario.OnLoad. Returns
+        /// true if the tree should be finalized-and-committed, false if it should
+        /// be deferred to the restore coroutine for quickload-resume.
+        /// </summary>
+        private static bool ComputeShouldFinalizeOnDispatch(bool isRevert, bool isVesselSwitch)
+        {
+            return isRevert || isVesselSwitch;
+        }
+
+        [Fact]
+        public void LimboDispatch_Revert_Finalizes()
+        {
+            Assert.True(ComputeShouldFinalizeOnDispatch(isRevert: true, isVesselSwitch: false));
+        }
+
+        [Fact]
+        public void LimboDispatch_VesselSwitch_Finalizes()
+        {
+            // Vessel switch path: the new active vessel is by definition different from
+            // the tree's recorded vessel, so RestoreActiveTreeFromPending's name-match
+            // would fail. We match mainline's CommitTreeRevert behavior instead (finalize
+            // on vessel switch) until tree-preservation-on-switch is implemented as a
+            // follow-up.
+            Assert.True(ComputeShouldFinalizeOnDispatch(isRevert: false, isVesselSwitch: true));
+        }
+
+        [Fact]
+        public void LimboDispatch_Quickload_DefersToResume()
+        {
+            // Quickload / cold-start resume: tree should be restored-and-resumed,
+            // not finalized.
+            Assert.False(ComputeShouldFinalizeOnDispatch(isRevert: false, isVesselSwitch: false));
         }
 
         // ============================================================
