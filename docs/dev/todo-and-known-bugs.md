@@ -749,6 +749,59 @@ Not introduced by PR #160, but PR #160's quickload-resume path makes it more rea
 
 **Priority:** Low — rare user workflow (quicksave in flight + exit to TS + quickload), and the worst case is playback inconsistency, not data loss. Flag again if it bites during playtest.
 
+## ~~275. Watch button tooltip blank when ghost not built~~
+
+Reported as "Watch buttons broke" in the post-PR-#163 playtest. The W button in the Recordings window showed greyed-out with no tooltip, making it look broken. Two causes:
+
+1. **Kerbal X launch recording had 0 points** (bug #273) → no ghost was ever built → `hasGhost=false` → button correctly disabled but tooltip empty.
+2. **Fresh flight started before all committed recordings' time windows** — ghosts were in the future (`UT < recording.StartUT`), not yet built, so every W button was disabled with no explanation.
+
+**Fix:** `RecordingsTableUI.cs` now sets explicit tooltips for all disabled states:
+- `!hasGhost` → "No active ghost — recording is in the past/future or has no trajectory points"
+- `!sameBody` → "Ghost is on a different body" (unchanged)
+- `!inRange` → "Ghost is beyond camera cutoff" (unchanged)
+- Enabled state → "Follow ghost in watch mode" / "Exit watch mode" depending on `isWatching` (was previously blank)
+
+Applied to both the per-row W button and the group-level W button. Purely cosmetic — the underlying data-loss fix (#273) is what makes the Kerbal X W button actually come back to life when the ghost eventually builds.
+
+---
+
+## ~~274. vesselSwitchPending stale-flag leak — F9 after EVA finalizes tree instead of resuming~~
+
+Exposed by the post-PR-#163 playtest trail. The player launched, decoupled (promoted standalone→tree), EVAed Bill Kerman, EVAed Bob Kerman, F5'd, then F9'd. Expected: restore-and-resume the tree. Actual: tree was auto-committed (lost in-flight continuity) + Kerbal X root recording came back with 0 points (bug #273).
+
+**Smoking gun in the `[RecState]` log:**
+- `[#128][OnLoad:revert-decided=N]` — `isRevert=false`
+- `[#129][OnLoad:limbo-dispatched]`
+- `[#130][FinalizeLimboForRevert:entry]` ← ran anyway
+
+`FinalizePendingLimboTreeForRevert` only runs when `isRevert || isVesselSwitch`. With `isRevert=false`, the only remaining trigger was `isVesselSwitch=true`. That meant `vesselSwitchPending` was set at OnLoad time.
+
+**Root cause:** `vesselSwitchPending` is set by KSP's `onVesselSwitching` GameEvent, which fires on EVERY vessel focus change — including EVAs. EVAs don't trigger scene reloads, so the flag sat sticky for minutes (thousands of frames) until the next F9 consumed it. `OnLoad` then mis-identified the quickload as a tracking-station vessel switch and routed the Limbo tree into finalize instead of restore.
+
+**Fix:** stamp `vesselSwitchPendingFrame = Time.frameCount` alongside the flag in `OnVesselSwitching`. In `OnLoad`, use new pure-static `ParsekScenario.IsVesselSwitchFlagFresh(pending, pendingFrame, currentFrame, maxAgeFrames)` with `maxAgeFrames = 300` (~6 seconds at 50 FPS — covers tracking-station reload without letting minute-old EVA leakage through). xUnit tests cover flag-not-set, never-stamped, same-frame, within-max-age, at-limit, just-past-limit, EVA-leakage-scenario (10000-frame gap), monotonic guard, and the constant value lock-in.
+
+---
+
+## ~~273. Tree root recording trajectory lost on scene reload~~
+
+After PR #163 fixed the OnFlightReady ordering bug, a second F5/F9 playtest with an active tree showed the Kerbal X launch recording (88+ points) coming back from the save with 0 points. Sidecar file on disk: 61 bytes (just the header — no POINT nodes).
+
+**Root cause:** Tree recordings created / mutated in-flight by these six sites all modified `Recording.Points`/`PartEvents`/etc. without setting `FilesDirty = true`:
+
+1. `ParsekFlight.PromoteToTreeForBreakup` — creates rootRec from standalone `CaptureAtStop` on first breakup
+2. `ParsekFlight.CreateSplitBranch` (first-split path) — creates rootRec from standalone `CaptureAtStop` on first split
+3. `ParsekFlight.AppendCapturedDataToRecording` — static helper called from `CreateSplitBranch` subsequent-split path and `CreateMergeBranch`
+4. `ParsekFlight.FlushRecorderToTreeRecording` — flushes recorder buffer into a tree recording on vessel switch / scene change
+5. `ChainSegmentManager.SampleContinuationVessel` — extends a committed recording's trajectory with continuation samples after EVA
+6. `ChainSegmentManager.StartUndockContinuation` — creates a new committed recording with a seed point for the undocked sibling vessel
+
+`SaveActiveTreeIfAny` only calls `SaveRecordingFiles` for recordings where `FilesDirty == true`, so none of those recordings ever had their `.prec` sidecars written during in-flight F5 saves. On scene reload, `TryRestoreActiveTreeNode` read the empty `.prec` files and produced 0-point recordings. The in-memory tree (with the actual trajectory data) was then discarded by the new load, and `FinalizeTreeCommit`'s final dirty pass wrote the 61-byte empty files as the "authoritative" on-disk state.
+
+**Fix:** Mark `FilesDirty = true` at all six data-mutation sites so dirty recordings reach their sidecar files on the next in-flight save, before any scene reload can discard the in-memory tree. xUnit regression tests cover `AppendCapturedDataToRecording` (non-null source marks dirty, null source leaves flag alone, existing points preserved).
+
+---
+
 ## 271. Investigate unifying standalone and tree recorder modes
 
 Parsek currently has two recorder modes with divergent code paths:

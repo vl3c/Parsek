@@ -774,10 +774,20 @@ namespace Parsek
 
                 GUI.enabled = canWatch;
                 string watchLabel = isWatching ? "W*" : "W";
-                string watchTooltip = rec.IsDebris ? "Debris is not watchable"
-                    : (hasGhost && !sameBody) ? "Ghost is on a different body"
-                    : (hasGhost && !inRange) ? "Ghost is beyond camera cutoff"
-                    : "";
+                // Tooltip priority: debris first, then per-condition explanation.
+                // When !hasGhost, previously the tooltip was empty, making a
+                // disabled W button look broken rather than pending.
+                string watchTooltip;
+                if (rec.IsDebris)
+                    watchTooltip = "Debris is not watchable";
+                else if (!hasGhost)
+                    watchTooltip = "No active ghost — recording is in the past/future or has no trajectory points";
+                else if (!sameBody)
+                    watchTooltip = "Ghost is on a different body";
+                else if (!inRange)
+                    watchTooltip = "Ghost is beyond camera cutoff";
+                else
+                    watchTooltip = isWatching ? "Exit watch mode" : "Follow ghost in watch mode";
                 var watchContent = new GUIContent(watchLabel, watchTooltip);
                 if (GUILayout.Button(watchContent, GUILayout.Width(ColW_Watch)))
                 {
@@ -1122,9 +1132,17 @@ namespace Parsek
 
                     GUI.enabled = canWatch;
                     string watchLabel = isWatching ? "W*" : "W";
-                    string watchTooltip = (hasGhost && !sameBody) ? "Ghost is on a different body"
-                        : (hasGhost && !inRange) ? "Ghost is beyond visual range"
-                        : "";
+                    // Same tooltip policy as the per-row W button: explain
+                    // !hasGhost explicitly so the user knows WHY it's disabled.
+                    string watchTooltip;
+                    if (!hasGhost)
+                        watchTooltip = "No active ghost — recording is in the past/future or has no trajectory points";
+                    else if (!sameBody)
+                        watchTooltip = "Ghost is on a different body";
+                    else if (!inRange)
+                        watchTooltip = "Ghost is beyond visual range";
+                    else
+                        watchTooltip = isWatching ? "Exit watch mode" : "Follow ghost in watch mode";
                     if (GUILayout.Button(new GUIContent(watchLabel, watchTooltip), GUILayout.Width(ColW_Watch)))
                     {
                         if (isWatching)
