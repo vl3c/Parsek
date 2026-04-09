@@ -364,6 +364,14 @@ namespace Parsek
                     // Missing reserved kerbal is alive but orphaned from a removed
                     // vessel. Rescue them by setting back to Available before
                     // placing them.
+                    //
+                    // Asymmetry note: this state mutation is NOT rolled back on a
+                    // later failure (snapshot miss / no matching part / etc.).
+                    // Available is a valid terminal state for an unused stand-in,
+                    // and Missing was the broken state to begin with — leaving the
+                    // kerbal Available regardless of placement outcome is strictly
+                    // an improvement, not a regression. Other skip paths leave
+                    // state untouched only because they have no state to fix.
                     replacement.rosterStatus = ProtoCrewMember.RosterStatus.Available;
                     rescuedFromMissing++;
                     CrewLog($"Orphan placement: rescued Missing replacement '{replacementName}' → Available before placement");

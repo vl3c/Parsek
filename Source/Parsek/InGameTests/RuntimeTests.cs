@@ -1156,7 +1156,7 @@ namespace Parsek.InGameTests
         }
 
         [InGameTest(Category = "CrewReservation", Scene = GameScenes.FLIGHT,
-            Description = "Bug #277: PlaceOrphanedReplacements end-to-end places stand-in from synthetic snapshot")]
+            Description = "Bug #277: PlaceOrphanedReplacements end-to-end places stand-in from synthetic snapshot (orphan-without-real-original variant)")]
         public void Bug277_PlaceOrphanedReplacements_PlacesStandinFromSnapshot()
         {
             // End-to-end integration test for the bug #277 orphan placement pass.
@@ -1165,6 +1165,14 @@ namespace Parsek.InGameTests
             // directly (skipping the SpawnCrew + RemoveReservedEvaVessels side
             // effects of full SwapReservedCrewInFlight), asserts the stand-in
             // landed in the right part, then rolls everything back.
+            //
+            // Scenario covered: orphan whose original kerbal does NOT exist in the
+            // roster at all. The actual bug-#277 in-game scenario is "orphan whose
+            // original is alive on a separate EVA vessel" — that's hard to set up
+            // safely from a runtime test. The code path under test is identical
+            // (snapshot scan → seat lookup → live part match → AddCrewmember); only
+            // the original-kerbal-existence side condition differs. Pass 1 doesn't
+            // see the original in either scenario, so Pass 2 is what runs.
 
             var av = FlightGlobals.ActiveVessel;
             if (av == null)
@@ -1235,6 +1243,14 @@ namespace Parsek.InGameTests
             int savedCommittedCount = RecordingStore.CommittedRecordings.Count;
             int beforeCrewCount = target.protoModuleCrew.Count;
 
+            // Test isolation (PR #175 follow-up review): clear all real reservations
+            // up front. PlaceOrphanedReplacements iterates the entire crewReplacements
+            // dict, so any pre-existing real reservation with an unplaced orphan
+            // (which is exactly the bug-#277 scenario this test exists to validate)
+            // could cause a real stand-in to leak into the active vessel as a side
+            // effect. Restore from savedReplacements in finally.
+            CrewReservationManager.ClearReplacementsInternal();
+
             // Build a synthetic snapshot whose PART node references the live
             // target part by pid + name and lists the fake original.
             var snapshot = new ConfigNode("VESSEL");
@@ -1251,7 +1267,6 @@ namespace Parsek.InGameTests
             };
 
             bool addedToCommitted = false;
-            bool addedReplacement = false;
             bool placedCrew = false;
             try
             {
@@ -1259,9 +1274,9 @@ namespace Parsek.InGameTests
                 RecordingStore.CommittedRecordings.Add(syntheticRecording);
                 addedToCommitted = true;
 
-                // Register the fake reservation.
+                // Register ONLY the fake reservation. The dict was cleared above,
+                // so PlaceOrphanedReplacements will iterate exactly one entry.
                 CrewReservationManager.SetReplacement(fakeOriginal, standIn.name);
-                addedReplacement = true;
 
                 // Run just the orphan-placement pass with an empty swappedOriginals
                 // set. This avoids triggering RemoveReservedEvaVessels and SpawnCrew
@@ -1292,14 +1307,13 @@ namespace Parsek.InGameTests
                 if (placedCrew && target.protoModuleCrew.Contains(standIn))
                     target.RemoveCrewmember(standIn);
 
-                // Restore replacements: clear and replay the saved set. Skips the
-                // fake one entirely because we built it with a fresh GUID name.
-                if (addedReplacement)
-                {
-                    CrewReservationManager.ClearReplacementsInternal();
-                    foreach (var kvp in savedReplacements)
-                        CrewReservationManager.SetReplacement(kvp.Key, kvp.Value);
-                }
+                // Restore replacements: clear (drops the fake too) and replay the
+                // saved set. Always run regardless of where the test failed —
+                // ClearReplacementsInternal at the top means crewReplacements is in
+                // an unknown state if we don't restore.
+                CrewReservationManager.ClearReplacementsInternal();
+                foreach (var kvp in savedReplacements)
+                    CrewReservationManager.SetReplacement(kvp.Key, kvp.Value);
 
                 // Remove the synthetic recording from the committed list.
                 if (addedToCommitted)
