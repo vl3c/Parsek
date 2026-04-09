@@ -161,7 +161,7 @@ namespace Parsek
         public double PreLaunchFunds { get; private set; }
         public double PreLaunchScience { get; private set; }
         public float PreLaunchReputation { get; private set; }
-        public string RewindSaveFileName { get; private set; }
+        public string RewindSaveFileName { get; internal set; }
         public double RewindReservedFunds { get; private set; }
         public double RewindReservedScience { get; private set; }
         public float RewindReservedRep { get; private set; }

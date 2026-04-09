@@ -8,6 +8,31 @@ using UnityEngine;
 namespace Parsek
 {
     /// <summary>
+    /// State of the pending tree slot in <see cref="RecordingStore"/>.
+    /// Determines how <see cref="ParsekScenario.OnLoad"/> dispatches the pending tree
+    /// after revert detection runs.
+    /// </summary>
+    public enum PendingTreeState
+    {
+        /// <summary>
+        /// Tree has been through <c>FinalizeTreeRecordings</c>: terminal state set,
+        /// terminal orbit / position captured, snapshots preserved for the merge dialog.
+        /// Legacy behavior — this is what <see cref="RecordingStore.StashPendingTree"/>
+        /// produced before the quickload-resume redesign.
+        /// </summary>
+        Finalized = 0,
+
+        /// <summary>
+        /// Tree is still "in-flight": recorder field references were torn down because
+        /// the scene is unloading, but no terminal state was set. OnLoad decides based
+        /// on revert detection whether to finalize-then-commit (true revert) or
+        /// restore-and-resume (quickload / vessel switch).
+        /// See <c>docs/dev/plans/quickload-resume-recording.md</c>.
+        /// </summary>
+        Limbo = 1,
+    }
+
+    /// <summary>
     /// Static holder for recording data that survives scene changes.
     /// Static fields persist across scene loads within a KSP session.
     /// Save/load persistence is handled separately by ParsekScenario.
@@ -98,6 +123,11 @@ namespace Parsek
 
         // Pending tree awaiting merge dialog (Task 8) or auto-commit
         private static RecordingTree pendingTree;
+        // State of the pending tree slot. Finalized = legacy behavior (tree has terminal
+        // state, snapshots, ready to commit). Limbo = new quickload-resume path: tree is
+        // still "in-flight", untriaged, waiting for OnLoad to decide revert-vs-quickload.
+        // See docs/dev/plans/quickload-resume-recording.md.
+        private static PendingTreeState pendingTreeState = PendingTreeState.Finalized;
 
         public static bool HasPending => pendingRecording != null;
         public static Recording Pending => pendingRecording;
@@ -105,6 +135,7 @@ namespace Parsek
         public static List<RecordingTree> CommittedTrees => committedTrees;
         public static bool HasPendingTree => pendingTree != null;
         public static RecordingTree PendingTree => pendingTree;
+        public static PendingTreeState PendingTreeStateValue => pendingTreeState;
 
         public static void StashPending(List<TrajectoryPoint> points, string vesselName,
             List<OrbitSegment> orbitSegments = null,
@@ -272,6 +303,7 @@ namespace Parsek
                 DeleteRecordingFiles(pendingRecording);
             pendingRecording = null;
             pendingTree = null;
+            pendingTreeState = PendingTreeState.Finalized;
             ClearCommitted();
             Log("[Parsek] All recordings cleared");
         }
@@ -488,15 +520,34 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Stashes a finalized tree as pending (for merge dialog on revert).
+        /// Stashes a tree as pending with <see cref="PendingTreeState.Finalized"/>.
+        /// Legacy behavior — the tree has already been through
+        /// <c>FinalizeTreeRecordings</c> and is ready for the merge dialog or auto-commit.
         /// </summary>
         public static void StashPendingTree(RecordingTree tree)
+            => StashPendingTree(tree, PendingTreeState.Finalized);
+
+        /// <summary>
+        /// Stashes a tree as pending with an explicit state.
+        /// <see cref="PendingTreeState.Finalized"/> is the legacy path (terminal state set,
+        /// snapshots preserved). <see cref="PendingTreeState.Limbo"/> is the quickload-resume
+        /// path — tree is still in-flight, recorder was torn down without finalization, and
+        /// OnLoad will decide whether to restore-and-resume or finalize-then-commit.
+        /// </summary>
+        public static void StashPendingTree(RecordingTree tree, PendingTreeState state)
         {
+            if (pendingTree != null)
+            {
+                ParsekLog.Warn("RecordingStore",
+                    $"StashPendingTree({state}): overwriting existing pending tree " +
+                    $"'{pendingTree.TreeName}' (state={pendingTreeState}) with '{tree?.TreeName ?? "<null>"}'");
+            }
             pendingTree = tree;
+            pendingTreeState = state;
             if (tree != null)
             {
                 PendingStashedThisTransition = true;
-                Log($"[Parsek] Stashed pending tree '{tree.TreeName}' ({tree.Recordings.Count} recordings)");
+                Log($"[Parsek] Stashed pending tree '{tree.TreeName}' ({tree.Recordings.Count} recordings, state={state})");
             }
         }
 
@@ -513,6 +564,7 @@ namespace Parsek
 
             CommitTree(pendingTree);
             pendingTree = null;
+            pendingTreeState = PendingTreeState.Finalized;
         }
 
         /// <summary>
@@ -529,8 +581,43 @@ namespace Parsek
             foreach (var rec in pendingTree.Recordings.Values)
                 DeleteRecordingFiles(rec);
             GameStateRecorder.PendingScienceSubjects.Clear();
-            Log($"[Parsek] Discarded pending tree '{pendingTree.TreeName}'");
+            Log($"[Parsek] Discarded pending tree '{pendingTree.TreeName}' (state={pendingTreeState})");
             pendingTree = null;
+            pendingTreeState = PendingTreeState.Finalized;
+        }
+
+        /// <summary>
+        /// Marks the pending tree's state as Finalized after the revert-detection dispatch
+        /// has run FinalizeTreeRecordings on a previously-Limbo tree. Called by
+        /// ParsekScenario.OnLoad on the Limbo + isRevert path before the auto-commit /
+        /// merge dialog flow runs.
+        /// </summary>
+        internal static void MarkPendingTreeFinalized()
+        {
+            if (pendingTree == null) return;
+            if (pendingTreeState == PendingTreeState.Finalized) return;
+            pendingTreeState = PendingTreeState.Finalized;
+            ParsekLog.Info("RecordingStore",
+                $"Pending tree '{pendingTree.TreeName}' transitioned Limbo → Finalized");
+        }
+
+        /// <summary>
+        /// Removes the pending tree from the slot WITHOUT deleting its sidecar files or
+        /// clearing pending science subjects. Returns the tree so the caller can take
+        /// ownership (typically to re-install as the active tree during quickload-resume).
+        /// Unlike <see cref="DiscardPendingTree"/>, this is non-destructive — the caller
+        /// is responsible for the tree's lifetime after popping.
+        /// </summary>
+        internal static RecordingTree PopPendingTree()
+        {
+            var tree = pendingTree;
+            pendingTree = null;
+            pendingTreeState = PendingTreeState.Finalized;
+            if (tree != null)
+            {
+                Log($"[Parsek] Popped pending tree '{tree.TreeName}' (caller takes ownership, files preserved)");
+            }
+            return tree;
         }
 
         /// <summary>
@@ -1369,6 +1456,7 @@ namespace Parsek
             committedRecordings.Clear();
             committedTrees.Clear();
             pendingTree = null;
+            pendingTreeState = PendingTreeState.Finalized;
             SceneEntryActiveVesselPid = 0;
             RewindContext.ResetForTesting();
             RewindUTAdjustmentPending = false;
