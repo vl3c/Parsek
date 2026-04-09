@@ -728,32 +728,58 @@ namespace Parsek
         /// Setting alt = terrainAlt puts the root part at ground level, burying lower parts
         /// (heat shields, engines, landing legs) underground. The clearance offset ensures the
         /// entire vessel is above the surface so KSP's physics can settle it naturally. (#231)
+        ///
+        /// <para>Bug #282: the original implementation left <c>alt ∈ [terrainAlt, target)</c>
+        /// unchanged on the assumption that "alt ≥ terrain ⇒ not underground". That only
+        /// holds if the root part origin is the lowest point of the vessel, which is
+        /// false for any vessel with the command pod on top (Mk1-3: ~1.77 m below root).
+        /// The 2026-04-09 s33 playtest had three landed leaves with clearances 0.8/0.9/1.3 m,
+        /// all in the no-op range, all spawned clipped into terrain. The gap is now closed:
+        /// any alt below target is clamped up regardless of whether it's below terrain.</para>
         /// </summary>
         internal const double LandedClearanceMeters = 2.0;
+
+        /// <summary>
+        /// Clearance for kinematic ghost playback of Landed/Splashed recordings (#282).
+        /// Larger than <see cref="LandedClearanceMeters"/> because ghost playback is not
+        /// physics-driven — there is no part-damage concern, so we can use a margin that
+        /// clears the Mk1-3 pod's 1.77 m root-to-bottom offset with headroom to spare.
+        /// For taller stacks the root origin sits even higher, so the pod may still
+        /// float slightly above the recorded landing position, but the alternative
+        /// (burying the mesh in terrain) is worse. Per-vessel clearance derived from
+        /// bounds is tracked as a follow-up in docs/dev/todo-and-known-bugs.md.
+        /// </summary>
+        internal const double LandedGhostClearanceMeters = 4.0;
 
         internal static double ClampAltitudeForLanded(double alt, double terrainAlt,
             int index, string vesselName)
         {
             var ic = CultureInfo.InvariantCulture;
             double target = terrainAlt + LandedClearanceMeters;
-            double delta = alt - target;
+
             if (alt > target)
             {
                 // Above target: clamp down (vessel was still descending when recorded)
+                double delta = alt - target;
                 ParsekLog.Verbose("Spawner",
                     $"Clamped altitude for LANDED spawn #{index} ({vesselName}): " +
-                    $"{alt.ToString("F1", ic)} -> {target.ToString("F1", ic)} (delta={delta.ToString("F1", ic)})");
+                    $"{alt.ToString("F1", ic)} -> {target.ToString("F1", ic)} " +
+                    $"(down-clamp, delta={delta.ToString("F1", ic)})");
                 return target;
             }
-            if (alt < terrainAlt)
+            if (alt < target)
             {
-                // Below terrain: clamp up (underground)
+                // Below target: clamp up. Reason depends on whether alt is also below terrain
+                // (truly underground) or just in the low-clearance gap above terrain.
+                double delta = target - alt;
+                string reason = alt < terrainAlt ? "underground" : "low-clearance";
                 ParsekLog.Verbose("Spawner",
                     $"Clamped altitude for LANDED spawn #{index} ({vesselName}): " +
-                    $"{alt.ToString("F1", ic)} -> {target.ToString("F1", ic)} (underground, delta={delta.ToString("F1", ic)})");
+                    $"{alt.ToString("F1", ic)} -> {target.ToString("F1", ic)} " +
+                    $"({reason}, delta={delta.ToString("F1", ic)})");
                 return target;
             }
-            // Between terrain and target: already in a reasonable range, leave as-is
+            // alt == target exactly — no-op (rare, but possible after a prior clamp)
             return alt;
         }
 

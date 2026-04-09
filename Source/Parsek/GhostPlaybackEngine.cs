@@ -977,10 +977,14 @@ namespace Parsek
         {
             var lastPt = traj.Points[traj.Points.Count - 1];
             positioner.PositionAtPoint(index, traj, state, lastPt);
+            // PositionAtPoint now sets state.lastInterpolatedAltitude to the
+            // clamped altitude (#282). Don't overwrite it here with the raw
+            // lastPt.altitude on the first pause-window frame, or the watch
+            // overlay reports the buried recorded value for that one frame.
+            // Still seed the body name (PositionAtPoint doesn't touch it).
             if (string.IsNullOrEmpty(state.lastInterpolatedBodyName))
             {
                 state.lastInterpolatedBodyName = lastPt.bodyName;
-                state.lastInterpolatedAltitude = lastPt.altitude;
             }
             TriggerExplosionIfDestroyed(state, traj, index, warpRate);
             if (!state.pauseHidden)
