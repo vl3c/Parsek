@@ -747,6 +747,29 @@ Not introduced by PR #160, but PR #160's quickload-resume path makes it more rea
 
 **Priority:** Low — rare user workflow (quicksave in flight + exit to TS + quickload), and the worst case is playback inconsistency, not data loss. Flag again if it bites during playtest.
 
+## 271. Investigate unifying standalone and tree recorder modes
+
+Parsek currently has two recorder modes with divergent code paths:
+
+- **Standalone mode** — single `FlightRecorder`, flat `Recording` list, no `activeTree`. Scene-change path: `StashPendingOnSceneChange` in `ParsekFlight.cs`.
+- **Tree mode** — `activeTree` (`RecordingTree`) with multiple recordings, branches, chain continuations. Scene-change path: `FinalizeTreeOnSceneChange` → `StashActiveTreeAsPendingLimbo` / `CommitTreeSceneExit`.
+
+Parity bugs surface when a fix gets applied to one mode but not the other (observed with PR #160's quickload-resume: fix landed for tree mode only). Rule of thumb is now tracked as a memory/feedback item: any change to one mode must also be applied to the other until these are unified.
+
+**Investigate:** can the two modes be merged into a single unified architecture? Tree mode is structurally a superset of standalone — a standalone recording is effectively a single-recording tree with no branches. A unified mode might:
+- Always allocate a `RecordingTree` at recording start, even for trivial single-recording missions
+- Eliminate `StashPendingOnSceneChange` and route everything through the tree path
+- Delete the `pendingRecording` slot in favor of the pending-tree slot
+- Unify the merge dialog, commit paths, and save/load serialization
+
+Risks / open questions:
+- UI assumptions: does the recordings table distinguish "single recording" from "tree with one recording"? Any visual differences the player would notice?
+- Migration: what about existing saves with standalone pending recordings? Do they round-trip through a single-recording-tree form, or do we keep a migration shim?
+- Performance: trees carry more per-recording overhead (BranchPoints dict, BackgroundMap, TreeId lookups). Is that cost acceptable for trivial recordings?
+- Edge cases: non-flight scenes (KSC, TS) currently interact with both modes differently; verify the unified path covers them.
+
+**Priority:** Medium — not blocking any release, but every parity fix widens the surface. Unifying would collapse the maintenance cost at the root.
+
 ---
 
 # In-Game Tests
