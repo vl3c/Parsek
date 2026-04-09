@@ -358,6 +358,11 @@ namespace Parsek
                     ApplyVesselDecisions(tree, capturedDecisions);
                     RecordingStore.CommitPendingTree();
                     RecordingStore.RunOptimizationPass();
+                    // #292: Refresh quicksave so subsequent F9 quickloads include the
+                    // recording IDs added by this merge (otherwise F9 loads a stale
+                    // quicksave from before the merge and silently drops them).
+                    RecordingStore.RefreshQuicksaveAfterMerge(
+                        "merge dialog Tree Merge", tree.Recordings.Count);
                     LedgerOrchestrator.NotifyLedgerTreeCommitted(tree);
                     CrewReservationManager.SwapReservedCrewInFlight();
                     ClearPendingFlag();

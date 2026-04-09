@@ -2004,5 +2004,144 @@ namespace Parsek.InGameTests
             InGameAssert.AreEqual(Parsek.TerminalState.Splashed,
                 rec.TerminalStateValue.Value);
         }
+
+        // ─────────────────────────────────────────────────────────────
+        // #289 — Re-snapshot during finalize when terminal state is stable
+        //
+        // Bug: end-of-mission spawn-at-end fails with "snapshot situation
+        // unsafe (FLYING/SUB_ORBITAL)" because VesselSnapshot.sit was captured
+        // at recording start (Flying) and never refreshed when the vessel
+        // splashed down. Even on isSceneExit=true paths, FinalizeIndividualRecording
+        // now re-snapshots if terminal state is stable (Landed/Splashed/Orbiting)
+        // and the live vessel is still findable.
+        // ─────────────────────────────────────────────────────────────
+
+        [InGameTest(Category = "Bug289", Scene = GameScenes.FLIGHT,
+            Description = "FinalizeIndividualRecording re-snapshots a stable-terminal recording on scene exit and marks files dirty (#289)")]
+        public void FinalizeReSnapshot_StableTerminal_LiveVessel_UpdatesSnapshotAndMarksDirty()
+        {
+            var activeVessel = FlightGlobals.ActiveVessel;
+            if (activeVessel == null)
+            {
+                InGameAssert.IsTrue(false,
+                    "FinalizeReSnapshot_StableTerminal_LiveVessel_UpdatesSnapshotAndMarksDirty needs an active vessel");
+                return;
+            }
+
+            // Build a leaf recording wired to the active vessel's pid with terminal=Splashed
+            // (the user's case: vessel splashed down, ChainSegmentManager set terminal earlier,
+            // FinalizeIndividualRecording's "if (!HasValue)" gate would skip the original
+            // re-snapshot block — the new #289 path runs OUTSIDE that gate).
+            var staleSnapshot = new ConfigNode("VESSEL");
+            staleSnapshot.AddValue("sit", "FLYING");  // simulate stale sit field from recording start
+            staleSnapshot.AddValue("name", "ParsekTestBug289Stale");
+
+            var rec = new Parsek.Recording
+            {
+                RecordingId = "bug289-resnap-" + System.DateTime.UtcNow.Ticks,
+                VesselName = activeVessel.vesselName,
+                VesselPersistentId = activeVessel.persistentId,
+                ExplicitStartUT = Planetarium.GetUniversalTime() - 60,
+                ExplicitEndUT = Planetarium.GetUniversalTime(),
+                TerminalStateValue = Parsek.TerminalState.Landed,  // already set, gates the !HasValue branch
+                VesselSnapshot = staleSnapshot,
+            };
+            // Single point so the leaf isn't pruned as zero-data
+            rec.Points.Add(new Parsek.TrajectoryPoint
+            {
+                ut = Planetarium.GetUniversalTime(),
+                latitude = activeVessel.latitude,
+                longitude = activeVessel.longitude,
+                altitude = activeVessel.altitude,
+                bodyName = activeVessel.mainBody?.name ?? "Kerbin",
+            });
+
+            // Capture log so we can assert the re-snapshot fired
+            var logLines = new System.Collections.Generic.List<string>();
+            var prevSink = Parsek.ParsekLog.TestSinkForTesting;
+            Parsek.ParsekLog.TestSinkForTesting = line => logLines.Add(line);
+            try
+            {
+                ParsekFlight.FinalizeIndividualRecording(
+                    rec, Planetarium.GetUniversalTime(), isSceneExit: true);
+            }
+            finally
+            {
+                Parsek.ParsekLog.TestSinkForTesting = prevSink;
+            }
+
+            // The fresh snapshot should be from the live vessel — its sit field should
+            // reflect the vessel's actual situation, NOT the stale "FLYING" we seeded.
+            InGameAssert.IsNotNull(rec.VesselSnapshot,
+                "FinalizeIndividualRecording must replace the stale snapshot with a fresh one");
+            string sit = rec.VesselSnapshot.GetValue("sit");
+            InGameAssert.AreNotEqual("FLYING", sit ?? "<null>",
+                "Snapshot sit field must be refreshed from the live vessel, not preserved from the stale source");
+
+            // FilesDirty must be set so the next SaveRecordingFiles call writes the fresh snapshot
+            InGameAssert.IsTrue(rec.FilesDirty,
+                "Re-snapshot path must call MarkFilesDirty so the fresh snapshot reaches the sidecar");
+
+            // Re-snapshot Info log line should fire
+            bool found = false;
+            foreach (var line in logLines)
+            {
+                if (line.Contains("[Flight]") && line.Contains("re-snapshotted") && line.Contains("[#289]"))
+                {
+                    found = true;
+                    break;
+                }
+            }
+            InGameAssert.IsTrue(found,
+                "Expected '[Flight] FinalizeIndividualRecording: re-snapshotted ... [#289]' log line during finalize");
+        }
+
+        [InGameTest(Category = "Bug289", Scene = GameScenes.FLIGHT,
+            Description = "FinalizeIndividualRecording does NOT re-snapshot when terminal state is non-stable (#289)")]
+        public void FinalizeReSnapshot_NonStableTerminal_DoesNotReSnapshot()
+        {
+            var activeVessel = FlightGlobals.ActiveVessel;
+            if (activeVessel == null)
+            {
+                InGameAssert.IsTrue(false,
+                    "FinalizeReSnapshot_NonStableTerminal_DoesNotReSnapshot needs an active vessel");
+                return;
+            }
+
+            // Pre-set terminal=Destroyed (non-stable). The new #289 path checks for
+            // Landed/Splashed/Orbiting only, so this should NOT trigger re-snapshot.
+            var staleSnapshot = new ConfigNode("VESSEL");
+            staleSnapshot.AddValue("sit", "FLYING");
+            staleSnapshot.AddValue("name", "ParsekTestBug289NonStable");
+
+            var rec = new Parsek.Recording
+            {
+                RecordingId = "bug289-nonstable-" + System.DateTime.UtcNow.Ticks,
+                VesselName = activeVessel.vesselName,
+                VesselPersistentId = activeVessel.persistentId,
+                ExplicitStartUT = Planetarium.GetUniversalTime() - 60,
+                ExplicitEndUT = Planetarium.GetUniversalTime(),
+                TerminalStateValue = Parsek.TerminalState.Destroyed,
+                VesselSnapshot = staleSnapshot,
+            };
+            rec.Points.Add(new Parsek.TrajectoryPoint
+            {
+                ut = Planetarium.GetUniversalTime(),
+                latitude = 0,
+                longitude = 0,
+                altitude = 0,
+                bodyName = "Kerbin",
+            });
+
+            ParsekFlight.FinalizeIndividualRecording(
+                rec, Planetarium.GetUniversalTime(), isSceneExit: true);
+
+            // Snapshot should be unchanged (still has stale sit=FLYING)
+            InGameAssert.IsNotNull(rec.VesselSnapshot,
+                "Snapshot should still exist (no nulling for non-stable terminal in this code path)");
+            string sit = rec.VesselSnapshot.GetValue("sit");
+            InGameAssert.AreEqual("FLYING", sit,
+                "Snapshot sit field must remain stale for non-stable terminal states (no re-snapshot)");
+        }
     }
 }

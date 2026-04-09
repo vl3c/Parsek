@@ -1173,6 +1173,69 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Test seam for #292: lets unit tests intercept GamePersistence.SaveGame calls
+        /// without invoking the real KSP API. Defaults to the real call. Tests reset to
+        /// null in Dispose to restore default behavior.
+        /// </summary>
+        internal static System.Func<string, string, SaveMode, string> SaveGameForTesting;
+
+        /// <summary>
+        /// Bug #292: refresh quicksave.sfs after a user-initiated tree merge so subsequent
+        /// F9 quickloads see the merge result. Without this, F9 loads a stale quicksave
+        /// from before the merge and silently drops the new recording IDs the merge added.
+        ///
+        /// MUST be called only from user-initiated merge entry points (currently:
+        /// MergeDialog.cs "Merge to Timeline" button handler), NEVER from inside
+        /// RunOptimizationPass or any OnLoad path — KSP's SaveGame triggers OnSave on
+        /// every ScenarioModule, which would re-enter Parsek's OnSave during OnLoad and
+        /// risk corrupting scenario state.
+        ///
+        /// Failure modes are non-fatal: if SaveGame returns null or throws, log a warning
+        /// and continue. The merge still completes; the player loses only the quicksave
+        /// refresh benefit until they manually F5 again.
+        /// </summary>
+        internal static void RefreshQuicksaveAfterMerge(string reason, int recordingCount)
+        {
+            var saveFn = SaveGameForTesting ?? GamePersistence.SaveGame;
+
+            // Defense-in-depth: skip during loading scenes (no game state to save).
+            // Tests bypass these guards by setting SaveGameForTesting.
+            if (SaveGameForTesting == null)
+            {
+                if (HighLogic.LoadedScene == GameScenes.LOADING)
+                {
+                    ParsekLog.Verbose("Quicksave",
+                        $"Refresh skipped (LOADING scene): reason={reason}");
+                    return;
+                }
+                if (HighLogic.CurrentGame == null)
+                {
+                    ParsekLog.Verbose("Quicksave",
+                        $"Refresh skipped (CurrentGame is null): reason={reason}");
+                    return;
+                }
+            }
+
+            try
+            {
+                string result = saveFn("quicksave", HighLogic.SaveFolder, SaveMode.OVERWRITE);
+                if (string.IsNullOrEmpty(result))
+                {
+                    ParsekLog.Warn("Quicksave",
+                        $"GamePersistence.SaveGame returned null after {reason} — quicksave NOT refreshed");
+                    return;
+                }
+                ParsekLog.Info("Quicksave",
+                    $"Refreshed quicksave.sfs after {reason} (tree has {recordingCount} recording IDs)");
+            }
+            catch (System.Exception ex)
+            {
+                ParsekLog.Warn("Quicksave",
+                    $"Exception refreshing quicksave after {reason}: {ex.GetType().Name}: {ex.Message}");
+            }
+        }
+
+        /// <summary>
         /// For each debris recording in a tree, finds the non-debris recording whose
         /// UT range covers the debris's StartUT and sets LoopSyncParentIdx to its
         /// committed index. This enables the engine to replay debris ghosts on the
@@ -3168,6 +3231,21 @@ namespace Parsek
                 }
 
                 DeserializeTrajectoryFrom(precNode, rec);
+
+                // #287: eagerly populate TerminalOrbit cache from the last orbit segment if
+                // the recording was loaded with empty cache fields. Without this, GhostMap
+                // and other consumers see an empty TerminalOrbit cache and fail to create
+                // map vessels for non-finalized recordings (forces the user to press W to
+                // build the icon via WatchModeController, which reads OrbitSegments directly).
+                if (string.IsNullOrEmpty(rec.TerminalOrbitBody)
+                    && rec.OrbitSegments != null && rec.OrbitSegments.Count > 0)
+                {
+                    ParsekFlight.PopulateTerminalOrbitFromLastSegment(rec);
+                    if (!string.IsNullOrEmpty(rec.TerminalOrbitBody))
+                    {
+                        Log($"[Parsek] Eager-populated TerminalOrbit for {rec.RecordingId} from last orbit segment (body={rec.TerminalOrbitBody}, sma={rec.TerminalOrbitSemiMajorAxis:F0})");
+                    }
+                }
 
                 // Load _vessel.craft — ConfigNode.Load returns the snapshot directly
                 string vesselPath = RecordingPaths.ResolveSaveScopedPath(

@@ -29,6 +29,12 @@ Dev notes: technical narratives for the fixes below live in `docs/dev/todo-and-k
 - `#264` follow-up: `StripEvaLadderState` no longer writes an invalid literal to the EVA FSM `state` field.
 - `#256` Capped slow-motion trajectory sampling so EVA-on-surface recordings no longer accumulate one point per physics frame; new `Min sample interval` slider in Settings (default 0.2 s).
 
+### Bug Fixes — Kerbal X Mun-flyby playtest (2026-04-10)
+
+- `#287` Ghost map icons now appear immediately after re-entry from orbit instead of requiring W (Watch) to be pressed first. The terminal orbit cache is now eagerly populated when recordings are loaded from disk.
+- `#289` End-of-mission spawn-at-end now correctly materializes splashed-down vessels and EVA kerbals after a rewind+merge (autoMerge OFF mode). Vessel snapshots are refreshed on scene exit when the recording reached a stable terminal state, and the fresh snapshot is force-written to its sidecar so it survives the next OnLoad.
+- `#292` F9 quickload after a Tree Merge no longer silently drops recordings created during the merge. The quicksave is now refreshed automatically when the user clicks "Merge to Timeline". (Caveat: this advances the player's F5 checkpoint UT — F5 first if you want to keep a pre-merge checkpoint.)
+
 ### Bug Fixes — KerbalX + Butterfly Rover playtest (2026-04-09)
 
 - `#278` EVA kerbals walking at the moment of revert/vessel-switch are now correctly classified Landed instead of Destroyed, so the merge dialog can spawn them at end of recording.
