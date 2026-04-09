@@ -1194,13 +1194,18 @@ namespace Parsek
                     if (moduleName != "KerbalEVA" && moduleName != "KerbalEVAFlight")
                         continue;
 
-                    // Check and clear ladder-related FSM state
+                    // Check and clear ladder-related FSM state. Real KerbalEVA states
+                    // are st_idle_gr / st_idle_fl / st_swim_idle — picked at runtime
+                    // by KerbalEVA.StartEVA based on situation. Writing a literal
+                    // "idle" produces an unknown-state exception (caught by KSP, falls
+                    // back to SurfaceContact-driven default). Removing the value lets
+                    // the FSM initialize fresh with the correct state name (#264 follow-up).
                     string currentState = moduleNode.GetValue("state");
                     if (currentState != null && currentState.IndexOf("ladder", System.StringComparison.OrdinalIgnoreCase) >= 0)
                     {
-                        moduleNode.SetValue("state", "idle", true);
+                        moduleNode.RemoveValue("state");
                         ParsekLog.Info("Spawner",
-                            $"EVA ladder state stripped for #{index} ({vesselName}): '{currentState}' → 'idle'");
+                            $"EVA ladder state stripped for #{index} ({vesselName}): '{currentState}' → (removed; KSP will reinitialize)");
                     }
 
                     // Also clear any ladder-related boolean flags
