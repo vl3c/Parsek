@@ -35,6 +35,8 @@ Dev notes: technical narratives for the fixes below live in `docs/dev/todo-and-k
 - `#282` Landed ghost vessels and end-of-recording respawned vessels no longer clip into terrain.
 - `#280` Background debris recordings now persist their trajectory data across scene reloads.
 - `#281` Decouple events on mixed-symmetry stages are no longer lost when a terminal-event collision occurs at the same physics frame.
+- `#278` Crashed debris no longer lose their captured ghost snapshots across scene reloads.
+- `#279` Watch button enable/disable transitions are now logged at INFO level for diagnostics.
 - `#272` F5/F9 no longer destroys the entire launch tree.
 - `#273` Tree recording trajectory is no longer silently lost across scene reloads.
 - `#274` F9 after EVA resumes the tree instead of finalizing it.

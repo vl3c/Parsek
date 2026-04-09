@@ -120,6 +120,13 @@ namespace Parsek
         private Dictionary<int, bool> lastCanRewind = new Dictionary<int, bool>();
         private Dictionary<int, bool> lastCanFF = new Dictionary<int, bool>();
 
+        // Watch button enabled-state tracking for transition logging (bug #279).
+        // Per-row entries keyed by recording index. Group entries keyed by
+        // "{groupName}/{mainIdx}" so two groups in the same table get distinct
+        // entries (see DrawGroupTree).
+        private Dictionary<int, bool> lastCanWatchByIndex = new Dictionary<int, bool>();
+        private Dictionary<string, bool> lastCanWatchByGroup = new Dictionary<string, bool>();
+
         // Cached styles for status labels
         private GUIStyle statusStyleFuture;
         private GUIStyle statusStyleActive;
@@ -772,6 +779,27 @@ namespace Parsek
                 bool isWatching = flight.WatchedRecordingIndex == ri;
                 bool canWatch = hasGhost && sameBody && inRange && !rec.IsDebris;
 
+                // Bug #279: log enabled/disabled transitions at INFO level so future
+                // playtests can distinguish "user didn't try" from "UI was broken".
+                // Mirrors the existing FF/R transition pattern, but at Info because
+                // the Watch button is the headline user-facing affordance and the
+                // 2026-04-09 playtest report had no usable signal in the verbose-only
+                // logs covering the impacted window.
+                bool prevCanWatch;
+                if (!lastCanWatchByIndex.TryGetValue(ri, out prevCanWatch) || prevCanWatch != canWatch)
+                {
+                    lastCanWatchByIndex[ri] = canWatch;
+                    string reason = canWatch ? "enabled"
+                        : rec.IsDebris ? "disabled (debris)"
+                        : !hasGhost ? "disabled (no ghost)"
+                        : !sameBody ? "disabled (different body)"
+                        : !inRange ? "disabled (out of range)"
+                        : "disabled (unknown)";
+                    ParsekLog.Info("UI",
+                        $"Watch button #{ri} \"{rec.VesselName}\" {reason} " +
+                        $"(hasGhost={hasGhost} sameBody={sameBody} inRange={inRange} debris={rec.IsDebris})");
+                }
+
                 GUI.enabled = canWatch;
                 string watchLabel = isWatching ? "W*" : "W";
                 // Tooltip priority: debris first, then per-condition explanation.
@@ -1128,7 +1156,29 @@ namespace Parsek
                     bool sameBody = flight.IsGhostOnSameBody(mainIdx);
                     bool inRange = flight.IsGhostWithinVisualRange(mainIdx);
                     bool isWatching = flight.WatchedRecordingIndex == mainIdx;
+                    // No IsDebris check needed: FindGroupMainRecordingIndex
+                    // (RecordingsTableUI.cs:~2021) already excludes debris from
+                    // the candidate set, so mainIdx is never a debris row.
                     bool canWatch = hasGhost && sameBody && inRange;
+
+                    // Bug #279: log enabled/disabled transitions for the group W
+                    // button at INFO level. Group key combines group name + main
+                    // index so two groups in the same table get distinct entries.
+                    string groupWatchKey = groupName + "/" + mainIdx;
+                    bool prevGroupCanWatch;
+                    if (!lastCanWatchByGroup.TryGetValue(groupWatchKey, out prevGroupCanWatch)
+                        || prevGroupCanWatch != canWatch)
+                    {
+                        lastCanWatchByGroup[groupWatchKey] = canWatch;
+                        string reason = canWatch ? "enabled"
+                            : !hasGhost ? "disabled (no ghost)"
+                            : !sameBody ? "disabled (different body)"
+                            : !inRange ? "disabled (out of range)"
+                            : "disabled (unknown)";
+                        ParsekLog.Info("UI",
+                            $"Group Watch button '{groupName}' main=#{mainIdx} \"{committed[mainIdx].VesselName}\" {reason} " +
+                            $"(hasGhost={hasGhost} sameBody={sameBody} inRange={inRange})");
+                    }
 
                     GUI.enabled = canWatch;
                     string watchLabel = isWatching ? "W*" : "W";

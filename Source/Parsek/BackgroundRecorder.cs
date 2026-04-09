@@ -768,9 +768,25 @@ namespace Parsek
                 }
             }
 
-            // Clean up tracking state
+            // Clean up tracking state — also flushes any accumulated TrackSections
+            // to rec via OnVesselRemovedFromBackground → FlushTrackSectionsToRecording.
             OnVesselRemovedFromBackground(vesselPid);
             tree.BackgroundMap.Remove(vesselPid);
+
+            // Bug #278: persist the flushed data + snapshot to disk IMMEDIATELY at
+            // finalization. The #280 fix added PersistFinalizedRecording to
+            // OnBackgroundVesselWillDestroy and Shutdown, but EndDebrisRecording
+            // (called from CheckDebrisTTL when a debris vessel is destroyed/despawned
+            // or when its 60s TTL expires) was left uncovered. The 2026-04-09 Kerbal X
+            // playtest log shows this path was the actual finalization site for many
+            // of the lost-snapshot debris — they finalized via the v == null branch of
+            // CheckDebrisTTL → EndDebrisRecording, never went through
+            // OnBackgroundVesselWillDestroy, and so lost their snapshots on F9 reload.
+            // Mirroring PersistFinalizedRecording here closes the TTL gap.
+            if (rec != null)
+            {
+                PersistFinalizedRecording(rec, $"EndDebrisRecording pid={vesselPid}");
+            }
 
             ParsekLog.Info("BgRecorder",
                 $"Debris recording ended: vesselPid={vesselPid} recId={recordingId} " +

@@ -3074,17 +3074,17 @@ namespace Parsek
                 {
                     SafeWriteConfigNode(rec.VesselSnapshot, vesselPath);
                 }
-                else if (File.Exists(vesselPath))
-                {
-                    try
-                    {
-                        File.Delete(vesselPath);
-                    }
-                    catch (Exception ex)
-                    {
-                        Log($"[Parsek] WARNING: Failed deleting stale vessel snapshot '{vesselPath}': {ex.Message}");
-                    }
-                }
+                // Bug #278: do NOT delete an existing _vessel.craft when in-memory
+                // VesselSnapshot is null. The in-memory copy is transient — multiple
+                // code paths null it during finalization (e.g., FinalizeIndividualRecording
+                // at ParsekFlight.cs:5810 when the vessel pid is gone, or the auto-
+                // unreserve-crew pass at ParsekScenario.cs:1131-1140 after the spawn
+                // window closes). The on-disk sidecar is the persistent record and
+                // must survive these in-memory clearings, otherwise a save during a
+                // transient null window destroys data that was previously persisted
+                // via PersistFinalizedRecording (#280). Stale-cleanup is the
+                // responsibility of explicit recording-deletion paths
+                // (DeleteRecordingFiles), not of every save.
 
                 // Save _ghost.craft (write once — immutable after creation)
                 if (rec.GhostVisualSnapshot != null)

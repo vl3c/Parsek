@@ -5606,10 +5606,18 @@ namespace Parsek
 
         internal static Vessel FindVesselByPid(uint pid)
         {
-            if (FlightGlobals.Vessels == null) return null;
-            for (int i = 0; i < FlightGlobals.Vessels.Count; i++)
+            // The FlightGlobals.Vessels accessor triggers FlightGlobals' static
+            // initializer (Quaternion.Euler ECall), which throws in unit-test
+            // environments where Unity native methods are unavailable. Wrap the
+            // first access so test-only callers (e.g. BackgroundRecorder
+            // CheckDebrisTTL/EndDebrisRecording paths exercised by
+            // Bug278SnapshotPersistenceTests) get a clean null instead of a
+            // TypeInitializationException. Production behavior is unchanged.
+            var vessels = TryGetFlightGlobalsVessels();
+            if (vessels == null) return null;
+            for (int i = 0; i < vessels.Count; i++)
             {
-                Vessel vessel = FlightGlobals.Vessels[i];
+                Vessel vessel = vessels[i];
                 if (vessel != null && vessel.persistentId == pid)
                 {
                     if (GhostMapPresence.IsGhostMapVessel(vessel.persistentId)) return null;
@@ -5617,6 +5625,18 @@ namespace Parsek
                 }
             }
             return null;
+        }
+
+        /// <summary>
+        /// Defensive accessor for <c>FlightGlobals.Vessels</c> that returns null
+        /// when the static initializer fails (unit-test environments where Unity
+        /// native code is not available). Production callers see the same value
+        /// as the underlying property.
+        /// </summary>
+        private static List<Vessel> TryGetFlightGlobalsVessels()
+        {
+            try { return FlightGlobals.Vessels; }
+            catch (TypeInitializationException) { return null; }
         }
 
         private void RefreshBackupSnapshot(Vessel vessel, string reason, bool force = false)
