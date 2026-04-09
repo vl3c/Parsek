@@ -105,6 +105,24 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Live query for use during <c>OnSceneChangeRequested</c> (#266): returns true
+        /// if the in-flight <see cref="vesselSwitchPending"/> flag was set within the
+        /// freshness window. Unlike <see cref="IsVesselSwitchFlagFresh"/>, this is the
+        /// runtime accessor — it does NOT consume the flag, and it reads the live
+        /// <c>UnityEngine.Time.frameCount</c>. Used by <c>FinalizeTreeOnSceneChange</c>
+        /// to decide between the legacy Limbo stash and the bug #266 pre-transition
+        /// path.
+        /// </summary>
+        internal static bool IsVesselSwitchPendingFresh()
+        {
+            return IsVesselSwitchFlagFresh(
+                vesselSwitchPending,
+                vesselSwitchPendingFrame,
+                UnityEngine.Time.frameCount,
+                VesselSwitchPendingMaxAgeFrames);
+        }
+
+        /// <summary>
         /// Pure decision: returns true if the game clock regressed across a
         /// scene transition, i.e. the player quickloaded/reverted/rewound.
         /// <paramref name="preChangeUT"/> is <c>-1.0</c> when unset (no scene
@@ -160,12 +178,13 @@ namespace Parsek
 
             if (RecordingStore.HasPendingTree
                 && RecordingStore.PendingStashedThisTransition
-                && RecordingStore.PendingTreeStateValue != PendingTreeState.Limbo)
+                && RecordingStore.PendingTreeStateValue != PendingTreeState.Limbo
+                && RecordingStore.PendingTreeStateValue != PendingTreeState.LimboVesselSwitch)
             {
                 // Non-Limbo pending tree stashed this transition: discard.
-                // Limbo pending trees are the quickload-resume carrier and
-                // must survive — they are picked up later in OnLoad by the
-                // ScheduleActiveTreeRestoreOnFlightReady path.
+                // Limbo + LimboVesselSwitch trees are the quickload-resume / switch
+                // carriers and must survive — they are picked up later in OnLoad by
+                // the ScheduleActiveTreeRestoreOnFlightReady path.
                 string treeName = RecordingStore.PendingTree?.TreeName;
                 int recCount = RecordingStore.PendingTree?.Recordings?.Count ?? 0;
                 RecordingStore.DiscardPendingTree();
@@ -385,20 +404,35 @@ namespace Parsek
             var activeTree = flight.ActiveTreeForSerialization;
             if (activeTree == null) return;
 
+            // Bug #266: the recorder may legitimately be null while activeTree is alive
+            // — this is the "outsider" state, where the player switched (in-session or
+            // via scene reload) to a vessel that has no recording context in the tree.
+            // The tree is still tracking background vessels, so we MUST serialize it.
+            // Without this branch, an F5 in outsider state would lose the tree on F9.
             var recorder = flight.ActiveRecorderForSerialization;
-            if (recorder == null) return;
 
             // Flush recorder's buffered data into the active tree's current recording
             // before serializing. Otherwise the on-disk tree misses points/events that
-            // were captured since the last chain boundary.
-            try
+            // were captured since the last chain boundary. Skip the flush in outsider
+            // state — there is no recorder buffer to flush.
+            if (recorder != null)
             {
-                flight.FlushRecorderIntoActiveTreeForSerialization();
+                try
+                {
+                    flight.FlushRecorderIntoActiveTreeForSerialization();
+                }
+                catch (System.Exception ex)
+                {
+                    ParsekLog.Warn("Scenario",
+                        $"SaveActiveTreeIfAny: flush failed ({ex.Message}) — active tree will be written with stale recorder data");
+                }
             }
-            catch (System.Exception ex)
+            else
             {
-                ParsekLog.Warn("Scenario",
-                    $"SaveActiveTreeIfAny: flush failed ({ex.Message}) — active tree will be written with stale recorder data");
+                ParsekLog.Verbose("Scenario",
+                    $"SaveActiveTreeIfAny: no live recorder for active tree '{activeTree.TreeName}' " +
+                    $"(activeRecId={activeTree.ActiveRecordingId ?? "<null>"}) — outsider state (#266), " +
+                    $"serializing tree without flush");
             }
 
             // Persist bulk data for active-tree recordings (same pattern as committed trees).
@@ -446,7 +480,11 @@ namespace Parsek
             // unset. Either serialize the full TrajectoryPoint or don't write anything;
             // we chose the latter because a missing anchor just produces one extra
             // boundary point on the next chain continuation, which is benign.
-            if (!string.IsNullOrEmpty(recorder.RewindSaveFileName))
+            //
+            // In outsider state (#266), recorder is null — there's no live rewind save
+            // filename to persist. The tree's root recording still has rewindSave from
+            // the original launch (copied into rootRec.RewindSaveFileName at stash time).
+            if (recorder != null && !string.IsNullOrEmpty(recorder.RewindSaveFileName))
                 treeNode.AddValue("resumeRewindSave", recorder.RewindSaveFileName);
 
             ParsekLog.Info("Scenario",
@@ -916,43 +954,59 @@ namespace Parsek
                     }
 
                     // Dispatch pending-Limbo trees (Bug C fix: quickload-resume).
-                    // The tree was stashed without finalization in StashActiveTreeAsPendingLimbo.
-                    // Based on revert detection + vessel-switch flag, we now either
-                    // finalize it (real revert OR vessel switch) or schedule a
-                    // restore-and-resume coroutine (quickload).
+                    // The tree was stashed without finalization in StashActiveTreeAsPendingLimbo
+                    // (Limbo) or pre-transitioned for a vessel switch in
+                    // StashActiveTreeForVesselSwitch (LimboVesselSwitch — bug #266).
+                    // Based on revert detection + vessel-switch flag + state, we now route to
+                    // one of three dispositions: finalize (real revert), vessel-switch restore
+                    // (#266), or quickload-resume.
                     if (RecordingStore.HasPendingTree
-                        && RecordingStore.PendingTreeStateValue == PendingTreeState.Limbo)
+                        && (RecordingStore.PendingTreeStateValue == PendingTreeState.Limbo
+                            || RecordingStore.PendingTreeStateValue == PendingTreeState.LimboVesselSwitch))
                     {
                         ParsekLog.RecState("OnLoad:limbo-dispatched", CaptureScenarioRecorderState());
-                        if (isRevert || isVesselSwitch)
+                        var pendState = RecordingStore.PendingTreeStateValue;
+                        if (isRevert)
                         {
                             // Real revert: finalize the Limbo tree with a minimal static
                             // finalization (vessel refs are gone by this point, so terminal
                             // states fall back to Destroyed + PopulateTerminalOrbitFromLastSegment).
-                            //
-                            // Vessel switch: the player moved focus to a different vessel.
-                            // The name-match in RestoreActiveTreeFromPending would fail
-                            // (the new active vessel is by definition not the tree's
-                            // recorded vessel), and the tree would be orphaned in Limbo.
-                            // Match mainline CommitTreeRevert behavior: finalize on vessel
-                            // switch. A future improvement could preserve the tree by
-                            // moving it to BackgroundMap + keeping it in committedTrees,
-                            // but that requires more vessel-switch-specific plumbing —
-                            // tracked as a follow-up in the design doc's "Risks" section.
+                            // Same path for both Limbo and LimboVesselSwitch — a revert wipes
+                            // the in-progress mission regardless of how the tree was stashed.
                             FinalizePendingLimboTreeForRevert();
-                            if (isVesselSwitch && !isRevert)
-                            {
-                                ParsekLog.Info("Scenario",
-                                    "OnLoad: Limbo tree finalized on vessel switch " +
-                                    "(matches mainline behavior; tree-preservation-on-switch is a follow-up)");
-                            }
+                        }
+                        else if (pendState == PendingTreeState.LimboVesselSwitch)
+                        {
+                            // Bug #266: tree was pre-transitioned at stash time. Just defer
+                            // to OnFlightReady for the vessel-switch restore coroutine, which
+                            // reinstalls the tree and (optionally) promotes the new active
+                            // vessel from BackgroundMap.
+                            ScheduleActiveTreeRestoreOnFlightReady = ActiveTreeRestoreMode.VesselSwitch;
+                            ParsekLog.Info("Scenario",
+                                $"OnLoad: pending-LimboVesselSwitch tree '{RecordingStore.PendingTree?.TreeName}' " +
+                                "deferred to OnFlightReady for vessel-switch restore (#266)");
+                        }
+                        else if (isVesselSwitch)
+                        {
+                            // Safety net: Limbo state (NOT LimboVesselSwitch) but the
+                            // OnLoad classifier still says vessel switch. This means the
+                            // stash path missed the vessel-switch detection (e.g.
+                            // pendingTreeDockMerge bailed out, or vesselSwitchPending was
+                            // set after FinalizeTreeOnSceneChange ran). Fall back to the
+                            // pre-#266 finalize behavior — better to lose the tree than
+                            // to leak a half-transitioned state into the restore path.
+                            FinalizePendingLimboTreeForRevert();
+                            ParsekLog.Info("Scenario",
+                                "OnLoad: Limbo tree finalized on vessel switch (safety-net path; " +
+                                "stash didn't pre-transition — usually means a guard at stash " +
+                                "time bailed out, see #266)");
                         }
                         else
                         {
                             // Quickload or cold-start resume: defer restore to OnFlightReady.
                             // ParsekFlight.RestoreActiveTreeFromPending picks up the
                             // pending-Limbo tree and wires a fresh recorder to it.
-                            ScheduleActiveTreeRestoreOnFlightReady = true;
+                            ScheduleActiveTreeRestoreOnFlightReady = ActiveTreeRestoreMode.Quickload;
                             ParsekLog.Info("Scenario",
                                 $"OnLoad: pending-Limbo tree '{RecordingStore.PendingTree?.TreeName}' " +
                                 "deferred to OnFlightReady for quickload-resume");
@@ -1061,9 +1115,19 @@ namespace Parsek
                     // Flag the coroutine to run on OnFlightReady so the active vessel is
                     // available for name matching. Cold start always lands in flight for
                     // a "Resume" action, so OnFlightReady will fire.
-                    ScheduleActiveTreeRestoreOnFlightReady = true;
+                    //
+                    // Bug #266: TryRestoreActiveTreeNode picks the stash state based on
+                    // whether the saved tree had an active recording. Pick the matching
+                    // restore mode here:
+                    //   - LimboVesselSwitch (outsider state at save time) → VesselSwitch
+                    //   - Limbo (active recording present) → Quickload
+                    ScheduleActiveTreeRestoreOnFlightReady =
+                        RecordingStore.PendingTreeStateValue == PendingTreeState.LimboVesselSwitch
+                            ? ActiveTreeRestoreMode.VesselSwitch
+                            : ActiveTreeRestoreMode.Quickload;
                     ParsekLog.Info("Scenario",
-                        "OnLoad: cold-start active tree detected — deferred to OnFlightReady for resume");
+                        $"OnLoad: cold-start active tree detected (state={RecordingStore.PendingTreeStateValue}) — " +
+                        $"deferred to OnFlightReady as {ScheduleActiveTreeRestoreOnFlightReady}");
                 }
 
                 // Clean orphaned sidecar files (recordings deleted in previous sessions)
@@ -1677,9 +1741,15 @@ namespace Parsek
                 // warning on the expected-overwrite quickload path.
                 RecordingStore.PopPendingTree();
 
-                // Stash into pending-limbo — OnLoad's revert-detection dispatch decides
-                // the final disposition (restore-and-resume OR finalize-and-commit).
-                RecordingStore.StashPendingTree(tree, PendingTreeState.Limbo);
+                // Bug #266: pick the stash state based on whether the saved tree had a
+                // live active recording. If ActiveRecordingId is null, the tree was in
+                // outsider state at OnSave time (the player switched to a vessel with
+                // no recording context). The vessel-switch restore coroutine handles
+                // this case; the quickload restore would bail on the null active rec.
+                var stashState = string.IsNullOrEmpty(tree.ActiveRecordingId)
+                    ? PendingTreeState.LimboVesselSwitch
+                    : PendingTreeState.Limbo;
+                RecordingStore.StashPendingTree(tree, stashState);
 
                 // Read resume hints for the restore coroutine (rewind save filename only;
                 // BoundaryAnchor can't round-trip because we only have the UT, not the
@@ -1689,7 +1759,7 @@ namespace Parsek
                 ParsekLog.Info("Scenario",
                     $"TryRestoreActiveTreeNode: stashed active tree '{tree.TreeName}' " +
                     $"({tree.Recordings.Count} recording(s), activeRecId={tree.ActiveRecordingId ?? "<null>"}) " +
-                    $"into pending-Limbo slot for revert-detection dispatch");
+                    $"into pending-{stashState} slot for revert-detection dispatch");
                 ParsekLog.RecState("TryRestoreActiveTreeNode:stashed", CaptureScenarioRecorderState());
                 return true;
             }
@@ -1730,11 +1800,34 @@ namespace Parsek
         internal static string pendingActiveTreeResumeRewindSave;
 
         /// <summary>
-        /// Signal to <see cref="ParsekFlight.OnFlightReady"/> that a pending-Limbo tree
-        /// is waiting for the restore-and-resume path. Set by OnLoad when it detects
-        /// quickload / vessel-switch (not revert) with a Limbo-state tree.
+        /// Restore path that <see cref="ParsekFlight.OnFlightReady"/> should run on
+        /// the next flight load.
         /// </summary>
-        internal static bool ScheduleActiveTreeRestoreOnFlightReady;
+        internal enum ActiveTreeRestoreMode
+        {
+            /// <summary>No restore scheduled.</summary>
+            None = 0,
+            /// <summary>
+            /// Quickload-resume path: name-match the active vessel against the tree's
+            /// active recording and resume the in-flight recorder. Used after F9 / cold
+            /// start with a saved <c>PARSEK_ACTIVE_TREE</c> node.
+            /// </summary>
+            Quickload = 1,
+            /// <summary>
+            /// Vessel-switch restore path (#266): the tree was pre-transitioned at stash
+            /// time, so the restore coroutine just reinstalls it as <c>activeTree</c>
+            /// and optionally promotes the new active vessel from <c>BackgroundMap</c>.
+            /// </summary>
+            VesselSwitch = 2,
+        }
+
+        /// <summary>
+        /// Signal to <see cref="ParsekFlight.OnFlightReady"/> that a pending-Limbo tree
+        /// is waiting for a restore path. Set by OnLoad when it detects quickload (mode
+        /// = Quickload) or vessel switch (mode = VesselSwitch) with a Limbo-state tree.
+        /// Replaces the previous bool flag so the two paths can't conflict (#266 review).
+        /// </summary>
+        internal static ActiveTreeRestoreMode ScheduleActiveTreeRestoreOnFlightReady;
 
         /// <summary>
         /// Minimal static finalization for a Limbo tree on the revert path. Sets

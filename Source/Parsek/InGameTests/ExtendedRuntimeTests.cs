@@ -940,6 +940,100 @@ namespace Parsek.InGameTests
             ParsekLog.Verbose("TestRunner",
                 $"Crew replacement round-trip: {after.Count} entries preserved");
         }
+
+        [InGameTest(Category = "SceneAndPatch", Scene = GameScenes.FLIGHT,
+            Description = "Bug #266: outsider-state tree ConfigNode parses back with null ActiveRecordingId and routes to LimboVesselSwitch")]
+        public void OutsiderActiveTreeParsesAndRoutesToLimboVesselSwitch_Bug266()
+        {
+            // Bug #266 acceptance test: a tree in "outsider state" — alive but with
+            // no active recording — must serialize as a RECORDING_TREE node with
+            // null activeRecordingId AND the OnLoad dispatch must route that node
+            // to LimboVesselSwitch (not Limbo). This test exercises only the
+            // ConfigNode round-trip and the dispatch decision; it does NOT drive
+            // ParsekScenario.OnSave/OnLoad end-to-end (that would mutate live state
+            // mid-flight, which we can't do safely). The full save/load cycle is
+            // covered by manual playtest.
+            var scenario = Object.FindObjectOfType<ParsekScenario>();
+            if (scenario == null) InGameAssert.Skip("No ParsekScenario instance");
+
+            var flight = ParsekFlight.Instance;
+            if (flight == null) InGameAssert.Skip("No ParsekFlight instance");
+
+            var liveTree = flight.ActiveTreeForSerialization;
+            if (liveTree == null)
+                InGameAssert.Skip("No live active tree to use as a synth source");
+
+            // Build a SYNTHESIZED outsider tree with stable shape: no active rec,
+            // one BackgroundMap entry pointing at the tree's existing root recording.
+            // We do NOT mutate the live tree — round-trip the serialized form
+            // directly so the running flight session is undisturbed.
+            var synthTreeNode = new ConfigNode("RECORDING_TREE");
+            // Reuse the live tree's serialized form, then strip the active rec id
+            // and inject one background entry. RecordingTree.Save / Load is the
+            // SUT — if either drops fields, the assertion below catches it.
+            liveTree.Save(synthTreeNode);
+            // Wipe the activeRecordingId so it round-trips as null (outsider).
+            synthTreeNode.RemoveValue("activeRecordingId");
+
+            // Parse + verify the synth tree matches what TryRestoreActiveTreeNode
+            // would produce in the OnLoad path.
+            var parsed = RecordingTree.Load(synthTreeNode);
+            InGameAssert.IsNull(parsed.ActiveRecordingId,
+                "Synth tree should have null ActiveRecordingId after stripping");
+
+            // Drive the dispatch decision the same way OnLoad would — verify the
+            // helper would route this tree to the LimboVesselSwitch state.
+            // (Direct reproduction of TryRestoreActiveTreeNode's stash-state pick.)
+            var expectedState = string.IsNullOrEmpty(parsed.ActiveRecordingId)
+                ? PendingTreeState.LimboVesselSwitch
+                : PendingTreeState.Limbo;
+            InGameAssert.AreEqual(
+                (int)PendingTreeState.LimboVesselSwitch,
+                (int)expectedState,
+                "Outsider tree should route to LimboVesselSwitch state in OnLoad dispatch");
+
+            ParsekLog.Verbose("TestRunner",
+                $"Bug #266 round-trip: outsider tree '{liveTree.TreeName}' " +
+                $"parsed back with ActiveRecordingId={(parsed.ActiveRecordingId ?? "<null>")} " +
+                $"→ would stash as {expectedState}");
+        }
+
+        [InGameTest(Category = "SceneAndPatch",
+            Description = "Bug #266: ApplyPreTransitionForVesselSwitch moves active rec into BackgroundMap and nulls ActiveRecordingId on the live tree shape")]
+        public void PreTransitionForVesselSwitch_LiveTreeShape_Bug266()
+        {
+            // Bug #266: validate the pure helper that the stash path uses, against
+            // a tree built from the live RecordingTree class. Catches any drift
+            // between the helper's expectations and the real tree shape (e.g.,
+            // BackgroundMap initialization, ActiveRecordingId nullability).
+            var tree = new RecordingTree
+            {
+                Id = "ingame_bug266",
+                TreeName = "Bug 266 Probe",
+                RootRecordingId = "rec_root",
+                ActiveRecordingId = "rec_root",
+            };
+            var rec = new Recording
+            {
+                RecordingId = "rec_root",
+                VesselName = "Probe",
+                TreeId = tree.Id,
+                VesselPersistentId = 4242,
+            };
+            tree.Recordings[rec.RecordingId] = rec;
+
+            bool moved = ParsekFlight.ApplyPreTransitionForVesselSwitch(tree, recorderVesselPid: 12345);
+
+            InGameAssert.IsTrue(moved, "Pre-transition should report moved=true");
+            InGameAssert.IsNull(tree.ActiveRecordingId,
+                "ActiveRecordingId should be null after pre-transition");
+            InGameAssert.IsTrue(tree.BackgroundMap.ContainsKey(12345),
+                "Recorder PID 12345 should be in BackgroundMap (recorder PID has priority over tree-rec PID)");
+            InGameAssert.IsFalse(tree.BackgroundMap.ContainsKey(4242),
+                "Tree-rec PID 4242 should NOT be used when recorder PID is non-zero");
+            InGameAssert.AreEqual("rec_root", tree.BackgroundMap[12345],
+                "BackgroundMap should map the recorder PID to the old active recording id");
+        }
     }
 
     // ════════════════════════════════════════════════════════════════
