@@ -1162,6 +1162,15 @@ namespace Parsek
                 if (tree.Recordings.TryGetValue(loadedState.recordingId, out flushRec))
                 {
                     FlushTrackSectionsToRecording(loadedState, flushRec);
+                    // Bug #280: persist the flushed data to disk IMMEDIATELY at
+                    // finalization time. Relying on OnSave to see FilesDirty and write
+                    // the file has proven fragile — the 2026-04-09 playtest showed
+                    // destroyed debris recordings consistently losing their 22-frame
+                    // TrackSection data across the scene reload because either the
+                    // dirty flag or the save path dropped them. Writing here bypasses
+                    // OnSave entirely for the destroy path and guarantees the file
+                    // exists on disk before any scene transition.
+                    PersistFinalizedRecording(flushRec, $"OnBackgroundVesselWillDestroy pid={pid}");
                 }
                 loadedStates.Remove(pid);
             }
@@ -1170,6 +1179,38 @@ namespace Parsek
                 ParsekLog.Info("BgRecorder", $"Background EVA vessel ended: pid={pid}");
             else
                 ParsekLog.Warn("BgRecorder", $"Background vessel destroyed: pid={pid}");
+        }
+
+        /// <summary>
+        /// Writes a background recording's .prec sidecar to disk immediately after a
+        /// finalization flush, bypassing OnSave's FilesDirty-driven path. Used by
+        /// destroy/shutdown/split sites where the in-memory data must survive any
+        /// scene reload that might happen before the next OnSave.
+        ///
+        /// Background: the 2026-04-09 playtest revealed ~16 debris recordings losing
+        /// all their trajectory data on F9 quickload. BackgroundRecorder flushed the
+        /// TrackSections to the Recording in memory and called <c>MarkFilesDirty</c>,
+        /// but by OnSave time the files were never written — so on reload, the
+        /// missing files produced 0-point recordings, and the subsequent CommitTree
+        /// pass wrote those empty recordings over the in-memory data. Persisting at
+        /// flush time closes the window between "data exists in memory" and "data
+        /// exists on disk" (bug #280).
+        /// </summary>
+        internal static void PersistFinalizedRecording(Recording rec, string context)
+        {
+            if (rec == null) return;
+            if (RecordingStore.SaveRecordingFiles(rec))
+            {
+                ParsekLog.Verbose("BgRecorder",
+                    $"PersistFinalizedRecording: wrote sidecar for " +
+                    $"recId={rec.RecordingId} ({context})");
+            }
+            else
+            {
+                ParsekLog.Warn("BgRecorder",
+                    $"PersistFinalizedRecording: failed to write sidecar for " +
+                    $"recId={rec.RecordingId} ({context})");
+            }
         }
 
         /// <summary>
@@ -1202,6 +1243,8 @@ namespace Parsek
                 if (tree.Recordings.TryGetValue(state.recordingId, out flushRec))
                 {
                     FlushTrackSectionsToRecording(state, flushRec);
+                    // Bug #280: persist flushed data immediately (see PersistFinalizedRecording docs).
+                    PersistFinalizedRecording(flushRec, $"Shutdown pid={state.vesselPid}");
                 }
             }
 

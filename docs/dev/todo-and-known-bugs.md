@@ -4,6 +4,66 @@ Previous entries (225 bugs, 51 TODOs — mostly resolved) archived in `done/todo
 
 ---
 
+## ~~280. Background debris recordings lose trajectory data on scene reload (second-order bug #273 gap)~~
+
+During the 2026-04-09 Kerbal X playtest after PR #163/#164 merged, the 6 booster debris recordings from the radial decoupler separations all came back as 0-point / 0-section recordings. The main Kerbal X recording (#263) was fine — 88 points, all 6 `Decoupled` events present (via the #263 fallback) — but the debris children that each accumulated 21–22 trajectory frames while backgrounded lost every sample.
+
+**Evidence chain from the playtest log:**
+- `17:42:32.879` BackgroundRecorder closed the debris' TrackSection with `frames=22` and called `FlushTrackSectionsToRecording(...) → treeRec.MarkFilesDirty()`.
+- `17:42:35.440` `OnSave #31` wrote `ACTIVE tree 'Kerbal X' (16 recording(s))` for quickload resume.
+- `17:44:28.987` `OnLoad` from F9 quickload: `[RecordingStore] Trajectory file missing for d1b0a56e… — recording degraded (0 points)` — **16 debris recordings in a row**. The `.prec` sidecars were never written between flush and reload.
+- `17:44:33.228` `CommitTree` committed the debris recordings with `sections=0 events=0` and `FlushDirtyFiles` then wrote the now-empty recordings over the (lost) in-memory data.
+
+**Root cause (not fully characterized):** Each finalization site in `BackgroundRecorder` (`OnBackgroundVesselWillDestroy`, `Shutdown`, `HandleBackgroundVesselSplit` → `CloseParentRecording`) flushes TrackSections to `treeRec` and calls `treeRec.MarkFilesDirty()`, which bug #273's PR #164 extension explicitly audited. `SaveActiveTreeIfAny` then iterates `activeTree.Recordings.Values` and is SUPPOSED to call `SaveRecordingFiles(rec)` for every `rec.FilesDirty == true`. But something between the flush and OnSave consistently breaks that contract for debris recordings — `SaveRecordingFiles` is never called for them, and the outer `wrote ACTIVE tree … (N recording(s))` log hides it because `N` is the iteration count, not the dirty/saved count. The exact drop mechanism could not be identified from log + static analysis alone in a reasonable timebox.
+
+**Fix (defensive, pragmatic):** Bypass the FilesDirty → OnSave round-trip entirely for the finalization path. After every `FlushTrackSectionsToRecording` call in a BackgroundRecorder site that is about to let the vessel go (destroyed / shutdown), immediately call a new helper `PersistFinalizedRecording(flushRec, context)` that writes the `.prec` sidecar to disk right then via `RecordingStore.SaveRecordingFiles`. This closes the window between "data lives in memory" and "data lives on disk", no matter what happens to the dirty flag.
+
+**Fix locations:**
+- New private helper `BackgroundRecorder.PersistFinalizedRecording(Recording, string context)` — calls `SaveRecordingFiles` and logs success/failure.
+- `OnBackgroundVesselWillDestroy` — persists after the destroy-path flush (primary fix for the 2026-04-09 playtest).
+- `Shutdown` — persists after each per-vessel flush during scene-change / tree teardown.
+- `HandleBackgroundVesselSplit` — already covered indirectly because `OnBackgroundVesselWillDestroy` fires before the deferred split check for the destroy case. Split-but-not-destroyed path does not flush TrackSections to disk because the vessel's state survives into a continuation recording.
+
+**Observability added alongside the fix** (bug #280 diagnostic, no behavior change):
+- `SaveActiveTreeIfAny` now logs `SaveActiveTreeIfAny: iterated N recording(s), D dirty, S saved, F failed` so any future FilesDirty-propagation gap is visible in KSP.log without code archaeology. The previous `wrote ACTIVE tree … (N recording(s))` log only reported the iteration count.
+- `PersistFinalizedRecording` logs `wrote sidecar for recId=…` at Verbose on success, `failed to write sidecar` at Warn on failure.
+
+**Tests:** Not unit-testable directly — the destroy/shutdown paths require a live `Vessel` + `BackgroundVesselState`. Coverage comes from the next Kerbal X in-game playtest (user validation).
+
+**Status:** Fixed
+
+---
+
+## ~~281. ResumeAfterFalseAlarm index-based RemoveRange can drop decoupled events that share a UT with terminal events (bug #263 root cause)~~
+
+The bug #263 fix (PR #161) added a `DeferredJointBreakCheck` fallback that recovers `Decoupled` PartEvents lost somewhere in the recorder → tree pipeline. Post-merge investigation into the 2026-04-09 Kerbal X playtest pinpointed WHERE they were being lost: `FlightRecorder.FinalizeRecordingState` sorts `PartEvents` by UT AFTER appending terminal engine-shutdown events, but `StopRecordingForChainBoundary` saved `partEventCountBeforeChainStop = PartEvents.Count` BEFORE the finalize. Then `ResumeAfterFalseAlarm` does `PartEvents.RemoveRange(partEventCountBeforeChainStop, N)` — an index-based removal.
+
+The sort was using `List<T>.Sort(Comparison<T>)` which is an introspective sort and **NOT stable**. When the player staged a radial decoupler symmetry group:
+- OnPartJointBreak fired and appended two decouples at UT 26.08 (insertion order indices X, X+1)
+- FinalizeRecordingState appended 5 terminal engine shutdowns at the same UT 26.08 (indices X+2…X+6)
+- `partEventCountBeforeChainStop` = X+2 (saved before the terminal appends)
+- `List<T>.Sort` reordered the 7 same-UT events arbitrarily — sometimes shuffling a decouple into indices X+2…X+6
+- `RemoveRange(X+2, 5)` then dropped that decouple along with 4 terminals
+
+Pair 1 in the 2026-04-09 playtest hit this: `pid=1009856088` (booster-side) was added to `PartEvents` (the verbose `Part event: Decoupled` log fires), then silently disappeared before the tree commit. The PR #161 fallback recovered it via the new-vessel-root scan, but the underlying sort-vs-index trap remained.
+
+**Fix:** New `FlightRecorder.StableSortPartEventsByUT` uses LINQ `OrderBy(e => e.ut).ToList()` — `OrderBy` is documented as stable, so same-UT events keep their insertion order. Decouples (appended first by `OnPartJointBreak`) stay at indices [X, X+1] after sort; terminals (appended second by `FinalizeRecordingState`) stay at indices [X+2, X+6]. `RemoveRange(partEventCountBeforeChainStop, N)` now only touches real terminals.
+
+**Interaction with bug #263 fallback:** the PR #161 `RecordFallbackDecoupleEvent` safety net is still valuable as a second line of defense against any future race condition, but with this fix the fallback becomes a no-op in the specific scenario it was written for — the decouples now survive the `ResumeAfterFalseAlarm` cycle naturally. The fallback's `RecordFallbackDecoupleEvent_RecoversEvent_WhenPartEventsDroppedButDecoupledSetStale` regression test still guards against the decoupledPartIds-drift scenario.
+
+**Tests:** `Bug263SortTrapTests.cs` — 6 unit tests:
+- `StableSortPartEventsByUT_EmptyList_IsNoOp` / `SingleEvent_IsNoOp`
+- `StableSortPartEventsByUT_OrdersByUT_Ascending`
+- `StableSortPartEventsByUT_SameUTEvents_PreserveInsertionOrder` (decouples + terminals scenario)
+- `ResumeAfterFalseAlarm_SameUTDecouples_SurviveRemoveRange` (end-to-end simulation — the true regression guard)
+- `StableSortPartEventsByUT_MixedOrder_WithAndWithoutTies_SortsCorrectly`
+
+Each test uses the exact same pids from the 2026-04-09 Kerbal X playtest for traceability.
+
+**Status:** Fixed
+
+---
+
 ## TODO — Release & Distribution
 
 ### T3. CKAN metadata
