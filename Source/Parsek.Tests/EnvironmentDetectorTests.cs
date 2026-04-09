@@ -939,6 +939,66 @@ namespace Parsek.Tests
             Assert.Equal(expected, result);
         }
 
+        // FlightRecorder.ResolveAnchorOnSurface integration tests — exercise the wiring
+        // (null hysteresis branch + CurrentEnvironment read) that UpdateAnchorDetection
+        // uses, without needing a Vessel instance. Catches refactor regressions where
+        // someone changes UpdateAnchorDetection to bypass the helper.
+
+        [Theory]
+        [InlineData(1, true)]   // LANDED
+        [InlineData(2, true)]   // SPLASHED
+        [InlineData(4, true)]   // PRELAUNCH
+        [InlineData(8, false)]  // FLYING
+        [InlineData(16, false)] // SUB_ORBITAL
+        [InlineData(32, false)] // ORBITING
+        [InlineData(64, false)] // ESCAPING
+        public void ResolveAnchorOnSurface_NullHysteresis_FallsBackToSituation(
+            int situation, bool expected)
+        {
+            // Null hysteresis (e.g. early in StartRecording before
+            // InitializeEnvironmentAndAnchorTracking runs) → must fall back to
+            // raw situation. Exercises the `?.` null branch.
+            var result = FlightRecorder.ResolveAnchorOnSurface(null, situation);
+            Assert.Equal(expected, result);
+        }
+
+        [Fact]
+        public void ResolveAnchorOnSurface_LiveHysteresis_PrefersDebouncedClassification()
+        {
+            // Debounced says SurfaceMobile despite raw FLYING — the EVA-jitter case
+            // (kerbal stepping above ground for one frame, situation flipping LANDED
+            // → FLYING). Bug #246's pattern applied to anchor detection.
+            var landedDebounce = new EnvironmentHysteresis(SegmentEnvironment.SurfaceMobile);
+            Assert.True(FlightRecorder.ResolveAnchorOnSurface(landedDebounce, situation: 8));
+
+            // Inverse: debounced says Atmospheric despite raw LANDED. Trust the
+            // debounced classification.
+            var atmoDebounce = new EnvironmentHysteresis(SegmentEnvironment.Atmospheric);
+            Assert.False(FlightRecorder.ResolveAnchorOnSurface(atmoDebounce, situation: 1));
+        }
+
+        [Fact]
+        public void ResolveAnchorOnSurface_LiveHysteresis_AllSurfaceEnvironmentsRecognized()
+        {
+            // Both surface environment values must produce true regardless of raw situation.
+            var mobile = new EnvironmentHysteresis(SegmentEnvironment.SurfaceMobile);
+            var stationary = new EnvironmentHysteresis(SegmentEnvironment.SurfaceStationary);
+            Assert.True(FlightRecorder.ResolveAnchorOnSurface(mobile, situation: 8));      // FLYING raw
+            Assert.True(FlightRecorder.ResolveAnchorOnSurface(stationary, situation: 16)); // SUB_ORBITAL raw
+        }
+
+        [Fact]
+        public void ResolveAnchorOnSurface_LiveHysteresis_NonSurfaceEnvironmentsReturnFalse()
+        {
+            // Approach, ExoBallistic, ExoPropulsive must produce false regardless of raw situation.
+            var approach = new EnvironmentHysteresis(SegmentEnvironment.Approach);
+            var exoBallistic = new EnvironmentHysteresis(SegmentEnvironment.ExoBallistic);
+            var exoPropulsive = new EnvironmentHysteresis(SegmentEnvironment.ExoPropulsive);
+            Assert.False(FlightRecorder.ResolveAnchorOnSurface(approach, situation: 1));      // LANDED raw
+            Assert.False(FlightRecorder.ResolveAnchorOnSurface(exoBallistic, situation: 2));  // SPLASHED raw
+            Assert.False(FlightRecorder.ResolveAnchorOnSurface(exoPropulsive, situation: 4)); // PRELAUNCH raw
+        }
+
         #endregion
     }
 }

@@ -3985,19 +3985,28 @@ namespace Parsek
         /// Detects proximity to pre-existing vessels, enters/exits RELATIVE mode, and
         /// transitions TrackSections accordingly. Extracted from OnPhysicsFrame.
         /// </summary>
+        /// <summary>
+        /// Resolves the "on the surface" classification used by anchor detection.
+        /// Prefers the debounced environment hysteresis when available (which filters
+        /// EVA situation jitter — see #246 for the precedent fix); falls back to the
+        /// raw KSP situation enum when the hysteresis instance is null. Extracted as
+        /// internal static so the wiring (null branch + CurrentEnvironment read) is
+        /// directly testable in xUnit without needing a Vessel instance.
+        /// </summary>
+        internal static bool ResolveAnchorOnSurface(EnvironmentHysteresis hysteresis, int situation)
+        {
+            return EnvironmentDetector.IsSurfaceForAnchorDetection(
+                envHint: hysteresis?.CurrentEnvironment,
+                situation: situation);
+        }
+
         private void UpdateAnchorDetection(Vessel v)
         {
             // Skip anchor detection while on the surface — RELATIVE mode is for orbital
             // docking approaches, not pad neighbors. Surface vessels are pinned to the
             // ground and don't need relative positioning. Also handles the case where a
             // vessel lands near a base — exits RELATIVE mode on landing.
-            //
-            // Use the debounced environment classification when available (hysteresis
-            // filters EVA situation jitter — see #246 for the precedent fix); fall back
-            // to raw v.situation when the classifier hasn't been initialized yet.
-            bool onSurface = EnvironmentDetector.IsSurfaceForAnchorDetection(
-                envHint: environmentHysteresis?.CurrentEnvironment,
-                situation: (int)v.situation);
+            bool onSurface = ResolveAnchorOnSurface(environmentHysteresis, (int)v.situation);
             if (onSurface && isRelativeMode)
             {
                 // Was flying in RELATIVE mode, just landed — exit RELATIVE
