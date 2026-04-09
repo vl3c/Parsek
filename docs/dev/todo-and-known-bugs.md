@@ -1039,9 +1039,17 @@ Reported alongside bugs #276/#277/#278 in the 2026-04-09 playtest session (`logs
 
 ---
 
-## 278. Capsule not spawned at end of recording (2026-04-09 playtest)
+## ~~278. Capsule not spawned at end of recording (2026-04-09 playtest)~~
 
 After the Kerbal X flight in the 2026-04-09 playtest, no vessel was spawned at end-of-recording for the user to continue playing with. The Bob Kerman EVA recording is the only one that *could* have spawned (it had a snapshot), but it terminated `Destroyed` with `canPersist=False` — see `KSP.log:11548`.
+
+**Root cause** (re-diagnosed against current main, not the bug-as-filed): `ParsekScenario.FinalizePendingLimboTreeForRevert` (the OnLoad handler that finalizes a Limbo tree on revert OR vessel switch) was blanket-stamping every leaf without an existing `TerminalStateValue` as `Destroyed`. The original limbo dispatch comment says terminal state is "deferred to OnLoad's dispatch once it knows whether this is a revert or a quickload", but the deferred handler shortcut to Destroyed instead of doing the situation-aware work the live commit path does. An EVA kerbal walking on the surface (`v.situation = LANDED`) at the moment of the switch got stamped Destroyed even though the vessel was still loaded in `FlightGlobals`. Confirmed in both the 17:42 pre-#280 log (Bob Kerman, L11548) and the 20:52 post-#280 log (every leaf is `terminal=Destroyed canPersist=False`, snapshots preserved by #280's fix but still unspawnable). The bug-as-filed thought this was about snapshot loss; that part is bug #280's territory and was fixed in PR #167. The remaining damage is the blanket-Destroyed stamp.
+
+**Fix:** `FinalizePendingLimboTreeForRevert` now routes through `ParsekFlight.FinalizeIndividualRecording` per leaf (the same helper `FinalizeTreeRecordings` uses on the live commit path), then `EnsureActiveRecordingTerminalState` for the active non-leaf case, then `PruneZeroPointLeaves` to drop empty placeholders. `FinalizeIndividualRecording` looks up each leaf's vessel via `FlightRecorder.FindVesselByPid`; if alive in `FlightGlobals`, it uses `RecordingTree.DetermineTerminalState((int)v.situation, v)` + `CaptureTerminalOrbit` + `CaptureTerminalPosition`. If gone, it falls back to `Destroyed` + `PopulateTerminalOrbitFromLastSegment` (preserving the previous behavior for the vessel-gone case). Surviving leaves keep their real situation and remain `canPersist=True`. Promoted three helpers from `private` to `internal static`: `FinalizeIndividualRecording`, `EnsureActiveRecordingTerminalState`, `PruneZeroPointLeaves`. Replaced one `Log(...)` instance call with `ParsekLog.Verbose("Flight", ...)` so the method body is static-clean.
+
+**Tests:** 8 new in `Bug278FinalizeLimboTests.cs` covering the vessel-gone fallback, the existing-state preservation, the non-leaf skip, the explicit-UT bookkeeping, the active-recording-already-terminal short-circuit, the no-active-id no-op, and `PruneZeroPointLeaves` removing empty placeholders. The vessel-found-live branch needs a live KSP runtime (covered by the next in-game playtest).
+
+**Status:** Fixed
 
 Shared root cause with the booster-debris-ghost-not-rendered bug (tracked separately by a parallel investigation — look for the entry added alongside the 2026-04-09 playtest batch): the 27 `Kerbal X Debris` sub-recordings in the tree all have `hasSnapshot=False canPersist=False terminal=Destroyed` at merge time (L11539–11547), even though `BgRecorder` logged `hasSnapshot=True` when each debris vessel was split off (L9700 etc.). The snapshots are captured at split time but lost somewhere between capture and merge — the current best hypothesis is the 60 s TTL flush that runs when the debris vessel is destroyed.
 
