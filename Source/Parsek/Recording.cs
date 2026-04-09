@@ -32,6 +32,16 @@ namespace Parsek
         // True if vessel has no controller parts (debris). Minimal recording only.
         public bool IsDebris;
 
+        // Cascade depth from primary recording. 0 = primary recording (active vessel),
+        // 1 = primary debris (boosters/fairings decoupled by gen-0 vessel). Background
+        // splits whose parent is at Generation >= MaxRecordingGeneration are skipped
+        // entirely — fragments-of-fragments stay alive in KSP but Parsek does not
+        // track them. See bug #284 and BackgroundRecorder.HandleBackgroundVesselSplit.
+        // Not serialized: only matters during the live tree session for split decisions;
+        // recordings reloaded from disk default to 0, which is the conservative choice
+        // (allows future splits if the recording somehow keeps growing post-reload).
+        [NonSerialized] public int Generation;
+
         // Loop sync: debris follows parent recording's loop clock (-1 = independent).
         // Index into CommittedRecordings / engine trajectories list. Recomputed on every
         // RunOptimizationPass call (after every commit and at load). The list is stable
@@ -314,6 +324,10 @@ namespace Parsek
             if (source.Controllers != null)
                 Controllers = new List<ControllerInfo>(source.Controllers);
             IsDebris = source.IsDebris;
+            // Generation is transient, but copied so the cascade-depth state is
+            // preserved across StashPending/commit boundaries within a tree session.
+            // Loaded recordings reset to 0 since the field is [NonSerialized].
+            Generation = source.Generation;
         }
 
         /// <summary>

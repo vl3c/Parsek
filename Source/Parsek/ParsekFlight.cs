@@ -1755,7 +1755,8 @@ namespace Parsek
                 string parentRecordingId, string treeId, double branchUT,
                 BranchPointType branchType, uint activeVesselPid, string activeVesselName,
                 uint backgroundVesselPid, string backgroundVesselName,
-                string evaCrewName = null, uint evaVesselPid = 0)
+                string evaCrewName = null, uint evaVesselPid = 0,
+                int parentGeneration = 0)
         {
             string activeChildId = Guid.NewGuid().ToString("N");
             string backgroundChildId = Guid.NewGuid().ToString("N");
@@ -1770,6 +1771,8 @@ namespace Parsek
                 ChildRecordingIds = new List<string> { activeChildId, backgroundChildId }
             };
 
+            // activeChild continues the same logical vessel — keep parent generation.
+            // backgroundChild is the new spinoff — gets parentGeneration + 1.
             var activeChild = new Recording
             {
                 RecordingId = activeChildId,
@@ -1777,7 +1780,8 @@ namespace Parsek
                 VesselPersistentId = activeVesselPid,
                 VesselName = activeVesselName,
                 ParentBranchPointId = bpId,
-                ExplicitStartUT = branchUT
+                ExplicitStartUT = branchUT,
+                Generation = parentGeneration
             };
 
             var backgroundChild = new Recording
@@ -1787,7 +1791,8 @@ namespace Parsek
                 VesselPersistentId = backgroundVesselPid,
                 VesselName = backgroundVesselName,
                 ParentBranchPointId = bpId,
-                ExplicitStartUT = branchUT
+                ExplicitStartUT = branchUT,
+                Generation = parentGeneration + 1
             };
 
             // For EVA: kerbal child gets EvaCrewName and ParentRecordingId.
@@ -1963,6 +1968,11 @@ namespace Parsek
             ConfigNode activeSnapshot = VesselSpawner.TryBackupSnapshot(activeVessel);
             ConfigNode bgSnapshot = VesselSpawner.TryBackupSnapshot(backgroundVessel);
 
+            // Look up the parent's Generation so the children inherit correctly.
+            // First-split path: parentRecording is the freshly-wrapped rootRec at gen=0.
+            // Subsequent-split path: parent is whatever the active recording's gen is.
+            int parentGen = parentRecording != null ? parentRecording.Generation : 0;
+
             // Build the branch data
             var (bp, activeChild, bgChild) = BuildSplitBranchData(
                 parentRecordingId, activeTree.Id, branchUT, branchType,
@@ -1970,7 +1980,8 @@ namespace Parsek
                 activeVessel != null ? activeVessel.vesselName : "Unknown",
                 backgroundVessel != null ? backgroundVessel.persistentId : 0,
                 backgroundVessel != null ? backgroundVessel.vesselName : "Unknown",
-                evaCrewName, evaVesselPid);
+                evaCrewName, evaVesselPid,
+                parentGeneration: parentGen);
 
             // Set snapshots on child recordings
             activeChild.GhostVisualSnapshot = activeSnapshot;
@@ -2733,11 +2744,14 @@ namespace Parsek
         /// Creates a child recording for a breakup branch point. Handles snapshot capture,
         /// terminal state marking for destroyed vessels, and tree wiring.
         /// Caller is responsible for BackgroundMap registration and logging.
+        /// The child inherits Generation = parentGeneration + 1, where parentGeneration
+        /// is the breakup parent's recording generation (the active recording or rootRec).
         /// </summary>
         internal static Recording CreateBreakupChildRecording(
             RecordingTree tree, BranchPoint breakupBp,
             uint pid, Vessel vessel, bool isDebris, string fallbackName,
-            ConfigNode fallbackSnapshot = null)
+            ConfigNode fallbackSnapshot = null,
+            int parentGeneration = 0)
         {
             string childRecId = Guid.NewGuid().ToString("N");
             string vesselName = Recording.ResolveLocalizedName(vessel?.vesselName) ?? fallbackName;
@@ -2750,7 +2764,8 @@ namespace Parsek
                 VesselName = vesselName,
                 ParentBranchPointId = breakupBp.Id,
                 ExplicitStartUT = breakupBp.UT,
-                IsDebris = isDebris
+                IsDebris = isDebris,
+                Generation = parentGeneration + 1
             };
 
             if (vessel != null)
@@ -2852,7 +2867,7 @@ namespace Parsek
                     ConfigNode ctrlSnap = childVessel == null
                         ? crashCoalescer.GetPreCapturedSnapshot(pid)
                         : null;
-                    var childRec = CreateBreakupChildRecording(activeTree, breakupBp, pid, childVessel, false, "Unknown", ctrlSnap);
+                    var childRec = CreateBreakupChildRecording(activeTree, breakupBp, pid, childVessel, false, "Unknown", ctrlSnap, parentGeneration: activeRec.Generation);
 
                     // Add to BackgroundRecorder for trajectory sampling (no TTL — records indefinitely)
                     if (childVessel != null && backgroundRecorder != null)
@@ -2888,7 +2903,7 @@ namespace Parsek
                     ConfigNode preSnap = debrisVessel == null
                         ? crashCoalescer.GetPreCapturedSnapshot(pid)
                         : null;
-                    var childRec = CreateBreakupChildRecording(activeTree, breakupBp, pid, debrisVessel, true, "Debris", preSnap);
+                    var childRec = CreateBreakupChildRecording(activeTree, breakupBp, pid, debrisVessel, true, "Debris", preSnap, parentGeneration: activeRec.Generation);
 
                     if (debrisVessel != null && backgroundRecorder != null)
                     {
@@ -3026,7 +3041,7 @@ namespace Parsek
                     ConfigNode preSnap = debrisVessel == null
                         ? crashCoalescer.GetPreCapturedSnapshot(pid)
                         : null;
-                    var childRec = CreateBreakupChildRecording(activeTree, breakupBp, pid, debrisVessel, true, "Debris", preSnap);
+                    var childRec = CreateBreakupChildRecording(activeTree, breakupBp, pid, debrisVessel, true, "Debris", preSnap, parentGeneration: rootRec.Generation);
 
                     ParsekLog.Info("Coalescer",
                         $"PromoteToTreeForBreakup: debris child created: pid={pid}, " +
@@ -3046,7 +3061,7 @@ namespace Parsek
                     ConfigNode ctrlSnap = childVessel == null
                         ? crashCoalescer.GetPreCapturedSnapshot(pid)
                         : null;
-                    var childRec = CreateBreakupChildRecording(activeTree, breakupBp, pid, childVessel, false, "Unknown", ctrlSnap);
+                    var childRec = CreateBreakupChildRecording(activeTree, breakupBp, pid, childVessel, false, "Unknown", ctrlSnap, parentGeneration: rootRec.Generation);
 
                     ParsekLog.Info("Coalescer",
                         $"PromoteToTreeForBreakup: controlled child created: pid={pid}, " +
