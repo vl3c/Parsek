@@ -260,6 +260,11 @@ namespace Parsek
             };
 
             rec.Points.Add(point);
+            // Mark dirty so the next OnSave rewrites the .prec sidecar with
+            // the extended trajectory. Continuation sampling extends a
+            // committed recording's Points after commit, so without this the
+            // .prec file stays frozen at the pre-continuation state on reload.
+            rec.MarkFilesDirty();
             lastUT = ut;
             lastVel = velocity;
         }
@@ -405,6 +410,10 @@ namespace Parsek
             };
             contRec.Points.Add(seedPoint);
             contRec.ContinuationBoundaryIndex = 0; // Bug #95: entire recording is continuation data
+            // Mark dirty so the newly-created continuation gets its .prec
+            // written on the next OnSave. Without this the recording is
+            // added to the committed list with an empty sidecar file.
+            contRec.MarkFilesDirty();
 
             RecordingStore.CommittedRecordings.Add(contRec);
             UndockContinuationRecIdx = RecordingStore.CommittedRecordings.Count - 1;

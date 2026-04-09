@@ -1572,6 +1572,10 @@ namespace Parsek
             treeRec.PartEvents.Sort((a, b) => a.ut.CompareTo(b.ut));
             treeRec.FlagEvents.Sort((a, b) => a.ut.CompareTo(b.ut));
 
+            // Mark dirty so the next OnSave persists the flushed data to disk.
+            // Without this, the in-memory points are lost on scene reload.
+            treeRec.MarkFilesDirty();
+
             // Populate VesselPersistentId (required for RebuildBackgroundMap after save/load)
             if (treeRec.VesselPersistentId == 0 && rec.RecordingVesselId != 0)
                 treeRec.VesselPersistentId = rec.RecordingVesselId;
@@ -1697,6 +1701,11 @@ namespace Parsek
                 target.PartEvents.AddRange(source.PartEvents);
                 target.TrackSections.AddRange(source.TrackSections);
                 target.PartEvents.Sort((a, b) => a.ut.CompareTo(b.ut));
+                // Mark dirty so the next OnSave persists the appended data to
+                // the .prec sidecar. Without this, data lives only in memory
+                // and is lost on scene reload (see Recording.MarkFilesDirty
+                // docstring and CHANGELOG 2026-04-09 bug #273).
+                target.MarkFilesDirty();
             }
             target.ExplicitEndUT = endUT;
         }
@@ -1894,6 +1903,11 @@ namespace Parsek
                     rootRec.RewindReservedRep = splitRecorder.CaptureAtStop.RewindReservedRep;
                     if (rootRec.Points.Count > 0)
                         rootRec.ExplicitStartUT = rootRec.Points[0].ut;
+                    // Mark dirty so the captured trajectory reaches disk on the
+                    // next OnSave. Mirror of the PromoteToTreeForBreakup fix —
+                    // same quickload-resume data-loss hole. See CHANGELOG
+                    // 2026-04-09 bug #273.
+                    rootRec.MarkFilesDirty();
                 }
 
                 activeTree.Recordings[rootRecId] = rootRec;
@@ -2961,6 +2975,12 @@ namespace Parsek
             rootRec.RewindReservedRep = cap.RewindReservedRep;
             if (rootRec.Points.Count > 0)
                 rootRec.ExplicitStartUT = rootRec.Points[0].ut;
+            // Mark dirty so the next OnSave persists the captured data to disk.
+            // This is load-bearing for quickload-resume: without it, the root
+            // recording never gets a .prec file written during in-flight saves,
+            // and on scene reload the freshly-loaded tree has 0 points for this
+            // recording. See CHANGELOG 2026-04-09 bug #273.
+            rootRec.MarkFilesDirty();
 
             activeTree.Recordings[rootRecId] = rootRec;
             activeTree.ActiveRecordingId = rootRecId;

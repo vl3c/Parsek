@@ -25,7 +25,50 @@ namespace Parsek
 
         // Vessel switch detection: FLIGHT→FLIGHT transitions from vessel switching
         // are NOT reverts and must not trigger orphan strip/cleanup.
+        //
+        // The flag is set by <see cref="OnVesselSwitching"/> from KSP's
+        // <c>onVesselSwitching</c> GameEvent, which fires on EVERY vessel focus
+        // change — including EVAs that stay in the same scene. Tracking-station-
+        // style vessel switches trigger a FLIGHT→FLIGHT scene reload within 1-2
+        // frames of the event, so the flag's truth at scene-load time correctly
+        // identifies those. EVA events, by contrast, set the flag and then
+        // leave it sticky for thousands of frames until the next unrelated
+        // scene change (quickload, revert, etc.) — at which point the stale
+        // flag mis-identifies the quickload as a vessel switch and routes the
+        // pending-Limbo tree into FinalizeLimboForRevert instead of the
+        // restore-and-resume path. Observed 2026-04-09 playtest (PR #164).
+        //
+        // Staleness check: capture the frame count on set. In OnLoad, consider
+        // the flag "fresh" only if it was set within the last few frames (the
+        // maximum between onVesselSwitching and OnLoad for a legitimate
+        // tracking-station reload is small — the scene reload is dispatched
+        // immediately after the switching event). A stale flag (many frames
+        // old, typical of EVA leakage) is ignored.
         private static bool vesselSwitchPending;
+        private static int vesselSwitchPendingFrame = -1;
+
+        /// <summary>
+        /// Maximum age (in frames) for <see cref="vesselSwitchPending"/> to be
+        /// considered "fresh" in OnLoad. Tracking-station vessel switches
+        /// dispatch the scene reload in the same or next frame, so 300 frames
+        /// (~6 seconds at 50 FPS) is a generous cap that covers the scene-load
+        /// duration without letting minute-old EVA flag leakage through.
+        /// </summary>
+        internal const int VesselSwitchPendingMaxAgeFrames = 300;
+
+        /// <summary>
+        /// Pure decision: returns true if the vessel-switch flag should be
+        /// interpreted as a fresh vessel switch at scene-load time. Used by
+        /// OnLoad's FLIGHT→FLIGHT dispatch and directly testable without Unity.
+        /// </summary>
+        internal static bool IsVesselSwitchFlagFresh(
+            bool pending, int pendingFrame, int currentFrame, int maxAgeFrames)
+        {
+            if (!pending) return false;
+            if (pendingFrame < 0) return false;
+            int age = currentFrame - pendingFrame;
+            return age >= 0 && age <= maxAgeFrames;
+        }
 
         /// <summary>
         /// Captures a recorder state snapshot from any scene. In flight scenes the
@@ -442,8 +485,29 @@ namespace Parsek
                     // reverts regress at least one of them.
                     bool isFlightToFlight = lastOnSaveScene == GameScenes.FLIGHT
                                             && HighLogic.LoadedScene == GameScenes.FLIGHT;
-                    bool isVesselSwitch = isFlightToFlight && vesselSwitchPending;
-                    vesselSwitchPending = false; // consume the flag
+                    // vesselSwitchPending must be BOTH set AND fresh. EVA events
+                    // fire onVesselSwitching without causing a scene reload, so
+                    // the raw flag can sit sticky for thousands of frames before
+                    // the next unrelated quickload consumes it — the staleness
+                    // check prevents an EVA-then-F9 sequence from being
+                    // mis-identified as a tracking-station vessel switch and
+                    // routed into FinalizeLimboForRevert (post-PR #163 playtest
+                    // bug; see CHANGELOG for full narrative).
+                    int currentFrame = UnityEngine.Time.frameCount;
+                    bool vesselSwitchFlagFresh = IsVesselSwitchFlagFresh(
+                        vesselSwitchPending, vesselSwitchPendingFrame,
+                        currentFrame, VesselSwitchPendingMaxAgeFrames);
+                    bool isVesselSwitch = isFlightToFlight && vesselSwitchFlagFresh;
+                    if (vesselSwitchPending && !vesselSwitchFlagFresh)
+                    {
+                        int age = currentFrame - vesselSwitchPendingFrame;
+                        ParsekLog.Info("Scenario",
+                            $"vesselSwitchPending flag stale ({age} frames old, " +
+                            $"max {VesselSwitchPendingMaxAgeFrames}) — " +
+                            "treating FLIGHT→FLIGHT as quickload, not vessel switch");
+                    }
+                    vesselSwitchPending = false; // consume the flag regardless
+                    vesselSwitchPendingFrame = -1;
 
                     bool isRevert = !isVesselSwitch
                                     && (savedEpoch < MilestoneStore.CurrentEpoch
@@ -2744,9 +2808,16 @@ namespace Parsek
         private void OnVesselSwitching(Vessel from, Vessel to)
         {
             vesselSwitchPending = true;
+            // Time.frameCount is monotonic across scene loads within a single
+            // KSP session (Unity only resets it on application restart, not on
+            // scene change), so the staleness check in OnLoad can rely on the
+            // difference between the stamp here and the frame count at
+            // scene-load time being a meaningful "frames elapsed" measurement.
+            vesselSwitchPendingFrame = UnityEngine.Time.frameCount;
             ParsekLog.Info("Scenario",
                 $"Vessel switch detected: '{from?.vesselName}' → '{to?.vesselName}' — " +
-                "next FLIGHT→FLIGHT OnLoad will skip revert strip/cleanup");
+                $"next FLIGHT→FLIGHT OnLoad within {VesselSwitchPendingMaxAgeFrames} frames " +
+                $"will skip revert strip/cleanup (frame={vesselSwitchPendingFrame})");
         }
 
         public void OnDestroy()

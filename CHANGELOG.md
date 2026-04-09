@@ -23,7 +23,10 @@ Dev notes: technical narratives for the fixes below live in `docs/dev/todo-and-k
 
 ### Bug Fixes — KerbalX + Butterfly Rover playtest (2026-04-09)
 
-- `#272` F5/F9 destroys entire launch tree — `OnFlightReady` was nulling the freshly-restored `activeTree` right after the restore coroutine set it. Fixed the ordering (this PR).
+- `#272` F5/F9 destroys entire launch tree — `OnFlightReady` was nulling the freshly-restored `activeTree` right after the restore coroutine set it. Fixed the ordering (PR #163).
+- `#273` Tree recording trajectory silently lost on scene reload — ~33 in-flight mutation sites in `ParsekFlight`, `ChainSegmentManager`, and `BackgroundRecorder` never set `FilesDirty`, so `.prec` sidecars were written empty. Introduced `Recording.MarkFilesDirty()` helper; all sites audited (PR #164).
+- `#274` F9 after EVA finalized the tree instead of resuming — stale `vesselSwitchPending` flag leaked across thousands of frames between an EVA and the next quickload. Added frame-count staleness check (≤300 frames, ~6s at 50 FPS).
+- `#275` Watch buttons in Recordings Manager now show explanatory tooltips for every disabled state instead of silently greying out.
 - `#263` Ghost boosters stayed visible on ghost after a symmetry-group decouple — some `onPartJointBreak` events lost to a KSP race. Added a deterministic safety net that emits a `Decoupled` event for every new debris vessel's root part.
 - `#259` Orbital recordings missing `TerminalOrbitBody` — three code paths set terminal state without capturing orbit. All now capture; plus a defensive backfill in `FinalizeIndividualRecording`.
 - `#258` Non-chronological trajectory points from quickload mid-recording — new `TrimRecordingToUT` + time-regression guard detects backwards UT jumps and trims stale future-timeline data.
