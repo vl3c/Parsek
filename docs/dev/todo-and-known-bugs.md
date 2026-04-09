@@ -835,6 +835,41 @@ Not introduced by PR #160, but PR #160's quickload-resume path makes it more rea
 
 **Priority:** Low — rare user workflow (quicksave in flight + exit to TS + quickload), and the worst case is playback inconsistency, not data loss. Flag again if it bites during playtest.
 
+## ~~282. Landed ghosts and end-of-recording spawned vessels clip into terrain (2026-04-09 s33 playtest)~~
+
+User report from the second 2026-04-09 playtest (save folder `s33`): "the ghosts that landed went underground and at the end I think they also spawned underground (or did not spawn, not sure)".
+
+**Smoking gun:** three landed leaves of the Kerbal X tree finalized with razor-thin recorded clearances — 0.8 m, 0.9 m, 1.3 m (`logs/2026-04-09_ghosts-underground/KSP.log:13768/13793/13795`). Both spawn-at-end firings (pre-rewind KSC spawn at `L16773-16778`, post-rewind in-flight spawn at `L20599-20622`) used the raw recorded altitude — no `"Clamped altitude for LANDED spawn"` line appears anywhere in the session log. Watch playback at `L20624-L20701` also reported `ghost at alt 176m on Kerbin`, matching the raw recorded altitude.
+
+**Root cause — two sites, same wrong assumption.** KSP's `body.GetWorldSurfacePosition(lat, lon, alt)` places the **root-part origin** at the given altitude. For a Mk1-3 pod, the bounding box is `(2.50, 4.21, 2.50)` with center Y=0.34, so the lowest mesh vertex is **~1.77 m below the root origin**. When the recorded clearance above terrain is less than 1.77 m, the pod bottom clips into terrain — regardless of whether `alt ≥ terrainAlt`.
+
+**Site 1 — `VesselSpawner.ClampAltitudeForLanded`.** Introduced in `#231` to clamp mid-descent snapshots down to `terrainAlt + LandedClearanceMeters` (2 m). The implementation had three branches:
+1. `alt > target` → clamp down (the #231 case).
+2. `alt < terrainAlt` → clamp up, log "underground".
+3. `alt ∈ [terrainAlt, target)` → **leave unchanged**, commented "already in a reasonable range".
+
+The `(2)` and `(3)` branches share the same underlying problem. The "reasonable range" assumption held only if the root part was the lowest point of the vessel, which is false for anything with a command pod on top. All three landed leaves in the playtest fell in the no-op branch. **Fix closes the gap**: any `alt < target` is now clamped up, with log reason `underground` if also below terrain or `low-clearance` if in the gap.
+
+**Site 2 — `ParsekFlight.IGhostPositioner.PositionAtPoint`.** Previously called `PositionGhostAt(state.ghost, point)` directly with the raw recorded altitude. The existing `ClampGhostsToTerrain` pass in `LateUpdate` uses `TerrainCorrector.ClampAltitude(alt, terrain, minClearance = 0.5)` — far too tight for a Mk1-3 pod. **Fix** adds a new internal static helper `ApplyLandedGhostClearance(point, index, vesselName)` that runs only for `traj.TerminalStateValue ∈ {Landed, Splashed}`, looks up `body.TerrainAltitude(lat, lon, true)`, and bumps the point altitude to `max(point.altitude, terrainAlt + LandedGhostClearanceMeters)` before calling `PositionGhostAt`.
+
+**Scope of the playback clamp:** `IGhostPositioner.PositionAtPoint` is called from four sites in `GhostPlaybackEngine` — `HandlePastEndGhost`, `UpdateOverlapPlayback` (loop-cycle boundary), `UpdateExpireAndPositionOverlaps` (overlap expired), and `HandleLoopPauseWindow` (loop pause hold). All four are "position at the final point / crash-site hold" paths. **Normal in-flight playback** goes through `InterpolateAndPosition` → `GetWorldSurfacePosition` and is not currently clamped — it still relies on the existing `ClampGhostsToTerrain` LateUpdate pass with its 0.5 m floor, which is insufficient for tall vessels. The playtest report was about past-end landed ghosts (the `HandleLoopPauseWindow` path), so this fix covers the reported symptom; mid-playback clamping for rovers/walking kerbals is a deliberate follow-up (see below).
+
+**Split constants.** `VesselSpawner.LandedClearanceMeters = 2.0` stays (bug #231's physics-drop concern: dropping a vessel from 5 m broke parts under KSP's physics; 2 m was chosen as the compromise). New `VesselSpawner.LandedGhostClearanceMeters = 4.0` covers ghost playback, which is kinematic (no physics drop damage). 4 m is a pragmatic default: for Mk1-3 it leaves 4.0 − 1.77 = **2.23 m** of visible margin — modest but strictly above terrain. Taller stacks may still sit slightly low, but the alternative (burying the mesh) is worse.
+
+**`state.lastInterpolatedAltitude`** is updated post-clamp so the watch-mode overlay at `WatchModeController.cs:347` reports the corrected altitude instead of the raw underground number, keeping the diagnostic log consistent with the visual.
+
+**Tests:**
+- `Source/Parsek.Tests/SpawnSafetyNetTests.cs` — extended `ClampAltitudeForLanded_*` tests with the exact playtest numbers (176.5/175.6/0.9 → 177.6), a `_LowClearanceGap_ClampsUp_Bug282` regression, a `_JustAboveTerrainAtOneCm_ClampsUp` boundary test, and a `LandedGhostClearanceMeters_IsLargerThanSpawnClearance_Bug282` pin on the split constants.
+- `Source/Parsek/InGameTests/RuntimeTests.cs` — `LandedGhostClearance_BuriedPoint_ClampsAboveTerrain` spawns a synthetic buried point at the active vessel's lat/lon (terrain + 0.9 m) and asserts `ApplyLandedGhostClearance` lifts it to ≥ `terrain + LandedGhostClearanceMeters`. Companion `LandedGhostClearance_AlreadyClear_Unchanged` verifies the no-op path.
+
+**Follow-ups tracked separately** (see "Scope deliberately NOT in this PR" in `logs/2026-04-09_ghosts-underground/fix-plan.md`):
+- **Mid-playback terrain clamp** for rovers and walking kerbals whose recording has a Landed/Splashed terminal state. The architectural fix is to thread terminal state (or a pre-computed clearance value) into `ParsekFlight.ClampGhostsToTerrain` via a new `double minClearanceMeters` field on `GhostPosEntry`, populated at every `ghostPosEntries.Add` site where the trajectory is known to be landed. That single change would cover `InterpolateAndPosition`, `PositionGhostAt`, `PositionGhostAtSurface`, and any future positioning helper through the existing LateUpdate pass. Deferred out of #282 to keep the fix surgical, but the next playtest that shows a buried mid-drive rover should bump this up.
+- Per-vessel `rootPartBottomOffset` captured at `FlightRecorder.StartRecording` time, used to derive a vessel-accurate clearance instead of the 4 m constant. Would give Mk1-3 a 0.5 m margin instead of 2.23 m and would cover tall rocket stacks that still sit low under the constant.
+- `TerrainCorrector.ComputeCorrectedAltitude` wired into runtime playback (currently only hits `VesselGhoster` at scene-load). Needed when session terrain differs from recorded terrain (PQS regeneration across KSP versions).
+- EVA kerbal clearance: the 4 m ghost clamp lifts a walking kerbal ~3.5 m above terrain (visually floating). Cosmetic, defer to the per-vessel offset work.
+
+---
+
 ## ~~275. Watch button tooltip blank when ghost not built~~
 
 Reported as "Watch buttons broke" in the post-PR-#163 playtest. The W button in the Recordings window showed greyed-out with no tooltip, making it look broken. Two causes:

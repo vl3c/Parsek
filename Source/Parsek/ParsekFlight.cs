@@ -7514,7 +7514,76 @@ namespace Parsek
             GhostPlaybackState state, TrajectoryPoint point)
         {
             if (state?.ghost == null) return;
-            PositionGhostAt(state.ghost, point);
+
+            // Bug #282: for Landed/Splashed recordings, clamp the rendered
+            // altitude up so the ghost mesh sits above terrain. The recording's
+            // raw altitude is the root-part origin — for a Mk1-3 pod the lowest
+            // mesh vertex is ~1.77 m below the root, so any recorded clearance
+            // under ~2 m buries the pod. Applies only to the PositionAtPoint
+            // call sites (past-end hold, loop cycle boundary, loop pause hold,
+            // overlap expired): these are the "stuck at final point" paths.
+            // Normal in-flight playback goes through InterpolateAndPosition and
+            // still relies on the existing ClampGhostsToTerrain LateUpdate pass
+            // with its 0.5 m floor — mid-playback clamp is a follow-up tracked
+            // in the #282 todo-and-known-bugs entry.
+            TrajectoryPoint positioned = point;
+            if (traj != null)
+            {
+                var term = traj.TerminalStateValue;
+                if (term == TerminalState.Landed || term == TerminalState.Splashed)
+                    positioned = ApplyLandedGhostClearance(point, index, traj.VesselName);
+            }
+
+            PositionGhostAt(state.ghost, positioned);
+
+            // Keep the watch-mode overlay + diagnostics consistent with the
+            // clamped position. WatchModeController reads state.lastInterpolatedAltitude
+            // for its "ghost at alt N m on Kerbin" line — if we don't update it,
+            // the log reports the buried raw altitude even after the visual is fixed.
+            state.lastInterpolatedAltitude = positioned.altitude;
+        }
+
+        /// <summary>
+        /// Bug #282: lift a Landed/Splashed ghost point above terrain by
+        /// <see cref="VesselSpawner.LandedGhostClearanceMeters"/>. Returns the
+        /// point unchanged if the body isn't found, PQS isn't available, or
+        /// the recorded altitude is already high enough. <c>internal static</c>
+        /// so the in-game tests (<c>RuntimeTests.LandedGhostClearance_BuriedPoint_ClampsAboveTerrain</c>
+        /// and <c>LandedGhostClearance_AlreadyClear_Unchanged</c>) can exercise
+        /// it without needing a full <c>IGhostPositioner</c> chain.
+        /// </summary>
+        internal static TrajectoryPoint ApplyLandedGhostClearance(
+            TrajectoryPoint p, int index, string vesselName)
+        {
+            CelestialBody body = FlightGlobals.Bodies?.Find(b => b.name == p.bodyName);
+            if (body == null)
+                return p;
+            if (body.pqsController == null)
+            {
+                // PQS not spun up on this body yet — we can't query terrain so we
+                // can't clamp. Warn once so a buried ghost on a cold-loaded body
+                // isn't silently indistinguishable from the bug #282 symptom.
+                ParsekLog.WarnRateLimited("TerrainCorrect",
+                    $"pqs-unready-{body.name}",
+                    $"Landed ghost clamp #{index} (\"{vesselName}\"): PQS not spun up " +
+                    $"for body '{body.name}' — leaving recorded alt unchanged");
+                return p;
+            }
+
+            double terrainAlt = body.TerrainAltitude(p.latitude, p.longitude, true);
+            double minAlt = terrainAlt + VesselSpawner.LandedGhostClearanceMeters;
+            if (p.altitude >= minAlt)
+                return p;
+
+            var ic = System.Globalization.CultureInfo.InvariantCulture;
+            double delta = minAlt - p.altitude;
+            ParsekLog.VerboseRateLimited("TerrainCorrect", $"landed-ghost-{index}",
+                $"Landed ghost clamp #{index} (\"{vesselName}\"): " +
+                $"alt={p.altitude.ToString("F1", ic)} terrain={terrainAlt.ToString("F1", ic)} " +
+                $"-> {minAlt.ToString("F1", ic)} (delta={delta.ToString("F2", ic)}m, body={body.name})");
+
+            p.altitude = minAlt;
+            return p;
         }
 
         void IGhostPositioner.PositionAtSurface(int index, IPlaybackTrajectory traj,

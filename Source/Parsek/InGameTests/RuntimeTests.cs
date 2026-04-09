@@ -1254,6 +1254,94 @@ namespace Parsek.InGameTests
                 $"Geographic round-trip error: {dist:F2}m (expected < 50m)");
         }
 
+        // ─────────────────────────────────────────────────────────────
+        //  #282 — Landed ghost / spawn terrain clearance
+        // ─────────────────────────────────────────────────────────────
+
+        [InGameTest(Category = "TerrainClearance", Scene = GameScenes.FLIGHT,
+            Description = "Landed ghost playback clamp lifts buried points above terrain (#282)")]
+        public void LandedGhostClearance_BuriedPoint_ClampsAboveTerrain()
+        {
+            var activeVessel = FlightGlobals.ActiveVessel;
+            if (activeVessel == null || activeVessel.mainBody == null)
+            {
+                InGameAssert.Skip("needs Flight scene with an active vessel");
+                return;
+            }
+
+            var body = activeVessel.mainBody;
+            double lat = activeVessel.latitude;
+            double lon = activeVessel.longitude;
+            double terrainAlt = body.TerrainAltitude(lat, lon, true);
+
+            // Craft a trajectory point that mirrors the 2026-04-09 s33 playtest
+            // bug numbers: recorded alt only 0.9 m above terrain. For a Mk1-3
+            // (1.77 m root offset) this is 0.87 m underground.
+            var buriedPoint = new Parsek.TrajectoryPoint
+            {
+                ut = Planetarium.GetUniversalTime(),
+                latitude = lat,
+                longitude = lon,
+                altitude = terrainAlt + 0.9,
+                bodyName = body.name,
+                rotation = Quaternion.identity,
+                velocity = Vector3.zero,
+            };
+
+            var clamped = ParsekFlight.ApplyLandedGhostClearance(
+                buriedPoint, index: 282, vesselName: "Bug282Test");
+
+            double expectedMin = terrainAlt + VesselSpawner.LandedGhostClearanceMeters;
+            // Use IsGreaterThan with (expectedMin - 0.001) as the threshold so a
+            // strict-less-than comparison still allows exactly-equal results.
+            InGameAssert.IsGreaterThan(clamped.altitude, expectedMin - 0.001,
+                $"Landed ghost clamp must lift alt {buriedPoint.altitude:F2} to at least " +
+                $"terrain+{VesselSpawner.LandedGhostClearanceMeters} = {expectedMin:F2} " +
+                $"(got {clamped.altitude:F2})");
+            // Lat/lon/body must not move.
+            InGameAssert.AreEqual(buriedPoint.latitude, clamped.latitude,
+                "Latitude must not change under ghost clearance clamp");
+            InGameAssert.AreEqual(buriedPoint.longitude, clamped.longitude,
+                "Longitude must not change under ghost clearance clamp");
+            InGameAssert.AreEqual(buriedPoint.bodyName, clamped.bodyName,
+                "Body must not change under ghost clearance clamp");
+        }
+
+        [InGameTest(Category = "TerrainClearance", Scene = GameScenes.FLIGHT,
+            Description = "Ghost clamp is a no-op when already above terrain+clearance (#282)")]
+        public void LandedGhostClearance_AlreadyClear_Unchanged()
+        {
+            var activeVessel = FlightGlobals.ActiveVessel;
+            if (activeVessel == null || activeVessel.mainBody == null)
+            {
+                InGameAssert.Skip("needs Flight scene with an active vessel");
+                return;
+            }
+
+            var body = activeVessel.mainBody;
+            double lat = activeVessel.latitude;
+            double lon = activeVessel.longitude;
+            double terrainAlt = body.TerrainAltitude(lat, lon, true);
+
+            double safeAlt = terrainAlt + VesselSpawner.LandedGhostClearanceMeters + 100.0;
+            var clearPoint = new Parsek.TrajectoryPoint
+            {
+                ut = Planetarium.GetUniversalTime(),
+                latitude = lat,
+                longitude = lon,
+                altitude = safeAlt,
+                bodyName = body.name,
+                rotation = Quaternion.identity,
+                velocity = Vector3.zero,
+            };
+
+            var clamped = ParsekFlight.ApplyLandedGhostClearance(
+                clearPoint, index: 282, vesselName: "Bug282NoOp");
+
+            InGameAssert.AreEqual(safeAlt, clamped.altitude,
+                "Point already above terrain+clearance must not be modified");
+        }
+
         [InGameTest(Category = "FlightIntegration", Scene = GameScenes.FLIGHT,
             Description = "Harmony physics frame patch is operational")]
         public void HarmonyPatchOperational()
