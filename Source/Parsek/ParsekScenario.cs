@@ -267,6 +267,13 @@ namespace Parsek
                 mergeDialogPending = false;
                 InputLockManager.RemoveControlLock("ParsekMergeDialog");
 
+                // Restore user-intent settings (ghost camera cutoff etc.) from the
+                // external settings.cfg file, overwriting whatever stale value KSP's
+                // GameParameters restored from the save. Runs before anything reads
+                // ParsekSettings.Current so the rest of OnLoad sees the fresh values.
+                // Survives rewind (parsek_rw_* quicksaves), save/load, and KSP restart.
+                ParsekSettingsPersistence.ApplyTo(ParsekSettings.Current);
+
                 var recordings = RecordingStore.CommittedRecordings;
                 loadedRecordingCount = recordings.Count;
 
