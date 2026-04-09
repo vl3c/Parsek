@@ -7514,7 +7514,59 @@ namespace Parsek
             GhostPlaybackState state, TrajectoryPoint point)
         {
             if (state?.ghost == null) return;
-            PositionGhostAt(state.ghost, point);
+
+            // Bug #282: for Landed/Splashed recordings, clamp the rendered
+            // altitude up so the ghost mesh sits above terrain. The recording's
+            // raw altitude is the root-part origin — for a Mk1-3 pod the lowest
+            // mesh vertex is ~1.77 m below the root, so any recorded clearance
+            // under ~2 m buries the pod. Applied to EVERY point (not just
+            // past-end) so rovers and walking kerbals are also clamped.
+            TrajectoryPoint positioned = point;
+            if (traj != null)
+            {
+                var term = traj.TerminalStateValue;
+                if (term == TerminalState.Landed || term == TerminalState.Splashed)
+                    positioned = ApplyLandedGhostClearance(point, index, traj.VesselName);
+            }
+
+            PositionGhostAt(state.ghost, positioned);
+
+            // Keep the watch-mode overlay + diagnostics consistent with the
+            // clamped position. WatchModeController reads state.lastInterpolatedAltitude
+            // for its "ghost at alt N m on Kerbin" line — if we don't update it,
+            // the log reports the buried raw altitude even after the visual is fixed.
+            state.lastInterpolatedAltitude = positioned.altitude;
+        }
+
+        /// <summary>
+        /// Bug #282: lift a Landed/Splashed ghost point above terrain by
+        /// <see cref="VesselSpawner.LandedGhostClearanceMeters"/>. Returns the
+        /// point unchanged if the body isn't found, PQS isn't available, or
+        /// the recorded altitude is already high enough. <c>internal static</c>
+        /// so the in-game test (<c>RuntimeTests.GhostPlayback_LandedClearance_*</c>)
+        /// can exercise it without needing a full <c>IGhostPositioner</c> chain.
+        /// </summary>
+        internal static TrajectoryPoint ApplyLandedGhostClearance(
+            TrajectoryPoint p, int index, string vesselName)
+        {
+            CelestialBody body = FlightGlobals.Bodies?.Find(b => b.name == p.bodyName);
+            if (body == null || body.pqsController == null)
+                return p;
+
+            double terrainAlt = body.TerrainAltitude(p.latitude, p.longitude, true);
+            double minAlt = terrainAlt + VesselSpawner.LandedGhostClearanceMeters;
+            if (p.altitude >= minAlt)
+                return p;
+
+            var ic = System.Globalization.CultureInfo.InvariantCulture;
+            double delta = minAlt - p.altitude;
+            ParsekLog.VerboseRateLimited("TerrainCorrect", $"landed-ghost-{index}",
+                $"Landed ghost clamp #{index} (\"{vesselName}\"): " +
+                $"alt={p.altitude.ToString("F1", ic)} terrain={terrainAlt.ToString("F1", ic)} " +
+                $"-> {minAlt.ToString("F1", ic)} (delta={delta.ToString("F2", ic)}m, body={body.name})");
+
+            p.altitude = minAlt;
+            return p;
         }
 
         void IGhostPositioner.PositionAtSurface(int index, IPlaybackTrajectory traj,

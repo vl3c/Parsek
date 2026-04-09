@@ -23,46 +23,47 @@ Dev notes: technical narratives for the fixes below live in `docs/dev/todo-and-k
 
 ### Maintenance
 
-- `#260` Removed dead `.pcrf` ghost geometry scaffolding — never implemented (write side missing), only loaded. Eliminates ~52 spurious "Missing sidecar file" warnings per diagnostics scan and removes 3 vestigial fields, an unused path builder, and dead orphan-detection coverage. Stale `.pcrf` files left over from old saves are actively deleted by `CleanOrphanFiles` on next load via a new `LegacyRecordingFileSuffixes` array (PR #168 review follow-up).
-- `#261` Diagnostics report no longer prints `Playback budget: 0.0 ms avg, 0.0 ms peak (0.0s window)` when the rolling buffer has entries but they're all outside the 4 s window. The gate now reads `playbackEntriesInWindow` from the snapshot (a new field populated by `RollingTimingBuffer.ComputeStats`) instead of querying the live buffer's `IsEmpty`, so `FormatReport` is now a function of its snapshot argument and shows `Playback budget: N/A` correctly.
-- `#262` Diagnostics storage scan no longer emits "Missing sidecar file" warnings for tree continuation recordings, ghost-only-merged debris, and chain mid-segments — recordings that legitimately have null `VesselSnapshot` / `GhostVisualSnapshot` and never had a `_vessel.craft` / `_ghost.craft` file written. New pure predicate `ShouldExpectSidecarFile` mirrors `RecordingStore.SaveRecordingFiles`' write conditions; the warning fires only when the in-memory snapshot is non-null. `.prec` warnings are unchanged (always expected).
-- `#264` follow-up: `VesselSpawner.StripEvaLadderState` no longer writes the literal `"idle"` to the EVA module's FSM `state` field. Real `KerbalEVA` state names are `st_idle_gr` / `st_idle_fl` / `st_swim_idle`, picked at runtime by `KerbalEVA.StartEVA` based on situation. The literal was an unknown state KSP caught and recovered from via the `SurfaceContact`-driven default — functionally correct, cosmetically broken. Now removes the value entirely so the FSM initializes fresh with the correct name.
+- `#260` Removed dead `.pcrf` ghost geometry scaffolding — eliminates ~52 spurious "Missing sidecar file" warnings per diagnostics scan.
+- `#261` Diagnostics report now shows `Playback budget: N/A` when the rolling buffer has no in-window entries, instead of `0.0 ms avg`.
+- `#262` Diagnostics storage scan no longer emits "Missing sidecar file" warnings for recordings that legitimately have null snapshots.
+- `#264` follow-up: `StripEvaLadderState` no longer writes an invalid literal to the EVA FSM `state` field.
 
 ### Bug Fixes — KerbalX + Butterfly Rover playtest (2026-04-09)
 
-- `#280` Background debris recordings now persist their trajectory data across scene reloads. The 6 radial-decoupler booster debris from Kerbal X staging were losing their 21–22 accumulated trajectory frames on F9 quickload because something between `BackgroundRecorder`'s `MarkFilesDirty` and `OnSave`'s `SaveRecordingFiles` iteration was silently dropping them. Fix bypasses the `FilesDirty` round-trip for the finalization path: every `OnBackgroundVesselWillDestroy` and `Shutdown` flush now immediately persists the recording's `.prec` sidecar via a new `PersistFinalizedRecording` helper. Plus observability: `SaveActiveTreeIfAny` now logs `iterated N, D dirty, S saved, F failed` so any future FilesDirty gap is visible in one log line.
-- `#281` Bug #263 root cause — `FinalizeRecordingState` was using unstable `List<T>.Sort` on `PartEvents`, which could shuffle `Decoupled` events added by `OnPartJointBreak` into the terminal-event range when they shared a physics-frame UT with engine shutdowns. `ResumeAfterFalseAlarm`'s index-based `RemoveRange` then wrongly dropped the decouples along with the terminals. New `StableSortPartEventsByUT` uses LINQ `OrderBy` (stable) so same-UT events keep their insertion order. The PR #161 `RecordFallbackDecoupleEvent` safety net stays as a second line of defense, but the underlying trap is now closed.
-- `#272` F5/F9 destroys entire launch tree — `OnFlightReady` was nulling the freshly-restored `activeTree` right after the restore coroutine set it. Fixed the ordering (PR #163).
-- `#273` Tree recording trajectory silently lost on scene reload — ~33 in-flight mutation sites in `ParsekFlight`, `ChainSegmentManager`, and `BackgroundRecorder` never set `FilesDirty`, so `.prec` sidecars were written empty. Introduced `Recording.MarkFilesDirty()` helper; all sites audited (PR #164).
-- `#274` F9 after EVA finalized the tree instead of resuming — stale `vesselSwitchPending` flag leaked across thousands of frames between an EVA and the next quickload. Added frame-count staleness check (tightened in `#276` to ≤60 frames).
-- `#276` F5 → EVA → F9 quickload committed the 24-second EVA walk as an orphan recording instead of discarding it. Added an orthogonal UT-backwards signal: stamp pre-transition `Planetarium.GetUniversalTime()` in `ParsekFlight.OnSceneChangeRequested`, compare to loaded UT in `ParsekScenario.OnLoad`, and if the clock regressed, discard any pending standalone and non-Limbo pending tree stashed this transition (Limbo trees are preserved as the quickload-resume carrier). Also clears stale `PendingScienceSubjects`. Tightened `VesselSwitchPendingMaxAgeFrames` from 300 to 60 as secondary defense — the root cause of `#274`'s residual failure was a 24 s EVA at ~12 fps advancing only ~288 frames, slipping under the old cap.
-- `#275` Watch buttons in Recordings Manager now show explanatory tooltips for every disabled state instead of silently greying out.
-- `#264` EVA kerbals now spawn at their exact recorded walked position instead of on top of the parent vessel. In-flight spawn path only — tree-leaf scene-load, KSC-scene, and chain-tip paths tracked as follow-ups. The new spawn-collision walkback (1.5 m linear sub-steps) also applies to orbital / breakup / landed spawns, not just EVA.
-- `#263` Ghost boosters stayed visible on ghost after a symmetry-group decouple — some `onPartJointBreak` events lost to a KSP race. Added a deterministic safety net that emits a `Decoupled` event for every new debris vessel's root part.
-- `#259` Orbital recordings missing `TerminalOrbitBody` — three code paths set terminal state without capturing orbit. All now capture; plus a defensive backfill in `FinalizeIndividualRecording`.
-- `#258` Non-chronological trajectory points from quickload mid-recording — new `TrimRecordingToUT` + time-regression guard detects backwards UT jumps and trims stale future-timeline data.
-- `#257` Hyperbolic escape orbits failed the `OrbitSegmentBodiesValid` in-game test — skip the `SMA > 0` assertion when `e > 1.0`.
-- Rover boring tail not trimmed — stale seed events on chain promotion were poisoning `FindLastInterestingUT`. `StartRecording` now skips seed events on promotion.
-- Ghost audio didn't mute when the ESC pause menu was open. Now pauses/unpauses with the game.
-- Ghost camera cutoff lost on every rewind / KSP restart — `ParsekSettings` was resetting with KSP's `GameParameters`. New `ParsekSettingsPersistence` writes to `GameData/Parsek/PluginData/settings.cfg`.
+- `#282` Landed ghost vessels and end-of-recording respawned vessels no longer clip into terrain.
+- `#280` Background debris recordings now persist their trajectory data across scene reloads.
+- `#281` Decouple events on mixed-symmetry stages are no longer lost when a terminal-event collision occurs at the same physics frame.
+- `#272` F5/F9 no longer destroys the entire launch tree.
+- `#273` Tree recording trajectory is no longer silently lost across scene reloads.
+- `#274` F9 after EVA resumes the tree instead of finalizing it.
+- `#276` F5 → fly → F9 no longer commits the intermediate flight as an orphan recording.
+- `#275` Watch buttons in the Recordings Manager now show explanatory tooltips for every disabled state.
+- `#264` EVA kerbals spawn at their exact recorded walked position instead of on top of the parent vessel.
+- `#263` Ghost boosters are no longer left visible on the ghost after a symmetry-group decouple.
+- `#259` Orbital recordings now capture `TerminalOrbitBody` on every terminal-state path.
+- `#258` Non-chronological trajectory points from quickload mid-recording are trimmed.
+- `#257` Hyperbolic escape orbits no longer fail the `OrbitSegmentBodiesValid` in-game test.
+- Rover recordings no longer include a boring tail of stale chain-promotion seed events.
+- Ghost audio now mutes when the ESC pause menu is open.
+- Ghost camera cutoff persists across rewind and KSP restarts.
 
 ### Bug Fixes — Quickload-resume recording (Bugs C, H, I) — PR #160
 
-- Quicksave + quickload during an active recording no longer fragments the mission, produces partial ghost orbits, or scatters crew across orphan recordings. New `PendingTreeState.Limbo` holds the tree through FLIGHT→FLIGHT reloads; `OnLoad` decides between restore-and-resume (quickload) and finalize-and-commit (revert) based on epoch/count regression.
+- Quicksave + quickload during an active recording no longer fragments the mission, produces partial ghost orbits, or scatters crew across orphan recordings.
 
 ### Bug Fixes — Mun Mission playtest
 
-- `#244` Ghost stayed icon-only for the entire Kerbin→Mun transfer — ProtoVessel was removed on orbit-segment gap and never re-queued.
-- `#246` EVA on airless body generated multiple "approach" segments — added near-surface override and longer debounce.
-- `#248` EVA boarding misclassified as vessel destruction — `OnVesselSwitchComplete` now detects boarding from `pendingBoardingTargetPid`.
-- `#254` Capsule spawned with wrong crew — recording snapshots captured stand-in names. Now reverse-maps through `CrewReplacements` before inferring end states.
-- `#245`/`#247` Ghost map markers at wrong positions for hidden ghosts — skipped `!activeSelf` ghosts in `DrawMapMarkers`.
-- `#243` Watch camera ignored distance cutoff for orbital recordings — removed the orbital exemption.
-- `#250` End column showing "-" for chain mid-segments — `FormatEndPosition` now falls back to segment phase + body.
-- `#249` Planted flag not visible during ghost playback when ghost was in the Beyond zone — moved flag event application before the zone check.
-- `#251` Recording phase label stayed wrong after SOI change — added TrackSection boundary at SOI change and body-change split detection in the optimizer.
-- `#255` Engine FX killed during ghost playback after false-alarm booster decouple — `ResumeAfterFalseAlarm` now truncates the orphaned terminal events.
-- Ghost orbit line not suppressed below atmosphere for segment-based ghosts — both code paths now use the same `body.atmosphereDepth` suppression.
+- `#244` Ghost no longer stays icon-only for the entire Kerbin→Mun transfer.
+- `#246` EVA on an airless body no longer generates multiple "approach" segments.
+- `#248` EVA boarding is no longer misclassified as vessel destruction.
+- `#254` Capsule spawned with wrong crew — now reverse-maps stand-ins through `CrewReplacements` before inferring end states.
+- `#245`/`#247` Ghost map markers no longer appear at wrong positions for hidden ghosts.
+- `#243` Watch camera now honors the distance cutoff for orbital recordings.
+- `#250` End column no longer shows "-" for chain mid-segments.
+- `#249` Planted flags are now visible during ghost playback when the ghost is in the Beyond zone.
+- `#251` Recording phase label now updates after SOI change.
+- `#255` Engine FX no longer killed during ghost playback after a false-alarm booster decouple.
+- Ghost orbit line now suppressed below atmosphere for segment-based ghosts.
 
 ### Maintenance
 
