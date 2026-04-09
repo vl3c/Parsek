@@ -651,8 +651,10 @@ namespace Parsek.InGameTests
 
                     InGameAssert.IsGreaterThan(body.Radius, 0,
                         $"Body '{seg.bodyName}' has non-positive radius");
-                    InGameAssert.IsGreaterThan(seg.semiMajorAxis, 0,
-                        $"Orbit segment for '{seg.bodyName}' has non-positive SMA={seg.semiMajorAxis}");
+                    // Hyperbolic orbits (eccentricity > 1) legitimately have negative SMA
+                    if (seg.eccentricity <= 1.0)
+                        InGameAssert.IsGreaterThan(seg.semiMajorAxis, 0,
+                            $"Orbit segment for '{seg.bodyName}' has non-positive SMA={seg.semiMajorAxis} (ecc={seg.eccentricity:F4})");
                     valid++;
                 }
             }

@@ -597,6 +597,114 @@ Some timeline "Spawn:" lines show generic "Landed" without specifying where. Sho
 
 **Priority:** Low — timeline display completeness
 
+## 256. EVA recording runaway sampling — 138K points in 33 seconds
+
+"Bob Kerman" EVA recording (rec[28]) produced 138,648 trajectory points in 33 seconds (4,200 pts/sec). The adaptive sampler should cap at ~3-5 pts/sec. This single recording is 86.9 MB — 93% of the save's total Parsek storage and the primary cause of the 8.7-second initial load time.
+
+**Likely cause:** EVA physics jitter on the surface causes velocity direction to oscillate every frame, defeating the 2-degree direction-change threshold in `ShouldRecordPoint`. The speed-change threshold (5%) may also trigger constantly during surface contact bouncing.
+
+**Investigate:** Check `FlightRecorder.ShouldRecordPoint` behavior during EVA on surfaces. May need EVA-specific sampling overrides (larger thresholds or minimum interval floor for EVA vessels).
+
+**Priority:** High — directly causes performance and storage issues
+
+## 257. Orbit segment with negative SMA (hyperbolic escape)
+
+In-game test `OrbitSegmentBodiesValid` fails: "Orbit segment for 'Mun' has non-positive SMA=-931047.895195401". Negative SMA is physically correct for hyperbolic orbits (eccentricity > 1) but the test asserts positive SMA.
+
+**Root cause:** Test assertion bug. Hyperbolic escape orbits have negative SMA by definition. `CreateOrbitSegmentFromVessel` correctly copies `v.orbit.semiMajorAxis`.
+
+**Fix:** Test now skips the `SMA > 0` assertion when `eccentricity > 1.0` (hyperbolic orbit).
+
+**Status:** Fixed
+
+## 258. Non-chronological trajectory points in recording
+
+In-game test `CommittedRecordingsHaveValidData` fails: recording `ab105395ae5547b0b70c1eb9bb41ca9f` (Bob Kerman EVA) has point 159 UT going backward by ~33 seconds. Trajectory points should be monotonically increasing in UT.
+
+**Root cause:** Quickload during recording resets game time to quicksave UT, but the recorder continued appending points without trimming the stale future-timeline data. `CommitRecordedPoint` and `SamplePosition` had no time monotonicity guard.
+
+**Fix:** Added `TrimRecordingToUT` method to `FlightRecorder`. Both `CommitRecordedPoint` and `SamplePosition` now detect time regression (UT going backward by >1s) and trim stale points, part events, and orbit segments before appending the new point.
+
+**Status:** Fixed (prospective — existing corrupted recording data will still fail; fix prevents recurrence)
+
+## 259. Orbital recordings missing TerminalOrbitBody
+
+In-game test `OrbitalRecordingsHaveTerminalOrbit` reports 4 orbital recordings without `TerminalOrbitBody` set. This is a regression guard for #203/#219.
+
+**Root cause:** Three code paths set `TerminalStateValue` to Orbiting/Docked without also calling `CaptureTerminalOrbit`: (1) `CaptureSceneExitState` in ParsekFlight, (2) vessel-switch chain termination in ChainSegmentManager, (3) debris recording end in BackgroundRecorder. Then `FinalizeIndividualRecording` skips orbit capture because `TerminalStateValue.HasValue` is already true.
+
+**Fix:** Added `CaptureTerminalOrbit` calls to all three source paths. Added defensive backfill in `FinalizeIndividualRecording`: when `TerminalStateValue` is Orbiting/SubOrbital/Docked but `TerminalOrbitBody` is null, try vessel orbit capture or fall back to last orbit segment.
+
+**Status:** Fixed
+
+## 260. Remove .pcrf ghost geometry scaffolding
+
+`.pcrf` (ghost geometry cache) was planned to cache pre-built ghost meshes to avoid PartLoader resolution on every spawn. Never implemented — `GhostVisualBuilder` always builds from the vessel snapshot directly. The path definition in `RecordingPaths.BuildGhostGeometryRelativePath`, the suffix in `RecordingStore.RecordingFileSuffixes`, and the `geometryFileBytes` field in `StorageBreakdown` are dead scaffolding.
+
+Ghost mesh builds are 10-25ms one-shot costs (not per-frame), and diagnostics show only ~22 builds per session. Not worth implementing — if ghost build cost ever matters, GameObject reuse (reset state instead of destroy/rebuild) would be simpler.
+
+**Fix:** Remove `BuildGhostGeometryRelativePath` from `RecordingPaths`, remove `.pcrf` from `RecordingFileSuffixes`, remove `geometryFileBytes` from `StorageBreakdown`, remove the `.pcrf` stat call from `DiagnosticsComputation.ComputeStorageBreakdown`.
+
+**Priority:** Low — cleanup, eliminates ~52 spurious "Missing sidecar file" warnings per diagnostics scan
+
+## 261. Diagnostics playback budget shows 0.0 ms instead of N/A on first frame
+
+The diagnostics report shows "Playback budget: 0.0 ms avg, 0.0 ms peak" when run before the rolling buffer has any entries, rather than "N/A" as specified in the design doc (edge case E10). The `FormatReport` N/A logic may not be checking the right condition.
+
+**Priority:** Low — cosmetic, only visible if report is run immediately after scene load
+
+## 262. Diagnostics missing _vessel.craft warnings for tree sub-recordings
+
+Tree sub-recordings (debris, EVA branches) may not have their own `_vessel.craft` file — they share the tree root's snapshot. The storage scan warns "Missing sidecar file" for each of these. Should skip the warning for recordings that are tree members and don't own their own vessel snapshot.
+
+**Priority:** Low — cosmetic log noise
+
+## 263. Ghost mesh inaccurate after decoupling boosters
+
+During the 2026-04-09 KerbalX playtest, the ghost visual showed 3 boosters still attached to the final stage even after they should have decoupled. Two compounding root causes:
+
+1. **Snapshot not refreshed on decouple:** `FlightRecorder.initialGhostVisualSnapshot` (FlightRecorder.cs:4223-4225) is captured ONCE at recording start and reused via `BuildCaptureRecording` (FlightRecorder.cs:4394-4396). The ghost mesh is built from this snapshot plus part-hiding events during playback. If a decouple happens mid-recording, the snapshot still contains the attached boosters; only the `Decoupled` PartEvent hides them during playback via `HidePartSubtree`.
+
+2. **Half of decouple events dropped (race condition):** 6 decouple events fire in pairs when radial decouplers separate (core side + booster side), ~4ms apart. Only the 3 core-side pids (2057942744/3027027466/3271565278) end up in the committed `.prec` file. The 3 booster-side pids (1009856088/2130796824/633147235) are dropped — they're emitted after the booster-side pid has migrated to the new debris vessel, so the Kerbal X recorder filters them out, and the debris `BackgroundRecorder` doesn't exist yet to capture them. Neither recording has these events.
+
+**Evidence:**
+- KSP.log lines 9241-9620: 6 decouple events logged in pairs at 10:33:50, 10:34:05, 10:34:22
+- Committed recordings (`db2e7ab6…prec`): only 3 core-side decouple events present
+- All 6 decoupler pids present in ghost.craft snapshot
+
+**Fix plan (two-part):**
+1. Refresh `initialGhostVisualSnapshot` on decouple (in `OnPartUndock` before chain boundary stop) so the snapshot reflects post-decouple state. Alternative: record a part-hiding event for booster-side pids explicitly.
+2. Capture booster-side decouple events: either hold them in a pending buffer until the debris `BackgroundRecorder` exists, or emit a "paired decouple" event with both pids so HidePartSubtree can hide both halves.
+
+**Priority:** Medium — visible ghost corruption on any decoupling craft
+
+## 264. EVA kerbal not spawned at exact recorded final position
+
+During the 2026-04-09 Butterfly Rover playtest, Valentina's EVA ended near the rover. When her ghost vessel was spawned from the recording, she was placed on top of the rover instead of at her exact recorded final position. The two terminal positions were ~170 m apart (lat/lon differ by ~0.0009°/0.0012°), so spawn should have been clearly distinct.
+
+**Root cause:** `VesselSpawner.ResolveSpawnPosition` correctly identifies EVA recordings and extracts the trajectory endpoint lat/lon/alt (VesselSpawner.cs:510-572). `OverrideSnapshotPosition` updates the snapshot ConfigNode with the resolved position (VesselSpawner.cs:1002-1023). But `RespawnVessel` (VesselSpawner.cs:43-99) then loads the ConfigNode and lets KSP spawn the vessel — and KSP's physics-init auto-snaps EVA kerbals to nearby parent vessels, overriding the ConfigNode position. The collision-avoidance check at VesselSpawner.cs:426-427 explicitly skips EVAs, so the recorded position survives the guard but not the KSP physics init.
+
+**Fix plan:** Route EVA vessels through `SpawnAtPosition` (VesselSpawner.cs:115-199) instead of `RespawnVessel`. `SpawnAtPosition` explicitly constructs the world position and velocity before the first physics frame runs, which is the same path used for orbital vessels (see VesselSpawner.cs:319-341). Alternative: add a post-spawn correction step that locks the transform position after `RespawnVessel` returns, before KSP's auto-snap kicks in on the next `FixedUpdate`.
+
+**Priority:** Medium — EVA spawn accuracy is a stated design goal
+
+## 265. Ghost audio + BackgroundRecorder seed-skip — in-game test coverage gap
+
+xUnit can't exercise any code path that touches `UnityEngine.AudioSource` (directly or transitively via the `audioInfos` foreach) because the test runner can't load `UnityEngine.AudioModule.dll` — attempts produce *"ECall methods must be packaged into a system module"* even for a null-state early return. This blocks unit test coverage for:
+
+- `GhostPlaybackLogic.PauseAllAudio` / `UnpauseAllAudio` null-guard and iteration paths
+- `GhostPlaybackEngine.PauseAllGhostAudio` / `UnpauseAllGhostAudio` loop paths
+- `BackgroundRecorder.InitializeLoadedState` seed-event skip predicate (needs a live Vessel + tree, not just the `PartEvents.Count > 0` check which would be tautological)
+- `ParsekFlight.FinalizeIndividualRecording` backfill order-of-operations (#259 fix) — needs a live Vessel
+
+**Fix plan:** add `InGameTest` coverage under `Source/Parsek/InGameTests/` that runs inside a live KSP runtime where these types actually work. Specifically:
+
+- A category under `[InGameTest(Category = "GhostAudio")]` that spawns a ghost with a known audio source, fires `GameEvents.onGamePause`, asserts the audio source is paused, fires `onGameUnpause`, asserts resume.
+- A `FinalizeTreeBackfill` in-game test that constructs a recording in memory with `TerminalStateValue = Orbiting` but empty `TerminalOrbitBody` and a mock orbit segment, runs the finalize path, asserts `TerminalOrbitBody` is populated via the fallback.
+- A `BackgroundRecorderSeedSkip` in-game test that initializes a background state on a recording that already has part events, asserts no duplicate seed events were emitted.
+
+**Priority:** Low — the code paths are simple enough that review caught the issues in commit 77bce7c, and the production playtest will exercise them end-to-end. In-game tests harden against future regressions.
+
 ---
 
 # In-Game Tests

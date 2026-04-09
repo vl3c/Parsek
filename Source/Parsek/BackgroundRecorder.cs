@@ -725,6 +725,7 @@ namespace Parsek
                 else
                 {
                     rec.TerminalStateValue = RecordingTree.DetermineTerminalState((int)v.situation, v);
+                    ParsekFlight.CaptureTerminalOrbit(rec, v);
                 }
             }
 
@@ -1443,24 +1444,46 @@ namespace Parsek
             // Seed all tracking sets with current part state (mirrors FlightRecorder.SeedExistingPartStates)
             SeedBackgroundPartStates(v, state);
 
-            // Emit seed events for the initial visual state (bugs #70/#65)
-            var partNamesByPid = new Dictionary<uint, string>();
-            if (v.parts != null)
-            {
-                for (int i = 0; i < v.parts.Count; i++)
-                {
-                    Part p = v.parts[i];
-                    if (p != null && !partNamesByPid.ContainsKey(p.persistentId))
-                        partNamesByPid[p.persistentId] = p.partInfo?.name ?? "unknown";
-                }
-            }
-            double seedUT = Planetarium.GetUniversalTime();
-            var seedSets = BuildPartTrackingSetsFromState(state);
-            var seedEvents = PartStateSeeder.EmitSeedEvents(seedSets, partNamesByPid, seedUT, "BgRecorder");
+            // Emit seed events ONLY if the recording has no part events yet.
+            // If a prior active recorder (or earlier background load) already seeded events,
+            // re-emitting at the current UT would poison FindLastInterestingUT for boring-tail
+            // trimming (bug A / #263 sibling — rover recording not trimmed because of stale
+            // DeployableExtended events at UT 2068).
             Recording treeRecForSeed;
-            if (seedEvents.Count > 0 && tree.Recordings.TryGetValue(recordingId, out treeRecForSeed))
+            if (!tree.Recordings.TryGetValue(recordingId, out treeRecForSeed))
             {
-                treeRecForSeed.PartEvents.AddRange(seedEvents);
+                // Tree recording not found — unexpected state. The caller supplied a recordingId
+                // that doesn't exist in the tree's Recordings dict, which means a lifecycle bug
+                // somewhere upstream (tree corrupted, recording deleted without updating the
+                // background map, race between StopRecording and InitializeLoadedState, etc.).
+                // Log loud so we notice; seeding is skipped because there's no target anyway.
+                ParsekLog.Warn("BgRecorder",
+                    $"InitializeLoadedState: tree recording '{recordingId}' not found for " +
+                    $"pid={vesselPid} — skipping seed events (upstream lifecycle bug)");
+            }
+            else if (treeRecForSeed.PartEvents.Count > 0)
+            {
+                ParsekLog.Verbose("BgRecorder",
+                    $"InitializeLoadedState: skipping seed events for pid={vesselPid} recId={recordingId} " +
+                    $"— recording already has {treeRecForSeed.PartEvents.Count} part event(s)");
+            }
+            else
+            {
+                var partNamesByPid = new Dictionary<uint, string>();
+                if (v.parts != null)
+                {
+                    for (int i = 0; i < v.parts.Count; i++)
+                    {
+                        Part p = v.parts[i];
+                        if (p != null && !partNamesByPid.ContainsKey(p.persistentId))
+                            partNamesByPid[p.persistentId] = p.partInfo?.name ?? "unknown";
+                    }
+                }
+                double seedUT = Planetarium.GetUniversalTime();
+                var seedSets = BuildPartTrackingSetsFromState(state);
+                var seedEvents = PartStateSeeder.EmitSeedEvents(seedSets, partNamesByPid, seedUT, "BgRecorder");
+                if (seedEvents.Count > 0)
+                    treeRecForSeed.PartEvents.AddRange(seedEvents);
             }
 
             // Initialize environment tracking and open first TrackSection

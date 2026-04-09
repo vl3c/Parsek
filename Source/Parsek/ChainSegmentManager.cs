@@ -707,6 +707,7 @@ namespace Parsek
                         pending.SceneExitSituation = (int)recordedVessel.situation;
                         pending.TerminalStateValue =
                             RecordingTree.DetermineTerminalState((int)recordedVessel.situation, recordedVessel);
+                        ParsekFlight.CaptureTerminalOrbit(pending, recordedVessel);
                     }
                     // Final chain segment keeps VesselSnapshot for spawning (not ghost-only)
                 },

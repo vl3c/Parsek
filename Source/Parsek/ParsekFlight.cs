@@ -316,6 +316,8 @@ namespace Parsek
             GameEvents.onTimeWarpRateChanged.Add(OnTimeWarpRateChanged);
             MergeDialog.OnTreeCommitted += OnTreeCommittedFromMergeDialog;
             GameEvents.afterFlagPlanted.Add(OnAfterFlagPlanted);
+            GameEvents.onGamePause.Add(OnGamePause);
+            GameEvents.onGameUnpause.Add(OnGameUnpause);
 
             ui = new ParsekUI(this);
 
@@ -742,6 +744,8 @@ namespace Parsek
             GameEvents.onTimeWarpRateChanged.Remove(OnTimeWarpRateChanged);
             MergeDialog.OnTreeCommitted -= OnTreeCommittedFromMergeDialog;
             GameEvents.afterFlagPlanted.Remove(OnAfterFlagPlanted);
+            GameEvents.onGamePause.Remove(OnGamePause);
+            GameEvents.onGameUnpause.Remove(OnGameUnpause);
         }
 
         #endregion
@@ -938,6 +942,8 @@ namespace Parsek
                 RecordingStore.Pending.SceneExitSituation = (int)sit;
                 RecordingStore.Pending.TerminalStateValue =
                     RecordingTree.DetermineTerminalState((int)sit, FlightGlobals.ActiveVessel);
+                CaptureTerminalOrbit(RecordingStore.Pending, FlightGlobals.ActiveVessel);
+                CaptureTerminalPosition(RecordingStore.Pending, FlightGlobals.ActiveVessel);
             }
 
             // Fallback: if the vessel was destroyed during recording,
@@ -3556,6 +3562,26 @@ namespace Parsek
             Log($"Part event captured: {eventType} '{evt.partName}' pid={evt.partPersistentId} via {sourceEvent}");
         }
 
+        /// <summary>
+        /// Pauses all ghost audio when the KSP pause menu (ESC) opens. Stock KSP audio
+        /// mutes on pause but ghost AudioSources don't respond to any global mute.
+        /// Uses AudioSource.Pause() (not Stop()) to preserve playback position.
+        /// </summary>
+        void OnGamePause()
+        {
+            ParsekLog.Verbose("Flight", "OnGamePause: pausing ghost audio");
+            engine?.PauseAllGhostAudio();
+        }
+
+        /// <summary>
+        /// Resumes all ghost audio when the KSP pause menu closes.
+        /// </summary>
+        void OnGameUnpause()
+        {
+            ParsekLog.Verbose("Flight", "OnGameUnpause: resuming ghost audio");
+            engine?.UnpauseAllGhostAudio();
+        }
+
         void OnAfterFlagPlanted(FlagSite flagSite)
         {
             if (flagSite == null || flagSite.vessel == null || flagSite.part == null) return;
@@ -5231,6 +5257,58 @@ namespace Parsek
                 }
             }
 
+            // Backfill terminal orbit for recordings that had TerminalStateValue set early
+            // (CaptureSceneExitState, ChainSegmentManager, BackgroundRecorder) without
+            // a corresponding CaptureTerminalOrbit call. (#203/#219 regression)
+            if (isLeaf && string.IsNullOrEmpty(rec.TerminalOrbitBody)
+                && rec.TerminalStateValue.HasValue
+                && (rec.TerminalStateValue.Value == TerminalState.Orbiting
+                    || rec.TerminalStateValue.Value == TerminalState.SubOrbital
+                    || rec.TerminalStateValue.Value == TerminalState.Docked))
+            {
+                Vessel v = rec.VesselPersistentId != 0
+                    ? FlightRecorder.FindVesselByPid(rec.VesselPersistentId)
+                    : null;
+                // Try live vessel first — CaptureTerminalOrbit silently no-ops if the
+                // vessel's orbit is null or its situation doesn't match the accepted set
+                // (ORBITING/SUB_ORBITAL/FLYING/ESCAPING). In that case we still need a
+                // fallback, so we check TerminalOrbitBody AFTER the live capture attempt.
+                if (v != null)
+                    CaptureTerminalOrbit(rec, v);
+
+                if (!string.IsNullOrEmpty(rec.TerminalOrbitBody))
+                {
+                    // Live capture succeeded
+                    ParsekLog.Info("Flight",
+                        $"FinalizeIndividualRecording: backfilled TerminalOrbitBody={rec.TerminalOrbitBody} " +
+                        $"for '{rec.RecordingId}' from live vessel (terminal={rec.TerminalStateValue})");
+                }
+                else
+                {
+                    // Live capture either didn't happen (v == null) or silently declined.
+                    // Try the last orbit segment from BackgroundRecorder sampling.
+                    PopulateTerminalOrbitFromLastSegment(rec);
+                    if (!string.IsNullOrEmpty(rec.TerminalOrbitBody))
+                    {
+                        ParsekLog.Info("Flight",
+                            $"FinalizeIndividualRecording: backfilled TerminalOrbitBody={rec.TerminalOrbitBody} " +
+                            $"for '{rec.RecordingId}' via orbit-segment fallback " +
+                            $"(terminal={rec.TerminalStateValue}, vesselFound={v != null})");
+                    }
+                    else
+                    {
+                        // Both sources declined. Recording commits with terminal state set
+                        // but no orbital metadata — ghost map presence will be degraded.
+                        // Loud warn so we notice in the playtest logs.
+                        ParsekLog.Warn("Flight",
+                            $"FinalizeIndividualRecording: backfill declined for '{rec.RecordingId}' " +
+                            $"(terminal={rec.TerminalStateValue}, vesselFound={v != null}, " +
+                            $"orbitSegments={rec.OrbitSegments?.Count ?? 0}) — " +
+                            "TerminalOrbitBody remains empty");
+                    }
+                }
+            }
+
             // Warn if leaf has no playback data
             if (isLeaf && rec.Points.Count == 0 && rec.OrbitSegments.Count == 0 && !rec.SurfacePos.HasValue)
                 ParsekLog.Warn("Flight", $"FinalizeTreeRecordings: leaf '{rec.RecordingId}' has no playback data");
@@ -5512,7 +5590,7 @@ namespace Parsek
         /// <summary>
         /// Captures terminal orbit parameters from a vessel's current orbit.
         /// </summary>
-        static void CaptureTerminalOrbit(Recording rec, Vessel vessel)
+        internal static void CaptureTerminalOrbit(Recording rec, Vessel vessel)
         {
             if (vessel == null || vessel.orbit == null) return;
 

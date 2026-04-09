@@ -120,6 +120,12 @@ namespace Parsek
                     ic, out float parsed) && parsed >= 10f && parsed <= 10000f)
             {
                 s.ghostCameraCutoffKm = parsed;
+                // Persist to external settings file so the value survives rewinds and
+                // KSP session restarts. GameParameters are reset on every quicksave
+                // load (including parsek_rw_* rewinds), so the in-memory ParsekSettings
+                // value alone is not enough — the user's intent must live outside the
+                // game's save file.
+                ParsekSettingsPersistence.RecordGhostCameraCutoff(parsed);
                 ParsekLog.Info("UI",
                     $"Setting changed: ghostCameraCutoffKm={s.ghostCameraCutoffKm.ToString("F0", ic)}");
             }

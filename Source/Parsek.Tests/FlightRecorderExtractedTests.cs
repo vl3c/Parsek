@@ -456,5 +456,78 @@ namespace Parsek.Tests
         }
 
         #endregion
+
+        #region TrimRecordingToUT — time regression guard
+
+        [Fact]
+        public void TrimRecordingToUT_TrimsPointsAfterNewUT()
+        {
+            var recorder = new FlightRecorder();
+            recorder.Recording.Add(new TrajectoryPoint { ut = 100.0 });
+            recorder.Recording.Add(new TrajectoryPoint { ut = 110.0 });
+            recorder.Recording.Add(new TrajectoryPoint { ut = 120.0 });
+            recorder.Recording.Add(new TrajectoryPoint { ut = 130.0 });
+
+            recorder.TrimRecordingToUT(115.0);
+
+            Assert.Equal(2, recorder.Recording.Count);
+            Assert.Equal(100.0, recorder.Recording[0].ut);
+            Assert.Equal(110.0, recorder.Recording[1].ut);
+            Assert.Contains(logLines, l => l.Contains("Time regression detected"));
+        }
+
+        [Fact]
+        public void TrimRecordingToUT_TrimsPartEventsAfterNewUT()
+        {
+            var recorder = new FlightRecorder();
+            recorder.Recording.Add(new TrajectoryPoint { ut = 100.0 });
+            recorder.PartEvents.Add(new PartEvent { ut = 105.0, eventType = PartEventType.EngineIgnited });
+            recorder.PartEvents.Add(new PartEvent { ut = 120.0, eventType = PartEventType.EngineShutdown });
+
+            recorder.TrimRecordingToUT(110.0);
+
+            Assert.Single(recorder.PartEvents);
+            Assert.Equal(105.0, recorder.PartEvents[0].ut);
+        }
+
+        [Fact]
+        public void TrimRecordingToUT_TrimsOrbitSegmentsAfterNewUT()
+        {
+            var recorder = new FlightRecorder();
+            recorder.Recording.Add(new TrajectoryPoint { ut = 100.0 });
+            recorder.OrbitSegments.Add(new OrbitSegment { startUT = 90.0, endUT = 105.0 });
+            recorder.OrbitSegments.Add(new OrbitSegment { startUT = 115.0, endUT = 125.0 });
+
+            recorder.TrimRecordingToUT(110.0);
+
+            Assert.Single(recorder.OrbitSegments);
+            Assert.Equal(90.0, recorder.OrbitSegments[0].startUT);
+        }
+
+        [Fact]
+        public void TrimRecordingToUT_AllPointsBeforeNewUT_NoTrim()
+        {
+            var recorder = new FlightRecorder();
+            recorder.Recording.Add(new TrajectoryPoint { ut = 100.0 });
+            recorder.Recording.Add(new TrajectoryPoint { ut = 110.0 });
+
+            recorder.TrimRecordingToUT(120.0);
+
+            Assert.Equal(2, recorder.Recording.Count);
+        }
+
+        [Fact]
+        public void TrimRecordingToUT_AllPointsAfterNewUT_TrimsAll()
+        {
+            var recorder = new FlightRecorder();
+            recorder.Recording.Add(new TrajectoryPoint { ut = 120.0 });
+            recorder.Recording.Add(new TrajectoryPoint { ut = 130.0 });
+
+            recorder.TrimRecordingToUT(100.0);
+
+            Assert.Empty(recorder.Recording);
+        }
+
+        #endregion
     }
 }

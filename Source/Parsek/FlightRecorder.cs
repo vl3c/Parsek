@@ -3988,7 +3988,7 @@ namespace Parsek
             PartEvents.Clear();
             FlagEvents.Clear();
             SegmentEvents.Clear();
-            ResetPartEventTrackingState(v);
+            ResetPartEventTrackingState(v, emitSeedEvents: !isPromotion);
 
             LogVisualRecordingCoverage(v);
 
@@ -4229,7 +4229,15 @@ namespace Parsek
         /// Resets all part event tracking state and rebuilds module caches for the given vessel.
         /// Extracted from StartRecording for reuse by the promotion path.
         /// </summary>
-        private void ResetPartEventTrackingState(Vessel v)
+        /// <summary>
+        /// Clears part-event tracking state, re-caches modules, seeds current state,
+        /// and optionally emits seed events for the initial visual baseline.
+        /// </summary>
+        /// <param name="emitSeedEvents">True on new recording starts so ghost playback
+        /// has an initial visual baseline (bugs #70/#65). False on chain continuation
+        /// promotions — the prior chain segment already has the seed events, and emitting
+        /// new ones at the promotion UT poisons FindLastInterestingUT (bug A / #263 sibling).</param>
+        private void ResetPartEventTrackingState(Vessel v, bool emitSeedEvents = true)
         {
             decoupledPartIds.Clear();
             parachuteStates.Clear();
@@ -4283,6 +4291,13 @@ namespace Parsek
             // false events at first poll (e.g., shrouds already jettisoned,
             // engines already running, lights already on, etc.)
             SeedExistingPartStates(v);
+
+            if (!emitSeedEvents)
+            {
+                ParsekLog.Verbose("Recorder",
+                    "ResetPartEventTrackingState: skipping seed events (chain promotion)");
+                return;
+            }
 
             // Emit seed events for the initial visual state so ghost playback
             // can reconstruct correct visuals from recording start (bugs #70/#65).
@@ -4839,6 +4854,16 @@ namespace Parsek
         /// </summary>
         private void CommitRecordedPoint(TrajectoryPoint point, Vessel v)
         {
+            // Guard: detect time regression (quickload/revert during recording).
+            // Trim all points recorded after the new time to maintain monotonicity.
+            // Callers (this method + SamplePosition) reset lastRecordedUT to point.ut
+            // immediately after the trim returns, so the stale value inside
+            // TrimRecordingToUT's log line is fine — it reflects the pre-trim state.
+            if (Recording.Count > 0 && point.ut < lastRecordedUT - TimeRegressionThresholdSeconds)
+            {
+                TrimRecordingToUT(point.ut);
+            }
+
             Recording.Add(point);
             lastRecordedUT = point.ut;
             lastRecordedVelocity = point.velocity;
@@ -4882,6 +4907,78 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Minimum backwards UT jump (seconds) that triggers a quickload/revert trim.
+        /// Guards against false positives from sub-second time-warp boundary jitter
+        /// while still catching user-initiated F9 (which typically rewinds tens of
+        /// seconds or more).
+        /// </summary>
+        internal const double TimeRegressionThresholdSeconds = 1.0;
+
+        /// <summary>
+        /// Trims the recording buffer back to before the given UT.
+        /// Called when a quickload/revert causes game time to regress, making
+        /// previously-recorded points invalid (alternate timeline data).
+        /// Also trims PartEvents, OrbitSegments, and TrackSection frames.
+        /// </summary>
+        internal void TrimRecordingToUT(double newUT)
+        {
+            int oldCount = Recording.Count;
+
+            // Linear scan: find first point with UT >= newUT. Points are monotonic
+            // by construction (guard in CommitRecordedPoint), so binary search would
+            // work, but recording sizes are bounded at low thousands and linear is
+            // clearer. Revisit if profiling shows this is hot.
+            int trimIdx = Recording.Count;
+            for (int i = 0; i < Recording.Count; i++)
+            {
+                if (Recording[i].ut >= newUT)
+                {
+                    trimIdx = i;
+                    break;
+                }
+            }
+
+            if (trimIdx < Recording.Count)
+                Recording.RemoveRange(trimIdx, Recording.Count - trimIdx);
+
+            // Trim PartEvents after newUT
+            int oldPartEvents = PartEvents.Count;
+            PartEvents.RemoveAll(e => e.ut >= newUT);
+
+            // Trim OrbitSegments that start after newUT
+            int oldOrbitSegs = OrbitSegments.Count;
+            OrbitSegments.RemoveAll(s => s.startUT >= newUT);
+
+            // Trim current TrackSection frames
+            if (trackSectionActive && currentTrackSection.frames != null)
+            {
+                int frameTrimIdx = currentTrackSection.frames.Count;
+                for (int i = 0; i < currentTrackSection.frames.Count; i++)
+                {
+                    if (currentTrackSection.frames[i].ut >= newUT)
+                    {
+                        frameTrimIdx = i;
+                        break;
+                    }
+                }
+                if (frameTrimIdx < currentTrackSection.frames.Count)
+                    currentTrackSection.frames.RemoveRange(frameTrimIdx,
+                        currentTrackSection.frames.Count - frameTrimIdx);
+            }
+
+            // Locale-safe formatting (comma-locale machines would otherwise write "27 266,0"
+            // which breaks downstream log parsers).
+            var ic = System.Globalization.CultureInfo.InvariantCulture;
+            ParsekLog.Warn("Recorder",
+                $"Time regression detected: UT went from {lastRecordedUT.ToString("F1", ic)} to " +
+                $"{newUT.ToString("F1", ic)} " +
+                $"(delta={(newUT - lastRecordedUT).ToString("F1", ic)}s). Trimmed recording: " +
+                $"points {oldCount}→{Recording.Count}, " +
+                $"partEvents {oldPartEvents}→{PartEvents.Count}, " +
+                $"orbitSegments {oldOrbitSegs}→{OrbitSegments.Count}");
+        }
+
+        /// <summary>
         /// Constructs a TrajectoryPoint from the vessel's current state and the given velocity.
         /// Extracted to deduplicate the identical construction in OnPhysicsFrame and SamplePosition.
         /// </summary>
@@ -4919,6 +5016,12 @@ namespace Parsek
                 : (Vector3)(v.rb_velocityD + Krakensbane.GetFrameVelocity());
 
             TrajectoryPoint point = BuildTrajectoryPoint(v, currentVelocity);
+
+            // Guard: detect time regression (quickload/revert during recording)
+            if (Recording.Count > 0 && point.ut < lastRecordedUT - TimeRegressionThresholdSeconds)
+            {
+                TrimRecordingToUT(point.ut);
+            }
 
             Recording.Add(point);
             lastRecordedUT = point.ut;
