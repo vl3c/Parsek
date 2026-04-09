@@ -6052,7 +6052,7 @@ namespace Parsek
         /// FinalizeIndividualRecording skips non-leaves, but the active recording needs
         /// terminal state for the optimizer's SplitAtSection propagation.
         /// </summary>
-        private static void EnsureActiveRecordingTerminalState(RecordingTree tree)
+        internal static void EnsureActiveRecordingTerminalState(RecordingTree tree)
         {
             if (string.IsNullOrEmpty(tree.ActiveRecordingId))
                 return;
@@ -6083,7 +6083,7 @@ namespace Parsek
             }
         }
 
-        private void FinalizeIndividualRecording(Recording rec, double commitUT, bool isSceneExit)
+        internal static void FinalizeIndividualRecording(Recording rec, double commitUT, bool isSceneExit)
         {
             // Set ExplicitStartUT if not already set
             if (double.IsNaN(rec.ExplicitStartUT))
@@ -6201,7 +6201,8 @@ namespace Parsek
             if (isLeaf && rec.Points.Count == 0 && rec.OrbitSegments.Count == 0 && !rec.SurfacePos.HasValue)
                 ParsekLog.Warn("Flight", $"FinalizeTreeRecordings: leaf '{rec.RecordingId}' has no playback data");
 
-            Log($"FinalizeTreeRecordings: rec='{rec.RecordingId}' vessel='{rec.VesselName}' " +
+            ParsekLog.Verbose("Flight",
+                $"FinalizeTreeRecordings: rec='{rec.RecordingId}' vessel='{rec.VesselName}' " +
                 $"points={rec.Points.Count} orbitSegs={rec.OrbitSegments.Count} " +
                 $"terminal={rec.TerminalStateValue?.ToString() ?? "none"} " +
                 $"snapshot={rec.VesselSnapshot != null} leaf={isLeaf}");
@@ -6212,7 +6213,7 @@ namespace Parsek
         /// that were destroyed within the same physics frame as their creation — they have no
         /// trajectory data, no snapshot, and serve no purpose.
         /// </summary>
-        private static void PruneZeroPointLeaves(RecordingTree tree)
+        internal static void PruneZeroPointLeaves(RecordingTree tree)
         {
             var toPrune = CollectZeroPointLeafIds(tree);
             if (toPrune == null || toPrune.Count == 0)

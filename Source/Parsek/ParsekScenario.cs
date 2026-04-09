@@ -968,11 +968,22 @@ namespace Parsek
                         var pendState = RecordingStore.PendingTreeStateValue;
                         if (isRevert)
                         {
-                            // Real revert: finalize the Limbo tree with a minimal static
-                            // finalization (vessel refs are gone by this point, so terminal
-                            // states fall back to Destroyed + PopulateTerminalOrbitFromLastSegment).
-                            // Same path for both Limbo and LimboVesselSwitch — a revert wipes
-                            // the in-progress mission regardless of how the tree was stashed.
+                            // Real revert: finalize the Limbo tree by running the
+                            // same per-recording logic the live commit path uses
+                            // (FinalizeIndividualRecording → DetermineTerminalState
+                            // from the actual vessel.situation when the vessel is
+                            // still loaded in FlightGlobals, falling back to
+                            // Destroyed + PopulateTerminalOrbitFromLastSegment when
+                            // the vessel is gone). Same path for both Limbo and
+                            // LimboVesselSwitch — a revert wipes the in-progress
+                            // mission regardless of how the tree was stashed.
+                            //
+                            // Bug #278: the previous code blanket-stamped every leaf
+                            // as Destroyed unconditionally, killing canPersist for
+                            // surviving leaves (e.g. an EVA kerbal walking on the
+                            // surface at the moment of the revert who was still
+                            // loaded as a separate vessel). The new flow preserves
+                            // those leaves' real Landed/Splashed/Orbiting state.
                             FinalizePendingLimboTreeForRevert();
                         }
                         else if (pendState == PendingTreeState.LimboVesselSwitch)
@@ -995,6 +1006,10 @@ namespace Parsek
                             // set after FinalizeTreeOnSceneChange ran). Fall back to the
                             // pre-#266 finalize behavior — better to lose the tree than
                             // to leak a half-transitioned state into the restore path.
+                            // The bug #278 fix applies here too: surviving leaves keep
+                            // their real situation, since this safety-net path is the
+                            // exact case where vessels ARE still loaded in FlightGlobals
+                            // (it's a vessel switch, not a quickload — no scene reset).
                             FinalizePendingLimboTreeForRevert();
                             ParsekLog.Info("Scenario",
                                 "OnLoad: Limbo tree finalized on vessel switch (safety-net path; " +
@@ -1830,15 +1845,26 @@ namespace Parsek
         internal static ActiveTreeRestoreMode ScheduleActiveTreeRestoreOnFlightReady;
 
         /// <summary>
-        /// Minimal static finalization for a Limbo tree on the revert path. Sets
-        /// terminal state to Destroyed on leaf recordings without existing terminal
-        /// state, and calls PopulateTerminalOrbitFromLastSegment as a fallback orbit
-        /// source (vessel refs are gone by OnLoad time on a revert, so live capture
-        /// is impossible — this matches the pre-fix CommitTreeRevert behavior for
-        /// orbital debris).
+        /// Finalizes a Limbo tree on the revert path (and on the safety-net
+        /// vessel-switch path where the stash missed pre-transitioning to
+        /// LimboVesselSwitch). Routes each recording through
+        /// <see cref="ParsekFlight.FinalizeIndividualRecording"/> — the same
+        /// per-recording helper the live commit path uses — so any leaf whose
+        /// vessel is still loaded in <c>FlightGlobals</c> gets its actual
+        /// situation (Landed/Splashed/Orbiting/SubOrbital), and only leaves
+        /// whose vessel is gone fall back to Destroyed.
         ///
-        /// After finalization, flips the pending tree state from Limbo to Finalized
-        /// so the existing auto-commit / merge-dialog path handles it normally.
+        /// Then runs <see cref="ParsekFlight.EnsureActiveRecordingTerminalState"/>
+        /// for the active-non-leaf case and <see cref="ParsekFlight.PruneZeroPointLeaves"/>
+        /// to drop empty placeholders. Finally flips the pending tree state from
+        /// Limbo (or LimboVesselSwitch) to Finalized so the existing auto-commit /
+        /// merge-dialog path handles it normally.
+        ///
+        /// Bug #278 (the rewrite from blanket-Destroyed to situation-aware) means
+        /// EVA kerbals walking on the surface at the moment of revert/switch keep
+        /// their real Landed state and remain canPersist=True. The previous
+        /// blanket-stamped-Destroyed code killed canPersist for every leaf even
+        /// when the vessel was still loaded.
         /// </summary>
         private static void FinalizePendingLimboTreeForRevert()
         {
@@ -1847,23 +1873,51 @@ namespace Parsek
 
             ParsekLog.RecState("FinalizeLimboForRevert:entry", CaptureScenarioRecorderState());
 
-            int finalized = 0;
+            // Bug #278: run the same per-recording finalize the live commit path uses
+            // (ParsekFlight.FinalizeTreeRecordings, minus the active-recorder-flush
+            // step which already happened during StashActiveTreeAsPendingLimbo).
+            // FinalizeIndividualRecording attempts FlightRecorder.FindVesselByPid +
+            // RecordingTree.DetermineTerminalState; if the vessel is alive in
+            // FlightGlobals, the leaf gets its actual situation (Landed/SubOrbital/
+            // Orbiting/etc.) and CaptureTerminalOrbit + CaptureTerminalPosition fill
+            // in the orbital metadata. If the vessel is gone, it falls back to
+            // Destroyed + PopulateTerminalOrbitFromLastSegment — same behavior as
+            // the previous blanket-Destroyed code, but only for leaves that actually
+            // lost their vessel. Surviving leaves (notably EVA kerbals walking on
+            // the surface at the moment of revert/switch) keep their real situation
+            // and remain canPersist=True.
+            double commitUT = Planetarium.GetUniversalTime();
+            int newlySet = 0;
+            int alreadyTerminal = 0;
             foreach (var kvp in tree.Recordings)
             {
                 var rec = kvp.Value;
-                bool isLeaf = rec.ChildBranchPointId == null;
-                if (!isLeaf) continue;
-                if (rec.TerminalStateValue.HasValue) continue;
-
-                rec.TerminalStateValue = TerminalState.Destroyed;
-                ParsekFlight.PopulateTerminalOrbitFromLastSegment(rec);
-                finalized++;
+                bool wasTerminal = rec.TerminalStateValue.HasValue;
+                // isSceneExit: true skips FinalizeIndividualRecording's
+                // re-snapshot branch (the `if (!isSceneExit)` block at L5795
+                // of ParsekFlight). The limbo tree is a frozen snapshot —
+                // StashActiveTreeAsPendingLimbo already captured each leaf's
+                // VesselSnapshot at the moment of OnSceneChangeRequested, and
+                // re-mutating those snapshots here would invalidate the
+                // "limbo = exact state at scene-change time" invariant the
+                // dispatch comment (L926-948) relies on. The vessel-switch
+                // case in particular must not re-snapshot, because the new
+                // active vessel may have already started physics-loading
+                // and a fresh snapshot would capture mid-load state.
+                ParsekFlight.FinalizeIndividualRecording(rec, commitUT, isSceneExit: true);
+                if (wasTerminal)
+                    alreadyTerminal++;
+                else if (rec.TerminalStateValue.HasValue)
+                    newlySet++;
             }
+            ParsekFlight.EnsureActiveRecordingTerminalState(tree);
+            ParsekFlight.PruneZeroPointLeaves(tree);
 
             RecordingStore.MarkPendingTreeFinalized();
             ParsekLog.Info("Scenario",
-                $"FinalizePendingLimboTreeForRevert: finalized {finalized} leaf recording(s) in " +
-                $"tree '{tree.TreeName}' — transitioned Limbo → Finalized");
+                $"FinalizePendingLimboTreeForRevert: {newlySet} recording(s) got terminal state set, " +
+                $"{alreadyTerminal} already had it, in tree '{tree.TreeName}' — " +
+                $"transitioned Limbo → Finalized");
             ParsekLog.RecState("FinalizeLimboForRevert:post", CaptureScenarioRecorderState());
         }
 

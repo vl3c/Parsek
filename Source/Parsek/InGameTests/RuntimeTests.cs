@@ -1912,5 +1912,97 @@ namespace Parsek.InGameTests
                 }
             }
         }
+
+        // ─────────────────────────────────────────────────────────────
+        //  #278 — Limbo finalize uses real vessel situation
+        // ─────────────────────────────────────────────────────────────
+
+        [InGameTest(Category = "FinalizeLimbo", Scene = GameScenes.FLIGHT,
+            Description = "FinalizeIndividualRecording on a live active vessel uses the real situation, not Destroyed (#278)")]
+        public void FinalizeIndividualRecording_LiveActiveVessel_UsesRealSituation()
+        {
+            var activeVessel = FlightGlobals.ActiveVessel;
+            if (activeVessel == null)
+            {
+                InGameAssert.Skip("needs Flight scene with an active vessel");
+                return;
+            }
+
+            // Build a leaf recording wired to the active vessel's pid. The
+            // pre-#278 FinalizePendingLimboTreeForRevert blanket-stamped this
+            // kind of leaf as Destroyed; the fix routes through
+            // FinalizeIndividualRecording, which looks the vessel up by pid
+            // and uses RecordingTree.DetermineTerminalState against
+            // vessel.situation. For any vessel still loaded in FlightGlobals
+            // (PRELAUNCH on the pad, LANDED for a walking kerbal, ORBITING in
+            // orbit, …) the result must NOT be Destroyed — Destroyed is the
+            // fallback for the vessel-is-gone branch only.
+            var rec = new Parsek.Recording
+            {
+                RecordingId = "bug278-live-vessel-" + System.DateTime.UtcNow.Ticks,
+                VesselName = activeVessel.vesselName,
+                VesselPersistentId = activeVessel.persistentId,
+                ChildBranchPointId = null, // leaf
+                ExplicitStartUT = double.NaN,
+                ExplicitEndUT = double.NaN,
+            };
+            rec.Points.Add(new Parsek.TrajectoryPoint
+            {
+                ut = Planetarium.GetUniversalTime() - 5.0,
+                latitude = activeVessel.latitude,
+                longitude = activeVessel.longitude,
+                altitude = activeVessel.altitude,
+                bodyName = activeVessel.mainBody?.name ?? "Kerbin",
+                rotation = Quaternion.identity,
+                velocity = Vector3.zero,
+            });
+
+            var sit = activeVessel.situation;
+            ParsekFlight.FinalizeIndividualRecording(
+                rec, Planetarium.GetUniversalTime(), isSceneExit: true);
+
+            InGameAssert.IsTrue(rec.TerminalStateValue.HasValue,
+                "FinalizeIndividualRecording must always set a terminal state on a leaf");
+            InGameAssert.IsTrue(
+                rec.TerminalStateValue.Value != Parsek.TerminalState.Destroyed,
+                $"Live active vessel '{activeVessel.vesselName}' (situation={sit}) " +
+                $"must not be classified as Destroyed — that's the bug #278 regression. " +
+                $"Got terminalState={rec.TerminalStateValue.Value}.");
+
+            ParsekLog.Verbose("TestRunner",
+                $"Bug278 in-game test: vessel='{activeVessel.vesselName}' " +
+                $"situation={sit} → terminalState={rec.TerminalStateValue.Value}");
+        }
+
+        [InGameTest(Category = "FinalizeLimbo", Scene = GameScenes.FLIGHT,
+            Description = "FinalizeIndividualRecording leaves an existing terminal state untouched (#278 regression guard)")]
+        public void FinalizeIndividualRecording_LiveActiveVessel_PreservesExistingTerminalState()
+        {
+            var activeVessel = FlightGlobals.ActiveVessel;
+            if (activeVessel == null)
+            {
+                InGameAssert.Skip("needs Flight scene with an active vessel");
+                return;
+            }
+
+            // A leaf that was already classified Splashed elsewhere (e.g. by
+            // EndDebrisRecording during the live flight) must NOT be reclassified
+            // by the limbo finalize. The `if (isLeaf && !rec.TerminalStateValue.HasValue)`
+            // guard inside FinalizeIndividualRecording is what protects this.
+            var rec = new Parsek.Recording
+            {
+                RecordingId = "bug278-preserve-" + System.DateTime.UtcNow.Ticks,
+                VesselName = activeVessel.vesselName,
+                VesselPersistentId = activeVessel.persistentId,
+                ChildBranchPointId = null,
+                TerminalStateValue = Parsek.TerminalState.Splashed,
+            };
+
+            ParsekFlight.FinalizeIndividualRecording(
+                rec, Planetarium.GetUniversalTime(), isSceneExit: true);
+
+            InGameAssert.AreEqual(Parsek.TerminalState.Splashed,
+                rec.TerminalStateValue.Value);
+        }
     }
 }
