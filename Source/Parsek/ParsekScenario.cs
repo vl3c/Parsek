@@ -1782,6 +1782,17 @@ namespace Parsek
             {
                 var rec = kvp.Value;
                 bool wasTerminal = rec.TerminalStateValue.HasValue;
+                // isSceneExit: true skips FinalizeIndividualRecording's
+                // re-snapshot branch (the `if (!isSceneExit)` block at L5795
+                // of ParsekFlight). The limbo tree is a frozen snapshot —
+                // StashActiveTreeAsPendingLimbo already captured each leaf's
+                // VesselSnapshot at the moment of OnSceneChangeRequested, and
+                // re-mutating those snapshots here would invalidate the
+                // "limbo = exact state at scene-change time" invariant the
+                // dispatch comment (L926-948) relies on. The vessel-switch
+                // case in particular must not re-snapshot, because the new
+                // active vessel may have already started physics-loading
+                // and a fresh snapshot would capture mid-load state.
                 ParsekFlight.FinalizeIndividualRecording(rec, commitUT, isSceneExit: true);
                 if (wasTerminal)
                     alreadyTerminal++;
