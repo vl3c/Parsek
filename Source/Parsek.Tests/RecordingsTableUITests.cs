@@ -157,6 +157,45 @@ namespace Parsek.Tests
             // No assertion — just verifying no exception.
         }
 
+        [Fact]
+        public void WatchTransitionLogging_BothCallSitesGuardNullRecordingId_PinnedBySourceInspection()
+        {
+            // Bug #279 follow-up review: the per-row site already guards
+            // null/empty RecordingId via the IsNullOrEmpty(watchKey) check
+            // at the dict-lookup site, but a previous version of the group
+            // site fell back to "{groupName}/" via the ?? "" coalesce —
+            // which would have produced a spam loop when paired with
+            // PruneStaleWatchEntries (cache "GroupName/" → log → prune drops
+            // it because trailing recId is empty → next draw re-adds → log
+            // → prune → ...). The fix mirrors the per-row guard at the
+            // group site. This test pins both guards via source inspection
+            // so a future refactor that moves the guard or removes it
+            // produces a deliberate test failure rather than a silent log
+            // spam regression.
+            string srcRoot = System.IO.Path.GetFullPath(
+                System.IO.Path.Combine(System.AppDomain.CurrentDomain.BaseDirectory,
+                    "..", "..", "..", "..", "Parsek"));
+            string uiSrc = System.IO.File.ReadAllText(
+                System.IO.Path.Combine(srcRoot, "UI", "RecordingsTableUI.cs"));
+
+            // Per-row guard: the watchKey local must be tested for null/empty
+            // BEFORE the cache lookup, otherwise the empty-id case falls into
+            // the spam loop pattern.
+            Assert.Contains("string watchKey = rec.RecordingId;", uiSrc);
+            Assert.Contains("!string.IsNullOrEmpty(watchKey)", uiSrc);
+
+            // Group guard: same shape — mainRecId must be non-empty before
+            // we add to the dict. The fix replaced a "?? \"\"" coalesce with
+            // an explicit IsNullOrEmpty guard, so any future re-introduction
+            // of the coalesce pattern is also a regression that this assert
+            // would not catch directly. We test for the explicit guard
+            // instead, which is the safer pattern.
+            Assert.Contains("string mainRecId = committed[mainIdx].RecordingId;", uiSrc);
+            Assert.Contains("if (!string.IsNullOrEmpty(mainRecId))", uiSrc);
+            // And the dangerous coalesce pattern must be GONE.
+            Assert.DoesNotContain("groupName + \"/\" + (mainRecId ?? \"\")", uiSrc);
+        }
+
         // ── GetRecordingSortKey ──
 
         [Fact]

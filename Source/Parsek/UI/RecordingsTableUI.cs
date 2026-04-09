@@ -1269,21 +1269,34 @@ namespace Parsek
                     // main recording is replaced (e.g., truncate followed by a
                     // new launch) doesn't carry over the previous main's cached
                     // canWatch and emit a spurious transition.
+                    //
+                    // Skip the cache+log entirely if the main recording has a
+                    // null/empty RecordingId. Mirrors the per-row guard above.
+                    // Without this, the group dict would cache "{groupName}/",
+                    // log once, get pruned by PruneStaleWatchEntries on the
+                    // next draw (empty trailing recId → stale), and re-add on
+                    // the draw after that — a spam loop. RecordingId being
+                    // null/empty shouldn't happen in practice (all recordings
+                    // get a GUID at construction), but the defensive guard is
+                    // free and matches the per-row site for consistency.
                     string mainRecId = committed[mainIdx].RecordingId;
-                    string groupWatchKey = groupName + "/" + (mainRecId ?? "");
-                    bool prevGroupCanWatch;
-                    if (!lastCanWatchByGroup.TryGetValue(groupWatchKey, out prevGroupCanWatch)
-                        || prevGroupCanWatch != canWatch)
+                    if (!string.IsNullOrEmpty(mainRecId))
                     {
-                        lastCanWatchByGroup[groupWatchKey] = canWatch;
-                        string reason = canWatch ? "enabled"
-                            : !hasGhost ? "disabled (no ghost)"
-                            : !sameBody ? "disabled (different body)"
-                            : !inRange ? "disabled (out of range)"
-                            : "disabled (unknown)";
-                        ParsekLog.Info("UI",
-                            $"Group Watch button '{groupName}' main=#{mainIdx} \"{committed[mainIdx].VesselName}\" {reason} " +
-                            $"(hasGhost={hasGhost} sameBody={sameBody} inRange={inRange})");
+                        string groupWatchKey = groupName + "/" + mainRecId;
+                        bool prevGroupCanWatch;
+                        if (!lastCanWatchByGroup.TryGetValue(groupWatchKey, out prevGroupCanWatch)
+                            || prevGroupCanWatch != canWatch)
+                        {
+                            lastCanWatchByGroup[groupWatchKey] = canWatch;
+                            string reason = canWatch ? "enabled"
+                                : !hasGhost ? "disabled (no ghost)"
+                                : !sameBody ? "disabled (different body)"
+                                : !inRange ? "disabled (out of range)"
+                                : "disabled (unknown)";
+                            ParsekLog.Info("UI",
+                                $"Group Watch button '{groupName}' main=#{mainIdx} \"{committed[mainIdx].VesselName}\" {reason} " +
+                                $"(hasGhost={hasGhost} sameBody={sameBody} inRange={inRange})");
+                        }
                     }
 
                     GUI.enabled = canWatch;
