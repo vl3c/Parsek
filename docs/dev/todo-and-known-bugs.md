@@ -819,6 +819,26 @@ Code review on the initial fix flagged that `BackgroundRecorder.cs` contained 27
 
 ---
 
+## ~~272. Entire launch tree destroyed on F5/F9 quickload-resume~~
+
+Observed in the 2026-04-09 playtest with the new `[RecState]` observability (PR #162): after the user's first real F5+F9 with an active tree (Kerbal X launch, 46 recordings, 331-point root, Bob Kerman EVA), the whole tree vanished and a fresh standalone recording started for the EVA kerbal.
+
+**Root cause:** `ParsekFlight.OnFlightReady` called `StartCoroutine(RestoreActiveTreeFromPending())` BEFORE `ResetFlightReadyState()`. When `FlightGlobals.ActiveVessel` already matches the target vessel name on the first iteration of the restore wait loop, the `break` exits without hitting `yield return null`, so Unity runs the entire coroutine body synchronously inside `StartCoroutine()`. Control returned to `OnFlightReady`, which then called `ResetFlightReadyState()` → line 4163 `activeTree = null` destroyed everything the restore had just set up (and tore down `backgroundRecorder`, cleared chain state). Log proof from the playtest, all same millisecond:
+
+```
+[#124][Restore:after-start] mode=tree tree=d64334a2|Kerbal X rec=f3527c60|Bob Kerman
+Resetting flight-ready state
+BgRecorder Shutdown complete — all background states cleared
+Chain ClearAll: all chain state reset
+Timeline has 0 committed recording(s)
+```
+
+**Fix:** move `ResetFlightReadyState()` to run BEFORE the restore coroutine. Reset always clears scene-scoped state from the previous flight; restore then rebuilds fresh state on top. Both sync-coroutine and async-coroutine paths work correctly with the new order. Also added a `[RecState]` emission at `ResetFlightReadyState` entry for observability of this boundary, and a regression guard test (`OnFlightReadyOrderingTests`) that file-scrapes `ParsekFlight.cs` to assert the ordering invariant plus a phase-sequence test walking the post-fix emission order.
+
+**Recovery for affected saves:** the in-memory tree is lost but the `quicksave.sfs` still contains the full `RECORDING_TREE isActive=True` node. Loading that save with the fix applied rebuilds the tree from the inline node via `TryRestoreActiveTreeNode` → `RestoreActiveTreeFromPending`.
+
+---
+
 ## 271. Investigate unifying standalone and tree recorder modes
 
 Parsek currently has two recorder modes with divergent code paths:
