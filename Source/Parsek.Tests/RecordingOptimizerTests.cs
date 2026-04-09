@@ -951,6 +951,21 @@ namespace Parsek.Tests
             Assert.Equal(0, second.RecordingFormatVersion);
         }
 
+        [Fact]
+        public void SplitAtSection_CopiesGeneration()
+        {
+            // Both halves are the same logical vessel and must share Generation
+            // so the cascade-depth cap (#284) treats them identically.
+            var rec = MakeRecordingWithSections(17000, 17030, 17060,
+                SegmentEnvironment.ExoBallistic, SegmentEnvironment.Atmospheric);
+            rec.Generation = 1;
+
+            var second = RecordingOptimizer.SplitAtSection(rec, 1);
+
+            Assert.Equal(1, rec.Generation);
+            Assert.Equal(1, second.Generation);
+        }
+
         #endregion
 
         #region RunOptimizationPass integration -- split

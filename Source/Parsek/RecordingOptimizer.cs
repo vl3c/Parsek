@@ -467,6 +467,8 @@ namespace Parsek
                 ? new List<AntennaSpec>(original.AntennaSpecs) : null;
             second.IsDebris = original.IsDebris;
             second.RecordingFormatVersion = original.RecordingFormatVersion;
+            // Both halves are the same vessel — share Generation. (#284)
+            second.Generation = original.Generation;
 
             // 12. Invalidate cached stats
             original.CachedStats = null;

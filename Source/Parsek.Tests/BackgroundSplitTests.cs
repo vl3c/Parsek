@@ -606,5 +606,259 @@ namespace Parsek.Tests
         }
 
         #endregion
+
+        #region Cascade Depth Cap (#284) — Pure Logic
+
+        [Fact]
+        public void Recording_DefaultGeneration_IsZero()
+        {
+            var rec = new Recording();
+            Assert.Equal(0, rec.Generation);
+        }
+
+        [Fact]
+        public void MaxRecordingGeneration_IsOne()
+        {
+            // Cap at gen=1 means primary debris (boosters decoupled by the
+            // active vessel) is recorded; secondary fragments are not.
+            Assert.Equal(1, BackgroundRecorder.MaxRecordingGeneration);
+        }
+
+        [Fact]
+        public void ShouldSkipForCascadeCap_Gen0_ReturnsFalse()
+        {
+            // gen 0 = primary recording (active vessel) — splits allowed
+            Assert.False(BackgroundRecorder.ShouldSkipForCascadeCap(0));
+        }
+
+        [Fact]
+        public void ShouldSkipForCascadeCap_Gen1_ReturnsTrue()
+        {
+            // gen 1 = primary debris (booster) — its splits are skipped
+            Assert.True(BackgroundRecorder.ShouldSkipForCascadeCap(1));
+        }
+
+        [Fact]
+        public void ShouldSkipForCascadeCap_Gen2_ReturnsTrue()
+        {
+            // gen 2 = fragment-of-fragment — splits are skipped
+            Assert.True(BackgroundRecorder.ShouldSkipForCascadeCap(2));
+        }
+
+        [Fact]
+        public void ShouldSkipForCascadeCap_LargeGen_ReturnsTrue()
+        {
+            // sanity check: any positive gen >= cap is gated
+            Assert.True(BackgroundRecorder.ShouldSkipForCascadeCap(99));
+        }
+
+        [Fact]
+        public void BuildBackgroundSplitBranchData_PropagatesGeneration_Gen0Parent_ChildrenAreGen1()
+        {
+            var newVessels = new List<(uint pid, string name, bool hasController)>
+            {
+                (300, "Booster", false),
+                (400, "Probe", true)
+            };
+
+            var (_, children) = BackgroundRecorder.BuildBackgroundSplitBranchData(
+                "parent_rec", "tree_1", 1000.0, BranchPointType.JointBreak,
+                100, newVessels, parentGeneration: 0);
+
+            Assert.Equal(1, children[0].Generation);
+            Assert.Equal(1, children[1].Generation);
+        }
+
+        [Fact]
+        public void BuildBackgroundSplitBranchData_PropagatesGeneration_Gen1Parent_ChildrenAreGen2()
+        {
+            var newVessels = new List<(uint pid, string name, bool hasController)>
+            {
+                (300, "Fragment", false)
+            };
+
+            var (_, children) = BackgroundRecorder.BuildBackgroundSplitBranchData(
+                "parent_rec", "tree_1", 1000.0, BranchPointType.JointBreak,
+                100, newVessels, parentGeneration: 1);
+
+            Assert.Equal(2, children[0].Generation);
+        }
+
+        [Fact]
+        public void BuildBackgroundSplitBranchData_Gen2Parent_ChildrenAreGen3_NotCapped()
+        {
+            // The pure builder propagates Generation regardless of the cap.
+            // The cap lives in HandleBackgroundVesselSplit (the caller), not here.
+            // This documents the separation of concerns.
+            var newVessels = new List<(uint pid, string name, bool hasController)>
+            {
+                (300, "Fragment", false)
+            };
+
+            var (_, children) = BackgroundRecorder.BuildBackgroundSplitBranchData(
+                "parent_rec", "tree_1", 1000.0, BranchPointType.JointBreak,
+                100, newVessels, parentGeneration: 2);
+
+            Assert.Equal(3, children[0].Generation);
+        }
+
+        [Fact]
+        public void BuildBackgroundSplitBranchData_DefaultParentGeneration_IsZero()
+        {
+            // Optional parameter default is 0 — preserves existing test behavior
+            // for callers that don't care about generation.
+            var newVessels = new List<(uint pid, string name, bool hasController)>
+            {
+                (300, "Stage", false)
+            };
+
+            var (_, children) = BackgroundRecorder.BuildBackgroundSplitBranchData(
+                "parent_rec", "tree_1", 1000.0, BranchPointType.JointBreak,
+                100, newVessels);
+
+            Assert.Equal(1, children[0].Generation);
+        }
+
+        [Fact]
+        public void BuildSplitBranchData_PropagatesGeneration_BgChildPlusOne_ActiveChildSame()
+        {
+            // Active path: activeChild continues the same logical vessel (same gen),
+            // bgChild is the spinoff (parentGen + 1).
+            var (_, activeChild, bgChild) = ParsekFlight.BuildSplitBranchData(
+                "parent_rec", "tree_1", 100.0, BranchPointType.JointBreak,
+                42, "Active", 99, "Spinoff",
+                parentGeneration: 0);
+
+            Assert.Equal(0, activeChild.Generation);
+            Assert.Equal(1, bgChild.Generation);
+        }
+
+        [Fact]
+        public void BuildSplitBranchData_Gen1Parent_ActiveStaysGen1_BgChildBecomesGen2()
+        {
+            // Player switches focus to a gen-1 booster and decouples something.
+            // activeChild (continuing the booster) stays at gen=1; bgChild=2.
+            var (_, activeChild, bgChild) = ParsekFlight.BuildSplitBranchData(
+                "parent_rec", "tree_1", 100.0, BranchPointType.JointBreak,
+                42, "Active Booster", 99, "Fragment",
+                parentGeneration: 1);
+
+            Assert.Equal(1, activeChild.Generation);
+            Assert.Equal(2, bgChild.Generation);
+        }
+
+        [Fact]
+        public void Recording_ApplyPersistenceArtifactsFrom_CopiesGeneration()
+        {
+            var source = new Recording { Generation = 1 };
+            var target = new Recording();
+
+            target.ApplyPersistenceArtifactsFrom(source);
+
+            Assert.Equal(1, target.Generation);
+        }
+
+        [Fact]
+        public void CreateBreakupChildRecording_PropagatesGeneration_Gen0Parent_ChildIsGen1()
+        {
+            // Active rocket (gen=0) crashes → debris children must be gen=1.
+            // Used by ProcessBreakupEvent and PromoteToTreeForBreakup.
+            var tree = new RecordingTree { Id = "t1", TreeName = "Test" };
+            var bp = new BranchPoint { Id = "bp1", UT = 100 };
+
+            var rec = ParsekFlight.CreateBreakupChildRecording(
+                tree, bp, 42, null, true, "Debris",
+                fallbackSnapshot: null, parentGeneration: 0);
+
+            Assert.Equal(1, rec.Generation);
+        }
+
+        [Fact]
+        public void CreateBreakupChildRecording_PropagatesGeneration_Gen1Parent_ChildIsGen2()
+        {
+            // Player flying a gen=1 booster crashes it → fragments would be gen=2.
+            // The pure builder propagates without enforcing the cap (cap lives in
+            // HandleBackgroundVesselSplit, not in the active path).
+            var tree = new RecordingTree { Id = "t1", TreeName = "Test" };
+            var bp = new BranchPoint { Id = "bp1", UT = 100 };
+
+            var rec = ParsekFlight.CreateBreakupChildRecording(
+                tree, bp, 42, null, true, "Debris",
+                fallbackSnapshot: null, parentGeneration: 1);
+
+            Assert.Equal(2, rec.Generation);
+        }
+
+        [Fact]
+        public void CreateBreakupChildRecording_DefaultParentGeneration_ChildIsGen1()
+        {
+            // Optional parameter default = 0 — preserves existing test behavior
+            // for legacy callers that don't care about generation.
+            var tree = new RecordingTree { Id = "t1", TreeName = "Test" };
+            var bp = new BranchPoint { Id = "bp1", UT = 100 };
+
+            var rec = ParsekFlight.CreateBreakupChildRecording(
+                tree, bp, 42, null, true, "Debris");
+
+            Assert.Equal(1, rec.Generation);
+        }
+
+        [Fact]
+        public void RecordingTree_SaveLoadRoundTrip_PreservesGeneration()
+        {
+            // Verify cascade depth survives the .sfs persistence path so a
+            // gen=1 booster doesn't reload as gen=0 and slip past the cap on
+            // a subsequent breakup after F5/F9.
+            var rec = new Recording
+            {
+                RecordingId = "test_round_trip",
+                VesselName = "Test Booster",
+                VesselPersistentId = 42,
+                Generation = 1
+            };
+
+            var node = new ConfigNode("RECORDING");
+            RecordingTree.SaveRecordingInto(node, rec);
+
+            var loaded = new Recording();
+            RecordingTree.LoadRecordingFrom(node, loaded);
+
+            Assert.Equal(1, loaded.Generation);
+        }
+
+        [Fact]
+        public void RecordingTree_SaveRecordingInto_OmitsGenerationWhenZero()
+        {
+            // Gen-0 recordings stay byte-identical to legacy saves — the
+            // "generation" key is only written for non-default values.
+            var rec = new Recording
+            {
+                RecordingId = "test_gen0",
+                VesselName = "Test",
+                VesselPersistentId = 42,
+                Generation = 0
+            };
+
+            var node = new ConfigNode("RECORDING");
+            RecordingTree.SaveRecordingInto(node, rec);
+
+            Assert.Null(node.GetValue("generation"));
+        }
+
+        [Fact]
+        public void RecordingTree_LoadRecordingFrom_LegacyNodeWithoutGeneration_DefaultsToZero()
+        {
+            // Legacy .sfs files have no "generation" key — must load as gen=0.
+            var node = new ConfigNode("RECORDING");
+            node.AddValue("recordingId", "legacy_id");
+            node.AddValue("vesselName", "Old Recording");
+
+            var rec = new Recording();
+            RecordingTree.LoadRecordingFrom(node, rec);
+
+            Assert.Equal(0, rec.Generation);
+        }
+
+        #endregion
     }
 }

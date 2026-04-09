@@ -36,6 +36,12 @@ namespace Parsek
         // Debris TTL: stop recording debris after this many seconds
         internal const double DebrisTTLSeconds = 60.0;
 
+        // Cascade depth cap. Background vessel splits whose parent recording is at
+        // Generation >= MaxRecordingGeneration are skipped entirely — the parent's
+        // existing recording continues sampling, the new fragments are not tracked.
+        // Currently 1 = "only record primary debris (decoupled boosters)". See #284.
+        internal const int MaxRecordingGeneration = 1;
+
         // Per-vessel debris TTL tracking (vesselPid -> UT at which to stop recording)
         // double.NaN = no TTL (controlled vessel, keep recording indefinitely)
         private Dictionary<uint, double> debrisTTLExpiry
@@ -420,6 +426,24 @@ namespace Parsek
                 return;
             }
 
+            // Cascade depth cap (#284): if the parent recording is already at the
+            // generation cap, do not create any branch, child recordings, or parent
+            // continuation. The parent stays in BackgroundMap/loadedStates and keeps
+            // accumulating samples into its existing recording until destruction.
+            // The new fragment vessels remain alive in KSP but become Parsek-orphans.
+            // Logged at Info because it represents a real recording-policy decision
+            // visible in the user-facing recording count, and only fires for
+            // secondary/tertiary breakups (not per frame).
+            if (ShouldSkipForCascadeCap(parentRec.Generation))
+            {
+                ParsekLog.Info("BgRecorder",
+                    $"Cascade depth cap fired: skipping background split — " +
+                    $"parentRec={parentRec.DebugName} gen={parentRec.Generation} " +
+                    $"parentPid={parentPid} skippedChildren={newVesselInfos.Count} " +
+                    $"branchUT={branchUT:F1}");
+                return;
+            }
+
             // A split occurred. Build the branch structure.
             ParsekLog.Info("BgRecorder",
                 $"Background vessel split detected: parentPid={parentPid} " +
@@ -428,10 +452,11 @@ namespace Parsek
             // Determine BranchPoint type: JointBreak (structural separation)
             var branchType = BranchPointType.JointBreak;
 
-            // Build a BranchPoint and child recordings using our pure static method
+            // Build a BranchPoint and child recordings using our pure static method.
+            // Children inherit parentRec.Generation + 1.
             var result = BuildBackgroundSplitBranchData(
                 parentRecordingId, tree.Id, branchUT, branchType,
-                parentPid, newVesselInfos);
+                parentPid, newVesselInfos, parentRec.Generation);
 
             var bp = result.bp;
             var childRecordings = result.childRecordings;
@@ -443,7 +468,14 @@ namespace Parsek
             tree.BranchPoints.Add(bp);
 
             // Create a continuation recording for the parent vessel itself
-            // (it keeps existing with potentially fewer parts)
+            // (it keeps existing with potentially fewer parts).
+            // The continuation stays at the same Generation as the parent — it's
+            // the same logical vessel, just with fewer parts. Only spinoff children
+            // get parentGeneration + 1.
+            // NOTE: with MaxRecordingGeneration=1 the cap above this point already
+            // returned for any parentRec.Generation >= 1, so today this assignment
+            // is always Generation=0. Kept explicit so future cap bumps (e.g.
+            // MaxRecordingGeneration=2) just work without re-auditing this site.
             string parentContRecId = System.Guid.NewGuid().ToString("N");
             var parentContRec = new Recording
             {
@@ -453,7 +485,8 @@ namespace Parsek
                 VesselName = parentRec.VesselName,
                 ParentBranchPointId = bp.Id,
                 ExplicitStartUT = branchUT,
-                IsDebris = parentRec.IsDebris
+                IsDebris = parentRec.IsDebris,
+                Generation = parentRec.Generation
             };
             bp.ChildRecordingIds.Insert(0, parentContRecId);
             tree.Recordings[parentContRecId] = parentContRec;
@@ -580,12 +613,16 @@ namespace Parsek
         /// background vessel split. Testable without Unity.
         /// The parent vessel gets a continuation recording (added by the caller);
         /// this method creates recordings for the NEW child vessels only.
+        /// Children inherit Generation = parentGeneration + 1. The cascade-depth cap
+        /// is NOT applied here — the caller (HandleBackgroundVesselSplit) decides
+        /// whether to invoke this method based on ShouldSkipForCascadeCap.
         /// </summary>
         internal static (BranchPoint bp, List<Recording> childRecordings)
             BuildBackgroundSplitBranchData(
                 string parentRecordingId, string treeId, double branchUT,
                 BranchPointType branchType, uint parentVesselPid,
-                List<(uint pid, string name, bool hasController)> newVesselInfos)
+                List<(uint pid, string name, bool hasController)> newVesselInfos,
+                int parentGeneration = 0)
         {
             string bpId = System.Guid.NewGuid().ToString("N");
 
@@ -613,7 +650,8 @@ namespace Parsek
                     VesselName = newVesselInfos[i].name,
                     ParentBranchPointId = bpId,
                     ExplicitStartUT = branchUT,
-                    IsDebris = !newVesselInfos[i].hasController
+                    IsDebris = !newVesselInfos[i].hasController,
+                    Generation = parentGeneration + 1
                 };
                 childRecordings.Add(child);
             }
@@ -758,6 +796,16 @@ namespace Parsek
 
             return null;
         }
+
+        /// <summary>
+        /// Pure decision: should a background vessel split be skipped because
+        /// the parent recording's generation already meets the cascade-depth cap?
+        /// True means HandleBackgroundVesselSplit returns without creating any
+        /// branch, child recordings, or parent continuation; the parent's
+        /// existing recording continues sampling unchanged.
+        /// </summary>
+        internal static bool ShouldSkipForCascadeCap(int parentGeneration)
+            => parentGeneration >= MaxRecordingGeneration;
 
         #endregion
 
