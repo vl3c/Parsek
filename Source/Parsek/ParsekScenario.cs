@@ -277,14 +277,39 @@ namespace Parsek
                     $"SaveActiveTreeIfAny: flush failed ({ex.Message}) — active tree will be written with stale recorder data");
             }
 
-            // Persist bulk data for active-tree recordings (same pattern as committed trees)
+            // Persist bulk data for active-tree recordings (same pattern as committed trees).
+            //
+            // Observability (2026-04-09 debris-flow investigation, bug #276): track how many
+            // of the iterated recordings were dirty vs saved, so future playtest logs can
+            // diagnose any FilesDirty-propagation gap. The outer `wrote ACTIVE tree ... (N
+            // recording(s))` log only reports the total iteration count, which hid the fact
+            // that all debris recordings were silently failing to save.
             int activeRecCount = 0;
+            int activeDirtyCount = 0;
+            int activeSavedCount = 0;
+            int activeSaveFailedCount = 0;
             foreach (var rec in activeTree.Recordings.Values)
             {
-                if (rec.FilesDirty && !RecordingStore.SaveRecordingFiles(rec))
-                    ScenarioLog($"[Parsek Scenario] WARNING: File write failed for active tree recording '{rec.VesselName}'");
+                bool wasDirty = rec.FilesDirty;
+                if (wasDirty)
+                {
+                    activeDirtyCount++;
+                    if (RecordingStore.SaveRecordingFiles(rec))
+                    {
+                        activeSavedCount++;
+                    }
+                    else
+                    {
+                        activeSaveFailedCount++;
+                        ScenarioLog($"[Parsek Scenario] WARNING: File write failed for active tree recording '{rec.VesselName}'");
+                    }
+                }
                 activeRecCount++;
             }
+
+            ParsekLog.Info("Scenario",
+                $"SaveActiveTreeIfAny: iterated {activeRecCount} recording(s), " +
+                $"{activeDirtyCount} dirty, {activeSavedCount} saved, {activeSaveFailedCount} failed");
 
             ConfigNode treeNode = node.AddNode("RECORDING_TREE");
             activeTree.Save(treeNode);

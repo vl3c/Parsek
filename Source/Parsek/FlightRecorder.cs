@@ -4602,9 +4602,30 @@ namespace Parsek
                 PartEvents.AddRange(terminalEvts);
             }
 
-            // Sort part/flag events chronologically (mixed event sources may produce non-chronological order)
-            PartEvents.Sort((a, b) => a.ut.CompareTo(b.ut));
+            // Sort part/flag events chronologically (mixed event sources may produce
+            // non-chronological order). Must be STABLE so that same-UT events retain
+            // their insertion order: bug #263 showed that an unstable List<T>.Sort
+            // can shuffle decouple events (OnPartJointBreak, added first) into the
+            // terminal-event range (FinalizeRecordingState appends, added second)
+            // when they share a physics-frame UT — and then ResumeAfterFalseAlarm's
+            // index-based RemoveRange would wrongly drop the decouples along with
+            // the terminals. LINQ OrderBy is stable; List<T>.Sort is not.
+            StableSortPartEventsByUT();
             FlagEvents.Sort((a, b) => a.ut.CompareTo(b.ut));
+        }
+
+        /// <summary>
+        /// Sorts <see cref="PartEvents"/> by UT with stable semantics (equal-UT events
+        /// keep their insertion order). Uses LINQ <c>OrderBy</c> which is documented as
+        /// stable — unlike <see cref="List{T}.Sort(System.Comparison{T})"/> which uses
+        /// introspective sort and may reorder equal elements. See bug #263.
+        /// </summary>
+        internal void StableSortPartEventsByUT()
+        {
+            if (PartEvents.Count < 2) return;
+            var sorted = PartEvents.OrderBy(e => e.ut).ToList();
+            PartEvents.Clear();
+            PartEvents.AddRange(sorted);
         }
 
         public void StopRecording()
