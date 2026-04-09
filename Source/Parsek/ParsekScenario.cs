@@ -1776,7 +1776,7 @@ namespace Parsek
             // the surface at the moment of revert/switch) keep their real situation
             // and remain canPersist=True.
             double commitUT = Planetarium.GetUniversalTime();
-            int finalized = 0;
+            int newlySet = 0;
             int alreadyTerminal = 0;
             foreach (var kvp in tree.Recordings)
             {
@@ -1786,15 +1786,15 @@ namespace Parsek
                 if (wasTerminal)
                     alreadyTerminal++;
                 else if (rec.TerminalStateValue.HasValue)
-                    finalized++;
+                    newlySet++;
             }
             ParsekFlight.EnsureActiveRecordingTerminalState(tree);
             ParsekFlight.PruneZeroPointLeaves(tree);
 
             RecordingStore.MarkPendingTreeFinalized();
             ParsekLog.Info("Scenario",
-                $"FinalizePendingLimboTreeForRevert: finalized {finalized} leaf recording(s), " +
-                $"{alreadyTerminal} already had terminal state, in tree '{tree.TreeName}' — " +
+                $"FinalizePendingLimboTreeForRevert: {newlySet} recording(s) got terminal state set, " +
+                $"{alreadyTerminal} already had it, in tree '{tree.TreeName}' — " +
                 $"transitioned Limbo → Finalized");
             ParsekLog.RecState("FinalizeLimboForRevert:post", CaptureScenarioRecorderState());
         }

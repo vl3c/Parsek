@@ -36,12 +36,13 @@ namespace Parsek.Tests
         [Fact]
         public void FinalizeIndividualRecording_LeafWithoutVessel_FallsBackToDestroyed()
         {
-            // VesselPersistentId == 0 forces FindVesselByPid to be skipped entirely
-            // (the rec.VesselPersistentId != 0 guard at the top of the lookup).
-            // The leaf has no terminal state, so it should be stamped Destroyed
-            // and PopulateTerminalOrbitFromLastSegment should run as a fallback.
-            // This matches the previous (pre-bug-#278-fix) behavior for the
-            // vessel-gone case.
+            // When pid == 0 (or the vessel is not in FlightGlobals), the leaf
+            // falls back to Destroyed + PopulateTerminalOrbitFromLastSegment.
+            // This is the safety-net branch the limbo finalize relies on for
+            // vessels that were genuinely destroyed before the finalize ran;
+            // any leaf with a live vessel takes the situation-aware branch
+            // (covered by the FinalizeIndividualRecording_ActiveVessel_*
+            // in-game test in RuntimeTests.cs).
             var rec = new Recording
             {
                 RecordingId = "leaf-no-vessel",
