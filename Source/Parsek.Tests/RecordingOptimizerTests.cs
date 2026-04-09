@@ -1900,6 +1900,107 @@ namespace Parsek.Tests
             Assert.True(rec.EndUT <= 17210 + 1);
         }
 
+        /// <summary>
+        /// Helper: builds a recording mirroring the real Butterfly Rover playtest scenario.
+        /// 30s drive at UT 155-185 (15 dense points), then 30 game-minutes of landed idle
+        /// (60 sparse points) ending at UT 2070. Two TrackSections (SurfaceMobile then
+        /// SurfaceStationary). The specific PartEvent injection differs per test.
+        /// </summary>
+        private static Recording MakeRoverScenarioRecording()
+        {
+            var rec = new Recording();
+            // Active drive: 15 points from 155 to 183 (2s apart)
+            for (int i = 0; i < 15; i++)
+                rec.Points.Add(new TrajectoryPoint { ut = 155 + i * 2 });
+            // Boring tail: 60 points from 215 to 1985 (30s apart)
+            for (int i = 1; i <= 60; i++)
+                rec.Points.Add(new TrajectoryPoint { ut = 185 + i * 30 });
+            // Final point at UT 2070 (simulates the recording's true end)
+            rec.Points.Add(new TrajectoryPoint { ut = 2070 });
+            rec.TrackSections.Add(new TrackSection
+            {
+                environment = SegmentEnvironment.SurfaceMobile, startUT = 155, endUT = 185,
+            });
+            rec.TrackSections.Add(new TrackSection
+            {
+                environment = SegmentEnvironment.SurfaceStationary, startUT = 185, endUT = 2070,
+            });
+            return rec;
+        }
+
+        [Fact]
+        public void TrimBoringTail_RoverScenario_OnlyStartSeedEvents_TrimsCorrectly()
+        {
+            // Reproduces the Butterfly Rover bug A scenario: a rover recording that
+            // starts with seed events (DeployableExtended for solar panels at recording
+            // start), then the rover sits boring for 30+ game-minutes. Without the
+            // FlightRecorder/BackgroundRecorder fix that suppresses spurious seed events
+            // on chain promotion, a duplicate DeployableExtended event would fire at the
+            // end of the boring tail, poisoning FindLastInterestingUT and preventing trim.
+            //
+            // This test verifies the GOOD state: when all PartEvents live at the start,
+            // TrimBoringTail correctly trims the long boring tail. The fix in
+            // FlightRecorder.ResetPartEventTrackingState (skipping emitSeedEvents on
+            // promotion) and BackgroundRecorder.InitializeLoadedState (skipping emission
+            // when the tree recording already has events) ensures this state is the
+            // runtime reality for chain-continued recordings.
+            var rec = MakeRoverScenarioRecording();
+            int originalPointCount = rec.Points.Count;
+            double originalEndUT = rec.EndUT;
+            // Seed events at start only (DeployableExtended for both solar panels)
+            rec.PartEvents.Add(new PartEvent
+            {
+                ut = 155, eventType = PartEventType.DeployableExtended, partPersistentId = 873017503,
+            });
+            rec.PartEvents.Add(new PartEvent
+            {
+                ut = 155, eventType = PartEventType.DeployableExtended, partPersistentId = 955579157,
+            });
+            var recordings = new List<Recording> { rec };
+
+            Assert.Equal(2070, originalEndUT);
+            Assert.Equal(76, originalPointCount);
+
+            Assert.True(RecordingOptimizer.TrimBoringTail(rec, recordings));
+            // Last interesting = 185 (SurfaceMobile endUT), trimUT = 195
+            // All points with UT > 195 trimmed → keeps only the 15 active points
+            Assert.Equal(15, rec.Points.Count);
+            Assert.True(rec.EndUT <= 195, $"Expected EndUT <= 195, got {rec.EndUT}");
+            Assert.True(rec.EndUT >= 155, $"Expected EndUT >= 155, got {rec.EndUT}");
+        }
+
+        [Fact]
+        public void TrimBoringTail_RoverScenario_StaleLateSeedEvent_BlocksTrim()
+        {
+            // Reproduces the PRE-FIX bug state: same rover scenario but with a bogus
+            // DeployableExtended event at UT 2068.78 (near the end), simulating what
+            // happened when the backgrounded rover was re-loaded and the seeder
+            // re-emitted events at the current UT. This stale event pushes
+            // FindLastInterestingUT to 2068, and trimUT = 2078 > EndUT = 2070,
+            // so TrimBoringTail returns false and the recording is NOT trimmed.
+            //
+            // Documents the symptom so regressions are caught: the fix lives in
+            // FlightRecorder / BackgroundRecorder, not TrimBoringTail itself. If this
+            // test ever starts returning true (trim succeeds), something changed in
+            // TrimBoringTail that may mask the seed-event fix in the recorders.
+            var rec = MakeRoverScenarioRecording();
+            rec.PartEvents.Add(new PartEvent
+            {
+                ut = 155, eventType = PartEventType.DeployableExtended, partPersistentId = 873017503,
+            });
+            // Bug A symptom: spurious duplicate at UT 2068.78 from chain-promotion re-seed
+            rec.PartEvents.Add(new PartEvent
+            {
+                ut = 2068.78, eventType = PartEventType.DeployableExtended, partPersistentId = 955579157,
+            });
+            var recordings = new List<Recording> { rec };
+
+            // Documents pre-fix behavior: trim SKIPPED because trimUT=2078.78 > EndUT=2070
+            Assert.False(RecordingOptimizer.TrimBoringTail(rec, recordings));
+            Assert.Equal(2070, rec.EndUT);
+            Assert.Equal(76, rec.Points.Count);
+        }
+
         [Fact]
         public void TrimBoringTail_MultipleTrailingBoringSections()
         {

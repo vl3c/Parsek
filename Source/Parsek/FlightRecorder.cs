@@ -3988,7 +3988,7 @@ namespace Parsek
             PartEvents.Clear();
             FlagEvents.Clear();
             SegmentEvents.Clear();
-            ResetPartEventTrackingState(v);
+            ResetPartEventTrackingState(v, emitSeedEvents: !isPromotion);
 
             LogVisualRecordingCoverage(v);
 
@@ -4229,7 +4229,15 @@ namespace Parsek
         /// Resets all part event tracking state and rebuilds module caches for the given vessel.
         /// Extracted from StartRecording for reuse by the promotion path.
         /// </summary>
-        private void ResetPartEventTrackingState(Vessel v)
+        /// <summary>
+        /// Clears part-event tracking state, re-caches modules, seeds current state,
+        /// and optionally emits seed events for the initial visual baseline.
+        /// </summary>
+        /// <param name="emitSeedEvents">True on new recording starts so ghost playback
+        /// has an initial visual baseline (bugs #70/#65). False on chain continuation
+        /// promotions — the prior chain segment already has the seed events, and emitting
+        /// new ones at the promotion UT poisons FindLastInterestingUT (bug A / #263 sibling).</param>
+        private void ResetPartEventTrackingState(Vessel v, bool emitSeedEvents = true)
         {
             decoupledPartIds.Clear();
             parachuteStates.Clear();
@@ -4283,6 +4291,13 @@ namespace Parsek
             // false events at first poll (e.g., shrouds already jettisoned,
             // engines already running, lights already on, etc.)
             SeedExistingPartStates(v);
+
+            if (!emitSeedEvents)
+            {
+                ParsekLog.Verbose("Recorder",
+                    "ResetPartEventTrackingState: skipping seed events (chain promotion)");
+                return;
+            }
 
             // Emit seed events for the initial visual state so ghost playback
             // can reconstruct correct visuals from recording start (bugs #70/#65).
