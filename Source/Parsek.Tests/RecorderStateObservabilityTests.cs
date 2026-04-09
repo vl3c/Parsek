@@ -400,6 +400,40 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void RecState_LongVesselName_TruncatedWithEllipsis()
+        {
+            // 40-char vessel name exceeds the 32-char cap (stock max ~30, but mods
+            // can produce longer names — line length must stay bounded).
+            string longName = new string('X', 40);
+            var tree = new RecordingTree
+            {
+                Id = "treeLongName",
+                TreeName = new string('T', 50), // also long
+                ActiveRecordingId = "recID12345678",
+            };
+            tree.Recordings["recID12345678"] = new Recording
+            {
+                RecordingId = "recID12345678",
+                VesselName = longName,
+                TreeId = tree.Id,
+            };
+
+            var snap = RecorderStateSnapshot.CaptureFromParts(
+                tree, null, null, PendingTreeState.Finalized, null,
+                null, false, null,
+                17400.0, GameScenes.FLIGHT);
+
+            ParsekLog.RecState("LongName", snap);
+
+            string line = logLines[0];
+            // Vessel name truncated to 32 X's + "..."
+            Assert.Contains("|" + new string('X', 32) + "...", line);
+            Assert.DoesNotContain(new string('X', 33), line);
+            // Tree name also truncated
+            Assert.Contains("|" + new string('T', 32) + "...", line);
+        }
+
+        [Fact]
         public void RecState_LocaleSafe_UsesInvariantCulture()
         {
             // Save current locale and switch to one that uses comma as decimal separator

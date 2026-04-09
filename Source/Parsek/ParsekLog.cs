@@ -23,6 +23,11 @@ namespace Parsek
 
         // Last-seen activeRecId, used to populate the "rec.prev" field only on
         // transitions. Reset for tests via ResetTestOverrides.
+        // [ThreadStatic] is correct for KSP's main-thread-only reality and for
+        // xUnit's per-thread test isolation. Any future caller from a background
+        // thread (e.g., a Harmony prefix on an async path) would silently start
+        // its own transition cache and miss cross-thread transitions — if that
+        // ever happens, convert to a locked shared field.
         [ThreadStatic]
         private static string t_lastSeenActiveRecId;
 
@@ -275,7 +280,7 @@ namespace Parsek
 
             sb.Append(" tree=");
             if (snap.mode == RecorderMode.Tree)
-                sb.Append(TruncateId(snap.treeId)).Append('|').Append(NullTo(snap.treeName));
+                sb.Append(TruncateId(snap.treeId)).Append('|').Append(TruncateName(snap.treeName));
             else
                 sb.Append('-');
 
@@ -284,7 +289,7 @@ namespace Parsek
             {
                 sb.Append(TruncateId(snap.activeRecId))
                   .Append('|')
-                  .Append(NullTo(snap.activeVesselName))
+                  .Append(TruncateName(snap.activeVesselName))
                   .Append("|pid=")
                   .Append(snap.activeVesselPid.ToString(inv));
             }
@@ -294,10 +299,9 @@ namespace Parsek
             }
 
             // rec.prev: only non-'-' on transition since the previous emitted snapshot.
+            // Covers both "changed to different id" and "changed to null" transitions.
             sb.Append(" rec.prev=");
-            if (lastSeenRecId != null && snap.activeRecId != null && lastSeenRecId != snap.activeRecId)
-                sb.Append(TruncateId(lastSeenRecId));
-            else if (lastSeenRecId != null && snap.activeRecId == null)
+            if (lastSeenRecId != null && lastSeenRecId != snap.activeRecId)
                 sb.Append(TruncateId(lastSeenRecId));
             else
                 sb.Append('-');
@@ -386,7 +390,17 @@ namespace Parsek
             return id.Length <= 8 ? id : id.Substring(0, 8);
         }
 
-        private static string NullTo(string s) => string.IsNullOrEmpty(s) ? "-" : s;
+        // Caps free-text names (vessel / tree) to a bounded length so a 200-char
+        // mod-generated name can't blow out the single-line [RecState] dump.
+        // 32 chars leaves enough room to recognise a stock vessel name; longer
+        // names get a trailing "..." marker.
+        private const int MaxRecStateNameLen = 32;
+        private static string TruncateName(string name)
+        {
+            if (string.IsNullOrEmpty(name)) return "-";
+            if (name.Length <= MaxRecStateNameLen) return name;
+            return name.Substring(0, MaxRecStateNameLen) + "...";
+        }
 
         private static string BoolStr(bool b) => b ? "T" : "F";
     }
