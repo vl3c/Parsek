@@ -292,9 +292,8 @@ namespace Parsek.Tests
         [Fact]
         public void E10_EmptyRollingBuffer_FormatShowsNA()
         {
-            // Rolling buffer is empty after ResetForTesting
-            Assert.True(DiagnosticsState.playbackFrameHistory.IsEmpty);
-
+            // Default snapshot has playbackEntriesInWindow = 0, which is the gate signal.
+            // FormatReport now reads this from the snapshot, not from the live buffer (#261).
             var snap = new MetricSnapshot
             {
                 perRecording = new StorageBreakdown[0]
@@ -306,6 +305,55 @@ namespace Parsek.Tests
             // Playback budget line must not show "0.0 ms avg" which would be misleading.
             // (Recording budget line legitimately shows "0.0 ms avg" since that's raw data, not rolling.)
             Assert.DoesNotContain("Playback budget: 0.0 ms avg", report);
+        }
+
+        // =====================================================================
+        // Bug #261: Rolling buffer has entries but all are outside the 4s window.
+        // Pre-fix, FormatReport read playbackFrameHistory.IsEmpty against the
+        // live buffer, saw "not empty", and printed the snapshot's
+        // 0.0/0.0/0.0 values as "Playback budget: 0.0 ms avg, 0.0 ms peak (0.0s window)".
+        // Post-fix, the gate reads snap.playbackEntriesInWindow which is the
+        // count returned by ComputeStats — when entries are all outside the
+        // window, the count is 0 regardless of buffer.IsEmpty.
+        // =====================================================================
+
+        [Fact]
+        public void E10b_StaleEntriesOutsideWindow_FormatShowsNA()
+        {
+            var snap = new MetricSnapshot
+            {
+                perRecording = new StorageBreakdown[0],
+                // Simulate the regression: ComputeStats wrote 0.0 values
+                // because the buffer had entries but none were in the window
+                playbackAvgTotalMs = 0.0,
+                playbackPeakTotalMs = 0.0,
+                playbackWindowDurationSeconds = 0.0,
+                playbackEntriesInWindow = 0,  // This is what saves us
+            };
+
+            string report = DiagnosticsComputation.FormatReport(snap);
+
+            Assert.Contains("Playback budget: N/A", report);
+            Assert.DoesNotContain("Playback budget: 0.0 ms avg", report);
+        }
+
+        [Fact]
+        public void E10c_RealDataInWindow_FormatShowsValues()
+        {
+            // Sanity check: when entriesInWindow > 0, format the actual values.
+            var snap = new MetricSnapshot
+            {
+                perRecording = new StorageBreakdown[0],
+                playbackAvgTotalMs = 4.2,
+                playbackPeakTotalMs = 8.1,
+                playbackWindowDurationSeconds = 4.0,
+                playbackEntriesInWindow = 240,
+            };
+
+            string report = DiagnosticsComputation.FormatReport(snap);
+
+            Assert.Contains("Playback budget: 4.2 ms avg, 8.1 ms peak (4.0s window)", report);
+            Assert.DoesNotContain("Playback budget: N/A", report);
         }
 
         // =====================================================================

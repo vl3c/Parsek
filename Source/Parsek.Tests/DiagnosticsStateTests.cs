@@ -118,7 +118,7 @@ namespace Parsek.Tests
             buf.Append(3.0, 1500);
             buf.Append(4.0, 2500);
 
-            buf.ComputeStats(4.0, 10.0, out double avgMs, out double peakMs, out double window);
+            buf.ComputeStats(4.0, 10.0, out double avgMs, out double peakMs, out double window, out int entries);
 
             // avg = (1000+2000+3000+1500+2500)/5 = 10000/5 = 2000 microseconds = 2.0 ms
             Assert.Equal(2.0, avgMs, 6);
@@ -126,6 +126,7 @@ namespace Parsek.Tests
             Assert.Equal(3.0, peakMs, 6);
             // window = 4.0 - 0.0 = 4.0
             Assert.Equal(4.0, window, 6);
+            Assert.Equal(5, entries);
         }
 
         [Fact]
@@ -138,13 +139,14 @@ namespace Parsek.Tests
 
             // Compute with window=3s at t=6 => windowStart=3.0
             // Only entries at t=3,4,5,6 should be included (4 entries)
-            buf.ComputeStats(6.0, 3.0, out double avgMs, out double peakMs, out double window);
+            buf.ComputeStats(6.0, 3.0, out double avgMs, out double peakMs, out double window, out int entries);
 
             // avg = 100us = 0.1ms for all entries
             Assert.Equal(0.1, avgMs, 6);
             Assert.Equal(0.1, peakMs, 6);
             // window = 6.0 - 3.0 = 3.0
             Assert.Equal(3.0, window, 6);
+            Assert.Equal(4, entries);
         }
 
         [Fact]
@@ -152,11 +154,35 @@ namespace Parsek.Tests
         {
             var buf = new RollingTimingBuffer();
 
-            buf.ComputeStats(5.0, 10.0, out double avgMs, out double peakMs, out double window);
+            buf.ComputeStats(5.0, 10.0, out double avgMs, out double peakMs, out double window, out int entries);
 
             Assert.Equal(0.0, avgMs);
             Assert.Equal(0.0, peakMs);
             Assert.Equal(0.0, window);
+            Assert.Equal(0, entries);
+        }
+
+        [Fact]
+        public void ComputeStats_AllEntriesOutsideWindow_ReportsZeroEntries()
+        {
+            // Bug #261: buffer has entries but they're all older than the window.
+            // Pre-fix, this returned avgMs=0/peakMs=0/window=0 with no way to
+            // distinguish "no data" from "data is genuinely 0.0 ms".
+            var buf = new RollingTimingBuffer();
+            buf.Append(0.0, 5000);
+            buf.Append(1.0, 7000);
+            buf.Append(2.0, 6000);
+
+            // Compute at t=100 with a 4s window — every entry is far older than windowStart=96
+            buf.ComputeStats(100.0, 4.0, out double avgMs, out double peakMs, out double window, out int entries);
+
+            Assert.Equal(0.0, avgMs);
+            Assert.Equal(0.0, peakMs);
+            Assert.Equal(0.0, window);
+            Assert.Equal(0, entries);
+            // Sanity: buffer was never empty
+            Assert.False(buf.IsEmpty);
+            Assert.Equal(3, buf.Count);
         }
 
         [Fact]
@@ -188,7 +214,7 @@ namespace Parsek.Tests
             Assert.Equal(1024, buf.Count);
 
             // Verify the newest entry is included in stats
-            buf.ComputeStats(1024, 0.5, out double avgMs, out double peakMs, out _);
+            buf.ComputeStats(1024, 0.5, out double avgMs, out double peakMs, out _, out _);
             // Only entry at t=1024 (within 0.5s window from 1024)
             Assert.Equal(9.999, peakMs, 3); // 9999 us = 9.999 ms
         }
@@ -472,11 +498,6 @@ namespace Parsek.Tests
             DiagnosticsState.health.ghostBuildsThisSession = 14;
             DiagnosticsState.health.gcGen0Baseline = GC.CollectionCount(0);
 
-            // Put data in the rolling buffer so it doesn't show N/A
-            DiagnosticsState.playbackFrameHistory.Append(100.0, 1800); // 1.8 ms
-            DiagnosticsState.playbackFrameHistory.Append(101.0, 3200); // 3.2 ms
-            DiagnosticsComputation.ClockSource = () => 101.0;
-
             var bd = new StorageBreakdown
             {
                 recordingId = "test-1",
@@ -503,6 +524,11 @@ namespace Parsek.Tests
                 zone1GhostCount = 3,
                 zone2GhostCount = 5,
                 lastPlaybackBudget = new FrameBudget { warpRate = 1.0f },
+                // Populate playback rolling stats so the gate (entriesInWindow > 0) shows formatted values
+                playbackAvgTotalMs = 2.5,
+                playbackPeakTotalMs = 3.2,
+                playbackWindowDurationSeconds = 1.0,
+                playbackEntriesInWindow = 2,
                 lastSaveTiming = new SaveLoadTiming { totalMilliseconds = 120, dirtyRecordingsWritten = 3 },
                 lastLoadTiming = new SaveLoadTiming { totalMilliseconds = 340, recordingsProcessed = 23 }
             };

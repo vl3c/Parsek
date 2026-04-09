@@ -645,11 +645,15 @@ In-game test `OrbitalRecordingsHaveTerminalOrbit` reports 4 orbital recordings w
 
 **Status:** Fixed
 
-## 261. Diagnostics playback budget shows 0.0 ms instead of N/A on first frame
+## ~~261. Diagnostics playback budget shows 0.0 ms instead of N/A on first frame~~
 
-The diagnostics report shows "Playback budget: 0.0 ms avg, 0.0 ms peak" when run before the rolling buffer has any entries, rather than "N/A" as specified in the design doc (edge case E10). The `FormatReport` N/A logic may not be checking the right condition.
+The diagnostics report showed "Playback budget: 0.0 ms avg, 0.0 ms peak (0.0s window)" instead of "N/A" in the rolling-window edge case.
 
-**Priority:** Low — cosmetic, only visible if report is run immediately after scene load
+**Root cause:** Two layers. (1) `FormatReport` checked `playbackFrameHistory.IsEmpty` against the **live** buffer but formatted values from a **stale** snapshot — race window where buffer is non-empty but snapshot is from when it wasn't. (2) Even reading the snapshot, the existing avg/peak/window fields can't distinguish "no data" from "data is genuinely 0.0 ms" when the buffer has entries that are all *outside* the 4 s rolling window: `ComputeStats` writes 0/0/0 and returns, but `IsEmpty` says false.
+
+**Fix:** Added `playbackEntriesInWindow` to `MetricSnapshot`, populated from a new 4th `out` parameter on `RollingTimingBuffer.ComputeStats`. `FormatReport` now reads `snapshot.playbackEntriesInWindow > 0` instead of querying the live buffer — it's a pure function of its snapshot argument for the playback line. New regression test `E10b_StaleEntriesOutsideWindow_FormatShowsNA` covers the buffer-non-empty-but-window-empty case; new `RollingTimingBuffer` test `ComputeStats_AllEntriesOutsideWindow_ReportsZeroEntries` covers the underlying primitive.
+
+**Status:** Fixed
 
 ## 262. Diagnostics missing _vessel.craft warnings for tree sub-recordings
 

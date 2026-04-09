@@ -250,7 +250,8 @@ namespace Parsek
                 wallTs, 4.0,
                 out snap.playbackAvgTotalMs,
                 out snap.playbackPeakTotalMs,
-                out snap.playbackWindowDurationSeconds);
+                out snap.playbackWindowDurationSeconds,
+                out snap.playbackEntriesInWindow);
 
             // --- Save/load timing ---
             snap.lastSaveTiming = DiagnosticsState.lastSaveTiming;
@@ -342,9 +343,11 @@ namespace Parsek
                 snapshot.softCapSimplifiedCount);
             sb.AppendLine();
 
-            // Playback budget
-            bool hasPlaybackData = DiagnosticsState.playbackFrameHistory != null
-                                && !DiagnosticsState.playbackFrameHistory.IsEmpty;
+            // Playback budget — read from snapshot, not live buffer.
+            // The snapshot may have been computed when the buffer had entries that were
+            // all outside the 4 s rolling window; in that case avg/peak/duration are 0
+            // and entriesInWindow == 0, which is the correct N/A signal (#261).
+            bool hasPlaybackData = snapshot.playbackEntriesInWindow > 0;
             if (hasPlaybackData)
             {
                 sb.AppendFormat(Inv,

@@ -52,14 +52,19 @@ namespace Parsek
         /// Compute rolling average and peak over entries within windowSeconds of currentTimestamp.
         /// Scans from newest to oldest, stops when entry is older than the window.
         /// Output values are in milliseconds (converted from stored microseconds).
-        /// Empty buffer or no entries in window: avgMs=0, peakMs=0, actualWindowDuration=0.
+        /// Empty buffer or no entries in window: avgMs=0, peakMs=0, actualWindowDuration=0,
+        /// entriesInWindow=0. Use <c>entriesInWindow &gt; 0</c> to distinguish "no data"
+        /// from "data is genuinely 0.0 ms" — the buffer can have entries that are all
+        /// outside the rolling window (#261).
         /// </summary>
         public void ComputeStats(double currentTimestamp, double windowSeconds,
-            out double avgMs, out double peakMs, out double actualWindowDuration)
+            out double avgMs, out double peakMs, out double actualWindowDuration,
+            out int entriesInWindow)
         {
             avgMs = 0.0;
             peakMs = 0.0;
             actualWindowDuration = 0.0;
+            entriesInWindow = 0;
 
             if (count == 0)
                 return;
@@ -67,7 +72,6 @@ namespace Parsek
             double windowStart = currentTimestamp - windowSeconds;
             long sumMicroseconds = 0;
             long maxMicroseconds = 0;
-            int entriesInWindow = 0;
             double oldestInWindow = currentTimestamp;
             double newestInWindow = 0.0;
 

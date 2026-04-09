@@ -75,6 +75,7 @@ namespace Parsek
         public double playbackAvgTotalMs;
         public double playbackPeakTotalMs;
         public double playbackWindowDurationSeconds;
+        public int playbackEntriesInWindow;
 
         // Save/load
         public SaveLoadTiming lastSaveTiming;
