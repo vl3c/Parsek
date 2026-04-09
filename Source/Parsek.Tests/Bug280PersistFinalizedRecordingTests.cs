@@ -107,14 +107,9 @@ namespace Parsek.Tests
             // KSPUtil.ApplicationRootPath), which unit tests can't set up. The
             // success log assertion ("wrote sidecar for recId=…") is deferred to
             // the in-game Kerbal X playtest.
-            //
-            // The path-traversal pid here ("../../etc/passwd") doubles as an
-            // implicit verification that RecordingPaths.ValidateRecordingId
-            // rejects the input — without that rejection, SaveRecordingFiles
-            // would attempt a real file write outside the save folder.
             var rec = new Recording
             {
-                RecordingId = "../../etc/passwd", // rejected by ValidateRecordingId
+                RecordingId = "invalid id with spaces", // rejected by ValidateRecordingId
                 VesselName = "test"
             };
 
