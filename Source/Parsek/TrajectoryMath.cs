@@ -21,21 +21,41 @@ namespace Parsek
     public static class TrajectoryMath
     {
         /// <summary>
-        /// Decides whether to record a trajectory point based on velocity changes
-        /// and a max-interval backstop. Pure function for testability.
+        /// Decides whether to record a trajectory point based on velocity changes,
+        /// a min-interval floor, and a max-interval backstop. Pure function for testability.
+        ///
+        /// Gate order:
+        ///   1. First point (lastRecordedUT &lt; 0) — always record
+        ///   2. Max-interval backstop — always record after this long (overrides floor for
+        ///      degenerate configs where minInterval &gt; maxInterval)
+        ///   3. Min-interval floor — never record inside this window, regardless of velocity gates
+        ///   4. Velocity direction / speed gates — opportunistic
+        ///
+        /// The min-interval floor caps worst-case sample rate during slow/jittery motion
+        /// (EVA on surface, slow rovers, hovering aircraft) where the velocity gates can
+        /// otherwise fire on every physics frame. Set minInterval = 0 to disable the floor.
         /// </summary>
         internal static bool ShouldRecordPoint(
             Vector3 currentVelocity, Vector3 lastVelocity,
             double currentUT, double lastRecordedUT,
-            float maxInterval, float velDirThreshold, float speedThreshold)
+            float minInterval, float maxInterval,
+            float velDirThreshold, float speedThreshold)
         {
             // Always record the first point
             if (lastRecordedUT < 0)
                 return true;
 
-            // Max interval backstop — always record after this long
-            if (currentUT - lastRecordedUT >= maxInterval)
+            double elapsed = currentUT - lastRecordedUT;
+
+            // Max interval backstop — always record after this long.
+            // Checked BEFORE the min floor so a degenerate config (minInterval > maxInterval)
+            // still produces samples instead of starving the recording.
+            if (elapsed >= maxInterval)
                 return true;
+
+            // Min interval floor — never record inside this window
+            if (elapsed < minInterval)
+                return false;
 
             float currentSpeed = currentVelocity.magnitude;
             float lastSpeed = lastVelocity.magnitude;
