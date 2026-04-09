@@ -433,7 +433,11 @@ namespace Parsek
                 int n = Math.Min(nRaw, MaxSubStepsPerSegment);
                 if (n < nRaw)
                 {
-                    ParsekLog.Warn(Tag,
+                    // Rate-limited: a pathological 20-segment orbital trajectory would
+                    // otherwise burst 20 warnings per walkback attempt. Shared key across
+                    // all walkback calls — the warning is diagnostic ("you have overly
+                    // sparse trajectory sampling"), one line every few seconds suffices.
+                    ParsekLog.WarnRateLimited(Tag, "walkback-subdivided-clamp",
                         string.Format(IC,
                             "WalkbackSubdivided: segment [{0}↔{1}] d={2}m requested n={3} > max {4} — clamping (effective step = {5}m)",
                             i - 1, i, dMeters.ToString("F2", IC), nRaw, MaxSubStepsPerSegment,
