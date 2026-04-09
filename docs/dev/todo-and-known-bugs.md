@@ -655,11 +655,13 @@ The diagnostics report showed "Playback budget: 0.0 ms avg, 0.0 ms peak (0.0s wi
 
 **Status:** Fixed
 
-## 262. Diagnostics missing _vessel.craft warnings for tree sub-recordings
+## ~~262. Diagnostics missing _vessel.craft warnings for tree sub-recordings~~
 
-Tree sub-recordings (debris, EVA branches) may not have their own `_vessel.craft` file — they share the tree root's snapshot. The storage scan warns "Missing sidecar file" for each of these. Should skip the warning for recordings that are tree members and don't own their own vessel snapshot.
+Tree continuation recordings, ghost-only-merged debris, and chain mid-segments legitimately have null `VesselSnapshot` / `GhostVisualSnapshot` in memory, and `RecordingStore.SaveRecordingFiles` only writes `_vessel.craft` / `_ghost.craft` when the corresponding in-memory snapshot is non-null. The diagnostics storage scan was warning "Missing sidecar file" for every such recording on every scan.
 
-**Priority:** Low — cosmetic log noise
+**Fix:** New pure predicate `DiagnosticsComputation.ShouldExpectSidecarFile(rec, type)` mirrors the save-side write conditions: `.prec` always expected, `_vessel.craft` only when `rec.VesselSnapshot != null`, `_ghost.craft` only when `rec.GhostVisualSnapshot != null`. `SafeGetFileSize` gained a `warnIfMissing` parameter; `ComputeStorageBreakdown` passes `false` for the snapshot files when the predicate says no file is expected. `.prec` keeps warning on missing (always written = always expected). 4 unit tests for the predicate (trajectory always, vessel gated, ghost gated, null recording).
+
+**Status:** Fixed
 
 ## ~~263. Ghost mesh inaccurate after decoupling boosters~~
 

@@ -102,9 +102,16 @@ namespace Parsek
             string vesselPath = SafeResolvePath(RecordingPaths.BuildVesselSnapshotRelativePath(rec.RecordingId));
             string ghostPath = SafeResolvePath(RecordingPaths.BuildGhostSnapshotRelativePath(rec.RecordingId));
 
-            bd.trajectoryFileBytes = SafeGetFileSize(precPath);
-            bd.vesselSnapshotBytes = SafeGetFileSize(vesselPath);
-            bd.ghostSnapshotBytes = SafeGetFileSize(ghostPath);
+            // .prec is always written. _vessel.craft and _ghost.craft are written
+            // only when their in-memory snapshot is non-null. For tree continuation
+            // recordings, ghost-only-merged debris, etc., the snapshot is legitimately
+            // null and no file ever existed — querying with the warning enabled
+            // would emit a false-positive "Missing sidecar file" warning per scan (#262).
+            bd.trajectoryFileBytes = SafeGetFileSize(precPath, warnIfMissing: true);
+            bd.vesselSnapshotBytes = SafeGetFileSize(vesselPath,
+                warnIfMissing: ShouldExpectSidecarFile(rec, SidecarFileType.VesselSnapshot));
+            bd.ghostSnapshotBytes = SafeGetFileSize(ghostPath,
+                warnIfMissing: ShouldExpectSidecarFile(rec, SidecarFileType.GhostSnapshot));
             bd.totalBytes = bd.trajectoryFileBytes + bd.vesselSnapshotBytes
                           + bd.ghostSnapshotBytes;
 
@@ -133,10 +140,43 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Gets file size in bytes. Returns 0 if file doesn't exist or path is null.
-        /// Logs a warning for missing files when path is non-null.
+        /// Sidecar file types written by RecordingStore.SaveRecordingFiles.
+        /// Used by ShouldExpectSidecarFile to gate "missing file" warnings.
         /// </summary>
-        private static long SafeGetFileSize(string path)
+        internal enum SidecarFileType
+        {
+            Trajectory,
+            VesselSnapshot,
+            GhostSnapshot,
+        }
+
+        /// <summary>
+        /// Pure predicate: should this recording's sidecar file exist on disk?
+        /// Mirrors RecordingStore.SaveRecordingFiles' write conditions:
+        /// - .prec is always written
+        /// - _vessel.craft only when rec.VesselSnapshot != null
+        /// - _ghost.craft only when rec.GhostVisualSnapshot != null
+        /// Tree continuation recordings, ghost-only-merged debris, and chain
+        /// mid-segments legitimately have null snapshots and no sidecar file.
+        /// </summary>
+        internal static bool ShouldExpectSidecarFile(Recording rec, SidecarFileType type)
+        {
+            if (rec == null) return false;
+            switch (type)
+            {
+                case SidecarFileType.Trajectory:     return true;
+                case SidecarFileType.VesselSnapshot: return rec.VesselSnapshot != null;
+                case SidecarFileType.GhostSnapshot:  return rec.GhostVisualSnapshot != null;
+                default: return false;
+            }
+        }
+
+        /// <summary>
+        /// Gets file size in bytes. Returns 0 if file doesn't exist or path is null.
+        /// Emits a "Missing sidecar file" warning only when warnIfMissing is true —
+        /// callers gate this for files that legitimately may not exist (#262).
+        /// </summary>
+        private static long SafeGetFileSize(string path, bool warnIfMissing)
         {
             if (string.IsNullOrEmpty(path))
                 return 0;
@@ -146,7 +186,8 @@ namespace Parsek
                 var fi = new FileInfo(path);
                 if (!fi.Exists)
                 {
-                    ParsekLog.Warn("Diagnostics", $"Missing sidecar file during storage scan: {path}");
+                    if (warnIfMissing)
+                        ParsekLog.Warn("Diagnostics", $"Missing sidecar file during storage scan: {path}");
                     return 0;
                 }
                 return fi.Length;

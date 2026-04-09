@@ -25,6 +25,7 @@ Dev notes: technical narratives for the fixes below live in `docs/dev/todo-and-k
 
 - `#260` Removed dead `.pcrf` ghost geometry scaffolding — never implemented (write side missing), only loaded. Eliminates ~52 spurious "Missing sidecar file" warnings per diagnostics scan and removes 3 vestigial fields, an unused path builder, and dead orphan-detection coverage.
 - `#261` Diagnostics report no longer prints `Playback budget: 0.0 ms avg, 0.0 ms peak (0.0s window)` when the rolling buffer has entries but they're all outside the 4 s window. The gate now reads `playbackEntriesInWindow` from the snapshot (a new field populated by `RollingTimingBuffer.ComputeStats`) instead of querying the live buffer's `IsEmpty`, so `FormatReport` is now a function of its snapshot argument and shows `Playback budget: N/A` correctly.
+- `#262` Diagnostics storage scan no longer emits "Missing sidecar file" warnings for tree continuation recordings, ghost-only-merged debris, and chain mid-segments — recordings that legitimately have null `VesselSnapshot` / `GhostVisualSnapshot` and never had a `_vessel.craft` / `_ghost.craft` file written. New pure predicate `ShouldExpectSidecarFile` mirrors `RecordingStore.SaveRecordingFiles`' write conditions; the warning fires only when the in-memory snapshot is non-null. `.prec` warnings are unchanged (always expected).
 
 ### Bug Fixes — KerbalX + Butterfly Rover playtest (2026-04-09)
 

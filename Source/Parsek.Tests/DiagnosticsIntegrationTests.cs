@@ -357,6 +357,63 @@ namespace Parsek.Tests
         }
 
         // =====================================================================
+        // Bug #262: ShouldExpectSidecarFile pure predicate
+        // Mirrors RecordingStore.SaveRecordingFiles' write conditions:
+        //   .prec → always
+        //   _vessel.craft → only when rec.VesselSnapshot != null
+        //   _ghost.craft → only when rec.GhostVisualSnapshot != null
+        // Tree continuation recordings, ghost-only-merged debris, and chain
+        // mid-segments legitimately have null snapshots and no sidecar file.
+        // =====================================================================
+
+        [Fact]
+        public void ShouldExpectSidecarFile_TrajectoryAlways()
+        {
+            var withBoth = new Recording { VesselSnapshot = new ConfigNode("V"), GhostVisualSnapshot = new ConfigNode("G") };
+            var withNeither = new Recording();
+
+            Assert.True(DiagnosticsComputation.ShouldExpectSidecarFile(withBoth,
+                DiagnosticsComputation.SidecarFileType.Trajectory));
+            Assert.True(DiagnosticsComputation.ShouldExpectSidecarFile(withNeither,
+                DiagnosticsComputation.SidecarFileType.Trajectory));
+        }
+
+        [Fact]
+        public void ShouldExpectSidecarFile_VesselSnapshotGated()
+        {
+            var withVessel = new Recording { VesselSnapshot = new ConfigNode("V") };
+            var withoutVessel = new Recording();
+
+            Assert.True(DiagnosticsComputation.ShouldExpectSidecarFile(withVessel,
+                DiagnosticsComputation.SidecarFileType.VesselSnapshot));
+            Assert.False(DiagnosticsComputation.ShouldExpectSidecarFile(withoutVessel,
+                DiagnosticsComputation.SidecarFileType.VesselSnapshot));
+        }
+
+        [Fact]
+        public void ShouldExpectSidecarFile_GhostSnapshotGated()
+        {
+            var withGhost = new Recording { GhostVisualSnapshot = new ConfigNode("G") };
+            var withoutGhost = new Recording();
+
+            Assert.True(DiagnosticsComputation.ShouldExpectSidecarFile(withGhost,
+                DiagnosticsComputation.SidecarFileType.GhostSnapshot));
+            Assert.False(DiagnosticsComputation.ShouldExpectSidecarFile(withoutGhost,
+                DiagnosticsComputation.SidecarFileType.GhostSnapshot));
+        }
+
+        [Fact]
+        public void ShouldExpectSidecarFile_NullRecording_AlwaysFalse()
+        {
+            Assert.False(DiagnosticsComputation.ShouldExpectSidecarFile(null,
+                DiagnosticsComputation.SidecarFileType.Trajectory));
+            Assert.False(DiagnosticsComputation.ShouldExpectSidecarFile(null,
+                DiagnosticsComputation.SidecarFileType.VesselSnapshot));
+            Assert.False(DiagnosticsComputation.ShouldExpectSidecarFile(null,
+                DiagnosticsComputation.SidecarFileType.GhostSnapshot));
+        }
+
+        // =====================================================================
         // Edge case: Duration zero recording, bytesPerSecond must be 0.0
         // Guards against: division by zero producing NaN or Infinity when
         // StartUT == EndUT (instantaneous recording, e.g. single-frame).
