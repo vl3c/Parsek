@@ -414,6 +414,48 @@ namespace Parsek.Tests
         }
 
         // =====================================================================
+        // Bug #262: SafeGetFileSize warning gate — verifies that the file-level
+        // helper actually suppresses the "Missing sidecar file" warning when
+        // warnIfMissing=false. Closes the loop between ShouldExpectSidecarFile
+        // (predicate, tested above) and the integration in ComputeStorageBreakdown.
+        // =====================================================================
+
+        [Fact]
+        public void SafeGetFileSize_MissingFile_WarnIfMissingTrue_LogsWarning()
+        {
+            string nonExistent = System.IO.Path.Combine(
+                System.IO.Path.GetTempPath(), $"parsek_test_{System.Guid.NewGuid():N}.prec");
+
+            long size = DiagnosticsComputation.SafeGetFileSize(nonExistent, warnIfMissing: true);
+
+            Assert.Equal(0L, size);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Diagnostics]") && l.Contains("Missing sidecar file") && l.Contains(nonExistent));
+        }
+
+        [Fact]
+        public void SafeGetFileSize_MissingFile_WarnIfMissingFalse_NoWarning()
+        {
+            string nonExistent = System.IO.Path.Combine(
+                System.IO.Path.GetTempPath(), $"parsek_test_{System.Guid.NewGuid():N}_vessel.craft");
+
+            long size = DiagnosticsComputation.SafeGetFileSize(nonExistent, warnIfMissing: false);
+
+            Assert.Equal(0L, size);
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("Missing sidecar file") && l.Contains(nonExistent));
+        }
+
+        [Fact]
+        public void SafeGetFileSize_NullPath_NoWarning()
+        {
+            long size = DiagnosticsComputation.SafeGetFileSize(null, warnIfMissing: true);
+
+            Assert.Equal(0L, size);
+            Assert.DoesNotContain(logLines, l => l.Contains("Missing sidecar file"));
+        }
+
+        // =====================================================================
         // Edge case: Duration zero recording, bytesPerSecond must be 0.0
         // Guards against: division by zero producing NaN or Infinity when
         // StartUT == EndUT (instantaneous recording, e.g. single-frame).

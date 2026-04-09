@@ -424,6 +424,21 @@ namespace Parsek.Tests
         }
 
         [Theory]
+        [InlineData("abc123.pcrf", true)]                                    // legacy ghost-geometry sidecar (#260)
+        [InlineData("a1b2c3d4e5f6.pcrf", true)]
+        [InlineData("ABC123.PCRF", true)]                                    // case-insensitive
+        [InlineData("abc123.prec", false)]                                   // current sidecar — not legacy
+        [InlineData("abc123_vessel.craft", false)]
+        [InlineData("abc123_ghost.craft", false)]
+        [InlineData("readme.txt", false)]
+        [InlineData("", false)]
+        [InlineData(null, false)]
+        public void IsLegacySidecarFile_Works(string fileName, bool expected)
+        {
+            Assert.Equal(expected, RecordingStore.IsLegacySidecarFile(fileName));
+        }
+
+        [Theory]
         [InlineData("mk1pod_v2_123456", "mk1pod_v2")]
         [InlineData("probeCoreOcto2_1", "probeCoreOcto2")]
         [InlineData("solidBooster.sm.v2_12345", "solidBooster.sm.v2")]

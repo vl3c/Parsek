@@ -176,7 +176,7 @@ namespace Parsek
         /// Emits a "Missing sidecar file" warning only when warnIfMissing is true —
         /// callers gate this for files that legitimately may not exist (#262).
         /// </summary>
-        private static long SafeGetFileSize(string path, bool warnIfMissing)
+        internal static long SafeGetFileSize(string path, bool warnIfMissing)
         {
             if (string.IsNullOrEmpty(path))
                 return 0;
