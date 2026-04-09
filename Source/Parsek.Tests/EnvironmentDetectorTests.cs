@@ -879,5 +879,126 @@ namespace Parsek.Tests
         }
 
         #endregion
+
+        #region IsSurfaceEnvironment / IsSurfaceForAnchorDetection (bug #256 D-companion)
+
+        [Theory]
+        [InlineData(SegmentEnvironment.SurfaceMobile, true)]
+        [InlineData(SegmentEnvironment.SurfaceStationary, true)]
+        [InlineData(SegmentEnvironment.Atmospheric, false)]
+        [InlineData(SegmentEnvironment.Approach, false)]
+        [InlineData(SegmentEnvironment.ExoBallistic, false)]
+        [InlineData(SegmentEnvironment.ExoPropulsive, false)]
+        public void IsSurfaceEnvironment_OnlyTrueForSurfaceStates(SegmentEnvironment env, bool expected)
+        {
+            Assert.Equal(expected, EnvironmentDetector.IsSurfaceEnvironment(env));
+        }
+
+        [Fact]
+        public void IsSurfaceForAnchorDetection_PrefersDebouncedEnvironment()
+        {
+            // KSP raw situation says FLYING (8), but the debounced environment is
+            // SurfaceMobile (still walking on the Mun, just transient jitter to FLYING).
+            // Function must trust the debounced classification.
+            var result = EnvironmentDetector.IsSurfaceForAnchorDetection(
+                envHint: SegmentEnvironment.SurfaceMobile,
+                situation: 8); // FLYING
+
+            Assert.True(result);
+        }
+
+        [Fact]
+        public void IsSurfaceForAnchorDetection_DebouncedFlyingTrumpsLandedSituation()
+        {
+            // Inverse: KSP raw situation says LANDED (1), but the debounced environment
+            // says Atmospheric. Trust the debounced classification.
+            var result = EnvironmentDetector.IsSurfaceForAnchorDetection(
+                envHint: SegmentEnvironment.Atmospheric,
+                situation: 1); // LANDED
+
+            Assert.False(result);
+        }
+
+        [Theory]
+        [InlineData(1, true)]   // LANDED
+        [InlineData(2, true)]   // SPLASHED
+        [InlineData(4, true)]   // PRELAUNCH
+        [InlineData(8, false)]  // FLYING
+        [InlineData(16, false)] // SUB_ORBITAL
+        [InlineData(32, false)] // ORBITING
+        [InlineData(64, false)] // ESCAPING
+        public void IsSurfaceForAnchorDetection_FallsBackToSituation_WhenNoEnvironment(
+            int situation, bool expected)
+        {
+            // No environment classifier available (envHint = null) — must fall back to
+            // raw situation.
+            var result = EnvironmentDetector.IsSurfaceForAnchorDetection(
+                envHint: null,
+                situation: situation);
+
+            Assert.Equal(expected, result);
+        }
+
+        // FlightRecorder.ResolveAnchorOnSurface integration tests — exercise the wiring
+        // (null hysteresis branch + CurrentEnvironment read) that UpdateAnchorDetection
+        // uses, without needing a Vessel instance. Catches refactor regressions where
+        // someone changes UpdateAnchorDetection to bypass the helper.
+
+        [Theory]
+        [InlineData(1, true)]   // LANDED
+        [InlineData(2, true)]   // SPLASHED
+        [InlineData(4, true)]   // PRELAUNCH
+        [InlineData(8, false)]  // FLYING
+        [InlineData(16, false)] // SUB_ORBITAL
+        [InlineData(32, false)] // ORBITING
+        [InlineData(64, false)] // ESCAPING
+        public void ResolveAnchorOnSurface_NullHysteresis_FallsBackToSituation(
+            int situation, bool expected)
+        {
+            // Null hysteresis (e.g. early in StartRecording before
+            // InitializeEnvironmentAndAnchorTracking runs) → must fall back to
+            // raw situation. Exercises the `?.` null branch.
+            var result = FlightRecorder.ResolveAnchorOnSurface(null, situation);
+            Assert.Equal(expected, result);
+        }
+
+        [Fact]
+        public void ResolveAnchorOnSurface_LiveHysteresis_PrefersDebouncedClassification()
+        {
+            // Debounced says SurfaceMobile despite raw FLYING — the EVA-jitter case
+            // (kerbal stepping above ground for one frame, situation flipping LANDED
+            // → FLYING). Bug #246's pattern applied to anchor detection.
+            var landedDebounce = new EnvironmentHysteresis(SegmentEnvironment.SurfaceMobile);
+            Assert.True(FlightRecorder.ResolveAnchorOnSurface(landedDebounce, situation: 8));
+
+            // Inverse: debounced says Atmospheric despite raw LANDED. Trust the
+            // debounced classification.
+            var atmoDebounce = new EnvironmentHysteresis(SegmentEnvironment.Atmospheric);
+            Assert.False(FlightRecorder.ResolveAnchorOnSurface(atmoDebounce, situation: 1));
+        }
+
+        [Fact]
+        public void ResolveAnchorOnSurface_LiveHysteresis_AllSurfaceEnvironmentsRecognized()
+        {
+            // Both surface environment values must produce true regardless of raw situation.
+            var mobile = new EnvironmentHysteresis(SegmentEnvironment.SurfaceMobile);
+            var stationary = new EnvironmentHysteresis(SegmentEnvironment.SurfaceStationary);
+            Assert.True(FlightRecorder.ResolveAnchorOnSurface(mobile, situation: 8));      // FLYING raw
+            Assert.True(FlightRecorder.ResolveAnchorOnSurface(stationary, situation: 16)); // SUB_ORBITAL raw
+        }
+
+        [Fact]
+        public void ResolveAnchorOnSurface_LiveHysteresis_NonSurfaceEnvironmentsReturnFalse()
+        {
+            // Approach, ExoBallistic, ExoPropulsive must produce false regardless of raw situation.
+            var approach = new EnvironmentHysteresis(SegmentEnvironment.Approach);
+            var exoBallistic = new EnvironmentHysteresis(SegmentEnvironment.ExoBallistic);
+            var exoPropulsive = new EnvironmentHysteresis(SegmentEnvironment.ExoPropulsive);
+            Assert.False(FlightRecorder.ResolveAnchorOnSurface(approach, situation: 1));      // LANDED raw
+            Assert.False(FlightRecorder.ResolveAnchorOnSurface(exoBallistic, situation: 2));  // SPLASHED raw
+            Assert.False(FlightRecorder.ResolveAnchorOnSurface(exoPropulsive, situation: 4)); // PRELAUNCH raw
+        }
+
+        #endregion
     }
 }

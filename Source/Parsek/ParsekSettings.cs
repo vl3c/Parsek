@@ -25,6 +25,11 @@ namespace Parsek
             toolTip = "When enabled, write detailed diagnostics to KSP.log (default for development)")]
         public bool verboseLogging = true;
 
+        [GameParameters.CustomFloatParameterUI("Min sample interval (s)", minValue = 0.05f, maxValue = 1f,
+            stepCount = 20, displayFormat = "F2",
+            toolTip = "Minimum seconds between trajectory samples — caps sample rate during slow/jittery motion (e.g. EVA on surface)")]
+        public float minSampleInterval = 0.2f;
+
         [GameParameters.CustomFloatParameterUI("Max sample interval (s)", minValue = 1f, maxValue = 10f,
             stepCount = 19, displayFormat = "F1",
             toolTip = "Maximum seconds between trajectory samples")]
