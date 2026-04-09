@@ -1243,7 +1243,16 @@ namespace Parsek
                     var terminalEvents = FlightRecorder.EmitTerminalEngineAndRcsEvents(
                         state.activeEngineKeys, state.activeRcsKeys, state.activeRoboticKeys,
                         state.lastRoboticPosition, commitUT, "BgRecorder");
-                    flushRec.PartEvents.AddRange(terminalEvents);
+                    if (terminalEvents.Count > 0)
+                    {
+                        flushRec.PartEvents.AddRange(terminalEvents);
+                        // FlushTrackSectionsToRecording only marks dirty when
+                        // state.trackSections.Count > 0 — a background vessel
+                        // finalized with no accumulated sections (e.g. one that
+                        // just entered loaded state) would otherwise leave
+                        // flushRec.FilesDirty false after this terminal emit.
+                        flushRec.MarkFilesDirty();
+                    }
                 }
             }
 
@@ -1486,7 +1495,14 @@ namespace Parsek
                 var seedSets = BuildPartTrackingSetsFromState(state);
                 var seedEvents = PartStateSeeder.EmitSeedEvents(seedSets, partNamesByPid, seedUT, "BgRecorder");
                 if (seedEvents.Count > 0)
+                {
                     treeRecForSeed.PartEvents.AddRange(seedEvents);
+                    // If the very next event is an OnSave (e.g., the player
+                    // F5s immediately after a background vessel enters loaded
+                    // physics), the seed events would otherwise be lost because
+                    // nothing else marks dirty until the next poll emits an event.
+                    treeRecForSeed.MarkFilesDirty();
+                }
             }
 
             // Initialize environment tracking and open first TrackSection

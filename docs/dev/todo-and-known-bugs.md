@@ -808,6 +808,8 @@ Code review on the initial fix flagged that `BackgroundRecorder.cs` contained 27
 - `SampleBoundaryPoint` (on-rails → physics boundary)
 - `FlushTrackSectionsToRecording` (finalization)
 - `PollPartEvents` — 17 child `CheckXState` methods (parachute, jettison, engine, RCS, deployable, ladder, animation group, aero surface, control surface, robot arm, heat, generic animation, light, gear, cargo bay, fairing, robotic). Uses a count-delta pattern: capture `treeRec.PartEvents.Count` before polling, compare after, mark dirty only if the delta is positive. Single guard covers 19 individual `.Add` calls without 19 inline dirty-mark lines.
+- `FinalizeAllForCommit` terminal-event `AddRange` — `FlushTrackSectionsToRecording` early-exits when `trackSections.Count == 0`, so its dirty mark is skipped. A background vessel finalized with no accumulated sections (e.g., one that just entered loaded state and was immediately finalized) would otherwise leave the terminal engine/RCS/robotic `AddRange` unpersisted. Now marks dirty explicitly when `terminalEvents.Count > 0`.
+- `InitializeLoadedState` seed-event `AddRange` — fires when a background vessel transitions to loaded physics for the first time. If an `OnSave` happens before any subsequent poll emits an event, the seed events would be lost. Now marks dirty explicitly when `seedEvents.Count > 0`.
 
 **Helper:** Introduced `Recording.MarkFilesDirty()` instance method with a comprehensive docstring pointing at this entry, making the invariant grep-able and discoverable from IDE hover. All new sites (ParsekFlight + ChainSegmentManager + BackgroundRecorder) use the helper. Pre-existing `FilesDirty = true` direct assignments in `RecordingStore.cs` are left alone (they work; scope creep to churn them).
 
