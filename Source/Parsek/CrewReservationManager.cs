@@ -147,6 +147,22 @@ namespace Parsek
         /// Swap reserved crew out of the active flight vessel, replacing them
         /// with their hired replacements. Prevents the player from recording
         /// with a reserved kerbal again after revert.
+        ///
+        /// Two passes (bug #277):
+        ///   Pass 1: walk active vessel parts and swap any reserved kerbal currently
+        ///           in a seat (the legacy path — handles the common in-pod case).
+        ///   Pass 2: for any reservation whose original is NOT in the active vessel
+        ///           (typically because the kerbal is on a separate EVA vessel), look
+        ///           up the recording snapshot that originally seated them, find the
+        ///           matching part in the active vessel by persistentId/name, and
+        ///           place the stand-in into a free seat there. This catches the
+        ///           common scenario where the player EVA'd one of the launch crew
+        ///           before merge.
+        ///
+        /// Seat resolution lives at swap time (not at SetReplacement time) because
+        /// SetReplacement runs on every commit/recalculate cycle and would pay the
+        /// snapshot-walk cost on hot paths even when no orphan exists. The orphan
+        /// pass only runs when the swap actually fails to place every replacement.
         /// </summary>
         public static int SwapReservedCrewInFlight()
         {
@@ -170,7 +186,9 @@ namespace Parsek
 
             int swapCount = 0;
             int failCount = 0;
+            var swappedOriginals = new HashSet<string>();
 
+            // Pass 1 — legacy path: kerbals currently seated in the active vessel.
             foreach (Part part in FlightGlobals.ActiveVessel.parts)
             {
                 // Iterate a copy because RemoveCrewmember modifies the list
@@ -209,9 +227,16 @@ namespace Parsek
                     part.RemoveCrewmember(original);
                     part.AddCrewmemberAt(replacement, seatIndex);
                     swapCount++;
+                    swappedOriginals.Add(original.name);
                     CrewLog($"Swapped '{original.name}' → '{replacement.name}' in part '{part.partInfo.title}'");
                 }
             }
+
+            // Pass 2 — bug #277 orphan placement: reserved kerbals NOT seated in
+            // the active vessel (typically EVA'd before merge). Look up where the
+            // recording snapshot originally seated them and place the stand-in there.
+            int orphanPlaced = PlaceOrphanedReplacements(roster, swappedOriginals);
+            swapCount += orphanPlaced;
 
             if (swapCount > 0)
             {
@@ -229,6 +254,195 @@ namespace Parsek
             RemoveReservedEvaVessels();
 
             return swapCount;
+        }
+
+        /// <summary>
+        /// Bug #277 second pass: for each replacement whose original is NOT in
+        /// the active vessel (e.g. because the original is on a separate EVA
+        /// vessel that's about to be removed), look up the recording snapshot
+        /// that originally seated them and place the stand-in into a matching
+        /// part on the active vessel.
+        ///
+        /// Adds successfully-placed originals to <paramref name="swappedOriginals"/>
+        /// so RemoveReservedEvaVessels can proceed cleanly afterwards.
+        /// Returns the number of placements completed.
+        /// </summary>
+        private static int PlaceOrphanedReplacements(
+            KerbalRoster roster, HashSet<string> swappedOriginals)
+        {
+            int placed = 0;
+            int orphanCount = 0;
+            int snapshotMissCount = 0;
+            int placementFailCount = 0;
+
+            // Build the snapshot list once. Use GhostVisualSnapshot (recording-start
+            // state) — VesselSnapshot is end-of-recording and would not contain a
+            // crew member who EVA'd mid-recording.
+            var snapshots = new List<ConfigNode>();
+            var committed = RecordingStore.CommittedRecordings;
+            if (committed != null)
+            {
+                for (int i = 0; i < committed.Count; i++)
+                {
+                    var snap = committed[i].GhostVisualSnapshot;
+                    if (snap != null) snapshots.Add(snap);
+                }
+            }
+
+            // Snapshot crew lists may contain stand-in names from earlier
+            // recordings (see KerbalsModule.ReverseMapCrewNames). Pass the
+            // current crewReplacements as the reverse-map source.
+            foreach (var kvp in crewReplacements)
+            {
+                string originalName = kvp.Key;
+                string replacementName = kvp.Value;
+
+                if (swappedOriginals.Contains(originalName))
+                    continue;
+
+                orphanCount++;
+
+                // Resolve replacement in the roster — must exist and be Available.
+                ProtoCrewMember replacement = null;
+                foreach (ProtoCrewMember pcm in roster.Crew)
+                {
+                    if (pcm.name == replacementName)
+                    {
+                        replacement = pcm;
+                        break;
+                    }
+                }
+                if (replacement == null)
+                {
+                    CrewLog($"Orphan placement: cannot place '{originalName}' → '{replacementName}': replacement not in roster");
+                    placementFailCount++;
+                    continue;
+                }
+                if (replacement.rosterStatus == ProtoCrewMember.RosterStatus.Dead)
+                {
+                    CrewLog($"Orphan placement: skipping '{originalName}' → '{replacementName}': replacement is Dead");
+                    placementFailCount++;
+                    continue;
+                }
+                if (IsReplacementOnActiveVessel(replacementName))
+                {
+                    CrewLog($"Orphan placement: skipping '{originalName}' → '{replacementName}': replacement already on active vessel");
+                    swappedOriginals.Add(originalName);
+                    continue;
+                }
+
+                // Find seat in committed snapshots.
+                var seat = ResolveOrphanSeatFromSnapshots(originalName, snapshots, crewReplacements);
+                if (!seat.Found)
+                {
+                    ParsekLog.Warn("CrewReservation",
+                        $"Orphan placement: no snapshot contains original '{originalName}' " +
+                        $"— stand-in '{replacementName}' left unplaced in roster");
+                    snapshotMissCount++;
+                    continue;
+                }
+
+                // Find a matching part on the active vessel:
+                //   1. Prefer Part.persistentId == seat.PartPid (most reliable for post-revert
+                //      vessels where part PIDs are preserved from the snapshot).
+                //   2. Fall back to first part with matching partInfo.name and free capacity.
+                //   3. Fall back to any part with free capacity.
+                Part target = FindTargetPartForOrphan(seat.PartPid, seat.PartName);
+                if (target == null)
+                {
+                    ParsekLog.Warn("CrewReservation",
+                        $"Orphan placement: no free seat in active vessel for " +
+                        $"'{originalName}' → '{replacementName}' " +
+                        $"(snapshot pid={seat.PartPid} name='{seat.PartName}')");
+                    placementFailCount++;
+                    continue;
+                }
+
+                // Use the non-indexed AddCrewmember overload — KSP picks a free seat
+                // in the part. Avoids the AddCrewmemberAt-on-empty-seat behavior
+                // which is unverified for our case.
+                target.AddCrewmember(replacement);
+                placed++;
+                swappedOriginals.Add(originalName);
+                CrewLog($"Orphan placement: '{originalName}' → '{replacement.name}' " +
+                    $"placed in part '{target.partInfo.title}' " +
+                    $"(snapshot pid={seat.PartPid}, live pid={target.persistentId})");
+            }
+
+            if (orphanCount > 0)
+            {
+                CrewLog($"Orphan placement pass: orphans={orphanCount} placed={placed} " +
+                    $"snapshotMisses={snapshotMissCount} placementFails={placementFailCount}");
+            }
+
+            return placed;
+        }
+
+        /// <summary>
+        /// Helper: returns true if the named replacement is already on the active vessel.
+        /// </summary>
+        private static bool IsReplacementOnActiveVessel(string replacementName)
+        {
+            var av = FlightGlobals.ActiveVessel;
+            if (av == null) return false;
+            for (int p = 0; p < av.parts.Count; p++)
+            {
+                var crew = av.parts[p].protoModuleCrew;
+                for (int c = 0; c < crew.Count; c++)
+                {
+                    if (crew[c]?.name == replacementName)
+                        return true;
+                }
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// Walks the active vessel looking for a part to place an orphan stand-in into.
+        /// Match priority: persistentId → partInfo.name+free seat → any part with free seat.
+        /// Returns null if no part has a free seat.
+        /// </summary>
+        private static Part FindTargetPartForOrphan(uint snapshotPartPid, string snapshotPartName)
+        {
+            var av = FlightGlobals.ActiveVessel;
+            if (av == null) return null;
+
+            // 1. Match by persistentId (most reliable).
+            if (snapshotPartPid != 0)
+            {
+                for (int p = 0; p < av.parts.Count; p++)
+                {
+                    var part = av.parts[p];
+                    if (part.persistentId == snapshotPartPid && PartHasFreeSeat(part))
+                        return part;
+                }
+            }
+
+            // 2. Match by partInfo.name with free capacity. Walk in order, take first.
+            if (!string.IsNullOrEmpty(snapshotPartName))
+            {
+                for (int p = 0; p < av.parts.Count; p++)
+                {
+                    var part = av.parts[p];
+                    if (part.partInfo != null && part.partInfo.name == snapshotPartName && PartHasFreeSeat(part))
+                        return part;
+                }
+            }
+
+            // 3. Last resort: any part with free capacity.
+            for (int p = 0; p < av.parts.Count; p++)
+            {
+                var part = av.parts[p];
+                if (PartHasFreeSeat(part))
+                    return part;
+            }
+
+            return null;
+        }
+
+        private static bool PartHasFreeSeat(Part part)
+        {
+            return part != null && part.CrewCapacity > 0 && part.protoModuleCrew.Count < part.CrewCapacity;
         }
 
         #endregion
@@ -459,6 +673,87 @@ namespace Parsek
         #endregion
 
         #region Pure Static Methods
+
+        /// <summary>
+        /// Bug #277 — pure helper result: where in a recording snapshot was a
+        /// reserved kerbal originally seated. Used by SwapReservedCrewInFlight's
+        /// orphan placement pass to find a matching part on the active vessel.
+        /// </summary>
+        internal struct OrphanSeatLocation
+        {
+            public bool Found;
+            public uint PartPid;     // PART node 'pid' value (matches Part.persistentId on the live vessel)
+            public string PartName;  // PART node 'name' value (matches part.partInfo.name)
+        }
+
+        /// <summary>
+        /// Bug #277 — pure helper: scan the supplied recording snapshots for a
+        /// PART that lists <paramref name="originalName"/> in its crew values.
+        /// Returns the first match (PartPid + PartName) or Found=false.
+        ///
+        /// Snapshot crew lists may contain stand-in names from prior recordings
+        /// (see KerbalsModule.ReverseMapCrewNames). When <paramref name="reverseStandinMap"/>
+        /// is supplied, a snapshot crew name that maps back to <paramref name="originalName"/>
+        /// via reverse lookup is also considered a match — this catches the case
+        /// where an earlier recording committed and replaced the original's name
+        /// with a stand-in in subsequent snapshots.
+        ///
+        /// Match key is the kerbal name itself (kerbal names are unique in a
+        /// roster). VesselName comparison is intentionally NOT used because two
+        /// launches can share the same vessel name and would falsely match.
+        /// </summary>
+        internal static OrphanSeatLocation ResolveOrphanSeatFromSnapshots(
+            string originalName,
+            IEnumerable<ConfigNode> ghostVisualSnapshots,
+            IReadOnlyDictionary<string, string> reverseStandinMap = null)
+        {
+            var notFound = new OrphanSeatLocation { Found = false };
+            if (string.IsNullOrEmpty(originalName) || ghostVisualSnapshots == null)
+                return notFound;
+
+            foreach (var snapshot in ghostVisualSnapshots)
+            {
+                if (snapshot == null) continue;
+                foreach (ConfigNode partNode in snapshot.GetNodes("PART"))
+                {
+                    if (partNode == null) continue;
+                    string[] crewNames = partNode.GetValues("crew");
+                    for (int i = 0; i < crewNames.Length; i++)
+                    {
+                        string crewEntry = crewNames[i];
+                        if (string.IsNullOrEmpty(crewEntry)) continue;
+
+                        bool isMatch = (crewEntry == originalName);
+
+                        // Reverse-map: crew entry might be a stand-in for the original.
+                        if (!isMatch && reverseStandinMap != null
+                            && reverseStandinMap.TryGetValue(originalName, out string knownStandin)
+                            && knownStandin == crewEntry)
+                        {
+                            isMatch = true;
+                        }
+
+                        if (!isMatch) continue;
+
+                        uint pid = 0;
+                        string pidValue = partNode.GetValue("pid");
+                        if (!string.IsNullOrEmpty(pidValue))
+                            uint.TryParse(pidValue, out pid);
+
+                        string partName = partNode.GetValue("name") ?? "";
+
+                        return new OrphanSeatLocation
+                        {
+                            Found = true,
+                            PartPid = pid,
+                            PartName = partName
+                        };
+                    }
+                }
+            }
+
+            return notFound;
+        }
 
         /// <summary>
         /// Pure decision: should this EVA vessel be removed during crew swap?

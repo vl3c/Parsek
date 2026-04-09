@@ -1073,6 +1073,87 @@ namespace Parsek.InGameTests
             ParsekLog.Info("TestRunner",
                 $"ReservedCrewNotAssigned: checked roster, {problems.Count} problem(s)");
         }
+
+        [InGameTest(Category = "CrewReservation", Scene = GameScenes.FLIGHT,
+            Description = "Bug #277: Part.AddCrewmember works on a free seat (validates orphan placement live API)")]
+        public void Bug277_AddCrewmemberOnFreeSeat_Works()
+        {
+            // The bug #277 fix relies on Part.AddCrewmember(ProtoCrewMember) (the
+            // non-indexed overload) successfully placing a kerbal into a free seat
+            // of a part. This test exercises that exact API path on a live vessel
+            // and rolls back to leave state untouched.
+
+            var av = FlightGlobals.ActiveVessel;
+            if (av == null)
+            {
+                InGameAssert.Skip("No active vessel");
+                return;
+            }
+
+            // Find a part with at least one free seat.
+            Part target = null;
+            for (int i = 0; i < av.parts.Count; i++)
+            {
+                var p = av.parts[i];
+                if (p != null && p.CrewCapacity > 0 && p.protoModuleCrew.Count < p.CrewCapacity)
+                {
+                    target = p;
+                    break;
+                }
+            }
+            if (target == null)
+            {
+                InGameAssert.Skip("Active vessel has no part with a free crew seat");
+                return;
+            }
+
+            // Find a free Available kerbal in the roster.
+            var roster = HighLogic.CurrentGame?.CrewRoster;
+            if (roster == null)
+            {
+                InGameAssert.Skip("No crew roster");
+                return;
+            }
+            ProtoCrewMember candidate = null;
+            foreach (ProtoCrewMember pcm in roster.Crew)
+            {
+                if (pcm.rosterStatus == ProtoCrewMember.RosterStatus.Available
+                    && pcm.type == ProtoCrewMember.KerbalType.Crew)
+                {
+                    candidate = pcm;
+                    break;
+                }
+            }
+            if (candidate == null)
+            {
+                InGameAssert.Skip("No Available crew kerbal in roster");
+                return;
+            }
+
+            int beforeCount = target.protoModuleCrew.Count;
+            int beforeCapacityRemaining = target.CrewCapacity - beforeCount;
+
+            target.AddCrewmember(candidate);
+            try
+            {
+                int afterCount = target.protoModuleCrew.Count;
+                InGameAssert.AreEqual(beforeCount + 1, afterCount,
+                    $"AddCrewmember should have added 1 to part crew count " +
+                    $"(before={beforeCount}, after={afterCount}, capacity={target.CrewCapacity})");
+                InGameAssert.IsTrue(target.protoModuleCrew.Contains(candidate),
+                    $"After AddCrewmember, part should contain '{candidate.name}' in protoModuleCrew");
+                ParsekLog.Info("TestRunner",
+                    $"Bug277 live API check: AddCrewmember placed '{candidate.name}' in '{target.partInfo.title}' " +
+                    $"(remaining capacity was {beforeCapacityRemaining}, now {target.CrewCapacity - afterCount})");
+            }
+            finally
+            {
+                // Roll back: remove the test kerbal so we don't pollute the vessel state.
+                target.RemoveCrewmember(candidate);
+                InGameAssert.AreEqual(beforeCount, target.protoModuleCrew.Count,
+                    $"Rollback failed: expected count {beforeCount}, got {target.protoModuleCrew.Count}");
+            }
+        }
     }
 
     /// <summary>
