@@ -149,6 +149,91 @@ namespace Parsek
         // Recording tree mode (null when not in tree mode)
         private RecordingTree activeTree;
 
+        /// <summary>
+        /// Read-only access to the currently-active recording tree, for ParsekScenario.OnSave
+        /// to serialize as a PARSEK_ACTIVE_TREE-flagged node (quickload-resume support).
+        /// Null when not in tree mode.
+        /// </summary>
+        internal RecordingTree ActiveTreeForSerialization => activeTree;
+
+        /// <summary>
+        /// Read-only access to the current active recorder, for ParsekScenario.OnSave
+        /// to check whether serialization of the active tree is appropriate and to flush
+        /// buffered recorder data into the tree before writing.
+        /// </summary>
+        internal FlightRecorder ActiveRecorderForSerialization => recorder;
+
+        /// <summary>
+        /// Flushes the active recorder's buffered points/events into the active tree's
+        /// current recording, WITHOUT stopping the recorder or clearing its state. Called
+        /// by <see cref="ParsekScenario.OnSave"/> via <c>SaveActiveTreeIfAny</c> so the
+        /// serialized active tree reflects the latest in-flight data.
+        ///
+        /// Unlike <see cref="FlushRecorderToTreeRecording"/> which also sets
+        /// <c>IsRecording = false</c>, this variant leaves the recorder running so the
+        /// user's current flight continues uninterrupted after the save completes.
+        /// The recorder's buffers are cleared so subsequent frames don't re-flush the
+        /// same data on the next save.
+        /// </summary>
+        internal void FlushRecorderIntoActiveTreeForSerialization()
+        {
+            if (recorder == null || activeTree == null) return;
+
+            string recId = activeTree.ActiveRecordingId;
+            if (recId == null)
+            {
+                ParsekLog.Verbose("Flight",
+                    "FlushRecorderIntoActiveTreeForSerialization: no active recording id in tree — skipping");
+                return;
+            }
+
+            if (!activeTree.Recordings.TryGetValue(recId, out var treeRec))
+            {
+                ParsekLog.Warn("Flight",
+                    $"FlushRecorderIntoActiveTreeForSerialization: active recording id '{recId}' not found in tree");
+                return;
+            }
+
+            int prevPointCount = treeRec.Points.Count;
+            int prevEventCount = treeRec.PartEvents.Count;
+
+            // Append buffered data from the live recorder into the tree recording
+            treeRec.Points.AddRange(recorder.Recording);
+            treeRec.OrbitSegments.AddRange(recorder.OrbitSegments);
+            treeRec.PartEvents.AddRange(recorder.PartEvents);
+            treeRec.FlagEvents.AddRange(recorder.FlagEvents);
+            treeRec.TrackSections.AddRange(recorder.TrackSections);
+
+            // Sort events chronologically — mixed sources can produce out-of-order data
+            treeRec.PartEvents.Sort((a, b) => a.ut.CompareTo(b.ut));
+            treeRec.FlagEvents.Sort((a, b) => a.ut.CompareTo(b.ut));
+
+            // Populate VesselPersistentId if not already set
+            if (treeRec.VesselPersistentId == 0 && recorder.RecordingVesselId != 0)
+                treeRec.VesselPersistentId = recorder.RecordingVesselId;
+
+            // Mark tree recording dirty so the sidecar file is rewritten
+            treeRec.FilesDirty = true;
+
+            // Clear the recorder's buffers so subsequent saves don't re-flush the same data.
+            // The recorder stays IsRecording=true and will append new frames as they come in.
+            int flushedPoints = recorder.Recording.Count;
+            int flushedEvents = recorder.PartEvents.Count;
+            recorder.Recording.Clear();
+            recorder.OrbitSegments.Clear();
+            recorder.PartEvents.Clear();
+            recorder.FlagEvents.Clear();
+            recorder.TrackSections.Clear();
+
+            ParsekLog.Verbose("Flight",
+                $"Flushed recorder→active-tree '{recId}' for serialization: " +
+                $"{flushedPoints} points, {flushedEvents} part events " +
+                $"(tree recording now has {treeRec.Points.Count} points " +
+                $"(+{treeRec.Points.Count - prevPointCount}), " +
+                $"{treeRec.PartEvents.Count} part events " +
+                $"(+{treeRec.PartEvents.Count - prevEventCount}))");
+        }
+
         // Debris persistence enforcement: saved original value when Parsek overrides it
         private const int MinDebrisForRecording = 10;
         private int savedMaxPersistentDebris = -1;
@@ -803,8 +888,12 @@ namespace Parsek
 
             if (scene == GameScenes.FLIGHT)
             {
-                // Revert: preserve snapshots for merge dialog
-                CommitTreeRevert(commitUT);
+                // FLIGHT→FLIGHT: the player quickloaded, reverted, or vessel-switched
+                // into a scene reload. We can't tell which until ParsekScenario.OnLoad
+                // runs. Stash the tree WITHOUT finalization; OnLoad's revert detection
+                // dispatch will either restore-and-resume (quickload) or finalize-and-commit
+                // (revert). See docs/dev/plans/quickload-resume-recording.md (Bug C).
+                StashActiveTreeAsPendingLimbo(commitUT);
             }
             else if (!ParsekScenario.IsAutoMerge)
             {
@@ -3712,6 +3801,17 @@ namespace Parsek
                 Patches.FlightResultsPatch.ReplayFlightResults();
             }
 
+            // Quickload-resume: ParsekScenario.OnLoad detected a pending-Limbo tree on
+            // the !isRevert branch and deferred restore to this point. Starts a coroutine
+            // that matches the active vessel by name, wires a fresh recorder to the
+            // restored tree, and resumes recording via StartRecording(isPromotion: true)
+            // so bug A's seed-event skip prevents duplicate events at the quickload UT.
+            if (ParsekScenario.ScheduleActiveTreeRestoreOnFlightReady)
+            {
+                ParsekScenario.ScheduleActiveTreeRestoreOnFlightReady = false;
+                StartCoroutine(RestoreActiveTreeFromPending());
+            }
+
             ResetFlightReadyState();
 
             // Belt-and-suspenders: recover orphaned spawned vessels that survived
@@ -4451,9 +4551,15 @@ namespace Parsek
                 fromPhase = "exo"; // was in space around atmospheric body
             else if (fromCB != null)
             {
+                // Use LastRecordedAltitude (cached field) instead of peeking at the
+                // Recording buffer. The buffer can legitimately be empty here because
+                // FlushRecorderIntoActiveTreeForSerialization clears it on every OnSave
+                // while IsRecording stays true. The cached field is updated every
+                // CommitRecordedPoint / SamplePosition, so it reflects the true last
+                // altitude regardless of whether a flush happened since.
                 double threshold = FlightRecorder.ComputeApproachAltitude(fromCB);
-                fromPhase = recorder.Recording.Count > 0 &&
-                    recorder.Recording[recorder.Recording.Count - 1].altitude < threshold
+                fromPhase = !double.IsNaN(recorder.LastRecordedAltitude)
+                    && recorder.LastRecordedAltitude < threshold
                     ? "approach" : "exo";
             }
             else
@@ -5067,6 +5173,255 @@ namespace Parsek
 
             ParsekLog.Info("Flight",
                 $"CommitTreeRevert: stashed pending tree '{activeTree.TreeName}' with snapshots preserved");
+        }
+
+        /// <summary>
+        /// Quickload-resume path (Bug C fix). Waits for the active vessel to load,
+        /// matches it by name against the pending-Limbo tree's active recording,
+        /// updates the tree's vessel PID (KSP can regenerate PIDs across quickload),
+        /// constructs a fresh <see cref="FlightRecorder"/>, and calls
+        /// <c>StartRecording(isPromotion: true)</c> so recording resumes appending to
+        /// the same chain segment that was active at quicksave time.
+        ///
+        /// <para>The <c>isPromotion: true</c> flag invokes bug A's seed-event skip
+        /// so no duplicate DeployableExtended / LightOn / etc. events fire at the
+        /// quickload UT.</para>
+        ///
+        /// <para>If the vessel can't be found within 3 seconds (name change, EVA
+        /// boarded between save and load, etc.), the tree is left in pending-Limbo
+        /// and a warning logged. The player can manually trigger the merge dialog
+        /// via scene exit if they want to commit it as-is.</para>
+        /// </summary>
+        IEnumerator RestoreActiveTreeFromPending()
+        {
+            if (!RecordingStore.HasPendingTree
+                || RecordingStore.PendingTreeStateValue != PendingTreeState.Limbo)
+            {
+                ParsekLog.Verbose("Flight",
+                    "RestoreActiveTreeFromPending: no pending-Limbo tree, skipping");
+                yield break;
+            }
+
+            var tree = RecordingStore.PendingTree;
+            string activeRecId = tree.ActiveRecordingId;
+            if (string.IsNullOrEmpty(activeRecId)
+                || !tree.Recordings.TryGetValue(activeRecId, out var activeRec))
+            {
+                ParsekLog.Warn("Flight",
+                    $"RestoreActiveTreeFromPending: pending tree '{tree.TreeName}' has no resolvable " +
+                    $"activeRecordingId — leaving in Limbo");
+                yield break;
+            }
+
+            string targetName = activeRec.VesselName;
+            ParsekLog.Info("Flight",
+                $"RestoreActiveTreeFromPending: waiting for vessel '{targetName}' to load " +
+                $"(activeRecId={activeRecId})");
+
+            // Wait up to 3 seconds for the current active vessel to match by name.
+            // Primary match = active recording's vessel name.
+            // Fallback (edge case 3): if the active recording was an EVA kerbal who got
+            // boarded between quicksave and quickload, match against the parent recording's
+            // vessel by walking ParentRecordingId up the EVA chain.
+            Recording matchedRec = activeRec;
+            string matchedRecId = activeRecId;
+            float deadline = UnityEngine.Time.time + 3f;
+            Vessel matched = null;
+            while (UnityEngine.Time.time < deadline)
+            {
+                var v = FlightGlobals.ActiveVessel;
+                if (v != null)
+                {
+                    // Primary: active recording vessel name
+                    if (v.vesselName == targetName)
+                    {
+                        matched = v;
+                        break;
+                    }
+                    // Fallback: walk ParentRecordingId chain and try each parent's vessel name
+                    Recording probe = activeRec;
+                    int walkDepth = 0;
+                    while (walkDepth < 5 && !string.IsNullOrEmpty(probe?.ParentRecordingId))
+                    {
+                        if (!tree.Recordings.TryGetValue(probe.ParentRecordingId, out probe))
+                            break;
+                        if (probe != null && v.vesselName == probe.VesselName)
+                        {
+                            matched = v;
+                            matchedRec = probe;
+                            matchedRecId = probe.RecordingId;
+                            ParsekLog.Info("Flight",
+                                $"RestoreActiveTreeFromPending: fallback match — active vessel '{v.vesselName}' " +
+                                $"matches parent recording '{matchedRecId}' (original active was '{targetName}', " +
+                                $"EVA kerbal likely boarded between F5 and F9)");
+                            // Flip the tree's active-recording pointer to the parent
+                            tree.ActiveRecordingId = matchedRecId;
+                            break;
+                        }
+                        walkDepth++;
+                    }
+                    if (matched != null) break;
+                }
+                yield return null;
+            }
+
+            if (matched == null)
+            {
+                ParsekLog.Warn("Flight",
+                    $"RestoreActiveTreeFromPending: vessel '{targetName}' (and no EVA parent fallback) " +
+                    "not active within 3s — leaving tree in Limbo (user can trigger merge dialog via scene exit)");
+                yield break;
+            }
+
+            // After a parent-fallback match, the rest of the coroutine uses matchedRec/matchedRecId
+            activeRec = matchedRec;
+            activeRecId = matchedRecId;
+
+            // PID remap: KSP may have regenerated the persistentId across quickload.
+            // Tree.BackgroundMap is keyed by PID, so update any old-PID entries too.
+            uint oldPid = activeRec.VesselPersistentId;
+            uint newPid = matched.persistentId;
+            if (oldPid != newPid)
+            {
+                activeRec.VesselPersistentId = newPid;
+                if (oldPid != 0 && tree.BackgroundMap.TryGetValue(oldPid, out var bgRecId))
+                {
+                    tree.BackgroundMap.Remove(oldPid);
+                    if (bgRecId != activeRecId)
+                        tree.BackgroundMap[newPid] = bgRecId;
+                }
+                ParsekLog.Info("Flight",
+                    $"RestoreActiveTreeFromPending: PID remap {oldPid} → {newPid} for '{targetName}'");
+            }
+
+            // Pop the tree out of pending-Limbo (non-destructive — preserves sidecar files)
+            // and re-install as the live active tree.
+            activeTree = RecordingStore.PopPendingTree();
+            if (activeTree == null)
+            {
+                ParsekLog.Warn("Flight",
+                    "RestoreActiveTreeFromPending: PopPendingTree returned null after we verified the tree exists");
+                yield break;
+            }
+
+            // Construct a fresh FlightRecorder pointed at the restored tree.
+            recorder = new FlightRecorder();
+            recorder.ActiveTree = activeTree;
+
+            // Restore recorder state persisted in the PARSEK_ACTIVE_TREE node
+            if (!string.IsNullOrEmpty(ParsekScenario.pendingActiveTreeResumeRewindSave))
+            {
+                recorder.SetRewindSaveFileNameForRestore(
+                    ParsekScenario.pendingActiveTreeResumeRewindSave,
+                    "quickload-resume from PARSEK_ACTIVE_TREE");
+                ParsekScenario.pendingActiveTreeResumeRewindSave = null;
+            }
+            // BoundaryAnchor is NOT restored — only the UT could round-trip through the
+            // save node, and reconstructing a TrajectoryPoint from a bare UT is not
+            // possible (needs lat/lon/alt/rotation/velocity). Leaving BoundaryAnchor
+            // unset produces one extra boundary point on the next chain continuation,
+            // which is benign. See SaveActiveTreeIfAny for the write-side comment.
+
+            // Start recording as a promotion (isPromotion: true) so the Bug A seed-event
+            // skip kicks in — no duplicate DeployableExtended / LightOn / etc. events at
+            // the quickload UT. The new recorder's buffers start empty and will append
+            // to activeTree.Recordings[activeRecId] on the next chain boundary or
+            // scene exit flush.
+            recorder.StartRecording(isPromotion: true);
+            if (!recorder.IsRecording)
+            {
+                ParsekLog.Warn("Flight",
+                    $"RestoreActiveTreeFromPending: StartRecording returned IsRecording=false for " +
+                    $"'{targetName}' — restore incomplete");
+                yield break;
+            }
+
+            // Re-attach the BackgroundRecorder for the tree
+            if (backgroundRecorder == null)
+            {
+                backgroundRecorder = new BackgroundRecorder(activeTree);
+                backgroundRecorder.SubscribePartEvents();
+                Patches.PhysicsFramePatch.BackgroundRecorderInstance = backgroundRecorder;
+            }
+
+            ParsekLog.Info("Flight",
+                $"RestoreActiveTreeFromPending: resumed recording tree '{activeTree.TreeName}' " +
+                $"activeRec='{activeRecId}' vessel='{targetName}' pid={newPid} at UT={Planetarium.GetUniversalTime():F1}");
+        }
+
+        /// <summary>
+        /// Flight→Flight stash path (Bug C fix): stashes the active tree into the
+        /// pending-Limbo slot WITHOUT finalizing terminal state. ParsekScenario.OnLoad
+        /// decides, based on revert vs quickload detection, whether to finalize-and-commit
+        /// (real revert) or restore-and-resume (quickload / vessel switch).
+        ///
+        /// <para>Flushes recorder buffers into the tree so no trajectory data is lost.
+        /// Closes background orbit segments. Aborts any pending split (continuation
+        /// window state cannot survive a scene reload cleanly — edge case #4 in the
+        /// design doc).</para>
+        /// </summary>
+        void StashActiveTreeAsPendingLimbo(double commitUT)
+        {
+            if (activeTree == null) return;
+
+            ParsekLog.Info("Flight",
+                $"StashActiveTreeAsPendingLimbo: stashing tree '{activeTree.TreeName}' at UT={commitUT:F1} " +
+                $"(activeRecId={activeTree.ActiveRecordingId ?? "<null>"})");
+
+            // Flush active recorder's buffered points/events into the active tree's
+            // current recording, without setting terminal state. FinalizeRecorderForLimbo
+            // is a minimal version of FinalizeTreeRecordings that stops at flushing.
+            if (recorder != null)
+            {
+                if (recorder.IsRecording)
+                {
+                    if (recorder.IsBackgrounded)
+                        recorder.IsRecording = false;
+                    else
+                        recorder.ForceStop();
+                }
+                FlushRecorderToTreeRecording(recorder, activeTree);
+
+                // Copy rewind save filename to the tree's root recording so the R button
+                // still works after a potential future revert on this tree.
+                string rewindSave = recorder.CaptureAtStop?.RewindSaveFileName
+                    ?? recorder.RewindSaveFileName;
+                if (!string.IsNullOrEmpty(rewindSave)
+                    && !string.IsNullOrEmpty(activeTree.RootRecordingId))
+                {
+                    if (activeTree.Recordings.TryGetValue(activeTree.RootRecordingId, out var rootRec))
+                    {
+                        rootRec.RewindSaveFileName = rewindSave;
+                    }
+                }
+            }
+
+            // Close background recorder orbit segments and flush their data into tree
+            // recordings. Does NOT set terminal state.
+            if (backgroundRecorder != null)
+                backgroundRecorder.FinalizeAllForCommit(commitUT);
+
+            // Abort any pending split (undock / EVA / joint break continuation window).
+            // The continuation state cannot survive a scene reload cleanly — if the
+            // split was real, the debris vessel exists in the saved scene and will be
+            // rediscovered via normal OnVesselCreate events on resume.
+            if (pendingSplitRecorder != null)
+            {
+                ParsekLog.Info("Flight",
+                    $"StashActiveTreeAsPendingLimbo: discarding pendingSplitRecorder " +
+                    $"(recId={pendingSplitRecorder.CaptureAtStop?.RecordingId ?? "<null>"}) — " +
+                    "continuation window cannot survive scene reload");
+                pendingSplitRecorder = null;
+                pendingSplitInProgress = false;
+            }
+
+            // Stash as pending-Limbo. NO FinalizeTreeRecordings — terminal state deferred
+            // to OnLoad's dispatch once it knows whether this is a revert or a quickload.
+            RecordingStore.StashPendingTree(activeTree, PendingTreeState.Limbo);
+
+            ParsekLog.Info("Flight",
+                $"StashActiveTreeAsPendingLimbo: stashed tree '{activeTree.TreeName}' as Limbo " +
+                $"({activeTree.Recordings.Count} recording(s)) — OnLoad will dispatch");
         }
 
         /// <summary>

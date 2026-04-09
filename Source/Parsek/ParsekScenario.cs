@@ -127,7 +127,11 @@ namespace Parsek
 
         /// <summary>
         /// Saves committed recording trees to RECORDING_TREE ConfigNodes and writes
-        /// bulk data to external files for recordings whose data changed.
+        /// bulk data to external files for recordings whose data changed. Also writes
+        /// the currently-active (in-flight) tree as a RECORDING_TREE with isActive=True
+        /// when the save is taken during flight with an active recorder, so quickload
+        /// can resume recording instead of finalizing the mission (see
+        /// <c>docs/dev/plans/quickload-resume-recording.md</c>).
         /// </summary>
         private static void SaveTreeRecordings(ConfigNode node)
         {
@@ -162,6 +166,72 @@ namespace Parsek
                     $"Saved {committedTrees.Count} trees ({treeRecCount} recordings): {treeTotalPoints} points, " +
                     $"{treeTotalOrbitSegments} orbit segments, {treeTotalPartEvents} part events, " +
                     $"{treeWithTrackSections} with track sections, {treeWithSnapshots} with snapshots");
+
+            SaveActiveTreeIfAny(node);
+        }
+
+        /// <summary>
+        /// Writes the currently-active (in-flight) recording tree as an extra RECORDING_TREE
+        /// ConfigNode marked with <c>isActive=True</c>, plus any recorder state needed to
+        /// resume on quickload (chain id, boundary anchor UT, rewind save filename).
+        /// <para>
+        /// Guarded: only writes when <c>LoadedScene == FLIGHT</c>, <c>ParsekFlight.Instance</c>
+        /// has a live active tree, and a recorder exists. Any other scene (KSC, TS, Main Menu)
+        /// has no in-flight recording to preserve and would emit a stale stub.
+        /// </para>
+        /// </summary>
+        private static void SaveActiveTreeIfAny(ConfigNode node)
+        {
+            if (HighLogic.LoadedScene != GameScenes.FLIGHT) return;
+
+            var flight = ParsekFlight.Instance;
+            if (flight == null) return;
+
+            var activeTree = flight.ActiveTreeForSerialization;
+            if (activeTree == null) return;
+
+            var recorder = flight.ActiveRecorderForSerialization;
+            if (recorder == null) return;
+
+            // Flush recorder's buffered data into the active tree's current recording
+            // before serializing. Otherwise the on-disk tree misses points/events that
+            // were captured since the last chain boundary.
+            try
+            {
+                flight.FlushRecorderIntoActiveTreeForSerialization();
+            }
+            catch (System.Exception ex)
+            {
+                ParsekLog.Warn("Scenario",
+                    $"SaveActiveTreeIfAny: flush failed ({ex.Message}) — active tree will be written with stale recorder data");
+            }
+
+            // Persist bulk data for active-tree recordings (same pattern as committed trees)
+            int activeRecCount = 0;
+            foreach (var rec in activeTree.Recordings.Values)
+            {
+                if (rec.FilesDirty && !RecordingStore.SaveRecordingFiles(rec))
+                    ScenarioLog($"[Parsek Scenario] WARNING: File write failed for active tree recording '{rec.VesselName}'");
+                activeRecCount++;
+            }
+
+            ConfigNode treeNode = node.AddNode("RECORDING_TREE");
+            activeTree.Save(treeNode);
+            treeNode.AddValue("isActive", "True");
+
+            // Persist recorder state needed to resume after quickload.
+            // NOTE: BoundaryAnchor is a TrajectoryPoint struct with lat/lon/alt/rotation/
+            // velocity, and serializing just the UT is insufficient to reconstruct it on
+            // restore — RestoreActiveTreeFromPending explicitly leaves BoundaryAnchor
+            // unset. Either serialize the full TrajectoryPoint or don't write anything;
+            // we chose the latter because a missing anchor just produces one extra
+            // boundary point on the next chain continuation, which is benign.
+            if (!string.IsNullOrEmpty(recorder.RewindSaveFileName))
+                treeNode.AddValue("resumeRewindSave", recorder.RewindSaveFileName);
+
+            ParsekLog.Info("Scenario",
+                $"OnSave: wrote ACTIVE tree '{activeTree.TreeName}' ({activeRecCount} recording(s), " +
+                $"activeRecId={activeTree.ActiveRecordingId ?? "<null>"}) for quickload resume");
         }
 
         /// <summary>
@@ -304,6 +374,15 @@ namespace Parsek
                         return;
                     }
 
+                    // Restore an in-flight tree from the save file (if OnSave wrote one).
+                    // This stashes it into the pending-Limbo slot so the revert-detection
+                    // dispatch below can decide between "restore and resume" (quickload)
+                    // and "finalize and commit" (real revert).
+                    // Runs AFTER ParsekSettingsPersistence.ApplyTo so restored settings
+                    // affect the rest of OnLoad, but BEFORE revert detection so the
+                    // pending slot is populated when it runs.
+                    TryRestoreActiveTreeNode(node);
+
                     // Detect revert vs scene change. On a revert, the quicksave is older:
                     // its epoch is lower (after a prior revert bumped it) or it has fewer
                     // recordings (new ones were committed since launch). On a scene change,
@@ -316,14 +395,21 @@ namespace Parsek
 
                     // Count tree recordings from saved tree nodes for accurate revert detection.
                     // Tree recordings are in committedRecordings but NOT in standalone RECORDING nodes.
+                    // Skip active-tree (in-flight) marker nodes — they're not "committed" recordings.
                     ConfigNode[] savedTreeNodesForRevert = node.GetNodes("RECORDING_TREE");
                     int savedTreeRecCount = 0;
                     for (int t = 0; t < savedTreeNodesForRevert.Length; t++)
+                    {
+                        if (IsActiveTreeNode(savedTreeNodesForRevert[t])) continue;
                         savedTreeRecCount += savedTreeNodesForRevert[t].GetNodes("RECORDING").Length;
+                    }
                     int totalSavedRecCount = savedRecNodes.Length + savedTreeRecCount;
 
-                    // FLIGHT→FLIGHT is usually a revert (Revert to Launch or quickload),
-                    // but vessel switching also triggers FLIGHT→FLIGHT scene reloads.
+                    // FLIGHT→FLIGHT can be a revert, a quickload, or a vessel switch.
+                    // We distinguish by epoch/count comparison — the FLIGHT→FLIGHT boolean
+                    // alone is no longer a revert indicator. Quickloads preserve both epoch
+                    // and count (since the quicksave captured the current state), while
+                    // reverts regress at least one of them.
                     bool isFlightToFlight = lastOnSaveScene == GameScenes.FLIGHT
                                             && HighLogic.LoadedScene == GameScenes.FLIGHT;
                     bool isVesselSwitch = isFlightToFlight && vesselSwitchPending;
@@ -331,13 +417,18 @@ namespace Parsek
 
                     bool isRevert = !isVesselSwitch
                                     && (savedEpoch < MilestoneStore.CurrentEpoch
-                                        || totalSavedRecCount < recordings.Count
-                                        || isFlightToFlight);
+                                        || totalSavedRecCount < recordings.Count);
                     ParsekLog.Verbose("Scenario",
                         $"OnLoad: revert detection — savedEpoch={savedEpoch}, currentEpoch={MilestoneStore.CurrentEpoch}, " +
                         $"savedRecNodes={savedRecNodes.Length}, savedTreeRecs={savedTreeRecCount}, " +
                         $"memoryRecordings={recordings.Count}, lastOnSaveScene={lastOnSaveScene}, " +
-                        $"isFlightToFlight={isFlightToFlight}, isVesselSwitch={isVesselSwitch}, isRevert={isRevert}");
+                        $"isFlightToFlight={isFlightToFlight}, isVesselSwitch={isVesselSwitch}, isRevert={isRevert}, " +
+                        $"pendingTreeState={RecordingStore.PendingTreeStateValue}");
+                    if (isFlightToFlight && !isRevert && !isVesselSwitch)
+                    {
+                        ParsekLog.Info("Scenario",
+                            "OnLoad: FLIGHT→FLIGHT without revert indicators — treating as quickload / scene reload, not revert");
+                    }
 
                     // Collect spawned vessel PIDs + names BEFORE restore resets them.
                     // Only on revert — on normal scene changes the spawned vessels are
@@ -454,9 +545,15 @@ namespace Parsek
                     ConfigNode[] savedTreeNodes = node.GetNodes("RECORDING_TREE");
                     if (savedTreeNodes.Length > 0)
                     {
-                        // Rebuild tree mutable state from saved tree nodes
+                        // Rebuild tree mutable state from saved tree nodes.
+                        // Skip active-tree (in-flight) marker nodes: their recordings live
+                        // in pending-Limbo and are not in `recordings` (the committed list).
+                        // Matching against `recordings` would harmlessly fail today, but
+                        // the defensive skip avoids future refactors conflating the two.
                         foreach (var savedTreeNode in savedTreeNodes)
                         {
+                            if (IsActiveTreeNode(savedTreeNode)) continue;
+
                             ConfigNode[] savedTreeRecNodes = savedTreeNode.GetNodes("RECORDING");
                             foreach (var savedTreeRecNode in savedTreeRecNodes)
                             {
@@ -516,6 +613,49 @@ namespace Parsek
                         // Scene change — restore milestone state without resetting unmatched.
                         MilestoneStore.RestoreMutableState(node);
                         ParsekLog.Verbose("Scenario", "Scene change — milestone state restored (resetUnmatched=false)");
+                    }
+
+                    // Dispatch pending-Limbo trees (Bug C fix: quickload-resume).
+                    // The tree was stashed without finalization in StashActiveTreeAsPendingLimbo.
+                    // Based on revert detection + vessel-switch flag, we now either
+                    // finalize it (real revert OR vessel switch) or schedule a
+                    // restore-and-resume coroutine (quickload).
+                    if (RecordingStore.HasPendingTree
+                        && RecordingStore.PendingTreeStateValue == PendingTreeState.Limbo)
+                    {
+                        if (isRevert || isVesselSwitch)
+                        {
+                            // Real revert: finalize the Limbo tree with a minimal static
+                            // finalization (vessel refs are gone by this point, so terminal
+                            // states fall back to Destroyed + PopulateTerminalOrbitFromLastSegment).
+                            //
+                            // Vessel switch: the player moved focus to a different vessel.
+                            // The name-match in RestoreActiveTreeFromPending would fail
+                            // (the new active vessel is by definition not the tree's
+                            // recorded vessel), and the tree would be orphaned in Limbo.
+                            // Match mainline CommitTreeRevert behavior: finalize on vessel
+                            // switch. A future improvement could preserve the tree by
+                            // moving it to BackgroundMap + keeping it in committedTrees,
+                            // but that requires more vessel-switch-specific plumbing —
+                            // tracked as a follow-up in the design doc's "Risks" section.
+                            FinalizePendingLimboTreeForRevert();
+                            if (isVesselSwitch && !isRevert)
+                            {
+                                ParsekLog.Info("Scenario",
+                                    "OnLoad: Limbo tree finalized on vessel switch " +
+                                    "(matches mainline behavior; tree-preservation-on-switch is a follow-up)");
+                            }
+                        }
+                        else
+                        {
+                            // Quickload or cold-start resume: defer restore to OnFlightReady.
+                            // ParsekFlight.RestoreActiveTreeFromPending picks up the
+                            // pending-Limbo tree and wires a fresh recorder to it.
+                            ScheduleActiveTreeRestoreOnFlightReady = true;
+                            ParsekLog.Info("Scenario",
+                                $"OnLoad: pending-Limbo tree '{RecordingStore.PendingTree?.TreeName}' " +
+                                "deferred to OnFlightReady for quickload-resume");
+                        }
                     }
 
                     // Handle pending recordings on non-revert scene exits to non-flight scenes.
@@ -605,6 +745,25 @@ namespace Parsek
                 RecordingStore.ValidateChains();
 
                 LoadRecordingTrees(node, recordings);
+
+                // Cold-start active-tree restore (quickload-resume cold path).
+                // When the player quits KSP mid-flight and later relaunches + "Resume Saved
+                // Game", OnLoad runs with initialLoadDone=false and falls through to this
+                // block. TryRestoreActiveTreeNode here picks up any isActive=True tree
+                // from the save and stashes it into pending-Limbo so OnFlightReady's
+                // restore coroutine can resume recording — same path used by in-session
+                // quickload. Without this, cold-start resume silently drops the active
+                // tree and the player's in-progress mission fragments just like the
+                // original Bug C scenario.
+                if (TryRestoreActiveTreeNode(node))
+                {
+                    // Flag the coroutine to run on OnFlightReady so the active vessel is
+                    // available for name matching. Cold start always lands in flight for
+                    // a "Resume" action, so OnFlightReady will fire.
+                    ScheduleActiveTreeRestoreOnFlightReady = true;
+                    ParsekLog.Info("Scenario",
+                        "OnLoad: cold-start active tree detected — deferred to OnFlightReady for resume");
+                }
 
                 // Clean orphaned sidecar files (recordings deleted in previous sessions)
                 RecordingStore.CleanOrphanFiles();
@@ -1107,9 +1266,21 @@ namespace Parsek
                 int treeTotalPartEvents = 0;
                 int treeWithTrackSections = 0;
                 int treeWithSnapshots = 0;
+                int activeTreeCount = 0;
                 for (int t = 0; t < treeNodes.Length; t++)
                 {
-                    var tree = RecordingTree.Load(treeNodes[t]);
+                    var treeNode = treeNodes[t];
+
+                    // Active-tree marker: these go into the pending-limbo slot, NOT into
+                    // committedTrees. TryRestoreActiveTreeNode earlier in OnLoad may have
+                    // already consumed this node, so skip it here either way.
+                    if (IsActiveTreeNode(treeNode))
+                    {
+                        activeTreeCount++;
+                        continue;
+                    }
+
+                    var tree = RecordingTree.Load(treeNode);
 
                     // Load bulk data from external files for each recording in the tree
                     foreach (var rec in tree.Recordings.Values)
@@ -1135,10 +1306,165 @@ namespace Parsek
                         $"{tree.Recordings.Count} recordings, {tree.BranchPoints.Count} branch points");
                 }
                 ParsekLog.Verbose("Scenario",
-                    $"Loaded {treeNodes.Length} trees ({treeRecCount} recordings): {treeTotalPoints} points, " +
+                    $"Loaded {treeNodes.Length} tree nodes ({treeRecCount} committed recordings + " +
+                    $"{activeTreeCount} active-tree marker(s)): {treeTotalPoints} points, " +
                     $"{treeTotalOrbitSegments} orbit segments, {treeTotalPartEvents} part events, " +
                     $"{treeWithTrackSections} with track sections, {treeWithSnapshots} with snapshots");
             }
+        }
+
+        /// <summary>
+        /// Returns true if a RECORDING_TREE ConfigNode represents an active (in-flight)
+        /// tree written by <c>SaveActiveTreeIfAny</c>, distinguished by the
+        /// <c>isActive=True</c> key.
+        /// </summary>
+        internal static bool IsActiveTreeNode(ConfigNode treeNode)
+        {
+            if (treeNode == null) return false;
+            string val = treeNode.GetValue("isActive");
+            return !string.IsNullOrEmpty(val)
+                && bool.TryParse(val, out bool isActive) && isActive;
+        }
+
+        /// <summary>
+        /// Attempts to restore an active (in-flight) recording tree from the save node
+        /// into the pending-limbo slot. Called from OnLoad immediately after settings
+        /// persistence and before revert detection, so the revert-detection logic can
+        /// decide whether to restore-and-resume (quickload) or finalize-and-commit
+        /// (real revert).
+        ///
+        /// <para>Skipped when rewinding — <see cref="RewindContext.IsRewinding"/> means
+        /// the load is Parsek's own rewind flow which explicitly resets playback state.</para>
+        ///
+        /// Returns true if an active tree was found and stashed as Limbo.
+        /// </summary>
+        internal static bool TryRestoreActiveTreeNode(ConfigNode node)
+        {
+            if (node == null) return false;
+            if (RewindContext.IsRewinding)
+            {
+                ParsekLog.Verbose("Scenario",
+                    "TryRestoreActiveTreeNode: skipped (rewind in progress — active tree deliberately discarded)");
+                return false;
+            }
+
+            ConfigNode[] treeNodes = node.GetNodes("RECORDING_TREE");
+            for (int t = 0; t < treeNodes.Length; t++)
+            {
+                if (!IsActiveTreeNode(treeNodes[t])) continue;
+
+                var tree = RecordingTree.Load(treeNodes[t]);
+                // Hydrate bulk data from sidecar files for each recording
+                foreach (var rec in tree.Recordings.Values)
+                    RecordingStore.LoadRecordingFiles(rec);
+
+                // If the same tree id is already in committedTrees (e.g. the player
+                // quicksaved in flight, then exited to TS which committed the tree, then
+                // quickloaded — the in-memory committedTrees retains the T3 version even
+                // though the save file has the T2 active version), remove the committed
+                // copy so the active version is the single source of truth. Otherwise
+                // the next OnSave would write the tree twice with the same id.
+                RemoveCommittedTreeById(tree.Id);
+
+                // Pop any existing pending tree silently — StashActiveTreeAsPendingLimbo
+                // stashed the in-memory (future-timeline) version at OnSceneChangeRequested
+                // time; we want the freshly-loaded disk version (matches the quicksave UT
+                // the user is rewinding to). PopPendingTree is non-destructive (doesn't
+                // delete sidecar files), and avoids the "overwriting existing pending tree"
+                // warning on the expected-overwrite quickload path.
+                RecordingStore.PopPendingTree();
+
+                // Stash into pending-limbo — OnLoad's revert-detection dispatch decides
+                // the final disposition (restore-and-resume OR finalize-and-commit).
+                RecordingStore.StashPendingTree(tree, PendingTreeState.Limbo);
+
+                // Read resume hints for the restore coroutine (rewind save filename only;
+                // BoundaryAnchor can't round-trip because we only have the UT, not the
+                // full TrajectoryPoint state — restore leaves it unset).
+                pendingActiveTreeResumeRewindSave = treeNodes[t].GetValue("resumeRewindSave");
+
+                ParsekLog.Info("Scenario",
+                    $"TryRestoreActiveTreeNode: stashed active tree '{tree.TreeName}' " +
+                    $"({tree.Recordings.Count} recording(s), activeRecId={tree.ActiveRecordingId ?? "<null>"}) " +
+                    $"into pending-Limbo slot for revert-detection dispatch");
+                return true;
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// Removes a committed tree from <see cref="RecordingStore.CommittedTrees"/>
+        /// (and its recordings from the flat committed list) if a tree with the given id
+        /// exists. Used by the active-tree restore path to prevent duplicate-id collisions
+        /// when a prior TS/SPC commit left the tree in committedTrees at the same time
+        /// the disk save had it flagged active.
+        /// </summary>
+        private static void RemoveCommittedTreeById(string treeId)
+        {
+            if (string.IsNullOrEmpty(treeId)) return;
+
+            var committed = RecordingStore.CommittedTrees;
+            for (int i = committed.Count - 1; i >= 0; i--)
+            {
+                if (committed[i].Id != treeId) continue;
+
+                var stale = committed[i];
+                // Remove the tree's recordings from the flat CommittedRecordings list
+                var flatList = RecordingStore.CommittedRecordings;
+                foreach (var rec in stale.Recordings.Values)
+                    flatList.Remove(rec);
+
+                committed.RemoveAt(i);
+                ParsekLog.Info("Scenario",
+                    $"RemoveCommittedTreeById: removed stale committed copy of tree '{stale.TreeName}' " +
+                    $"(id={treeId}, {stale.Recordings.Count} recording(s)) — active-tree restore takes precedence");
+            }
+        }
+
+        // Resume hints parsed from PARSEK_ACTIVE_TREE node, consumed by ParsekFlight
+        // when it constructs the new recorder during the restore coroutine.
+        internal static string pendingActiveTreeResumeRewindSave;
+
+        /// <summary>
+        /// Signal to <see cref="ParsekFlight.OnFlightReady"/> that a pending-Limbo tree
+        /// is waiting for the restore-and-resume path. Set by OnLoad when it detects
+        /// quickload / vessel-switch (not revert) with a Limbo-state tree.
+        /// </summary>
+        internal static bool ScheduleActiveTreeRestoreOnFlightReady;
+
+        /// <summary>
+        /// Minimal static finalization for a Limbo tree on the revert path. Sets
+        /// terminal state to Destroyed on leaf recordings without existing terminal
+        /// state, and calls PopulateTerminalOrbitFromLastSegment as a fallback orbit
+        /// source (vessel refs are gone by OnLoad time on a revert, so live capture
+        /// is impossible — this matches the pre-fix CommitTreeRevert behavior for
+        /// orbital debris).
+        ///
+        /// After finalization, flips the pending tree state from Limbo to Finalized
+        /// so the existing auto-commit / merge-dialog path handles it normally.
+        /// </summary>
+        private static void FinalizePendingLimboTreeForRevert()
+        {
+            var tree = RecordingStore.PendingTree;
+            if (tree == null) return;
+
+            int finalized = 0;
+            foreach (var kvp in tree.Recordings)
+            {
+                var rec = kvp.Value;
+                bool isLeaf = rec.ChildBranchPointId == null;
+                if (!isLeaf) continue;
+                if (rec.TerminalStateValue.HasValue) continue;
+
+                rec.TerminalStateValue = TerminalState.Destroyed;
+                ParsekFlight.PopulateTerminalOrbitFromLastSegment(rec);
+                finalized++;
+            }
+
+            RecordingStore.MarkPendingTreeFinalized();
+            ParsekLog.Info("Scenario",
+                $"FinalizePendingLimboTreeForRevert: finalized {finalized} leaf recording(s) in " +
+                $"tree '{tree.TreeName}' — transitioned Limbo → Finalized");
         }
 
         #region Deferred Merge Dialog

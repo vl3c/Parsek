@@ -88,7 +88,7 @@ namespace Parsek.Tests
             RecordingStore.StashPendingTree(tree);
 
             Assert.Contains(capturedLines,
-                line => line.Contains("Stashed pending tree 'Mun Mission' (3 recordings)"));
+                line => line.Contains("Stashed pending tree 'Mun Mission' (3 recordings, state=Finalized)"));
         }
 
         // ============================================================
