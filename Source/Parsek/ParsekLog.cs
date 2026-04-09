@@ -1,5 +1,8 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
+using System.Text;
+using System.Threading;
 using UnityEngine;
 
 namespace Parsek
@@ -12,6 +15,16 @@ namespace Parsek
         // When true, suppresses Debug.Log calls (for unit testing outside Unity)
         [ThreadStatic]
         internal static bool SuppressLogging;
+
+        // [RecState] sequence counter — incremented on every emission so log
+        // readers can spot dropped lines and sort by emission order even when
+        // multiple snapshots fire in the same tick.
+        private static long s_recStateSeq;
+
+        // Last-seen activeRecId, used to populate the "rec.prev" field only on
+        // transitions. Reset for tests via ResetTestOverrides.
+        [ThreadStatic]
+        private static string t_lastSeenActiveRecId;
 
         private struct RateLimitState
         {
@@ -49,6 +62,18 @@ namespace Parsek
             TestSinkForTesting = null;
             VerboseOverrideForTesting = null;
             ResetRateLimitsForTesting();
+            ResetRecStateForTesting();
+        }
+
+        /// <summary>
+        /// Resets the [RecState] sequence counter and last-seen-recId cache.
+        /// Tests call this before asserting on emitted lines so sequence numbers
+        /// and the rec.prev transition cache start from a known baseline.
+        /// </summary>
+        internal static void ResetRecStateForTesting()
+        {
+            Interlocked.Exchange(ref s_recStateSeq, 0);
+            t_lastSeenActiveRecId = null;
         }
 
         public static void Info(string subsystem, string message)
@@ -207,5 +232,162 @@ namespace Parsek
                 duration,
                 ScreenMessageStyle.UPPER_CENTER);
         }
+
+        // ----- [RecState] structured state-dump logging -----
+
+        /// <summary>
+        /// Emits a single deterministic <c>[RecState]</c> log line summarising
+        /// every recorder-relevant field at the given lifecycle <paramref name="phase"/>.
+        /// Format is field-ordered and stable so log readers can <c>grep "[RecState]"</c>
+        /// and either eyeball or <c>cut -d ' '</c>-parse the output.
+        /// </summary>
+        /// <param name="phase">
+        /// Short free-text tag identifying the call site (e.g. <c>"OnFlightReady"</c>,
+        /// <c>"PromoteToTreeForBreakup:exit"</c>). Always pass a string literal so the
+        /// tag is grep-stable across releases.
+        /// </param>
+        /// <param name="snap">Captured state to render.</param>
+        internal static void RecState(string phase, RecorderStateSnapshot snap)
+        {
+            long seq = Interlocked.Increment(ref s_recStateSeq);
+            string line = FormatRecState(seq, phase, snap, ref t_lastSeenActiveRecId);
+            Write("INFO", "RecState", line);
+        }
+
+        /// <summary>
+        /// Pure formatting helper exposed for unit tests. The <paramref name="lastSeenRecId"/>
+        /// ref parameter is updated to the current snapshot's activeRecId after rendering,
+        /// implementing the "only show <c>rec.prev</c> on transitions" semantics.
+        /// </summary>
+        internal static string FormatRecState(
+            long seq,
+            string phase,
+            RecorderStateSnapshot snap,
+            ref string lastSeenRecId)
+        {
+            var inv = CultureInfo.InvariantCulture;
+            var sb = new StringBuilder(256);
+
+            sb.Append("[#").Append(seq.ToString(inv)).Append("][")
+              .Append(phase ?? "-").Append("] ");
+
+            sb.Append("mode=").Append(FormatMode(snap.mode));
+
+            sb.Append(" tree=");
+            if (snap.mode == RecorderMode.Tree)
+                sb.Append(TruncateId(snap.treeId)).Append('|').Append(NullTo(snap.treeName));
+            else
+                sb.Append('-');
+
+            sb.Append(" rec=");
+            if (snap.activeRecId != null || !string.IsNullOrEmpty(snap.activeVesselName) || snap.activeVesselPid != 0)
+            {
+                sb.Append(TruncateId(snap.activeRecId))
+                  .Append('|')
+                  .Append(NullTo(snap.activeVesselName))
+                  .Append("|pid=")
+                  .Append(snap.activeVesselPid.ToString(inv));
+            }
+            else
+            {
+                sb.Append('-');
+            }
+
+            // rec.prev: only non-'-' on transition since the previous emitted snapshot.
+            sb.Append(" rec.prev=");
+            if (lastSeenRecId != null && snap.activeRecId != null && lastSeenRecId != snap.activeRecId)
+                sb.Append(TruncateId(lastSeenRecId));
+            else if (lastSeenRecId != null && snap.activeRecId == null)
+                sb.Append(TruncateId(lastSeenRecId));
+            else
+                sb.Append('-');
+
+            sb.Append(" rec.live=").Append(BoolStr(snap.isRecording))
+              .Append('/').Append(BoolStr(snap.isBackgrounded));
+
+            sb.Append(" rec.buf=")
+              .Append(snap.bufferedPoints.ToString(inv))
+              .Append('/')
+              .Append(snap.bufferedPartEvents.ToString(inv))
+              .Append('/')
+              .Append(snap.bufferedOrbitSegments.ToString(inv));
+
+            sb.Append(" lastUT=");
+            if (double.IsNaN(snap.lastRecordedUT))
+                sb.Append('-');
+            else
+                sb.Append(snap.lastRecordedUT.ToString("F1", inv));
+
+            sb.Append(" tree.recs=")
+              .Append(snap.treeRecordingCount.ToString(inv))
+              .Append('/')
+              .Append(snap.treeBackgroundMapCount.ToString(inv));
+
+            sb.Append(" pend.tree=");
+            if (snap.pendingTreePresent)
+                sb.Append(TruncateId(snap.pendingTreeId))
+                  .Append(':')
+                  .Append(snap.pendingTreeState.ToString());
+            else
+                sb.Append('-');
+
+            sb.Append(" pend.sa=");
+            if (snap.pendingStandalonePresent)
+                sb.Append(TruncateId(snap.pendingStandaloneRecId));
+            else
+                sb.Append('-');
+
+            sb.Append(" pend.split=")
+              .Append(BoolStr(snap.pendingSplitPresent))
+              .Append('/')
+              .Append(BoolStr(snap.pendingSplitInProgress));
+
+            sb.Append(" chain=");
+            if (snap.chainActiveChainId != null)
+                sb.Append(TruncateId(snap.chainActiveChainId))
+                  .Append("|idx=")
+                  .Append(snap.chainNextIndex.ToString(inv));
+            else
+                sb.Append('-');
+
+            // Auxiliary chain fields when continuations are active — only emitted
+            // when non-zero so the line stays compact in the common case.
+            if (snap.chainContinuationPid != 0)
+                sb.Append(" chain.cont=").Append(snap.chainContinuationPid.ToString(inv));
+            if (snap.chainUndockContinuationPid != 0)
+                sb.Append(" chain.undock=").Append(snap.chainUndockContinuationPid.ToString(inv));
+            if (snap.chainBoundaryAnchorPending)
+                sb.Append(" chain.anchor=1");
+
+            sb.Append(" ut=").Append(snap.currentUT.ToString("F1", inv));
+            sb.Append(" scene=").Append(snap.loadedScene.ToString());
+
+            // Update transition cache after rendering so the *next* call reflects
+            // a transition only when activeRecId actually changes.
+            lastSeenRecId = snap.activeRecId;
+
+            return sb.ToString();
+        }
+
+        private static string FormatMode(RecorderMode mode)
+        {
+            switch (mode)
+            {
+                case RecorderMode.Tree: return "tree";
+                case RecorderMode.Standalone: return "sa";
+                case RecorderMode.None: return "none";
+                default: return "?";
+            }
+        }
+
+        private static string TruncateId(string id)
+        {
+            if (string.IsNullOrEmpty(id)) return "-";
+            return id.Length <= 8 ? id : id.Substring(0, 8);
+        }
+
+        private static string NullTo(string s) => string.IsNullOrEmpty(s) ? "-" : s;
+
+        private static string BoolStr(bool b) => b ? "T" : "F";
     }
 }

@@ -177,6 +177,37 @@ namespace Parsek
         public double EndUT => Points.Count > 0 ? Points[Points.Count - 1].ut :
                                !double.IsNaN(ExplicitEndUT) ? ExplicitEndUT : 0.0;
 
+        /// <summary>
+        /// Compact, grep-friendly identity string for diagnostic logs:
+        /// <c>rec[abc12345|KerbalX|tree|0]</c>. Format is
+        /// <c>rec[&lt;id8&gt;|&lt;vesselName&gt;|&lt;mode&gt;|&lt;chainIdx&gt;]</c> where
+        /// <c>id8</c> is the first 8 chars of the recording id (or <c>-</c>),
+        /// <c>mode</c> is <c>tree</c> if the recording belongs to a tree else <c>sa</c>,
+        /// and <c>chainIdx</c> is the chain index or <c>-</c> for unchained recordings.
+        /// Used inline in free-text log lines that reference a single recording so
+        /// the reader gets full identity context without cross-referencing other lines.
+        /// </summary>
+        internal string DebugName
+        {
+            get
+            {
+                string idShort;
+                if (string.IsNullOrEmpty(RecordingId))
+                    idShort = "-";
+                else if (RecordingId.Length <= 8)
+                    idShort = RecordingId;
+                else
+                    idShort = RecordingId.Substring(0, 8);
+
+                string mode = IsTreeRecording ? "tree" : "sa";
+                string chain = ChainIndex >= 0
+                    ? ChainIndex.ToString(System.Globalization.CultureInfo.InvariantCulture)
+                    : "-";
+                string vessel = string.IsNullOrEmpty(VesselName) ? "-" : VesselName;
+                return "rec[" + idShort + "|" + vessel + "|" + mode + "|" + chain + "]";
+            }
+        }
+
         /// <summary>True if this recording belongs to a RecordingTree.</summary>
         internal bool IsTreeRecording => TreeId != null;
 
