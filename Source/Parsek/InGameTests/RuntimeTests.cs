@@ -1154,6 +1154,169 @@ namespace Parsek.InGameTests
                     $"Rollback failed: expected count {beforeCount}, got {target.protoModuleCrew.Count}");
             }
         }
+
+        [InGameTest(Category = "CrewReservation", Scene = GameScenes.FLIGHT,
+            Description = "Bug #277: PlaceOrphanedReplacements end-to-end places stand-in from synthetic snapshot")]
+        public void Bug277_PlaceOrphanedReplacements_PlacesStandinFromSnapshot()
+        {
+            // End-to-end integration test for the bug #277 orphan placement pass.
+            // Builds a synthetic snapshot referencing a real part on the active
+            // vessel, registers a fake reservation, calls PlaceOrphanedReplacements
+            // directly (skipping the SpawnCrew + RemoveReservedEvaVessels side
+            // effects of full SwapReservedCrewInFlight), asserts the stand-in
+            // landed in the right part, then rolls everything back.
+
+            var av = FlightGlobals.ActiveVessel;
+            if (av == null)
+            {
+                InGameAssert.Skip("No active vessel");
+                return;
+            }
+
+            // Find a part with a free seat to use as the placement target.
+            Part target = null;
+            for (int i = 0; i < av.parts.Count; i++)
+            {
+                var p = av.parts[i];
+                if (p != null && p.CrewCapacity > 0 && p.protoModuleCrew.Count < p.CrewCapacity
+                    && p.partInfo != null && !string.IsNullOrEmpty(p.partInfo.name))
+                {
+                    target = p;
+                    break;
+                }
+            }
+            if (target == null)
+            {
+                InGameAssert.Skip("Active vessel has no part with a free crew seat");
+                return;
+            }
+
+            // Find a free Available Crew kerbal not currently on the active vessel.
+            var roster = HighLogic.CurrentGame?.CrewRoster;
+            if (roster == null)
+            {
+                InGameAssert.Skip("No crew roster");
+                return;
+            }
+            var activeCrewNames = new HashSet<string>();
+            for (int p = 0; p < av.parts.Count; p++)
+            {
+                var crew = av.parts[p].protoModuleCrew;
+                for (int c = 0; c < crew.Count; c++)
+                {
+                    if (crew[c] != null && !string.IsNullOrEmpty(crew[c].name))
+                        activeCrewNames.Add(crew[c].name);
+                }
+            }
+            ProtoCrewMember standIn = null;
+            foreach (ProtoCrewMember pcm in roster.Crew)
+            {
+                if (pcm.rosterStatus == ProtoCrewMember.RosterStatus.Available
+                    && pcm.type == ProtoCrewMember.KerbalType.Crew
+                    && !activeCrewNames.Contains(pcm.name))
+                {
+                    standIn = pcm;
+                    break;
+                }
+            }
+            if (standIn == null)
+            {
+                InGameAssert.Skip("No Available crew kerbal in roster (not already on active vessel)");
+                return;
+            }
+
+            // Pick a fake "original" name that does not exist in the roster.
+            string fakeOriginal = "Bug277Test_" + System.Guid.NewGuid().ToString("N").Substring(0, 8) + " Kerman";
+
+            // Save state for rollback.
+            var savedReplacements = new Dictionary<string, string>();
+            foreach (var kvp in CrewReservationManager.CrewReplacements)
+                savedReplacements[kvp.Key] = kvp.Value;
+            int savedCommittedCount = RecordingStore.CommittedRecordings.Count;
+            int beforeCrewCount = target.protoModuleCrew.Count;
+
+            // Build a synthetic snapshot whose PART node references the live
+            // target part by pid + name and lists the fake original.
+            var snapshot = new ConfigNode("VESSEL");
+            var partNode = snapshot.AddNode("PART");
+            partNode.AddValue("name", target.partInfo.name);
+            partNode.AddValue("pid", target.persistentId.ToString());
+            partNode.AddValue("crew", fakeOriginal);
+
+            var syntheticRecording = new Recording
+            {
+                RecordingId = "test-orphan-277-" + System.Guid.NewGuid().ToString("N").Substring(0, 8),
+                VesselName = "Bug277TestVessel",
+                GhostVisualSnapshot = snapshot
+            };
+
+            bool addedToCommitted = false;
+            bool addedReplacement = false;
+            bool placedCrew = false;
+            try
+            {
+                // Inject synthetic recording so the snapshot scan finds the fake original.
+                RecordingStore.CommittedRecordings.Add(syntheticRecording);
+                addedToCommitted = true;
+
+                // Register the fake reservation.
+                CrewReservationManager.SetReplacement(fakeOriginal, standIn.name);
+                addedReplacement = true;
+
+                // Run just the orphan-placement pass with an empty swappedOriginals
+                // set. This avoids triggering RemoveReservedEvaVessels and SpawnCrew
+                // side effects from full SwapReservedCrewInFlight.
+                var swappedOriginals = new HashSet<string>();
+                int placed = CrewReservationManager.PlaceOrphanedReplacements(roster, swappedOriginals);
+
+                // Validate placement.
+                InGameAssert.IsGreaterThan(placed, 0,
+                    $"PlaceOrphanedReplacements should have placed at least 1 stand-in (placed={placed})");
+                placedCrew = target.protoModuleCrew.Contains(standIn);
+                InGameAssert.IsTrue(placedCrew,
+                    $"Stand-in '{standIn.name}' should be in target part '{target.partInfo.title}' " +
+                    $"after orphan placement");
+                InGameAssert.IsTrue(swappedOriginals.Contains(fakeOriginal),
+                    $"Fake original '{fakeOriginal}' should be in swappedOriginals after placement");
+                InGameAssert.AreEqual(beforeCrewCount + 1, target.protoModuleCrew.Count,
+                    $"Target part crew count should have increased by 1 " +
+                    $"(before={beforeCrewCount}, after={target.protoModuleCrew.Count})");
+
+                ParsekLog.Info("TestRunner",
+                    $"Bug277 end-to-end: orphan placement placed '{standIn.name}' " +
+                    $"in '{target.partInfo.title}' from synthetic snapshot");
+            }
+            finally
+            {
+                // Roll back placement first so the part returns to its original state.
+                if (placedCrew && target.protoModuleCrew.Contains(standIn))
+                    target.RemoveCrewmember(standIn);
+
+                // Restore replacements: clear and replay the saved set. Skips the
+                // fake one entirely because we built it with a fresh GUID name.
+                if (addedReplacement)
+                {
+                    CrewReservationManager.ClearReplacementsInternal();
+                    foreach (var kvp in savedReplacements)
+                        CrewReservationManager.SetReplacement(kvp.Key, kvp.Value);
+                }
+
+                // Remove the synthetic recording from the committed list.
+                if (addedToCommitted)
+                    RecordingStore.CommittedRecordings.Remove(syntheticRecording);
+
+                // Verify rollback.
+                InGameAssert.AreEqual(beforeCrewCount, target.protoModuleCrew.Count,
+                    $"Rollback failed: target part crew count not restored " +
+                    $"(expected={beforeCrewCount}, actual={target.protoModuleCrew.Count})");
+                InGameAssert.AreEqual(savedCommittedCount, RecordingStore.CommittedRecordings.Count,
+                    $"Rollback failed: CommittedRecordings count not restored " +
+                    $"(expected={savedCommittedCount}, actual={RecordingStore.CommittedRecordings.Count})");
+                InGameAssert.AreEqual(savedReplacements.Count, CrewReservationManager.CrewReplacements.Count,
+                    $"Rollback failed: crewReplacements count not restored " +
+                    $"(expected={savedReplacements.Count}, actual={CrewReservationManager.CrewReplacements.Count})");
+            }
+        }
     }
 
     /// <summary>
