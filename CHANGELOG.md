@@ -40,6 +40,27 @@ All notable changes to Parsek are documented here.
 - **Fix ghost audio not muted when KSP pause menu (ESC) is open.** Ghost `AudioSource`s had no pause handling — engine sounds continued playing during the ESC menu. Subscribe to `GameEvents.onGamePause` / `onGameUnpause` in `ParsekFlight`, call new `GhostPlaybackEngine.PauseAllGhostAudio` / `UnpauseAllGhostAudio` which iterate all primary + overlap ghost states. New `GhostPlaybackLogic.PauseAllAudio` / `UnpauseAllAudio` use `AudioSource.Pause()` / `.UnPause()` (preserves playback position, unlike the existing `MuteAllAudio` which calls `Stop()`).
 - **Fix ghost camera cutoff not persisted across rewind or KSP restart.** `ParsekSettings` lives inside KSP's `GameParameters`, which get reset on every quickload (including `parsek_rw_*` rewinds). User-set values for `ghostCameraCutoffKm` were lost on every rewind. New `ParsekSettingsPersistence` store writes user changes to `GameData/Parsek/PluginData/settings.cfg` (KSP convention for runtime mod state — excluded from ModuleManager's patch cache) and reads them back in `ParsekScenario.OnLoad` immediately after the settings node is available. Survives rewind, save/load, scene transitions, and KSP session restart.
 
+#### Quickload-resume recording (Bug C + cascading H, I)
+
+Observed in the 2026-04-09 KerbalX playtest: quicksave + quickload during an active recording fragmented the mission across multiple unlinked recordings, produced partial ghost orbits (Bug H), and scattered crew across orphan recordings (Bug I). Both H and I are cascading effects of the same root cause — the tree was being prematurely finalized on every FLIGHT→FLIGHT scene reload.
+
+Three compounding defects:
+
+- **`ParsekFlight.FinalizeTreeOnSceneChange` called `CommitTreeRevert` on any FLIGHT→FLIGHT reload**, finalizing the active tree before `OnLoad` could distinguish revert from quickload.
+- **`ParsekScenario.OnSave` never serialized the active tree**, so even if we refused to commit in memory, the scene reload would lose it.
+- **`ParsekScenario.OnLoad`'s `isRevert` condition conflated FLIGHT→FLIGHT with revert** via `|| isFlightToFlight`.
+
+Atomic fix (landed together — the intermediate states are all broken):
+
+- New `PendingTreeState` enum `{Finalized, Limbo}` on the existing `pendingTree` slot. Stash-as-Limbo preserves the tree data without finalization; `OnLoad` decides between restore-and-resume (quickload) and finalize-and-commit (revert or vessel switch).
+- `OnSave` writes the active tree as a `RECORDING_TREE` node flagged `isActive=True`, gated on `LoadedScene == FLIGHT && activeTree && recorder`. Recorder buffers are flushed into the tree before serialization. Resume hint (rewind save filename) serialized alongside.
+- `OnLoad` runs new `TryRestoreActiveTreeNode` after `ParsekSettingsPersistence.ApplyTo` but before revert detection; stashes the loaded active tree into pending-Limbo. Dedupes against `committedTrees` to handle the in-flight → TS commit → quickload edge case. Runs on both `initialLoadDone=true` (in-session quickload) and `initialLoadDone=false` (cold-start "Resume Saved Game") branches.
+- Removed `|| isFlightToFlight` from the `isRevert` condition — only epoch regression or count regression count as revert indicators now.
+- New `StashActiveTreeAsPendingLimbo` replaces `CommitTreeRevert` on the FLIGHT→FLIGHT path. Flushes recorder buffers, finalizes background orbit segments, aborts any `pendingSplitRecorder` (continuation windows can't survive scene reload cleanly), then stashes as Limbo without setting terminal state.
+- New `RestoreActiveTreeFromPending` coroutine runs from `OnFlightReady`: 3-second vessel name match, EVA-boarded-parent fallback (walks `ParentRecordingId` up to 5 levels), PID remap, fresh `FlightRecorder` attached to the restored tree, `StartRecording(isPromotion: true)` relies on the Bug A seed-event skip to avoid duplicate events at the quickload UT. Non-destructive `PopPendingTree` preserves sidecar files.
+- New `FlightRecorder.LastRecordedAltitude` cache so `HandleSoiAutoSplit` can classify `fromPhase` correctly even after `FlushRecorderIntoActiveTreeForSerialization` clears the `Recording` buffer mid-flight. Updated by `CommitRecordedPoint`, `SamplePosition`, and `InsertBoundaryAnchorAndSnapshot` (for chain continuation anchors).
+- Vessel-switch scene reloads route through `FinalizePendingLimboTreeForRevert` to match mainline behavior — the new active vessel by definition can't match the tree's recorded vessel by name, so restoring would trap in the 3-second wait. Proper tree-preservation-on-switch is a follow-up (#266).
+
 ### Bug Fixes (Mun Mission Playtest)
 
 - **Fix ProtoVessel permanently lost in orbit segment gap (#244).** `CheckPendingMapVessels` removed the ProtoVessel when `FindOrbitSegment` returned null during a gap between segments (normal during burns) and never re-queued it. The ghost stayed icon-only for the entire Kerbin→Mun transfer. Now checks for future segments and re-queues to `pendingMapVessels`.

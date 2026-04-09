@@ -705,6 +705,48 @@ xUnit can't exercise any code path that touches `UnityEngine.AudioSource` (direc
 
 **Priority:** Low — the code paths are simple enough that review caught the issues in commit 77bce7c, and the production playtest will exercise them end-to-end. In-game tests harden against future regressions.
 
+## 266. Tree-preservation on vessel switch (quickload-resume follow-up)
+
+PR #160 routes `isVesselSwitch` through `FinalizePendingLimboTreeForRevert` to match mainline behavior, but the ideal outcome on a vessel switch (user clicks a distant vessel triggering FLIGHT→FLIGHT scene reload) is to keep the active tree alive with the old vessel backgrounded, so the mission doesn't fragment.
+
+**Fix plan:** On `Limbo + isVesselSwitch`, instead of finalizing the tree, move the old active recording's PID into `tree.BackgroundMap`, leave the tree in place (not stashed), install it back as `ParsekFlight.activeTree`, and start a fresh recorder only if the new active vessel has its own recording context. The next vessel switch back to the old vessel triggers `PromoteFromBackground` via the existing in-session switch path. Requires careful handling of the background recorder subscription lifecycle.
+
+**Priority:** Medium — better than finalizing but not a regression, so can wait
+
+## 267. Quickload-resume: restore coroutine reentrancy guard
+
+The `ScheduleActiveTreeRestoreOnFlightReady` flag and the `RestoreActiveTreeFromPending` coroutine (`ParsekFlight.cs`) don't have a re-entry guard. If `onVesselChange` or another reactive handler mutates `activeTree` or the pending tree during the coroutine's 3-second vessel wait, the restore could see inconsistent state. Documented in the design doc's Risks section.
+
+**Fix plan:** Add `static bool restoringActiveTree` guard on `ParsekFlight`. Set at coroutine start, clear on completion or failure. `onVesselChange` / `OnVesselSwitchComplete` handlers check the flag and skip tree mutations while the restore is running. Also consider using a one-shot check in `RestoreActiveTreeFromPending` that refuses to run if `activeTree != null` when it enters (meaning someone beat it to the slot).
+
+**Priority:** Low — no reported issue yet, but prevents a hard-to-diagnose race
+
+## 268. Quickload-resume: snapshot preservation through revert finalization
+
+The old `CommitTreeRevert` preserved vessel snapshots so the merge dialog could offer respawn. `FinalizePendingLimboTreeForRevert` (PR #160) does not — by OnLoad time the vessel refs are gone and we fall back to whatever snapshots were stashed before the scene reload, which may be stale or null. Affects autoMerge=off + revert + dialog-driven respawn.
+
+**Fix plan:** Capture a live snapshot of the active vessel inside `StashActiveTreeAsPendingLimbo` (which runs during `OnSceneChangeRequested`, while the vessel is still referenceable), and attach it to the tree's active recording so the merge dialog can use it if the Limbo tree takes the finalize path. Costs one snapshot copy per scene reload but preserves the existing UX.
+
+**Priority:** Low — regression only visible on autoMerge=off reverts, assess after playtest
+
+## 269. In-game test coverage for quickload-resume flow
+
+PR #160 ships with 29 unit tests covering static state transitions, dispatch decisions, and isolated predicates, but the full scenario — quicksave → scene reload → quickload → restore coroutine → resumed recording appends to same chain segment — can only run inside live KSP.
+
+**Fix plan:** Add an `InGameTests/RuntimeTests.cs` category `[InGameTest(Category = "QuickloadResume", Scene = GameScenes.FLIGHT)]` covering: (1) quickload mid-recording resumes with same `activeRecordingId` and points match pre-F5 UT; (2) real revert finalizes the tree (merge dialog if autoMerge off); (3) vessel switch finalizes the tree (temporary — update when #266 lands); (4) double-F9 idempotency; (5) quickload into a non-flight scene does not try to restore; (6) rewind path (via R button) does not conflict with restore; (7) cold-start "resume saved game" triggers restore via OnFlightReady.
+
+**Priority:** Medium — the Unity-dependent gaps in PR #160's unit tests should close before the next major refactor
+
+## 270. Sidecar file (.prec) version staleness across save points
+
+Latent pre-existing architectural limitation of the v3 external sidecar format: sidecar files (`saves/<save>/Parsek/Recordings/*.prec`) are shared across ALL save points for a given save slot. If the player quicksaves in flight at T2, exits to TS at T3 (which rewrites the sidecars with T3 data), then quickloads the T2 save, the .sfs loads the T2 active tree metadata but `LoadRecordingFiles` hydrates from T3 sidecars on disk — a mismatch.
+
+Not introduced by PR #160, but PR #160's quickload-resume path makes it more reachable (previously, quickloading between scene changes always finalized the tree, so the tree was effectively "new" each time).
+
+**Fix plan (long-term):** version sidecar files per save point — stamp each `.prec` with the save epoch or a hash, refuse to load mismatched versions. Alternatively, never rewrite sidecars for committed trees; treat them as immutable.
+
+**Priority:** Low — rare user workflow (quicksave in flight + exit to TS + quickload), and the worst case is playback inconsistency, not data loss. Flag again if it bites during playtest.
+
 ---
 
 # In-Game Tests
