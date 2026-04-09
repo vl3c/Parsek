@@ -488,8 +488,7 @@ Steps:
 9. Clear ExplicitStartUT/ExplicitEndUT to NaN on target (Points now cover the full range)
 10. If absorbed had Controllers, merge (or keep target's if both non-null)
 11. If absorbed had AntennaSpecs, merge (or keep target's if both non-null)
-12. Invalidate GhostGeometry: set target's `GhostGeometryAvailable = false`, clear `GhostGeometryRelativePath` (geometry covers only the first half's vessel config — must be regenerated)
-13. Invalidate target's CachedStats
+12. Invalidate target's CachedStats
 
 Test:
 - `MergeInto_ConcatenatesPoints` — verify points from both recordings in order
@@ -497,7 +496,6 @@ Test:
 - `MergeInto_InheritsVesselSnapshot_WhenAbsorbedIsChainTip`
 - `MergeInto_KeepsNullSnapshot_WhenAbsorbedIsMidChain`
 - `MergeInto_InheritsTerminalState`
-- `MergeInto_InvalidatesGhostGeometry`
 - `MergeInto_ClearsExplicitUTRanges`
 
 Done condition: all tests pass.
@@ -525,8 +523,7 @@ Steps:
 7. New recording gets new RecordingId
 8. Tag SegmentPhase on both halves from their first TrackSection's environment
 9. Update both recordings' UT ranges
-10. Invalidate GhostGeometry on both halves: `GhostGeometryAvailable = false`, clear `GhostGeometryRelativePath`. Caller (Task 4.5) must write new `.pcrf` files for each half, or leave geometry unavailable for regeneration on next playback.
-11. Invalidate CachedStats on both
+10. Invalidate CachedStats on both
 
 Test:
 - `SplitAtSection_PartitionsPoints` — correct points in each half
@@ -633,7 +630,7 @@ Merge operation:
 8. Union `FlagEvents`
 9. Adopt first segment's `RecordingId`, update UT ranges
 10. Re-index `ChainIndex` for remaining segments in the chain
-11. Delete absorbed segment's sidecar files (`.prec`, `_ghost.craft`, `.pcrf`)
+11. Delete absorbed segment's sidecar files (`.prec`, `_ghost.craft`)
 12. Save merged segment's updated sidecar files
 
 **Use cases:**

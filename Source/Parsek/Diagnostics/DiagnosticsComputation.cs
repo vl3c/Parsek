@@ -101,14 +101,12 @@ namespace Parsek
             string precPath = SafeResolvePath(RecordingPaths.BuildTrajectoryRelativePath(rec.RecordingId));
             string vesselPath = SafeResolvePath(RecordingPaths.BuildVesselSnapshotRelativePath(rec.RecordingId));
             string ghostPath = SafeResolvePath(RecordingPaths.BuildGhostSnapshotRelativePath(rec.RecordingId));
-            string geomPath = SafeResolvePath(RecordingPaths.BuildGhostGeometryRelativePath(rec.RecordingId));
 
             bd.trajectoryFileBytes = SafeGetFileSize(precPath);
             bd.vesselSnapshotBytes = SafeGetFileSize(vesselPath);
             bd.ghostSnapshotBytes = SafeGetFileSize(ghostPath);
-            bd.geometryFileBytes = SafeGetFileSize(geomPath);
             bd.totalBytes = bd.trajectoryFileBytes + bd.vesselSnapshotBytes
-                          + bd.ghostSnapshotBytes + bd.geometryFileBytes;
+                          + bd.ghostSnapshotBytes;
 
             bd.bytesPerSecond = bd.durationSeconds > 0.0
                 ? bd.totalBytes / bd.durationSeconds

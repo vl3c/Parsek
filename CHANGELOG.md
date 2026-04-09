@@ -21,6 +21,10 @@ Dev notes: technical narratives for the fixes below live in `docs/dev/todo-and-k
 - Automatic rate-limited `[WARN]` when playback exceeds 8ms/frame or recording exceeds 4ms/frame.
 - New `ParsekLog.WarnRateLimited` API.
 
+### Maintenance
+
+- `#260` Removed dead `.pcrf` ghost geometry scaffolding — never implemented (write side missing), only loaded. Eliminates ~52 spurious "Missing sidecar file" warnings per diagnostics scan and removes 3 vestigial fields, an unused path builder, and dead orphan-detection coverage.
+
 ### Bug Fixes — KerbalX + Butterfly Rover playtest (2026-04-09)
 
 - `#272` F5/F9 destroys entire launch tree — `OnFlightReady` was nulling the freshly-restored `activeTree` right after the restore coroutine set it. Fixed the ordering (PR #163).

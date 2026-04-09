@@ -1520,7 +1520,6 @@ namespace Parsek
             DeleteFileIfExists(RecordingPaths.BuildTrajectoryRelativePath(rec.RecordingId));
             DeleteFileIfExists(RecordingPaths.BuildVesselSnapshotRelativePath(rec.RecordingId));
             DeleteFileIfExists(RecordingPaths.BuildGhostSnapshotRelativePath(rec.RecordingId));
-            DeleteFileIfExists(RecordingPaths.BuildGhostGeometryRelativePath(rec.RecordingId));
 
             if (!string.IsNullOrEmpty(rec.RewindSaveFileName))
                 DeleteFileIfExists(RecordingPaths.BuildRewindSaveRelativePath(rec.RewindSaveFileName));
@@ -1546,7 +1545,7 @@ namespace Parsek
         /// <summary>
         /// Known sidecar file suffixes for recording files. Used for orphan detection.
         /// </summary>
-        private static readonly string[] RecordingFileSuffixes = { ".prec", "_vessel.craft", "_ghost.craft", ".pcrf" };
+        private static readonly string[] RecordingFileSuffixes = { ".prec", "_vessel.craft", "_ghost.craft" };
 
         /// <summary>
         /// Extracts the recording ID from a sidecar filename by stripping known suffixes.

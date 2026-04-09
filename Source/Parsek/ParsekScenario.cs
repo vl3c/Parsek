@@ -2671,16 +2671,6 @@ namespace Parsek
             if (!string.IsNullOrEmpty(loopAnchorBodyNameStr))
                 rec.LoopAnchorBodyName = loopAnchorBodyNameStr;
 
-            rec.GhostGeometryRelativePath = recNode.GetValue("ghostGeometryPath");
-            string geomAvailableStr = recNode.GetValue("ghostGeometryAvailable");
-            if (geomAvailableStr != null)
-            {
-                bool geomAvailable;
-                if (bool.TryParse(geomAvailableStr, out geomAvailable))
-                    rec.GhostGeometryAvailable = geomAvailable;
-            }
-            rec.GhostGeometryCaptureError = recNode.GetValue("ghostGeometryError");
-
             string preLaunchFundsStr = recNode.GetValue("preLaunchFunds");
             if (preLaunchFundsStr != null)
             {

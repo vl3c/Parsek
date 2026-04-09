@@ -245,7 +245,6 @@ namespace Parsek.Tests
             Assert.Equal(0L, bd.trajectoryFileBytes);
             Assert.Equal(0L, bd.vesselSnapshotBytes);
             Assert.Equal(0L, bd.ghostSnapshotBytes);
-            Assert.Equal(0L, bd.geometryFileBytes);
             Assert.Equal(0L, bd.totalBytes);
             // Metadata counts should still be populated from the recording object
             Assert.Equal(100, bd.pointCount);

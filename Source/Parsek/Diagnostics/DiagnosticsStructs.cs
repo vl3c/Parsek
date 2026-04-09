@@ -32,7 +32,6 @@ namespace Parsek
         public long trajectoryFileBytes;
         public long vesselSnapshotBytes;
         public long ghostSnapshotBytes;
-        public long geometryFileBytes;
         public long totalBytes;
         public int pointCount;
         public int partEventCount;

@@ -637,15 +637,13 @@ In-game test `OrbitalRecordingsHaveTerminalOrbit` reports 4 orbital recordings w
 
 **Status:** Fixed
 
-## 260. Remove .pcrf ghost geometry scaffolding
+## ~~260. Remove .pcrf ghost geometry scaffolding~~
 
-`.pcrf` (ghost geometry cache) was planned to cache pre-built ghost meshes to avoid PartLoader resolution on every spawn. Never implemented — `GhostVisualBuilder` always builds from the vessel snapshot directly. The path definition in `RecordingPaths.BuildGhostGeometryRelativePath`, the suffix in `RecordingStore.RecordingFileSuffixes`, and the `geometryFileBytes` field in `StorageBreakdown` are dead scaffolding.
+`.pcrf` (ghost geometry cache) was planned to cache pre-built ghost meshes to avoid PartLoader resolution on every spawn. Never implemented — `GhostVisualBuilder` always builds from the vessel snapshot directly. Fields were loaded from ConfigNode (`ghostGeometryPath` / `ghostGeometryAvailable` / `ghostGeometryError`) but never written, so they always defaulted on next save anyway.
 
-Ghost mesh builds are 10-25ms one-shot costs (not per-frame), and diagnostics show only ~22 builds per session. Not worth implementing — if ghost build cost ever matters, GameObject reuse (reset state instead of destroy/rebuild) would be simpler.
+**Fix:** Deleted `BuildGhostGeometryRelativePath` from `RecordingPaths`; removed `GhostGeometryRelativePath` / `GhostGeometryAvailable` / `GhostGeometryCaptureError` fields from `Recording`; removed `.pcrf` from `RecordingStore.RecordingFileSuffixes` (orphan-detection); removed `geometryFileBytes` from `StorageBreakdown`; removed the `.pcrf` stat call from `DiagnosticsComputation.ComputeStorageBreakdown`; removed the no-op load blocks from `ParsekScenario` and `RecordingTree`; removed the `RecordingOptimizer.MergeInto` / `SplitAtSection` invalidation lines (no field to clear). 5 test sites updated, 4 doc files updated. Stale `.pcrf` files left over from old saves get cleaned up as orphans by the existing scan path.
 
-**Fix:** Remove `BuildGhostGeometryRelativePath` from `RecordingPaths`, remove `.pcrf` from `RecordingFileSuffixes`, remove `geometryFileBytes` from `StorageBreakdown`, remove the `.pcrf` stat call from `DiagnosticsComputation.ComputeStorageBreakdown`.
-
-**Priority:** Low — cleanup, eliminates ~52 spurious "Missing sidecar file" warnings per diagnostics scan
+**Status:** Fixed
 
 ## 261. Diagnostics playback budget shows 0.0 ms instead of N/A on first frame
 
