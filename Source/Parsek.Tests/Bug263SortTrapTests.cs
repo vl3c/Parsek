@@ -14,7 +14,7 @@ namespace Parsek.Tests
     ///
     /// The fix (FlightRecorder.StableSortPartEventsByUT): use LINQ OrderBy which
     /// is documented as a stable sort — equal-UT events keep their insertion
-    /// order, so decoupleswritten by OnPartJointBreak stay BEFORE terminals
+    /// order, so decouples written by OnPartJointBreak stay BEFORE terminals
     /// appended later in FinalizeRecordingState, and the index-based removal
     /// only hits real terminals.
     ///

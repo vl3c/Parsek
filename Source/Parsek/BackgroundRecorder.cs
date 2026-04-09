@@ -1196,7 +1196,7 @@ namespace Parsek
         /// flush time closes the window between "data exists in memory" and "data
         /// exists on disk" (bug #276).
         /// </summary>
-        private static void PersistFinalizedRecording(Recording rec, string context)
+        internal static void PersistFinalizedRecording(Recording rec, string context)
         {
             if (rec == null) return;
             if (RecordingStore.SaveRecordingFiles(rec))
