@@ -489,18 +489,6 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void MergeInto_InvalidatesGhostGeometry()
-        {
-            var a = MakeChainSegment("c1", 0);
-            a.GhostGeometryAvailable = true;
-            a.GhostGeometryRelativePath = "old/path.pcrf";
-            var b = MakeChainSegment("c1", 1);
-            RecordingOptimizer.MergeInto(a, b);
-            Assert.False(a.GhostGeometryAvailable);
-            Assert.Null(a.GhostGeometryRelativePath);
-        }
-
-        [Fact]
         public void MergeInto_ClearsExplicitUTRanges()
         {
             var a = MakeChainSegment("c1", 0);

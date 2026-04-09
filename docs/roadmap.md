@@ -186,7 +186,7 @@ Optimization pass before logistics routes add many long-lived looped recordings.
 Instrument the system so size/performance problems are visible during playtesting, without introducing behavior changes:
 
 - **Per-save storage report** — total disk size of Parsek data (sidecar files + .sfs metadata), broken down by recording. Accessible from Settings > Diagnostics.
-- **Per-recording stats** — point count, part event count, orbit segment count, sidecar file sizes (.prec, _vessel.craft, _ghost.craft, .pcrf). Visible in Recordings Manager tooltip or detail view.
+- **Per-recording stats** — point count, part event count, orbit segment count, sidecar file sizes (.prec, _vessel.craft, _ghost.craft). Visible in Recordings Manager tooltip or detail view.
 - **Playback budget** — per-frame timing for ghost positioning, part event application, zone evaluation. Logged via `ParsekLog.VerboseRateLimited`, surfaced in diagnostics.
 - **Memory footprint estimate** — loaded trajectory point count, loaded snapshot count, ghost mesh count. Logged at scene load and on-demand.
 - **Recording growth rate** — logged during recording: points/second, events/second, estimated file size at current rate.

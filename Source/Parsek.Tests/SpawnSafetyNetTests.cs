@@ -1032,7 +1032,10 @@ namespace Parsek.Tests
 
             VesselSpawner.StripEvaLadderState(snapshot, 0, "Jeb");
 
-            Assert.Equal("idle", module.GetValue("state"));
+            // The state value is removed entirely so KerbalEVA.StartEVA picks the
+            // correct st_idle_gr / st_idle_fl / st_swim_idle name at runtime
+            // (#264 follow-up — was hardcoding invalid "idle" string).
+            Assert.False(module.HasValue("state"));
             Assert.Equal("False", module.GetValue("OnALadder"));
         }
 
@@ -1043,11 +1046,12 @@ namespace Parsek.Tests
             var part = snapshot.AddNode("PART");
             var module = part.AddNode("MODULE");
             module.AddValue("name", "KerbalEVA");
-            module.AddValue("state", "idle");
+            module.AddValue("state", "st_idle_gr");
 
             VesselSpawner.StripEvaLadderState(snapshot, 0, "Jeb");
 
-            Assert.Equal("idle", module.GetValue("state"));
+            // Non-ladder state must be left alone — strip only when "ladder" appears.
+            Assert.Equal("st_idle_gr", module.GetValue("state"));
         }
 
         [Fact]
@@ -1061,7 +1065,7 @@ namespace Parsek.Tests
 
             VesselSpawner.StripEvaLadderState(snapshot, 0, "Jeb");
 
-            Assert.Equal("idle", module.GetValue("state"));
+            Assert.False(module.HasValue("state"));
         }
 
         [Fact]

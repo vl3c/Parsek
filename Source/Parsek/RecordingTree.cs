@@ -615,17 +615,6 @@ namespace Parsek
                     rec.RewindReservedRep = rewindRep;
             }
 
-            // Ghost geometry metadata
-            rec.GhostGeometryRelativePath = recNode.GetValue("ghostGeometryPath");
-            string geomAvailableStr = recNode.GetValue("ghostGeometryAvailable");
-            if (geomAvailableStr != null)
-            {
-                bool geomAvailable;
-                if (bool.TryParse(geomAvailableStr, out geomAvailable))
-                    rec.GhostGeometryAvailable = geomAvailable;
-            }
-            rec.GhostGeometryCaptureError = recNode.GetValue("ghostGeometryError");
-
             // Mutable playback state
             string pidStr = recNode.GetValue("spawnedPid");
             if (pidStr != null)

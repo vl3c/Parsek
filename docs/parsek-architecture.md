@@ -514,8 +514,7 @@ Using KSP's `ScenarioModule` system (`ParsekScenario`). Lightweight metadata + m
 saves/<save-name>/Parsek/Recordings/
 ├── <recordingId>.prec          # Trajectory (POINT, ORBIT_SEGMENT, PART_EVENT nodes)
 ├── <recordingId>_vessel.craft  # Vessel snapshot (ProtoVessel ConfigNode)
-├── <recordingId>_ghost.craft   # Ghost visual snapshot (ProtoVessel ConfigNode)
-└── <recordingId>.pcrf          # Ghost geometry artifact
+└── <recordingId>_ghost.craft   # Ghost visual snapshot (ProtoVessel ConfigNode)
 ```
 
 - `.prec` = Parsek Recording (ConfigNode format with version + recordingId header)

@@ -225,14 +225,6 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void BuildGhostGeometryRelativePath_UsesRecordingIdAndExtension()
-        {
-            string id = "abc123";
-            string rel = RecordingPaths.BuildGhostGeometryRelativePath(id).Replace('\\', '/');
-            Assert.Equal("Parsek/Recordings/abc123.pcrf", rel);
-        }
-
-        [Fact]
         public void StashPending_UsesProvidedRecordingMetadata()
         {
             var points = MakePoints(3);
@@ -412,51 +404,11 @@ namespace Parsek.Tests
             RecordingStore.DeleteRecordingFiles(rec);
         }
 
-        [Fact]
-        public void DiscardPending_WithGeometryPath_DoesNotThrow()
-        {
-            RecordingStore.StashPending(MakePoints(3), "Ship");
-            RecordingStore.Pending.GhostGeometryRelativePath = "Parsek/Recordings/pending.pcrf";
-            RecordingStore.DiscardPending();
-            Assert.False(RecordingStore.HasPending);
-        }
-
-        [Fact]
-        public void ClearCommitted_WithGeometryPath_DoesNotThrow()
-        {
-            RecordingStore.StashPending(MakePoints(3), "A");
-            RecordingStore.Pending.GhostGeometryRelativePath = "Parsek/Recordings/a.pcrf";
-            RecordingStore.CommitPending();
-            RecordingStore.StashPending(MakePoints(3, 200), "B");
-            RecordingStore.Pending.GhostGeometryRelativePath = "Parsek/Recordings/b.pcrf";
-            RecordingStore.CommitPending();
-
-            RecordingStore.ClearCommitted();
-
-            Assert.Empty(RecordingStore.CommittedRecordings);
-        }
-
-        [Fact]
-        public void Clear_WithPendingAndCommittedGeometry_DoesNotThrow()
-        {
-            RecordingStore.StashPending(MakePoints(3), "A");
-            RecordingStore.Pending.GhostGeometryRelativePath = "Parsek/Recordings/a.pcrf";
-            RecordingStore.CommitPending();
-
-            RecordingStore.StashPending(MakePoints(3, 200), "Pending");
-            RecordingStore.Pending.GhostGeometryRelativePath = "Parsek/Recordings/pending.pcrf";
-
-            RecordingStore.Clear();
-
-            Assert.Empty(RecordingStore.CommittedRecordings);
-            Assert.False(RecordingStore.HasPending);
-        }
-
         [Theory]
         [InlineData("abc123.prec", "abc123")]
         [InlineData("abc123_vessel.craft", "abc123")]
         [InlineData("abc123_ghost.craft", "abc123")]
-        [InlineData("abc123.pcrf", "abc123")]
+        [InlineData("abc123.pcrf", null)]                              // .pcrf no longer recognized (#260)
         [InlineData("a1b2c3d4e5f6.prec", "a1b2c3d4e5f6")]           // GUID-style ID
         [InlineData("id.with.dots.prec", "id.with.dots")]             // dots in ID
         [InlineData("abc123.prec.tmp", null)]                         // safe-write temp file — should be ignored
@@ -469,6 +421,21 @@ namespace Parsek.Tests
         public void ExtractRecordingIdFromFileName_Works(string fileName, string expected)
         {
             Assert.Equal(expected, RecordingStore.ExtractRecordingIdFromFileName(fileName));
+        }
+
+        [Theory]
+        [InlineData("abc123.pcrf", true)]                                    // legacy ghost-geometry sidecar (#260)
+        [InlineData("a1b2c3d4e5f6.pcrf", true)]
+        [InlineData("ABC123.PCRF", true)]                                    // case-insensitive
+        [InlineData("abc123.prec", false)]                                   // current sidecar — not legacy
+        [InlineData("abc123_vessel.craft", false)]
+        [InlineData("abc123_ghost.craft", false)]
+        [InlineData("readme.txt", false)]
+        [InlineData("", false)]
+        [InlineData(null, false)]
+        public void IsLegacySidecarFile_Works(string fileName, bool expected)
+        {
+            Assert.Equal(expected, RecordingStore.IsLegacySidecarFile(fileName));
         }
 
         [Theory]

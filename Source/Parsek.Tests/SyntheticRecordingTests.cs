@@ -4579,7 +4579,6 @@ namespace Parsek.Tests
             Assert.Contains("testid123.prec", RecordingPaths.BuildTrajectoryRelativePath(id));
             Assert.Contains("testid123_vessel.craft", RecordingPaths.BuildVesselSnapshotRelativePath(id));
             Assert.Contains("testid123_ghost.craft", RecordingPaths.BuildGhostSnapshotRelativePath(id));
-            Assert.Contains("testid123.pcrf", RecordingPaths.BuildGhostGeometryRelativePath(id));
 
             // All paths are under Parsek/Recordings/
             Assert.StartsWith("Parsek", RecordingPaths.BuildTrajectoryRelativePath(id));

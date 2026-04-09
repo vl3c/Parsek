@@ -5,11 +5,6 @@ namespace Parsek
 {
     internal static class RecordingPaths
     {
-        internal static string BuildGhostGeometryRelativePath(string recordingId)
-        {
-            return Path.Combine("Parsek", "Recordings", $"{recordingId}.pcrf");
-        }
-
         internal static string BuildTrajectoryRelativePath(string recordingId)
         {
             return Path.Combine("Parsek", "Recordings", $"{recordingId}.prec");

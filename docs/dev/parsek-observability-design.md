@@ -100,7 +100,6 @@ StorageBreakdown
   long    trajectoryFileBytes        // .prec
   long    vesselSnapshotBytes        // _vessel.craft
   long    ghostSnapshotBytes         // _ghost.craft
-  long    geometryFileBytes          // .pcrf (if exists)
   long    totalBytes                 // sum of above
   int     pointCount                 // from recording metadata
   int     partEventCount
