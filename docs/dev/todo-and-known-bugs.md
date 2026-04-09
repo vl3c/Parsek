@@ -1078,7 +1078,7 @@ With `spawnable=0` the whole tree is non-spawnable and no capsule ends up on the
 
 ---
 
-## 277. Wrong crew spawned at recording end (2026-04-09 playtest)
+## ~~277. Wrong crew spawned at recording end (2026-04-09 playtest)~~
 
 Reported in the 2026-04-09 playtest (`logs/2026-04-09_recording-flow-bugs/`). The Kerbal X rocket crew was Jeb (Pilot) / Bill (Engineer) / Bob (Scientist), but at merge-dialog time only two of the three stand-in swaps succeeded.
 
@@ -1091,19 +1091,40 @@ Reported in the 2026-04-09 playtest (`logs/2026-04-09_recording-flow-bugs/`). Th
 12840: [CrewReservation] Removed 1 reserved EVA vessel(s)
 ```
 
-Only 2 swaps completed. The Bob→Carsy swap never ran because Bob was on an EVA vessel (rec `d768a28f`) at the moment of merge rather than in the command pod. The code took the "Removing reserved EVA vessel" branch and kicked Carsy out of the reservation pool without ever placing her in any vessel. Net result: the command pod ends up with `Zelsted + Siford + the original Bob`, and the scientist slot is still the pre-merge Bob rather than the stand-in Carsy. The merge dialog reports `spawnable=0` (see also bug #278) so the user never sees the resulting crew assignment in-flight, but the roster is still wrong.
+Only 2 swaps completed. The Bob→Carsy swap never ran because Bob was on an EVA vessel (rec `d768a28f`) at the moment of merge rather than in the command pod. The code took the "Removing reserved EVA vessel" branch and kicked Carsy out of the reservation pool without ever placing her in any vessel. Net result: the command pod ends up with `Zelsted + Siford + (empty Bob seat)`, Carsy floats unused in the roster, and `RescueReservedCrewAfterEvaRemoval` flips Bob back from Missing to Available — so the original Bob is also still usable, doubling the wrongness. The merge dialog reports `spawnable=0` (see also bug #278) so the user never sees the resulting crew assignment in-flight, but the roster is still wrong.
 
-**Fix direction:** `CrewReservationManager.SwapCrewInPart` (or equivalent — confirm exact name) handles the in-pod case; the EVA-at-merge-time case falls through to the "remove reserved EVA vessel" branch and silently drops the reservation. Either:
-- (a) If the kerbal being swapped out is currently on an EVA vessel, recover-and-place — move the stand-in into the command pod's scientist slot at merge time, regardless of where the original was.
-- (b) Or: block the merge dialog with an error when an EVA-reserved kerbal can't be swapped, so the user knows the crew assignment is incomplete.
+**Long-standing latent footprint.** The diagnostic line `"Crew swap on flight ready: 0 swapped (N reservations exist but no matches on active vessel)"` (logged from `ParsekFlight.cs:4082`) appears in **at least 8 older session logs** going back to 2026-03-22 — sessions 2/3/4/5, the 2026-03-24 rewind bug log, the 2026-03-14 EVA dupe log. This is a several-week-old latent bug where stand-ins are silently misplaced; the 2026-04-09 playtest is the first session where the user-visible symptom (wrong crew in pod) was clearly traced.
 
-Option (a) is probably right — the user's intent is "generate stand-in crew for this flight". EVA'd kerbals at merge time should still be replaced.
+**Root cause.** `CrewReservationManager.SwapReservedCrewInFlight` (`Source/Parsek/CrewReservationManager.cs:151`) only iterates `FlightGlobals.ActiveVessel.parts → protoModuleCrew`. The first-pass loop can swap a reservation only when the original kerbal is currently seated in a part of the active vessel. When the original is on a separate EVA vessel (a pre-revert artifact kept alive by Parsek's tree-finalization path), the loop never sees them, the reservation goes unhandled, and `RemoveReservedEvaVessels` (called at the end of the same method) then deletes the EVA vessel without ever placing the stand-in anywhere.
 
-**Tests needed:**
-- Unit: `CrewReservationManager` swap with EVA'd original — assert stand-in is placed in the pod, original remains on the EVA vessel (or is removed with the reservation, depending on chosen semantics).
-- Integration: reproduce the 2026-04-09 scenario (crew goes EVA, commands merge) — assert all three crew slots get stand-ins.
+**Fix.** Add an orphan-placement second pass to `SwapReservedCrewInFlight`:
 
-**Priority:** High — crew correctness is user-visible and sticky (wrong roster persists across sessions).
+1. **First pass tracks swapped originals** in a new local `HashSet<string> swappedOriginals` instead of just counting.
+2. **`PlaceOrphanedReplacements`** iterates `crewReplacements`. For each entry whose original is not in `swappedOriginals`:
+   - **Defensive guard**: short-circuit if the original is still seated on the active vessel (Pass 1 may have left them unprocessed via a `failCount` branch like replacement-not-in-roster). Prevents double-placement.
+   - Skip if the replacement is not in the roster (Warn) or is Dead (Warn).
+   - **Rescue Missing replacements** by setting back to Available before placement, mirroring the existing `ReserveCrewIn` Missing-rescue pattern.
+   - Skip if the replacement is already on the active vessel (Info).
+   - Call new pure helper `ResolveOrphanSeatFromSnapshots(originalName, snapshots, reverseMap)` which scans `RecordingStore.CommittedRecordings` for any `GhostVisualSnapshot` PART node that lists the original in its `crew` values. Returns `(PartPid, PartName)`.
+     - `GhostVisualSnapshot` is used (not `VesselSnapshot`) because it's captured at recording start and contains crew who later EVA'd; `VesselSnapshot` is end-of-recording and would not contain EVA'd crew.
+     - Reverse-stand-in mapping handles snapshots from later recordings whose crew lists already contain stand-in names from earlier ones (mirrors `KerbalsModule.ReverseMapCrewNames`).
+     - Match key is the kerbal name itself. `VesselName` comparison is intentionally NOT used because two launches can share a vessel name and would falsely cross-match.
+   - `FindTargetPartForOrphan(pid, name)` walks `ActiveVessel.parts` with a **strict two-tier match** (PR #175 review): prefer `Part.persistentId == snapshotPartPid` (most reliable for post-revert vessels), then fall back to the first part with matching `partInfo.name` and free capacity. There is intentionally **no "any free seat" tier 3** — a misplaced stand-in (e.g. dropped into a passenger cabin instead of the command pod) is worse than an unplaced one and would silently mask the bug being fixed.
+   - Place via `Part.AddCrewmember(replacement)` (the non-indexed overload — KSP picks a free seat in the part). Avoids the unverified `AddCrewmemberAt`-on-empty-seat semantic.
+   - Add the original to `swappedOriginals` so `RemoveReservedEvaVessels` proceeds cleanly afterwards.
+3. **Single `SpawnCrew` / `onVesselCrewWasModified` firing** at the end if the combined swap count > 0 (was previously only the first-pass count).
+4. **Distinct skip/fail counters** in the aggregate summary log (PR #175 review): `rescuedFromMissing`, `skippedReplacementNotInRoster`, `skippedDeadOrMissingReplacement`, `skippedAlreadyOnActiveVessel`, `skippedOriginalStillOnActiveVessel`, `skippedSnapshotMiss`, `skippedNoMatchingPart`. Infrastructural failures use `Warn`; expected-skip cases (already-on-vessel, original-still-seated) use `Info`.
+5. **Up-front active-vessel crew name set** built once per swap (PR #175 review): O(parts × crew) build then O(1) lookups in the orphan loop, replacing the previous O(parts × crew) per orphan in `IsReplacementOnActiveVessel`. The local set is updated as placements happen so a subsequent orphan that maps to the same kerbal doesn't false-collide.
+
+Seat resolution lives at swap time rather than capturing it earlier in `SetReplacement` because `SetReplacement` runs on every commit/recalculate cycle (hot path) and would pay the snapshot-walk cost even when no orphan exists. The orphan pass only runs when the swap actually fails to place every replacement.
+
+**Tests** (`Source/Parsek.Tests/Bug277OrphanCrewPlacementTests.cs`, 16 cases): pure-helper coverage of `ResolveOrphanSeatFromSnapshots` — single-part match, multi-part match (returns the part containing the original), multi-snapshot first-wins, original not in any snapshot returns NotFound, null original / null enumerable / null snapshot in list, parts with no `crew` values are skipped, missing `pid` returns 0, missing `name` returns "", reverse-map lookup catches stand-ins in later recordings, reverse-map missing entry doesn't false-match, regression case using exact 2026-04-09 Kerbal X scenario.
+
+In-game tests (`Source/Parsek/InGameTests/RuntimeTests.cs`):
+- `Bug277_AddCrewmemberOnFreeSeat_Works` — validates the live `Part.AddCrewmember` API path on a free seat against the active vessel and rolls back.
+- `Bug277_PlaceOrphanedReplacements_PlacesStandinFromSnapshot` — full end-to-end integration test (PR #175 review). Builds a synthetic snapshot referencing a real part on the active vessel, registers a fake reservation, calls `PlaceOrphanedReplacements` directly (skipping the surrounding `SpawnCrew` + `RemoveReservedEvaVessels` side effects), asserts the stand-in landed in the right part, then rolls everything back. `PlaceOrphanedReplacements` is `internal` to support this.
+
+**Status:** Fixed.
 
 ---
 

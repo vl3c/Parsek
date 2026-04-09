@@ -31,6 +31,7 @@ Dev notes: technical narratives for the fixes below live in `docs/dev/todo-and-k
 
 ### Bug Fixes — KerbalX + Butterfly Rover playtest (2026-04-09)
 
+- `#277` Stand-in crew is now placed correctly when a launch crew member was on EVA at merge time. Previously the EVA'd kerbal's stand-in was hired but never seated, leaving the command pod with the wrong roster.
 - `#284` Background debris recording capped at primary debris only — fragments of crashing boosters no longer spawn their own recordings. Cuts the recording count from ~25 to ~4-6 entries per Kerbal X launch.
 - `#282` Landed ghost vessels and end-of-recording respawned vessels no longer clip into terrain.
 - `#280` Background debris recordings now persist their trajectory data across scene reloads.
