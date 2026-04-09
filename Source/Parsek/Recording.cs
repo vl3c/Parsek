@@ -53,6 +53,22 @@ namespace Parsek
         // since last SaveRecordingFiles call. Checked in OnSave to skip unchanged recordings.
         [NonSerialized] public bool FilesDirty;
 
+        /// <summary>
+        /// Marks this recording as needing its <c>.prec</c> sidecar file rewritten
+        /// on the next <c>OnSave</c>. MUST be called after any mutation to
+        /// <see cref="Points"/>, <see cref="PartEvents"/>, <see cref="OrbitSegments"/>,
+        /// <see cref="FlagEvents"/>, or <see cref="TrackSections"/> — the sidecar is
+        /// only written when <see cref="FilesDirty"/> is true, so without this call
+        /// the data lives only in memory and is lost on scene reload
+        /// (<see cref="TryRestoreActiveTreeNode"/> reads the stale file and
+        /// produces a 0-point recording). See <c>docs/dev/todo-and-known-bugs.md</c>
+        /// #273 for the 2026-04-09 data-loss bug this invariant closes.
+        /// </summary>
+        internal void MarkFilesDirty()
+        {
+            FilesDirty = true;
+        }
+
         // Continuation rollback (bug #95): transient boundary for rolling back continuation
         // data on revert. Set when continuation starts, cleared on normal stop (bake) or
         // revert (rollback). -1 = no active continuation.

@@ -237,6 +237,7 @@ namespace Parsek
                 eventType = evtType,
                 partName = p.partInfo?.name ?? "unknown"
             });
+            treeRec.MarkFilesDirty();
 
             ParsekLog.Verbose("BgRecorder",
                 $"Part death on background vessel: {evtType} '{p.partInfo?.name}' " +
@@ -301,6 +302,7 @@ namespace Parsek
                 eventType = PartEventType.Decoupled,
                 partName = joint.Child.partInfo?.name ?? "unknown"
             });
+            treeRec.MarkFilesDirty();
 
             ParsekLog.Verbose("BgRecorder",
                 $"Part joint break on background vessel: Decoupled " +
@@ -898,6 +900,7 @@ namespace Parsek
             };
 
             treeRec.Points.Add(point);
+            treeRec.MarkFilesDirty();
             state.lastRecordedUT = point.ut;
             state.lastRecordedVelocity = point.velocity;
             state.lastSampleUT = ut;
@@ -1240,7 +1243,16 @@ namespace Parsek
                     var terminalEvents = FlightRecorder.EmitTerminalEngineAndRcsEvents(
                         state.activeEngineKeys, state.activeRcsKeys, state.activeRoboticKeys,
                         state.lastRoboticPosition, commitUT, "BgRecorder");
-                    flushRec.PartEvents.AddRange(terminalEvents);
+                    if (terminalEvents.Count > 0)
+                    {
+                        flushRec.PartEvents.AddRange(terminalEvents);
+                        // FlushTrackSectionsToRecording only marks dirty when
+                        // state.trackSections.Count > 0 — a background vessel
+                        // finalized with no accumulated sections (e.g. one that
+                        // just entered loaded state) would otherwise leave
+                        // flushRec.FilesDirty false after this terminal emit.
+                        flushRec.MarkFilesDirty();
+                    }
                 }
             }
 
@@ -1483,7 +1495,14 @@ namespace Parsek
                 var seedSets = BuildPartTrackingSetsFromState(state);
                 var seedEvents = PartStateSeeder.EmitSeedEvents(seedSets, partNamesByPid, seedUT, "BgRecorder");
                 if (seedEvents.Count > 0)
+                {
                     treeRecForSeed.PartEvents.AddRange(seedEvents);
+                    // If the very next event is an OnSave (e.g., the player
+                    // F5s immediately after a background vessel enters loaded
+                    // physics), the seed events would otherwise be lost because
+                    // nothing else marks dirty until the next poll emits an event.
+                    treeRecForSeed.MarkFilesDirty();
+                }
             }
 
             // Initialize environment tracking and open first TrackSection
@@ -1578,6 +1597,7 @@ namespace Parsek
             if (tree.Recordings.TryGetValue(state.recordingId, out treeRec))
             {
                 treeRec.OrbitSegments.Add(state.currentOrbitSegment);
+                treeRec.MarkFilesDirty();
                 treeRec.ExplicitEndUT = ut;
             }
 
@@ -1610,6 +1630,7 @@ namespace Parsek
             };
 
             treeRec.Points.Add(point);
+            treeRec.MarkFilesDirty();
             treeRec.ExplicitEndUT = ut;
 
             ParsekLog.Verbose("BgRecorder", $"Boundary point sampled: pid={v.persistentId} " +
@@ -1765,6 +1786,7 @@ namespace Parsek
             {
                 treeRec.TrackSections.Add(state.trackSections[i]);
             }
+            treeRec.MarkFilesDirty();
 
             ParsekLog.Info("BgRecorder",
                 $"Flushed {state.trackSections.Count} TrackSections to recording: " +
@@ -1816,6 +1838,14 @@ namespace Parsek
         private void PollPartEvents(Vessel v, BackgroundVesselState state,
             Recording treeRec, double ut)
         {
+            // Count delta before/after pattern: all CheckXState methods only
+            // mutate treeRec.PartEvents (no Points/OrbitSegments/etc changes),
+            // so a single post-polling dirty mark guarded on count-delta covers
+            // all 17 child checks without 19 inline MarkFilesDirty calls.
+            // If no events were emitted this poll, the mark is skipped — keeps
+            // the frequent per-physics-frame poll cheap.
+            int prePartEventCount = treeRec.PartEvents.Count;
+
             CheckParachuteState(v, state, treeRec, ut);
             CheckJettisonState(v, state, treeRec, ut);
             CheckEngineState(v, state, treeRec, ut);
@@ -1833,6 +1863,9 @@ namespace Parsek
             CheckCargoBayState(v, state, treeRec, ut);
             CheckFairingState(v, state, treeRec, ut);
             CheckRoboticState(v, state, treeRec, ut);
+
+            if (treeRec.PartEvents.Count > prePartEventCount)
+                treeRec.MarkFilesDirty();
         }
 
         private void CheckParachuteState(Vessel v, BackgroundVesselState state,
