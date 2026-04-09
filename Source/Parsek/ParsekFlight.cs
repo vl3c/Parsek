@@ -862,7 +862,18 @@ namespace Parsek
         {
             sceneChangeInProgress = true;
             RecordingStore.PendingDestinationScene = scene;
-            ParsekLog.Info("Flight", $"Scene change requested: {scene}");
+
+            // Stamp the pre-transition UT so ParsekScenario.OnLoad can detect
+            // F5/F9 quickloads (UT regresses across the transition) and
+            // discard any pending stashed this transition. Bug A (2026-04-09).
+            double preChangeUT = Planetarium.fetch != null
+                ? Planetarium.GetUniversalTime()
+                : 0.0;
+            ParsekScenario.StampSceneChangeRequestedUT(preChangeUT);
+
+            ParsekLog.Info("Flight",
+                "Scene change requested: " + scene + " at UT=" +
+                preChangeUT.ToString("F2", CultureInfo.InvariantCulture));
             ParsekLog.RecState("OnSceneChangeRequested", CaptureRecorderState());
 
             // Exit watch mode on scene change

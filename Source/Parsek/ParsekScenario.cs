@@ -50,11 +50,45 @@ namespace Parsek
         /// <summary>
         /// Maximum age (in frames) for <see cref="vesselSwitchPending"/> to be
         /// considered "fresh" in OnLoad. Tracking-station vessel switches
-        /// dispatch the scene reload in the same or next frame, so 300 frames
-        /// (~6 seconds at 50 FPS) is a generous cap that covers the scene-load
-        /// duration without letting minute-old EVA flag leakage through.
+        /// dispatch the scene reload in the same or next frame, so a tight cap
+        /// covers the scene-load duration without letting older EVA flag
+        /// leakage through. Lowered from 300 to 60 in the Bug A fix: at low
+        /// render FPS (~12 fps under loaded KSC), a 24-second EVA walk only
+        /// advances ~288 frames and slipped under the old 300-frame cap,
+        /// mis-classifying an EVA-then-F9 sequence as a fresh vessel switch.
+        /// The tighter cap is the primary defense; <see cref="lastSceneChangeRequestedUT"/>
+        /// UT-backwards detection is the secondary defense.
         /// </summary>
-        internal const int VesselSwitchPendingMaxAgeFrames = 300;
+        internal const int VesselSwitchPendingMaxAgeFrames = 60;
+
+        /// <summary>
+        /// UT captured in <see cref="ParsekFlight.OnSceneChangeRequested"/> just
+        /// before the scene tears down. Compared against <c>Planetarium.GetUniversalTime()</c>
+        /// in OnLoad — if the loaded UT is strictly less, the player F5/F9
+        /// quickloaded (or reverted) and any pending/limbo recording stashed
+        /// during this transition must be discarded, regardless of the
+        /// vessel-switch flag state. <c>-1.0</c> = unset / already consumed.
+        /// Bug A (2026-04-09 playtest).
+        /// </summary>
+        private static double lastSceneChangeRequestedUT = -1.0;
+
+        /// <summary>
+        /// Epsilon for the UT-backwards quickload signal. A single physics
+        /// tick is 0.02 s; 0.1 s is 5 ticks of slack — large enough to ignore
+        /// any legitimate sub-tick rounding, small enough to fire for any
+        /// real quickload (which regresses UT by seconds at minimum).
+        /// </summary>
+        internal const double UtBackwardsEpsilon = 0.1;
+
+        /// <summary>
+        /// Called by <see cref="ParsekFlight.OnSceneChangeRequested"/> to stamp
+        /// the pre-transition UT. OnLoad reads and consumes this value to
+        /// detect F5/F9 quickloads (UT regresses across the transition).
+        /// </summary>
+        internal static void StampSceneChangeRequestedUT(double ut)
+        {
+            lastSceneChangeRequestedUT = ut;
+        }
 
         /// <summary>
         /// Pure decision: returns true if the vessel-switch flag should be
@@ -68,6 +102,96 @@ namespace Parsek
             if (pendingFrame < 0) return false;
             int age = currentFrame - pendingFrame;
             return age >= 0 && age <= maxAgeFrames;
+        }
+
+        /// <summary>
+        /// Pure decision: returns true if the game clock regressed across a
+        /// scene transition, i.e. the player quickloaded/reverted/rewound.
+        /// <paramref name="preChangeUT"/> is <c>-1.0</c> when unset (no scene
+        /// change has been stamped, e.g. first load). The strict <c>&lt; 0.0</c>
+        /// check (rather than <c>&lt;= 0.0</c>) preserves the legitimate
+        /// <c>preChangeUT == 0.0</c> case for fresh sandbox saves that start at
+        /// UT 0 — a scene change in the very first frame must still be able to
+        /// detect a backwards quickload. Directly testable without Unity.
+        /// </summary>
+        internal static bool IsQuickloadOnLoad(
+            double preChangeUT, double currentUT, double epsilon)
+        {
+            if (preChangeUT < 0.0) return false;
+            if (epsilon < 0.0) return false;
+            return currentUT < preChangeUT - epsilon;
+        }
+
+        /// <summary>
+        /// Discards any pending standalone / pending tree that was stashed
+        /// during the current scene transition, on a detected quickload
+        /// (UT regressed between OnSceneChangeRequested and OnLoad). Clears
+        /// <see cref="RecordingStore.PendingStashedThisTransition"/> and also
+        /// clears in-memory science subjects accumulated post-F5 (they are
+        /// not serialized to .sfs, so they can only ever be stale on
+        /// quickload). Limbo pending trees are explicitly preserved — they
+        /// are the quickload-resume carrier for tree-mode recording and are
+        /// handled by the restore-and-resume dispatch further down in OnLoad.
+        /// Extracted as <c>internal static</c> so log-assertion tests can
+        /// exercise it without a full Unity lifecycle.
+        /// </summary>
+        internal static void DiscardStashedOnQuickload(
+            double preChangeUT, double currentUT)
+        {
+            ParsekLog.Info("Scenario",
+                "Quickload detected: UT " +
+                preChangeUT.ToString("F2", CultureInfo.InvariantCulture) +
+                " → " +
+                currentUT.ToString("F2", CultureInfo.InvariantCulture) +
+                " — discarding recordings stashed this transition");
+
+            int discardedSa = 0;
+            int discardedTree = 0;
+
+            if (RecordingStore.HasPending && RecordingStore.PendingStashedThisTransition)
+            {
+                string id = RecordingStore.Pending?.RecordingId;
+                string name = RecordingStore.Pending?.VesselName;
+                RecordingStore.DiscardPending();
+                discardedSa = 1;
+                ParsekLog.Info("Scenario",
+                    $"Quickload: discarded pending standalone '{name}' (id={id})");
+            }
+
+            if (RecordingStore.HasPendingTree
+                && RecordingStore.PendingStashedThisTransition
+                && RecordingStore.PendingTreeStateValue != PendingTreeState.Limbo)
+            {
+                // Non-Limbo pending tree stashed this transition: discard.
+                // Limbo pending trees are the quickload-resume carrier and
+                // must survive — they are picked up later in OnLoad by the
+                // ScheduleActiveTreeRestoreOnFlightReady path.
+                string treeName = RecordingStore.PendingTree?.TreeName;
+                int recCount = RecordingStore.PendingTree?.Recordings?.Count ?? 0;
+                RecordingStore.DiscardPendingTree();
+                discardedTree = 1;
+                ParsekLog.Info("Scenario",
+                    $"Quickload: discarded pending tree '{treeName}' " +
+                    $"({recCount} recording(s), state != Limbo)");
+            }
+
+            RecordingStore.PendingStashedThisTransition = false;
+
+            // Science subjects are never serialized to .sfs, so any entries
+            // in PendingScienceSubjects accumulated between the quicksave and
+            // the quickload are by definition from the discarded future. Clear
+            // them so they don't get mis-attached to the next commit.
+            int staleScience = GameStateRecorder.PendingScienceSubjects.Count;
+            if (staleScience > 0)
+            {
+                GameStateRecorder.PendingScienceSubjects.Clear();
+                ParsekLog.Info("Scenario",
+                    $"Quickload: cleared {staleScience} stale pending science subject(s)");
+            }
+
+            ParsekLog.Info("Scenario",
+                $"Quickload discard complete: sa={discardedSa} tree={discardedTree} " +
+                $"science={staleScience}");
         }
 
         /// <summary>
@@ -507,7 +631,49 @@ namespace Parsek
                             "treating FLIGHT→FLIGHT as quickload, not vessel switch");
                     }
                     vesselSwitchPending = false; // consume the flag regardless
+                    int vesselSwitchFlagAgeOnConsume =
+                        vesselSwitchPendingFrame >= 0
+                            ? currentFrame - vesselSwitchPendingFrame
+                            : -1;
                     vesselSwitchPendingFrame = -1;
+
+                    // UT-backwards signal (Bug A). F5 followed by flight and then F9
+                    // is indistinguishable from a normal FLIGHT→FLIGHT scene change
+                    // on every count/epoch-based signal when F5 happens post-merge
+                    // (both sides have equal epoch and recording counts). The one
+                    // unambiguous fingerprint is that Planetarium UT regresses
+                    // between OnSceneChangeRequested and OnLoad — a quickload /
+                    // revert / rewind is the only legitimate way that happens.
+                    // Captured in ParsekFlight.OnSceneChangeRequested via
+                    // StampSceneChangeRequestedUT; consumed exactly once here.
+                    // Planetarium.fetch can theoretically be null during early
+                    // OnLoad in non-flight scenes; if so we have no clock to
+                    // compare and must NOT report a UT regression (would false-
+                    // positive a discard against any non-zero preChangeUT).
+                    bool planetariumReady = Planetarium.fetch != null;
+                    double loadedUT = planetariumReady
+                        ? Planetarium.GetUniversalTime()
+                        : 0.0;
+                    double preChangeUT = lastSceneChangeRequestedUT;
+                    lastSceneChangeRequestedUT = -1.0; // consume regardless of outcome
+                    bool utWentBackwards = planetariumReady && IsQuickloadOnLoad(
+                        preChangeUT, loadedUT, UtBackwardsEpsilon);
+
+                    // Contradict a stale-but-fresh-classified vessel-switch flag on
+                    // quickload: the frame-count heuristic can mis-classify under
+                    // low render FPS, and even when it's correct, a quickload must
+                    // always win over a vessel-switch interpretation.
+                    if (utWentBackwards && isFlightToFlight && isVesselSwitch)
+                    {
+                        ParsekLog.Info("Scenario",
+                            "OnLoad: UT went backwards " +
+                            $"({preChangeUT.ToString("F2", CultureInfo.InvariantCulture)} → " +
+                            $"{loadedUT.ToString("F2", CultureInfo.InvariantCulture)}) — " +
+                            "forcing isVesselSwitch=false for quickload classification " +
+                            $"(flag was fresh at age={vesselSwitchFlagAgeOnConsume} frames; " +
+                            $"cap={VesselSwitchPendingMaxAgeFrames})");
+                        isVesselSwitch = false;
+                    }
 
                     bool isRevert = !isVesselSwitch
                                     && (savedEpoch < MilestoneStore.CurrentEpoch
@@ -518,6 +684,18 @@ namespace Parsek
                         $"memoryRecordings={recordings.Count}, lastOnSaveScene={lastOnSaveScene}, " +
                         $"isFlightToFlight={isFlightToFlight}, isVesselSwitch={isVesselSwitch}, isRevert={isRevert}, " +
                         $"pendingTreeState={RecordingStore.PendingTreeStateValue}");
+                    // Discard stashed-this-transition recordings on quickload (Bug A).
+                    // Must run BEFORE the isRevert branch at line ~580, because the
+                    // revert branch consumes PendingStashedThisTransition for its own
+                    // "keep across revert" logic. For a pure F5/F9 after a merged
+                    // tree, isRevert=false (counts and epoch match the quicksave),
+                    // so the existing revert-branch discard path never runs — this
+                    // is why the bug manifested in the 2026-04-09 playtest.
+                    if (utWentBackwards && isFlightToFlight)
+                    {
+                        DiscardStashedOnQuickload(preChangeUT, loadedUT);
+                    }
+
                     ParsekLog.RecState(
                         isRevert ? "OnLoad:revert-decided=Y" : "OnLoad:revert-decided=N",
                         CaptureScenarioRecorderState());
@@ -2798,6 +2976,7 @@ namespace Parsek
                 initialLoadDone = false;
                 lastSaveFolder = null;
                 lastOnSaveScene = GameScenes.MAINMENU;
+                lastSceneChangeRequestedUT = -1.0;
                 RecordingStore.PendingCleanupPids = null;
                 RecordingStore.PendingCleanupNames = null;
                 ParsekLog.Info("Scenario",
