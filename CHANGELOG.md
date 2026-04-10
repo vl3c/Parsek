@@ -47,6 +47,7 @@ Dev notes: technical narratives for the fixes below live in `docs/dev/todo-and-k
 - `#298` Rewind buttons no longer blocked by "Merge or discard pending recording first" after a tree merge — pending standalone recordings are auto-committed.
 - `#299` EVA kerbal crew end states now correctly inferred (previously showed Unknown with infinite reservation because snapshot crew extraction fails for EVA vessels).
 - `#300` Phantom terrain crash detection: EVA kerbals destroyed by KSP's pack-time terrain collision within 5s of a safe (Landed/Splashed) state are classified as Landed instead of Destroyed.
+- `#301` Vessels alive at scene exit no longer marked Destroyed — terminal state inferred from trajectory when vessel unloaded during KSC transition.
 - `#290a` Pending Limbo tree no longer discarded on revert — fixes lost debris recordings and missing proto vessels after merge-then-revert.
 - `#290b` Ghost engine skirt/shroud now hidden at build time when the snapshot shows the shroud was already jettisoned.
 - `#290c` Ghost map icon no longer flickers during time warp — zone warp exemption threshold lowered from >4x to >1x, and ghost warp suppression is now skipped in map view so icons stay visible at any warp speed.

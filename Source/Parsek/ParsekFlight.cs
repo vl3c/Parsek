@@ -6537,9 +6537,23 @@ namespace Parsek
                         }
                     }
                 }
+                else if (isSceneExit)
+                {
+                    // Scene exit: vessel unloaded (alive) but not findable. Recordings
+                    // for truly destroyed vessels already have TerminalStateValue set by
+                    // DeferredDestructionCheck / ApplyDestroyedFallback before finalization.
+                    // Reaching here without a terminal state means the vessel was alive
+                    // when unloaded. Infer terminal state from the last trajectory point.
+                    var inferredState = InferTerminalStateFromTrajectory(rec);
+                    rec.TerminalStateValue = inferredState;
+                    ParsekLog.Info("Flight", $"FinalizeTreeRecordings: vessel pid={rec.VesselPersistentId} " +
+                        $"not found on scene exit for recording '{rec.RecordingId}' — " +
+                        $"inferred {inferredState} from trajectory (vessel was alive when unloaded)");
+                    PopulateTerminalOrbitFromLastSegment(rec);
+                }
                 else
                 {
-                    // Vessel not found — mark as destroyed defensively
+                    // Not a scene exit — vessel genuinely missing. Mark as destroyed.
                     rec.TerminalStateValue = TerminalState.Destroyed;
                     rec.VesselSnapshot = null;
                     ParsekLog.Warn("Flight", $"FinalizeTreeRecordings: vessel pid={rec.VesselPersistentId} " +
@@ -6653,6 +6667,55 @@ namespace Parsek
                 $"points={rec.Points.Count} orbitSegs={rec.OrbitSegments.Count} " +
                 $"terminal={rec.TerminalStateValue?.ToString() ?? "none"} " +
                 $"snapshot={rec.VesselSnapshot != null} leaf={isLeaf}");
+        }
+
+        /// <summary>
+        /// Infers terminal state from a recording's last trajectory point when the
+        /// vessel is no longer findable (e.g., unloaded during scene exit). Uses the
+        /// last point's altitude to distinguish landed/splashed from in-flight.
+        /// Returns SubOrbital as a safe default if no trajectory data is available.
+        /// </summary>
+        internal static TerminalState InferTerminalStateFromTrajectory(Recording rec)
+        {
+            if (rec.Points == null || rec.Points.Count == 0)
+                return TerminalState.SubOrbital;
+
+            var lastPt = rec.Points[rec.Points.Count - 1];
+
+            // Very low altitude → likely landed or about to land
+            if (lastPt.altitude < 50.0)
+                return TerminalState.Landed;
+
+            // Check last track section environment for surface indication
+            if (rec.TrackSections != null && rec.TrackSections.Count > 0)
+            {
+                var lastEnv = rec.TrackSections[rec.TrackSections.Count - 1].environment;
+                if (lastEnv == SegmentEnvironment.SurfaceMobile
+                    || lastEnv == SegmentEnvironment.SurfaceStationary)
+                    return TerminalState.Landed;
+            }
+
+            // Check orbit segments for stable orbit (ecc < 1, periapsis above body surface).
+            // FlightGlobals is unavailable in unit tests — guard with try/catch.
+            if (rec.OrbitSegments != null && rec.OrbitSegments.Count > 0)
+            {
+                var lastOrbit = rec.OrbitSegments[rec.OrbitSegments.Count - 1];
+                if (lastOrbit.eccentricity < 1.0 && !string.IsNullOrEmpty(lastOrbit.bodyName))
+                {
+                    double bodyRadius = 0;
+                    try
+                    {
+                        var body = FlightGlobals.GetBodyByName(lastOrbit.bodyName);
+                        if (body != null) bodyRadius = body.Radius;
+                    }
+                    catch { /* FlightGlobals unavailable outside KSP */ }
+                    if (bodyRadius > 0 && lastOrbit.semiMajorAxis * (1 - lastOrbit.eccentricity) > bodyRadius)
+                        return TerminalState.Orbiting;
+                }
+            }
+
+            // Default: vessel was in flight (atmospheric descent, suborbital, etc.)
+            return TerminalState.SubOrbital;
         }
 
         /// <summary>

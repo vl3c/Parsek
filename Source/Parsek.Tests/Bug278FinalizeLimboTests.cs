@@ -37,12 +37,9 @@ namespace Parsek.Tests
         public void FinalizeIndividualRecording_LeafWithoutVessel_FallsBackToDestroyed()
         {
             // When pid == 0 (or the vessel is not in FlightGlobals), the leaf
-            // falls back to Destroyed + PopulateTerminalOrbitFromLastSegment.
-            // This is the safety-net branch the limbo finalize relies on for
-            // vessels that were genuinely destroyed before the finalize ran;
-            // any leaf with a live vessel takes the situation-aware branch
-            // (covered by the FinalizeIndividualRecording_ActiveVessel_*
-            // in-game test in RuntimeTests.cs).
+            // On scene exit, vessel is unloaded (alive) — infer terminal state from
+            // trajectory instead of defaulting to Destroyed. Vessels truly destroyed
+            // during recording already have TerminalState set before finalization.
             var rec = new Recording
             {
                 RecordingId = "leaf-no-vessel",
@@ -50,17 +47,37 @@ namespace Parsek.Tests
                 VesselPersistentId = 0,
                 ChildBranchPointId = null, // leaf
             };
-            rec.Points.Add(new TrajectoryPoint { ut = 100.0 });
+            rec.Points.Add(new TrajectoryPoint { ut = 100.0, altitude = 10.0 });
 
             ParsekFlight.FinalizeIndividualRecording(rec, commitUT: 200.0, isSceneExit: true);
 
             Assert.True(rec.TerminalStateValue.HasValue);
+            Assert.Equal(TerminalState.Landed, rec.TerminalStateValue.Value);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Parsek][INFO][Flight]") &&
+                l.Contains("inferred Landed from trajectory") &&
+                l.Contains("leaf-no-vessel"));
+        }
+
+        [Fact]
+        public void FinalizeIndividualRecording_LeafWithoutVessel_NotSceneExit_FallsBackToDestroyed()
+        {
+            // Outside scene exit (e.g., mid-flight commit), vessel not found
+            // genuinely means it was destroyed.
+            var rec = new Recording
+            {
+                RecordingId = "leaf-missing",
+                VesselName = "Crashed",
+                VesselPersistentId = 0,
+                ChildBranchPointId = null,
+            };
+            rec.Points.Add(new TrajectoryPoint { ut = 100.0 });
+
+            ParsekFlight.FinalizeIndividualRecording(rec, commitUT: 200.0, isSceneExit: false);
+
+            Assert.True(rec.TerminalStateValue.HasValue);
             Assert.Equal(TerminalState.Destroyed, rec.TerminalStateValue.Value);
             Assert.Null(rec.VesselSnapshot);
-            Assert.Contains(logLines, l =>
-                l.Contains("[Parsek][WARN][Flight]") &&
-                l.Contains("vessel pid=0 not found") &&
-                l.Contains("leaf-no-vessel"));
         }
 
         [Fact]
@@ -232,5 +249,77 @@ namespace Parsek.Tests
             Assert.Contains(logLines, l =>
                 l.Contains("PruneZeroPointLeaves: removed 1 zero-point"));
         }
+
+        #region InferTerminalStateFromTrajectory
+
+        [Fact]
+        public void InferTerminal_LowAltitude_ReturnsLanded()
+        {
+            var rec = new Recording();
+            rec.Points.Add(new TrajectoryPoint { ut = 100.0, altitude = 5.0 });
+            Assert.Equal(TerminalState.Landed, ParsekFlight.InferTerminalStateFromTrajectory(rec));
+        }
+
+        [Fact]
+        public void InferTerminal_HighAltitude_ReturnsSubOrbital()
+        {
+            var rec = new Recording();
+            rec.Points.Add(new TrajectoryPoint { ut = 100.0, altitude = 5000.0 });
+            Assert.Equal(TerminalState.SubOrbital, ParsekFlight.InferTerminalStateFromTrajectory(rec));
+        }
+
+        [Fact]
+        public void InferTerminal_SurfaceTrackSection_ReturnsLanded()
+        {
+            var rec = new Recording();
+            rec.Points.Add(new TrajectoryPoint { ut = 100.0, altitude = 200.0 });
+            rec.TrackSections.Add(new TrackSection
+            {
+                environment = SegmentEnvironment.SurfaceStationary,
+                startUT = 100.0,
+                endUT = 200.0
+            });
+            Assert.Equal(TerminalState.Landed, ParsekFlight.InferTerminalStateFromTrajectory(rec));
+        }
+
+        [Fact]
+        public void InferTerminal_SurfaceMobileTrackSection_ReturnsLanded()
+        {
+            var rec = new Recording();
+            rec.Points.Add(new TrajectoryPoint { ut = 100.0, altitude = 200.0 });
+            rec.TrackSections.Add(new TrackSection
+            {
+                environment = SegmentEnvironment.SurfaceMobile,
+                startUT = 100.0,
+                endUT = 200.0
+            });
+            Assert.Equal(TerminalState.Landed, ParsekFlight.InferTerminalStateFromTrajectory(rec));
+        }
+
+        [Fact]
+        public void InferTerminal_StableOrbit_ReturnsOrbiting()
+        {
+            var rec = new Recording();
+            rec.Points.Add(new TrajectoryPoint { ut = 100.0, altitude = 100000.0 });
+            rec.OrbitSegments.Add(new OrbitSegment
+            {
+                bodyName = "Kerbin",
+                eccentricity = 0.05,
+                semiMajorAxis = 700000.0, // periapsis = 700000 * 0.95 = 665000 > Kerbin radius 600000
+                startUT = 50.0,
+                endUT = 200.0
+            });
+            // FlightGlobals.GetBodyByName returns null in tests — falls through to SubOrbital
+            Assert.Equal(TerminalState.SubOrbital, ParsekFlight.InferTerminalStateFromTrajectory(rec));
+        }
+
+        [Fact]
+        public void InferTerminal_NoPoints_ReturnsSubOrbital()
+        {
+            var rec = new Recording();
+            Assert.Equal(TerminalState.SubOrbital, ParsekFlight.InferTerminalStateFromTrajectory(rec));
+        }
+
+        #endregion
     }
 }
