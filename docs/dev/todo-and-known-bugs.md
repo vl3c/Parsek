@@ -10,7 +10,7 @@ Surfaced by live KSP log (`Kerbal Space Program/KSP.log`, 2026-04-10 19:06). Whi
 
 **Root cause:** `ClampGhostsToTerrain` queries `body.TerrainAltitude(lat, lon, true)` which returns the PQS-computed height. But the RENDERED terrain mesh at low LOD (22km from the active vessel) can overshoot the PQS height at ridges and terrain transitions. The 0.5m clearance floor was insufficient — the visual mesh could be several meters higher than PQS at that distance.
 
-**Fix:** In `ClampGhostsToTerrain`, compute distance from ghost to active vessel. Outside the physics bubble (>2.3km), use 10m clearance instead of 0.5m. This is invisible at visual-zone distances but prevents underground clipping. Inside the physics bubble, full-LOD terrain matches PQS closely, so 0.5m remains sufficient.
+**Fix:** In `ClampGhostsToTerrain`, compute distance from ghost to active vessel. Outside the physics bubble (>2.3km), lerp clearance from 2m at the bubble edge to 5m at 120km (visual range limit). Inside the physics bubble, full-LOD terrain matches PQS closely, so 0.5m remains sufficient.
 
 **Status**: Fixed.
 

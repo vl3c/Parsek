@@ -736,9 +736,16 @@ namespace Parsek
                 // Outside the physics bubble, the rendered terrain mesh uses lower
                 // LOD and can overshoot the PQS height at ridges/transitions. Use a
                 // larger clearance to prevent the ghost from clipping underground.
+                // Lerp from 2m at the bubble edge to 5m at 120km (visual range limit).
                 double distToVessel = Vector3d.Distance(pos, activeVesselPos);
-                double clearance = distToVessel > RenderingZoneManager.PhysicsBubbleRadius
-                    ? 10.0 : 0.5;
+                double clearance = 0.5;
+                if (distToVessel > RenderingZoneManager.PhysicsBubbleRadius)
+                {
+                    double t = (distToVessel - RenderingZoneManager.PhysicsBubbleRadius)
+                        / (RenderingZoneManager.VisualRangeRadius - RenderingZoneManager.PhysicsBubbleRadius);
+                    if (t > 1.0) t = 1.0;
+                    clearance = 2.0 + t * 3.0; // 2m at bubble edge, 5m at 120km
+                }
 
                 double clamped = TerrainCorrector.ClampAltitude(alt, terrainHeight, clearance);
                 if (clamped > alt)
