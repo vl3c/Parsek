@@ -40,6 +40,65 @@ namespace Parsek
             }
         }
 
+        /// <summary>
+        /// Walk PART > RESOURCE nodes in a vessel snapshot ConfigNode and return
+        /// a dictionary of resource names to summed amount/maxAmount.
+        /// Excludes ElectricCharge and IntakeAir (noise, not meaningful cargo).
+        /// Returns null if input is null, has no parts, or no resources found.
+        /// </summary>
+        internal static Dictionary<string, ResourceAmount> ExtractResourceManifest(ConfigNode vesselSnapshot)
+        {
+            if (vesselSnapshot == null) return null;
+
+            var parts = vesselSnapshot.GetNodes("PART");
+            if (parts.Length == 0) return null;
+
+            var manifest = new Dictionary<string, ResourceAmount>();
+            int partCount = parts.Length;
+
+            for (int i = 0; i < parts.Length; i++)
+            {
+                var resources = parts[i].GetNodes("RESOURCE");
+                for (int j = 0; j < resources.Length; j++)
+                {
+                    string name = resources[j].GetValue("name");
+                    if (string.IsNullOrEmpty(name)) continue;
+                    if (name == "ElectricCharge" || name == "IntakeAir") continue;
+
+                    double amount = 0;
+                    double maxAmount = 0;
+                    string amountStr = resources[j].GetValue("amount");
+                    string maxStr = resources[j].GetValue("maxAmount");
+                    if (amountStr != null)
+                        double.TryParse(amountStr, System.Globalization.NumberStyles.Float,
+                            CultureInfo.InvariantCulture, out amount);
+                    if (maxStr != null)
+                        double.TryParse(maxStr, System.Globalization.NumberStyles.Float,
+                            CultureInfo.InvariantCulture, out maxAmount);
+
+                    if (manifest.ContainsKey(name))
+                    {
+                        // Struct — indexer returns a copy. Read-modify-write.
+                        var ra = manifest[name];
+                        ra.amount += amount;
+                        ra.maxAmount += maxAmount;
+                        manifest[name] = ra;
+                    }
+                    else
+                    {
+                        manifest[name] = new ResourceAmount { amount = amount, maxAmount = maxAmount };
+                    }
+                }
+            }
+
+            if (manifest.Count == 0) return null;
+
+            ParsekLog.Verbose("Spawner",
+                $"ExtractResourceManifest: {manifest.Count} resource type(s) from {partCount} part(s)");
+
+            return manifest;
+        }
+
         public static uint RespawnVessel(ConfigNode vesselNode, HashSet<string> excludeCrew = null, bool preserveIdentity = false)
         {
             try
