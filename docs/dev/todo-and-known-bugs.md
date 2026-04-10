@@ -4,6 +4,18 @@ Previous entries (225 bugs, 51 TODOs — mostly resolved) archived in `done/todo
 
 ---
 
+## ~~303. Ghost clips underground outside physics bubble during watch+warp~~
+
+Surfaced by live KSP log (`Kerbal Space Program/KSP.log`, 2026-04-10 19:06). While watching a Kerbal X ghost replay at 3x warp, the ghost went underground at ~22km from the active vessel. This triggered downstream issues: the spawn-at-end for Bill Kerman EVA placed him as `FLYING` at 270m (because terrain wasn't loaded properly at distance), and KSP immediately destroyed him on-rails at 101 kPa atmospheric pressure.
+
+**Root cause:** `ClampGhostsToTerrain` queries `body.TerrainAltitude(lat, lon, true)` which returns the PQS-computed height. But the RENDERED terrain mesh at low LOD (22km from the active vessel) can overshoot the PQS height at ridges and terrain transitions. The 0.5m clearance floor was insufficient — the visual mesh could be several meters higher than PQS at that distance.
+
+**Fix:** In `ClampGhostsToTerrain`, compute distance from ghost to active vessel. Outside the physics bubble (>2.3km), lerp clearance from 2m at the bubble edge to 5m at 120km (visual range limit). Inside the physics bubble, full-LOD terrain matches PQS closely, so 0.5m remains sufficient.
+
+**Status**: Fixed.
+
+---
+
 ## ~~302. Tree recording silently auto-discarded as "idle on pad" after scene change~~
 
 Surfaced by live KSP log (`Kerbal Space Program/KSP.log`, 2026-04-10 18:32). After a full Kerbal X flight (EVAs, staging, debris breakups, 123+ trajectory points), the user exited to Space Center. On reload, the tree was auto-discarded with `Idle on pad detected — auto-discarding tree recording`.
@@ -65,6 +77,16 @@ Atmospheric and landed ghost vessels had no icon in map view unless the user pre
 **Fix:** In `DrawMapMarkers`, when `MapView.MapIsEnabled`, compute ghost position from trajectory data via `TrajectoryMath.InterpolatePoints` when the mesh is inactive. This draws markers for all in-UT-range ghosts regardless of zone distance. Flight-view marker behavior unchanged (preserves #245/#247 fix). Added `TryComputeGhostWorldPosition` helper with per-recording cached waypoint indices, cleared on recording reindex.
 
 **Status:** Fixed.
+
+---
+
+## ~~BugC. Switching to spawned vessel fills empty seats with extra kerbals~~
+
+`SwapReservedCrewInFlight` ran its orphan-placement pass (Pass 2) on a Parsek-spawned vessel. The spawned Kerbal X had 1 crew (Jeb→Danmal) in its Mk1-3 pod (3 seats). The orphan pass found Bill→Phofred and Bob→Tanpond as "orphans" (their originals weren't on the active vessel), resolved their original seat via `ResolveOrphanSeatFromSnapshots` to a `mk1-3pod` part, and placed both into the 2 empty seats. Result: 3 crew instead of 1.
+
+**Root cause:** `PlaceOrphanedReplacements` iterates ALL `crewReplacements` and fills any empty matching seat on the active vessel. It was designed for the launchpad vessel (where all reserved crew should be swapped), not for spawned past vessels (where crew was definitively set by `VesselSpawner`).
+
+**Fix:** Added a spawned-PID guard at the top of `SwapReservedCrewInFlight` that skips both passes when `FlightGlobals.ActiveVessel.persistentId` matches any `SpawnedVesselPersistentId` in committed recordings. Uses existing `BuildSpawnedVesselPidSet`. Still calls `RemoveReservedEvaVessels` for cleanup.
 
 ---
 

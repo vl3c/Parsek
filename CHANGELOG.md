@@ -12,6 +12,7 @@ Dev notes: technical narratives for the fixes below live in `docs/dev/todo-and-k
 
 - Vessel names in split/EVA/background recordings now resolve KSP localization tags (e.g., `#autoLOC_501232` → "Kerbal X") instead of displaying raw tags.
 - `#282` Landed ghosts now sit at their natural recorded height above terrain instead of floating 4m up; uses `TerrainCorrector.ComputeCorrectedAltitude` with `Recording.TerrainHeightAtEnd` when available (NaN fallback preserves old behavior for legacy recordings).
+- `#BugC` Switching to a spawned vessel no longer fills empty seats with extra kerbals — crew swap skips Parsek-spawned vessels entirely.
 
 ### New Features
 
@@ -41,6 +42,7 @@ Dev notes: technical narratives for the fixes below live in `docs/dev/todo-and-k
 ### Bug Fixes & Maintenance
 
 - `#302` Tree recordings no longer falsely auto-discarded as "idle on pad" after a scene change — max distance from launch was lost during save/load, making every recording appear to have never left the pad.
+- `#303` Ghosts outside the physics bubble no longer clip underground — terrain LOD mismatch at distance caused the 0.5m clearance floor to be insufficient; now lerps from 2m at the bubble edge to 5m at 120km.
 - **Fix ghost icon popup appearing at screen center instead of near cursor (#196).** Matched KSP's stock `MapContextMenu` positioning pattern: (0,0) anchors, forced layout rebuild, and `AnchorOffset` so the menu opens below the click point.
 - `#283` Fixed ghost position pops at TrackSection boundaries by seeding the new section with the closing section's boundary point; also skips spurious cross-reference-frame discontinuity warnings.
 - `#298` Ghost engine/RCS flames now auto-start on debris booster ghosts whose engines were running at separation. Debris recordings also get proper EngineIgnited seed events inherited from the parent vessel at decouple time.
