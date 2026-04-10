@@ -2,7 +2,7 @@
 
 ## Goal
 
-Make recordings resource-aware so they know what physical resources (LF, Ox, Ore, MonoProp, EC, etc.) a vessel carried at recording start and end. This is the prerequisite for Phase 12 (Looped Transport Logistics) where looped recordings become automated supply routes.
+Make recordings resource-aware so they know what physical resources (LF, Ox, Ore, MonoProp, etc.) a vessel carried at recording start and end. This is the prerequisite for Phase 12 (Looped Transport Logistics) where looped recordings become automated supply routes.
 
 ## What we already have
 
@@ -30,7 +30,7 @@ internal static Dictionary<string, ResourceAmount> ExtractResourceManifest(Confi
 ### Struct
 
 ```csharp
-// In Recording.cs or a new ResourceManifest.cs
+// In a new ResourceManifest.cs (same pattern as TrajectoryPoint.cs, PartEvent.cs)
 internal struct ResourceAmount
 {
     public double amount;
@@ -50,12 +50,18 @@ for each PART node:
     for each RESOURCE node:
         name = resNode.GetValue("name")
         if name is null/empty → skip
-        if name == "ElectricCharge" → skip
+        if name == "ElectricCharge" or name == "IntakeAir" → skip
+        // flowState field exists in RESOURCE nodes but is intentionally ignored here.
+        // flowState is a delivery-time concern for Phase 12, not capture-time.
         parse amount (double.TryParse, InvariantCulture, default 0)
         parse maxAmount (double.TryParse, InvariantCulture, default 0)
         if manifest.ContainsKey(name):
-            manifest[name].amount += amount
-            manifest[name].maxAmount += maxAmount
+            // IMPORTANT: ResourceAmount is a struct — indexer returns a copy.
+            // Must read-modify-write, not mutate through the indexer.
+            var ra = manifest[name]
+            ra.amount += amount
+            ra.maxAmount += maxAmount
+            manifest[name] = ra
         else:
             manifest[name] = new ResourceAmount { amount, maxAmount }
 return manifest.Count > 0 ? manifest : null
@@ -64,11 +70,13 @@ return manifest.Count > 0 ? manifest : null
 ### Design notes
 
 - **Return null, not empty dict**, for "no resources" — matches the established null-means-no-data pattern for additive fields (same as `CrewEndStates`, `RecordingGroups`, etc.)
-- **Exclude ElectricCharge** — EC fluctuates constantly (solar panels, reaction wheels, SAS) and start/end values are meaningless noise. Skip `name == "ElectricCharge"` at extraction time. No one ships EC via logistics routes.
-- **No other resource name filtering** — capture everything else including modded resources. The extraction function is name-agnostic beyond the EC exclusion.
+- **Exclude ElectricCharge** — EC fluctuates constantly (solar panels, reaction wheels, SAS) and start/end values are meaningless noise. No one ships EC via logistics routes.
+- **Exclude IntakeAir** — IntakeAir has dynamic maxAmount based on air intake area and speed. Amounts are environmental noise, not meaningful cargo. No one transports IntakeAir.
+- **No other resource name filtering** — capture everything else including modded resources. Ablator stays (meaningful consumable — heat shield ablation). SolidFuel stays (real booster resource, summed across all parts including staged boosters).
 - **Sum across parts** — a vessel with 3 fuel tanks of 400 LF each produces `LiquidFuel: { amount: 1200, maxAmount: 1200 }`.
 - **Include zero-amount resources** — `maxAmount` matters for capacity checks in Phase 12 logistics. An empty ore tank (amount=0, maxAmount=1500) is meaningful: "this vessel can carry ore."
-- **Ignore `flowState`** — that's a delivery-time concern for Phase 12, not a capture-time concern.
+- **Ignore `flowState`** — RESOURCE nodes include a `flowState` boolean (player-disabled tank flow). Irrelevant at capture time — we want total capacity. Phase 12 checks `flowState` at delivery time.
+- **Struct mutation trap** — `ResourceAmount` is a value type. `manifest[name].amount += x` silently modifies a copy, not the dict entry. Must read into local, mutate, write back. This is called out in the algorithm above.
 
 ### Tests (xUnit, pure — no Unity)
 
@@ -79,15 +87,18 @@ return manifest.Count > 0 ? manifest : null
 | `SinglePart_SingleResource` | 1 PART, 1 RESOURCE (LF 400/400) | { LF: 400/400 } |
 | `SinglePart_MultipleResources` | 1 PART, 2 RESOURCE (LF 400, Ox 488) | { LF: 400/400, Ox: 488/488 } |
 | `MultipleParts_SameResource_Summed` | 3 PARTs each with LF 400/400 | { LF: 1200/1200 } |
-| `MultipleParts_MixedResources` | realistic vessel (LF+Ox+EC+MP) | all four summed correctly |
+| `MultipleParts_MixedResources` | realistic vessel (LF+Ox+MP) | all three summed correctly |
 | `ZeroAmountResource_Included` | Ore 0/1500 | { Ore: 0/1500 } (maxAmount matters) |
 | `PartWithNoResources_Skipped` | structural part (no RESOURCE node) | only resources from other parts |
 | `MissingAmountField_DefaultsZero` | RESOURCE node with name but no amount | amount=0 |
 | `MalformedAmount_DefaultsZero` | amount = "abc" | amount=0 |
 | `ElectricCharge_Excluded` | RESOURCE with name=ElectricCharge | not in result |
+| `IntakeAir_Excluded` | RESOURCE with name=IntakeAir | not in result |
+| `Ablator_Included` | RESOURCE with name=Ablator | present in result |
 | `RoundTrip_Precision` | amount = 3600.123456789 | round-trip exact via "R" format |
+| `VesselSnapshotBuilder_Integration` | snapshot built via VesselSnapshotBuilder with resources | extraction matches expected sums |
 
-Build test ConfigNodes manually (no VesselSnapshotBuilder needed — just `new ConfigNode("VESSEL")` + `AddNode("PART")` + `AddNode("RESOURCE")` + `AddValue`).
+Build test ConfigNodes manually for unit tests. The last test uses `VesselSnapshotBuilder` to verify extraction works against a realistic snapshot structure.
 
 ---
 
@@ -159,7 +170,7 @@ The same `SerializeResourceManifest`/`DeserializeResourceManifest` helpers are c
 | Path | Save method | Load method | File |
 |------|------------|-------------|------|
 | Standalone | `SaveRecordingMetadata` (~line 3012) | `LoadRecordingMetadata` (~line 3179) | ParsekScenario.cs |
-| Tree | `SaveRecordingResourceAndState` (~line 369) | `LoadRecordingResourceAndState` (~line 709) | RecordingTree.cs |
+| Tree | `SaveRecordingResourceAndState` (~line 368) | `LoadRecordingResourceAndState` (~line 708) | RecordingTree.cs |
 
 Both call the same static helper — no duplicated serialization logic.
 
@@ -179,7 +190,7 @@ Both call the same static helper — no duplicated serialization logic.
 | `RoundTrip_NullBoth_NoNodeWritten` | both null → no RESOURCE_MANIFEST in output |
 | `RoundTrip_EmptyDicts_NoNodeWritten` | both empty dicts → no RESOURCE_MANIFEST (treated as null) |
 | `RoundTrip_AsymmetricKeys` | Start has LF+Ox, End has LF+Ore → both dicts correct |
-| `RoundTrip_Precision` | amount = 3600.123456789012 → round-trip exact |
+| `RoundTrip_Precision` | amount = 3600.123456789 → round-trip exact |
 | `LocaleSafety` | amount with comma separator → parsed correctly via InvariantCulture |
 | `LegacyRecording_NoNode_NullFields` | ConfigNode without RESOURCE_MANIFEST → both fields null |
 | `MalformedResource_Skipped` | RESOURCE with empty name → skipped, counter incremented |
@@ -195,6 +206,10 @@ Every site that takes a vessel snapshot is a candidate for resource extraction. 
 ### Capture strategy: extract from existing snapshots
 
 We do NOT add new snapshot calls. We extract from snapshots that are already being taken. The extraction is a lightweight ConfigNode walk — no KSP API calls, no vessel access needed.
+
+### StartResources vs start location fields — design tension
+
+`Recording.cs` has a separate `CopyStartLocationFrom` method for start fields (StartBodyName, StartBiome, etc.), and `ApplyPersistenceArtifactsFrom` intentionally excludes them. StartResources is conceptually a "start field" but needs different handling: chain continuations need the **boundary-time** resources (what the vessel has when the new segment begins), not the parent's recording-start resources. This is why StartResources is copied in `ApplyPersistenceArtifactsFrom` (as a baseline) and then overridden at the continuation start site with the boundary-time value. Location fields don't need this override — a continuation's start body/biome is always freshly captured.
 
 ### Site-by-site plan
 
@@ -214,6 +229,8 @@ Store in a new private field `pendingStartResources`. Transfer to the Recording 
 capture.StartResources = pendingStartResources;
 ```
 
+**Chain of custody:** `pendingStartResources` is set once in `StartRecording`, consumed once in `BuildCaptureRecording`, and must not be cleared between those two calls. `BuildCaptureRecording` sets `capture.StartResources` before the capture object is passed anywhere else. `ApplyPersistenceArtifactsFrom` (called later in the commit path) then copies it from the capture to the pending Recording. Verify this ordering during implementation.
+
 **Why here and not later:** `StartRecording` is the canonical "beginning of a recording" site. The snapshot is freshest here. `BuildCaptureRecording` is called at stop time — by then the vessel's resources have changed.
 
 #### B. Recording stop → EndResources
@@ -228,43 +245,17 @@ capture.EndResources = VesselSpawner.ExtractResourceManifest(capture.VesselSnaps
 
 This covers all three callers of `BuildCaptureRecording`: `StopRecording`, `StopRecordingForChainBoundary`, and the vessel-switch detection path.
 
-#### C. Chain boundary segments
+#### C. Chain boundary continuations → continuation StartResources
 
-Chain boundaries (dock/undock/EVA/split/atmosphere) create new Recording objects. Each new segment needs StartResources from its initial state.
+Chain boundaries (dock/undock/EVA/split/atmosphere) commit the outgoing segment and start a new continuation recording. The outgoing segment gets EndResources from site B (via `BuildCaptureRecording`). The incoming continuation needs StartResources from the same boundary moment.
 
-**`ChainSegmentManager.CommitChainSegment`** (line 571-614) — EVA chain. The new continuation recording starts with the parent vessel's current state. After `ApplyPersistenceArtifactsFrom(captured)` copies metadata (including StartResources from the parent segment), we need to set StartResources to the vessel's state *at boundary time*, not the parent's start:
+**Decision: StartResources = resources at the start of THIS segment.** For a continuation, that's the vessel state at boundary time = the outgoing segment's EndResources.
 
-```csharp
-// After ApplyPersistenceArtifactsFrom, override StartResources with current vessel state
-contRec.StartResources = VesselSpawner.ExtractResourceManifest(contRec.GhostVisualSnapshot);
-```
+**Flow:** `CommitSegmentCore` operates on the **outgoing** segment (commits it). The continuation recording is created afterward when `FlightRecorder.StartRecording(isPromotion: true)` runs for the next segment. So the continuation's StartResources is set by site A — `StartRecording` captures `pendingStartResources` from the vessel's current snapshot, which at boundary time reflects the boundary state.
 
-Wait — this is wrong. The continuation recording's snapshot is the *current* vessel state at boundary time. But `ApplyPersistenceArtifactsFrom` copies the *parent's* StartResources, which is from the parent's start, not the boundary. We need to think about what StartResources means for a continuation.
+This means site A already handles continuations correctly: `StartRecording(isPromotion: true)` calls `RefreshBackupSnapshot` which takes a fresh snapshot of the vessel at boundary time. `pendingStartResources` is extracted from that fresh snapshot. No additional mechanism needed.
 
-**Decision: StartResources = resources at the start of THIS segment.** For a continuation recording, that's the vessel state at boundary time. The outgoing segment's EndResources = the same boundary state. So:
-
-- **Outgoing segment:** EndResources = extracted from CaptureAtStop.VesselSnapshot (already covered by site B)
-- **Incoming continuation:** StartResources = extracted from the vessel's snapshot at boundary time
-
-The cleanest place to set the continuation's StartResources is after `ApplyPersistenceArtifactsFrom` in `CommitSegmentCore` (the common path for all chain commits). `ApplyPersistenceArtifactsFrom` copies the parent's StartResources, then we override with the boundary-time state:
-
-```csharp
-// CommitSegmentCore, after ApplyPersistenceArtifactsFrom:
-pending.StartResources = VesselSpawner.ExtractResourceManifest(
-    pending.GhostVisualSnapshot ?? pending.VesselSnapshot);
-```
-
-**But wait** — `CommitDockUndockSegment` (line 647) nulls `VesselSnapshot` for mid-chain ghost-only segments. And `CommitBoundarySplit` (line 674) does the same. The GhostVisualSnapshot may still be available. Need to use whichever snapshot is non-null at the commit site.
-
-Actually, let me reconsider. The *outgoing* segment's EndResources comes from `CaptureAtStop` (site B). The *incoming* segment's StartResources should come from the same moment — the boundary. The simplest approach:
-
-**At `BuildCaptureRecording` (site B), also stash the EndResources manifest as `pendingBoundaryResources`.** Then at the continuation commit site, set:
-
-```csharp
-contRec.StartResources = pendingBoundaryResources;  // from the same boundary moment
-```
-
-This ensures the outgoing segment's EndResources and the incoming segment's StartResources are extracted from the exact same snapshot.
+**What `ApplyPersistenceArtifactsFrom` copies:** It copies the parent's StartResources as a baseline. For continuations started via `StartRecording(isPromotion: true)`, the `pendingStartResources` from the fresh snapshot in `StartRecording` overwrites this baseline when `BuildCaptureRecording` runs at stop time. For continuations that don't go through `StartRecording` (e.g., `ChainSegmentManager.StartUndockContinuation`), `ApplyPersistenceArtifactsFrom` provides a reasonable fallback (the parent's resources), which is close enough for display purposes. Phase 12 logistics looks at the chain-level start/end, not mid-chain segments.
 
 #### D. Breakup child recordings
 
@@ -276,9 +267,9 @@ After line 2913-2915 captures `VesselSnapshot` for the child:
 childRec.StartResources = VesselSpawner.ExtractResourceManifest(childRec.VesselSnapshot);
 ```
 
-Debris typically doesn't stop recording cleanly (destroyed by physics), so EndResources for debris will be set when the background recorder finalizes.
+Debris typically doesn't stop recording cleanly (destroyed by physics), so EndResources for debris is left null. This is correct — debris resources are not meaningful for logistics.
 
-#### E. Background recorder finalization
+#### E. Background recorder — child snapshots
 
 **Site:** `BackgroundRecorder.HandleBackgroundVesselSplit()` (line 633-635)
 
@@ -288,15 +279,7 @@ After child snapshots are captured:
 child.StartResources = VesselSpawner.ExtractResourceManifest(child.VesselSnapshot);
 ```
 
-For the parent's EndResources: the parent recording's EndResources should be set when the parent recording is finalized (destroyed or shutdown). The background recorder doesn't take a fresh snapshot at finalization — it uses whatever was last captured. We can extract EndResources from the tree recording's existing VesselSnapshot at finalization time:
-
-**Sites:** `OnBackgroundVesselWillDestroy`, `Shutdown`, `EndDebrisRecording` — after `FlushTrackSectionsToRecording`, if `treeRec.VesselSnapshot != null`:
-
-```csharp
-treeRec.EndResources = VesselSpawner.ExtractResourceManifest(treeRec.VesselSnapshot);
-```
-
-If VesselSnapshot is null (destroyed before snapshot), EndResources stays null — correct behavior (destroyed vessel has no meaningful end resources).
+**EndResources for background recordings:** Leave null. The background recorder's existing VesselSnapshot is from the initial split time, not finalization time. Extracting EndResources from it would give the same value as StartResources — no useful information. A fresh snapshot at finalization time is not available (vessel may be unloaded or destroyed). Null EndResources is the honest answer for background-recorded debris.
 
 #### F. Tree promotion from breakup
 
@@ -313,17 +296,24 @@ rootRec.EndResources = VesselSpawner.ExtractResourceManifest(rootRec.VesselSnaps
 
 **`RecordingOptimizer.SplitAtSection`** (line 296): The optimizer splits a recording at a TrackSection boundary. Resource manifest policy:
 
-- **First half:** keeps StartResources. EndResources = null (no snapshot at split point — the split is an arbitrary environment boundary, not a vessel state change).
-- **Second half:** StartResources = null (same reason). Gets EndResources from the original (moved along with VesselSnapshot).
+```csharp
+// After existing VesselSnapshot transfer (line ~438-439):
+// Step N+1: Resource manifests — first half keeps start, second half gets end.
+second.EndResources = original.EndResources;
+original.EndResources = null;
+// original.StartResources unchanged (keeps the recording-start resources)
+// second.StartResources stays null (no snapshot at environment boundary)
+```
 
 This is acceptable because optimizer splits are environment boundaries (atmosphere/exo transition), not dock/undock events. Resources don't meaningfully change at these boundaries. Phase 12 logistics uses the chain-level start/end, not optimizer-split segments.
 
-**`RecordingOptimizer.MergeInto`** (line 217): The absorbed recording's EndResources replaces target's (later segment wins). Target keeps its StartResources.
+**`RecordingOptimizer.MergeInto`** (line 217): The absorbed recording's EndResources replaces target's (later segment wins):
 
 ```csharp
-// In MergeInto, after the VesselSnapshot transfer:
+// After existing VesselSnapshot transfer (line ~260-262):
 if (absorbed.EndResources != null)
     target.EndResources = absorbed.EndResources;
+// target.StartResources intentionally unchanged — it represents the earlier start.
 ```
 
 #### H. ApplyPersistenceArtifactsFrom
@@ -337,22 +327,19 @@ StartResources = source.StartResources;  // shallow copy OK — dict is immutabl
 EndResources = source.EndResources;
 ```
 
-No deep copy needed — resource manifests are never mutated after extraction.
+No deep copy needed — resource manifests are never mutated after extraction. StartResources is copied here as a baseline for chain continuations; it may be overridden by the continuation's own StartRecording call (site A). See "StartResources vs start location fields" section above for rationale.
 
 ### Summary of capture sites
 
 | Site | Sets | Extracts from |
 |------|------|---------------|
 | `FlightRecorder.StartRecording` | `pendingStartResources` | `lastGoodVesselSnapshot` |
-| `FlightRecorder.BuildCaptureRecording` | `capture.EndResources` | `capture.VesselSnapshot` |
-| `BuildCaptureRecording` also | `capture.StartResources` | `pendingStartResources` (stashed from start) |
-| `CommitSegmentCore` continuation | `contRec.StartResources` | boundary snapshot (= outgoing EndResources) |
+| `FlightRecorder.BuildCaptureRecording` | `capture.StartResources`, `capture.EndResources` | `pendingStartResources` (stashed), `capture.VesselSnapshot` |
 | `CreateBreakupChildRecording` | `childRec.StartResources` | `childRec.VesselSnapshot` |
 | `BackgroundRecorder.HandleBackgroundVesselSplit` | `child.StartResources` | `child.VesselSnapshot` |
-| BgRecorder finalization (3 sites) | `treeRec.EndResources` | `treeRec.VesselSnapshot` |
-| `PromoteToTreeForBreakup` | `rootRec.EndResources` | `rootRec.VesselSnapshot` |
-| `RecordingOptimizer.SplitAtSection` | second.EndResources (moved) | original.EndResources |
-| `RecordingOptimizer.MergeInto` | target.EndResources | absorbed.EndResources |
+| `PromoteToTreeForBreakup` | `rootRec.StartResources`, `rootRec.EndResources` | `cap.StartResources`, `rootRec.VesselSnapshot` |
+| `RecordingOptimizer.SplitAtSection` | `second.EndResources` (moved) | `original.EndResources` |
+| `RecordingOptimizer.MergeInto` | `target.EndResources` | `absorbed.EndResources` |
 | `ApplyPersistenceArtifactsFrom` | both fields | source recording |
 
 ---
@@ -367,17 +354,17 @@ No deep copy needed — resource manifests are never mutated after extraction.
 
 ```
 Resources:
-  LF: 3600 → 200 (-3400)
-  Ox: 4400 → 244 (-4156)
+  LiquidFuel: 3600 → 200 (-3400)
+  Oxidizer: 4400 → 244 (-4156)
   Ore: 0 → 1500 (+1500)
-  EC: 200 → 180 (-20)
+  MonoPropellant: 30 → 28 (-2)
 ```
 
 If only StartResources (recording in progress or no end snapshot):
 ```
 Resources at start:
-  LF: 3600 / 3600
-  Ox: 4400 / 4400
+  LiquidFuel: 3600 / 3600
+  Oxidizer: 4400 / 4400
 ```
 
 If neither: no resources section shown (legacy recording).
@@ -394,7 +381,7 @@ internal static string FormatResourceManifest(
 - Merge keys from both dicts
 - Sort alphabetically for stable display
 - Format each: `{name}: {startAmt} → {endAmt} ({delta:+0;-0})`
-- Abbreviate resource names? Stock names are short enough (LiquidFuel, Oxidizer, MonoPropellant, ElectricCharge, Ore, XenonGas, SolidFuel, IntakeAir, Ablator). Leave as-is for v1.
+- Use full resource names as stored (LiquidFuel, Oxidizer, MonoPropellant, Ore, etc.) — no abbreviation for v1.
 - Round amounts to 1 decimal place for display (full precision stored).
 - Use InvariantCulture for number formatting.
 
@@ -417,7 +404,7 @@ Compute per-resource change between start and end manifests. Used by UI (T11.4) 
 ### Signature
 
 ```csharp
-// In VesselSpawner.cs or a new ResourceManifest.cs
+// In ResourceManifest.cs (co-located with ResourceAmount struct)
 internal static Dictionary<string, double> ComputeResourceDelta(
     Dictionary<string, ResourceAmount> start,
     Dictionary<string, ResourceAmount> end)
@@ -437,13 +424,14 @@ return delta
 
 ### Phase 12 consumers
 
-```
-DeliveryManifest = only positive entries in delta (resources gained by destination)
-CostManifest = StartResources (full transport vessel start state — fuel + cargo)
-RouteCost = only negative entries in delta (resources consumed during transit)
-```
+Phase 12 needs per-dock/undock boundary deltas to compute delivery manifests. Phase 11's `ComputeResourceDelta` computes whole-recording start-vs-end, which gives the **total** delta (fuel consumed + cargo transferred). For Phase 12's delivery manifest, it must walk the chain structure, find the dock and undock boundary segments, and compute: `EndResources[dock-segment] - EndResources[undock-segment]` (per resource, only decreases). This chain-walking is Phase 12's responsibility — Phase 11 provides the per-segment data it needs.
 
-Phase 12 will call `ComputeResourceDelta` and filter by sign. That's Phase 12's job, not Phase 11's.
+```
+Phase 12 usage:
+  DeliveryManifest = per-resource decrease between dock and undock EndResources
+  CostManifest = StartResources on the full recording (transport vessel start state)
+  RouteCost = negative entries in whole-recording ComputeResourceDelta
+```
 
 ### Tests
 
@@ -480,7 +468,7 @@ Add a method to add RESOURCE nodes to PART nodes:
 public VesselSnapshotBuilder AddResourceToPart(int partIndex, string name, double amount, double maxAmount)
 ```
 
-This enables integration tests that build a snapshot → extract manifest → verify values.
+This enables the T11.1 integration test (`VesselSnapshotBuilder_Integration`) that builds a realistic snapshot, extracts the manifest, and verifies values.
 
 ### ScenarioWriter
 
@@ -490,8 +478,8 @@ Add V3 support for resource manifests so `InjectAllRecordings` produces recordin
 
 ## Implementation order
 
-1. **T11.1** — `ResourceAmount` struct + `ExtractResourceManifest` + tests. Pure code, zero dependencies.
-2. **T11.5** — `ComputeResourceDelta` + tests. Pure code, depends only on T11.1 struct.
+1. **T11.1** — `ResourceAmount` struct in `ResourceManifest.cs` + `ExtractResourceManifest` in `VesselSpawner.cs` + tests. Pure code, zero dependencies.
+2. **T11.5** — `ComputeResourceDelta` in `ResourceManifest.cs` + tests. Pure code, depends only on T11.1 struct.
 3. **T11.2** — Recording fields + serialization helpers + round-trip tests. Depends on T11.1.
 4. **T11.3** — Capture calls at all boundary sites. Depends on T11.1 + T11.2. This is the biggest task — many call sites, each needs careful placement.
 5. **T11.4** — UI display. Depends on T11.1 + T11.2 + T11.5. Can only be tested with KSP running.
@@ -502,14 +490,16 @@ T11.1 and T11.5 are independent and can be done in the same commit. T11.2 builds
 
 ## Risks and edge cases
 
-**Electric charge excluded.** EC fluctuates constantly (solar panels, reaction wheels, SAS) and start/end snapshots are arbitrary noise. Excluded at extraction time (`name == "ElectricCharge"` skip). No one ships EC via logistics routes. If ever needed, removing the one-line check is trivial.
+**Electric charge and IntakeAir excluded.** EC fluctuates every physics frame (solar, SAS, reaction wheels). IntakeAir has dynamic maxAmount based on intake area and speed. Both are environmental noise with no logistics meaning. Excluded at extraction time. Trivially reversible if ever needed.
 
 **Docking fuel rebalance.** When two vessels dock, KSP rebalances fuel across connected tanks. The post-dock snapshot captures the rebalanced state. For logistics, this is correct — the delivery manifest should reflect what was actually transferred, not what the transport held before docking.
 
 **Destroyed vessels.** If a vessel is destroyed before a snapshot, VesselSnapshot is null and EndResources stays null. Correct — a destroyed vessel has no meaningful end resources.
 
-**Background vessels without snapshots.** Background-recorded debris may never get a fresh snapshot (destroyed while unloaded). EndResources stays null. Acceptable — debris resources are not meaningful for logistics.
+**Background vessels.** Background-recorded debris gets StartResources from the split-time snapshot. EndResources is left null — the background recorder has no fresh finalization snapshot, and extracting from the stale split-time snapshot would just duplicate StartResources. Null is the honest answer.
 
 **Optimizer splits.** Split halves don't get boundary resource snapshots because the split is at an environment boundary (atmosphere transition), not a vessel state change. Resources are unchanged across these boundaries. The full chain's start/end resources (from recording start and final stop) are what logistics needs.
 
-**Mining vessels.** A mining vessel's EndResources will show more ore than StartResources. `ComputeResourceDelta` correctly returns positive values. Phase 12 can handle this: a "mining route" delivers ore gained during the mission. The design doc already anticipates this (§5.2: "the delivery amount is the positive delta").
+**Mining vessels.** A mining vessel's EndResources will show more ore than StartResources. `ComputeResourceDelta` correctly returns positive values. Phase 12 handles this naturally: a "mining route" delivers ore gained during the mission. The design doc already anticipates this (§5.2: "the delivery amount is the positive delta").
+
+**SolidFuel on boosters.** Extraction sums across all parts including not-yet-staged boosters. This is correct behavior (total vessel resources at snapshot time). After staging, the booster's resources are on a separate debris recording.
