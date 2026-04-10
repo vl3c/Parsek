@@ -375,8 +375,10 @@ namespace Parsek
                 rec.VesselSpawned = rec.SpawnedVesselPersistentId != 0;
                 if (rec.VesselSpawned)
                 {
-                    ParsekLog.Info("Spawner",
-                        $"{pathLabel} vessel spawn for recording #{index} ({rec.VesselName}) via SpawnAtPosition");
+                    ParsekLog.Info("Spawner", string.Format(CultureInfo.InvariantCulture,
+                        "{0} vessel spawn for #{1} ({2}) pid={3} lat={4:F4} lon={5:F4} alt={6:F1} terminal={7}",
+                        pathLabel, index, rec.VesselName, rec.SpawnedVesselPersistentId,
+                        spawnLat, spawnLon, spawnAlt, rec.TerminalStateValue));
                     ParsekLog.ScreenMessage($"Vessel '{rec.VesselName}' has appeared!", 4f);
                     return;
                 }
@@ -395,7 +397,13 @@ namespace Parsek
             rec.VesselSpawned = rec.SpawnedVesselPersistentId != 0;
             if (rec.VesselSpawned)
             {
-                ParsekLog.Info("Spawner", $"Vessel spawn for recording #{index} ({rec.VesselName})");
+                string lat = rec.VesselSnapshot.GetValue("lat") ?? "?";
+                string lon = rec.VesselSnapshot.GetValue("lon") ?? "?";
+                string alt = rec.VesselSnapshot.GetValue("alt") ?? "?";
+                string sit = rec.VesselSnapshot.GetValue("sit") ?? "?";
+                ParsekLog.Info("Spawner",
+                    $"Vessel spawn for #{index} ({rec.VesselName}) pid={rec.SpawnedVesselPersistentId} " +
+                    $"sit={sit} lat={lat} lon={lon} alt={alt}");
                 ParsekLog.ScreenMessage($"Vessel '{rec.VesselName}' has appeared!", 4f);
             }
             else

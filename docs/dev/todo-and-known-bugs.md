@@ -4,6 +4,36 @@ Previous entries (225 bugs, 51 TODOs — mostly resolved) archived in `done/todo
 
 ---
 
+## ~~297. Map view icons for atmo/landed ghosts only appear with W (watch) button~~
+
+Atmospheric and landed ghost vessels had no icon in map view unless the user pressed W (watch recording). Two causes: (1) `HandleGhostCreated` skips ProtoVessel creation for `terminal=Landed`, so no native KSP icon exists; (2) ghost mesh hidden by zone distance (`ApplyZoneRenderingImpl`) causes `DrawMapMarkers` to skip the custom marker (the `activeSelf` check at line 672, added for #245/#247).
+
+**Fix:** In `DrawMapMarkers`, when `MapView.MapIsEnabled`, compute ghost position from trajectory data via `TrajectoryMath.InterpolatePoints` when the mesh is inactive. This draws markers for all in-UT-range ghosts regardless of zone distance. Flight-view marker behavior unchanged (preserves #245/#247 fix). Added `TryComputeGhostWorldPosition` helper with per-recording cached waypoint indices, cleared on recording reindex.
+
+**Status:** Fixed.
+
+---
+
+## 296. EVA kerbal who planted flag did not appear after spawn
+
+Log shows KSCSpawn successfully spawned the EVA kerbal (Bill Kerman, pid=484546861), but the user reports not seeing it. Likely post-spawn physics destruction — EVA kerbals are fragile and can be killed by terrain collision or slope bounce.
+
+**Investigation:** Enhanced spawn logging to include lat/lon/alt/sit for all spawn paths (KSCSpawn, SpawnAtPosition, RespawnVessel fallback). The existing `RunSpawnDeathChecks` in `ParsekPlaybackPolicy` already detects and logs spawn-death cycles. Next playtest should reveal whether the kerbal is destroyed post-spawn.
+
+**Status:** Investigation logging added. Root cause TBD — needs next playtest data.
+
+---
+
+## ~~295. Merge dialog for vessel idle on pad~~
+
+When going to KSC view, a merge dialog appeared for a vessel (Jumping Flea) that sat on the launch pad doing nothing. `IsPadFailure` (duration < 10s AND maxDist < 30m) didn't catch it because the vessel was on the pad for minutes (duration >> 10s).
+
+**Fix:** Added `IsIdleOnPad(maxDist < 30m)` — distance-only check with no duration requirement. Applied in 5 code paths: `ShowDeferredMergeDialog` (coroutine), `CommitOrShowDialog` (flight-scene), commit-approval auto-commit (scene exit), auto-commit outside Flight, and standalone destruction handler. Added `IsTreeIdleOnPad` parallel for tree recordings.
+
+**Status:** Fixed.
+
+---
+
 ## ~~294. F5/F9 during standalone recording loses all in-progress data~~
 
 Surfaced by the 2026-04-10 engine-plume-bug playtest (`logs/2026-04-10_engine-plume-bug/KSP.log`). After F9 quickload during the Halger Kerman EVA standalone recording, the pending recording was discarded by `DiscardStashedOnQuickload` and no new recording started. 28 seconds of EVA walk lost.

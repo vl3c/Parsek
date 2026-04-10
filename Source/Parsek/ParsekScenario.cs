@@ -1141,7 +1141,28 @@ namespace Parsek
                                 GhostPlaybackLogic.ShouldShowCommitApproval(destScene.Value, termState);
                             RecordingStore.PendingDestinationScene = null;
 
-                            if (showApproval && !mergeDialogPending)
+                            // Auto-discard idle-on-pad before commit approval or auto-commit
+                            bool idleDiscarded = false;
+                            if (RecordingStore.HasPending && ParsekFlight.IsIdleOnPad(RecordingStore.Pending.MaxDistanceFromLaunch))
+                            {
+                                ParsekLog.Info("Scenario", string.Format(CultureInfo.InvariantCulture,
+                                    "Idle on pad at scene exit — auto-discarding (maxDist={0:F1}m)",
+                                    RecordingStore.Pending.MaxDistanceFromLaunch));
+                                RecordingStore.DiscardPending();
+                                idleDiscarded = true;
+                            }
+                            if (RecordingStore.HasPendingTree && ParsekFlight.IsTreeIdleOnPad(RecordingStore.PendingTree))
+                            {
+                                ParsekLog.Info("Scenario", "Idle on pad at scene exit — auto-discarding tree");
+                                RecordingStore.DiscardPendingTree();
+                                idleDiscarded = true;
+                            }
+
+                            if (idleDiscarded && !RecordingStore.HasPending && !RecordingStore.HasPendingTree)
+                            {
+                                // Nothing left to commit or dialog
+                            }
+                            else if (showApproval && !mergeDialogPending)
                             {
                                 // Defer to approval dialog instead of auto-committing
                                 mergeDialogPending = true;
@@ -1311,6 +1332,20 @@ namespace Parsek
                 if (HighLogic.LoadedScene != GameScenes.FLIGHT &&
                     (RecordingStore.HasPending || RecordingStore.HasPendingTree))
                 {
+                    // Auto-discard idle-on-pad recordings before auto-committing
+                    if (RecordingStore.HasPending && ParsekFlight.IsIdleOnPad(RecordingStore.Pending.MaxDistanceFromLaunch))
+                    {
+                        ScenarioLog(string.Format(CultureInfo.InvariantCulture,
+                            "[Parsek Scenario] Idle on pad — auto-discarding pending (maxDist={0:F1}m)",
+                            RecordingStore.Pending.MaxDistanceFromLaunch));
+                        RecordingStore.DiscardPending();
+                    }
+                    if (RecordingStore.HasPendingTree && ParsekFlight.IsTreeIdleOnPad(RecordingStore.PendingTree))
+                    {
+                        ScenarioLog("[Parsek Scenario] Idle on pad — auto-discarding pending tree");
+                        RecordingStore.DiscardPendingTree();
+                    }
+
                     if (IsAutoMerge || HighLogic.LoadedScene == GameScenes.MAINMENU)
                     {
                         // autoMerge ON: auto-commit ghost-only
@@ -2141,6 +2176,28 @@ namespace Parsek
                     mergeDialogPending = false;
                     yield break;
                 }
+            }
+
+            // Auto-discard idle-on-pad recordings before showing the dialog
+            if (RecordingStore.HasPending && ParsekFlight.IsIdleOnPad(RecordingStore.Pending.MaxDistanceFromLaunch))
+            {
+                ParsekLog.Info("Scenario",
+                    string.Format(CultureInfo.InvariantCulture,
+                        "Idle on pad detected — auto-discarding recording (maxDist={0:F1}m)",
+                        RecordingStore.Pending.MaxDistanceFromLaunch));
+                RecordingStore.DiscardPending();
+                ScreenMessages.PostScreenMessage("Recording discarded — vessel idle on pad", 4f);
+                mergeDialogPending = false;
+                yield break;
+            }
+
+            if (RecordingStore.HasPendingTree && ParsekFlight.IsTreeIdleOnPad(RecordingStore.PendingTree))
+            {
+                ParsekLog.Info("Scenario", "Idle on pad detected — auto-discarding tree recording");
+                RecordingStore.DiscardPendingTree();
+                ScreenMessages.PostScreenMessage("Recording discarded — vessel idle on pad", 4f);
+                mergeDialogPending = false;
+                yield break;
             }
 
             // Show the appropriate dialog

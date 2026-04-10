@@ -1399,6 +1399,13 @@ namespace Parsek
                     RecordingStore.DiscardPending();
                     yield break;
                 }
+                if (IsIdleOnPad(maxDist))
+                {
+                    Log($"Post-destruction: idle on pad (maxDist={maxDist:F1}m) — auto-discarding");
+                    ScreenMessage("Recording discarded — vessel idle on pad", 3f);
+                    RecordingStore.DiscardPending();
+                    yield break;
+                }
             }
 
             // Show merge dialog
@@ -7951,6 +7958,9 @@ namespace Parsek
             // so after reindexing they would map to wrong recordings
             orbitCache.Clear();
 
+            // Clear map marker waypoint cache (index-keyed, stale after reindex)
+            ui?.ClearMapMarkerCache();
+
             // Clear ParsekFlight-local diagnostic guards since indices shifted
             loggedOrbitSegments.Clear();
             loggedOrbitRotationSegments.Clear();
@@ -7969,6 +7979,16 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Returns true if the vessel never moved meaningfully from its launch position,
+        /// regardless of duration. Covers vessels that sat idle on the pad while the
+        /// player did other activities (EVA, vehicle switch, etc.).
+        /// </summary>
+        internal static bool IsIdleOnPad(double maxDistanceFromLaunch)
+        {
+            return maxDistanceFromLaunch < 30.0;
+        }
+
+        /// <summary>
         /// Returns true if every recording in the tree qualifies as a pad failure.
         /// A tree with any non-pad-failure recording is not discarded.
         /// </summary>
@@ -7981,6 +8001,23 @@ namespace Parsek
             {
                 double duration = rec.EndUT - rec.StartUT;
                 if (!IsPadFailure(duration, rec.MaxDistanceFromLaunch))
+                    return false;
+            }
+            return true;
+        }
+
+        /// <summary>
+        /// Returns true if every recording in the tree is idle-on-pad (never moved
+        /// more than 30m from launch). A tree with any non-idle recording is not discarded.
+        /// </summary>
+        internal static bool IsTreeIdleOnPad(RecordingTree tree)
+        {
+            if (tree == null || tree.Recordings == null || tree.Recordings.Count == 0)
+                return false;
+
+            foreach (var rec in tree.Recordings.Values)
+            {
+                if (!IsIdleOnPad(rec.MaxDistanceFromLaunch))
                     return false;
             }
             return true;
@@ -8933,6 +8970,15 @@ namespace Parsek
         /// </summary>
         void CommitOrShowDialog(Recording pending)
         {
+            // Auto-discard idle-on-pad recordings before committing or showing dialog
+            if (IsIdleOnPad(pending.MaxDistanceFromLaunch))
+            {
+                Log($"CommitOrShowDialog: idle on pad (maxDist={pending.MaxDistanceFromLaunch:F1}m) — auto-discarding");
+                ScreenMessage("Recording discarded — vessel idle on pad", 3f);
+                RecordingStore.DiscardPending();
+                return;
+            }
+
             if (ParsekScenario.IsAutoMerge)
             {
                 string recId = pending.RecordingId;

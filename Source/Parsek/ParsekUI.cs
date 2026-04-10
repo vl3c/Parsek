@@ -47,6 +47,9 @@ namespace Parsek
         // Reusable per-frame buffers (used by DrawMapMarkers for chain dedup)
         private static readonly Dictionary<string, int> chainTipIndexBuffer = new Dictionary<string, int>();
 
+        // Cached waypoint indices for trajectory-derived map marker positions (Bug A fix)
+        private readonly Dictionary<int, int> mapMarkerCachedIndices = new Dictionary<int, int>();
+
         // Window drag tracking for position logging
         private Rect lastMainWindowRect;
         // Spawn Control window (extracted to SpawnControlUI)
@@ -665,11 +668,21 @@ namespace Parsek
             }
 
             // Second pass: draw markers, skipping non-tip chain members and debris.
-            // Skip hidden ghosts (#245/#247): their transform.position is stale after
-            // FloatingOrigin shifts and projects to wrong map locations.
+            // In flight view, skip hidden ghosts (#245/#247): their transform.position is stale
+            // after FloatingOrigin shifts and projects to wrong map locations.
+            // In map view, draw ALL active ghosts — use trajectory-derived positions when the
+            // mesh is hidden by zone distance so every ghost is visible on the map.
+            bool isMapView = MapView.MapIsEnabled;
+            double currentUT = isMapView ? Planetarium.GetUniversalTime() : 0;
+
             foreach (var kvp in flight.TimelineGhosts)
             {
-                if (kvp.Value == null || !kvp.Value.activeSelf) continue;
+                if (kvp.Value == null) continue;
+                bool meshActive = kvp.Value.activeSelf;
+
+                // In flight view, skip hidden ghosts (stale positions cause wrong markers #245/#247)
+                if (!meshActive && !isMapView) continue;
+
                 // Skip if native KSP icon is active (ProtoVessel exists and icon not suppressed).
                 // When the Harmony patch suppresses the icon (below atmosphere), we draw
                 // our custom marker at the ghost mesh position instead.
@@ -689,13 +702,81 @@ namespace Parsek
                         continue; // not the tip — skip duplicate
                 }
 
+                // Resolve marker world position: use ghost mesh when active, otherwise
+                // compute from trajectory data (map view only — hidden ghosts need icons too).
+                Vector3 markerPos;
+                if (meshActive)
+                {
+                    markerPos = kvp.Value.transform.position;
+                }
+                else
+                {
+                    if (!TryComputeGhostWorldPosition(kvp.Key, committed, currentUT, out markerPos))
+                        continue;
+                }
+
                 string ghostName = kvp.Key < committed.Count ? committed[kvp.Key].VesselName : "Ghost";
                 VesselType vtype = kvp.Key < committed.Count
                     ? GhostMapPresence.ResolveVesselType(committed[kvp.Key].VesselSnapshot)
                     : VesselType.Ship;
                 Color markerColor = GetGhostMarkerColorForType(vtype);
-                DrawMapMarkerAt(kvp.Value.transform.position, ghostName, markerColor, vtype);
+                DrawMapMarkerAt(markerPos, ghostName, markerColor, vtype);
             }
+        }
+
+        /// <summary>
+        /// Computes a ghost's world position from trajectory data when the ghost mesh is hidden.
+        /// Uses InterpolatePoints for smooth movement between recorded trajectory points.
+        /// Returns false if the recording is out of UT range or has no trajectory data.
+        /// </summary>
+        private bool TryComputeGhostWorldPosition(int recordingIndex, List<Recording> committed,
+            double ut, out Vector3 worldPos)
+        {
+            worldPos = Vector3.zero;
+            if (recordingIndex < 0 || recordingIndex >= committed.Count) return false;
+
+            var rec = committed[recordingIndex];
+            if (rec.Points == null || rec.Points.Count == 0) return false;
+            if (ut < rec.StartUT || ut > rec.EndUT) return false;
+
+            int cachedIdx;
+            if (!mapMarkerCachedIndices.TryGetValue(recordingIndex, out cachedIdx))
+                cachedIdx = -1;
+
+            TrajectoryPoint before, after;
+            float t;
+            bool found = TrajectoryMath.InterpolatePoints(rec.Points, ref cachedIdx, ut,
+                out before, out after, out t);
+            mapMarkerCachedIndices[recordingIndex] = cachedIdx;
+
+            double lat, lon, alt;
+            if (found)
+            {
+                lat = before.latitude + (after.latitude - before.latitude) * t;
+                lon = before.longitude + (after.longitude - before.longitude) * t;
+                alt = TrajectoryMath.InterpolateAltitude(before.altitude, after.altitude, t);
+            }
+            else
+            {
+                lat = before.latitude;
+                lon = before.longitude;
+                alt = before.altitude;
+            }
+
+            CelestialBody body = FlightGlobals.Bodies?.Find(b => b.name == before.bodyName);
+            if (body == null) return false;
+
+            worldPos = (Vector3)body.GetWorldSurfacePosition(lat, lon, alt);
+            return true;
+        }
+
+        /// <summary>
+        /// Clears cached waypoint indices used for trajectory-derived map markers.
+        /// Must be called when recordings are reindexed (deletion, optimization pass).
+        /// </summary>
+        internal void ClearMapMarkerCache()
+        {
+            mapMarkerCachedIndices.Clear();
         }
 
         public string GetStatusText()
