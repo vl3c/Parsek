@@ -266,6 +266,10 @@ namespace Parsek
                 target.EndResources = absorbed.EndResources;
             // target.StartResources intentionally unchanged — represents the earlier start
 
+            // Dock target PID: absorbed wins if non-zero (dock may be in later segment)
+            if (absorbed.DockTargetVesselPid != 0)
+                target.DockTargetVesselPid = absorbed.DockTargetVesselPid;
+
             // 8. TerminalState: absorbed is the later segment, inherit its terminal state
             if (absorbed.TerminalStateValue.HasValue)
                 target.TerminalStateValue = absorbed.TerminalStateValue;
