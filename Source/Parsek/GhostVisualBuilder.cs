@@ -2814,6 +2814,24 @@ namespace Parsek
                 }
             }
 
+            return MatchVariantNode(variantModuleConfig, requestedVariantName, variantFromSnapshot,
+                out selectedVariantNode, out selectedVariantName, out resolutionPath);
+        }
+
+        /// <summary>
+        /// Pure matching logic: given the variant MODULE config and a requested variant name,
+        /// find the matching VARIANT node. Extracted for unit testability.
+        /// </summary>
+        internal static bool MatchVariantNode(
+            ConfigNode variantModuleConfig,
+            string requestedVariantName, bool variantFromSnapshot,
+            out ConfigNode selectedVariantNode, out string selectedVariantName,
+            out string resolutionPath)
+        {
+            selectedVariantNode = null;
+            selectedVariantName = null;
+            resolutionPath = null;
+
             string baseVariantName = FirstNonEmptyConfigValue(variantModuleConfig, "baseVariant");
             ConfigNode[] variantNodes = variantModuleConfig.GetNodes("VARIANT");
             if (variantNodes == null || variantNodes.Length == 0)
@@ -2841,6 +2859,18 @@ namespace Parsek
                     resolutionPath = variantFromSnapshot ? "snapshot" : "runtime";
                     break;
                 }
+            }
+
+            // If the snapshot explicitly named a variant that doesn't match any VARIANT
+            // node, this is the implicit base variant (e.g., KSP stores "Basic" as the
+            // display name for the MODULE-level default appearance). The prefab already
+            // has the correct base textures/geometry — return false so callers skip
+            // variant rule application rather than falling through to variantNodes[0].
+            if (selectedVariantNode == null && variantFromSnapshot)
+            {
+                selectedVariantName = requestedVariantName;
+                resolutionPath = "base-implicit";
+                return false;
             }
 
             if (selectedVariantNode == null && !string.IsNullOrEmpty(baseLower))
@@ -5208,6 +5238,12 @@ namespace Parsek
                 ParsekLog.VerboseRateLimited("GhostVisual", $"variant_fb_{partName}",
                     $"  Variant fallback: no active variant renderers and no GAMEOBJECT rules " +
                     $"— including all renderers (active MR={activeMR}, active SMR={activeSMR})", 60.0);
+            }
+            if (hasPartVariants && variantResolutionPath == "base-implicit")
+            {
+                ParsekLog.VerboseRateLimited("GhostVisual", $"variant_base_{partName}",
+                    $"  Variant '{selectedVariantName}' not in VARIANT nodes " +
+                    $"— using base variant (prefab default materials)", 60.0);
             }
 
             // Name by persistentId for O(1) lookup during playback; fall back to part name

@@ -83,11 +83,11 @@ Intermediate tree recordings with 0 trajectory points but non-null VesselSnapsho
 
 ---
 
-## 241. Ghost fuel tanks have wrong color variant
+## ~~241. Ghost fuel tanks have wrong color variant~~
 
-Some fuel tanks on ghost vessels display with the wrong color/texture variant during playback. The ghost visual builder clones the prefab model, but KSP fuel tanks can have multiple texture variants (e.g., Orange, White, Gray via `ModulePartVariants`). The variant selection from the vessel snapshot may not be applied to the ghost clone.
+Parts whose base/default variant is implicit (not a VARIANT node) showed the wrong color. KSP stores the base variant's display name (e.g., "Basic") as `moduleVariantName`, but no VARIANT node has that name — `TryFindSelectedVariantNode` fell through to `variantNodes[0]` (e.g., Orange) instead of keeping the prefab default. Fix: `MatchVariantNode` returns false when the snapshot names a variant with no matching VARIANT node, so callers skip variant rule application and the prefab's base materials are preserved.
 
-**Priority:** Low — cosmetic, ghost shape is correct
+**Fix:** PR #198
 
 ---
 
