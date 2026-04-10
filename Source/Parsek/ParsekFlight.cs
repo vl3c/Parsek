@@ -8146,8 +8146,14 @@ namespace Parsek
             foreach (var rec in tree.Recordings.Values)
             {
                 if (!IsIdleOnPad(rec.MaxDistanceFromLaunch))
+                {
+                    ParsekLog.Verbose("Flight",
+                        $"IsTreeIdleOnPad: '{rec.VesselName}' maxDist={rec.MaxDistanceFromLaunch:F1}m — not idle");
                     return false;
+                }
             }
+            ParsekLog.Verbose("Flight",
+                $"IsTreeIdleOnPad: all {tree.Recordings.Count} recordings within 30m — idle on pad");
             return true;
         }
 

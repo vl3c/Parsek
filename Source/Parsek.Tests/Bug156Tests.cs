@@ -133,6 +133,32 @@ namespace Parsek.Tests
             Assert.False(ParsekFlight.IsTreeIdleOnPad(tree));
         }
 
+        [Fact]
+        public void IsTreeIdleOnPad_AfterConfigNodeRoundTrip_RetainsMaxDistance()
+        {
+            // #302: MaxDistanceFromLaunch must survive ConfigNode serialization.
+            // Without this, deserialized trees default to 0.0 and get falsely
+            // auto-discarded as "idle on pad".
+            var rec = new Recording
+            {
+                RecordingId = "root",
+                VesselName = "Kerbal X",
+                MaxDistanceFromLaunch = 5000.0
+            };
+
+            var node = new ConfigNode("RECORDING");
+            RecordingTree.SaveRecordingInto(node, rec);
+
+            var restored = new Recording();
+            RecordingTree.LoadRecordingFrom(node, restored);
+
+            var tree = new RecordingTree { Recordings = new Dictionary<string, Recording>() };
+            tree.Recordings["root"] = restored;
+
+            // Should NOT be idle on pad — the rocket flew 5km
+            Assert.False(ParsekFlight.IsTreeIdleOnPad(tree));
+        }
+
         // ────────────────────────────────────────────────────────────
         //  ShouldShowCommitApproval — commit dialog trigger (#88)
         // ────────────────────────────────────────────────────────────
