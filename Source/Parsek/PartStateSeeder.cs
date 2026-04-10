@@ -320,13 +320,17 @@ namespace Parsek
         {
             if (cachedEngines == null) return;
 
+            if (sets.allEngineKeys == null)
+                sets.allEngineKeys = new HashSet<ulong>();
+
             for (int i = 0; i < cachedEngines.Count; i++)
             {
                 var (part, engine, moduleIndex) = cachedEngines[i];
                 if (part == null || engine == null) continue;
+                ulong key = FlightRecorder.EncodeEngineKey(part.persistentId, moduleIndex);
+                sets.allEngineKeys.Add(key);
                 if (engine.EngineIgnited && engine.isOperational)
                 {
-                    ulong key = FlightRecorder.EncodeEngineKey(part.persistentId, moduleIndex);
                     sets.activeEngineKeys.Add(key);
                     sets.lastThrottle[key] = engine.currentThrottle;
                     ParsekLog.Verbose(logTag,
@@ -621,6 +625,37 @@ namespace Parsek
 
             if (skippedZeroThrottle > 0)
                 ParsekLog.Info(logTag, $"Skipped {skippedZeroThrottle} zero-throttle engine seed event(s) (#165)");
+
+            // Emit EngineShutdown sentinels for engines present on the vessel but NOT
+            // active. This prevents the playback Count==0 auto-start heuristic from
+            // incorrectly showing flames on debris with depleted-fuel engines (#298).
+            // The sentinel gives the recording at least one engine event, so Count > 0.
+            if (sets.allEngineKeys != null)
+            {
+                int sentinels = 0;
+                foreach (ulong key in sets.allEngineKeys)
+                {
+                    if (sets.activeEngineKeys != null && sets.activeEngineKeys.Contains(key))
+                        continue; // active engine — already handled above
+                    uint pid; int midx;
+                    FlightRecorder.DecodeEngineKey(key, out pid, out midx);
+                    events.Add(new PartEvent
+                    {
+                        ut = startUT,
+                        partPersistentId = pid,
+                        eventType = PartEventType.EngineShutdown,
+                        partName = NameFor(pid),
+                        value = 0f,
+                        moduleIndex = midx
+                    });
+                    sentinels++;
+                    ParsekLog.Verbose(logTag,
+                        $"Seed event: EngineShutdown sentinel pid={pid} midx={midx} " +
+                        $"(engine present but not operational — prevents orphan auto-start)");
+                }
+                if (sentinels > 0)
+                    ParsekLog.Info(logTag, $"Emitted {sentinels} EngineShutdown sentinel(s) for dead engines (#298)");
+            }
         }
 
         /// <summary>
@@ -692,5 +727,12 @@ namespace Parsek
         public Dictionary<ulong, float> lastThrottle;
         public HashSet<ulong> activeRcsKeys;
         public Dictionary<ulong, float> lastRcsThrottle;
+        /// <summary>
+        /// All engine keys present on the vessel (active + inactive). Populated by
+        /// SeedEngines. Used by EmitEngineSeedEvents to emit EngineShutdown sentinels
+        /// for dead engines, preventing the playback Count==0 auto-start heuristic
+        /// from incorrectly firing on debris with depleted-fuel engines (#298).
+        /// </summary>
+        public HashSet<ulong> allEngineKeys;
     }
 }

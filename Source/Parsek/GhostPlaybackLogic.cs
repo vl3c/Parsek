@@ -794,11 +794,12 @@ namespace Parsek
 
         /// <summary>
         /// Builds a set of engine event keys from a list of PartEvents.
-        /// Keys represent (pid, moduleIndex) pairs that have at least one
-        /// EngineIgnited or EngineThrottle event. Used by orphan auto-start:
-        /// when the set is empty, ALL engines on the ghost were running at
-        /// breakup with no recorded seed event (debris booster pattern).
-        /// Pure static method for testability.
+        /// Keys represent (pid, moduleIndex) pairs that have at least one engine
+        /// event (EngineIgnited, EngineThrottle, or EngineShutdown). Used by orphan
+        /// auto-start: when the set is empty, ALL engines on the ghost are
+        /// auto-started. EngineShutdown is included so that dead-engine sentinel
+        /// seeds (#298) prevent the auto-start from firing on debris with depleted
+        /// fuel. Pure static method for testability.
         /// </summary>
         internal static HashSet<ulong> BuildEngineEventKeySet(List<PartEvent> partEvents)
         {
@@ -808,7 +809,9 @@ namespace Parsek
             for (int pe = 0; pe < partEvents.Count; pe++)
             {
                 var evt = partEvents[pe];
-                if (evt.eventType == PartEventType.EngineIgnited || evt.eventType == PartEventType.EngineThrottle)
+                if (evt.eventType == PartEventType.EngineIgnited
+                    || evt.eventType == PartEventType.EngineThrottle
+                    || evt.eventType == PartEventType.EngineShutdown)
                     keys.Add(FlightRecorder.EncodeEngineKey(evt.partPersistentId, evt.moduleIndex));
             }
             return keys;

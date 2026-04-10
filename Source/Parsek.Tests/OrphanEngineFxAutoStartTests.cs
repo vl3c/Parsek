@@ -107,17 +107,18 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void BuildEngineEventKeySet_EngineShutdown_NotCollected()
+        public void BuildEngineEventKeySet_EngineShutdown_Collected()
         {
-            // EngineShutdown must NOT count as "has events" — debris recordings
-            // may have a shutdown event (engine burns out) but no ignited/throttle seed
+            // EngineShutdown IS counted as "has events" — dead-engine sentinel seeds
+            // (#298) use EngineShutdown to prevent the Count==0 auto-start heuristic
+            // from firing on debris with depleted-fuel engines.
             var events = new List<PartEvent>
             {
                 new PartEvent { partPersistentId = 100, moduleIndex = 0, eventType = PartEventType.EngineShutdown }
             };
 
             var keys = GhostPlaybackLogic.BuildEngineEventKeySet(events);
-            Assert.Empty(keys);
+            Assert.Single(keys);
         }
 
         #endregion
