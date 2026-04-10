@@ -659,7 +659,7 @@ namespace Parsek
             var captured = segmentRecorder.CaptureAtStop;
             string vesselName = captured != null
                 ? captured.VesselName
-                : (FlightGlobals.ActiveVessel?.vesselName ?? "Unknown");
+                : (Recording.ResolveLocalizedName(FlightGlobals.ActiveVessel?.vesselName) ?? "Unknown");
 
             ParsekLog.Info("Chain", $"Boundary split: committing segment " +
                 $"(id={captured?.RecordingId}, phase={completedPhase}, body={bodyName}, " +
