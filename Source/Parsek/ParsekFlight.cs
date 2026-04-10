@@ -6146,25 +6146,27 @@ namespace Parsek
                     rec.ExplicitEndUT = commitUT;
             }
 
-            // Determine terminal state for recordings that don't have one yet
+            // Look up the live vessel once — shared by the terminal-determination block below
+            // and the #289 re-snapshot block that follows. Avoids a double FindVesselByPid
+            // for recordings that enter !HasValue, get terminal set, then hit the re-snapshot path.
             bool isLeaf = rec.ChildBranchPointId == null;
+            Vessel finalizeVessel = (isLeaf && rec.VesselPersistentId != 0)
+                ? FlightRecorder.FindVesselByPid(rec.VesselPersistentId)
+                : null;
+
+            // Determine terminal state for recordings that don't have one yet
             if (isLeaf && !rec.TerminalStateValue.HasValue)
             {
-                // Try to find the vessel
-                Vessel vessel = rec.VesselPersistentId != 0
-                    ? FlightRecorder.FindVesselByPid(rec.VesselPersistentId)
-                    : null;
-
-                if (vessel != null)
+                if (finalizeVessel != null)
                 {
-                    rec.TerminalStateValue = RecordingTree.DetermineTerminalState((int)vessel.situation, vessel);
-                    CaptureTerminalOrbit(rec, vessel);
-                    CaptureTerminalPosition(rec, vessel);
+                    rec.TerminalStateValue = RecordingTree.DetermineTerminalState((int)finalizeVessel.situation, finalizeVessel);
+                    CaptureTerminalOrbit(rec, finalizeVessel);
+                    CaptureTerminalPosition(rec, finalizeVessel);
 
                     // Re-snapshot live vessels for Commit Flight path (fresh state)
                     if (!isSceneExit)
                     {
-                        ConfigNode freshSnapshot = VesselSpawner.TryBackupSnapshot(vessel);
+                        ConfigNode freshSnapshot = VesselSpawner.TryBackupSnapshot(finalizeVessel);
                         if (freshSnapshot != null)
                         {
                             rec.VesselSnapshot = freshSnapshot;
@@ -6198,10 +6200,8 @@ namespace Parsek
             // is precisely "terminal state was already set (e.g. by ChainSegmentManager during
             // active recording) so the gate above is skipped — but the snapshot is still stale".
             //
-            // Skipped on isSceneExit when the vessel is null (vessel may be mid-tear-down) — the
-            // existing freshSnapshot != null guard catches that case anyway, but checking vessel
-            // explicitly avoids the FindVesselByPid call when we already know it would be wasted.
-            if (isLeaf && rec.TerminalStateValue.HasValue)
+            // Reuses finalizeVessel from the lookup above — no double FindVesselByPid.
+            if (isLeaf && rec.TerminalStateValue.HasValue && finalizeVessel != null)
             {
                 var ts = rec.TerminalStateValue.Value;
                 bool stableTerminal = ts == TerminalState.Landed
@@ -6209,29 +6209,23 @@ namespace Parsek
                     || ts == TerminalState.Orbiting;
                 if (stableTerminal)
                 {
-                    Vessel resnapVessel = rec.VesselPersistentId != 0
-                        ? FlightRecorder.FindVesselByPid(rec.VesselPersistentId)
-                        : null;
-                    if (resnapVessel != null)
+                    ConfigNode freshSnapshot = VesselSpawner.TryBackupSnapshot(finalizeVessel);
+                    if (freshSnapshot != null)
                     {
-                        ConfigNode freshSnapshot = VesselSpawner.TryBackupSnapshot(resnapVessel);
-                        if (freshSnapshot != null)
-                        {
-                            rec.VesselSnapshot = freshSnapshot;
-                            if (rec.GhostVisualSnapshot == null)
-                                rec.GhostVisualSnapshot = freshSnapshot.CreateCopy();
-                            rec.MarkFilesDirty();  // Critical: ensures next SaveRecordingFiles writes the fresh snapshot to disk
-                            ParsekLog.Info("Flight",
-                                $"FinalizeIndividualRecording: re-snapshotted '{rec.RecordingId}' " +
-                                $"with stable terminal state {ts} " +
-                                $"(vessel.situation={resnapVessel.situation}, isSceneExit={isSceneExit}) [#289]");
-                        }
-                        else
-                        {
-                            ParsekLog.Verbose("Flight",
-                                $"FinalizeIndividualRecording: re-snapshot returned null for " +
-                                $"'{rec.RecordingId}' (terminal={ts}, isSceneExit={isSceneExit}) — keeping stale snapshot");
-                        }
+                        rec.VesselSnapshot = freshSnapshot;
+                        if (rec.GhostVisualSnapshot == null)
+                            rec.GhostVisualSnapshot = freshSnapshot.CreateCopy();
+                        rec.MarkFilesDirty();  // Critical: ensures next SaveRecordingFiles writes the fresh snapshot to disk
+                        ParsekLog.Info("Flight",
+                            $"FinalizeIndividualRecording: re-snapshotted '{rec.RecordingId}' " +
+                            $"with stable terminal state {ts} " +
+                            $"(vessel.situation={finalizeVessel.situation}, isSceneExit={isSceneExit}) [#289]");
+                    }
+                    else
+                    {
+                        ParsekLog.Verbose("Flight",
+                            $"FinalizeIndividualRecording: re-snapshot returned null for " +
+                            $"'{rec.RecordingId}' (terminal={ts}, isSceneExit={isSceneExit}) — keeping stale snapshot");
                     }
                 }
             }
