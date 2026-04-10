@@ -158,7 +158,7 @@ Recordings become location-aware. Each recording knows where it started and ende
 - Vessel situation at recording start (not just end)
 - Stock launch site name from `FlightDriver.LaunchSiteName` (Launch Pad, Runway, Making History DLC sites)
 - Timeline shows "Launch: Vessel from Launch Pad on Kerbin" and "Spawn: Vessel (Landed at Midlands on Mun)"
-- UI grouping and filtering by launch site in the Recordings Manager
+- ~~UI grouping and filtering by launch site in the Recordings Manager~~ *(done — sortable Site column with UT tiebreak)*
 - Prerequisite for logistics routes (Phase 12) and async multiplayer (Phase 13)
 
 Small, additive feature. A few metadata fields at recording start and end.

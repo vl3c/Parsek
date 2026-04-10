@@ -6,6 +6,9 @@ All notable changes to Parsek are documented here.
 
 ## 0.7.3
 
+- Sortable "Site" column in the Recordings Manager — sorts by launch site name with UT tiebreak within the same site.
+- Renamed the expanded-stats toggle button from "Stats" to "Info".
+
 ---
 
 ## 0.7.2

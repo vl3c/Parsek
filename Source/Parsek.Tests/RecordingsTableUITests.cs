@@ -760,5 +760,113 @@ namespace Parsek.Tests
 
             Assert.DoesNotContain("chain-g", rootChainIds);
         }
+
+        // ── LaunchSite sorting ──
+
+        private static Recording MakeRecWithSite(double startUT, double endUT, string site, string name = "Test")
+        {
+            var rec = MakeRec(startUT, endUT, name);
+            rec.LaunchSiteName = site;
+            return rec;
+        }
+
+        [Fact]
+        public void CompareRecordings_LaunchSite_SortsBySiteName()
+        {
+            var ra = MakeRecWithSite(100, 200, "Runway");
+            var rb = MakeRecWithSite(100, 200, "LaunchPad");
+            int cmp = ParsekUI.CompareRecordings(ra, rb,
+                ParsekUI.SortColumn.LaunchSite, true, 0);
+            Assert.True(cmp > 0); // Runway > LaunchPad alphabetically
+        }
+
+        [Fact]
+        public void CompareRecordings_LaunchSite_SameSite_TiebreaksByUT()
+        {
+            var ra = MakeRecWithSite(300, 400, "LaunchPad");
+            var rb = MakeRecWithSite(100, 200, "LaunchPad");
+            int cmp = ParsekUI.CompareRecordings(ra, rb,
+                ParsekUI.SortColumn.LaunchSite, true, 0);
+            Assert.True(cmp > 0); // Same site, ra has later StartUT
+        }
+
+        [Fact]
+        public void CompareRecordings_LaunchSite_NullSite_SortsBeforeNamed()
+        {
+            var ra = MakeRec(100, 200); // no site (null)
+            var rb = MakeRecWithSite(100, 200, "LaunchPad");
+            int cmp = ParsekUI.CompareRecordings(ra, rb,
+                ParsekUI.SortColumn.LaunchSite, true, 0);
+            Assert.True(cmp < 0); // "" < "LaunchPad"
+        }
+
+        [Fact]
+        public void CompareRecordings_LaunchSite_CaseInsensitive()
+        {
+            var ra = MakeRecWithSite(100, 200, "launchpad");
+            var rb = MakeRecWithSite(100, 200, "LaunchPad");
+            int cmp = ParsekUI.CompareRecordings(ra, rb,
+                ParsekUI.SortColumn.LaunchSite, true, 0);
+            // Same site name (case-insensitive), same UT → tiebreak returns 0
+            Assert.Equal(0, cmp);
+        }
+
+        [Fact]
+        public void CompareRecordings_LaunchSite_Descending_ReversesOrder()
+        {
+            var ra = MakeRecWithSite(100, 200, "LaunchPad");
+            var rb = MakeRecWithSite(100, 200, "Runway");
+            int ascCmp = ParsekUI.CompareRecordings(ra, rb,
+                ParsekUI.SortColumn.LaunchSite, true, 0);
+            int descCmp = ParsekUI.CompareRecordings(ra, rb,
+                ParsekUI.SortColumn.LaunchSite, false, 0);
+            Assert.Equal(-ascCmp, descCmp);
+        }
+
+        [Fact]
+        public void BuildSortedIndices_LaunchSite_GroupsBySiteThenUT()
+        {
+            var committed = new List<Recording>
+            {
+                MakeRecWithSite(200, 300, "Runway", "R2"),
+                MakeRecWithSite(100, 200, "LaunchPad", "L1"),
+                MakeRecWithSite(300, 400, "LaunchPad", "L2"),
+                MakeRecWithSite(100, 200, "Runway", "R1")
+            };
+            var indices = ParsekUI.BuildSortedIndices(committed,
+                ParsekUI.SortColumn.LaunchSite, true, 0);
+            // Expected order: LaunchPad(UT=100), LaunchPad(UT=300), Runway(UT=100), Runway(UT=200)
+            Assert.Equal(1, indices[0]); // L1 (LaunchPad, UT=100)
+            Assert.Equal(2, indices[1]); // L2 (LaunchPad, UT=300)
+            Assert.Equal(3, indices[2]); // R1 (Runway, UT=100)
+            Assert.Equal(0, indices[3]); // R2 (Runway, UT=200)
+        }
+
+        [Fact]
+        public void GetRecordingSortKey_LaunchSite_ReturnsRowFallback()
+        {
+            var rec = MakeRecWithSite(100, 200, "LaunchPad");
+            double key = ParsekUI.GetRecordingSortKey(rec, ParsekUI.SortColumn.LaunchSite, 0, 7);
+            Assert.Equal(7, key); // string-based column, returns rowFallback
+        }
+
+        [Fact]
+        public void GetChainSortKey_LaunchSite_ReturnsZero()
+        {
+            var committed = new List<Recording> { MakeRecWithSite(100, 200, "LaunchPad") };
+            var members = new List<int> { 0 };
+            double key = ParsekUI.GetChainSortKey(members, committed,
+                ParsekUI.SortColumn.LaunchSite, 0);
+            Assert.Equal(0, key);
+        }
+
+        [Fact]
+        public void GetGroupSortKey_LaunchSite_ReturnsZero()
+        {
+            var committed = new List<Recording> { MakeRecWithSite(100, 200, "LaunchPad") };
+            double key = ParsekUI.GetGroupSortKey(new HashSet<int> { 0 }, committed,
+                ParsekUI.SortColumn.LaunchSite, 0);
+            Assert.Equal(0, key);
+        }
     }
 }

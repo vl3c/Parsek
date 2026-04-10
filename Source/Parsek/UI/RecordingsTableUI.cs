@@ -36,6 +36,7 @@ namespace Parsek
         private const float ColW_Watch = 50f;
         private const float ColW_Rewind = 65f;
         private const float ColW_Hide = 50f;
+        private const float ColW_Site = 90f;
         private const float ColW_Group = 50f;
 
         // Reusable per-frame buffers (avoid allocation each frame)
@@ -77,7 +78,7 @@ namespace Parsek
         private GUIStyle phaseStyleApproach;
 
         // Sort state
-        internal enum SortColumn { Index, Phase, Name, LaunchTime, Duration, Status }
+        internal enum SortColumn { Index, Phase, Name, LaunchTime, Duration, Status, LaunchSite }
         private SortColumn sortColumn = SortColumn.LaunchTime;
         private bool sortAscending = true;
 
@@ -463,6 +464,7 @@ namespace Parsek
             DrawSortableHeader("#", SortColumn.Index, ColW_Index);
             DrawSortableHeader("Name", SortColumn.Name, 0, true);
             DrawSortableHeader("Phase", SortColumn.Phase, ColW_Phase);
+            DrawSortableHeader("Site", SortColumn.LaunchSite, ColW_Site);
             DrawSortableHeader("Launch", SortColumn.LaunchTime, ColW_Launch);
             DrawSortableHeader("Duration", SortColumn.Duration, ColW_Dur);
 
@@ -535,11 +537,11 @@ namespace Parsek
 
             if (committed.Count > 0)
             {
-                string statsLabel = showExpandedStats ? "Stats \u25c0" : "Stats \u25b6";
+                string statsLabel = showExpandedStats ? "Info \u25c0" : "Info \u25b6";
                 if (GUILayout.Button(statsLabel, GUILayout.Width(65)))
                 {
                     showExpandedStats = !showExpandedStats;
-                    ParsekLog.Verbose("UI", $"Recordings Stats toggled: {(showExpandedStats ? "expanded" : "collapsed")}");
+                    ParsekLog.Verbose("UI", $"Recordings Info toggled: {(showExpandedStats ? "expanded" : "collapsed")}");
                     if (showExpandedStats && recordingsWindowRect.width < 1564f)
                         recordingsWindowRect.width = 1564f;
                     else if (!showExpandedStats)
@@ -659,10 +661,14 @@ namespace Parsek
                     {
                         if (!seenChains.Add(rec.ChainId)) continue;
                         var members = chainToRecs[rec.ChainId];
+                        var firstRec = members.Count > 0 ? committed[members[0]] : null;
+                        string cSortName = sortColumn == SortColumn.LaunchSite
+                            ? (firstRec?.LaunchSiteName ?? "")
+                            : (firstRec != null ? firstRec.VesselName : "");
                         rootItems.Add(new RootDrawItem
                         {
                             SortKey = GetChainSortKey(members, committed, sortColumn, now),
-                            SortName = members.Count > 0 ? committed[members[0]].VesselName : "",
+                            SortName = cSortName,
                             ItemType = RootItemType.Chain,
                             ChainId = rec.ChainId,
                             RecIdx = -1
@@ -670,10 +676,13 @@ namespace Parsek
                     }
                     else if (string.IsNullOrEmpty(rec.ChainId))
                     {
+                        string rSortName = sortColumn == SortColumn.LaunchSite
+                            ? (rec.LaunchSiteName ?? "")
+                            : (string.IsNullOrEmpty(rec.VesselName) ? "Untitled" : rec.VesselName);
                         rootItems.Add(new RootDrawItem
                         {
                             SortKey = GetRecordingSortKey(rec, sortColumn, now, row),
-                            SortName = string.IsNullOrEmpty(rec.VesselName) ? "Untitled" : rec.VesselName,
+                            SortName = rSortName,
                             ItemType = RootItemType.Recording,
                             RecIdx = ri
                         });
@@ -686,7 +695,7 @@ namespace Parsek
                 rootItems.Sort((a, b) =>
                 {
                     int cmp;
-                    if (col == SortColumn.Name || col == SortColumn.Phase)
+                    if (col == SortColumn.Name || col == SortColumn.Phase || col == SortColumn.LaunchSite)
                         cmp = string.Compare(a.SortName, b.SortName,
                             StringComparison.OrdinalIgnoreCase);
                     else
@@ -777,6 +786,9 @@ namespace Parsek
             {
                 GUILayout.Label("", GUILayout.Width(ColW_Phase));
             }
+
+            // Site (launch site name)
+            GUILayout.Label(rec.LaunchSiteName ?? "", GUILayout.Width(ColW_Site));
 
             // Launch Time
             string launchTime = rec.Points.Count > 0
@@ -1178,6 +1190,9 @@ namespace Parsek
             // Phase placeholder (groups have no phase)
             GUILayout.Label("", GUILayout.Width(ColW_Phase));
 
+            // Site placeholder (groups have no single site)
+            GUILayout.Label("", GUILayout.Width(ColW_Site));
+
             // Launch time (earliest among descendants)
             double grpEarliest = GetGroupEarliestStartUT(descendants, committed);
             string grpLaunchText = (memberCount > 0 && grpEarliest < double.MaxValue)
@@ -1521,6 +1536,10 @@ namespace Parsek
 
             // Phase placeholder (chains have no single phase)
             GUILayout.Label("", GUILayout.Width(ColW_Phase));
+
+            // Site (first member's launch site)
+            string chainSite = members.Count > 0 ? committed[members[0]].LaunchSiteName : null;
+            GUILayout.Label(chainSite ?? "", GUILayout.Width(ColW_Site));
 
             // Launch time (earliest among chain members)
             GUILayout.Label(chainStart < double.MaxValue
@@ -1902,7 +1921,7 @@ namespace Parsek
                 case SortColumn.LaunchTime: return rec.StartUT;
                 case SortColumn.Duration: return rec.EndUT - rec.StartUT;
                 case SortColumn.Status: return GetStatusOrder(rec, now);
-                default: return rowFallback;
+                default: return rowFallback; // Index, Name, Phase, LaunchSite — string-based, handled externally
             }
         }
 
@@ -1945,7 +1964,7 @@ namespace Parsek
                     return best;
                 }
                 default:
-                    return 0; // Name/Phase/Index: handled via string comparison externally
+                    return 0; // Name/Phase/Index/LaunchSite: handled via string comparison externally
             }
         }
 
@@ -1977,6 +1996,13 @@ namespace Parsek
                     break;
                 case SortColumn.Status:
                     cmp = GetStatusOrder(ra, now).CompareTo(GetStatusOrder(rb, now));
+                    break;
+                case SortColumn.LaunchSite:
+                    string sa = ra.LaunchSiteName ?? "";
+                    string sb = rb.LaunchSiteName ?? "";
+                    cmp = string.Compare(sa, sb, StringComparison.OrdinalIgnoreCase);
+                    if (cmp == 0)
+                        cmp = ra.StartUT.CompareTo(rb.StartUT);
                     break;
             }
             return ascending ? cmp : -cmp;
@@ -2324,6 +2350,7 @@ namespace Parsek
                 }
                 case SortColumn.Name:
                 case SortColumn.Phase:
+                case SortColumn.LaunchSite:
                     return 0; // sorted by string comparison externally
                 case SortColumn.Index:
                 default:
