@@ -738,7 +738,10 @@ namespace Parsek
             // (fuel severed by decouple). The orphan auto-start compensates at playback.
             HashSet<ulong> engineKeysWithEvents = null;
             HashSet<ulong> rcsKeysWithEvents = null;
-            if (traj != null && traj.PartEvents != null)
+            bool hasAnyFxInfos = (state.audioInfos != null && state.audioInfos.Count > 0)
+                || (state.engineInfos != null && state.engineInfos.Count > 0)
+                || (state.rcsInfos != null && state.rcsInfos.Count > 0);
+            if (hasAnyFxInfos && traj != null && traj.PartEvents != null)
                 BuildOrphanKeySets(traj.PartEvents, out engineKeysWithEvents, out rcsKeysWithEvents);
 
             // Auto-start audio for engines that have no EngineIgnited event in the recording.
@@ -746,22 +749,21 @@ namespace Parsek
             // time — the child recording has no seed events for these engines.
             if (state.audioInfos != null && state.audioInfos.Count > 0 && engineKeysWithEvents != null)
             {
-                foreach (var kvp in state.audioInfos)
+                var orphanAudioKeys = FindOrphanKeys(state.audioInfos.Keys, engineKeysWithEvents);
+                for (int i = 0; i < orphanAudioKeys.Count; i++)
                 {
-                    if (!engineKeysWithEvents.Contains(kvp.Key))
+                    var info = state.audioInfos[orphanAudioKeys[i]];
+                    // No engine event for this audio source — auto-start at full power
+                    info.currentPower = 1f;
+                    if (info.audioSource != null)
                     {
-                        // No engine event for this audio source — auto-start at full power
-                        kvp.Value.currentPower = 1f;
-                        if (kvp.Value.audioSource != null)
-                        {
-                            kvp.Value.audioSource.volume = 0f; // will be set by UpdateAudioAtmosphere
-                            kvp.Value.audioSource.loop = true;
-                            kvp.Value.audioSource.Play();
-                        }
-                        ParsekLog.Verbose("GhostAudio",
-                            $"Auto-started audio for orphan engine key={kvp.Key} " +
-                            $"(no EngineIgnited event — likely debris booster)");
+                        info.audioSource.volume = 0f; // will be set by UpdateAudioAtmosphere
+                        info.audioSource.loop = true;
+                        info.audioSource.Play();
                     }
+                    ParsekLog.Verbose("GhostAudio",
+                        $"Auto-started audio for orphan engine key={orphanAudioKeys[i]} " +
+                        $"(no EngineIgnited event — likely debris booster)");
                 }
             }
 
@@ -770,20 +772,18 @@ namespace Parsek
             // at breakup but the child recording has no seed events for them.
             if (state.engineInfos != null && state.engineInfos.Count > 0 && engineKeysWithEvents != null)
             {
-                foreach (var kvp in state.engineInfos)
+                var orphanEngineKeys = FindOrphanKeys(state.engineInfos.Keys, engineKeysWithEvents);
+                for (int i = 0; i < orphanEngineKeys.Count; i++)
                 {
-                    if (!engineKeysWithEvents.Contains(kvp.Key))
-                    {
-                        uint pid; int midx;
-                        FlightRecorder.DecodeEngineKey(kvp.Key, out pid, out midx);
-                        // eventType is unused by SetEngineEmission/ApplyHeatState — only pid+midx matter
-                        var syntheticEvt = new PartEvent { partPersistentId = pid, moduleIndex = midx };
-                        SetEngineEmission(state, syntheticEvt, 1f);
-                        ApplyHeatState(state, syntheticEvt, HeatLevel.Hot);
-                        ParsekLog.Verbose("GhostFx",
-                            $"Auto-started engine FX for orphan engine key={kvp.Key} pid={pid} midx={midx} " +
-                            $"(no EngineIgnited event — likely debris booster)");
-                    }
+                    uint pid; int midx;
+                    FlightRecorder.DecodeEngineKey(orphanEngineKeys[i], out pid, out midx);
+                    // eventType is unused by SetEngineEmission/ApplyHeatState — only pid+midx matter
+                    var syntheticEvt = new PartEvent { partPersistentId = pid, moduleIndex = midx };
+                    SetEngineEmission(state, syntheticEvt, 1f);
+                    ApplyHeatState(state, syntheticEvt, HeatLevel.Hot);
+                    ParsekLog.Verbose("GhostFx",
+                        $"Auto-started engine FX for orphan engine key={orphanEngineKeys[i]} pid={pid} midx={midx} " +
+                        $"(no EngineIgnited event — likely debris booster)");
                 }
             }
 
@@ -791,19 +791,17 @@ namespace Parsek
             // Same orphan pattern as engines — debris may have active RCS at breakup.
             if (state.rcsInfos != null && state.rcsInfos.Count > 0 && rcsKeysWithEvents != null)
             {
-                foreach (var kvp in state.rcsInfos)
+                var orphanRcsKeys = FindOrphanKeys(state.rcsInfos.Keys, rcsKeysWithEvents);
+                for (int i = 0; i < orphanRcsKeys.Count; i++)
                 {
-                    if (!rcsKeysWithEvents.Contains(kvp.Key))
-                    {
-                        uint pid; int midx;
-                        FlightRecorder.DecodeEngineKey(kvp.Key, out pid, out midx);
-                        var syntheticEvt = new PartEvent { partPersistentId = pid, moduleIndex = midx };
-                        SetRcsEmission(state, syntheticEvt, 1f);
-                        ApplyHeatState(state, syntheticEvt, HeatLevel.Hot);
-                        ParsekLog.Verbose("GhostFx",
-                            $"Auto-started RCS FX for orphan RCS key={kvp.Key} pid={pid} midx={midx} " +
-                            $"(no RCSActivated event — likely debris)");
-                    }
+                    uint pid; int midx;
+                    FlightRecorder.DecodeEngineKey(orphanRcsKeys[i], out pid, out midx);
+                    var syntheticEvt = new PartEvent { partPersistentId = pid, moduleIndex = midx };
+                    SetRcsEmission(state, syntheticEvt, 1f);
+                    ApplyHeatState(state, syntheticEvt, HeatLevel.Hot);
+                    ParsekLog.Verbose("GhostFx",
+                        $"Auto-started RCS FX for orphan RCS key={orphanRcsKeys[i]} pid={pid} midx={midx} " +
+                        $"(no RCSActivated event — likely debris)");
                 }
             }
 
