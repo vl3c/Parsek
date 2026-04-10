@@ -114,7 +114,7 @@ namespace Parsek
             // 3b. Populate crew end states before action creation so KerbalEndStateField is correct
             var recForEndStates = FindRecordingById(recordingId);
             if (recForEndStates != null && recForEndStates.CrewEndStates == null
-                && recForEndStates.VesselSnapshot != null)
+                && (recForEndStates.VesselSnapshot != null || !string.IsNullOrEmpty(recForEndStates.EvaCrewName)))
                 KerbalsModule.PopulateCrewEndStates(recForEndStates);
 
             // 3c. Generate KerbalAssignment actions from vessel crew data
@@ -356,6 +356,9 @@ namespace Parsek
             // Prefer GhostVisualSnapshot (recording-start crew), fall back to VesselSnapshot
             var snapshot = rec.GhostVisualSnapshot ?? rec.VesselSnapshot;
             var names = CrewReservationManager.ExtractCrewFromSnapshot(snapshot);
+            // EVA fallback: snapshot crew extraction returns empty for EVA vessels
+            if (names.Count == 0 && !string.IsNullOrEmpty(rec.EvaCrewName))
+                names.Add(rec.EvaCrewName);
             if (names.Count == 0) return result;
 
             for (int i = 0; i < names.Count; i++)

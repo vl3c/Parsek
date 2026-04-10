@@ -302,6 +302,12 @@ namespace Parsek
         // Docking race condition guard (Task 5 sets, Task 6 checks)
         internal HashSet<uint> dockingInProgress = new HashSet<uint>();
 
+        // Phantom terrain crash detection: tracks pre-pack vessel state.
+        // Key: vessel PID, Value: (packUT, pre-pack situation).
+        const double PhantomCrashWindowSeconds = 5.0;
+        readonly Dictionary<uint, (double packUT, Vessel.Situations situation)> packStates
+            = new Dictionary<uint, (double, Vessel.Situations)>();
+
         // Tree destruction merge dialog guard (prevents duplicate coroutines)
         private bool treeDestructionDialogPending;
 
@@ -776,6 +782,7 @@ namespace Parsek
             }
 
             UnregisterGameEvents();
+            packStates.Clear();
 
             // Restore debris persistence if still overridden
             RestoreDebrisPersistence();
@@ -3334,6 +3341,22 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Pure decision method: detects phantom terrain crashes. KSP sometimes crashes
+        /// EVA vessels through terrain during pack/unload. Returns true if the vessel was
+        /// in a safe situation (LANDED/SPLASHED) when packed and was destroyed within 5s.
+        /// </summary>
+        internal static bool IsPhantomTerrainCrash(
+            string evaCrewName, double packUT, double destructionUT, Vessel.Situations prePackSituation)
+        {
+            if (string.IsNullOrEmpty(evaCrewName)) return false;
+            bool wasSafe = prePackSituation == Vessel.Situations.LANDED
+                        || prePackSituation == Vessel.Situations.SPLASHED;
+            if (!wasSafe) return false;
+            double elapsed = destructionUT - packUT;
+            return elapsed >= 0 && elapsed < PhantomCrashWindowSeconds;
+        }
+
+        /// <summary>
         /// Pure decision method: if the vessel was destroyed during recording, ensures
         /// TerminalStateValue is Destroyed regardless of what situation-based inference produced.
         /// Returns true if the terminal state was overridden.
@@ -3485,7 +3508,37 @@ namespace Parsek
                 yield break;
             }
 
-            ApplyTerminalDestruction(pending, rec);
+            // Phantom terrain crash detection: KSP sometimes crashes EVA vessels
+            // through terrain during pack/unload. Detect by checking if the vessel
+            // was in a safe situation (LANDED/SPLASHED) when packed and was destroyed
+            // within a short time window. Override Destroyed → Landed/Splashed.
+            bool isPhantomCrash = false;
+            if (!string.IsNullOrEmpty(rec.EvaCrewName))
+            {
+                (double packUT, Vessel.Situations preSit) packState;
+                if (packStates.TryGetValue(pending.vesselPid, out packState))
+                {
+                    isPhantomCrash = IsPhantomTerrainCrash(
+                        rec.EvaCrewName, packState.packUT, pending.capturedUT, packState.preSit);
+                    if (isPhantomCrash)
+                    {
+                        var safeTerm = packState.preSit == Vessel.Situations.LANDED
+                            ? TerminalState.Landed : TerminalState.Splashed;
+                        ParsekLog.Warn("Flight",
+                            $"Suspected phantom terrain crash for EVA '{rec.VesselName}': " +
+                            $"was {packState.preSit}, packed {pending.capturedUT - packState.packUT:F1}s " +
+                            $"before destruction. Using {safeTerm} instead of Destroyed");
+                        rec.TerminalStateValue = safeTerm;
+                        rec.ExplicitEndUT = pending.capturedUT;
+                        ApplyTerminalData(pending, rec);
+                    }
+                }
+            }
+
+            if (!isPhantomCrash)
+                ApplyTerminalDestruction(pending, rec);
+
+            packStates.Remove(pending.vesselPid);
             activeTree.BackgroundMap.Remove(pending.vesselPid);
 
             if (!string.IsNullOrEmpty(rec.EvaCrewName))
@@ -3649,6 +3702,9 @@ namespace Parsek
         void OnVesselGoOnRails(Vessel v)
         {
             if (v != null && GhostMapPresence.IsGhostMapVessel(v.persistentId)) return;
+            // Track pre-pack vessel state for phantom terrain crash detection
+            if (v != null)
+                packStates[v.persistentId] = (Planetarium.GetUniversalTime(), v.situation);
             recorder?.OnVesselGoOnRails(v);
             backgroundRecorder?.OnBackgroundVesselGoOnRails(v);
         }
@@ -3656,7 +3712,7 @@ namespace Parsek
         void OnVesselGoOffRails(Vessel v)
         {
             if (v != null && GhostMapPresence.IsGhostMapVessel(v.persistentId)) return;
-
+            if (v != null) packStates.Remove(v.persistentId);
             recorder?.OnVesselGoOffRails(v);
             backgroundRecorder?.OnBackgroundVesselGoOffRails(v);
         }

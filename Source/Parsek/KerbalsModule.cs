@@ -373,6 +373,12 @@ namespace Parsek
             // Extract starting crew from ghost visual snapshot (recording-start state)
             var startingCrew = CrewReservationManager.ExtractCrewFromSnapshot(rec.GhostVisualSnapshot);
 
+            // EVA kerbals: the vessel IS the kerbal. Snapshot crew extraction returns
+            // empty because EVA ConfigNode structure has no PART/crew values.
+            // Fall back to the EvaCrewName field set at branch time.
+            if (startingCrew.Count == 0 && !string.IsNullOrEmpty(rec.EvaCrewName))
+                startingCrew.Add(rec.EvaCrewName);
+
             if (startingCrew.Count == 0)
             {
                 ParsekLog.Verbose(Tag,

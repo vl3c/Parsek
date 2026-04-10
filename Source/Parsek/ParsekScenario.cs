@@ -3180,7 +3180,7 @@ namespace Parsek
         /// Prepares a standalone pending recording for ghost-only commit (no vessel spawn).
         /// Nulls vessel snapshot and unreserves crew. Call RecordingStore.CommitPending() after this.
         /// </summary>
-        private static void AutoCommitGhostOnly(Recording pending)
+        internal static void AutoCommitGhostOnly(Recording pending)
         {
             // Preserve snapshot for recordings that landed/splashed — they should be
             // eligible for vessel spawning even when committed outside Flight (#EVA-spawn).

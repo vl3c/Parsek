@@ -2282,5 +2282,37 @@ namespace Parsek.Tests
         }
 
         #endregion
+
+        #region SplitAtSection — EVA field propagation
+
+        [Fact]
+        public void SplitAtSection_PropagatesEvaCrewName()
+        {
+            var rec = MakeRecordingWithSections(17000, 17030, 17060,
+                SegmentEnvironment.SurfaceMobile, SegmentEnvironment.Atmospheric);
+            rec.EvaCrewName = "Bill Kerman";
+            rec.ParentRecordingId = "parent-abc";
+            var second = RecordingOptimizer.SplitAtSection(rec, 1);
+
+            Assert.Equal("Bill Kerman", rec.EvaCrewName);
+            Assert.Equal("Bill Kerman", second.EvaCrewName);
+            Assert.Equal("parent-abc", rec.ParentRecordingId);
+            Assert.Equal("parent-abc", second.ParentRecordingId);
+        }
+
+        [Fact]
+        public void SplitAtSection_NullEvaFieldsStayNull()
+        {
+            var rec = MakeRecordingWithSections(17000, 17030, 17060,
+                SegmentEnvironment.SurfaceMobile, SegmentEnvironment.Atmospheric);
+            var second = RecordingOptimizer.SplitAtSection(rec, 1);
+
+            Assert.Null(rec.EvaCrewName);
+            Assert.Null(second.EvaCrewName);
+            Assert.Null(rec.ParentRecordingId);
+            Assert.Null(second.ParentRecordingId);
+        }
+
+        #endregion
     }
 }

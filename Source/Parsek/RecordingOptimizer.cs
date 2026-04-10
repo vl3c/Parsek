@@ -476,6 +476,9 @@ namespace Parsek
             second.RecordingFormatVersion = original.RecordingFormatVersion;
             // Both halves are the same vessel — share Generation. (#284)
             second.Generation = original.Generation;
+            // EVA linkage: both halves represent the same EVA kerbal
+            second.EvaCrewName = original.EvaCrewName;
+            second.ParentRecordingId = original.ParentRecordingId;
 
             // 12. Invalidate cached stats
             original.CachedStats = null;
