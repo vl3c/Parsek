@@ -4,7 +4,7 @@ Previous entries (225 bugs, 51 TODOs — mostly resolved) archived in `done/todo
 
 ---
 
-## ~~295. Ghost engine/RCS flames missing on debris booster ghosts after staging~~
+## ~~298. Ghost engine/RCS flames missing on debris booster ghosts after staging~~
 
 Surfaced by 2026-04-10 Kerbal X playtest (`logs/2026-04-10_engine-plume-bug`). Debris booster ghosts (child recordings from decoupled boosters) show NO engine flames, even though the boosters were still burning at separation. Audio plays correctly.
 
@@ -19,6 +19,36 @@ Surfaced by 2026-04-10 Kerbal X playtest (`logs/2026-04-10_engine-plume-bug`). D
 2. **Recording side:** `InheritedEngineState` struct carries parent's active engine/RCS keys + throttles through `OnVesselBackgrounded` → `InitializeLoadedState`. `InheritedEngineState.FromRecorder` factory creates snapshot from `FlightRecorder`. `MergeInheritedEngineState` (internal static, PID-filtered, add-if-absent throttle) merges inherited keys into the child's `BackgroundVesselState` after `SeedBackgroundPartStates` but before `EmitSeedEvents`. Snapshot taken in `HandleBackgroundVesselSplit` (background path) and `PromoteToTreeForBreakup`/`ProcessBreakupEvent` (foreground paths) before parent state is destroyed.
 
 **Tests:** `OrphanEngineFxAutoStartTests.cs` (15 tests: BuildEngineEventKeySet, FindOrphanKeys, integration). `BackgroundRecorderTests.cs` (10 tests: MergeInheritedEngineState with PID filtering, add-if-absent, null handling, throttle-key-missing fallback, logging).
+
+**Status:** Fixed.
+
+---
+
+## ~~297. Map view icons for atmo/landed ghosts only appear with W (watch) button~~
+
+Atmospheric and landed ghost vessels had no icon in map view unless the user pressed W (watch recording). Two causes: (1) `HandleGhostCreated` skips ProtoVessel creation for `terminal=Landed`, so no native KSP icon exists; (2) ghost mesh hidden by zone distance (`ApplyZoneRenderingImpl`) causes `DrawMapMarkers` to skip the custom marker (the `activeSelf` check at line 672, added for #245/#247).
+
+**Fix:** In `DrawMapMarkers`, when `MapView.MapIsEnabled`, compute ghost position from trajectory data via `TrajectoryMath.InterpolatePoints` when the mesh is inactive. This draws markers for all in-UT-range ghosts regardless of zone distance. Flight-view marker behavior unchanged (preserves #245/#247 fix). Added `TryComputeGhostWorldPosition` helper with per-recording cached waypoint indices, cleared on recording reindex.
+
+**Status:** Fixed.
+
+---
+
+## 296. EVA kerbal who planted flag did not appear after spawn
+
+Log shows KSCSpawn successfully spawned the EVA kerbal (Bill Kerman, pid=484546861), but the user reports not seeing it. Likely post-spawn physics destruction — EVA kerbals are fragile and can be killed by terrain collision or slope bounce.
+
+**Investigation:** Enhanced spawn logging to include lat/lon/alt/sit for all spawn paths (KSCSpawn, SpawnAtPosition, RespawnVessel fallback). The existing `RunSpawnDeathChecks` in `ParsekPlaybackPolicy` already detects and logs spawn-death cycles. Next playtest should reveal whether the kerbal is destroyed post-spawn.
+
+**Status:** Investigation logging added. Root cause TBD — needs next playtest data.
+
+---
+
+## ~~295. Merge dialog for vessel idle on pad~~
+
+When going to KSC view, a merge dialog appeared for a vessel (Jumping Flea) that sat on the launch pad doing nothing. `IsPadFailure` (duration < 10s AND maxDist < 30m) didn't catch it because the vessel was on the pad for minutes (duration >> 10s).
+
+**Fix:** Added `IsIdleOnPad(maxDist < 30m)` — distance-only check with no duration requirement. Applied in 7 code paths: `ShowDeferredMergeDialog` (coroutine), `CommitOrShowDialog` (flight-scene), commit-approval auto-commit (scene exit), auto-commit outside Flight, standalone destruction handler, `ShowPostDestructionTreeMergeDialog` (tree destruction), and `FallbackCommitSplitRecorder` (split-recorder destruction). Added `IsTreeIdleOnPad` parallel for tree recordings.
 
 **Status:** Fixed.
 

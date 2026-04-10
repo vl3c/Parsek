@@ -1399,6 +1399,13 @@ namespace Parsek
                     RecordingStore.DiscardPending();
                     yield break;
                 }
+                if (IsIdleOnPad(maxDist))
+                {
+                    Log($"Post-destruction: idle on pad (maxDist={maxDist:F1}m) — auto-discarding");
+                    ScreenMessage("Recording discarded — vessel idle on pad", 3f);
+                    RecordingStore.DiscardPending();
+                    yield break;
+                }
             }
 
             // Show merge dialog
@@ -1470,11 +1477,13 @@ namespace Parsek
 
             // Auto-discard pad failures: if every recording in the tree is a pad failure
             // (< 10s duration AND < 30m from launch), discard the whole tree.
-            if (IsTreePadFailure(activeTree))
+            // Also discard if every recording is idle-on-pad (< 30m, any duration).
+            if (IsTreePadFailure(activeTree) || IsTreeIdleOnPad(activeTree))
             {
+                string reason = IsTreePadFailure(activeTree) ? "pad failure" : "idle on pad";
                 ParsekLog.Info("Flight",
-                    $"ShowPostDestructionTreeMergeDialog: tree pad failure — auto-discarding");
-                ScreenMessage("Recording discarded — pad failure", 3f);
+                    $"ShowPostDestructionTreeMergeDialog: tree {reason} — auto-discarding");
+                ScreenMessage($"Recording discarded — {reason}", 3f);
                 RecordingStore.DiscardPendingTree();
                 // Clean up flight state
                 recorder = null;
@@ -2328,7 +2337,7 @@ namespace Parsek
                     TagSegmentPhaseIfMissing(pending, FlightGlobals.ActiveVessel);
                 }
 
-                // Destroyed vessels: discard pad failures, otherwise commit or defer to dialog.
+                // Destroyed vessels: discard pad failures or idle-on-pad, otherwise commit or defer to dialog.
                 // Dialog is deferred via coroutine so it appears AFTER KSP's crash report.
                 if (RecordingStore.Pending.VesselDestroyed)
                 {
@@ -2338,6 +2347,13 @@ namespace Parsek
                     {
                         ParsekLog.Info("Flight",
                             $"Vessel destroyed during split — pad failure ({dur:F1}s, {maxDist:F0}m), discarding");
+                        RecordingStore.DiscardPending();
+                        return;
+                    }
+                    if (IsIdleOnPad(maxDist))
+                    {
+                        ParsekLog.Info("Flight",
+                            $"Vessel destroyed during split — idle on pad (maxDist={maxDist:F1}m), discarding");
                         RecordingStore.DiscardPending();
                         return;
                     }
@@ -2957,7 +2973,7 @@ namespace Parsek
                     $"(parts={activeVessel.parts?.Count ?? 0})");
             }
 
-            // Bug #295: snapshot active recorder's engine/RCS state for child recordings.
+            // Bug #298: snapshot active recorder's engine/RCS state for child recordings.
             // The recorder is still running (breakup-continuous design), so its state is live.
             InheritedEngineState? breakupEngineState = recorder != null
                 ? InheritedEngineState.FromRecorder(recorder) : null;
@@ -3051,7 +3067,7 @@ namespace Parsek
             var splitRecorder = recorder;
             recorder = null;
 
-            // Bug #295: snapshot parent engine/RCS state for child recordings.
+            // Bug #298: snapshot parent engine/RCS state for child recordings.
             // activeEngineKeys/lastThrottle survive StopRecordingForChainBoundary
             // (FinalizeRecordingState does not clear them).
             InheritedEngineState? splitEngineState = InheritedEngineState.FromRecorder(splitRecorder);
@@ -7961,6 +7977,9 @@ namespace Parsek
             // so after reindexing they would map to wrong recordings
             orbitCache.Clear();
 
+            // Clear map marker waypoint cache (index-keyed, stale after reindex)
+            ui?.ClearMapMarkerCache();
+
             // Clear ParsekFlight-local diagnostic guards since indices shifted
             loggedOrbitSegments.Clear();
             loggedOrbitRotationSegments.Clear();
@@ -7979,6 +7998,16 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Returns true if the vessel never moved meaningfully from its launch position,
+        /// regardless of duration. Covers vessels that sat idle on the pad while the
+        /// player did other activities (EVA, vehicle switch, etc.).
+        /// </summary>
+        internal static bool IsIdleOnPad(double maxDistanceFromLaunch)
+        {
+            return maxDistanceFromLaunch < 30.0;
+        }
+
+        /// <summary>
         /// Returns true if every recording in the tree qualifies as a pad failure.
         /// A tree with any non-pad-failure recording is not discarded.
         /// </summary>
@@ -7991,6 +8020,23 @@ namespace Parsek
             {
                 double duration = rec.EndUT - rec.StartUT;
                 if (!IsPadFailure(duration, rec.MaxDistanceFromLaunch))
+                    return false;
+            }
+            return true;
+        }
+
+        /// <summary>
+        /// Returns true if every recording in the tree is idle-on-pad (never moved
+        /// more than 30m from launch). A tree with any non-idle recording is not discarded.
+        /// </summary>
+        internal static bool IsTreeIdleOnPad(RecordingTree tree)
+        {
+            if (tree == null || tree.Recordings == null || tree.Recordings.Count == 0)
+                return false;
+
+            foreach (var rec in tree.Recordings.Values)
+            {
+                if (!IsIdleOnPad(rec.MaxDistanceFromLaunch))
                     return false;
             }
             return true;
@@ -8943,6 +8989,15 @@ namespace Parsek
         /// </summary>
         void CommitOrShowDialog(Recording pending)
         {
+            // Auto-discard idle-on-pad recordings before committing or showing dialog
+            if (IsIdleOnPad(pending.MaxDistanceFromLaunch))
+            {
+                Log($"CommitOrShowDialog: idle on pad (maxDist={pending.MaxDistanceFromLaunch:F1}m) — auto-discarding");
+                ScreenMessage("Recording discarded — vessel idle on pad", 3f);
+                RecordingStore.DiscardPending();
+                return;
+            }
+
             if (ParsekScenario.IsAutoMerge)
             {
                 string recId = pending.RecordingId;

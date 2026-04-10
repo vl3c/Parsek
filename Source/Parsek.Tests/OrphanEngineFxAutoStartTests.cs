@@ -5,7 +5,7 @@ using Xunit;
 namespace Parsek.Tests
 {
     /// <summary>
-    /// Tests for orphan engine FX auto-start logic (#295).
+    /// Tests for orphan engine FX auto-start logic (#298).
     /// Debris booster engines that were running at breakup have no seed events
     /// (BackgroundRecorder finds isOperational=false after fuel is severed).
     /// The playback side compensates by auto-starting FX when the recording

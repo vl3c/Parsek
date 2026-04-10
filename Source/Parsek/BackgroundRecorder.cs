@@ -9,7 +9,7 @@ namespace Parsek
     /// <summary>
     /// Carries parent vessel engine/RCS state to child recordings at decouple time.
     /// Consumed once by InitializeLoadedState to seed engines that SeedEngines missed
-    /// (isOperational=false after fuel severance). Bug #295.
+    /// (isOperational=false after fuel severance). Bug #298.
     /// </summary>
     internal struct InheritedEngineState
     {
@@ -497,7 +497,7 @@ namespace Parsek
             var bp = result.bp;
             var childRecordings = result.childRecordings;
 
-            // Bug #295: snapshot parent engine/RCS state before CloseParentRecording
+            // Bug #298: snapshot parent engine/RCS state before CloseParentRecording
             // destroys loadedStates[parentPid].
             InheritedEngineState? parentEngineState = null;
             BackgroundVesselState parentLoaded;
@@ -1641,7 +1641,7 @@ namespace Parsek
             // Seed all tracking sets with current part state (mirrors FlightRecorder.SeedExistingPartStates)
             SeedBackgroundPartStates(v, state);
 
-            // Bug #295: merge inherited parent engine/RCS state for child debris.
+            // Bug #298: merge inherited parent engine/RCS state for child debris.
             // SeedEngines checks engine.isOperational which is false after fuel severance,
             // so child debris recordings get zero engine seed events. Merge from the parent's
             // known-good state to fill in the gaps.
@@ -1659,7 +1659,7 @@ namespace Parsek
                     childPartPids);
                 if (merged > 0)
                     ParsekLog.Info("BgRecorder",
-                        $"Merged {merged} inherited engine/RCS key(s) for pid={vesselPid} recId={recordingId} (#295)");
+                        $"Merged {merged} inherited engine/RCS key(s) for pid={vesselPid} recId={recordingId} (#298)");
             }
 
             // Emit seed events ONLY if the recording has no part events yet.
@@ -1778,7 +1778,7 @@ namespace Parsek
         /// tracking collections. Only keys whose decoded PID matches a part on the
         /// child vessel are merged. Uses add-if-absent semantics — does not overwrite
         /// keys already seeded from live vessel state by SeedEngines.
-        /// Pure static method for testability. Bug #295.
+        /// Pure static method for testability. Bug #298.
         /// </summary>
         internal static int MergeInheritedEngineState(
             InheritedEngineState? inherited,
@@ -1812,7 +1812,7 @@ namespace Parsek
                         targetLastThrottle[key] = throttle;
                     merged++;
                     ParsekLog.Verbose("BgRecorder",
-                        $"Inherited engine key merged: pid={pid} midx={midx} throttle={throttle:F2} (#295)");
+                        $"Inherited engine key merged: pid={pid} midx={midx} throttle={throttle:F2} (#298)");
                 }
             }
 
@@ -1836,7 +1836,7 @@ namespace Parsek
                         targetLastRcsThrottle[key] = throttle;
                     merged++;
                     ParsekLog.Verbose("BgRecorder",
-                        $"Inherited RCS key merged: pid={pid} midx={midx} throttle={throttle:F2} (#295)");
+                        $"Inherited RCS key merged: pid={pid} midx={midx} throttle={throttle:F2} (#298)");
                 }
             }
 

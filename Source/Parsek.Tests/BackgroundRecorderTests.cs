@@ -768,7 +768,7 @@ namespace Parsek.Tests
 
         #endregion
 
-        #region MergeInheritedEngineState (Bug #295)
+        #region MergeInheritedEngineState (Bug #298)
 
         [Fact]
         public void MergeInheritedEngineState_NullInherited_ReturnsZero()

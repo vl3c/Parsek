@@ -836,9 +836,18 @@ namespace Parsek
                 {
                     rec.VesselSpawned = true;
                     rec.SpawnedVesselPersistentId = spawnedPid;
+
+                    // Log spawn position for post-spawn diagnosis (#BugB)
+                    string latStr = spawnSnapshot.GetValue("lat") ?? "?";
+                    string lonStr = spawnSnapshot.GetValue("lon") ?? "?";
+                    string altStr = spawnSnapshot.GetValue("alt") ?? "?";
+                    string sitStr = spawnSnapshot.GetValue("sit") ?? "?";
+                    bool isEva = !string.IsNullOrEmpty(rec.EvaCrewName);
                     ParsekLog.Info("KSCSpawn",
                         $"Vessel spawned for #{recIdx} \"{rec.VesselName}\" " +
-                        $"pid={spawnedPid} — will appear in Tracking Station");
+                        $"pid={spawnedPid} sit={sitStr} lat={latStr} lon={lonStr} alt={altStr}" +
+                        (isEva ? $" eva={rec.EvaCrewName}" : "") +
+                        " — will appear in Tracking Station");
                 }
                 else
                 {

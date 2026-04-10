@@ -72,7 +72,7 @@ namespace Parsek
         private Dictionary<ulong, float> lastThrottle;
         private HashSet<ulong> loggedEngineModuleKeys = new HashSet<ulong>();
 
-        /// <summary>Bug #295: access to active engine/RCS state for parent-to-child
+        /// <summary>Bug #298: access to active engine/RCS state for parent-to-child
         /// inheritance during breakup. Populated by SeedExistingPartStates, NOT cleared by
         /// FinalizeRecordingState — survives StopRecordingForChainBoundary. Callers must
         /// defensively copy if they need a snapshot (these are live mutable references).</summary>
