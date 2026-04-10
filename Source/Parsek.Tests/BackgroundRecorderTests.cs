@@ -959,6 +959,35 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void MergeInheritedEngineState_ThrottleDictPresentButKeyMissing_DefaultsToOne()
+        {
+            // Parent had engine active but throttle dict doesn't contain this key
+            // (edge case: activeEngineKeys and engineThrottles out of sync)
+            ulong key = FlightRecorder.EncodeEngineKey(500, 0);
+            ulong otherKey = FlightRecorder.EncodeEngineKey(600, 0);
+            var inherited = new InheritedEngineState
+            {
+                activeEngineKeys = new HashSet<ulong> { key },
+                engineThrottles = new Dictionary<ulong, float> { { otherKey, 0.5f } }, // has entries, but NOT for 'key'
+                activeRcsKeys = null,
+                rcsThrottles = null
+            };
+
+            var activeEngineKeys = new HashSet<ulong>();
+            var lastThrottle = new Dictionary<ulong, float>();
+            var activeRcsKeys = new HashSet<ulong>();
+            var lastRcsThrottle = new Dictionary<ulong, float>();
+            var childPartPids = new HashSet<uint> { 500 };
+
+            int merged = BackgroundRecorder.MergeInheritedEngineState(
+                inherited, activeEngineKeys, lastThrottle,
+                activeRcsKeys, lastRcsThrottle, childPartPids);
+
+            Assert.Equal(1, merged);
+            Assert.Equal(1f, lastThrottle[key]); // throttle defaults to 1f when key missing from dict
+        }
+
+        [Fact]
         public void MergeInheritedEngineState_MultipleEngines_OnlyChildPidsMerged()
         {
             // Parent had 3 engines, child vessel only has 2 of those parts

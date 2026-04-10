@@ -72,13 +72,14 @@ namespace Parsek
         private Dictionary<ulong, float> lastThrottle;
         private HashSet<ulong> loggedEngineModuleKeys = new HashSet<ulong>();
 
-        /// <summary>Bug #294: read-only access to active engine/RCS state for parent-to-child
+        /// <summary>Bug #294: access to active engine/RCS state for parent-to-child
         /// inheritance during breakup. Populated by SeedExistingPartStates, NOT cleared by
-        /// FinalizeRecordingState — survives StopRecordingForChainBoundary.</summary>
-        internal HashSet<ulong> ActiveEngineKeysReadOnly => activeEngineKeys;
-        internal Dictionary<ulong, float> LastThrottleReadOnly => lastThrottle;
-        internal HashSet<ulong> ActiveRcsKeysReadOnly => activeRcsKeys;
-        internal Dictionary<ulong, float> LastRcsThrottleReadOnly => lastRcsThrottle;
+        /// FinalizeRecordingState — survives StopRecordingForChainBoundary. Callers must
+        /// defensively copy if they need a snapshot (these are live mutable references).</summary>
+        internal HashSet<ulong> ActiveEngineKeys => activeEngineKeys;
+        internal Dictionary<ulong, float> LastEngineThrottles => lastThrottle;
+        internal HashSet<ulong> ActiveRcsKeys => activeRcsKeys;
+        internal Dictionary<ulong, float> LastRcsThrottles => lastRcsThrottle;
 
         // RCS state tracking (separate dicts from engines — keys can overlap for same part)
         private List<(Part part, ModuleRCS rcs, int moduleIndex)> cachedRcsModules;

@@ -17,6 +17,29 @@ namespace Parsek
         public Dictionary<ulong, float> engineThrottles;
         public HashSet<ulong> activeRcsKeys;
         public Dictionary<ulong, float> rcsThrottles;
+
+        /// <summary>
+        /// Creates a snapshot from a FlightRecorder's active engine/RCS state.
+        /// Returns null if no engines or RCS are active. Defensively copies all
+        /// collections (the recorder's fields are live mutable references).
+        /// </summary>
+        internal static InheritedEngineState? FromRecorder(FlightRecorder rec)
+        {
+            if (rec == null) return null;
+            bool hasEngines = rec.ActiveEngineKeys != null && rec.ActiveEngineKeys.Count > 0;
+            bool hasRcs = rec.ActiveRcsKeys != null && rec.ActiveRcsKeys.Count > 0;
+            if (!hasEngines && !hasRcs) return null;
+
+            return new InheritedEngineState
+            {
+                activeEngineKeys = hasEngines ? new HashSet<ulong>(rec.ActiveEngineKeys) : null,
+                engineThrottles = hasEngines && rec.LastEngineThrottles != null
+                    ? new Dictionary<ulong, float>(rec.LastEngineThrottles) : null,
+                activeRcsKeys = hasRcs ? new HashSet<ulong>(rec.ActiveRcsKeys) : null,
+                rcsThrottles = hasRcs && rec.LastRcsThrottles != null
+                    ? new Dictionary<ulong, float>(rec.LastRcsThrottles) : null
+            };
+        }
     }
 
     /// <summary>
@@ -1780,7 +1803,11 @@ namespace Parsek
                     targetActiveEngineKeys.Add(key);
                     float throttle = 1f;
                     if (inh.engineThrottles != null)
-                        inh.engineThrottles.TryGetValue(key, out throttle);
+                    {
+                        float t;
+                        if (inh.engineThrottles.TryGetValue(key, out t))
+                            throttle = t;
+                    }
                     if (!targetLastThrottle.ContainsKey(key))
                         targetLastThrottle[key] = throttle;
                     merged++;
@@ -1800,7 +1827,11 @@ namespace Parsek
                     targetActiveRcsKeys.Add(key);
                     float throttle = 1f;
                     if (inh.rcsThrottles != null)
-                        inh.rcsThrottles.TryGetValue(key, out throttle);
+                    {
+                        float t;
+                        if (inh.rcsThrottles.TryGetValue(key, out t))
+                            throttle = t;
+                    }
                     if (!targetLastRcsThrottle.ContainsKey(key))
                         targetLastRcsThrottle[key] = throttle;
                     merged++;
