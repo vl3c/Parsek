@@ -24,6 +24,16 @@ Atmospheric and landed ghost vessels had no icon in map view unless the user pre
 
 ---
 
+## ~~BugC. Switching to spawned vessel fills empty seats with extra kerbals~~
+
+`SwapReservedCrewInFlight` ran its orphan-placement pass (Pass 2) on a Parsek-spawned vessel. The spawned Kerbal X had 1 crew (Jeb→Danmal) in its Mk1-3 pod (3 seats). The orphan pass found Bill→Phofred and Bob→Tanpond as "orphans" (their originals weren't on the active vessel), resolved their original seat via `ResolveOrphanSeatFromSnapshots` to a `mk1-3pod` part, and placed both into the 2 empty seats. Result: 3 crew instead of 1.
+
+**Root cause:** `PlaceOrphanedReplacements` iterates ALL `crewReplacements` and fills any empty matching seat on the active vessel. It was designed for the launchpad vessel (where all reserved crew should be swapped), not for spawned past vessels (where crew was definitively set by `VesselSpawner`).
+
+**Fix:** Added a spawned-PID guard at the top of `SwapReservedCrewInFlight` that skips both passes when `FlightGlobals.ActiveVessel.persistentId` matches any `SpawnedVesselPersistentId` in committed recordings. Uses existing `BuildSpawnedVesselPidSet`. Still calls `RemoveReservedEvaVessels` for cleanup.
+
+---
+
 ## 296. EVA kerbal who planted flag did not appear after spawn
 
 Log shows KSCSpawn successfully spawned the EVA kerbal (Bill Kerman, pid=484546861), but the user reports not seeing it. Likely post-spawn physics destruction — EVA kerbals are fragile and can be killed by terrain collision or slope bounce.

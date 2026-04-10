@@ -12,6 +12,7 @@ Dev notes: technical narratives for the fixes below live in `docs/dev/todo-and-k
 
 - Vessel names in split/EVA/background recordings now resolve KSP localization tags (e.g., `#autoLOC_501232` → "Kerbal X") instead of displaying raw tags.
 - `#282` Landed ghosts now sit at their natural recorded height above terrain instead of floating 4m up; uses `TerrainCorrector.ComputeCorrectedAltitude` with `Recording.TerrainHeightAtEnd` when available (NaN fallback preserves old behavior for legacy recordings).
+- `#BugC` Switching to a spawned vessel no longer fills empty seats with extra kerbals — crew swap skips Parsek-spawned vessels entirely.
 
 ### New Features
 

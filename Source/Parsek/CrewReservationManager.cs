@@ -184,6 +184,22 @@ namespace Parsek
                 return 0;
             }
 
+            // Guard: skip crew swap entirely for Parsek-spawned vessels. Their crew
+            // was definitively set by VesselSpawner (RemoveDeadCrewFromSnapshot,
+            // RemoveSpecificCrewFromSnapshot for EVA'd crew, UnreserveCrewInSnapshot).
+            // Swapping or orphan-placing into a spawned vessel is always wrong — it
+            // fills empty seats that are intentionally empty (crew who EVA'd or died).
+            var spawnedPids = BuildSpawnedVesselPidSet(RecordingStore.CommittedRecordings);
+            uint activePid = FlightGlobals.ActiveVessel.persistentId;
+            if (spawnedPids.Contains(activePid))
+            {
+                ParsekLog.Info("CrewReservation",
+                    $"SwapReservedCrewInFlight skipped: active vessel pid={activePid} " +
+                    "is a Parsek-spawned vessel (crew already set by spawn path)");
+                RemoveReservedEvaVessels();
+                return 0;
+            }
+
             int swapCount = 0;
             int failCount = 0;
             var swappedOriginals = new HashSet<string>();
