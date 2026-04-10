@@ -296,7 +296,7 @@ Phase 9: Timeline (v0.7 ✓)
     │  significance tiers, filtering, rewind from timeline
     │
     ▼
-Phase 10: Location Context ✓
+Phase 10: Location Context (complete)
     │  Recordings know WHERE they start/end (body, biome, situation)
     │
     ▼
