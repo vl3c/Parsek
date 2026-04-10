@@ -200,11 +200,9 @@ Allow the player to change the camera mode during ghost watch playback. Currentl
 
 **Priority:** Nice-to-have
 
-### T54. Timeline spawn entries should show landing location
+### ~~T54. Timeline spawn entries should show landing location~~
 
-Some timeline "Spawn:" lines show generic "Landed" without specifying where. Should include biome and body context when available, matching the recordings table End column format.
-
-**Priority:** Low — timeline display completeness
+Already implemented — `GetVesselSpawnText()` in `TimelineEntryDisplay.cs` includes biome and body via `InjectBiomeIntoSituation()`. Launch entries also include launch site name via `GetRecordingStartText()`.
 
 ---
 

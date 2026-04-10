@@ -542,10 +542,10 @@ namespace Parsek
                 {
                     showExpandedStats = !showExpandedStats;
                     ParsekLog.Verbose("UI", $"Recordings Info toggled: {(showExpandedStats ? "expanded" : "collapsed")}");
-                    if (showExpandedStats && recordingsWindowRect.width < 1564f)
-                        recordingsWindowRect.width = 1564f;
+                    if (showExpandedStats && recordingsWindowRect.width < 1654f)
+                        recordingsWindowRect.width = 1654f;
                     else if (!showExpandedStats)
-                        recordingsWindowRect.width = 1106f;
+                        recordingsWindowRect.width = 1196f;
                 }
             }
 
