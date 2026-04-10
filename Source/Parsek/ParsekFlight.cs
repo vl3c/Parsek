@@ -304,6 +304,7 @@ namespace Parsek
 
         // Phantom terrain crash detection: tracks pre-pack vessel state.
         // Key: vessel PID, Value: (packUT, pre-pack situation).
+        const double PhantomCrashWindowSeconds = 5.0;
         readonly Dictionary<uint, (double packUT, Vessel.Situations situation)> packStates
             = new Dictionary<uint, (double, Vessel.Situations)>();
 
@@ -781,6 +782,7 @@ namespace Parsek
             }
 
             UnregisterGameEvents();
+            packStates.Clear();
 
             // Restore debris persistence if still overridden
             RestoreDebrisPersistence();
@@ -3335,7 +3337,7 @@ namespace Parsek
                         || prePackSituation == Vessel.Situations.SPLASHED;
             if (!wasSafe) return false;
             double elapsed = destructionUT - packUT;
-            return elapsed >= 0 && elapsed < 5.0;
+            return elapsed >= 0 && elapsed < PhantomCrashWindowSeconds;
         }
 
         /// <summary>
