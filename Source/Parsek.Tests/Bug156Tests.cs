@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using Xunit;
 
 namespace Parsek.Tests
@@ -70,6 +71,66 @@ namespace Parsek.Tests
         public void IsPadFailure_DistanceJustUnderThreshold_ReturnsTrue()
         {
             Assert.True(ParsekFlight.IsPadFailure(5.0, 29.9));
+        }
+
+        // ────────────────────────────────────────────────────────────
+        //  IsIdleOnPad — idle-on-pad discard (distance-only, no duration)
+        // ────────────────────────────────────────────────────────────
+
+        [Fact]
+        public void IsIdleOnPad_ZeroDistance_ReturnsTrue()
+        {
+            Assert.True(ParsekFlight.IsIdleOnPad(0.0));
+        }
+
+        [Fact]
+        public void IsIdleOnPad_JustUnderThreshold_ReturnsTrue()
+        {
+            Assert.True(ParsekFlight.IsIdleOnPad(29.9));
+        }
+
+        [Fact]
+        public void IsIdleOnPad_ExactThreshold_ReturnsFalse()
+        {
+            // Strict less-than: exactly 30m is NOT idle
+            Assert.False(ParsekFlight.IsIdleOnPad(30.0));
+        }
+
+        [Fact]
+        public void IsIdleOnPad_AboveThreshold_ReturnsFalse()
+        {
+            Assert.False(ParsekFlight.IsIdleOnPad(50.0));
+        }
+
+        [Fact]
+        public void IsTreeIdleOnPad_AllIdleRecordings_ReturnsTrue()
+        {
+            var tree = new RecordingTree { Recordings = new Dictionary<string, Recording>() };
+            tree.Recordings["a"] = new Recording { MaxDistanceFromLaunch = 5.0 };
+            tree.Recordings["b"] = new Recording { MaxDistanceFromLaunch = 10.0 };
+            Assert.True(ParsekFlight.IsTreeIdleOnPad(tree));
+        }
+
+        [Fact]
+        public void IsTreeIdleOnPad_MixedRecordings_ReturnsFalse()
+        {
+            var tree = new RecordingTree { Recordings = new Dictionary<string, Recording>() };
+            tree.Recordings["a"] = new Recording { MaxDistanceFromLaunch = 5.0 };
+            tree.Recordings["b"] = new Recording { MaxDistanceFromLaunch = 100.0 };
+            Assert.False(ParsekFlight.IsTreeIdleOnPad(tree));
+        }
+
+        [Fact]
+        public void IsTreeIdleOnPad_NullTree_ReturnsFalse()
+        {
+            Assert.False(ParsekFlight.IsTreeIdleOnPad(null));
+        }
+
+        [Fact]
+        public void IsTreeIdleOnPad_EmptyTree_ReturnsFalse()
+        {
+            var tree = new RecordingTree { Recordings = new Dictionary<string, Recording>() };
+            Assert.False(ParsekFlight.IsTreeIdleOnPad(tree));
         }
 
         // ────────────────────────────────────────────────────────────

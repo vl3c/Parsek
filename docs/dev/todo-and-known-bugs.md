@@ -4,13 +4,43 @@ Previous entries (225 bugs, 51 TODOs — mostly resolved) archived in `done/todo
 
 ---
 
-## ~~295. Pending standalone recording blocks all rewind buttons after tree merge~~
+## ~~297. Map view icons for atmo/landed ghosts only appear with W (watch) button~~
+
+Atmospheric and landed ghost vessels had no icon in map view unless the user pressed W (watch recording). Two causes: (1) `HandleGhostCreated` skips ProtoVessel creation for `terminal=Landed`, so no native KSP icon exists; (2) ghost mesh hidden by zone distance (`ApplyZoneRenderingImpl`) causes `DrawMapMarkers` to skip the custom marker (the `activeSelf` check at line 672, added for #245/#247).
+
+**Fix:** In `DrawMapMarkers`, when `MapView.MapIsEnabled`, compute ghost position from trajectory data via `TrajectoryMath.InterpolatePoints` when the mesh is inactive. This draws markers for all in-UT-range ghosts regardless of zone distance. Flight-view marker behavior unchanged (preserves #245/#247 fix). Added `TryComputeGhostWorldPosition` helper with per-recording cached waypoint indices, cleared on recording reindex.
+
+**Status:** Fixed.
+
+---
+
+## 296. EVA kerbal who planted flag did not appear after spawn
+
+Log shows KSCSpawn successfully spawned the EVA kerbal (Bill Kerman, pid=484546861), but the user reports not seeing it. Likely post-spawn physics destruction — EVA kerbals are fragile and can be killed by terrain collision or slope bounce.
+
+**Investigation:** Enhanced spawn logging to include lat/lon/alt/sit for all spawn paths (KSCSpawn, SpawnAtPosition, RespawnVessel fallback). The existing `RunSpawnDeathChecks` in `ParsekPlaybackPolicy` already detects and logs spawn-death cycles. Next playtest should reveal whether the kerbal is destroyed post-spawn.
+
+**Status:** Investigation logging added. Root cause TBD — needs next playtest data.
+
+---
+
+## ~~295. Merge dialog for vessel idle on pad~~
+
+When going to KSC view, a merge dialog appeared for a vessel (Jumping Flea) that sat on the launch pad doing nothing. `IsPadFailure` (duration < 10s AND maxDist < 30m) didn't catch it because the vessel was on the pad for minutes (duration >> 10s).
+
+**Fix:** Added `IsIdleOnPad(maxDist < 30m)` — distance-only check with no duration requirement. Applied in 7 code paths: `ShowDeferredMergeDialog` (coroutine), `CommitOrShowDialog` (flight-scene), commit-approval auto-commit (scene exit), auto-commit outside Flight, standalone destruction handler, `ShowPostDestructionTreeMergeDialog` (tree destruction), and `FallbackCommitSplitRecorder` (split-recorder destruction). Added `IsTreeIdleOnPad` parallel for tree recordings.
+
+**Status:** Fixed.
+
+---
+
+## ~~298. Pending standalone recording blocks all rewind buttons after tree merge~~
 
 Surfaced by the 2026-04-10 KerbalX playtest (save s35). After a tree merge, a standalone EVA recording (Jebediah Kerman) remained in the pending slot. `RecordingStore.CanRewind()` unconditionally blocks when `HasPending` is true, disabling all R buttons with "Merge or discard pending recording first". The auto-commit safety net in `ParsekScenario.SafetyNetAutoCommitPending()` only ran at OnSave time (50s later, on game pause to exit).
 
 **Fix:** In `MergeDialog.cs` tree merge button handler, auto-commit any pending standalone recording immediately after `CommitPendingTree()`, following the `AutoCommitGhostOnly` + `CommitPending` + `LedgerOrchestrator.OnRecordingCommitted` pattern. Made `AutoCommitGhostOnly` `internal static` in ParsekScenario.
 
-## ~~296. EVA kerbal crew end states not inferred — permanent reservation~~
+## ~~299. EVA kerbal crew end states not inferred — permanent reservation~~
 
 EVA kerbal recordings have no extractable crew in their ConfigNode snapshots (`ExtractCrewFromSnapshot` reads PART/crew values, which EVA snapshots don't have). `PopulateCrewEndStates` skipped these recordings entirely, leaving `CrewEndStates = null`. Consequences: crew reservation set to endUT=Infinity (Unknown), kerbal permanently reserved.
 
@@ -18,7 +48,7 @@ Additionally, `RecordingOptimizer.SplitAtSection` did not propagate `EvaCrewName
 
 **Fix:** (1) Propagate `EvaCrewName` and `ParentRecordingId` in `SplitAtSection`. (2) Add EVA fallback in `KerbalsModule.PopulateCrewEndStates`: if snapshot crew is empty and `rec.EvaCrewName` is set, use it as the crew member. (3) Relax `VesselSnapshot != null` guard in `LedgerOrchestrator.OnRecordingCommitted` to also allow EVA recordings. (4) Add same EVA fallback in `LedgerOrchestrator.ExtractCrewFromRecording`.
 
-## ~~297. Phantom terrain crash kills EVA kerbal on vessel switch~~
+## ~~300. Phantom terrain crash kills EVA kerbal on vessel switch~~
 
 KSP's terrain collision detection sometimes falsely destroys EVA vessels during pack/unload. When the user switched vessel focus away from Bill Kerman, KSP packed the EVA vessel and within 0.6s reported "crashed through terrain". Parsek correctly processed KSP's `onVesselWillDestroy` and set `terminal=Destroyed`, but the crash was spurious.
 

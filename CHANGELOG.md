@@ -41,9 +41,9 @@ Dev notes: technical narratives for the fixes below live in `docs/dev/todo-and-k
 - `#288` Ghost map icons now appear immediately after re-entry from orbit instead of requiring W (Watch) to be pressed first.
 - `#289` End-of-mission spawn-at-end now correctly materializes splashed-down vessels and EVA kerbals after a rewind+merge.
 - `#292` F9 quickload after a Tree Merge no longer silently drops recordings created during the merge.
-- `#295` Rewind buttons no longer blocked by "Merge or discard pending recording first" after a tree merge — pending standalone recordings are auto-committed.
-- `#296` EVA kerbal crew end states now correctly inferred (previously showed Unknown with infinite reservation because snapshot crew extraction fails for EVA vessels).
-- `#297` Phantom terrain crash detection: EVA kerbals destroyed by KSP's pack-time terrain collision within 5s of a safe (Landed/Splashed) state are classified as Landed instead of Destroyed.
+- `#298` Rewind buttons no longer blocked by "Merge or discard pending recording first" after a tree merge — pending standalone recordings are auto-committed.
+- `#299` EVA kerbal crew end states now correctly inferred (previously showed Unknown with infinite reservation because snapshot crew extraction fails for EVA vessels).
+- `#300` Phantom terrain crash detection: EVA kerbals destroyed by KSP's pack-time terrain collision within 5s of a safe (Landed/Splashed) state are classified as Landed instead of Destroyed.
 - `#290a` Pending Limbo tree no longer discarded on revert — fixes lost debris recordings and missing proto vessels after merge-then-revert.
 - `#290b` Ghost engine skirt/shroud now hidden at build time when the snapshot shows the shroud was already jettisoned.
 - `#290c` Ghost map icon no longer flickers during time warp — zone warp exemption threshold lowered from >4x to >1x, and ghost warp suppression is now skipped in map view so icons stay visible at any warp speed.
@@ -52,6 +52,8 @@ Dev notes: technical narratives for the fixes below live in `docs/dev/todo-and-k
 - `#277` Stand-in crew is now placed correctly when a launch crew member was on EVA at merge time.
 - `#284` Background debris recording capped at primary debris only — cuts the recording count from ~25 to ~4-6 entries per Kerbal X launch.
 - `#282` Landed ghost vessels and end-of-recording respawned vessels no longer clip into terrain.
+- `#297` Map view now shows custom icons for all active ghost vessels, including atmospheric/landed ghosts beyond visual range.
+- `#295` Vessels that sit idle on the launch pad are now auto-discarded instead of triggering a merge dialog.
 - `#280` Background debris recordings now persist their trajectory data across scene reloads.
 - `#281` Decouple events on mixed-symmetry stages are no longer lost when a terminal-event collision occurs at the same physics frame.
 - `#272` F5/F9 no longer destroys the entire launch tree.
