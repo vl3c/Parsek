@@ -1795,9 +1795,11 @@ namespace Parsek
             return new InheritedEngineState
             {
                 activeEngineKeys = hasEngines ? new HashSet<ulong>(state.activeEngineKeys) : null,
-                engineThrottles = hasEngines ? new Dictionary<ulong, float>(state.lastThrottle) : null,
+                engineThrottles = hasEngines && state.lastThrottle != null
+                    ? new Dictionary<ulong, float>(state.lastThrottle) : null,
                 activeRcsKeys = hasRcs ? new HashSet<ulong>(state.activeRcsKeys) : null,
-                rcsThrottles = hasRcs ? new Dictionary<ulong, float>(state.lastRcsThrottle) : null
+                rcsThrottles = hasRcs && state.lastRcsThrottle != null
+                    ? new Dictionary<ulong, float>(state.lastRcsThrottle) : null
             };
         }
 
