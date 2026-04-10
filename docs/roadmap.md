@@ -148,20 +148,7 @@ Unified chronological view of all committed career events, replacing the Game Ac
 
 **Data model:** 26 entry types (2 recording lifecycle + 23 game actions + 1 legacy). `TimelineBuilder` with 3 collectors + stable UT sort. `IsPlayerAction` classification. Game-mode aware (career/science/sandbox). 4870 tests passing (53 timeline-specific).
 
----
-
-## ~~Phase 10: Location Context~~ *(complete)*
-
-Recordings become location-aware. Each recording knows where it started and ended — body, biome, situation, coordinates, and stock launch site name.
-
-- ~~Biome captured at recording start and end via `ScienceUtil.GetExperimentBiome`~~
-- ~~Vessel situation at recording start (not just end)~~
-- ~~Stock launch site name from `FlightDriver.LaunchSiteName` (Launch Pad, Runway, Making History DLC sites)~~
-- ~~Timeline shows "Launch: Vessel from Launch Pad on Kerbin" and "Spawn: Vessel (Landed at Midlands on Mun)"~~
-- ~~UI grouping and filtering by launch site in the Recordings Manager~~ *(sortable Site column with UT tiebreak)*
-- Prerequisite for logistics routes (Phase 12) and async multiplayer (Phase 13)
-
-Small, additive feature. A few metadata fields at recording start and end.
+**Location context:** Recordings become location-aware — body, biome, situation, and stock launch site name captured at recording start and end. Timeline shows location-enriched entries ("Launch: Vessel from Launch Pad on Kerbin", "Spawn: Vessel (Landed at Midlands on Mun)"). Sortable Site column in Recordings Manager with UT tiebreak. Prerequisite for logistics routes and async multiplayer.
 
 ---
 
@@ -296,7 +283,7 @@ Phase 9: Timeline (v0.7 ✓)
     │  significance tiers, filtering, rewind from timeline
     │
     ▼
-Phase 10: Location Context (complete)
+Phase 10: Location Context (v0.7)
     │  Recordings know WHERE they start/end (body, biome, situation)
     │
     ▼
