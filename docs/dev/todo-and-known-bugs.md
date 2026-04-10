@@ -34,6 +34,14 @@ When going to KSC view, a merge dialog appeared for a vessel (Jumping Flea) that
 
 ---
 
+## ~~301. Vessels alive at scene exit falsely marked Destroyed~~
+
+During `FinalizeIndividualRecording`, if a leaf recording had no terminal state and the vessel wasn't findable, the code defaulted to `TerminalState.Destroyed` (line 6513). On scene exit (going to KSC), all flight vessels are unloaded — they're alive but not findable. Recordings for genuinely destroyed vessels already have their terminal state set before finalization (via `DeferredDestructionCheck` or `ApplyDestroyedFallback`). Reaching finalization without a terminal state on scene exit means the vessel was alive.
+
+Observed: Jeb's EVA kerbal with parachute deployed was descending safely. User went to KSC. Ghost playback showed Jeb going underground and exploding.
+
+**Fix:** Added `isSceneExit` branch in `FinalizeIndividualRecording`: when vessel isn't found on scene exit, call `InferTerminalStateFromTrajectory` instead of defaulting to Destroyed. The method checks last trajectory point altitude (<50m → Landed), last track section environment (SurfaceMobile/Stationary → Landed), and orbit segment eccentricity (stable orbit with periapsis above body surface → Orbiting), defaulting to SubOrbital.
+
 ## ~~298. Pending standalone recording blocks all rewind buttons after tree merge~~
 
 Surfaced by the 2026-04-10 KerbalX playtest (save s35). After a tree merge, a standalone EVA recording (Jebediah Kerman) remained in the pending slot. `RecordingStore.CanRewind()` unconditionally blocks when `HasPending` is true, disabling all R buttons with "Merge or discard pending recording first". The auto-commit safety net in `ParsekScenario.SafetyNetAutoCommitPending()` only ran at OnSave time (50s later, on game pause to exit).
