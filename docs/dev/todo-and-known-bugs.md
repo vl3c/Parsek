@@ -7,7 +7,7 @@ Entries 272–303 (78 bugs, 6 TODOs — mostly resolved) archived in `done/todo-
 
 # Known Bugs
 
-## 297. FallbackCommitSplitRecorder orphans tree continuation data as standalone recording
+## ~~297. FallbackCommitSplitRecorder orphans tree continuation data as standalone recording~~
 
 When a vessel is destroyed during tree recording and the split recorder can't resume,
 `FallbackCommitSplitRecorder` stashes captured data as a standalone recording via
