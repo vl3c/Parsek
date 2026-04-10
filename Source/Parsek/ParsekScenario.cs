@@ -1142,27 +1142,21 @@ namespace Parsek
                             RecordingStore.PendingDestinationScene = null;
 
                             // Auto-discard idle-on-pad before commit approval or auto-commit
-                            bool idleDiscarded = false;
                             if (RecordingStore.HasPending && ParsekFlight.IsIdleOnPad(RecordingStore.Pending.MaxDistanceFromLaunch))
                             {
                                 ParsekLog.Info("Scenario", string.Format(CultureInfo.InvariantCulture,
                                     "Idle on pad at scene exit — auto-discarding (maxDist={0:F1}m)",
                                     RecordingStore.Pending.MaxDistanceFromLaunch));
                                 RecordingStore.DiscardPending();
-                                idleDiscarded = true;
                             }
                             if (RecordingStore.HasPendingTree && ParsekFlight.IsTreeIdleOnPad(RecordingStore.PendingTree))
                             {
                                 ParsekLog.Info("Scenario", "Idle on pad at scene exit — auto-discarding tree");
                                 RecordingStore.DiscardPendingTree();
-                                idleDiscarded = true;
                             }
 
-                            if (idleDiscarded && !RecordingStore.HasPending && !RecordingStore.HasPendingTree)
-                            {
-                                // Nothing left to commit or dialog
-                            }
-                            else if (showApproval && !mergeDialogPending)
+                            bool anythingLeft = RecordingStore.HasPending || RecordingStore.HasPendingTree;
+                            if (anythingLeft && showApproval && !mergeDialogPending)
                             {
                                 // Defer to approval dialog instead of auto-committing
                                 mergeDialogPending = true;

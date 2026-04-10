@@ -47,8 +47,9 @@ namespace Parsek
         // Reusable per-frame buffers (used by DrawMapMarkers for chain dedup)
         private static readonly Dictionary<string, int> chainTipIndexBuffer = new Dictionary<string, int>();
 
-        // Cached waypoint indices for trajectory-derived map marker positions (Bug A fix)
+        // Cached waypoint indices and body lookup for trajectory-derived map marker positions (Bug A fix)
         private readonly Dictionary<int, int> mapMarkerCachedIndices = new Dictionary<int, int>();
+        private readonly Dictionary<string, CelestialBody> bodyCache = new Dictionary<string, CelestialBody>();
 
         // Window drag tracking for position logging
         private Rect lastMainWindowRect;
@@ -763,7 +764,13 @@ namespace Parsek
                 alt = before.altitude;
             }
 
-            CelestialBody body = FlightGlobals.Bodies?.Find(b => b.name == before.bodyName);
+            CelestialBody body;
+            if (!bodyCache.TryGetValue(before.bodyName, out body))
+            {
+                body = FlightGlobals.Bodies?.Find(b => b.name == before.bodyName);
+                if (body != null)
+                    bodyCache[before.bodyName] = body;
+            }
             if (body == null) return false;
 
             worldPos = (Vector3)body.GetWorldSurfacePosition(lat, lon, alt);
@@ -777,6 +784,7 @@ namespace Parsek
         internal void ClearMapMarkerCache()
         {
             mapMarkerCachedIndices.Clear();
+            bodyCache.Clear();
         }
 
         public string GetStatusText()

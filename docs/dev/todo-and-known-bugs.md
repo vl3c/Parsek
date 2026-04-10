@@ -28,7 +28,7 @@ Log shows KSCSpawn successfully spawned the EVA kerbal (Bill Kerman, pid=4845468
 
 When going to KSC view, a merge dialog appeared for a vessel (Jumping Flea) that sat on the launch pad doing nothing. `IsPadFailure` (duration < 10s AND maxDist < 30m) didn't catch it because the vessel was on the pad for minutes (duration >> 10s).
 
-**Fix:** Added `IsIdleOnPad(maxDist < 30m)` — distance-only check with no duration requirement. Applied in 5 code paths: `ShowDeferredMergeDialog` (coroutine), `CommitOrShowDialog` (flight-scene), commit-approval auto-commit (scene exit), auto-commit outside Flight, and standalone destruction handler. Added `IsTreeIdleOnPad` parallel for tree recordings.
+**Fix:** Added `IsIdleOnPad(maxDist < 30m)` — distance-only check with no duration requirement. Applied in 7 code paths: `ShowDeferredMergeDialog` (coroutine), `CommitOrShowDialog` (flight-scene), commit-approval auto-commit (scene exit), auto-commit outside Flight, standalone destruction handler, `ShowPostDestructionTreeMergeDialog` (tree destruction), and `FallbackCommitSplitRecorder` (split-recorder destruction). Added `IsTreeIdleOnPad` parallel for tree recordings.
 
 **Status:** Fixed.
 

@@ -1477,11 +1477,13 @@ namespace Parsek
 
             // Auto-discard pad failures: if every recording in the tree is a pad failure
             // (< 10s duration AND < 30m from launch), discard the whole tree.
-            if (IsTreePadFailure(activeTree))
+            // Also discard if every recording is idle-on-pad (< 30m, any duration).
+            if (IsTreePadFailure(activeTree) || IsTreeIdleOnPad(activeTree))
             {
+                string reason = IsTreePadFailure(activeTree) ? "pad failure" : "idle on pad";
                 ParsekLog.Info("Flight",
-                    $"ShowPostDestructionTreeMergeDialog: tree pad failure — auto-discarding");
-                ScreenMessage("Recording discarded — pad failure", 3f);
+                    $"ShowPostDestructionTreeMergeDialog: tree {reason} — auto-discarding");
+                ScreenMessage($"Recording discarded — {reason}", 3f);
                 RecordingStore.DiscardPendingTree();
                 // Clean up flight state
                 recorder = null;
@@ -2335,7 +2337,7 @@ namespace Parsek
                     TagSegmentPhaseIfMissing(pending, FlightGlobals.ActiveVessel);
                 }
 
-                // Destroyed vessels: discard pad failures, otherwise commit or defer to dialog.
+                // Destroyed vessels: discard pad failures or idle-on-pad, otherwise commit or defer to dialog.
                 // Dialog is deferred via coroutine so it appears AFTER KSP's crash report.
                 if (RecordingStore.Pending.VesselDestroyed)
                 {
@@ -2345,6 +2347,13 @@ namespace Parsek
                     {
                         ParsekLog.Info("Flight",
                             $"Vessel destroyed during split — pad failure ({dur:F1}s, {maxDist:F0}m), discarding");
+                        RecordingStore.DiscardPending();
+                        return;
+                    }
+                    if (IsIdleOnPad(maxDist))
+                    {
+                        ParsekLog.Info("Flight",
+                            $"Vessel destroyed during split — idle on pad (maxDist={maxDist:F1}m), discarding");
                         RecordingStore.DiscardPending();
                         return;
                     }
