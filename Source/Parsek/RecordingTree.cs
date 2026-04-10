@@ -353,6 +353,12 @@ namespace Parsek
             if (rec.IsDebris)
                 recNode.AddValue("isDebris", rec.IsDebris.ToString());
 
+            // Max distance from launch (#302): needed for idle-on-pad auto-discard
+            // after scene reload (without this, deserialized recordings default to 0.0
+            // and IsTreeIdleOnPad falsely discards the whole tree).
+            if (rec.MaxDistanceFromLaunch > 0)
+                recNode.AddValue("maxDist", rec.MaxDistanceFromLaunch.ToString("R", ic));
+
             // Cascade depth (#284). Only written when non-zero so existing
             // gen-0 recordings stay byte-identical and old saves stay clean.
             if (rec.Generation > 0)
@@ -678,6 +684,15 @@ namespace Parsek
                 bool isDebris;
                 if (bool.TryParse(isDebrisStr, out isDebris))
                     rec.IsDebris = isDebris;
+            }
+
+            // Max distance from launch (#302)
+            string maxDistStr = recNode.GetValue("maxDist");
+            if (maxDistStr != null)
+            {
+                double maxDist;
+                if (double.TryParse(maxDistStr, inv, ic, out maxDist))
+                    rec.MaxDistanceFromLaunch = maxDist;
             }
 
             // Cascade depth (#284). Missing key = 0 (legacy save or gen-0 recording).

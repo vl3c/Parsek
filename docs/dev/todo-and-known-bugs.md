@@ -4,6 +4,18 @@ Previous entries (225 bugs, 51 TODOs — mostly resolved) archived in `done/todo
 
 ---
 
+## ~~302. Tree recording silently auto-discarded as "idle on pad" after scene change~~
+
+Surfaced by live KSP log (`Kerbal Space Program/KSP.log`, 2026-04-10 18:32). After a full Kerbal X flight (EVAs, staging, debris breakups, 123+ trajectory points), the user exited to Space Center. On reload, the tree was auto-discarded with `Idle on pad detected — auto-discarding tree recording`.
+
+**Root cause:** `MaxDistanceFromLaunch` (the field `IsTreeIdleOnPad` checks) was never serialized in the recording's ConfigNode format. During scene transitions, `TryRestoreActiveTreeNode` deserializes the tree from the saved ConfigNode (`RecordingTree.Load`), creating fresh Recording objects where `MaxDistanceFromLaunch` defaults to `0.0`. The in-memory tree (with correct values) is replaced by `PopPendingTree` + `StashPendingTree` in the restore path. `IsTreeIdleOnPad` then sees `0.0 < 30` for every recording and returns true — auto-discarding a tree that flew kilometers.
+
+**Fix:** Serialize `MaxDistanceFromLaunch` as `maxDist` in `RecordingTree.SaveRecordingResourceAndState` / `LoadRecordingResourceAndState`. Sparse (only written when > 0), backward compatible (missing key defaults to 0.0, matching the existing behavior for legacy saves that never had the field). Added diagnostic logging to `IsTreeIdleOnPad`.
+
+**Status**: Fixed.
+
+---
+
 ## ~~300. Revert-to-launch on first flight misdetected as quickload — recording lost, unwanted auto-restart~~
 
 On first-ever flight (no prior commits), revert-to-launch was misdetected as a quickload (F5/F9). Root cause: the revert detection formula (`savedEpoch < CurrentEpoch || totalSavedRecCount < recordings.Count`) is blind when both sides are zero — epoch never incremented and no recordings were ever committed, so the launch quicksave and in-memory state look identical.
