@@ -4,6 +4,16 @@ Previous entries (225 bugs, 51 TODOs — mostly resolved) archived in `done/todo
 
 ---
 
+## ~~300. Revert-to-launch on first flight misdetected as quickload — recording lost, unwanted auto-restart~~
+
+On first-ever flight (no prior commits), revert-to-launch was misdetected as a quickload (F5/F9). Root cause: the revert detection formula (`savedEpoch < CurrentEpoch || totalSavedRecCount < recordings.Count`) is blind when both sides are zero — epoch never incremented and no recordings were ever committed, so the launch quicksave and in-memory state look identical.
+
+Consequence: (1) the Limbo tree was routed to the quickload-resume path instead of the revert-finalize path, auto-restarting the recording without user action; (2) no merge dialog shown; (3) on exit to main menu the tree data was lost (no OnLoad fires for MAINMENU to dispatch the pending tree).
+
+Fix: capture `TryRestoreActiveTreeNode`'s return value (previously discarded). Compute `hasOrphanedLimboTree = HasPendingTree && state==Limbo && !activeTreeRestoredFromSave`. Add `(isFlightToFlight && hasOrphanedLimboTree)` as a third disjunct to `isRevert`. Signal is unambiguous: on quickloads the save file always has the active tree (OnSave writes it), while on reverts the launch quicksave predates the recording. File: `ParsekScenario.cs:810-825`.
+
+---
+
 ## ~~297. Map view icons for atmo/landed ghosts only appear with W (watch) button~~
 
 Atmospheric and landed ghost vessels had no icon in map view unless the user pressed W (watch recording). Two causes: (1) `HandleGhostCreated` skips ProtoVessel creation for `terminal=Landed`, so no native KSP icon exists; (2) ghost mesh hidden by zone distance (`ApplyZoneRenderingImpl`) causes `DrawMapMarkers` to skip the custom marker (the `activeSelf` check at line 672, added for #245/#247).
