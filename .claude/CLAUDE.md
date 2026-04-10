@@ -62,7 +62,7 @@ Key source files and what they do - read the relevant one before modifying:
 - `UI/GroupPickerUI.cs` - group picker popup (recording/chain group assignment)
 - `UI/SpawnControlUI.cs` - Real Spawn Control window (nearby vessel proximity spawning)
 - `UI/ActionsWindowUI.cs` - Game Actions window (ledger display, budget, retired kerbals)
-- `InGameTests/` - runtime test framework: `InGameTestAttribute` (discovery), `InGameAssert` (assertions), `InGameTestRunner` (execution + results export), `TestRunnerShortcut` (global Ctrl+Shift+T addon), `RuntimeTests` (50 tests across 13 categories)
+- `InGameTests/` - runtime test framework: `InGameTestAttribute` (discovery), `InGameAssert` (assertions), `InGameTestRunner` (execution + results export), `TestRunnerShortcut` (global Ctrl+Shift+T addon), `RuntimeTests` (74 tests across 21 categories)
 - `SelectiveSpawnUI.cs` - pure static methods for Real Spawn Control (proximity candidates, countdown formatting)
 - `ParsekScenario.cs` - ScenarioModule for save/load, coroutine hosting, scene transitions
 - `CrewReservationManager.cs` - crew reservation lifecycle (reserve/unreserve/swap/clear)

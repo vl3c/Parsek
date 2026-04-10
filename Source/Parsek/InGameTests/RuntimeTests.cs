@@ -2267,7 +2267,8 @@ namespace Parsek.InGameTests
             {
                 partPersistentId = 99999,
                 moduleIndex = 0,
-                audioSource = audioSource
+                audioSource = audioSource,
+                currentPower = 0.75f
             };
             var state = new GhostPlaybackState
             {
@@ -2279,15 +2280,19 @@ namespace Parsek.InGameTests
 
             InGameAssert.IsFalse(audioSource.isPlaying,
                 "AudioSource should be paused after PauseAllAudio");
+            InGameAssert.ApproxEqual(0.75f, info.currentPower, 0.001f,
+                "currentPower should survive pause");
 
             GhostPlaybackLogic.UnpauseAllAudio(state);
             yield return null;
 
             InGameAssert.IsTrue(audioSource.isPlaying,
                 "AudioSource should be playing after UnpauseAllAudio");
+            InGameAssert.ApproxEqual(0.75f, info.currentPower, 0.001f,
+                "currentPower should survive unpause");
 
             ParsekLog.Verbose("TestRunner",
-                "GhostAudio pause/unpause cycle verified with real AudioSource");
+                "GhostAudio pause/unpause cycle verified with real AudioSource + currentPower preservation");
         }
 
         [InGameTest(Category = "GhostAudio", Scene = GameScenes.FLIGHT,
@@ -2475,8 +2480,8 @@ namespace Parsek.InGameTests
         }
 
         [InGameTest(Category = "BackgroundSeeder", Scene = GameScenes.FLIGHT,
-            Description = "#265: Double-seeding into a recording would create duplicates — validates Count>0 guard")]
-        public void SeedEvents_DoubleSeed_WouldCreateDuplicates()
+            Description = "#265: Without Count>0 guard, double-seeding produces duplicate part events")]
+        public void SeedEvents_DoubleSeed_WithoutGuard_ProducesDuplicates()
         {
             var v = FlightGlobals.ActiveVessel;
             if (v == null || v.parts == null || v.parts.Count == 0)
