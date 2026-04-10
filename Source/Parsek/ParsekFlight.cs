@@ -712,6 +712,10 @@ namespace Parsek
         /// </summary>
         private void ClampGhostsToTerrain()
         {
+            Vector3d activeVesselPos = FlightGlobals.ActiveVessel != null
+                ? FlightGlobals.ActiveVessel.GetWorldPos3D()
+                : Vector3d.zero;
+
             for (int i = 0; i < ghostPosEntries.Count; i++)
             {
                 var e = ghostPosEntries[i];
@@ -728,12 +732,20 @@ namespace Parsek
                 double lat = body.GetLatitude(pos);
                 double lon = body.GetLongitude(pos);
                 double terrainHeight = body.TerrainAltitude(lat, lon, true);
-                double clamped = TerrainCorrector.ClampAltitude(alt, terrainHeight);
+
+                // Outside the physics bubble, the rendered terrain mesh uses lower
+                // LOD and can overshoot the PQS height at ridges/transitions. Use a
+                // larger clearance to prevent the ghost from clipping underground.
+                double distToVessel = Vector3d.Distance(pos, activeVesselPos);
+                double clearance = distToVessel > RenderingZoneManager.PhysicsBubbleRadius
+                    ? 10.0 : 0.5;
+
+                double clamped = TerrainCorrector.ClampAltitude(alt, terrainHeight, clearance);
                 if (clamped > alt)
                 {
                     e.ghost.transform.position = body.GetWorldSurfacePosition(lat, lon, clamped);
                     ParsekLog.VerboseRateLimited("TerrainCorrect", "clamp-ghost",
-                        $"Ghost terrain clamp: alt={alt:F1} terrain={terrainHeight:F1} -> {clamped:F1}");
+                        $"Ghost terrain clamp: alt={alt:F1} terrain={terrainHeight:F1} -> {clamped:F1} (clearance={clearance:F1}m)");
                 }
             }
         }

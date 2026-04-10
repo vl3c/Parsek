@@ -4,6 +4,18 @@ Previous entries (225 bugs, 51 TODOs — mostly resolved) archived in `done/todo
 
 ---
 
+## ~~303. Ghost clips underground outside physics bubble during watch+warp~~
+
+Surfaced by live KSP log (`Kerbal Space Program/KSP.log`, 2026-04-10 19:06). While watching a Kerbal X ghost replay at 3x warp, the ghost went underground at ~22km from the active vessel. This triggered downstream issues: the spawn-at-end for Bill Kerman EVA placed him as `FLYING` at 270m (because terrain wasn't loaded properly at distance), and KSP immediately destroyed him on-rails at 101 kPa atmospheric pressure.
+
+**Root cause:** `ClampGhostsToTerrain` queries `body.TerrainAltitude(lat, lon, true)` which returns the PQS-computed height. But the RENDERED terrain mesh at low LOD (22km from the active vessel) can overshoot the PQS height at ridges and terrain transitions. The 0.5m clearance floor was insufficient — the visual mesh could be several meters higher than PQS at that distance.
+
+**Fix:** In `ClampGhostsToTerrain`, compute distance from ghost to active vessel. Outside the physics bubble (>2.3km), use 10m clearance instead of 0.5m. This is invisible at visual-zone distances but prevents underground clipping. Inside the physics bubble, full-LOD terrain matches PQS closely, so 0.5m remains sufficient.
+
+**Status**: Fixed.
+
+---
+
 ## ~~302. Tree recording silently auto-discarded as "idle on pad" after scene change~~
 
 Surfaced by live KSP log (`Kerbal Space Program/KSP.log`, 2026-04-10 18:32). After a full Kerbal X flight (EVAs, staging, debris breakups, 123+ trajectory points), the user exited to Space Center. On reload, the tree was auto-discarded with `Idle on pad detected — auto-discarding tree recording`.
