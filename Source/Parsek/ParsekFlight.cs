@@ -1721,6 +1721,16 @@ namespace Parsek
             if (treeRec.VesselPersistentId == 0 && rec.RecordingVesselId != 0)
                 treeRec.VesselPersistentId = rec.RecordingVesselId;
 
+            // Copy Phase 10 location fields if not already set on the tree recording
+            if (string.IsNullOrEmpty(treeRec.StartBodyName))
+                treeRec.StartBodyName = rec.StartBodyName;
+            if (string.IsNullOrEmpty(treeRec.StartBiome))
+                treeRec.StartBiome = rec.StartBiome;
+            if (string.IsNullOrEmpty(treeRec.StartSituation))
+                treeRec.StartSituation = rec.StartSituation;
+            if (string.IsNullOrEmpty(treeRec.LaunchSiteName))
+                treeRec.LaunchSiteName = rec.LaunchSiteName;
+
             // Set IsRecording = false to prevent dangling active state
             rec.IsRecording = false;
             rec.TransitionToBackgroundPending = false;
@@ -2050,6 +2060,10 @@ namespace Parsek
                     rootRec.RewindReservedFunds = splitRecorder.CaptureAtStop.RewindReservedFunds;
                     rootRec.RewindReservedScience = splitRecorder.CaptureAtStop.RewindReservedScience;
                     rootRec.RewindReservedRep = splitRecorder.CaptureAtStop.RewindReservedRep;
+                    rootRec.StartBodyName = splitRecorder.CaptureAtStop.StartBodyName;
+                    rootRec.StartBiome = splitRecorder.CaptureAtStop.StartBiome;
+                    rootRec.StartSituation = splitRecorder.CaptureAtStop.StartSituation;
+                    rootRec.LaunchSiteName = splitRecorder.CaptureAtStop.LaunchSiteName;
                     if (rootRec.Points.Count > 0)
                         rootRec.ExplicitStartUT = rootRec.Points[0].ut;
                     // Mark dirty so the captured trajectory reaches disk on the
@@ -3169,6 +3183,10 @@ namespace Parsek
             rootRec.RewindReservedFunds = cap.RewindReservedFunds;
             rootRec.RewindReservedScience = cap.RewindReservedScience;
             rootRec.RewindReservedRep = cap.RewindReservedRep;
+            rootRec.StartBodyName = cap.StartBodyName;
+            rootRec.StartBiome = cap.StartBiome;
+            rootRec.StartSituation = cap.StartSituation;
+            rootRec.LaunchSiteName = cap.LaunchSiteName;
             if (rootRec.Points.Count > 0)
                 rootRec.ExplicitStartUT = rootRec.Points[0].ut;
             // Mark dirty so the next OnSave persists the captured data to disk.

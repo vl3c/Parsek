@@ -1190,8 +1190,10 @@ namespace Parsek
             // Phase placeholder (groups have no phase)
             GUILayout.Label("", GUILayout.Width(ColW_Phase));
 
-            // Site placeholder (groups have no single site)
-            GUILayout.Label("", GUILayout.Width(ColW_Site));
+            // Site (from main/root recording if available)
+            int grpMainIdx = FindGroupMainRecordingIndex(descendants, committed);
+            string grpSite = grpMainIdx >= 0 ? committed[grpMainIdx].LaunchSiteName : null;
+            GUILayout.Label(grpSite ?? "", GUILayout.Width(ColW_Site));
 
             // Launch time (earliest among descendants)
             double grpEarliest = GetGroupEarliestStartUT(descendants, committed);
