@@ -46,9 +46,11 @@ namespace Parsek
         public List<Renderer> fidelityDisabledRenderers; // renderers disabled by ReduceFidelity (for precise restore)
         public bool simplified;          // true when SimplifyToOrbitLine soft cap hid the ghost mesh
         public Transform cameraPivot; // child of ghost; centroid of active parts — camera targets this
+        public Transform horizonProxy; // child of cameraPivot; horizon-aligned rotation for locked camera mode
         public Vector3 lastInterpolatedVelocity;
         public string lastInterpolatedBodyName;
         public double lastInterpolatedAltitude;
+        public Vector3 lastValidHorizonForward; // fallback forward direction when velocity near zero
         public RenderingZone currentZone = RenderingZone.Physics; // distance-based rendering zone
         public double lastDistance; // meters from active vessel, updated per frame in ApplyZonePolicy
         public int flagEventIndex;               // tracks which flags have been spawned

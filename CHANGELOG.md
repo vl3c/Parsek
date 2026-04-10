@@ -14,6 +14,7 @@ All notable changes to Parsek are documented here.
 
 ### New Features
 
+- Watch camera mode: press V during ghost watch to toggle between free orbit and horizon-locked (ground always at screen bottom). Auto-selects horizon-locked near planetary surfaces, free in orbit.
 - Sortable "Site" column in the Recordings Manager — sorts by launch site name with UT tiebreak within the same site.
 - Renamed the expanded-stats toggle button from "Stats" to "Info".
 

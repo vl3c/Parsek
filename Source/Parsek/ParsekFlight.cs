@@ -5299,6 +5299,13 @@ namespace Parsek
                 watchMode.ExitWatchMode();
             }
 
+            // V — Toggle watch camera mode (Free / Horizon-Locked)
+            // Stock V (camera mode switch) is blocked by CAMERAMODES control lock during watch
+            if (watchMode.IsWatchingGhost && Input.GetKeyDown(KeyCode.V))
+            {
+                watchMode.ToggleCameraMode();
+            }
+
         }
 
         #endregion
@@ -8350,6 +8357,16 @@ namespace Parsek
         internal static (int newIndex, string newId) ComputeWatchIndexAfterDelete(
             int watchedIndex, string watchedId, int deletedIndex, List<Recording> recordings) =>
             WatchModeController.ComputeWatchIndexAfterDelete(watchedIndex, watchedId, deletedIndex, recordings);
+        internal static bool ShouldAutoHorizonLock(bool hasAtmosphere, double atmosphereDepth, double altitude) =>
+            WatchModeController.ShouldAutoHorizonLock(hasAtmosphere, atmosphereDepth, altitude);
+        internal static Vector3 ComputeHorizonForward(Vector3 up, Vector3 velocity, Vector3 lastForward) =>
+            WatchModeController.ComputeHorizonForward(up, velocity, lastForward);
+        internal static (Quaternion rotation, Vector3 forward) ComputeHorizonRotation(
+            Vector3 up, Vector3 velocity, Vector3 lastForward) =>
+            WatchModeController.ComputeHorizonRotation(up, velocity, lastForward);
+        internal static (float pitch, float hdg) CompensateCameraAngles(
+            Quaternion oldTargetRot, Quaternion newTargetRot, float pitch, float hdg) =>
+            WatchModeController.CompensateCameraAngles(oldTargetRot, newTargetRot, pitch, hdg);
 
         IEnumerator DeferredActivateVessel(uint pid)
         {

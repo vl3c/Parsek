@@ -249,11 +249,9 @@ and `FlushRecorderToTreeRecording`. Two new tests in `AppendCapturedDataTests.cs
 
 ## TODO — Nice to have
 
-### T53. Watch camera mode selection
+### ~~T53. Watch camera mode selection~~
 
-Allow the player to change the camera mode during ghost watch playback. Currently the camera is always fixed-orientation relative to the ghost. A mode where the ground is oriented at the bottom of the screen (horizon-locked) would be more intuitive for atmospheric flight and surface operations.
-
-**Priority:** Nice-to-have
+**Done.** V key toggles between Free and Horizon-Locked during watch mode. Auto-selects horizon-locked below atmosphere (or 50km on airless bodies), free above. horizonProxy child transform on cameraPivot provides the rotated reference frame; pitch/heading compensation prevents visual snap on mode switch.
 
 ### ~~T54. Timeline spawn entries should show landing location~~
 

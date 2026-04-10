@@ -5,6 +5,8 @@ using UnityEngine;
 
 namespace Parsek
 {
+    internal enum WatchCameraMode { Free, HorizonLocked }
+
     /// <summary>
     /// Owns camera-follow (watch mode) state and methods.
     /// Extracted from ParsekFlight to isolate watch-mode lifecycle.
@@ -37,6 +39,10 @@ namespace Parsek
         private float savedPivotSharpness = 0.5f;
         private int watchNoTargetFrames;               // consecutive frames with no valid camera target (safety net)
 
+        // Horizon-locked camera mode state
+        private WatchCameraMode currentCameraMode = WatchCameraMode.Free;
+        private bool userModeOverride;  // true when user pressed toggle; cleared on EnterWatchMode
+
         // Lazy-initialized GUI styles for the watch mode overlay
         private GUIStyle watchOverlayStyle;
         private GUIStyle watchOverlayHintStyle;
@@ -50,6 +56,7 @@ namespace Parsek
 
         internal bool IsWatchingGhost => watchedRecordingIndex >= 0;
         internal int WatchedRecordingIndex => watchedRecordingIndex;
+        internal WatchCameraMode CurrentCameraMode => currentCameraMode;
 
         // === Camera event handlers for engine loop/overlap cycle transitions ===
 
@@ -94,7 +101,7 @@ namespace Parsek
                 case CameraActionType.RetargetToNewGhost:
                     if (watchedOverlapCycleIndex == -1 && evt.GhostPivot != null && FlightCamera.fetch != null)
                     {
-                        FlightCamera.fetch.SetTargetTransform(evt.GhostPivot);
+                        FlightCamera.fetch.SetTargetTransform(GetWatchTarget(evt.GhostPivot));
                         watchedOverlapCycleIndex = evt.NewCycleIndex;
                         // Clean up the bridge anchor now that camera is on the new ghost
                         if (overlapCameraAnchor != null) { UnityEngine.Object.Destroy(overlapCameraAnchor); overlapCameraAnchor = null; }
@@ -114,7 +121,7 @@ namespace Parsek
                 case CameraActionType.RetargetToNewGhost:
                     if (watchedOverlapCycleIndex == -1 && evt.GhostPivot != null && FlightCamera.fetch != null)
                     {
-                        FlightCamera.fetch.SetTargetTransform(evt.GhostPivot);
+                        FlightCamera.fetch.SetTargetTransform(GetWatchTarget(evt.GhostPivot));
                         watchedOverlapCycleIndex = evt.NewCycleIndex;
                         if (overlapCameraAnchor != null) { UnityEngine.Object.Destroy(overlapCameraAnchor); overlapCameraAnchor = null; }
                         ParsekLog.Info("CameraFollow",
@@ -224,11 +231,13 @@ namespace Parsek
             GUI.DrawTexture(bgRect, Texture2D.whiteTexture);
             GUI.color = Color.white;
 
+            string modeLabel = currentCameraMode == WatchCameraMode.HorizonLocked
+                ? " [Horizon]" : " [Free]";
             string title = string.IsNullOrEmpty(distText)
-                ? "Watching: " + vesselName
-                : "Watching: " + vesselName + "  (" + distText + ")";
+                ? "Watching: " + vesselName + modeLabel
+                : "Watching: " + vesselName + "  (" + distText + ")" + modeLabel;
             GUI.Label(new Rect(x, y + 5, boxW, 22f), title, watchOverlayStyle);
-            GUI.Label(new Rect(x, y + 27, boxW, 18f), "Press [ or ] to return to vessel", watchOverlayHintStyle);
+            GUI.Label(new Rect(x, y + 27, boxW, 18f), "[ ] return  |  V toggle camera", watchOverlayHintStyle);
         }
 
         /// <summary>
@@ -305,6 +314,10 @@ namespace Parsek
             watchedRecordingId = committed[index].RecordingId;
             watchStartTime = Time.time;
 
+            // Reset camera mode state for new watch session
+            userModeOverride = false;
+            currentCameraMode = WatchCameraMode.Free; // auto-detect will set this on first frame
+
             // If the ghost is currently beyond visual range and the recording loops,
             // reset the loop phase so the ghost starts from the beginning of the recording
             // (at the pad) instead of wherever it is mid-flight (e.g. near the Mun).
@@ -324,8 +337,8 @@ namespace Parsek
             // Disable KSP's internal pivot tracking -- we drive the camera manually
             FlightCamera.fetch.pivotTranslateSharpness = 0f;
 
-            // Point camera at ghost (use cameraPivot -- centroid of active parts)
-            var watchTarget = gs.cameraPivot ?? gs.ghost.transform;
+            // Point camera at ghost (use cameraPivot or horizonProxy based on mode)
+            var watchTarget = GetWatchTarget(gs.cameraPivot) ?? gs.ghost.transform;
             FlightCamera.fetch.SetTargetTransform(watchTarget);
             FlightCamera.fetch.SetDistance(50f);  // override [75,400] entry clamp
             watchedOverlapCycleIndex = gs.loopCycleIndex; // track which cycle we're following
@@ -451,6 +464,8 @@ namespace Parsek
             savedCameraHeading = 0f;
             watchEndHoldUntilRealTime = -1;
             watchNoTargetFrames = 0;
+            currentCameraMode = WatchCameraMode.Free;
+            userModeOverride = false;
         }
 
         /// <summary>
@@ -477,6 +492,212 @@ namespace Parsek
 
                 default:
                     return false;
+            }
+        }
+
+        // === Horizon-locked camera mode — pure static methods ===
+
+        /// <summary>
+        /// Determines whether the camera should auto-select horizon-locked mode
+        /// based on altitude relative to the body's atmosphere or surface threshold.
+        /// </summary>
+        internal static bool ShouldAutoHorizonLock(bool hasAtmosphere, double atmosphereDepth, double altitude)
+        {
+            double threshold = hasAtmosphere ? atmosphereDepth : 50000.0;
+            return altitude < threshold;
+        }
+
+        /// <summary>
+        /// Computes the horizon-plane forward direction from velocity and up vector.
+        /// Projects velocity onto the horizon plane (perpendicular to up). Falls back
+        /// to lastForward when velocity is near zero, then to an arbitrary perpendicular.
+        /// Pure vector math — testable outside Unity runtime.
+        /// </summary>
+        internal static Vector3 ComputeHorizonForward(Vector3 up, Vector3 velocity, Vector3 lastForward)
+        {
+            Vector3 forward = Vector3.ProjectOnPlane(velocity, up);
+            if (forward.sqrMagnitude < 0.01f)
+            {
+                forward = Vector3.ProjectOnPlane(lastForward, up);
+                if (forward.sqrMagnitude < 0.0001f)
+                {
+                    forward = Vector3.Cross(up, Vector3.right);
+                    if (forward.sqrMagnitude < 0.0001f)
+                        forward = Vector3.Cross(up, Vector3.forward);
+                }
+            }
+            forward.Normalize();
+            return forward;
+        }
+
+        /// <summary>
+        /// Computes the horizon-aligned rotation for the camera proxy.
+        /// Wraps ComputeHorizonForward with Quaternion.LookRotation.
+        /// </summary>
+        internal static (Quaternion rotation, Vector3 forward) ComputeHorizonRotation(
+            Vector3 up, Vector3 velocity, Vector3 lastForward)
+        {
+            Vector3 forward = ComputeHorizonForward(up, velocity, lastForward);
+            return (Quaternion.LookRotation(forward, up), forward);
+        }
+
+        /// <summary>
+        /// Compensates camPitch/camHdg when switching the camera target between
+        /// transforms with different rotations, preventing a visual snap.
+        /// Decomposes the current camera orbit direction from the old frame
+        /// into equivalent angles in the new frame.
+        /// </summary>
+        internal static (float pitch, float hdg) CompensateCameraAngles(
+            Quaternion oldTargetRot, Quaternion newTargetRot, float pitch, float hdg)
+        {
+            // Convert current pitch/hdg to a direction vector in world space
+            // FlightCamera: pitch = elevation (degrees), hdg = azimuth (degrees)
+            // Camera orbits at (hdg, pitch) relative to the target's local frame
+            float pitchRad = pitch * Mathf.Deg2Rad;
+            float hdgRad = hdg * Mathf.Deg2Rad;
+
+            // Spherical to local direction (KSP convention: Y=up, Z=forward, X=right)
+            Vector3 localDir = new Vector3(
+                Mathf.Sin(hdgRad) * Mathf.Cos(pitchRad),
+                Mathf.Sin(pitchRad),
+                Mathf.Cos(hdgRad) * Mathf.Cos(pitchRad));
+
+            // Transform to world space via old target, then back to new target's local space
+            Vector3 worldDir = oldTargetRot * localDir;
+            Vector3 newLocalDir = Quaternion.Inverse(newTargetRot) * worldDir;
+
+            // Decompose back to pitch/hdg
+            float newPitch = Mathf.Asin(Mathf.Clamp(newLocalDir.y, -1f, 1f)) * Mathf.Rad2Deg;
+            float newHdg = Mathf.Atan2(newLocalDir.x, newLocalDir.z) * Mathf.Rad2Deg;
+
+            return (newPitch, newHdg);
+        }
+
+        // === Horizon-locked camera mode — instance methods ===
+
+        /// <summary>
+        /// Resolves the CelestialBody for the watched ghost, reusing the
+        /// ghost's cached audio body lookup to avoid per-frame linear scan.
+        /// </summary>
+        private CelestialBody ResolveBody(GhostPlaybackState state)
+        {
+            string bodyName = state.lastInterpolatedBodyName;
+            if (string.IsNullOrEmpty(bodyName)) return null;
+            if (state.cachedAudioBody != null && state.cachedAudioBodyName == bodyName)
+                return state.cachedAudioBody;
+            var body = FlightGlobals.Bodies?.Find(b => b.name == bodyName);
+            if (body != null)
+            {
+                state.cachedAudioBody = body;
+                state.cachedAudioBodyName = bodyName;
+            }
+            return body;
+        }
+
+        /// <summary>
+        /// Returns the correct camera target transform based on current mode.
+        /// For cameraPivot transforms with a horizonProxy child, returns horizonProxy
+        /// when in HorizonLocked mode. For anchor transforms (no children), returns
+        /// the anchor itself (Free mode during explosion/bridge holds).
+        /// </summary>
+        private Transform GetWatchTarget(Transform cameraPivot)
+        {
+            if (currentCameraMode != WatchCameraMode.HorizonLocked || cameraPivot == null)
+                return cameraPivot;
+            var proxy = cameraPivot.Find("horizonProxy");
+            return proxy != null ? proxy : cameraPivot;
+        }
+
+        /// <summary>
+        /// Switches the FlightCamera target between cameraPivot and horizonProxy
+        /// based on current mode, with pitch/heading compensation to prevent snap.
+        /// </summary>
+        private void ApplyCameraTarget(GhostPlaybackState state)
+        {
+            if (FlightCamera.fetch == null || state == null) return;
+            Transform oldTarget = FlightCamera.fetch.Target;
+            Transform newTarget = currentCameraMode == WatchCameraMode.HorizonLocked
+                ? (state.horizonProxy ?? state.cameraPivot)
+                : state.cameraPivot;
+            if (newTarget == null) newTarget = state.cameraPivot;
+            if (newTarget == null || newTarget == oldTarget) return;
+
+            // Compensate pitch/heading to prevent visual snap on mode switch
+            Quaternion oldRot = oldTarget != null ? oldTarget.rotation : Quaternion.identity;
+            Quaternion newRot = newTarget.rotation;
+            var (newPitch, newHdg) = CompensateCameraAngles(
+                oldRot, newRot, FlightCamera.fetch.camPitch, FlightCamera.fetch.camHdg);
+
+            FlightCamera.fetch.SetTargetTransform(newTarget);
+            FlightCamera.fetch.camPitch = newPitch;
+            FlightCamera.fetch.camHdg = newHdg;
+        }
+
+        /// <summary>
+        /// Toggles between Free and HorizonLocked camera modes.
+        /// Sets userModeOverride to prevent auto-switching.
+        /// </summary>
+        internal void ToggleCameraMode()
+        {
+            if (watchedRecordingIndex < 0) return;
+
+            var state = FindWatchedGhostState();
+            if (state == null) return;
+
+            userModeOverride = true;
+            currentCameraMode = currentCameraMode == WatchCameraMode.Free
+                ? WatchCameraMode.HorizonLocked
+                : WatchCameraMode.Free;
+
+            ApplyCameraTarget(state);
+
+            ParsekLog.Info("CameraFollow",
+                $"Watch camera mode toggled to {currentCameraMode} (user override)");
+            ParsekLog.ScreenMessage(
+                currentCameraMode == WatchCameraMode.HorizonLocked
+                    ? "Camera: Horizon Locked"
+                    : "Camera: Free",
+                2f);
+        }
+
+        /// <summary>
+        /// Updates the horizonProxy rotation and auto-detects camera mode each frame.
+        /// Called from UpdateWatchCamera after the camera position is driven.
+        /// </summary>
+        private void UpdateHorizonProxy(GhostPlaybackState state)
+        {
+            if (state.horizonProxy == null) return;
+
+            CelestialBody body = ResolveBody(state);
+
+            // Auto-detect mode (unless user overrode)
+            if (!userModeOverride && body != null)
+            {
+                bool shouldLock = ShouldAutoHorizonLock(
+                    body.atmosphere, body.atmosphereDepth, state.lastInterpolatedAltitude);
+                var autoMode = shouldLock ? WatchCameraMode.HorizonLocked : WatchCameraMode.Free;
+                if (autoMode != currentCameraMode)
+                {
+                    currentCameraMode = autoMode;
+                    ApplyCameraTarget(state);
+                    ParsekLog.Info("CameraFollow",
+                        string.Format(CultureInfo.InvariantCulture,
+                            "Watch camera auto-switched to {0} (alt={1:F0}m, body={2})",
+                            currentCameraMode, state.lastInterpolatedAltitude,
+                            state.lastInterpolatedBodyName));
+                }
+            }
+
+            // Always update horizonProxy rotation (keeps it ready for smooth switch)
+            if (body != null && state.cameraPivot != null)
+            {
+                Vector3 ghostPos = state.cameraPivot.position;
+                Vector3 up = (ghostPos - body.position).normalized;
+
+                var (rotation, forward) = ComputeHorizonRotation(
+                    up, state.lastInterpolatedVelocity, state.lastValidHorizonForward);
+                state.horizonProxy.rotation = rotation;
+                state.lastValidHorizonForward = forward;
             }
         }
 
@@ -570,6 +791,9 @@ namespace Parsek
             float preservedDistance = savedCameraDistance;
             float preservedPitch = savedCameraPitch;
             float preservedHeading = savedCameraHeading;
+            // Preserve camera mode across chain transfers — user's V toggle should stick
+            var preservedCameraMode = currentCameraMode;
+            bool preservedModeOverride = userModeOverride;
 
             // Switch watch mode: exit old (preserving camera position), enter new
             ExitWatchMode(skipCameraRestore: true);
@@ -583,8 +807,10 @@ namespace Parsek
             savedCameraDistance = preservedDistance;
             savedCameraPitch = preservedPitch;
             savedCameraHeading = preservedHeading;
+            currentCameraMode = preservedCameraMode;
+            userModeOverride = preservedModeOverride;
 
-            var segTarget = gs.cameraPivot ?? gs.ghost.transform;
+            var segTarget = GetWatchTarget(gs.cameraPivot) ?? gs.ghost.transform;
             FlightCamera.fetch.SetTargetTransform(segTarget);
             InputLockManager.SetControlLock(WatchModeLockMask, WatchModeLockId);
             ParsekLog.Verbose("CameraFollow",
@@ -694,6 +920,9 @@ namespace Parsek
 
             // Drive camera orbit center to the cameraPivot's world position
             FlightCamera.fetch.transform.parent.position = state.cameraPivot.position;
+
+            // Update horizon proxy rotation and auto-detect camera mode
+            UpdateHorizonProxy(state);
         }
 
         /// <summary>
@@ -799,7 +1028,7 @@ namespace Parsek
                         state = primary;
                         watchedOverlapCycleIndex = primary.loopCycleIndex;
                         if (FlightCamera.fetch != null)
-                            FlightCamera.fetch.SetTargetTransform(primary.cameraPivot);
+                            FlightCamera.fetch.SetTargetTransform(GetWatchTarget(primary.cameraPivot));
                         ParsekLog.Info("CameraFollow",
                             $"Watched cycle lost \u2014 falling back to primary cycle={primary.loopCycleIndex}");
                     }
@@ -836,7 +1065,7 @@ namespace Parsek
                     && ghostStates.TryGetValue(watchedRecordingIndex, out primary)
                     && primary != null && primary.ghost != null)
                 {
-                    var target = primary.cameraPivot ?? primary.ghost.transform;
+                    var target = GetWatchTarget(primary.cameraPivot) ?? primary.ghost.transform;
                     FlightCamera.fetch.SetTargetTransform(target);
                     watchedOverlapCycleIndex = primary.loopCycleIndex;
                     watchNoTargetFrames = 0;
@@ -918,7 +1147,7 @@ namespace Parsek
             GhostPlaybackState ws;
             if (ghostStates.TryGetValue(watchedRecordingIndex, out ws) && ws != null && ws.ghost != null)
             {
-                var target = ws.cameraPivot ?? ws.ghost.transform;
+                var target = GetWatchTarget(ws.cameraPivot) ?? ws.ghost.transform;
                 FlightCamera.fetch.SetTargetTransform(target);
                 ParsekLog.Info("CameraFollow",
                     $"onVesselChange re-target: ghost #{watchedRecordingIndex}" +
