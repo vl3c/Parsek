@@ -160,6 +160,45 @@ namespace Parsek.Tests
         }
 
         // ────────────────────────────────────────────────────────────
+        //  ComputeTerrainClearance — distance-based LOD clearance (#303)
+        // ────────────────────────────────────────────────────────────
+
+        [Fact]
+        public void ComputeTerrainClearance_InsideBubble_Returns05()
+        {
+            Assert.Equal(0.5, ParsekFlight.ComputeTerrainClearance(1000.0));
+            Assert.Equal(0.5, ParsekFlight.ComputeTerrainClearance(2300.0));
+        }
+
+        [Fact]
+        public void ComputeTerrainClearance_AtBubbleEdge_Returns2()
+        {
+            // Just outside the bubble
+            Assert.Equal(2.0, ParsekFlight.ComputeTerrainClearance(2301.0), 1);
+        }
+
+        [Fact]
+        public void ComputeTerrainClearance_AtVisualRange_Returns5()
+        {
+            Assert.Equal(5.0, ParsekFlight.ComputeTerrainClearance(120000.0), 1);
+        }
+
+        [Fact]
+        public void ComputeTerrainClearance_BeyondVisualRange_ClampedAt5()
+        {
+            Assert.Equal(5.0, ParsekFlight.ComputeTerrainClearance(200000.0), 1);
+        }
+
+        [Fact]
+        public void ComputeTerrainClearance_Midpoint_LerpsCorrectly()
+        {
+            // Midpoint between bubble (2300) and visual (120000) = 61150
+            double mid = (2300.0 + 120000.0) / 2.0;
+            double expected = 2.0 + 0.5 * 3.0; // t=0.5 -> 3.5m
+            Assert.Equal(expected, ParsekFlight.ComputeTerrainClearance(mid), 1);
+        }
+
+        // ────────────────────────────────────────────────────────────
         //  ShouldShowCommitApproval — commit dialog trigger (#88)
         // ────────────────────────────────────────────────────────────
 

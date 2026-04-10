@@ -736,23 +736,17 @@ namespace Parsek
                 // Outside the physics bubble, the rendered terrain mesh uses lower
                 // LOD and can overshoot the PQS height at ridges/transitions. Use a
                 // larger clearance to prevent the ghost from clipping underground.
-                // Lerp from 2m at the bubble edge to 5m at 120km (visual range limit).
                 double distToVessel = Vector3d.Distance(pos, activeVesselPos);
-                double clearance = 0.5;
-                if (distToVessel > RenderingZoneManager.PhysicsBubbleRadius)
-                {
-                    double t = (distToVessel - RenderingZoneManager.PhysicsBubbleRadius)
-                        / (RenderingZoneManager.VisualRangeRadius - RenderingZoneManager.PhysicsBubbleRadius);
-                    if (t > 1.0) t = 1.0;
-                    clearance = 2.0 + t * 3.0; // 2m at bubble edge, 5m at 120km
-                }
+                double clearance = ComputeTerrainClearance(distToVessel);
 
                 double clamped = TerrainCorrector.ClampAltitude(alt, terrainHeight, clearance);
                 if (clamped > alt)
                 {
                     e.ghost.transform.position = body.GetWorldSurfacePosition(lat, lon, clamped);
                     ParsekLog.VerboseRateLimited("TerrainCorrect", "clamp-ghost",
-                        $"Ghost terrain clamp: alt={alt:F1} terrain={terrainHeight:F1} -> {clamped:F1} (clearance={clearance:F1}m)");
+                        string.Format(CultureInfo.InvariantCulture,
+                            "Ghost terrain clamp: alt={0:F1} terrain={1:F1} -> {2:F1} (clearance={3:F1}m)",
+                            alt, terrainHeight, clamped, clearance));
                 }
             }
         }
@@ -8136,6 +8130,22 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Computes terrain clearance based on distance from the active vessel.
+        /// Inside the physics bubble (2.3km): 0.5m (full-LOD terrain matches PQS).
+        /// Outside: lerps from 2m at the bubble edge to 5m at 120km to compensate
+        /// for low-LOD terrain mesh overshooting PQS height at ridges.
+        /// </summary>
+        internal static double ComputeTerrainClearance(double distanceToVessel)
+        {
+            if (distanceToVessel <= RenderingZoneManager.PhysicsBubbleRadius)
+                return 0.5;
+            double t = (distanceToVessel - RenderingZoneManager.PhysicsBubbleRadius)
+                / (RenderingZoneManager.VisualRangeRadius - RenderingZoneManager.PhysicsBubbleRadius);
+            if (t > 1.0) t = 1.0;
+            return 2.0 + t * 3.0;
+        }
+
+        /// <summary>
         /// Returns true if every recording in the tree qualifies as a pad failure.
         /// A tree with any non-pad-failure recording is not discarded.
         /// </summary>
@@ -8167,7 +8177,9 @@ namespace Parsek
                 if (!IsIdleOnPad(rec.MaxDistanceFromLaunch))
                 {
                     ParsekLog.Verbose("Flight",
-                        $"IsTreeIdleOnPad: '{rec.VesselName}' maxDist={rec.MaxDistanceFromLaunch:F1}m — not idle");
+                        string.Format(CultureInfo.InvariantCulture,
+                            "IsTreeIdleOnPad: '{0}' maxDist={1:F1}m — not idle",
+                            rec.VesselName, rec.MaxDistanceFromLaunch));
                     return false;
                 }
             }
