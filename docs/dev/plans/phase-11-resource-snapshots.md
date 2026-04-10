@@ -449,6 +449,60 @@ Phase 12 usage:
 
 ---
 
+## T11.6 — Dock target vessel PID capture
+
+### Problem
+
+When a vessel docks to a station/base, Parsek records the dock event with the **docking port PID** (`CommitDockUndockSegment` takes `dockPortPid`). But the **target vessel's persistentId** — the station the transport docked to — is not persisted to the Recording. It's available at event time (`data.to.vessel.persistentId` in `OnPartCouple`) and stored transiently in `pendingDockMergedPid`, but lost after the segment commits.
+
+For logistics routes, the target vessel PID identifies the endpoint — "which station did I dock to?" Without it, the route analysis can't determine delivery destinations.
+
+### What already exists
+
+- `BranchPoint.TargetVesselPersistentId` — populated for tree-mode dock merges. But this is on the BranchPoint, not on the Recording, and only exists in tree mode.
+- `pendingDockMergedPid` — local variable in `HandleDockUndockCommitRestart`, available at event time.
+- `ChainSegmentManager.StartUndockContinuation(otherPid)` — the undock path already passes the other vessel's PID for continuation tracking, but it's transient.
+
+### Fix
+
+New field on Recording:
+
+```csharp
+public uint DockTargetVesselPid;  // PID of vessel docked to at this segment's boundary (0 = not a dock segment)
+```
+
+**Capture site:** `ChainSegmentManager.CommitDockUndockSegment` — when `type == PartEventType.Docked`, set `pending.DockTargetVesselPid = dockPortPid`. Wait — `dockPortPid` is currently the merged vessel PID (confusingly named). Looking at the call site in `ParsekFlight.HandleDockUndockCommitRestart`, `pendingDockMergedPid` is `data.to.vessel.persistentId` — the target vessel that stays. This is the value we need.
+
+Actually, the parameter `dockPortPid` in `CommitDockUndockSegment` is already receiving the target vessel PID from `pendingDockMergedPid` at the call site (`ParsekFlight.cs:4861/4871`). It's just misnamed. We can capture it directly:
+
+```csharp
+// In CommitDockUndockSegment, before the commit:
+if (type == PartEventType.Docked)
+    pending.DockTargetVesselPid = dockPortPid;  // actually the merged vessel PID
+```
+
+**Serialization:** additive field, conditional write (only when non-zero), same pattern as other uint PIDs. Add to both `SaveRecordingMetadata`/`LoadRecordingMetadata` and `SaveRecordingResourceAndState`/`LoadRecordingResourceAndState`.
+
+**Propagation:**
+- `ApplyPersistenceArtifactsFrom` — copy from source
+- `RecordingOptimizer.SplitAtSection` — first half keeps it (dock happens before the split point), second half gets 0
+- `RecordingOptimizer.MergeInto` — absorbed recording's value wins if non-zero (later segment may have the dock)
+
+### Tests
+
+| Test | What |
+|------|------|
+| `DockSegment_CapturesTargetPid` | commit with Docked type → DockTargetVesselPid set |
+| `UndockSegment_DoesNotCapture` | commit with Undocked type → DockTargetVesselPid stays 0 |
+| `RoundTrip_Serialization` | serialize/deserialize → value preserved |
+| `LegacyRecording_DefaultsZero` | missing field in ConfigNode → 0 |
+
+### Why in Phase 11
+
+This is boundary metadata captured alongside resource snapshots — same moment, same code path, same commit. It's a one-field addition that makes Phase 12 route analysis possible without post-hoc guesswork. Deferring it to Phase 12 would mean Phase 12 has to retrofit a capture mechanism into chain boundary code that Phase 11 already touches.
+
+---
+
 ## Test generator updates
 
 ### RecordingBuilder
@@ -481,10 +535,11 @@ Add V3 support for resource manifests so `InjectAllRecordings` produces recordin
 1. **T11.1** — `ResourceAmount` struct in `ResourceManifest.cs` + `ExtractResourceManifest` in `VesselSpawner.cs` + tests. Pure code, zero dependencies.
 2. **T11.5** — `ComputeResourceDelta` in `ResourceManifest.cs` + tests. Pure code, depends only on T11.1 struct.
 3. **T11.2** — Recording fields + serialization helpers + round-trip tests. Depends on T11.1.
-4. **T11.3** — Capture calls at all boundary sites. Depends on T11.1 + T11.2. This is the biggest task — many call sites, each needs careful placement.
-5. **T11.4** — UI display. Depends on T11.1 + T11.2 + T11.5. Can only be tested with KSP running.
+4. **T11.6** — `DockTargetVesselPid` field + capture + serialization. Small, self-contained. Can be in the same commit as T11.2 or T11.3.
+5. **T11.3** — Capture calls at all boundary sites. Depends on T11.1 + T11.2. This is the biggest task — many call sites, each needs careful placement.
+6. **T11.4** — UI display. Depends on T11.1 + T11.2 + T11.5. Can only be tested with KSP running.
 
-T11.1 and T11.5 are independent and can be done in the same commit. T11.2 builds on them. T11.3 is the integration work. T11.4 is polish.
+T11.1 and T11.5 are independent and can be done in the same commit. T11.2 + T11.6 build on them. T11.3 is the integration work. T11.4 is polish.
 
 ---
 
@@ -600,6 +655,96 @@ The roadmap defers assembly extraction to the Gloops boundary (pre-Phase 13). Fo
 - Routes need direct access to `Recording.StartResources`/`EndResources`, `RecordingStore.CommittedRecordings`, `Ledger`, and `ParsekScenario` lifecycle. Cross-assembly access would require making all of these `public` or adding an interface layer — friction without benefit.
 - The game actions system (v0.6) followed the same pattern: directory-level module, static orchestrator, integrated through ParsekScenario hooks. It works well and is easy to reason about.
 - If Gloops extraction happens, routes stay in Parsek (they're Parsek policy, not ghost playback). The Gloops boundary is clean of route concerns.
+
+### Route recording workflow (Phase 12)
+
+The player explicitly declares a route recording session. Parsek records everything normally, then analyzes the committed chain to extract stops.
+
+**Player flow:**
+
+```
+1. Player clicks "Start Route Recording" in Parsek UI
+2. Player flies mission normally — launch, transit, dock at Base A,
+   transfer resources via KSP UI, undock, transit, dock at Base B,
+   pick up ore, undock, fly home
+3. Player clicks "End Route Recording"
+4. Parsek analyzes the committed chain → presents route summary
+5. Player sets dispatch interval, confirms
+6. Route goes live
+```
+
+**What "Start Route Recording" does:**
+- Sets `IsRecordingRoute = true` on `ParsekScenario` (serialized, survives scene changes)
+- UI shows "Route Recording Active" indicator
+- Recording behavior is unchanged — same FlightRecorder, same chain boundaries, same snapshots
+
+**What "End Route Recording" does:**
+- Sets `IsRecordingRoute = false`
+- Triggers `RouteAnalysisEngine.AnalyzeChain(recordings)` — the route analysis pass
+- Shows route confirmation UI
+
+**Route analysis pass** (`RouteAnalysisEngine` in `Logistics/`):
+
+```
+Input: ordered list of recordings committed during route session
+       (tagged by a shared RouteSessionId or by UT range)
+
+Walk chronologically through the chain:
+  For each recording with DockTargetVesselPid != 0 (a dock event):
+    Find the matching undock recording (next segment with Undocked event)
+    stop.endpoint = {
+        body, lat, lon from dock-time trajectory point,
+        vesselPid = DockTargetVesselPid,
+        isOrbital = altitude > body atmosphere height
+    }
+    stop.deliveryManifest = dock-segment EndResources - undock-segment StartResources
+                            (per resource: positive = delivered to station,
+                             negative = picked up from station)
+    stop.transitDuration = dock UT - previous stop UT (or recording start UT)
+
+  origin = first recording's start location + body
+  isRoundTrip = last recording ends within 500m of origin (same body)
+  totalTransit = last recording EndUT - first recording StartUT
+```
+
+This is pure logic over committed Recording fields — `DockTargetVesselPid` (T11.6), `StartResources`/`EndResources` (T11.1-T11.3), location context (Phase 10). Fully testable without KSP.
+
+**Multi-stop example:**
+
+```
+Player flies: KSC → Base A (dock, deliver 150 LF) → Base B (dock, pick up 1200 Ore) → KSC
+
+Route analysis produces:
+  Origin: KSC, Kerbin
+  Stop 1: Base A on Mun — delivers 150 LF, 183 Ox
+  Stop 2: Base B on Mun — picks up 1200 Ore
+  Total transit: 2d 4h
+  Round-trip: Yes
+
+Each dispatch cycle:
+  UT+0:      Deduct cost from origin (if non-KSC)
+  UT+0:      Ghost starts replaying segment 1 (KSC → Base A)
+  UT+seg1:   Ghost starts segment 2 (Base A → Base B)
+             Deliver 150 LF, 183 Ox to Base A endpoint vessels
+  UT+seg2:   Ghost starts segment 3 (Base B → KSC)
+             Pick up 1200 Ore from Base B (deduct from Base B vessels)
+  UT+total:  Route cycle complete. 1200 Ore added to KSC depot (if exists).
+             Schedule next dispatch.
+```
+
+**What Phase 11 provides for this:**
+- `StartResources`/`EndResources` on every recording → delivery/pickup computation
+- `DockTargetVesselPid` on dock segments → endpoint identification
+- `StartBodyName`, `StartLatitude`, `StartLongitude` → origin/stop location
+- `ExtractResourceManifest` and `ComputeResourceDelta` → pure analysis functions
+
+**What Phase 12 adds:**
+- Route recording mode flag (`IsRecordingRoute`)
+- `RouteAnalysisEngine` — chain walk + stop extraction
+- `Route`/`RouteStop` data model with multi-stop support
+- `RouteScheduler` — chain-sequential ghost playback + delivery timing
+- `RouteDelivery` — `ProtoPartResourceSnapshot` modification
+- Route UI — confirmation panel, status display, dispatch interval config
 
 ### Implications for Phase 11
 
