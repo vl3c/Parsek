@@ -21,16 +21,30 @@ Dev notes: technical narratives for the fixes below live in `docs/dev/todo-and-k
 - Automatic rate-limited `[WARN]` when playback exceeds 8ms/frame or recording exceeds 4ms/frame.
 - New `ParsekLog.WarnRateLimited` API.
 
+### Bug Fixes — Quickload-resume hardening
+
+- `#293` F5/F9 during a multi-stage (tree) recording no longer kills the recording — quickload seamlessly resumes where the quicksave was made.
+- `#294` F5/F9 during a single-vessel recording now seamlessly resumes recording from the quicksave point instead of silently stopping.
+- `#267` Restore coroutine reentrancy guard: `OnVesselSwitchComplete`, `OnVesselWillDestroy`, and `FinalizeTreeOnSceneChange` now skip while the quickload-resume or vessel-switch restore coroutine is mid-yield.
+- `#268` Belt-and-braces snapshot capture in `StashActiveTreeAsPendingLimbo` ensures null-snapshot leaves get a fresh vessel snapshot while the vessel is still alive, before the scene reload.
+
+### Developer Tools
+
+- `#269` Test runner now survives scene transitions (`Instantly + DontDestroyOnLoad`), enabling multi-scene coroutine tests. Three QuickloadResume in-game tests added: bridge canary, mid-recording resume identity, reentrancy guard verification.
+
 ### Bug Fixes & Maintenance
 
 - `#283` Fixed ghost position pops at TrackSection boundaries by seeding the new section with the closing section's boundary point; also skips spurious cross-reference-frame discontinuity warnings.
-- `#294` Ghost engine/RCS flames now auto-start on debris booster ghosts whose engines were running at separation. Debris recordings also get proper EngineIgnited seed events inherited from the parent vessel at decouple time.
+- `#295` Ghost engine/RCS flames now auto-start on debris booster ghosts whose engines were running at separation. Debris recordings also get proper EngineIgnited seed events inherited from the parent vessel at decouple time.
 
 - `#291` EVA spawn walkback now correctly detects the active vessel (parent rocket) as a blocker, so kerbals walk back to a clear position instead of spawning on top of their parent vessel.
 - `#285` Background vessel splits no longer create empty parent-continuation recordings when the parent vessel is already destroyed.
 - `#288` Ghost map icons now appear immediately after re-entry from orbit instead of requiring W (Watch) to be pressed first.
 - `#289` End-of-mission spawn-at-end now correctly materializes splashed-down vessels and EVA kerbals after a rewind+merge.
 - `#292` F9 quickload after a Tree Merge no longer silently drops recordings created during the merge.
+- `#290` Pending Limbo tree no longer discarded on revert — fixes lost debris recordings and missing proto vessels after merge-then-revert.
+- `#290` Ghost engine skirt/shroud now hidden at build time when the snapshot shows the shroud was already jettisoned.
+- `#290` Ghost map icon no longer flickers during time warp — zone warp exemption threshold lowered from >4x to >1x, and ghost warp suppression is now skipped in map view so icons stay visible at any warp speed.
 - `#287` Ghost engine flames on multi-stage rockets (Kerbal X Mainsail + boosters) no longer turn off permanently after booster staging.
 - `#278` EVA kerbals walking at the moment of revert/vessel-switch are now correctly classified Landed instead of Destroyed, so the merge dialog can spawn them at end of recording.
 - `#277` Stand-in crew is now placed correctly when a launch crew member was on EVA at merge time.

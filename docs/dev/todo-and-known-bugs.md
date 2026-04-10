@@ -4,7 +4,7 @@ Previous entries (225 bugs, 51 TODOs — mostly resolved) archived in `done/todo
 
 ---
 
-## ~~294. Ghost engine/RCS flames missing on debris booster ghosts after staging~~
+## ~~295. Ghost engine/RCS flames missing on debris booster ghosts after staging~~
 
 Surfaced by 2026-04-10 Kerbal X playtest (`logs/2026-04-10_engine-plume-bug`). Debris booster ghosts (child recordings from decoupled boosters) show NO engine flames, even though the boosters were still burning at separation. Audio plays correctly.
 
@@ -18,9 +18,38 @@ Surfaced by 2026-04-10 Kerbal X playtest (`logs/2026-04-10_engine-plume-bug`). D
 
 2. **Recording side:** `InheritedEngineState` struct carries parent's active engine/RCS keys + throttles through `OnVesselBackgrounded` → `InitializeLoadedState`. `MergeInheritedEngineState` (internal static, PID-filtered, add-if-absent throttle) merges inherited keys into the child's `BackgroundVesselState` after `SeedBackgroundPartStates` but before `EmitSeedEvents`. Snapshot taken in `HandleBackgroundVesselSplit` (background path) and `PromoteToTreeForBreakup`/`ProcessBreakupEvent` (foreground paths) before parent state is destroyed.
 
-**Tests:** `OrphanEngineFxAutoStartTests.cs` (15 tests: BuildOrphanKeySets, FindOrphanKeys, integration). `BackgroundRecorderTests.cs` (9 tests: MergeInheritedEngineState with PID filtering, add-if-absent, null handling, logging).
+**Tests:** `OrphanEngineFxAutoStartTests.cs` (15 tests: BuildOrphanKeySets, FindOrphanKeys, integration). `BackgroundRecorderTests.cs` (10 tests: MergeInheritedEngineState with PID filtering, add-if-absent, null handling, throttle-key-missing fallback, logging).
 
 **Status:** Fixed.
+
+---
+
+## ~~294. F5/F9 during standalone recording loses all in-progress data~~
+
+Surfaced by the 2026-04-10 engine-plume-bug playtest (`logs/2026-04-10_engine-plume-bug/KSP.log`). After F9 quickload during the Halger Kerman EVA standalone recording, the pending recording was discarded by `DiscardStashedOnQuickload` and no new recording started. 28 seconds of EVA walk lost.
+
+**Root cause**: Tree mode has a full quickload-resume pipeline (`SaveActiveTreeIfAny` → `PARSEK_ACTIVE_TREE` node → `TryRestoreActiveTreeNode` → `RestoreActiveTreeFromPending` coroutine). Standalone mode had nothing equivalent. The in-progress recorder buffer was never serialized to `.sfs` during F5, so F9 had nothing to restore from. `DiscardStashedOnQuickload` correctly discarded the stashed post-F5 data (from `StashPendingOnSceneChange`), but there was no mechanism to restore the F5-point data.
+
+**Fix**: Three-part fix mirroring the tree-mode pattern:
+1. `SaveActiveStandaloneIfAny` in `ParsekScenario.OnSave` deep-copies the recorder's buffers into a `PARSEK_ACTIVE_STANDALONE` ConfigNode (points, events, orbit segments, track sections, flag events, start location metadata, rewind save filename). Unlike tree-mode flush, the recorder's buffers are NOT cleared — the recorder keeps running after F5.
+2. `TryRestoreActiveStandaloneNode` in `ParsekScenario.OnLoad` deserializes the node into a temporary Recording and sets `ScheduleActiveStandaloneRestoreOnFlightReady`.
+3. `RestoreActiveStandaloneFromPending` coroutine in `ParsekFlight.OnFlightReady` waits for the vessel to load (3s timeout), creates a new recorder via `StartRecording(isPromotion: true)`, prepends the saved trajectory data into the recorder's buffers, and restores the original start location. Reuses `restoringActiveTree` guard for reentrancy protection.
+
+Mutually exclusive with tree restore — `TryRestoreActiveStandaloneNode` skips if `ScheduleActiveTreeRestoreOnFlightReady` is already set.
+
+**Status**: Fixed.
+
+---
+
+## ~~293. OnFlightReady fallback merge dialog races with restore coroutine after F9~~
+
+Surfaced by the 2026-04-10 engine-plume-bug playtest (`logs/2026-04-10_engine-plume-bug/KSP.log` line 10604). After F9 quickload with an active tree, the restore coroutine (`RestoreActiveTreeFromPending`) started and yielded waiting for the vessel. But the fallback pending tree check at `ParsekFlight.cs:4211` ran synchronously in the same frame, saw `HasPendingTree` still true (the coroutine hadn't popped it yet), and fired `MergeDialog.ShowTreeDialog`. With autoMerge ON, the tree was committed immediately. The coroutine eventually resumed but the tree was gone — no recording restarted. 28 minutes of orbital flight (UT 695→2376) not recorded.
+
+**Root cause**: PR #184 added the `restoringActiveTree` reentrancy guard and checked it at `OnFlightReady` entry, `FinalizeTreeOnSceneChange`, `OnVesselWillDestroy`, and `OnVesselSwitchComplete`. But it missed the intra-method fallback check at line 4211 (`if (RecordingStore.HasPendingTree)`), which runs AFTER `StartCoroutine` returns (after the coroutine's first yield). The coroutine sets `restoringActiveTree = true` before its first yield, so the guard was already set — it just wasn't being checked.
+
+**Fix**: Added `&& !restoringActiveTree` to both fallback checks (pending tree at line 4211, pending standalone at line 4221). Also added logging for the skip case.
+
+**Status**: Fixed.
 
 ---
 
@@ -56,6 +85,28 @@ Surfaced by the 2026-04-10 Kerbal X Mun-flyby playtest (worktree `Parsek-investi
 Recommended: combine (1) for prevention + (2) for recovery of saves already affected. Player on the affected save can salvage the 5 outer-space recordings — the `.prec` files at `saves/s34/Parsek/Recordings/{e203b6e1,66b0dbad,bf3a6b02,4649d230,89745643}*.prec` are intact.
 
 **Fix**: New `RecordingStore.RefreshQuicksaveAfterMerge(reason, recordingCount)` helper that calls `GamePersistence.SaveGame("quicksave", HighLogic.SaveFolder, SaveMode.OVERWRITE)` once after a user-initiated merge. Wired only into `MergeDialog.cs:359` (the "Merge to Timeline" button handler), NOT into `RecordingStore.RunOptimizationPass` itself — `RunOptimizationPass` is also called from `ParsekScenario.OnLoad`, and a save-while-loading would re-enter `OnSave` on every `ScenarioModule`. Helper has a `LoadedScene == LOADING` guard, a `CurrentGame == null` guard, a `try/catch` that logs warns on failure (non-fatal: the merge still completes), and an `internal static SaveGameForTesting` seam so `QuicksaveRefreshTests.cs` can intercept the call without invoking the real KSP API. Trade-off documented in CHANGELOG: this advances the player's F5 checkpoint UT to the post-merge state — players who want a pre-merge checkpoint should F5 manually before clicking Merge.
+
+**Status**: Fixed.
+
+---
+
+## ~~290. Multiple playtest bugs: ghost flicker, lost tree on revert, engine skirt, log spam~~
+
+Surfaced by the 2026-04-10 GDLV3 rocket launch playtest. Four related issues:
+
+**Bug A — Ghost icon flicker during time warp.** The zone system's warp exemption (`ShouldExemptFromZoneHide`) had a threshold of `> 4f`. KSP ramps through intermediate warp rates during transitions between warp levels (e.g., 100x → 50x → 10x → 4x → 1x over several frames). When the rate briefly dipped below 4x, the ghost was hidden (zone Beyond = `SetActive(false)`), then re-shown on the next frame when the rate went back above 4x. Result: per-frame flicker of the ghost mesh in map view.
+
+**Fix**: Two changes. (1) Lowered threshold from `> 4f` to `> 1f` in `GhostPlaybackLogic.ShouldExemptFromZoneHide`. Any warp above normal speed now exempts orbital ghosts from zone hiding. At 1x (normal), ghosts are still hidden at Beyond range (>120km) as intended. (2) The >50x ghost warp suppression (`ShouldSuppressGhosts`) is now skipped when `mapViewEnabled` is true. `DrawMapMarkers` skips inactive ghosts (stale position after FloatingOrigin shifts), so suppressing the mesh also killed the icon+text. In map view the mesh is invisible at orbital distances anyway — only the icon matters. New `FrameContext.mapViewEnabled` field populated from `MapView.MapIsEnabled` by the host.
+
+**Bug B — Pending Limbo tree discarded on revert (lost 4 debris recordings).** Flow: user merged GDLV3 tree → `StashActiveTreeAsPendingLimbo` set `PendingStashedThisTransition = true` → quickload discard path preserved the Limbo tree but reset the flag to `false` (line 197 of `ParsekScenario.cs`) → revert discard path (line 808) checked the flag, saw `false`, treated the Limbo tree as "orphaned from a previous flight" and discarded it. The tree contained 5 recordings (root + 4 debris).
+
+**Fix**: The revert discard path now checks the tree state (`PendingTreeState.Limbo` / `LimboVesselSwitch`) instead of relying solely on the `PendingStashedThisTransition` flag. Limbo trees are by definition freshly stashed for OnLoad dispatch and are never treated as orphaned.
+
+**Bug C — Engine skirt visible on ghost (regression).** Continuation recordings created during tree promotion skip seed events (to avoid poisoning `FindLastInterestingUT`). The ghost builder forces jettison transforms active (prefab default), expecting playback `ShroudJettisoned` events to hide them. But continuation recordings have no such events — the seed events are on the root recording, not the continuation.
+
+**Fix**: `GhostVisualBuilder.AddPartVisuals` now checks the snapshot's MODULE data for `isJettisoned = True` at ghost build time. If the shroud was already jettisoned when the snapshot was captured, the jettison transforms are hidden immediately instead of waiting for a playback event. New helper: `GhostVisualBuilder.IsJettisonedInSnapshot(ConfigNode partNode)`.
+
+**Bug D — IsNonLeafInCommittedTree log spam.** The safety-net method `IsNonLeafInCommittedTree` logged at `ParsekLog.Info` level every time it triggered (called per-recording per spawn check, hundreds of times per session). Downgraded to `VerboseRateLimited` with a 30-second rate limit per recording ID.
 
 **Status**: Fixed.
 
@@ -1190,51 +1241,30 @@ PR #160 routed `isVesselSwitch` through `FinalizePendingLimboTreeForRevert` as a
 
 **Deferred:** mid-flight `pendingSplitRecorder` preservation across vessel-switch reloads — the in-flight split window cannot survive a scene tear-down, so the safety-net finalize fires for that edge case (matches pre-#266 behavior). `BoundaryAnchor` is also still discarded on the restore (existing limitation, see `RestoreActiveTreeFromPending` :5520-5524 comment). Both are noise rather than data loss; the critical path (preserve the tree across normal TS-mediated switches) is fixed.
 
-## 267. Quickload-resume: restore coroutine reentrancy guard
+## ~~267. Quickload-resume: restore coroutine reentrancy guard~~
 
-The `ScheduleActiveTreeRestoreOnFlightReady` flag and the `RestoreActiveTreeFromPending` coroutine (`ParsekFlight.cs`) don't have a re-entry guard. If `onVesselChange` or another reactive handler mutates `activeTree` or the pending tree during the coroutine's 3-second vessel wait, the restore could see inconsistent state. Documented in the design doc's Risks section.
+Added `internal static bool restoringActiveTree` guard on `ParsekFlight`. Set via try/finally in both `RestoreActiveTreeFromPending` and `RestoreActiveTreeFromPendingForVesselSwitch`. Guards `OnVesselSwitchComplete`, `OnVesselWillDestroy`, `FinalizeTreeOnSceneChange`, and `OnFlightReady` (protects `ResetFlightReadyState` from double-fire). Each guard logs a `[WARN]` when suppressing an event during the restore window.
 
-**Fix plan:** Add `static bool restoringActiveTree` guard on `ParsekFlight`. Set at coroutine start, clear on completion or failure. `onVesselChange` / `OnVesselSwitchComplete` handlers check the flag and skip tree mutations while the restore is running. Also consider using a one-shot check in `RestoreActiveTreeFromPending` that refuses to run if `activeTree != null` when it enters (meaning someone beat it to the slot).
+**Fix:** `ParsekFlight.cs` — `restoringActiveTree` field + 4 guard sites + try/finally on 2 coroutines.
 
-**Priority:** Low — no reported issue yet, but prevents a hard-to-diagnose race
+## ~~268. Quickload-resume: snapshot preservation through revert finalization~~
 
-## 268. Quickload-resume: snapshot preservation through revert finalization
+Belt-and-braces snapshot capture added to `StashActiveTreeAsPendingLimbo`. Before stashing the tree, iterates all leaf recordings and captures a fresh `VesselSnapshot` via `VesselSpawner.TryBackupSnapshot` for any leaf with `VesselSnapshot == null` (vessels are still alive in FlightGlobals at stash time). Does NOT overwrite existing snapshots. The primary re-snapshot path is the #289 block in `FinalizeIndividualRecording` which already handles stale snapshots for stable-terminal recordings; this fix covers the narrow edge case where vessels are unloaded before `FinalizePendingLimboTreeForRevert` runs.
 
-The old `CommitTreeRevert` preserved vessel snapshots so the merge dialog could offer respawn. `FinalizePendingLimboTreeForRevert` (PR #160) does not — by OnLoad time the vessel refs are gone and we fall back to whatever snapshots were stashed before the scene reload, which may be stale or null. Affects autoMerge=off + revert + dialog-driven respawn.
+**Fix:** `ParsekFlight.cs` — snapshot capture loop in `StashActiveTreeAsPendingLimbo`.
 
-**Fix plan:** Capture a live snapshot of the active vessel inside `StashActiveTreeAsPendingLimbo` (which runs during `OnSceneChangeRequested`, while the vessel is still referenceable), and attach it to the tree's active recording so the merge dialog can use it if the Limbo tree takes the finalize path. Costs one snapshot copy per scene reload but preserves the existing UX.
+## ~~269. In-game test coverage for quickload-resume flow~~
 
-**Priority:** Low — regression only visible on autoMerge=off reverts, assess after playtest
+**Phase 1 (infrastructure):** `TestRunnerShortcut` migrated from `[KSPAddon(KSPAddon.Startup.EveryScene, false)]` to `[KSPAddon(KSPAddon.Startup.Instantly, true)]` + `DontDestroyOnLoad(gameObject)`, mirroring `ParsekHarmony.cs`. Added `GameEvents.onGameSceneLoadRequested` listener to reset `windowHasInputLock` and null `opaqueStyle` on scene change. Added `LOADING` scene guard in `OnGUI`.
 
-## 269. In-game test coverage for quickload-resume flow
+**Phase 2 (tests shipped):**
+1. `BridgeSurvivesSceneTransition` — canary test verifying DontDestroyOnLoad works across quickload.
+2. `Quickload_MidRecording_ResumesSameActiveRecordingId` — F5/F9 mid-recording resumes with same activeRecordingId.
+3. `ReentrancyGuard_ClearedAfterRestore` — verifies `restoringActiveTree` is false during normal flight.
 
-PR #160 ships with 29 unit tests covering static state transitions, dispatch decisions, and isolated predicates, but the full scenario — quicksave → scene reload → quickload → restore coroutine → resumed recording appends to same chain segment — can only run inside live KSP.
+**Helpers:** `QuickloadResumeHelpers.cs` with `TriggerQuicksave`, `TriggerQuickload`, `WaitForFlightReady`, `WaitForActiveRecording`.
 
-**Fix plan (revised post-review — see `docs/dev/plans/bugs-269-278-279-fix-plan.md`):**
-
-**P0 — make `TestRunnerShortcut` survive scene transitions.** Currently `[KSPAddon(KSPAddon.Startup.EveryScene, false)]` with no `DontDestroyOnLoad`, so any test coroutine started there dies the instant KSP unloads the scene for F5/F9/quickload. Change to `[KSPAddon(KSPAddon.Startup.Instantly, true)]` + `DontDestroyOnLoad(gameObject)` in `Awake`, mirroring the `ParsekHarmony.cs:49` pattern. This is the simplest possible bridge — no separate `InGameTestStateBridge` class needed (the original Plan A draft had one; review noted it was over-engineered). Add a canary test `BridgeSurvivesSceneTransition` that stashes a sentinel pre-F9 and asserts it's still present post-F9; mark the whole `QuickloadResume` category as skipped if the canary fails.
-
-**Tests to ship:**
-1. `Quickload_MidRecording_ResumesSameActiveRecordingId` (FLIGHT) — same `activeRecordingId`, points match pre-F5 UT.
-2. `RealRevert_FinalizesTree_ShowsMergeDialogWhenAutoMergeOff` (FLIGHT) — bump `MilestoneStore.CurrentEpoch` between F5 and F9 to force `isRevert=true`; assert finalization, merge dialog pending. Restore epoch in `try/finally`.
-3. `DoubleF9_Idempotent_NoDoubleStart` (FLIGHT) — chained two restores via the bridge; assert same activeRecId across both, single `RestoreActiveTreeFromPending` log line per reload.
-4. `QuickloadIntoNonFlightScene_DoesNotRestore` (FLIGHT→SPACECENTER variant) — set `ScheduleActiveTreeRestoreOnFlightReady`, switch to SPACECENTER, assert flag unconsumed and `activeTree == null`.
-5. `RewindButton_DoesNotConflictWithRestore` (FLIGHT) — invoke `RecordingStore.InitiateRewind` programmatically; assert the `TryRestoreActiveTreeNode: skipped (rewind in progress)` log line and `activeTree == null` post-rewind.
-
-**Tests deferred:**
-- **Vessel-switch finalize test** — original Plan A draft proposed an in-process `FlightGlobals.SetActiveVessel` test, but review correctly flagged this does NOT trigger `FinalizePendingLimboTreeForRevert` (that path requires a full scene reload via `OnVesselSwitching → vesselSwitchPending` → next `OnLoad`). Defer until bug #266 lands and the temporary "vessel switch = finalize" contract is removed.
-- **Cold-start "resume saved game" test** — the manual-sentinel + restart-KSP variant is not a test (it's a manual procedure). Document as a manual QA step in `docs/dev/manual-testing/cold-start-quickload-resume.md`. The "lite" variant (synthetic ConfigNode driven through `TryRestoreActiveTreeNode`) is too divergent from the real cold-start path to provide useful coverage.
-
-**Helpers needed:**
-- `Source/Parsek/InGameTests/Helpers/QuickloadResumeHelpers.cs` — `RequireFlightWithRecorder`, `CaptureRecordingSnapshot`, `TriggerQuicksave` (wraps `GamePersistence.SaveGame`), `TriggerQuickload` (wraps `GamePersistence.LoadGame` + `HighLogic.LoadScene(GameScenes.FLIGHT)` — NOT the rewind path at `RecordingStore.cs:2217-2242` which targets `SPACECENTER`), assertion helpers.
-- State reset between tests: any test mutating `MilestoneStore.CurrentEpoch` or `ParsekSettings.Current.autoMerge` MUST restore in `try/finally`.
-
-**Testing-the-tests safeguards:**
-- Bridge canary must pass before any QuickloadResume test runs.
-- Each Phase-2 assertion begins with `IsTrue(bridge.PhaseReached == ExecutedPhase2, "Phase 2 never executed")`.
-- Each test asserts a specific log line was emitted via `ParsekLog.TestSinkForTesting`.
-
-**Priority:** Medium — the Unity-dependent gaps in PR #160's unit tests should close before the next major refactor. Will ship as a separate PR; the in-game test framework changes are out of scope for the #278/#279 bug-fix work.
+**Tests deferred:** `RealRevert_FinalizesTree_ShowsMergeDialogWhenAutoMergeOff`, `DoubleF9_Idempotent_NoDoubleStart`, `QuickloadIntoNonFlightScene_DoesNotRestore`, `RewindButton_DoesNotConflictWithRestore` — require more infrastructure validation before shipping.
 
 ## 270. Sidecar file (.prec) version staleness across save points
 

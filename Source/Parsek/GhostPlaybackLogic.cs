@@ -42,7 +42,10 @@ namespace Parsek
         /// </summary>
         internal static bool ShouldExemptFromZoneHide(float currentWarpRate, bool hasOrbitalSegments)
         {
-            return currentWarpRate > 4f && hasOrbitalSegments;
+            // Threshold lowered from > 4f to > 1f: KSP ramps through intermediate rates
+            // when entering/exiting warp, causing frame-by-frame oscillation around higher
+            // thresholds and ghost icon flicker in map view.
+            return currentWarpRate > 1f && hasOrbitalSegments;
         }
 
         /// <summary>
@@ -2655,11 +2658,12 @@ namespace Parsek
                     var bp = tree.BranchPoints[b];
                     if (bp.ParentRecordingIds != null && bp.ParentRecordingIds.Contains(rec.RecordingId))
                     {
-                        ParsekLog.Info("Spawner",
+                        ParsekLog.VerboseRateLimited("Spawner",
+                            $"safety-net-{rec.RecordingId}",
                             string.Format(CultureInfo.InvariantCulture,
                                 "IsNonLeafInCommittedTree: recording {0} is parent of branch point {1} " +
                                 "in tree {2} (ChildBranchPointId was null — safety net triggered)",
-                                rec.RecordingId, bp.Id, tree.Id));
+                                rec.RecordingId, bp.Id, tree.Id), 30.0);
                         return true;
                     }
                 }

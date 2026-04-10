@@ -64,6 +64,10 @@ namespace Parsek
         /// <summary>Number of ghosts managed outside the engine (chain ghosts etc.) for soft cap accounting.</summary>
         public int externalGhostCount;
 
+        /// <summary>True when the map view is active — ghosts should remain positioned
+        /// so map markers can draw at the correct location even during high warp.</summary>
+        public bool mapViewEnabled;
+
         /// <summary>Auto loop interval from settings (engine doesn't read ParsekSettings).</summary>
         public double autoLoopIntervalSeconds;
     }
