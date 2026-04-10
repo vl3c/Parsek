@@ -177,6 +177,7 @@ namespace Parsek
             // Engine/RCS/robotic caches
             public List<(Part part, ModuleEngines engine, int moduleIndex)> cachedEngines;
             public HashSet<ulong> activeEngineKeys = new HashSet<ulong>();
+            public HashSet<ulong> allEngineKeys = new HashSet<ulong>(); // all engine modules, active + inactive (#298)
             public Dictionary<ulong, float> lastThrottle = new Dictionary<ulong, float>();
             public HashSet<ulong> loggedEngineModuleKeys = new HashSet<ulong>();
             public List<(Part part, ModuleRCS rcs, int moduleIndex)> cachedRcsModules;
@@ -1761,6 +1762,7 @@ namespace Parsek
                 deployedRobotArmScannerModules = state.deployedRobotArmScannerModules,
                 animateHeatLevels = state.animateHeatLevels,
                 activeEngineKeys = state.activeEngineKeys,
+                allEngineKeys = state.allEngineKeys,
                 lastThrottle = state.lastThrottle,
                 activeRcsKeys = state.activeRcsKeys,
                 lastRcsThrottle = state.lastRcsThrottle,
