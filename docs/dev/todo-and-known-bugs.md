@@ -41,6 +41,28 @@ Recommended: combine (1) for prevention + (2) for recovery of saves already affe
 
 ---
 
+## ~~290. Multiple playtest bugs: ghost flicker, lost tree on revert, engine skirt, log spam~~
+
+Surfaced by the 2026-04-10 GDLV3 rocket launch playtest. Four related issues:
+
+**Bug A — Ghost icon flicker during time warp.** The zone system's warp exemption (`ShouldExemptFromZoneHide`) had a threshold of `> 4f`. KSP ramps through intermediate warp rates during transitions between warp levels (e.g., 100x → 50x → 10x → 4x → 1x over several frames). When the rate briefly dipped below 4x, the ghost was hidden (zone Beyond = `SetActive(false)`), then re-shown on the next frame when the rate went back above 4x. Result: per-frame flicker of the ghost mesh in map view.
+
+**Fix**: Lowered threshold from `> 4f` to `> 1f` in `GhostPlaybackLogic.ShouldExemptFromZoneHide`. Any warp above normal speed now exempts orbital ghosts from zone hiding. At 1x (normal), ghosts are still hidden at Beyond range (>120km) as intended.
+
+**Bug B — Pending Limbo tree discarded on revert (lost 4 debris recordings).** Flow: user merged GDLV3 tree → `StashActiveTreeAsPendingLimbo` set `PendingStashedThisTransition = true` → quickload discard path preserved the Limbo tree but reset the flag to `false` (line 197 of `ParsekScenario.cs`) → revert discard path (line 808) checked the flag, saw `false`, treated the Limbo tree as "orphaned from a previous flight" and discarded it. The tree contained 5 recordings (root + 4 debris).
+
+**Fix**: The revert discard path now checks the tree state (`PendingTreeState.Limbo` / `LimboVesselSwitch`) instead of relying solely on the `PendingStashedThisTransition` flag. Limbo trees are by definition freshly stashed for OnLoad dispatch and are never treated as orphaned.
+
+**Bug C — Engine skirt visible on ghost (regression).** Continuation recordings created during tree promotion skip seed events (to avoid poisoning `FindLastInterestingUT`). The ghost builder forces jettison transforms active (prefab default), expecting playback `ShroudJettisoned` events to hide them. But continuation recordings have no such events — the seed events are on the root recording, not the continuation.
+
+**Fix**: `GhostVisualBuilder.AddPartVisuals` now checks the snapshot's MODULE data for `isJettisoned = True` at ghost build time. If the shroud was already jettisoned when the snapshot was captured, the jettison transforms are hidden immediately instead of waiting for a playback event. New helper: `GhostVisualBuilder.IsJettisonedInSnapshot(ConfigNode partNode)`.
+
+**Bug D — IsNonLeafInCommittedTree log spam.** The safety-net method `IsNonLeafInCommittedTree` logged at `ParsekLog.Info` level every time it triggered (called per-recording per spawn check, hundreds of times per session). Downgraded to `VerboseRateLimited` with a 30-second rate limit per recording ID.
+
+**Status**: Fixed.
+
+---
+
 ## ~~291. In-game test failure: `FlightIntegrationTests.EvaSpawnWalkbackOnOverlap`~~
 
 `parsek-test-results.txt` (run 2026-04-10 01:05:19, scene FLIGHT) reports:

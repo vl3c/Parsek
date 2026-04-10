@@ -4912,6 +4912,24 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Checks the part snapshot's MODULE nodes for a ModuleJettison with
+        /// isJettisoned = True, indicating the shroud was already jettisoned
+        /// when the snapshot was captured.
+        /// </summary>
+        internal static bool IsJettisonedInSnapshot(ConfigNode partNode)
+        {
+            var modules = partNode.GetNodes("MODULE");
+            for (int i = 0; i < modules.Length; i++)
+            {
+                if (modules[i].GetValue("name") != "ModuleJettison") continue;
+                string val = modules[i].GetValue("isJettisoned");
+                if (val != null && val.Equals("True", System.StringComparison.OrdinalIgnoreCase))
+                    return true;
+            }
+            return false;
+        }
+
+        /// <summary>
         /// Mirrors all model transforms into the ghost cloneMap so that animations can
         /// find intermediate non-mesh transforms. The mesh-cloning phase only creates
         /// transforms leading to renderers; this fills in the rest.
@@ -5329,6 +5347,24 @@ namespace Parsek
             // Detect jettison parts (shrouds/fairings) via cloneMap.
             jettisonInfo = ResolveJettisonTransforms(
                 prefab, cloneMap, persistentId, partName);
+
+            // If the snapshot MODULE data shows the shroud is already jettisoned,
+            // hide the transforms immediately. Continuation recordings (tree
+            // promotions) skip seed events to avoid poisoning FindLastInterestingUT,
+            // so the ghost would otherwise display the shroud until the first
+            // playback event — which never comes for continuations (#290).
+            if (jettisonInfo != null && partNode != null
+                && IsJettisonedInSnapshot(partNode))
+            {
+                for (int ji = 0; ji < jettisonInfo.jettisonTransforms.Count; ji++)
+                {
+                    var jt = jettisonInfo.jettisonTransforms[ji];
+                    if (jt != null) jt.gameObject.SetActive(false);
+                }
+                ParsekLog.VerboseRateLimited("GhostVisual", $"jettison_snapshot_{partName}",
+                    $"    Part '{partName}' pid={persistentId}: jettison transforms hidden " +
+                    $"(isJettisoned=True in snapshot MODULE data)", 60.0);
+            }
 
             // Detect engine parts and clone FX particle systems
             engineInfos = EngineFxBuilder.TryBuildEngineFX(prefab, persistentId, partName, modelRoot,
