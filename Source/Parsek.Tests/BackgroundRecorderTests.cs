@@ -1057,7 +1057,7 @@ namespace Parsek.Tests
                     l.Contains("Inherited engine key merged") &&
                     l.Contains("pid=500") &&
                     l.Contains("midx=2") &&
-                    l.Contains("#295"));
+                    l.Contains("#298"));
             }
             finally
             {

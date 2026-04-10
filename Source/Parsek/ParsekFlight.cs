@@ -3078,6 +3078,26 @@ namespace Parsek
             // activeEngineKeys/lastThrottle survive StopRecordingForChainBoundary
             // (FinalizeRecordingState does not clear them).
             InheritedEngineState? splitEngineState = InheritedEngineState.FromRecorder(splitRecorder);
+            ParsekLog.Verbose("Coalescer",
+                $"PromoteToTreeForBreakup: inherited engine state snapshot: " +
+                $"engines={splitEngineState?.activeEngineKeys?.Count ?? 0} " +
+                $"rcs={splitEngineState?.activeRcsKeys?.Count ?? 0} " +
+                $"(null={!splitEngineState.HasValue})");
+
+            // Bug #299: remove terminal EngineShutdown/RCSStop events from CaptureAtStop.
+            // StopRecordingForChainBoundary bakes CaptureAtStop with terminals already in
+            // PartEvents. RemoveLastEmittedTerminals would clean the recorder's internal
+            // list, but CaptureAtStop.PartEvents is a separate copy. Remove from the copy
+            // directly using the saved lastEmittedTerminalEvents.
+            if (splitRecorder.CaptureAtStop != null && splitRecorder.lastEmittedTerminalEvents != null)
+            {
+                int cleanedTerminals = FlightRecorder.RemoveTerminalsFromList(
+                    splitRecorder.CaptureAtStop.PartEvents, splitRecorder.lastEmittedTerminalEvents);
+                if (cleanedTerminals > 0)
+                    ParsekLog.Info("Coalescer",
+                        $"PromoteToTreeForBreakup: removed {cleanedTerminals} terminal event(s) " +
+                        $"from CaptureAtStop (#299)");
+            }
 
             if (splitRecorder.CaptureAtStop == null)
             {

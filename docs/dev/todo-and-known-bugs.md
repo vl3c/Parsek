@@ -4,6 +4,16 @@ Previous entries (225 bugs, 51 TODOs — mostly resolved) archived in `done/todo
 
 ---
 
+## ~~299. Terminal EngineShutdown events survive into committed recordings via CaptureAtStop~~
+
+`PromoteToTreeForBreakup` calls `StopRecordingForChainBoundary()` which emits terminal events AND bakes them into `CaptureAtStop.PartEvents` (a copy). `RemoveLastEmittedTerminals()` only cleans the recorder's internal list, not the copy. Terminal events survive into the tree root recording via `cap.PartEvents` → `rootRec.PartEvents`.
+
+**Fix:** New `FlightRecorder.RemoveTerminalsFromList` static helper removes terminals from an arbitrary `List<PartEvent>`. Called in `PromoteToTreeForBreakup` on `CaptureAtStop.PartEvents` immediately after stop, using `lastEmittedTerminalEvents` as the removal set.
+
+**Status:** Fixed.
+
+---
+
 ## ~~298. Ghost engine/RCS flames missing on debris booster ghosts after staging~~
 
 Surfaced by 2026-04-10 Kerbal X playtest (`logs/2026-04-10_engine-plume-bug`). Debris booster ghosts (child recordings from decoupled boosters) show NO engine flames, even though the boosters were still burning at separation. Audio plays correctly.

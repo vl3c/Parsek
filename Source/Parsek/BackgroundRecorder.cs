@@ -1647,6 +1647,12 @@ namespace Parsek
             // known-good state to fill in the gaps.
             if (inherited.HasValue)
             {
+                var inh = inherited.Value;
+                ParsekLog.Verbose("BgRecorder",
+                    $"InitializeLoadedState: inherited state for pid={vesselPid}: " +
+                    $"engines={inh.activeEngineKeys?.Count ?? 0} rcs={inh.activeRcsKeys?.Count ?? 0} " +
+                    $"childParts={v.parts?.Count ?? 0}");
+
                 var childPartPids = new HashSet<uint>();
                 if (v.parts != null)
                     for (int i = 0; i < v.parts.Count; i++)
@@ -1660,6 +1666,15 @@ namespace Parsek
                 if (merged > 0)
                     ParsekLog.Info("BgRecorder",
                         $"Merged {merged} inherited engine/RCS key(s) for pid={vesselPid} recId={recordingId} (#298)");
+                else
+                    ParsekLog.Verbose("BgRecorder",
+                        $"InitializeLoadedState: 0 inherited keys merged for pid={vesselPid} " +
+                        $"(no matching PIDs on child, or all already seeded)");
+            }
+            else
+            {
+                ParsekLog.Verbose("BgRecorder",
+                    $"InitializeLoadedState: no inherited state for pid={vesselPid} (inherited=null)");
             }
 
             // Emit seed events ONLY if the recording has no part events yet.

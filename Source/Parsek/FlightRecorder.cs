@@ -4755,6 +4755,32 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Removes terminal events from an arbitrary PartEvent list using the same
+        /// content-matching logic as RemoveLastEmittedTerminals. Used by callers that
+        /// need to clean terminals from a COPY of the recorder's events (e.g.,
+        /// CaptureAtStop.PartEvents) rather than the recorder's own live list.
+        /// Bug #299 — PromoteToTreeForBreakup bakes CaptureAtStop BEFORE the caller
+        /// can call RemoveLastEmittedTerminals on the recorder's internal list.
+        /// </summary>
+        internal static int RemoveTerminalsFromList(List<PartEvent> targetList, List<PartEvent> terminals)
+        {
+            if (targetList == null || terminals == null || terminals.Count == 0)
+                return 0;
+
+            int removed = 0;
+            for (int i = 0; i < terminals.Count; i++)
+            {
+                int idx = FindTerminalEventIndex(targetList, terminals[i]);
+                if (idx >= 0)
+                {
+                    targetList.RemoveAt(idx);
+                    removed++;
+                }
+            }
+            return removed;
+        }
+
+        /// <summary>
         /// Pure helper: finds the index of the first <see cref="PartEvent"/> in
         /// <paramref name="list"/> that matches <paramref name="target"/> by
         /// (ut, partPersistentId, eventType, moduleIndex). Returns -1 if not found.
