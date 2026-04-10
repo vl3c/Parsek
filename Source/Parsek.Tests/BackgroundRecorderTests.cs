@@ -846,9 +846,10 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void MergeInheritedEngineState_AlreadySeeded_NotOverwritten()
+        public void MergeInheritedEngineState_AlreadySeeded_UpgradesThrottle()
         {
-            // Parent had engine at throttle 0.85, but child already seeded it at 0.5
+            // Parent had engine at throttle 0.85, child seeded at 0.0 (KSP timing lag).
+            // Inherited throttle should upgrade the zero to the parent's value.
             ulong key = FlightRecorder.EncodeEngineKey(500, 0);
             var inherited = new InheritedEngineState
             {
@@ -859,7 +860,7 @@ namespace Parsek.Tests
             };
 
             var activeEngineKeys = new HashSet<ulong> { key }; // already seeded
-            var lastThrottle = new Dictionary<ulong, float> { { key, 0.5f } };
+            var lastThrottle = new Dictionary<ulong, float> { { key, 0.0f } }; // zero from SeedEngines
             var activeRcsKeys = new HashSet<ulong>();
             var lastRcsThrottle = new Dictionary<ulong, float>();
             var childPartPids = new HashSet<uint> { 500 };
@@ -868,8 +869,36 @@ namespace Parsek.Tests
                 inherited, activeEngineKeys, lastThrottle,
                 activeRcsKeys, lastRcsThrottle, childPartPids);
 
-            Assert.Equal(0, merged); // not merged — already present
-            Assert.Equal(0.5f, lastThrottle[key]); // original value preserved
+            Assert.Equal(1, merged); // throttle upgraded
+            Assert.Equal(0.85f, lastThrottle[key]); // inherited value replaces zero
+        }
+
+        [Fact]
+        public void MergeInheritedEngineState_AlreadySeeded_HigherThrottlePreserved()
+        {
+            // Parent had engine at throttle 0.5, child already seeded at 0.8 (live state is better).
+            // Inherited throttle should NOT downgrade.
+            ulong key = FlightRecorder.EncodeEngineKey(500, 0);
+            var inherited = new InheritedEngineState
+            {
+                activeEngineKeys = new HashSet<ulong> { key },
+                engineThrottles = new Dictionary<ulong, float> { { key, 0.5f } },
+                activeRcsKeys = null,
+                rcsThrottles = null
+            };
+
+            var activeEngineKeys = new HashSet<ulong> { key };
+            var lastThrottle = new Dictionary<ulong, float> { { key, 0.8f } };
+            var activeRcsKeys = new HashSet<ulong>();
+            var lastRcsThrottle = new Dictionary<ulong, float>();
+            var childPartPids = new HashSet<uint> { 500 };
+
+            int merged = BackgroundRecorder.MergeInheritedEngineState(
+                inherited, activeEngineKeys, lastThrottle,
+                activeRcsKeys, lastRcsThrottle, childPartPids);
+
+            Assert.Equal(0, merged); // not upgraded — existing is higher
+            Assert.Equal(0.8f, lastThrottle[key]); // original preserved
         }
 
         [Fact]

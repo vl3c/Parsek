@@ -1639,10 +1639,32 @@ namespace Parsek
             if (inherited.HasValue)
             {
                 var inh = inherited.Value;
+                // Diagnostic: log inherited PIDs and child PIDs for merge debugging
+                string inhPids = "none";
+                if (inh.activeEngineKeys != null && inh.activeEngineKeys.Count > 0)
+                {
+                    var pidStrs = new List<string>();
+                    foreach (ulong key in inh.activeEngineKeys)
+                    {
+                        uint dp; int dm;
+                        FlightRecorder.DecodeEngineKey(key, out dp, out dm);
+                        pidStrs.Add($"{dp}:{dm}");
+                    }
+                    inhPids = string.Join(",", pidStrs);
+                }
+                string childPidStr = "none";
+                if (v.parts != null && v.parts.Count > 0)
+                {
+                    var cpids = new List<string>();
+                    for (int i = 0; i < v.parts.Count; i++)
+                        if (v.parts[i] != null)
+                            cpids.Add(v.parts[i].persistentId.ToString());
+                    childPidStr = string.Join(",", cpids);
+                }
                 ParsekLog.Verbose("BgRecorder",
                     $"InitializeLoadedState: inherited state for pid={vesselPid}: " +
                     $"engines={inh.activeEngineKeys?.Count ?? 0} rcs={inh.activeRcsKeys?.Count ?? 0} " +
-                    $"childParts={v.parts?.Count ?? 0}");
+                    $"childParts={v.parts?.Count ?? 0} inhPids=[{inhPids}] childPids=[{childPidStr}]");
 
                 var childPartPids = new HashSet<uint>();
                 if (v.parts != null)
@@ -1804,8 +1826,9 @@ namespace Parsek
             };
         }
 
-        /// child vessel are merged. Uses add-if-absent semantics — does not overwrite
-        /// keys already seeded from live vessel state by SeedEngines.
+        /// child vessel are merged. Upgrades throttle if the inherited value is higher
+        /// than the live-seeded value — SeedEngines may find throttle=0 (KSP timing)
+        /// while the parent had the engine at full power before breakup.
         /// Pure static method for testability. Bug #298.
         /// </summary>
         internal static int MergeInheritedEngineState(
@@ -1824,23 +1847,41 @@ namespace Parsek
             {
                 foreach (ulong key in inh.activeEngineKeys)
                 {
-                    if (targetActiveEngineKeys.Contains(key)) continue; // already seeded from live state
                     uint pid; int midx;
                     FlightRecorder.DecodeEngineKey(key, out pid, out midx);
                     if (!childPartPids.Contains(pid)) continue; // engine not on this child vessel
-                    targetActiveEngineKeys.Add(key);
-                    float throttle = 1f;
+
+                    float inhThrottle = 1f;
                     if (inh.engineThrottles != null)
                     {
                         float t;
                         if (inh.engineThrottles.TryGetValue(key, out t))
-                            throttle = t;
+                            inhThrottle = t;
                     }
-                    if (!targetLastThrottle.ContainsKey(key))
-                        targetLastThrottle[key] = throttle;
+
+                    if (targetActiveEngineKeys.Contains(key))
+                    {
+                        // Already seeded by SeedEngines — upgrade throttle if inherited is higher.
+                        // SeedEngines may find throttle=0 (KSP hasn't propagated throttle to
+                        // debris yet) while the parent had the engine at full power.
+                        float existing = 0f;
+                        targetLastThrottle.TryGetValue(key, out existing);
+                        if (inhThrottle > existing)
+                        {
+                            targetLastThrottle[key] = inhThrottle;
+                            merged++;
+                            ParsekLog.Verbose("BgRecorder",
+                                $"Inherited engine throttle upgraded: pid={pid} midx={midx} " +
+                                $"{existing:F2}→{inhThrottle:F2} (#298)");
+                        }
+                        continue;
+                    }
+
+                    targetActiveEngineKeys.Add(key);
+                    targetLastThrottle[key] = inhThrottle;
                     merged++;
                     ParsekLog.Verbose("BgRecorder",
-                        $"Inherited engine key merged: pid={pid} midx={midx} throttle={throttle:F2} (#298)");
+                        $"Inherited engine key merged: pid={pid} midx={midx} throttle={inhThrottle:F2} (#298)");
                 }
             }
 
@@ -1848,23 +1889,38 @@ namespace Parsek
             {
                 foreach (ulong key in inh.activeRcsKeys)
                 {
-                    if (targetActiveRcsKeys.Contains(key)) continue;
                     uint pid; int midx;
                     FlightRecorder.DecodeEngineKey(key, out pid, out midx);
                     if (!childPartPids.Contains(pid)) continue;
-                    targetActiveRcsKeys.Add(key);
-                    float throttle = 1f;
+
+                    float inhThrottle = 1f;
                     if (inh.rcsThrottles != null)
                     {
                         float t;
                         if (inh.rcsThrottles.TryGetValue(key, out t))
-                            throttle = t;
+                            inhThrottle = t;
                     }
-                    if (!targetLastRcsThrottle.ContainsKey(key))
-                        targetLastRcsThrottle[key] = throttle;
+
+                    if (targetActiveRcsKeys.Contains(key))
+                    {
+                        float existing = 0f;
+                        targetLastRcsThrottle.TryGetValue(key, out existing);
+                        if (inhThrottle > existing)
+                        {
+                            targetLastRcsThrottle[key] = inhThrottle;
+                            merged++;
+                            ParsekLog.Verbose("BgRecorder",
+                                $"Inherited RCS throttle upgraded: pid={pid} midx={midx} " +
+                                $"{existing:F2}→{inhThrottle:F2} (#298)");
+                        }
+                        continue;
+                    }
+
+                    targetActiveRcsKeys.Add(key);
+                    targetLastRcsThrottle[key] = inhThrottle;
                     merged++;
                     ParsekLog.Verbose("BgRecorder",
-                        $"Inherited RCS key merged: pid={pid} midx={midx} throttle={throttle:F2} (#298)");
+                        $"Inherited RCS key merged: pid={pid} midx={midx} throttle={inhThrottle:F2} (#298)");
                 }
             }
 
