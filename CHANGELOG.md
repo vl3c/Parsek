@@ -41,8 +41,12 @@ Dev notes: technical narratives for the fixes below live in `docs/dev/todo-and-k
 
 ### Bug Fixes & Maintenance
 
+- `#302` Tree recordings no longer falsely auto-discarded as "idle on pad" after a scene change — max distance from launch was lost during save/load, making every recording appear to have never left the pad.
 - **Fix ghost icon popup appearing at screen center instead of near cursor (#196).** Matched KSP's stock `MapContextMenu` positioning pattern: (0,0) anchors, forced layout rebuild, and `AnchorOffset` so the menu opens below the click point.
 - `#283` Fixed ghost position pops at TrackSection boundaries by seeding the new section with the closing section's boundary point; also skips spurious cross-reference-frame discontinuity warnings.
+- `#298` Ghost engine/RCS flames now auto-start on debris booster ghosts whose engines were running at separation. Debris recordings also get proper EngineIgnited seed events inherited from the parent vessel at decouple time.
+- `#299` Terminal EngineShutdown events no longer survive into committed recordings when a standalone recording promotes to a tree during breakup.
+
 - `#291` EVA spawn walkback now correctly detects the active vessel (parent rocket) as a blocker, so kerbals walk back to a clear position instead of spawning on top of their parent vessel.
 - `#285` Background vessel splits no longer create empty parent-continuation recordings when the parent vessel is already destroyed.
 - `#288` Ghost map icons now appear immediately after re-entry from orbit instead of requiring W (Watch) to be pressed first.

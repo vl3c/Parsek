@@ -72,6 +72,15 @@ namespace Parsek
         private Dictionary<ulong, float> lastThrottle;
         private HashSet<ulong> loggedEngineModuleKeys = new HashSet<ulong>();
 
+        /// <summary>Bug #298: access to active engine/RCS state for parent-to-child
+        /// inheritance during breakup. Populated by SeedExistingPartStates, NOT cleared by
+        /// FinalizeRecordingState — survives StopRecordingForChainBoundary. Callers must
+        /// defensively copy if they need a snapshot (these are live mutable references).</summary>
+        internal HashSet<ulong> ActiveEngineKeys => activeEngineKeys;
+        internal Dictionary<ulong, float> LastEngineThrottles => lastThrottle;
+        internal HashSet<ulong> ActiveRcsKeys => activeRcsKeys;
+        internal Dictionary<ulong, float> LastRcsThrottles => lastRcsThrottle;
+
         // RCS state tracking (separate dicts from engines — keys can overlap for same part)
         private List<(Part part, ModuleRCS rcs, int moduleIndex)> cachedRcsModules;
         private HashSet<ulong> activeRcsKeys;
@@ -4742,6 +4751,32 @@ namespace Parsek
             }
 
             lastEmittedTerminalEvents = null;
+            return removed;
+        }
+
+        /// <summary>
+        /// Removes terminal events from an arbitrary PartEvent list using the same
+        /// content-matching logic as RemoveLastEmittedTerminals. Used by callers that
+        /// need to clean terminals from a COPY of the recorder's events (e.g.,
+        /// CaptureAtStop.PartEvents) rather than the recorder's own live list.
+        /// Bug #299 — PromoteToTreeForBreakup bakes CaptureAtStop BEFORE the caller
+        /// can call RemoveLastEmittedTerminals on the recorder's internal list.
+        /// </summary>
+        internal static int RemoveTerminalsFromList(List<PartEvent> targetList, List<PartEvent> terminals)
+        {
+            if (targetList == null || terminals == null || terminals.Count == 0)
+                return 0;
+
+            int removed = 0;
+            for (int i = 0; i < terminals.Count; i++)
+            {
+                int idx = FindTerminalEventIndex(targetList, terminals[i]);
+                if (idx >= 0)
+                {
+                    targetList.RemoveAt(idx);
+                    removed++;
+                }
+            }
             return removed;
         }
 

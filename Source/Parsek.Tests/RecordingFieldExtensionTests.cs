@@ -242,6 +242,50 @@ namespace Parsek.Tests
                 l.Contains("test_ctrl_log"));
         }
 
+        // --- Round-trip: MaxDistanceFromLaunch (#302) ---
+
+        [Fact]
+        public void MaxDistanceFromLaunch_RoundTrip_PreservedAcrossReload()
+        {
+            var rec = new Recording();
+            rec.RecordingId = "test_maxdist";
+            rec.MaxDistanceFromLaunch = 12345.6;
+
+            var node = new ConfigNode("RECORDING");
+            RecordingTree.SaveRecordingInto(node, rec);
+
+            var restored = new Recording();
+            RecordingTree.LoadRecordingFrom(node, restored);
+
+            Assert.Equal(12345.6, restored.MaxDistanceFromLaunch, 1);
+        }
+
+        [Fact]
+        public void MaxDistanceFromLaunch_Zero_NotWrittenToConfigNode()
+        {
+            var rec = new Recording();
+            rec.RecordingId = "test_maxdist_zero";
+            rec.MaxDistanceFromLaunch = 0.0;
+
+            var node = new ConfigNode("RECORDING");
+            RecordingTree.SaveRecordingInto(node, rec);
+
+            Assert.Null(node.GetValue("maxDist"));
+        }
+
+        [Fact]
+        public void BackwardCompat_NoMaxDist_DefaultsToZero()
+        {
+            var node = new ConfigNode("RECORDING");
+            node.AddValue("recordingId", "legacy_no_maxdist");
+            node.AddValue("vesselName", "OldVessel");
+
+            var rec = new Recording();
+            RecordingTree.LoadRecordingFrom(node, rec);
+
+            Assert.Equal(0.0, rec.MaxDistanceFromLaunch);
+        }
+
         // --- Log assertion: loading controllers logs the count ---
 
         [Fact]
