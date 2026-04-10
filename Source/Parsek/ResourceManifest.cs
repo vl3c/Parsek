@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Globalization;
 
 namespace Parsek
 {
@@ -13,7 +14,7 @@ namespace Parsek
 
         public override string ToString()
         {
-            return $"{amount:F1}/{maxAmount:F1}";
+            return string.Format(CultureInfo.InvariantCulture, "{0:F1}/{1:F1}", amount, maxAmount);
         }
     }
 
