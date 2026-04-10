@@ -490,8 +490,12 @@ namespace Parsek
                 ParsekLog.VerboseRateLimited("Spawner", "eva-bounds-" + index,
                     $"CheckSpawnCollisions: EVA bounds={spawnBounds.size} for #{index} ({rec.VesselName})");
             }
+            // EVA spawns must detect the active vessel (parent rocket) as a blocker
+            // so walkback can find a clear position (#291). Non-EVA spawns skip it
+            // to avoid the player's vessel blocking its own recording's spawn.
+            bool skipActive = !isEva;
             var (overlap, overlapDist, blockerName, blockerVessel) =
-                SpawnCollisionDetector.CheckOverlapAgainstLoadedVessels(spawnPos, spawnBounds, 5f);
+                SpawnCollisionDetector.CheckOverlapAgainstLoadedVessels(spawnPos, spawnBounds, 5f, skipActive);
             if (overlap)
             {
                 // Precedence: duplicate-blocker-recovery FIRST (#112), walkback SECOND (#264).
@@ -515,7 +519,7 @@ namespace Parsek
 
                     // Re-check overlap after recovery — another vessel may still block
                     var (stillOverlap, recheckDist, recheckName, _) =
-                        SpawnCollisionDetector.CheckOverlapAgainstLoadedVessels(spawnPos, spawnBounds, 5f);
+                        SpawnCollisionDetector.CheckOverlapAgainstLoadedVessels(spawnPos, spawnBounds, 5f, skipActive);
                     if (!stillOverlap)
                     {
                         // Blocker removed, no other overlap — fall through to spawn at original position
@@ -602,6 +606,8 @@ namespace Parsek
                 return false;
             }
 
+            // EVA spawns must detect the active vessel as a blocker (#291)
+            bool skipActive = string.IsNullOrEmpty(rec.EvaCrewName);
             var walkResult = SpawnCollisionDetector.WalkbackAlongTrajectorySubdivided(
                 rec.Points,
                 body.Radius,
@@ -610,7 +616,7 @@ namespace Parsek
                 worldPos =>
                 {
                     var (ov, _, _, _) = SpawnCollisionDetector.CheckOverlapAgainstLoadedVessels(
-                        worldPos, spawnBounds, 5f);
+                        worldPos, spawnBounds, 5f, skipActive);
                     return ov;
                 });
 

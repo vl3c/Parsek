@@ -467,41 +467,60 @@ namespace Parsek
             // Add BranchPoint to tree
             tree.BranchPoints.Add(bp);
 
-            // Create a continuation recording for the parent vessel itself
-            // (it keeps existing with potentially fewer parts).
-            // The continuation stays at the same Generation as the parent — it's
-            // the same logical vessel, just with fewer parts. Only spinoff children
-            // get parentGeneration + 1.
-            // NOTE: with MaxRecordingGeneration=1 the cap above this point already
-            // returned for any parentRec.Generation >= 1, so today this assignment
-            // is always Generation=0. Kept explicit so future cap bumps (e.g.
-            // MaxRecordingGeneration=2) just work without re-auditing this site.
-            string parentContRecId = System.Guid.NewGuid().ToString("N");
-            var parentContRec = new Recording
-            {
-                RecordingId = parentContRecId,
-                TreeId = tree.Id,
-                VesselPersistentId = parentPid,
-                VesselName = parentRec.VesselName,
-                ParentBranchPointId = bp.Id,
-                ExplicitStartUT = branchUT,
-                IsDebris = parentRec.IsDebris,
-                Generation = parentRec.Generation
-            };
-            bp.ChildRecordingIds.Insert(0, parentContRecId);
-            tree.Recordings[parentContRecId] = parentContRec;
-            tree.BackgroundMap[parentPid] = parentContRecId;
+            // Only create a parent continuation if the parent vessel still exists.
+            // If the parent was destroyed before the deferred split check ran (bug #285),
+            // skip the continuation — the parent recording is already closed above with
+            // ChildBranchPointId set. Creating a continuation for a dead vessel would
+            // produce an empty Recording (zero points) that clutters disk and logs.
+            Vessel parentVessel = FlightRecorder.FindVesselByPid(parentPid);
+            int continuationCount = 0;
 
-            // Re-initialize tracking state for the parent continuation
-            OnVesselBackgrounded(parentPid);
-
-            // Set TTL for parent continuation if it's debris
-            if (parentRec.IsDebris)
+            if (parentVessel != null)
             {
-                debrisTTLExpiry[parentPid] = branchUT + DebrisTTLSeconds;
+                // Create a continuation recording for the parent vessel itself
+                // (it keeps existing with potentially fewer parts).
+                // The continuation stays at the same Generation as the parent — it's
+                // the same logical vessel, just with fewer parts. Only spinoff children
+                // get parentGeneration + 1.
+                // NOTE: with MaxRecordingGeneration=1 the cap above this point already
+                // returned for any parentRec.Generation >= 1, so today this assignment
+                // is always Generation=0. Kept explicit so future cap bumps (e.g.
+                // MaxRecordingGeneration=2) just work without re-auditing this site.
+                string parentContRecId = System.Guid.NewGuid().ToString("N");
+                var parentContRec = new Recording
+                {
+                    RecordingId = parentContRecId,
+                    TreeId = tree.Id,
+                    VesselPersistentId = parentPid,
+                    VesselName = parentRec.VesselName,
+                    ParentBranchPointId = bp.Id,
+                    ExplicitStartUT = branchUT,
+                    IsDebris = parentRec.IsDebris,
+                    Generation = parentRec.Generation
+                };
+                bp.ChildRecordingIds.Insert(0, parentContRecId);
+                tree.Recordings[parentContRecId] = parentContRec;
+                tree.BackgroundMap[parentPid] = parentContRecId;
+
+                // Re-initialize tracking state for the parent continuation
+                OnVesselBackgrounded(parentPid);
+
+                // Set TTL for parent continuation if it's debris
+                if (parentRec.IsDebris)
+                {
+                    debrisTTLExpiry[parentPid] = branchUT + DebrisTTLSeconds;
+                    ParsekLog.Info("BgRecorder",
+                        $"Parent continuation is debris, TTL set: parentPid={parentPid} " +
+                        $"expiry={branchUT + DebrisTTLSeconds:F1}");
+                }
+
+                continuationCount = 1;
+            }
+            else
+            {
                 ParsekLog.Info("BgRecorder",
-                    $"Parent continuation is debris, TTL set: parentPid={parentPid} " +
-                    $"expiry={branchUT + DebrisTTLSeconds:F1}");
+                    $"Skipping parent continuation — parent vessel destroyed: " +
+                    $"parentPid={parentPid} parentRec={parentRec.DebugName}");
             }
 
             // Add each child recording to tree and BackgroundMap
@@ -510,7 +529,7 @@ namespace Parsek
             ParsekLog.Info("BgRecorder",
                 $"Background split branch complete: bp={bp.Id} type={branchType} " +
                 $"parentRecId={parentRecordingId} children={bp.ChildRecordingIds.Count} " +
-                $"(1 parent continuation + {newVesselInfos.Count} new vessels)");
+                $"({continuationCount} parent continuation + {newVesselInfos.Count} new vessels)");
         }
 
         /// <summary>
@@ -611,7 +630,8 @@ namespace Parsek
         /// <summary>
         /// Pure static method: creates a BranchPoint and child Recording objects for a
         /// background vessel split. Testable without Unity.
-        /// The parent vessel gets a continuation recording (added by the caller);
+        /// The parent vessel may get a continuation recording (added by the caller
+        /// if the parent vessel still exists — see bug #285);
         /// this method creates recordings for the NEW child vessels only.
         /// Children inherit Generation = parentGeneration + 1. The cascade-depth cap
         /// is NOT applied here — the caller (HandleBackgroundVesselSplit) decides
@@ -904,8 +924,12 @@ namespace Parsek
                     ParsekLog.Info("BgRecorder",
                         $"Environment transition: pid={pid} -> {newEnv} " +
                         $"at UT={ut.ToString("F2", CultureInfo.InvariantCulture)}");
+
+                    // Capture boundary point before closing (#283)
+                    TrajectoryPoint? boundaryPoint = GetLastBackgroundFrame(state);
                     CloseBackgroundTrackSection(state, ut);
                     StartBackgroundTrackSection(state, newEnv, ReferenceFrame.Absolute, ut);
+                    SeedBackgroundBoundaryPoint(state, boundaryPoint);
                 }
             }
 
@@ -1846,6 +1870,31 @@ namespace Parsek
             ParsekLog.Info("BgRecorder",
                 $"TrackSection started: env=ExoBallistic ref=OrbitalCheckpoint source=Checkpoint " +
                 $"pid={state.vesselPid} at UT={ut.ToString("F2", CultureInfo.InvariantCulture)}");
+        }
+
+        /// <summary>
+        /// Returns the last trajectory frame of a background vessel's current TrackSection,
+        /// or null if empty/inactive. Used to capture a boundary point before closing (#283).
+        /// </summary>
+        private static TrajectoryPoint? GetLastBackgroundFrame(BackgroundVesselState state)
+        {
+            if (state.trackSectionActive && state.currentTrackSection.frames != null
+                && state.currentTrackSection.frames.Count > 0)
+                return state.currentTrackSection.frames[state.currentTrackSection.frames.Count - 1];
+            return null;
+        }
+
+        /// <summary>
+        /// Seeds a background vessel's current (newly opened) TrackSection with a boundary
+        /// point from the previous section, eliminating position discontinuities (#283).
+        /// </summary>
+        private static void SeedBackgroundBoundaryPoint(BackgroundVesselState state, TrajectoryPoint? point)
+        {
+            if (!point.HasValue) return;
+            if (!state.trackSectionActive || state.currentTrackSection.frames == null) return;
+            state.currentTrackSection.frames.Add(point.Value);
+            ParsekLog.Verbose("BgRecorder",
+                $"Boundary point seeded: pid={state.vesselPid} ut={point.Value.ut.ToString("F2", CultureInfo.InvariantCulture)}");
         }
 
         /// <summary>
