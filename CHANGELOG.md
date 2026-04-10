@@ -32,7 +32,7 @@ Dev notes: technical narratives for the fixes below live in `docs/dev/todo-and-k
 ### Bug Fixes — Kerbal X Mun-flyby playtest (2026-04-10)
 
 - `#288` Ghost map icons now appear immediately after re-entry from orbit instead of requiring W (Watch) to be pressed first. The terminal orbit cache is now eagerly populated when recordings are loaded from disk.
-- `#289` End-of-mission spawn-at-end now correctly materializes splashed-down vessels and EVA kerbals after a rewind+merge (autoMerge OFF mode). Vessel snapshots are refreshed on scene exit when the recording reached a stable terminal state, and the fresh snapshot is force-written to its sidecar so it survives the next OnLoad.
+- `#289` End-of-mission spawn-at-end now correctly materializes splashed-down vessels and EVA kerbals after a rewind+merge. Vessel snapshots are refreshed on scene exit when the recording reached a stable terminal state, and the fresh snapshot is force-written to its sidecar so it survives the next OnLoad.
 - `#292` F9 quickload after a Tree Merge no longer silently drops recordings created during the merge. The quicksave is now refreshed automatically when the user clicks "Merge to Timeline".
 
 ### Bug Fixes — KerbalX + Butterfly Rover playtest (2026-04-09)

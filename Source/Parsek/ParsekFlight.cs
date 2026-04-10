@@ -6012,10 +6012,18 @@ namespace Parsek
             // Finalize all recordings
             FinalizeTreeRecordings(activeTree, commitUT, isSceneExit: true);
 
-            // Null all vessel snapshots (no spawning on scene exit)
+            // Null vessel snapshots for recordings that don't need spawn-at-end.
+            // Preserve snapshots for stable-terminal recordings (Landed/Splashed/Orbiting)
+            // so the snapshot's sit field survives the save→load round-trip and the
+            // spawn-at-end safety check doesn't block with "snapshot situation unsafe". (#289)
             foreach (var rec in activeTree.Recordings.Values)
             {
-                rec.VesselSnapshot = null;
+                bool keepForSpawn = rec.TerminalStateValue.HasValue
+                    && (rec.TerminalStateValue.Value == TerminalState.Landed
+                        || rec.TerminalStateValue.Value == TerminalState.Splashed
+                        || rec.TerminalStateValue.Value == TerminalState.Orbiting);
+                if (!keepForSpawn)
+                    rec.VesselSnapshot = null;
             }
 
             // Stash as pending tree -- auto-committed ghost-only by ParsekScenario.OnLoad
