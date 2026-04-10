@@ -539,7 +539,7 @@ namespace Parsek
                 out grpToRecs, out chainToRecs, out grpChildren, out rootGrps, out rootChainIds);
         }
 
-        internal enum SortColumn { Index, Phase, Name, LaunchTime, Duration, Status }
+        internal enum SortColumn { Index, Phase, Name, LaunchTime, Duration, Status, LaunchSite }
 
         internal static int GetStatusOrder(Recording rec, double now)
             => RecordingsTableUI.GetStatusOrder(rec, now);
