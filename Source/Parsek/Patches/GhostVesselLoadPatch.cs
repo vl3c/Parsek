@@ -1,7 +1,9 @@
 using System.Reflection;
 using CommNet;
 using HarmonyLib;
+using KSP.UI.Screens.Mapview;
 using UnityEngine;
+using UnityEngine.UI;
 
 namespace Parsek.Patches
 {
@@ -110,35 +112,35 @@ namespace Parsek.Patches
                 }, dismissOnSelect: true)
             };
 
-            // Anchors at (0.5,0.5) = screen center. SpawnPopupDialog forces
-            // localPosition=zero, placing the dialog at center. We then offset
-            // via CanvasUtil.ScreenToUISpacePos which converts screen pixels to
-            // canvas-center-relative coordinates (matching the 0.5/0.5 anchor).
+            // Anchors at (0,0) — matches KSP's MapContextMenu pattern (#196).
+            // SpawnPopupDialog forces localPosition=zero after setting anchors;
+            // we reposition immediately after using the same approach as stock.
             currentGhostMenu = PopupDialog.SpawnPopupDialog(
-                new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f),
+                Vector2.zero, Vector2.zero,
                 new MultiOptionDialog("GhostIconMenu", "", vesselName,
                     HighLogic.UISkin, 160f, options),
                 persistAcrossScenes: false, skin: HighLogic.UISkin);
 
-            // Reposition to mouse cursor using KSP's canvas coordinate conversion
+            // Reposition to mouse cursor (#196) — mirrors MapContextMenu.SetupTransform:
+            // force layout rebuild first so the popup has its final size, then convert
+            // screen coords to canvas-local and offset downward so menu opens below cursor.
             if (currentGhostMenu != null)
             {
+                currentGhostMenu.SetDraggable(false);
                 var rt = currentGhostMenu.GetComponent<RectTransform>();
-                if (rt != null && rt.parent != null)
+                if (rt != null)
                 {
-                    // ScreenToUISpacePos converts screen pixels to canvas-local coords
-                    // where (0,0) = canvas center — matches our (0.5,0.5) anchor
-                    bool zPositive;
-                    var canvasRect = rt.parent.GetComponent<RectTransform>()
-                                    ?? rt.root.GetComponent<RectTransform>();
+                    LayoutRebuilder.ForceRebuildLayoutImmediate(rt);
+                    RectTransform canvasRect = MapViewCanvasUtil.MapViewCanvasRect;
                     if (canvasRect != null)
                     {
                         Vector3 uiPos = CanvasUtil.ScreenToUISpacePos(
-                            Input.mousePosition, canvasRect, out zPositive);
+                            Input.mousePosition, canvasRect, out bool zPositive);
+                        uiPos = CanvasUtil.AnchorOffset(uiPos, rt, Vector2.down);
                         rt.localPosition = uiPos;
                         ParsekLog.Verbose("GhostMap",
-                            $"Popup repositioned: screen=({Input.mousePosition.x:F0},{Input.mousePosition.y:F0}) " +
-                            $"canvas=({uiPos.x:F0},{uiPos.y:F0}) canvasSize=({canvasRect.sizeDelta.x:F0},{canvasRect.sizeDelta.y:F0})");
+                            $"Popup positioned at cursor: screen=({Input.mousePosition.x:F0},{Input.mousePosition.y:F0}) " +
+                            $"canvas=({uiPos.x:F0},{uiPos.y:F0})");
                     }
                 }
             }

@@ -697,11 +697,15 @@ After booster separation, 3 of 4 boosters correctly have W disabled, but one sta
 
 **Status:** Fixed
 
-## 196. Ghost icon popup window should appear next to cursor
+## ~~196. Ghost icon popup window should appear next to cursor~~
 
 The popup spawned via `PopupDialog.SpawnPopupDialog` consistently appears at screen center despite attempts to reposition. KSP's `SpawnPopupDialog` forces `localPosition=Vector3.zero` after anchor setup. Need to use the same approach as KSP's `MapContextMenu`: anchor at (0,0), then set `localPosition` via `CanvasUtil.ScreenToUISpacePos`.
 
-**Status:** TODO — deferred
+**Root cause:** Three compounding issues: (1) anchors at (0.5, 0.5) meant `localPosition=zero` placed the popup at screen center, and subsequent positioning was relative to center instead of a stable origin. (2) Missing `LayoutRebuilder.ForceRebuildLayoutImmediate` — without forcing layout completion before setting position, Unity's end-of-frame layout pass could reset the position. (3) Wrong canvas rect — code used the PopupDialogCanvas parent rect instead of `MapViewCanvasUtil.MapViewCanvasRect` (the main UI canvas), and missed `CanvasUtil.AnchorOffset` to push the menu below the click point.
+
+**Fix:** Matched KSP's stock `MapContextMenu.SetupTransform` pattern: (0,0) anchors, `SetDraggable(false)`, `ForceRebuildLayoutImmediate` before positioning, `ScreenToUISpacePos` with `MapViewCanvasUtil.MapViewCanvasRect`, `AnchorOffset` with `Vector2.down` so the menu opens below the cursor. Edge-clamping (popup near screen edge) is a known cosmetic limitation matching stock behavior — not addressed here.
+
+**Status:** Fixed
 
 ## ~~203. Green dot ghost markers at wrong positions near Mun after scene reload~~
 
