@@ -40,7 +40,8 @@ namespace Parsek.Tests
             TrackSectionSource source = TrackSectionSource.Active,
             double lat = 0.0, double lon = 0.0, double alt = 70000.0,
             double endLat = double.NaN, double endLon = double.NaN, double endAlt = double.NaN,
-            string bodyName = "Kerbin")
+            string bodyName = "Kerbin",
+            ReferenceFrame referenceFrame = ReferenceFrame.Absolute)
         {
             if (double.IsNaN(endLat)) endLat = lat;
             if (double.IsNaN(endLon)) endLon = lon;
@@ -69,7 +70,7 @@ namespace Parsek.Tests
             return new TrackSection
             {
                 environment = SegmentEnvironment.Atmospheric,
-                referenceFrame = ReferenceFrame.Absolute,
+                referenceFrame = referenceFrame,
                 startUT = startUT,
                 endUT = endUT,
                 source = source,
@@ -428,6 +429,79 @@ namespace Parsek.Tests
                 $"Expected >400m discontinuity, got {result[1].boundaryDiscontinuityMeters}m");
         }
 
+        [Fact]
+        public void ComputeBoundaryDiscontinuity_SharedBoundaryPoint_ZeroGap()
+        {
+            // When the last frame of section N and first frame of section N+1 are
+            // the same point (boundary seeding fix #283), discontinuity should be 0.
+            var sharedPoint = new TrajectoryPoint
+            {
+                ut = 100.0,
+                latitude = -0.0972, longitude = -74.5575, altitude = 70000,
+                bodyName = "Kerbin", rotation = Quaternion.identity, velocity = Vector3.zero
+            };
+            var prev = MakeSection(0, 100);
+            prev.frames[prev.frames.Count - 1] = sharedPoint;
+
+            var next = MakeSection(100, 200);
+            next.frames[0] = sharedPoint;
+
+            float disc = SessionMerger.ComputeBoundaryDiscontinuity(prev, next);
+            Assert.Equal(0f, disc);
+        }
+
+        [Fact]
+        public void ComputeBoundaryDiscontinuity_CrossReferenceFrame_ReturnsZero()
+        {
+            // ABSOLUTE→RELATIVE boundary: lat/lon/alt have different semantics,
+            // so comparison is skipped (#283).
+            var prev = MakeSection(0, 100, TrackSectionSource.Active,
+                lat: -0.0972, lon: -74.5575, alt: 70000,
+                referenceFrame: ReferenceFrame.Absolute);
+            var next = MakeSection(100, 200, TrackSectionSource.Active,
+                lat: 50.0, lon: 20.0, alt: 100.0,  // relative offsets (meters)
+                referenceFrame: ReferenceFrame.Relative);
+
+            float disc = SessionMerger.ComputeBoundaryDiscontinuity(prev, next);
+            Assert.Equal(0f, disc);
+        }
+
+        [Fact]
+        public void ComputeBoundaryDiscontinuity_SameReferenceFrame_ComputesDistance()
+        {
+            // Same reference frame (both ABSOLUTE) with real position gap → non-zero.
+            var prev = MakeSection(0, 100, TrackSectionSource.Active,
+                lat: 0, lon: 0, alt: 70000,
+                endLat: 0, endLon: 0, endAlt: 70000);
+            var next = MakeSection(100, 200, TrackSectionSource.Active,
+                lat: 0, lon: 0, alt: 70500);
+
+            float disc = SessionMerger.ComputeBoundaryDiscontinuity(prev, next);
+            Assert.True(disc > 400f,
+                $"Expected >400m for 500m altitude gap, got {disc}m");
+        }
+
+        [Fact]
+        public void ResolveOverlaps_CrossReferenceFrameBoundary_ZeroDiscontinuity()
+        {
+            // ABSOLUTE section followed by RELATIVE section — discontinuity should be 0
+            // because cross-frame comparisons are skipped.
+            var sections = new List<TrackSection>
+            {
+                MakeSection(0, 100, TrackSectionSource.Active,
+                    lat: -0.0972, lon: -74.5575, alt: 70000,
+                    referenceFrame: ReferenceFrame.Absolute),
+                MakeSection(100, 200, TrackSectionSource.Active,
+                    lat: 50.0, lon: 20.0, alt: 100.0,
+                    referenceFrame: ReferenceFrame.Relative)
+            };
+
+            var result = SessionMerger.ResolveOverlaps(sections);
+
+            Assert.Equal(2, result.Count);
+            Assert.Equal(0f, result[1].boundaryDiscontinuityMeters);
+        }
+
         #endregion
 
         #region PartEvent deduplication
@@ -657,6 +731,32 @@ namespace Parsek.Tests
             SessionMerger.MergeTree(tree);
 
             Assert.Contains(logLines, l =>
+                l.Contains("[WARN]") && l.Contains("[Merger]") &&
+                l.Contains("boundary discontinuity=") &&
+                l.Contains("prevRef=") && l.Contains("nextRef=") &&
+                l.Contains("prevSrc=") && l.Contains("nextSrc="));
+        }
+
+        [Fact]
+        public void MergeTree_CrossReferenceFrameBoundary_NoDiscontinuityWarning()
+        {
+            // ABSOLUTE→RELATIVE boundary with large coordinate difference.
+            // Should NOT produce a warning because cross-frame comparisons are skipped (#283).
+            var sections = new List<TrackSection>
+            {
+                MakeSection(0, 100, TrackSectionSource.Active,
+                    lat: -0.0972, lon: -74.5575, alt: 70000,
+                    referenceFrame: ReferenceFrame.Absolute),
+                MakeSection(100, 200, TrackSectionSource.Active,
+                    lat: 999.0, lon: 999.0, alt: 999.0,
+                    referenceFrame: ReferenceFrame.Relative)
+            };
+            var rec = MakeRecording("rec-xref", "CrossRef Vessel", sections);
+            var tree = MakeTree("CrossRef Test", rec);
+
+            SessionMerger.MergeTree(tree);
+
+            Assert.DoesNotContain(logLines, l =>
                 l.Contains("[WARN]") && l.Contains("[Merger]") &&
                 l.Contains("boundary discontinuity="));
         }

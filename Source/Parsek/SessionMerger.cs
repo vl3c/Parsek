@@ -182,10 +182,14 @@ namespace Parsek
                 float disc = mergedSections[i].boundaryDiscontinuityMeters;
                 if (disc > 1.0f)
                 {
+                    string prevRef = i > 0 ? mergedSections[i - 1].referenceFrame.ToString() : "?";
+                    string prevSrc = i > 0 ? mergedSections[i - 1].source.ToString() : "?";
                     ParsekLog.Warn(Tag,
                         $"MergeTree: boundary discontinuity={disc.ToString("F2", ic)}m " +
                         $"at section[{i}] ut={mergedSections[i].startUT.ToString("F2", ic)} " +
-                        $"vessel='{vesselName}'");
+                        $"vessel='{vesselName}' " +
+                        $"prevRef={prevRef} nextRef={mergedSections[i].referenceFrame} " +
+                        $"prevSrc={prevSrc} nextSrc={mergedSections[i].source}");
                 }
             }
         }
@@ -375,13 +379,20 @@ namespace Parsek
         /// Computes the Euclidean distance in meters between the last trajectory point
         /// of the previous section and the first trajectory point of the next section.
         /// Uses lat/lon/alt to compute approximate distance. Returns 0 if either section
-        /// has no trajectory frames.
+        /// has no trajectory frames, or if the sections use different reference frames
+        /// (lat/lon/alt fields have different semantics across ABSOLUTE vs RELATIVE).
         /// </summary>
         internal static float ComputeBoundaryDiscontinuity(TrackSection prev, TrackSection next)
         {
             if (prev.frames == null || prev.frames.Count == 0)
                 return 0f;
             if (next.frames == null || next.frames.Count == 0)
+                return 0f;
+
+            // Cross-reference-frame boundaries use different coordinate semantics
+            // (ABSOLUTE stores lat/lon/alt, RELATIVE stores dx/dy/dz offsets) —
+            // comparing them is meaningless (#283).
+            if (prev.referenceFrame != next.referenceFrame)
                 return 0f;
 
             TrajectoryPoint lastPrev = prev.frames[prev.frames.Count - 1];
