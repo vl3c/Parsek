@@ -924,8 +924,12 @@ namespace Parsek
                     ParsekLog.Info("BgRecorder",
                         $"Environment transition: pid={pid} -> {newEnv} " +
                         $"at UT={ut.ToString("F2", CultureInfo.InvariantCulture)}");
+
+                    // Capture boundary point before closing (#283)
+                    TrajectoryPoint? boundaryPoint = GetLastBackgroundFrame(state);
                     CloseBackgroundTrackSection(state, ut);
                     StartBackgroundTrackSection(state, newEnv, ReferenceFrame.Absolute, ut);
+                    SeedBackgroundBoundaryPoint(state, boundaryPoint);
                 }
             }
 
@@ -1866,6 +1870,31 @@ namespace Parsek
             ParsekLog.Info("BgRecorder",
                 $"TrackSection started: env=ExoBallistic ref=OrbitalCheckpoint source=Checkpoint " +
                 $"pid={state.vesselPid} at UT={ut.ToString("F2", CultureInfo.InvariantCulture)}");
+        }
+
+        /// <summary>
+        /// Returns the last trajectory frame of a background vessel's current TrackSection,
+        /// or null if empty/inactive. Used to capture a boundary point before closing (#283).
+        /// </summary>
+        private static TrajectoryPoint? GetLastBackgroundFrame(BackgroundVesselState state)
+        {
+            if (state.trackSectionActive && state.currentTrackSection.frames != null
+                && state.currentTrackSection.frames.Count > 0)
+                return state.currentTrackSection.frames[state.currentTrackSection.frames.Count - 1];
+            return null;
+        }
+
+        /// <summary>
+        /// Seeds a background vessel's current (newly opened) TrackSection with a boundary
+        /// point from the previous section, eliminating position discontinuities (#283).
+        /// </summary>
+        private static void SeedBackgroundBoundaryPoint(BackgroundVesselState state, TrajectoryPoint? point)
+        {
+            if (!point.HasValue) return;
+            if (!state.trackSectionActive || state.currentTrackSection.frames == null) return;
+            state.currentTrackSection.frames.Add(point.Value);
+            ParsekLog.Verbose("BgRecorder",
+                $"Boundary point seeded: pid={state.vesselPid} ut={point.Value.ut.ToString("F2", CultureInfo.InvariantCulture)}");
         }
 
         /// <summary>

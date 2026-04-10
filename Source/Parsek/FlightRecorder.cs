@@ -5048,12 +5048,19 @@ namespace Parsek
                     // Sample boundary point BEFORE closing — adaptive sampler may have
                     // skipped frames, so last recorded point could be far from here.
                     SamplePosition(v);
+
+                    // Capture boundary point to seed the new section (#283).
+                    // Same reference frame on both sides, so the point is directly reusable.
+                    TrajectoryPoint? boundaryPoint = GetLastTrackSectionFrame();
+
                     var currentRef = isRelativeMode ? ReferenceFrame.Relative : ReferenceFrame.Absolute;
                     CloseCurrentTrackSection(Planetarium.GetUniversalTime());
                     StartNewTrackSection(environmentHysteresis.CurrentEnvironment, currentRef,
                         Planetarium.GetUniversalTime());
                     if (isRelativeMode)
                         currentTrackSection.anchorVesselId = currentAnchorPid;
+
+                    SeedBoundaryPoint(boundaryPoint);
                 }
             }
         }
@@ -5300,6 +5307,35 @@ namespace Parsek
                 currentTrackSection.frames.Add(point);
                 UpdateTrackSectionAltitude((float)point.altitude);
             }
+        }
+
+        /// <summary>
+        /// Returns the last trajectory frame of the current TrackSection, or null if empty/inactive.
+        /// Used to capture a boundary point before closing a section (#283).
+        /// </summary>
+        private TrajectoryPoint? GetLastTrackSectionFrame()
+        {
+            if (trackSectionActive && currentTrackSection.frames != null
+                && currentTrackSection.frames.Count > 0)
+                return currentTrackSection.frames[currentTrackSection.frames.Count - 1];
+            return null;
+        }
+
+        /// <summary>
+        /// Seeds the current (newly opened) TrackSection with a boundary point from the
+        /// previous section. Eliminates the physics-frame gap that causes position
+        /// discontinuities at section boundaries (#283).
+        /// Only writes to the TrackSection frames — does NOT dual-write to the flat
+        /// Recording list (the point is already there from SamplePosition).
+        /// </summary>
+        private void SeedBoundaryPoint(TrajectoryPoint? point)
+        {
+            if (!point.HasValue) return;
+            if (!trackSectionActive || currentTrackSection.frames == null) return;
+            currentTrackSection.frames.Add(point.Value);
+            UpdateTrackSectionAltitude((float)point.Value.altitude);
+            ParsekLog.Verbose("Recorder",
+                $"Boundary point seeded: ut={point.Value.ut.ToString("F2", CultureInfo.InvariantCulture)}");
         }
 
         /// <summary>
