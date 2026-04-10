@@ -7,6 +7,7 @@ All notable changes to Parsek are documented here.
 ## 0.7.3
 
 - `#297` Vessel destruction during tree recording no longer orphans continuation data as a standalone recording.
+- `T55` FlagEvents and SegmentEvents are now preserved across tree recording splits and flushes.
 
 ---
 

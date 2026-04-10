@@ -215,7 +215,7 @@ Test game actions system with popular mods: CustomBarnKit (non-standard facility
 
 ## TODO — Recording Data Integrity
 
-### T55. AppendCapturedDataToRecording does not copy FlagEvents or SegmentEvents
+### ~~T55. AppendCapturedDataToRecording does not copy FlagEvents or SegmentEvents~~
 
 `AppendCapturedDataToRecording` (ParsekFlight.cs:1836) appends Points, OrbitSegments,
 PartEvents, and TrackSections, but omits FlagEvents and SegmentEvents. By contrast,
@@ -238,7 +238,12 @@ stable-sort pattern as `FlushRecorderToTreeRecording` (lines 1712-1714). For Fla
 field and should use the same pattern. Add tests to `AppendCapturedDataTests.cs` verifying
 both event types are appended and sorted.
 
+**Fix:** Added FlagEvents and SegmentEvents (with stable sort) to both `AppendCapturedDataToRecording`
+and `FlushRecorderToTreeRecording`. Two new tests in `AppendCapturedDataTests.cs`.
+
 **Priority:** Low -- unlikely to cause visible data loss, but should be fixed for correctness
+
+**Status:** ~~Fixed~~
 
 ---
 
