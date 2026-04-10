@@ -2925,6 +2925,26 @@ namespace Parsek
                     $"(parts={activeVessel.parts?.Count ?? 0})");
             }
 
+            // Bug #294: snapshot active recorder's engine/RCS state for child recordings.
+            // The recorder is still running (breakup-continuous design), so its state is live.
+            InheritedEngineState? breakupEngineState = null;
+            if (recorder != null
+                && ((recorder.ActiveEngineKeysReadOnly != null && recorder.ActiveEngineKeysReadOnly.Count > 0)
+                    || (recorder.ActiveRcsKeysReadOnly != null && recorder.ActiveRcsKeysReadOnly.Count > 0)))
+            {
+                breakupEngineState = new InheritedEngineState
+                {
+                    activeEngineKeys = recorder.ActiveEngineKeysReadOnly != null
+                        ? new HashSet<ulong>(recorder.ActiveEngineKeysReadOnly) : null,
+                    engineThrottles = recorder.LastThrottleReadOnly != null
+                        ? new Dictionary<ulong, float>(recorder.LastThrottleReadOnly) : null,
+                    activeRcsKeys = recorder.ActiveRcsKeysReadOnly != null
+                        ? new HashSet<ulong>(recorder.ActiveRcsKeysReadOnly) : null,
+                    rcsThrottles = recorder.LastRcsThrottleReadOnly != null
+                        ? new Dictionary<ulong, float>(recorder.LastRcsThrottleReadOnly) : null
+                };
+            }
+
             // Create child recording segments for controlled children (vessels with probe
             // cores that survive the breakup). Same pattern as PromoteToTreeForBreakup step 8.
             // These are NOT debris — they record indefinitely (no TTL) and can serve as
@@ -2945,7 +2965,7 @@ namespace Parsek
                     if (childVessel != null && backgroundRecorder != null)
                     {
                         activeTree.BackgroundMap[pid] = childRec.RecordingId;
-                        backgroundRecorder.OnVesselBackgrounded(pid);
+                        backgroundRecorder.OnVesselBackgrounded(pid, breakupEngineState);
                     }
 
                     ParsekLog.Info("Coalescer",
@@ -2980,7 +3000,7 @@ namespace Parsek
                     if (debrisVessel != null && backgroundRecorder != null)
                     {
                         activeTree.BackgroundMap[pid] = childRec.RecordingId;
-                        backgroundRecorder.OnVesselBackgrounded(pid);
+                        backgroundRecorder.OnVesselBackgrounded(pid, breakupEngineState);
                         backgroundRecorder.SetDebrisExpiry(pid, debrisExpiryUT);
                     }
 
@@ -3013,6 +3033,26 @@ namespace Parsek
             recorder.StopRecordingForChainBoundary();
             var splitRecorder = recorder;
             recorder = null;
+
+            // Bug #294: snapshot parent engine/RCS state for child recordings.
+            // activeEngineKeys/lastThrottle survive StopRecordingForChainBoundary
+            // (FinalizeRecordingState does not clear them).
+            InheritedEngineState? splitEngineState = null;
+            if ((splitRecorder.ActiveEngineKeysReadOnly != null && splitRecorder.ActiveEngineKeysReadOnly.Count > 0)
+                || (splitRecorder.ActiveRcsKeysReadOnly != null && splitRecorder.ActiveRcsKeysReadOnly.Count > 0))
+            {
+                splitEngineState = new InheritedEngineState
+                {
+                    activeEngineKeys = splitRecorder.ActiveEngineKeysReadOnly != null
+                        ? new HashSet<ulong>(splitRecorder.ActiveEngineKeysReadOnly) : null,
+                    engineThrottles = splitRecorder.LastThrottleReadOnly != null
+                        ? new Dictionary<ulong, float>(splitRecorder.LastThrottleReadOnly) : null,
+                    activeRcsKeys = splitRecorder.ActiveRcsKeysReadOnly != null
+                        ? new HashSet<ulong>(splitRecorder.ActiveRcsKeysReadOnly) : null,
+                    rcsThrottles = splitRecorder.LastRcsThrottleReadOnly != null
+                        ? new Dictionary<ulong, float>(splitRecorder.LastRcsThrottleReadOnly) : null
+                };
+            }
 
             if (splitRecorder.CaptureAtStop == null)
             {
@@ -3160,7 +3200,7 @@ namespace Parsek
             foreach (var kvp in activeTree.BackgroundMap)
             {
                 uint bgPid = kvp.Key;
-                backgroundRecorder.OnVesselBackgrounded(bgPid);
+                backgroundRecorder.OnVesselBackgrounded(bgPid, splitEngineState);
 
                 // Set TTL for debris recordings only
                 Recording bgRec;

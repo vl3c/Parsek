@@ -7,6 +7,19 @@ using UnityEngine;
 namespace Parsek
 {
     /// <summary>
+    /// Carries parent vessel engine/RCS state to child recordings at decouple time.
+    /// Consumed once by InitializeLoadedState to seed engines that SeedEngines missed
+    /// (isOperational=false after fuel severance). Bug #294.
+    /// </summary>
+    internal struct InheritedEngineState
+    {
+        public HashSet<ulong> activeEngineKeys;
+        public Dictionary<ulong, float> engineThrottles;
+        public HashSet<ulong> activeRcsKeys;
+        public Dictionary<ulong, float> rcsThrottles;
+    }
+
+    /// <summary>
     /// Manages continuous recording for background vessels in a recording tree.
     /// Supports two modes per vessel:
     ///   - On-rails: captures OrbitSegment or SurfacePosition snapshots
@@ -461,6 +474,22 @@ namespace Parsek
             var bp = result.bp;
             var childRecordings = result.childRecordings;
 
+            // Bug #294: snapshot parent engine/RCS state before CloseParentRecording
+            // destroys loadedStates[parentPid].
+            InheritedEngineState? parentEngineState = null;
+            BackgroundVesselState parentLoaded;
+            if (loadedStates.TryGetValue(parentPid, out parentLoaded)
+                && (parentLoaded.activeEngineKeys.Count > 0 || parentLoaded.activeRcsKeys.Count > 0))
+            {
+                parentEngineState = new InheritedEngineState
+                {
+                    activeEngineKeys = new HashSet<ulong>(parentLoaded.activeEngineKeys),
+                    engineThrottles = new Dictionary<ulong, float>(parentLoaded.lastThrottle),
+                    activeRcsKeys = new HashSet<ulong>(parentLoaded.activeRcsKeys),
+                    rcsThrottles = new Dictionary<ulong, float>(parentLoaded.lastRcsThrottle)
+                };
+            }
+
             // Close parent recording: set ChildBranchPointId, close orbit segment/trajectory
             CloseParentRecording(parentRec, parentPid, bp.Id, branchUT);
 
@@ -503,7 +532,7 @@ namespace Parsek
                 tree.BackgroundMap[parentPid] = parentContRecId;
 
                 // Re-initialize tracking state for the parent continuation
-                OnVesselBackgrounded(parentPid);
+                OnVesselBackgrounded(parentPid, parentEngineState);
 
                 // Set TTL for parent continuation if it's debris
                 if (parentRec.IsDebris)
@@ -524,7 +553,7 @@ namespace Parsek
             }
 
             // Add each child recording to tree and BackgroundMap
-            RegisterChildRecordingsFromSplit(childRecordings, newVesselInfos, branchUT);
+            RegisterChildRecordingsFromSplit(childRecordings, newVesselInfos, branchUT, parentEngineState);
 
             ParsekLog.Info("BgRecorder",
                 $"Background split branch complete: bp={bp.Id} type={branchType} " +
@@ -573,7 +602,8 @@ namespace Parsek
         private void RegisterChildRecordingsFromSplit(
             List<Recording> childRecordings,
             List<(uint pid, string name, bool hasController)> newVesselInfos,
-            double branchUT)
+            double branchUT,
+            InheritedEngineState? inherited = null)
         {
             // Capture vessel snapshots so ghosts can be built during playback
             // (without snapshots, GhostVisualBuilder returns null → no ghost appears).
@@ -603,7 +633,7 @@ namespace Parsek
                 tree.BackgroundMap[child.VesselPersistentId] = child.RecordingId;
 
                 // Initialize tracking state for new child vessel
-                OnVesselBackgrounded(child.VesselPersistentId);
+                OnVesselBackgrounded(child.VesselPersistentId, inherited);
 
                 bool hasController = newVesselInfos[i].hasController;
                 if (!hasController)
@@ -1010,7 +1040,7 @@ namespace Parsek
         /// <summary>
         /// Called when a vessel is added to the background map (transition or branch creation).
         /// </summary>
-        public void OnVesselBackgrounded(uint vesselPid)
+        public void OnVesselBackgrounded(uint vesselPid, InheritedEngineState? inherited = null)
         {
             if (tree == null) return;
 
@@ -1049,7 +1079,7 @@ namespace Parsek
             if (v.loaded && !v.packed)
             {
                 // Loaded/physics mode
-                InitializeLoadedState(v, vesselPid, recordingId);
+                InitializeLoadedState(v, vesselPid, recordingId, inherited);
                 ParsekLog.Info("BgRecorder", $"Vessel backgrounded (loaded/physics): pid={vesselPid} recId={recordingId}");
             }
             else
@@ -1571,7 +1601,8 @@ namespace Parsek
             onRailsStates[vesselPid] = state;
         }
 
-        private void InitializeLoadedState(Vessel v, uint vesselPid, string recordingId)
+        private void InitializeLoadedState(Vessel v, uint vesselPid, string recordingId,
+            InheritedEngineState? inherited = null)
         {
             var state = new BackgroundVesselState
             {
@@ -1586,6 +1617,27 @@ namespace Parsek
 
             // Seed all tracking sets with current part state (mirrors FlightRecorder.SeedExistingPartStates)
             SeedBackgroundPartStates(v, state);
+
+            // Bug #294: merge inherited parent engine/RCS state for child debris.
+            // SeedEngines checks engine.isOperational which is false after fuel severance,
+            // so child debris recordings get zero engine seed events. Merge from the parent's
+            // known-good state to fill in the gaps.
+            if (inherited.HasValue)
+            {
+                var childPartPids = new HashSet<uint>();
+                if (v.parts != null)
+                    for (int i = 0; i < v.parts.Count; i++)
+                        if (v.parts[i] != null)
+                            childPartPids.Add(v.parts[i].persistentId);
+
+                int merged = MergeInheritedEngineState(inherited,
+                    state.activeEngineKeys, state.lastThrottle,
+                    state.activeRcsKeys, state.lastRcsThrottle,
+                    childPartPids);
+                if (merged > 0)
+                    ParsekLog.Info("BgRecorder",
+                        $"Merged {merged} inherited engine/RCS key(s) for pid={vesselPid} recId={recordingId} (#294)");
+            }
 
             // Emit seed events ONLY if the recording has no part events yet.
             // If a prior active recorder (or earlier background load) already seeded events,
@@ -1696,6 +1748,68 @@ namespace Parsek
                 BuildPartTrackingSetsFromState(state),
                 state.cachedEngines, state.cachedRcsModules,
                 seedColorChangerLights: false, logTag: "BgRecorder");
+        }
+
+        /// <summary>
+        /// Merges inherited engine/RCS state from a parent vessel into a child's
+        /// tracking collections. Only keys whose decoded PID matches a part on the
+        /// child vessel are merged. Uses add-if-absent semantics — does not overwrite
+        /// keys already seeded from live vessel state by SeedEngines.
+        /// Pure static method for testability. Bug #294.
+        /// </summary>
+        internal static int MergeInheritedEngineState(
+            InheritedEngineState? inherited,
+            HashSet<ulong> targetActiveEngineKeys,
+            Dictionary<ulong, float> targetLastThrottle,
+            HashSet<ulong> targetActiveRcsKeys,
+            Dictionary<ulong, float> targetLastRcsThrottle,
+            HashSet<uint> childPartPids)
+        {
+            if (!inherited.HasValue) return 0;
+            var inh = inherited.Value;
+            int merged = 0;
+
+            if (inh.activeEngineKeys != null)
+            {
+                foreach (ulong key in inh.activeEngineKeys)
+                {
+                    if (targetActiveEngineKeys.Contains(key)) continue; // already seeded from live state
+                    uint pid; int midx;
+                    FlightRecorder.DecodeEngineKey(key, out pid, out midx);
+                    if (!childPartPids.Contains(pid)) continue; // engine not on this child vessel
+                    targetActiveEngineKeys.Add(key);
+                    float throttle = 1f;
+                    if (inh.engineThrottles != null)
+                        inh.engineThrottles.TryGetValue(key, out throttle);
+                    if (!targetLastThrottle.ContainsKey(key))
+                        targetLastThrottle[key] = throttle;
+                    merged++;
+                    ParsekLog.Verbose("BgRecorder",
+                        $"Inherited engine key merged: pid={pid} midx={midx} throttle={throttle:F2} (#294)");
+                }
+            }
+
+            if (inh.activeRcsKeys != null)
+            {
+                foreach (ulong key in inh.activeRcsKeys)
+                {
+                    if (targetActiveRcsKeys.Contains(key)) continue;
+                    uint pid; int midx;
+                    FlightRecorder.DecodeEngineKey(key, out pid, out midx);
+                    if (!childPartPids.Contains(pid)) continue;
+                    targetActiveRcsKeys.Add(key);
+                    float throttle = 1f;
+                    if (inh.rcsThrottles != null)
+                        inh.rcsThrottles.TryGetValue(key, out throttle);
+                    if (!targetLastRcsThrottle.ContainsKey(key))
+                        targetLastRcsThrottle[key] = throttle;
+                    merged++;
+                    ParsekLog.Verbose("BgRecorder",
+                        $"Inherited RCS key merged: pid={pid} midx={midx} throttle={throttle:F2} (#294)");
+                }
+            }
+
+            return merged;
         }
 
         /// <summary>

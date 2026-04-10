@@ -767,5 +767,276 @@ namespace Parsek.Tests
         }
 
         #endregion
+
+        #region MergeInheritedEngineState (Bug #294)
+
+        [Fact]
+        public void MergeInheritedEngineState_NullInherited_ReturnsZero()
+        {
+            var activeEngineKeys = new HashSet<ulong>();
+            var lastThrottle = new Dictionary<ulong, float>();
+            var activeRcsKeys = new HashSet<ulong>();
+            var lastRcsThrottle = new Dictionary<ulong, float>();
+            var childPartPids = new HashSet<uint> { 100 };
+
+            int merged = BackgroundRecorder.MergeInheritedEngineState(
+                null, activeEngineKeys, lastThrottle,
+                activeRcsKeys, lastRcsThrottle, childPartPids);
+
+            Assert.Equal(0, merged);
+            Assert.Empty(activeEngineKeys);
+            Assert.Empty(activeRcsKeys);
+        }
+
+        [Fact]
+        public void MergeInheritedEngineState_EngineOnChild_Merged()
+        {
+            // Parent had engine active on part pid=500, moduleIndex=0
+            ulong key = FlightRecorder.EncodeEngineKey(500, 0);
+            var inherited = new InheritedEngineState
+            {
+                activeEngineKeys = new HashSet<ulong> { key },
+                engineThrottles = new Dictionary<ulong, float> { { key, 0.85f } },
+                activeRcsKeys = null,
+                rcsThrottles = null
+            };
+
+            var activeEngineKeys = new HashSet<ulong>();
+            var lastThrottle = new Dictionary<ulong, float>();
+            var activeRcsKeys = new HashSet<ulong>();
+            var lastRcsThrottle = new Dictionary<ulong, float>();
+            // Child vessel has part pid=500
+            var childPartPids = new HashSet<uint> { 500, 600 };
+
+            int merged = BackgroundRecorder.MergeInheritedEngineState(
+                inherited, activeEngineKeys, lastThrottle,
+                activeRcsKeys, lastRcsThrottle, childPartPids);
+
+            Assert.Equal(1, merged);
+            Assert.Contains(key, activeEngineKeys);
+            Assert.Equal(0.85f, lastThrottle[key]);
+        }
+
+        [Fact]
+        public void MergeInheritedEngineState_EngineNotOnChild_Skipped()
+        {
+            // Parent had engine active on part pid=500
+            ulong key = FlightRecorder.EncodeEngineKey(500, 0);
+            var inherited = new InheritedEngineState
+            {
+                activeEngineKeys = new HashSet<ulong> { key },
+                engineThrottles = new Dictionary<ulong, float> { { key, 1.0f } },
+                activeRcsKeys = null,
+                rcsThrottles = null
+            };
+
+            var activeEngineKeys = new HashSet<ulong>();
+            var lastThrottle = new Dictionary<ulong, float>();
+            var activeRcsKeys = new HashSet<ulong>();
+            var lastRcsThrottle = new Dictionary<ulong, float>();
+            // Child vessel does NOT have part pid=500
+            var childPartPids = new HashSet<uint> { 600, 700 };
+
+            int merged = BackgroundRecorder.MergeInheritedEngineState(
+                inherited, activeEngineKeys, lastThrottle,
+                activeRcsKeys, lastRcsThrottle, childPartPids);
+
+            Assert.Equal(0, merged);
+            Assert.Empty(activeEngineKeys);
+        }
+
+        [Fact]
+        public void MergeInheritedEngineState_AlreadySeeded_NotOverwritten()
+        {
+            // Parent had engine at throttle 0.85, but child already seeded it at 0.5
+            ulong key = FlightRecorder.EncodeEngineKey(500, 0);
+            var inherited = new InheritedEngineState
+            {
+                activeEngineKeys = new HashSet<ulong> { key },
+                engineThrottles = new Dictionary<ulong, float> { { key, 0.85f } },
+                activeRcsKeys = null,
+                rcsThrottles = null
+            };
+
+            var activeEngineKeys = new HashSet<ulong> { key }; // already seeded
+            var lastThrottle = new Dictionary<ulong, float> { { key, 0.5f } };
+            var activeRcsKeys = new HashSet<ulong>();
+            var lastRcsThrottle = new Dictionary<ulong, float>();
+            var childPartPids = new HashSet<uint> { 500 };
+
+            int merged = BackgroundRecorder.MergeInheritedEngineState(
+                inherited, activeEngineKeys, lastThrottle,
+                activeRcsKeys, lastRcsThrottle, childPartPids);
+
+            Assert.Equal(0, merged); // not merged — already present
+            Assert.Equal(0.5f, lastThrottle[key]); // original value preserved
+        }
+
+        [Fact]
+        public void MergeInheritedEngineState_RcsOnChild_Merged()
+        {
+            // Parent had RCS active on part pid=300, moduleIndex=1
+            ulong key = FlightRecorder.EncodeEngineKey(300, 1);
+            var inherited = new InheritedEngineState
+            {
+                activeEngineKeys = null,
+                engineThrottles = null,
+                activeRcsKeys = new HashSet<ulong> { key },
+                rcsThrottles = new Dictionary<ulong, float> { { key, 0.6f } }
+            };
+
+            var activeEngineKeys = new HashSet<ulong>();
+            var lastThrottle = new Dictionary<ulong, float>();
+            var activeRcsKeys = new HashSet<ulong>();
+            var lastRcsThrottle = new Dictionary<ulong, float>();
+            var childPartPids = new HashSet<uint> { 300 };
+
+            int merged = BackgroundRecorder.MergeInheritedEngineState(
+                inherited, activeEngineKeys, lastThrottle,
+                activeRcsKeys, lastRcsThrottle, childPartPids);
+
+            Assert.Equal(1, merged);
+            Assert.Contains(key, activeRcsKeys);
+            Assert.Equal(0.6f, lastRcsThrottle[key]);
+        }
+
+        [Fact]
+        public void MergeInheritedEngineState_MixedEngineAndRcs_BothMerged()
+        {
+            // Parent had one engine and one RCS, both on child vessel
+            ulong engineKey = FlightRecorder.EncodeEngineKey(500, 0);
+            ulong rcsKey = FlightRecorder.EncodeEngineKey(600, 0);
+            var inherited = new InheritedEngineState
+            {
+                activeEngineKeys = new HashSet<ulong> { engineKey },
+                engineThrottles = new Dictionary<ulong, float> { { engineKey, 1.0f } },
+                activeRcsKeys = new HashSet<ulong> { rcsKey },
+                rcsThrottles = new Dictionary<ulong, float> { { rcsKey, 0.3f } }
+            };
+
+            var activeEngineKeys = new HashSet<ulong>();
+            var lastThrottle = new Dictionary<ulong, float>();
+            var activeRcsKeys = new HashSet<ulong>();
+            var lastRcsThrottle = new Dictionary<ulong, float>();
+            var childPartPids = new HashSet<uint> { 500, 600 };
+
+            int merged = BackgroundRecorder.MergeInheritedEngineState(
+                inherited, activeEngineKeys, lastThrottle,
+                activeRcsKeys, lastRcsThrottle, childPartPids);
+
+            Assert.Equal(2, merged);
+            Assert.Contains(engineKey, activeEngineKeys);
+            Assert.Contains(rcsKey, activeRcsKeys);
+            Assert.Equal(1.0f, lastThrottle[engineKey]);
+            Assert.Equal(0.3f, lastRcsThrottle[rcsKey]);
+        }
+
+        [Fact]
+        public void MergeInheritedEngineState_MissingThrottleDict_DefaultsToOne()
+        {
+            // Parent had engine active but no throttle dictionary
+            ulong key = FlightRecorder.EncodeEngineKey(500, 0);
+            var inherited = new InheritedEngineState
+            {
+                activeEngineKeys = new HashSet<ulong> { key },
+                engineThrottles = null, // no throttle data
+                activeRcsKeys = null,
+                rcsThrottles = null
+            };
+
+            var activeEngineKeys = new HashSet<ulong>();
+            var lastThrottle = new Dictionary<ulong, float>();
+            var activeRcsKeys = new HashSet<ulong>();
+            var lastRcsThrottle = new Dictionary<ulong, float>();
+            var childPartPids = new HashSet<uint> { 500 };
+
+            int merged = BackgroundRecorder.MergeInheritedEngineState(
+                inherited, activeEngineKeys, lastThrottle,
+                activeRcsKeys, lastRcsThrottle, childPartPids);
+
+            Assert.Equal(1, merged);
+            Assert.Equal(1f, lastThrottle[key]); // throttle defaults to 1f when dict is null
+        }
+
+        [Fact]
+        public void MergeInheritedEngineState_MultipleEngines_OnlyChildPidsMerged()
+        {
+            // Parent had 3 engines, child vessel only has 2 of those parts
+            ulong key1 = FlightRecorder.EncodeEngineKey(100, 0); // on child
+            ulong key2 = FlightRecorder.EncodeEngineKey(200, 0); // NOT on child
+            ulong key3 = FlightRecorder.EncodeEngineKey(300, 0); // on child
+            var inherited = new InheritedEngineState
+            {
+                activeEngineKeys = new HashSet<ulong> { key1, key2, key3 },
+                engineThrottles = new Dictionary<ulong, float>
+                {
+                    { key1, 0.9f }, { key2, 0.8f }, { key3, 0.7f }
+                },
+                activeRcsKeys = null,
+                rcsThrottles = null
+            };
+
+            var activeEngineKeys = new HashSet<ulong>();
+            var lastThrottle = new Dictionary<ulong, float>();
+            var activeRcsKeys = new HashSet<ulong>();
+            var lastRcsThrottle = new Dictionary<ulong, float>();
+            var childPartPids = new HashSet<uint> { 100, 300 }; // no 200
+
+            int merged = BackgroundRecorder.MergeInheritedEngineState(
+                inherited, activeEngineKeys, lastThrottle,
+                activeRcsKeys, lastRcsThrottle, childPartPids);
+
+            Assert.Equal(2, merged);
+            Assert.Contains(key1, activeEngineKeys);
+            Assert.DoesNotContain(key2, activeEngineKeys);
+            Assert.Contains(key3, activeEngineKeys);
+            Assert.Equal(0.9f, lastThrottle[key1]);
+            Assert.Equal(0.7f, lastThrottle[key3]);
+        }
+
+        [Fact]
+        public void MergeInheritedEngineState_LogsPerItemAndSummary()
+        {
+            var logLines = new List<string>();
+            ParsekLog.SuppressLogging = false;
+            ParsekLog.TestSinkForTesting = line => logLines.Add(line);
+
+            try
+            {
+                ulong key = FlightRecorder.EncodeEngineKey(500, 2);
+                var inherited = new InheritedEngineState
+                {
+                    activeEngineKeys = new HashSet<ulong> { key },
+                    engineThrottles = new Dictionary<ulong, float> { { key, 0.75f } },
+                    activeRcsKeys = null,
+                    rcsThrottles = null
+                };
+
+                var activeEngineKeys = new HashSet<ulong>();
+                var lastThrottle = new Dictionary<ulong, float>();
+                var activeRcsKeys = new HashSet<ulong>();
+                var lastRcsThrottle = new Dictionary<ulong, float>();
+                var childPartPids = new HashSet<uint> { 500 };
+
+                BackgroundRecorder.MergeInheritedEngineState(
+                    inherited, activeEngineKeys, lastThrottle,
+                    activeRcsKeys, lastRcsThrottle, childPartPids);
+
+                // Per-item verbose log
+                Assert.Contains(logLines, l =>
+                    l.Contains("[BgRecorder]") &&
+                    l.Contains("Inherited engine key merged") &&
+                    l.Contains("pid=500") &&
+                    l.Contains("midx=2") &&
+                    l.Contains("#294"));
+            }
+            finally
+            {
+                ParsekLog.ResetTestOverrides();
+                ParsekLog.SuppressLogging = true;
+            }
+        }
+
+        #endregion
     }
 }
