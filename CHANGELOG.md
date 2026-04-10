@@ -43,9 +43,12 @@ Dev notes: technical narratives for the fixes below live in `docs/dev/todo-and-k
 - `#288` Ghost map icons now appear immediately after re-entry from orbit instead of requiring W (Watch) to be pressed first.
 - `#289` End-of-mission spawn-at-end now correctly materializes splashed-down vessels and EVA kerbals after a rewind+merge.
 - `#292` F9 quickload after a Tree Merge no longer silently drops recordings created during the merge.
-- `#290` Pending Limbo tree no longer discarded on revert — fixes lost debris recordings and missing proto vessels after merge-then-revert.
-- `#290` Ghost engine skirt/shroud now hidden at build time when the snapshot shows the shroud was already jettisoned.
-- `#290` Ghost map icon no longer flickers during time warp — zone warp exemption threshold lowered from >4x to >1x, and ghost warp suppression is now skipped in map view so icons stay visible at any warp speed.
+- `#295` Rewind buttons no longer blocked by "Merge or discard pending recording first" after a tree merge — pending standalone recordings are auto-committed.
+- `#296` EVA kerbal crew end states now correctly inferred (previously showed Unknown with infinite reservation because snapshot crew extraction fails for EVA vessels).
+- `#297` Phantom terrain crash detection: EVA kerbals destroyed by KSP's pack-time terrain collision within 5s of a safe (Landed/Splashed) state are classified as Landed instead of Destroyed.
+- `#290a` Pending Limbo tree no longer discarded on revert — fixes lost debris recordings and missing proto vessels after merge-then-revert.
+- `#290b` Ghost engine skirt/shroud now hidden at build time when the snapshot shows the shroud was already jettisoned.
+- `#290c` Ghost map icon no longer flickers during time warp — zone warp exemption threshold lowered from >4x to >1x, and ghost warp suppression is now skipped in map view so icons stay visible at any warp speed.
 - `#287` Ghost engine flames on multi-stage rockets (Kerbal X Mainsail + boosters) no longer turn off permanently after booster staging.
 - `#278` EVA kerbals walking at the moment of revert/vessel-switch are now correctly classified Landed instead of Destroyed, so the merge dialog can spawn them at end of recording.
 - `#277` Stand-in crew is now placed correctly when a launch crew member was on EVA at merge time.

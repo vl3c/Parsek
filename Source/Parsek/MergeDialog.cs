@@ -365,6 +365,21 @@ namespace Parsek
                         "merge dialog Tree Merge", tree.Recordings.Count);
                     LedgerOrchestrator.NotifyLedgerTreeCommitted(tree);
                     CrewReservationManager.SwapReservedCrewInFlight();
+
+                    // Auto-commit any pending standalone recording so it doesn't
+                    // block rewind with "Merge or discard pending recording first".
+                    if (RecordingStore.HasPending)
+                    {
+                        ParsekScenario.AutoCommitGhostOnly(RecordingStore.Pending);
+                        string saRecId = RecordingStore.Pending.RecordingId;
+                        double saStartUT = RecordingStore.Pending.StartUT;
+                        double saEndUT = RecordingStore.Pending.EndUT;
+                        RecordingStore.CommitPending();
+                        LedgerOrchestrator.OnRecordingCommitted(saRecId, saStartUT, saEndUT);
+                        ParsekLog.Info("MergeDialog",
+                            $"Auto-committed pending standalone '{saRecId}' during tree merge");
+                    }
+
                     ClearPendingFlag();
                     ReplayFlightResultsIfPending();
                     OnTreeCommitted?.Invoke();

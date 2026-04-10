@@ -482,5 +482,78 @@ namespace Parsek.Tests
         }
 
         #endregion
+
+        #region PopulateCrewEndStates — EVA fallback
+
+        [Fact]
+        public void PopulateCrewEndStates_EvaKerbalDestroyed_InfersDead()
+        {
+            var rec = new Recording
+            {
+                RecordingId = "eva-bill",
+                VesselName = "Bill Kerman",
+                EvaCrewName = "Bill Kerman",
+                TerminalStateValue = TerminalState.Destroyed,
+                // No crew in GhostVisualSnapshot (EVA ConfigNode has no PART/crew)
+                GhostVisualSnapshot = new ConfigNode("VESSEL"),
+            };
+
+            KerbalsModule.PopulateCrewEndStates(rec);
+
+            Assert.NotNull(rec.CrewEndStates);
+            Assert.True(rec.CrewEndStates.ContainsKey("Bill Kerman"));
+            Assert.Equal(KerbalEndState.Dead, rec.CrewEndStates["Bill Kerman"]);
+            Assert.Contains(logLines, l => l.Contains("Bill Kerman") && l.Contains("Dead"));
+        }
+
+        [Fact]
+        public void PopulateCrewEndStates_EvaKerbalLanded_InfersAboard()
+        {
+            var rec = new Recording
+            {
+                RecordingId = "eva-bill-landed",
+                VesselName = "Bill Kerman",
+                EvaCrewName = "Bill Kerman",
+                TerminalStateValue = TerminalState.Landed,
+                GhostVisualSnapshot = new ConfigNode("VESSEL"),
+                // VesselSnapshot with the kerbal "still aboard" (in snapshot = aboard)
+                VesselSnapshot = MakeSnapshotWithCrew("Bill Kerman"),
+            };
+
+            KerbalsModule.PopulateCrewEndStates(rec);
+
+            Assert.NotNull(rec.CrewEndStates);
+            Assert.True(rec.CrewEndStates.ContainsKey("Bill Kerman"));
+            Assert.Equal(KerbalEndState.Aboard, rec.CrewEndStates["Bill Kerman"]);
+        }
+
+        [Fact]
+        public void PopulateCrewEndStates_NoEvaCrewName_SkipsEmptyCrew()
+        {
+            var rec = new Recording
+            {
+                RecordingId = "no-eva",
+                VesselName = "Mystery Ship",
+                // No EvaCrewName, no crew in snapshot
+                GhostVisualSnapshot = new ConfigNode("VESSEL"),
+            };
+
+            KerbalsModule.PopulateCrewEndStates(rec);
+
+            Assert.Null(rec.CrewEndStates);
+            Assert.Contains(logLines, l => l.Contains("no crew in ghost snapshot"));
+        }
+
+        private static ConfigNode MakeSnapshotWithCrew(params string[] crewNames)
+        {
+            var vessel = new ConfigNode("VESSEL");
+            var part = new ConfigNode("PART");
+            foreach (var name in crewNames)
+                part.AddValue("crew", name);
+            vessel.AddNode(part);
+            return vessel;
+        }
+
+        #endregion
     }
 }
