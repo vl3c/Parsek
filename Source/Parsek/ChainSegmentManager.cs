@@ -630,6 +630,17 @@ namespace Parsek
                     pending.ChainBranch = 0; // always primary path
                     pending.EvaCrewName = null; // vessel segment, not EVA
 
+                    // Capture dock target vessel PID for Phase 12 route analysis.
+                    // dockPortPid is actually the merged vessel PID (confusingly named) —
+                    // see ParsekFlight.HandleDockUndockCommitRestart where pendingDockMergedPid
+                    // (= data.to.vessel.persistentId) is passed as this parameter.
+                    if (type == PartEventType.Docked && dockPortPid != 0)
+                    {
+                        pending.DockTargetVesselPid = dockPortPid;
+                        ParsekLog.Verbose("Chain",
+                            $"CommitDockUndockSegment: captured dock target vessel pid={dockPortPid}");
+                    }
+
                     // Add dock/undock part event to the segment
                     if (segmentRecorder.Recording.Count > 0)
                     {
