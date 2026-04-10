@@ -213,6 +213,35 @@ Test game actions system with popular mods: CustomBarnKit (non-standard facility
 
 ---
 
+## TODO — Recording Data Integrity
+
+### T55. AppendCapturedDataToRecording does not copy FlagEvents or SegmentEvents
+
+`AppendCapturedDataToRecording` (ParsekFlight.cs:1836) appends Points, OrbitSegments,
+PartEvents, and TrackSections, but omits FlagEvents and SegmentEvents. By contrast,
+`FlushRecorderToTreeRecording` (ParsekFlight.cs:1675) correctly copies all six lists
+including FlagEvents with a stable sort.
+
+This is a pre-existing gap affecting all three call sites of `AppendCapturedDataToRecording`:
+- `CreateSplitBranch` line 2137 (merge parent recording with split data at breakup)
+- `CreateMergeBranch` line 2283 (merge parent recording with dock/board continuation)
+- `TryAppendCapturedToTree` line 1886 (bug #297 fix -- fallback append to tree)
+
+In practice, FlagEvents are rare (only emitted for flag planting, which is uncommon during
+breakup/dock/merge boundaries), and SegmentEvents are typically empty in `CaptureAtStop`
+because they are emitted into the recorder's PartEvents list, not the SegmentEvents list.
+So data loss from this gap is unlikely but possible.
+
+**Fix:** Add FlagEvents and SegmentEvents to `AppendCapturedDataToRecording`, using the same
+stable-sort pattern as `FlushRecorderToTreeRecording` (lines 1712-1714). For FlagEvents use
+`FlightRecorder.StableSortByUT(target.FlagEvents, e => e.ut)`. SegmentEvents have a `ut`
+field and should use the same pattern. Add tests to `AppendCapturedDataTests.cs` verifying
+both event types are appended and sorted.
+
+**Priority:** Low -- unlikely to cause visible data loss, but should be fixed for correctness
+
+---
+
 ## TODO — Nice to have
 
 ### T53. Watch camera mode selection
