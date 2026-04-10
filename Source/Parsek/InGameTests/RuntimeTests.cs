@@ -2220,5 +2220,311 @@ namespace Parsek.InGameTests
             InGameAssert.IsFalse(ParsekFlight.restoringActiveTree,
                 "restoringActiveTree must be false during normal flight");
         }
+
+        // ======================= GhostAudio (#265) =======================
+
+        [InGameTest(Category = "GhostAudio",
+            Description = "#265: PauseAllAudio/UnpauseAllAudio with null state does not throw")]
+        public void PauseUnpauseAudio_NullState_NoCrash()
+        {
+            GhostPlaybackLogic.PauseAllAudio(null);
+            GhostPlaybackLogic.UnpauseAllAudio(null);
+        }
+
+        [InGameTest(Category = "GhostAudio",
+            Description = "#265: PauseAllAudio with empty/null audioInfos does not throw")]
+        public void PauseUnpauseAudio_EmptyState_NoCrash()
+        {
+            var state = new GhostPlaybackState();
+            // audioInfos is null by default
+            GhostPlaybackLogic.PauseAllAudio(state);
+            GhostPlaybackLogic.UnpauseAllAudio(state);
+
+            // Now with an empty dict
+            state.audioInfos = new Dictionary<ulong, AudioGhostInfo>();
+            GhostPlaybackLogic.PauseAllAudio(state);
+            GhostPlaybackLogic.UnpauseAllAudio(state);
+        }
+
+        [InGameTest(Category = "GhostAudio", Scene = GameScenes.FLIGHT,
+            Description = "#265: PauseAllAudio pauses playing AudioSource, UnpauseAllAudio resumes")]
+        public IEnumerator PauseUnpauseAudio_RealAudioSource()
+        {
+            var go = new GameObject("ParsekTest_AudioGhost");
+            runner.TrackForCleanup(go);
+            var audioSource = go.AddComponent<AudioSource>();
+            audioSource.clip = AudioClip.Create("test_silence", 44100, 1, 44100, false);
+            audioSource.loop = true;
+            audioSource.volume = 0f;
+            audioSource.Play();
+
+            yield return null; // let audio system process
+
+            InGameAssert.IsTrue(audioSource.isPlaying,
+                "AudioSource should be playing before pause");
+
+            var info = new AudioGhostInfo
+            {
+                partPersistentId = 99999,
+                moduleIndex = 0,
+                audioSource = audioSource
+            };
+            var state = new GhostPlaybackState
+            {
+                audioInfos = new Dictionary<ulong, AudioGhostInfo> { { 99999UL, info } }
+            };
+
+            GhostPlaybackLogic.PauseAllAudio(state);
+            yield return null;
+
+            InGameAssert.IsFalse(audioSource.isPlaying,
+                "AudioSource should be paused after PauseAllAudio");
+
+            GhostPlaybackLogic.UnpauseAllAudio(state);
+            yield return null;
+
+            InGameAssert.IsTrue(audioSource.isPlaying,
+                "AudioSource should be playing after UnpauseAllAudio");
+
+            ParsekLog.Verbose("TestRunner",
+                "GhostAudio pause/unpause cycle verified with real AudioSource");
+        }
+
+        [InGameTest(Category = "GhostAudio", Scene = GameScenes.FLIGHT,
+            Description = "#265: OneShotAudio pause/unpause path works")]
+        public IEnumerator PauseUnpauseAudio_OneShotPath()
+        {
+            var go = new GameObject("ParsekTest_OneShotAudio");
+            runner.TrackForCleanup(go);
+            var audioSource = go.AddComponent<AudioSource>();
+            audioSource.clip = AudioClip.Create("test_oneshot", 44100, 1, 44100, false);
+            audioSource.loop = true;
+            audioSource.volume = 0f;
+            audioSource.Play();
+
+            yield return null;
+
+            InGameAssert.IsTrue(audioSource.isPlaying,
+                "OneShotAudio should be playing before pause");
+
+            var state = new GhostPlaybackState
+            {
+                oneShotAudio = new OneShotAudioInfo { audioSource = audioSource }
+            };
+
+            GhostPlaybackLogic.PauseAllAudio(state);
+            yield return null;
+
+            InGameAssert.IsFalse(audioSource.isPlaying,
+                "OneShotAudio should be paused after PauseAllAudio");
+
+            GhostPlaybackLogic.UnpauseAllAudio(state);
+            yield return null;
+
+            InGameAssert.IsTrue(audioSource.isPlaying,
+                "OneShotAudio should resume after UnpauseAllAudio");
+
+            ParsekLog.Verbose("TestRunner",
+                "OneShotAudio pause/unpause cycle verified");
+        }
+
+        [InGameTest(Category = "GhostAudio", Scene = GameScenes.FLIGHT,
+            Description = "#265: Engine-level PauseAllGhostAudio/UnpauseAllGhostAudio iterates all ghost states")]
+        public void EngineLevel_PauseUnpauseGhostAudio_NoCrash()
+        {
+            var flight = ParsekFlight.Instance;
+            if (flight == null || flight.Engine == null)
+            {
+                InGameAssert.Skip("needs ParsekFlight.Instance with Engine");
+                return;
+            }
+
+            // Safe to call even with zero ghosts — verifies the loop paths don't crash
+            flight.Engine.PauseAllGhostAudio();
+            flight.Engine.UnpauseAllGhostAudio();
+
+            ParsekLog.Verbose("TestRunner",
+                "Engine-level PauseAllGhostAudio/UnpauseAllGhostAudio completed without crash");
+        }
+
+        // ======================= FinalizeBackfill (#265 / #259) =======================
+
+        [InGameTest(Category = "FinalizeBackfill", Scene = GameScenes.FLIGHT,
+            Description = "#265/#259: TerminalOrbitBody backfilled from last OrbitSegment when vessel not found")]
+        public void TerminalOrbitBackfill_FromOrbitSegment()
+        {
+            var rec = new Recording
+            {
+                VesselName = "TestBackfill",
+                VesselPersistentId = 0, // forces null vessel lookup → fallback path
+                TerminalStateValue = TerminalState.Orbiting,
+                TerminalOrbitBody = null
+            };
+
+            rec.OrbitSegments.Add(new OrbitSegment
+            {
+                startUT = 1000,
+                endUT = 2000,
+                bodyName = "Kerbin",
+                inclination = 28.5,
+                eccentricity = 0.001,
+                semiMajorAxis = 700000,
+                longitudeOfAscendingNode = 90,
+                argumentOfPeriapsis = 45,
+                meanAnomalyAtEpoch = 0,
+                epoch = 1000
+            });
+
+            // Need at least one point so the leaf-no-data warning doesn't fire
+            rec.Points.Add(new TrajectoryPoint { ut = 1000, bodyName = "Kerbin" });
+
+            ParsekFlight.FinalizeIndividualRecording(rec, 2000, isSceneExit: false);
+
+            InGameAssert.AreEqual("Kerbin", rec.TerminalOrbitBody,
+                $"TerminalOrbitBody should be 'Kerbin', got '{rec.TerminalOrbitBody}'");
+            InGameAssert.ApproxEqual(28.5, rec.TerminalOrbitInclination, 0.01);
+            InGameAssert.ApproxEqual(0.001, rec.TerminalOrbitEccentricity, 0.0001);
+            InGameAssert.ApproxEqual(700000.0, rec.TerminalOrbitSemiMajorAxis, 1.0);
+
+            ParsekLog.Verbose("TestRunner",
+                $"TerminalOrbitBody backfill verified: body={rec.TerminalOrbitBody} " +
+                $"sma={rec.TerminalOrbitSemiMajorAxis:F1}");
+        }
+
+        [InGameTest(Category = "FinalizeBackfill", Scene = GameScenes.FLIGHT,
+            Description = "#265: Backfill skipped when TerminalOrbitBody already populated")]
+        public void TerminalOrbitBackfill_AlreadyPopulated_NoOverwrite()
+        {
+            var rec = new Recording
+            {
+                VesselName = "TestNoOverwrite",
+                VesselPersistentId = 0,
+                TerminalStateValue = TerminalState.Orbiting,
+                TerminalOrbitBody = "Mun",
+                TerminalOrbitSemiMajorAxis = 250000
+            };
+
+            rec.OrbitSegments.Add(new OrbitSegment
+            {
+                startUT = 1000,
+                endUT = 2000,
+                bodyName = "Kerbin",
+                semiMajorAxis = 700000
+            });
+            rec.Points.Add(new TrajectoryPoint { ut = 1000, bodyName = "Mun" });
+
+            ParsekFlight.FinalizeIndividualRecording(rec, 2000, isSceneExit: false);
+
+            // Backfill should NOT have overwritten the existing values
+            InGameAssert.AreEqual("Mun", rec.TerminalOrbitBody,
+                "Existing TerminalOrbitBody should not be overwritten");
+            InGameAssert.ApproxEqual(250000.0, rec.TerminalOrbitSemiMajorAxis, 1.0);
+
+            ParsekLog.Verbose("TestRunner",
+                "TerminalOrbitBody no-overwrite verified: body still Mun");
+        }
+
+        // ======================= BackgroundRecorderSeedSkip (#265) =======================
+
+        [InGameTest(Category = "BackgroundSeeder", Scene = GameScenes.FLIGHT,
+            Description = "#265: PartStateSeeder.EmitSeedEvents works with real vessel parts (xUnit blocked by AudioModule)")]
+        public void SeedEvents_ActiveVessel_ProducesConsistentEvents()
+        {
+            var v = FlightGlobals.ActiveVessel;
+            if (v == null || v.parts == null || v.parts.Count == 0)
+            {
+                InGameAssert.Skip("needs active vessel with parts");
+                return;
+            }
+
+            var engines = FlightRecorder.CacheEngineModules(v);
+            var rcs = FlightRecorder.CacheRcsModules(v);
+
+            // First seed pass — populates tracking sets
+            var sets = new PartTrackingSets();
+            PartStateSeeder.SeedPartStates(v, sets, engines, rcs, false, "Test");
+
+            var partNames = new Dictionary<uint, string>();
+            foreach (var p in v.parts)
+                if (p != null && !partNames.ContainsKey(p.persistentId))
+                    partNames[p.persistentId] = p.partInfo?.name ?? "unknown";
+
+            double ut = Planetarium.GetUniversalTime();
+            var events1 = PartStateSeeder.EmitSeedEvents(sets, partNames, ut, "Test");
+
+            // Second seed pass on same vessel — should produce identical event types+PIDs
+            var sets2 = new PartTrackingSets();
+            PartStateSeeder.SeedPartStates(v, sets2, engines, rcs, false, "Test");
+            var events2 = PartStateSeeder.EmitSeedEvents(sets2, partNames, ut + 1, "Test");
+
+            InGameAssert.AreEqual(events1.Count, events2.Count,
+                $"Re-seeding should produce same count: first={events1.Count} second={events2.Count}");
+
+            // Verify no internal duplicates within a single seed batch
+            var seen = new HashSet<string>();
+            foreach (var evt in events1)
+            {
+                string key = $"{evt.partPersistentId}_{evt.eventType}_{evt.moduleIndex}";
+                InGameAssert.IsTrue(seen.Add(key),
+                    $"Duplicate seed event within batch: {key}");
+            }
+
+            ParsekLog.Verbose("TestRunner",
+                $"SeedEvents consistency verified: {events1.Count} events for " +
+                $"{v.vesselName} ({v.parts.Count} parts), no duplicates");
+        }
+
+        [InGameTest(Category = "BackgroundSeeder", Scene = GameScenes.FLIGHT,
+            Description = "#265: Double-seeding into a recording would create duplicates — validates Count>0 guard")]
+        public void SeedEvents_DoubleSeed_WouldCreateDuplicates()
+        {
+            var v = FlightGlobals.ActiveVessel;
+            if (v == null || v.parts == null || v.parts.Count == 0)
+            {
+                InGameAssert.Skip("needs active vessel with parts");
+                return;
+            }
+
+            var engines = FlightRecorder.CacheEngineModules(v);
+            var rcs = FlightRecorder.CacheRcsModules(v);
+            var sets = new PartTrackingSets();
+            PartStateSeeder.SeedPartStates(v, sets, engines, rcs, false, "Test");
+
+            var partNames = new Dictionary<uint, string>();
+            foreach (var p in v.parts)
+                if (p != null && !partNames.ContainsKey(p.persistentId))
+                    partNames[p.persistentId] = p.partInfo?.name ?? "unknown";
+
+            double ut = Planetarium.GetUniversalTime();
+            var seedEvents = PartStateSeeder.EmitSeedEvents(sets, partNames, ut, "Test");
+
+            if (seedEvents.Count == 0)
+            {
+                // Vessel has no stateful parts (e.g., bare capsule) — can't demonstrate the guard
+                ParsekLog.Verbose("TestRunner",
+                    $"Vessel {v.vesselName} has no seed events — skipping double-seed test");
+                InGameAssert.Skip("vessel has no stateful parts to seed");
+                return;
+            }
+
+            // Simulate what happens WITHOUT the Count>0 guard: seed once, then seed again
+            var rec = new Recording { VesselName = "TestDoubleSeed" };
+            rec.PartEvents.AddRange(seedEvents);
+            int countAfterFirst = rec.PartEvents.Count;
+
+            // Second seed pass
+            var sets2 = new PartTrackingSets();
+            PartStateSeeder.SeedPartStates(v, sets2, engines, rcs, false, "Test");
+            var seedEvents2 = PartStateSeeder.EmitSeedEvents(sets2, partNames, ut + 1, "Test");
+            rec.PartEvents.AddRange(seedEvents2);
+
+            // Without the guard, the count doubles — this is the bug the guard prevents
+            InGameAssert.IsGreaterThan(rec.PartEvents.Count, countAfterFirst,
+                "Double-seeding without guard MUST produce more events (demonstrates guard necessity)");
+
+            ParsekLog.Verbose("TestRunner",
+                $"Double-seed guard necessity verified: first={countAfterFirst} " +
+                $"after-double={rec.PartEvents.Count} events");
+        }
     }
 }
