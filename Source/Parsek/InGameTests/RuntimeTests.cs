@@ -1646,6 +1646,47 @@ namespace Parsek.InGameTests
         }
 
         [InGameTest(Category = "TerrainClearance", Scene = GameScenes.FLIGHT,
+            Description = "Recorded-terrain no-op: point already above corrected altitude is unchanged (#282)")]
+        public void LandedGhostClearance_RecordedTerrain_AlreadyClear_Unchanged()
+        {
+            var activeVessel = FlightGlobals.ActiveVessel;
+            if (activeVessel == null || activeVessel.mainBody == null)
+            {
+                InGameAssert.Skip("needs Flight scene with an active vessel");
+                return;
+            }
+
+            var body = activeVessel.mainBody;
+            double lat = activeVessel.latitude;
+            double lon = activeVessel.longitude;
+            double currentTerrain = body.TerrainAltitude(lat, lon, true);
+
+            // Simulate: at recording time terrain was 100m, vessel at 100.8m (0.8m clearance).
+            // Current terrain may differ. Set point altitude well above corrected target.
+            double recordedTerrain = 100.0;
+            double correctedTarget = currentTerrain + 0.8; // preserving 0.8m clearance
+            double safeAlt = correctedTarget + 50.0; // well above target
+
+            var point = new Parsek.TrajectoryPoint
+            {
+                ut = Planetarium.GetUniversalTime(),
+                latitude = lat,
+                longitude = lon,
+                altitude = safeAlt,
+                bodyName = body.name,
+                rotation = Quaternion.identity,
+                velocity = Vector3.zero,
+            };
+
+            var clamped = ParsekFlight.ApplyLandedGhostClearance(
+                point, index: 282, vesselName: "Bug282RecNoOp", recordedTerrainHeight: recordedTerrain);
+
+            InGameAssert.AreEqual(safeAlt, clamped.altitude,
+                $"Point already above corrected target ({correctedTarget:F2}) must not be modified " +
+                $"(got {clamped.altitude:F2})");
+        }
+
+        [InGameTest(Category = "TerrainClearance", Scene = GameScenes.FLIGHT,
             Description = "Negative recorded clearance (physics glitch) is clamped to 0.5m floor (#282)")]
         public void LandedGhostClearance_NegativeClearance_ClampsToFloor()
         {

@@ -409,6 +409,7 @@ namespace Parsek
         double IPlaybackTrajectory.LoopEndUT => LoopEndUT;
         TerminalState? IPlaybackTrajectory.TerminalStateValue => TerminalStateValue;
         SurfacePosition? IPlaybackTrajectory.SurfacePos => SurfacePos;
+        double IPlaybackTrajectory.TerrainHeightAtEnd => TerrainHeightAtEnd;
         bool IPlaybackTrajectory.PlaybackEnabled => PlaybackEnabled;
         bool IPlaybackTrajectory.IsDebris => IsDebris;
         string IPlaybackTrajectory.TerminalOrbitBody => TerminalOrbitBody;

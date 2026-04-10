@@ -8385,10 +8385,7 @@ namespace Parsek
             {
                 var term = traj.TerminalStateValue;
                 if (term == TerminalState.Landed || term == TerminalState.Splashed)
-                {
-                    double recordedTerrainHeight = (traj as Recording)?.TerrainHeightAtEnd ?? double.NaN;
-                    positioned = ApplyLandedGhostClearance(point, index, traj.VesselName, recordedTerrainHeight);
-                }
+                    positioned = ApplyLandedGhostClearance(point, index, traj.VesselName, traj.TerrainHeightAtEnd);
             }
 
             PositionGhostAt(state.ghost, positioned);
@@ -8433,13 +8430,9 @@ namespace Parsek
             {
                 // Preserve the vessel's original clearance above terrain.
                 // Ghosts are purely visual — no physics damage concern.
+                // ComputeCorrectedAltitude already enforces a terrain+0.5m floor.
                 targetAlt = TerrainCorrector.ComputeCorrectedAltitude(
                     terrainAlt, p.altitude, recordedTerrainHeight);
-
-                // Safety floor: never place below terrain + 0.5m
-                double floor = terrainAlt + 0.5;
-                if (targetAlt < floor)
-                    targetAlt = floor;
             }
             else
             {
