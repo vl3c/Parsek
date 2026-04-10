@@ -814,23 +814,6 @@ namespace Parsek
             return keys;
         }
 
-        /// <summary>
-        /// Returns the set of keys from infoKeys that have no corresponding entry in keysWithEvents.
-        /// These are "orphan" engines/RCS modules that were likely running at breakup but have no
-        /// recorded seed events. Pure static method for testability.
-        /// </summary>
-        internal static List<ulong> FindOrphanKeys(IEnumerable<ulong> infoKeys, HashSet<ulong> keysWithEvents)
-        {
-            var orphans = new List<ulong>();
-            if (keysWithEvents == null) return orphans;
-            foreach (ulong key in infoKeys)
-            {
-                if (!keysWithEvents.Contains(key))
-                    orphans.Add(key);
-            }
-            return orphans;
-        }
-
         #endregion
 
         #region Explosion / Visibility

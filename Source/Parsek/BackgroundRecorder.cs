@@ -40,6 +40,7 @@ namespace Parsek
                     ? new Dictionary<ulong, float>(rec.LastRcsThrottles) : null
             };
         }
+
     }
 
     /// <summary>
@@ -499,19 +500,9 @@ namespace Parsek
 
             // Bug #298: snapshot parent engine/RCS state before CloseParentRecording
             // destroys loadedStates[parentPid].
-            InheritedEngineState? parentEngineState = null;
             BackgroundVesselState parentLoaded;
-            if (loadedStates.TryGetValue(parentPid, out parentLoaded)
-                && (parentLoaded.activeEngineKeys.Count > 0 || parentLoaded.activeRcsKeys.Count > 0))
-            {
-                parentEngineState = new InheritedEngineState
-                {
-                    activeEngineKeys = new HashSet<ulong>(parentLoaded.activeEngineKeys),
-                    engineThrottles = new Dictionary<ulong, float>(parentLoaded.lastThrottle),
-                    activeRcsKeys = new HashSet<ulong>(parentLoaded.activeRcsKeys),
-                    rcsThrottles = new Dictionary<ulong, float>(parentLoaded.lastRcsThrottle)
-                };
-            }
+            loadedStates.TryGetValue(parentPid, out parentLoaded);
+            InheritedEngineState? parentEngineState = InheritedStateFromBackgroundVessel(parentLoaded);
 
             // Close parent recording: set ChildBranchPointId, close orbit segment/trajectory
             CloseParentRecording(parentRec, parentPid, bp.Id, branchUT);
@@ -1791,6 +1782,28 @@ namespace Parsek
         /// <summary>
         /// Merges inherited engine/RCS state from a parent vessel into a child's
         /// tracking collections. Only keys whose decoded PID matches a part on the
+        /// <summary>
+        /// Creates an InheritedEngineState snapshot from a BackgroundVesselState.
+        /// Returns null if no engines or RCS are active. Used in HandleBackgroundVesselSplit
+        /// to capture parent state before CloseParentRecording destroys loadedStates.
+        /// Defined here (not on the struct) because BackgroundVesselState is a private inner class.
+        /// </summary>
+        private static InheritedEngineState? InheritedStateFromBackgroundVessel(BackgroundVesselState state)
+        {
+            if (state == null) return null;
+            bool hasEngines = state.activeEngineKeys != null && state.activeEngineKeys.Count > 0;
+            bool hasRcs = state.activeRcsKeys != null && state.activeRcsKeys.Count > 0;
+            if (!hasEngines && !hasRcs) return null;
+
+            return new InheritedEngineState
+            {
+                activeEngineKeys = hasEngines ? new HashSet<ulong>(state.activeEngineKeys) : null,
+                engineThrottles = hasEngines ? new Dictionary<ulong, float>(state.lastThrottle) : null,
+                activeRcsKeys = hasRcs ? new HashSet<ulong>(state.activeRcsKeys) : null,
+                rcsThrottles = hasRcs ? new Dictionary<ulong, float>(state.lastRcsThrottle) : null
+            };
+        }
+
         /// child vessel are merged. Uses add-if-absent semantics — does not overwrite
         /// keys already seeded from live vessel state by SeedEngines.
         /// Pure static method for testability. Bug #298.

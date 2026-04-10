@@ -122,94 +122,18 @@ namespace Parsek.Tests
 
         #endregion
 
-        #region FindOrphanKeys
-
-        [Fact]
-        public void FindOrphanKeys_NoEvents_AllKeysOrphan()
-        {
-            ulong key1 = FlightRecorder.EncodeEngineKey(100, 0);
-            ulong key2 = FlightRecorder.EncodeEngineKey(200, 0);
-            var infoKeys = new List<ulong> { key1, key2 };
-            var keysWithEvents = new HashSet<ulong>(); // empty — no events
-
-            var orphans = GhostPlaybackLogic.FindOrphanKeys(infoKeys, keysWithEvents);
-
-            Assert.Equal(2, orphans.Count);
-            Assert.Contains(key1, orphans);
-            Assert.Contains(key2, orphans);
-        }
-
-        [Fact]
-        public void FindOrphanKeys_SomeEvents_OnlyMissingKeysOrphan()
-        {
-            ulong key1 = FlightRecorder.EncodeEngineKey(100, 0);
-            ulong key2 = FlightRecorder.EncodeEngineKey(200, 0);
-            var infoKeys = new List<ulong> { key1, key2 };
-            var keysWithEvents = new HashSet<ulong> { key1 }; // key1 has events
-
-            var orphans = GhostPlaybackLogic.FindOrphanKeys(infoKeys, keysWithEvents);
-
-            Assert.Single(orphans);
-            Assert.Contains(key2, orphans);
-        }
-
-        [Fact]
-        public void FindOrphanKeys_AllHaveEvents_NoOrphans()
-        {
-            ulong key1 = FlightRecorder.EncodeEngineKey(100, 0);
-            ulong key2 = FlightRecorder.EncodeEngineKey(200, 0);
-            var infoKeys = new List<ulong> { key1, key2 };
-            var keysWithEvents = new HashSet<ulong> { key1, key2 };
-
-            var orphans = GhostPlaybackLogic.FindOrphanKeys(infoKeys, keysWithEvents);
-
-            Assert.Empty(orphans);
-        }
-
-        [Fact]
-        public void FindOrphanKeys_NullKeysWithEvents_ReturnsEmpty()
-        {
-            ulong key1 = FlightRecorder.EncodeEngineKey(100, 0);
-            var infoKeys = new List<ulong> { key1 };
-
-            var orphans = GhostPlaybackLogic.FindOrphanKeys(infoKeys, null);
-
-            Assert.Empty(orphans);
-        }
-
-        [Fact]
-        public void FindOrphanKeys_MultiModulePart_DistinguishesByModuleIndex()
-        {
-            ulong key0 = FlightRecorder.EncodeEngineKey(100, 0);
-            ulong key1 = FlightRecorder.EncodeEngineKey(100, 1);
-            var infoKeys = new List<ulong> { key0, key1 };
-            var keysWithEvents = new HashSet<ulong> { key0 };
-
-            var orphans = GhostPlaybackLogic.FindOrphanKeys(infoKeys, keysWithEvents);
-
-            Assert.Single(orphans);
-            Assert.Contains(key1, orphans);
-        }
-
-        #endregion
-
         #region Integration
 
         [Fact]
-        public void EndToEnd_DebrisBoosterPattern_ZeroEventsIdentifiesAllOrphans()
+        public void EndToEnd_DebrisBoosterPattern_ZeroEventsTriggersAutoStart()
         {
             // Simulate a debris booster recording: one engine, no engine events at all
-            ulong boosterEngineKey = FlightRecorder.EncodeEngineKey(545928558, 0);
             var events = new List<PartEvent>(); // empty — no seed events in debris recording
 
             var engineKeys = GhostPlaybackLogic.BuildEngineEventKeySet(events);
 
-            // Zero engine events = pure debris pattern → all engines are orphans
+            // Zero engine events = pure debris pattern → Count==0 triggers auto-start
             Assert.Empty(engineKeys);
-            var orphans = GhostPlaybackLogic.FindOrphanKeys(
-                new List<ulong> { boosterEngineKey }, engineKeys);
-            Assert.Single(orphans);
-            Assert.Equal(boosterEngineKey, orphans[0]);
         }
 
         [Fact]
