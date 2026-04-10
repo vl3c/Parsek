@@ -531,6 +531,16 @@ Source/Parsek/Logistics/
     RouteOrchestrator.cs        // thin integration layer — called from ParsekScenario hooks
 ```
 
+### Routes are not loops
+
+A logistics route is a **chain of recordings** (launch → transit → dock → transfer → undock → return), not a single recording with loop toggled on. The existing per-recording loop system replays one trajectory on repeat. A route replays an entire chain in sequence, then restarts from the first segment after a dispatch interval.
+
+This means:
+- **Route recordings do NOT use the per-recording loop toggle.** The route scheduler owns all timing.
+- **The route scheduler orchestrates chain playback** — it tells the playback engine "play segment N now," and when that segment completes, starts segment N+1. When the last segment finishes, it triggers delivery and waits for the dispatch interval before restarting from segment 1.
+- **The integration hook is `OnPlaybackCompleted`** (segment finished), not `OnLoopRestarted`. The route scheduler listens for "trajectory index N completed" and decides what to do next (start next segment, or if last → deliver + schedule next dispatch).
+- **Routes and loops are siblings**, not parent-child. Both use the ghost playback engine to replay trajectories. Loops repeat a single trajectory; routes chain multiple trajectories sequentially with delivery logic between cycles.
+
 ### Integration seams (4 total)
 
 These are the **only** places where logistics code touches existing Parsek code:
@@ -539,7 +549,7 @@ These are the **only** places where logistics code touches existing Parsek code:
 |------|-------|------|-------------|
 | **Save/Load** | `ParsekScenario.OnSave`/`OnLoad` | `RouteOrchestrator.OnSave(node)`/`OnLoad(node)` | Null-check. Missing ROUTES node = no routes. |
 | **Scheduler tick** | `ParsekScenario.Update` | `RouteOrchestrator.Tick(currentUT)` | Single call, no-op if no active routes. |
-| **Loop event** | `ParsekPlaybackPolicy.HandleLoopRestarted` | `RouteOrchestrator.OnLoopCycleCompleted(evt)` | Currently a logging stub. Add one call. |
+| **Playback completed** | `ParsekPlaybackPolicy.HandlePlaybackCompleted` | `RouteOrchestrator.OnSegmentCompleted(evt)` | Check if the completed trajectory belongs to an active route. No-op otherwise. |
 | **Timeline events** | `Ledger` / `LedgerOrchestrator` | New `GameActionType` entries for ROUTE_DISPATCHED/ROUTE_DELIVERED | Additive enum values + display strings. |
 
 No changes to `FlightRecorder`, `GhostPlaybackEngine`, `RecordingStore`, `RecordingTree`, `ChainSegmentManager`, `RecordingOptimizer`, or any recording/playback code.
