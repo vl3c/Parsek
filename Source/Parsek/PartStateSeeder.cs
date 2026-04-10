@@ -707,32 +707,32 @@ namespace Parsek
     /// </summary>
     internal class PartTrackingSets
     {
-        public HashSet<uint> deployedFairings;
-        public HashSet<uint> jettisonedShrouds;
-        public Dictionary<uint, int> parachuteStates;
-        public HashSet<uint> extendedDeployables;
-        public HashSet<uint> lightsOn;
-        public HashSet<uint> blinkingLights;
-        public Dictionary<uint, float> lightBlinkRates;
-        public HashSet<uint> deployedGear;
-        public HashSet<uint> openCargoBays;
-        public HashSet<ulong> deployedLadders;
-        public HashSet<ulong> deployedAnimationGroups;
-        public HashSet<ulong> deployedAnimateGenericModules;
-        public HashSet<ulong> deployedAeroSurfaceModules;
-        public HashSet<ulong> deployedControlSurfaceModules;
-        public HashSet<ulong> deployedRobotArmScannerModules;
-        public Dictionary<ulong, HeatLevel> animateHeatLevels;
-        public HashSet<ulong> activeEngineKeys;
-        public Dictionary<ulong, float> lastThrottle;
-        public HashSet<ulong> activeRcsKeys;
-        public Dictionary<ulong, float> lastRcsThrottle;
+        public HashSet<uint> deployedFairings = new HashSet<uint>();
+        public HashSet<uint> jettisonedShrouds = new HashSet<uint>();
+        public Dictionary<uint, int> parachuteStates = new Dictionary<uint, int>();
+        public HashSet<uint> extendedDeployables = new HashSet<uint>();
+        public HashSet<uint> lightsOn = new HashSet<uint>();
+        public HashSet<uint> blinkingLights = new HashSet<uint>();
+        public Dictionary<uint, float> lightBlinkRates = new Dictionary<uint, float>();
+        public HashSet<uint> deployedGear = new HashSet<uint>();
+        public HashSet<uint> openCargoBays = new HashSet<uint>();
+        public HashSet<ulong> deployedLadders = new HashSet<ulong>();
+        public HashSet<ulong> deployedAnimationGroups = new HashSet<ulong>();
+        public HashSet<ulong> deployedAnimateGenericModules = new HashSet<ulong>();
+        public HashSet<ulong> deployedAeroSurfaceModules = new HashSet<ulong>();
+        public HashSet<ulong> deployedControlSurfaceModules = new HashSet<ulong>();
+        public HashSet<ulong> deployedRobotArmScannerModules = new HashSet<ulong>();
+        public Dictionary<ulong, HeatLevel> animateHeatLevels = new Dictionary<ulong, HeatLevel>();
+        public HashSet<ulong> activeEngineKeys = new HashSet<ulong>();
+        public Dictionary<ulong, float> lastThrottle = new Dictionary<ulong, float>();
+        public HashSet<ulong> activeRcsKeys = new HashSet<ulong>();
+        public Dictionary<ulong, float> lastRcsThrottle = new Dictionary<ulong, float>();
         /// <summary>
         /// All engine keys present on the vessel (active + inactive). Populated by
         /// SeedEngines. Used by EmitEngineSeedEvents to emit EngineShutdown sentinels
         /// for dead engines, preventing the playback Count==0 auto-start heuristic
         /// from incorrectly firing on debris with depleted-fuel engines (#298).
         /// </summary>
-        public HashSet<ulong> allEngineKeys;
+        public HashSet<ulong> allEngineKeys = new HashSet<ulong>();
     }
 }
