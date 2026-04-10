@@ -503,3 +503,96 @@ T11.1 and T11.5 are independent and can be done in the same commit. T11.2 builds
 **Mining vessels.** A mining vessel's EndResources will show more ore than StartResources. `ComputeResourceDelta` correctly returns positive values. Phase 12 handles this naturally: a "mining route" delivers ore gained during the mission. The design doc already anticipates this (§5.2: "the delivery amount is the positive delta").
 
 **SolidFuel on boosters.** Extraction sums across all parts including not-yet-staged boosters. This is correct behavior (total vessel resources at snapshot time). After staging, the booster's resources are on a separate debris recording.
+
+---
+
+## Architecture: logistics routes as a self-contained module
+
+### The big picture
+
+Parsek has three major subsystems that grew in phases, each with a clear boundary:
+
+1. **Recording + playback** (v0.3–v0.5) — `FlightRecorder`, `GhostPlaybackEngine`, `RecordingStore`, `RecordingTree`, etc. Records flights, plays them back as ghosts.
+2. **Game actions** (v0.6) — `GameActions/` folder: `Ledger`, `LedgerOrchestrator`, `RecalculationEngine`, 8 `IResourceModule` implementations. Tracks career-mode economic events. Lives in its own directory. Integrates with the rest of Parsek through a thin orchestrator (`LedgerOrchestrator`) called from `ParsekScenario` lifecycle hooks.
+3. **Ghost playback engine** (extraction-ready for Gloops) — `GhostPlaybackEngine`, `IPlaybackTrajectory`, `IGhostPositioner`. Already has zero `Recording` references. Communicates outward through events (`OnLoopRestarted`, `OnPlaybackCompleted`, etc.) and reads inward through the `IPlaybackTrajectory` interface.
+
+Phase 12 (logistics routes) should follow the game actions pattern: **a self-contained module in its own directory, with a thin orchestrator that connects it to Parsek's lifecycle hooks.** The route system should be removable by deleting the folder and removing the orchestrator calls — no behavioral changes to recording, playback, or the game actions system.
+
+### Module structure
+
+```
+Source/Parsek/Logistics/
+    Route.cs                    // data model (Route, RouteEndpoint, RouteStatus)
+    RouteStore.cs               // static storage surviving scene changes (like RecordingStore)
+    RouteScheduler.cs           // dispatch/delivery evaluation (pure logic, called per tick)
+    RouteDelivery.cs            // ProtoPartResourceSnapshot modification on unloaded vessels
+    RouteEndpointResolver.cs    // vessel finding by PID + surface proximity fallback
+    RouteManifestComputer.cs    // derive delivery/cost manifests from recording chain resources
+    RouteOrchestrator.cs        // thin integration layer — called from ParsekScenario hooks
+```
+
+### Integration seams (4 total)
+
+These are the **only** places where logistics code touches existing Parsek code:
+
+| Seam | Where | What | How to guard |
+|------|-------|------|-------------|
+| **Save/Load** | `ParsekScenario.OnSave`/`OnLoad` | `RouteOrchestrator.OnSave(node)`/`OnLoad(node)` | Null-check. Missing ROUTES node = no routes. |
+| **Scheduler tick** | `ParsekScenario.Update` | `RouteOrchestrator.Tick(currentUT)` | Single call, no-op if no active routes. |
+| **Loop event** | `ParsekPlaybackPolicy.HandleLoopRestarted` | `RouteOrchestrator.OnLoopCycleCompleted(evt)` | Currently a logging stub. Add one call. |
+| **Timeline events** | `Ledger` / `LedgerOrchestrator` | New `GameActionType` entries for ROUTE_DISPATCHED/ROUTE_DELIVERED | Additive enum values + display strings. |
+
+No changes to `FlightRecorder`, `GhostPlaybackEngine`, `RecordingStore`, `RecordingTree`, `ChainSegmentManager`, `RecordingOptimizer`, or any recording/playback code.
+
+### What the route module reads (Phase 11 output)
+
+The route module is a **read-only consumer** of recording data:
+
+```csharp
+// RouteManifestComputer reads these from committed Recording objects:
+rec.StartResources      // transport vessel start state → cost manifest
+rec.EndResources        // transport vessel end state
+// + chain segment walk for dock/undock boundary EndResources → delivery manifest
+
+// RouteEndpointResolver reads:
+rec.StartBodyName, rec.StartLatitude, rec.StartLongitude  // origin location
+// dock event coordinates from chain boundary trajectory points  // destination
+```
+
+The route module never writes to Recording objects. It creates Route objects in its own `RouteStore`, serialized in its own `ROUTES` ConfigNode section inside `ParsekScenario`.
+
+### What the route module writes (resource modification)
+
+Resource delivery modifies vessels that are **not** part of the recording system — they're real KSP vessels at endpoint locations. The delivery path is:
+
+```
+RouteDelivery.DeliverResources(destVessels, deliveryManifest)
+    for each vessel:
+        if loaded:  part.RequestResource(name, -amount)     // KSP API
+        if unloaded: protoPartResource.amount += amount      // direct field write
+```
+
+This is completely independent of Parsek's recording/playback/ghost systems. No ghost, no recording, no trajectory — just a vessel and a number.
+
+### Lifecycle isolation
+
+Routes have their own lifecycle, independent of recordings:
+
+- **Creation:** from a committed recording (post-commit UI button), but the route is a separate entity with its own GUID.
+- **Persistence:** own ConfigNode section (`ROUTES` in ParsekScenario), not part of recording metadata.
+- **Deletion:** deleting a route does not affect its source recording. Deleting a recording orphans the route (no ghost replay, but resource transfers continue).
+- **Revert:** route state is serialized in .sfs — quicksave/load restores it. Timeline events use the existing epoch isolation.
+
+### Why not a separate assembly now
+
+The roadmap defers assembly extraction to the Gloops boundary (pre-Phase 13). For Phase 12, a directory-level module within `Parsek.csproj` is the right granularity:
+
+- Routes need direct access to `Recording.StartResources`/`EndResources`, `RecordingStore.CommittedRecordings`, `Ledger`, and `ParsekScenario` lifecycle. Cross-assembly access would require making all of these `public` or adding an interface layer — friction without benefit.
+- The game actions system (v0.6) followed the same pattern: directory-level module, static orchestrator, integrated through ParsekScenario hooks. It works well and is easy to reason about.
+- If Gloops extraction happens, routes stay in Parsek (they're Parsek policy, not ghost playback). The Gloops boundary is clean of route concerns.
+
+### Implications for Phase 11
+
+Phase 11 stays exactly as planned — it adds data fields and extraction functions, all within existing files. No `Logistics/` directory yet. No route concepts leak into the resource snapshot code.
+
+The modularity constraint for Phase 11 is: **`StartResources`/`EndResources` must be usable by code that has no knowledge of routes.** This is already the case — they're plain Dictionary fields on Recording, serialized as additive ConfigNode data, extracted by a pure function. The UI tooltip (T11.4) consumes them directly. Phase 12's `RouteManifestComputer` will consume them through the same public fields. No coupling.
