@@ -167,6 +167,50 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void TreeMode_NonDestroyedVessel_DoesNotSetTerminalState()
+        {
+            var tree = MakeTree("root-001");
+            var captured = MakeCaptured(120.0, 180.0, destroyed: false);
+
+            bool result = ParsekFlight.TryAppendCapturedToTree(tree, captured);
+
+            Assert.True(result);
+            var rootRec = tree.Recordings["root-001"];
+            Assert.Null(rootRec.TerminalStateValue);
+            Assert.False(rootRec.VesselDestroyed);
+            Assert.Equal(5, rootRec.Points.Count);
+        }
+
+        [Fact]
+        public void TreeMode_AppendsPartEventsAndOrbitSegments()
+        {
+            var tree = MakeTree("root-001");
+            tree.Recordings["root-001"].PartEvents.Add(new PartEvent
+            {
+                ut = 105.0, partPersistentId = 100, eventType = PartEventType.EngineIgnited, partName = "engine",
+            });
+
+            var captured = MakeCaptured(120.0, 180.0);
+            captured.PartEvents.Add(new PartEvent
+            {
+                ut = 150.0, partPersistentId = 200, eventType = PartEventType.EngineShutdown, partName = "engine",
+            });
+            captured.OrbitSegments.Add(new OrbitSegment
+            {
+                startUT = 130.0, endUT = 170.0, bodyName = "Kerbin",
+            });
+
+            bool result = ParsekFlight.TryAppendCapturedToTree(tree, captured);
+
+            Assert.True(result);
+            var rootRec = tree.Recordings["root-001"];
+            Assert.Equal(2, rootRec.PartEvents.Count);
+            Assert.Equal(105.0, rootRec.PartEvents[0].ut); // sorted
+            Assert.Equal(150.0, rootRec.PartEvents[1].ut);
+            Assert.Single(rootRec.OrbitSegments);
+        }
+
+        [Fact]
         public void TreeMode_PreservesMaxDist_WhenCapturedIsSmaller()
         {
             var tree = MakeTree("root-001");
