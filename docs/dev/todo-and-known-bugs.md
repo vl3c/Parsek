@@ -4,6 +4,35 @@ Previous entries (225 bugs, 51 TODOs — mostly resolved) archived in `done/todo
 
 ---
 
+## ~~294. F5/F9 during standalone recording loses all in-progress data~~
+
+Surfaced by the 2026-04-10 engine-plume-bug playtest (`logs/2026-04-10_engine-plume-bug/KSP.log`). After F9 quickload during the Halger Kerman EVA standalone recording, the pending recording was discarded by `DiscardStashedOnQuickload` and no new recording started. 28 seconds of EVA walk lost.
+
+**Root cause**: Tree mode has a full quickload-resume pipeline (`SaveActiveTreeIfAny` → `PARSEK_ACTIVE_TREE` node → `TryRestoreActiveTreeNode` → `RestoreActiveTreeFromPending` coroutine). Standalone mode had nothing equivalent. The in-progress recorder buffer was never serialized to `.sfs` during F5, so F9 had nothing to restore from. `DiscardStashedOnQuickload` correctly discarded the stashed post-F5 data (from `StashPendingOnSceneChange`), but there was no mechanism to restore the F5-point data.
+
+**Fix**: Three-part fix mirroring the tree-mode pattern:
+1. `SaveActiveStandaloneIfAny` in `ParsekScenario.OnSave` deep-copies the recorder's buffers into a `PARSEK_ACTIVE_STANDALONE` ConfigNode (points, events, orbit segments, track sections, flag events, start location metadata, rewind save filename). Unlike tree-mode flush, the recorder's buffers are NOT cleared — the recorder keeps running after F5.
+2. `TryRestoreActiveStandaloneNode` in `ParsekScenario.OnLoad` deserializes the node into a temporary Recording and sets `ScheduleActiveStandaloneRestoreOnFlightReady`.
+3. `RestoreActiveStandaloneFromPending` coroutine in `ParsekFlight.OnFlightReady` waits for the vessel to load (3s timeout), creates a new recorder via `StartRecording(isPromotion: true)`, prepends the saved trajectory data into the recorder's buffers, and restores the original start location. Reuses `restoringActiveTree` guard for reentrancy protection.
+
+Mutually exclusive with tree restore — `TryRestoreActiveStandaloneNode` skips if `ScheduleActiveTreeRestoreOnFlightReady` is already set.
+
+**Status**: Fixed.
+
+---
+
+## ~~293. OnFlightReady fallback merge dialog races with restore coroutine after F9~~
+
+Surfaced by the 2026-04-10 engine-plume-bug playtest (`logs/2026-04-10_engine-plume-bug/KSP.log` line 10604). After F9 quickload with an active tree, the restore coroutine (`RestoreActiveTreeFromPending`) started and yielded waiting for the vessel. But the fallback pending tree check at `ParsekFlight.cs:4211` ran synchronously in the same frame, saw `HasPendingTree` still true (the coroutine hadn't popped it yet), and fired `MergeDialog.ShowTreeDialog`. With autoMerge ON, the tree was committed immediately. The coroutine eventually resumed but the tree was gone — no recording restarted. 28 minutes of orbital flight (UT 695→2376) not recorded.
+
+**Root cause**: PR #184 added the `restoringActiveTree` reentrancy guard and checked it at `OnFlightReady` entry, `FinalizeTreeOnSceneChange`, `OnVesselWillDestroy`, and `OnVesselSwitchComplete`. But it missed the intra-method fallback check at line 4211 (`if (RecordingStore.HasPendingTree)`), which runs AFTER `StartCoroutine` returns (after the coroutine's first yield). The coroutine sets `restoringActiveTree = true` before its first yield, so the guard was already set — it just wasn't being checked.
+
+**Fix**: Added `&& !restoringActiveTree` to both fallback checks (pending tree at line 4211, pending standalone at line 4221). Also added logging for the skip case.
+
+**Status**: Fixed.
+
+---
+
 ## ~~292. Recording optimizer "deletes" outer-space recordings after F9 quickload (game-breaking)~~
 
 Surfaced by the 2026-04-10 Kerbal X Mun-flyby playtest (worktree `Parsek-investigate-280-285`, branch `investigate-280-285`). The user reported: *"the rec optimizer (maybe because of f5 f9 interaction?) deleted all the recordings of the trip in outer space (they were ok initially). At the end after a rewind I could only see the launch and 2 very small recordings of the end of the mission. This is game breaking."*

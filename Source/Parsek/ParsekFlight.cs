@@ -4152,6 +4152,12 @@ namespace Parsek
                     StartCoroutine(RestoreActiveTreeFromPending());
                 }
             }
+            // #294: Standalone quickload-resume — mutually exclusive with tree restore.
+            else if (ParsekScenario.ScheduleActiveStandaloneRestoreOnFlightReady)
+            {
+                ParsekScenario.ScheduleActiveStandaloneRestoreOnFlightReady = false;
+                StartCoroutine(RestoreActiveStandaloneFromPending());
+            }
 
             // Belt-and-suspenders: recover orphaned spawned vessels that survived
             // the protoVessel stripping in OnLoad (e.g., FLIGHT→FLIGHT revert where
@@ -4208,18 +4214,33 @@ namespace Parsek
             // Handle pending tree: show tree merge dialog.
             // On non-revert scene changes, pending trees are auto-committed by ParsekScenario.
             // Reaching here means either a revert or a fallback (auto-commit missed).
-            if (RecordingStore.HasPendingTree)
+            // #293: skip when restore coroutine is running — it owns the pending tree and
+            // will either resume recording or leave it in Limbo. Without this guard, the
+            // fallback fires in the same frame as StartCoroutine (before the coroutine pops
+            // the tree), auto-merging it and leaving the vessel with no active recorder.
+            if (RecordingStore.HasPendingTree && !restoringActiveTree)
             {
                 var pt = RecordingStore.PendingTree;
                 ParsekLog.Warn("Flight", $"Pending tree '{pt.TreeName}' reached OnFlightReady — showing tree merge dialog (fallback)");
                 MergeDialog.ShowTreeDialog(pt);
             }
+            else if (RecordingStore.HasPendingTree && restoringActiveTree)
+            {
+                ParsekLog.Info("Flight",
+                    $"Pending tree '{RecordingStore.PendingTree.TreeName}' skipped — " +
+                    "restore coroutine in progress (#293)");
+            }
 
             // Handle pending standalone recording.
             // On non-revert scene changes, pending recordings are auto-committed by ParsekScenario.
             // On reverts, the merge dialog is expected here (player chose to revert).
-            if (RecordingStore.HasPending)
+            // #293: skip when restore coroutine is running — standalone and tree modes are
+            // mutually exclusive, so a pending standalone during tree restore is unexpected.
+            if (RecordingStore.HasPending && !restoringActiveTree)
                 HandlePendingStandaloneRecording();
+            else if (RecordingStore.HasPending && restoringActiveTree)
+                ParsekLog.Warn("Flight",
+                    "Pending standalone recording exists while restore coroutine is running — skipping (unexpected)");
 
             // Swap reserved crew out of the active vessel so the player
             // can't record with them again (they belong to deferred-spawn vessels)
@@ -5821,6 +5842,121 @@ namespace Parsek
             }
 
             ParsekLog.RecState("RestoreSwitch:after-install", CaptureRecorderState());
+            } // try
+            finally
+            {
+                restoringActiveTree = false;
+            }
+        }
+
+        /// <summary>
+        /// #294: Standalone quickload-resume coroutine. Restores an active standalone
+        /// recording from the PARSEK_ACTIVE_STANDALONE data saved at F5 time. Waits
+        /// for the vessel to load, creates a new recorder, seeds it with the saved
+        /// trajectory data, and resumes recording.
+        /// Mirrors the tree restore pattern but is simpler — no BackgroundRecorder,
+        /// no BackgroundMap, no branch management.
+        /// Reuses <see cref="restoringActiveTree"/> guard to prevent interference from
+        /// OnVesselSwitchComplete, OnVesselWillDestroy, etc. during the yield window.
+        /// </summary>
+        IEnumerator RestoreActiveStandaloneFromPending()
+        {
+            restoringActiveTree = true;
+            try
+            {
+            ParsekLog.RecState("RestoreSA:start", CaptureRecorderState());
+
+            var savedRec = ParsekScenario.pendingActiveStandaloneRecording;
+            string targetName = ParsekScenario.pendingActiveStandaloneVesselName;
+            uint savedPid = ParsekScenario.pendingActiveStandaloneVesselPid;
+
+            if (savedRec == null)
+            {
+                ParsekLog.Verbose("Flight",
+                    "RestoreActiveStandaloneFromPending: no pending standalone data, skipping");
+                yield break;
+            }
+
+            ParsekLog.Info("Flight",
+                $"RestoreActiveStandaloneFromPending: waiting for vessel '{targetName}' to load " +
+                $"(savedPid={savedPid}, {savedRec.Points.Count} saved points)");
+
+            // Wait up to 3 seconds for the active vessel to match by name.
+            // Same timeout as the tree restore path.
+            float deadline = UnityEngine.Time.time + 3f;
+            Vessel matched = null;
+            while (UnityEngine.Time.time < deadline)
+            {
+                var v = FlightGlobals.ActiveVessel;
+                if (v != null && v.vesselName == targetName)
+                {
+                    matched = v;
+                    break;
+                }
+                yield return null;
+            }
+
+            if (matched == null)
+            {
+                ParsekLog.Warn("Flight",
+                    $"RestoreActiveStandaloneFromPending: vessel '{targetName}' not active within 3s " +
+                    "— abandoning standalone restore");
+                ParsekScenario.ClearPendingActiveStandalone();
+                yield break;
+            }
+
+            ParsekLog.RecState("RestoreSA:matched", CaptureRecorderState());
+
+            // Create a fresh recorder and start recording
+            recorder = new FlightRecorder();
+
+            // Restore rewind save filename before StartRecording (so CaptureRewindSave
+            // sees the existing name and preserves it)
+            if (!string.IsNullOrEmpty(ParsekScenario.pendingActiveStandaloneRewindSave))
+            {
+                recorder.SetRewindSaveFileNameForRestore(
+                    ParsekScenario.pendingActiveStandaloneRewindSave,
+                    "standalone quickload-resume from PARSEK_ACTIVE_STANDALONE");
+            }
+
+            recorder.StartRecording(isPromotion: true);
+            if (!recorder.IsRecording)
+            {
+                ParsekLog.Warn("Flight",
+                    $"RestoreActiveStandaloneFromPending: StartRecording returned IsRecording=false " +
+                    $"for '{targetName}' — restore incomplete");
+                ParsekScenario.ClearPendingActiveStandalone();
+                yield break;
+            }
+
+            // Prepend saved trajectory data into the recorder's buffers.
+            // StartRecording may have inserted a boundary anchor point — the saved data
+            // goes BEFORE it chronologically (InsertRange(0, ...) shifts existing entries).
+            recorder.Recording.InsertRange(0, savedRec.Points);
+            recorder.OrbitSegments.InsertRange(0, savedRec.OrbitSegments);
+            recorder.PartEvents.InsertRange(0, savedRec.PartEvents);
+            recorder.FlagEvents.InsertRange(0, savedRec.FlagEvents);
+            recorder.TrackSections.InsertRange(0, savedRec.TrackSections);
+            recorder.SegmentEvents.InsertRange(0, savedRec.SegmentEvents);
+
+            // Restore original start location from the saved data (StartRecording captured
+            // the quickload-time location which is wrong — we want the original launch location).
+            if (!string.IsNullOrEmpty(savedRec.StartBodyName))
+                recorder.SetStartLocationForRestore(
+                    savedRec.StartBodyName, savedRec.StartBiome,
+                    savedRec.StartSituation, savedRec.LaunchSiteName);
+
+            ParsekScenario.ClearPendingActiveStandalone();
+
+            ParsekLog.Info("Flight",
+                $"RestoreActiveStandaloneFromPending: resumed standalone recording " +
+                $"for '{targetName}' (pid={matched.persistentId}, " +
+                $"{recorder.Recording.Count} total points including {savedRec.Points.Count} restored) " +
+                $"at UT={Planetarium.GetUniversalTime():F1}");
+            ParsekLog.RecState("RestoreSA:after-start", CaptureRecorderState());
+
+            ParsekLog.Info("Flight", $"StartRecording succeeded: pid={matched.persistentId}, chainActive=False, tree=False");
+
             } // try
             finally
             {
