@@ -590,50 +590,63 @@ namespace Parsek.Tests
         [Fact]
         public void HasOrphanedLimboTree_LimboStashedButNotRestoredFromSave_IsTrue_Bug300()
         {
-            // Simulates the revert-to-launch scenario: StashActiveTreeAsPendingLimbo
-            // put a tree into Limbo, but TryRestoreActiveTreeNode found nothing in the
-            // save file (returned false).
+            // Revert-to-launch scenario: StashActiveTreeAsPendingLimbo put a tree
+            // into Limbo, then TryRestoreActiveTreeNode scans the launch quicksave
+            // which has NO active tree → returns false → orphaned.
             var tree = MakeTree("tree_revert", "Kerbal X", 3);
             RecordingStore.StashPendingTree(tree, PendingTreeState.Limbo);
 
+            // Launch quicksave: no RECORDING_TREE with isActive=True
+            var launchSave = new ConfigNode("PARSEK_SCENARIO");
+            bool activeTreeRestoredFromSave = ParsekScenario.TryRestoreActiveTreeNode(launchSave);
+
+            Assert.False(activeTreeRestoredFromSave);
             bool hasOrphanedLimboTree = RecordingStore.HasPendingTree
                 && RecordingStore.PendingTreeStateValue == PendingTreeState.Limbo
-                && true; // !activeTreeRestoredFromSave (would be false from TryRestore)
+                && !activeTreeRestoredFromSave;
             Assert.True(hasOrphanedLimboTree);
         }
 
         [Fact]
         public void HasOrphanedLimboTree_LimboOverwrittenByRestore_IsFalse_Bug300()
         {
-            // Simulates the quickload (F5/F9) scenario: StashActiveTreeAsPendingLimbo
-            // put a tree into Limbo, then TryRestoreActiveTreeNode found the save-file
-            // version and overwrote it (returned true).
+            // Quickload (F5/F9) scenario: StashActiveTreeAsPendingLimbo put a tree
+            // into Limbo, then TryRestoreActiveTreeNode finds the save-file version
+            // (F5 save has isActive=True) → returns true → not orphaned.
             var tree = MakeTree("tree_ql", "Kerbal X", 3);
             RecordingStore.StashPendingTree(tree, PendingTreeState.Limbo);
 
-            // Simulate TryRestoreActiveTreeNode success: it pops the stale tree
-            // and re-stashes the save-file version as Limbo.
+            // F5 save: has RECORDING_TREE with isActive=True
+            var f5Save = new ConfigNode("PARSEK_SCENARIO");
+            var activeNode = f5Save.AddNode("RECORDING_TREE");
             var saveTree = MakeTree("tree_ql", "Kerbal X (save)", 3);
-            RecordingStore.PopPendingTree();
-            RecordingStore.StashPendingTree(saveTree, PendingTreeState.Limbo);
+            saveTree.Save(activeNode);
+            activeNode.AddValue("isActive", "True");
 
+            bool activeTreeRestoredFromSave = ParsekScenario.TryRestoreActiveTreeNode(f5Save);
+
+            Assert.True(activeTreeRestoredFromSave);
             bool hasOrphanedLimboTree = RecordingStore.HasPendingTree
                 && RecordingStore.PendingTreeStateValue == PendingTreeState.Limbo
-                && false; // !activeTreeRestoredFromSave (would be true)
+                && !activeTreeRestoredFromSave;
             Assert.False(hasOrphanedLimboTree);
         }
 
         [Fact]
         public void HasOrphanedLimboTree_FinalizedState_IsFalse_Bug300()
         {
-            // Finalized trees are committed scene-exit trees, not Limbo. The orphaned
-            // Limbo check should NOT fire for them.
+            // Finalized trees are committed scene-exit trees, not Limbo. Even when
+            // TryRestoreActiveTreeNode returns false, the Limbo state check rejects.
             var tree = MakeTree("tree_fin", "Committed Flight", 2);
             RecordingStore.StashPendingTree(tree, PendingTreeState.Finalized);
 
+            var emptySave = new ConfigNode("PARSEK_SCENARIO");
+            bool activeTreeRestoredFromSave = ParsekScenario.TryRestoreActiveTreeNode(emptySave);
+
+            Assert.False(activeTreeRestoredFromSave);
             bool hasOrphanedLimboTree = RecordingStore.HasPendingTree
                 && RecordingStore.PendingTreeStateValue == PendingTreeState.Limbo
-                && true; // !activeTreeRestoredFromSave
+                && !activeTreeRestoredFromSave;
             Assert.False(hasOrphanedLimboTree);
         }
 
