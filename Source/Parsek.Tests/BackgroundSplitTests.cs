@@ -994,26 +994,6 @@ namespace Parsek.Tests
             }
         }
 
-        [Fact]
-        public void Bug285_ParentDead_LogMessageFires()
-        {
-            // The actual code logs "Skipping parent continuation — parent vessel destroyed"
-            // when FindVesselByPid returns null. We can't call HandleBackgroundVesselSplit
-            // in tests, but we verify the log message format is what we'll assert on
-            // in integration / in-game tests.
-
-            // Simulate what the code does:
-            uint parentPid = 100;
-            string debugName = "rec_bg (Background Vessel 0)";
-
-            // This is the exact log message the fix emits:
-            string expectedMsg = $"Skipping parent continuation — parent vessel destroyed: " +
-                $"parentPid={parentPid} parentRec={debugName}";
-
-            Assert.Contains("Skipping parent continuation", expectedMsg);
-            Assert.Contains("parentPid=100", expectedMsg);
-        }
-
         #endregion
     }
 }
