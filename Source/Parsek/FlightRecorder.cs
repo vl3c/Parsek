@@ -5334,6 +5334,8 @@ namespace Parsek
             if (!trackSectionActive || currentTrackSection.frames == null) return;
             currentTrackSection.frames.Add(point.Value);
             UpdateTrackSectionAltitude((float)point.Value.altitude);
+            ParsekLog.Verbose("Recorder",
+                $"Boundary point seeded: ut={point.Value.ut.ToString("F2", CultureInfo.InvariantCulture)}");
         }
 
         /// <summary>

@@ -1893,6 +1893,8 @@ namespace Parsek
             if (!point.HasValue) return;
             if (!state.trackSectionActive || state.currentTrackSection.frames == null) return;
             state.currentTrackSection.frames.Add(point.Value);
+            ParsekLog.Verbose("BgRecorder",
+                $"Boundary point seeded: pid={state.vesselPid} ut={point.Value.ut.ToString("F2", CultureInfo.InvariantCulture)}");
         }
 
         /// <summary>
