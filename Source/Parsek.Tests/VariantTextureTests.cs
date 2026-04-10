@@ -296,6 +296,144 @@ namespace Parsek.Tests
 
         #endregion
 
+        #region MatchVariantNode
+
+        private static ConfigNode BuildRockomax16VariantConfig()
+        {
+            // Mirrors Rockomax16.cfg: base variant is BlackAndWhite (implicit),
+            // two explicit VARIANT nodes: Orange and ESA.
+            var module = new ConfigNode("MODULE");
+            module.AddValue("name", "ModulePartVariants");
+            module.AddValue("baseThemeName", "BlackAndWhite");
+
+            var orange = module.AddNode("VARIANT");
+            orange.AddValue("name", "Orange");
+            var orangeTex = orange.AddNode("TEXTURE");
+            orangeTex.AddValue("mainTextureURL", "Squad/Parts/FuelTank/rockomax_16_O");
+
+            var esa = module.AddNode("VARIANT");
+            esa.AddValue("name", "ESA");
+            var esaTex = esa.AddNode("TEXTURE");
+            esaTex.AddValue("mainTextureURL", "Squad/Parts/FuelTank/rockomax_16_ESA");
+
+            return module;
+        }
+
+        [Fact]
+        public void MatchVariantNode_SnapshotNameMatchesVariant_ReturnsTrue()
+        {
+            var config = BuildRockomax16VariantConfig();
+
+            bool result = GhostVisualBuilder.MatchVariantNode(
+                config, "Orange", variantFromSnapshot: true,
+                out ConfigNode node, out string name, out string path);
+
+            Assert.True(result);
+            Assert.Equal("Orange", name);
+            Assert.Equal("snapshot", path);
+            Assert.NotNull(node);
+        }
+
+        [Fact]
+        public void MatchVariantNode_SnapshotNameMatchesVariant_CaseInsensitive()
+        {
+            var config = BuildRockomax16VariantConfig();
+
+            bool result = GhostVisualBuilder.MatchVariantNode(
+                config, "orange", variantFromSnapshot: true,
+                out ConfigNode node, out string name, out string path);
+
+            Assert.True(result);
+            Assert.Equal("Orange", name);
+            Assert.Equal("snapshot", path);
+        }
+
+        [Fact]
+        public void MatchVariantNode_SnapshotNameNotInVariants_ReturnsFalse_BaseImplicit()
+        {
+            // This is the bug #241 scenario: snapshot says "Basic" (the implicit base
+            // variant display name) but no VARIANT node is named "Basic".
+            var config = BuildRockomax16VariantConfig();
+
+            bool result = GhostVisualBuilder.MatchVariantNode(
+                config, "Basic", variantFromSnapshot: true,
+                out ConfigNode node, out string name, out string path);
+
+            Assert.False(result);
+            Assert.Null(node);
+            Assert.Equal("Basic", name);
+            Assert.Equal("base-implicit", path);
+        }
+
+        [Fact]
+        public void MatchVariantNode_EmptySnapshotName_FallsThrough_ReturnsFirstVariant()
+        {
+            // When snapshot has no variant name, fall through to first VARIANT node.
+            var config = BuildRockomax16VariantConfig();
+
+            bool result = GhostVisualBuilder.MatchVariantNode(
+                config, null, variantFromSnapshot: false,
+                out ConfigNode node, out string name, out string path);
+
+            Assert.True(result);
+            Assert.Equal("Orange", name);
+            Assert.Equal("first-fallback", path);
+        }
+
+        [Fact]
+        public void MatchVariantNode_BaseVariantConfigured_MatchesBaseVariant()
+        {
+            // When baseVariant is set and no snapshot name, should match the base variant.
+            var module = new ConfigNode("MODULE");
+            module.AddValue("name", "ModulePartVariants");
+            module.AddValue("baseVariant", "White");
+
+            var orange = module.AddNode("VARIANT");
+            orange.AddValue("name", "Orange");
+            var white = module.AddNode("VARIANT");
+            white.AddValue("name", "White");
+
+            bool result = GhostVisualBuilder.MatchVariantNode(
+                module, null, variantFromSnapshot: false,
+                out ConfigNode node, out string name, out string path);
+
+            Assert.True(result);
+            Assert.Equal("White", name);
+            Assert.Equal("base", path);
+        }
+
+        [Fact]
+        public void MatchVariantNode_RuntimeNameNotInVariants_StillFallsThrough()
+        {
+            // When the name comes from runtime fields (not snapshot), an unmatched name
+            // should still fall through to baseVariant/first-variant — runtime fields are
+            // less authoritative than snapshot.
+            var config = BuildRockomax16VariantConfig();
+
+            bool result = GhostVisualBuilder.MatchVariantNode(
+                config, "SomeRuntimeName", variantFromSnapshot: false,
+                out ConfigNode node, out string name, out string path);
+
+            Assert.True(result);
+            Assert.Equal("Orange", name);
+            Assert.Equal("first-fallback", path);
+        }
+
+        [Fact]
+        public void MatchVariantNode_NoVariantNodes_ReturnsFalse()
+        {
+            var module = new ConfigNode("MODULE");
+            module.AddValue("name", "ModulePartVariants");
+
+            bool result = GhostVisualBuilder.MatchVariantNode(
+                module, "Orange", variantFromSnapshot: true,
+                out ConfigNode node, out string name, out string path);
+
+            Assert.False(result);
+        }
+
+        #endregion
+
         #region VariantTextureRule struct — TEXTURE ConfigNode parsing
 
         [Fact]
