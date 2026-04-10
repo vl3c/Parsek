@@ -180,6 +180,24 @@ namespace Parsek
             ParsekLog.Info("Recorder",
                 $"RewindSaveFileName set for restore: '{prev ?? "<null>"}' → '{fileName ?? "<null>"}' ({reason})");
         }
+
+        /// <summary>
+        /// #294: Overwrites start location fields from saved standalone restore data.
+        /// StartRecording captures the quickload-time location (wrong — e.g. "in orbit"),
+        /// but we want the original launch location from the F5 save.
+        /// </summary>
+        internal void SetStartLocationForRestore(
+            string bodyName, string biome, string situation, string launchSite)
+        {
+            StartBodyName = bodyName;
+            StartBiome = biome;
+            StartSituation = situation;
+            LaunchSiteName = launchSite;
+            ParsekLog.Verbose("Recorder",
+                $"Start location restored: body={bodyName ?? "(null)"}, biome={biome ?? "(null)"}, " +
+                $"situation={situation ?? "(null)"}, launchSite={launchSite ?? "(null)"}");
+        }
+
         public double RewindReservedFunds { get; private set; }
         public double RewindReservedScience { get; private set; }
         public float RewindReservedRep { get; private set; }

@@ -23,6 +23,8 @@ Dev notes: technical narratives for the fixes below live in `docs/dev/todo-and-k
 
 ### Bug Fixes — Quickload-resume hardening
 
+- `#293` F9 after tree recording no longer silently auto-merges the tree and stops recording.
+- `#294` F5/F9 during a standalone (non-tree) recording now preserves in-progress data instead of discarding it on quickload.
 - `#267` Restore coroutine reentrancy guard: `OnVesselSwitchComplete`, `OnVesselWillDestroy`, and `FinalizeTreeOnSceneChange` now skip while the quickload-resume or vessel-switch restore coroutine is mid-yield.
 - `#268` Belt-and-braces snapshot capture in `StashActiveTreeAsPendingLimbo` ensures null-snapshot leaves get a fresh vessel snapshot while the vessel is still alive, before the scene reload.
 
