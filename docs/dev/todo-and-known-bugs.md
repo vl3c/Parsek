@@ -40,7 +40,7 @@ During `FinalizeIndividualRecording`, if a leaf recording had no terminal state 
 
 Observed: Jeb's EVA kerbal with parachute deployed was descending safely. User went to KSC. Ghost playback showed Jeb going underground and exploding.
 
-**Fix:** Added `isSceneExit` branch in `FinalizeIndividualRecording`: when vessel isn't found on scene exit, call `InferTerminalStateFromTrajectory` instead of defaulting to Destroyed. The method checks last trajectory point altitude (<50m → Landed) and last track section environment (SurfaceMobile/Stationary → Landed), defaulting to SubOrbital.
+**Fix:** Added `isSceneExit` branch in `FinalizeIndividualRecording`: when vessel isn't found on scene exit, call `InferTerminalStateFromTrajectory` instead of defaulting to Destroyed. The method checks last trajectory point altitude (<50m → Landed), last track section environment (SurfaceMobile/Stationary → Landed), and orbit segment eccentricity (stable orbit with periapsis above body surface → Orbiting), defaulting to SubOrbital.
 
 ## ~~298. Pending standalone recording blocks all rewind buttons after tree merge~~
 
