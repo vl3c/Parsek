@@ -21,28 +21,18 @@ Dev notes: technical narratives for the fixes below live in `docs/dev/todo-and-k
 - Automatic rate-limited `[WARN]` when playback exceeds 8ms/frame or recording exceeds 4ms/frame.
 - New `ParsekLog.WarnRateLimited` API.
 
-### Maintenance
-
-- `#260` Removed dead `.pcrf` ghost geometry scaffolding — eliminates ~52 spurious "Missing sidecar file" warnings per diagnostics scan.
-- `#261` Diagnostics report now shows `Playback budget: N/A` when the rolling buffer has no in-window entries, instead of `0.0 ms avg`.
-- `#262` Diagnostics storage scan no longer emits "Missing sidecar file" warnings for recordings that legitimately have null snapshots.
-- `#264` follow-up: `StripEvaLadderState` no longer writes an invalid literal to the EVA FSM `state` field.
-- `#256` Capped slow-motion trajectory sampling so EVA-on-surface recordings no longer accumulate one point per physics frame; new `Min sample interval` slider in Settings (default 0.2 s).
-- `#285` Background vessel splits no longer create empty parent-continuation recordings when the parent vessel is already destroyed.
-
-### Bug Fixes — Kerbal X Mun-flyby playtest (2026-04-10)
+### Bug Fixes & Maintenance
 
 - **Fix ghost icon popup appearing at screen center instead of near cursor (#196).** Matched KSP's stock `MapContextMenu` positioning pattern: (0,0) anchors, forced layout rebuild, and `AnchorOffset` so the menu opens below the click point.
-- `#288` Ghost map icons now appear immediately after re-entry from orbit instead of requiring W (Watch) to be pressed first. The terminal orbit cache is now eagerly populated when recordings are loaded from disk.
-- `#289` End-of-mission spawn-at-end now correctly materializes splashed-down vessels and EVA kerbals after a rewind+merge. Vessel snapshots are refreshed on scene exit when the recording reached a stable terminal state, and the fresh snapshot is force-written to its sidecar so it survives the next OnLoad.
-- `#292` F9 quickload after a Tree Merge no longer silently drops recordings created during the merge. The quicksave is now refreshed automatically when the user clicks "Merge to Timeline".
-
-### Bug Fixes — KerbalX + Butterfly Rover playtest (2026-04-09)
-
+- `#291` EVA spawn walkback now correctly detects the active vessel (parent rocket) as a blocker, so kerbals walk back to a clear position instead of spawning on top of their parent vessel.
+- `#285` Background vessel splits no longer create empty parent-continuation recordings when the parent vessel is already destroyed.
+- `#288` Ghost map icons now appear immediately after re-entry from orbit instead of requiring W (Watch) to be pressed first.
+- `#289` End-of-mission spawn-at-end now correctly materializes splashed-down vessels and EVA kerbals after a rewind+merge.
+- `#292` F9 quickload after a Tree Merge no longer silently drops recordings created during the merge.
 - `#287` Ghost engine flames on multi-stage rockets (Kerbal X Mainsail + boosters) no longer turn off permanently after booster staging.
 - `#278` EVA kerbals walking at the moment of revert/vessel-switch are now correctly classified Landed instead of Destroyed, so the merge dialog can spawn them at end of recording.
-- `#277` Stand-in crew is now placed correctly when a launch crew member was on EVA at merge time. Previously the EVA'd kerbal's stand-in was hired but never seated, leaving the command pod with the wrong roster.
-- `#284` Background debris recording capped at primary debris only — fragments of crashing boosters no longer spawn their own recordings. Cuts the recording count from ~25 to ~4-6 entries per Kerbal X launch.
+- `#277` Stand-in crew is now placed correctly when a launch crew member was on EVA at merge time.
+- `#284` Background debris recording capped at primary debris only — cuts the recording count from ~25 to ~4-6 entries per Kerbal X launch.
 - `#282` Landed ghost vessels and end-of-recording respawned vessels no longer clip into terrain.
 - `#280` Background debris recordings now persist their trajectory data across scene reloads.
 - `#281` Decouple events on mixed-symmetry stages are no longer lost when a terminal-event collision occurs at the same physics frame.
@@ -53,20 +43,8 @@ Dev notes: technical narratives for the fixes below live in `docs/dev/todo-and-k
 - `#275` Watch buttons in the Recordings Manager now show explanatory tooltips for every disabled state.
 - `#264` EVA kerbals spawn at their exact recorded walked position instead of on top of the parent vessel.
 - `#263` Ghost boosters are no longer left visible on the ghost after a symmetry-group decouple.
-- `#259` Orbital recordings now capture `TerminalOrbitBody` on every terminal-state path.
-- `#258` Non-chronological trajectory points from quickload mid-recording are trimmed.
-- `#257` Hyperbolic escape orbits no longer fail the `OrbitSegmentBodiesValid` in-game test.
-- Rover recordings no longer include a boring tail of stale chain-promotion seed events.
-- Ghost audio now mutes when the ESC pause menu is open.
-- Ghost camera cutoff persists across rewind and KSP restarts.
-
-### Bug Fixes — Quickload-resume recording (Bugs C, H, I) — PR #160
-
-- Quicksave + quickload during an active recording no longer fragments the mission, produces partial ghost orbits, or scatters crew across orphan recordings.
 - `#266` Switching to a distant vessel via the Tracking Station now preserves the in-progress mission tree instead of finalizing it on scene reload.
-
-### Bug Fixes — Mun Mission playtest
-
+- Quicksave + quickload during an active recording no longer fragments the mission, produces partial ghost orbits, or scatters crew across orphan recordings.
 - `#244` Ghost no longer stays icon-only for the entire Kerbin→Mun transfer.
 - `#246` EVA on an airless body no longer generates multiple "approach" segments.
 - `#248` EVA boarding is no longer misclassified as vessel destruction.
@@ -77,16 +55,24 @@ Dev notes: technical narratives for the fixes below live in `docs/dev/todo-and-k
 - `#249` Planted flags are now visible during ghost playback when the ghost is in the Beyond zone.
 - `#251` Recording phase label now updates after SOI change.
 - `#255` Engine FX no longer killed during ghost playback after a false-alarm booster decouple.
+- `#259` Orbital recordings now capture `TerminalOrbitBody` on every terminal-state path.
+- `#258` Non-chronological trajectory points from quickload mid-recording are trimmed.
+- `#257` Hyperbolic escape orbits no longer fail the `OrbitSegmentBodiesValid` in-game test.
+- `#260` Removed dead `.pcrf` ghost geometry scaffolding.
+- `#261` Diagnostics playback budget shows `N/A` instead of `0.0 ms` when no data available.
+- `#262` Diagnostics storage scan no longer warns about recordings with null snapshots.
+- `#264` follow-up: `StripEvaLadderState` no longer writes an invalid literal to the EVA FSM `state` field.
+- `#256` Capped slow-motion trajectory sampling; new `Min sample interval` slider in Settings (default 0.2 s).
+- `#252` Group hide checkbox now toggles all member recordings.
 - Ghost orbit line now suppressed below atmosphere for segment-based ghosts.
-
-### Maintenance
-
-- Bump version to 0.7.2.
+- Rover recordings no longer include stale chain-promotion seed events.
+- Ghost audio now mutes when the ESC pause menu is open.
+- Ghost camera cutoff persists across rewind and KSP restarts.
 - Closed `#156` (lifecycle test coverage — decision logic already extracted to pure/static methods with full coverage).
 - Closed `#188` (spawned surface vessels in map view are real KSP vessels, expected).
 - Deferred `#189b` (ghost escape orbit line) to Phase 11.5.
 - Deferred `T43` (mod compatibility testing) to the last phase of the roadmap.
-- UI: group hide checkbox now toggles all member recordings (`#252`).
+- Bump version to 0.7.2.
 
 ### In-Game Tests added
 

@@ -41,7 +41,7 @@ Recommended: combine (1) for prevention + (2) for recovery of saves already affe
 
 ---
 
-## 291. In-game test failure: `FlightIntegrationTests.EvaSpawnWalkbackOnOverlap`
+## ~~291. In-game test failure: `FlightIntegrationTests.EvaSpawnWalkbackOnOverlap`~~
 
 `parsek-test-results.txt` (run 2026-04-10 01:05:19, scene FLIGHT) reports:
 
@@ -50,13 +50,13 @@ FAIL  FlightIntegrationTests.EvaSpawnWalkbackOnOverlap (48.5ms)
       Expected 'WalkbackSubdivided: cleared' log line during spawn
 ```
 
-The test expects an EVA-spawned ghost to log `WalkbackSubdivided: cleared` when its position overlaps with another ghost. Either the walkback subdivision code path isn't running, OR the log line was renamed/removed and the test wasn't updated.
+The test places the EVA trajectory endpoint on top of the active vessel, expecting the walkback to detect the overlap and walk backward. But `CheckOverlapAgainstLoadedVessels` unconditionally skipped `FlightGlobals.ActiveVessel` (line 539), so no overlap was detected, walkback never triggered, and the log assertion failed. The kerbal spawned directly on the parent vessel and KSP physics pushed them apart, which is why the distance assertions still passed.
 
-Total: 117 / Passed: 98 / Failed: 1 / Skipped: 16. All other categories pass.
+**Root cause:** `CheckOverlapAgainstLoadedVessels` had an unconditional `if (other == FlightGlobals.ActiveVessel) continue;` skip. For non-EVA spawns this is correct (the player's vessel shouldn't block its own recording's spawn). For EVA spawns, the active vessel IS the parent rocket — the most common overlap target.
 
-**Investigation needed**: read `FlightIntegrationTests.EvaSpawnWalkbackOnOverlap` source, check the spawn walkback subdivision path in `ParsekPlaybackPolicy` / `VesselSpawner`, see whether the expected log line is still emitted.
+**Fix:** Added `bool skipActiveVessel = true` parameter to `CheckOverlapAgainstLoadedVessels`. `VesselSpawner.CheckSpawnCollisions` passes `skipActiveVessel: false` when `isEva` is true (initial check + post-recovery re-check). `TryWalkbackForEndOfRecordingSpawn` also passes `skipActiveVessel: false` for EVA recordings in the per-sub-step overlap lambda. All other callers (VesselGhoster, in-game tests) use the default `true` — no behavior change.
 
-**Status**: Open.
+**Status**: Fixed.
 
 ---
 
@@ -331,7 +331,7 @@ Source: `SessionMerger.MergeTree`'s diagnostic that compares the last frame of s
 
 ---
 
-## 286. Full-tree crash leaves nothing to continue with — `CanPersistVessel` blocks all `Destroyed` leaves
+## 286. Full-tree crash leaves nothing to continue with — `CanPersistVessel` blocks all `Destroyed` leaves (largely mitigated)
 
 Surfaced as the user-facing complaint behind bug #278 ("nothing to continue playing with after a crash recording"). #278's snapshot-loss fix restores the in-memory `hasSnapshot=True` state for background-split debris, but the merge dialog's `CanPersistVessel` predicate at `MergeDialog.cs:450-467` hard-blocks any leaf whose `TerminalStateValue ∈ {Destroyed, Recovered, Docked, Boarded}` regardless of snapshot availability. When the player crashes the entire launch tree (root vessel + all debris destroyed), every leaf falls into one of those gated states, the merge dialog reports `spawnable=0`, and no vessel ends up on the surface for the player to continue with.
 
@@ -348,7 +348,9 @@ Bob Kerman EVA in the 2026-04-09 playtest log line 11548 illustrates the gating 
 - For option (a), enumerate the failure modes: what if the F5 is from a different vessel, a different scene, or there's no F5 at all?
 - For option (b), enumerate the safety net: terrain clamping, orbital validity checks, attitude reset, fuel restoration. This is a lot of new code.
 
-**Priority:** Medium. The user explicitly raised this as the headline complaint behind #278. #278's fix closes the technical bug but does not resolve the user complaint. Reaching a decision is more important than the implementation effort.
+**Update (2026-04-10 investigation):** The `spawnable=0` cases in the 2026-04-09 playtests were primarily caused by #278's blanket `Destroyed` stamping, not by a true all-crash scenario. With #278 fixed (PR #173/#176 — `FinalizeIndividualRecording` now uses real vessel `situation`) and #284 shipped (PR #173 — cascade cap reduces debris from ~25 to ~4-6), the current KSP.log shows `spawnable=6-8` for the same Kerbal X launch. Debris that is still SubOrbital at merge time is now correctly labeled `canPersist=True`. The remaining edge case is a genuine full-tree crash where ALL parts are destroyed before merge — rare in practice and arguably correct behavior (`spawnable=0` when everything is truly gone).
+
+**Priority:** Low (downgraded from Medium). The original user complaint is resolved by #278/#284. The remaining scenario (everything truly destroyed) is a design decision for option (c) UX messaging, not an urgent fix.
 
 ---
 
@@ -527,7 +529,7 @@ Engine plates (`EnginePlate1` etc.) have protective covers (interstage fairings)
 
 **Status:** Fixed
 
-## 132. Policy RunSpawnDeathChecks and FlushDeferredSpawns are TODO stubs
+## ~~132. Policy RunSpawnDeathChecks and FlushDeferredSpawns are TODO stubs~~
 
 `RunSpawnDeathChecks()` now iterates committed recordings each frame, checks if spawned vessel PIDs still exist via `FlightRecorder.FindVesselByPid`, increments `SpawnDeathCount` on death, and either resets for re-spawn or abandons after `MaxSpawnDeathCycles`. New pure predicate `ShouldCheckForSpawnDeath` in `GhostPlaybackLogic`.
 
@@ -535,7 +537,7 @@ Engine plates (`EnginePlate1` etc.) have protective covers (interstage fairings)
 
 **Status:** Fixed
 
-## 133. Forwarding properties in ParsekFlight add ~500 lines of indirection
+## ~~133. Forwarding properties in ParsekFlight add ~500 lines of indirection~~
 
 After T25 extraction, ParsekFlight still has forwarding properties (`ghostStates => engine.ghostStates`, `overlapGhosts => engine.overlapGhosts`, etc.) and bridge methods that external callers (scene change, camera follow, delete, preview) use.
 
@@ -672,7 +674,7 @@ Two compounding issues: (1) `TerminalOrbitBody` is null on all recordings at loa
 
 **Status:** Fixed
 
-## 218. Crash breakup debris not recorded when recorder tears down before coalescer
+## ~~218. Crash breakup debris not recorded when recorder tears down before coalescer~~
 
 When a vessel crashes during an active recording, the recorder is stopped and committed before the coalescer's 0.5s window elapses. By the time the coalescer emits the BREAKUP event, there is no active tree or recorder to attach it to. The main vessel recording is saved but the crash debris tree structure is lost.
 
@@ -1032,7 +1034,7 @@ The adaptive sampler had no minimum interval floor, only a max-interval backstop
 
 **Status:** Fixed
 
-## 257. Orbit segment with negative SMA (hyperbolic escape)
+## ~~257. Orbit segment with negative SMA (hyperbolic escape)~~
 
 In-game test `OrbitSegmentBodiesValid` fails: "Orbit segment for 'Mun' has non-positive SMA=-931047.895195401". Negative SMA is physically correct for hyperbolic orbits (eccentricity > 1) but the test asserts positive SMA.
 
@@ -1042,7 +1044,7 @@ In-game test `OrbitSegmentBodiesValid` fails: "Orbit segment for 'Mun' has non-p
 
 **Status:** Fixed
 
-## 258. Non-chronological trajectory points in recording
+## ~~258. Non-chronological trajectory points in recording~~
 
 In-game test `CommittedRecordingsHaveValidData` fails: recording `ab105395ae5547b0b70c1eb9bb41ca9f` (Bob Kerman EVA) has point 159 UT going backward by ~33 seconds. Trajectory points should be monotonically increasing in UT.
 
@@ -1052,7 +1054,7 @@ In-game test `CommittedRecordingsHaveValidData` fails: recording `ab105395ae5547
 
 **Status:** Fixed (prospective — existing corrupted recording data will still fail; fix prevents recurrence)
 
-## 259. Orbital recordings missing TerminalOrbitBody
+## ~~259. Orbital recordings missing TerminalOrbitBody~~
 
 In-game test `OrbitalRecordingsHaveTerminalOrbit` reports 4 orbital recordings without `TerminalOrbitBody` set. This is a regression guard for #203/#219.
 

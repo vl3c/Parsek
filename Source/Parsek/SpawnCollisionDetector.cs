@@ -518,11 +518,11 @@ namespace Parsek
         /// overlapping vessel's info, or overlap=false if no overlap found.
         /// </summary>
         internal static (bool overlap, float closestDistance, string blockerName, Vessel blockerVessel) CheckOverlapAgainstLoadedVessels(
-            Vector3d spawnWorldPos, Bounds spawnBounds, float padding)
+            Vector3d spawnWorldPos, Bounds spawnBounds, float padding, bool skipActiveVessel = true)
         {
             ParsekLog.Verbose(Tag,
                 $"CheckOverlapAgainstLoadedVessels: checking spawn at ({spawnWorldPos.x.ToString("F0", IC)},{spawnWorldPos.y.ToString("F0", IC)},{spawnWorldPos.z.ToString("F0", IC)}) " +
-                $"padding={padding.ToString("F1", IC)}m against {FlightGlobals.Vessels.Count} vessels");
+                $"padding={padding.ToString("F1", IC)}m against {FlightGlobals.Vessels.Count} vessels, skipActiveVessel={skipActiveVessel}");
 
             bool anyOverlap = false;
             float closestDist = float.MaxValue;
@@ -535,8 +535,10 @@ namespace Parsek
                 if (!other.loaded) continue;
                 if (GhostMapPresence.IsGhostMapVessel(other.persistentId)) continue;
 
-                // Skip player's own vessel — shouldn't block spawns
-                if (other == FlightGlobals.ActiveVessel) continue;
+                // Skip player's own vessel — shouldn't block non-EVA spawns.
+                // EVA spawns need to detect the parent vessel (active vessel) as a
+                // blocker so the walkback can find a clear position. (#291)
+                if (skipActiveVessel && other == FlightGlobals.ActiveVessel) continue;
 
                 // Skip non-significant vessel types that shouldn't block spawns
                 if (ShouldSkipVesselType(other.vesselType))
