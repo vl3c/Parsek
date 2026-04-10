@@ -529,5 +529,82 @@ namespace Parsek.Tests
         }
 
         #endregion
+
+        #region IsPhantomTerrainCrash
+
+        [Fact]
+        public void PhantomCrash_LandedEvaPacked_ReturnsTrue()
+        {
+            bool result = ParsekFlight.IsPhantomTerrainCrash(
+                "Bill Kerman", packUT: 100.0, destructionUT: 101.5,
+                Vessel.Situations.LANDED);
+            Assert.True(result);
+        }
+
+        [Fact]
+        public void PhantomCrash_SplashedEvaPacked_ReturnsTrue()
+        {
+            bool result = ParsekFlight.IsPhantomTerrainCrash(
+                "Bill Kerman", packUT: 100.0, destructionUT: 103.0,
+                Vessel.Situations.SPLASHED);
+            Assert.True(result);
+        }
+
+        [Fact]
+        public void PhantomCrash_FlyingPrePack_ReturnsFalse()
+        {
+            bool result = ParsekFlight.IsPhantomTerrainCrash(
+                "Bill Kerman", packUT: 100.0, destructionUT: 101.0,
+                Vessel.Situations.FLYING);
+            Assert.False(result);
+        }
+
+        [Fact]
+        public void PhantomCrash_NonEva_ReturnsFalse()
+        {
+            bool result = ParsekFlight.IsPhantomTerrainCrash(
+                null, packUT: 100.0, destructionUT: 101.0,
+                Vessel.Situations.LANDED);
+            Assert.False(result);
+        }
+
+        [Fact]
+        public void PhantomCrash_EmptyEvaName_ReturnsFalse()
+        {
+            bool result = ParsekFlight.IsPhantomTerrainCrash(
+                "", packUT: 100.0, destructionUT: 101.0,
+                Vessel.Situations.LANDED);
+            Assert.False(result);
+        }
+
+        [Fact]
+        public void PhantomCrash_ElapsedOverThreshold_ReturnsFalse()
+        {
+            bool result = ParsekFlight.IsPhantomTerrainCrash(
+                "Bill Kerman", packUT: 100.0, destructionUT: 106.0,
+                Vessel.Situations.LANDED);
+            Assert.False(result);
+        }
+
+        [Fact]
+        public void PhantomCrash_ExactlyAtThreshold_ReturnsFalse()
+        {
+            // 5.0s is the boundary — >= 5.0 should return false
+            bool result = ParsekFlight.IsPhantomTerrainCrash(
+                "Bill Kerman", packUT: 100.0, destructionUT: 105.0,
+                Vessel.Situations.LANDED);
+            Assert.False(result);
+        }
+
+        [Fact]
+        public void PhantomCrash_JustUnderThreshold_ReturnsTrue()
+        {
+            bool result = ParsekFlight.IsPhantomTerrainCrash(
+                "Bill Kerman", packUT: 100.0, destructionUT: 104.99,
+                Vessel.Situations.LANDED);
+            Assert.True(result);
+        }
+
+        #endregion
     }
 }

@@ -4,6 +4,26 @@ Previous entries (225 bugs, 51 TODOs — mostly resolved) archived in `done/todo
 
 ---
 
+## ~~295. Pending standalone recording blocks all rewind buttons after tree merge~~
+
+Surfaced by the 2026-04-10 KerbalX playtest (save s35). After a tree merge, a standalone EVA recording (Jebediah Kerman) remained in the pending slot. `RecordingStore.CanRewind()` unconditionally blocks when `HasPending` is true, disabling all R buttons with "Merge or discard pending recording first". The auto-commit safety net in `ParsekScenario.SafetyNetAutoCommitPending()` only ran at OnSave time (50s later, on game pause to exit).
+
+**Fix:** In `MergeDialog.cs` tree merge button handler, auto-commit any pending standalone recording immediately after `CommitPendingTree()`, following the `AutoCommitGhostOnly` + `CommitPending` + `LedgerOrchestrator.OnRecordingCommitted` pattern. Made `AutoCommitGhostOnly` `internal static` in ParsekScenario.
+
+## ~~296. EVA kerbal crew end states not inferred — permanent reservation~~
+
+EVA kerbal recordings have no extractable crew in their ConfigNode snapshots (`ExtractCrewFromSnapshot` reads PART/crew values, which EVA snapshots don't have). `PopulateCrewEndStates` skipped these recordings entirely, leaving `CrewEndStates = null`. Consequences: crew reservation set to endUT=Infinity (Unknown), kerbal permanently reserved.
+
+Additionally, `RecordingOptimizer.SplitAtSection` did not propagate `EvaCrewName` or `ParentRecordingId` to the second half, so after an optimizer split the tip recording lost its EVA identity.
+
+**Fix:** (1) Propagate `EvaCrewName` and `ParentRecordingId` in `SplitAtSection`. (2) Add EVA fallback in `KerbalsModule.PopulateCrewEndStates`: if snapshot crew is empty and `rec.EvaCrewName` is set, use it as the crew member. (3) Relax `VesselSnapshot != null` guard in `LedgerOrchestrator.OnRecordingCommitted` to also allow EVA recordings. (4) Add same EVA fallback in `LedgerOrchestrator.ExtractCrewFromRecording`.
+
+## ~~297. Phantom terrain crash kills EVA kerbal on vessel switch~~
+
+KSP's terrain collision detection sometimes falsely destroys EVA vessels during pack/unload. When the user switched vessel focus away from Bill Kerman, KSP packed the EVA vessel and within 0.6s reported "crashed through terrain". Parsek correctly processed KSP's `onVesselWillDestroy` and set `terminal=Destroyed`, but the crash was spurious.
+
+**Fix:** Track pre-pack vessel situation in `ParsekFlight.packStates` dictionary (populated at `OnVesselGoOnRails`, cleaned at `OnVesselGoOffRails`). In `DeferredDestructionCheck`, before applying terminal destruction, check if the vessel is an EVA kerbal that was in a safe situation (LANDED/SPLASHED) when packed and was destroyed within 5s. If so, override terminal state to Landed/Splashed instead of Destroyed. Pure static `IsPhantomTerrainCrash` method extracted for testability.
+
 ## ~~294. F5/F9 during standalone recording loses all in-progress data~~
 
 Surfaced by the 2026-04-10 engine-plume-bug playtest (`logs/2026-04-10_engine-plume-bug/KSP.log`). After F9 quickload during the Halger Kerman EVA standalone recording, the pending recording was discarded by `DiscardStashedOnQuickload` and no new recording started. 28 seconds of EVA walk lost.
