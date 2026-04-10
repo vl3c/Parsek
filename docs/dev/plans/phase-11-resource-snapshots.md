@@ -1020,19 +1020,19 @@ Crew:
 
 ### Phase 12 implications
 
-Crew delivery is the most complex of the three manifest types because it interacts with Parsek's existing crew reservation system:
+Crew transport routes use **generic kerbals** — completely separate from the named kerbals the player manages and from Parsek's crew reservation system. Route crew are anonymous, trait-typed units:
 
-- **Route delivers by trait, not name.** "Send 2 engineers" picks whoever's available at the origin. For KSC origins, this means available kerbals from the astronaut complex. For non-KSC origins, this means crew seated in origin vessels.
-- **Crew reservation must account for route demand.** If a route needs 2 engineers per cycle, those engineers need to be reserved (not assigned to other missions) before dispatch.
-- **Moving crew on unloaded vessels** means modifying `ProtoPartSnapshot` crew lists and updating `ProtoCrewMember.seatIdx`/`rosterStatus` — similar complexity to inventory delivery.
+- **Route delivers by trait, not name.** "Send 2 engineers" creates/assigns generic kerbals of the right trait. No interaction with the astronaut complex roster or crew reservation.
+- **Generic kerbal pool.** Route kerbals are a separate population — they don't appear in the astronaut complex, don't have experience progression, and don't compete with named kerbals for missions. They're logistical crew, not player-managed characters.
+- **Moving crew on unloaded vessels** means adding `crew` values to `ProtoPartSnapshot` nodes and creating `ProtoCrewMember` entries in the roster with the right trait. Simpler than inventory delivery (no ConfigNode subtree construction — just name strings and roster entries).
 
-**Recommendation:** Same as inventory — capture crew manifests in Phase 11, defer delivery to Phase 12 v1.1 or v2. Liquid resources first, then inventory, then crew. Each layer adds complexity to the route dispatch evaluation.
+**Recommendation:** Same as inventory — capture crew manifests in Phase 11, defer delivery to Phase 12 v1.1. Lighter implementation than inventory delivery since crew is name+trait, not complex ConfigNode subtrees.
 
 ### Edge cases
 
-**Tourist contracts:** Tourists are valid "crew type" cargo but have contract implications. A tourist transport route might interfere with active tourism contracts. v1: capture tourists in the manifest, let Phase 12 decide whether to include them in route automation.
+**Tourists:** Captured in the manifest as a trait type. Phase 12 can exclude them from route automation if desired (tourists are contract-bound, not generic logistics crew).
 
-**Crew experience and level:** The manifest tracks trait and count, not level. A route requesting "2 engineers" gets whichever engineers are available, regardless of star level. Level-aware routing is v2.
+**No experience or levels.** Generic route kerbals have no star level and no experience progression. They're logistical crew, not player-managed characters. If a player wants experienced crew at a base, they fly them manually.
 
 **Crew capacity:** Analogous to inventory slots — destination vessel needs empty seats. Capture `crewCapacity` (sum of part crew capacity) alongside the crew manifest for Phase 12 capacity checks.
 
