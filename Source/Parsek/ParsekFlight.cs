@@ -2980,6 +2980,11 @@ namespace Parsek
                     $"(parts={activeVessel.parts?.Count ?? 0})");
             }
 
+            // Bug #298: snapshot active recorder's engine/RCS state for child recordings.
+            // The recorder is still running (breakup-continuous design), so its state is live.
+            InheritedEngineState? breakupEngineState = recorder != null
+                ? InheritedEngineState.FromRecorder(recorder) : null;
+
             // Create child recording segments for controlled children (vessels with probe
             // cores that survive the breakup). Same pattern as PromoteToTreeForBreakup step 8.
             // These are NOT debris — they record indefinitely (no TTL) and can serve as
@@ -3000,7 +3005,7 @@ namespace Parsek
                     if (childVessel != null && backgroundRecorder != null)
                     {
                         activeTree.BackgroundMap[pid] = childRec.RecordingId;
-                        backgroundRecorder.OnVesselBackgrounded(pid);
+                        backgroundRecorder.OnVesselBackgrounded(pid, breakupEngineState);
                     }
 
                     ParsekLog.Info("Coalescer",
@@ -3035,7 +3040,7 @@ namespace Parsek
                     if (debrisVessel != null && backgroundRecorder != null)
                     {
                         activeTree.BackgroundMap[pid] = childRec.RecordingId;
-                        backgroundRecorder.OnVesselBackgrounded(pid);
+                        backgroundRecorder.OnVesselBackgrounded(pid, breakupEngineState);
                         backgroundRecorder.SetDebrisExpiry(pid, debrisExpiryUT);
                     }
 
@@ -3068,6 +3073,31 @@ namespace Parsek
             recorder.StopRecordingForChainBoundary();
             var splitRecorder = recorder;
             recorder = null;
+
+            // Bug #298: snapshot parent engine/RCS state for child recordings.
+            // activeEngineKeys/lastThrottle survive StopRecordingForChainBoundary
+            // (FinalizeRecordingState does not clear them).
+            InheritedEngineState? splitEngineState = InheritedEngineState.FromRecorder(splitRecorder);
+            ParsekLog.Verbose("Coalescer",
+                $"PromoteToTreeForBreakup: inherited engine state snapshot: " +
+                $"engines={splitEngineState?.activeEngineKeys?.Count ?? 0} " +
+                $"rcs={splitEngineState?.activeRcsKeys?.Count ?? 0} " +
+                $"(null={!splitEngineState.HasValue})");
+
+            // Bug #299: remove terminal EngineShutdown/RCSStop events from CaptureAtStop.
+            // StopRecordingForChainBoundary bakes CaptureAtStop with terminals already in
+            // PartEvents. RemoveLastEmittedTerminals would clean the recorder's internal
+            // list, but CaptureAtStop.PartEvents is a separate copy. Remove from the copy
+            // directly using the saved lastEmittedTerminalEvents.
+            if (splitRecorder.CaptureAtStop != null && splitRecorder.lastEmittedTerminalEvents != null)
+            {
+                int cleanedTerminals = FlightRecorder.RemoveTerminalsFromList(
+                    splitRecorder.CaptureAtStop.PartEvents, splitRecorder.lastEmittedTerminalEvents);
+                if (cleanedTerminals > 0)
+                    ParsekLog.Info("Coalescer",
+                        $"PromoteToTreeForBreakup: removed {cleanedTerminals} terminal event(s) " +
+                        $"from CaptureAtStop (#299)");
+            }
 
             if (splitRecorder.CaptureAtStop == null)
             {
@@ -3215,7 +3245,7 @@ namespace Parsek
             foreach (var kvp in activeTree.BackgroundMap)
             {
                 uint bgPid = kvp.Key;
-                backgroundRecorder.OnVesselBackgrounded(bgPid);
+                backgroundRecorder.OnVesselBackgrounded(bgPid, splitEngineState);
 
                 // Set TTL for debris recordings only
                 Recording bgRec;
@@ -8146,8 +8176,14 @@ namespace Parsek
             foreach (var rec in tree.Recordings.Values)
             {
                 if (!IsIdleOnPad(rec.MaxDistanceFromLaunch))
+                {
+                    ParsekLog.Verbose("Flight",
+                        $"IsTreeIdleOnPad: '{rec.VesselName}' maxDist={rec.MaxDistanceFromLaunch:F1}m — not idle");
                     return false;
+                }
             }
+            ParsekLog.Verbose("Flight",
+                $"IsTreeIdleOnPad: all {tree.Recordings.Count} recordings within 30m — idle on pad");
             return true;
         }
 

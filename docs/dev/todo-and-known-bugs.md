@@ -4,6 +4,18 @@ Previous entries (225 bugs, 51 TODOs — mostly resolved) archived in `done/todo
 
 ---
 
+## ~~302. Tree recording silently auto-discarded as "idle on pad" after scene change~~
+
+Surfaced by live KSP log (`Kerbal Space Program/KSP.log`, 2026-04-10 18:32). After a full Kerbal X flight (EVAs, staging, debris breakups, 123+ trajectory points), the user exited to Space Center. On reload, the tree was auto-discarded with `Idle on pad detected — auto-discarding tree recording`.
+
+**Root cause:** `MaxDistanceFromLaunch` (the field `IsTreeIdleOnPad` checks) was never serialized in the recording's ConfigNode format. During scene transitions, `TryRestoreActiveTreeNode` deserializes the tree from the saved ConfigNode (`RecordingTree.Load`), creating fresh Recording objects where `MaxDistanceFromLaunch` defaults to `0.0`. The in-memory tree (with correct values) is replaced by `PopPendingTree` + `StashPendingTree` in the restore path. `IsTreeIdleOnPad` then sees `0.0 < 30` for every recording and returns true — auto-discarding a tree that flew kilometers.
+
+**Fix:** Serialize `MaxDistanceFromLaunch` as `maxDist` in `RecordingTree.SaveRecordingResourceAndState` / `LoadRecordingResourceAndState`. Sparse (only written when > 0), backward compatible (missing key defaults to 0.0, matching the existing behavior for legacy saves that never had the field). Added diagnostic logging to `IsTreeIdleOnPad`.
+
+**Status**: Fixed.
+
+---
+
 ## ~~300. Revert-to-launch on first flight misdetected as quickload — recording lost, unwanted auto-restart~~
 
 On first-ever flight (no prior commits), revert-to-launch was misdetected as a quickload (F5/F9). Root cause: the revert detection formula (`savedEpoch < CurrentEpoch || totalSavedRecCount < recordings.Count`) is blind when both sides are zero — epoch never incremented and no recordings were ever committed, so the launch quicksave and in-memory state look identical.
@@ -11,6 +23,38 @@ On first-ever flight (no prior commits), revert-to-launch was misdetected as a q
 Consequence: (1) the Limbo tree was routed to the quickload-resume path instead of the revert-finalize path, auto-restarting the recording without user action; (2) no merge dialog shown; (3) on exit to main menu the tree data was lost (no OnLoad fires for MAINMENU to dispatch the pending tree).
 
 Fix: capture `TryRestoreActiveTreeNode`'s return value (previously discarded). Compute `hasOrphanedLimboTree = HasPendingTree && state==Limbo && !activeTreeRestoredFromSave`. Add `(isFlightToFlight && hasOrphanedLimboTree)` as a third disjunct to `isRevert`. Signal is unambiguous: on quickloads the save file always has the active tree (OnSave writes it), while on reverts the launch quicksave predates the recording. File: `ParsekScenario.cs:810-825`.
+
+**Status:** Fixed.
+
+---
+
+## ~~299. Terminal EngineShutdown events survive into committed recordings via CaptureAtStop~~
+
+`PromoteToTreeForBreakup` calls `StopRecordingForChainBoundary()` which emits terminal events AND bakes them into `CaptureAtStop.PartEvents` (a copy). `RemoveLastEmittedTerminals()` only cleans the recorder's internal list, not the copy. Terminal events survive into the tree root recording via `cap.PartEvents` → `rootRec.PartEvents`.
+
+**Fix:** New `FlightRecorder.RemoveTerminalsFromList` static helper removes terminals from an arbitrary `List<PartEvent>`. Called in `PromoteToTreeForBreakup` on `CaptureAtStop.PartEvents` immediately after stop, using `lastEmittedTerminalEvents` as the removal set.
+
+**Status:** Fixed.
+
+---
+
+## ~~298. Ghost engine/RCS flames missing on debris booster ghosts after staging~~
+
+Surfaced by 2026-04-10 Kerbal X playtest (`logs/2026-04-10_engine-plume-bug`). Debris booster ghosts (child recordings from decoupled boosters) show NO engine flames, even though the boosters were still burning at separation. Audio plays correctly.
+
+**Root cause (playback side):** `GhostPlaybackLogic.PopulateGhostInfoDictionaries` had orphan engine detection that auto-started **audio** for engines with no EngineIgnited/EngineThrottle events (lines 734-764), but did NOT auto-start **visual FX** (particle systems + KSP emitters). The `engineKeysWithEvents` HashSet was built inside the audio-only `if` block and never used to activate engine particle systems.
+
+**Contributing cause (recording side):** `BackgroundRecorder.InitializeLoadedState` seeds engine state via `PartStateSeeder.SeedEngines` which checks `engine.EngineIgnited && engine.isOperational`. By the time the BgRecorder initializes (~1 frame after decouple), the debris engine's fuel supply is severed, so `isOperational` is false → zero engine seed events in debris recordings.
+
+**Fix (two prongs):**
+
+1. **Playback side:** `BuildEngineEventKeySet` scans PartEvents for EngineIgnited/EngineThrottle keys. When the result is empty (ZERO engine events — pure debris recording), all engines on the ghost are auto-started at full power (`SetEngineEmission` + `ApplyHeatState(Hot)` with synthetic PartEvent). Audio auto-start uses the same `Count == 0` gate for consistency. RCS is NOT auto-started (RCS is typically idle; orphan auto-start would incorrectly fire on virtually every ghost).
+
+2. **Recording side:** `InheritedEngineState` struct carries parent's active engine/RCS keys + throttles through `OnVesselBackgrounded` → `InitializeLoadedState`. `FromRecorder`/`InheritedStateFromBackgroundVessel` factories create defensive snapshots. `MergeInheritedEngineState` (internal static, PID-filtered, upgrade-if-higher throttle) merges inherited keys into the child's `BackgroundVesselState` after `SeedBackgroundPartStates` but before `EmitSeedEvents`. Throttle upgrade is critical: `SeedEngines` finds `throttle=0` on debris (KSP timing lag) while the parent had full power — the inherited throttle ensures `EmitEngineSeedEvents` doesn't skip the seed via the zero-throttle filter (#165). Snapshot taken in `HandleBackgroundVesselSplit` (background path) and `PromoteToTreeForBreakup`/`ProcessBreakupEvent` (foreground paths) before parent state is destroyed.
+
+**Tests:** `OrphanEngineFxAutoStartTests.cs` (10 tests: BuildEngineEventKeySet + integration). `BackgroundRecorderTests.cs` (11 tests: MergeInheritedEngineState with PID filtering, throttle upgrade, higher-existing preserved, null handling, throttle-key-missing fallback, logging).
+
+**Status:** Fixed.
 
 ---
 
