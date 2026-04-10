@@ -4,6 +4,10 @@ All notable changes to Parsek are documented here.
 
 ---
 
+## 0.7.3
+
+---
+
 ## 0.7.2
 
 Dev notes: technical narratives for the fixes below live in `docs/dev/todo-and-known-bugs.md` under the matching bug numbers. Commit messages have the full root-cause detail per PR.
