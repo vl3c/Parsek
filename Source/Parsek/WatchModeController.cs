@@ -791,6 +791,9 @@ namespace Parsek
             float preservedDistance = savedCameraDistance;
             float preservedPitch = savedCameraPitch;
             float preservedHeading = savedCameraHeading;
+            // Preserve camera mode across chain transfers — user's V toggle should stick
+            var preservedCameraMode = currentCameraMode;
+            bool preservedModeOverride = userModeOverride;
 
             // Switch watch mode: exit old (preserving camera position), enter new
             ExitWatchMode(skipCameraRestore: true);
@@ -804,6 +807,8 @@ namespace Parsek
             savedCameraDistance = preservedDistance;
             savedCameraPitch = preservedPitch;
             savedCameraHeading = preservedHeading;
+            currentCameraMode = preservedCameraMode;
+            userModeOverride = preservedModeOverride;
 
             var segTarget = GetWatchTarget(gs.cameraPivot) ?? gs.ghost.transform;
             FlightCamera.fetch.SetTargetTransform(segTarget);

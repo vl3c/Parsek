@@ -165,6 +165,23 @@ namespace Parsek.Tests
                 $"Should fall back to lastForward when velocity is pure vertical, got {forward}");
         }
 
+        [Fact]
+        public void ComputeHorizonForward_LastForwardAlignedWithUp_FallsToArbitrary()
+        {
+            // lastForward parallel to up — its horizon projection is zero,
+            // should trigger the arbitrary perpendicular fallback
+            Vector3 up = Vector3.up;
+            Vector3 velocity = Vector3.zero;
+            Vector3 lastForward = Vector3.up; // aligned with up
+
+            Vector3 forward = ParsekFlight.ComputeHorizonForward(up, velocity, lastForward);
+
+            Assert.True(forward.sqrMagnitude > 0.9f,
+                $"Forward should be valid, got magnitude {forward.magnitude}");
+            Assert.True(Mathf.Abs(Vector3.Dot(forward, up)) < 0.01f,
+                $"Forward should be perpendicular to up, got dot={Vector3.Dot(forward, up)}");
+        }
+
         #endregion
 
         // Note: ComputeHorizonRotation and CompensateCameraAngles depend on
