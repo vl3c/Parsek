@@ -197,4 +197,51 @@ namespace Parsek.Tests
             Assert.True(GhostPlaybackLogic.ShouldExemptFromZoneHide(1.01f, true));
         }
     }
+
+    public class Bug290_WarpSuppressionMapViewTests
+    {
+        [Fact]
+        public void ShouldSuppressGhosts_HighWarp_ReturnsTrue()
+        {
+            Assert.True(GhostPlaybackLogic.ShouldSuppressGhosts(100f));
+        }
+
+        [Fact]
+        public void ShouldSuppressGhosts_LowWarp_ReturnsFalse()
+        {
+            Assert.False(GhostPlaybackLogic.ShouldSuppressGhosts(10f));
+        }
+
+        [Fact]
+        public void MapView_SkipsWarpSuppression()
+        {
+            // In map view, suppressGhosts should be false even at high warp
+            // because map markers need the ghost position to be updated.
+            float highWarp = 100f;
+            bool mapViewEnabled = true;
+            bool suppress = !mapViewEnabled
+                && GhostPlaybackLogic.ShouldSuppressGhosts(highWarp);
+            Assert.False(suppress);
+        }
+
+        [Fact]
+        public void FlightView_HighWarp_SuppressesGhosts()
+        {
+            float highWarp = 100f;
+            bool mapViewEnabled = false;
+            bool suppress = !mapViewEnabled
+                && GhostPlaybackLogic.ShouldSuppressGhosts(highWarp);
+            Assert.True(suppress);
+        }
+
+        [Fact]
+        public void FlightView_LowWarp_DoesNotSuppressGhosts()
+        {
+            float lowWarp = 10f;
+            bool mapViewEnabled = false;
+            bool suppress = !mapViewEnabled
+                && GhostPlaybackLogic.ShouldSuppressGhosts(lowWarp);
+            Assert.False(suppress);
+        }
+    }
 }

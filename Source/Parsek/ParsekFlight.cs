@@ -7561,6 +7561,7 @@ namespace Parsek
                     : Vector3d.zero,
                 protectedIndex = watchMode.WatchedRecordingIndex,
                 externalGhostCount = activeGhostChains?.Count ?? 0,
+                mapViewEnabled = MapView.MapIsEnabled,
                 autoLoopIntervalSeconds = ParsekSettings.Current?.autoLoopIntervalSeconds
                     ?? GhostPlaybackLogic.DefaultLoopIntervalSeconds,
             };
