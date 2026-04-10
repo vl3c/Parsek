@@ -6,6 +6,8 @@ All notable changes to Parsek are documented here.
 
 ## 0.7.3
 
+- `#297` Vessel destruction during tree recording no longer orphans continuation data as a standalone recording.
+
 ---
 
 ## 0.7.2

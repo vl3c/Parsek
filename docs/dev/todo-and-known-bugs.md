@@ -7,6 +7,27 @@ Entries 272–303 (78 bugs, 6 TODOs — mostly resolved) archived in `done/todo-
 
 # Known Bugs
 
+## 297. FallbackCommitSplitRecorder orphans tree continuation data as standalone recording
+
+When a vessel is destroyed during tree recording and the split recorder can't resume,
+`FallbackCommitSplitRecorder` stashes captured data as a standalone recording via
+`RecordingStore.StashPending`, ignoring the active tree. The tree root is truncated
+(missing post-breakup trajectory) and the continuation becomes an ungrouped standalone.
+
+Real-world repro: Kerbal X standalone recording promoted to tree at first breakup (root
+gets 47 points). More breakups add debris children, root continues recording (83 more
+points in buffer). Vessel crashes, joint break triggers `DeferredJointBreakCheck`,
+classified as WithinSegment, `ResumeSplitRecorder` detects vessel dead, calls
+`FallbackCommitSplitRecorder` which stashes 83-point continuation as standalone.
+
+**Fix:** Extracted `TryAppendCapturedToTree` -- when `activeTree != null`, appends captured
+data to the active tree recording (fallback to root) via `AppendCapturedDataToRecording`,
+sets terminal state and metadata. Standalone path only runs when not in tree mode.
+
+**Status:** ~~Fixed~~
+
+---
+
 ## 296. EVA kerbal who planted flag did not appear after spawn
 
 Log shows KSCSpawn successfully spawned the EVA kerbal (Bill Kerman, pid=484546861), but the user reports not seeing it. Likely post-spawn physics destruction — EVA kerbals are fragile and can be killed by terrain collision or slope bounce.

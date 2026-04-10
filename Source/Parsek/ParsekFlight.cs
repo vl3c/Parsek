@@ -1855,6 +1855,54 @@ namespace Parsek
         }
 
         /// <summary>
+        /// When in tree mode, appends captured split data to the active tree recording
+        /// instead of creating a standalone recording. Returns true if the data was
+        /// successfully appended, false to fall through to the standalone path.
+        /// Bug #297: FallbackCommitSplitRecorder was tree-mode-unaware and orphaned
+        /// continuation data as ungrouped standalone recordings.
+        /// </summary>
+        internal static bool TryAppendCapturedToTree(RecordingTree tree, Recording captured)
+        {
+            if (tree == null || captured == null || captured.Points.Count < 2)
+                return false;
+
+            string targetId = tree.ActiveRecordingId ?? tree.RootRecordingId;
+            if (targetId == null)
+            {
+                ParsekLog.Warn("Flight",
+                    "TryAppendCapturedToTree: no active or root recording id — falling through to standalone");
+                return false;
+            }
+
+            Recording targetRec;
+            if (!tree.Recordings.TryGetValue(targetId, out targetRec))
+            {
+                ParsekLog.Warn("Flight",
+                    $"TryAppendCapturedToTree: recording '{targetId}' not found in tree — falling through to standalone");
+                return false;
+            }
+
+            double endUT = captured.Points[captured.Points.Count - 1].ut;
+            AppendCapturedDataToRecording(targetRec, captured, endUT);
+
+            if (captured.VesselDestroyed)
+            {
+                targetRec.VesselDestroyed = true;
+                targetRec.TerminalStateValue = TerminalState.Destroyed;
+            }
+
+            if (captured.MaxDistanceFromLaunch > targetRec.MaxDistanceFromLaunch)
+                targetRec.MaxDistanceFromLaunch = captured.MaxDistanceFromLaunch;
+
+            targetRec.EndBiome = captured.EndBiome;
+
+            ParsekLog.Info("Flight",
+                $"TryAppendCapturedToTree: appended {captured.Points.Count} points to " +
+                $"tree recording '{targetId}' (destroyed={captured.VesselDestroyed})");
+            return true;
+        }
+
+        /// <summary>
         /// Tags the recording's SegmentPhase and SegmentBodyName based on the vessel's current
         /// body and altitude, if not already set. No-op if SegmentPhase is already non-empty
         /// or vessel/mainBody is null.
@@ -2314,6 +2362,12 @@ namespace Parsek
             if (splitRec?.CaptureAtStop == null) return;
 
             var captured = splitRec.CaptureAtStop;
+
+            // Bug #297: when in tree mode, append to the active tree recording
+            // instead of orphaning data as a standalone recording.
+            if (TryAppendCapturedToTree(activeTree, captured))
+                return;
+
             if (captured.Points.Count >= 2)
             {
                 RecordingStore.StashPending(
