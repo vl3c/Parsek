@@ -4,6 +4,151 @@ Previous entries (225 bugs, 51 TODOs — mostly resolved) archived in `done/todo
 
 ---
 
+## ~~292. Recording optimizer "deletes" outer-space recordings after F9 quickload (game-breaking)~~
+
+Surfaced by the 2026-04-10 Kerbal X Mun-flyby playtest (worktree `Parsek-investigate-280-285`, branch `investigate-280-285`). The user reported: *"the rec optimizer (maybe because of f5 f9 interaction?) deleted all the recordings of the trip in outer space (they were ok initially). At the end after a rewind I could only see the launch and 2 very small recordings of the end of the mission. This is game breaking."*
+
+**Investigation findings** (`KSP.log` 00:53–01:06):
+
+1. **00:53:23** — pre-rewind finalize: tree `Kerbal X` (id `b731eff7…`) had 12 recordings. The active vessel recording `885c858bf3e24de2a5e2b801b46cbf3c` had **points=276 orbitSegs=9** — that's the FULL outer-space mission (launch → Mun flyby → Kerbin escape → solar orbit → splashdown).
+2. **00:53:30** — user rewound from UT 49558 → UT 11.58 (start of mission). Merge dialog opened with the 12 pre-rewind recordings + 5 from the merge run = **17 recordings** post-merge.
+3. **00:53:33** — `RecordingOptimizer.SplitAtSection` ran 5× during the merge, splitting:
+   - `885c858…` at UT=146.7 (first half 106 pts/2 sections = launch only; second half 170 pts/23 sections = outer space, kept under a NEW guid)
+   - `e203b6e1…` at UT=49246.2 (51+119 pts) — also a post-merge new recording
+   - `9da64a57…`, `a8782158…`, `831cd6e6…` — three more splits
+   - All splits forwarded permanent state events as seeds (16, 19, 1, 1, 1 events)
+4. **00:53:46 → 00:59:02** — `persistent.sfs` saved 6 times, all with `recordings=17`. **The 5 outer-space recordings (`e203b6e1`, `66b0dbad`, `bf3a6b02`, `4649d230`, `89745643`) were correctly persisted at 00:58:50** (verified by reading `Backup/persistent (2026_04_10_00_58_50).sfs` — all 17 ids present). Their `.prec` sidecar files exist on disk too (`saves/s34/Parsek/Recordings/`).
+5. **01:03:11** — user opened the menu, pressed F9 (or "Load Game" → quicksave). KSP loaded `quicksave.sfs`, which **had only 12 recordings** (verified by reading `Backup/quicksave (2026_04_10_01_03_41).sfs` — same 12 ids).
+6. **01:03:12** — load handler logged `RemoveCommittedTreeById: removed stale committed copy of tree 'Kerbal X' (…, 17 recording(s)) — active-tree restore takes precedence`. The in-memory committed tree (with all 17) was DISCARDED in favor of the loaded tree (12). The "active-tree restore" path retained the 12-recording active state from the loaded `.sfs`, not the 17-recording committed state.
+7. **01:03:12** — `FinalizeTreeRecordings` for the post-load tree showed `885c858…` at **points=106 orbitSegs=0** (the split first-half — launch only, no orbit data). The user's rocket recording is now reduced to launch only.
+8. **01:03:31** — next save wrote `recordings=11` (after `PruneZeroPointLeaves` removed the empty `3cbb6f0c…` placeholder).
+
+**Root cause**: the **quicksave.sfs is not updated when an active-tree merge or optimizer split happens**. The quicksave at 00:53:16 captured 12 records (pre-merge state). The merge at 00:53:33 created 5 new recording IDs in memory and in `persistent.sfs`, but `quicksave.sfs` was never refreshed. F9 then loaded the stale quicksave, the load handler chose the loaded 12-rec tree over the in-memory 17-rec committed tree, and the 5 outer-space records were silently dropped from the active state. The `.prec` sidecar files survived on disk as orphans.
+
+**The optimizer did not delete anything** — every split kept the source recording's data, just under two IDs. The data was lost because the F9-loaded `.sfs` didn't reference the new IDs that the optimizer/merge had created since the quicksave was made.
+
+**Fix candidates**:
+1. **Refresh the quicksave whenever a merge or optimizer split happens** (cheapest correct fix). On `Merger.MergeTree` completion or `RecordingOptimizer.SplitAtSection`, call KSP's `GamePersistence.SaveGame("quicksave", …)` so subsequent F9 loads include the new IDs.
+2. **Detect orphaned `.prec` files on load and offer recovery.** When `LoadAllRecordings` scans `saves/<save>/Parsek/Recordings/`, any `.prec` whose recording id is not referenced by any tree node should surface a UI prompt: "5 unreferenced recording files found. Recover?".
+3. **Refuse F9 if the in-memory tree has uncommitted merges that the quicksave doesn't include.** Show a warning dialog: "Quickloading will lose 5 recordings created since the last quicksave. Continue?".
+4. **Make the load handler prefer the in-memory committed tree over the loaded tree if their IDs match but the committed has more recordings.** Risky — could mask other bugs.
+
+Recommended: combine (1) for prevention + (2) for recovery of saves already affected. Player on the affected save can salvage the 5 outer-space recordings — the `.prec` files at `saves/s34/Parsek/Recordings/{e203b6e1,66b0dbad,bf3a6b02,4649d230,89745643}*.prec` are intact.
+
+**Fix**: New `RecordingStore.RefreshQuicksaveAfterMerge(reason, recordingCount)` helper that calls `GamePersistence.SaveGame("quicksave", HighLogic.SaveFolder, SaveMode.OVERWRITE)` once after a user-initiated merge. Wired only into `MergeDialog.cs:359` (the "Merge to Timeline" button handler), NOT into `RecordingStore.RunOptimizationPass` itself — `RunOptimizationPass` is also called from `ParsekScenario.OnLoad`, and a save-while-loading would re-enter `OnSave` on every `ScenarioModule`. Helper has a `LoadedScene == LOADING` guard, a `CurrentGame == null` guard, a `try/catch` that logs warns on failure (non-fatal: the merge still completes), and an `internal static SaveGameForTesting` seam so `QuicksaveRefreshTests.cs` can intercept the call without invoking the real KSP API. Trade-off documented in CHANGELOG: this advances the player's F5 checkpoint UT to the post-merge state — players who want a pre-merge checkpoint should F5 manually before clicking Merge.
+
+**Status**: Fixed.
+
+---
+
+## 291. In-game test failure: `FlightIntegrationTests.EvaSpawnWalkbackOnOverlap`
+
+`parsek-test-results.txt` (run 2026-04-10 01:05:19, scene FLIGHT) reports:
+
+```
+FAIL  FlightIntegrationTests.EvaSpawnWalkbackOnOverlap (48.5ms)
+      Expected 'WalkbackSubdivided: cleared' log line during spawn
+```
+
+The test expects an EVA-spawned ghost to log `WalkbackSubdivided: cleared` when its position overlaps with another ghost. Either the walkback subdivision code path isn't running, OR the log line was renamed/removed and the test wasn't updated.
+
+Total: 117 / Passed: 98 / Failed: 1 / Skipped: 16. All other categories pass.
+
+**Investigation needed**: read `FlightIntegrationTests.EvaSpawnWalkbackOnOverlap` source, check the spawn walkback subdivision path in `ParsekPlaybackPolicy` / `VesselSpawner`, see whether the expected log line is still emitted.
+
+**Status**: Open.
+
+---
+
+## 290. F5/F9 quicksave/quickload interaction with recordings — verification needed
+
+User asked: *"check if the quicksave/quickload and recordings systems work well together now (we fixed some bugs) — investigate deep in the logs"*. Bug #292 is the smoking gun — F9 reloads can silently drop recordings created since the last quicksave was made.
+
+**Open questions**:
+1. Are there OTHER scenarios beyond #292 where F5/F9 + recordings interact badly? (e.g., F9 during an active recording, F5 during a merge dialog)
+2. Should the quicksave auto-refresh on every committed recording change, not just merges? Trade-off: more I/O vs. data safety.
+3. Does the rewind save (`parsek_rw_*.sfs`) have the same staleness problem as the quicksave? The rewind save IS Parsek-managed, so we control when it's written.
+
+**Status**: Open — partially investigated by #292. Needs broader scenarios coverage.
+
+---
+
+## ~~289. End-of-mission spawn-at-end never fires — vessel snapshots are FLYING/SUB_ORBITAL not LANDED/SPLASHED~~
+
+Surfaced by same playtest. The user reported: *"at the end of the mission the kerbals and the capsule were not spawned (no real vessels spawned)"*.
+
+**Investigation findings** (`KSP.log` 00:53:33 — first KSC spawn evaluation post-merge):
+
+```
+[KSCSpawn] Spawn not needed for #14 "Kerbal X": snapshot situation unsafe (FLYING/SUB_ORBITAL)
+[KSCSpawn] Spawn not needed for #16 "Bob Kerman": snapshot situation unsafe (FLYING/SUB_ORBITAL)
+```
+
+The end-of-mission Kerbal X recording (`a8782158805f4cfdb9f69f2ed7f9d025`) and Bob Kerman EVA recording (`831cd6e6b7cc4ea897c647cd691d6879`) both had `terminal=Splashed` (correct — both vessels did splash down at UT ~49533) BUT the `VesselSnapshot.situation` field was FLYING or SUB_ORBITAL. The spawn-at-end policy correctly refuses to materialize vessels at unsafe snapshot situations.
+
+**Why the snapshot is stale**: a vessel snapshot is captured ONCE per recording, at recording start (or at the first transition to background). The end-of-mission recording for Kerbal X started at UT=49537 when the player switched from Bob Kerman back to Kerbal X — line `OnVesselSwitchComplete: seeded lastLandedUT=49537.0 (vessel '#autoLOC_501232' already SPLASHED)` confirms the vessel WAS splashed at switch time. But the snapshot inside `a8782158…` was captured EARLIER (when it was still in background recording during the descent), and is never updated. By the time spawn-at-end evaluates the recording, the snapshot reflects a stale Flying/SubOrbital situation.
+
+**Root cause**: `VesselSnapshot.situation` is captured once and never refreshed when the vessel transitions to a stable terminal state (Landed/Splashed). The recording's `TerminalState` is updated, but the embedded `VesselSnapshot` is not.
+
+**Fix candidates**:
+1. **Re-snapshot on terminal transition.** When `Recorder.CheckForTerminalTransition` decides a vessel is now Landed/Splashed/etc, re-take the snapshot from the current vessel state. Cheapest correct fix.
+2. **Make spawn-at-end consult `Recording.TerminalState` and the LAST trajectory point's lat/lon/alt** instead of the snapshot situation. Spawn the snapshot at the trajectory's terminal coordinates with situation overridden to `Landed`/`Splashed`. More work but covers cases where re-snapshot fails.
+3. **Have spawn-at-end accept FLYING/SUB_ORBITAL snapshots when `terminal=Landed/Splashed`** — trust the terminal state, override the situation field to `Landed` and place at the trajectory's last `landed{Lat,Lon,Alt}` if available. Risky — could spawn vessels at wrong height.
+
+**Fix** (three-part):
+
+1. **Re-snapshot path in `ParsekFlight.FinalizeIndividualRecording` runs OUTSIDE the existing `!TerminalStateValue.HasValue` gate.** The original re-snapshot at lines 6121-6131 only fired when terminal state hadn't been set yet — but the user's case is precisely "terminal state was already set elsewhere (ChainSegmentManager during active recording) so the original block was skipped, but the snapshot is still stale". New block runs after the existing terminal-determination block: if the recording is a leaf with stable terminal (`Landed`/`Splashed`/`Orbiting`) AND `FlightRecorder.FindVesselByPid` returns a live vessel, take a fresh `VesselSpawner.TryBackupSnapshot`, replace `rec.VesselSnapshot`, optionally replace `GhostVisualSnapshot` if null, and **call `rec.MarkFilesDirty()`** so the next sidecar-write run picks up the change. Logs `[Flight] FinalizeIndividualRecording: re-snapshotted '{recId}' with stable terminal state {state} ... [#289]` at Info.
+
+2. **Force-write dirty sidecars in `CommitTreeSceneExit` autoMerge OFF branch (`ParsekFlight.cs:961-970`).** KSP's auto-save fires BEFORE Parsek's scene-exit cleanup runs, so the normal `OnSave → FlushDirtyFiles` path never sees the post-finalize dirty flag. Without an explicit force-write, the next `OnLoad` triggers `TryRestoreActiveTreeNode` which hydrates the tree from stale sidecars, undoing the in-memory re-snapshot. After `FinalizeTreeRecordings`, iterate `activeTree.Recordings.Values` and call `RecordingStore.SaveRecordingFiles(rec)` for any recording with `FilesDirty == true`. Logs `[Flight] CommitTreeSceneExit (autoMerge off): force-wrote {N} dirty sidecar(s) ... [#289]` at Info.
+
+3. **Verified**: `RecordingStore.LoadRecordingFiles` (`RecordingStore.cs:3173-3179`) unconditionally loads `_vessel.craft` regardless of terminal state — so the round-trip (re-snapshot → MarkFilesDirty → force-write → next OnLoad → TryRestoreActiveTreeNode → LoadRecordingFiles) correctly hydrates the fresh snapshot back into memory.
+
+**Scope limitation**: Fix only applies to autoMerge OFF mode (the default). The autoMerge ON branch in `CommitTreeSceneExit` (function at `ParsekFlight.cs:5962-5983`) explicitly nulls `VesselSnapshot` after finalize at line 5975 — fixing this requires preserving snapshots on autoMerge ON, a larger design discussion deferred to a separate PR.
+
+**Tests**: New in-game tests in `RuntimeTests.cs`:
+- `FinalizeReSnapshot_StableTerminal_LiveVessel_UpdatesSnapshotAndMarksDirty` — pre-seeds a recording with `TerminalStateValue=Landed` and a stale `sit=FLYING` snapshot, calls `FinalizeIndividualRecording(rec, ut, isSceneExit:true)`, verifies the snapshot's sit field was refreshed AND `rec.FilesDirty == true` AND the `[#289]` log line fired.
+- `FinalizeReSnapshot_NonStableTerminal_DoesNotReSnapshot` — same setup with `TerminalStateValue=Destroyed` (non-stable), verifies the stale snapshot is preserved unchanged.
+
+xUnit tests for the Part B force-write iteration are not feasible without invasive Unity-mocking; coverage is via the in-game test plus manual playtest.
+
+**Status**: Fixed.
+
+---
+
+## ~~288. Ghost map icon hidden after re-entry until W (Watch) is pressed — Recording.TerminalOrbit cache empty~~
+
+> **Renumbered from #287** on 2026-04-10. Main shipped a different fix (PR #178, "Spurious terminal EngineShutdown events survive into committed recordings") under #287 while this branch was open. This bug is the second one to claim #287, so it's been moved to #288 to keep the bug-tracking namespace unambiguous. (The #288 slot was previously a stub for "Kerbal X engine flames disappear after staging" — that exact bug is what main fixed as #287, so the stub was a duplicate and has been removed.)
+
+User report: *"on the atmo re-entry from kerbin orbit I had to push the W button for the ghost icon to be visible in map view (it should always be visible)"*.
+
+**Investigation findings** (`KSP.log` 00:58:54 — TRACKSTATION→FLIGHT scene transition with 17 active recordings):
+
+```
+[GhostMap] HasOrbitData(Recording): rec=885c858bf3e24de2a5e2b801b46cbf3c body=(null) sma=0 result=False
+[GhostMap] HasOrbitData(Recording): rec=e203b6e1eb8a40db8f5592a2b2f92082 body=(null) sma=0 result=False
+[GhostMap] HasOrbitData(Recording): rec=66b0dbad7aa94db0a8f89a39d8ffeab7 body=(null) sma=0 result=False
+[GhostMap] HasOrbitData(Recording): rec=bf3a6b0216c94e84b2e36ef04bcbc315 body=(null) sma=0 result=False
+[GhostMap] HasOrbitData(Recording): rec=831cd6e6b7cc4ea897c647cd691d6879 body=(null) sma=0 result=False
+[GhostMap] HasOrbitData(Recording): rec=4649d2306cfc406493b7f87db24195f5 body=(null) sma=0 result=False
+[GhostMap] CreateGhostVesselsFromCommittedRecordings: created=0 from 17 recordings (skipped: debris=10 superseded=1 terminal=0 noOrbit=6)
+```
+
+All 17 recordings were filtered out: 10 debris (no map vessel by design), 1 superseded by an active vessel, 6 with `noOrbit`. The 6 with `noOrbit` are the meaningful ones — including `885c858…` (which had `orbitSegs=9` pre-rewind, spanning launch → Mun flyby → Kerbin escape → Sun/Orbit) and `e203b6e1…` (with milestones from UT 146 → 28946). They DO have orbit data — but the cached `Recording.TerminalOrbit.body` field was `null` and `sma=0`, so the check returned `result=False` and no map vessel was created.
+
+**Root cause**: `Recording.TerminalOrbit` is only populated by `Flight.FinalizeTreeRecordings.PopulateTerminalOrbitFromLastSegment`, and only on the "vessel pid not found → marking Destroyed" code path during finalize (we see it fire for `a8782158…` post-F9 reload: `PopulateTerminalOrbitFromLastSegment: recovered orbit for 'a8782158805f4cfdb9f69f2ed7f9d025' from segment body=Kerbin sma=300953.7`). For non-terminal in-progress recordings the `TerminalOrbit` cache is left empty, even though `OrbitSegments` contains valid data.
+
+**Why pressing W "fixes" it**: `WatchModeController` reads `OrbitSegments` directly when entering Watch mode, bypassing the broken `TerminalOrbit` cache. So pressing W incidentally builds the icon by going through a different code path. This is the user's accidental workaround.
+
+**Fix**: Eager-populate the `TerminalOrbit*` cache from the last `OrbitSegment` at sidecar-load time. Added a guarded call to `ParsekFlight.PopulateTerminalOrbitFromLastSegment(rec)` in `RecordingStore.LoadRecordingFiles` immediately after `DeserializeTrajectoryFrom` returns (which is where `OrbitSegments` gets populated). The call is only made when `TerminalOrbitBody` is empty AND `OrbitSegments` has data — the helper itself has a "do not overwrite" guard, so it's safe. Logs `Eager-populated TerminalOrbit for {recId} from last orbit segment (body={body}, sma={sma})` so playtest logs can confirm the fix is active.
+
+**Why this is the right scope**: an earlier draft also added a read-side fallback in `GhostMapPresence.HasOrbitData(Recording)` to check `OrbitSegments[Count-1]` when the cache is empty. That broke the existing `ShouldCreate_NullTerminal_WithSegment_UTPastRange_Skipped` test, which encoded a different policy: "an in-progress recording with currentUT past all known segments should NOT be displayed as a stable orbit". The eager-populate-only approach handles the user's case (recordings loaded from disk after a scene transition) without changing the read-side semantics for in-memory recordings or in-progress test scenarios. Active recordings that grow segments mid-flight don't need the cache because the active vessel's map icon is handled by KSP, not Parsek's ghost system.
+
+**Tests**: Existing `WithOrbitSegments_PopulatesTerminalOrbit` and `UsesLastSegment_NotFirst` tests in `BugFixTests.cs` already cover the helper. The new conditional call site in `LoadRecordingFiles` is a simple guard + delegate.
+
+**Status**: Fixed.
+
+---
+
 ## ~~287. Spurious terminal EngineShutdown events survive into committed recordings — ghost engine flames go off permanently after booster staging~~
 
 Surfaced by the 2026-04-09 Kerbal X playtest (`logs/2026-04-09_1117_kerbalx-rover`). The user reported that the ghost's KerbalX engine flames (Mainsail + booster liquidEngine2) turned off after staging the boosters and never came back, even though in reality the Mainsail kept burning through orbit insertion.

@@ -969,9 +969,34 @@ namespace Parsek
             else if (!ParsekScenario.IsAutoMerge)
             {
                 // autoMerge OFF: safe finalization but preserve snapshots for dialog in KSC/TS.
-                // Uses isSceneExit: true (no live vessel re-snapshots during teardown)
-                // but skips snapshot nulling so the dialog can offer vessel spawning.
+                // Uses isSceneExit: true; FinalizeIndividualRecording's #289 re-snapshot path
+                // updates VesselSnapshot for stable-terminal recordings (Landed/Splashed/Orbiting)
+                // so the dialog and spawn-at-end safety check see the correct sit field.
                 FinalizeTreeRecordings(activeTree, commitUT, isSceneExit: true);
+
+                // #289: KSP's auto-save fired BEFORE this code path runs (it ran inside
+                // OnSceneChangeRequested, before our scene-exit cleanup). Any sidecar files
+                // dirtied by FinalizeTreeRecordings (e.g. fresh snapshots from the #289
+                // re-snapshot) won't reach disk via the normal OnSave→FlushDirtyFiles path
+                // before the next OnLoad runs TryRestoreActiveTreeNode, which hydrates the
+                // restored tree from those sidecars. Force-write them now so the post-finalize
+                // state survives the round-trip.
+                int forcedWrites = 0;
+                foreach (var rec in activeTree.Recordings.Values)
+                {
+                    if (rec.FilesDirty)
+                    {
+                        if (RecordingStore.SaveRecordingFiles(rec))
+                            forcedWrites++;
+                    }
+                }
+                if (forcedWrites > 0)
+                {
+                    ParsekLog.Info("Flight",
+                        $"CommitTreeSceneExit (autoMerge off): force-wrote {forcedWrites} dirty sidecar(s) " +
+                        $"after finalize so post-finalize state survives the next OnLoad [#289]");
+                }
+
                 RecordingStore.StashPendingTree(activeTree);
                 ParsekLog.Info("Flight",
                     $"CommitTreeSceneExit (autoMerge off): stashed tree '{activeTree.TreeName}' with snapshots preserved");
@@ -5987,10 +6012,18 @@ namespace Parsek
             // Finalize all recordings
             FinalizeTreeRecordings(activeTree, commitUT, isSceneExit: true);
 
-            // Null all vessel snapshots (no spawning on scene exit)
+            // Null vessel snapshots for recordings that don't need spawn-at-end.
+            // Preserve snapshots for stable-terminal recordings (Landed/Splashed/Orbiting)
+            // so the snapshot's sit field survives the save→load round-trip and the
+            // spawn-at-end safety check doesn't block with "snapshot situation unsafe". (#289)
             foreach (var rec in activeTree.Recordings.Values)
             {
-                rec.VesselSnapshot = null;
+                bool keepForSpawn = rec.TerminalStateValue.HasValue
+                    && (rec.TerminalStateValue.Value == TerminalState.Landed
+                        || rec.TerminalStateValue.Value == TerminalState.Splashed
+                        || rec.TerminalStateValue.Value == TerminalState.Orbiting);
+                if (!keepForSpawn)
+                    rec.VesselSnapshot = null;
             }
 
             // Stash as pending tree -- auto-committed ghost-only by ParsekScenario.OnLoad
@@ -6121,25 +6154,27 @@ namespace Parsek
                     rec.ExplicitEndUT = commitUT;
             }
 
-            // Determine terminal state for recordings that don't have one yet
+            // Look up the live vessel once — shared by the terminal-determination block below
+            // and the #289 re-snapshot block that follows. Avoids a double FindVesselByPid
+            // for recordings that enter !HasValue, get terminal set, then hit the re-snapshot path.
             bool isLeaf = rec.ChildBranchPointId == null;
+            Vessel finalizeVessel = (isLeaf && rec.VesselPersistentId != 0)
+                ? FlightRecorder.FindVesselByPid(rec.VesselPersistentId)
+                : null;
+
+            // Determine terminal state for recordings that don't have one yet
             if (isLeaf && !rec.TerminalStateValue.HasValue)
             {
-                // Try to find the vessel
-                Vessel vessel = rec.VesselPersistentId != 0
-                    ? FlightRecorder.FindVesselByPid(rec.VesselPersistentId)
-                    : null;
-
-                if (vessel != null)
+                if (finalizeVessel != null)
                 {
-                    rec.TerminalStateValue = RecordingTree.DetermineTerminalState((int)vessel.situation, vessel);
-                    CaptureTerminalOrbit(rec, vessel);
-                    CaptureTerminalPosition(rec, vessel);
+                    rec.TerminalStateValue = RecordingTree.DetermineTerminalState((int)finalizeVessel.situation, finalizeVessel);
+                    CaptureTerminalOrbit(rec, finalizeVessel);
+                    CaptureTerminalPosition(rec, finalizeVessel);
 
                     // Re-snapshot live vessels for Commit Flight path (fresh state)
                     if (!isSceneExit)
                     {
-                        ConfigNode freshSnapshot = VesselSpawner.TryBackupSnapshot(vessel);
+                        ConfigNode freshSnapshot = VesselSpawner.TryBackupSnapshot(finalizeVessel);
                         if (freshSnapshot != null)
                         {
                             rec.VesselSnapshot = freshSnapshot;
@@ -6160,6 +6195,46 @@ namespace Parsek
                     // Orbital debris often has orbit segments from BackgroundRecorder sampling
                     // but the vessel is destroyed by finalization time.
                     PopulateTerminalOrbitFromLastSegment(rec);
+                }
+            }
+
+            // #289: Re-snapshot the vessel whenever the recording has reached a stable terminal
+            // state (Landed/Splashed/Orbiting) AND the live vessel is still findable. Without
+            // this, the snapshot's `sit` field stays stale from recording-start (FLYING/SUB_ORBITAL),
+            // and after the OnSave→scene-change→OnLoad round-trip the spawn-at-end safety check
+            // blocks vessel materialization at "snapshot situation unsafe (FLYING/SUB_ORBITAL)".
+            //
+            // Runs OUTSIDE the !TerminalStateValue.HasValue gate above because the user's case
+            // is precisely "terminal state was already set (e.g. by ChainSegmentManager during
+            // active recording) so the gate above is skipped — but the snapshot is still stale".
+            //
+            // Reuses finalizeVessel from the lookup above — no double FindVesselByPid.
+            if (isLeaf && rec.TerminalStateValue.HasValue && finalizeVessel != null)
+            {
+                var ts = rec.TerminalStateValue.Value;
+                bool stableTerminal = ts == TerminalState.Landed
+                    || ts == TerminalState.Splashed
+                    || ts == TerminalState.Orbiting;
+                if (stableTerminal)
+                {
+                    ConfigNode freshSnapshot = VesselSpawner.TryBackupSnapshot(finalizeVessel);
+                    if (freshSnapshot != null)
+                    {
+                        rec.VesselSnapshot = freshSnapshot;
+                        if (rec.GhostVisualSnapshot == null)
+                            rec.GhostVisualSnapshot = freshSnapshot.CreateCopy();
+                        rec.MarkFilesDirty();  // Critical: ensures next SaveRecordingFiles writes the fresh snapshot to disk
+                        ParsekLog.Info("Flight",
+                            $"FinalizeIndividualRecording: re-snapshotted '{rec.RecordingId}' " +
+                            $"with stable terminal state {ts} " +
+                            $"(vessel.situation={finalizeVessel.situation}, isSceneExit={isSceneExit}) [#289]");
+                    }
+                    else
+                    {
+                        ParsekLog.Verbose("Flight",
+                            $"FinalizeIndividualRecording: re-snapshot returned null for " +
+                            $"'{rec.RecordingId}' (terminal={ts}, isSceneExit={isSceneExit}) — keeping stale snapshot");
+                    }
                 }
             }
 
