@@ -1498,11 +1498,15 @@ namespace Parsek
             var cameraPivotObj = new GameObject("cameraPivot");
             cameraPivotObj.transform.SetParent(ghost.transform, false);
 
+            var horizonProxyObj = new GameObject("horizonProxy");
+            horizonProxyObj.transform.SetParent(cameraPivotObj.transform, false);
+
             var state = new GhostPlaybackState
             {
                 vesselName = traj?.VesselName ?? "Unknown",
                 ghost = ghost,
                 cameraPivot = cameraPivotObj.transform,
+                horizonProxy = horizonProxyObj.transform,
                 playbackIndex = 0,
                 partEventIndex = 0,
                 partTree = GhostVisualBuilder.BuildPartSubtreeMap(GhostVisualBuilder.GetGhostSnapshot(traj))

@@ -6,6 +6,10 @@ All notable changes to Parsek are documented here.
 
 ## 0.7.3
 
+### New Features
+
+- Watch camera mode: press V during ghost watch to toggle between free orbit and horizon-locked (ground always at screen bottom). Auto-selects horizon-locked near planetary surfaces, free in orbit.
+
 ---
 
 ## 0.7.2

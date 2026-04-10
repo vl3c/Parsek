@@ -454,6 +454,106 @@ namespace Parsek.InGameTests
             InGameAssert.IsGreaterThan(found, 0,
                 "At least one stock part should resolve via PartLoader");
         }
+
+        [InGameTest(Category = "GhostPlayback", Scene = GameScenes.FLIGHT,
+            Description = "Ghost horizonProxy exists as child of cameraPivot")]
+        public void HorizonProxyTransformExists()
+        {
+            // Build a minimal ghost from a committed recording to verify
+            // the horizonProxy transform is created alongside cameraPivot
+            var committed = RecordingStore.CommittedRecordings;
+            if (committed.Count == 0)
+            {
+                ParsekLog.Info("TestRunner", "No committed recordings — skipping HorizonProxyTransformExists");
+                return;
+            }
+
+            var traj = committed[0] as IPlaybackTrajectory;
+            var engine = ParsekFlight.Instance?.Engine;
+            InGameAssert.IsNotNull(engine, "GhostPlaybackEngine should be available in flight");
+
+            // Check if any ghost state has horizonProxy
+            bool anyGhostChecked = false;
+            foreach (var kvp in engine.ghostStates)
+            {
+                var state = kvp.Value;
+                if (state?.cameraPivot == null) continue;
+                anyGhostChecked = true;
+
+                InGameAssert.IsNotNull(state.horizonProxy,
+                    $"Ghost #{kvp.Key} should have horizonProxy");
+                InGameAssert.IsTrue(state.horizonProxy.parent == state.cameraPivot,
+                    $"Ghost #{kvp.Key} horizonProxy should be child of cameraPivot");
+                InGameAssert.IsTrue(state.horizonProxy.localPosition == Vector3.zero,
+                    $"Ghost #{kvp.Key} horizonProxy should be at local origin");
+            }
+
+            if (!anyGhostChecked)
+                ParsekLog.Info("TestRunner", "No active ghosts with cameraPivot — structural check deferred");
+        }
+
+        [InGameTest(Category = "GhostPlayback", Scene = GameScenes.FLIGHT,
+            Description = "ComputeHorizonRotation produces valid rotation near Kerbin surface")]
+        public void HorizonRotationNearSurface()
+        {
+            // Use a realistic Kerbin surface scenario
+            Vector3 up = Vector3.up;
+            Vector3 velocity = new Vector3(200, 10, 0); // moving east, slight ascent
+
+            var (rotation, forward) = WatchModeController.ComputeHorizonRotation(up, velocity, Vector3.forward);
+
+            // Forward should be on horizon plane
+            InGameAssert.IsTrue(Mathf.Abs(forward.y) < 0.01f,
+                $"Forward should be on horizon, got Y={forward.y}");
+
+            // Rotation's up should match input up
+            Vector3 rotUp = rotation * Vector3.up;
+            float upDot = Vector3.Dot(rotUp, up);
+            InGameAssert.IsTrue(upDot > 0.99f,
+                $"Rotation up should match radial, got dot={upDot}");
+
+            // Rotation's forward should match computed forward
+            Vector3 rotFwd = rotation * Vector3.forward;
+            float fwdDot = Vector3.Dot(rotFwd, forward);
+            InGameAssert.IsTrue(fwdDot > 0.99f,
+                $"Rotation forward should match horizon forward, got dot={fwdDot}");
+        }
+
+        [InGameTest(Category = "GhostPlayback", Scene = GameScenes.FLIGHT,
+            Description = "CompensateCameraAngles preserves world direction across rotation change")]
+        public void CameraAngleCompensationPreservesDirection()
+        {
+            Quaternion oldRot = Quaternion.identity;
+            Quaternion newRot = Quaternion.Euler(0, 90, 0);
+            float origPitch = 15f;
+            float origHdg = 30f;
+
+            // World direction from old frame
+            float pRad = origPitch * Mathf.Deg2Rad;
+            float hRad = origHdg * Mathf.Deg2Rad;
+            Vector3 localDir = new Vector3(
+                Mathf.Sin(hRad) * Mathf.Cos(pRad),
+                Mathf.Sin(pRad),
+                Mathf.Cos(hRad) * Mathf.Cos(pRad));
+            Vector3 worldDir = oldRot * localDir;
+
+            // Compensate
+            var (newPitch, newHdg) = WatchModeController.CompensateCameraAngles(
+                oldRot, newRot, origPitch, origHdg);
+
+            // World direction from new frame
+            float npRad = newPitch * Mathf.Deg2Rad;
+            float nhRad = newHdg * Mathf.Deg2Rad;
+            Vector3 newLocalDir = new Vector3(
+                Mathf.Sin(nhRad) * Mathf.Cos(npRad),
+                Mathf.Sin(npRad),
+                Mathf.Cos(nhRad) * Mathf.Cos(npRad));
+            Vector3 newWorldDir = newRot * newLocalDir;
+
+            float dot = Vector3.Dot(worldDir.normalized, newWorldDir.normalized);
+            InGameAssert.IsTrue(dot > 0.99f,
+                $"World direction should be preserved, got dot={dot}");
+        }
     }
 
     /// <summary>
