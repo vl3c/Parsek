@@ -3780,7 +3780,12 @@ namespace Parsek
             // OnPartCouple's own null checks (L3784, L3845) already prevent most interference,
             // but the narrow window after recorder.StartRecording in the coroutine could allow
             // a dock event on the just-restored recorder before the coroutine completes.
-            if (restoringActiveTree) return;
+            if (restoringActiveTree)
+            {
+                ParsekLog.Warn("Flight",
+                    "OnPartCouple: skipped — restore coroutine in progress");
+                return;
+            }
 
             ParsekLog.RecState("OnPartCouple:entry", CaptureRecorderState());
             if (data.to?.vessel == null) return;
@@ -3883,7 +3888,13 @@ namespace Parsek
         void OnPartUndock(Part undockedPart)
         {
             // #267: skip if restore coroutine is mid-yield — it owns activeTree/recorder
-            if (restoringActiveTree) return;
+            if (restoringActiveTree)
+            {
+                ParsekLog.Warn("Flight",
+                    $"OnPartUndock: skipped — restore coroutine in progress " +
+                    $"(part '{undockedPart?.partInfo?.name}')");
+                return;
+            }
 
             ParsekLog.RecState("OnPartUndock:entry", CaptureRecorderState());
             if (recorder == null || !recorder.IsRecording) return;
