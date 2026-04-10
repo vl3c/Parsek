@@ -196,7 +196,7 @@ namespace Parsek
                 ParsekLog.Info("CrewReservation",
                     $"SwapReservedCrewInFlight skipped: active vessel pid={activePid} " +
                     "is a Parsek-spawned vessel (crew already set by spawn path)");
-                RemoveReservedEvaVessels();
+                RemoveReservedEvaVessels(spawnedPids);
                 return 0;
             }
 
@@ -267,7 +267,7 @@ namespace Parsek
                 CrewLog($"Crew swap: 0 succeeded, {failCount} failed");
             }
 
-            RemoveReservedEvaVessels();
+            RemoveReservedEvaVessels(spawnedPids);
 
             return swapCount;
         }
@@ -574,11 +574,13 @@ namespace Parsek
         /// Reserved crew on EVA are separate vessels, not in ActiveVessel.parts.
         /// Removing them prevents duplicates at ghost EndUT spawn.
         /// </summary>
-        private static void RemoveReservedEvaVessels()
+        private static void RemoveReservedEvaVessels(HashSet<uint> spawnedPids = null)
         {
             // Bug #233: build set of PIDs spawned by committed recordings so we
             // don't delete EVA vessels that Parsek intentionally created.
-            var spawnedPids = BuildSpawnedVesselPidSet(RecordingStore.CommittedRecordings);
+            // Accept pre-built set to avoid redundant iteration when caller already has one.
+            if (spawnedPids == null)
+                spawnedPids = BuildSpawnedVesselPidSet(RecordingStore.CommittedRecordings);
 
             int evaRemoved = 0;
             int loadedKept = 0;

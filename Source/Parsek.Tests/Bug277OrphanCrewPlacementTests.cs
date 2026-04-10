@@ -362,18 +362,6 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void BuildSpawnedVesselPidSet_NoMatch_DoesNotContainArbitraryPid()
-        {
-            var rec = new Recording { SpawnedVesselPersistentId = 42 };
-            RecordingStore.AddCommittedForTesting(rec);
-
-            var pids = CrewReservationManager.BuildSpawnedVesselPidSet(
-                RecordingStore.CommittedRecordings);
-
-            Assert.DoesNotContain(99999u, pids);
-        }
-
-        [Fact]
         public void BuildSpawnedVesselPidSet_NullRecordings_ReturnsEmpty()
         {
             var pids = CrewReservationManager.BuildSpawnedVesselPidSet(null);
@@ -382,19 +370,16 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void SpawnedVesselGuard_LogsSkipMessage_WhenActiveVesselIsSpawned()
+        public void BuildSpawnedVesselPidSet_DistinguishesSpawnedFromNonSpawned()
         {
-            // Set up a committed recording with a spawned PID
             var rec = new Recording { SpawnedVesselPersistentId = 12345 };
             RecordingStore.AddCommittedForTesting(rec);
 
-            // Verify the PID set contains it (the guard's decision logic)
             var pids = CrewReservationManager.BuildSpawnedVesselPidSet(
                 RecordingStore.CommittedRecordings);
+
             Assert.True(pids.Contains(12345u),
                 "Guard should detect pid=12345 as a Parsek-spawned vessel");
-
-            // Verify an unrelated PID is NOT detected
             Assert.False(pids.Contains(99999u),
                 "Guard should NOT detect pid=99999 as spawned");
         }
