@@ -860,5 +860,140 @@ namespace Parsek.Tests
         }
 
         #endregion
+
+        #region Bug #285 — Parent Dead at Split Time (Simulation Tests)
+
+        // These tests simulate the two paths in HandleBackgroundVesselSplit:
+        // (a) parent alive → continuation created, and (b) parent dead → no continuation.
+        // HandleBackgroundVesselSplit itself accesses FlightGlobals so cannot be called
+        // in unit tests; we simulate the tree mutations it performs.
+
+        [Fact]
+        public void Bug285_ParentAlive_ContinuationCreated_TreeHasExtraRecording()
+        {
+            // Simulate the "parent alive" path (existing behavior)
+            var tree = MakeTree((100, "rec_bg"));
+            var parentRec = tree.Recordings["rec_bg"];
+
+            var newVessels = new List<(uint pid, string name, bool hasController)>
+            {
+                (300, "Debris Fragment", false)
+            };
+
+            var (bp, children) = BackgroundRecorder.BuildBackgroundSplitBranchData(
+                "rec_bg", "tree_split_test", 150.0, BranchPointType.JointBreak,
+                100, newVessels);
+
+            // Close parent
+            parentRec.ChildBranchPointId = bp.Id;
+            parentRec.ExplicitEndUT = 150.0;
+            tree.BackgroundMap.Remove(100);
+            tree.BranchPoints.Add(bp);
+
+            // Parent alive → create continuation
+            string parentContRecId = Guid.NewGuid().ToString("N");
+            var parentContRec = new Recording
+            {
+                RecordingId = parentContRecId,
+                TreeId = "tree_split_test",
+                VesselPersistentId = 100,
+                VesselName = "Background Vessel 0",
+                ParentBranchPointId = bp.Id,
+                ExplicitStartUT = 150.0,
+                IsDebris = parentRec.IsDebris,
+                Generation = parentRec.Generation
+            };
+            bp.ChildRecordingIds.Insert(0, parentContRecId);
+            tree.Recordings[parentContRecId] = parentContRec;
+            tree.BackgroundMap[100] = parentContRecId;
+
+            // Add child
+            tree.Recordings[children[0].RecordingId] = children[0];
+
+            // Verify: continuation + child = 2 children on BP
+            Assert.Equal(2, bp.ChildRecordingIds.Count);
+            Assert.Equal(parentContRecId, bp.ChildRecordingIds[0]);
+            Assert.Equal(children[0].RecordingId, bp.ChildRecordingIds[1]);
+            Assert.True(tree.BackgroundMap.ContainsKey(100));
+            // active + bg_parent + continuation + child = 4
+            Assert.Equal(4, tree.Recordings.Count);
+        }
+
+        [Fact]
+        public void Bug285_ParentDead_NoContinuation_TreeHasOnlyChildren()
+        {
+            // Simulate the "parent dead" path (bug #285 fix)
+            var tree = MakeTree((100, "rec_bg"));
+            var parentRec = tree.Recordings["rec_bg"];
+
+            var newVessels = new List<(uint pid, string name, bool hasController)>
+            {
+                (300, "Debris Fragment", false)
+            };
+
+            var (bp, children) = BackgroundRecorder.BuildBackgroundSplitBranchData(
+                "rec_bg", "tree_split_test", 150.0, BranchPointType.JointBreak,
+                100, newVessels);
+
+            // Close parent
+            parentRec.ChildBranchPointId = bp.Id;
+            parentRec.ExplicitEndUT = 150.0;
+            tree.BackgroundMap.Remove(100);
+            tree.BranchPoints.Add(bp);
+
+            // Parent dead → skip continuation (the fix)
+            // Just add child recordings, no continuation
+
+            tree.Recordings[children[0].RecordingId] = children[0];
+
+            // Verify: only child on BP, no continuation
+            Assert.Single(bp.ChildRecordingIds);
+            Assert.Equal(children[0].RecordingId, bp.ChildRecordingIds[0]);
+            // parentPid no longer in BackgroundMap
+            Assert.False(tree.BackgroundMap.ContainsKey(100));
+            // active + bg_parent + child = 3 (no continuation)
+            Assert.Equal(3, tree.Recordings.Count);
+            // Parent still has ChildBranchPointId (it's a branch node, not a leaf)
+            Assert.Equal(bp.Id, parentRec.ChildBranchPointId);
+        }
+
+        [Fact]
+        public void Bug285_ParentDead_NoContinuation_NoChildHasParentPid()
+        {
+            // Verify that none of the BP's children carry the parent's PID
+            var tree = MakeTree((100, "rec_bg"));
+            var parentRec = tree.Recordings["rec_bg"];
+
+            var newVessels = new List<(uint pid, string name, bool hasController)>
+            {
+                (300, "Fragment A", false),
+                (400, "Fragment B", false)
+            };
+
+            var (bp, children) = BackgroundRecorder.BuildBackgroundSplitBranchData(
+                "rec_bg", "tree_split_test", 150.0, BranchPointType.JointBreak,
+                100, newVessels);
+
+            // Close parent, skip continuation (parent dead path)
+            parentRec.ChildBranchPointId = bp.Id;
+            parentRec.ExplicitEndUT = 150.0;
+            tree.BackgroundMap.Remove(100);
+            tree.BranchPoints.Add(bp);
+
+            for (int i = 0; i < children.Count; i++)
+                tree.Recordings[children[i].RecordingId] = children[i];
+
+            // BP children = only the new fragments
+            Assert.Equal(newVessels.Count, bp.ChildRecordingIds.Count);
+
+            // None of the child recordings have the parent's PID
+            for (int i = 0; i < bp.ChildRecordingIds.Count; i++)
+            {
+                var childRec = tree.Recordings[bp.ChildRecordingIds[i]];
+                Assert.NotEqual(100u, childRec.VesselPersistentId);
+            }
+        }
+
+        #endregion
     }
 }

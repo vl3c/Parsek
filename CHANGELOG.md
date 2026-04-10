@@ -24,6 +24,7 @@ Dev notes: technical narratives for the fixes below live in `docs/dev/todo-and-k
 ### Bug Fixes & Maintenance
 
 - `#291` EVA spawn walkback now correctly detects the active vessel (parent rocket) as a blocker, so kerbals walk back to a clear position instead of spawning on top of their parent vessel.
+- `#285` Background vessel splits no longer create empty parent-continuation recordings when the parent vessel is already destroyed.
 - `#288` Ghost map icons now appear immediately after re-entry from orbit instead of requiring W (Watch) to be pressed first.
 - `#289` End-of-mission spawn-at-end now correctly materializes splashed-down vessels and EVA kerbals after a rewind+merge.
 - `#292` F9 quickload after a Tree Merge no longer silently drops recordings created during the merge.

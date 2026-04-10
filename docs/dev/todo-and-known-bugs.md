@@ -258,7 +258,9 @@ The active path (`CreateBreakupChildRecording`, `BuildSplitBranchData`) does NOT
 
 ---
 
-## 285. Empty parent-continuation recordings created when background vessel splits after parent is already destroyed
+## ~~285. Empty parent-continuation recordings created when background vessel splits after parent is already destroyed~~
+
+**Fix:** Guard in `HandleBackgroundVesselSplit` — `FindVesselByPid(parentPid)` before creating parent continuation. If null, skip continuation entirely; parent recording keeps `ChildBranchPointId`, children are still registered. See `fix-285-empty-parent-continuation.md` plan.
 
 > **Renumbered from #282** on 2026-04-09. Main shipped a different fix (PR #172, "Landed ghost vessels and end-of-recording respawned vessels no longer clip into terrain") under the same number while this branch was open. This bug is the second one to claim #282, so it's been moved to the next free number to keep the bug-tracking namespace unambiguous.
 
