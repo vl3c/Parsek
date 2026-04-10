@@ -143,6 +143,14 @@ namespace Parsek
         // null = not yet populated (legacy recording or pre-commit).
         public Dictionary<string, KerbalEndState> CrewEndStates;
 
+        // Resource manifests (Phase 11) — per-resource amount/capacity at recording start and end
+        // null = no data (legacy recording or not yet captured)
+        internal Dictionary<string, ResourceAmount> StartResources;
+        internal Dictionary<string, ResourceAmount> EndResources;
+
+        // PID of vessel docked to at this segment's boundary (0 = not a dock segment)
+        public uint DockTargetVesselPid;
+
         // Background recording: surface position for landed/splashed vessels
         public SurfacePosition? SurfacePos;            // null if not a background landed vessel
 

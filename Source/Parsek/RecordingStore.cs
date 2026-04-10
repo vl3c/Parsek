@@ -3100,6 +3100,127 @@ namespace Parsek
 
         #endregion
 
+        #region Resource Manifest Serialization
+
+        /// <summary>
+        /// Serializes StartResources and EndResources dictionaries into a RESOURCE_MANIFEST
+        /// ConfigNode on the given parent. Each resource becomes a RESOURCE child node with
+        /// name, startAmount, startMax, endAmount, endMax fields.
+        /// No-op if both StartResources and EndResources are null or empty.
+        /// </summary>
+        internal static void SerializeResourceManifest(ConfigNode parent, Recording rec)
+        {
+            bool hasStart = rec.StartResources != null && rec.StartResources.Count > 0;
+            bool hasEnd = rec.EndResources != null && rec.EndResources.Count > 0;
+            if (!hasStart && !hasEnd)
+                return;
+
+            ConfigNode manifestNode = parent.AddNode("RESOURCE_MANIFEST");
+
+            // Build merged key set from StartResources ∪ EndResources
+            var keys = new HashSet<string>();
+            if (hasStart)
+                foreach (var k in rec.StartResources.Keys) keys.Add(k);
+            if (hasEnd)
+                foreach (var k in rec.EndResources.Keys) keys.Add(k);
+
+            int count = 0;
+            foreach (var name in keys)
+            {
+                ConfigNode resNode = manifestNode.AddNode("RESOURCE");
+                resNode.AddValue("name", name);
+
+                if (hasStart && rec.StartResources.TryGetValue(name, out var startRa))
+                {
+                    resNode.AddValue("startAmount", startRa.amount.ToString("R", CultureInfo.InvariantCulture));
+                    resNode.AddValue("startMax", startRa.maxAmount.ToString("R", CultureInfo.InvariantCulture));
+                }
+
+                if (hasEnd && rec.EndResources.TryGetValue(name, out var endRa))
+                {
+                    resNode.AddValue("endAmount", endRa.amount.ToString("R", CultureInfo.InvariantCulture));
+                    resNode.AddValue("endMax", endRa.maxAmount.ToString("R", CultureInfo.InvariantCulture));
+                }
+
+                count++;
+            }
+
+            ParsekLog.Verbose("RecordingStore",
+                $"SerializeResourceManifest: wrote {count} resource(s) for recording={rec.RecordingId}");
+        }
+
+        /// <summary>
+        /// Deserializes StartResources and EndResources from a RESOURCE_MANIFEST ConfigNode
+        /// on the given parent. Sets the dictionaries if entries are found, or leaves them null
+        /// if the node is absent (backward compatible with legacy recordings).
+        /// </summary>
+        internal static void DeserializeResourceManifest(ConfigNode parent, Recording rec)
+        {
+            ConfigNode manifestNode = parent.GetNode("RESOURCE_MANIFEST");
+            if (manifestNode == null)
+                return;
+
+            ConfigNode[] resources = manifestNode.GetNodes("RESOURCE");
+            if (resources.Length == 0)
+                return;
+
+            int loaded = 0;
+            int skipped = 0;
+
+            for (int i = 0; i < resources.Length; i++)
+            {
+                string name = resources[i].GetValue("name");
+                if (string.IsNullOrEmpty(name))
+                {
+                    skipped++;
+                    continue;
+                }
+
+                // Parse start fields (if present)
+                string startAmountStr = resources[i].GetValue("startAmount");
+                string startMaxStr = resources[i].GetValue("startMax");
+                if (startAmountStr != null || startMaxStr != null)
+                {
+                    if (rec.StartResources == null)
+                        rec.StartResources = new Dictionary<string, ResourceAmount>();
+
+                    double startAmount = 0;
+                    double startMax = 0;
+                    if (startAmountStr != null)
+                        double.TryParse(startAmountStr, NumberStyles.Float, CultureInfo.InvariantCulture, out startAmount);
+                    if (startMaxStr != null)
+                        double.TryParse(startMaxStr, NumberStyles.Float, CultureInfo.InvariantCulture, out startMax);
+
+                    rec.StartResources[name] = new ResourceAmount { amount = startAmount, maxAmount = startMax };
+                }
+
+                // Parse end fields (if present)
+                string endAmountStr = resources[i].GetValue("endAmount");
+                string endMaxStr = resources[i].GetValue("endMax");
+                if (endAmountStr != null || endMaxStr != null)
+                {
+                    if (rec.EndResources == null)
+                        rec.EndResources = new Dictionary<string, ResourceAmount>();
+
+                    double endAmount = 0;
+                    double endMax = 0;
+                    if (endAmountStr != null)
+                        double.TryParse(endAmountStr, NumberStyles.Float, CultureInfo.InvariantCulture, out endAmount);
+                    if (endMaxStr != null)
+                        double.TryParse(endMaxStr, NumberStyles.Float, CultureInfo.InvariantCulture, out endMax);
+
+                    rec.EndResources[name] = new ResourceAmount { amount = endAmount, maxAmount = endMax };
+                }
+
+                loaded++;
+            }
+
+            ParsekLog.Verbose("RecordingStore",
+                $"DeserializeResourceManifest: loaded={loaded} skipped={skipped} for recording={rec.RecordingId}");
+        }
+
+        #endregion
+
         #region Recording File I/O
 
         internal static bool SaveRecordingFiles(Recording rec)
