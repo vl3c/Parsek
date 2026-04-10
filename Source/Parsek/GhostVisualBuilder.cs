@@ -5361,9 +5361,9 @@ namespace Parsek
                     var jt = jettisonInfo.jettisonTransforms[ji];
                     if (jt != null) jt.gameObject.SetActive(false);
                 }
-                ParsekLog.VerboseRateLimited("GhostVisual", $"jettison_snapshot_{partName}",
+                ParsekLog.Verbose("GhostVisual",
                     $"    Part '{partName}' pid={persistentId}: jettison transforms hidden " +
-                    $"(isJettisoned=True in snapshot MODULE data)", 60.0);
+                    $"(isJettisoned=True in snapshot MODULE data)");
             }
 
             // Detect engine parts and clone FX particle systems
