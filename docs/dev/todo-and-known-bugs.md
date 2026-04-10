@@ -14,11 +14,11 @@ Surfaced by 2026-04-10 Kerbal X playtest (`logs/2026-04-10_engine-plume-bug`). D
 
 **Fix (two prongs):**
 
-1. **Playback side:** Refactored orphan detection: extracted `BuildOrphanKeySets` (single-pass scan building engine + RCS key sets) and `FindOrphanKeys` (pure set-difference, used in production). Added engine FX and RCS FX orphan auto-start blocks (calls `SetEngineEmission`/`SetRcsEmission` + `ApplyHeatState(Hot)` with synthetic PartEvent). `hasAnyFxInfos` guard skips scan for ghosts with no engines/RCS/audio.
+1. **Playback side:** `BuildEngineEventKeySet` scans PartEvents for EngineIgnited/EngineThrottle keys. When the result is empty (ZERO engine events — pure debris recording), all engines on the ghost are auto-started at full power (`SetEngineEmission` + `ApplyHeatState(Hot)` with synthetic PartEvent). Audio auto-start uses the same `Count == 0` gate for consistency. RCS is NOT auto-started (RCS is typically idle; orphan auto-start would incorrectly fire on virtually every ghost). `FindOrphanKeys` helper retained for general orphan detection.
 
-2. **Recording side:** `InheritedEngineState` struct carries parent's active engine/RCS keys + throttles through `OnVesselBackgrounded` → `InitializeLoadedState`. `MergeInheritedEngineState` (internal static, PID-filtered, add-if-absent throttle) merges inherited keys into the child's `BackgroundVesselState` after `SeedBackgroundPartStates` but before `EmitSeedEvents`. Snapshot taken in `HandleBackgroundVesselSplit` (background path) and `PromoteToTreeForBreakup`/`ProcessBreakupEvent` (foreground paths) before parent state is destroyed.
+2. **Recording side:** `InheritedEngineState` struct carries parent's active engine/RCS keys + throttles through `OnVesselBackgrounded` → `InitializeLoadedState`. `InheritedEngineState.FromRecorder` factory creates snapshot from `FlightRecorder`. `MergeInheritedEngineState` (internal static, PID-filtered, add-if-absent throttle) merges inherited keys into the child's `BackgroundVesselState` after `SeedBackgroundPartStates` but before `EmitSeedEvents`. Snapshot taken in `HandleBackgroundVesselSplit` (background path) and `PromoteToTreeForBreakup`/`ProcessBreakupEvent` (foreground paths) before parent state is destroyed.
 
-**Tests:** `OrphanEngineFxAutoStartTests.cs` (15 tests: BuildOrphanKeySets, FindOrphanKeys, integration). `BackgroundRecorderTests.cs` (10 tests: MergeInheritedEngineState with PID filtering, add-if-absent, null handling, throttle-key-missing fallback, logging).
+**Tests:** `OrphanEngineFxAutoStartTests.cs` (15 tests: BuildEngineEventKeySet, FindOrphanKeys, integration). `BackgroundRecorderTests.cs` (10 tests: MergeInheritedEngineState with PID filtering, add-if-absent, null handling, throttle-key-missing fallback, logging).
 
 **Status:** Fixed.
 

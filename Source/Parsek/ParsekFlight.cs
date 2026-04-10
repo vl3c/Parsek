@@ -2957,7 +2957,7 @@ namespace Parsek
                     $"(parts={activeVessel.parts?.Count ?? 0})");
             }
 
-            // Bug #294: snapshot active recorder's engine/RCS state for child recordings.
+            // Bug #295: snapshot active recorder's engine/RCS state for child recordings.
             // The recorder is still running (breakup-continuous design), so its state is live.
             InheritedEngineState? breakupEngineState = recorder != null
                 ? InheritedEngineState.FromRecorder(recorder) : null;
@@ -3051,7 +3051,7 @@ namespace Parsek
             var splitRecorder = recorder;
             recorder = null;
 
-            // Bug #294: snapshot parent engine/RCS state for child recordings.
+            // Bug #295: snapshot parent engine/RCS state for child recordings.
             // activeEngineKeys/lastThrottle survive StopRecordingForChainBoundary
             // (FinalizeRecordingState does not clear them).
             InheritedEngineState? splitEngineState = InheritedEngineState.FromRecorder(splitRecorder);

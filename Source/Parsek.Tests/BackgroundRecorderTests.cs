@@ -768,7 +768,7 @@ namespace Parsek.Tests
 
         #endregion
 
-        #region MergeInheritedEngineState (Bug #294)
+        #region MergeInheritedEngineState (Bug #295)
 
         [Fact]
         public void MergeInheritedEngineState_NullInherited_ReturnsZero()
@@ -1057,7 +1057,7 @@ namespace Parsek.Tests
                     l.Contains("Inherited engine key merged") &&
                     l.Contains("pid=500") &&
                     l.Contains("midx=2") &&
-                    l.Contains("#294"));
+                    l.Contains("#295"));
             }
             finally
             {

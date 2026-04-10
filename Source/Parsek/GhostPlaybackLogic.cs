@@ -734,94 +734,84 @@ namespace Parsek
 
             state.oneShotAudio = result.oneShotAudio;
 
-            // Build event-key sets for orphan detection (single scan over PartEvents).
-            // Used by audio, engine FX, and RCS FX orphan auto-start blocks below.
+            // Build engine event key set for orphan detection (scan over PartEvents).
             // Debris boosters that were running at breakup have no seed events because
             // BackgroundRecorder.InitializeLoadedState finds engine.isOperational=false
-            // (fuel severed by decouple). The orphan auto-start compensates at playback.
+            // (fuel severed by decouple). When the key set is empty (ZERO engine events),
+            // all engines on the ghost are auto-started — targeting pure debris recordings.
+            // RCS is NOT auto-started (RCS is typically idle; orphan auto-start would
+            // incorrectly fire on virtually every ghost).
             HashSet<ulong> engineKeysWithEvents = null;
             bool hasEngineOrAudioInfos = (state.audioInfos != null && state.audioInfos.Count > 0)
                 || (state.engineInfos != null && state.engineInfos.Count > 0);
             if (hasEngineOrAudioInfos && traj != null && traj.PartEvents != null)
-            {
-                HashSet<ulong> rcsKeysUnused;
-                BuildOrphanKeySets(traj.PartEvents, out engineKeysWithEvents, out rcsKeysUnused);
-            }
+                engineKeysWithEvents = BuildEngineEventKeySet(traj.PartEvents);
 
-            // Auto-start audio for engines that have no EngineIgnited event in the recording.
-            // This handles debris boosters whose SRB engines were already running at breakup
-            // time — the child recording has no seed events for these engines.
-            if (state.audioInfos != null && state.audioInfos.Count > 0 && engineKeysWithEvents != null)
+            // Auto-start audio + visual FX for ALL engines on recordings with ZERO engine
+            // events. This targets pure debris recordings: boosters that were running at
+            // breakup but got no seed events. If the recording has ANY engine events,
+            // engines without events were legitimately idle (e.g., Poodle during first
+            // stage) or already shut down before breakup — not running orphans.
+            if (engineKeysWithEvents != null && engineKeysWithEvents.Count == 0)
             {
-                var orphanAudioKeys = FindOrphanKeys(state.audioInfos.Keys, engineKeysWithEvents);
-                for (int i = 0; i < orphanAudioKeys.Count; i++)
+                // Audio auto-start
+                if (state.audioInfos != null && state.audioInfos.Count > 0)
                 {
-                    var info = state.audioInfos[orphanAudioKeys[i]];
-                    // No engine event for this audio source — auto-start at full power
-                    info.currentPower = 1f;
-                    if (info.audioSource != null)
+                    foreach (var kvp in state.audioInfos)
                     {
-                        info.audioSource.volume = 0f; // will be set by UpdateAudioAtmosphere
-                        info.audioSource.loop = true;
-                        info.audioSource.Play();
+                        kvp.Value.currentPower = 1f;
+                        if (kvp.Value.audioSource != null)
+                        {
+                            kvp.Value.audioSource.volume = 0f; // will be set by UpdateAudioAtmosphere
+                            kvp.Value.audioSource.loop = true;
+                            kvp.Value.audioSource.Play();
+                        }
+                        ParsekLog.Verbose("GhostAudio",
+                            $"Auto-started audio for orphan engine key={kvp.Key} " +
+                            $"(no engine events in recording — likely debris booster)");
                     }
-                    ParsekLog.Verbose("GhostAudio",
-                        $"Auto-started audio for orphan engine key={orphanAudioKeys[i]} " +
-                        $"(no EngineIgnited event — likely debris booster)");
                 }
-            }
 
-            // Auto-start visual FX for engines on recordings with ZERO engine events.
-            // This targets pure debris recordings: boosters that were running at breakup
-            // but got no seed events (isOperational=false after fuel severance). Only fires
-            // when the recording has no EngineIgnited/EngineThrottle events at all — if the
-            // recording has ANY engine events, engines without events were legitimately idle
-            // (e.g., Poodle during first stage) or already shut down before breakup.
-            // RCS is NOT auto-started — RCS is typically idle, so orphan auto-start would
-            // incorrectly fire on virtually every ghost.
-            if (state.engineInfos != null && state.engineInfos.Count > 0
-                && engineKeysWithEvents != null && engineKeysWithEvents.Count == 0)
-            {
-                foreach (var kvp in state.engineInfos)
+                // Engine FX auto-start
+                if (state.engineInfos != null && state.engineInfos.Count > 0)
                 {
-                    uint pid; int midx;
-                    FlightRecorder.DecodeEngineKey(kvp.Key, out pid, out midx);
-                    // eventType is unused by SetEngineEmission/ApplyHeatState — only pid+midx matter
-                    var syntheticEvt = new PartEvent { partPersistentId = pid, moduleIndex = midx };
-                    SetEngineEmission(state, syntheticEvt, 1f);
-                    ApplyHeatState(state, syntheticEvt, HeatLevel.Hot);
-                    ParsekLog.Verbose("GhostFx",
-                        $"Auto-started engine FX for orphan engine key={kvp.Key} pid={pid} midx={midx} " +
-                        $"(no engine events in recording — likely debris booster)");
+                    foreach (var kvp in state.engineInfos)
+                    {
+                        uint pid; int midx;
+                        FlightRecorder.DecodeEngineKey(kvp.Key, out pid, out midx);
+                        // eventType unused by SetEngineEmission/ApplyHeatState — only pid+midx matter
+                        var syntheticEvt = new PartEvent { partPersistentId = pid, moduleIndex = midx };
+                        SetEngineEmission(state, syntheticEvt, 1f);
+                        ApplyHeatState(state, syntheticEvt, HeatLevel.Hot);
+                        ParsekLog.Verbose("GhostFx",
+                            $"Auto-started engine FX for orphan engine key={kvp.Key} pid={pid} midx={midx} " +
+                            $"(no engine events in recording — likely debris booster)");
+                    }
                 }
             }
 
         }
 
         /// <summary>
-        /// Builds engine and RCS event-key sets from a list of PartEvents in a single pass.
-        /// Keys represent (pid, moduleIndex) pairs that have at least one ignition/throttle event.
-        /// Used by orphan auto-start: any engine/RCS in the ghost that is NOT in the key set
-        /// was running at breakup with no recorded seed event (debris booster pattern).
+        /// Builds a set of engine event keys from a list of PartEvents.
+        /// Keys represent (pid, moduleIndex) pairs that have at least one
+        /// EngineIgnited or EngineThrottle event. Used by orphan auto-start:
+        /// when the set is empty, ALL engines on the ghost were running at
+        /// breakup with no recorded seed event (debris booster pattern).
         /// Pure static method for testability.
         /// </summary>
-        internal static void BuildOrphanKeySets(
-            List<PartEvent> partEvents,
-            out HashSet<ulong> engineKeysWithEvents,
-            out HashSet<ulong> rcsKeysWithEvents)
+        internal static HashSet<ulong> BuildEngineEventKeySet(List<PartEvent> partEvents)
         {
-            engineKeysWithEvents = new HashSet<ulong>();
-            rcsKeysWithEvents = new HashSet<ulong>();
-            if (partEvents == null) return;
+            var keys = new HashSet<ulong>();
+            if (partEvents == null) return keys;
 
             for (int pe = 0; pe < partEvents.Count; pe++)
             {
                 var evt = partEvents[pe];
                 if (evt.eventType == PartEventType.EngineIgnited || evt.eventType == PartEventType.EngineThrottle)
-                    engineKeysWithEvents.Add(FlightRecorder.EncodeEngineKey(evt.partPersistentId, evt.moduleIndex));
-                else if (evt.eventType == PartEventType.RCSActivated || evt.eventType == PartEventType.RCSThrottle)
-                    rcsKeysWithEvents.Add(FlightRecorder.EncodeEngineKey(evt.partPersistentId, evt.moduleIndex));
+                    keys.Add(FlightRecorder.EncodeEngineKey(evt.partPersistentId, evt.moduleIndex));
             }
+            return keys;
         }
 
         /// <summary>

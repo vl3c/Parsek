@@ -5,13 +5,14 @@ using Xunit;
 namespace Parsek.Tests
 {
     /// <summary>
-    /// Tests for orphan engine/RCS FX auto-start logic.
+    /// Tests for orphan engine FX auto-start logic (#295).
     /// Debris booster engines that were running at breakup have no seed events
     /// (BackgroundRecorder finds isOperational=false after fuel is severed).
-    /// The playback side compensates by auto-starting FX for orphan engines.
+    /// The playback side compensates by auto-starting FX when the recording
+    /// has ZERO engine events (pure debris pattern).
     ///
-    /// Tests exercise the extracted pure static methods (BuildOrphanKeySets, FindOrphanKeys)
-    /// which do not require Unity runtime.
+    /// Tests exercise the extracted pure static methods (BuildEngineEventKeySet,
+    /// FindOrphanKeys) which do not require Unity runtime.
     /// </summary>
     [Collection("Sequential")]
     public class OrphanEngineFxAutoStartTests : System.IDisposable
@@ -31,124 +32,92 @@ namespace Parsek.Tests
             ParsekLog.SuppressLogging = true;
         }
 
-        #region BuildOrphanKeySets
+        #region BuildEngineEventKeySet
 
         [Fact]
-        public void BuildOrphanKeySets_EmptyEvents_ReturnsEmptySets()
+        public void BuildEngineEventKeySet_EmptyEvents_ReturnsEmptySet()
         {
-            HashSet<ulong> engineKeys, rcsKeys;
-            GhostPlaybackLogic.BuildOrphanKeySets(new List<PartEvent>(), out engineKeys, out rcsKeys);
-
-            Assert.Empty(engineKeys);
-            Assert.Empty(rcsKeys);
+            var keys = GhostPlaybackLogic.BuildEngineEventKeySet(new List<PartEvent>());
+            Assert.Empty(keys);
         }
 
         [Fact]
-        public void BuildOrphanKeySets_NullEvents_ReturnsEmptySets()
+        public void BuildEngineEventKeySet_NullEvents_ReturnsEmptySet()
         {
-            HashSet<ulong> engineKeys, rcsKeys;
-            GhostPlaybackLogic.BuildOrphanKeySets(null, out engineKeys, out rcsKeys);
-
-            Assert.Empty(engineKeys);
-            Assert.Empty(rcsKeys);
+            var keys = GhostPlaybackLogic.BuildEngineEventKeySet(null);
+            Assert.Empty(keys);
         }
 
         [Fact]
-        public void BuildOrphanKeySets_EngineIgnited_CollectsKey()
+        public void BuildEngineEventKeySet_EngineIgnited_CollectsKey()
         {
             var events = new List<PartEvent>
             {
                 new PartEvent { partPersistentId = 100, moduleIndex = 0, eventType = PartEventType.EngineIgnited }
             };
 
-            HashSet<ulong> engineKeys, rcsKeys;
-            GhostPlaybackLogic.BuildOrphanKeySets(events, out engineKeys, out rcsKeys);
+            var keys = GhostPlaybackLogic.BuildEngineEventKeySet(events);
 
             ulong expectedKey = FlightRecorder.EncodeEngineKey(100, 0);
-            Assert.Contains(expectedKey, engineKeys);
-            Assert.Empty(rcsKeys);
+            Assert.Contains(expectedKey, keys);
         }
 
         [Fact]
-        public void BuildOrphanKeySets_EngineThrottle_CollectsKey()
+        public void BuildEngineEventKeySet_EngineThrottle_CollectsKey()
         {
             var events = new List<PartEvent>
             {
                 new PartEvent { partPersistentId = 200, moduleIndex = 1, eventType = PartEventType.EngineThrottle, value = 0.5f }
             };
 
-            HashSet<ulong> engineKeys, rcsKeys;
-            GhostPlaybackLogic.BuildOrphanKeySets(events, out engineKeys, out rcsKeys);
+            var keys = GhostPlaybackLogic.BuildEngineEventKeySet(events);
 
             ulong expectedKey = FlightRecorder.EncodeEngineKey(200, 1);
-            Assert.Contains(expectedKey, engineKeys);
-            Assert.Empty(rcsKeys);
+            Assert.Contains(expectedKey, keys);
         }
 
         [Fact]
-        public void BuildOrphanKeySets_RcsActivated_CollectsRcsKey()
+        public void BuildEngineEventKeySet_RcsEvents_Ignored()
         {
+            // RCS events should NOT be collected — only engine events matter
             var events = new List<PartEvent>
             {
-                new PartEvent { partPersistentId = 300, moduleIndex = 0, eventType = PartEventType.RCSActivated }
-            };
-
-            HashSet<ulong> engineKeys, rcsKeys;
-            GhostPlaybackLogic.BuildOrphanKeySets(events, out engineKeys, out rcsKeys);
-
-            ulong expectedKey = FlightRecorder.EncodeEngineKey(300, 0);
-            Assert.Empty(engineKeys);
-            Assert.Contains(expectedKey, rcsKeys);
-        }
-
-        [Fact]
-        public void BuildOrphanKeySets_RcsThrottle_CollectsRcsKey()
-        {
-            var events = new List<PartEvent>
-            {
+                new PartEvent { partPersistentId = 300, moduleIndex = 0, eventType = PartEventType.RCSActivated },
                 new PartEvent { partPersistentId = 400, moduleIndex = 0, eventType = PartEventType.RCSThrottle, value = 0.7f }
             };
 
-            HashSet<ulong> engineKeys, rcsKeys;
-            GhostPlaybackLogic.BuildOrphanKeySets(events, out engineKeys, out rcsKeys);
-
-            ulong expectedKey = FlightRecorder.EncodeEngineKey(400, 0);
-            Assert.Empty(engineKeys);
-            Assert.Contains(expectedKey, rcsKeys);
+            var keys = GhostPlaybackLogic.BuildEngineEventKeySet(events);
+            Assert.Empty(keys);
         }
 
         [Fact]
-        public void BuildOrphanKeySets_MixedEvents_CollectsBothSets()
+        public void BuildEngineEventKeySet_MixedEvents_CollectsOnlyEngineKeys()
         {
             var events = new List<PartEvent>
             {
                 new PartEvent { partPersistentId = 100, moduleIndex = 0, eventType = PartEventType.EngineIgnited },
                 new PartEvent { partPersistentId = 300, moduleIndex = 0, eventType = PartEventType.RCSActivated },
                 new PartEvent { partPersistentId = 100, moduleIndex = 0, eventType = PartEventType.EngineThrottle, value = 0.8f },
-                new PartEvent { partPersistentId = 500, moduleIndex = 0, eventType = PartEventType.Decoupled } // ignored
+                new PartEvent { partPersistentId = 500, moduleIndex = 0, eventType = PartEventType.Decoupled }
             };
 
-            HashSet<ulong> engineKeys, rcsKeys;
-            GhostPlaybackLogic.BuildOrphanKeySets(events, out engineKeys, out rcsKeys);
+            var keys = GhostPlaybackLogic.BuildEngineEventKeySet(events);
 
-            Assert.Single(engineKeys); // pid=100 counted once (dedup via HashSet)
-            Assert.Single(rcsKeys);    // pid=300
+            Assert.Single(keys); // pid=100 counted once (dedup via HashSet)
         }
 
         [Fact]
-        public void BuildOrphanKeySets_EngineShutdown_NotCollected()
+        public void BuildEngineEventKeySet_EngineShutdown_NotCollected()
         {
-            // EngineShutdown must NOT prevent orphan detection — debris recordings
+            // EngineShutdown must NOT count as "has events" — debris recordings
             // may have a shutdown event (engine burns out) but no ignited/throttle seed
             var events = new List<PartEvent>
             {
                 new PartEvent { partPersistentId = 100, moduleIndex = 0, eventType = PartEventType.EngineShutdown }
             };
 
-            HashSet<ulong> engineKeys, rcsKeys;
-            GhostPlaybackLogic.BuildOrphanKeySets(events, out engineKeys, out rcsKeys);
-
-            Assert.Empty(engineKeys); // Shutdown does NOT count as "has events"
+            var keys = GhostPlaybackLogic.BuildEngineEventKeySet(events);
+            Assert.Empty(keys);
         }
 
         #endregion
@@ -211,11 +180,10 @@ namespace Parsek.Tests
         [Fact]
         public void FindOrphanKeys_MultiModulePart_DistinguishesByModuleIndex()
         {
-            // A part with two engine modules (midx=0 and midx=1)
             ulong key0 = FlightRecorder.EncodeEngineKey(100, 0);
             ulong key1 = FlightRecorder.EncodeEngineKey(100, 1);
             var infoKeys = new List<ulong> { key0, key1 };
-            var keysWithEvents = new HashSet<ulong> { key0 }; // only module 0 has events
+            var keysWithEvents = new HashSet<ulong> { key0 };
 
             var orphans = GhostPlaybackLogic.FindOrphanKeys(infoKeys, keysWithEvents);
 
@@ -225,20 +193,21 @@ namespace Parsek.Tests
 
         #endregion
 
-        #region Integration: BuildOrphanKeySets + FindOrphanKeys
+        #region Integration
 
         [Fact]
-        public void EndToEnd_DebrisBoosterPattern_IdentifiesOrphanEngine()
+        public void EndToEnd_DebrisBoosterPattern_ZeroEventsIdentifiesAllOrphans()
         {
             // Simulate a debris booster recording: one engine, no engine events at all
             ulong boosterEngineKey = FlightRecorder.EncodeEngineKey(545928558, 0);
             var events = new List<PartEvent>(); // empty — no seed events in debris recording
 
-            HashSet<ulong> engineKeys, rcsKeys;
-            GhostPlaybackLogic.BuildOrphanKeySets(events, out engineKeys, out rcsKeys);
+            var engineKeys = GhostPlaybackLogic.BuildEngineEventKeySet(events);
+
+            // Zero engine events = pure debris pattern → all engines are orphans
+            Assert.Empty(engineKeys);
             var orphans = GhostPlaybackLogic.FindOrphanKeys(
                 new List<ulong> { boosterEngineKey }, engineKeys);
-
             Assert.Single(orphans);
             Assert.Equal(boosterEngineKey, orphans[0]);
         }
@@ -255,12 +224,10 @@ namespace Parsek.Tests
                 new PartEvent { partPersistentId = 2527095907, moduleIndex = 0, eventType = PartEventType.EngineThrottle, value = 1f }
             };
 
-            HashSet<ulong> engineKeys, rcsKeys;
-            GhostPlaybackLogic.BuildOrphanKeySets(events, out engineKeys, out rcsKeys);
-            var orphans = GhostPlaybackLogic.FindOrphanKeys(
-                new List<ulong> { mainsailKey, boosterKey }, engineKeys);
+            var engineKeys = GhostPlaybackLogic.BuildEngineEventKeySet(events);
 
-            Assert.Empty(orphans);
+            // Non-empty key set → NOT the zero-event pattern → no auto-start
+            Assert.NotEmpty(engineKeys);
         }
 
         #endregion
