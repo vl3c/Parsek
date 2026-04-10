@@ -1639,32 +1639,10 @@ namespace Parsek
             if (inherited.HasValue)
             {
                 var inh = inherited.Value;
-                // Diagnostic: log inherited PIDs and child PIDs for merge debugging
-                string inhPids = "none";
-                if (inh.activeEngineKeys != null && inh.activeEngineKeys.Count > 0)
-                {
-                    var pidStrs = new List<string>();
-                    foreach (ulong key in inh.activeEngineKeys)
-                    {
-                        uint dp; int dm;
-                        FlightRecorder.DecodeEngineKey(key, out dp, out dm);
-                        pidStrs.Add($"{dp}:{dm}");
-                    }
-                    inhPids = string.Join(",", pidStrs);
-                }
-                string childPidStr = "none";
-                if (v.parts != null && v.parts.Count > 0)
-                {
-                    var cpids = new List<string>();
-                    for (int i = 0; i < v.parts.Count; i++)
-                        if (v.parts[i] != null)
-                            cpids.Add(v.parts[i].persistentId.ToString());
-                    childPidStr = string.Join(",", cpids);
-                }
                 ParsekLog.Verbose("BgRecorder",
                     $"InitializeLoadedState: inherited state for pid={vesselPid}: " +
                     $"engines={inh.activeEngineKeys?.Count ?? 0} rcs={inh.activeRcsKeys?.Count ?? 0} " +
-                    $"childParts={v.parts?.Count ?? 0} inhPids=[{inhPids}] childPids=[{childPidStr}]");
+                    $"childParts={v.parts?.Count ?? 0}");
 
                 var childPartPids = new HashSet<uint>();
                 if (v.parts != null)
@@ -1802,9 +1780,6 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Merges inherited engine/RCS state from a parent vessel into a child's
-        /// tracking collections. Only keys whose decoded PID matches a part on the
-        /// <summary>
         /// Creates an InheritedEngineState snapshot from a BackgroundVesselState.
         /// Returns null if no engines or RCS are active. Used in HandleBackgroundVesselSplit
         /// to capture parent state before CloseParentRecording destroys loadedStates.
@@ -1826,6 +1801,9 @@ namespace Parsek
             };
         }
 
+        /// <summary>
+        /// Merges inherited engine/RCS state from a parent vessel into a child's
+        /// tracking collections. Only keys whose decoded PID matches a part on the
         /// child vessel are merged. Upgrades throttle if the inherited value is higher
         /// than the live-seeded value — SeedEngines may find throttle=0 (KSP timing)
         /// while the parent had the engine at full power before breakup.
