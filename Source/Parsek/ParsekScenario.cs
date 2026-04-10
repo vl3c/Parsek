@@ -526,12 +526,13 @@ namespace Parsek
             tempRec.PartEvents.AddRange(recorder.PartEvents);
             tempRec.FlagEvents.AddRange(recorder.FlagEvents);
             tempRec.TrackSections.AddRange(recorder.TrackSections);
+            tempRec.SegmentEvents.AddRange(recorder.SegmentEvents);
 
-            var ic = CultureInfo.InvariantCulture;
             ConfigNode saNode = node.AddNode("PARSEK_ACTIVE_STANDALONE");
             saNode.AddValue("vesselName",
                 FlightGlobals.ActiveVessel != null ? FlightGlobals.ActiveVessel.vesselName : "");
-            saNode.AddValue("vesselPid", recorder.RecordingVesselId.ToString(ic));
+            saNode.AddValue("vesselPid",
+                recorder.RecordingVesselId.ToString(CultureInfo.InvariantCulture));
 
             // Start location from the recorder (captured at original recording start)
             if (!string.IsNullOrEmpty(recorder.StartBodyName))

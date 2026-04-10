@@ -5937,6 +5937,7 @@ namespace Parsek
             recorder.PartEvents.InsertRange(0, savedRec.PartEvents);
             recorder.FlagEvents.InsertRange(0, savedRec.FlagEvents);
             recorder.TrackSections.InsertRange(0, savedRec.TrackSections);
+            recorder.SegmentEvents.InsertRange(0, savedRec.SegmentEvents);
 
             // Restore original start location from the saved data (StartRecording captured
             // the quickload-time location which is wrong — we want the original launch location).
