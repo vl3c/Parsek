@@ -1166,51 +1166,30 @@ PR #160 routed `isVesselSwitch` through `FinalizePendingLimboTreeForRevert` as a
 
 **Deferred:** mid-flight `pendingSplitRecorder` preservation across vessel-switch reloads — the in-flight split window cannot survive a scene tear-down, so the safety-net finalize fires for that edge case (matches pre-#266 behavior). `BoundaryAnchor` is also still discarded on the restore (existing limitation, see `RestoreActiveTreeFromPending` :5520-5524 comment). Both are noise rather than data loss; the critical path (preserve the tree across normal TS-mediated switches) is fixed.
 
-## 267. Quickload-resume: restore coroutine reentrancy guard
+## ~~267. Quickload-resume: restore coroutine reentrancy guard~~
 
-The `ScheduleActiveTreeRestoreOnFlightReady` flag and the `RestoreActiveTreeFromPending` coroutine (`ParsekFlight.cs`) don't have a re-entry guard. If `onVesselChange` or another reactive handler mutates `activeTree` or the pending tree during the coroutine's 3-second vessel wait, the restore could see inconsistent state. Documented in the design doc's Risks section.
+Added `internal static bool restoringActiveTree` guard on `ParsekFlight`. Set via try/finally in both `RestoreActiveTreeFromPending` and `RestoreActiveTreeFromPendingForVesselSwitch`. Guards `OnVesselSwitchComplete`, `OnVesselWillDestroy`, `FinalizeTreeOnSceneChange`, and `OnFlightReady` (protects `ResetFlightReadyState` from double-fire). Each guard logs a `[WARN]` when suppressing an event during the restore window.
 
-**Fix plan:** Add `static bool restoringActiveTree` guard on `ParsekFlight`. Set at coroutine start, clear on completion or failure. `onVesselChange` / `OnVesselSwitchComplete` handlers check the flag and skip tree mutations while the restore is running. Also consider using a one-shot check in `RestoreActiveTreeFromPending` that refuses to run if `activeTree != null` when it enters (meaning someone beat it to the slot).
+**Fix:** `ParsekFlight.cs` — `restoringActiveTree` field + 4 guard sites + try/finally on 2 coroutines.
 
-**Priority:** Low — no reported issue yet, but prevents a hard-to-diagnose race
+## ~~268. Quickload-resume: snapshot preservation through revert finalization~~
 
-## 268. Quickload-resume: snapshot preservation through revert finalization
+Belt-and-braces snapshot capture added to `StashActiveTreeAsPendingLimbo`. Before stashing the tree, iterates all leaf recordings and captures a fresh `VesselSnapshot` via `VesselSpawner.TryBackupSnapshot` for any leaf with `VesselSnapshot == null` (vessels are still alive in FlightGlobals at stash time). Does NOT overwrite existing snapshots. The primary re-snapshot path is the #289 block in `FinalizeIndividualRecording` which already handles stale snapshots for stable-terminal recordings; this fix covers the narrow edge case where vessels are unloaded before `FinalizePendingLimboTreeForRevert` runs.
 
-The old `CommitTreeRevert` preserved vessel snapshots so the merge dialog could offer respawn. `FinalizePendingLimboTreeForRevert` (PR #160) does not — by OnLoad time the vessel refs are gone and we fall back to whatever snapshots were stashed before the scene reload, which may be stale or null. Affects autoMerge=off + revert + dialog-driven respawn.
+**Fix:** `ParsekFlight.cs` — snapshot capture loop in `StashActiveTreeAsPendingLimbo`.
 
-**Fix plan:** Capture a live snapshot of the active vessel inside `StashActiveTreeAsPendingLimbo` (which runs during `OnSceneChangeRequested`, while the vessel is still referenceable), and attach it to the tree's active recording so the merge dialog can use it if the Limbo tree takes the finalize path. Costs one snapshot copy per scene reload but preserves the existing UX.
+## ~~269. In-game test coverage for quickload-resume flow~~
 
-**Priority:** Low — regression only visible on autoMerge=off reverts, assess after playtest
+**Phase 1 (infrastructure):** `TestRunnerShortcut` migrated from `[KSPAddon(KSPAddon.Startup.EveryScene, false)]` to `[KSPAddon(KSPAddon.Startup.Instantly, true)]` + `DontDestroyOnLoad(gameObject)`, mirroring `ParsekHarmony.cs`. Added `GameEvents.onGameSceneLoadRequested` listener to reset `windowHasInputLock` and null `opaqueStyle` on scene change. Added `LOADING` scene guard in `OnGUI`.
 
-## 269. In-game test coverage for quickload-resume flow
+**Phase 2 (tests shipped):**
+1. `BridgeSurvivesSceneTransition` — canary test verifying DontDestroyOnLoad works across quickload.
+2. `Quickload_MidRecording_ResumesSameActiveRecordingId` — F5/F9 mid-recording resumes with same activeRecordingId.
+3. `ReentrancyGuard_ClearedAfterRestore` — verifies `restoringActiveTree` is false during normal flight.
 
-PR #160 ships with 29 unit tests covering static state transitions, dispatch decisions, and isolated predicates, but the full scenario — quicksave → scene reload → quickload → restore coroutine → resumed recording appends to same chain segment — can only run inside live KSP.
+**Helpers:** `QuickloadResumeHelpers.cs` with `TriggerQuicksave`, `TriggerQuickload`, `WaitForFlightReady`, `WaitForActiveRecording`.
 
-**Fix plan (revised post-review — see `docs/dev/plans/bugs-269-278-279-fix-plan.md`):**
-
-**P0 — make `TestRunnerShortcut` survive scene transitions.** Currently `[KSPAddon(KSPAddon.Startup.EveryScene, false)]` with no `DontDestroyOnLoad`, so any test coroutine started there dies the instant KSP unloads the scene for F5/F9/quickload. Change to `[KSPAddon(KSPAddon.Startup.Instantly, true)]` + `DontDestroyOnLoad(gameObject)` in `Awake`, mirroring the `ParsekHarmony.cs:49` pattern. This is the simplest possible bridge — no separate `InGameTestStateBridge` class needed (the original Plan A draft had one; review noted it was over-engineered). Add a canary test `BridgeSurvivesSceneTransition` that stashes a sentinel pre-F9 and asserts it's still present post-F9; mark the whole `QuickloadResume` category as skipped if the canary fails.
-
-**Tests to ship:**
-1. `Quickload_MidRecording_ResumesSameActiveRecordingId` (FLIGHT) — same `activeRecordingId`, points match pre-F5 UT.
-2. `RealRevert_FinalizesTree_ShowsMergeDialogWhenAutoMergeOff` (FLIGHT) — bump `MilestoneStore.CurrentEpoch` between F5 and F9 to force `isRevert=true`; assert finalization, merge dialog pending. Restore epoch in `try/finally`.
-3. `DoubleF9_Idempotent_NoDoubleStart` (FLIGHT) — chained two restores via the bridge; assert same activeRecId across both, single `RestoreActiveTreeFromPending` log line per reload.
-4. `QuickloadIntoNonFlightScene_DoesNotRestore` (FLIGHT→SPACECENTER variant) — set `ScheduleActiveTreeRestoreOnFlightReady`, switch to SPACECENTER, assert flag unconsumed and `activeTree == null`.
-5. `RewindButton_DoesNotConflictWithRestore` (FLIGHT) — invoke `RecordingStore.InitiateRewind` programmatically; assert the `TryRestoreActiveTreeNode: skipped (rewind in progress)` log line and `activeTree == null` post-rewind.
-
-**Tests deferred:**
-- **Vessel-switch finalize test** — original Plan A draft proposed an in-process `FlightGlobals.SetActiveVessel` test, but review correctly flagged this does NOT trigger `FinalizePendingLimboTreeForRevert` (that path requires a full scene reload via `OnVesselSwitching → vesselSwitchPending` → next `OnLoad`). Defer until bug #266 lands and the temporary "vessel switch = finalize" contract is removed.
-- **Cold-start "resume saved game" test** — the manual-sentinel + restart-KSP variant is not a test (it's a manual procedure). Document as a manual QA step in `docs/dev/manual-testing/cold-start-quickload-resume.md`. The "lite" variant (synthetic ConfigNode driven through `TryRestoreActiveTreeNode`) is too divergent from the real cold-start path to provide useful coverage.
-
-**Helpers needed:**
-- `Source/Parsek/InGameTests/Helpers/QuickloadResumeHelpers.cs` — `RequireFlightWithRecorder`, `CaptureRecordingSnapshot`, `TriggerQuicksave` (wraps `GamePersistence.SaveGame`), `TriggerQuickload` (wraps `GamePersistence.LoadGame` + `HighLogic.LoadScene(GameScenes.FLIGHT)` — NOT the rewind path at `RecordingStore.cs:2217-2242` which targets `SPACECENTER`), assertion helpers.
-- State reset between tests: any test mutating `MilestoneStore.CurrentEpoch` or `ParsekSettings.Current.autoMerge` MUST restore in `try/finally`.
-
-**Testing-the-tests safeguards:**
-- Bridge canary must pass before any QuickloadResume test runs.
-- Each Phase-2 assertion begins with `IsTrue(bridge.PhaseReached == ExecutedPhase2, "Phase 2 never executed")`.
-- Each test asserts a specific log line was emitted via `ParsekLog.TestSinkForTesting`.
-
-**Priority:** Medium — the Unity-dependent gaps in PR #160's unit tests should close before the next major refactor. Will ship as a separate PR; the in-game test framework changes are out of scope for the #278/#279 bug-fix work.
+**Tests deferred:** `RealRevert_FinalizesTree_ShowsMergeDialogWhenAutoMergeOff`, `DoubleF9_Idempotent_NoDoubleStart`, `QuickloadIntoNonFlightScene_DoesNotRestore`, `RewindButton_DoesNotConflictWithRestore` — require more infrastructure validation before shipping.
 
 ## 270. Sidecar file (.prec) version staleness across save points
 

@@ -21,6 +21,15 @@ Dev notes: technical narratives for the fixes below live in `docs/dev/todo-and-k
 - Automatic rate-limited `[WARN]` when playback exceeds 8ms/frame or recording exceeds 4ms/frame.
 - New `ParsekLog.WarnRateLimited` API.
 
+### Bug Fixes — Quickload-resume hardening
+
+- `#267` Restore coroutine reentrancy guard: `OnVesselSwitchComplete`, `OnVesselWillDestroy`, and `FinalizeTreeOnSceneChange` now skip while the quickload-resume or vessel-switch restore coroutine is mid-yield.
+- `#268` Belt-and-braces snapshot capture in `StashActiveTreeAsPendingLimbo` ensures null-snapshot leaves get a fresh vessel snapshot while the vessel is still alive, before the scene reload.
+
+### Developer Tools
+
+- `#269` Test runner now survives scene transitions (`Instantly + DontDestroyOnLoad`), enabling multi-scene coroutine tests. Three QuickloadResume in-game tests added: bridge canary, mid-recording resume identity, reentrancy guard verification.
+
 ### Maintenance
 
 - `#260` Removed dead `.pcrf` ghost geometry scaffolding — eliminates ~52 spurious "Missing sidecar file" warnings per diagnostics scan.

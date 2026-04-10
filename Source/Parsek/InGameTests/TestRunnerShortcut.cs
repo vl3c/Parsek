@@ -7,8 +7,11 @@ namespace Parsek.InGameTests
     /// Global Ctrl+Shift+T shortcut for the in-game test runner.
     /// Active in all game scenes — handles scenes where Parsek has no main UI
     /// (tracking station buildings, editor, facility interiors).
+    ///
+    /// #269: Uses Instantly+DontDestroyOnLoad to survive scene transitions,
+    /// enabling multi-scene coroutine tests (e.g., quickload-resume).
     /// </summary>
-    [KSPAddon(KSPAddon.Startup.EveryScene, false)]
+    [KSPAddon(KSPAddon.Startup.Instantly, true)]
     public class TestRunnerShortcut : MonoBehaviour
     {
         private const string Tag = "TestRunner";
@@ -27,15 +30,29 @@ namespace Parsek.InGameTests
         private bool shortcutHeld;
         private static TestRunnerShortcut instance;
 
-        void Start()
+        /// <summary>
+        /// Singleton accessor — non-null after Awake when DontDestroyOnLoad keeps the
+        /// instance alive. Used by in-game tests to verify bridge survival (#269).
+        /// </summary>
+        internal static TestRunnerShortcut Instance => instance;
+
+        void Awake()
         {
-            // Singleton — destroy duplicates (EveryScene can spawn multiples in editor)
-            if (instance != null && instance != this)
+            if (instance != null)
             {
-                Destroy(this);
+                Destroy(gameObject);
                 return;
             }
             instance = this;
+            DontDestroyOnLoad(gameObject);
+
+            // #269: InputLockManager locks are scene-scoped — KSP clears them on
+            // scene transition but our flag persists. Reset on scene change.
+            GameEvents.onGameSceneLoadRequested.Add(OnSceneChangeRequested);
+        }
+
+        void Start()
+        {
             ParsekLog.Verbose(Tag, $"TestRunnerShortcut active in {HighLogic.LoadedScene}");
         }
 
@@ -57,6 +74,9 @@ namespace Parsek.InGameTests
 
         void OnGUI()
         {
+            // #269: GUI.skin may not be initialized during LOADING scene
+            if (HighLogic.LoadedScene == GameScenes.LOADING) return;
+
             if (!showWindow)
             {
                 if (windowHasInputLock)
@@ -122,9 +142,24 @@ namespace Parsek.InGameTests
 
         void OnDestroy()
         {
-            if (instance == this) instance = null;
+            if (instance == this)
+            {
+                instance = null;
+                GameEvents.onGameSceneLoadRequested.Remove(OnSceneChangeRequested);
+            }
             if (windowHasInputLock)
                 InputLockManager.RemoveControlLock(InputLockId);
+        }
+
+        /// <summary>
+        /// #269: Reset scene-scoped state on scene transition.
+        /// InputLockManager locks are cleared by KSP, so our tracking flag must match.
+        /// opaqueStyle references GUI.skin textures that may not survive scene changes.
+        /// </summary>
+        private void OnSceneChangeRequested(GameScenes scene)
+        {
+            windowHasInputLock = false;
+            opaqueStyle = null;
         }
 
         private void DrawWindow(int windowID)

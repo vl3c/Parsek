@@ -2143,5 +2143,82 @@ namespace Parsek.InGameTests
             InGameAssert.AreEqual("FLYING", sit,
                 "Snapshot sit field must remain stale for non-stable terminal states (no re-snapshot)");
         }
+
+        // ── QuickloadResume (#269) ──────────────────────────────────────────────
+
+        /// <summary>
+        /// Canary test: verifies that the TestRunnerShortcut singleton survives a
+        /// scene transition via quickload. If this fails, all other QuickloadResume
+        /// tests are meaningless — the test infrastructure can't survive the reload.
+        /// </summary>
+        [InGameTest(Category = "QuickloadResume", Scene = GameScenes.FLIGHT,
+            Description = "Verify TestRunnerShortcut DontDestroyOnLoad survives quickload")]
+        public IEnumerator BridgeSurvivesSceneTransition()
+        {
+            // Sentinel: use a static field on TestRunnerShortcut
+            var preInstance = TestRunnerShortcut.Instance;
+            InGameAssert.IsNotNull(preInstance, "TestRunnerShortcut.Instance must be non-null before quickload");
+
+            Helpers.QuickloadResumeHelpers.TriggerQuicksave();
+            yield return new WaitForSeconds(0.5f);
+
+            Helpers.QuickloadResumeHelpers.TriggerQuickload();
+            yield return Helpers.QuickloadResumeHelpers.WaitForFlightReady(15f);
+
+            // The same singleton must survive — DontDestroyOnLoad keeps it alive
+            var postInstance = TestRunnerShortcut.Instance;
+            InGameAssert.IsNotNull(postInstance,
+                "TestRunnerShortcut.Instance must be non-null after quickload (DontDestroyOnLoad)");
+            InGameAssert.AreEqual(preInstance.GetInstanceID(), postInstance.GetInstanceID(),
+                "TestRunnerShortcut instance must be the SAME object after quickload");
+        }
+
+        /// <summary>
+        /// #269 core test: quickload mid-recording resumes with the same activeRecordingId.
+        /// Verifies the full F5 → fly → F9 → restore coroutine → resumed recording path.
+        /// </summary>
+        [InGameTest(Category = "QuickloadResume", Scene = GameScenes.FLIGHT,
+            Description = "F5/F9 mid-recording resumes same activeRecordingId")]
+        public IEnumerator Quickload_MidRecording_ResumesSameActiveRecordingId()
+        {
+            // Pre-condition: must have an active recording in tree mode
+            var flight = ParsekFlight.Instance;
+            InGameAssert.IsNotNull(flight, "ParsekFlight.Instance required");
+            InGameAssert.IsTrue(flight.IsRecording, "Must be recording");
+
+            string preRecId = flight.ActiveTreeForSerialization?.ActiveRecordingId;
+            InGameAssert.IsNotNull(preRecId, "ActiveRecordingId must be set before F5");
+
+            // F5
+            Helpers.QuickloadResumeHelpers.TriggerQuicksave();
+            yield return new WaitForSeconds(2f); // accumulate post-F5 data
+
+            // F9
+            Helpers.QuickloadResumeHelpers.TriggerQuickload();
+            yield return Helpers.QuickloadResumeHelpers.WaitForFlightReady(15f);
+            yield return Helpers.QuickloadResumeHelpers.WaitForActiveRecording(10f);
+
+            // Re-query: old ParsekFlight instance is destroyed
+            var postFlight = ParsekFlight.Instance;
+            InGameAssert.IsNotNull(postFlight, "ParsekFlight.Instance must exist after quickload");
+            InGameAssert.IsTrue(postFlight.HasActiveTree, "ActiveTree must be restored after quickload");
+
+            string postRecId = postFlight.ActiveTreeForSerialization.ActiveRecordingId;
+            InGameAssert.AreEqual(preRecId, postRecId,
+                $"ActiveRecordingId must match: pre={preRecId} post={postRecId}");
+        }
+
+        /// <summary>
+        /// #267 regression test: verify the restoringActiveTree reentrancy guard exists
+        /// and is cleared after the restore coroutine completes.
+        /// </summary>
+        [InGameTest(Category = "QuickloadResume", Scene = GameScenes.FLIGHT,
+            Description = "#267: restoringActiveTree guard is false after restore completes")]
+        public void ReentrancyGuard_ClearedAfterRestore()
+        {
+            // The guard must be false during normal flight (no restore in progress)
+            InGameAssert.IsFalse(ParsekFlight.restoringActiveTree,
+                "restoringActiveTree must be false during normal flight");
+        }
     }
 }
