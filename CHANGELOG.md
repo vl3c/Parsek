@@ -8,6 +8,11 @@ All notable changes to Parsek are documented here.
 
 Dev notes: technical narratives for the fixes below live in `docs/dev/todo-and-known-bugs.md` under the matching bug numbers. Commit messages have the full root-cause detail per PR.
 
+### Bug Fixes — Name resolution & ghost positioning
+
+- Vessel names in split/EVA/background recordings now resolve KSP localization tags (e.g., `#autoLOC_501232` → "Kerbal X") instead of displaying raw tags.
+- `#282` Landed ghosts now sit at their natural recorded height above terrain instead of floating 4m up; uses `TerrainCorrector.ComputeCorrectedAltitude` with `Recording.TerrainHeightAtEnd` when available (NaN fallback preserves old behavior for legacy recordings).
+
 ### New Features
 
 - Ghost positional audio: 3D engine sounds, decoupler pops, and explosions with distance fade and atmospheric attenuation. Volume slider in Settings. Compatible with RocketSoundEnhancement.

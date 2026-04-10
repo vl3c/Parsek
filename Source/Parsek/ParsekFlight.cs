@@ -2097,9 +2097,9 @@ namespace Parsek
             var (bp, activeChild, bgChild) = BuildSplitBranchData(
                 parentRecordingId, activeTree.Id, branchUT, branchType,
                 activeVessel != null ? activeVessel.persistentId : 0,
-                activeVessel != null ? activeVessel.vesselName : "Unknown",
+                activeVessel != null ? Recording.ResolveLocalizedName(activeVessel.vesselName) : "Unknown",
                 backgroundVessel != null ? backgroundVessel.persistentId : 0,
-                backgroundVessel != null ? backgroundVessel.vesselName : "Unknown",
+                backgroundVessel != null ? Recording.ResolveLocalizedName(backgroundVessel.vesselName) : "Unknown",
                 evaCrewName, evaVesselPid,
                 parentGeneration: parentGen);
 
@@ -8385,7 +8385,7 @@ namespace Parsek
             {
                 var term = traj.TerminalStateValue;
                 if (term == TerminalState.Landed || term == TerminalState.Splashed)
-                    positioned = ApplyLandedGhostClearance(point, index, traj.VesselName);
+                    positioned = ApplyLandedGhostClearance(point, index, traj.VesselName, traj.TerrainHeightAtEnd);
             }
 
             PositionGhostAt(state.ghost, positioned);
@@ -8398,25 +8398,23 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Bug #282: lift a Landed/Splashed ghost point above terrain by
-        /// <see cref="VesselSpawner.LandedGhostClearanceMeters"/>. Returns the
-        /// point unchanged if the body isn't found, PQS isn't available, or
-        /// the recorded altitude is already high enough. <c>internal static</c>
-        /// so the in-game tests (<c>RuntimeTests.LandedGhostClearance_BuriedPoint_ClampsAboveTerrain</c>
-        /// and <c>LandedGhostClearance_AlreadyClear_Unchanged</c>) can exercise
-        /// it without needing a full <c>IGhostPositioner</c> chain.
+        /// Bug #282: position a Landed/Splashed ghost at its natural clearance
+        /// above terrain. When <paramref name="recordedTerrainHeight"/> is valid
+        /// (not NaN), preserves the original clearance from recording time via
+        /// <see cref="TerrainCorrector.ComputeCorrectedAltitude"/>, with a 0.5 m
+        /// safety floor. When NaN (legacy recordings without terrain data), falls
+        /// back to a fixed <see cref="VesselSpawner.LandedGhostClearanceMeters"/>
+        /// offset. <c>internal static</c> so in-game tests can exercise it
+        /// without needing a full <c>IGhostPositioner</c> chain.
         /// </summary>
         internal static TrajectoryPoint ApplyLandedGhostClearance(
-            TrajectoryPoint p, int index, string vesselName)
+            TrajectoryPoint p, int index, string vesselName, double recordedTerrainHeight)
         {
             CelestialBody body = FlightGlobals.Bodies?.Find(b => b.name == p.bodyName);
             if (body == null)
                 return p;
             if (body.pqsController == null)
             {
-                // PQS not spun up on this body yet — we can't query terrain so we
-                // can't clamp. Warn once so a buried ghost on a cold-loaded body
-                // isn't silently indistinguishable from the bug #282 symptom.
                 ParsekLog.WarnRateLimited("TerrainCorrect",
                     $"pqs-unready-{body.name}",
                     $"Landed ghost clamp #{index} (\"{vesselName}\"): PQS not spun up " +
@@ -8424,19 +8422,37 @@ namespace Parsek
                 return p;
             }
 
+            var ic = System.Globalization.CultureInfo.InvariantCulture;
             double terrainAlt = body.TerrainAltitude(p.latitude, p.longitude, true);
-            double minAlt = terrainAlt + VesselSpawner.LandedGhostClearanceMeters;
-            if (p.altitude >= minAlt)
+
+            double targetAlt;
+            if (!double.IsNaN(recordedTerrainHeight))
+            {
+                // Preserve the vessel's original clearance above terrain.
+                // Ghosts are purely visual — no physics damage concern.
+                // ComputeCorrectedAltitude already enforces a terrain+0.5m floor.
+                targetAlt = TerrainCorrector.ComputeCorrectedAltitude(
+                    terrainAlt, p.altitude, recordedTerrainHeight);
+            }
+            else
+            {
+                // Legacy fallback: no recorded terrain data — use fixed clearance
+                targetAlt = terrainAlt + VesselSpawner.LandedGhostClearanceMeters;
+            }
+
+            if (p.altitude >= targetAlt)
                 return p;
 
-            var ic = System.Globalization.CultureInfo.InvariantCulture;
-            double delta = minAlt - p.altitude;
+            double delta = targetAlt - p.altitude;
             ParsekLog.VerboseRateLimited("TerrainCorrect", $"landed-ghost-{index}",
                 $"Landed ghost clamp #{index} (\"{vesselName}\"): " +
                 $"alt={p.altitude.ToString("F1", ic)} terrain={terrainAlt.ToString("F1", ic)} " +
-                $"-> {minAlt.ToString("F1", ic)} (delta={delta.ToString("F2", ic)}m, body={body.name})");
+                $"-> {targetAlt.ToString("F1", ic)} (delta={delta.ToString("F2", ic)}m, body={body.name}" +
+                (!double.IsNaN(recordedTerrainHeight)
+                    ? $", recTerrain={recordedTerrainHeight.ToString("F1", ic)})"
+                    : ", NaN fallback)"));
 
-            p.altitude = minAlt;
+            p.altitude = targetAlt;
             return p;
         }
 

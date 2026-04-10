@@ -414,7 +414,7 @@ namespace Parsek
                         continue;
 
                     bool hasController = ParsekFlight.IsTrackableVessel(v);
-                    newVesselInfos.Add((v.persistentId, v.vesselName ?? "Unknown", hasController));
+                    newVesselInfos.Add((v.persistentId, Recording.ResolveLocalizedName(v.vesselName) ?? "Unknown", hasController));
                 }
             }
 

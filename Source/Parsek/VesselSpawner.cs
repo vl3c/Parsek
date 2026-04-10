@@ -754,14 +754,11 @@ namespace Parsek
         internal const double LandedClearanceMeters = 2.0;
 
         /// <summary>
-        /// Clearance for kinematic ghost playback of Landed/Splashed recordings (#282).
-        /// Larger than <see cref="LandedClearanceMeters"/> because ghost playback is not
-        /// physics-driven — there is no part-damage concern, so we can use a margin that
-        /// clears the Mk1-3 pod's 1.77 m root-to-bottom offset with headroom to spare.
-        /// For taller stacks the root origin sits even higher, so the pod may still
-        /// float slightly above the recorded landing position, but the alternative
-        /// (burying the mesh in terrain) is worse. Per-vessel clearance derived from
-        /// bounds is tracked as a follow-up in docs/dev/todo-and-known-bugs.md.
+        /// NaN-fallback clearance for ghost playback of Landed/Splashed recordings (#282).
+        /// Only used when <c>Recording.TerrainHeightAtEnd</c> is NaN (legacy recordings
+        /// without terrain data). When terrain data is available,
+        /// <c>ApplyLandedGhostClearance</c> uses <c>TerrainCorrector.ComputeCorrectedAltitude</c>
+        /// to preserve the vessel's original recorded clearance above terrain instead.
         /// </summary>
         internal const double LandedGhostClearanceMeters = 4.0;
 

@@ -29,6 +29,7 @@ namespace Parsek.Tests
         public double LoopEndUT { get; set; } = double.NaN;
         public TerminalState? TerminalStateValue { get; set; }
         public SurfacePosition? SurfacePos { get; set; }
+        public double TerrainHeightAtEnd { get; set; } = double.NaN;
         public bool PlaybackEnabled { get; set; } = true;
         public bool IsDebris { get; set; }
         public int LoopSyncParentIdx { get; set; } = -1;

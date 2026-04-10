@@ -43,6 +43,7 @@ namespace Parsek
 
         // === Surface hold ===
         SurfacePosition? SurfacePos { get; }
+        double TerrainHeightAtEnd { get; }
 
         // === Rendering hints ===
         bool PlaybackEnabled { get; }
