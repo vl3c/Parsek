@@ -323,6 +323,9 @@ namespace Parsek
                 ? new List<string>(source.RecordingGroups) : null;
             AntennaSpecs = source.AntennaSpecs != null
                 ? new List<AntennaSpec>(source.AntennaSpecs) : null;
+            StartResources = source.StartResources;
+            EndResources = source.EndResources;
+            DockTargetVesselPid = source.DockTargetVesselPid;
 
             // Copy segment events and tracks if source has them
             if (source.SegmentEvents != null && source.SegmentEvents.Count > 0)
