@@ -3776,6 +3776,12 @@ namespace Parsek
 
         void OnPartCouple(GameEvents.FromToAction<Part, Part> data)
         {
+            // #267: skip if restore coroutine is mid-yield — it owns activeTree/recorder.
+            // OnPartCouple's own null checks (L3784, L3845) already prevent most interference,
+            // but the narrow window after recorder.StartRecording in the coroutine could allow
+            // a dock event on the just-restored recorder before the coroutine completes.
+            if (restoringActiveTree) return;
+
             ParsekLog.RecState("OnPartCouple:entry", CaptureRecorderState());
             if (data.to?.vessel == null) return;
             uint mergedPid = data.to.vessel.persistentId;
@@ -3876,6 +3882,9 @@ namespace Parsek
 
         void OnPartUndock(Part undockedPart)
         {
+            // #267: skip if restore coroutine is mid-yield — it owns activeTree/recorder
+            if (restoringActiveTree) return;
+
             ParsekLog.RecState("OnPartUndock:entry", CaptureRecorderState());
             if (recorder == null || !recorder.IsRecording) return;
             if (pendingSplitInProgress) return; // another split is already being processed
@@ -5522,6 +5531,7 @@ namespace Parsek
             restoringActiveTree = true;
             try
             {
+            // NOTE: body intentionally not re-indented to minimize diff
             ParsekLog.RecState("Restore:start", CaptureRecorderState());
             if (!RecordingStore.HasPendingTree
                 || RecordingStore.PendingTreeStateValue != PendingTreeState.Limbo)
@@ -5707,6 +5717,7 @@ namespace Parsek
             restoringActiveTree = true;
             try
             {
+            // NOTE: body intentionally not re-indented to minimize diff
             ParsekLog.RecState("RestoreSwitch:start", CaptureRecorderState());
             if (!RecordingStore.HasPendingTree
                 || RecordingStore.PendingTreeStateValue != PendingTreeState.LimboVesselSwitch)
