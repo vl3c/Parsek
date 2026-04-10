@@ -1700,18 +1700,22 @@ namespace Parsek
             treeRec.OrbitSegments.AddRange(rec.OrbitSegments);
             treeRec.PartEvents.AddRange(rec.PartEvents);
             treeRec.FlagEvents.AddRange(rec.FlagEvents);
+            treeRec.SegmentEvents.AddRange(rec.SegmentEvents);
             treeRec.TrackSections.AddRange(rec.TrackSections);
 
-            // Sort part/flag events chronologically. PartEvents MUST use a STABLE sort so
+            // Sort part/flag/segment events chronologically. PartEvents MUST use a STABLE sort so
             // same-UT events retain their insertion order — critical for terminal-vs-ignited
-            // ordering across tree promotion boundaries (#287). FlagEvents uses the same
-            // stable pattern for consistency across every flush/merge site.
+            // ordering across tree promotion boundaries (#287). FlagEvents and SegmentEvents use
+            // the same stable pattern for consistency across every flush/merge site.
             var sortedPartEventsFlush = FlightRecorder.StableSortPartEventsByUT(treeRec.PartEvents);
             treeRec.PartEvents.Clear();
             treeRec.PartEvents.AddRange(sortedPartEventsFlush);
             var sortedFlagEventsFlush = FlightRecorder.StableSortByUT(treeRec.FlagEvents, e => e.ut);
             treeRec.FlagEvents.Clear();
             treeRec.FlagEvents.AddRange(sortedFlagEventsFlush);
+            var sortedSegEventsFlush = FlightRecorder.StableSortByUT(treeRec.SegmentEvents, e => e.ut);
+            treeRec.SegmentEvents.Clear();
+            treeRec.SegmentEvents.AddRange(sortedSegEventsFlush);
 
             // Mark dirty so the next OnSave persists the flushed data to disk.
             // Without this, the in-memory points are lost on scene reload.
@@ -1839,9 +1843,10 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Appends captured trajectory data (points, orbit segments, part events, track sections)
-        /// from a source recording into the target, sorts part events by UT, and sets the target's
-        /// ExplicitEndUT. If source is null, only ExplicitEndUT is set.
+        /// Appends captured trajectory data (points, orbit segments, part events, flag events,
+        /// segment events, track sections) from a source recording into the target, sorts
+        /// part/flag/segment events by UT, and sets the target's ExplicitEndUT.
+        /// If source is null, only ExplicitEndUT is set.
         /// </summary>
         internal static void AppendCapturedDataToRecording(Recording target, Recording source, double endUT)
         {
@@ -1850,11 +1855,19 @@ namespace Parsek
                 target.Points.AddRange(source.Points);
                 target.OrbitSegments.AddRange(source.OrbitSegments);
                 target.PartEvents.AddRange(source.PartEvents);
+                target.FlagEvents.AddRange(source.FlagEvents);
+                target.SegmentEvents.AddRange(source.SegmentEvents);
                 target.TrackSections.AddRange(source.TrackSections);
                 // STABLE sort: same-UT events preserve insertion order (#287).
                 var sortedAppend = FlightRecorder.StableSortPartEventsByUT(target.PartEvents);
                 target.PartEvents.Clear();
                 target.PartEvents.AddRange(sortedAppend);
+                var sortedFlagAppend = FlightRecorder.StableSortByUT(target.FlagEvents, e => e.ut);
+                target.FlagEvents.Clear();
+                target.FlagEvents.AddRange(sortedFlagAppend);
+                var sortedSegAppend = FlightRecorder.StableSortByUT(target.SegmentEvents, e => e.ut);
+                target.SegmentEvents.Clear();
+                target.SegmentEvents.AddRange(sortedSegAppend);
                 // Mark dirty so the next OnSave persists the appended data to
                 // the .prec sidecar. Without this, data lives only in memory
                 // and is lost on scene reload (see Recording.MarkFilesDirty
@@ -1862,6 +1875,54 @@ namespace Parsek
                 target.MarkFilesDirty();
             }
             target.ExplicitEndUT = endUT;
+        }
+
+        /// <summary>
+        /// When in tree mode, appends captured split data to the active tree recording
+        /// instead of creating a standalone recording. Returns true if the data was
+        /// successfully appended, false to fall through to the standalone path.
+        /// Bug #297: FallbackCommitSplitRecorder was tree-mode-unaware and orphaned
+        /// continuation data as ungrouped standalone recordings.
+        /// </summary>
+        internal static bool TryAppendCapturedToTree(RecordingTree tree, Recording captured)
+        {
+            if (tree == null || captured == null || captured.Points.Count < 2)
+                return false;
+
+            string targetId = tree.ActiveRecordingId ?? tree.RootRecordingId;
+            if (targetId == null)
+            {
+                ParsekLog.Warn("Flight",
+                    "TryAppendCapturedToTree: no active or root recording id — falling through to standalone");
+                return false;
+            }
+
+            Recording targetRec;
+            if (!tree.Recordings.TryGetValue(targetId, out targetRec))
+            {
+                ParsekLog.Warn("Flight",
+                    $"TryAppendCapturedToTree: recording '{targetId}' not found in tree — falling through to standalone");
+                return false;
+            }
+
+            double endUT = captured.Points[captured.Points.Count - 1].ut;
+            AppendCapturedDataToRecording(targetRec, captured, endUT);
+
+            if (captured.VesselDestroyed)
+            {
+                targetRec.VesselDestroyed = true;
+                targetRec.TerminalStateValue = TerminalState.Destroyed;
+            }
+
+            if (captured.MaxDistanceFromLaunch > targetRec.MaxDistanceFromLaunch)
+                targetRec.MaxDistanceFromLaunch = captured.MaxDistanceFromLaunch;
+
+            targetRec.EndBiome = captured.EndBiome;
+
+            ParsekLog.Info("Flight",
+                $"TryAppendCapturedToTree: appended {captured.Points.Count} points to " +
+                $"tree recording '{targetId}' (destroyed={captured.VesselDestroyed})");
+            return true;
         }
 
         /// <summary>
@@ -2328,6 +2389,12 @@ namespace Parsek
             if (splitRec?.CaptureAtStop == null) return;
 
             var captured = splitRec.CaptureAtStop;
+
+            // Bug #297: when in tree mode, append to the active tree recording
+            // instead of orphaning data as a standalone recording.
+            if (TryAppendCapturedToTree(activeTree, captured))
+                return;
+
             if (captured.Points.Count >= 2)
             {
                 RecordingStore.StashPending(

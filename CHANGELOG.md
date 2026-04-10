@@ -6,6 +6,14 @@ All notable changes to Parsek are documented here.
 
 ## 0.7.3
 
+### Bug Fixes
+
+- `#241` Ghost parts with the base/default color variant (e.g., BlackAndWhite fuel tanks) no longer show the wrong variant texture (was Orange).
+- `#297` Vessel destruction during tree recording no longer orphans continuation data as a standalone recording.
+- `T55` FlagEvents and SegmentEvents are now preserved across tree recording splits and flushes.
+
+### New Features
+
 - Sortable "Site" column in the Recordings Manager — sorts by launch site name with UT tiebreak within the same site.
 - Renamed the expanded-stats toggle button from "Stats" to "Info".
 

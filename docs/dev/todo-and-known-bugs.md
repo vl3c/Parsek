@@ -7,6 +7,27 @@ Entries 272–303 (78 bugs, 6 TODOs — mostly resolved) archived in `done/todo-
 
 # Known Bugs
 
+## ~~297. FallbackCommitSplitRecorder orphans tree continuation data as standalone recording~~
+
+When a vessel is destroyed during tree recording and the split recorder can't resume,
+`FallbackCommitSplitRecorder` stashes captured data as a standalone recording via
+`RecordingStore.StashPending`, ignoring the active tree. The tree root is truncated
+(missing post-breakup trajectory) and the continuation becomes an ungrouped standalone.
+
+Real-world repro: Kerbal X standalone recording promoted to tree at first breakup (root
+gets 47 points). More breakups add debris children, root continues recording (83 more
+points in buffer). Vessel crashes, joint break triggers `DeferredJointBreakCheck`,
+classified as WithinSegment, `ResumeSplitRecorder` detects vessel dead, calls
+`FallbackCommitSplitRecorder` which stashes 83-point continuation as standalone.
+
+**Fix:** Extracted `TryAppendCapturedToTree` -- when `activeTree != null`, appends captured
+data to the active tree recording (fallback to root) via `AppendCapturedDataToRecording`,
+sets terminal state and metadata. Standalone path only runs when not in tree mode.
+
+**Status:** ~~Fixed~~
+
+---
+
 ## 296. EVA kerbal who planted flag did not appear after spawn
 
 Log shows KSCSpawn successfully spawned the EVA kerbal (Bill Kerman, pid=484546861), but the user reports not seeing it. Likely post-spawn physics destruction — EVA kerbals are fragile and can be killed by terrain collision or slope bounce.
@@ -83,11 +104,11 @@ Intermediate tree recordings with 0 trajectory points but non-null VesselSnapsho
 
 ---
 
-## 241. Ghost fuel tanks have wrong color variant
+## ~~241. Ghost fuel tanks have wrong color variant~~
 
-Some fuel tanks on ghost vessels display with the wrong color/texture variant during playback. The ghost visual builder clones the prefab model, but KSP fuel tanks can have multiple texture variants (e.g., Orange, White, Gray via `ModulePartVariants`). The variant selection from the vessel snapshot may not be applied to the ghost clone.
+Parts whose base/default variant is implicit (not a VARIANT node) showed the wrong color. KSP stores the base variant's display name (e.g., "Basic") as `moduleVariantName`, but no VARIANT node has that name — `TryFindSelectedVariantNode` fell through to `variantNodes[0]` (e.g., Orange) instead of keeping the prefab default. Fix: `MatchVariantNode` returns false when the snapshot names a variant with no matching VARIANT node, so callers skip variant rule application and the prefab's base materials are preserved.
 
-**Priority:** Low — cosmetic, ghost shape is correct
+**Fix:** PR #198
 
 ---
 
@@ -189,6 +210,40 @@ To implement properly: either rescale prefab Cap/Truss meshes from XSECTION data
 Test game actions system with popular mods: CustomBarnKit (non-standard facility tiers may break level conversion formula), Strategia (different strategy IDs/transform mechanics), Contract Configurator (contract snapshot round-trip across CC versions). Requires KSP runtime with mods installed. Investigation notes in `docs/dev/mod-compatibility-notes.md`.
 
 **Priority:** Last phase of roadmap — v1 targets stock only, mod compat is best-effort
+
+---
+
+## TODO — Recording Data Integrity
+
+### ~~T55. AppendCapturedDataToRecording does not copy FlagEvents or SegmentEvents~~
+
+`AppendCapturedDataToRecording` (ParsekFlight.cs:1836) appends Points, OrbitSegments,
+PartEvents, and TrackSections, but omits FlagEvents and SegmentEvents. By contrast,
+`FlushRecorderToTreeRecording` (ParsekFlight.cs:1675) correctly copies all six lists
+including FlagEvents with a stable sort.
+
+This is a pre-existing gap affecting all three call sites of `AppendCapturedDataToRecording`:
+- `CreateSplitBranch` line 2137 (merge parent recording with split data at breakup)
+- `CreateMergeBranch` line 2283 (merge parent recording with dock/board continuation)
+- `TryAppendCapturedToTree` line 1886 (bug #297 fix -- fallback append to tree)
+
+In practice, FlagEvents are rare (only emitted for flag planting, which is uncommon during
+breakup/dock/merge boundaries), and SegmentEvents are typically empty in `CaptureAtStop`
+because they are emitted into the recorder's PartEvents list, not the SegmentEvents list.
+So data loss from this gap is unlikely but possible.
+
+**Fix:** Add FlagEvents and SegmentEvents to `AppendCapturedDataToRecording`, using the same
+stable-sort pattern as `FlushRecorderToTreeRecording` (lines 1712-1714). For FlagEvents use
+`FlightRecorder.StableSortByUT(target.FlagEvents, e => e.ut)`. SegmentEvents have a `ut`
+field and should use the same pattern. Add tests to `AppendCapturedDataTests.cs` verifying
+both event types are appended and sorted.
+
+**Fix:** Added FlagEvents and SegmentEvents (with stable sort) to both `AppendCapturedDataToRecording`
+and `FlushRecorderToTreeRecording`. Two new tests in `AppendCapturedDataTests.cs`.
+
+**Priority:** Low -- unlikely to cause visible data loss, but should be fixed for correctness
+
+**Status:** ~~Fixed~~
 
 ---
 
