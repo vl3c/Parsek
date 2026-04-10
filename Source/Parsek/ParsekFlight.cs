@@ -6652,7 +6652,7 @@ namespace Parsek
 
             var lastPt = rec.Points[rec.Points.Count - 1];
 
-            // Very low altitude + low speed → likely landed or about to land
+            // Very low altitude → likely landed or about to land
             if (lastPt.altitude < 50.0)
                 return TerminalState.Landed;
 
@@ -6663,6 +6663,25 @@ namespace Parsek
                 if (lastEnv == SegmentEnvironment.SurfaceMobile
                     || lastEnv == SegmentEnvironment.SurfaceStationary)
                     return TerminalState.Landed;
+            }
+
+            // Check orbit segments for stable orbit (ecc < 1, periapsis above body surface).
+            // FlightGlobals is unavailable in unit tests — guard with try/catch.
+            if (rec.OrbitSegments != null && rec.OrbitSegments.Count > 0)
+            {
+                var lastOrbit = rec.OrbitSegments[rec.OrbitSegments.Count - 1];
+                if (lastOrbit.eccentricity < 1.0 && !string.IsNullOrEmpty(lastOrbit.bodyName))
+                {
+                    double bodyRadius = 0;
+                    try
+                    {
+                        var body = FlightGlobals.GetBodyByName(lastOrbit.bodyName);
+                        if (body != null) bodyRadius = body.Radius;
+                    }
+                    catch { /* FlightGlobals unavailable outside KSP */ }
+                    if (bodyRadius > 0 && lastOrbit.semiMajorAxis * (1 - lastOrbit.eccentricity) > bodyRadius)
+                        return TerminalState.Orbiting;
+                }
             }
 
             // Default: vessel was in flight (atmospheric descent, suborbital, etc.)

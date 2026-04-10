@@ -283,6 +283,37 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void InferTerminal_SurfaceMobileTrackSection_ReturnsLanded()
+        {
+            var rec = new Recording();
+            rec.Points.Add(new TrajectoryPoint { ut = 100.0, altitude = 200.0 });
+            rec.TrackSections.Add(new TrackSection
+            {
+                environment = SegmentEnvironment.SurfaceMobile,
+                startUT = 100.0,
+                endUT = 200.0
+            });
+            Assert.Equal(TerminalState.Landed, ParsekFlight.InferTerminalStateFromTrajectory(rec));
+        }
+
+        [Fact]
+        public void InferTerminal_StableOrbit_ReturnsOrbiting()
+        {
+            var rec = new Recording();
+            rec.Points.Add(new TrajectoryPoint { ut = 100.0, altitude = 100000.0 });
+            rec.OrbitSegments.Add(new OrbitSegment
+            {
+                bodyName = "Kerbin",
+                eccentricity = 0.05,
+                semiMajorAxis = 700000.0, // periapsis = 700000 * 0.95 = 665000 > Kerbin radius 600000
+                startUT = 50.0,
+                endUT = 200.0
+            });
+            // FlightGlobals.GetBodyByName returns null in tests — falls through to SubOrbital
+            Assert.Equal(TerminalState.SubOrbital, ParsekFlight.InferTerminalStateFromTrajectory(rec));
+        }
+
+        [Fact]
         public void InferTerminal_NoPoints_ReturnsSubOrbital()
         {
             var rec = new Recording();
