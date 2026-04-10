@@ -458,6 +458,71 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void IsRevert_OrphanedLimboTree_FlightToFlight_IsTrue_Bug300()
+        {
+            // Bug #300: first-ever flight, no prior commits. Epoch and count both
+            // zero on both sides. The orphaned Limbo tree (stashed from memory but
+            // NOT found in the save file) is the revert signal.
+            bool isRevert = ComputeIsRevert(
+                isVesselSwitch: false,
+                savedEpoch: 0,
+                currentEpoch: 0,
+                totalSavedRecCount: 0,
+                memoryRecordingsCount: 0,
+                isFlightToFlight: true,
+                hasOrphanedLimboTree: true);
+            Assert.True(isRevert);
+        }
+
+        [Fact]
+        public void IsRevert_OrphanedLimboTree_NotFlightToFlight_IsFalse_Bug300()
+        {
+            // Safety: orphaned Limbo tree should only trigger revert detection in
+            // FLIGHT→FLIGHT transitions, not on e.g. SPACECENTER→FLIGHT.
+            bool isRevert = ComputeIsRevert(
+                isVesselSwitch: false,
+                savedEpoch: 0,
+                currentEpoch: 0,
+                totalSavedRecCount: 0,
+                memoryRecordingsCount: 0,
+                isFlightToFlight: false,
+                hasOrphanedLimboTree: true);
+            Assert.False(isRevert);
+        }
+
+        [Fact]
+        public void IsRevert_LimboTreeRestoredFromSave_IsFalse_Bug300()
+        {
+            // Quickload (F5/F9): the save file contained the active tree, so
+            // TryRestoreActiveTreeNode returned true → hasOrphanedLimboTree=false.
+            // Should NOT be detected as a revert.
+            bool isRevert = ComputeIsRevert(
+                isVesselSwitch: false,
+                savedEpoch: 0,
+                currentEpoch: 0,
+                totalSavedRecCount: 0,
+                memoryRecordingsCount: 0,
+                isFlightToFlight: true,
+                hasOrphanedLimboTree: false);
+            Assert.False(isRevert);
+        }
+
+        [Fact]
+        public void IsRevert_OrphanedLimboTree_VesselSwitch_IsFalse_Bug300()
+        {
+            // Vessel switch suppresses revert even with an orphaned Limbo tree.
+            bool isRevert = ComputeIsRevert(
+                isVesselSwitch: true,
+                savedEpoch: 0,
+                currentEpoch: 0,
+                totalSavedRecCount: 0,
+                memoryRecordingsCount: 0,
+                isFlightToFlight: true,
+                hasOrphanedLimboTree: true);
+            Assert.False(isRevert);
+        }
+
+        [Fact]
         public void IsRevert_VesselSwitch_IsFalseEvenIfEpochRegresses()
         {
             // Vessel switch flag suppresses isRevert regardless of other indicators
@@ -472,17 +537,19 @@ namespace Parsek.Tests
         }
 
         /// <summary>
-        /// Mirrors the isRevert computation in ParsekScenario.OnLoad after the fix
-        /// (removal of the || isFlightToFlight clause). Kept here as a pure function
-        /// so it can be unit-tested without needing a full ParsekScenario instance.
+        /// Mirrors the isRevert computation in ParsekScenario.OnLoad after bug #300.
+        /// Kept here as a pure function so it can be unit-tested without needing a
+        /// full ParsekScenario instance.
         /// </summary>
         private static bool ComputeIsRevert(
             bool isVesselSwitch, uint savedEpoch, uint currentEpoch,
-            int totalSavedRecCount, int memoryRecordingsCount)
+            int totalSavedRecCount, int memoryRecordingsCount,
+            bool isFlightToFlight = false, bool hasOrphanedLimboTree = false)
         {
             return !isVesselSwitch
                 && (savedEpoch < currentEpoch
-                    || totalSavedRecCount < memoryRecordingsCount);
+                    || totalSavedRecCount < memoryRecordingsCount
+                    || (isFlightToFlight && hasOrphanedLimboTree));
         }
 
         /// <summary>
@@ -518,6 +585,88 @@ namespace Parsek.Tests
                 return LimboDispatchOutcome.VesselSwitchRestore;
             if (isVesselSwitch) return LimboDispatchOutcome.SafetyNetFinalize;
             return LimboDispatchOutcome.QuickloadRestore;
+        }
+
+        [Fact]
+        public void HasOrphanedLimboTree_LimboStashedButNotRestoredFromSave_IsTrue_Bug300()
+        {
+            // Revert-to-launch scenario: StashActiveTreeAsPendingLimbo put a tree
+            // into Limbo, then TryRestoreActiveTreeNode scans the launch quicksave
+            // which has NO active tree → returns false → orphaned.
+            var tree = MakeTree("tree_revert", "Kerbal X", 3);
+            RecordingStore.StashPendingTree(tree, PendingTreeState.Limbo);
+
+            // Launch quicksave: no RECORDING_TREE with isActive=True
+            var launchSave = new ConfigNode("PARSEK_SCENARIO");
+            bool activeTreeRestoredFromSave = ParsekScenario.TryRestoreActiveTreeNode(launchSave);
+
+            Assert.False(activeTreeRestoredFromSave);
+            bool hasOrphanedLimboTree = RecordingStore.HasPendingTree
+                && RecordingStore.PendingTreeStateValue == PendingTreeState.Limbo
+                && !activeTreeRestoredFromSave;
+            Assert.True(hasOrphanedLimboTree);
+        }
+
+        [Fact]
+        public void HasOrphanedLimboTree_LimboOverwrittenByRestore_IsFalse_Bug300()
+        {
+            // Quickload (F5/F9) scenario: StashActiveTreeAsPendingLimbo put a tree
+            // into Limbo, then TryRestoreActiveTreeNode finds the save-file version
+            // (F5 save has isActive=True) → returns true → not orphaned.
+            var tree = MakeTree("tree_ql", "Kerbal X", 3);
+            RecordingStore.StashPendingTree(tree, PendingTreeState.Limbo);
+
+            // F5 save: has RECORDING_TREE with isActive=True
+            var f5Save = new ConfigNode("PARSEK_SCENARIO");
+            var activeNode = f5Save.AddNode("RECORDING_TREE");
+            var saveTree = MakeTree("tree_ql", "Kerbal X (save)", 3);
+            saveTree.Save(activeNode);
+            activeNode.AddValue("isActive", "True");
+
+            bool activeTreeRestoredFromSave = ParsekScenario.TryRestoreActiveTreeNode(f5Save);
+
+            Assert.True(activeTreeRestoredFromSave);
+            bool hasOrphanedLimboTree = RecordingStore.HasPendingTree
+                && RecordingStore.PendingTreeStateValue == PendingTreeState.Limbo
+                && !activeTreeRestoredFromSave;
+            Assert.False(hasOrphanedLimboTree);
+        }
+
+        [Fact]
+        public void HasOrphanedLimboTree_FinalizedState_IsFalse_Bug300()
+        {
+            // Finalized trees are committed scene-exit trees, not Limbo. Even when
+            // TryRestoreActiveTreeNode returns false, the Limbo state check rejects.
+            var tree = MakeTree("tree_fin", "Committed Flight", 2);
+            RecordingStore.StashPendingTree(tree, PendingTreeState.Finalized);
+
+            var emptySave = new ConfigNode("PARSEK_SCENARIO");
+            bool activeTreeRestoredFromSave = ParsekScenario.TryRestoreActiveTreeNode(emptySave);
+
+            Assert.False(activeTreeRestoredFromSave);
+            bool hasOrphanedLimboTree = RecordingStore.HasPendingTree
+                && RecordingStore.PendingTreeStateValue == PendingTreeState.Limbo
+                && !activeTreeRestoredFromSave;
+            Assert.False(hasOrphanedLimboTree);
+        }
+
+        [Fact]
+        public void LimboDispatch_OrphanedLimboTree_RoutesToFinalize_Bug300()
+        {
+            // End-to-end dispatch: orphaned Limbo tree (revert) → isRevert=true → Finalize
+            bool isRevert = ComputeIsRevert(
+                isVesselSwitch: false,
+                savedEpoch: 0,
+                currentEpoch: 0,
+                totalSavedRecCount: 0,
+                memoryRecordingsCount: 0,
+                isFlightToFlight: true,
+                hasOrphanedLimboTree: true);
+            Assert.True(isRevert);
+
+            var outcome = ComputeLimboDispatch(isRevert, isVesselSwitch: false,
+                PendingTreeState.Limbo);
+            Assert.Equal(LimboDispatchOutcome.Finalize, outcome);
         }
 
         [Fact]

@@ -705,7 +705,7 @@ namespace Parsek
                     // Runs AFTER ParsekSettingsPersistence.ApplyTo so restored settings
                     // affect the rest of OnLoad, but BEFORE revert detection so the
                     // pending slot is populated when it runs.
-                    TryRestoreActiveTreeNode(node);
+                    bool activeTreeRestoredFromSave = TryRestoreActiveTreeNode(node);
                     // #294: Also check for an active standalone recording saved at F5 time.
                     // Mutually exclusive with tree restore — TryRestoreActiveStandaloneNode
                     // checks ScheduleActiveTreeRestoreOnFlightReady and skips if set.
@@ -807,15 +807,29 @@ namespace Parsek
                         isVesselSwitch = false;
                     }
 
+                    // Bug #300: on first-ever flight (no prior commits), epoch and
+                    // recording counts are both zero on both sides, so the classic
+                    // revert signals (savedEpoch < CurrentEpoch, savedRecCount <
+                    // memoryCount) are blind. The distinguishing signal is that
+                    // TryRestoreActiveTreeNode returned false (the launch quicksave
+                    // has no active tree) yet a Limbo tree persists from the
+                    // StashActiveTreeAsPendingLimbo call before this OnLoad.
+                    // Quickloads (F5/F9) always have an active tree in the save file
+                    // because OnSave writes it, so activeTreeRestoredFromSave=true.
+                    bool hasOrphanedLimboTree = RecordingStore.HasPendingTree
+                        && RecordingStore.PendingTreeStateValue == PendingTreeState.Limbo
+                        && !activeTreeRestoredFromSave;
                     bool isRevert = !isVesselSwitch
                                     && (savedEpoch < MilestoneStore.CurrentEpoch
-                                        || totalSavedRecCount < recordings.Count);
+                                        || totalSavedRecCount < recordings.Count
+                                        || (isFlightToFlight && hasOrphanedLimboTree));
                     ParsekLog.Verbose("Scenario",
                         $"OnLoad: revert detection — savedEpoch={savedEpoch}, currentEpoch={MilestoneStore.CurrentEpoch}, " +
                         $"savedRecNodes={savedRecNodes.Length}, savedTreeRecs={savedTreeRecCount}, " +
                         $"memoryRecordings={recordings.Count}, lastOnSaveScene={lastOnSaveScene}, " +
                         $"isFlightToFlight={isFlightToFlight}, isVesselSwitch={isVesselSwitch}, isRevert={isRevert}, " +
-                        $"pendingTreeState={RecordingStore.PendingTreeStateValue}");
+                        $"pendingTreeState={RecordingStore.PendingTreeStateValue}, " +
+                        $"activeTreeRestoredFromSave={activeTreeRestoredFromSave}, hasOrphanedLimboTree={hasOrphanedLimboTree}");
                     // Discard stashed-this-transition recordings on quickload (Bug A).
                     // Must run BEFORE the isRevert branch at line ~580, because the
                     // revert branch consumes PendingStashedThisTransition for its own

@@ -58,6 +58,7 @@ Dev notes: technical narratives for the fixes below live in `docs/dev/todo-and-k
 - `#282` Landed ghost vessels and end-of-recording respawned vessels no longer clip into terrain.
 - `#297` Map view now shows custom icons for all active ghost vessels, including atmospheric/landed ghosts beyond visual range.
 - `#295` Vessels that sit idle on the launch pad are now auto-discarded instead of triggering a merge dialog.
+- `#300` Revert-to-launch on a first flight no longer silently loses the recording — the merge dialog now appears correctly instead of the recording being mistaken for a quickload resume.
 - `#280` Background debris recordings now persist their trajectory data across scene reloads.
 - `#281` Decouple events on mixed-symmetry stages are no longer lost when a terminal-event collision occurs at the same physics frame.
 - `#272` F5/F9 no longer destroys the entire launch tree.

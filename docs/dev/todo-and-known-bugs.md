@@ -4,6 +4,18 @@ Previous entries (225 bugs, 51 TODOs — mostly resolved) archived in `done/todo
 
 ---
 
+## ~~300. Revert-to-launch on first flight misdetected as quickload — recording lost, unwanted auto-restart~~
+
+On first-ever flight (no prior commits), revert-to-launch was misdetected as a quickload (F5/F9). Root cause: the revert detection formula (`savedEpoch < CurrentEpoch || totalSavedRecCount < recordings.Count`) is blind when both sides are zero — epoch never incremented and no recordings were ever committed, so the launch quicksave and in-memory state look identical.
+
+Consequence: (1) the Limbo tree was routed to the quickload-resume path instead of the revert-finalize path, auto-restarting the recording without user action; (2) no merge dialog shown; (3) on exit to main menu the tree data was lost (no OnLoad fires for MAINMENU to dispatch the pending tree).
+
+Fix: capture `TryRestoreActiveTreeNode`'s return value (previously discarded). Compute `hasOrphanedLimboTree = HasPendingTree && state==Limbo && !activeTreeRestoredFromSave`. Add `(isFlightToFlight && hasOrphanedLimboTree)` as a third disjunct to `isRevert`. Signal is unambiguous: on quickloads the save file always has the active tree (OnSave writes it), while on reverts the launch quicksave predates the recording. File: `ParsekScenario.cs:810-825`.
+
+**Status:** Fixed.
+
+---
+
 ## ~~299. Terminal EngineShutdown events survive into committed recordings via CaptureAtStop~~
 
 `PromoteToTreeForBreakup` calls `StopRecordingForChainBoundary()` which emits terminal events AND bakes them into `CaptureAtStop.PartEvents` (a copy). `RemoveLastEmittedTerminals()` only cleans the recorder's internal list, not the copy. Terminal events survive into the tree root recording via `cap.PartEvents` → `rootRec.PartEvents`.
@@ -26,7 +38,7 @@ Surfaced by 2026-04-10 Kerbal X playtest (`logs/2026-04-10_engine-plume-bug`). D
 
 1. **Playback side:** `BuildEngineEventKeySet` scans PartEvents for EngineIgnited/EngineThrottle keys. When the result is empty (ZERO engine events — pure debris recording), all engines on the ghost are auto-started at full power (`SetEngineEmission` + `ApplyHeatState(Hot)` with synthetic PartEvent). Audio auto-start uses the same `Count == 0` gate for consistency. RCS is NOT auto-started (RCS is typically idle; orphan auto-start would incorrectly fire on virtually every ghost).
 
-2. **Recording side:** `InheritedEngineState` struct carries parent's active engine/RCS keys + throttles through `OnVesselBackgrounded` → `InitializeLoadedState`. `FromRecorder`/`FromBackgroundState` factories create defensive snapshots. `MergeInheritedEngineState` (internal static, PID-filtered, add-if-absent throttle) merges inherited keys into the child's `BackgroundVesselState` after `SeedBackgroundPartStates` but before `EmitSeedEvents`. Snapshot taken in `HandleBackgroundVesselSplit` (background path) and `PromoteToTreeForBreakup`/`ProcessBreakupEvent` (foreground paths) before parent state is destroyed.
+2. **Recording side:** `InheritedEngineState` struct carries parent's active engine/RCS keys + throttles through `OnVesselBackgrounded` → `InitializeLoadedState`. `FromRecorder`/`InheritedStateFromBackgroundVessel` factories create defensive snapshots. `MergeInheritedEngineState` (internal static, PID-filtered, add-if-absent throttle) merges inherited keys into the child's `BackgroundVesselState` after `SeedBackgroundPartStates` but before `EmitSeedEvents`. Snapshot taken in `HandleBackgroundVesselSplit` (background path) and `PromoteToTreeForBreakup`/`ProcessBreakupEvent` (foreground paths) before parent state is destroyed.
 
 **Tests:** `OrphanEngineFxAutoStartTests.cs` (10 tests: BuildEngineEventKeySet + integration). `BackgroundRecorderTests.cs` (10 tests: MergeInheritedEngineState with PID filtering, add-if-absent, null handling, throttle-key-missing fallback, logging).
 
