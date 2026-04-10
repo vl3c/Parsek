@@ -1061,20 +1061,30 @@ namespace Parsek
             if (recorder.IsRecording)
                 recorder.ForceStop();
 
-            string vesselName = FlightGlobals.ActiveVessel != null
-                ? FlightGlobals.ActiveVessel.vesselName
-                : "Unknown Vessel";
-
             var captured = recorder.CaptureAtStop;
+            // #304: prefer CaptureAtStop.VesselName (already resolved by BuildCaptureRecording),
+            // resolve fallback to avoid raw #autoLOC keys in recording VesselName.
+            string vesselName = captured?.VesselName
+                ?? (FlightGlobals.ActiveVessel != null
+                    ? Recording.ResolveLocalizedName(FlightGlobals.ActiveVessel.vesselName)
+                    : "Unknown Vessel");
+
+            // #305: stash with Limbo state on FLIGHT->FLIGHT transitions so the recording
+            // survives DiscardStashedOnQuickload and can be dispatched by OnLoad (parallel
+            // to tree Limbo pattern). On non-FLIGHT destinations, use Finalized (existing behavior).
+            var stashState = RecordingStore.PendingDestinationScene == GameScenes.FLIGHT
+                ? PendingStandaloneState.Limbo
+                : PendingStandaloneState.Finalized;
+
             RecordingStore.StashPending(
                 recorder.Recording,
                 vesselName,
                 recorder.OrbitSegments,
                 recordingId: captured != null ? captured.RecordingId : null,
                 recordingFormatVersion: captured != null ? (int?)captured.RecordingFormatVersion : null,
-
                 partEvents: recorder.PartEvents,
-                flagEvents: recorder.FlagEvents);
+                flagEvents: recorder.FlagEvents,
+                state: stashState);
 
             // Use stop-time atomic capture when available; fallback to scene-change capture.
             // ApplyPersistenceArtifactsFrom copies chain/ParentRecordingId/EvaCrewName from
@@ -1358,8 +1368,11 @@ namespace Parsek
             if (recorder.IsRecording)
                 recorder.ForceStop();
 
+            // #304: CaptureAtStop.VesselName is already resolved; resolve fallback too.
             string vesselName = recorder.CaptureAtStop?.VesselName
-                ?? (FlightGlobals.ActiveVessel != null ? FlightGlobals.ActiveVessel.vesselName : "Unknown Vessel");
+                ?? (FlightGlobals.ActiveVessel != null
+                    ? Recording.ResolveLocalizedName(FlightGlobals.ActiveVessel.vesselName)
+                    : "Unknown Vessel");
 
             var captured = recorder.CaptureAtStop;
             RecordingStore.StashPending(
@@ -5537,11 +5550,13 @@ namespace Parsek
             // Stop any continuation sampling
             chainManager.StopAllContinuations("commit flight");
 
-            string vesselName = FlightGlobals.ActiveVessel != null
-                ? FlightGlobals.ActiveVessel.vesselName
-                : "Unknown Vessel";
-
             var captured = recorder.CaptureAtStop;
+            // #304: prefer CaptureAtStop.VesselName (already resolved by BuildCaptureRecording),
+            // resolve fallback to avoid raw #autoLOC keys in recording VesselName.
+            string vesselName = captured?.VesselName
+                ?? (FlightGlobals.ActiveVessel != null
+                    ? Recording.ResolveLocalizedName(FlightGlobals.ActiveVessel.vesselName)
+                    : "Unknown Vessel");
 
             // Stash as pending recording (reuses OnSceneChangeRequested pattern)
             RecordingStore.StashPending(
