@@ -31,6 +31,7 @@ Dev notes: technical narratives for the fixes below live in `docs/dev/todo-and-k
 ### Developer Tools
 
 - `#269` Test runner now survives scene transitions (`Instantly + DontDestroyOnLoad`), enabling multi-scene coroutine tests. Three QuickloadResume in-game tests added: bridge canary, mid-recording resume identity, reentrancy guard verification.
+- `#265` Nine in-game tests added for code paths xUnit can't reach (AudioSource dependency): ghost audio pause/unpause, terminal orbit backfill from orbit segments, and part-state seeder consistency.
 
 ### Bug Fixes & Maintenance
 
