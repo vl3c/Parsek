@@ -522,7 +522,7 @@ namespace Parsek
         {
             ParsekLog.Verbose(Tag,
                 $"CheckOverlapAgainstLoadedVessels: checking spawn at ({spawnWorldPos.x.ToString("F0", IC)},{spawnWorldPos.y.ToString("F0", IC)},{spawnWorldPos.z.ToString("F0", IC)}) " +
-                $"padding={padding.ToString("F1", IC)}m against {FlightGlobals.Vessels.Count} vessels skipActiveVessel={skipActiveVessel}");
+                $"padding={padding.ToString("F1", IC)}m against {FlightGlobals.Vessels.Count} vessels, skipActiveVessel={skipActiveVessel}");
 
             bool anyOverlap = false;
             float closestDist = float.MaxValue;
