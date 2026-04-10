@@ -885,8 +885,27 @@ namespace Parsek
                         {
                             if (RecordingStore.HasPendingTree)
                             {
-                                ParsekLog.Info("Scenario", "Clearing orphaned pending tree on revert (stale from previous flight)");
-                                RecordingStore.DiscardPendingTree();
+                                // Limbo trees are stashed for OnLoad dispatch (merge dialog
+                                // accept → StashActiveTreeAsPendingLimbo). The quickload
+                                // discard path (DiscardPendingOnQuickload) correctly preserves
+                                // them but resets PendingStashedThisTransition, so the flag
+                                // is false by the time we get here. Check the state instead
+                                // of relying solely on the flag — Limbo trees are never
+                                // orphaned (#290).
+                                var treeState = RecordingStore.PendingTreeStateValue;
+                                if (treeState == PendingTreeState.Limbo
+                                    || treeState == PendingTreeState.LimboVesselSwitch)
+                                {
+                                    ParsekLog.Info("Scenario",
+                                        $"Revert: keeping pending Limbo tree " +
+                                        $"'{RecordingStore.PendingTree?.TreeName}' " +
+                                        $"(state={treeState}) — stashed for dispatch");
+                                }
+                                else
+                                {
+                                    ParsekLog.Info("Scenario", "Clearing orphaned pending tree on revert (stale from previous flight)");
+                                    RecordingStore.DiscardPendingTree();
+                                }
                             }
                             if (RecordingStore.HasPending)
                             {
