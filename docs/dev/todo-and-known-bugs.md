@@ -1120,13 +1120,13 @@ Group headers in the recordings window do not have a hide checkbox to toggle hid
 
 **Status:** Fixed — group hide checkbox now toggles Hidden on all member recordings.
 
-## 253. Kerbin texture disappears during capsule descent watch at ~1100 km
+## ~~253. Kerbin texture disappears during capsule descent watch at ~1100 km~~
 
 While watching the recording of capsule descent, the Kerbin terrain/atmosphere texture disappeared when the camera anchor was approximately 1100 km from the camera. This is a KSP/Unity scaled-space transition issue: KSP switches between the high-detail terrain mesh and the scaled-space sphere at a distance threshold that depends on camera position relative to the body. When the watch camera is anchored on a vessel far from the ghost (which is near Kerbin), the camera-to-body distance calculation may exceed KSP's scaledSpace transition threshold, causing the terrain to unload.
 
 **Observed in:** Mun mission 2026-04-08.
 
-**Priority:** Low — KSP engine limitation, not fixable from mod code without overriding PQS/scaledSpace transition logic. Workaround: reduce watch cutoff distance in Settings.
+**Status:** Closed (won't fix) — native KSP/Unity PQS/scaledSpace transition behavior, not controllable from mod code. Workaround: reduce watch cutoff distance in Settings.
 
 ## ~~254. Capsule spawned with wrong crew (Siemon instead of Jeb)~~
 
@@ -1281,7 +1281,7 @@ During the 2026-04-09 Butterfly Rover playtest, Valentina's EVA ended near the r
 - ~~`VesselSpawner.StripEvaLadderState` (`VesselSpawner.cs:1034`) writes the literal FSM state `"idle"` which is not a valid `KerbalEVA` state name (real names are `st_idle_gr` / `st_idle_fl` / `st_swim_idle`). `StartEVA` catches the unknown-state exception and falls back to a `SurfaceContact`-driven default state so this is functionally correct but cosmetically broken.~~ **Fixed:** replaced `SetValue("state", "idle", true)` with `RemoveValue("state")` so the FSM initializes fresh with the correct `st_*` name picked by `KerbalEVA.StartEVA` based on situation.
 - Triple-correction-layer cleanup: `CorrectUnsafeSnapshotSituation` (runs in `PrepareSnapshotForSpawn`) corrects `snapshot.sit`, then `SpawnAtPosition.DetermineSituation` ignores `snapshot.sit` and recomputes, then `OverrideSituationFromTerminalState` is a third layer. Replacing `DetermineSituation` with "read corrected `snapshot.sit` first, fall through to altitude/velocity classifier only if still FLYING" would produce a cleaner invariant with no new helper.
 
-## 265. Ghost audio + BackgroundRecorder seed-skip — in-game test coverage gap
+## ~~265. Ghost audio + BackgroundRecorder seed-skip — in-game test coverage gap~~
 
 xUnit can't exercise any code path that touches `UnityEngine.AudioSource` (directly or transitively via the `audioInfos` foreach) because the test runner can't load `UnityEngine.AudioModule.dll` — attempts produce *"ECall methods must be packaged into a system module"* even for a null-state early return. This blocks unit test coverage for:
 
@@ -1290,13 +1290,13 @@ xUnit can't exercise any code path that touches `UnityEngine.AudioSource` (direc
 - `BackgroundRecorder.InitializeLoadedState` seed-event skip predicate (needs a live Vessel + tree, not just the `PartEvents.Count > 0` check which would be tautological)
 - `ParsekFlight.FinalizeIndividualRecording` backfill order-of-operations (#259 fix) — needs a live Vessel
 
-**Fix plan:** add `InGameTest` coverage under `Source/Parsek/InGameTests/` that runs inside a live KSP runtime where these types actually work. Specifically:
+**Fix:** Added 9 in-game tests across 3 categories in `RuntimeTests.cs`:
 
-- A category under `[InGameTest(Category = "GhostAudio")]` that spawns a ghost with a known audio source, fires `GameEvents.onGamePause`, asserts the audio source is paused, fires `onGameUnpause`, asserts resume.
-- A `FinalizeTreeBackfill` in-game test that constructs a recording in memory with `TerminalStateValue = Orbiting` but empty `TerminalOrbitBody` and a mock orbit segment, runs the finalize path, asserts `TerminalOrbitBody` is populated via the fallback.
-- A `BackgroundRecorderSeedSkip` in-game test that initializes a background state on a recording that already has part events, asserts no duplicate seed events were emitted.
+- **GhostAudio** (5 tests): null-state safety, empty-audioInfos safety, real `AudioSource` pause/unpause cycle, `OneShotAudio` pause/unpause, engine-level `PauseAllGhostAudio`/`UnpauseAllGhostAudio` on live `GhostPlaybackEngine`.
+- **FinalizeBackfill** (2 tests): `TerminalOrbitBody` backfill from `OrbitSegment` when vessel not found (exercises `PopulateTerminalOrbitFromLastSegment` fallback path), and no-overwrite when `TerminalOrbitBody` already populated.
+- **BackgroundSeeder** (2 tests): `PartStateSeeder.EmitSeedEvents` with real vessel parts (validates consistency — re-seeding produces identical events with no internal duplicates), and double-seed demonstration (proves the `Count > 0` guard prevents duplicate events).
 
-**Priority:** Low — the code paths are simple enough that review caught the issues in commit 77bce7c, and the production playtest will exercise them end-to-end. In-game tests harden against future regressions.
+**Status:** Fixed.
 
 ## ~~266. Tree-preservation on vessel switch (quickload-resume follow-up)~~
 
