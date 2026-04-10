@@ -303,7 +303,7 @@ Recommended: option 1 (don't create the placeholder).
 
 ---
 
-## 283. MergeTree boundary discontinuity warnings — possible ghost position pops at section boundaries
+## ~~283. MergeTree boundary discontinuity warnings — possible ghost position pops at section boundaries~~
 
 Surfaced by the post-PR-#167 Kerbal X playtest. `MergeTree` emitted 8 `boundary discontinuity` WARN lines across 3 vessels:
 
@@ -313,21 +313,21 @@ Surfaced by the post-PR-#167 Kerbal X playtest. `MergeTree` emitted 8 `boundary 
 
 Source: `SessionMerger.MergeTree`'s diagnostic that compares the last frame of section N to the first frame of section N+1 and warns if the gap exceeds a threshold. The discontinuity represents a position pop that ghost playback would render as a teleport at the section boundary.
 
-**Suspected causes** (need investigation):
-- **Atmosphere split (#258 sibling)**: when a recording is split at the atmosphere boundary, the optimizer uses the last in-atmo point and the first exo point — these can be at slightly different UTs, and any extrapolation gap during the boundary handling could produce a meter-scale jump.
-- **Reference frame transition** (Atmospheric → ExoBallistic): the conversion between absolute and orbital-checkpoint frames can introduce small position errors, especially around 70 km altitude.
-- **EVA boundary** (Bill / Jebediah): an EVA branch creates a new TrackSection at the boarding/disembarking UT — the parent vessel's last position vs the EVA kerbal's first position might not be perfectly co-located.
-- **Quickload-resume boundary**: PR #160's restore path may sample the first post-resume point at a slightly different position than the pre-F5 checkpoint anchor.
+**Root cause (confirmed):** Two independent issues producing spurious or real discontinuity warnings:
 
-**Investigation steps**:
-1. Reproduce in a focused test: launch a fresh vessel, climb past 70 km, F5+F9 once, EVA, board, finish recording.
-2. Check whether the discontinuity correlates with environment changes, reference frame transitions, EVA branches, or save/load events.
-3. For each kind of boundary, identify which side (last-of-prev or first-of-next) is the "wrong" sample and trace its source.
-4. Decide whether the fix is in the recording side (sample the boundary correctly) or the playback side (interpolate across the discontinuity).
+1. **Missing boundary point in new section:** When an environment transition occurs (e.g., Atmospheric → ExoBallistic at 70 km), `SamplePosition(v)` records a boundary point into the closing section's frames, then `CloseCurrentTrackSection` + `StartNewTrackSection` opens a new empty section. The new section's first frame doesn't arrive until the next physics frame (or later if adaptive sampling skips), during which the vessel moves at high velocity (77 m at ~2000 m/s near atmosphere boundary). Same pattern in BackgroundRecorder.
 
-**Impact**: Low. The discontinuities are 3–77 m, which manifests as a small ghost teleport during playback at section boundaries. Not a data loss, not a gameplay blocker. May be visually noticeable on close-watch ghosts but not on map-view ghosts.
+2. **Cross-reference-frame false positives:** `ComputeBoundaryDiscontinuity` compared lat/lon/alt fields between ABSOLUTE and RELATIVE sections. RELATIVE sections store dx/dy/dz offsets in those fields — comparing them to ABSOLUTE lat/lon/alt is meaningless and produces garbage distance values.
 
-**Priority**: Low. Cosmetic. Worth a focused investigation pass when working on related areas (TrackSection boundary handling, environment transition logic, EVA branching).
+**Fix:** Boundary point seeding + cross-reference-frame skip.
+- `FlightRecorder.UpdateEnvironmentTracking`: captures the boundary point from the closing section and seeds it as the first frame of the new section via `GetLastTrackSectionFrame` + `SeedBoundaryPoint`. Only writes to TrackSection frames (not the flat Recording list, which already has the point).
+- `BackgroundRecorder`: same pattern via `GetLastBackgroundFrame` + `SeedBackgroundBoundaryPoint` at the environment transition site.
+- `SessionMerger.ComputeBoundaryDiscontinuity`: returns 0 when `prev.referenceFrame != next.referenceFrame`, skipping nonsensical cross-frame comparisons.
+- Discontinuity warning log now includes `prevRef`/`nextRef` and `prevSrc`/`nextSrc` for future diagnostics.
+
+**Remaining residual:** Cross-source section boundaries (Active→Background handoff) can still produce small discontinuities because the two recorders sample independently at different moments. This is inherent to the architecture and produces only sub-meter gaps under normal conditions. No fix needed.
+
+**Status:** Fixed
 
 ---
 
