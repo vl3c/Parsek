@@ -24,6 +24,7 @@ Dev notes: technical narratives for the fixes below live in `docs/dev/todo-and-k
 ### Bug Fixes & Maintenance
 
 - `#283` Fixed ghost position pops at TrackSection boundaries by seeding the new section with the closing section's boundary point; also skips spurious cross-reference-frame discontinuity warnings.
+- `#294` Ghost engine/RCS flames now auto-start on debris booster ghosts whose engines were running at separation.
 
 - `#291` EVA spawn walkback now correctly detects the active vessel (parent rocket) as a blocker, so kerbals walk back to a clear position instead of spawning on top of their parent vessel.
 - `#285` Background vessel splits no longer create empty parent-continuation recordings when the parent vessel is already destroyed.

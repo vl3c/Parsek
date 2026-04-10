@@ -4,6 +4,22 @@ Previous entries (225 bugs, 51 TODOs — mostly resolved) archived in `done/todo
 
 ---
 
+## ~~294. Ghost engine/RCS flames missing on debris booster ghosts after staging~~
+
+Surfaced by 2026-04-10 Kerbal X playtest (`logs/2026-04-10_engine-plume-bug`). Debris booster ghosts (child recordings from decoupled boosters) show NO engine flames, even though the boosters were still burning at separation. Audio plays correctly.
+
+**Root cause (playback side):** `GhostPlaybackLogic.PopulateGhostInfoDictionaries` had orphan engine detection that auto-started **audio** for engines with no EngineIgnited/EngineThrottle events (lines 734-764), but did NOT auto-start **visual FX** (particle systems + KSP emitters). The `engineKeysWithEvents` HashSet was built inside the audio-only `if` block and never used to activate engine particle systems.
+
+**Contributing cause (recording side, NOT fixed in this PR):** `BackgroundRecorder.InitializeLoadedState` seeds engine state via `PartStateSeeder.SeedEngines` which checks `engine.EngineIgnited && engine.isOperational`. By the time the BgRecorder initializes (~1 frame after decouple), the debris engine's fuel supply is severed, so `isOperational` is false → zero engine seed events in debris recordings. The parent recorder's `EmitTerminalEngineAndRcsEvents` knows which engines were active but this info is not passed to child recordings. Future fix: inherit parent active engine/RCS state into child recordings at decouple time.
+
+**Fix:** Refactored orphan detection: extracted `BuildOrphanKeySets` (single-pass scan building engine + RCS key sets) and `FindOrphanKeys` (pure set-difference). Added engine FX orphan auto-start block (calls `SetEngineEmission` + `ApplyHeatState(Hot)` with synthetic PartEvent) and RCS FX orphan auto-start block (calls `SetRcsEmission` + `ApplyHeatState(Hot)`). Both mirror the existing audio orphan auto-start pattern.
+
+**Tests** (`OrphanEngineFxAutoStartTests.cs`, 15 tests): BuildOrphanKeySets (8 tests: empty, null, EngineIgnited, EngineThrottle, RCSActivated, RCSThrottle, mixed, EngineShutdown-not-collected), FindOrphanKeys (5 tests: all-orphan, mixed, none, null, multi-module), integration (2 tests: debris booster pattern, main vessel with seeds).
+
+**Status:** Fixed.
+
+---
+
 ## ~~292. Recording optimizer "deletes" outer-space recordings after F9 quickload (game-breaking)~~
 
 Surfaced by the 2026-04-10 Kerbal X Mun-flyby playtest (worktree `Parsek-investigate-280-285`, branch `investigate-280-285`). The user reported: *"the rec optimizer (maybe because of f5 f9 interaction?) deleted all the recordings of the trip in outer space (they were ok initially). At the end after a rewind I could only see the launch and 2 very small recordings of the end of the mission. This is game breaking."*
