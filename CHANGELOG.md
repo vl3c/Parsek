@@ -6,6 +6,10 @@ All notable changes to Parsek are documented here.
 
 ## 0.7.3
 
+### Improvements
+
+- Migrated 9 log contract checks from post-hoc KSP.log analysis to in-game tests (Ctrl+Shift+T) -- catches format, resource, and recording metric issues at runtime instead of after session ends.
+
 ### Bug Fixes
 
 - `#241` Ghost parts with the base/default color variant (e.g., BlackAndWhite fuel tanks) no longer show the wrong variant texture (was Orange).
