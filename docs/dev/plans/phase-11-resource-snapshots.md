@@ -962,14 +962,90 @@ Inventory:
 
 **KIS (Kerbal Inventory System):** v1 targets stock ModuleInventoryPart only. KIS uses `ModuleKISInventory` with a different format. Invisible to extraction. KIS compatibility is Phase 15 territory.
 
-### Implementation order
+---
 
-Inventory tasks slot after the resource manifest tasks:
+## Extension: Crew Manifests
+
+### Goal
+
+Capture crew composition by trait (Pilot, Scientist, Engineer, Tourist) at recording start and end. A crew transport route delivers "2 engineers and 1 scientist" per cycle, not specific named kerbals. This is the third manifest type alongside resources and inventory.
+
+### Extraction
+
+Crew data is already in the vessel snapshot — each PART node has `crew` values listing kerbal names. The kerbal roster (`HighLogic.CurrentGame.CrewRoster`) maps each name to a `ProtoCrewMember` with a `trait` field (Pilot/Scientist/Engineer/Tourist).
+
+```csharp
+// In VesselSpawner.cs
+internal static Dictionary<string, int> ExtractCrewManifest(ConfigNode vesselSnapshot)
+```
+
+**Algorithm:**
+
+```
+Walk PART nodes, collect all crew values (kerbal names)
+For each name, look up trait from roster (or from the PART's ProtoCrewMember data)
+Group by trait, count per trait
+Return Dictionary<string, int>: { "Pilot": 1, "Engineer": 2, "Scientist": 1 }
+Return null if no crew found
+```
+
+**Alternative (no roster lookup):** The vessel snapshot's PART > CREW nodes may contain trait information directly. If so, extraction is pure ConfigNode walking without needing `CrewRoster`. Needs investigation — check if ProtoCrewMember trait is serialized in the PART's crew data.
+
+### Recording fields
+
+```csharp
+internal Dictionary<string, int> StartCrew;  // null = no data
+internal Dictionary<string, int> EndCrew;     // null = no data
+```
+
+Serialized as `CREW_MANIFEST` ConfigNode (same additive pattern):
+
+```
+CREW_MANIFEST
+{
+    TRAIT { name = Pilot  startCount = 1  endCount = 1 }
+    TRAIT { name = Engineer  startCount = 2  endCount = 0 }
+    TRAIT { name = Scientist  startCount = 1  endCount = 0 }
+}
+```
+
+### UI display
+
+```
+Crew:
+  Pilot: 1 → 1 (unchanged)
+  Engineer: 2 → 0 (-2)
+  Scientist: 1 → 0 (-1)
+```
+
+### Phase 12 implications
+
+Crew delivery is the most complex of the three manifest types because it interacts with Parsek's existing crew reservation system:
+
+- **Route delivers by trait, not name.** "Send 2 engineers" picks whoever's available at the origin. For KSC origins, this means available kerbals from the astronaut complex. For non-KSC origins, this means crew seated in origin vessels.
+- **Crew reservation must account for route demand.** If a route needs 2 engineers per cycle, those engineers need to be reserved (not assigned to other missions) before dispatch.
+- **Moving crew on unloaded vessels** means modifying `ProtoPartSnapshot` crew lists and updating `ProtoCrewMember.seatIdx`/`rosterStatus` — similar complexity to inventory delivery.
+
+**Recommendation:** Same as inventory — capture crew manifests in Phase 11, defer delivery to Phase 12 v1.1 or v2. Liquid resources first, then inventory, then crew. Each layer adds complexity to the route dispatch evaluation.
+
+### Edge cases
+
+**Tourist contracts:** Tourists are valid "crew type" cargo but have contract implications. A tourist transport route might interfere with active tourism contracts. v1: capture tourists in the manifest, let Phase 12 decide whether to include them in route automation.
+
+**Crew experience and level:** The manifest tracks trait and count, not level. A route requesting "2 engineers" gets whichever engineers are available, regardless of star level. Level-aware routing is v2.
+
+**Crew capacity:** Analogous to inventory slots — destination vessel needs empty seats. Capture `crewCapacity` (sum of part crew capacity) alongside the crew manifest for Phase 12 capacity checks.
+
+---
+
+### Implementation order (all three manifest types)
 
 ```
 T11.1 → T11.5 → T11.2 → T11.3 → T11.4  (resource manifests — done)
     ↓
 T11-INV.1 → T11-INV.2 → T11-INV.3 → T11-INV.4 → T11-INV.5  (inventory manifests)
+    ↓
+T11-CREW.1 → T11-CREW.2 → T11-CREW.3 → T11-CREW.4  (crew manifests)
 ```
 
-Each inventory task mirrors the corresponding resource task and follows the same patterns. Total new code: ~200 lines implementation + ~200 lines tests.
+Each manifest type mirrors the same pattern. Crew is lightest (simplest data model, smallest ConfigNode structure) but has the most complex Phase 12 delivery implications due to reservation system interaction.
