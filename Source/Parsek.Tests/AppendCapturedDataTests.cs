@@ -198,5 +198,45 @@ namespace Parsek.Tests
             Assert.Single(target.PartEvents);
             Assert.Single(target.TrackSections);
         }
+
+        [Fact]
+        public void FlagEvents_AppendedAndSorted()
+        {
+            // T55: FlagEvents were missing from AppendCapturedDataToRecording.
+            // Verifies they are now appended and stable-sorted by UT.
+            var target = new Recording();
+            target.FlagEvents.Add(new FlagEvent { ut = 100.0, flagSiteName = "Flag A" });
+
+            var source = new Recording();
+            source.Points.Add(MakePoint(50.0));
+            source.Points.Add(MakePoint(200.0));
+            source.FlagEvents.Add(new FlagEvent { ut = 50.0, flagSiteName = "Flag B" });
+
+            ParsekFlight.AppendCapturedDataToRecording(target, source, 200.0);
+
+            Assert.Equal(2, target.FlagEvents.Count);
+            Assert.Equal(50.0, target.FlagEvents[0].ut);
+            Assert.Equal(100.0, target.FlagEvents[1].ut);
+        }
+
+        [Fact]
+        public void SegmentEvents_AppendedAndSorted()
+        {
+            // T55: SegmentEvents were missing from AppendCapturedDataToRecording.
+            // Verifies they are now appended and stable-sorted by UT.
+            var target = new Recording();
+            target.SegmentEvents.Add(new SegmentEvent { ut = 200.0, type = SegmentEventType.PartDestroyed });
+
+            var source = new Recording();
+            source.Points.Add(MakePoint(100.0));
+            source.Points.Add(MakePoint(300.0));
+            source.SegmentEvents.Add(new SegmentEvent { ut = 100.0, type = SegmentEventType.TimeJump });
+
+            ParsekFlight.AppendCapturedDataToRecording(target, source, 300.0);
+
+            Assert.Equal(2, target.SegmentEvents.Count);
+            Assert.Equal(100.0, target.SegmentEvents[0].ut);
+            Assert.Equal(200.0, target.SegmentEvents[1].ut);
+        }
     }
 }

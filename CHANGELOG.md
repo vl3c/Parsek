@@ -9,6 +9,8 @@ All notable changes to Parsek are documented here.
 ### Bug Fixes
 
 - `#241` Ghost parts with the base/default color variant (e.g., BlackAndWhite fuel tanks) no longer show the wrong variant texture (was Orange).
+- `#297` Vessel destruction during tree recording no longer orphans continuation data as a standalone recording.
+- `T55` FlagEvents and SegmentEvents are now preserved across tree recording splits and flushes.
 
 ---
 
