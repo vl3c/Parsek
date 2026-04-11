@@ -286,7 +286,7 @@ Follow-up to bug #271 (always-tree unification). The runtime now always creates 
 - Standalone RECORDING serialization in `ParsekScenario.OnSave`/`OnLoad`
 - `PARSEK_ACTIVE_STANDALONE` migration shim in `TryRestoreActiveStandaloneNode`
 
-To remove: collapse `committedRecordings` into `committedTrees` (every recording accessed through its parent tree), delete the standalone pending slot, delete standalone merge dialog, delete standalone RECORDING serialization, delete chain segment standalone commit paths (dead code in always-tree mode). This is a ~55-file refactor.
+To remove: collapse `committedRecordings` into `committedTrees` (every recording accessed through its parent tree), delete the standalone pending slot, delete standalone merge dialog, delete standalone RECORDING serialization, delete chain segment standalone commit paths (dead code in always-tree mode). Also update `RunOptimizationPass` (RecordingStore.cs) -- it currently operates on the flat `committedRecordings` list and produces standalone chain-linked recordings on splits. After unification it should operate on tree recordings and keep output within tree structure. This is a ~55-file refactor.
 
 Prerequisite: delete all old save files (no users yet, clean slate).
 
