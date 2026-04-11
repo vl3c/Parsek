@@ -189,8 +189,10 @@ namespace Parsek
 
                     GUILayout.EndHorizontal();
 
-                    // Error message if failed
-                    if (test.Status == TestStatus.Failed && !string.IsNullOrEmpty(test.ErrorMessage))
+                    // Always render error row — conditional begin/end causes
+                    // Layout/Repaint control count mismatch when status changes mid-frame.
+                    bool showError = test.Status == TestStatus.Failed && !string.IsNullOrEmpty(test.ErrorMessage);
+                    if (showError)
                     {
                         GUILayout.BeginHorizontal();
                         GUILayout.Space(40);
@@ -198,6 +200,12 @@ namespace Parsek
                         GUI.contentColor = Color.red;
                         GUILayout.Label(test.ErrorMessage, GUILayout.MaxWidth(320));
                         GUI.contentColor = prevCol;
+                        GUILayout.EndHorizontal();
+                    }
+                    else
+                    {
+                        GUILayout.BeginHorizontal();
+                        GUILayout.Label("", GUILayout.Height(0));
                         GUILayout.EndHorizontal();
                     }
                 }
@@ -277,11 +285,17 @@ namespace Parsek
             GUILayout.EndHorizontal();
             GUILayout.Label("Ctrl+Shift+T to toggle from any scene", GUI.skin.label);
 
-            // Tooltip
-            if (!string.IsNullOrEmpty(GUI.tooltip))
+            // Always render tooltip label — conditional rendering causes
+            // Layout/Repaint control count mismatch (IMGUI exception).
+            string tooltip = GUI.tooltip ?? "";
+            if (tooltip.Length > 0)
             {
                 GUILayout.Space(SpacingSmall);
-                GUILayout.Label(GUI.tooltip, GUI.skin.box);
+                GUILayout.Label(tooltip, GUI.skin.box);
+            }
+            else
+            {
+                GUILayout.Label("", GUILayout.Height(0));
             }
 
             GUI.DragWindow();
