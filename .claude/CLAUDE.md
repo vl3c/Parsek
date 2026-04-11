@@ -62,7 +62,7 @@ Key source files and what they do - read the relevant one before modifying:
 - `UI/GroupPickerUI.cs` - group picker popup (recording/chain group assignment)
 - `UI/SpawnControlUI.cs` - Real Spawn Control window (nearby vessel proximity spawning)
 - `UI/ActionsWindowUI.cs` - Game Actions window (ledger display, budget, retired kerbals)
-- `InGameTests/` - runtime test framework: `InGameTestAttribute` (discovery), `InGameAssert` (assertions), `InGameTestRunner` (execution + results export), `TestRunnerShortcut` (global Ctrl+Shift+T addon), `RuntimeTests` (74 tests across 21 categories)
+- `InGameTests/` - runtime test framework: `InGameTestAttribute` (discovery), `InGameAssert` (assertions), `InGameTestRunner` (execution + results export), `TestRunnerShortcut` (global Ctrl+Shift+T addon), `RuntimeTests` (74 tests across 21 categories), `LogContractTests` (log format/level/resource validation migrated from post-hoc KSP.log checker)
 - `SelectiveSpawnUI.cs` - pure static methods for Real Spawn Control (proximity candidates, countdown formatting)
 - `ParsekScenario.cs` - ScenarioModule for save/load, coroutine hosting, scene transitions
 - `CrewReservationManager.cs` - crew reservation lifecycle (reserve/unreserve/swap/clear)
@@ -98,8 +98,11 @@ git worktree add ../Parsek-<branch-name> -b <branch-name> HEAD
 
 ```bash
 grep "[Parsek]" "Kerbal Space Program/KSP.log"    # all diagnostic logs
-pwsh -File scripts/validate-ksp-log.ps1            # structured log validation
+pwsh -File scripts/validate-ksp-log.ps1            # log pipeline health check (4 rules: session markers, recording start/stop)
+python scripts/collect-logs.py [label] [--save NAME]  # gather all logs/saves/test results into ../logs/ timestamped folder
 ```
+
+When asked to debug an issue, run `python scripts/collect-logs.py <label>` first to snapshot all relevant state, then work from the collected files. The script also runs the log validation automatically. Output goes to `../logs/` (sibling of repo root, outside git).
 
 Alt+F12 opens Unity debug console in-game.
 
