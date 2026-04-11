@@ -148,6 +148,13 @@ namespace Parsek
         internal Dictionary<string, ResourceAmount> StartResources;
         internal Dictionary<string, ResourceAmount> EndResources;
 
+        // Inventory manifests (Phase 11) — per-item count/slots at recording start and end
+        // null = no data (legacy recording or no inventory items)
+        internal Dictionary<string, InventoryItem> StartInventory;
+        internal Dictionary<string, InventoryItem> EndInventory;
+        public int StartInventorySlots;  // total inventory slot capacity at start (0 = no data / no inventory)
+        public int EndInventorySlots;    // total inventory slot capacity at end
+
         // PID of vessel docked to at this segment's boundary (0 = not a dock segment)
         public uint DockTargetVesselPid;
 
@@ -325,6 +332,10 @@ namespace Parsek
                 ? new List<AntennaSpec>(source.AntennaSpecs) : null;
             StartResources = source.StartResources;
             EndResources = source.EndResources;
+            StartInventory = source.StartInventory;
+            EndInventory = source.EndInventory;
+            StartInventorySlots = source.StartInventorySlots;
+            EndInventorySlots = source.EndInventorySlots;
             DockTargetVesselPid = source.DockTargetVesselPid;
 
             // Copy segment events and tracks if source has them

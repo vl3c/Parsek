@@ -3268,6 +3268,123 @@ namespace Parsek
                 $"DeserializeResourceManifest: loaded={loaded} skipped={skipped} for recording={rec.RecordingId}");
         }
 
+        /// <summary>
+        /// Serializes StartInventory and EndInventory dictionaries into an INVENTORY_MANIFEST
+        /// ConfigNode on the given parent. Each item becomes an ITEM child node with
+        /// name, startCount, startSlots, endCount, endSlots fields.
+        /// No-op if both StartInventory and EndInventory are null or empty.
+        /// </summary>
+        internal static void SerializeInventoryManifest(ConfigNode parent, Recording rec)
+        {
+            bool hasStart = rec.StartInventory != null && rec.StartInventory.Count > 0;
+            bool hasEnd = rec.EndInventory != null && rec.EndInventory.Count > 0;
+            if (!hasStart && !hasEnd)
+                return;
+
+            ConfigNode manifestNode = parent.AddNode("INVENTORY_MANIFEST");
+
+            // Build merged key set from StartInventory ∪ EndInventory
+            var keys = new HashSet<string>();
+            if (hasStart)
+                foreach (var k in rec.StartInventory.Keys) keys.Add(k);
+            if (hasEnd)
+                foreach (var k in rec.EndInventory.Keys) keys.Add(k);
+
+            int count = 0;
+            foreach (var name in keys)
+            {
+                ConfigNode itemNode = manifestNode.AddNode("ITEM");
+                itemNode.AddValue("name", name);
+
+                if (hasStart && rec.StartInventory.TryGetValue(name, out var startItem))
+                {
+                    itemNode.AddValue("startCount", startItem.count.ToString(CultureInfo.InvariantCulture));
+                    itemNode.AddValue("startSlots", startItem.slotsTaken.ToString(CultureInfo.InvariantCulture));
+                }
+
+                if (hasEnd && rec.EndInventory.TryGetValue(name, out var endItem))
+                {
+                    itemNode.AddValue("endCount", endItem.count.ToString(CultureInfo.InvariantCulture));
+                    itemNode.AddValue("endSlots", endItem.slotsTaken.ToString(CultureInfo.InvariantCulture));
+                }
+
+                count++;
+            }
+
+            ParsekLog.Verbose("RecordingStore",
+                $"SerializeInventoryManifest: wrote {count} item(s) for recording={rec.RecordingId}");
+        }
+
+        /// <summary>
+        /// Deserializes StartInventory and EndInventory from an INVENTORY_MANIFEST ConfigNode
+        /// on the given parent. Sets the dictionaries if entries are found, or leaves them null
+        /// if the node is absent (backward compatible with legacy recordings).
+        /// </summary>
+        internal static void DeserializeInventoryManifest(ConfigNode parent, Recording rec)
+        {
+            ConfigNode manifestNode = parent.GetNode("INVENTORY_MANIFEST");
+            if (manifestNode == null)
+                return;
+
+            ConfigNode[] items = manifestNode.GetNodes("ITEM");
+            if (items.Length == 0)
+                return;
+
+            int loaded = 0;
+            int skipped = 0;
+
+            for (int i = 0; i < items.Length; i++)
+            {
+                string name = items[i].GetValue("name");
+                if (string.IsNullOrEmpty(name))
+                {
+                    skipped++;
+                    continue;
+                }
+
+                // Parse start fields (if present)
+                string startCountStr = items[i].GetValue("startCount");
+                string startSlotsStr = items[i].GetValue("startSlots");
+                if (startCountStr != null || startSlotsStr != null)
+                {
+                    if (rec.StartInventory == null)
+                        rec.StartInventory = new Dictionary<string, InventoryItem>();
+
+                    int startCount = 0;
+                    int startSlots = 0;
+                    if (startCountStr != null)
+                        int.TryParse(startCountStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out startCount);
+                    if (startSlotsStr != null)
+                        int.TryParse(startSlotsStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out startSlots);
+
+                    rec.StartInventory[name] = new InventoryItem { count = startCount, slotsTaken = startSlots };
+                }
+
+                // Parse end fields (if present)
+                string endCountStr = items[i].GetValue("endCount");
+                string endSlotsStr = items[i].GetValue("endSlots");
+                if (endCountStr != null || endSlotsStr != null)
+                {
+                    if (rec.EndInventory == null)
+                        rec.EndInventory = new Dictionary<string, InventoryItem>();
+
+                    int endCount = 0;
+                    int endSlots = 0;
+                    if (endCountStr != null)
+                        int.TryParse(endCountStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out endCount);
+                    if (endSlotsStr != null)
+                        int.TryParse(endSlotsStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out endSlots);
+
+                    rec.EndInventory[name] = new InventoryItem { count = endCount, slotsTaken = endSlots };
+                }
+
+                loaded++;
+            }
+
+            ParsekLog.Verbose("RecordingStore",
+                $"DeserializeInventoryManifest: loaded={loaded} skipped={skipped} for recording={rec.RecordingId}");
+        }
+
         #endregion
 
         #region Recording File I/O

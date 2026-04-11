@@ -266,6 +266,13 @@ namespace Parsek
                 target.EndResources = absorbed.EndResources;
             // target.StartResources intentionally unchanged — represents the earlier start
 
+            // Inventory manifests: same pattern — absorbed end wins
+            if (absorbed.EndInventory != null)
+                target.EndInventory = absorbed.EndInventory;
+            if (absorbed.EndInventorySlots != 0)
+                target.EndInventorySlots = absorbed.EndInventorySlots;
+            // target.StartInventory intentionally unchanged — represents the earlier start
+
             // Dock target PID: absorbed wins if non-zero (dock may be in later segment)
             if (absorbed.DockTargetVesselPid != 0)
                 target.DockTargetVesselPid = absorbed.DockTargetVesselPid;
@@ -452,6 +459,14 @@ namespace Parsek
             original.EndResources = null;
             // original.StartResources unchanged (keeps the recording-start resources)
             // second.StartResources stays null (no snapshot at environment boundary)
+
+            // Inventory manifests: same pattern — second half gets end
+            second.EndInventory = original.EndInventory;
+            second.EndInventorySlots = original.EndInventorySlots;
+            original.EndInventory = null;
+            original.EndInventorySlots = 0;
+            // original.StartInventory unchanged (keeps the recording-start inventory)
+            // second.StartInventory stays null (no snapshot at environment boundary)
 
             second.TerminalStateValue = original.TerminalStateValue;
             original.TerminalStateValue = null;

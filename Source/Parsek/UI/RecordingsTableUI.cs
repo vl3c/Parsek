@@ -2225,6 +2225,69 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Formats an inventory manifest for tooltip display.
+        /// If both start and end: "Inventory:\n  solarPanels5: 4 -> 0 (-4)"
+        /// If start only: "Inventory at start:\n  solarPanels5: 4"
+        /// If both null: returns null (no section shown).
+        /// </summary>
+        internal static string FormatInventoryManifest(
+            Dictionary<string, InventoryItem> start,
+            Dictionary<string, InventoryItem> end)
+        {
+            if (start == null && end == null)
+                return null;
+
+            // Merge keys from both dicts
+            var keys = new SortedSet<string>();
+            if (start != null)
+                foreach (var k in start.Keys) keys.Add(k);
+            if (end != null)
+                foreach (var k in end.Keys) keys.Add(k);
+
+            if (keys.Count == 0)
+                return null;
+
+            bool hasEnd = end != null;
+            var lines = new List<string>();
+            lines.Add(hasEnd ? "Inventory:" : "Inventory at start:");
+
+            foreach (var key in keys)
+            {
+                if (hasEnd)
+                {
+                    int startCount = 0;
+                    int endCount = 0;
+                    if (start != null && start.TryGetValue(key, out var startItem))
+                        startCount = startItem.count;
+                    if (end.TryGetValue(key, out var endItem))
+                        endCount = endItem.count;
+
+                    int delta = endCount - startCount;
+                    string sign = delta >= 0 ? "+" : "";
+                    lines.Add(string.Format(CultureInfo.InvariantCulture,
+                        "  {0}: {1} -> {2} ({3}{4})",
+                        key,
+                        startCount,
+                        endCount,
+                        sign,
+                        delta));
+                }
+                else
+                {
+                    // Start only — show count
+                    int count = 0;
+                    if (start.TryGetValue(key, out var item))
+                        count = item.count;
+                    lines.Add(string.Format(CultureInfo.InvariantCulture,
+                        "  {0}: {1}",
+                        key, count));
+                }
+            }
+
+            return string.Join("\n", lines);
+        }
+
+        /// <summary>
         /// Formats situation + biome + body into a compact location string.
         /// "Flying, Shores, Kerbin" or "Orbiting, Kerbin" or "Kerbin" etc.
         /// </summary>
@@ -2494,6 +2557,10 @@ namespace Parsek
             string resourceText = FormatResourceManifest(rec.StartResources, rec.EndResources);
             if (resourceText != null)
                 text += "\n" + resourceText;
+
+            string inventoryText = FormatInventoryManifest(rec.StartInventory, rec.EndInventory);
+            if (inventoryText != null)
+                text += "\n" + inventoryText;
 
             EnsureTooltipStyle();
 

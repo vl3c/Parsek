@@ -264,6 +264,8 @@ namespace Parsek
         private ConfigNode lastGoodVesselSnapshot;
         private ConfigNode initialGhostVisualSnapshot;
         private Dictionary<string, ResourceAmount> pendingStartResources;
+        private Dictionary<string, InventoryItem> pendingStartInventory;
+        private int pendingStartInventorySlots;
         private double lastSnapshotRefreshUT = double.MinValue;
 
         // Boundary anchor: if set, inserted as the first point when recording starts.
@@ -4383,6 +4385,8 @@ namespace Parsek
             RefreshBackupSnapshot(v, "record_start", force: true);
             pendingStartResources = VesselSpawner.ExtractResourceManifest(lastGoodVesselSnapshot);
             ParsekLog.Verbose("Recorder", $"StartRecording: captured {pendingStartResources?.Count ?? 0} start resource type(s)");
+            pendingStartInventory = VesselSpawner.ExtractInventoryManifest(lastGoodVesselSnapshot, out pendingStartInventorySlots);
+            ParsekLog.Verbose("Recorder", $"StartRecording: captured {pendingStartInventory?.Count ?? 0} start inventory item type(s), {pendingStartInventorySlots} slot(s)");
             initialGhostVisualSnapshot = lastGoodVesselSnapshot != null
                 ? lastGoodVesselSnapshot.CreateCopy()
                 : VesselSpawner.TryBackupSnapshot(v);
@@ -4574,6 +4578,12 @@ namespace Parsek
             capture.StartResources = pendingStartResources;
             capture.EndResources = VesselSpawner.ExtractResourceManifest(capture.VesselSnapshot);
             ParsekLog.Verbose("Recorder", $"BuildCaptureRecording: captured {capture.EndResources?.Count ?? 0} end resource type(s)");
+            capture.StartInventory = pendingStartInventory;
+            capture.StartInventorySlots = pendingStartInventorySlots;
+            int endInvSlots;
+            capture.EndInventory = VesselSpawner.ExtractInventoryManifest(capture.VesselSnapshot, out endInvSlots);
+            capture.EndInventorySlots = endInvSlots;
+            ParsekLog.Verbose("Recorder", $"BuildCaptureRecording: captured {capture.EndInventory?.Count ?? 0} end inventory item type(s), {endInvSlots} slot(s)");
             capture.GhostVisualSnapshot = initialGhostVisualSnapshot != null
                 ? initialGhostVisualSnapshot.CreateCopy()
                 : (capture.VesselSnapshot != null ? capture.VesselSnapshot.CreateCopy() : null);
