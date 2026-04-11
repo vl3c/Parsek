@@ -631,7 +631,7 @@ namespace Parsek
                         uint.TryParse(savedEpochStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out savedEpoch);
 
                     // Count tree recordings from saved tree nodes for accurate revert detection.
-                    // Tree recordings are in committedRecordings but NOT in standalone RECORDING nodes.
+                    // All committed recordings are serialized under RECORDING_TREE nodes.
                     // Skip active-tree (in-flight) marker nodes — they're not "committed" recordings.
                     ConfigNode[] savedTreeNodesForRevert = node.GetNodes("RECORDING_TREE");
                     int savedTreeRecCount = 0;
@@ -794,7 +794,7 @@ namespace Parsek
                         // but user reverted before acting on it. Prevents OnFlightReady fallback
                         // from showing the dialog again (#64).
                         // However, if the pending was stashed during THIS scene transition
-                        // (OnSceneChangeRequested → StashPending/StashPendingTree), it is fresh
+                        // (OnSceneChangeRequested → StashPendingTree), it is fresh
                         // and must survive so OnFlightReady can show the merge dialog.
                         if (RecordingStore.PendingStashedThisTransition)
                         {

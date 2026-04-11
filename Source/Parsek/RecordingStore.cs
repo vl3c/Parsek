@@ -17,7 +17,7 @@ namespace Parsek
         /// <summary>
         /// Tree has been through <c>FinalizeTreeRecordings</c>: terminal state set,
         /// terminal orbit / position captured, snapshots preserved for the merge dialog.
-        /// Legacy behavior — this is what <see cref="RecordingStore.StashPendingTree"/>
+        /// Default behavior — this is what <see cref="RecordingStore.StashPendingTree"/>
         /// produced before the quickload-resume redesign.
         /// </summary>
         Finalized = 0,
@@ -1831,7 +1831,7 @@ namespace Parsek
         /// Rolls back continuation data appended after commit (bug #95).
         /// If a continuation boundary is set, truncates Points back to the boundary,
         /// restores pre-continuation snapshots, and marks file dirty. Called from all
-        /// revert/rewind paths (ResetRecordingPlaybackFields, RestoreStandaloneMutableState,
+        /// revert/rewind paths (ResetRecordingPlaybackFields,
         /// tree recording reset loop).
         /// </summary>
         internal static void RollbackContinuationData(Recording rec)
@@ -1898,7 +1898,7 @@ namespace Parsek
         /// <summary>
         /// Collects SpawnedVesselPersistentId values and vessel names from all committed
         /// recordings (standalone + tree) that currently have a spawned vessel.
-        /// Must be called BEFORE ResetAllPlaybackState or RestoreStandaloneMutableState
+        /// Must be called BEFORE ResetAllPlaybackState
         /// zeroes the PIDs.
         /// </summary>
         internal static (HashSet<uint> pids, HashSet<string> names) CollectSpawnedVesselInfo()

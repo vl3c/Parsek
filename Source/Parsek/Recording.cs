@@ -259,7 +259,7 @@ namespace Parsek
         /// <summary>
         /// Copies persistence/capture artifacts from a stop-time captured recording.
         /// Intentionally does NOT copy Points/OrbitSegments/VesselName, which are
-        /// set by StashPending from the current recorder buffers.
+        /// set by CreateRecordingFromFlightData from the current recorder buffers.
         /// </summary>
         public void ApplyPersistenceArtifactsFrom(Recording source)
         {
@@ -346,7 +346,7 @@ namespace Parsek
                 Controllers = new List<ControllerInfo>(source.Controllers);
             IsDebris = source.IsDebris;
             // Generation is transient, but copied so the cascade-depth state is
-            // preserved across StashPending/commit boundaries within a tree session.
+            // preserved across recording creation/commit boundaries within a tree session.
             // Loaded recordings reset to 0 since the field is [NonSerialized].
             Generation = source.Generation;
         }
