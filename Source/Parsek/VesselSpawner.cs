@@ -99,6 +99,87 @@ namespace Parsek
             return manifest;
         }
 
+        /// <summary>
+        /// Walk PART > MODULE nodes in a vessel snapshot ConfigNode and return
+        /// a dictionary of stored inventory item names to summed count/slotsTaken.
+        /// Also outputs total inventory slot capacity across all ModuleInventoryPart modules.
+        /// Returns null if input is null, has no parts, or no inventory items found.
+        /// </summary>
+        internal static Dictionary<string, InventoryItem> ExtractInventoryManifest(
+            ConfigNode vesselSnapshot, out int totalInventorySlots)
+        {
+            totalInventorySlots = 0;
+
+            if (vesselSnapshot == null) return null;
+
+            var parts = vesselSnapshot.GetNodes("PART");
+            if (parts.Length == 0) return null;
+
+            var manifest = new Dictionary<string, InventoryItem>();
+            int moduleCount = 0;
+
+            for (int i = 0; i < parts.Length; i++)
+            {
+                var modules = parts[i].GetNodes("MODULE");
+                for (int j = 0; j < modules.Length; j++)
+                {
+                    if (modules[j].GetValue("name") != "ModuleInventoryPart") continue;
+                    moduleCount++;
+
+                    string slotsStr = modules[j].GetValue("InventorySlots");
+                    if (slotsStr != null)
+                    {
+                        if (int.TryParse(slotsStr, NumberStyles.Integer,
+                            CultureInfo.InvariantCulture, out int slots))
+                            totalInventorySlots += slots;
+                    }
+
+                    var storedPartsNode = modules[j].GetNode("STOREDPARTS");
+                    if (storedPartsNode == null) continue;
+
+                    var storedParts = storedPartsNode.GetNodes("STOREDPART");
+                    for (int k = 0; k < storedParts.Length; k++)
+                    {
+                        string partName = storedParts[k].GetValue("partName");
+                        if (string.IsNullOrEmpty(partName)) continue;
+
+                        int quantity = 1;
+                        string qtyStr = storedParts[k].GetValue("quantity");
+                        if (qtyStr != null)
+                        {
+                            if (int.TryParse(qtyStr, NumberStyles.Integer,
+                                CultureInfo.InvariantCulture, out int parsedQty))
+                                quantity = parsedQty;
+                        }
+
+                        if (manifest.ContainsKey(partName))
+                        {
+                            // Struct — indexer returns a copy. Read-modify-write.
+                            var item = manifest[partName];
+                            item.count += quantity;
+                            item.slotsTaken += 1;
+                            manifest[partName] = item;
+                        }
+                        else
+                        {
+                            manifest[partName] = new InventoryItem { count = quantity, slotsTaken = 1 };
+                        }
+                    }
+                }
+            }
+
+            if (manifest.Count == 0)
+            {
+                totalInventorySlots = 0;
+                return null;
+            }
+
+            ParsekLog.Verbose("Spawner",
+                $"ExtractInventoryManifest: {manifest.Count} item type(s), {totalInventorySlots} total slot(s) across {moduleCount} inventory module(s)");
+
+            return manifest;
+        }
+
         public static uint RespawnVessel(ConfigNode vesselNode, HashSet<string> excludeCrew = null, bool preserveIdentity = false)
         {
             try
