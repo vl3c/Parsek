@@ -966,19 +966,14 @@ namespace Parsek
                         // engine seeds entirely (PartStateSeeder.EmitEngineSeedEvents).
                         SetEngineEmission(state, evt, System.Math.Max(evt.value, 0.01f));
                         SetEngineAudio(state, evt, System.Math.Max(evt.value, 0.01f));
-                        ApplyHeatState(state, evt, HeatLevel.Hot);
                         break;
                     case PartEventType.EngineShutdown:
                         SetEngineEmission(state, evt, 0f);
                         SetEngineAudio(state, evt, 0f);
-                        // Also reset heat animation glow — engine nozzles stay emissive
-                        // after shutdown if ThermalAnimationCold hasn't fired yet.
-                        ApplyHeatState(state, evt, HeatLevel.Cold);
                         break;
                     case PartEventType.EngineThrottle:
                         SetEngineEmission(state, evt, evt.value);
                         SetEngineAudio(state, evt, evt.value);
-                        ApplyHeatState(state, evt, HeatLevel.Hot);
                         break;
                     case PartEventType.DeployableExtended:
                         ApplyDeployableState(state, evt, deployed: true);
@@ -1037,11 +1032,9 @@ namespace Parsek
                         break;
                     case PartEventType.RCSActivated:
                         SetRcsEmission(state, evt, evt.value);
-                        ApplyHeatState(state, evt, HeatLevel.Hot);
                         break;
                     case PartEventType.RCSStopped:
                         SetRcsEmission(state, evt, 0f);
-                        ApplyHeatState(state, evt, HeatLevel.Cold);
                         break;
                     case PartEventType.RCSThrottle:
                         SetRcsEmission(state, evt, evt.value);
