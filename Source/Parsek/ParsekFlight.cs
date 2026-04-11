@@ -1788,6 +1788,18 @@ namespace Parsek
             if (activeTree.Recordings.TryGetValue(parentRecordingId, out parentRec))
             {
                 AppendCapturedDataToRecording(parentRec, splitRecorder.CaptureAtStop, branchUT);
+
+                // Bug #271: in always-tree mode, the root recording was created without
+                // a snapshot. Copy from CaptureAtStop on the first split so the ghost
+                // mesh has vessel geometry instead of the sphere fallback.
+                if (parentRec.VesselSnapshot == null && splitRecorder.CaptureAtStop?.VesselSnapshot != null)
+                {
+                    parentRec.VesselSnapshot = splitRecorder.CaptureAtStop.VesselSnapshot.CreateCopy();
+                    parentRec.MarkFilesDirty();
+                    ParsekLog.Info("Flight",
+                        $"CreateSplitBranch: copied VesselSnapshot to parent '{parentRecordingId}' " +
+                        "from CaptureAtStop (always-tree root had no snapshot)");
+                }
             }
 
             // Set ChildBranchPointId on parent
