@@ -10,6 +10,7 @@ All notable changes to Parsek are documented here.
 
 - Migrated 9 log contract checks from post-hoc KSP.log analysis to in-game tests (Ctrl+Shift+T) -- catches format, resource, and recording metric issues at runtime instead of after session ends.
 - Unified standalone and tree recording systems -- all recordings now use tree architecture internally (#271).
+- Optimizer now splits tree recordings at environment boundaries, restoring per-phase segment display in the UI (T56 partial).
 
 ### Bug Fixes
 
@@ -17,6 +18,7 @@ All notable changes to Parsek are documented here.
 - `#297` Vessel destruction during tree recording no longer orphans continuation data as a standalone recording.
 - `#304` Stock vessel recordings now show resolved names instead of raw `#autoLOC` keys in the UI, timeline, and logs.
 - `#305` Standalone recordings (rovers, planes) now survive revert-to-launch and show the merge dialog instead of being silently discarded.
+- Landed ghost terrain correction now clamps downward when terrain height decreased since recording (was only clamping upward, leaving ghosts floating above ground).
 - Test runner window no longer spams IMGUI layout exceptions when opened during flight.
 - `T55` FlagEvents and SegmentEvents are now preserved across tree recording splits and flushes.
 - `#298b` Dead engine shutdown sentinels now work for active-vessel recordings (were only emitted for background vessel recordings).

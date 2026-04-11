@@ -288,11 +288,66 @@ Follow-up to bug #271 (always-tree unification). The runtime now always creates 
 
 To remove: collapse `committedRecordings` into `committedTrees` (every recording accessed through its parent tree), delete the standalone pending slot, delete standalone merge dialog, delete standalone RECORDING serialization, delete chain segment standalone commit paths (dead code in always-tree mode). This is a ~55-file refactor.
 
-Critical subtask: adapt `RunOptimizationPass` (RecordingStore.cs) to work within tree structure. Currently the optimizer operates on the flat `committedRecordings` list and `SplitAtSection` produces standalone chain-linked recordings outside the tree. This breaks ghost chain traversal and spawn-at-end for tree recordings. PR #210 added a temporary skip (`if (TreeId != null) return false` in `CanAutoSplitIgnoringGhostTriggers`) so tree recordings are not split. The proper fix: make `SplitAtSection` create new recordings within the parent tree (add to `tree.Recordings`, update `BackgroundMap`/`BranchPoints`), preserving the tree's structural integrity. The skip must be removed once this is done.
+~~Critical subtask (done):~~ Removed the temporary `TreeId != null` skip in `CanAutoSplitIgnoringGhostTriggers`. The existing `RunOptimizationPass` code already added split recordings to `tree.Recordings` and updated `BranchPoint.ParentRecordingIds`; the skip was the only thing preventing tree splits. Added `RebuildBackgroundMap()` after optimization passes for tree consistency. Fixed `TraceLineagePids` to follow chain links so root lineage PID collection works after optimizer splits.
+
+Remaining (~55-file refactor, ordered by dependency):
+1. Delete `StashPending`/`CommitPending`/`DiscardPending` and the standalone pending slot (`pendingRecording`). All commit paths now go through `StashPendingTree`/`CommitPendingTree`.
+2. Delete `MergeDialog.Show(Recording)` and `ShowStandaloneDialog` -- only the tree merge dialog (`ShowTreeDialog`) is used.
+3. Delete standalone RECORDING serialization in `ParsekScenario.OnSave`/`OnLoad` (the `PARSEK_ACTIVE_RECORDING` node path, not the `PARSEK_ACTIVE_RECORDING_TREE` path).
+4. Delete `PARSEK_ACTIVE_STANDALONE` migration shim in `TryRestoreActiveStandaloneNode`.
+5. Delete chain segment standalone commit paths in `ChainSegmentManager` (dead code in always-tree mode).
+6. Collapse `committedRecordings` into `committedTrees`: replace all 238 production refs (28 files) and 300 test refs (27 files) with tree-based access (e.g., `committedTrees.SelectMany(t => t.Recordings.Values)`). This is the bulk of the work.
 
 Prerequisite: delete all old save files (no users yet, clean slate).
 
-**Priority:** High -- the optimizer skip means tree recordings are never split at environment boundaries, losing the per-phase segment display in the UI
+**Priority:** Medium -- optimizer adaptation done, standalone format removal is cleanup
+
+---
+
+### T57. EVA spawn-at-end blocked by parent vessel collision
+
+EVA recordings created by mid-flight EVA (tree branch) fail to spawn at end because the entire EVA trajectory overlaps with the already-spawned parent vessel. The spawn collision walkback exhausts every point in the trajectory and abandons the spawn.
+
+Observed in t56-optimizer-test session: Bob Kerman did a surface EVA near the launchpad. The parent vessel (Kerbal X) spawned first, then Bob's EVA spawn was abandoned because his entire trajectory (surface walk near pad) was within the 2.5m EVA collision bounds of the parent. Bob never materialized.
+
+Secondary issue: the held-ghost retry logic (`ParsekPlaybackPolicy.cs:395`) checks `VesselSpawned` but not `SpawnAbandoned`, so it logs "succeeded on retry" for abandoned spawns.
+
+Fix options:
+1. Exempt EVA vessels from collision checks against their known parent vessel (use `ParentRecordingId` to identify the parent, look up its `VesselPersistentId`)
+2. When EVA spawn is abandoned due to parent collision, fall back to boarding the crew member onto the parent vessel instead
+3. Both -- try spawning, skip collision against parent, fall back to boarding if still blocked
+
+**Priority:** Medium -- pre-existing issue, not caused by optimizer changes but exposed by enabling tree recording spawns
+
+---
+
+### T58. Debris/booster ghost engines show running effects at zero throttle after staging
+
+When a booster separates (staging, decouple), the debris recording inherits the engine state from the moment of separation. If the engine was running at separation, the ghost plays back engine FX (flame, smoke) even though the throttle is 0 on the separated stage. The engine was shut down by staging but the ghost's seed events or initial state show it as running.
+
+Likely cause: the engine shutdown event at separation is either not captured (the `EngineShutdown` event fires after the part is already on the debris vessel, and the recorder may not catch it on the new vessel's first frame), or the ghost FX system seeds the engine as running from the pre-separation snapshot without checking the throttle value.
+
+Fix: ensure debris recordings either (a) capture the engine shutdown at separation as a seed event, or (b) the ghost FX system checks throttle == 0 and suppresses effects even if the engine state says "running."
+
+**Priority:** Low -- cosmetic, affects ghost visual fidelity only
+
+---
+
+### T59. Rewind save lost after mid-recording EVA branch
+
+The R button never appears in the recordings table because `RewindSaveFileName` is lost during the EVA branch flow. The sequence:
+
+1. Recording starts, `CaptureRewindSave` sets `recorder.RewindSaveFileName = "parsek_rw_..."` 
+2. Mid-flight EVA triggers `BuildCaptureRecording` for the parent vessel, which copies `RewindSaveFileName` into `CaptureAtStop` and then clears `recorder.RewindSaveFileName = null` (line 4573)
+3. Bob's EVA recording starts as a promotion (rewind save skipped)
+4. At scene exit, `StashTreeLimbo` calls `recorder.ForceStop()` which calls `BuildCaptureRecording` for Bob's EVA -- this creates a NEW `CaptureAtStop` (with no rewind save) that OVERWRITES the previous one
+5. Line 5465: `recorder.CaptureAtStop?.RewindSaveFileName` = null (Bob's), `recorder.RewindSaveFileName` = null (cleared in step 2). Rewind save is never copied to the root recording
+
+The rewind save file exists on disk (`Parsek/Saves/parsek_rw_*.sfs`) but the root Recording object never gets the filename, so `GetRewindSaveFileName` returns null, and the R button renders as empty space.
+
+Fix: in `FlushRecorderToTreeRecording` (or the EVA branch code), copy `recorder.RewindSaveFileName` to the root tree recording BEFORE `BuildCaptureRecording` clears it. Or preserve the rewind save across CaptureAtStop overwrites.
+
+**Priority:** High -- the R button is a core user affordance and never appears after any EVA during a recording session
 
 ---
 

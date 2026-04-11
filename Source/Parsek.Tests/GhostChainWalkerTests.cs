@@ -758,5 +758,70 @@ namespace Parsek.Tests
         }
 
         #endregion
+
+        #region GetRootLineageVesselPids — chain following
+
+        [Fact]
+        public void GetRootLineageVesselPids_FollowsChainLinks()
+        {
+            // Root recording was split by the optimizer into 2 chain segments.
+            // The ChildBranchPointId is on the second segment.
+            // GetRootLineageVesselPids must follow chain links to reach the BP
+            // and include child vessel PIDs in the lineage.
+            var rootFirst = MakeRecording("root_first", 1000, 17000, 17030);
+            rootFirst.ChainId = "chain_001";
+            rootFirst.ChainIndex = 0;
+            rootFirst.ChainBranch = 0;
+            // No ChildBranchPointId on first half (moved to second)
+
+            var rootSecond = MakeRecording("root_second", 1000, 17030, 17060,
+                childBpId: "bp_staging");
+            rootSecond.ChainId = "chain_001";
+            rootSecond.ChainIndex = 1;
+            rootSecond.ChainBranch = 0;
+
+            var debris = MakeRecording("debris", 2000, 17060, 17100,
+                parentBpId: "bp_staging",
+                terminal: TerminalState.Destroyed);
+
+            var bp = MakeBranchPoint("bp_staging", BranchPointType.JointBreak,
+                17060, 0,
+                new[] { "root_second" }, new[] { "debris" });
+
+            var tree = MakeTree("tree_chain", new[] { rootFirst, rootSecond, debris },
+                new[] { bp });
+
+            var pids = GhostChainWalker.GetRootLineageVesselPids(tree);
+
+            // Should include both root PID and debris PID (reached via chain + BP)
+            Assert.Contains((uint)1000, pids);
+            Assert.Contains((uint)2000, pids);
+        }
+
+        [Fact]
+        public void GetRootLineageVesselPids_NoChain_StillFollowsBP()
+        {
+            // Root recording with direct ChildBranchPointId (no chain split).
+            // Should still work as before.
+            var root = MakeRecording("root", 1000, 17000, 17060,
+                childBpId: "bp_staging");
+
+            var stage = MakeRecording("stage", 3000, 17060, 17120,
+                parentBpId: "bp_staging",
+                terminal: TerminalState.Destroyed);
+
+            var bp = MakeBranchPoint("bp_staging", BranchPointType.JointBreak,
+                17060, 0,
+                new[] { "root" }, new[] { "stage" });
+
+            var tree = MakeTree("tree_nobp", new[] { root, stage }, new[] { bp });
+
+            var pids = GhostChainWalker.GetRootLineageVesselPids(tree);
+
+            Assert.Contains((uint)1000, pids);
+            Assert.Contains((uint)3000, pids);
+        }
+
+        #endregion
     }
 }

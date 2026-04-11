@@ -290,7 +290,7 @@ namespace Parsek
         /// lineage — tracing from the root recording through ChildBranchPointId chains.
         /// Any recording with a VesselPersistentId NOT in this set is a background recording.
         /// </summary>
-        private static HashSet<uint> GetRootLineageVesselPids(RecordingTree tree)
+        internal static HashSet<uint> GetRootLineageVesselPids(RecordingTree tree)
         {
             var pids = new HashSet<uint>();
 
@@ -336,6 +336,24 @@ namespace Parsek
                             if (tree.Recordings.TryGetValue(bp.ChildRecordingIds[c], out childRec))
                                 TraceLineagePids(tree, childRec, pids, visited);
                         }
+                        break;
+                    }
+                }
+            }
+
+            // Follow chain links: optimizer splits create chain-linked segments
+            // where ChildBranchPointId moves to the last segment. Trace through
+            // the next chain member to reach the segment that carries the BP.
+            if (!string.IsNullOrEmpty(rec.ChainId))
+            {
+                int nextIdx = rec.ChainIndex + 1;
+                foreach (var kvp in tree.Recordings)
+                {
+                    if (kvp.Value.ChainId == rec.ChainId
+                        && kvp.Value.ChainIndex == nextIdx
+                        && kvp.Value.ChainBranch == rec.ChainBranch)
+                    {
+                        TraceLineagePids(tree, kvp.Value, pids, visited);
                         break;
                     }
                 }
