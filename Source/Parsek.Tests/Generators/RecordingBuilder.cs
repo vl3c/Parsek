@@ -37,6 +37,8 @@ namespace Parsek.Tests.Generators
         private float rewindReservedRep;
         private int? terminalState;
         private double terrainHeightAtEnd = double.NaN;
+        private Dictionary<string, ResourceAmount> startResources;
+        private Dictionary<string, ResourceAmount> endResources;
 
         // Default rotation for points that don't specify one explicitly
         private float defaultRotX, defaultRotY, defaultRotZ;
@@ -303,6 +305,18 @@ namespace Parsek.Tests.Generators
             return this;
         }
 
+        internal RecordingBuilder WithStartResources(Dictionary<string, ResourceAmount> resources)
+        {
+            startResources = resources;
+            return this;
+        }
+
+        internal RecordingBuilder WithEndResources(Dictionary<string, ResourceAmount> resources)
+        {
+            endResources = resources;
+            return this;
+        }
+
         // --- v6 TrackSection builder methods ---
 
         /// <summary>
@@ -542,7 +556,55 @@ namespace Parsek.Tests.Generators
             if (isDebris)
                 node.AddValue("isDebris", isDebris.ToString());
 
+            // Resource manifests (Phase 11)
+            SerializeResourceManifestInto(node);
+
             return node;
+        }
+
+        /// <summary>Returns the start resources dictionary (may be null).</summary>
+        internal Dictionary<string, ResourceAmount> GetStartResources() => startResources;
+
+        /// <summary>Returns the end resources dictionary (may be null).</summary>
+        internal Dictionary<string, ResourceAmount> GetEndResources() => endResources;
+
+        /// <summary>
+        /// Serializes StartResources/EndResources into a RESOURCE_MANIFEST node on parent,
+        /// matching the format used by RecordingStore.SerializeResourceManifest.
+        /// </summary>
+        private void SerializeResourceManifestInto(ConfigNode parent)
+        {
+            bool hasStart = startResources != null && startResources.Count > 0;
+            bool hasEnd = endResources != null && endResources.Count > 0;
+            if (!hasStart && !hasEnd)
+                return;
+
+            var ic = CultureInfo.InvariantCulture;
+            ConfigNode manifestNode = parent.AddNode("RESOURCE_MANIFEST");
+
+            var keys = new HashSet<string>();
+            if (hasStart)
+                foreach (var k in startResources.Keys) keys.Add(k);
+            if (hasEnd)
+                foreach (var k in endResources.Keys) keys.Add(k);
+
+            foreach (var name in keys)
+            {
+                ConfigNode resNode = manifestNode.AddNode("RESOURCE");
+                resNode.AddValue("name", name);
+
+                if (hasStart && startResources.TryGetValue(name, out var startRa))
+                {
+                    resNode.AddValue("startAmount", startRa.amount.ToString("R", ic));
+                    resNode.AddValue("startMax", startRa.maxAmount.ToString("R", ic));
+                }
+
+                if (hasEnd && endResources.TryGetValue(name, out var endRa))
+                {
+                    resNode.AddValue("endAmount", endRa.amount.ToString("R", ic));
+                    resNode.AddValue("endMax", endRa.maxAmount.ToString("R", ic));
+                }
+            }
         }
 
         /// <summary>Returns the vessel name.</summary>
@@ -648,6 +710,9 @@ namespace Parsek.Tests.Generators
                 RecordingStore.SerializeSegmentEvents(node, segmentEvents);
             if (trackSections.Count > 0)
                 RecordingStore.SerializeTrackSections(node, trackSections);
+
+            // Resource manifests (Phase 11)
+            SerializeResourceManifestInto(node);
 
             return node;
         }

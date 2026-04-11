@@ -172,6 +172,23 @@ namespace Parsek.Tests.Generators
             return this;
         }
 
+        /// <summary>
+        /// Adds a RESOURCE node to the part at the given index.
+        /// </summary>
+        public VesselSnapshotBuilder AddResourceToPart(int partIndex, string name, double amount, double maxAmount)
+        {
+            var parts = partsContainer.GetNodes("PART");
+            if (partIndex < 0 || partIndex >= parts.Length)
+                throw new ArgumentOutOfRangeException(nameof(partIndex),
+                    $"Part index {partIndex} out of range (0..{parts.Length - 1})");
+
+            var resNode = parts[partIndex].AddNode("RESOURCE");
+            resNode.AddValue("name", name);
+            resNode.AddValue("amount", amount.ToString("R", IC));
+            resNode.AddValue("maxAmount", maxAmount.ToString("R", IC));
+            return this;
+        }
+
         private static string D(double v) => v.ToString("R", IC);
 
         public ConfigNode Build()

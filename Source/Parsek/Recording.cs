@@ -143,6 +143,26 @@ namespace Parsek
         // null = not yet populated (legacy recording or pre-commit).
         public Dictionary<string, KerbalEndState> CrewEndStates;
 
+        // Resource manifests (Phase 11) — per-resource amount/capacity at recording start and end
+        // null = no data (legacy recording or not yet captured)
+        internal Dictionary<string, ResourceAmount> StartResources;
+        internal Dictionary<string, ResourceAmount> EndResources;
+
+        // Inventory manifests (Phase 11) — per-item count/slots at recording start and end
+        // null = no data (legacy recording or no inventory items)
+        internal Dictionary<string, InventoryItem> StartInventory;
+        internal Dictionary<string, InventoryItem> EndInventory;
+        public int StartInventorySlots;  // total inventory slot capacity at start (0 = no data / no inventory)
+        public int EndInventorySlots;    // total inventory slot capacity at end
+
+        // Crew manifests (Phase 11) — per-trait crew count at recording start and end
+        // null = no data (legacy recording or no crew)
+        internal Dictionary<string, int> StartCrew;
+        internal Dictionary<string, int> EndCrew;
+
+        // PID of vessel docked to at this segment's boundary (0 = not a dock segment)
+        public uint DockTargetVesselPid;
+
         // Background recording: surface position for landed/splashed vessels
         public SurfacePosition? SurfacePos;            // null if not a background landed vessel
 
@@ -315,6 +335,15 @@ namespace Parsek
                 ? new List<string>(source.RecordingGroups) : null;
             AntennaSpecs = source.AntennaSpecs != null
                 ? new List<AntennaSpec>(source.AntennaSpecs) : null;
+            StartResources = source.StartResources;
+            EndResources = source.EndResources;
+            StartInventory = source.StartInventory;
+            EndInventory = source.EndInventory;
+            StartInventorySlots = source.StartInventorySlots;
+            EndInventorySlots = source.EndInventorySlots;
+            StartCrew = source.StartCrew;
+            EndCrew = source.EndCrew;
+            DockTargetVesselPid = source.DockTargetVesselPid;
 
             // Copy segment events and tracks if source has them
             if (source.SegmentEvents != null && source.SegmentEvents.Count > 0)
