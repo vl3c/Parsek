@@ -74,13 +74,13 @@ sets terminal state and metadata. Standalone path only runs when not in tree mod
 
 ---
 
-## 296. EVA kerbal who planted flag did not appear after spawn
+## ~~296. EVA kerbal who planted flag did not appear after spawn~~
 
-Log shows KSCSpawn successfully spawned the EVA kerbal (Bill Kerman, pid=484546861), but the user reports not seeing it. Likely post-spawn physics destruction — EVA kerbals are fragile and can be killed by terrain collision or slope bounce.
+Log shows KSCSpawn successfully spawned the EVA kerbal (Bill Kerman, pid=484546861), but the user reports not seeing it. Originally attributed to post-spawn physics destruction.
 
-**Investigation:** Enhanced spawn logging to include lat/lon/alt/sit for all spawn paths (KSCSpawn, SpawnAtPosition, RespawnVessel fallback). The existing `RunSpawnDeathChecks` in `ParsekPlaybackPolicy` already detects and logs spawn-death cycles. Next playtest should reveal whether the kerbal is destroyed post-spawn.
+**Likely duplicate of T57.** The scenario is identical: surface EVA near the launchpad, parent vessel already spawned, kerbal never materialized. The "successfully spawned" log was misleading -- `VesselSpawned = true` is set for abandoned spawns too (prevents vessel-gone reset). T57's fix (exempt parent vessel from EVA collision checks) addresses the root cause. Verify in next playtest.
 
-**Status:** Investigation logging added. Root cause TBD — needs next playtest data.
+**Status:** ~~Closed as likely duplicate of T57.~~
 
 ---
 
