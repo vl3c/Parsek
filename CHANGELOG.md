@@ -16,6 +16,7 @@ All notable changes to Parsek are documented here.
 - Unified standalone and tree recording systems -- all recordings now use tree architecture internally (#271).
 - Optimizer now splits tree recordings at environment boundaries, restoring per-phase segment display in the UI.
 - Removed standalone RECORDING format entirely (T56) -- deleted pending slot, standalone merge/chain dialogs, standalone serialization, legacy migration shim. All committed recordings now require tree ownership.
+- `#286` Merge dialog now explains when no flight branches produced a vessel that can continue flying.
 
 ### Bug Fixes
 

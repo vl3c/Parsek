@@ -97,19 +97,9 @@ User asked: *"check if the quicksave/quickload and recordings systems work well 
 
 ---
 
-## 286. Full-tree crash leaves nothing to continue with — `CanPersistVessel` blocks all `Destroyed` leaves (largely mitigated)
+## ~~286. Full-tree crash leaves nothing to continue with — `CanPersistVessel` blocks all `Destroyed` leaves~~
 
-Surfaced as the user-facing complaint behind bug #278 ("nothing to continue playing with after a crash recording"). #278's snapshot-loss fix restores the in-memory `hasSnapshot=True` state for background-split debris, but the merge dialog's `CanPersistVessel` predicate at `MergeDialog.cs:450-467` hard-blocks any leaf whose `TerminalStateValue ∈ {Destroyed, Recovered, Docked, Boarded}` regardless of snapshot availability. When the player crashes the entire launch tree (root vessel + all debris destroyed), every leaf falls into one of those gated states, the merge dialog reports `spawnable=0`, and no vessel ends up on the surface for the player to continue with.
-
-**This is a design decision, not a bug.** Three options for the next user discussion:
-
-- **(a) Pre-crash F5 fallback.** When no leaf satisfies `CanPersistVessel`, fall back to spawning the player's most recent quicksave's vessel state.
-- **(b) Relax `Destroyed` gating when snapshot exists.** Allow `terminal=Destroyed` to spawn from snapshot for at least the root leaf.
-- **(c) Status quo + UX message.** Leave the gating unchanged but surface a clear merge-dialog message: "All recording branches ended in failure — no vessel can be continued."
-
-**Update (2026-04-10 investigation):** The `spawnable=0` cases in the 2026-04-09 playtests were primarily caused by #278's blanket `Destroyed` stamping, not by a true all-crash scenario. With #278 fixed and #284 shipped, the remaining edge case is a genuine full-tree crash where ALL parts are destroyed before merge — rare in practice and arguably correct behavior.
-
-**Priority:** Low (downgraded from Medium). The remaining scenario is a design decision for option (c) UX messaging.
+**Fix:** Option (c) implemented. When `spawnCount == 0 && decisions.Count > 0`, the merge dialog body shows: "No flight branches produced a vessel that can continue flying. The recordings will play back as ghosts, but no vessel will be placed." Screen message changed from generic "Merged to timeline!" to "Merged to timeline (no surviving vessels)". Wording is terminal-state-agnostic (covers Destroyed, Recovered, Docked, Boarded). The `CanPersistVessel` blocking logic is unchanged -- the player just needed to know why nothing spawned.
 
 ---
 
@@ -276,7 +266,7 @@ and `FlushRecorderToTreeRecording`. Two new tests in `AppendCapturedDataTests.cs
 
 ---
 
-### T56. Remove standalone RECORDING format entirely
+### ~~T56. Remove standalone RECORDING format entirely~~
 
 Follow-up to bug #271 (always-tree unification). The runtime now always creates tree recordings, and the injector now produces RECORDING_TREE nodes for all synthetic recordings.
 
@@ -287,6 +277,8 @@ Follow-up to bug #271 (always-tree unification). The runtime now always creates 
 ~~Step 6 (done):~~ Collapsed `committedRecordings` into `committedTrees`. Changed `CommittedRecordings` to `IReadOnlyList<Recording>`. Added `AddRecordingWithTreeForTesting` helper. Set `TreeId` on chain segments via `ChainSegmentManager.ActiveTreeId`. `FinalizeTreeCommit` skips already-committed recordings. Migrated ~93 test `.Add()` calls across 24 files.
 
 **Status:** ~~Done~~
+
+**Status:** ~~Fixed (PR #214) -- standalone RECORDING format removed, all recordings are tree recordings, CommittedRecordings is IReadOnlyList~~
 
 ---
 
