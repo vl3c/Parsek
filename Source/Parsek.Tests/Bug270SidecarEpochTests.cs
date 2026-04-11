@@ -192,7 +192,7 @@ namespace Parsek.Tests
             Assert.True(skipped);
             Assert.Contains(logLines, l =>
                 l.Contains("Sidecar epoch mismatch") &&
-                l.Contains("sidecar is stale"));
+                l.Contains("sidecar is stale (bug #270)"));
         }
     }
 }

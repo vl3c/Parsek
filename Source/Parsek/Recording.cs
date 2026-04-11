@@ -58,6 +58,8 @@ namespace Parsek
         // and .prec sidecar file on each write. On load, if the .prec epoch doesn't match
         // the .sfs epoch, the sidecar is stale (written by a different save point) and
         // trajectory data is skipped. See bug #270.
+        // Intentionally NOT [NonSerialized] — persists via ConfigNode in RecordingTree
+        // Save/LoadRecordingInto so the epoch survives scene reloads.
         internal int SidecarEpoch;
 
         /// <summary>
