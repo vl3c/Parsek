@@ -1682,6 +1682,15 @@ namespace Parsek
         /// </summary>
         internal static HashSet<string> BuildKnownRecordingIds()
         {
+            return BuildKnownRecordingIds(out _);
+        }
+
+        /// <summary>
+        /// Overload that also reports how many IDs came from the pending tree
+        /// (for diagnostic logging in <see cref="CleanOrphanFiles"/>).
+        /// </summary>
+        internal static HashSet<string> BuildKnownRecordingIds(out int pendingTreeIdCount)
+        {
             var knownIds = new HashSet<string>();
             for (int i = 0; i < committedRecordings.Count; i++)
             {
@@ -1696,12 +1705,16 @@ namespace Parsek
                         knownIds.Add(kvp.Value.RecordingId);
                 }
             }
+            pendingTreeIdCount = 0;
             if (pendingTree != null)
             {
                 foreach (var kvp in pendingTree.Recordings)
                 {
                     if (!string.IsNullOrEmpty(kvp.Value.RecordingId))
+                    {
                         knownIds.Add(kvp.Value.RecordingId);
+                        pendingTreeIdCount++;
+                    }
                 }
             }
             return knownIds;
@@ -1733,8 +1746,7 @@ namespace Parsek
             // tree into pendingTree BEFORE this method runs. Without including
             // pendingTree, branch recordings (debris, EVA) would be deleted as
             // orphans, silently degrading to 0 points on the next cold start (#290).
-            var knownIds = BuildKnownRecordingIds();
-            int pendingTreeIds = pendingTree?.Recordings.Count ?? 0;
+            var knownIds = BuildKnownRecordingIds(out int pendingTreeIds);
 
             string[] files;
             try

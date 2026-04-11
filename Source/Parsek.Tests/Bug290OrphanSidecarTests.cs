@@ -194,5 +194,57 @@ namespace Parsek.Tests
             Assert.Contains("valid-id", knownIds);
             Assert.DoesNotContain("", knownIds);
         }
+
+        [Fact]
+        public void DeduplicatesCommittedRecordingsAndTrees()
+        {
+            // After T56, all committed recordings are tree recordings, so the
+            // flat committedRecordings list and committedTrees overlap.
+            // BuildKnownRecordingIds must deduplicate via HashSet.
+            var rec = new Recording { RecordingId = "dup-id", VesselName = "Ship" };
+            RecordingStore.AddRecordingWithTreeForTesting(rec);
+
+            // rec is now in both committedRecordings AND committedTrees
+            var knownIds = RecordingStore.BuildKnownRecordingIds();
+
+            Assert.Contains("dup-id", knownIds);
+            // Count should be 1, not 2 — HashSet deduplicates
+            Assert.Equal(1, knownIds.Count);
+        }
+
+        [Fact]
+        public void OutOverload_ReportsPendingTreeCount()
+        {
+            var tree = new RecordingTree
+            {
+                Id = "tree-out",
+                TreeName = "TestRocket"
+            };
+            tree.Recordings["a"] = new Recording
+            {
+                RecordingId = "rec-a",
+                VesselName = "Root",
+                TreeId = "tree-out"
+            };
+            tree.Recordings["b"] = new Recording
+            {
+                RecordingId = "rec-b",
+                VesselName = "Debris",
+                TreeId = "tree-out"
+            };
+            // Add one with empty ID to verify it's not counted
+            tree.Recordings["c"] = new Recording
+            {
+                RecordingId = "",
+                VesselName = "Empty",
+                TreeId = "tree-out"
+            };
+            RecordingStore.StashPendingTree(tree, PendingTreeState.Limbo);
+
+            RecordingStore.BuildKnownRecordingIds(out int pendingCount);
+
+            // Only 2 valid IDs, not 3 (empty ID filtered)
+            Assert.Equal(2, pendingCount);
+        }
     }
 }
