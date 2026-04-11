@@ -170,22 +170,10 @@ namespace Parsek
             {
                 string id = RecordingStore.Pending?.RecordingId;
                 string name = RecordingStore.Pending?.VesselName;
-                if (RecordingStore.PendingStandaloneStateValue != PendingStandaloneState.Limbo)
-                {
-                    // Non-Limbo standalone stashed this transition: discard (existing behavior).
-                    RecordingStore.DiscardPending();
-                    discardedSa = 1;
-                    ParsekLog.Info("Scenario",
-                        $"Quickload: discarded pending standalone '{name}' (id={id})");
-                }
-                else
-                {
-                    // #305: Limbo standalone preserved for OnLoad dispatch — parallel to
-                    // Limbo tree preservation below. OnLoad's Limbo dispatch block decides
-                    // whether to discard (F5/F9 resume) or finalize (revert-to-launch).
-                    ParsekLog.Info("Scenario",
-                        $"Quickload: preserving Limbo standalone '{name}' (id={id}) for OnLoad dispatch");
-                }
+                RecordingStore.DiscardPending();
+                discardedSa = 1;
+                ParsekLog.Info("Scenario",
+                    $"Quickload: discarded pending standalone '{name}' (id={id})");
             }
 
             if (RecordingStore.HasPendingTree
@@ -869,19 +857,8 @@ namespace Parsek
                             }
                             if (RecordingStore.HasPending)
                             {
-                                // #305: Limbo standalone preserved for dispatch (parallel
-                                // to Limbo tree check at lines above).
-                                if (RecordingStore.PendingStandaloneStateValue == PendingStandaloneState.Limbo)
-                                {
-                                    ParsekLog.Info("Scenario",
-                                        $"Revert: keeping pending Limbo standalone " +
-                                        $"'{RecordingStore.Pending?.VesselName}' — stashed for dispatch");
-                                }
-                                else
-                                {
-                                    ParsekLog.Info("Scenario", "Clearing orphaned pending recording on revert (stale from previous flight)");
-                                    RecordingStore.DiscardPending();
-                                }
+                                ParsekLog.Info("Scenario", "Clearing orphaned pending recording on revert (stale from previous flight)");
+                                RecordingStore.DiscardPending();
                             }
                         }
                     }

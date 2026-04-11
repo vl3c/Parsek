@@ -316,46 +316,16 @@ namespace Parsek.Tests
             Assert.False(result);
         }
 
-        // ----- #305: PendingStandaloneState.Limbo preservation -----
-
         [Fact]
-        public void DiscardStashedOnQuickload_LimboStandalone_Preserved()
+        public void DiscardStashedOnQuickload_StandalonePending_AlwaysDiscarded()
         {
-            // Limbo standalone is the revert-to-launch carrier — must survive
-            // DiscardStashedOnQuickload (parallel to Limbo tree at line ~179).
+            // With always-tree mode, standalone pending is always discarded on quickload.
             var points = new List<TrajectoryPoint>
             {
                 new TrajectoryPoint { ut = 300.0 },
                 new TrajectoryPoint { ut = 350.0 },
             };
-            RecordingStore.StashPending(points, "Crater Crawler",
-                state: PendingStandaloneState.Limbo);
-            Assert.True(RecordingStore.HasPending);
-            Assert.Equal(PendingStandaloneState.Limbo, RecordingStore.PendingStandaloneStateValue);
-            Assert.True(RecordingStore.PendingStashedThisTransition);
-            logLines.Clear();
-
-            ParsekScenario.DiscardStashedOnQuickload(preChangeUT: 350.0, currentUT: 295.0);
-
-            Assert.True(RecordingStore.HasPending); // preserved
-            Assert.Equal(PendingStandaloneState.Limbo, RecordingStore.PendingStandaloneStateValue);
-            Assert.Contains(logLines, l =>
-                l.Contains("preserving Limbo standalone") && l.Contains("Crater Crawler"));
-            Assert.Contains(logLines, l =>
-                l.Contains("Quickload discard complete") && l.Contains("sa=0"));
-        }
-
-        [Fact]
-        public void DiscardStashedOnQuickload_FinalizedStandalone_StillDiscarded()
-        {
-            // Non-Limbo (Finalized) standalone stashed this transition: discard (existing behavior).
-            var points = new List<TrajectoryPoint>
-            {
-                new TrajectoryPoint { ut = 300.0 },
-                new TrajectoryPoint { ut = 350.0 },
-            };
-            RecordingStore.StashPending(points, "Kerbal X",
-                state: PendingStandaloneState.Finalized);
+            RecordingStore.StashPending(points, "Kerbal X");
             Assert.True(RecordingStore.HasPending);
             Assert.True(RecordingStore.PendingStashedThisTransition);
             logLines.Clear();
@@ -365,98 +335,6 @@ namespace Parsek.Tests
             Assert.False(RecordingStore.HasPending); // discarded
             Assert.Contains(logLines, l =>
                 l.Contains("discarded pending standalone") && l.Contains("Kerbal X"));
-        }
-
-        [Fact]
-        public void MarkPendingStandaloneFinalized_TransitionsFromLimbo()
-        {
-            var points = new List<TrajectoryPoint>
-            {
-                new TrajectoryPoint { ut = 300.0 },
-                new TrajectoryPoint { ut = 350.0 },
-            };
-            RecordingStore.StashPending(points, "Butterfly Rover",
-                state: PendingStandaloneState.Limbo);
-            Assert.Equal(PendingStandaloneState.Limbo, RecordingStore.PendingStandaloneStateValue);
-            logLines.Clear();
-
-            RecordingStore.MarkPendingStandaloneFinalized();
-
-            Assert.Equal(PendingStandaloneState.Finalized, RecordingStore.PendingStandaloneStateValue);
-            Assert.Contains(logLines, l =>
-                l.Contains("Limbo") && l.Contains("Finalized") && l.Contains("Butterfly Rover"));
-        }
-
-        [Fact]
-        public void MarkPendingStandaloneFinalized_NoPending_NoOp()
-        {
-            Assert.False(RecordingStore.HasPending);
-            logLines.Clear();
-
-            RecordingStore.MarkPendingStandaloneFinalized();
-
-            // No crash, no log output (null guard)
-            Assert.DoesNotContain(logLines, l => l.Contains("Finalized"));
-        }
-
-        [Fact]
-        public void StashPending_DefaultState_IsFinalized()
-        {
-            var points = new List<TrajectoryPoint>
-            {
-                new TrajectoryPoint { ut = 100.0 },
-                new TrajectoryPoint { ut = 200.0 },
-            };
-            RecordingStore.StashPending(points, "Test");
-            Assert.Equal(PendingStandaloneState.Finalized, RecordingStore.PendingStandaloneStateValue);
-        }
-
-        [Fact]
-        public void DiscardPending_ResetsStateToFinalized()
-        {
-            var points = new List<TrajectoryPoint>
-            {
-                new TrajectoryPoint { ut = 100.0 },
-                new TrajectoryPoint { ut = 200.0 },
-            };
-            RecordingStore.StashPending(points, "Test", state: PendingStandaloneState.Limbo);
-            Assert.Equal(PendingStandaloneState.Limbo, RecordingStore.PendingStandaloneStateValue);
-
-            RecordingStore.DiscardPending();
-
-            Assert.Equal(PendingStandaloneState.Finalized, RecordingStore.PendingStandaloneStateValue);
-        }
-
-        [Fact]
-        public void CommitPending_ResetsStateToFinalized()
-        {
-            var points = new List<TrajectoryPoint>
-            {
-                new TrajectoryPoint { ut = 100.0 },
-                new TrajectoryPoint { ut = 200.0 },
-            };
-            RecordingStore.StashPending(points, "Test", state: PendingStandaloneState.Limbo);
-            Assert.Equal(PendingStandaloneState.Limbo, RecordingStore.PendingStandaloneStateValue);
-
-            RecordingStore.CommitPending();
-
-            Assert.Equal(PendingStandaloneState.Finalized, RecordingStore.PendingStandaloneStateValue);
-        }
-
-        [Fact]
-        public void Clear_ResetsStateToFinalized()
-        {
-            var points = new List<TrajectoryPoint>
-            {
-                new TrajectoryPoint { ut = 100.0 },
-                new TrajectoryPoint { ut = 200.0 },
-            };
-            RecordingStore.StashPending(points, "Test", state: PendingStandaloneState.Limbo);
-            Assert.Equal(PendingStandaloneState.Limbo, RecordingStore.PendingStandaloneStateValue);
-
-            RecordingStore.Clear();
-
-            Assert.Equal(PendingStandaloneState.Finalized, RecordingStore.PendingStandaloneStateValue);
         }
 
         // ----- Helpers -----
