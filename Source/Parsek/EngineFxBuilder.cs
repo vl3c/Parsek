@@ -47,10 +47,10 @@ namespace Parsek
             string transformName, string fxName, Transform fxTransform)
         {
             Vector3 emitWorld = fxTransform.up; // local +Y in world space
-            Vector3 down = Vector3.down;        // (0,-1,0)
-            float angle = Vector3.Angle(emitWorld, down);
+            float angle = Vector3.Angle(emitWorld, Vector3.down);
             Quaternion localRot = fxTransform.localRotation;
-            ParsekLog.Verbose("EngineFx", $"#242 dir: '{partName}' midx={moduleIndex} " +
+            ParsekLog.VerboseRateLimited("EngineFx", $"fxdir-{partName}-{moduleIndex}-{fxType}-{transformName}",
+                $"#242 dir: '{partName}' midx={moduleIndex} " +
                 $"type={fxType} transform='{transformName}' fx='{fxName}' " +
                 $"emitWorld={emitWorld} angleFromDown={angle:F1} localRot={localRot.eulerAngles}");
         }
