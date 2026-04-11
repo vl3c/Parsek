@@ -509,6 +509,26 @@ namespace Parsek
                     $"hasSnapshot={leaf.VesselSnapshot != null} canPersist={canPersist}");
             }
 
+            // Bug #271: in always-tree mode with breakup-continuous design, the active
+            // recording may be non-leaf (it has ChildBranchPointId from breakup branches)
+            // but is still the main vessel's recording that should be spawnable. Include
+            // it in decisions if it wasn't already covered as a leaf.
+            if (!string.IsNullOrEmpty(tree.ActiveRecordingId)
+                && !decisions.ContainsKey(tree.ActiveRecordingId))
+            {
+                Recording activeRec;
+                if (tree.Recordings.TryGetValue(tree.ActiveRecordingId, out activeRec))
+                {
+                    bool canPersist = CanPersistVessel(activeRec);
+                    decisions[activeRec.RecordingId] = canPersist;
+                    ParsekLog.Verbose("MergeDialog",
+                        $"BuildDefaultVesselDecisions: active-nonleaf='{activeRec.RecordingId}' " +
+                        $"vessel='{activeRec.VesselName}' " +
+                        $"terminal={activeRec.TerminalStateValue?.ToString() ?? "null"} " +
+                        $"hasSnapshot={activeRec.VesselSnapshot != null} canPersist={canPersist}");
+                }
+            }
+
             return decisions;
         }
 

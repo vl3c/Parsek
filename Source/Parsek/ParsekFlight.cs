@@ -5477,11 +5477,17 @@ namespace Parsek
             // (edge case: late OnLoad timing, non-FLIGHT destination), this pre-capture
             // ensures the merge dialog can still offer respawn for stable-terminal leaves.
             // Only fills null snapshots — does NOT overwrite existing ones.
+            //
+            // Bug #271: also capture for the active recording even if non-leaf. In
+            // always-tree mode with breakup-continuous design, the active recording
+            // may have ChildBranchPointId set but still needs a snapshot for spawn-at-end.
             int snapshotsCaptured = 0;
+            string activeRecId = activeTree.ActiveRecordingId;
             foreach (var kvp in activeTree.Recordings)
             {
                 var rec = kvp.Value;
-                if (rec.ChildBranchPointId != null) continue;
+                bool isActiveRec = rec.RecordingId == activeRecId;
+                if (rec.ChildBranchPointId != null && !isActiveRec) continue;
                 if (rec.VesselPersistentId == 0) continue;
 
                 Vessel v = FlightRecorder.FindVesselByPid(rec.VesselPersistentId);
