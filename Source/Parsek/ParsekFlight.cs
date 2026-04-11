@@ -5352,6 +5352,51 @@ namespace Parsek
                 recorder.BoundaryAnchor = chainManager.PendingBoundaryAnchor;
                 chainManager.PendingBoundaryAnchor = null;
             }
+
+            // Bug #271: always-tree mode. When no tree exists and this is not a
+            // chain continuation, wrap the new recording in a single-node tree.
+            // This eliminates the standalone/tree dual-path architecture — every
+            // recording is a tree recording, even single-vessel flights.
+            if (activeTree == null && !isContinuation)
+            {
+                string treeId = Guid.NewGuid().ToString("N");
+                string rootRecId = Guid.NewGuid().ToString("N");
+                uint vesselPid = FlightGlobals.ActiveVessel?.persistentId ?? 0;
+
+                activeTree = new RecordingTree
+                {
+                    Id = treeId,
+                    TreeName = Recording.ResolveLocalizedName(
+                        FlightGlobals.ActiveVessel?.vesselName) ?? "Unknown",
+                    RootRecordingId = rootRecId,
+                    ActiveRecordingId = rootRecId
+                };
+
+                activeTree.PreTreeFunds = Funding.Instance != null ? Funding.Instance.Funds : 0;
+                activeTree.PreTreeScience = ResearchAndDevelopment.Instance != null
+                    ? ResearchAndDevelopment.Instance.Science : 0;
+                activeTree.PreTreeReputation = Reputation.Instance != null
+                    ? Reputation.Instance.reputation : 0;
+
+                var rootRec = new Recording
+                {
+                    RecordingId = rootRecId,
+                    TreeId = treeId,
+                    VesselPersistentId = vesselPid,
+                    VesselName = activeTree.TreeName,
+                    RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion
+                };
+                activeTree.Recordings[rootRecId] = rootRec;
+
+                backgroundRecorder = new BackgroundRecorder(activeTree);
+                backgroundRecorder.SubscribePartEvents();
+                Patches.PhysicsFramePatch.BackgroundRecorderInstance = backgroundRecorder;
+
+                ParsekLog.Info("Flight",
+                    $"Always-tree: created single-node tree id={treeId}, root={rootRecId}, " +
+                    $"vessel={activeTree.TreeName} (pid={vesselPid})");
+            }
+
             // Propagate tree mode to new recorder so DecideOnVesselSwitch uses tree decisions
             if (activeTree != null)
                 recorder.ActiveTree = activeTree;
@@ -5359,6 +5404,16 @@ namespace Parsek
             if (!recorder.IsRecording)
             {
                 ParsekLog.Warn("Flight", $"StartRecording blocked: {DetermineRecordingBlockReason()}");
+                // Bug #271: clean up single-node tree created above if StartRecording failed
+                if (activeTree != null && activeTree.Recordings.Count <= 1
+                    && backgroundRecorder != null)
+                {
+                    backgroundRecorder.Shutdown();
+                    Patches.PhysicsFramePatch.BackgroundRecorderInstance = null;
+                    backgroundRecorder = null;
+                    activeTree = null;
+                    ParsekLog.Info("Flight", "Cleaned up single-node tree after StartRecording failure");
+                }
                 return;
             }
 
