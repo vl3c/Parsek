@@ -16,6 +16,7 @@ All notable changes to Parsek are documented here.
 - `#297` Vessel destruction during tree recording no longer orphans continuation data as a standalone recording.
 - Test runner window no longer spams IMGUI layout exceptions when opened during flight.
 - `T55` FlagEvents and SegmentEvents are now preserved across tree recording splits and flushes.
+- `#298b` Dead engine shutdown sentinels now work for active-vessel recordings (were only emitted for background vessel recordings).
 
 ### New Features
 

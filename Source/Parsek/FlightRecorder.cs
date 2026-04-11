@@ -69,6 +69,7 @@ namespace Parsek
         // Engine state tracking (key = EncodeEngineKey(pid, moduleIndex))
         private List<(Part part, ModuleEngines engine, int moduleIndex)> cachedEngines;
         private HashSet<ulong> activeEngineKeys;
+        private HashSet<ulong> allEngineKeys = new HashSet<ulong>();
         private Dictionary<ulong, float> lastThrottle;
         private HashSet<ulong> loggedEngineModuleKeys = new HashSet<ulong>();
 
@@ -4430,6 +4431,7 @@ namespace Parsek
             loggedFairingReadFailures.Clear();
             cachedEngines = CacheEngineModules(v);
             activeEngineKeys = new HashSet<ulong>();
+            allEngineKeys = new HashSet<ulong>();
             lastThrottle = new Dictionary<ulong, float>();
             loggedEngineModuleKeys.Clear();
             cachedRcsModules = CacheRcsModules(v);
@@ -4502,6 +4504,7 @@ namespace Parsek
                 deployedRobotArmScannerModules = deployedRobotArmScannerModules,
                 animateHeatLevels = animateHeatLevels,
                 activeEngineKeys = activeEngineKeys,
+                allEngineKeys = allEngineKeys,
                 lastThrottle = lastThrottle,
                 activeRcsKeys = activeRcsKeys,
                 lastRcsThrottle = lastRcsThrottle,
