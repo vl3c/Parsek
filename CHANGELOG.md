@@ -23,8 +23,8 @@ All notable changes to Parsek are documented here.
 - `#241` Ghost parts with the base/default color variant (e.g., BlackAndWhite fuel tanks) no longer show the wrong variant texture (was Orange).
 - `#297` Vessel destruction during tree recording no longer orphans continuation data as a standalone recording.
 - `#304` Stock vessel recordings now show resolved names instead of raw `#autoLOC` keys in the UI, timeline, and logs.
-- `#306` Ghost engine nozzles no longer glow red permanently -- inherited prefab emissive values are cleared to black at build time.
 - `#305` Standalone recordings (rovers, planes) now survive revert-to-launch and show the merge dialog instead of being silently discarded.
+- `#306` Ghost engine nozzles no longer glow red permanently -- inherited prefab emissive values are cleared to black at build time.
 - Landed ghost terrain correction now clamps downward when terrain height decreased since recording (was only clamping upward, leaving ghosts floating above ground).
 - Test runner window no longer spams IMGUI layout exceptions when opened during flight.
 - `T55` FlagEvents and SegmentEvents are now preserved across tree recording splits and flushes.
