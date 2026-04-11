@@ -321,6 +321,18 @@ Fix options:
 
 ---
 
+### T58. Debris/booster ghost engines show running effects at zero throttle after staging
+
+When a booster separates (staging, decouple), the debris recording inherits the engine state from the moment of separation. If the engine was running at separation, the ghost plays back engine FX (flame, smoke) even though the throttle is 0 on the separated stage. The engine was shut down by staging but the ghost's seed events or initial state show it as running.
+
+Likely cause: the engine shutdown event at separation is either not captured (the `EngineShutdown` event fires after the part is already on the debris vessel, and the recorder may not catch it on the new vessel's first frame), or the ghost FX system seeds the engine as running from the pre-separation snapshot without checking the throttle value.
+
+Fix: ensure debris recordings either (a) capture the engine shutdown at separation as a seed event, or (b) the ghost FX system checks throttle == 0 and suppresses effects even if the engine state says "running."
+
+**Priority:** Low -- cosmetic, affects ghost visual fidelity only
+
+---
+
 ## TODO — Nice to have
 
 ### ~~T53. Watch camera mode selection~~
