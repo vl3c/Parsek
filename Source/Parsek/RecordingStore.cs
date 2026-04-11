@@ -3467,7 +3467,7 @@ namespace Parsek
 
         #region Recording File I/O
 
-        internal static bool SaveRecordingFiles(Recording rec)
+        internal static bool SaveRecordingFiles(Recording rec, bool incrementEpoch = true)
         {
             if (rec == null)
             {
@@ -3502,13 +3502,15 @@ namespace Parsek
                     return false;
                 }
 
-                // Bug #270: increment sidecar epoch immediately before the .prec write
-                // (after all early-return guards) so the in-memory epoch only advances
-                // when the file actually hits disk. RecordingTree.SaveRecordingInto runs
-                // after this method and reads the same in-memory value, keeping .sfs and
-                // .prec in sync. On quickload, a stale .prec (from a later save) will
-                // have a higher epoch than the .sfs expects, and LoadRecordingFiles skips it.
-                rec.SidecarEpoch++;
+                // Bug #270 / #290: sidecar epoch synchronization.
+                // On OnSave (incrementEpoch=true): advance the epoch before writing so
+                // .prec and .sfs (written later by SaveRecordingInto) stay in sync.
+                // On out-of-band writes (incrementEpoch=false): preserve the current epoch
+                // so the .prec matches the last OnSave's .sfs. Without this, BgRecorder
+                // and scene-exit force-writes would advance the epoch independently,
+                // causing false-positive staleness on quickload (bug #290).
+                if (incrementEpoch)
+                    rec.SidecarEpoch++;
                 precNode.AddValue("sidecarEpoch", rec.SidecarEpoch.ToString(System.Globalization.CultureInfo.InvariantCulture));
                 SerializeTrajectoryInto(precNode, rec);
                 SafeWriteConfigNode(precNode, precPath);

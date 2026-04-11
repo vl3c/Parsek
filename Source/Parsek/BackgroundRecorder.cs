@@ -1340,7 +1340,7 @@ namespace Parsek
         internal static void PersistFinalizedRecording(Recording rec, string context)
         {
             if (rec == null) return;
-            if (RecordingStore.SaveRecordingFiles(rec))
+            if (RecordingStore.SaveRecordingFiles(rec, incrementEpoch: false))
             {
                 ParsekLog.Verbose("BgRecorder",
                     $"PersistFinalizedRecording: wrote sidecar for " +

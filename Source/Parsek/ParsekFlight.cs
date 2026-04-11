@@ -240,6 +240,18 @@ namespace Parsek
             if (treeRec.VesselPersistentId == 0 && recorder.RecordingVesselId != 0)
                 treeRec.VesselPersistentId = recorder.RecordingVesselId;
 
+            // Copy start location fields from recorder if not already set on the tree recording.
+            // FlushRecorderToTreeRecording (normal stop path) copies these from the captured
+            // recording, but this serialization flush runs during OnSave before BuildCaptureRecording.
+            if (string.IsNullOrEmpty(treeRec.StartBodyName))
+                treeRec.StartBodyName = recorder.StartBodyName;
+            if (string.IsNullOrEmpty(treeRec.StartBiome))
+                treeRec.StartBiome = recorder.StartBiome;
+            if (string.IsNullOrEmpty(treeRec.StartSituation))
+                treeRec.StartSituation = recorder.StartSituation;
+            if (string.IsNullOrEmpty(treeRec.LaunchSiteName))
+                treeRec.LaunchSiteName = recorder.LaunchSiteName;
+
             // Mark tree recording dirty so the sidecar file is rewritten
             treeRec.FilesDirty = true;
 
@@ -1016,7 +1028,7 @@ namespace Parsek
                 {
                     if (rec.FilesDirty)
                     {
-                        if (RecordingStore.SaveRecordingFiles(rec))
+                        if (RecordingStore.SaveRecordingFiles(rec, incrementEpoch: false))
                             forcedWrites++;
                     }
                 }
@@ -1027,6 +1039,10 @@ namespace Parsek
                         $"after finalize so post-finalize state survives the next OnLoad [#289]");
                 }
 
+                // Default state = Finalized. TryRestoreActiveTreeNode relies on this to
+                // skip replacing the in-memory tree with the stale .sfs version (which was
+                // written before FinalizeTreeRecordings and lacks MaxDistanceFromLaunch,
+                // terminal states, and re-snapshotted vessels). See bug #290d.
                 RecordingStore.StashPendingTree(activeTree);
                 ParsekLog.Info("Flight",
                     $"CommitTreeSceneExit (autoMerge off): stashed tree '{activeTree.TreeName}' with snapshots preserved");
@@ -1685,7 +1701,13 @@ namespace Parsek
                 if (v != null && v.mainBody != null)
                 {
                     pending.SegmentBodyName = v.mainBody.name;
-                    if (v.mainBody.atmosphere)
+                    if (v.situation == Vessel.Situations.LANDED
+                        || v.situation == Vessel.Situations.SPLASHED
+                        || v.situation == Vessel.Situations.PRELAUNCH)
+                    {
+                        pending.SegmentPhase = "surface";
+                    }
+                    else if (v.mainBody.atmosphere)
                         pending.SegmentPhase = v.altitude < v.mainBody.atmosphereDepth ? "atmo" : "exo";
                     else
                     {
@@ -4931,7 +4953,13 @@ namespace Parsek
                 if (v != null && v.mainBody != null)
                 {
                     recorder.CaptureAtStop.SegmentBodyName = v.mainBody.name;
-                    if (v.mainBody.atmosphere)
+                    if (v.situation == Vessel.Situations.LANDED
+                        || v.situation == Vessel.Situations.SPLASHED
+                        || v.situation == Vessel.Situations.PRELAUNCH)
+                    {
+                        recorder.CaptureAtStop.SegmentPhase = "surface";
+                    }
+                    else if (v.mainBody.atmosphere)
                         recorder.CaptureAtStop.SegmentPhase = v.altitude < v.mainBody.atmosphereDepth ? "atmo" : "exo";
                     else
                     {
@@ -5132,13 +5160,16 @@ namespace Parsek
             }
 
             string targetName = activeRec.VesselName;
+            uint targetPid = activeRec.VesselPersistentId;
             ParsekLog.Info("Flight",
-                $"RestoreActiveTreeFromPending: waiting for vessel '{targetName}' to load " +
+                $"RestoreActiveTreeFromPending: waiting for vessel '{targetName}' (pid={targetPid}) to load " +
                 $"(activeRecId={activeRecId})");
 
-            // Wait up to 3 seconds for the current active vessel to match by name.
-            // Primary match = active recording's vessel name.
-            // Fallback (edge case 3): if the active recording was an EVA kerbal who got
+            // Wait up to 3 seconds for the current active vessel to match.
+            // Primary match = PID (locale-proof, available immediately even when
+            // vesselName is still a raw #autoLOC key). Bug #290b.
+            // Secondary match = vessel name (fallback for old recordings without PID).
+            // Tertiary (edge case 3): if the active recording was an EVA kerbal who got
             // boarded between quicksave and quickload, match against the parent recording's
             // vessel by walking ParentRecordingId up the EVA chain.
             Recording matchedRec = activeRec;
@@ -5150,26 +5181,38 @@ namespace Parsek
                 var v = FlightGlobals.ActiveVessel;
                 if (v != null)
                 {
-                    // Primary: active recording vessel name
+                    // Primary: PID match (locale-proof, available immediately)
+                    if (targetPid != 0 && v.persistentId == targetPid)
+                    {
+                        matched = v;
+                        ParsekLog.Verbose("Flight",
+                            $"RestoreActiveTreeFromPending: PID match pid={targetPid}");
+                        break;
+                    }
+                    // Secondary: name match (fallback for old recordings without PID)
                     if (v.vesselName == targetName)
                     {
                         matched = v;
+                        ParsekLog.Verbose("Flight",
+                            $"RestoreActiveTreeFromPending: name match '{targetName}'");
                         break;
                     }
-                    // Fallback: walk ParentRecordingId chain and try each parent's vessel name
+                    // Tertiary: walk ParentRecordingId chain and try each parent's PID/name
                     Recording probe = activeRec;
                     int walkDepth = 0;
                     while (walkDepth < 5 && !string.IsNullOrEmpty(probe?.ParentRecordingId))
                     {
                         if (!tree.Recordings.TryGetValue(probe.ParentRecordingId, out probe))
                             break;
-                        if (probe != null && v.vesselName == probe.VesselName)
+                        if (probe != null && (
+                            (probe.VesselPersistentId != 0 && v.persistentId == probe.VesselPersistentId) ||
+                            v.vesselName == probe.VesselName))
                         {
                             matched = v;
                             matchedRec = probe;
                             matchedRecId = probe.RecordingId;
                             ParsekLog.Info("Flight",
-                                $"RestoreActiveTreeFromPending: fallback match — active vessel '{v.vesselName}' " +
+                                $"RestoreActiveTreeFromPending: fallback match — active vessel pid={v.persistentId} " +
                                 $"matches parent recording '{matchedRecId}' (original active was '{targetName}', " +
                                 $"EVA kerbal likely boarded between F5 and F9)");
                             // Flip the tree's active-recording pointer to the parent
@@ -5874,6 +5917,33 @@ namespace Parsek
                         $"not found on scene exit for recording '{rec.RecordingId}' — " +
                         $"inferred {inferredState} from trajectory (vessel was alive when unloaded)");
                     PopulateTerminalOrbitFromLastSegment(rec);
+
+                    // Bug #290d: capture terrain height from last trajectory point for
+                    // landed/splashed recordings whose vessel was unloaded at scene exit.
+                    // Without this, TerrainHeightAtEnd stays NaN and the spawn safety net
+                    // uses PQS terrain height, which is below KSP static structures (runway,
+                    // launchpad), causing the spawned vessel to clip through and explode.
+                    if ((inferredState == TerminalState.Landed || inferredState == TerminalState.Splashed)
+                        && rec.Points.Count > 0)
+                    {
+                        var lastPt = rec.Points[rec.Points.Count - 1];
+                        try
+                        {
+                            CelestialBody body = FlightGlobals.GetBodyByName(lastPt.bodyName);
+                            if (body != null)
+                            {
+                                rec.TerrainHeightAtEnd = body.TerrainAltitude(lastPt.latitude, lastPt.longitude);
+                                ParsekLog.Verbose("TerrainCorrect",
+                                    $"Captured terrain height from trajectory for unloaded vessel: " +
+                                    $"{rec.TerrainHeightAtEnd:F1}m (lastPt alt={lastPt.altitude:F1}m, " +
+                                    $"rec={rec.RecordingId})");
+                            }
+                        }
+                        catch
+                        {
+                            // FlightGlobals not available (unit tests)
+                        }
+                    }
                 }
                 else
                 {
@@ -5982,6 +6052,15 @@ namespace Parsek
                 }
             }
 
+            // Bug #290d: backfill MaxDistanceFromLaunch if not yet computed.
+            // Tree recordings reach finalization via ForceStop which skips BuildCaptureRecording
+            // (where MaxDistanceFromLaunch is normally computed). Without this, all recordings
+            // have maxDist=0.0 and IsTreeIdleOnPad falsely discards the entire tree.
+            if (rec.MaxDistanceFromLaunch <= 0.0 && rec.Points.Count >= 2)
+            {
+                VesselSpawner.BackfillMaxDistance(rec);
+            }
+
             // Warn if leaf has no playback data
             if (isLeaf && rec.Points.Count == 0 && rec.OrbitSegments.Count == 0 && !rec.SurfacePos.HasValue)
                 ParsekLog.Warn("Flight", $"FinalizeTreeRecordings: leaf '{rec.RecordingId}' has no playback data");
@@ -5990,6 +6069,7 @@ namespace Parsek
                 $"FinalizeTreeRecordings: rec='{rec.RecordingId}' vessel='{rec.VesselName}' " +
                 $"points={rec.Points.Count} orbitSegs={rec.OrbitSegments.Count} " +
                 $"terminal={rec.TerminalStateValue?.ToString() ?? "none"} " +
+                $"maxDist={rec.MaxDistanceFromLaunch:F0}m " +
                 $"snapshot={rec.VesselSnapshot != null} leaf={isLeaf}");
         }
 
@@ -7512,8 +7592,11 @@ namespace Parsek
             if (tree == null || tree.Recordings == null || tree.Recordings.Count == 0)
                 return false;
 
+            bool anyHasPoints = false;
             foreach (var rec in tree.Recordings.Values)
             {
+                if (rec.Points != null && rec.Points.Count > 0)
+                    anyHasPoints = true;
                 if (!IsIdleOnPad(rec.MaxDistanceFromLaunch))
                 {
                     ParsekLog.Verbose("Flight",
@@ -7522,6 +7605,15 @@ namespace Parsek
                             rec.VesselName, rec.MaxDistanceFromLaunch));
                     return false;
                 }
+            }
+            // Bug #290d: a tree where no recording has trajectory points is data-loss
+            // (e.g., sidecar epoch mismatch), not idle-on-pad. Don't auto-discard.
+            if (!anyHasPoints)
+            {
+                ParsekLog.Verbose("Flight",
+                    $"IsTreeIdleOnPad: all {tree.Recordings.Count} recordings have 0 points — " +
+                    "cannot determine idle, returning false");
+                return false;
             }
             ParsekLog.Verbose("Flight",
                 $"IsTreeIdleOnPad: all {tree.Recordings.Count} recordings within 30m — idle on pad");

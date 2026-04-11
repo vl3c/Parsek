@@ -78,6 +78,7 @@ namespace Parsek
         private GUIStyle phaseStyleExo;
         private GUIStyle phaseStyleSpace;
         private GUIStyle phaseStyleApproach;
+        private GUIStyle phaseStyleSurface;
 
         // Sort state
         internal enum SortColumn { Index, Phase, Name, LaunchTime, Duration, Status, LaunchSite }
@@ -328,16 +329,19 @@ namespace Parsek
             if (phaseStyleAtmo != null) return;
 
             phaseStyleAtmo = new GUIStyle(GUI.skin.label);
-            phaseStyleAtmo.normal.textColor = new Color(1f, 0.6f, 0.2f); // orange
+            phaseStyleAtmo.normal.textColor = new Color(0.4f, 0.7f, 1f); // blue
 
             phaseStyleExo = new GUIStyle(GUI.skin.label);
-            phaseStyleExo.normal.textColor = new Color(0.3f, 0.8f, 1f); // cyan
+            phaseStyleExo.normal.textColor = new Color(0.75f, 0.55f, 1f); // light purple
 
             phaseStyleSpace = new GUIStyle(GUI.skin.label);
             phaseStyleSpace.normal.textColor = new Color(0.2f, 1f, 0.6f); // lime green
 
             phaseStyleApproach = new GUIStyle(GUI.skin.label);
-            phaseStyleApproach.normal.textColor = new Color(0.4f, 0.7f, 1f); // sky blue
+            phaseStyleApproach.normal.textColor = new Color(0.3f, 0.8f, 1f); // cyan
+
+            phaseStyleSurface = new GUIStyle(GUI.skin.label);
+            phaseStyleSurface.normal.textColor = new Color(1f, 0.6f, 0.2f); // orange
         }
 
         /// <summary>
@@ -779,6 +783,7 @@ namespace Parsek
             {
                 GUIStyle phaseStyle;
                 if (rec.SegmentPhase == "atmo") phaseStyle = phaseStyleAtmo;
+                else if (rec.SegmentPhase == "surface") phaseStyle = phaseStyleSurface;
                 else if (rec.SegmentPhase == "approach") phaseStyle = phaseStyleApproach;
                 else if (rec.SegmentPhase == "space") phaseStyle = phaseStyleSpace;
                 else phaseStyle = phaseStyleExo;

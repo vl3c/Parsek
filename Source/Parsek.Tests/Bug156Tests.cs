@@ -106,9 +106,40 @@ namespace Parsek.Tests
         public void IsTreeIdleOnPad_AllIdleRecordings_ReturnsTrue()
         {
             var tree = new RecordingTree { Recordings = new Dictionary<string, Recording>() };
-            tree.Recordings["a"] = new Recording { MaxDistanceFromLaunch = 5.0 };
-            tree.Recordings["b"] = new Recording { MaxDistanceFromLaunch = 10.0 };
+            var recA = new Recording { MaxDistanceFromLaunch = 5.0 };
+            recA.Points.Add(new TrajectoryPoint());
+            var recB = new Recording { MaxDistanceFromLaunch = 10.0 };
+            recB.Points.Add(new TrajectoryPoint());
+            tree.Recordings["a"] = recA;
+            tree.Recordings["b"] = recB;
             Assert.True(ParsekFlight.IsTreeIdleOnPad(tree));
+        }
+
+        [Fact]
+        public void IsTreeIdleOnPad_MixedPointsAndZeroPoints_ReturnsTrue()
+        {
+            // A tree with one recording that has points (confirms idle) and one with
+            // zero points (data-loss). Since at least one recording has trajectory data
+            // confirming the vessel stayed near the pad, the tree IS idle.
+            var tree = new RecordingTree { Recordings = new Dictionary<string, Recording>() };
+            var recA = new Recording { MaxDistanceFromLaunch = 5.0 };
+            recA.Points.Add(new TrajectoryPoint());
+            tree.Recordings["a"] = recA;
+            tree.Recordings["b"] = new Recording { MaxDistanceFromLaunch = 0.0 };
+            Assert.True(ParsekFlight.IsTreeIdleOnPad(tree));
+        }
+
+        [Fact]
+        public void IsTreeIdleOnPad_ZeroPointRecordings_ReturnsFalse()
+        {
+            // Bug #290d: recordings with 0 trajectory points (e.g., sidecar epoch mismatch)
+            // have MaxDistanceFromLaunch=0.0 which trivially passes the 30m threshold.
+            // Must not be classified as idle-on-pad — it's data loss, not a pad sit.
+            var tree = new RecordingTree { Recordings = new Dictionary<string, Recording>() };
+            tree.Recordings["a"] = new Recording { MaxDistanceFromLaunch = 0.0 };
+            tree.Recordings["b"] = new Recording { MaxDistanceFromLaunch = 0.0 };
+            // Points list is empty (default) — simulating epoch mismatch
+            Assert.False(ParsekFlight.IsTreeIdleOnPad(tree));
         }
 
         [Fact]
