@@ -625,6 +625,10 @@ namespace Parsek
                     // recordings (new ones were committed since launch). On a scene change,
                     // the most recent OnSave wrote the current epoch and recording count.
                     ConfigNode[] savedRecNodes = node.GetNodes("RECORDING");
+                    if (savedRecNodes.Length > 0)
+                        ParsekLog.Warn("Scenario",
+                            $"OnLoad: found {savedRecNodes.Length} legacy standalone RECORDING node(s) — " +
+                            "these are no longer loaded (T56). Re-save to remove them.");
                     uint savedEpoch = 0;
                     string savedEpochStr = node.GetValue("milestoneEpoch");
                     if (savedEpochStr != null)
