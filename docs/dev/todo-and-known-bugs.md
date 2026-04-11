@@ -84,16 +84,17 @@ Log shows KSCSpawn successfully spawned the EVA kerbal (Bill Kerman, pid=4845468
 
 ---
 
-## 290. F5/F9 quicksave/quickload interaction with recordings — verification needed
+## ~~290. F5/F9 quicksave/quickload interaction with recordings~~
 
-User asked: *"check if the quicksave/quickload and recordings systems work well together now (we fixed some bugs) — investigate deep in the logs"*. Bug #292 is the smoking gun — F9 reloads can silently drop recordings created since the last quicksave was made.
+Broad investigation of F5/F9 + recording system interactions. Bug #292 (F9 after merge drops recordings) was the original smoking gun.
 
-**Open questions**:
-1. Are there OTHER scenarios beyond #292 where F5/F9 + recordings interact badly? (e.g., F9 during an active recording, F5 during a merge dialog)
-2. Should the quicksave auto-refresh on every committed recording change, not just merges? Trade-off: more I/O vs. data safety.
-3. Does the rewind save (`parsek_rw_*.sfs`) have the same staleness problem as the quicksave? The rewind save IS Parsek-managed, so we control when it's written.
+**Bug found:** `CleanOrphanFiles` (cold-start only) built its known-ID set from committed recordings/trees but not the pending tree. On cold-start resume, `TryRestoreActiveTreeNode` stashes the active tree into `pendingTree` before `CleanOrphanFiles` runs, so branch recordings (debris, EVA) were invisible to the orphan scanner and their sidecar files deleted. Data survived the first session (in memory) but non-active branches had `FilesDirty=false`, so sidecars were not rewritten. Second cold start degraded them to 0 points.
 
-**Status**: Open — partially investigated by #292. Needs broader scenarios coverage.
+**Fix:** Extracted `BuildKnownRecordingIds()` (internal static) from `CleanOrphanFiles`; now includes pending tree recording IDs.
+
+**Other scenarios verified safe:** auto-merge + F9 (no optimizer, no corruption), CommitTreeFlight + F9 (same), rewind save staleness (frozen by design), quicksave auto-refresh (user-initiated only to avoid re-entering OnSave).
+
+**Status:** ~~Fixed~~
 
 ---
 
