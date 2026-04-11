@@ -304,6 +304,23 @@ Prerequisite: delete all old save files (no users yet, clean slate).
 
 ---
 
+### T57. EVA spawn-at-end blocked by parent vessel collision
+
+EVA recordings created by mid-flight EVA (tree branch) fail to spawn at end because the entire EVA trajectory overlaps with the already-spawned parent vessel. The spawn collision walkback exhausts every point in the trajectory and abandons the spawn.
+
+Observed in t56-optimizer-test session: Bob Kerman did a surface EVA near the launchpad. The parent vessel (Kerbal X) spawned first, then Bob's EVA spawn was abandoned because his entire trajectory (surface walk near pad) was within the 2.5m EVA collision bounds of the parent. Bob never materialized.
+
+Secondary issue: the held-ghost retry logic (`ParsekPlaybackPolicy.cs:395`) checks `VesselSpawned` but not `SpawnAbandoned`, so it logs "succeeded on retry" for abandoned spawns.
+
+Fix options:
+1. Exempt EVA vessels from collision checks against their known parent vessel (use `ParentRecordingId` to identify the parent, look up its `VesselPersistentId`)
+2. When EVA spawn is abandoned due to parent collision, fall back to boarding the crew member onto the parent vessel instead
+3. Both -- try spawning, skip collision against parent, fall back to boarding if still blocked
+
+**Priority:** Medium -- pre-existing issue, not caused by optimizer changes but exposed by enabling tree recording spawns
+
+---
+
 ## TODO — Nice to have
 
 ### ~~T53. Watch camera mode selection~~
