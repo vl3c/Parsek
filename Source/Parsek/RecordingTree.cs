@@ -251,6 +251,10 @@ namespace Parsek
 
             // Existing recording metadata
             recNode.AddValue("recordingFormatVersion", rec.RecordingFormatVersion);
+
+            // Sidecar epoch (bug #270): stamped into .prec on write, validated on load
+            if (rec.SidecarEpoch > 0)
+                recNode.AddValue("sidecarEpoch", rec.SidecarEpoch.ToString(ic));
             recNode.AddValue("loopPlayback", rec.LoopPlayback);
             recNode.AddValue("loopIntervalSeconds", rec.LoopIntervalSeconds.ToString("R", ic));
             if (!double.IsNaN(rec.LoopStartUT))
@@ -492,6 +496,15 @@ namespace Parsek
                 int formatVersion;
                 if (int.TryParse(formatVersionStr, NumberStyles.Integer, ic, out formatVersion))
                     rec.RecordingFormatVersion = formatVersion;
+            }
+
+            // Sidecar epoch (bug #270)
+            string sidecarEpochStr = recNode.GetValue("sidecarEpoch");
+            if (sidecarEpochStr != null)
+            {
+                int sidecarEpoch;
+                if (int.TryParse(sidecarEpochStr, NumberStyles.Integer, ic, out sidecarEpoch))
+                    rec.SidecarEpoch = sidecarEpoch;
             }
 
             string loopPlaybackStr = recNode.GetValue("loopPlayback");

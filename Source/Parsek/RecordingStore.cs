@@ -3454,9 +3454,15 @@ namespace Parsek
                 }
 
                 // Save .prec trajectory file
+                // Bug #270: increment sidecar epoch before writing so the .prec and .sfs
+                // (written immediately after by RecordingTree.SaveRecordingInto) share the
+                // same epoch. On quickload, a stale .prec (from a later save) will have a
+                // higher epoch than the .sfs expects, and LoadRecordingFiles will skip it.
+                rec.SidecarEpoch++;
                 var precNode = new ConfigNode("PARSEK_RECORDING");
                 precNode.AddValue("version", rec.RecordingFormatVersion);
                 precNode.AddValue("recordingId", rec.RecordingId);
+                precNode.AddValue("sidecarEpoch", rec.SidecarEpoch.ToString(System.Globalization.CultureInfo.InvariantCulture));
                 SerializeTrajectoryInto(precNode, rec);
 
                 string precPath = RecordingPaths.ResolveSaveScopedPath(
@@ -3559,6 +3565,16 @@ namespace Parsek
                     return false;
                 }
 
+                // Bug #270: validate sidecar epoch
+                string fileEpochStr = precNode.GetValue("sidecarEpoch");
+                int fileEpoch = 0;
+                if (fileEpochStr != null)
+                    int.TryParse(fileEpochStr, System.Globalization.NumberStyles.Integer,
+                        System.Globalization.CultureInfo.InvariantCulture, out fileEpoch);
+
+                if (ShouldSkipStaleSidecar(rec, fileEpoch))
+                    return false;
+
                 DeserializeTrajectoryFrom(precNode, rec);
 
                 // #288: eagerly populate TerminalOrbit cache from the last orbit segment if
@@ -3607,6 +3623,29 @@ namespace Parsek
                 Log($"[Parsek] Failed to load recording files for {rec.RecordingId}: {ex.Message}");
                 return false;
             }
+        }
+
+        /// <summary>
+        /// Bug #270: Returns true if the sidecar file's epoch doesn't match the
+        /// recording's expected epoch (loaded from .sfs). When true, the caller
+        /// should skip trajectory deserialization — the .prec is from a different
+        /// save point and its data would be inconsistent with the .sfs metadata.
+        /// Backward compat: if the .sfs epoch is 0 (old save without epoch),
+        /// validation is skipped and the sidecar is always accepted.
+        /// </summary>
+        internal static bool ShouldSkipStaleSidecar(Recording rec, int fileEpoch)
+        {
+            if (rec.SidecarEpoch <= 0)
+                return false;  // old save without epoch — skip validation
+
+            if (fileEpoch == rec.SidecarEpoch)
+                return false;  // epochs match — sidecar is valid
+
+            ParsekLog.Warn("RecordingStore",
+                $"Sidecar epoch mismatch for {rec.RecordingId}: " +
+                $".sfs expects epoch {rec.SidecarEpoch}, .prec has epoch {fileEpoch} — " +
+                $"sidecar is stale (bug #270), skipping trajectory load");
+            return true;
         }
 
         private static void SafeWriteConfigNode(ConfigNode node, string path)
