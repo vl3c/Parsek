@@ -117,9 +117,9 @@ These principles govern every design decision in the logistics system. They are 
 
 4. **No infinite cargo glitches.** Routes deliver exactly what was transferred during the recording — no more, no less. This applies to resources, inventory items, and crew equally. KSC origins are free (KSP charges funds to build vessels). Non-KSC origins deduct the transport's full start manifest. Recovery funds from the real vessel are one-time.
 
-5. **Don't waste origin resources.** Origin is only deducted if at least one delivery resource can be accepted at the destination. If destination is completely full, the cycle is skipped and origin pays nothing. Per-resource delivery is independent: each resource fills what fits.
+5. **Don't waste origin cargo.** Origin is only deducted if at least one delivery item (resource, inventory part, or crew) can be accepted at the destination. If destination is completely full, the cycle is skipped and origin pays nothing. Per-item delivery is independent: each item fills what fits.
 
-6. **Dock + transfer + undock required.** A route can only be created from a recording chain where the transport docked, transferred resources, AND undocked (freeing the port for the next cycle) at least once. No undock = no route. The "Start/End Route Recording" workflow makes this explicit.
+6. **Dock + transfer + undock required.** A route can only be created from a recording chain where the transport docked, transferred cargo (resources, inventory, or crew), AND undocked (freeing the port for the next cycle) at least once. No undock = no route. The "Start/End Route Recording" workflow makes this explicit.
 
 ### 2.3 Abstraction model
 
@@ -139,9 +139,9 @@ These principles govern every design decision in the logistics system. They are 
 
 ## 3. Terminology
 
-**Route** — a separate entity that defines a repeating resource transfer across one or more stops. Created from a committed recording chain via the "Start/End Route Recording" workflow. Uses chain-sequential ghost playback (not the per-recording loop system).
+**Route** — a separate entity that defines a repeating cargo transfer (resources, inventory, crew) across one or more stops. Created from a committed recording chain via the "Start/End Route Recording" workflow. Uses chain-sequential ghost playback (not the per-recording loop system).
 
-**Route stop** — a location where the transport docks, transfers resources, and undocks during the recorded chain. Each stop has its own endpoint and delivery manifest. A single-stop route is the common case; multi-stop routes are supported.
+**Route stop** — a location where the transport docks, transfers cargo, and undocks during the recorded chain. Each stop has its own endpoint and delivery manifest. A single-stop route is the common case; multi-stop routes are supported.
 
 **Recording chain** — the ordered list of recordings committed during a route recording session. The route scheduler replays these segments in sequence each cycle.
 
@@ -394,7 +394,7 @@ Route creation uses an explicit recording session, not automatic derivation from
 **Player flow:**
 
 1. Player clicks "Start Route Recording" in Parsek UI
-2. Player flies mission normally — launch, transit, dock at destination(s), transfer resources via KSP UI, undock, optionally continue to more stops, fly home
+2. Player flies mission normally — launch, transit, dock at destination(s), transfer cargo via KSP UI (resources, inventory, crew), undock, optionally continue to more stops, fly home
 3. Player clicks "End Route Recording"
 4. Parsek's route analysis engine walks the committed chain, presents route summary
 5. Player sets dispatch interval, confirms
@@ -536,7 +536,7 @@ For each resource in stop.DeliveryManifest:
     actualDelivery[resource] = deliver
 ```
 
-Origin cost: deduct full CostManifest at dispatch time if ANY delivery resource across ANY stop has a non-zero amount. Zero deduction only if total delivery is zero across all resources at all stops.
+Origin cost: deduct full CostManifest at dispatch time if ANY delivery item (resource, inventory, or crew) across ANY stop has a non-zero amount. Zero deduction only if total delivery is zero across all cargo types at all stops.
 
 ### 6.6 Pause, unpause, and re-target
 
@@ -664,9 +664,9 @@ Player selects two routes in the UI and clicks "Link as Round Trip." Sets `Linke
 **Scenario:** Player forgets to undock.
 **Behavior:** Validation fails. "Create Route" absent. Tooltip: "Transport must undock from destination."
 
-### 10.9 No resources transferred during docking
+### 10.9 No cargo transferred during docking
 **Scenario:** Player docks and undocks without transferring.
-**Behavior:** Validation fails. Tooltip: "No resource transfer detected during docking."
+**Behavior:** Validation fails. Tooltip: "No cargo transfer detected during docking."
 
 ### 10.10 Multiple dock/undock in one recording chain
 **Scenario:** Route recording chain has dock-transfer-undock-dock-transfer-undock.
@@ -686,7 +686,7 @@ Player selects two routes in the UI and clicks "Link as Round Trip." Sets `Linke
 
 ### 10.14 Recording deleted
 **Scenario:** Source recording for a route is deleted.
-**Behavior:** Route orphaned — resource transfers continue, ghost replay absent. "No ghost" indicator in UI.
+**Behavior:** Route orphaned — cargo transfers continue, ghost replay absent. "No ghost" indicator in UI.
 
 ### 10.15 Save/load round-trip
 **Scenario:** Save, load.
@@ -759,6 +759,8 @@ No changes to `FlightRecorder`, `GhostPlaybackEngine`, `RecordingStore`, `Record
 The route module is a read-only consumer of recording data. It reads:
 
 - `rec.StartResources` / `rec.EndResources` -- resource manifests (Phase 11)
+- `rec.StartInventory` / `rec.EndInventory` -- inventory manifests (Phase 11)
+- `rec.StartCrew` / `rec.EndCrew` -- crew manifests (Phase 11)
 - `rec.DockTargetVesselPid` -- dock target vessel identification (Phase 11)
 - `rec.StartBodyName`, `rec.StartLatitude`, `rec.StartLongitude` -- location context (Phase 10)
 - Chain boundary trajectory points for dock-time coordinates

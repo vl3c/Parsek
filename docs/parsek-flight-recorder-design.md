@@ -634,13 +634,15 @@ Section 4.4 defines segment boundaries within the recording tree (structural spl
 
 > **Note (v0.8.0, T56):** Chain mode (standalone single-vessel recordings with eager boundary splitting) was removed. All recordings now use tree mode. The boundary detection code (9A.2) is retained in `FlightRecorder` but its flags are always suppressed because `activeTree` is always non-null. Chain segments are now produced exclusively by the RecordingOptimizer's post-commit split pass (9A.5). Sections 9A.1--9A.4 describe the original chain mode architecture for historical reference; section 9A.5 (the optimizer) remains current.
 
-### 9A.1 Motivation
+### 9A.1 Motivation (historical)
 
-Chain recordings (the legacy single-vessel recording mode) produce one Recording per flight. A long flight that traverses multiple environments (atmosphere → vacuum → different SOI → landing) results in a single monolithic segment. This makes it impossible for the player to selectively loop or configure playback for individual flight phases (e.g., loop just the atmospheric ascent, or hide the boring transfer coast).
+> Chain mode was removed in v0.8.0 (T56). This section describes the original motivation for chain segmentation, which is now handled entirely by the RecordingOptimizer's post-commit split pass (Section 9A.5).
 
-Chain segmentation automatically splits the recording at environment boundaries so each flight phase becomes a separate, independently configurable Recording linked by a shared `ChainId`.
+Chain recordings (the former single-vessel recording mode) produced one Recording per flight. A long flight that traversed multiple environments (atmosphere → vacuum → different SOI → landing) resulted in a single monolithic segment. This made it impossible for the player to selectively loop or configure playback for individual flight phases (e.g., loop just the atmospheric ascent, or hide the boring transfer coast).
 
-Tree recordings do NOT use chain segmentation — they keep all data in a single Recording with multiple `TrackSections`. Environment changes are tracked internally via the TrackSection `environment` field and the session merger (Section 9) handles fidelity resolution.
+Chain segmentation automatically split the recording at environment boundaries so each flight phase became a separate, independently configurable Recording linked by a shared `ChainId`.
+
+Tree recordings (now the only mode) do not use eager chain segmentation — they keep all data in a single Recording with multiple `TrackSections`. Environment changes are tracked internally via the TrackSection `environment` field and the session merger (Section 9) handles fidelity resolution. The RecordingOptimizer's split pass (9A.5) produces chain segments post-commit.
 
 ### 9A.2 Chain Segment Boundary Conditions
 
@@ -812,7 +814,7 @@ When a looped segment plays back, it uses the real anchor vessel's current posit
 
 Before spawning a looped ghost, Parsek validates: does the anchor vessel still exist? Is it on the expected body? Is the docking port still available? If validation fails, the loop is marked as broken in the recordings manager.
 
-### 10.6 Per-Phase Looping (Mode-Independent)
+### 10.6 Per-Phase Looping
 
 All recordings support per-phase looping. The optimizer split pass (Section 9A.5) breaks multi-environment tree recordings into per-phase chain segments post-commit. The result: separate Recording entries per flight phase, each with its own `LoopPlayback` toggle in the recordings window.
 
