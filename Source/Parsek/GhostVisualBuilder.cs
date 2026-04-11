@@ -2252,7 +2252,8 @@ namespace Parsek
             Part prefab, uint persistentId, string partName,
             Transform modelRoot, Transform ghostModelNode,
             Dictionary<Transform, Transform> cloneMap,
-            bool raiseRcsVisualOnly)
+            bool raiseRcsVisualOnly,
+            Dictionary<string, bool> selectedVariantGameObjects)
         {
             // Find all ModuleRCS on the part (catches both ModuleRCS and ModuleRCSFX)
             int midx = 0;
@@ -2372,7 +2373,22 @@ namespace Parsek
                     string transformName = fxDefinitions[f].transformName;
                     string modelName = fxDefinitions[f].modelName;
 
+                    // Note: RCS discovery uses FindTransformsRecursive (not rcs.thrusterTransforms
+                    // directly). If a thrusterTransforms-based path is added in the future,
+                    // it would also need variant filtering here.
                     var fxTransforms = FindTransformsRecursive(prefab.transform, transformName);
+                    // #242c: exclude transforms under disabled variant GameObjects
+                    if (selectedVariantGameObjects != null && selectedVariantGameObjects.Count > 0)
+                    {
+                        int preFilter = fxTransforms.Count;
+                        fxTransforms.RemoveAll(t =>
+                            !IsRendererEnabledByVariantRule(
+                                t, modelRoot, selectedVariantGameObjects, out _, out _));
+                        if (fxTransforms.Count < preFilter)
+                            ParsekLog.Verbose("GhostVisual", $"RCS '{partName}' midx={moduleIndex}: " +
+                                $"variant filter removed {preFilter - fxTransforms.Count} of {preFilter} " +
+                                $"'{transformName}' RCS FX transforms");
+                    }
                     if (fxTransforms.Count == 0)
                     {
                         continue;
@@ -3292,8 +3308,14 @@ namespace Parsek
             return true;
         }
 
-        private static bool IsRendererEnabledByVariantRule(
-            Transform rendererTransform,
+        /// <summary>
+        /// Checks whether a transform is enabled by the selected variant's GAMEOBJECTS rules.
+        /// Walks up from the transform to modelRoot, checking each ancestor against the rules.
+        /// Returns true if no rule matches (default include). Used by mesh renderer filtering
+        /// and FX transform filtering (#242c).
+        /// </summary>
+        internal static bool IsRendererEnabledByVariantRule(
+            Transform targetTransform,
             Transform modelRoot,
             Dictionary<string, bool> gameObjectStates,
             out string matchedRuleName,
@@ -3302,15 +3324,51 @@ namespace Parsek
             matchedRuleName = null;
             matchedRuleEnabled = true;
 
-            if (rendererTransform == null || gameObjectStates == null || gameObjectStates.Count == 0)
+            if (targetTransform == null || gameObjectStates == null || gameObjectStates.Count == 0)
                 return true;
 
-            Transform current = rendererTransform;
+            // Build ancestor name list from transform up to modelRoot
+            var ancestorNames = new List<string>();
+            Transform current = targetTransform;
             while (current != null)
             {
-                if (gameObjectStates.TryGetValue(current.name, out bool enabled))
+                ancestorNames.Add(current.name);
+                if (current == modelRoot)
+                    break;
+                current = current.parent;
+            }
+
+            return IsAncestorChainEnabledByVariantRule(
+                ancestorNames, gameObjectStates,
+                out matchedRuleName, out matchedRuleEnabled);
+        }
+
+        /// <summary>
+        /// Pure matching logic: given a list of ancestor names (bottom-up, from transform
+        /// to modelRoot) and GAMEOBJECTS rules, returns whether the transform is enabled.
+        /// First matching ancestor wins. Returns true if no rule matches (default include).
+        /// Extracted for unit testability without Unity (#242c).
+        /// </summary>
+        internal static bool IsAncestorChainEnabledByVariantRule(
+            List<string> ancestorNamesBottomUp,
+            Dictionary<string, bool> gameObjectStates,
+            out string matchedRuleName,
+            out bool matchedRuleEnabled)
+        {
+            matchedRuleName = null;
+            matchedRuleEnabled = true;
+
+            if (ancestorNamesBottomUp == null || ancestorNamesBottomUp.Count == 0 ||
+                gameObjectStates == null || gameObjectStates.Count == 0)
+                return true;
+
+            for (int i = 0; i < ancestorNamesBottomUp.Count; i++)
+            {
+                string name = ancestorNamesBottomUp[i];
+
+                if (gameObjectStates.TryGetValue(name, out bool enabled))
                 {
-                    matchedRuleName = current.name;
+                    matchedRuleName = name;
                     matchedRuleEnabled = enabled;
                     return enabled;
                 }
@@ -3319,18 +3377,13 @@ namespace Parsek
                 // plus "(Clone)" suffix (e.g. "SquadExpansion/.../Shroud3x0(Clone)").
                 // Variant GAMEOBJECTS rules use short names (e.g. "Shroud3x0").
                 // Try matching the last path segment after stripping "(Clone)".
-                string shortName = ExtractShortTransformName(current.name);
+                string shortName = ExtractShortTransformName(name);
                 if (shortName != null && gameObjectStates.TryGetValue(shortName, out bool shortEnabled))
                 {
                     matchedRuleName = shortName;
                     matchedRuleEnabled = shortEnabled;
                     return shortEnabled;
                 }
-
-                if (current == modelRoot)
-                    break;
-
-                current = current.parent;
             }
 
             return true;
@@ -5415,12 +5468,14 @@ namespace Parsek
             }
 
             // Detect engine parts and clone FX particle systems
+            // selectedVariantGameObjects is null when no variant rules exist or when
+            // the base-implicit variant is selected (prefab defaults, no geometry toggling).
             engineInfos = EngineFxBuilder.TryBuildEngineFX(prefab, persistentId, partName, modelRoot,
-                modelNode.transform, cloneMap);
+                modelNode.transform, cloneMap, selectedVariantGameObjects);
 
             // Detect RCS parts and clone FX particle systems
             rcsInfos = TryBuildRcsFX(prefab, persistentId, partName, modelRoot,
-                modelNode.transform, cloneMap, raiseRcsVisualOnly);
+                modelNode.transform, cloneMap, raiseRcsVisualOnly, selectedVariantGameObjects);
 
             string ladderAnimName;
             string ladderAnimRootName;
