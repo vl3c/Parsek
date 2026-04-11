@@ -46,7 +46,7 @@ Before each cycle, the route evaluates whether dispatch is possible. It checks t
 | End Route Recording | Route analysis extracts stops from committed chain. Player sees summary, sets interval, confirms. |
 | Route dispatches on schedule | Origin resources deducted (if non-KSC). Ghost begins chain-sequential replay. |
 | Route delivers at each stop | Resources appear in stop vessel tanks as ghost reaches each stop. |
-| Destination tanks full | Cycle skipped. Origin NOT deducted. Ghost loops visually. |
+| Destination tanks full | Cycle skipped. Origin NOT deducted. No ghost replay for skipped cycle. |
 | Origin runs out of resources | Dispatch delayed until resources available. Route resumes automatically. |
 | Destination destroyed (surface) | Proximity fallback auto-reconnects to rebuilt base at same location. |
 | Destination destroyed (orbital) | Route halted (`EndpointLost`). Player must re-target to new station. |
@@ -646,7 +646,7 @@ Player selects two routes in the UI and clicks "Link as Round Trip." Sets `Linke
 
 ### 10.4 Destination tanks full
 **Scenario:** Route delivers 200 LF. Base has 200/200 LF.
-**Behavior:** `Status = DestinationFull`. Ghost loops visually. Origin NOT deducted. Resumes when player uses fuel.
+**Behavior:** `Status = DestinationFull`. Cycle skipped -- no ghost replay, no origin deduction. Origin NOT deducted. Resumes when player uses fuel and capacity becomes available.
 
 ### 10.5 Destination partially full
 **Scenario:** Base has room for 100 LF, full on Ox. Delivery: 150 LF + 183 Ox.
