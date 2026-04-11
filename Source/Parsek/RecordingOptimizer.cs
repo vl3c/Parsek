@@ -85,6 +85,10 @@ namespace Parsek
         internal static bool CanAutoSplitIgnoringGhostTriggers(Recording rec, int sectionIndex)
         {
             if (rec == null) return false;
+            // Bug #271: skip tree recordings. The optimizer produces standalone chain
+            // recordings that aren't in the tree structure, breaking ghost chain traversal.
+            // Tree recording splits will be handled when T56 unifies the format.
+            if (!string.IsNullOrEmpty(rec.TreeId)) return false;
             if (rec.TrackSections == null || rec.TrackSections.Count < 2) return false;
             if (sectionIndex < 1 || sectionIndex >= rec.TrackSections.Count) return false;
 
@@ -417,7 +421,13 @@ namespace Parsek
                 }
             }
 
-            // 8. Clone GhostVisualSnapshot (safe: CanAutoSplit ensures no ghosting triggers)
+            // 8. Clone GhostVisualSnapshot (safe: CanAutoSplit ensures no ghosting triggers).
+            // Bug #271 safety net: if GhostVisualSnapshot is null but VesselSnapshot exists,
+            // create GhostVisualSnapshot from VesselSnapshot before transferring. Without this,
+            // the original half ends up with both fields null after step 10 transfers
+            // VesselSnapshot to the second half.
+            if (original.GhostVisualSnapshot == null && original.VesselSnapshot != null)
+                original.GhostVisualSnapshot = original.VesselSnapshot.CreateCopy();
             if (original.GhostVisualSnapshot != null)
                 second.GhostVisualSnapshot = original.GhostVisualSnapshot.CreateCopy();
 

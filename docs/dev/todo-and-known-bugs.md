@@ -178,28 +178,11 @@ Not introduced by PR #160, but PR #160's quickload-resume path makes it more rea
 
 ---
 
-## 271. Investigate unifying standalone and tree recorder modes
+## ~~271. Investigate unifying standalone and tree recorder modes~~
 
-Parsek currently has two recorder modes with divergent code paths:
+**Fix:** Always-tree mode -- `ParsekFlight.StartRecording` creates a single-node `RecordingTree` for every recording. Eliminated `StashPendingOnSceneChange`, `PromoteToTreeForBreakup`, `RestoreActiveStandaloneFromPending`, `ShowPostDestructionMergeDialog`, `CommitFlight`, `PendingStandaloneState`, `VesselSwitchDecision.Stop`. Chain system (`StashPending`/`CommitPending`) and standalone merge dialog retained for backward compat -- to be unified when chain system is removed.
 
-- **Standalone mode** — single `FlightRecorder`, flat `Recording` list, no `activeTree`. Scene-change path: `StashPendingOnSceneChange` in `ParsekFlight.cs`.
-- **Tree mode** — `activeTree` (`RecordingTree`) with multiple recordings, branches, chain continuations. Scene-change path: `FinalizeTreeOnSceneChange` → `StashActiveTreeAsPendingLimbo` / `CommitTreeSceneExit`.
-
-Parity bugs surface when a fix gets applied to one mode but not the other (observed with PR #160's quickload-resume: fix landed for tree mode only). Rule of thumb is now tracked as a memory/feedback item: any change to one mode must also be applied to the other until these are unified.
-
-**Investigate:** can the two modes be merged into a single unified architecture? Tree mode is structurally a superset of standalone — a standalone recording is effectively a single-recording tree with no branches. A unified mode might:
-- Always allocate a `RecordingTree` at recording start, even for trivial single-recording missions
-- Eliminate `StashPendingOnSceneChange` and route everything through the tree path
-- Delete the `pendingRecording` slot in favor of the pending-tree slot
-- Unify the merge dialog, commit paths, and save/load serialization
-
-Risks / open questions:
-- UI assumptions: does the recordings table distinguish "single recording" from "tree with one recording"? Any visual differences the player would notice?
-- Migration: what about existing saves with standalone pending recordings? Do they round-trip through a single-recording-tree form, or do we keep a migration shim?
-- Performance: trees carry more per-recording overhead (BranchPoints dict, BackgroundMap, TreeId lookups). Is that cost acceptable for trivial recordings?
-- Edge cases: non-flight scenes (KSC, TS) currently interact with both modes differently; verify the unified path covers them.
-
-**Priority:** Medium — not blocking any release, but every parity fix widens the surface. Unifying would collapse the maintenance cost at the root.
+**Status:** ~~Fixed~~
 
 ---
 
@@ -290,6 +273,26 @@ and `FlushRecorderToTreeRecording`. Two new tests in `AppendCapturedDataTests.cs
 **Priority:** Low -- unlikely to cause visible data loss, but should be fixed for correctness
 
 **Status:** ~~Fixed~~
+
+---
+
+### T56. Remove standalone RECORDING format entirely
+
+Follow-up to bug #271 (always-tree unification). The runtime now always creates tree recordings, and the injector now produces RECORDING_TREE nodes for all synthetic recordings. But the codebase still supports the old standalone RECORDING format:
+
+- `RecordingStore.committedRecordings` list (238 refs across 28 production files, 300 refs across 27 test files)
+- `StashPending`/`CommitPending`/`DiscardPending` methods (used by ChainSegmentManager)
+- `MergeDialog.Show(Recording)` and `ShowStandaloneDialog` (used by chain commit and deferred split dialogs)
+- Standalone RECORDING serialization in `ParsekScenario.OnSave`/`OnLoad`
+- `PARSEK_ACTIVE_STANDALONE` migration shim in `TryRestoreActiveStandaloneNode`
+
+To remove: collapse `committedRecordings` into `committedTrees` (every recording accessed through its parent tree), delete the standalone pending slot, delete standalone merge dialog, delete standalone RECORDING serialization, delete chain segment standalone commit paths (dead code in always-tree mode). This is a ~55-file refactor.
+
+Critical subtask: adapt `RunOptimizationPass` (RecordingStore.cs) to work within tree structure. Currently the optimizer operates on the flat `committedRecordings` list and `SplitAtSection` produces standalone chain-linked recordings outside the tree. This breaks ghost chain traversal and spawn-at-end for tree recordings. PR #210 added a temporary skip (`if (TreeId != null) return false` in `CanAutoSplitIgnoringGhostTriggers`) so tree recordings are not split. The proper fix: make `SplitAtSection` create new recordings within the parent tree (add to `tree.Recordings`, update `BackgroundMap`/`BranchPoints`), preserving the tree's structural integrity. The skip must be removed once this is done.
+
+Prerequisite: delete all old save files (no users yet, clean slate).
+
+**Priority:** High -- the optimizer skip means tree recordings are never split at environment boundaries, losing the per-phase segment display in the UI
 
 ---
 

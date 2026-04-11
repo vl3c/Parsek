@@ -762,7 +762,7 @@ namespace Parsek.Tests
         public void CreateBreakupChildRecording_PropagatesGeneration_Gen0Parent_ChildIsGen1()
         {
             // Active rocket (gen=0) crashes → debris children must be gen=1.
-            // Used by ProcessBreakupEvent and PromoteToTreeForBreakup.
+            // Used by ProcessBreakupEvent.
             var tree = new RecordingTree { Id = "t1", TreeName = "Test" };
             var bp = new BranchPoint { Id = "bp1", UT = 100 };
 

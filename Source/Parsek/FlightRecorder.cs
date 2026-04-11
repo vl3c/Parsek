@@ -18,12 +18,11 @@ namespace Parsek
         {
             None,
             ContinueOnEva,
-            Stop,
-            ChainToVessel,  // EVA recording → boarded a vessel
+            ChainToVessel,  // EVA recording -> boarded a vessel
             DockMerge,      // Vessel absorbed into dock target (pid changed)
             UndockSwitch,   // Player switched to undocked sibling vessel
-            TransitionToBackground,   // active recording → background (orbit segment)
-            PromoteFromBackground     // background recording → active (resume physics sampling)
+            TransitionToBackground,   // active recording -> background (orbit segment)
+            PromoteFromBackground     // background recording -> active (resume physics sampling)
         }
 
         // Recording output
@@ -4784,8 +4783,8 @@ namespace Parsek
         /// content-matching logic as RemoveLastEmittedTerminals. Used by callers that
         /// need to clean terminals from a COPY of the recorder's events (e.g.,
         /// CaptureAtStop.PartEvents) rather than the recorder's own live list.
-        /// Bug #299 — PromoteToTreeForBreakup bakes CaptureAtStop BEFORE the caller
-        /// can call RemoveLastEmittedTerminals on the recorder's internal list.
+        /// Bug #299 — CaptureAtStop may bake terminals before the caller can call
+        /// RemoveLastEmittedTerminals on the recorder's internal list.
         /// </summary>
         internal static int RemoveTerminalsFromList(List<PartEvent> targetList, List<PartEvent> terminals)
         {
@@ -5985,7 +5984,9 @@ namespace Parsek
             if (activeTree != null)
                 return VesselSwitchDecision.TransitionToBackground;
 
-            return VesselSwitchDecision.Stop;
+            // Safety fallback: with always-tree mode, activeTree is never null during recording.
+            // If somehow reached, default to background transition rather than stopping.
+            return VesselSwitchDecision.TransitionToBackground;
         }
     }
 }

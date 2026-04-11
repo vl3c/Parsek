@@ -719,5 +719,72 @@ namespace Parsek.Tests.Generators
 
         /// <summary>Returns the rewind save file name (may be null).</summary>
         public string GetRewindSaveFileName() => rewindSaveFileName;
+
+        /// <summary>Returns the UT of the last point, or 0 if no points.</summary>
+        public double GetEndUT()
+        {
+            if (points.Count == 0) return 0;
+            var ic = CultureInfo.InvariantCulture;
+            double ut;
+            double.TryParse(points[points.Count - 1].GetValue("ut"), NumberStyles.Float, ic, out ut);
+            return ut;
+        }
+
+        /// <summary>Returns the format version.</summary>
+        public int GetFormatVersion() => formatVersion;
+
+        /// <summary>Returns whether loop playback is enabled.</summary>
+        public bool GetLoopPlayback() => loopPlayback;
+
+        /// <summary>Returns the loop interval in seconds.</summary>
+        public double GetLoopIntervalSeconds() => loopIntervalSeconds;
+
+        /// <summary>Returns the terminal state (null if not set).</summary>
+        public int? GetTerminalState() => terminalState;
+
+        /// <summary>Returns the terrain height at end.</summary>
+        public double GetTerrainHeightAtEnd() => terrainHeightAtEnd;
+
+        /// <summary>Returns the recording groups list.</summary>
+        public List<string> GetRecordingGroups() => recordingGroups;
+
+        /// <summary>Returns the segment phase (may be null).</summary>
+        public string GetSegmentPhase() => segmentPhase;
+
+        /// <summary>Returns the segment body name (may be null).</summary>
+        public string GetSegmentBodyName() => segmentBodyName;
+
+        /// <summary>Returns whether playback is enabled.</summary>
+        public bool GetPlaybackEnabled() => playbackEnabled;
+
+        /// <summary>Returns the chain ID (may be null).</summary>
+        public string GetChainId() => chainId;
+
+        /// <summary>Returns the chain index (-1 if not set).</summary>
+        public int GetChainIndex() => chainIndex;
+
+        /// <summary>Returns the chain branch (-1 if not set).</summary>
+        public int GetChainBranch() => chainBranch;
+
+        /// <summary>Returns the parent recording ID (may be null).</summary>
+        public string GetParentRecordingId() => parentRecordingId;
+
+        /// <summary>Returns the EVA crew name (may be null).</summary>
+        public string GetEvaCrewName() => evaCrewName;
+
+        /// <summary>Returns the rewind reserved funds.</summary>
+        public double GetRewindReservedFunds() => rewindReservedFunds;
+
+        /// <summary>Returns the rewind reserved science.</summary>
+        public double GetRewindReservedScience() => rewindReservedScience;
+
+        /// <summary>Returns the rewind reserved reputation.</summary>
+        public float GetRewindReservedRep() => rewindReservedRep;
+
+        /// <summary>Returns the controllers list (may be null).</summary>
+        public List<ControllerInfo> GetControllers() => controllers;
+
+        /// <summary>Returns whether this recording is debris.</summary>
+        public bool GetIsDebris() => isDebris;
     }
 }

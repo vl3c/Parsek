@@ -5,18 +5,12 @@ using Xunit;
 namespace Parsek.Tests
 {
     /// <summary>
-    /// Tests for standalone quickload-resume (#294) and the fallback pending tree
-    /// guard (#293). Companion to <see cref="QuickloadDiscardTests"/> (F9 discard path)
-    /// and <see cref="QuickloadResumeTests"/> (tree-mode resume path).
+    /// Tests for the PARSEK_ACTIVE_STANDALONE migration shim (#271 unification).
+    /// Old saves may contain a PARSEK_ACTIVE_STANDALONE node from pre-always-tree versions.
+    /// TryRestoreActiveStandaloneNode now converts these to a single-node RecordingTree
+    /// and routes through the tree restore path.
     ///
-    /// Bug #293: OnFlightReady's fallback check at line 4211 fires in the same frame
-    /// as the tree restore coroutine, auto-merging the tree and leaving no recorder.
-    /// Fix: guard the fallback with <c>restoringActiveTree</c>.
-    ///
-    /// Bug #294: Standalone recordings have no quickload-resume mechanism — F5 during
-    /// a standalone recording, then F9, discards the in-progress data with no recovery.
-    /// Fix: serialize active standalone recorder to PARSEK_ACTIVE_STANDALONE on F5,
-    /// restore on F9 via a coroutine mirroring the tree restore path.
+    /// Also verifies the fallback pending tree guard (#293).
     /// </summary>
     [Collection("Sequential")]
     public class QuickloadStandaloneTests : System.IDisposable
@@ -32,7 +26,8 @@ namespace Parsek.Tests
             ParsekLog.VerboseOverrideForTesting = true;
             ParsekLog.TestSinkForTesting = line => logLines.Add(line);
             GameStateStore.SuppressLogging = true;
-            ParsekScenario.ClearPendingActiveStandalone();
+            ParsekScenario.ScheduleActiveTreeRestoreOnFlightReady =
+                ParsekScenario.ActiveTreeRestoreMode.None;
         }
 
         public void Dispose()
@@ -41,10 +36,11 @@ namespace Parsek.Tests
             ParsekLog.ResetTestOverrides();
             ParsekLog.SuppressLogging = true;
             RecordingStore.SuppressLogging = true;
-            ParsekScenario.ClearPendingActiveStandalone();
+            ParsekScenario.ScheduleActiveTreeRestoreOnFlightReady =
+                ParsekScenario.ActiveTreeRestoreMode.None;
         }
 
-        // ───────── #293: Fallback guard tests ─────────
+        // --------- #293: Fallback guard tests ---------
 
         [Fact]
         public void RestoringActiveTree_Guard_IsStaticField()
@@ -53,7 +49,7 @@ namespace Parsek.Tests
             Assert.False(ParsekFlight.restoringActiveTree);
         }
 
-        // ───────── #294: TryRestoreActiveStandaloneNode tests ─────────
+        // --------- Migration shim: TryRestoreActiveStandaloneNode ---------
 
         [Fact]
         public void TryRestoreActiveStandaloneNode_NoNode_DoesNothing()
@@ -62,21 +58,30 @@ namespace Parsek.Tests
 
             ParsekScenario.TryRestoreActiveStandaloneNode(node);
 
-            Assert.False(ParsekScenario.ScheduleActiveStandaloneRestoreOnFlightReady);
-            Assert.Null(ParsekScenario.pendingActiveStandaloneRecording);
+            Assert.Equal(ParsekScenario.ActiveTreeRestoreMode.None,
+                ParsekScenario.ScheduleActiveTreeRestoreOnFlightReady);
+            Assert.Null(RecordingStore.PendingTree);
         }
 
         [Fact]
-        public void TryRestoreActiveStandaloneNode_ValidNode_SetsRestoreFlag()
+        public void TryRestoreActiveStandaloneNode_ValidNode_CreatesPendingTree()
         {
             var node = BuildStandaloneNode("Kerbal X", 42, 10, 3);
 
             ParsekScenario.TryRestoreActiveStandaloneNode(node);
 
-            Assert.True(ParsekScenario.ScheduleActiveStandaloneRestoreOnFlightReady);
-            Assert.NotNull(ParsekScenario.pendingActiveStandaloneRecording);
-            Assert.Equal("Kerbal X", ParsekScenario.pendingActiveStandaloneVesselName);
-            Assert.Equal(42u, ParsekScenario.pendingActiveStandaloneVesselPid);
+            Assert.Equal(ParsekScenario.ActiveTreeRestoreMode.Quickload,
+                ParsekScenario.ScheduleActiveTreeRestoreOnFlightReady);
+            Assert.NotNull(RecordingStore.PendingTree);
+            Assert.Equal("Kerbal X", RecordingStore.PendingTree.TreeName);
+            Assert.Equal(1, RecordingStore.PendingTree.Recordings.Count);
+
+            // The root recording should have the vessel data
+            var rootId = RecordingStore.PendingTree.RootRecordingId;
+            Assert.NotNull(rootId);
+            var rootRec = RecordingStore.PendingTree.Recordings[rootId];
+            Assert.Equal(42u, rootRec.VesselPersistentId);
+            Assert.Equal("Kerbal X", rootRec.VesselName);
         }
 
         [Fact]
@@ -86,7 +91,8 @@ namespace Parsek.Tests
 
             ParsekScenario.TryRestoreActiveStandaloneNode(node);
 
-            Assert.Equal(5, ParsekScenario.pendingActiveStandaloneRecording.Points.Count);
+            var rootId = RecordingStore.PendingTree.RootRecordingId;
+            Assert.Equal(5, RecordingStore.PendingTree.Recordings[rootId].Points.Count);
         }
 
         [Fact]
@@ -96,7 +102,8 @@ namespace Parsek.Tests
 
             ParsekScenario.TryRestoreActiveStandaloneNode(node);
 
-            Assert.Equal(2, ParsekScenario.pendingActiveStandaloneRecording.PartEvents.Count);
+            var rootId = RecordingStore.PendingTree.RootRecordingId;
+            Assert.Equal(2, RecordingStore.PendingTree.Recordings[rootId].PartEvents.Count);
         }
 
         [Fact]
@@ -108,7 +115,8 @@ namespace Parsek.Tests
 
             ParsekScenario.TryRestoreActiveStandaloneNode(node);
 
-            var rec = ParsekScenario.pendingActiveStandaloneRecording;
+            var rootId = RecordingStore.PendingTree.RootRecordingId;
+            var rec = RecordingStore.PendingTree.Recordings[rootId];
             Assert.Equal("Kerbin", rec.StartBodyName);
             Assert.Equal("Shores", rec.StartBiome);
             Assert.Equal("Flying", rec.StartSituation);
@@ -123,7 +131,7 @@ namespace Parsek.Tests
 
             ParsekScenario.TryRestoreActiveStandaloneNode(node);
 
-            Assert.Equal("parsek_rw_abc123", ParsekScenario.pendingActiveStandaloneRewindSave);
+            Assert.Equal("parsek_rw_abc123", ParsekScenario.pendingActiveTreeResumeRewindSave);
         }
 
         [Fact]
@@ -137,8 +145,8 @@ namespace Parsek.Tests
 
             ParsekScenario.TryRestoreActiveStandaloneNode(node);
 
-            Assert.False(ParsekScenario.ScheduleActiveStandaloneRestoreOnFlightReady);
-            Assert.Null(ParsekScenario.pendingActiveStandaloneRecording);
+            // Should not create a pending tree (tree restore takes precedence)
+            Assert.Null(RecordingStore.PendingTree);
             Assert.Contains(logLines, l => l.Contains("tree takes precedence"));
 
             // Cleanup
@@ -147,7 +155,7 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void TryRestoreActiveStandaloneNode_LogsRestoreData()
+        public void TryRestoreActiveStandaloneNode_LogsMigration()
         {
             var node = BuildStandaloneNode("Flea Rocket", 999, 8, 2);
 
@@ -155,73 +163,53 @@ namespace Parsek.Tests
 
             Assert.Contains(logLines, l =>
                 l.Contains("TryRestoreActiveStandaloneNode") &&
+                l.Contains("migrated") &&
                 l.Contains("Flea Rocket") &&
                 l.Contains("pid=999") &&
                 l.Contains("8 points") &&
                 l.Contains("2 events"));
         }
 
-        // ───────── ClearPendingActiveStandalone tests ─────────
-
-        [Fact]
-        public void ClearPendingActiveStandalone_ClearsAllFields()
-        {
-            // Set up some state
-            var node = BuildStandaloneNode("Test", 42, 3, 1);
-            ParsekScenario.TryRestoreActiveStandaloneNode(node);
-            Assert.True(ParsekScenario.ScheduleActiveStandaloneRestoreOnFlightReady);
-
-            ParsekScenario.ClearPendingActiveStandalone();
-
-            Assert.False(ParsekScenario.ScheduleActiveStandaloneRestoreOnFlightReady);
-            Assert.Null(ParsekScenario.pendingActiveStandaloneRecording);
-            Assert.Null(ParsekScenario.pendingActiveStandaloneVesselName);
-            Assert.Equal(0u, ParsekScenario.pendingActiveStandaloneVesselPid);
-            Assert.Null(ParsekScenario.pendingActiveStandaloneRewindSave);
-        }
-
-        // ───────── Serialization round-trip test ─────────
+        // --------- Serialization round-trip test ---------
 
         [Fact]
         public void SaveAndRestore_RoundTrip_PreservesTrajectoryData()
         {
-            // Build a PARSEK_ACTIVE_STANDALONE node with known data
             var node = BuildStandaloneNode("RoundTrip Vessel", 12345, 15, 4,
                 startBody: "Mun", startBiome: "Highlands",
                 startSituation: "SubOrbital", launchSite: "Launch Pad",
                 rewindSave: "parsek_rw_test");
 
-            // Restore it
             ParsekScenario.TryRestoreActiveStandaloneNode(node);
 
-            var rec = ParsekScenario.pendingActiveStandaloneRecording;
+            var tree = RecordingStore.PendingTree;
+            Assert.NotNull(tree);
+            var rootId = tree.RootRecordingId;
+            var rec = tree.Recordings[rootId];
             Assert.Equal(15, rec.Points.Count);
             Assert.Equal(4, rec.PartEvents.Count);
             Assert.Equal("Mun", rec.StartBodyName);
             Assert.Equal("Highlands", rec.StartBiome);
             Assert.Equal("SubOrbital", rec.StartSituation);
             Assert.Equal("Launch Pad", rec.LaunchSiteName);
-            Assert.Equal("RoundTrip Vessel", ParsekScenario.pendingActiveStandaloneVesselName);
-            Assert.Equal(12345u, ParsekScenario.pendingActiveStandaloneVesselPid);
-            Assert.Equal("parsek_rw_test", ParsekScenario.pendingActiveStandaloneRewindSave);
+            Assert.Equal("RoundTrip Vessel", rec.VesselName);
+            Assert.Equal(12345u, rec.VesselPersistentId);
+            Assert.Equal("parsek_rw_test", ParsekScenario.pendingActiveTreeResumeRewindSave);
         }
 
         [Fact]
-        public void DoubleF5_SecondOverwritesFirst()
+        public void MigratedTree_HasCorrectActiveRecordingId()
         {
-            // First "F5" — 5 points
-            var node1 = BuildStandaloneNode("Test", 100, 5, 0);
-            ParsekScenario.TryRestoreActiveStandaloneNode(node1);
-            Assert.Equal(5, ParsekScenario.pendingActiveStandaloneRecording.Points.Count);
+            var node = BuildStandaloneNode("Test", 100, 5, 0);
 
-            // Clear and simulate second "F5" — 10 points (overwrites via new OnLoad)
-            ParsekScenario.ClearPendingActiveStandalone();
-            var node2 = BuildStandaloneNode("Test", 100, 10, 0);
-            ParsekScenario.TryRestoreActiveStandaloneNode(node2);
-            Assert.Equal(10, ParsekScenario.pendingActiveStandaloneRecording.Points.Count);
+            ParsekScenario.TryRestoreActiveStandaloneNode(node);
+
+            var tree = RecordingStore.PendingTree;
+            Assert.NotNull(tree);
+            Assert.Equal(tree.RootRecordingId, tree.ActiveRecordingId);
         }
 
-        // ───────── Helper ─────────
+        // --------- Helper ---------
 
         /// <summary>
         /// Builds a SCENARIO ConfigNode containing a PARSEK_ACTIVE_STANDALONE child

@@ -10,7 +10,7 @@ namespace Parsek.Tests
     /// Regression tests for two bugs exposed by the 2026-04-09 playtest after
     /// PR #163 fixed the OnFlightReady ordering bug:
     ///
-    ///   1. FilesDirty was not set in PromoteToTreeForBreakup / CreateSplitBranch
+    ///   1. FilesDirty was not set in CreateSplitBranch
     ///      / AppendCapturedDataToRecording / FlushRecorderToTreeRecording /
     ///      ChainSegmentManager continuation sampling. Trajectory data sat in
     ///      memory and never reached the .prec sidecar file because SaveRecordingFiles
@@ -222,8 +222,6 @@ namespace Parsek.Tests
         /// correctness.
         /// </summary>
         [Theory]
-        [InlineData("ParsekFlight.cs", "void PromoteToTreeForBreakup(BranchPoint")]
-        [InlineData("ParsekFlight.cs", "void CreateSplitBranch(BranchPointType")]
         [InlineData("ParsekFlight.cs", "static void AppendCapturedDataToRecording(")]
         [InlineData("ParsekFlight.cs", "void FlushRecorderToTreeRecording(FlightRecorder")]
         [InlineData("ChainSegmentManager.cs", "void SampleContinuationVessel(")]
