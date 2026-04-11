@@ -1369,6 +1369,8 @@ namespace Parsek
                 recorder.ForceStop();
 
             // #304: CaptureAtStop.VesselName is already resolved; resolve fallback too.
+            // #305: Finalized (not Limbo) — vessel destruction is a terminal event, the
+            // recording is complete and ready for the merge dialog regardless of scene target.
             string vesselName = recorder.CaptureAtStop?.VesselName
                 ?? (FlightGlobals.ActiveVessel != null
                     ? Recording.ResolveLocalizedName(FlightGlobals.ActiveVessel.vesselName)

@@ -427,6 +427,38 @@ namespace Parsek.Tests
             Assert.Equal(PendingStandaloneState.Finalized, RecordingStore.PendingStandaloneStateValue);
         }
 
+        [Fact]
+        public void CommitPending_ResetsStateToFinalized()
+        {
+            var points = new List<TrajectoryPoint>
+            {
+                new TrajectoryPoint { ut = 100.0 },
+                new TrajectoryPoint { ut = 200.0 },
+            };
+            RecordingStore.StashPending(points, "Test", state: PendingStandaloneState.Limbo);
+            Assert.Equal(PendingStandaloneState.Limbo, RecordingStore.PendingStandaloneStateValue);
+
+            RecordingStore.CommitPending();
+
+            Assert.Equal(PendingStandaloneState.Finalized, RecordingStore.PendingStandaloneStateValue);
+        }
+
+        [Fact]
+        public void Clear_ResetsStateToFinalized()
+        {
+            var points = new List<TrajectoryPoint>
+            {
+                new TrajectoryPoint { ut = 100.0 },
+                new TrajectoryPoint { ut = 200.0 },
+            };
+            RecordingStore.StashPending(points, "Test", state: PendingStandaloneState.Limbo);
+            Assert.Equal(PendingStandaloneState.Limbo, RecordingStore.PendingStandaloneStateValue);
+
+            RecordingStore.Clear();
+
+            Assert.Equal(PendingStandaloneState.Finalized, RecordingStore.PendingStandaloneStateValue);
+        }
+
         // ----- Helpers -----
 
         private static RecordingTree MakeTree(string id, string name, int recordingCount)
