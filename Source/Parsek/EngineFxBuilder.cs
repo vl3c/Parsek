@@ -14,12 +14,12 @@ namespace Parsek
         private static readonly Dictionary<string, Vector3> fxModelRotationFallbackEuler =
             new Dictionary<string, Vector3>(System.StringComparer.OrdinalIgnoreCase)
             {
-                // These stock model FX are authored with implicit -90deg X orientation in KSP's
-                // runtime FX pipeline when localRotation is omitted in EFFECTS config.
+                // #242: MODEL_MULTI_PARTICLE models using KSPParticleEmitter emit along their
+                // internal axis — identity rotation is correct. shockExhaust entries removed
+                // (were causing perpendicular RAPIER flames). Monoprop entries kept for Ant/Spider
+                // where the model FX is visually overshadowed by the corrected PREFAB_PARTICLE.
                 { "Squad/FX/Monoprop_small", new Vector3(-90f, 0f, 0f) },
-                { "Squad/FX/Monoprop_medium", new Vector3(-90f, 0f, 0f) },
-                { "Squad/FX/shockExhaust_blue_small", new Vector3(-90f, 0f, 0f) },
-                { "Squad/FX/shockExhaust_red_small", new Vector3(-90f, 0f, 0f) }
+                { "Squad/FX/Monoprop_medium", new Vector3(-90f, 0f, 0f) }
             };
         private static readonly string[] EngineModelNodeTypes =
             { "MODEL_MULTI_PARTICLE_PERSIST", "MODEL_MULTI_PARTICLE", "MODEL_PARTICLE" };
