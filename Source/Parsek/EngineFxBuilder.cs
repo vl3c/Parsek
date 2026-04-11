@@ -213,6 +213,7 @@ namespace Parsek
             // #242c: filter out thrustTransforms under disabled variant GameObjects.
             // engine.thrustTransforms is populated by KSP from ALL matching transforms
             // in the prefab, regardless of which variant is active.
+            bool variantFilteredAllAnchors = false;
             if (selectedVariantGameObjects != null && selectedVariantGameObjects.Count > 0)
             {
                 int preFilter = legacyAnchors.Count;
@@ -220,9 +221,13 @@ namespace Parsek
                     !GhostVisualBuilder.IsRendererEnabledByVariantRule(
                         t, modelRoot, selectedVariantGameObjects, out _, out _));
                 if (legacyAnchors.Count < preFilter)
+                {
                     ParsekLog.Verbose("EngineFx", $"'{partName}' midx={moduleIndex}: " +
                         $"variant filter removed {preFilter - legacyAnchors.Count} of {preFilter} " +
                         $"legacy thrust anchors");
+                    if (legacyAnchors.Count == 0)
+                        variantFilteredAllAnchors = true;
+                }
             }
 
             Vector3 legacyFxOffset = engine != null ? engine.fxOffset : Vector3.zero;
@@ -280,7 +285,10 @@ namespace Parsek
                     }
                 }
 
-                if (clonesAdded == 0)
+                // #242c: skip fallback placement when variant filtering intentionally
+                // emptied the anchor list — the active variant has no thrust transforms
+                // for this engine, so placing FX at the model root would be incorrect.
+                if (clonesAdded == 0 && !variantFilteredAllAnchors)
                 {
                     GameObject fxClone = Object.Instantiate(child.gameObject);
                     fxClone.transform.SetParent(ghostModelNode.parent, false);
@@ -623,7 +631,7 @@ namespace Parsek
 
                 var namedTransformCache = new Dictionary<string, List<Transform>>(System.StringComparer.OrdinalIgnoreCase);
 
-                // #242c: Filter out transforms under disabled variant GameObjects.
+                // #242c: filter out transforms under disabled variant GameObjects.
                 bool IsTransformEnabledByVariant(Transform t)
                 {
                     if (selectedVariantGameObjects == null || selectedVariantGameObjects.Count == 0)
@@ -641,16 +649,14 @@ namespace Parsek
                         return cached;
 
                     List<Transform> found = GhostVisualBuilder.FindTransformsRecursive(prefab.transform, transformName);
-                    // #242c: exclude transforms under disabled variant GameObjects
-                    if (selectedVariantGameObjects != null && selectedVariantGameObjects.Count > 0)
-                    {
-                        int preFilter = found.Count;
-                        found.RemoveAll(t => !IsTransformEnabledByVariant(t));
-                        if (found.Count < preFilter)
-                            ParsekLog.Verbose("EngineFx", $"'{partName}' midx={moduleIndex}: " +
-                                $"variant filter removed {preFilter - found.Count} of {preFilter} " +
-                                $"'{transformName}' transforms in FindNamedTransformsCached");
-                    }
+                    // #242c: exclude transforms under disabled variant GameObjects.
+                    // IsTransformEnabledByVariant handles the null/empty guard internally.
+                    int preFilter = found.Count;
+                    found.RemoveAll(t => !IsTransformEnabledByVariant(t));
+                    if (found.Count < preFilter)
+                        ParsekLog.Verbose("EngineFx", $"'{partName}' midx={moduleIndex}: " +
+                            $"variant filter removed {preFilter - found.Count} of {preFilter} " +
+                            $"'{transformName}' transforms in FindNamedTransformsCached");
                     namedTransformCache[transformName] = found;
                     return found;
                 }

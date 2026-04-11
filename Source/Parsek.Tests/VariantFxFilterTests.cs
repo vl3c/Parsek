@@ -118,6 +118,43 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void FirstDeepestMatchWins_EnabledChildUnderDisabledParent()
+        {
+            // Inverse of above: EnabledChild is closer (checked first), should win
+            var ancestors = new List<string> { "thrustTransform", "EnabledChild", "DisabledParent" };
+            var rules = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase)
+            {
+                { "EnabledChild", true },
+                { "DisabledParent", false }
+            };
+
+            bool result = GhostVisualBuilder.IsAncestorChainEnabledByVariantRule(
+                ancestors, rules, out string matched, out bool enabled);
+
+            Assert.True(result);
+            Assert.Equal("EnabledChild", matched);
+            Assert.True(enabled);
+        }
+
+        [Fact]
+        public void TransformItselfMatchesRule()
+        {
+            // The transform name itself (index 0) matches a variant rule
+            var ancestors = new List<string> { "EngineFixed", "model" };
+            var rules = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase)
+            {
+                { "EngineFixed", false }
+            };
+
+            bool result = GhostVisualBuilder.IsAncestorChainEnabledByVariantRule(
+                ancestors, rules, out string matched, out bool enabled);
+
+            Assert.False(result);
+            Assert.Equal("EngineFixed", matched);
+            Assert.False(enabled);
+        }
+
+        [Fact]
         public void CaseInsensitiveMatching()
         {
             // Rule uses "EngineFixed", ancestor has "engineFixed" (different case)

@@ -3315,7 +3315,7 @@ namespace Parsek
         /// and FX transform filtering (#242c).
         /// </summary>
         internal static bool IsRendererEnabledByVariantRule(
-            Transform rendererTransform,
+            Transform targetTransform,
             Transform modelRoot,
             Dictionary<string, bool> gameObjectStates,
             out string matchedRuleName,
@@ -3324,12 +3324,12 @@ namespace Parsek
             matchedRuleName = null;
             matchedRuleEnabled = true;
 
-            if (rendererTransform == null || gameObjectStates == null || gameObjectStates.Count == 0)
+            if (targetTransform == null || gameObjectStates == null || gameObjectStates.Count == 0)
                 return true;
 
             // Build ancestor name list from transform up to modelRoot
             var ancestorNames = new List<string>();
-            Transform current = rendererTransform;
+            Transform current = targetTransform;
             while (current != null)
             {
                 ancestorNames.Add(current.name);
