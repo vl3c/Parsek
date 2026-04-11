@@ -2056,7 +2056,7 @@ namespace Parsek.Tests
 
             var evt = FlightRecorder.CheckAnimateHeatTransition(
                 key, 450, "shockConeIntake",
-                normalizedHeat: 0.70f,
+                normalizedHeat: 0.85f,
                 levelMap, ut: 100.0, moduleIndex: 0);
 
             Assert.True(evt.HasValue);
@@ -2134,9 +2134,10 @@ namespace Parsek.Tests
             ulong key = FlightRecorder.EncodeEngineKey(450, 0);
             var levelMap = new Dictionary<ulong, HeatLevel>();
 
+            // 0.37 is in the [0.35, 0.40) Cold-Medium hysteresis gap — Cold stays Cold
             var evt = FlightRecorder.CheckAnimateHeatTransition(
                 key, 450, "shockConeIntake",
-                normalizedHeat: 0.20f,
+                normalizedHeat: 0.37f,
                 levelMap, ut: 100.0, moduleIndex: 0);
 
             Assert.Null(evt);
@@ -2162,9 +2163,10 @@ namespace Parsek.Tests
             ulong key = FlightRecorder.EncodeEngineKey(450, 0);
             var levelMap = new Dictionary<ulong, HeatLevel> { { key, HeatLevel.Medium } };
 
+            // 0.37 is in the [0.35, 0.40) hysteresis gap — Medium stays Medium
             var evt = FlightRecorder.CheckAnimateHeatTransition(
                 key, 450, "shockConeIntake",
-                normalizedHeat: 0.20f,
+                normalizedHeat: 0.37f,
                 levelMap, ut: 100.0, moduleIndex: 0);
 
             Assert.Null(evt);
@@ -2177,9 +2179,10 @@ namespace Parsek.Tests
             ulong key = FlightRecorder.EncodeEngineKey(450, 0);
             var levelMap = new Dictionary<ulong, HeatLevel> { { key, HeatLevel.Hot } };
 
+            // 0.77 is in the [0.75, 0.80) hysteresis gap — Hot stays Hot
             var evt = FlightRecorder.CheckAnimateHeatTransition(
                 key, 450, "shockConeIntake",
-                normalizedHeat: 0.63f,
+                normalizedHeat: 0.77f,
                 levelMap, ut: 100.0, moduleIndex: 0);
 
             Assert.Null(evt);

@@ -779,10 +779,9 @@ namespace Parsek
                     {
                         uint pid; int midx;
                         FlightRecorder.DecodeEngineKey(kvp.Key, out pid, out midx);
-                        // eventType unused by SetEngineEmission/ApplyHeatState — only pid+midx matter
+                        // eventType unused by SetEngineEmission — only pid+midx matter
                         var syntheticEvt = new PartEvent { partPersistentId = pid, moduleIndex = midx };
                         SetEngineEmission(state, syntheticEvt, 1f);
-                        ApplyHeatState(state, syntheticEvt, HeatLevel.Hot);
                         ParsekLog.Verbose("GhostFx",
                             $"Auto-started engine FX for orphan engine key={kvp.Key} pid={pid} midx={midx} " +
                             $"(no engine events in recording — likely debris booster)");
@@ -966,19 +965,14 @@ namespace Parsek
                         // engine seeds entirely (PartStateSeeder.EmitEngineSeedEvents).
                         SetEngineEmission(state, evt, System.Math.Max(evt.value, 0.01f));
                         SetEngineAudio(state, evt, System.Math.Max(evt.value, 0.01f));
-                        ApplyHeatState(state, evt, HeatLevel.Hot);
                         break;
                     case PartEventType.EngineShutdown:
                         SetEngineEmission(state, evt, 0f);
                         SetEngineAudio(state, evt, 0f);
-                        // Also reset heat animation glow — engine nozzles stay emissive
-                        // after shutdown if ThermalAnimationCold hasn't fired yet.
-                        ApplyHeatState(state, evt, HeatLevel.Cold);
                         break;
                     case PartEventType.EngineThrottle:
                         SetEngineEmission(state, evt, evt.value);
                         SetEngineAudio(state, evt, evt.value);
-                        ApplyHeatState(state, evt, HeatLevel.Hot);
                         break;
                     case PartEventType.DeployableExtended:
                         ApplyDeployableState(state, evt, deployed: true);
@@ -1037,15 +1031,12 @@ namespace Parsek
                         break;
                     case PartEventType.RCSActivated:
                         SetRcsEmission(state, evt, evt.value);
-                        ApplyHeatState(state, evt, HeatLevel.Hot);
                         break;
                     case PartEventType.RCSStopped:
                         SetRcsEmission(state, evt, 0f);
-                        ApplyHeatState(state, evt, HeatLevel.Cold);
                         break;
                     case PartEventType.RCSThrottle:
                         SetRcsEmission(state, evt, evt.value);
-                        ApplyHeatState(state, evt, HeatLevel.Hot);
                         break;
                     case PartEventType.RoboticMotionStarted:
                     case PartEventType.RoboticPositionSample:

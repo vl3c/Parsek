@@ -233,10 +233,10 @@ namespace Parsek
         private const double roboticSampleIntervalSeconds = 0.25; // 4 Hz
         private const float roboticAngularDeadbandDegrees = 0.5f;
         private const float roboticLinearDeadbandMeters = 0.01f;
-        internal const float AnimateHeatHotThreshold = 0.66f;
-        internal const float AnimateHeatHotFallbackThreshold = 0.60f; // hysteresis: fall from Hot at 0.60, rise at 0.66
-        internal const float AnimateHeatMediumThreshold = 0.33f;
-        internal const float AnimateHeatColdThreshold = 0.10f;
+        internal const float AnimateHeatHotThreshold = 0.80f;
+        internal const float AnimateHeatHotFallbackThreshold = 0.75f; // hysteresis: fall from Hot at 0.75, rise at 0.80
+        internal const float AnimateHeatMediumThreshold = 0.40f;
+        internal const float AnimateHeatMediumFallbackThreshold = 0.35f; // hysteresis: fall from Medium at 0.35, rise at 0.40
         private double lastRecordedUT = -1;
         private Vector3 lastRecordedVelocity;
 
@@ -917,8 +917,8 @@ namespace Parsek
                 current = HeatLevel.Cold;
 
             // Determine target level with hysteresis gaps:
-            // Cold-Medium: rise at 0.33, fall at 0.10 (gap [0.10, 0.33) preserves current)
-            // Medium-Hot:  rise at 0.66, fall at 0.60 (gap [0.60, 0.66) preserves current)
+            // Cold-Medium: rise at 0.40, fall at 0.35 (gap [0.35, 0.40) preserves current)
+            // Medium-Hot:  rise at 0.80, fall at 0.75 (gap [0.75, 0.80) preserves current)
             HeatLevel target;
             if (normalizedHeat >= AnimateHeatHotThreshold)
                 target = HeatLevel.Hot;
@@ -926,14 +926,17 @@ namespace Parsek
             {
                 // In the Medium zone — but check if falling from Hot with hysteresis
                 if (current == HeatLevel.Hot && normalizedHeat >= AnimateHeatHotFallbackThreshold)
-                    target = HeatLevel.Hot; // stay Hot in [0.60, 0.66) gap
+                    target = HeatLevel.Hot; // stay Hot in [0.75, 0.80) gap
                 else
                     target = HeatLevel.Medium;
             }
-            else if (normalizedHeat < AnimateHeatColdThreshold)
-                target = HeatLevel.Cold;
+            else if (normalizedHeat >= AnimateHeatMediumFallbackThreshold)
+            {
+                // In the hysteresis gap [0.35, 0.40) — keep current level
+                target = current;
+            }
             else
-                target = current; // hysteresis gap [0.10, 0.33) — keep current level
+                target = HeatLevel.Cold;
 
             if (target == current)
                 return null;
