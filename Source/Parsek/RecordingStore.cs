@@ -130,7 +130,7 @@ namespace Parsek
         // See docs/dev/plans/quickload-resume-recording.md.
         private static PendingTreeState pendingTreeState = PendingTreeState.Finalized;
 
-        public static List<Recording> CommittedRecordings => committedRecordings;
+        public static IReadOnlyList<Recording> CommittedRecordings => committedRecordings;
         public static List<RecordingTree> CommittedTrees => committedTrees;
         public static bool HasPendingTree => pendingTree != null;
         public static RecordingTree PendingTree => pendingTree;
@@ -265,6 +265,34 @@ namespace Parsek
 
             // Create a milestone bundling game state events since the previous milestone
             MilestoneStore.CreateMilestone(rec.RecordingId, rec.EndUT);
+        }
+
+        /// <summary>
+        /// Adds a recording to the internal committed list without flushing or side effects.
+        /// For production code paths (e.g., undock continuation) that need direct list access
+        /// after CommittedRecordings became IReadOnlyList.
+        /// </summary>
+        internal static void AddCommittedInternal(Recording rec)
+        {
+            committedRecordings.Add(rec);
+        }
+
+        /// <summary>
+        /// Removes a recording from the internal committed list.
+        /// For production code that needs mutation after CommittedRecordings became IReadOnlyList.
+        /// </summary>
+        internal static bool RemoveCommittedInternal(Recording rec)
+        {
+            return committedRecordings.Remove(rec);
+        }
+
+        /// <summary>
+        /// Clears all recordings from the internal committed list.
+        /// For production code that needs mutation after CommittedRecordings became IReadOnlyList.
+        /// </summary>
+        internal static void ClearCommittedInternal()
+        {
+            committedRecordings.Clear();
         }
 
         public static void ClearCommitted()
@@ -459,10 +487,13 @@ namespace Parsek
         /// </summary>
         private static void FinalizeTreeCommit(RecordingTree tree)
         {
-            // Add all tree recordings to committedRecordings (enables ghost playback)
+            // Add all tree recordings to committedRecordings (enables ghost playback).
+            // Skip recordings already present (chain segments committed mid-flight
+            // by CommitRecordingDirect).
             foreach (var rec in tree.Recordings.Values)
             {
                 rec.FilesDirty = true;
+                if (committedRecordings.Contains(rec)) continue;
                 committedRecordings.Add(rec);
             }
 
@@ -909,7 +940,7 @@ namespace Parsek
         /// </summary>
         internal static void RunOptimizationPass()
         {
-            var recordings = CommittedRecordings;
+            var recordings = committedRecordings;
             if (recordings == null || recordings.Count == 0)
             {
                 ParsekLog.Verbose("RecordingStore", "Optimization pass: skipped (no recordings)");
@@ -1525,10 +1556,24 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Adds a recording directly to committed list. For unit tests only.
+        /// Adds a recording to the committed list with tree ownership enforced.
+        /// If the recording has no TreeId, wraps it in a single-node RecordingTree.
+        /// For unit tests only.
         /// </summary>
-        internal static void AddCommittedForTesting(Recording rec)
+        internal static void AddRecordingWithTreeForTesting(Recording rec, string treeName = null)
         {
+            if (rec.TreeId == null)
+            {
+                var tree = new RecordingTree
+                {
+                    Id = Guid.NewGuid().ToString("N"),
+                    TreeName = treeName ?? rec.VesselName ?? "TestTree",
+                    RootRecordingId = rec.RecordingId
+                };
+                rec.TreeId = tree.Id;
+                tree.Recordings[rec.RecordingId] = rec;
+                committedTrees.Add(tree);
+            }
             committedRecordings.Add(rec);
         }
 
@@ -1760,18 +1805,13 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Resets all playback state on committed recordings (standalone and tree).
+        /// Resets all playback state on committed recordings.
         /// Called during rewind to prepare all recordings for fresh replay.
         /// </summary>
-        internal static (int standaloneCount, int treeCount) ResetAllPlaybackState()
+        internal static (int recordingCount, int treeCount) ResetAllPlaybackState()
         {
-            int standaloneCount = 0;
             for (int i = 0; i < committedRecordings.Count; i++)
-            {
-                if (!committedRecordings[i].IsTreeRecording)
-                    standaloneCount++;
                 ResetRecordingPlaybackFields(committedRecordings[i]);
-            }
 
             for (int i = 0; i < committedTrees.Count; i++)
             {
@@ -1782,9 +1822,9 @@ namespace Parsek
 
             if (!SuppressLogging)
                 ParsekLog.Info("Rewind",
-                    $"Playback state reset: {standaloneCount} standalone recording(s), {committedTrees.Count} tree(s)");
+                    $"Playback state reset: {committedRecordings.Count} recording(s), {committedTrees.Count} tree(s)");
 
-            return (standaloneCount, committedTrees.Count);
+            return (committedRecordings.Count, committedTrees.Count);
         }
 
         /// <summary>

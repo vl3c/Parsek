@@ -1094,7 +1094,7 @@ namespace Parsek
 
                 DiscardStalePendingState();
 
-                recordings.Clear();
+                RecordingStore.ClearCommittedInternal();
 
                 // Validate chain integrity before any playback
                 RecordingStore.ValidateChains();
@@ -1258,7 +1258,7 @@ namespace Parsek
         /// milestone state, collects cleanup PIDs/names, resets playback state, strips
         /// orphaned vessels, schedules budget coroutine, re-reserves crew, clears rewind flags.
         /// </summary>
-        private void HandleRewindOnLoad(ConfigNode node, List<Recording> recordings)
+        private void HandleRewindOnLoad(ConfigNode node, IReadOnlyList<Recording> recordings)
         {
             ParsekLog.RecState("HandleRewindOnLoad:entry", CaptureScenarioRecorderState());
             ParsekLog.Info("Rewind",
@@ -1601,7 +1601,7 @@ namespace Parsek
         /// trees, loads each tree and its bulk data, and adds tree recordings to the
         /// committed recordings list for ghost playback.
         /// </summary>
-        private static void LoadRecordingTrees(ConfigNode node, List<Recording> recordings)
+        private static void LoadRecordingTrees(ConfigNode node, IReadOnlyList<Recording> recordings)
         {
             // Always clear CommittedTrees — if the new save has no trees, stale trees
             // from the previous save would otherwise persist and contaminate this save.
@@ -1646,7 +1646,7 @@ namespace Parsek
                     // Add tree recordings to CommittedRecordings for ghost playback
                     foreach (var rec in tree.Recordings.Values)
                     {
-                        recordings.Add(rec);
+                        RecordingStore.AddCommittedInternal(rec);
                         treeRecCount++;
                         treeTotalPoints += rec.Points.Count;
                         treeTotalOrbitSegments += rec.OrbitSegments.Count;
@@ -1770,9 +1770,8 @@ namespace Parsek
 
                 var stale = committed[i];
                 // Remove the tree's recordings from the flat CommittedRecordings list
-                var flatList = RecordingStore.CommittedRecordings;
                 foreach (var rec in stale.Recordings.Values)
-                    flatList.Remove(rec);
+                    RecordingStore.RemoveCommittedInternal(rec);
 
                 committed.RemoveAt(i);
                 ParsekLog.Info("Scenario",
@@ -2198,7 +2197,7 @@ namespace Parsek
         /// blocks respawning permanently (#168).
         /// </summary>
         internal static int ReconcileSpawnStateAfterStrip(
-            List<ProtoVessel> remainingVessels, List<Recording> recordings)
+            List<ProtoVessel> remainingVessels, IReadOnlyList<Recording> recordings)
         {
             return ReconcileSpawnStateAfterStrip(CollectSurvivingPids(remainingVessels), recordings);
         }
@@ -2207,7 +2206,7 @@ namespace Parsek
         /// Testable overload that takes pre-collected surviving PIDs.
         /// </summary>
         internal static int ReconcileSpawnStateAfterStrip(
-            HashSet<uint> survivingPids, List<Recording> recordings)
+            HashSet<uint> survivingPids, IReadOnlyList<Recording> recordings)
         {
             if (recordings == null || recordings.Count == 0)
                 return 0;

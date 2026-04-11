@@ -59,7 +59,7 @@ namespace Parsek.Tests
             {
                 { "Jeb", KerbalEndState.Aboard }
             };
-            RecordingStore.AddCommittedForTesting(rec);
+            RecordingStore.AddRecordingWithTreeForTesting(rec);
             var kerbals = KerbalsTestHelper.RecalculateFromStore();
 
             // Inject the module so ShouldSuppressCrewStatusChange can find it

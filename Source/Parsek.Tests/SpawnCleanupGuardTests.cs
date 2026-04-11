@@ -42,7 +42,7 @@ namespace Parsek.Tests
             Assert.Null(RecordingStore.PendingCleanupNames);
 
             // Add a spawned recording so CollectSpawnedVesselInfo returns data
-            RecordingStore.CommittedRecordings.Add(new Recording
+            RecordingStore.AddRecordingWithTreeForTesting(new Recording
                 { VesselName = "Probe", SpawnedVesselPersistentId = 77 });
 
             var info = RecordingStore.CollectSpawnedVesselInfo();
@@ -62,7 +62,7 @@ namespace Parsek.Tests
         {
             // Full sequence simulation: rewind sets data, then revert path fires.
             // Step 1: Rewind path sets cleanup data
-            RecordingStore.CommittedRecordings.Add(new Recording
+            RecordingStore.AddRecordingWithTreeForTesting(new Recording
                 { VesselName = "Rocket", SpawnedVesselPersistentId = 42 });
 
             var (rewindPids, _) = RecordingStore.CollectSpawnedVesselInfo();
@@ -94,7 +94,7 @@ namespace Parsek.Tests
         {
             // Demonstrates the bug: without the guard, the revert path
             // would overwrite rewind data with empty.
-            RecordingStore.CommittedRecordings.Add(new Recording
+            RecordingStore.AddRecordingWithTreeForTesting(new Recording
                 { VesselName = "Rocket", SpawnedVesselPersistentId = 42 });
 
             // Rewind path sets data

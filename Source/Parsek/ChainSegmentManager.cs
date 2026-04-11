@@ -12,6 +12,9 @@ namespace Parsek
     /// </summary>
     internal class ChainSegmentManager
     {
+        // Tree identity (propagated from ParsekFlight.activeTree)
+        internal string ActiveTreeId;
+
         // Core chain identity
         internal string ActiveChainId;          // null if not building a chain
         internal int ActiveChainNextIndex;      // next segment's ChainIndex
@@ -125,6 +128,7 @@ namespace Parsek
         /// </summary>
         internal void ClearAll()
         {
+            ActiveTreeId = null;
             ActiveChainId = null;
             ActiveChainNextIndex = 0;
             ActiveChainPrevId = null;
@@ -418,7 +422,7 @@ namespace Parsek
             // added to the committed list with an empty sidecar file.
             contRec.MarkFilesDirty();
 
-            RecordingStore.CommittedRecordings.Add(contRec);
+            RecordingStore.AddCommittedInternal(contRec);
             UndockContinuationRecIdx = RecordingStore.CommittedRecordings.Count - 1;
             UndockContinuationRecId = contRec.RecordingId;
             UndockContinuationPid = otherPid;
@@ -488,6 +492,9 @@ namespace Parsek
 
             if (captured != null)
                 rec.ApplyPersistenceArtifactsFrom(captured);
+
+            // Tag with tree ownership so the recording belongs to the active tree
+            rec.TreeId = ActiveTreeId;
 
             // First transition: initialize chain
             if (ActiveChainId == null)

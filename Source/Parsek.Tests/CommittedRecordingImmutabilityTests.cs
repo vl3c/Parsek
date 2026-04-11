@@ -91,7 +91,7 @@ namespace Parsek.Tests
         {
             // Setup: committed recording with a valid snapshot
             var rec = MakeCommittedRecording();
-            RecordingStore.CommittedRecordings.Add(rec);
+            RecordingStore.AddRecordingWithTreeForTesting(rec);
 
             // Simulate what the fixed destruction handler does:
             // Set VesselDestroyed=true but do NOT null VesselSnapshot
@@ -152,7 +152,7 @@ namespace Parsek.Tests
         {
             // Setup: committed recording representing a vessel segment
             var rec = MakeCommittedRecording();
-            RecordingStore.CommittedRecordings.Add(rec);
+            RecordingStore.AddRecordingWithTreeForTesting(rec);
             int recIdx = RecordingStore.CommittedRecordings.Count - 1;
 
             // The old code would have done: rec.VesselSnapshot = null;
@@ -174,7 +174,7 @@ namespace Parsek.Tests
         {
             // Verify that the boarding path logs snapshot preservation
             var rec = MakeCommittedRecording();
-            RecordingStore.CommittedRecordings.Add(rec);
+            RecordingStore.AddRecordingWithTreeForTesting(rec);
             int recIdx = RecordingStore.CommittedRecordings.Count - 1;
 
             // Create a ChainSegmentManager with continuation active
@@ -206,7 +206,7 @@ namespace Parsek.Tests
         {
             // Setup: committed recording with matching vessel name
             var rec = MakeCommittedRecording("MyRocket", 12345);
-            RecordingStore.CommittedRecordings.Add(rec);
+            RecordingStore.AddRecordingWithTreeForTesting(rec);
 
             var originalSnapshot = rec.VesselSnapshot;
             var originalTerminalState = rec.TerminalStateValue;
@@ -231,7 +231,7 @@ namespace Parsek.Tests
             var rec = MakeCommittedRecording("Flea", 99999);
             rec.VesselSpawned = false;
             rec.SpawnedVesselPersistentId = 0;
-            RecordingStore.CommittedRecordings.Add(rec);
+            RecordingStore.AddRecordingWithTreeForTesting(rec);
 
             var originalSnapshot = rec.VesselSnapshot;
 
@@ -266,7 +266,7 @@ namespace Parsek.Tests
             // so that the preserved snapshot can actually be used for spawn.
             var rec = MakeCommittedRecording();
             rec.VesselDestroyed = true;
-            RecordingStore.CommittedRecordings.Add(rec);
+            RecordingStore.AddRecordingWithTreeForTesting(rec);
 
             RecordingStore.ResetAllPlaybackState();
 
@@ -280,7 +280,7 @@ namespace Parsek.Tests
             // End-to-end: destroy → reset → spawn eligibility check
             var rec = MakeCommittedRecording();
             rec.VesselDestroyed = true;
-            RecordingStore.CommittedRecordings.Add(rec);
+            RecordingStore.AddRecordingWithTreeForTesting(rec);
 
             RecordingStore.ResetAllPlaybackState();
 
@@ -303,7 +303,7 @@ namespace Parsek.Tests
             // code actually emits it (OnVesselWillDestroy requires KSP runtime).
             // Verifies the log message contract for the destruction handler.
             var rec = MakeCommittedRecording("TestRocket", 55555);
-            RecordingStore.CommittedRecordings.Add(rec);
+            RecordingStore.AddRecordingWithTreeForTesting(rec);
 
             ParsekLog.Info("Flight",
                 $"Continuation vessel destroyed (pid={55555}), " +

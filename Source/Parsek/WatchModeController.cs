@@ -707,7 +707,7 @@ namespace Parsek
         /// </summary>
         internal static (int newIndex, string newId) ComputeWatchIndexAfterDelete(
             int watchedIndex, string watchedId, int deletedIndex,
-            List<Recording> recordings)
+            IReadOnlyList<Recording> recordings)
         {
             if (deletedIndex == watchedIndex)
                 return (-1, null);

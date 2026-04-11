@@ -1374,7 +1374,7 @@ namespace Parsek.InGameTests
                 };
 
                 // Inject synthetic recording so the snapshot scan finds the fake original.
-                RecordingStore.CommittedRecordings.Add(syntheticRecording);
+                RecordingStore.AddCommittedInternal(syntheticRecording);
                 addedToCommitted = true;
 
                 // Register ONLY the fake reservation. The dict was cleared above,
@@ -1420,7 +1420,7 @@ namespace Parsek.InGameTests
 
                 // Remove the synthetic recording from the committed list.
                 if (addedToCommitted)
-                    RecordingStore.CommittedRecordings.Remove(syntheticRecording);
+                    RecordingStore.RemoveCommittedInternal(syntheticRecording);
 
                 // Verify rollback.
                 InGameAssert.AreEqual(beforeCrewCount, target.protoModuleCrew.Count,

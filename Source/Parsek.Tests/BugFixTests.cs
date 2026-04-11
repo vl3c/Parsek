@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.Linq;
 using Xunit;
 
 namespace Parsek.Tests
@@ -1328,8 +1329,8 @@ namespace Parsek.Tests
             RecordingStore.CommitTree(tree);
 
             var committed = RecordingStore.CommittedRecordings;
-            var stage = committed.Find(r => r.RecordingId == "stage");
-            var debris = committed.Find(r => r.RecordingId == "debris");
+            var stage = committed.FirstOrDefault(r => r.RecordingId == "stage");
+            var debris = committed.FirstOrDefault(r => r.RecordingId == "debris");
 
             // Stage should be in the main group
             Assert.NotNull(stage.RecordingGroups);
@@ -1377,7 +1378,7 @@ namespace Parsek.Tests
         {
             // Pre-commit an orphaned recording with matching TreeId
             var orphan = MakeRec("orphan", "Rocket", treeId: "t3", pid: 100, startUT: 100, endUT: 150);
-            RecordingStore.AddCommittedForTesting(orphan);
+            RecordingStore.AddRecordingWithTreeForTesting(orphan);
             Assert.Null(orphan.RecordingGroups);
 
             var tree = new RecordingTree
@@ -1404,7 +1405,7 @@ namespace Parsek.Tests
         {
             var orphanDebris = MakeRec("orphan-d", "Rocket Debris", isDebris: true, pid: 200, startUT: 100, endUT: 120);
             orphanDebris.TreeId = "t4";
-            RecordingStore.AddCommittedForTesting(orphanDebris);
+            RecordingStore.AddRecordingWithTreeForTesting(orphanDebris);
 
             var tree = new RecordingTree
             {
@@ -1429,7 +1430,7 @@ namespace Parsek.Tests
         {
             var alreadyGrouped = MakeRec("grouped", "Rocket", pid: 100, startUT: 100, endUT: 150);
             alreadyGrouped.RecordingGroups = new List<string> { "OtherGroup" };
-            RecordingStore.AddCommittedForTesting(alreadyGrouped);
+            RecordingStore.AddRecordingWithTreeForTesting(alreadyGrouped);
 
             var tree = new RecordingTree
             {

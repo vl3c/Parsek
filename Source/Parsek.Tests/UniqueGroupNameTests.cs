@@ -45,7 +45,7 @@ namespace Parsek.Tests
         public void SecondUse_AppendsSuffix2()
         {
             // Commit a recording in the "Flea" group
-            RecordingStore.CommittedRecordings.Add(new Recording
+            RecordingStore.AddRecordingWithTreeForTesting(new Recording
             {
                 VesselName = "Flea",
                 RecordingGroups = new List<string> { "Flea" }
@@ -62,12 +62,12 @@ namespace Parsek.Tests
         public void ThirdUse_AppendsSuffix3()
         {
             // Two existing groups: "Flea" and "Flea (2)"
-            RecordingStore.CommittedRecordings.Add(new Recording
+            RecordingStore.AddRecordingWithTreeForTesting(new Recording
             {
                 VesselName = "Flea",
                 RecordingGroups = new List<string> { "Flea" }
             });
-            RecordingStore.CommittedRecordings.Add(new Recording
+            RecordingStore.AddRecordingWithTreeForTesting(new Recording
             {
                 VesselName = "Flea",
                 RecordingGroups = new List<string> { "Flea (2)" }
@@ -83,7 +83,7 @@ namespace Parsek.Tests
         [Fact]
         public void DifferentBaseName_DoesNotCollide()
         {
-            RecordingStore.CommittedRecordings.Add(new Recording
+            RecordingStore.AddRecordingWithTreeForTesting(new Recording
             {
                 VesselName = "Flea",
                 RecordingGroups = new List<string> { "Flea" }
@@ -117,7 +117,7 @@ namespace Parsek.Tests
         [Fact]
         public void CaseInsensitive_DetectsCollision()
         {
-            RecordingStore.CommittedRecordings.Add(new Recording
+            RecordingStore.AddRecordingWithTreeForTesting(new Recording
             {
                 VesselName = "flea",
                 RecordingGroups = new List<string> { "flea" }
@@ -133,7 +133,7 @@ namespace Parsek.Tests
         public void GapInSequence_FillsFirstAvailable()
         {
             // Existing: "Flea" and "Flea (3)" — gap at (2)
-            RecordingStore.CommittedRecordings.Add(new Recording
+            RecordingStore.AddRecordingWithTreeForTesting(new Recording
             {
                 VesselName = "Flea",
                 RecordingGroups = new List<string> { "Flea", "Flea (3)" }

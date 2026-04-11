@@ -532,7 +532,7 @@ namespace Parsek.Tests
                 SpawnAttempts = 2
             };
             rec.Points.Add(new TrajectoryPoint { ut = 100 });
-            RecordingStore.CommittedRecordings.Add(rec);
+            RecordingStore.AddRecordingWithTreeForTesting(rec);
 
             RecordingStore.ResetAllPlaybackState();
 
@@ -552,7 +552,7 @@ namespace Parsek.Tests
                 SpawnedVesselPersistentId = 42000
             };
             rec.Points.Add(new TrajectoryPoint { ut = 100 });
-            RecordingStore.CommittedRecordings.Add(rec);
+            RecordingStore.AddRecordingWithTreeForTesting(rec);
 
             RecordingStore.ResetAllPlaybackState();
 

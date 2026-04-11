@@ -144,7 +144,7 @@ namespace Parsek.Tests
                 rec.Points.Add(new TrajectoryPoint { ut = i });
             for (int i = 0; i < 5; i++)
                 rec.PartEvents.Add(new PartEvent());
-            RecordingStore.AddCommittedForTesting(rec);
+            RecordingStore.AddRecordingWithTreeForTesting(rec);
 
             DiagnosticsComputation.EmitSceneLoadSnapshot(1, "FLIGHT");
 

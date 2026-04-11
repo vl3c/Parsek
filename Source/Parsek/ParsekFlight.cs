@@ -4711,7 +4711,10 @@ namespace Parsek
 
             // Propagate tree mode to new recorder so DecideOnVesselSwitch uses tree decisions
             if (activeTree != null)
+            {
                 recorder.ActiveTree = activeTree;
+                chainManager.ActiveTreeId = activeTree.Id;
+            }
             recorder.StartRecording(isPromotion: isContinuation);
             if (!recorder.IsRecording)
             {
@@ -5167,6 +5170,7 @@ namespace Parsek
             // Construct a fresh FlightRecorder pointed at the restored tree.
             recorder = new FlightRecorder();
             recorder.ActiveTree = activeTree;
+            chainManager.ActiveTreeId = activeTree.Id;
 
             // Restore recorder state persisted in the PARSEK_ACTIVE_TREE node
             if (!string.IsNullOrEmpty(ParsekScenario.pendingActiveTreeResumeRewindSave))
@@ -5269,6 +5273,8 @@ namespace Parsek
                     "we verified the tree exists");
                 yield break;
             }
+
+            chainManager.ActiveTreeId = activeTree.Id;
 
             // Re-attach the BackgroundRecorder for the tree (the previous instance was
             // shut down in FinalizeTreeOnSceneChange before the scene reload).
@@ -6594,7 +6600,7 @@ namespace Parsek
         /// Returns null if no recording covers this UT for this vessel.
         /// </summary>
         internal static Recording FindBackgroundRecordingForVessel(
-            List<Recording> committedRecordings, uint vesselPid, double currentUT)
+            IReadOnlyList<Recording> committedRecordings, uint vesselPid, double currentUT)
         {
             if (committedRecordings == null) return null;
             for (int i = 0; i < committedRecordings.Count; i++)
@@ -6928,7 +6934,7 @@ namespace Parsek
         /// from the hot path (was O(n^2), now O(n)).
         /// </summary>
         private TrajectoryPlaybackFlags[] ComputePlaybackFlags(
-            List<Recording> committed, double currentUT)
+            IReadOnlyList<Recording> committed, double currentUT)
         {
             var flags = new TrajectoryPlaybackFlags[committed.Count];
             for (int i = 0; i < committed.Count; i++)
@@ -8615,7 +8621,7 @@ namespace Parsek
         /// Scans active ghosts for spawn-eligible recordings within proximity range.
         /// Populates nearbySpawnCandidates with qualifying entries.
         /// </summary>
-        private void CollectNearbySpawnCandidates(Vector3d activePos, double currentUT, List<Recording> committed)
+        private void CollectNearbySpawnCandidates(Vector3d activePos, double currentUT, IReadOnlyList<Recording> committed)
         {
             foreach (var kvp in ghostStates)
             {

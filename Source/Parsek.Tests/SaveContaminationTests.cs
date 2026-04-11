@@ -75,7 +75,7 @@ namespace Parsek.Tests
 
             // Simulate initial load of save B: only CommittedRecordings.Clear() runs.
             // This is what the old code did when save B had no trees.
-            RecordingStore.CommittedRecordings.Clear();
+            RecordingStore.ClearCommittedInternal();
 
             // Bug: CommittedTrees still has save A's tree
             Assert.Single(RecordingStore.CommittedTrees);
@@ -91,7 +91,7 @@ namespace Parsek.Tests
             Assert.Single(RecordingStore.CommittedTrees);
 
             // Simulate the fix: always clear both lists on initial load
-            RecordingStore.CommittedRecordings.Clear();
+            RecordingStore.ClearCommittedInternal();
             RecordingStore.CommittedTrees.Clear();
 
             // Now save B has no trees — both lists are empty

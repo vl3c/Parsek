@@ -355,7 +355,7 @@ namespace Parsek.Tests
             };
             loop.Points.Add(new TrajectoryPoint { ut = 10.0 });
             loop.Points.Add(new TrajectoryPoint { ut = 142.0 });
-            RecordingStore.AddCommittedForTesting(loop);
+            RecordingStore.AddRecordingWithTreeForTesting(loop);
 
             var tip = new Recording
             {
@@ -372,7 +372,7 @@ namespace Parsek.Tests
             {
                 { "Jeb", KerbalEndState.Recovered }
             };
-            RecordingStore.AddCommittedForTesting(tip);
+            RecordingStore.AddRecordingWithTreeForTesting(tip);
 
             var kerbals = KerbalsTestHelper.RecalculateFromStore();
 
@@ -405,7 +405,7 @@ namespace Parsek.Tests
             };
             seg0.Points.Add(new TrajectoryPoint { ut = 10.0 });
             seg0.Points.Add(new TrajectoryPoint { ut = 142.0 });
-            RecordingStore.AddCommittedForTesting(seg0);
+            RecordingStore.AddRecordingWithTreeForTesting(seg0);
 
             var tip = new Recording
             {
@@ -421,7 +421,7 @@ namespace Parsek.Tests
             {
                 { "Val", KerbalEndState.Recovered }
             };
-            RecordingStore.AddCommittedForTesting(tip);
+            RecordingStore.AddRecordingWithTreeForTesting(tip);
 
             var kerbals = KerbalsTestHelper.RecalculateFromStore();
 

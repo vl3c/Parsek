@@ -341,7 +341,7 @@ namespace Parsek.Tests
         public void BuildSpawnedVesselPidSet_MatchesSpawnedPid()
         {
             var rec = new Recording { SpawnedVesselPersistentId = 847060085 };
-            RecordingStore.AddCommittedForTesting(rec);
+            RecordingStore.AddRecordingWithTreeForTesting(rec);
 
             var pids = CrewReservationManager.BuildSpawnedVesselPidSet(
                 RecordingStore.CommittedRecordings);
@@ -353,7 +353,7 @@ namespace Parsek.Tests
         public void BuildSpawnedVesselPidSet_ZeroPid_NotIncluded()
         {
             var rec = new Recording { SpawnedVesselPersistentId = 0 };
-            RecordingStore.AddCommittedForTesting(rec);
+            RecordingStore.AddRecordingWithTreeForTesting(rec);
 
             var pids = CrewReservationManager.BuildSpawnedVesselPidSet(
                 RecordingStore.CommittedRecordings);
@@ -373,7 +373,7 @@ namespace Parsek.Tests
         public void BuildSpawnedVesselPidSet_DistinguishesSpawnedFromNonSpawned()
         {
             var rec = new Recording { SpawnedVesselPersistentId = 12345 };
-            RecordingStore.AddCommittedForTesting(rec);
+            RecordingStore.AddRecordingWithTreeForTesting(rec);
 
             var pids = CrewReservationManager.BuildSpawnedVesselPidSet(
                 RecordingStore.CommittedRecordings);

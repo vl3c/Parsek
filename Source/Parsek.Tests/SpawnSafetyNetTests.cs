@@ -76,8 +76,8 @@ namespace Parsek.Tests
             tree.Recordings["child-rec"] = childRec;
             tree.BranchPoints.Add(bp);
 
-            RecordingStore.CommittedRecordings.Add(rootRec);
-            RecordingStore.CommittedRecordings.Add(childRec);
+            RecordingStore.AddRecordingWithTreeForTesting(rootRec);
+            RecordingStore.AddRecordingWithTreeForTesting(childRec);
             RecordingStore.CommittedTrees.Add(tree);
 
             bool result = GhostPlaybackLogic.IsNonLeafInCommittedTree(rootRec);
@@ -110,7 +110,7 @@ namespace Parsek.Tests
 
             // No branch point references leaf-rec as parent
             tree.Recordings["leaf-rec"] = leafRec;
-            RecordingStore.CommittedRecordings.Add(leafRec);
+            RecordingStore.AddRecordingWithTreeForTesting(leafRec);
             RecordingStore.CommittedTrees.Add(tree);
 
             bool result = GhostPlaybackLogic.IsNonLeafInCommittedTree(leafRec);

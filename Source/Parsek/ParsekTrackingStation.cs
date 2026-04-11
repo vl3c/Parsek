@@ -114,7 +114,7 @@ namespace Parsek
         /// Ensures consistent icon type across chain recordings of the same vessel.
         /// O(n) scan per call — acceptable for small committed recording counts (typically under 30).
         /// </summary>
-        private static VesselType ResolveVesselTypeWithFallback(List<Recording> committed, Recording rec)
+        private static VesselType ResolveVesselTypeWithFallback(IReadOnlyList<Recording> committed, Recording rec)
         {
             if (rec.VesselSnapshot != null)
                 return GhostMapPresence.ResolveVesselType(rec.VesselSnapshot);

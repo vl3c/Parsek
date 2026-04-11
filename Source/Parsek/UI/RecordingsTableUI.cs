@@ -348,7 +348,7 @@ namespace Parsek
         /// pruning logic is testable without instantiating RecordingsTableUI
         /// (which requires a live ParsekUI / Unity GameObject).
         /// </summary>
-        internal void PruneStaleWatchTransitionEntries(List<Recording> committed)
+        internal void PruneStaleWatchTransitionEntries(IReadOnlyList<Recording> committed)
         {
             PruneStaleWatchEntries(lastCanWatchByRecId, lastCanWatchByGroup, committed);
         }
@@ -365,7 +365,7 @@ namespace Parsek
         internal static void PruneStaleWatchEntries(
             Dictionary<string, bool> lastCanWatchByRecId,
             Dictionary<string, bool> lastCanWatchByGroup,
-            List<Recording> committed)
+            IReadOnlyList<Recording> committed)
         {
             if (committed == null || committed.Count == 0)
             {
@@ -422,7 +422,7 @@ namespace Parsek
             }
         }
 
-        private void HandleRecordingsDefocus(List<Recording> committed)
+        private void HandleRecordingsDefocus(IReadOnlyList<Recording> committed)
         {
             // Click outside active rename field -> commit and close
             if (Event.current.type == EventType.MouseDown &&
@@ -447,7 +447,7 @@ namespace Parsek
             }
         }
 
-        private void DrawRecordingsTableHeader(List<Recording> committed)
+        private void DrawRecordingsTableHeader(IReadOnlyList<Recording> committed)
         {
             // Header row
             GUILayout.BeginHorizontal();
@@ -531,7 +531,7 @@ namespace Parsek
             GUILayout.EndHorizontal();
         }
 
-        private void DrawRecordingsBottomBar(List<Recording> committed)
+        private void DrawRecordingsBottomBar(IReadOnlyList<Recording> committed)
         {
             // Bottom button bar — pinned to window bottom
             GUILayout.FlexibleSpace();
@@ -740,7 +740,7 @@ namespace Parsek
         /// <summary>
         /// Draws a single recording row. Returns true if the list was modified (break iteration).
         /// </summary>
-        private bool DrawRecordingRow(int ri, List<Recording> committed, double now, float indentPx)
+        private bool DrawRecordingRow(int ri, IReadOnlyList<Recording> committed, double now, float indentPx)
         {
             var rec = committed[ri];
             if (rec.Hidden && GroupHierarchyStore.HideActive) return false;
@@ -1022,7 +1022,7 @@ namespace Parsek
         /// inline rename text field, double-click-to-rename, and auto-focus.
         /// </summary>
         private void DrawRecordingNameCell(int ri, Recording rec,
-            List<Recording> committed, float indentPx)
+            IReadOnlyList<Recording> committed, float indentPx)
         {
             // Indent inside Name column for grouped/chained recordings
             if (indentPx > 0f) GUILayout.Space(indentPx);
@@ -1089,7 +1089,7 @@ namespace Parsek
         /// Recursively draws a group and its children. Returns true if the recording list was modified.
         /// </summary>
         private bool DrawGroupTree(string groupName, int depth,
-            List<Recording> committed, double now,
+            IReadOnlyList<Recording> committed, double now,
             Dictionary<string, List<int>> grpToRecs,
             Dictionary<string, List<int>> chainToRecs,
             Dictionary<string, List<string>> grpChildren)
@@ -1485,7 +1485,7 @@ namespace Parsek
         /// Draws a chain block (header + members). Returns true if the recording list was modified.
         /// </summary>
         private bool DrawChainBlock(string chainId, List<int> members, int depth,
-            List<Recording> committed, double now)
+            IReadOnlyList<Recording> committed, double now)
         {
             if (GroupHierarchyStore.HideActive)
             {
@@ -1639,7 +1639,7 @@ namespace Parsek
                     CollectDescendantRecordings(children[c], grpToRecs, grpChildren, result);
         }
 
-        private void CommitRecordingRename(List<Recording> committed)
+        private void CommitRecordingRename(IReadOnlyList<Recording> committed)
         {
             int ri = renamingRecordingIdx;
             renamingRecordingIdx = -1;
@@ -1884,7 +1884,7 @@ namespace Parsek
             lastSortedCount = -1;
         }
 
-        private void RebuildSortedIndices(List<Recording> committed, double now)
+        private void RebuildSortedIndices(IReadOnlyList<Recording> committed, double now)
         {
             if (sortedIndices != null && lastSortedCount == committed.Count)
                 return;
@@ -1933,7 +1933,7 @@ namespace Parsek
         /// Sort key for a chain based on the current sort column.
         /// Uses earliest StartUT for launch, sum for duration, etc.
         /// </summary>
-        internal static double GetChainSortKey(List<int> members, List<Recording> committed,
+        internal static double GetChainSortKey(List<int> members, IReadOnlyList<Recording> committed,
             SortColumn column, double now)
         {
             switch (column)
@@ -2013,7 +2013,7 @@ namespace Parsek
         }
 
         internal static int[] BuildSortedIndices(
-            List<Recording> committed, SortColumn column, bool ascending, double now)
+            IReadOnlyList<Recording> committed, SortColumn column, bool ascending, double now)
         {
             var indices = new int[committed.Count];
             for (int i = 0; i < committed.Count; i++)
@@ -2058,7 +2058,7 @@ namespace Parsek
         /// Resolves the parent vessel name for EVA recordings by looking up ParentRecordingId.
         /// Returns null if not an EVA or parent not found.
         /// </summary>
-        internal static string ResolveParentVesselName(Recording rec, List<Recording> committed)
+        internal static string ResolveParentVesselName(Recording rec, IReadOnlyList<Recording> committed)
         {
             if (string.IsNullOrEmpty(rec.EvaCrewName) || string.IsNullOrEmpty(rec.ParentRecordingId))
                 return null;
@@ -2380,7 +2380,7 @@ namespace Parsek
         /// Returns the earliest StartUT among the given descendant recording indices.
         /// Returns double.MaxValue if no descendants exist.
         /// </summary>
-        internal static double GetGroupEarliestStartUT(HashSet<int> descendants, List<Recording> committed)
+        internal static double GetGroupEarliestStartUT(HashSet<int> descendants, IReadOnlyList<Recording> committed)
         {
             double earliest = double.MaxValue;
             foreach (int idx in descendants)
@@ -2394,7 +2394,7 @@ namespace Parsek
         /// <summary>
         /// Returns the sum of durations (EndUT - StartUT) for all descendant recordings.
         /// </summary>
-        internal static double GetGroupTotalDuration(HashSet<int> descendants, List<Recording> committed)
+        internal static double GetGroupTotalDuration(HashSet<int> descendants, IReadOnlyList<Recording> committed)
         {
             double total = 0;
             foreach (int idx in descendants)
@@ -2411,7 +2411,7 @@ namespace Parsek
         /// the group is empty or contains only debris.
         /// </summary>
         internal static int FindGroupMainRecordingIndex(
-            HashSet<int> descendants, List<Recording> committed)
+            HashSet<int> descendants, IReadOnlyList<Recording> committed)
         {
             int bestIdx = -1;
             double bestUT = double.MaxValue;
@@ -2434,7 +2434,7 @@ namespace Parsek
         /// based on the most relevant descendant: most recently activated (active with StartUT
         /// closest to now) wins, then closest future, then past.
         /// </summary>
-        internal static void GetGroupStatus(HashSet<int> descendants, List<Recording> committed,
+        internal static void GetGroupStatus(HashSet<int> descendants, IReadOnlyList<Recording> committed,
             double now, out string statusText, out int statusOrder)
         {
             // Find the best candidate: prefer active (closest T-), then future (closest), then past
@@ -2514,7 +2514,7 @@ namespace Parsek
         /// Computes aggregate status for a chain block header.
         /// Delegates to GetGroupStatus with a HashSet built from the member list.
         /// </summary>
-        private static void GetChainStatus(List<int> members, List<Recording> committed,
+        private static void GetChainStatus(List<int> members, IReadOnlyList<Recording> committed,
             double now, out string statusText, out int statusOrder)
         {
             chainStatusBuffer.Clear();
@@ -2527,7 +2527,7 @@ namespace Parsek
         /// Computes a sort key for a group based on the current sort column.
         /// Used to interleave groups with recordings in the sorted draw order.
         /// </summary>
-        internal static double GetGroupSortKey(HashSet<int> descendants, List<Recording> committed,
+        internal static double GetGroupSortKey(HashSet<int> descendants, IReadOnlyList<Recording> committed,
             SortColumn column, double now)
         {
             if (descendants.Count == 0) return double.MaxValue;
@@ -2791,7 +2791,7 @@ namespace Parsek
             }
         }
 
-        private void CommitLoopPeriodEdit(List<Recording> committed)
+        private void CommitLoopPeriodEdit(IReadOnlyList<Recording> committed)
         {
             if (loopPeriodFocusedRi < 0 || loopPeriodFocusedRi >= committed.Count) { loopPeriodFocusedRi = -1; return; }
             var rec = committed[loopPeriodFocusedRi];
@@ -2854,7 +2854,7 @@ namespace Parsek
         /// Pure data-computation -- no IMGUI calls.
         /// </summary>
         internal static void BuildGroupTreeData(
-            List<Recording> committed, int[] sortedIndices,
+            IReadOnlyList<Recording> committed, int[] sortedIndices,
             List<string> KnownEmptyGroups,
             out Dictionary<string, List<int>> grpToRecs,
             out Dictionary<string, List<int>> chainToRecs,

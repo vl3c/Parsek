@@ -67,7 +67,7 @@ namespace Parsek.Tests
             // Arrange: commit a recording with Jeb — makes Jeb reserved
             var rec = MakeRecording("Test Ship", new[] { "Jeb" },
                 TerminalState.Landed, 1000);
-            RecordingStore.AddCommittedForTesting(rec);
+            RecordingStore.AddRecordingWithTreeForTesting(rec);
 
             var kerbals = KerbalsTestHelper.RecalculateFromStore();
 
@@ -91,8 +91,8 @@ namespace Parsek.Tests
                 TerminalState.Landed, 1000);
             var rec2 = MakeRecording("Ship2", new[] { "StandIn1" },
                 TerminalState.Landed, 2000);
-            RecordingStore.AddCommittedForTesting(rec1);
-            RecordingStore.AddCommittedForTesting(rec2);
+            RecordingStore.AddRecordingWithTreeForTesting(rec1);
+            RecordingStore.AddRecordingWithTreeForTesting(rec2);
 
             var kerbals = KerbalsTestHelper.RecalculateFromStore();
 
@@ -107,7 +107,7 @@ namespace Parsek.Tests
             // Arrange: commit a recording with Jeb only
             var rec = MakeRecording("Test Ship", new[] { "Jeb" },
                 TerminalState.Landed, 1000);
-            RecordingStore.AddCommittedForTesting(rec);
+            RecordingStore.AddRecordingWithTreeForTesting(rec);
 
             var kerbals = KerbalsTestHelper.RecalculateFromStore();
 
@@ -125,7 +125,7 @@ namespace Parsek.Tests
             // stand-in into the slot chain to test IsManaged chain lookup
             var rec = MakeRecording("Ship", new[] { "Jeb" },
                 TerminalState.Landed, 1000);
-            RecordingStore.AddCommittedForTesting(rec);
+            RecordingStore.AddRecordingWithTreeForTesting(rec);
 
             var kerbals = KerbalsTestHelper.RecalculateFromStore();
 
@@ -161,7 +161,7 @@ namespace Parsek.Tests
             var rec = MakeRecording("Loop Ship", new[] { "Jeb" },
                 TerminalState.Landed, 1000);
             rec.LoopPlayback = true;
-            RecordingStore.AddCommittedForTesting(rec);
+            RecordingStore.AddRecordingWithTreeForTesting(rec);
 
             var kerbals = KerbalsTestHelper.RecalculateFromStore();
 
@@ -176,7 +176,7 @@ namespace Parsek.Tests
             // Arrange: dead crew should have permanent reservation
             var rec = MakeRecording("Doomed Ship", new[] { "Jeb" },
                 TerminalState.Destroyed, 1000);
-            RecordingStore.AddCommittedForTesting(rec);
+            RecordingStore.AddRecordingWithTreeForTesting(rec);
 
             var kerbals = KerbalsTestHelper.RecalculateFromStore();
 
@@ -192,7 +192,7 @@ namespace Parsek.Tests
             // Arrange: recovered crew has temporary reservation (ends at rec.EndUT)
             var rec = MakeRecording("Recovered Ship", new[] { "Jeb" },
                 TerminalState.Recovered, 1000);
-            RecordingStore.AddCommittedForTesting(rec);
+            RecordingStore.AddRecordingWithTreeForTesting(rec);
 
             var kerbals = KerbalsTestHelper.RecalculateFromStore();
 

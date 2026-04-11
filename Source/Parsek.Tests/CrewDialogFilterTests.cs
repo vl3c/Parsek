@@ -64,7 +64,7 @@ namespace Parsek.Tests
         {
             var rec = MakeRecording("Ship", new[] { "Jeb" },
                 TerminalState.Recovered, 2000);
-            RecordingStore.AddCommittedForTesting(rec);
+            RecordingStore.AddRecordingWithTreeForTesting(rec);
 
             var kerbals = KerbalsTestHelper.RecalculateFromStore();
 
@@ -83,7 +83,7 @@ namespace Parsek.Tests
             // This test verifies both branches together on a multi-crew recording.
             var rec = MakeRecording("Ship", new[] { "Jeb", "Bill", "Val" },
                 TerminalState.Recovered, 2000);
-            RecordingStore.AddCommittedForTesting(rec);
+            RecordingStore.AddRecordingWithTreeForTesting(rec);
 
             var kerbals = KerbalsTestHelper.RecalculateFromStore();
 
@@ -101,7 +101,7 @@ namespace Parsek.Tests
             // Jeb is reserved. His stand-in is an active occupant — should NOT be filtered.
             var rec = MakeRecording("Ship", new[] { "Jeb" },
                 TerminalState.Recovered, 2000);
-            RecordingStore.AddCommittedForTesting(rec);
+            RecordingStore.AddRecordingWithTreeForTesting(rec);
 
             var kerbals = new KerbalsModule();
 
@@ -129,7 +129,7 @@ namespace Parsek.Tests
         {
             var rec = MakeRecording("Ship", new[] { "Jeb" },
                 TerminalState.Recovered, 2000);
-            RecordingStore.AddCommittedForTesting(rec);
+            RecordingStore.AddRecordingWithTreeForTesting(rec);
 
             var kerbals = KerbalsTestHelper.RecalculateFromStore();
 
@@ -151,7 +151,7 @@ namespace Parsek.Tests
             // After a recording is removed, the kerbal should no longer be filtered.
             var rec = MakeRecording("Ship", new[] { "Jeb" },
                 TerminalState.Recovered, 2000);
-            RecordingStore.AddCommittedForTesting(rec);
+            RecordingStore.AddRecordingWithTreeForTesting(rec);
 
             var kerbals = KerbalsTestHelper.RecalculateFromStore();
             Assert.True(kerbals.ShouldFilterFromCrewDialog("Jeb"));

@@ -1204,7 +1204,7 @@ namespace Parsek.Tests
             tree.RootRecordingId = rec.RecordingId;
 
             // Commit tree directly
-            RecordingStore.CommittedRecordings.Add(rec);
+            RecordingStore.AddRecordingWithTreeForTesting(rec);
             RecordingStore.CommittedTrees.Add(tree);
 
             RecordingStore.RunOptimizationPass();
@@ -1286,7 +1286,7 @@ namespace Parsek.Tests
             tree.Recordings[rec.RecordingId] = rec;
             tree.RootRecordingId = rec.RecordingId;
 
-            RecordingStore.CommittedRecordings.Add(rec);
+            RecordingStore.AddRecordingWithTreeForTesting(rec);
             RecordingStore.CommittedTrees.Add(tree);
 
             RecordingStore.RunOptimizationPass();
@@ -1354,7 +1354,7 @@ namespace Parsek.Tests
                 tree.Recordings[rec.RecordingId] = rec;
                 tree.RootRecordingId = rec.RecordingId;
 
-                RecordingStore.CommittedRecordings.Add(rec);
+                RecordingStore.AddRecordingWithTreeForTesting(rec);
                 RecordingStore.CommittedTrees.Add(tree);
 
                 RecordingStore.RunOptimizationPass();
@@ -1424,7 +1424,7 @@ namespace Parsek.Tests
             try
             {
                 var rec = RecordingStore.CreateRecordingFromFlightData(MakePoints(3), "Clean");
-                RecordingStore.AddCommittedForTesting(rec);
+                RecordingStore.AddRecordingWithTreeForTesting(rec);
                 // Pretend save succeeded
                 RecordingStore.CommittedRecordings[0].FilesDirty = false;
                 logLines.Clear();

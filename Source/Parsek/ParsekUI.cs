@@ -522,7 +522,7 @@ namespace Parsek
         /// Forwards to RecordingsTableUI.BuildGroupTreeData for backward compatibility with tests.
         /// </summary>
         internal static void BuildGroupTreeData(
-            List<Recording> committed, int[] sortedIndices,
+            IReadOnlyList<Recording> committed, int[] sortedIndices,
             List<string> KnownEmptyGroups,
             out Dictionary<string, List<int>> grpToRecs,
             out Dictionary<string, List<int>> chainToRecs,
@@ -542,7 +542,7 @@ namespace Parsek
         internal static double GetRecordingSortKey(Recording rec, SortColumn column, double now, int rowFallback)
             => RecordingsTableUI.GetRecordingSortKey(rec, (RecordingsTableUI.SortColumn)(int)column, now, rowFallback);
 
-        internal static double GetChainSortKey(List<int> members, List<Recording> committed,
+        internal static double GetChainSortKey(List<int> members, IReadOnlyList<Recording> committed,
             SortColumn column, double now)
             => RecordingsTableUI.GetChainSortKey(members, committed, (RecordingsTableUI.SortColumn)(int)column, now);
 
@@ -552,7 +552,7 @@ namespace Parsek
             => RecordingsTableUI.CompareRecordings(ra, rb, (RecordingsTableUI.SortColumn)(int)column, ascending, now);
 
         internal static int[] BuildSortedIndices(
-            List<Recording> committed, SortColumn column, bool ascending, double now)
+            IReadOnlyList<Recording> committed, SortColumn column, bool ascending, double now)
             => RecordingsTableUI.BuildSortedIndices(committed, (RecordingsTableUI.SortColumn)(int)column, ascending, now);
 
         internal static string FormatDuration(double seconds)
@@ -567,21 +567,21 @@ namespace Parsek
         internal static string FormatDistance(double meters)
             => RecordingsTableUI.FormatDistance(meters);
 
-        internal static double GetGroupEarliestStartUT(HashSet<int> descendants, List<Recording> committed)
+        internal static double GetGroupEarliestStartUT(HashSet<int> descendants, IReadOnlyList<Recording> committed)
             => RecordingsTableUI.GetGroupEarliestStartUT(descendants, committed);
 
-        internal static double GetGroupTotalDuration(HashSet<int> descendants, List<Recording> committed)
+        internal static double GetGroupTotalDuration(HashSet<int> descendants, IReadOnlyList<Recording> committed)
             => RecordingsTableUI.GetGroupTotalDuration(descendants, committed);
 
         internal static int FindGroupMainRecordingIndex(
-            HashSet<int> descendants, List<Recording> committed)
+            HashSet<int> descendants, IReadOnlyList<Recording> committed)
             => RecordingsTableUI.FindGroupMainRecordingIndex(descendants, committed);
 
-        internal static void GetGroupStatus(HashSet<int> descendants, List<Recording> committed,
+        internal static void GetGroupStatus(HashSet<int> descendants, IReadOnlyList<Recording> committed,
             double now, out string statusText, out int statusOrder)
             => RecordingsTableUI.GetGroupStatus(descendants, committed, now, out statusText, out statusOrder);
 
-        internal static double GetGroupSortKey(HashSet<int> descendants, List<Recording> committed,
+        internal static double GetGroupSortKey(HashSet<int> descendants, IReadOnlyList<Recording> committed,
             SortColumn column, double now)
             => RecordingsTableUI.GetGroupSortKey(descendants, committed, (RecordingsTableUI.SortColumn)(int)column, now);
 
@@ -725,7 +725,7 @@ namespace Parsek
         /// Uses InterpolatePoints for smooth movement between recorded trajectory points.
         /// Returns false if the recording is out of UT range or has no trajectory data.
         /// </summary>
-        private bool TryComputeGhostWorldPosition(int recordingIndex, List<Recording> committed,
+        private bool TryComputeGhostWorldPosition(int recordingIndex, IReadOnlyList<Recording> committed,
             double ut, out Vector3 worldPos)
         {
             worldPos = Vector3.zero;
