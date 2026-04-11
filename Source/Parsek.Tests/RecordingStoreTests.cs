@@ -38,87 +38,72 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void StashPending_WithPoints_SetsPending()
+        public void CreateRecordingFromFlightData_WithPoints_CreatesRecording()
         {
             var points = MakePoints(5);
 
-            RecordingStore.StashPending(points, "TestVessel");
+            var rec = RecordingStore.CreateRecordingFromFlightData(points, "TestVessel");
 
-            Assert.True(RecordingStore.HasPending);
-            Assert.Equal(5, RecordingStore.Pending.Points.Count);
-            Assert.Equal("TestVessel", RecordingStore.Pending.VesselName);
+            Assert.NotNull(rec);
+            Assert.Equal(5, rec.Points.Count);
+            Assert.Equal("TestVessel", rec.VesselName);
         }
 
         [Fact]
-        public void StashPending_EmptyList_DoesNotStash()
+        public void CreateRecordingFromFlightData_EmptyList_ReturnsNull()
         {
-            RecordingStore.StashPending(new List<TrajectoryPoint>(), "Empty");
+            var rec = RecordingStore.CreateRecordingFromFlightData(new List<TrajectoryPoint>(), "Empty");
 
-            Assert.False(RecordingStore.HasPending);
+            Assert.Null(rec);
         }
 
         [Fact]
-        public void StashPending_NullList_DoesNotStash()
+        public void CreateRecordingFromFlightData_NullList_ReturnsNull()
         {
-            RecordingStore.StashPending(null, "Null");
+            var rec = RecordingStore.CreateRecordingFromFlightData(null, "Null");
 
-            Assert.False(RecordingStore.HasPending);
+            Assert.Null(rec);
         }
 
         [Fact]
-        public void CommitPending_MovesPendingToCommitted()
+        public void CommitRecordingDirect_AddsToCommitted()
         {
-            RecordingStore.StashPending(MakePoints(3), "Ship");
+            var rec = RecordingStore.CreateRecordingFromFlightData(MakePoints(3), "Ship");
+            Assert.NotNull(rec);
 
-            RecordingStore.CommitPending();
+            RecordingStore.CommitRecordingDirect(rec);
 
-            Assert.False(RecordingStore.HasPending);
             Assert.Single(RecordingStore.CommittedRecordings);
             Assert.Equal("Ship", RecordingStore.CommittedRecordings[0].VesselName);
         }
 
         [Fact]
-        public void CommitPending_NoPending_DoesNothing()
+        public void CommitRecordingDirect_NullRecording_DoesNothing()
         {
             // Should not crash
-            RecordingStore.CommitPending();
+            RecordingStore.CommitRecordingDirect(null);
 
-            Assert.False(RecordingStore.HasPending);
-            Assert.Empty(RecordingStore.CommittedRecordings);
-        }
-
-        [Fact]
-        public void DiscardPending_ClearsPending()
-        {
-            RecordingStore.StashPending(MakePoints(3), "Ship");
-
-            RecordingStore.DiscardPending();
-
-            Assert.False(RecordingStore.HasPending);
             Assert.Empty(RecordingStore.CommittedRecordings);
         }
 
         [Fact]
         public void Clear_ClearsEverything()
         {
-            // Stash + commit one
-            RecordingStore.StashPending(MakePoints(3), "First");
-            RecordingStore.CommitPending();
-            // Stash another (pending)
-            RecordingStore.StashPending(MakePoints(2), "Second");
+            // Create + commit one
+            var rec1 = RecordingStore.CreateRecordingFromFlightData(MakePoints(3), "First");
+            RecordingStore.CommitRecordingDirect(rec1);
 
             RecordingStore.Clear();
 
-            Assert.False(RecordingStore.HasPending);
             Assert.Empty(RecordingStore.CommittedRecordings);
         }
 
         [Fact]
         public void Recording_StartUT_EndUT_Computed()
         {
-            RecordingStore.StashPending(MakePoints(5, startUT: 200), "Ship");
+            var rec = RecordingStore.CreateRecordingFromFlightData(MakePoints(5, startUT: 200), "Ship");
 
-            var rec = RecordingStore.Pending;
+            Assert.NotNull(rec);
             Assert.Equal(200, rec.StartUT);
             Assert.Equal(240, rec.EndUT); // 200 + 4*10
         }
@@ -134,14 +119,15 @@ namespace Parsek.Tests
         [Fact]
         public void Recording_VesselSnapshot_StoredAndRetrieved()
         {
-            RecordingStore.StashPending(MakePoints(3), "Ship");
+            var rec = RecordingStore.CreateRecordingFromFlightData(MakePoints(3), "Ship");
+            Assert.NotNull(rec);
 
             var node = new ConfigNode("VESSEL");
             node.AddValue("name", "TestVessel");
-            RecordingStore.Pending.VesselSnapshot = node;
+            rec.VesselSnapshot = node;
 
-            Assert.NotNull(RecordingStore.Pending.VesselSnapshot);
-            Assert.Equal("TestVessel", RecordingStore.Pending.VesselSnapshot.GetValue("name"));
+            Assert.NotNull(rec.VesselSnapshot);
+            Assert.Equal("TestVessel", rec.VesselSnapshot.GetValue("name"));
         }
 
         [Fact]
@@ -201,42 +187,42 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void StashPending_SinglePoint_Discards()
+        public void CreateRecordingFromFlightData_SinglePoint_ReturnsNull()
         {
             var points = MakePoints(1);
 
-            RecordingStore.StashPending(points, "TooShort");
+            var rec = RecordingStore.CreateRecordingFromFlightData(points, "TooShort");
 
-            Assert.False(RecordingStore.HasPending);
+            Assert.Null(rec);
         }
 
         [Fact]
-        public void StashPending_ExactlyTwoPoints_Succeeds()
+        public void CreateRecordingFromFlightData_ExactlyTwoPoints_Succeeds()
         {
             var points = MakePoints(2);
 
-            RecordingStore.StashPending(points, "MinValid");
+            var rec = RecordingStore.CreateRecordingFromFlightData(points, "MinValid");
 
-            Assert.True(RecordingStore.HasPending);
-            Assert.Equal(2, RecordingStore.Pending.Points.Count);
-            Assert.False(string.IsNullOrEmpty(RecordingStore.Pending.RecordingId));
+            Assert.NotNull(rec);
+            Assert.Equal(2, rec.Points.Count);
+            Assert.False(string.IsNullOrEmpty(rec.RecordingId));
             Assert.Equal(RecordingStore.CurrentRecordingFormatVersion,
-                RecordingStore.Pending.RecordingFormatVersion);
+                rec.RecordingFormatVersion);
         }
 
         [Fact]
-        public void StashPending_UsesProvidedRecordingMetadata()
+        public void CreateRecordingFromFlightData_UsesProvidedRecordingMetadata()
         {
             var points = MakePoints(3);
-            RecordingStore.StashPending(
+            var rec = RecordingStore.CreateRecordingFromFlightData(
                 points,
                 "Ship",
                 recordingId: "fixedid",
                 recordingFormatVersion: 0);
 
-            Assert.True(RecordingStore.HasPending);
-            Assert.Equal("fixedid", RecordingStore.Pending.RecordingId);
-            Assert.Equal(0, RecordingStore.Pending.RecordingFormatVersion);
+            Assert.NotNull(rec);
+            Assert.Equal("fixedid", rec.RecordingId);
+            Assert.Equal(0, rec.RecordingFormatVersion);
         }
 
         [Fact]
@@ -573,21 +559,12 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void GetRecommendedAction_DestroyedWithSnapshot()
-        {
-            // destroyed=true takes priority over hasSnapshot=true
-            var result = RecordingStore.GetRecommendedAction(
-                destroyed: true, hasSnapshot: true);
-
-            Assert.Equal(MergeDefault.GhostOnly, result);
-        }
-
-        [Fact]
-        public void StashPending_SetsPendingStashedThisTransition()
+        public void StashPendingTree_SetsPendingStashedThisTransition_ViaTree()
         {
             Assert.False(RecordingStore.PendingStashedThisTransition);
 
-            RecordingStore.StashPending(MakePoints(3), "Ship");
+            var tree = new RecordingTree { TreeName = "TestTree" };
+            RecordingStore.StashPendingTree(tree);
 
             Assert.True(RecordingStore.PendingStashedThisTransition);
         }
@@ -614,7 +591,8 @@ namespace Parsek.Tests
         [Fact]
         public void ResetForTesting_ClearsPendingStashedFlag()
         {
-            RecordingStore.StashPending(MakePoints(3), "Ship");
+            var tree = new RecordingTree { TreeName = "Ship" };
+            RecordingStore.StashPendingTree(tree);
             Assert.True(RecordingStore.PendingStashedThisTransition);
 
             RecordingStore.ResetForTesting();
@@ -1047,43 +1025,8 @@ namespace Parsek.Tests
             return points;
         }
 
-        [Fact]
-        public void BuildMergeMessage_IncludesVesselName()
-        {
-            var rec = new Recording { VesselName = "Boom" };
-            rec.Points.AddRange(MakePoints(5));
-
-            string msg = MergeDialog.BuildMergeMessage(rec, 60,
-                MergeDefault.GhostOnly);
-
-            Assert.Contains("Boom", msg);
-        }
-
-        [Fact]
-        public void BuildMergeMessage_IncludesDuration()
-        {
-            var rec = new Recording { VesselName = "Ship" };
-            rec.Points.AddRange(MakePoints(3));
-
-            string msg = MergeDialog.BuildMergeMessage(rec, 45.3,
-                MergeDefault.GhostOnly);
-
-            Assert.Contains("45", msg);
-        }
-
-        [Fact]
-        public void BuildMergeMessage_SimpleFormat()
-        {
-            var rec = new Recording { VesselName = "Explorer" };
-            rec.Points.AddRange(MakePoints(10));
-
-            string msg = MergeDialog.BuildMergeMessage(rec, 300,
-                MergeDefault.Persist);
-
-            // Simple format: "VesselName - duration"
-            Assert.Contains("Explorer", msg);
-            Assert.Contains("5m", msg);
-        }
+        // BuildMergeMessage and MergeDefault tests removed — those APIs were
+        // deleted as part of standalone pending infrastructure removal.
 
         // --- Stationary point trimming tests ---
 
@@ -1105,19 +1048,19 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void StashPending_TrimsLeadingStationaryPoints()
+        public void CreateRecordingFromFlightData_TrimsLeadingStationaryPoints()
         {
             var points = MakePadLaunchPoints();
-            RecordingStore.StashPending(points, "TrimTest");
+            var rec = RecordingStore.CreateRecordingFromFlightData(points, "TrimTest");
 
-            Assert.True(RecordingStore.HasPending);
+            Assert.NotNull(rec);
             // First 5 stationary points should be trimmed
-            Assert.Equal(5, RecordingStore.Pending.Points.Count);
-            Assert.Equal(105.0, RecordingStore.Pending.StartUT);
+            Assert.Equal(5, rec.Points.Count);
+            Assert.Equal(105.0, rec.StartUT);
         }
 
         [Fact]
-        public void StashPending_RetimesPartEventsFromTrimmedWindow()
+        public void CreateRecordingFromFlightData_RetimesPartEventsFromTrimmedWindow()
         {
             var points = MakePadLaunchPoints();
             var partEvents = new List<PartEvent>
@@ -1127,10 +1070,10 @@ namespace Parsek.Tests
                 new PartEvent { ut = 107, eventType = PartEventType.Decoupled, partPersistentId = 3 }
             };
 
-            RecordingStore.StashPending(points, "RetimeTest", partEvents: partEvents);
+            var rec = RecordingStore.CreateRecordingFromFlightData(points, "RetimeTest", partEvents: partEvents);
 
-            Assert.True(RecordingStore.HasPending);
-            var events = RecordingStore.Pending.PartEvents;
+            Assert.NotNull(rec);
+            var events = rec.PartEvents;
             Assert.Equal(3, events.Count);
             // First two events should be retimed to the new start (105)
             Assert.Equal(105.0, events[0].ut);
@@ -1140,7 +1083,7 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void StashPending_RemovesOrbitSegmentsBeforeTrim()
+        public void CreateRecordingFromFlightData_RemovesOrbitSegmentsBeforeTrim()
         {
             var points = MakePadLaunchPoints();
             var orbitSegments = new List<OrbitSegment>
@@ -1149,16 +1092,16 @@ namespace Parsek.Tests
                 new OrbitSegment { startUT = 106, endUT = 108, bodyName = "Kerbin" }
             };
 
-            RecordingStore.StashPending(points, "OrbitTrimTest", orbitSegments: orbitSegments);
+            var rec = RecordingStore.CreateRecordingFromFlightData(points, "OrbitTrimTest", orbitSegments: orbitSegments);
 
-            Assert.True(RecordingStore.HasPending);
+            Assert.NotNull(rec);
             // First segment ends at 103 < trimUT 105, should be removed
-            Assert.Single(RecordingStore.Pending.OrbitSegments);
-            Assert.Equal(106.0, RecordingStore.Pending.OrbitSegments[0].startUT);
+            Assert.Single(rec.OrbitSegments);
+            Assert.Equal(106.0, rec.OrbitSegments[0].startUT);
         }
 
         [Fact]
-        public void StashPending_NoTrimWhenAlreadyMoving()
+        public void CreateRecordingFromFlightData_NoTrimWhenAlreadyMoving()
         {
             // All points are moving from the start
             var points = new List<TrajectoryPoint>();
@@ -1168,61 +1111,41 @@ namespace Parsek.Tests
                     ut = 100 + i, altitude = 80 + i * 10, velocity = new Vector3(20, 0, 0), bodyName = "Kerbin"
                 });
 
-            RecordingStore.StashPending(points, "NoTrimTest");
+            var rec = RecordingStore.CreateRecordingFromFlightData(points, "NoTrimTest");
 
-            Assert.True(RecordingStore.HasPending);
-            Assert.Equal(5, RecordingStore.Pending.Points.Count);
-            Assert.Equal(100.0, RecordingStore.Pending.StartUT);
+            Assert.NotNull(rec);
+            Assert.Equal(5, rec.Points.Count);
+            Assert.Equal(100.0, rec.StartUT);
         }
 
         [Fact]
-        public void StashPending_OverwritesExistingPending_DiscardsOld()
+        public void CreateRecordingFromFlightData_MultipleCallsReturnIndependentRecordings()
         {
-            RecordingStore.StashPending(MakePoints(3, 100), "RocketA");
-            Assert.True(RecordingStore.HasPending);
-            Assert.Equal("RocketA", RecordingStore.Pending.VesselName);
+            var recA = RecordingStore.CreateRecordingFromFlightData(MakePoints(3, 100), "RocketA");
+            Assert.NotNull(recA);
+            Assert.Equal("RocketA", recA.VesselName);
 
-            RecordingStore.StashPending(MakePoints(4, 200), "RocketB");
-            Assert.True(RecordingStore.HasPending);
-            Assert.Equal("RocketB", RecordingStore.Pending.VesselName);
-            Assert.Equal(4, RecordingStore.Pending.Points.Count);
-        }
+            var recB = RecordingStore.CreateRecordingFromFlightData(MakePoints(4, 200), "RocketB");
+            Assert.NotNull(recB);
+            Assert.Equal("RocketB", recB.VesselName);
+            Assert.Equal(4, recB.Points.Count);
 
-        [Fact]
-        public void StashPending_OverwriteLogsWarning()
-        {
-            var logLines = new List<string>();
-            ParsekLog.SuppressLogging = false;
-            ParsekLog.TestSinkForTesting = line => logLines.Add(line);
-            try
-            {
-                RecordingStore.StashPending(MakePoints(3, 100), "RocketA");
-                RecordingStore.StashPending(MakePoints(3, 200), "RocketB");
-
-                Assert.Contains(logLines, l =>
-                    l.Contains("overwriting unresolved pending") &&
-                    l.Contains("RocketA") &&
-                    l.Contains("RocketB"));
-            }
-            finally
-            {
-                ParsekLog.SuppressLogging = true;
-                ParsekLog.ResetTestOverrides();
-            }
+            // Both recordings exist independently
+            Assert.Equal("RocketA", recA.VesselName);
         }
 
         #region FlushDirtyFiles (T15 crash window)
 
         [Fact]
-        public void CommitPending_LogsFlushDirtyFiles()
+        public void CommitRecordingDirect_LogsFlushDirtyFiles()
         {
             var logLines = new List<string>();
             ParsekLog.SuppressLogging = false;
             ParsekLog.TestSinkForTesting = line => logLines.Add(line);
             try
             {
-                RecordingStore.StashPending(MakePoints(3), "FlushTest");
-                RecordingStore.CommitPending();
+                var rec = RecordingStore.CreateRecordingFromFlightData(MakePoints(3), "FlushTest");
+                RecordingStore.CommitRecordingDirect(rec);
 
                 // FlushDirtyFiles fires and logs (SaveRecordingFiles returns false
                 // in test env — no KSP paths — so "failed 1" is expected)
@@ -1455,8 +1378,8 @@ namespace Parsek.Tests
             ParsekLog.TestSinkForTesting = line => logLines.Add(line);
             try
             {
-                RecordingStore.StashPending(MakePoints(3), "OptFlush");
-                RecordingStore.CommitPending();
+                var rec = RecordingStore.CreateRecordingFromFlightData(MakePoints(3), "OptFlush");
+                RecordingStore.CommitRecordingDirect(rec);
                 logLines.Clear();
 
                 // Force-dirty to simulate optimizer touching the recording
@@ -1500,8 +1423,8 @@ namespace Parsek.Tests
             ParsekLog.TestSinkForTesting = line => logLines.Add(line);
             try
             {
-                RecordingStore.StashPending(MakePoints(3), "Clean");
-                RecordingStore.CommitPending();
+                var rec = RecordingStore.CreateRecordingFromFlightData(MakePoints(3), "Clean");
+                RecordingStore.AddCommittedForTesting(rec);
                 // Pretend save succeeded
                 RecordingStore.CommittedRecordings[0].FilesDirty = false;
                 logLines.Clear();

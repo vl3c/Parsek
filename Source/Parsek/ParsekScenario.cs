@@ -141,7 +141,7 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Discards any pending standalone / pending tree that was stashed
+        /// Discards any pending tree that was stashed
         /// during the current scene transition, on a detected quickload
         /// (UT regressed between OnSceneChangeRequested and OnLoad). Clears
         /// <see cref="RecordingStore.PendingStashedThisTransition"/> and also
@@ -163,18 +163,7 @@ namespace Parsek
                 currentUT.ToString("F2", CultureInfo.InvariantCulture) +
                 " — discarding recordings stashed this transition");
 
-            int discardedSa = 0;
             int discardedTree = 0;
-
-            if (RecordingStore.HasPending && RecordingStore.PendingStashedThisTransition)
-            {
-                string id = RecordingStore.Pending?.RecordingId;
-                string name = RecordingStore.Pending?.VesselName;
-                RecordingStore.DiscardPending();
-                discardedSa = 1;
-                ParsekLog.Info("Scenario",
-                    $"Quickload: discarded pending standalone '{name}' (id={id})");
-            }
 
             if (RecordingStore.HasPendingTree
                 && RecordingStore.PendingStashedThisTransition
@@ -209,7 +198,7 @@ namespace Parsek
             }
 
             ParsekLog.Info("Scenario",
-                $"Quickload discard complete: sa={discardedSa} tree={discardedTree} " +
+                $"Quickload discard complete: tree={discardedTree} " +
                 $"science={staleScience}");
         }
 
@@ -231,7 +220,7 @@ namespace Parsek
                 recorder: null,
                 pendingTree: RecordingStore.PendingTree,
                 pendingTreeState: RecordingStore.PendingTreeStateValue,
-                pendingStandalone: RecordingStore.Pending,
+                pendingStandalone: null,
                 pendingSplitRecorder: null,
                 pendingSplitInProgress: false,
                 chain: null,
@@ -284,7 +273,6 @@ namespace Parsek
                     }
                 }
 
-                SaveStandaloneRecordings(node, recordings);
                 SaveTreeRecordings(node);
                 PersistGameStateAndMilestones(node);
 
@@ -308,7 +296,7 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Safety net (defense-in-depth): if a pending recording still exists outside Flight
+        /// Safety net (defense-in-depth): if a pending tree still exists outside Flight
         /// and the dialog is not actively pending, auto-commit ghost-only before serialization.
         /// Under normal operation this is unreachable — Sites A/B handle all paths.
         /// </summary>
@@ -316,17 +304,6 @@ namespace Parsek
         {
             if (HighLogic.LoadedScene != GameScenes.FLIGHT && !mergeDialogPending)
             {
-                if (RecordingStore.HasPending)
-                {
-                    AutoCommitGhostOnly(RecordingStore.Pending);
-                    string recId = RecordingStore.Pending.RecordingId;
-                    double startUT = RecordingStore.Pending.StartUT;
-                    double endUT = RecordingStore.Pending.EndUT;
-                    RecordingStore.CommitPending();
-                    LedgerOrchestrator.OnRecordingCommitted(recId, startUT, endUT);
-                    ParsekLog.Warn("Scenario",
-                        "Safety net: committed pending recording on save outside Flight");
-                }
                 if (RecordingStore.HasPendingTree)
                 {
                     AutoCommitTreeGhostOnly(RecordingStore.PendingTree);
@@ -641,9 +618,6 @@ namespace Parsek
                     // affect the rest of OnLoad, but BEFORE revert detection so the
                     // pending slot is populated when it runs.
                     bool activeTreeRestoredFromSave = TryRestoreActiveTreeNode(node);
-                    // Migration: check for legacy PARSEK_ACTIVE_STANDALONE from old saves.
-                    // Converts to a single-node RecordingTree and routes through tree restore.
-                    TryRestoreActiveStandaloneNode(node);
                     ParsekLog.RecState("OnLoad:active-tree-restored", CaptureScenarioRecorderState());
 
                     // Detect revert vs scene change. On a revert, the quicksave is older:
@@ -826,7 +800,7 @@ namespace Parsek
                         {
                             ParsekLog.Info("Scenario",
                                 "Revert: keeping freshly-stashed pending (stashed this transition) — " +
-                                $"tree={RecordingStore.HasPendingTree}, standalone={RecordingStore.HasPending}");
+                                $"tree={RecordingStore.HasPendingTree}");
                             RecordingStore.PendingStashedThisTransition = false;
                         }
                         else
@@ -855,24 +829,8 @@ namespace Parsek
                                     RecordingStore.DiscardPendingTree();
                                 }
                             }
-                            if (RecordingStore.HasPending)
-                            {
-                                ParsekLog.Info("Scenario", "Clearing orphaned pending recording on revert (stale from previous flight)");
-                                RecordingStore.DiscardPending();
-                            }
                         }
                     }
-
-                    // Restore mutable state from save. On revert the launch quicksave has
-                    // no spawnedPid / lastResIdx, so they naturally reset.
-                    // On non-revert scene changes (e.g. tracking station → flight) the
-                    // save preserves these, preventing duplicate spawns and ghost replays.
-                    // NOTE: This loop only covers standalone recordings (not tree recordings).
-                    // Tree recordings get their mutable state from RECORDING_TREE nodes below.
-                    // Match by recordingId (not positional index) — the saved RECORDING nodes
-                    // may be from a stale quicksave with a different number/order of recordings
-                    // than the current in-memory list (e.g. after clear-all + re-record).
-                    RestoreStandaloneMutableState(recordings, savedRecNodes);
 
                     // Restore tree recording mutable state from RECORDING_TREE nodes.
                     // First, reset ALL tree recordings to defaults. On revert, the launch
@@ -1075,9 +1033,7 @@ namespace Parsek
                             // landed/splashed vessel going to KSC or Tracking Station
                             var destScene = RecordingStore.PendingDestinationScene;
                             TerminalState? termState = null;
-                            if (RecordingStore.HasPending)
-                                termState = RecordingStore.Pending.TerminalStateValue;
-                            else if (RecordingStore.HasPendingTree)
+                            if (RecordingStore.HasPendingTree)
                             {
                                 // Find root recording's terminal state from tree
                                 Recording rootRec;
@@ -1090,20 +1046,13 @@ namespace Parsek
                             RecordingStore.PendingDestinationScene = null;
 
                             // Auto-discard idle-on-pad before commit approval or auto-commit
-                            if (RecordingStore.HasPending && ParsekFlight.IsIdleOnPad(RecordingStore.Pending.MaxDistanceFromLaunch))
-                            {
-                                ParsekLog.Info("Scenario", string.Format(CultureInfo.InvariantCulture,
-                                    "Idle on pad at scene exit — auto-discarding (maxDist={0:F1}m)",
-                                    RecordingStore.Pending.MaxDistanceFromLaunch));
-                                RecordingStore.DiscardPending();
-                            }
                             if (RecordingStore.HasPendingTree && ParsekFlight.IsTreeIdleOnPad(RecordingStore.PendingTree))
                             {
                                 ParsekLog.Info("Scenario", "Idle on pad at scene exit — auto-discarding tree");
                                 RecordingStore.DiscardPendingTree();
                             }
 
-                            bool anythingLeft = RecordingStore.HasPending || RecordingStore.HasPendingTree;
+                            bool anythingLeft = RecordingStore.HasPendingTree;
                             if (anythingLeft && showApproval && !mergeDialogPending)
                             {
                                 // Defer to approval dialog instead of auto-committing
@@ -1115,16 +1064,6 @@ namespace Parsek
                             else
                             {
                                 // autoMerge ON: auto-commit ghost-only (existing behavior)
-                                if (RecordingStore.HasPending)
-                                {
-                                    AutoCommitGhostOnly(RecordingStore.Pending);
-                                    string recId = RecordingStore.Pending.RecordingId;
-                                    double startUT = RecordingStore.Pending.StartUT;
-                                    double endUT = RecordingStore.Pending.EndUT;
-                                    RecordingStore.CommitPending();
-                                    LedgerOrchestrator.OnRecordingCommitted(recId, startUT, endUT);
-                                    ScreenMessages.PostScreenMessage("[Parsek] Recording committed to timeline", 5f);
-                                }
                                 if (RecordingStore.HasPendingTree)
                                 {
                                     AutoCommitTreeGhostOnly(RecordingStore.PendingTree);
@@ -1136,7 +1075,7 @@ namespace Parsek
                                 RecordingStore.RunOptimizationPass();
                             }
                         }
-                        else if ((RecordingStore.HasPending || RecordingStore.HasPendingTree) && !mergeDialogPending)
+                        else if (RecordingStore.HasPendingTree && !mergeDialogPending)
                         {
                             // autoMerge OFF: defer to merge dialog in the new scene
                             mergeDialogPending = true;
@@ -1156,11 +1095,6 @@ namespace Parsek
                 DiscardStalePendingState();
 
                 recordings.Clear();
-
-                ConfigNode[] recNodes = node.GetNodes("RECORDING");
-                ScenarioLog($"[Parsek Scenario] Loading {recNodes.Length} committed recordings");
-
-                LoadStandaloneRecordingsFromNodes(recNodes, recordings);
 
                 // Validate chain integrity before any playback
                 RecordingStore.ValidateChains();
@@ -1272,17 +1206,10 @@ namespace Parsek
                 // Handle pending recordings outside Flight (Esc > Abort Mission → Space Center path).
                 // Always auto-commit on main menu (game is being unloaded).
                 if (HighLogic.LoadedScene != GameScenes.FLIGHT &&
-                    (RecordingStore.HasPending || RecordingStore.HasPendingTree))
+                    RecordingStore.HasPendingTree)
                 {
                     // Auto-discard idle-on-pad recordings before auto-committing
-                    if (RecordingStore.HasPending && ParsekFlight.IsIdleOnPad(RecordingStore.Pending.MaxDistanceFromLaunch))
-                    {
-                        ScenarioLog(string.Format(CultureInfo.InvariantCulture,
-                            "[Parsek Scenario] Idle on pad — auto-discarding pending (maxDist={0:F1}m)",
-                            RecordingStore.Pending.MaxDistanceFromLaunch));
-                        RecordingStore.DiscardPending();
-                    }
-                    if (RecordingStore.HasPendingTree && ParsekFlight.IsTreeIdleOnPad(RecordingStore.PendingTree))
+                    if (ParsekFlight.IsTreeIdleOnPad(RecordingStore.PendingTree))
                     {
                         ScenarioLog("[Parsek Scenario] Idle on pad — auto-discarding pending tree");
                         RecordingStore.DiscardPendingTree();
@@ -1291,20 +1218,6 @@ namespace Parsek
                     if (IsAutoMerge || HighLogic.LoadedScene == GameScenes.MAINMENU)
                     {
                         // autoMerge ON: auto-commit ghost-only
-                        if (RecordingStore.HasPending)
-                        {
-                            var pending = RecordingStore.Pending;
-                            if (pending.VesselSnapshot != null)
-                                CrewReservationManager.UnreserveCrewInSnapshot(pending.VesselSnapshot);
-                            pending.VesselSnapshot = null;
-                            string recId = pending.RecordingId;
-                            double startUT = pending.StartUT;
-                            double endUT = pending.EndUT;
-                            RecordingStore.CommitPending();
-                            LedgerOrchestrator.OnRecordingCommitted(recId, startUT, endUT);
-                            ScenarioLog($"[Parsek Scenario] Auto-committed pending recording outside Flight " +
-                                $"(scene: {HighLogic.LoadedScene})");
-                        }
                         if (RecordingStore.HasPendingTree)
                         {
                             var pt = RecordingStore.PendingTree;
@@ -1654,19 +1567,12 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Clears pending recordings, pending trees, and stale rewind flags that may have
-        /// leaked from a previous save. Static fields survive scene changes, so without this
-        /// cleanup, pending state from save A would be auto-committed into save B's timeline.
+        /// Clears pending trees and stale rewind flags that may have leaked from a
+        /// previous save. Static fields survive scene changes, so without this cleanup,
+        /// pending state from save A would be auto-committed into save B's timeline.
         /// </summary>
         private void DiscardStalePendingState()
         {
-            if (RecordingStore.HasPending)
-            {
-                ParsekLog.Warn("Scenario",
-                    $"OnLoad initial: discarding pending recording " +
-                    $"'{RecordingStore.Pending.VesselName}' from previous save");
-                RecordingStore.DiscardPending();
-            }
             if (RecordingStore.HasPendingTree)
             {
                 ParsekLog.Warn("Scenario",
@@ -1910,77 +1816,6 @@ namespace Parsek
         internal static ActiveTreeRestoreMode ScheduleActiveTreeRestoreOnFlightReady;
 
         /// <summary>
-        /// Migration shim: converts a legacy PARSEK_ACTIVE_STANDALONE node from old saves
-        /// into a single-node RecordingTree and routes through the tree restore path.
-        /// New saves never write PARSEK_ACTIVE_STANDALONE (always-tree mode uses
-        /// PARSEK_ACTIVE_TREE exclusively).
-        /// </summary>
-        internal static void TryRestoreActiveStandaloneNode(ConfigNode node)
-        {
-            ConfigNode saNode = node.GetNode("PARSEK_ACTIVE_STANDALONE");
-            if (saNode == null) return;
-
-            // If a tree restore is already scheduled, the tree wins.
-            if (ScheduleActiveTreeRestoreOnFlightReady != ActiveTreeRestoreMode.None)
-            {
-                ParsekLog.Warn("Scenario",
-                    "TryRestoreActiveStandaloneNode: PARSEK_ACTIVE_STANDALONE found alongside " +
-                    "scheduled tree restore — tree takes precedence, ignoring standalone node");
-                return;
-            }
-
-            var ic = CultureInfo.InvariantCulture;
-            var rec = new Recording();
-            RecordingStore.DeserializeTrajectoryFrom(saNode, rec);
-
-            // Restore start location metadata
-            rec.StartBodyName = saNode.GetValue("startBodyName");
-            rec.StartBiome = saNode.GetValue("startBiome");
-            rec.StartSituation = saNode.GetValue("startSituation");
-            rec.LaunchSiteName = saNode.GetValue("launchSiteName");
-
-            string vesselName = saNode.GetValue("vesselName") ?? "";
-            uint vesselPid = 0;
-            uint.TryParse(saNode.GetValue("vesselPid"), NumberStyles.Integer, ic, out vesselPid);
-
-            // Wrap the standalone data into a single-node RecordingTree
-            string treeId = Guid.NewGuid().ToString("N");
-            string rootRecId = Guid.NewGuid().ToString("N");
-
-            rec.RecordingId = rootRecId;
-            rec.TreeId = treeId;
-            rec.VesselPersistentId = vesselPid;
-            rec.VesselName = vesselName;
-            rec.RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion;
-            if (rec.Points.Count > 0)
-                rec.ExplicitStartUT = rec.Points[0].ut;
-
-            var tree = new RecordingTree
-            {
-                Id = treeId,
-                TreeName = vesselName,
-                RootRecordingId = rootRecId,
-                ActiveRecordingId = rootRecId,
-            };
-            tree.Recordings[rootRecId] = rec;
-
-            // Pop any existing pending tree, then stash the migrated tree
-            RecordingStore.PopPendingTree();
-            RecordingStore.StashPendingTree(tree, PendingTreeState.Limbo);
-
-            // Set resume hints
-            pendingActiveTreeResumeRewindSave = saNode.GetValue("rewindSave");
-
-            // Route through tree restore path
-            ScheduleActiveTreeRestoreOnFlightReady = ActiveTreeRestoreMode.Quickload;
-
-            ParsekLog.Info("Scenario",
-                $"TryRestoreActiveStandaloneNode: migrated legacy standalone to tree " +
-                $"(vessel='{vesselName}', pid={vesselPid}, tree={treeId}, " +
-                $"{rec.Points.Count} points, {rec.PartEvents.Count} events)");
-        }
-
-        /// <summary>
         /// Finalizes a Limbo tree on the revert path (and on the safety-net
         /// vessel-switch path where the stash missed pre-transitioning to
         /// LimboVesselSwitch). Routes each recording through
@@ -2071,54 +1906,15 @@ namespace Parsek
                 yield return null;
 
             // Guard: pending may have been consumed during the wait
-            if (!RecordingStore.HasPending && !RecordingStore.HasPendingTree)
+            if (!RecordingStore.HasPendingTree)
             {
                 mergeDialogPending = false;
                 ParsekLog.Verbose("Scenario", "Deferred merge dialog: pending consumed during wait — aborting");
                 yield break;
             }
 
-            // EVA child recordings with a matching parent: auto-commit silently
-            // (matches ParsekFlight.OnFlightReady behavior)
-            if (RecordingStore.HasPending && !string.IsNullOrEmpty(RecordingStore.Pending.ParentRecordingId))
-            {
-                bool parentFound = false;
-                foreach (var rec in RecordingStore.CommittedRecordings)
-                {
-                    if (rec.RecordingId == RecordingStore.Pending.ParentRecordingId)
-                    {
-                        parentFound = true;
-                        break;
-                    }
-                }
-                if (parentFound)
-                {
-                    ParsekLog.Info("Scenario",
-                        $"Deferred merge: auto-committing EVA child recording (parent={RecordingStore.Pending.ParentRecordingId})");
-                    string recId = RecordingStore.Pending.RecordingId;
-                    double startUT = RecordingStore.Pending.StartUT;
-                    double endUT = RecordingStore.Pending.EndUT;
-                    RecordingStore.CommitPending();
-                    LedgerOrchestrator.OnRecordingCommitted(recId, startUT, endUT);
-                    mergeDialogPending = false;
-                    yield break;
-                }
-            }
-
             // Auto-discard idle-on-pad recordings before showing the dialog
-            if (RecordingStore.HasPending && ParsekFlight.IsIdleOnPad(RecordingStore.Pending.MaxDistanceFromLaunch))
-            {
-                ParsekLog.Info("Scenario",
-                    string.Format(CultureInfo.InvariantCulture,
-                        "Idle on pad detected — auto-discarding recording (maxDist={0:F1}m)",
-                        RecordingStore.Pending.MaxDistanceFromLaunch));
-                RecordingStore.DiscardPending();
-                ScreenMessages.PostScreenMessage("Recording discarded — vessel idle on pad", 4f);
-                mergeDialogPending = false;
-                yield break;
-            }
-
-            if (RecordingStore.HasPendingTree && ParsekFlight.IsTreeIdleOnPad(RecordingStore.PendingTree))
+            if (ParsekFlight.IsTreeIdleOnPad(RecordingStore.PendingTree))
             {
                 ParsekLog.Info("Scenario", "Idle on pad detected — auto-discarding tree recording");
                 RecordingStore.DiscardPendingTree();
@@ -2127,19 +1923,10 @@ namespace Parsek
                 yield break;
             }
 
-            // Show the appropriate dialog
-            if (RecordingStore.HasPendingTree)
-            {
-                ParsekLog.Info("Scenario",
-                    $"Showing deferred tree merge dialog in {HighLogic.LoadedScene}");
-                MergeDialog.ShowTreeDialog(RecordingStore.PendingTree);
-            }
-            else if (RecordingStore.HasPending)
-            {
-                ParsekLog.Info("Scenario",
-                    $"Showing deferred merge dialog in {HighLogic.LoadedScene}");
-                MergeDialog.Show(RecordingStore.Pending);
-            }
+            // Show the tree merge dialog
+            ParsekLog.Info("Scenario",
+                $"Showing deferred tree merge dialog in {HighLogic.LoadedScene}");
+            MergeDialog.ShowTreeDialog(RecordingStore.PendingTree);
             // mergeDialogPending stays true until the user clicks a button
             // (ClearPendingFlag is called from the button callbacks)
         }
@@ -2291,215 +2078,6 @@ namespace Parsek
         #region Recording Serialization
 
         /// <summary>
-        /// Saves standalone (non-tree) recordings to the given ConfigNode.
-        /// Writes bulk data to external files, then persists metadata and mutable state
-        /// (EVA linkage, chain linkage, terminal state, resource index) into RECORDING nodes.
-        /// </summary>
-        /// <summary>
-        /// Restores mutable playback state (spawnedPid, lastResIdx, playbackEnabled) for
-        /// standalone recordings from saved RECORDING ConfigNodes. Matches by recordingId.
-        /// Tree recordings are skipped (restored from RECORDING_TREE nodes separately).
-        /// </summary>
-        /// <summary>
-        /// Deserializes standalone RECORDING nodes and adds the resulting recordings to the list.
-        /// Loads metadata, external files (trajectory/snapshots), EVA/chain linkage, terminal state,
-        /// and resource application index for each recording.
-        /// </summary>
-        private static void LoadStandaloneRecordingsFromNodes(
-            ConfigNode[] recNodes, List<Recording> recordings)
-        {
-            int totalPoints = 0;
-            int totalOrbitSegments = 0;
-            int totalPartEvents = 0;
-            int withTrackSections = 0;
-            int withSnapshots = 0;
-            for (int r = 0; r < recNodes.Length; r++)
-            {
-                var recNode = recNodes[r];
-                var rec = new Recording
-                {
-                    VesselName = Recording.ResolveLocalizedName(recNode.GetValue("vesselName") ?? "Unknown")
-                };
-                LoadRecordingMetadata(recNode, rec);
-
-                // Load bulk data from external files
-                RecordingStore.LoadRecordingFiles(rec);
-
-                // Restore EVA child recording linkage
-                rec.ParentRecordingId = recNode.GetValue("parentRecordingId");
-                rec.EvaCrewName = recNode.GetValue("evaCrewName");
-
-                // Restore chain linkage
-                rec.ChainId = recNode.GetValue("chainId");
-                string chainIdxStr = recNode.GetValue("chainIndex");
-                if (chainIdxStr != null)
-                {
-                    int ci;
-                    if (int.TryParse(chainIdxStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out ci))
-                        rec.ChainIndex = ci;
-                }
-                string chainBranchStr = recNode.GetValue("chainBranch");
-                if (chainBranchStr != null)
-                {
-                    int cb;
-                    if (int.TryParse(chainBranchStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out cb))
-                        rec.ChainBranch = cb;
-                }
-
-                // Restore spawned vessel pid for duplicate spawn detection
-                string pidStr = recNode.GetValue("spawnedPid");
-                if (pidStr != null)
-                {
-                    uint pid;
-                    if (uint.TryParse(pidStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out pid))
-                        rec.SpawnedVesselPersistentId = pid;
-                }
-
-                // Restore vessel destroyed flag
-                string destroyedStr = recNode.GetValue("vesselDestroyed");
-                if (destroyedStr != null)
-                {
-                    bool destroyed;
-                    if (bool.TryParse(destroyedStr, out destroyed))
-                        rec.VesselDestroyed = destroyed;
-                }
-
-                // Restore terminal state + vessel PID for standalone recordings
-                string terminalStateStr = recNode.GetValue("terminalState");
-                if (terminalStateStr != null)
-                {
-                    int ts;
-                    if (int.TryParse(terminalStateStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out ts)
-                        && Enum.IsDefined(typeof(TerminalState), ts))
-                        rec.TerminalStateValue = (TerminalState)ts;
-                }
-                string vpidStr = recNode.GetValue("vesselPersistentId");
-                if (vpidStr != null)
-                {
-                    uint vpid;
-                    if (uint.TryParse(vpidStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out vpid))
-                        rec.VesselPersistentId = vpid;
-                }
-
-                // Restore terrain height at recording end
-                string thtStr = recNode.GetValue("terrainHeightAtEnd");
-                if (thtStr != null)
-                {
-                    double tht;
-                    if (double.TryParse(thtStr, NumberStyles.Float, CultureInfo.InvariantCulture, out tht))
-                        rec.TerrainHeightAtEnd = tht;
-                }
-
-                // Restore antenna specs for CommNet ghost relay (Phase 6f)
-                ConfigNode[] antennaNodes = recNode.GetNodes("ANTENNA_SPEC");
-                if (antennaNodes != null && antennaNodes.Length > 0)
-                {
-                    rec.AntennaSpecs = new List<AntennaSpec>();
-                    for (int a = 0; a < antennaNodes.Length; a++)
-                    {
-                        var spec = new AntennaSpec();
-                        spec.partName = antennaNodes[a].GetValue("part") ?? "";
-
-                        string powerStr = antennaNodes[a].GetValue("power");
-                        if (powerStr != null)
-                        {
-                            double power;
-                            if (double.TryParse(powerStr, NumberStyles.Float, CultureInfo.InvariantCulture, out power))
-                                spec.antennaPower = power;
-                        }
-
-                        string combinableStr = antennaNodes[a].GetValue("combinable");
-                        if (combinableStr != null)
-                        {
-                            bool combinable;
-                            if (bool.TryParse(combinableStr, out combinable))
-                                spec.antennaCombinable = combinable;
-                        }
-
-                        string exponentStr = antennaNodes[a].GetValue("exponent");
-                        if (exponentStr != null)
-                        {
-                            double exponent;
-                            if (double.TryParse(exponentStr, NumberStyles.Float, CultureInfo.InvariantCulture, out exponent))
-                                spec.antennaCombinableExponent = exponent;
-                        }
-
-                        spec.antennaType = antennaNodes[a].GetValue("type") ?? "";
-
-                        rec.AntennaSpecs.Add(spec);
-                    }
-                    ScenarioLog($"[Parsek Scenario] Loaded {rec.AntennaSpecs.Count} antenna spec(s) for '{rec.VesselName}'");
-                }
-
-                // Restore crew end states (kerbals module)
-                RecordingStore.DeserializeCrewEndStates(recNode, rec);
-
-                // Restore resource application index
-                string resIdxStr = recNode.GetValue("lastResIdx");
-                if (resIdxStr != null)
-                {
-                    int resIdx;
-                    if (int.TryParse(resIdxStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out resIdx))
-                        rec.LastAppliedResourceIndex = resIdx;
-                }
-
-                // Restore IsDebris flag
-                string isDebrisStr = recNode.GetValue("isDebris");
-                if (isDebrisStr != null)
-                {
-                    bool isDebris;
-                    if (bool.TryParse(isDebrisStr, out isDebris))
-                        rec.IsDebris = isDebris;
-                }
-
-                // Restore controller info
-                ConfigNode[] ctrlNodes = recNode.GetNodes("CONTROLLER");
-                if (ctrlNodes.Length > 0)
-                {
-                    rec.Controllers = new List<ControllerInfo>(ctrlNodes.Length);
-                    for (int i = 0; i < ctrlNodes.Length; i++)
-                    {
-                        var ctrl = new ControllerInfo();
-                        ctrl.type = ctrlNodes[i].GetValue("type") ?? "";
-                        ctrl.partName = ctrlNodes[i].GetValue("part") ?? "";
-                        uint ctrlPid;
-                        if (uint.TryParse(ctrlNodes[i].GetValue("pid"), NumberStyles.Integer, CultureInfo.InvariantCulture, out ctrlPid))
-                            ctrl.partPersistentId = ctrlPid;
-                        rec.Controllers.Add(ctrl);
-                    }
-                }
-
-                // Restore background surface position
-                ConfigNode spNode = recNode.GetNode("SURFACE_POSITION");
-                if (spNode != null)
-                    rec.SurfacePos = SurfacePosition.LoadFrom(spNode);
-
-                // Always add — even degraded recordings (missing .prec → 0 points)
-                // must occupy their slot to preserve index-based revert mapping.
-                recordings.Add(rec);
-                totalPoints += rec.Points.Count;
-                totalOrbitSegments += rec.OrbitSegments.Count;
-                totalPartEvents += rec.PartEvents.Count;
-                if (rec.TrackSections != null && rec.TrackSections.Count > 0) withTrackSections++;
-                if (rec.VesselSnapshot != null) withSnapshots++;
-                string phaseInfo = !string.IsNullOrEmpty(rec.SegmentPhase)
-                    ? $", phase={rec.SegmentBodyName} {rec.SegmentPhase}" : "";
-                string chainInfo = !string.IsNullOrEmpty(rec.ChainId)
-                    ? $", chain={rec.ChainId.Substring(0, System.Math.Min(8, rec.ChainId.Length))}../{rec.ChainIndex}" : "";
-                string enabledInfo = !rec.PlaybackEnabled ? ", DISABLED" : "";
-                ParsekLog.Verbose("Scenario", $"Loaded recording: {rec.VesselName}, " +
-                    $"{rec.Points.Count} points, {rec.OrbitSegments.Count} orbit segments" +
-                    (rec.Points.Count > 0 ? $", UT {rec.StartUT:F0}-{rec.EndUT:F0}" : ", degraded (0 points)") +
-                    (rec.VesselSnapshot != null ? " (vessel spawn)" :
-                     rec.GhostVisualSnapshot != null ? " (ghost-only)" : "") +
-                    phaseInfo + chainInfo + enabledInfo);
-            }
-            ParsekLog.Verbose("Scenario",
-                $"Loaded {recNodes.Length} standalone recordings: {totalPoints} points, {totalOrbitSegments} orbit segments, " +
-                $"{totalPartEvents} part events, {withTrackSections} with track sections, {withSnapshots} with snapshots");
-        }
-
-        /// <summary>
         /// Clears terminal state (Recovered/Destroyed) that was set after a vessel was spawned.
         /// On revert, the spawn is undone so the terminal state from the previous flight is stale.
         /// </summary>
@@ -2514,62 +2092,6 @@ namespace Parsek
                         $"Clearing post-spawn terminal state {ts} for {context} '{rec.VesselName}'");
                     rec.TerminalStateValue = null;
                 }
-            }
-        }
-
-        private static void RestoreStandaloneMutableState(
-            List<Recording> recordings, ConfigNode[] savedRecNodes)
-        {
-            var savedRecById = new Dictionary<string, ConfigNode>(savedRecNodes.Length);
-            for (int s = 0; s < savedRecNodes.Length; s++)
-            {
-                string sid = savedRecNodes[s].GetValue("recordingId");
-                if (!string.IsNullOrEmpty(sid))
-                    savedRecById[sid] = savedRecNodes[s];
-            }
-            for (int i = 0; i < recordings.Count; i++)
-            {
-                // Skip tree recordings — their mutable state is restored from tree nodes
-                if (recordings[i].IsTreeRecording) continue;
-
-                RecordingStore.RollbackContinuationData(recordings[i]);
-                ClearPostSpawnTerminalState(recordings[i]);
-
-                recordings[i].VesselSpawned = false;
-                recordings[i].SpawnAttempts = 0;
-                recordings[i].SpawnDeathCount = 0;
-
-                uint savedPid = 0;
-                int resIdx = -1;
-                ConfigNode savedNode;
-                if (recordings[i].RecordingId != null && savedRecById.TryGetValue(recordings[i].RecordingId, out savedNode))
-                {
-                    string pidStr = savedNode.GetValue("spawnedPid");
-                    if (pidStr != null && !uint.TryParse(pidStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out savedPid))
-                        ParsekLog.Warn("Scenario", $"Failed to parse spawnedPid '{pidStr}' for recording #{i}");
-
-                    string resIdxStr = savedNode.GetValue("lastResIdx");
-                    if (resIdxStr != null && !int.TryParse(resIdxStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out resIdx))
-                        ParsekLog.Warn("Scenario", $"Failed to parse lastResIdx '{resIdxStr}' for recording #{i}");
-
-                    string playbackEnabledStr = savedNode.GetValue("playbackEnabled");
-                    if (playbackEnabledStr != null)
-                    {
-                        bool savedPlaybackEnabled;
-                        if (bool.TryParse(playbackEnabledStr, out savedPlaybackEnabled))
-                            recordings[i].PlaybackEnabled = savedPlaybackEnabled;
-                        else
-                            ParsekLog.Warn("Scenario", $"Failed to parse playbackEnabled '{playbackEnabledStr}' for recording #{i}");
-                    }
-                }
-                else
-                {
-                    ParsekLog.Verbose("Scenario",
-                        $"No saved mutable state for recording #{i} \"{recordings[i].VesselName}\" " +
-                        $"(id={recordings[i].RecordingId ?? "null"}) — using defaults");
-                }
-                recordings[i].SpawnedVesselPersistentId = savedPid;
-                recordings[i].LastAppliedResourceIndex = resIdx;
             }
         }
 
@@ -2736,119 +2258,6 @@ namespace Parsek
             for (int i = 0; i < protoVessels.Count; i++)
                 pids.Add(protoVessels[i].persistentId);
             return pids;
-        }
-
-        private static void SaveStandaloneRecordings(ConfigNode node, List<Recording> recordings)
-        {
-            int count = 0;
-            int totalPoints = 0;
-            int totalOrbitSegments = 0;
-            int totalPartEvents = 0;
-            int withTrackSections = 0;
-            int withSnapshots = 0;
-            for (int r = 0; r < recordings.Count; r++)
-            {
-                var rec = recordings[r];
-
-                // Skip tree recordings — they are saved under RECORDING_TREE nodes below
-                if (rec.IsTreeRecording)
-                    continue;
-                count++;
-                totalPoints += rec.Points.Count;
-                totalOrbitSegments += rec.OrbitSegments.Count;
-                totalPartEvents += rec.PartEvents.Count;
-                if (rec.TrackSections != null && rec.TrackSections.Count > 0) withTrackSections++;
-                if (rec.VesselSnapshot != null) withSnapshots++;
-
-                ConfigNode recNode = node.AddNode("RECORDING");
-
-                // Write bulk data to external files (only if data changed)
-                if (rec.FilesDirty && !RecordingStore.SaveRecordingFiles(rec))
-                    ScenarioLog($"[Parsek Scenario] WARNING: File write failed for '{rec.VesselName}'");
-
-                SaveRecordingMetadata(recNode, rec);
-                recNode.AddValue("vesselName", rec.VesselName);
-                recNode.AddValue("pointCount", rec.Points.Count);
-
-                // Persist EVA child recording linkage
-                if (!string.IsNullOrEmpty(rec.ParentRecordingId))
-                    recNode.AddValue("parentRecordingId", rec.ParentRecordingId);
-                if (!string.IsNullOrEmpty(rec.EvaCrewName))
-                    recNode.AddValue("evaCrewName", rec.EvaCrewName);
-
-                // Persist chain linkage
-                if (!string.IsNullOrEmpty(rec.ChainId))
-                    recNode.AddValue("chainId", rec.ChainId);
-                if (rec.ChainIndex >= 0)
-                    recNode.AddValue("chainIndex", rec.ChainIndex);
-                if (rec.ChainBranch > 0)
-                    recNode.AddValue("chainBranch", rec.ChainBranch);
-
-                // Persist spawned vessel pid so we can detect duplicates after scene changes
-                if (rec.SpawnedVesselPersistentId != 0)
-                    recNode.AddValue("spawnedPid", rec.SpawnedVesselPersistentId);
-
-                if (rec.VesselDestroyed)
-                    recNode.AddValue("vesselDestroyed", rec.VesselDestroyed.ToString());
-
-                // Persist terminal state + vessel PID for standalone recordings
-                if (rec.TerminalStateValue.HasValue)
-                    recNode.AddValue("terminalState", ((int)rec.TerminalStateValue.Value).ToString(CultureInfo.InvariantCulture));
-                if (rec.VesselPersistentId != 0)
-                    recNode.AddValue("vesselPersistentId", rec.VesselPersistentId.ToString(CultureInfo.InvariantCulture));
-
-                // Persist terrain height at recording end
-                if (!double.IsNaN(rec.TerrainHeightAtEnd))
-                    recNode.AddValue("terrainHeightAtEnd", rec.TerrainHeightAtEnd.ToString("R", CultureInfo.InvariantCulture));
-
-                // Persist antenna specs for CommNet ghost relay (Phase 6f)
-                if (rec.AntennaSpecs != null)
-                {
-                    for (int a = 0; a < rec.AntennaSpecs.Count; a++)
-                    {
-                        var spec = rec.AntennaSpecs[a];
-                        var specNode = recNode.AddNode("ANTENNA_SPEC");
-                        specNode.AddValue("part", spec.partName ?? "");
-                        specNode.AddValue("power", spec.antennaPower.ToString("R", CultureInfo.InvariantCulture));
-                        specNode.AddValue("combinable", spec.antennaCombinable.ToString());
-                        specNode.AddValue("exponent", spec.antennaCombinableExponent.ToString("R", CultureInfo.InvariantCulture));
-                        if (!string.IsNullOrEmpty(spec.antennaType))
-                            specNode.AddValue("type", spec.antennaType);
-                    }
-                }
-
-                // Persist crew end states (kerbals module)
-                RecordingStore.SerializeCrewEndStates(recNode, rec);
-
-                // Persist resource index so quickload doesn't re-apply deltas
-                recNode.AddValue("lastResIdx", rec.LastAppliedResourceIndex);
-
-                // Persist IsDebris flag
-                if (rec.IsDebris)
-                    recNode.AddValue("isDebris", rec.IsDebris.ToString());
-
-                // Persist controller info
-                if (rec.Controllers != null)
-                {
-                    for (int i = 0; i < rec.Controllers.Count; i++)
-                    {
-                        var ctrlNode = recNode.AddNode("CONTROLLER");
-                        ctrlNode.AddValue("type", rec.Controllers[i].type ?? "");
-                        ctrlNode.AddValue("part", rec.Controllers[i].partName ?? "");
-                        ctrlNode.AddValue("pid", rec.Controllers[i].partPersistentId.ToString(CultureInfo.InvariantCulture));
-                    }
-                }
-
-                // Persist background surface position
-                if (rec.SurfacePos.HasValue)
-                {
-                    var spNode = recNode.AddNode("SURFACE_POSITION");
-                    SurfacePosition.SaveInto(spNode, rec.SurfacePos.Value);
-                }
-            }
-            ParsekLog.Verbose("Scenario",
-                $"Saved {count} standalone recordings: {totalPoints} points, {totalOrbitSegments} orbit segments, " +
-                $"{totalPartEvents} part events, {withTrackSections} with track sections, {withSnapshots} with snapshots");
         }
 
         /// <summary>
@@ -3159,25 +2568,6 @@ namespace Parsek
         #region Vessel Lifecycle Events
 
         /// <summary>
-        /// Prepares a standalone pending recording for ghost-only commit (no vessel spawn).
-        /// Nulls vessel snapshot and unreserves crew. Call RecordingStore.CommitPending() after this.
-        /// </summary>
-        internal static void AutoCommitGhostOnly(Recording pending)
-        {
-            // Preserve snapshot for recordings that landed/splashed — they should be
-            // eligible for vessel spawning even when committed outside Flight (#EVA-spawn).
-            bool preserveForSpawn = pending.TerminalStateValue == TerminalState.Landed ||
-                pending.TerminalStateValue == TerminalState.Splashed;
-            if (!preserveForSpawn)
-            {
-                CrewReservationManager.UnreserveCrewInSnapshot(pending.VesselSnapshot);
-                pending.VesselSnapshot = null;
-            }
-            ParsekLog.Info("Scenario", $"Auto-commit{(preserveForSpawn ? "" : " ghost-only")}: '{pending.VesselName}'" +
-                (pending.TerminalStateValue.HasValue ? $" (terminal={pending.TerminalStateValue.Value})" : ""));
-        }
-
-        /// <summary>
         /// Prepares all recordings in a pending tree for ghost-only commit (no vessel spawn).
         /// Nulls vessel snapshot and unreserves crew. Call RecordingStore.CommitPendingTree() after this.
         /// </summary>
@@ -3233,7 +2623,7 @@ namespace Parsek
 
         /// <summary>
         /// Finds recordings matching the given vessel name and updates their terminal state.
-        /// Checks pending recording, pending tree recordings, and committed recordings.
+        /// Checks pending tree recordings.
         /// Recovered/Destroyed can overwrite situation-based terminal states (Orbiting, Landed, etc.)
         /// that were set by OnSceneChangeRequested. Only prevents Destroyed from overwriting Recovered
         /// (onVesselTerminated fires after onVesselRecovered for the same vessel).
@@ -3241,21 +2631,6 @@ namespace Parsek
         internal static bool UpdateRecordingsForTerminalEvent(string vesselName, TerminalState state, double ut)
         {
             bool anyUpdated = false;
-
-            // Check pending standalone recording
-            if (RecordingStore.HasPending)
-            {
-                var pending = RecordingStore.Pending;
-                if (MatchesVessel(pending, vesselName) && CanOverwriteTerminalState(pending.TerminalStateValue, state))
-                {
-                    pending.TerminalStateValue = state;
-                    pending.ExplicitEndUT = ut;
-                    CrewReservationManager.UnreserveCrewInSnapshot(pending.VesselSnapshot);
-                    pending.VesselSnapshot = null;
-                    anyUpdated = true;
-                    ParsekLog.Verbose("Scenario", $"Updated pending recording '{pending.VesselName}' with {state}");
-                }
-            }
 
             // Check pending tree recordings
             if (RecordingStore.HasPendingTree)

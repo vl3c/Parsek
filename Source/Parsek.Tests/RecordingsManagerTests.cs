@@ -444,14 +444,14 @@ namespace Parsek.Tests
 
         private void CommitRecording(string name, double startUT = 100, string chainId = null, int chainIndex = -1, int chainBranch = 0)
         {
-            RecordingStore.StashPending(MakePoints(3, startUT), name);
+            var rec = RecordingStore.CreateRecordingFromFlightData(MakePoints(3, startUT), name);
             if (chainId != null)
             {
-                RecordingStore.Pending.ChainId = chainId;
-                RecordingStore.Pending.ChainIndex = chainIndex;
-                RecordingStore.Pending.ChainBranch = chainBranch;
+                rec.ChainId = chainId;
+                rec.ChainIndex = chainIndex;
+                rec.ChainBranch = chainBranch;
             }
-            RecordingStore.CommitPending();
+            RecordingStore.CommitRecordingDirect(rec);
         }
 
         [Fact]

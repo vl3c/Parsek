@@ -113,19 +113,19 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void DiscardPending_ClearsStalePendingRecording()
+        public void CreateRecordingFromFlightData_DoesNotStorePending()
         {
+            // Standalone pending no longer exists. CreateRecordingFromFlightData
+            // returns a recording without storing it in any pending slot.
             var points = new List<TrajectoryPoint>
             {
                 new TrajectoryPoint { ut = 100 },
                 new TrajectoryPoint { ut = 200 }
             };
-            RecordingStore.StashPending(points, "StalePending");
-            Assert.True(RecordingStore.HasPending);
+            var rec = RecordingStore.CreateRecordingFromFlightData(points, "TestRec");
 
-            RecordingStore.DiscardPending();
-
-            Assert.False(RecordingStore.HasPending);
+            Assert.NotNull(rec);
+            Assert.Equal("TestRec", rec.VesselName);
         }
 
         // --- Helpers ---

@@ -244,42 +244,15 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void UpdateRecordingsForTerminalEvent_StillUpdatesPendingRecordings()
+        public void UpdateRecordingsForTerminalEvent_DoesNotAffectNonCommittedRecordings()
         {
-            // Verify the fix doesn't break legitimate pending recording updates.
-            // StashPending requires >= 2 points with distinct position/velocity.
-            var points = new List<TrajectoryPoint>
-            {
-                new TrajectoryPoint
-                {
-                    ut = 17000,
-                    latitude = 0, longitude = 0, altitude = 70,
-                    bodyName = "Kerbin",
-                    rotation = Quaternion.identity,
-                    velocity = Vector3.up * 50
-                },
-                new TrajectoryPoint
-                {
-                    ut = 17010,
-                    latitude = 0, longitude = 0, altitude = 500,
-                    bodyName = "Kerbin",
-                    rotation = Quaternion.identity,
-                    velocity = Vector3.up * 100
-                }
-            };
-
-            RecordingStore.StashPending(points, "MyRocket");
-            Assert.True(RecordingStore.HasPending, "StashPending should have created a pending recording");
-
-            var pending = RecordingStore.Pending;
-            pending.VesselSnapshot = MakeSnapshot("MyRocket");
-
+            // With standalone pending removed, UpdateRecordingsForTerminalEvent
+            // only operates on committed recordings. Verify it does not crash
+            // when no matching committed recording exists.
             bool updated = ParsekScenario.UpdateRecordingsForTerminalEvent(
                 "MyRocket", TerminalState.Recovered, 18000.0);
 
-            Assert.True(updated);
-            Assert.Null(pending.VesselSnapshot); // pending snapshot IS nulled (correct)
-            Assert.Equal(TerminalState.Recovered, pending.TerminalStateValue);
+            Assert.False(updated);
         }
 
         // ────────────────────────────────────────────────────────────
@@ -343,41 +316,14 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void UpdateTerminalEvent_PendingUpdated_LogsCorrectly()
+        public void UpdateTerminalEvent_NoMatchingCommitted_LogsSkip()
         {
-            var points = new List<TrajectoryPoint>
-            {
-                new TrajectoryPoint
-                {
-                    ut = 17000,
-                    latitude = 0, longitude = 0, altitude = 70,
-                    bodyName = "Kerbin",
-                    rotation = Quaternion.identity,
-                    velocity = Vector3.up * 50
-                },
-                new TrajectoryPoint
-                {
-                    ut = 17010,
-                    latitude = 0, longitude = 0, altitude = 500,
-                    bodyName = "Kerbin",
-                    rotation = Quaternion.identity,
-                    velocity = Vector3.up * 100
-                }
-            };
-
-            RecordingStore.StashPending(points, "RecoverMe");
-            Assert.True(RecordingStore.HasPending, "StashPending should have created a pending recording");
-
-            RecordingStore.Pending.VesselSnapshot = MakeSnapshot("RecoverMe");
-
-            ParsekScenario.UpdateRecordingsForTerminalEvent(
+            // With standalone pending removed, terminal event updates only target
+            // committed recordings. When none match, the method returns false.
+            bool updated = ParsekScenario.UpdateRecordingsForTerminalEvent(
                 "RecoverMe", TerminalState.Recovered, 18000.0);
 
-            Assert.Contains(logLines, l =>
-                l.Contains("[Scenario]") &&
-                l.Contains("Updated pending recording") &&
-                l.Contains("RecoverMe") &&
-                l.Contains("Recovered"));
+            Assert.False(updated);
         }
     }
 }

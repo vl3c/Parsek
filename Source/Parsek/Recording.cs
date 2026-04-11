@@ -3,15 +3,6 @@ using System.Collections.Generic;
 
 namespace Parsek
 {
-    /// <summary>
-    /// Recommended merge action based on vessel state after recording.
-    /// </summary>
-    public enum MergeDefault
-    {
-        GhostOnly,  // Vessel destroyed or snapshot missing — merge recording only
-        Persist      // Vessel intact with snapshot — respawn where it ended up
-    }
-
     public enum LoopTimeUnit { Sec, Min, Hour, Auto }
 
     public class Recording : IPlaybackTrajectory
@@ -253,6 +244,7 @@ namespace Parsek
         }
 
         /// <summary>True if this recording belongs to a RecordingTree.</summary>
+        // In always-tree mode (post-T56), this is expected to be true for all committed recordings.
         internal bool IsTreeRecording => TreeId != null;
 
         /// <summary>True if this recording belongs to a chain (has ChainId and valid ChainIndex).</summary>

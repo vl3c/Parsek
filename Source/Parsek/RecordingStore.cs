@@ -103,24 +103,11 @@ namespace Parsek
             ParsekLog.Info("RecordingStore", clean);
         }
 
-        /// <summary>
-        /// Determines the recommended merge action based on vessel state.
-        /// </summary>
-        public static MergeDefault GetRecommendedAction(bool destroyed, bool hasSnapshot)
-        {
-            if (destroyed || !hasSnapshot)
-                return MergeDefault.GhostOnly;
-            return MergeDefault.Persist;
-        }
-
-        // Set true by StashPending / StashPendingTree during OnSceneChangeRequested.
+        // Set true by StashPendingTree during OnSceneChangeRequested.
         // Checked by ParsekScenario.OnLoad to distinguish a freshly-stashed pending
         // (from the current revert — should show dialog) from a stale pending left
         // over from a previous flight (should be discarded per #64).
         internal static bool PendingStashedThisTransition;
-
-        // Just-finished recording awaiting user decision (merge or discard)
-        private static Recording pendingRecording;
 
         // Merged to timeline — these auto-playback during flight.
         //
@@ -143,15 +130,20 @@ namespace Parsek
         // See docs/dev/plans/quickload-resume-recording.md.
         private static PendingTreeState pendingTreeState = PendingTreeState.Finalized;
 
-        public static bool HasPending => pendingRecording != null;
-        public static Recording Pending => pendingRecording;
         public static List<Recording> CommittedRecordings => committedRecordings;
         public static List<RecordingTree> CommittedTrees => committedTrees;
         public static bool HasPendingTree => pendingTree != null;
         public static RecordingTree PendingTree => pendingTree;
         public static PendingTreeState PendingTreeStateValue => pendingTreeState;
 
-        public static void StashPending(List<TrajectoryPoint> points, string vesselName,
+        /// <summary>
+        /// Creates a Recording from raw flight data, trimming leading stationary points
+        /// and retiming events. Returns null if too short (fewer than 2 points after trim).
+        /// This is the factory replacement for StashPending — it builds the Recording
+        /// without storing it in any pending slot.
+        /// </summary>
+        public static Recording CreateRecordingFromFlightData(
+            List<TrajectoryPoint> points, string vesselName,
             List<OrbitSegment> orbitSegments = null,
             string recordingId = null,
             int? recordingFormatVersion = null,
@@ -163,7 +155,7 @@ namespace Parsek
             if (points == null || points.Count < 2)
             {
                 Log($"[Parsek] Recording too short for '{vesselName}' ({points?.Count ?? 0} points, need >= 2) — discarded");
-                return;
+                return null;
             }
 
             // Trim leading stationary points (vessel sitting on pad/runway before launch).
@@ -179,14 +171,12 @@ namespace Parsek
                 if (points.Count < 2)
                 {
                     Log($"[Parsek] Recording too short after trimming for '{vesselName}' ({points.Count} points) — discarded");
-                    return;
+                    return null;
                 }
                 // Remove orbit segments that end before the new start
                 if (orbitSegments != null)
                     orbitSegments.RemoveAll(s => s.endUT <= trimUT);
-                // Retime part events from the trimmed window to the new start so their
-                // visual effects (shroud jettison, engine ignition, etc.) are applied
-                // at the beginning of playback rather than being lost.
+                // Retime part events from the trimmed window to the new start
                 if (partEvents != null)
                 {
                     for (int i = 0; i < partEvents.Count; i++)
@@ -214,16 +204,7 @@ namespace Parsek
                 }
             }
 
-            if (pendingRecording != null)
-            {
-                ParsekLog.Warn("RecordingStore",
-                    $"StashPending: overwriting unresolved pending from '{pendingRecording.VesselName}' " +
-                    $"with new pending from '{vesselName}' — discarding old pending");
-                CrewReservationManager.UnreserveCrewInSnapshot(pendingRecording.VesselSnapshot);
-                DiscardPending();
-            }
-
-            pendingRecording = new Recording
+            var rec = new Recording
             {
                 RecordingId = string.IsNullOrEmpty(recordingId) ? Guid.NewGuid().ToString("N") : recordingId,
                 RecordingFormatVersion = recordingFormatVersion ?? CurrentRecordingFormatVersion,
@@ -245,60 +226,45 @@ namespace Parsek
                     : new List<TrackSection>(),
                 VesselName = vesselName
             };
-            PendingStashedThisTransition = true;
 
-            Log($"[Parsek] Stashed pending recording: {points.Count} points, " +
-                $"{pendingRecording.OrbitSegments.Count} orbit segments from {vesselName}");
-            ParsekLog.Verbose("RecordingStore", $"StashPending: {pendingRecording.DebugName}");
+            Log($"[Parsek] Created recording: {points.Count} points, " +
+                $"{rec.OrbitSegments.Count} orbit segments from {vesselName}");
+            ParsekLog.Verbose("RecordingStore", $"CreateRecordingFromFlightData: {rec.DebugName}");
+            return rec;
         }
 
-        public static void CommitPending()
+        /// <summary>
+        /// Commits an already-built Recording to the flat committed list.
+        /// Replaces the StashPending/CommitPending two-step — no pending slot involved.
+        /// Sets FilesDirty, adds to committedRecordings, flushes to disk, commits science,
+        /// captures baseline, and creates a milestone.
+        /// </summary>
+        public static void CommitRecordingDirect(Recording rec)
         {
-            if (pendingRecording == null)
+            if (rec == null)
             {
-                ParsekLog.Verbose("RecordingStore", "CommitPending called with no pending recording");
+                ParsekLog.Warn("RecordingStore", "CommitRecordingDirect called with null recording");
                 return;
             }
 
-            pendingRecording.FilesDirty = true;
-            committedRecordings.Add(pendingRecording);
-            Log($"[Parsek] Committed recording from {pendingRecording.VesselName} " +
-                $"({pendingRecording.Points.Count} points). Total committed: {committedRecordings.Count}");
-            ParsekLog.Verbose("RecordingStore", $"CommitPending: {pendingRecording.DebugName}");
+            rec.FilesDirty = true;
+            committedRecordings.Add(rec);
+            Log($"[Parsek] Committed recording from {rec.VesselName} " +
+                $"({rec.Points.Count} points). Total committed: {committedRecordings.Count}");
+            ParsekLog.Verbose("RecordingStore", $"CommitRecordingDirect: {rec.DebugName}");
 
             // Flush to disk immediately to close the crash window.
-            // If RunOptimizationPass runs after this, it will re-dirty modified
-            // recordings and flush again with the final optimized state.
             FlushDirtyFiles(committedRecordings);
 
             // Commit pending science subjects before clearing
             GameStateStore.CommitScienceSubjects(GameStateRecorder.PendingScienceSubjects);
             GameStateRecorder.PendingScienceSubjects.Clear();
 
-            string recordingId = pendingRecording.RecordingId;
-            double endUT = pendingRecording.EndUT;
-            pendingRecording = null;
-
             // Capture a game state baseline at each commit (single funnel point)
             GameStateStore.CaptureBaselineIfNeeded();
 
             // Create a milestone bundling game state events since the previous milestone
-            MilestoneStore.CreateMilestone(recordingId, endUT);
-        }
-
-        public static void DiscardPending()
-        {
-            if (pendingRecording == null)
-            {
-                ParsekLog.Verbose("RecordingStore", "DiscardPending called with no pending recording");
-                return;
-            }
-
-            DeleteRecordingFiles(pendingRecording);
-            GameStateRecorder.PendingScienceSubjects.Clear();
-
-            Log($"[Parsek] Discarded pending recording from {pendingRecording.VesselName}");
-            pendingRecording = null;
+            MilestoneStore.CreateMilestone(rec.RecordingId, rec.EndUT);
         }
 
         public static void ClearCommitted()
@@ -314,9 +280,6 @@ namespace Parsek
 
         public static void Clear()
         {
-            if (pendingRecording != null)
-                DeleteRecordingFiles(pendingRecording);
-            pendingRecording = null;
             pendingTree = null;
             pendingTreeState = PendingTreeState.Finalized;
             ClearCommitted();
@@ -1548,7 +1511,6 @@ namespace Parsek
         /// </summary>
         internal static void ResetForTesting()
         {
-            pendingRecording = null;
             committedRecordings.Clear();
             committedTrees.Clear();
             pendingTree = null;
@@ -1560,15 +1522,6 @@ namespace Parsek
             PendingCleanupPids = null;
             PendingCleanupNames = null;
             PendingStashedThisTransition = false;
-        }
-
-        /// <summary>
-        /// Directly adds a recording to the committed list. For unit tests only —
-        /// bypasses StashPending/CommitPending flow to set up pre-existing state.
-        /// </summary>
-        internal static void CommitPendingForTesting(Recording rec)
-        {
-            committedRecordings.Add(rec);
         }
 
         /// <summary>
@@ -2123,13 +2076,6 @@ namespace Parsek
                 return false;
             }
 
-            if (HasPending)
-            {
-                reason = "Merge or discard pending recording first";
-                // Per-frame logging removed (was 3.7% of all log output); reason returned to caller
-                return false;
-            }
-
             if (HasPendingTree)
             {
                 reason = "Merge or discard pending tree first";
@@ -2175,13 +2121,6 @@ namespace Parsek
             if (isRecording)
             {
                 reason = "Stop recording before fast-forwarding";
-                // Per-frame logging removed (was 20% of all log output); reason returned to caller
-                return false;
-            }
-
-            if (HasPending)
-            {
-                reason = "Merge or discard pending recording first";
                 // Per-frame logging removed (was 20% of all log output); reason returned to caller
                 return false;
             }

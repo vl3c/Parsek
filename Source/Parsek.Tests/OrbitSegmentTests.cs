@@ -264,7 +264,7 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void StashPending_WithOrbitSegments_CopiesSegments()
+        public void CreateRecordingFromFlightData_WithOrbitSegments_CopiesSegments()
         {
             var points = MakePoints(5);
             var segments = new List<OrbitSegment>
@@ -273,40 +273,40 @@ namespace Parsek.Tests
                 MakeSegment(130, 140)
             };
 
-            RecordingStore.StashPending(points, "TestVessel", segments);
+            var rec = RecordingStore.CreateRecordingFromFlightData(points, "TestVessel", segments);
 
-            Assert.True(RecordingStore.HasPending);
-            Assert.Equal(2, RecordingStore.Pending.OrbitSegments.Count);
-            Assert.Equal(110, RecordingStore.Pending.OrbitSegments[0].startUT);
-            Assert.Equal(130, RecordingStore.Pending.OrbitSegments[1].startUT);
+            Assert.NotNull(rec);
+            Assert.Equal(2, rec.OrbitSegments.Count);
+            Assert.Equal(110, rec.OrbitSegments[0].startUT);
+            Assert.Equal(130, rec.OrbitSegments[1].startUT);
         }
 
         [Fact]
-        public void StashPending_WithNullSegments_InitializesEmptyList()
+        public void CreateRecordingFromFlightData_WithNullSegments_InitializesEmptyList()
         {
             var points = MakePoints(5);
 
-            RecordingStore.StashPending(points, "TestVessel", null);
+            var rec = RecordingStore.CreateRecordingFromFlightData(points, "TestVessel", null);
 
-            Assert.True(RecordingStore.HasPending);
-            Assert.NotNull(RecordingStore.Pending.OrbitSegments);
-            Assert.Empty(RecordingStore.Pending.OrbitSegments);
+            Assert.NotNull(rec);
+            Assert.NotNull(rec.OrbitSegments);
+            Assert.Empty(rec.OrbitSegments);
         }
 
         [Fact]
-        public void StashPending_WithoutSegmentsParam_InitializesEmptyList()
+        public void CreateRecordingFromFlightData_WithoutSegmentsParam_InitializesEmptyList()
         {
             var points = MakePoints(5);
 
-            RecordingStore.StashPending(points, "TestVessel");
+            var rec = RecordingStore.CreateRecordingFromFlightData(points, "TestVessel");
 
-            Assert.True(RecordingStore.HasPending);
-            Assert.NotNull(RecordingStore.Pending.OrbitSegments);
-            Assert.Empty(RecordingStore.Pending.OrbitSegments);
+            Assert.NotNull(rec);
+            Assert.NotNull(rec.OrbitSegments);
+            Assert.Empty(rec.OrbitSegments);
         }
 
         [Fact]
-        public void CommitPending_WithOrbitSegments_PreservesSegments()
+        public void CommitRecordingDirect_WithOrbitSegments_PreservesSegments()
         {
             var points = MakePoints(5);
             var segments = new List<OrbitSegment>
@@ -314,8 +314,9 @@ namespace Parsek.Tests
                 MakeSegment(110, 120, "Mun")
             };
 
-            RecordingStore.StashPending(points, "Ship", segments);
-            RecordingStore.CommitPending();
+            var rec = RecordingStore.CreateRecordingFromFlightData(points, "Ship", segments);
+            Assert.NotNull(rec);
+            RecordingStore.CommitRecordingDirect(rec);
 
             Assert.Single(RecordingStore.CommittedRecordings);
             Assert.Single(RecordingStore.CommittedRecordings[0].OrbitSegments);

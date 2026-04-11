@@ -93,18 +93,6 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void CanFastForward_HasPending_ReturnsFalse()
-        {
-            var rec = MakeFutureRecording();
-            RecordingStore.StashPending(MakePoints(3), "PendingVessel");
-            Assert.True(RecordingStore.HasPending);
-
-            string reason;
-            Assert.False(RecordingStore.CanFastForward(rec, out reason, isRecording: false));
-            Assert.Equal("Merge or discard pending recording first", reason);
-        }
-
-        [Fact]
         public void CanFastForward_HasPendingTree_ReturnsFalse()
         {
             var rec = MakeFutureRecording();
@@ -121,12 +109,11 @@ namespace Parsek.Tests
         {
             // Key difference from CanRewind: FF does NOT require a save file.
             // Verify it passes all non-runtime guards (IsRewinding, null, isRecording,
-            // HasPending, HasPendingTree). The Planetarium.GetUniversalTime() timing
+            // HasPendingTree). The Planetarium.GetUniversalTime() timing
             // check requires KSP runtime and can't be tested here.
             var rec = MakeFutureRecording();
             Assert.Null(rec.RewindSaveFileName);
             Assert.False(RewindContext.IsRewinding);
-            Assert.False(RecordingStore.HasPending);
             Assert.False(RecordingStore.HasPendingTree);
             // If we get past all testable guards, the next call would be
             // Planetarium.GetUniversalTime() which throws in unit tests.

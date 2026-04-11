@@ -278,29 +278,15 @@ and `FlushRecorderToTreeRecording`. Two new tests in `AppendCapturedDataTests.cs
 
 ### T56. Remove standalone RECORDING format entirely
 
-Follow-up to bug #271 (always-tree unification). The runtime now always creates tree recordings, and the injector now produces RECORDING_TREE nodes for all synthetic recordings. But the codebase still supports the old standalone RECORDING format:
-
-- `RecordingStore.committedRecordings` list (238 refs across 28 production files, 300 refs across 27 test files)
-- `StashPending`/`CommitPending`/`DiscardPending` methods (used by ChainSegmentManager)
-- `MergeDialog.Show(Recording)` and `ShowStandaloneDialog` (used by chain commit and deferred split dialogs)
-- Standalone RECORDING serialization in `ParsekScenario.OnSave`/`OnLoad`
-- `PARSEK_ACTIVE_STANDALONE` migration shim in `TryRestoreActiveStandaloneNode`
-
-To remove: collapse `committedRecordings` into `committedTrees` (every recording accessed through its parent tree), delete the standalone pending slot, delete standalone merge dialog, delete standalone RECORDING serialization, delete chain segment standalone commit paths (dead code in always-tree mode). This is a ~55-file refactor.
+Follow-up to bug #271 (always-tree unification). The runtime now always creates tree recordings, and the injector now produces RECORDING_TREE nodes for all synthetic recordings.
 
 ~~Critical subtask (done):~~ Removed the temporary `TreeId != null` skip in `CanAutoSplitIgnoringGhostTriggers`. The existing `RunOptimizationPass` code already added split recordings to `tree.Recordings` and updated `BranchPoint.ParentRecordingIds`; the skip was the only thing preventing tree splits. Added `RebuildBackgroundMap()` after optimization passes for tree consistency. Fixed `TraceLineagePids` to follow chain links so root lineage PID collection works after optimizer splits.
 
-Remaining (~55-file refactor, ordered by dependency):
-1. Delete `StashPending`/`CommitPending`/`DiscardPending` and the standalone pending slot (`pendingRecording`). All commit paths now go through `StashPendingTree`/`CommitPendingTree`.
-2. Delete `MergeDialog.Show(Recording)` and `ShowStandaloneDialog` -- only the tree merge dialog (`ShowTreeDialog`) is used.
-3. Delete standalone RECORDING serialization in `ParsekScenario.OnSave`/`OnLoad` (the `PARSEK_ACTIVE_RECORDING` node path, not the `PARSEK_ACTIVE_RECORDING_TREE` path).
-4. Delete `PARSEK_ACTIVE_STANDALONE` migration shim in `TryRestoreActiveStandaloneNode`.
-5. Delete chain segment standalone commit paths in `ChainSegmentManager` (dead code in always-tree mode).
-6. Collapse `committedRecordings` into `committedTrees`: replace all 238 production refs (28 files) and 300 test refs (27 files) with tree-based access (e.g., `committedTrees.SelectMany(t => t.Recordings.Values)`). This is the bulk of the work.
+~~Steps 1-5 (done):~~ Deleted `StashPending`/`CommitPending`/`DiscardPending` and the `pendingRecording` slot. Replaced with `CreateRecordingFromFlightData` (factory) and `CommitRecordingDirect` (commit without pending slot). Deleted `MergeDialog.Show(Recording)`, `ShowStandaloneDialog`, `ShowChainDialog`. Deleted standalone RECORDING serialization (`SaveStandaloneRecordings`/`LoadStandaloneRecordingsFromNodes`). Deleted `PARSEK_ACTIVE_STANDALONE` migration shim. Rewrote `ChainSegmentManager.CommitSegmentCore` to use new API. Cleaned ~27 standalone references from ParsekScenario. Updated `FlightResultsPatch` to use `HasPendingTree`. Deleted `GetRecommendedAction`/`MergeDefault`, `AutoCommitGhostOnly(Recording)`, `RestoreStandaloneMutableState`, `isStandalone` flag.
 
-Prerequisite: delete all old save files (no users yet, clean slate).
+Remaining (step 6): Collapse `committedRecordings` into `committedTrees` -- ensure every recording has a `TreeId`, change `CommittedRecordings` to `IReadOnlyList<Recording>`, migrate ~93 test `Add()` calls to tree-wrapping helper.
 
-**Priority:** Medium -- optimizer adaptation done, standalone format removal is cleanup
+**Priority:** Low -- infrastructure is gone, step 6 is a consistency enforcement pass
 
 ---
 

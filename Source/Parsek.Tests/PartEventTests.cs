@@ -426,10 +426,10 @@ namespace Parsek.Tests
 
         #endregion
 
-        #region StashPending with PartEvents
+        #region CreateRecordingFromFlightData with PartEvents
 
         [Fact]
-        public void StashPending_WithPartEvents_StoresEvents()
+        public void CreateRecordingFromFlightData_WithPartEvents_StoresEvents()
         {
             var points = new List<TrajectoryPoint>
             {
@@ -441,15 +441,15 @@ namespace Parsek.Tests
                 new PartEvent { ut = 105, partPersistentId = 42, eventType = PartEventType.Decoupled, partName = "tank" }
             };
 
-            RecordingStore.StashPending(points, "TestVessel", partEvents: events);
+            var rec = RecordingStore.CreateRecordingFromFlightData(points, "TestVessel", partEvents: events);
 
-            Assert.True(RecordingStore.HasPending);
-            Assert.Single(RecordingStore.Pending.PartEvents);
-            Assert.Equal(PartEventType.Decoupled, RecordingStore.Pending.PartEvents[0].eventType);
+            Assert.NotNull(rec);
+            Assert.Single(rec.PartEvents);
+            Assert.Equal(PartEventType.Decoupled, rec.PartEvents[0].eventType);
         }
 
         [Fact]
-        public void StashPending_WithoutPartEvents_EmptyList()
+        public void CreateRecordingFromFlightData_WithoutPartEvents_EmptyList()
         {
             var points = new List<TrajectoryPoint>
             {
@@ -457,10 +457,10 @@ namespace Parsek.Tests
                 new TrajectoryPoint { ut = 110, bodyName = "Kerbin" }
             };
 
-            RecordingStore.StashPending(points, "TestVessel");
+            var rec = RecordingStore.CreateRecordingFromFlightData(points, "TestVessel");
 
-            Assert.True(RecordingStore.HasPending);
-            Assert.Empty(RecordingStore.Pending.PartEvents);
+            Assert.NotNull(rec);
+            Assert.Empty(rec.PartEvents);
         }
 
         #endregion
