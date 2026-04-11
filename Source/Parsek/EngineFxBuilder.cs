@@ -185,7 +185,8 @@ namespace Parsek
             Part prefab, ModuleEngines engine, EngineGhostInfo info,
             string partName, int moduleIndex,
             Transform modelRoot, Transform ghostModelNode,
-            Dictionary<Transform, Transform> cloneMap)
+            Dictionary<Transform, Transform> cloneMap,
+            Dictionary<string, bool> selectedVariantGameObjects)
         {
             var legacyAnchors = new List<Transform>();
             if (engine != null && engine.thrustTransforms != null)
@@ -208,6 +209,22 @@ namespace Parsek
                         legacyAnchors.Add(anchor);
                 }
             }
+
+            // #242c: filter out thrustTransforms under disabled variant GameObjects.
+            // engine.thrustTransforms is populated by KSP from ALL matching transforms
+            // in the prefab, regardless of which variant is active.
+            if (selectedVariantGameObjects != null && selectedVariantGameObjects.Count > 0)
+            {
+                int preFilter = legacyAnchors.Count;
+                legacyAnchors.RemoveAll(t =>
+                    !GhostVisualBuilder.IsRendererEnabledByVariantRule(
+                        t, modelRoot, selectedVariantGameObjects, out _, out _));
+                if (legacyAnchors.Count < preFilter)
+                    ParsekLog.Verbose("EngineFx", $"'{partName}' midx={moduleIndex}: " +
+                        $"variant filter removed {preFilter - legacyAnchors.Count} of {preFilter} " +
+                        $"legacy thrust anchors");
+            }
+
             Vector3 legacyFxOffset = engine != null ? engine.fxOffset : Vector3.zero;
 
             for (int c = 0; c < prefab.transform.childCount; c++)
@@ -305,13 +322,26 @@ namespace Parsek
             Part prefab, EngineGhostInfo info,
             string partName, int moduleIndex,
             Transform modelRoot, Transform ghostModelNode,
-            Dictionary<Transform, Transform> cloneMap)
+            Dictionary<Transform, Transform> cloneMap,
+            Dictionary<string, bool> selectedVariantGameObjects)
         {
             for (int f = 0; f < modelFxEntries.Count; f++)
             {
                 var (nodeType, transformName, modelName, mmpLocalPos, mmpLocalRot, groupName) = modelFxEntries[f];
 
                 var fxTransforms = GhostVisualBuilder.FindTransformsRecursive(prefab.transform, transformName);
+                // #242c: exclude transforms under disabled variant GameObjects
+                if (selectedVariantGameObjects != null && selectedVariantGameObjects.Count > 0)
+                {
+                    int preFilter = fxTransforms.Count;
+                    fxTransforms.RemoveAll(t =>
+                        !GhostVisualBuilder.IsRendererEnabledByVariantRule(
+                            t, modelRoot, selectedVariantGameObjects, out _, out _));
+                    if (fxTransforms.Count < preFilter)
+                        ParsekLog.Verbose("EngineFx", $"'{partName}' midx={moduleIndex}: " +
+                            $"variant filter removed {preFilter - fxTransforms.Count} of {preFilter} " +
+                            $"'{transformName}' model FX transforms");
+                }
                 for (int t = 0; t < fxTransforms.Count; t++)
                 {
                     Transform srcFxTransform = fxTransforms[t];
@@ -375,7 +405,8 @@ namespace Parsek
             Part prefab, EngineGhostInfo info,
             string partName, int moduleIndex,
             Transform modelRoot, Transform ghostModelNode,
-            Dictionary<Transform, Transform> cloneMap)
+            Dictionary<Transform, Transform> cloneMap,
+            Dictionary<string, bool> selectedVariantGameObjects)
         {
             for (int f = 0; f < prefabFxEntries.Count; f++)
             {
@@ -393,6 +424,18 @@ namespace Parsek
                 }
 
                 var fxTransforms = GhostVisualBuilder.FindTransformsRecursive(prefab.transform, transformName);
+                // #242c: exclude transforms under disabled variant GameObjects
+                if (selectedVariantGameObjects != null && selectedVariantGameObjects.Count > 0)
+                {
+                    int preFilter = fxTransforms.Count;
+                    fxTransforms.RemoveAll(t =>
+                        !GhostVisualBuilder.IsRendererEnabledByVariantRule(
+                            t, modelRoot, selectedVariantGameObjects, out _, out _));
+                    if (fxTransforms.Count < preFilter)
+                        ParsekLog.Verbose("EngineFx", $"'{partName}' midx={moduleIndex}: " +
+                            $"variant filter removed {preFilter - fxTransforms.Count} of {preFilter} " +
+                            $"'{transformName}' prefab FX transforms");
+                }
                 if (fxTransforms.Count == 0)
                 {
                     ParsekLog.Verbose("EngineFx", $"'{partName}' midx={moduleIndex} " +
@@ -475,7 +518,8 @@ namespace Parsek
         internal static List<EngineGhostInfo> TryBuildEngineFX(
             Part prefab, uint persistentId, string partName,
             Transform modelRoot, Transform ghostModelNode,
-            Dictionary<Transform, Transform> cloneMap)
+            Dictionary<Transform, Transform> cloneMap,
+            Dictionary<string, bool> selectedVariantGameObjects)
         {
             // Find all ModuleEngines on the part
             int midx = 0;
@@ -579,6 +623,15 @@ namespace Parsek
 
                 var namedTransformCache = new Dictionary<string, List<Transform>>(System.StringComparer.OrdinalIgnoreCase);
 
+                // #242c: Filter out transforms under disabled variant GameObjects.
+                bool IsTransformEnabledByVariant(Transform t)
+                {
+                    if (selectedVariantGameObjects == null || selectedVariantGameObjects.Count == 0)
+                        return true;
+                    return GhostVisualBuilder.IsRendererEnabledByVariantRule(
+                        t, modelRoot, selectedVariantGameObjects, out _, out _);
+                }
+
                 List<Transform> FindNamedTransformsCached(string transformName)
                 {
                     if (string.IsNullOrEmpty(transformName))
@@ -588,6 +641,16 @@ namespace Parsek
                         return cached;
 
                     List<Transform> found = GhostVisualBuilder.FindTransformsRecursive(prefab.transform, transformName);
+                    // #242c: exclude transforms under disabled variant GameObjects
+                    if (selectedVariantGameObjects != null && selectedVariantGameObjects.Count > 0)
+                    {
+                        int preFilter = found.Count;
+                        found.RemoveAll(t => !IsTransformEnabledByVariant(t));
+                        if (found.Count < preFilter)
+                            ParsekLog.Verbose("EngineFx", $"'{partName}' midx={moduleIndex}: " +
+                                $"variant filter removed {preFilter - found.Count} of {preFilter} " +
+                                $"'{transformName}' transforms in FindNamedTransformsCached");
+                    }
                     namedTransformCache[transformName] = found;
                     return found;
                 }
@@ -1041,7 +1104,7 @@ namespace Parsek
 
                     bool legacyAdded = ProcessEngineLegacyFx(
                         prefab, engine, info, partName, moduleIndex,
-                        modelRoot, ghostModelNode, cloneMap);
+                        modelRoot, ghostModelNode, cloneMap, selectedVariantGameObjects);
                     if (legacyAdded)
                         result.Add(info);
                     else
@@ -1054,11 +1117,11 @@ namespace Parsek
 
                 // Process model FX entries (MODEL_MULTI_PARTICLE/MODEL_PARTICLE variants).
                 ProcessEngineModelFxEntries(modelFxEntries, prefab, info, partName, moduleIndex,
-                    modelRoot, ghostModelNode, cloneMap);
+                    modelRoot, ghostModelNode, cloneMap, selectedVariantGameObjects);
 
                 // Process PREFAB_PARTICLE entries (Spark, Twitch, Pug, Juno, Wheesley, Goliath)
                 ProcessEnginePrefabFxEntries(prefabFxEntries, prefab, info, partName, moduleIndex,
-                    modelRoot, ghostModelNode, cloneMap);
+                    modelRoot, ghostModelNode, cloneMap, selectedVariantGameObjects);
 
                 if (info.particleSystems.Count > 0)
                     result.Add(info);

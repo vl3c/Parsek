@@ -181,13 +181,15 @@ RAPIER and Panther (and any other `ModuleEnginesFX` multi-mode engines) rendered
 
 ---
 
-## 242c. Ghost variant geometry not toggled -- extra FX on multi-variant parts
+## ~~242c. Ghost variant geometry not toggled -- extra FX on multi-variant parts~~
 
 Parts with `ModulePartVariants` that toggle geometry via GAMEOBJECTS (e.g. Poodle DoubleBell/SingleBell) show all variant geometry on the ghost, including inactive variants. The Poodle ghost has 3 thrustTransforms (2 from DoubleBell + 1 from SingleBell) instead of 2, producing 3 flames instead of 2.
 
-**Root cause:** Ghost model is cloned from the raw prefab which contains ALL variant GameObjects. The variant system's `GAMEOBJECTS` visibility (e.g. `EngineFixed = true/false`) is not applied during ghost build. Variant texture support (#241) was implemented but geometry toggling was not.
+**Root cause:** Ghost model mesh filtering already excluded inactive variant renderers (#241), but the engine FX builder (`EngineFxBuilder`) and RCS FX builder (`TryBuildRcsFX`) discovered transforms from the raw prefab without variant awareness. `engine.thrustTransforms` (populated by KSP from ALL matching transforms regardless of variant state) was the primary source for the Poodle bug. `FindTransformsRecursive` calls in model/prefab FX methods were secondary sources. `MirrorTransformChain` then created ghost transforms for inactive-variant objects.
 
-**Priority:** Low -- cosmetic, only affects parts with geometry-switching variants (Poodle, possibly others)
+**Fix:** Threaded `selectedVariantGameObjects` into `TryBuildEngineFX` and `TryBuildRcsFX`. Extracted `IsAncestorChainEnabledByVariantRule` (pure, testable) from `IsRendererEnabledByVariantRule`. Filter applied at 5 points: `FindNamedTransformsCached`, `ProcessEngineLegacyFx` (engine.thrustTransforms), `ProcessEngineModelFxEntries`, `ProcessEnginePrefabFxEntries`, and `TryBuildRcsFX` (FindTransformsRecursive). Affects 9 engine parts and 3 RCS parts with GAMEOBJECTS variant rules.
+
+**Status:** ~~Fixed~~
 
 ---
 
