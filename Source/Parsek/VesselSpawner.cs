@@ -1862,7 +1862,44 @@ namespace Parsek
         private static void ComputeMaxDistance(Recording pending, CelestialBody bodyFirst, TrajectoryPoint firstPoint)
         {
             if (bodyFirst == null) return;
+            ComputeMaxDistanceCore(pending, bodyFirst, firstPoint);
+        }
 
+        /// <summary>
+        /// Backfills <see cref="Recording.MaxDistanceFromLaunch"/> from trajectory points.
+        /// Called from <see cref="ParsekFlight.FinalizeIndividualRecording"/> for tree recordings
+        /// that reach finalization via ForceStop (which skips BuildCaptureRecording). Bug #290d.
+        /// Requires FlightGlobals.Bodies to be available (KSP runtime only).
+        /// </summary>
+        internal static void BackfillMaxDistance(Recording rec)
+        {
+            if (rec == null || rec.Points == null || rec.Points.Count < 2) return;
+
+            var firstPoint = rec.Points[0];
+            CelestialBody bodyFirst;
+            try
+            {
+                bodyFirst = FlightGlobals.Bodies?.Find(b => b.name == firstPoint.bodyName);
+            }
+            catch
+            {
+                // FlightGlobals not available (unit tests)
+                return;
+            }
+            if (bodyFirst == null)
+            {
+                ParsekLog.Warn("Spawner",
+                    $"BackfillMaxDistance: cannot resolve body '{firstPoint.bodyName}' for recording '{rec.RecordingId}'");
+                return;
+            }
+            ComputeMaxDistanceCore(rec, bodyFirst, firstPoint);
+            ParsekLog.Verbose("Spawner",
+                $"BackfillMaxDistance: rec={rec.RecordingId} maxDist={rec.MaxDistanceFromLaunch:F0}m " +
+                $"from {rec.Points.Count} points");
+        }
+
+        private static void ComputeMaxDistanceCore(Recording pending, CelestialBody bodyFirst, TrajectoryPoint firstPoint)
+        {
             Vector3d launchPos = bodyFirst.GetWorldSurfacePosition(
                 firstPoint.latitude, firstPoint.longitude, firstPoint.altitude);
             double maxDist = 0;

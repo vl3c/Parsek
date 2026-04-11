@@ -1723,6 +1723,21 @@ namespace Parsek
                 // the next OnSave would write the tree twice with the same id.
                 RemoveCommittedTreeById(tree.Id);
 
+                // Bug #290d: if the pending tree is already Finalized (set by
+                // CommitTreeSceneExit during the same scene transition), it has
+                // post-finalize data (MaxDistanceFromLaunch, terminal states, snapshots)
+                // that the .sfs version does NOT have (OnSave runs BEFORE finalization).
+                // Skip the replacement — the in-memory Finalized tree is authoritative.
+                if (RecordingStore.HasPendingTree
+                    && RecordingStore.PendingTreeStateValue == PendingTreeState.Finalized)
+                {
+                    ParsekLog.Info("Scenario",
+                        $"TryRestoreActiveTreeNode: keeping in-memory Finalized tree " +
+                        $"'{RecordingStore.PendingTree.TreeName}' — skipping .sfs replacement " +
+                        $"(OnSave ran before finalization, .sfs maxDist is stale)");
+                    return true;
+                }
+
                 // Pop any existing pending tree silently — StashActiveTreeAsPendingLimbo
                 // stashed the in-memory (future-timeline) version at OnSceneChangeRequested
                 // time; we want the freshly-loaded disk version (matches the quicksave UT

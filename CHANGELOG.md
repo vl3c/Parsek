@@ -32,6 +32,9 @@ All notable changes to Parsek are documented here.
 - `#270` Quickloading no longer loads stale sidecar trajectory data from a later save point.
 - `T58` Debris ghost engines no longer show running FX at zero throttle after staging -- inherited engine state respects the child vessel's operational assessment.
 - `T57` EVA recordings now spawn at end instead of being abandoned -- parent vessel is exempt from collision checks during EVA walkback.
+- `#290` Tree recordings now compute `MaxDistanceFromLaunch` at finalization, preventing false idle-on-pad discards that silently deleted entire flight trees on scene exit.
+- `#290` Quickload restore now matches the active vessel by persistentId (locale-proof) instead of vesselName, which failed when KSP hadn't resolved `#autoLOC` keys yet.
+- `#290` Sidecar files written by BackgroundRecorder or scene-exit force-writes no longer advance the epoch past the .sfs, preventing false-positive staleness rejection on F5/F9 quickload.
 - `#290` Debris and EVA branch recordings in the active tree no longer lose trajectory data after two cold starts (quit KSP mid-flight, relaunch, quit again).
 - `#242` Ghost PREFAB_PARTICLE FX (smoke, small engine flames) no longer fires sideways -- auto-detects parent transform orientation and applies -90 X correction when needed.
 
