@@ -180,6 +180,52 @@ namespace Parsek
             return manifest;
         }
 
+        /// <summary>
+        /// Walk PART nodes in a vessel snapshot ConfigNode and return
+        /// a dictionary of crew traits (Pilot/Scientist/Engineer/Tourist) to counts.
+        /// Uses traitResolver if provided; otherwise falls back to KerbalsModule.FindTraitForKerbal.
+        /// Returns null if input is null, has no parts, or no crew found.
+        /// </summary>
+        internal static Dictionary<string, int> ExtractCrewManifest(
+            ConfigNode vesselSnapshot, Func<string, string> traitResolver = null)
+        {
+            if (vesselSnapshot == null) return null;
+
+            var parts = vesselSnapshot.GetNodes("PART");
+            if (parts.Length == 0) return null;
+
+            var manifest = new Dictionary<string, int>();
+            int crewCount = 0;
+
+            for (int i = 0; i < parts.Length; i++)
+            {
+                var crewValues = parts[i].GetValues("crew");
+                for (int j = 0; j < crewValues.Length; j++)
+                {
+                    string name = crewValues[j];
+                    if (string.IsNullOrEmpty(name)) continue;
+
+                    string trait = traitResolver != null
+                        ? traitResolver(name)
+                        : KerbalsModule.FindTraitForKerbal(name);
+
+                    if (manifest.ContainsKey(trait))
+                        manifest[trait] = manifest[trait] + 1;
+                    else
+                        manifest[trait] = 1;
+
+                    crewCount++;
+                }
+            }
+
+            if (manifest.Count == 0) return null;
+
+            ParsekLog.Verbose("Spawner",
+                $"ExtractCrewManifest: {crewCount} crew across {manifest.Count} trait(s) from {parts.Length} part(s)");
+
+            return manifest;
+        }
+
         public static uint RespawnVessel(ConfigNode vesselNode, HashSet<string> excludeCrew = null, bool preserveIdentity = false)
         {
             try

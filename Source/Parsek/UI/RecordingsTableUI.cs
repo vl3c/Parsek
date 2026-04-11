@@ -2288,6 +2288,69 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Formats a crew manifest for tooltip display.
+        /// If both start and end: "Crew:\n  Pilot: 1 → 1 (+0)\n  Engineer: 2 → 0 (-2)"
+        /// If start only: "Crew at start:\n  Pilot: 1\n  Engineer: 2"
+        /// If both null: returns null (no section shown).
+        /// </summary>
+        internal static string FormatCrewManifest(
+            Dictionary<string, int> start,
+            Dictionary<string, int> end)
+        {
+            if (start == null && end == null)
+                return null;
+
+            // Merge keys from both dicts
+            var keys = new SortedSet<string>();
+            if (start != null)
+                foreach (var k in start.Keys) keys.Add(k);
+            if (end != null)
+                foreach (var k in end.Keys) keys.Add(k);
+
+            if (keys.Count == 0)
+                return null;
+
+            bool hasEnd = end != null;
+            var lines = new List<string>();
+            lines.Add(hasEnd ? "Crew:" : "Crew at start:");
+
+            foreach (var key in keys)
+            {
+                if (hasEnd)
+                {
+                    int startCount = 0;
+                    int endCount = 0;
+                    if (start != null && start.TryGetValue(key, out var sc))
+                        startCount = sc;
+                    if (end.TryGetValue(key, out var ec))
+                        endCount = ec;
+
+                    int delta = endCount - startCount;
+                    string sign = delta >= 0 ? "+" : "";
+                    lines.Add(string.Format(CultureInfo.InvariantCulture,
+                        "  {0}: {1} \u2192 {2} ({3}{4})",
+                        key,
+                        startCount,
+                        endCount,
+                        sign,
+                        delta));
+                }
+                else
+                {
+                    // Start only — show count
+                    int count = 0;
+                    if (start.TryGetValue(key, out var sc))
+                        count = sc;
+                    lines.Add(string.Format(CultureInfo.InvariantCulture,
+                        "  {0}: {1}",
+                        key, count));
+                }
+            }
+
+            return string.Join("\n", lines);
+        }
+
+        /// <summary>
         /// Formats situation + biome + body into a compact location string.
         /// "Flying, Shores, Kerbin" or "Orbiting, Kerbin" or "Kerbin" etc.
         /// </summary>
@@ -2561,6 +2624,10 @@ namespace Parsek
             string inventoryText = FormatInventoryManifest(rec.StartInventory, rec.EndInventory);
             if (inventoryText != null)
                 text += "\n" + inventoryText;
+
+            string crewText = FormatCrewManifest(rec.StartCrew, rec.EndCrew);
+            if (crewText != null)
+                text += "\n" + crewText;
 
             EnsureTooltipStyle();
 

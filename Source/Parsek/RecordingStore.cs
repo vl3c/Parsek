@@ -3385,6 +3385,109 @@ namespace Parsek
                 $"DeserializeInventoryManifest: loaded={loaded} skipped={skipped} for recording={rec.RecordingId}");
         }
 
+        /// <summary>
+        /// Serializes StartCrew and EndCrew dictionaries into a CREW_MANIFEST
+        /// ConfigNode on the given parent. Each trait becomes a TRAIT child node with
+        /// name, startCount, endCount fields.
+        /// No-op if both StartCrew and EndCrew are null or empty.
+        /// </summary>
+        internal static void SerializeCrewManifest(ConfigNode parent, Recording rec)
+        {
+            bool hasStart = rec.StartCrew != null && rec.StartCrew.Count > 0;
+            bool hasEnd = rec.EndCrew != null && rec.EndCrew.Count > 0;
+            if (!hasStart && !hasEnd)
+                return;
+
+            ConfigNode manifestNode = parent.AddNode("CREW_MANIFEST");
+
+            // Build merged key set from StartCrew ∪ EndCrew
+            var keys = new HashSet<string>();
+            if (hasStart)
+                foreach (var k in rec.StartCrew.Keys) keys.Add(k);
+            if (hasEnd)
+                foreach (var k in rec.EndCrew.Keys) keys.Add(k);
+
+            int count = 0;
+            foreach (var name in keys)
+            {
+                ConfigNode traitNode = manifestNode.AddNode("TRAIT");
+                traitNode.AddValue("name", name);
+
+                if (hasStart && rec.StartCrew.TryGetValue(name, out var startCount))
+                {
+                    traitNode.AddValue("startCount", startCount.ToString(CultureInfo.InvariantCulture));
+                }
+
+                if (hasEnd && rec.EndCrew.TryGetValue(name, out var endCount))
+                {
+                    traitNode.AddValue("endCount", endCount.ToString(CultureInfo.InvariantCulture));
+                }
+
+                count++;
+            }
+
+            ParsekLog.Verbose("RecordingStore",
+                $"SerializeCrewManifest: wrote {count} trait(s) for recording={rec.RecordingId}");
+        }
+
+        /// <summary>
+        /// Deserializes StartCrew and EndCrew from a CREW_MANIFEST ConfigNode
+        /// on the given parent. Sets the dictionaries if entries are found, or leaves them null
+        /// if the node is absent (backward compatible with legacy recordings).
+        /// </summary>
+        internal static void DeserializeCrewManifest(ConfigNode parent, Recording rec)
+        {
+            ConfigNode manifestNode = parent.GetNode("CREW_MANIFEST");
+            if (manifestNode == null)
+                return;
+
+            ConfigNode[] traits = manifestNode.GetNodes("TRAIT");
+            if (traits.Length == 0)
+                return;
+
+            int loaded = 0;
+            int skipped = 0;
+
+            for (int i = 0; i < traits.Length; i++)
+            {
+                string name = traits[i].GetValue("name");
+                if (string.IsNullOrEmpty(name))
+                {
+                    skipped++;
+                    continue;
+                }
+
+                // Parse start fields (if present)
+                string startCountStr = traits[i].GetValue("startCount");
+                if (startCountStr != null)
+                {
+                    if (rec.StartCrew == null)
+                        rec.StartCrew = new Dictionary<string, int>();
+
+                    int startCount = 0;
+                    int.TryParse(startCountStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out startCount);
+                    rec.StartCrew[name] = startCount;
+                }
+
+                // Parse end fields (if present)
+                string endCountStr = traits[i].GetValue("endCount");
+                if (endCountStr != null)
+                {
+                    if (rec.EndCrew == null)
+                        rec.EndCrew = new Dictionary<string, int>();
+
+                    int endCount = 0;
+                    int.TryParse(endCountStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out endCount);
+                    rec.EndCrew[name] = endCount;
+                }
+
+                loaded++;
+            }
+
+            ParsekLog.Verbose("RecordingStore",
+                $"DeserializeCrewManifest: loaded={loaded} skipped={skipped} for recording={rec.RecordingId}");
+        }
+
         #endregion
 
         #region Recording File I/O

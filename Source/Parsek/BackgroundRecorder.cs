@@ -637,11 +637,13 @@ namespace Parsek
                     int bgChildInvSlots;
                     child.StartInventory = VesselSpawner.ExtractInventoryManifest(child.VesselSnapshot, out bgChildInvSlots);
                     child.StartInventorySlots = bgChildInvSlots;
+                    child.StartCrew = VesselSpawner.ExtractCrewManifest(child.VesselSnapshot);
                     ParsekLog.Verbose("BgRecorder",
                         $"Captured snapshot for child vessel: pid={child.VesselPersistentId} " +
                         $"name='{child.VesselName}' hasSnapshot={child.VesselSnapshot != null} " +
                         $"startResources={child.StartResources?.Count ?? 0} type(s) " +
-                        $"startInventory={child.StartInventory?.Count ?? 0} item(s)");
+                        $"startInventory={child.StartInventory?.Count ?? 0} item(s) " +
+                        $"startCrew={child.StartCrew?.Count ?? 0} trait(s)");
                 }
                 else
                 {

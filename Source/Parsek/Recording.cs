@@ -155,6 +155,11 @@ namespace Parsek
         public int StartInventorySlots;  // total inventory slot capacity at start (0 = no data / no inventory)
         public int EndInventorySlots;    // total inventory slot capacity at end
 
+        // Crew manifests (Phase 11) — per-trait crew count at recording start and end
+        // null = no data (legacy recording or no crew)
+        internal Dictionary<string, int> StartCrew;
+        internal Dictionary<string, int> EndCrew;
+
         // PID of vessel docked to at this segment's boundary (0 = not a dock segment)
         public uint DockTargetVesselPid;
 
@@ -336,6 +341,8 @@ namespace Parsek
             EndInventory = source.EndInventory;
             StartInventorySlots = source.StartInventorySlots;
             EndInventorySlots = source.EndInventorySlots;
+            StartCrew = source.StartCrew;
+            EndCrew = source.EndCrew;
             DockTargetVesselPid = source.DockTargetVesselPid;
 
             // Copy segment events and tracks if source has them

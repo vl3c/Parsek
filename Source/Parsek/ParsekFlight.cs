@@ -3017,6 +3017,9 @@ namespace Parsek
                 childRec.StartInventorySlots = childInvSlots;
                 ParsekLog.Verbose("Coalescer",
                     $"CreateBreakupChildRecording: captured {childRec.StartInventory?.Count ?? 0} start inventory item type(s) for pid={pid}");
+                childRec.StartCrew = VesselSpawner.ExtractCrewManifest(childRec.VesselSnapshot ?? childRec.GhostVisualSnapshot);
+                ParsekLog.Verbose("Coalescer",
+                    $"CreateBreakupChildRecording: captured {childRec.StartCrew?.Count ?? 0} start crew trait(s) for pid={pid}");
             }
             else if (fallbackSnapshot != null)
             {
@@ -3027,6 +3030,7 @@ namespace Parsek
                 int fallbackInvSlots;
                 childRec.StartInventory = VesselSpawner.ExtractInventoryManifest(childRec.VesselSnapshot, out fallbackInvSlots);
                 childRec.StartInventorySlots = fallbackInvSlots;
+                childRec.StartCrew = VesselSpawner.ExtractCrewManifest(childRec.VesselSnapshot);
                 childRec.TerminalStateValue = TerminalState.Destroyed;
                 childRec.ExplicitEndUT = breakupBp.UT;
                 ParsekLog.Info("Coalescer",
@@ -3035,6 +3039,8 @@ namespace Parsek
                     $"CreateBreakupChildRecording: captured {childRec.StartResources?.Count ?? 0} start resource type(s) for pid={pid} (fallback)");
                 ParsekLog.Verbose("Coalescer",
                     $"CreateBreakupChildRecording: captured {childRec.StartInventory?.Count ?? 0} start inventory item type(s) for pid={pid} (fallback)");
+                ParsekLog.Verbose("Coalescer",
+                    $"CreateBreakupChildRecording: captured {childRec.StartCrew?.Count ?? 0} start crew trait(s) for pid={pid} (fallback)");
             }
             else
             {
@@ -3290,6 +3296,11 @@ namespace Parsek
             ParsekLog.Verbose("Coalescer",
                 $"PromoteToTreeForBreakup: inventory — start={rootRec.StartInventory?.Count ?? 0} item(s), " +
                 $"end={rootRec.EndInventory?.Count ?? 0} item(s)");
+            rootRec.StartCrew = cap.StartCrew;
+            rootRec.EndCrew = VesselSpawner.ExtractCrewManifest(rootRec.VesselSnapshot);
+            ParsekLog.Verbose("Coalescer",
+                $"PromoteToTreeForBreakup: crew — start={rootRec.StartCrew?.Count ?? 0} trait(s), " +
+                $"end={rootRec.EndCrew?.Count ?? 0} trait(s)");
             rootRec.RewindSaveFileName = cap.RewindSaveFileName;
             rootRec.RewindReservedFunds = cap.RewindReservedFunds;
             rootRec.RewindReservedScience = cap.RewindReservedScience;

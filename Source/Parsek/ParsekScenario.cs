@@ -3080,6 +3080,9 @@ namespace Parsek
             if (rec.EndInventorySlots != 0)
                 recNode.AddValue("endInvSlots", rec.EndInventorySlots.ToString(CultureInfo.InvariantCulture));
 
+            // Crew manifests (Phase 11)
+            RecordingStore.SerializeCrewManifest(recNode, rec);
+
             // Dock target vessel PID (Phase 11)
             if (rec.DockTargetVesselPid != 0)
                 recNode.AddValue("dockTargetPid", rec.DockTargetVesselPid.ToString(CultureInfo.InvariantCulture));
@@ -3270,6 +3273,9 @@ namespace Parsek
                 if (int.TryParse(endInvSlotsStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out endInvSlots))
                     rec.EndInventorySlots = endInvSlots;
             }
+
+            // Crew manifests (Phase 11)
+            RecordingStore.DeserializeCrewManifest(recNode, rec);
 
             // Dock target vessel PID (Phase 11)
             string dockTargetPidStr = recNode.GetValue("dockTargetPid");
