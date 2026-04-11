@@ -751,3 +751,301 @@ Each dispatch cycle:
 Phase 11 stays exactly as planned — it adds data fields and extraction functions, all within existing files. No `Logistics/` directory yet. No route concepts leak into the resource snapshot code.
 
 The modularity constraint for Phase 11 is: **`StartResources`/`EndResources` must be usable by code that has no knowledge of routes.** This is already the case — they're plain Dictionary fields on Recording, serialized as additive ConfigNode data, extracted by a pure function. The UI tooltip (T11.4) consumes them directly. Phase 12's `RouteManifestComputer` will consume them through the same public fields. No coupling.
+
+---
+
+## Extension: Inventory Manifests
+
+### Goal
+
+Extend resource snapshots to capture KSP 1.12 inventory contents — parts stored in `ModuleInventoryPart` cargo containers. Players carrying spare solar panels, batteries, or science instruments to a base should see the inventory transfer reflected in the recording, and Phase 12 should replicate it each cycle.
+
+The data is already in vessel snapshots (same situation as liquid resources before Phase 11). We just need to extract it.
+
+### KSP 1.12 inventory internals (confirmed via decompilation)
+
+**ConfigNode structure** (from `ModuleInventoryPart.OnSave`):
+
+```
+MODULE
+{
+    name = ModuleInventoryPart
+    InventorySlots = 9
+    packedVolumeLimit = 300
+    STOREDPARTS
+    {
+        STOREDPART
+        {
+            slotIndex = 0
+            partName = evaChute
+            quantity = 1
+            stackCapacity = 1
+            variantName =
+            PART
+            {
+                name = evaChute
+                persistentId = 2769214603
+                MODULE { name = ModuleCargoPart ... }
+                RESOURCE { name = EVA Propellant  amount = 5  maxAmount = 5 }
+            }
+        }
+        STOREDPART
+        {
+            slotIndex = 1
+            partName = solarPanels5
+            quantity = 1
+            stackCapacity = 1
+            variantName =
+            PART { ... }
+        }
+    }
+}
+```
+
+**Key facts:**
+- `StoredPart` class: `slotIndex` (int), `partName` (string, KSP dot-form), `quantity` (int, >1 for stacked items), `stackCapacity` (int), `variantName` (string).
+- `ModuleInventoryPart.storedParts`: `DictionaryValueList<int, StoredPart>` keyed by slot index.
+- `InventorySlots` controls slot count. `packedVolumeLimit` (liters) and `massLimit` (tons) are optional capacity constraints.
+- Stacking: only items with identical `partName` + `variantName` can share a slot. Controlled by `ModuleCargoPart.stackableQuantity` on the part cfg.
+- Each STOREDPART's inner PART node is a full ProtoPartSnapshot with its own RESOURCE nodes. Resources inside stored items are independent of vessel resource flow.
+- **Unloaded vessel access:** `ProtoPartModuleSnapshot.moduleValues.GetNode("STOREDPARTS")` → `GetNodes("STOREDPART")` → `GetValue("partName")`, `GetValue("quantity")`.
+- **Part name dot conversion applies:** stored `partName` uses KSP's runtime dot-form.
+
+### T11-INV.1 — Data model
+
+```csharp
+// New file: InventoryManifest.cs (mirrors ResourceManifest.cs)
+internal struct InventoryItem
+{
+    public int count;       // total quantity across all inventories on the vessel
+    public int slotsTaken;  // total inventory slots occupied by this item type
+}
+
+internal static class InventoryManifest
+{
+    internal static Dictionary<string, InventoryItem> ComputeInventoryDelta(
+        Dictionary<string, InventoryItem> start,
+        Dictionary<string, InventoryItem> end)
+    // Mirrors ComputeResourceDelta: merged keys, delta = endCount - startCount, endSlots - startSlots
+    // Returns InventoryItem with both count and slot deltas (Phase 12 needs slots for capacity checks)
+}
+```
+
+**Why `InventoryItem` has `slotsTaken`:** Phase 12 delivery needs to know if the destination has capacity. A destination with 2 free slots can accept 2 non-stackable panels but not 3. `slotsTaken` is the inventory analog of `maxAmount` in `ResourceAmount`.
+
+**Why the delta returns `InventoryItem` not `int`:** Phase 12 needs both count deltas (how many items to move) and slot deltas (how many destination slots are required). Delivering 4 non-stackable panels needs 4 slots; delivering 4 stackable EVA kits needs only 1 slot. Returning the full struct avoids Phase 12 re-deriving slot requirements from raw manifests.
+
+### T11-INV.2 — Extraction function
+
+```csharp
+// In VesselSpawner.cs (co-located with ExtractResourceManifest)
+internal static Dictionary<string, InventoryItem> ExtractInventoryManifest(ConfigNode vesselSnapshot)
+```
+
+**Algorithm:**
+
+```
+if vesselSnapshot is null → return null
+parts = vesselSnapshot.GetNodes("PART")
+if parts.Length == 0 → return null
+
+manifest = new Dictionary<string, InventoryItem>()
+for each PART node:
+    modules = partNode.GetNodes("MODULE")
+    for each MODULE node:
+        if moduleNode.GetValue("name") != "ModuleInventoryPart" → skip
+        storedPartsNode = moduleNode.GetNode("STOREDPARTS")
+        if storedPartsNode is null → skip
+        storedParts = storedPartsNode.GetNodes("STOREDPART")
+        for each STOREDPART node:
+            partName = storedPartNode.GetValue("partName")
+            if partName is null/empty → skip
+            quantity = int.TryParse(storedPartNode.GetValue("quantity"), default 1)
+            if manifest.ContainsKey(partName):
+                var item = manifest[partName]  // struct copy — read-modify-write
+                item.count += quantity
+                item.slotsTaken += 1
+                manifest[partName] = item
+            else:
+                manifest[partName] = new InventoryItem { count = quantity, slotsTaken = 1 }
+
+// Also accumulate total slot capacity across all inventory modules
+totalInventorySlots += int.TryParse(moduleNode.GetValue("InventorySlots"), default 0)
+
+return manifest.Count > 0 ? manifest : null
+// Caller stores totalInventorySlots in Recording.Start/EndInventorySlots
+```
+
+The function returns both the manifest dict and the total slot count (via out parameter or a return tuple).
+
+**Design notes:**
+- No item filtering (unlike resources where EC/IntakeAir are excluded). All inventory items are meaningful cargo.
+- Variants ignored for grouping — `partName` is the key. A white panel and gray panel both count as `solarPanels5`. Variant-aware delivery is v2.
+- Each STOREDPART = 1 slot. Stacked items (quantity > 1) occupy 1 slot with count = quantity.
+
+**Tests:**
+
+| Test | Input | Expected |
+|------|-------|----------|
+| `NullInput_ReturnsNull` | null | null |
+| `NoInventoryModules_ReturnsNull` | parts without ModuleInventoryPart | null |
+| `SingleItem` | 1 STOREDPART (solarPanel, qty 1) | { solarPanel: count=1, slots=1 } |
+| `MultipleItems` | 2 different STOREDPART nodes | both in manifest |
+| `SameItem_MultipleInventories_Summed` | solarPanel in two different parts' inventories | count+slots summed |
+| `StackableItem_QuantityRespected` | STOREDPART with quantity=3 | count=3, slotsTaken=1 |
+| `EmptyStoredParts_ReturnsNull` | ModuleInventoryPart with empty STOREDPARTS node | null |
+| `MissingPartName_Skipped` | STOREDPART with no partName | skipped |
+| `MissingQuantity_DefaultsOne` | STOREDPART with no quantity value | count=1 |
+| `MultipleInventoryModulesOnOnePart` | PART with two ModuleInventoryPart modules | items from both summed |
+
+### T11-INV.3 — Recording fields + serialization
+
+```csharp
+// Recording.cs — alongside StartResources/EndResources
+internal Dictionary<string, InventoryItem> StartInventory;  // null = no data
+internal Dictionary<string, InventoryItem> EndInventory;     // null = no data
+public int StartInventorySlots;  // total inventory slot capacity at start (0 = no data / no inventory)
+public int EndInventorySlots;    // total inventory slot capacity at end
+```
+
+`StartInventorySlots`/`EndInventorySlots` are vessel-level totals (sum of `InventorySlots` across all `ModuleInventoryPart` modules). Phase 12 uses `EndInventorySlots - sum(slotsTaken)` to check destination capacity. Analogous to how `ResourceAmount.maxAmount` enables capacity checks for liquids.
+
+**Serialization format:**
+
+```
+INVENTORY_MANIFEST
+{
+    ITEM { name = solarPanels5   startCount = 4  startSlots = 4  endCount = 0  endSlots = 0 }
+    ITEM { name = batteryPack    startCount = 2  startSlots = 2  endCount = 0  endSlots = 0 }
+}
+```
+
+Helpers `SerializeInventoryManifest`/`DeserializeInventoryManifest` in RecordingStore.cs, called from same 4 save/load sites immediately after the resource manifest helpers. Identical pattern (merged keys, conditional start/end fields, batch logging). Integer fields use `int.TryParse` with InvariantCulture.
+
+### T11-INV.4 — Capture at boundaries
+
+**Every site that captures resource manifests also captures inventory manifests.** Same snapshots, same moments, one additional extraction call per site. The capture table from T11.3 applies identically — just add `StartInventory`/`EndInventory` alongside `StartResources`/`EndResources` at each site. Also add to `ApplyPersistenceArtifactsFrom`.
+
+No new capture sites needed.
+
+### T11-INV.5 — UI display
+
+Extend tooltip after the Resources section:
+
+```
+Inventory:
+  solarPanels5: 4 → 0 (-4)
+  batteryPack: 2 → 0 (-2)
+```
+
+`FormatInventoryManifest` helper mirrors `FormatResourceManifest`. Uses KSP part display names if `PartLoader.getPartInfoByName(name)?.title` is available (graceful fallback to internal name).
+
+### Phase 12 implications
+
+**Inventory delivery is harder than liquid resource delivery:**
+- Liquid: modify `ProtoPartResourceSnapshot.amount` (one field write)
+- Inventory: construct and insert `STOREDPART` ConfigNodes into `ModuleInventoryPart` MODULE data on unloaded vessels (subtree construction)
+
+**Recommendation:** Phase 12 ships liquid-resource delivery first. Inventory delivery is a follow-on (v1.1) — the capture and analysis data is available from day one, the delivery mechanism is the risky part.
+
+**Stored item internal state:** When Phase 12 delivers inventory items to unloaded vessels, it must decide whether to deliver items with their captured internal state (e.g., a half-charged stored battery) or in pristine state. The recording's STOREDPART > PART snapshot preserves the exact state at recording time. v1 recommendation: deliver in pristine state (use `PartLoader.getPartInfoByName` to construct a fresh snapshot). Captured state is a v2 refinement.
+
+**Route data model extension** (Phase 12): `Route.InventoryDeliveryManifest` as `Dictionary<string, int>` alongside `DeliveryManifest`. Route validation: recording qualifies if resources OR inventory items decreased between dock and undock.
+
+### Edge cases
+
+**Volume limits:** v1 tracks slots only. Volume-precise delivery (`packedVolume` per item vs `packedVolumeLimit` per container) deferred to v2. Slots are an acceptable approximation.
+
+**Items with internal resources:** A stored fuel tank contains fuel inside its STOREDPART > PART > RESOURCE nodes. These resources are NOT captured in the resource manifest (they live inside STOREDPART, not directly under PART > RESOURCE). This is correct — stored items' internal resources are not part of the vessel's operational fuel supply.
+
+**EVA kerbal inventories:** EVA kerbals have ModuleInventoryPart. Extraction captures them naturally. No special handling.
+
+**KIS (Kerbal Inventory System):** v1 targets stock ModuleInventoryPart only. KIS uses `ModuleKISInventory` with a different format. Invisible to extraction. KIS compatibility is Phase 15 territory.
+
+---
+
+## Extension: Crew Manifests
+
+### Goal
+
+Capture crew composition by trait (Pilot, Scientist, Engineer, Tourist) at recording start and end. A crew transport route delivers "2 engineers and 1 scientist" per cycle, not specific named kerbals. This is the third manifest type alongside resources and inventory.
+
+### Extraction
+
+Crew data is already in the vessel snapshot — each PART node has `crew` values listing kerbal names. The kerbal roster (`HighLogic.CurrentGame.CrewRoster`) maps each name to a `ProtoCrewMember` with a `trait` field (Pilot/Scientist/Engineer/Tourist).
+
+```csharp
+// In VesselSpawner.cs
+internal static Dictionary<string, int> ExtractCrewManifest(ConfigNode vesselSnapshot)
+```
+
+**Algorithm:**
+
+```
+Walk PART nodes, collect all crew values (kerbal names)
+For each name, look up trait from roster (or from the PART's ProtoCrewMember data)
+Group by trait, count per trait
+Return Dictionary<string, int>: { "Pilot": 1, "Engineer": 2, "Scientist": 1 }
+Return null if no crew found
+```
+
+**Alternative (no roster lookup):** The vessel snapshot's PART > CREW nodes may contain trait information directly. If so, extraction is pure ConfigNode walking without needing `CrewRoster`. Needs investigation — check if ProtoCrewMember trait is serialized in the PART's crew data.
+
+### Recording fields
+
+```csharp
+internal Dictionary<string, int> StartCrew;  // null = no data
+internal Dictionary<string, int> EndCrew;     // null = no data
+```
+
+Serialized as `CREW_MANIFEST` ConfigNode (same additive pattern):
+
+```
+CREW_MANIFEST
+{
+    TRAIT { name = Pilot  startCount = 1  endCount = 1 }
+    TRAIT { name = Engineer  startCount = 2  endCount = 0 }
+    TRAIT { name = Scientist  startCount = 1  endCount = 0 }
+}
+```
+
+### UI display
+
+```
+Crew:
+  Pilot: 1 → 1 (unchanged)
+  Engineer: 2 → 0 (-2)
+  Scientist: 1 → 0 (-1)
+```
+
+### Phase 12 implications
+
+Crew transport routes use **generic kerbals** — completely separate from the named kerbals the player manages and from Parsek's crew reservation system. Route crew are anonymous, trait-typed units:
+
+- **Route delivers by trait, not name.** "Send 2 engineers" creates/assigns generic kerbals of the right trait. No interaction with the astronaut complex roster or crew reservation.
+- **Generic kerbal pool.** Route kerbals are a separate population — they don't appear in the astronaut complex, don't have experience progression, and don't compete with named kerbals for missions. They're logistical crew, not player-managed characters.
+- **Moving crew on unloaded vessels** means adding `crew` values to `ProtoPartSnapshot` nodes and creating `ProtoCrewMember` entries in the roster with the right trait. Simpler than inventory delivery (no ConfigNode subtree construction — just name strings and roster entries).
+
+**Recommendation:** Same as inventory — capture crew manifests in Phase 11, defer delivery to Phase 12 v1.1. Lighter implementation than inventory delivery since crew is name+trait, not complex ConfigNode subtrees.
+
+### Edge cases
+
+**Tourists:** Captured in the manifest as a trait type. Phase 12 can exclude them from route automation if desired (tourists are contract-bound, not generic logistics crew).
+
+**No experience or levels.** Generic route kerbals have no star level and no experience progression. They're logistical crew, not player-managed characters. If a player wants experienced crew at a base, they fly them manually.
+
+**Crew capacity:** Analogous to inventory slots — destination vessel needs empty seats. Capture `crewCapacity` (sum of part crew capacity) alongside the crew manifest for Phase 12 capacity checks.
+
+---
+
+### Implementation order (all three manifest types)
+
+```
+T11.1 → T11.5 → T11.2 → T11.3 → T11.4  (resource manifests — done)
+    ↓
+T11-INV.1 → T11-INV.2 → T11-INV.3 → T11-INV.4 → T11-INV.5  (inventory manifests)
+    ↓
+T11-CREW.1 → T11-CREW.2 → T11-CREW.3 → T11-CREW.4  (crew manifests)
+```
+
+Each manifest type mirrors the same pattern. Crew is lightest (simplest data model, smallest ConfigNode structure) but has the most complex Phase 12 delivery implications due to reservation system interaction.

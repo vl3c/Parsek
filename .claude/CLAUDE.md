@@ -73,7 +73,8 @@ Key source files and what they do - read the relevant one before modifying:
 - `RecordingStore.cs` - static recording storage surviving scene changes
 - `GhostVisualBuilder.cs` - ghost mesh building from vessel snapshots
 - `TrajectoryMath.cs` - pure static math (sampling, interpolation, orbit search)
-- `VesselSpawner.cs` - vessel spawn/recover/snapshot utilities
+- `VesselSpawner.cs` - vessel spawn/recover/snapshot utilities, resource manifest extraction (`ExtractResourceManifest`)
+- `ResourceManifest.cs` - `ResourceAmount` struct and `ComputeResourceDelta` for per-resource change computation (Phase 11)
 - `MergeDialog.cs` - post-revert merge dialog
 - `GhostMapPresence.cs` - ProtoVessel lifecycle for ghost map presence: creates/destroys lightweight vessels for tracking station, orbit lines, targeting. Manages ghostMapVesselPids HashSet for O(1) guard checks across codebase.
 - `ParsekHarmony.cs` + `Patches/` - Harmony patcher + patches (PhysicsFrame, GhostVesselLoad, GhostCommNetVessel, GhostTrackingStation, FacilityUpgrade, FlightResults, ScienceSubject, TechResearch, CrewDialogFilter, KerbalDismissal, GhostOrbitLine)

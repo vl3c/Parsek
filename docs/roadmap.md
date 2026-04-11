@@ -154,13 +154,13 @@ Unified chronological view of all committed career events, replacing the Game Ac
 
 ## Phase 11: Resource Snapshots
 
-Recordings capture physical resource inventories (ore, fuel, monoprop, etc.) at segment boundaries.
+Recordings capture physical resource manifests at recording start and end.
 
-- Resource snapshots at recording start, end, and key events (docking)
-- Uses KSP's resource API — any resource captured automatically, including modded resources
-- Event hook for external mods on recording completion
-- Simple built-in mode: on playback completion, transfer resources to nearest vessel within configurable range
-- Recordings Manager shows resource signatures ("this Minmus run carries 4000 units of ore")
+**Resource manifests (implemented):** `ExtractResourceManifest` walks vessel snapshot PART > RESOURCE nodes, sums by resource name. `StartResources`/`EndResources` fields on Recording, serialized as additive RESOURCE_MANIFEST ConfigNode. Captured at 8 boundary sites (recording start/stop, chain boundaries, breakup, background splits, optimizer splits/merges). EC and IntakeAir excluded (environmental noise). Dock target vessel PID (`DockTargetVesselPid`) captured at dock boundaries for route endpoint identification. Hover tooltip in Recordings Manager shows per-resource start-to-end with delta.
+
+**Inventory manifests (implemented):** KSP 1.12 `ModuleInventoryPart` items (stored parts in cargo containers). `ExtractInventoryManifest` walks MODULE > STOREDPARTS > STOREDPART nodes. `InventoryItem { count, slotsTaken }` struct + vessel-level `totalInventorySlots`. Same capture sites as resources.
+
+**Crew manifests (implemented):** Crew composition by trait (Pilot/Scientist/Engineer/Tourist). Route delivery uses generic kerbals (separate from crew reservation system). Same capture pattern.
 
 ---
 
@@ -283,12 +283,12 @@ Phase 9: Timeline (v0.7 ✓)
     │  significance tiers, filtering, rewind from timeline
     │
     ▼
-Phase 10: Location Context (v0.7)
+Phase 10: Location Context (v0.7 ✓)
     │  Recordings know WHERE they start/end (body, biome, situation)
     │
     ▼
-Phase 11: Resource Snapshots
-    │  Recordings know WHAT they carry
+Phase 11: Resource Snapshots (done)
+    |  Recordings know WHAT they carry
     │
     ▼
 Phase 11.5: Recording Optimization & Observability

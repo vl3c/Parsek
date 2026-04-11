@@ -262,6 +262,10 @@ namespace Parsek
         internal double LastRecordedAltitude { get; private set; } = double.NaN;
         private ConfigNode lastGoodVesselSnapshot;
         private ConfigNode initialGhostVisualSnapshot;
+        private Dictionary<string, ResourceAmount> pendingStartResources;
+        private Dictionary<string, InventoryItem> pendingStartInventory;
+        private int pendingStartInventorySlots;
+        private Dictionary<string, int> pendingStartCrew;
         private double lastSnapshotRefreshUT = double.MinValue;
 
         // Boundary anchor: if set, inserted as the first point when recording starts.
@@ -4379,6 +4383,12 @@ namespace Parsek
                 ParsekLog.Verbose("Recorder", $"Boundary anchor inserted at UT {anchorUT:F3}");
             }
             RefreshBackupSnapshot(v, "record_start", force: true);
+            pendingStartResources = VesselSpawner.ExtractResourceManifest(lastGoodVesselSnapshot);
+            ParsekLog.Verbose("Recorder", $"StartRecording: captured {pendingStartResources?.Count ?? 0} start resource type(s)");
+            pendingStartInventory = VesselSpawner.ExtractInventoryManifest(lastGoodVesselSnapshot, out pendingStartInventorySlots);
+            ParsekLog.Verbose("Recorder", $"StartRecording: captured {pendingStartInventory?.Count ?? 0} start inventory item type(s), {pendingStartInventorySlots} slot(s)");
+            pendingStartCrew = VesselSpawner.ExtractCrewManifest(lastGoodVesselSnapshot);
+            ParsekLog.Verbose("Recorder", $"StartRecording: captured {pendingStartCrew?.Count ?? 0} start crew trait(s)");
             initialGhostVisualSnapshot = lastGoodVesselSnapshot != null
                 ? lastGoodVesselSnapshot.CreateCopy()
                 : VesselSpawner.TryBackupSnapshot(v);
@@ -4567,6 +4577,18 @@ namespace Parsek
                 isDestroyed,
                 snapshotVessel,
                 destroyedFallbackSnapshot ?? lastGoodVesselSnapshot);
+            capture.StartResources = pendingStartResources;
+            capture.EndResources = VesselSpawner.ExtractResourceManifest(capture.VesselSnapshot);
+            ParsekLog.Verbose("Recorder", $"BuildCaptureRecording: captured {capture.EndResources?.Count ?? 0} end resource type(s)");
+            capture.StartInventory = pendingStartInventory;
+            capture.StartInventorySlots = pendingStartInventorySlots;
+            int endInvSlots;
+            capture.EndInventory = VesselSpawner.ExtractInventoryManifest(capture.VesselSnapshot, out endInvSlots);
+            capture.EndInventorySlots = endInvSlots;
+            ParsekLog.Verbose("Recorder", $"BuildCaptureRecording: captured {capture.EndInventory?.Count ?? 0} end inventory item type(s), {endInvSlots} slot(s)");
+            capture.StartCrew = pendingStartCrew;
+            capture.EndCrew = VesselSpawner.ExtractCrewManifest(capture.VesselSnapshot);
+            ParsekLog.Verbose("Recorder", $"BuildCaptureRecording: captured {capture.EndCrew?.Count ?? 0} end crew trait(s)");
             capture.GhostVisualSnapshot = initialGhostVisualSnapshot != null
                 ? initialGhostVisualSnapshot.CreateCopy()
                 : (capture.VesselSnapshot != null ? capture.VesselSnapshot.CreateCopy() : null);

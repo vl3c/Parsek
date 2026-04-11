@@ -1,5 +1,7 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
+using System.Linq;
 using ClickThroughFix;
 using UnityEngine;
 
@@ -2156,6 +2158,199 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Formats a resource manifest for tooltip display.
+        /// If both start and end: "Resources:\n  LiquidFuel: 3600.0 → 200.0 (-3400.0)"
+        /// If start only: "Resources at start:\n  LiquidFuel: 3600.0 / 3600.0"
+        /// If both null: returns null (no section shown).
+        /// </summary>
+        internal static string FormatResourceManifest(
+            Dictionary<string, ResourceAmount> start,
+            Dictionary<string, ResourceAmount> end)
+        {
+            if (start == null && end == null)
+                return null;
+
+            // Merge keys from both dicts
+            var keys = new SortedSet<string>();
+            if (start != null)
+                foreach (var k in start.Keys) keys.Add(k);
+            if (end != null)
+                foreach (var k in end.Keys) keys.Add(k);
+
+            if (keys.Count == 0)
+                return null;
+
+            bool hasEnd = end != null;
+            var lines = new List<string>();
+            lines.Add(hasEnd ? "Resources:" : "Resources at start:");
+
+            foreach (var key in keys)
+            {
+                if (hasEnd)
+                {
+                    double startAmt = 0;
+                    double endAmt = 0;
+                    if (start != null && start.TryGetValue(key, out var startRa))
+                        startAmt = startRa.amount;
+                    if (end.TryGetValue(key, out var endRa))
+                        endAmt = endRa.amount;
+
+                    double delta = endAmt - startAmt;
+                    string sign = delta >= 0 ? "+" : "";
+                    lines.Add(string.Format(CultureInfo.InvariantCulture,
+                        "  {0}: {1:F1} \u2192 {2:F1} ({3}{4:F1})",
+                        key,
+                        startAmt,
+                        endAmt,
+                        sign,
+                        delta));
+                }
+                else
+                {
+                    // Start only — show amount / maxAmount
+                    double amt = 0;
+                    double max = 0;
+                    if (start.TryGetValue(key, out var ra))
+                    {
+                        amt = ra.amount;
+                        max = ra.maxAmount;
+                    }
+                    lines.Add(string.Format(CultureInfo.InvariantCulture,
+                        "  {0}: {1:F1} / {2:F1}",
+                        key, amt, max));
+                }
+            }
+
+            return string.Join("\n", lines);
+        }
+
+        /// <summary>
+        /// Formats an inventory manifest for tooltip display.
+        /// If both start and end: "Inventory:\n  solarPanels5: 4 -> 0 (-4)"
+        /// If start only: "Inventory at start:\n  solarPanels5: 4"
+        /// If both null: returns null (no section shown).
+        /// </summary>
+        internal static string FormatInventoryManifest(
+            Dictionary<string, InventoryItem> start,
+            Dictionary<string, InventoryItem> end)
+        {
+            if (start == null && end == null)
+                return null;
+
+            // Merge keys from both dicts
+            var keys = new SortedSet<string>();
+            if (start != null)
+                foreach (var k in start.Keys) keys.Add(k);
+            if (end != null)
+                foreach (var k in end.Keys) keys.Add(k);
+
+            if (keys.Count == 0)
+                return null;
+
+            bool hasEnd = end != null;
+            var lines = new List<string>();
+            lines.Add(hasEnd ? "Inventory:" : "Inventory at start:");
+
+            foreach (var key in keys)
+            {
+                if (hasEnd)
+                {
+                    int startCount = 0;
+                    int endCount = 0;
+                    if (start != null && start.TryGetValue(key, out var startItem))
+                        startCount = startItem.count;
+                    if (end.TryGetValue(key, out var endItem))
+                        endCount = endItem.count;
+
+                    int delta = endCount - startCount;
+                    string sign = delta >= 0 ? "+" : "";
+                    lines.Add(string.Format(CultureInfo.InvariantCulture,
+                        "  {0}: {1} \u2192 {2} ({3}{4})",
+                        key,
+                        startCount,
+                        endCount,
+                        sign,
+                        delta));
+                }
+                else
+                {
+                    // Start only — show count
+                    int count = 0;
+                    if (start.TryGetValue(key, out var item))
+                        count = item.count;
+                    lines.Add(string.Format(CultureInfo.InvariantCulture,
+                        "  {0}: {1}",
+                        key, count));
+                }
+            }
+
+            return string.Join("\n", lines);
+        }
+
+        /// <summary>
+        /// Formats a crew manifest for tooltip display.
+        /// If both start and end: "Crew:\n  Pilot: 1 → 1 (+0)\n  Engineer: 2 → 0 (-2)"
+        /// If start only: "Crew at start:\n  Pilot: 1\n  Engineer: 2"
+        /// If both null: returns null (no section shown).
+        /// </summary>
+        internal static string FormatCrewManifest(
+            Dictionary<string, int> start,
+            Dictionary<string, int> end)
+        {
+            if (start == null && end == null)
+                return null;
+
+            // Merge keys from both dicts
+            var keys = new SortedSet<string>();
+            if (start != null)
+                foreach (var k in start.Keys) keys.Add(k);
+            if (end != null)
+                foreach (var k in end.Keys) keys.Add(k);
+
+            if (keys.Count == 0)
+                return null;
+
+            bool hasEnd = end != null;
+            var lines = new List<string>();
+            lines.Add(hasEnd ? "Crew:" : "Crew at start:");
+
+            foreach (var key in keys)
+            {
+                if (hasEnd)
+                {
+                    int startCount = 0;
+                    int endCount = 0;
+                    if (start != null && start.TryGetValue(key, out var sc))
+                        startCount = sc;
+                    if (end.TryGetValue(key, out var ec))
+                        endCount = ec;
+
+                    int delta = endCount - startCount;
+                    string sign = delta >= 0 ? "+" : "";
+                    lines.Add(string.Format(CultureInfo.InvariantCulture,
+                        "  {0}: {1} \u2192 {2} ({3}{4})",
+                        key,
+                        startCount,
+                        endCount,
+                        sign,
+                        delta));
+                }
+                else
+                {
+                    // Start only — show count
+                    int count = 0;
+                    if (start.TryGetValue(key, out var sc))
+                        count = sc;
+                    lines.Add(string.Format(CultureInfo.InvariantCulture,
+                        "  {0}: {1}",
+                        key, count));
+                }
+            }
+
+            return string.Join("\n", lines);
+        }
+
+        /// <summary>
         /// Formats situation + biome + body into a compact location string.
         /// "Flying, Shores, Kerbin" or "Orbiting, Kerbin" or "Kerbin" etc.
         /// </summary>
@@ -2421,6 +2616,18 @@ namespace Parsek
                 }
             }
             catch { /* Non-KSP context or Planetarium unavailable */ }
+
+            string resourceText = FormatResourceManifest(rec.StartResources, rec.EndResources);
+            if (resourceText != null)
+                text += "\n" + resourceText;
+
+            string inventoryText = FormatInventoryManifest(rec.StartInventory, rec.EndInventory);
+            if (inventoryText != null)
+                text += "\n" + inventoryText;
+
+            string crewText = FormatCrewManifest(rec.StartCrew, rec.EndCrew);
+            if (crewText != null)
+                text += "\n" + crewText;
 
             EnsureTooltipStyle();
 
