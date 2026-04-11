@@ -1675,6 +1675,39 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Builds the set of all recording IDs that are currently known to the store
+        /// (committed recordings, committed trees, and the pending tree). Used by
+        /// <see cref="CleanOrphanFiles"/> to decide which sidecar files to keep.
+        /// Extracted as <c>internal static</c> for direct testability (#290).
+        /// </summary>
+        internal static HashSet<string> BuildKnownRecordingIds()
+        {
+            var knownIds = new HashSet<string>();
+            for (int i = 0; i < committedRecordings.Count; i++)
+            {
+                if (!string.IsNullOrEmpty(committedRecordings[i].RecordingId))
+                    knownIds.Add(committedRecordings[i].RecordingId);
+            }
+            for (int t = 0; t < committedTrees.Count; t++)
+            {
+                foreach (var kvp in committedTrees[t].Recordings)
+                {
+                    if (!string.IsNullOrEmpty(kvp.Value.RecordingId))
+                        knownIds.Add(kvp.Value.RecordingId);
+                }
+            }
+            if (pendingTree != null)
+            {
+                foreach (var kvp in pendingTree.Recordings)
+                {
+                    if (!string.IsNullOrEmpty(kvp.Value.RecordingId))
+                        knownIds.Add(kvp.Value.RecordingId);
+                }
+            }
+            return knownIds;
+        }
+
+        /// <summary>
         /// Deletes orphaned sidecar files in the Parsek/Recordings/ directory that don't
         /// correspond to any known recording ID. Called after all recordings and trees are loaded.
         /// </summary>
@@ -1695,23 +1728,13 @@ namespace Parsek
                 return;
             }
 
-            // Build set of known recording IDs from committed recordings + trees.
-            // Note: pending recording is not included because this method is called
-            // from ParsekScenario.OnLoad before any pending state is created.
-            var knownIds = new HashSet<string>();
-            for (int i = 0; i < committedRecordings.Count; i++)
-            {
-                if (!string.IsNullOrEmpty(committedRecordings[i].RecordingId))
-                    knownIds.Add(committedRecordings[i].RecordingId);
-            }
-            for (int t = 0; t < committedTrees.Count; t++)
-            {
-                foreach (var kvp in committedTrees[t].Recordings)
-                {
-                    if (!string.IsNullOrEmpty(kvp.Value.RecordingId))
-                        knownIds.Add(kvp.Value.RecordingId);
-                }
-            }
+            // Build set of known recording IDs from committed + pending state.
+            // On cold-start resume, TryRestoreActiveTreeNode stashes the active
+            // tree into pendingTree BEFORE this method runs. Without including
+            // pendingTree, branch recordings (debris, EVA) would be deleted as
+            // orphans, silently degrading to 0 points on the next cold start (#290).
+            var knownIds = BuildKnownRecordingIds();
+            int pendingTreeIds = pendingTree?.Recordings.Count ?? 0;
 
             string[] files;
             try
@@ -1725,7 +1748,8 @@ namespace Parsek
             }
 
             ParsekLog.Verbose("RecordingStore",
-                $"CleanOrphanFiles: scanning {files.Length} file(s) against {knownIds.Count} known recording ID(s)");
+                $"CleanOrphanFiles: scanning {files.Length} file(s) against {knownIds.Count} known recording ID(s)" +
+                (pendingTreeIds > 0 ? $" (incl. {pendingTreeIds} from pending tree)" : ""));
 
             int orphanCount = 0;
             int legacyCount = 0;
