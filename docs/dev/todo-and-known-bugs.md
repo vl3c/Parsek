@@ -288,11 +288,13 @@ Follow-up to bug #271 (always-tree unification). The runtime now always creates 
 
 To remove: collapse `committedRecordings` into `committedTrees` (every recording accessed through its parent tree), delete the standalone pending slot, delete standalone merge dialog, delete standalone RECORDING serialization, delete chain segment standalone commit paths (dead code in always-tree mode). This is a ~55-file refactor.
 
-Critical subtask: adapt `RunOptimizationPass` (RecordingStore.cs) to work within tree structure. Currently the optimizer operates on the flat `committedRecordings` list and `SplitAtSection` produces standalone chain-linked recordings outside the tree. This breaks ghost chain traversal and spawn-at-end for tree recordings. PR #210 added a temporary skip (`if (TreeId != null) return false` in `CanAutoSplitIgnoringGhostTriggers`) so tree recordings are not split. The proper fix: make `SplitAtSection` create new recordings within the parent tree (add to `tree.Recordings`, update `BackgroundMap`/`BranchPoints`), preserving the tree's structural integrity. The skip must be removed once this is done.
+~~Critical subtask (done):~~ Removed the temporary `TreeId != null` skip in `CanAutoSplitIgnoringGhostTriggers`. The existing `RunOptimizationPass` code already added split recordings to `tree.Recordings` and updated `BranchPoint.ParentRecordingIds`; the skip was the only thing preventing tree splits. Added `RebuildBackgroundMap()` after optimization passes for tree consistency.
+
+Remaining: collapse `committedRecordings` into `committedTrees` (~55-file refactor, see list above).
 
 Prerequisite: delete all old save files (no users yet, clean slate).
 
-**Priority:** High -- the optimizer skip means tree recordings are never split at environment boundaries, losing the per-phase segment display in the UI
+**Priority:** Medium -- optimizer adaptation done, standalone format removal is cleanup
 
 ---
 

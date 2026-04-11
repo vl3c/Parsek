@@ -1237,6 +1237,217 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void RunOptimizationPass_SplitsTreeRecording()
+        {
+            RecordingStore.SuppressLogging = true;
+            RecordingStore.ResetForTesting();
+
+            // Build a tree with one recording that spans two environment sections
+            var tree = new RecordingTree
+            {
+                Id = "tree-split-test",
+                TreeName = "SplitTest"
+            };
+
+            var rec = new Recording
+            {
+                RecordingId = "rec-001",
+                VesselName = "Rocket",
+                TreeId = tree.Id,
+                VesselPersistentId = 42,
+                TerminalStateValue = TerminalState.Destroyed,
+                GhostVisualSnapshot = new ConfigNode("VESSEL"),
+                RecordingFormatVersion = 0
+            };
+            // Points spanning exo→atmo transition
+            rec.Points.Add(new TrajectoryPoint { ut = 17000, altitude = 80000, bodyName = "Kerbin" });
+            rec.Points.Add(new TrajectoryPoint { ut = 17029, altitude = 40000, bodyName = "Kerbin" });
+            rec.Points.Add(new TrajectoryPoint { ut = 17030, altitude = 30000, bodyName = "Kerbin" });
+            rec.Points.Add(new TrajectoryPoint { ut = 17060, altitude = 100, bodyName = "Kerbin" });
+            rec.TrackSections.Add(new TrackSection
+            {
+                environment = SegmentEnvironment.ExoBallistic,
+                startUT = 17000, endUT = 17030,
+                frames = new List<TrajectoryPoint>()
+            });
+            rec.TrackSections.Add(new TrackSection
+            {
+                environment = SegmentEnvironment.Atmospheric,
+                startUT = 17030, endUT = 17060,
+                frames = new List<TrajectoryPoint>()
+            });
+
+            tree.Recordings[rec.RecordingId] = rec;
+            tree.RootRecordingId = rec.RecordingId;
+
+            // Commit tree directly
+            RecordingStore.CommittedRecordings.Add(rec);
+            RecordingStore.CommittedTrees.Add(tree);
+
+            RecordingStore.RunOptimizationPass();
+
+            // Tree should now have 2 recordings
+            Assert.Equal(2, tree.Recordings.Count);
+            Assert.Equal(2, RecordingStore.CommittedRecordings.Count);
+
+            // Both recordings should have the tree ID
+            foreach (var r in tree.Recordings.Values)
+                Assert.Equal(tree.Id, r.TreeId);
+
+            // Chain linkage: both should share a ChainId
+            var all = new List<Recording>(tree.Recordings.Values);
+            all.Sort((a, b) => a.StartUT.CompareTo(b.StartUT));
+            Assert.Equal(all[0].ChainId, all[1].ChainId);
+            Assert.Equal(0, all[0].ChainIndex);
+            Assert.Equal(1, all[1].ChainIndex);
+
+            // Terminal state should be on the second half only
+            Assert.Null(all[0].TerminalStateValue);
+            Assert.Equal(TerminalState.Destroyed, all[1].TerminalStateValue);
+
+            RecordingStore.ResetForTesting();
+        }
+
+        [Fact]
+        public void RunOptimizationPass_SplitUpdatesTreeBranchPoint()
+        {
+            RecordingStore.SuppressLogging = true;
+            RecordingStore.ResetForTesting();
+
+            // Build a tree with one recording that has a ChildBranchPointId
+            // and spans two environment sections -- the split should move
+            // the ChildBranchPointId to the second half and update the BP
+            var tree = new RecordingTree
+            {
+                Id = "tree-bp-test",
+                TreeName = "BPTest"
+            };
+
+            var bp = new BranchPoint
+            {
+                Id = "bp-001",
+                UT = 17060,
+                Type = BranchPointType.Undock,
+                ParentRecordingIds = new List<string> { "rec-parent" },
+                ChildRecordingIds = new List<string> { "rec-child" }
+            };
+            tree.BranchPoints.Add(bp);
+
+            var rec = new Recording
+            {
+                RecordingId = "rec-parent",
+                VesselName = "Rocket",
+                TreeId = tree.Id,
+                VesselPersistentId = 42,
+                ChildBranchPointId = "bp-001",
+                GhostVisualSnapshot = new ConfigNode("VESSEL"),
+                RecordingFormatVersion = 0
+            };
+            rec.Points.Add(new TrajectoryPoint { ut = 17000, altitude = 80000, bodyName = "Kerbin" });
+            rec.Points.Add(new TrajectoryPoint { ut = 17029, altitude = 40000, bodyName = "Kerbin" });
+            rec.Points.Add(new TrajectoryPoint { ut = 17030, altitude = 30000, bodyName = "Kerbin" });
+            rec.Points.Add(new TrajectoryPoint { ut = 17060, altitude = 100, bodyName = "Kerbin" });
+            rec.TrackSections.Add(new TrackSection
+            {
+                environment = SegmentEnvironment.ExoBallistic,
+                startUT = 17000, endUT = 17030,
+                frames = new List<TrajectoryPoint>()
+            });
+            rec.TrackSections.Add(new TrackSection
+            {
+                environment = SegmentEnvironment.Atmospheric,
+                startUT = 17030, endUT = 17060,
+                frames = new List<TrajectoryPoint>()
+            });
+
+            tree.Recordings[rec.RecordingId] = rec;
+            tree.RootRecordingId = rec.RecordingId;
+
+            RecordingStore.CommittedRecordings.Add(rec);
+            RecordingStore.CommittedTrees.Add(tree);
+
+            RecordingStore.RunOptimizationPass();
+
+            // After split, first half should have no ChildBranchPointId
+            Assert.Null(rec.ChildBranchPointId);
+
+            // Second half should have the ChildBranchPointId
+            var all = new List<Recording>(tree.Recordings.Values);
+            var secondHalf = all.Find(r => r.RecordingId != "rec-parent");
+            Assert.NotNull(secondHalf);
+            Assert.Equal("bp-001", secondHalf.ChildBranchPointId);
+
+            // BranchPoint.ParentRecordingIds should reference the second half, not the original
+            Assert.Contains(secondHalf.RecordingId, bp.ParentRecordingIds);
+            Assert.DoesNotContain("rec-parent", bp.ParentRecordingIds);
+
+            RecordingStore.ResetForTesting();
+        }
+
+        [Fact]
+        public void RunOptimizationPass_SplitLogsTreeId()
+        {
+            RecordingStore.SuppressLogging = true;
+            RecordingStore.ResetForTesting();
+
+            var logLines = new List<string>();
+            ParsekLog.SuppressLogging = false;
+            ParsekLog.TestSinkForTesting = line => logLines.Add(line);
+            try
+            {
+                var tree = new RecordingTree
+                {
+                    Id = "tree-log-test",
+                    TreeName = "LogTest"
+                };
+
+                var rec = new Recording
+                {
+                    RecordingId = "rec-log",
+                    VesselName = "Rocket",
+                    TreeId = tree.Id,
+                    VesselPersistentId = 42,
+                    TerminalStateValue = TerminalState.Destroyed,
+                    GhostVisualSnapshot = new ConfigNode("VESSEL"),
+                    RecordingFormatVersion = 0
+                };
+                rec.Points.Add(new TrajectoryPoint { ut = 17000, altitude = 80000, bodyName = "Kerbin" });
+                rec.Points.Add(new TrajectoryPoint { ut = 17029, altitude = 40000, bodyName = "Kerbin" });
+                rec.Points.Add(new TrajectoryPoint { ut = 17030, altitude = 30000, bodyName = "Kerbin" });
+                rec.Points.Add(new TrajectoryPoint { ut = 17060, altitude = 100, bodyName = "Kerbin" });
+                rec.TrackSections.Add(new TrackSection
+                {
+                    environment = SegmentEnvironment.ExoBallistic,
+                    startUT = 17000, endUT = 17030,
+                    frames = new List<TrajectoryPoint>()
+                });
+                rec.TrackSections.Add(new TrackSection
+                {
+                    environment = SegmentEnvironment.Atmospheric,
+                    startUT = 17030, endUT = 17060,
+                    frames = new List<TrajectoryPoint>()
+                });
+
+                tree.Recordings[rec.RecordingId] = rec;
+                tree.RootRecordingId = rec.RecordingId;
+
+                RecordingStore.CommittedRecordings.Add(rec);
+                RecordingStore.CommittedTrees.Add(tree);
+
+                RecordingStore.RunOptimizationPass();
+
+                Assert.Contains(logLines, l =>
+                    l.Contains("[RecordingStore]") && l.Contains("Split recording") && l.Contains("tree=tree-log-test"));
+            }
+            finally
+            {
+                ParsekLog.SuppressLogging = true;
+                ParsekLog.ResetTestOverrides();
+                RecordingStore.ResetForTesting();
+            }
+        }
+
+        [Fact]
         public void RunOptimizationPass_LogsFlushDirtyFiles()
         {
             var logLines = new List<string>();

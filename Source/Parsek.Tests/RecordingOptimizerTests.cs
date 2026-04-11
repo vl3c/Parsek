@@ -716,6 +716,16 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void CanAutoSplitIgnoringGhostTriggers_AllowsTreeRecordings()
+        {
+            var rec = MakeRecordingWithSections(17000, 17030, 17060,
+                SegmentEnvironment.ExoBallistic, SegmentEnvironment.Atmospheric);
+            rec.TreeId = "tree-001";
+
+            Assert.True(RecordingOptimizer.CanAutoSplitIgnoringGhostTriggers(rec, 1));
+        }
+
+        [Fact]
         public void CanAutoSplitIgnoringGhostTriggers_StillChecksMinDuration()
         {
             var rec = MakeRecordingWithSections(17000, 17057, 17060,
@@ -752,6 +762,19 @@ namespace Parsek.Tests
             var committed = new List<Recording> { rec };
 
             Assert.Empty(RecordingOptimizer.FindSplitCandidates(committed));
+            var candidates = RecordingOptimizer.FindSplitCandidatesForOptimizer(committed);
+            Assert.Single(candidates);
+            Assert.Equal((0, 1), candidates[0]);
+        }
+
+        [Fact]
+        public void FindSplitCandidatesForOptimizer_FindsTreeRecordings()
+        {
+            var rec = MakeRecordingWithSections(17000, 17030, 17060,
+                SegmentEnvironment.ExoBallistic, SegmentEnvironment.Atmospheric);
+            rec.TreeId = "tree-001";
+            var committed = new List<Recording> { rec };
+
             var candidates = RecordingOptimizer.FindSplitCandidatesForOptimizer(committed);
             Assert.Single(candidates);
             Assert.Equal((0, 1), candidates[0]);
@@ -1025,11 +1048,9 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void RunOptimizationPass_SkipsTreeRecordings()
+        public void RunOptimizationPass_SplitsTreeRecordingsAtEnvBoundary()
         {
-            // Bug #271: tree recordings must not be split by the optimizer.
-            // The optimizer produces standalone chain recordings outside the tree
-            // structure, breaking ghost chain traversal. Tree splits deferred to T56.
+            // T56: tree recordings are now split at environment boundaries.
             RecordingStore.SuppressLogging = true;
             RecordingStore.ResetForTesting();
 
@@ -1053,9 +1074,12 @@ namespace Parsek.Tests
 
             RecordingStore.RunOptimizationPass();
 
-            // Tree recording should NOT be split
-            Assert.Equal(1, recordings.Count);
+            // Tree recording should be split into 2 chain segments
+            Assert.Equal(2, recordings.Count);
             Assert.Equal("rec_in_tree", recordings[0].RecordingId);
+            Assert.Equal("tree_001", recordings[0].TreeId);
+            Assert.Equal("tree_001", recordings[1].TreeId);
+            Assert.Equal(2, tree.Recordings.Count);
 
             RecordingStore.ResetForTesting();
         }
@@ -1084,9 +1108,11 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void RunOptimizationPass_SkipsTreeRecordingsWithBranchPoints()
+        public void RunOptimizationPass_SplitsTreeRecordingAndUpdatesBranchPoint()
         {
-            // Bug #271: tree recordings with branch points must not be split.
+            // T56: tree recordings are now split at environment boundaries.
+            // The ChildBranchPointId moves to the second half, and the
+            // BranchPoint.ParentRecordingIds is updated to reference it.
             RecordingStore.SuppressLogging = true;
             RecordingStore.ResetForTesting();
 
@@ -1119,10 +1145,22 @@ namespace Parsek.Tests
 
             RecordingStore.RunOptimizationPass();
 
-            // Tree recording should NOT be split
-            Assert.Equal(1, recordings.Count);
+            // Tree recording should be split into 2
+            Assert.Equal(2, recordings.Count);
+            Assert.Equal(2, tree.Recordings.Count);
+
+            // First half keeps original ID, no ChildBranchPointId
             Assert.Equal("parent_rec", recordings[0].RecordingId);
-            Assert.Equal("bp_001", recordings[0].ChildBranchPointId);
+            Assert.Null(recordings[0].ChildBranchPointId);
+
+            // Second half gets ChildBranchPointId
+            var secondHalf = recordings[1];
+            Assert.Equal("bp_001", secondHalf.ChildBranchPointId);
+            Assert.Equal("tree_bp", secondHalf.TreeId);
+
+            // BP.ParentRecordingIds updated to reference second half
+            Assert.Contains(secondHalf.RecordingId, bp.ParentRecordingIds);
+            Assert.DoesNotContain("parent_rec", bp.ParentRecordingIds);
 
             RecordingStore.ResetForTesting();
         }
@@ -2071,18 +2109,18 @@ namespace Parsek.Tests
 
         /// <summary>
         /// Simulates a Mun mission: launch (atmo), orbit+transfer (exo), approach, surface.
-        /// The main recording has a staging branch point during exo phase.
+        /// The main recording has a staging branch point at the end.
         /// After optimizer splits, verifies:
-        /// - 4 chain segments (atmo, exo, approach, surface)
-        /// - ChildBranchPointId ends up on the exo segment (where the staging happened)
-        /// - BranchPoint.ParentRecordingIds correctly references the exo segment
+        /// - 4 chain segments from main (atmo, exo, approach, surface) + 1 debris = 5 total
+        /// - ChildBranchPointId ends up on the last chain segment (surface)
+        /// - BranchPoint.ParentRecordingIds correctly references the last segment
         /// - Chain indices are sequential
+        /// - All chain segments are in the tree's Recordings dict
         /// - Debris recording is untouched
         /// </summary>
         [Fact]
-        public void RunOptimizationPass_TreeWithBranchPoint_NotSplit()
+        public void RunOptimizationPass_TreeMultiSection_SplitsIntoChainSegments()
         {
-            // Bug #271: tree recordings are skipped by the optimizer.
             RecordingStore.SuppressLogging = true;
             RecordingStore.ResetForTesting();
 
@@ -2124,20 +2162,18 @@ namespace Parsek.Tests
                 frames = new List<TrajectoryPoint>()
             });
 
-            // Branch point at recording's temporal end (UT=17700), as in real tree mode
-            // where ChildBranchPointId is set at branchUT during CreateSplitBranch.
             main.ChildBranchPointId = "bp_staging";
 
             var bp = new BranchPoint
             {
                 Id = "bp_staging",
-                UT = 17700, // at recording's end (as in real tree mode)
+                UT = 17700,
                 Type = BranchPointType.JointBreak,
                 ParentRecordingIds = new List<string> { "main_rec" },
                 ChildRecordingIds = new List<string> { "main_continuation", "debris_rec" }
             };
 
-            // Debris recording (booster) — single environment, won't be split
+            // Debris recording (booster) -- single environment, won't be split
             var debris = new Recording
             {
                 RecordingId = "debris_rec",
@@ -2174,15 +2210,27 @@ namespace Parsek.Tests
 
             RecordingStore.RunOptimizationPass();
 
-            // Bug #271: tree recordings should NOT be split — 2 recordings remain (main + debris)
-            Assert.Equal(2, recordings.Count);
+            // 4 chain segments from main + 1 debris = 5 recordings
+            Assert.Equal(5, recordings.Count);
+            Assert.Equal(5, tree.Recordings.Count);
 
-            // Main recording unchanged
-            var mainResult = recordings.Find(r => r.RecordingId == "main_rec");
-            Assert.NotNull(mainResult);
-            Assert.Equal("tree_mun", mainResult.TreeId);
-            Assert.Equal("bp_staging", mainResult.ChildBranchPointId);
-            Assert.Equal(14, mainResult.Points.Count);
+            // All chain segments should have TreeId set and share a ChainId
+            var chainMembers = recordings.FindAll(r => r.RecordingId == "main_rec" || r.ChainId == main.ChainId);
+            Assert.Equal(4, chainMembers.Count);
+            chainMembers.Sort((a, b) => a.StartUT.CompareTo(b.StartUT));
+            for (int i = 0; i < chainMembers.Count; i++)
+            {
+                Assert.Equal("tree_mun", chainMembers[i].TreeId);
+                Assert.Equal(i, chainMembers[i].ChainIndex);
+            }
+
+            // ChildBranchPointId should be on the last chain segment only
+            for (int i = 0; i < chainMembers.Count - 1; i++)
+                Assert.Null(chainMembers[i].ChildBranchPointId);
+            Assert.Equal("bp_staging", chainMembers[chainMembers.Count - 1].ChildBranchPointId);
+
+            // BP.ParentRecordingIds should reference the last chain segment
+            Assert.Contains(chainMembers[chainMembers.Count - 1].RecordingId, bp.ParentRecordingIds);
 
             // Debris recording unchanged
             var debrisResult = recordings.Find(r => r.RecordingId == "debris_rec");

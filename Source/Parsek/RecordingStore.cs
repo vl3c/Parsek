@@ -1112,8 +1112,9 @@ namespace Parsek
                 splitCount++;
                 splitChanged = true;
                 ParsekLog.Info("RecordingStore",
-                    $"Split recording '{original.VesselName}' at section {secIdx}: " +
-                    $"'{original.SegmentPhase ?? "?"}' [{original.StartUT:F0}..{original.EndUT:F0}] + " +
+                    $"Split recording '{original.VesselName}' at section {secIdx}" +
+                    (!string.IsNullOrEmpty(original.TreeId) ? $" (tree={original.TreeId})" : "") +
+                    $": '{original.SegmentPhase ?? "?"}' [{original.StartUT:F0}..{original.EndUT:F0}] + " +
                     $"'{second.SegmentPhase ?? "?"}' [{second.StartUT:F0}..{second.EndUT:F0}]");
             }
 
@@ -1144,6 +1145,15 @@ namespace Parsek
             // Loop sync pass: link debris recordings to their parent recording
             // so debris ghosts replay in sync with the parent's loop cycle.
             PopulateLoopSyncParentIndices(recordings);
+
+            // Rebuild BackgroundMap for trees that had structural changes (splits/merges).
+            // BackgroundMap is a runtime-only field mapping PID → RecordingId; splits create
+            // new recordings and merges remove them, invalidating the map.
+            if (mergeCount > 0 || splitCount > 0)
+            {
+                for (int t = 0; t < committedTrees.Count; t++)
+                    committedTrees[t].RebuildBackgroundMap();
+            }
 
             // Flush all dirty recordings to disk so the crash window after
             // commit+optimize is closed (data no longer lives only in RAM).
