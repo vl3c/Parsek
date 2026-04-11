@@ -306,10 +306,15 @@ namespace Parsek
             }
             GUILayout.EndHorizontal();
 
-            if (!string.IsNullOrEmpty(GUI.tooltip))
+            string guiTooltip = GUI.tooltip ?? "";
+            if (guiTooltip.Length > 0)
             {
                 GUILayout.Space(SpacingSmall);
-                GUILayout.Label(GUI.tooltip, GUI.skin.box);
+                GUILayout.Label(guiTooltip, GUI.skin.box);
+            }
+            else
+            {
+                GUILayout.Label("", GUILayout.Height(0));
             }
 
             ParsekUI.DrawResizeHandle(spawnControlWindowRect, ref isResizingSpawnControlWindow,
