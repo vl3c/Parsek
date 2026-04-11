@@ -726,7 +726,13 @@ namespace Parsek
                     if (recordedVessel != null && recordedVessel.mainBody != null)
                     {
                         pending.SegmentBodyName = recordedVessel.mainBody.name;
-                        if (recordedVessel.mainBody.atmosphere)
+                        if (recordedVessel.situation == Vessel.Situations.LANDED
+                            || recordedVessel.situation == Vessel.Situations.SPLASHED
+                            || recordedVessel.situation == Vessel.Situations.PRELAUNCH)
+                        {
+                            pending.SegmentPhase = "surface";
+                        }
+                        else if (recordedVessel.mainBody.atmosphere)
                             pending.SegmentPhase = recordedVessel.altitude < recordedVessel.mainBody.atmosphereDepth ? "atmo" : "exo";
                         else
                         {
