@@ -70,6 +70,10 @@ namespace Parsek
                 $"Tree merge dialog: tree='{tree.TreeName}', recordings={tree.Recordings.Count}, " +
                 $"spawnable={spawnCount}");
 
+            if (spawnCount == 0 && decisions.Count > 0)
+                message += "\n\nNo flight branches produced a vessel that can continue flying. " +
+                           "The recordings will play back as ghosts, but no vessel will be placed.";
+
             var capturedDecisions = decisions;
 
             DialogGUIButton[] buttons = new[]
@@ -94,7 +98,8 @@ namespace Parsek
                         ParsekLog.ScreenMessage(
                             $"Merged - {spawnCount} vessel(s) will appear after ghost playback", 3f);
                     else
-                        ParsekLog.ScreenMessage("Merged to timeline!", 3f);
+                        ParsekLog.ScreenMessage(
+                            "Merged to timeline (no surviving vessels)", 3f);
                     ParsekLog.Info("MergeDialog",
                         $"User chose: Tree Merge (tree='{tree.TreeName}', " +
                         $"recordings={tree.Recordings.Count}, spawnable={spawnCount})");
