@@ -2685,13 +2685,21 @@ namespace Parsek
             // The recording continues past breakup (breakup-continuous design), so the
             // spawn snapshot must show the surviving vessel, not the pre-breakup config.
             // Without this, spawning materializes the full pre-breakup rocket. (#224)
+            //
+            // Bug #271: in always-tree mode, the tree recording's trajectory points are
+            // still in the recorder buffer (not flushed to the Recording object), so
+            // SnapshotVessel's Points.Count==0 guard would skip the snapshot. Use
+            // TryBackupSnapshot directly — the distance calculation is not needed for
+            // a mid-flight snapshot refresh.
             Vessel activeVessel = FlightGlobals.ActiveVessel;
             if (activeVessel != null && activeVessel.persistentId == activeRec.VesselPersistentId)
             {
-                VesselSpawner.SnapshotVessel(activeRec, false);
+                var snap = VesselSpawner.TryBackupSnapshot(activeVessel);
+                if (snap != null)
+                    activeRec.VesselSnapshot = snap;
                 ParsekLog.Info("Coalescer",
                     $"ProcessBreakupEvent: refreshed VesselSnapshot post-breakup " +
-                    $"(parts={activeVessel.parts?.Count ?? 0})");
+                    $"(parts={activeVessel.parts?.Count ?? 0}, snapshot={snap != null})");
             }
 
             // Bug #298: snapshot active recorder's engine/RCS state for child recordings.
