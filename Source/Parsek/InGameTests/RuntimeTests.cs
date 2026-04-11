@@ -1761,18 +1761,22 @@ namespace Parsek.InGameTests
             double lon = activeVessel.longitude;
             double currentTerrain = body.TerrainAltitude(lat, lon, true);
 
-            // Simulate: at recording time terrain was 100m, vessel at 100.8m (0.8m clearance).
-            // Current terrain may differ. Set point altitude well above corrected target.
-            double recordedTerrain = 100.0;
-            double correctedTarget = currentTerrain + 0.8; // preserving 0.8m clearance
-            double safeAlt = correctedTarget + 50.0; // well above target
+            // Simulate: at recording time terrain was HIGHER than current (e.g., terrain
+            // erosion between sessions). Vessel had 5m clearance above recorded terrain.
+            // ComputeCorrectedAltitude formula: corrected = currentTerrain + (alt - recTerrain).
+            // No-op path requires recTerrain >= currentTerrain so corrected <= alt.
+            double recordedTerrain = currentTerrain + 200.0;
+            double clearance = 5.0;
+            double recordedAlt = recordedTerrain + clearance;
+            double correctedTarget = currentTerrain + clearance;
+            // recordedAlt > correctedTarget because recordedTerrain > currentTerrain
 
             var point = new Parsek.TrajectoryPoint
             {
                 ut = Planetarium.GetUniversalTime(),
                 latitude = lat,
                 longitude = lon,
-                altitude = safeAlt,
+                altitude = recordedAlt,
                 bodyName = body.name,
                 rotation = Quaternion.identity,
                 velocity = Vector3.zero,
@@ -1781,7 +1785,7 @@ namespace Parsek.InGameTests
             var clamped = ParsekFlight.ApplyLandedGhostClearance(
                 point, index: 282, vesselName: "Bug282RecNoOp", recordedTerrainHeight: recordedTerrain);
 
-            InGameAssert.AreEqual(safeAlt, clamped.altitude,
+            InGameAssert.AreEqual(recordedAlt, clamped.altitude,
                 $"Point already above corrected target ({correctedTarget:F2}) must not be modified " +
                 $"(got {clamped.altitude:F2})");
         }
@@ -2408,7 +2412,11 @@ namespace Parsek.InGameTests
             // Pre-condition: must have an active recording in tree mode
             var flight = ParsekFlight.Instance;
             InGameAssert.IsNotNull(flight, "ParsekFlight.Instance required");
-            InGameAssert.IsTrue(flight.IsRecording, "Must be recording");
+            if (!flight.IsRecording)
+            {
+                InGameAssert.Skip("no active recording — start a recording before running this test");
+                yield break;
+            }
 
             string preRecId = flight.ActiveTreeForSerialization?.ActiveRecordingId;
             InGameAssert.IsNotNull(preRecId, "ActiveRecordingId must be set before F5");

@@ -202,10 +202,15 @@ namespace Parsek
             }
             GUILayout.EndHorizontal();
 
-            if (!string.IsNullOrEmpty(GUI.tooltip))
+            string tooltip = GUI.tooltip ?? "";
+            if (tooltip.Length > 0)
             {
                 GUILayout.Space(SpacingSmall);
-                GUILayout.Label(GUI.tooltip, GUI.skin.box);
+                GUILayout.Label(tooltip, GUI.skin.box);
+            }
+            else
+            {
+                GUILayout.Label("", GUILayout.Height(0));
             }
 
             GUI.DragWindow();

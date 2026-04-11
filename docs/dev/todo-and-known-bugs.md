@@ -7,6 +7,52 @@ Entries 272–303 (78 bugs, 6 TODOs — mostly resolved) archived in `done/todo-
 
 # Known Bugs
 
+## ~~304. Raw #autoLOC keys in standalone recording vessel names~~
+
+**Observed in:** Sandbox (2026-04-10). Rovers and stock vessels launched from runway/island airfield showed `#autoLOC_501182` instead of "Crater Crawler" in the Recordings Manager, timeline entries, and log messages.
+
+**Root cause:** Three call sites read `FlightGlobals.ActiveVessel.vesselName` (which is a raw `#autoLOC_XXXX` key for stock vessels) and passed it to `RecordingStore.StashPending()` without calling `Recording.ResolveLocalizedName()`. `BuildCaptureRecording` (FlightRecorder.cs:4541) resolved the name correctly, but `StashPending` creates a new Recording object with whatever string is passed in, discarding the resolved name.
+
+**Fix:** In `StashPendingOnSceneChange`, `ShowPostDestructionMergeDialog`, and `CommitFlight`, prefer `CaptureAtStop.VesselName` (already resolved by `BuildCaptureRecording`) with `ResolveLocalizedName` on the fallback path.
+
+**Status:** Fixed
+
+---
+
+## ~~305. Standalone recordings lost on revert-to-launch~~
+
+**Observed in:** Sandbox (2026-04-10). Rover recordings from runway/island airfield were silently discarded on revert-to-launch. The user had to manually commit via the Commit Flight button instead of getting the merge dialog automatically. Tree recordings (rockets with staging) survived reverts via the Limbo state mechanism, but standalone recordings had no equivalent.
+
+**Root cause:** `DiscardStashedOnQuickload` (ParsekScenario.cs) unconditionally discards pending standalone recordings on any FLIGHT->FLIGHT transition with UT regression. Tree recordings survive because `PendingTreeState.Limbo` is explicitly preserved. Standalone recordings had no Limbo equivalent.
+
+**Fix:** Added `PendingStandaloneState` enum (parallel to `PendingTreeState`) with `Finalized` and `Limbo` values. `StashPendingOnSceneChange` assigns `Limbo` when the destination scene is FLIGHT. `DiscardStashedOnQuickload` preserves Limbo standalones (mirroring tree Limbo preservation). A new Limbo dispatch block in `OnLoad` (parallel to the tree Limbo dispatch) decides:
+- If `ScheduleActiveStandaloneRestoreOnFlightReady` is set (F5/F9 mid-recording): discard the stale Limbo standalone, let the restore resume from F5 data.
+- If no restore is scheduled (revert-to-launch): finalize the Limbo standalone for the merge dialog.
+
+Design aligned with bug #271 (standalone/tree unification) — the two modes now share symmetric state tracking.
+
+**Status:** Fixed
+
+---
+
+## ~~298b. FlightRecorder missing allEngineKeys -- #298 dead engine sentinels only work for BackgroundRecorder~~
+
+`PartStateSeeder.EmitEngineSeedEvents` emits `EngineShutdown` sentinels for dead engines
+using `sets.allEngineKeys` (#298). `BackgroundRecorder.BuildPartTrackingSetsFromState` sets
+`allEngineKeys = state.allEngineKeys`, but `FlightRecorder.BuildCurrentTrackingSets` omits it
+entirely. FlightRecorder has no `allEngineKeys` field, so `SeedEngines` populates it on a
+temporary `PartTrackingSets` that is immediately discarded. The subsequent `EmitSeedEvents`
+call creates a new set with an empty `allEngineKeys`, emitting zero sentinels.
+
+**Fix:** Add `private HashSet<ulong> allEngineKeys` to FlightRecorder and include it in
+`BuildCurrentTrackingSets`. `SeedEngines` will then populate FlightRecorder's own set
+(same reference pattern as `activeEngineKeys`), and the follow-up `EmitSeedEvents` will
+see the populated set and emit the sentinels.
+
+**Status:** ~~Fixed~~
+
+---
+
 ## ~~297. FallbackCommitSplitRecorder orphans tree continuation data as standalone recording~~
 
 When a vessel is destroyed during tree recording and the split recorder can't resume,
