@@ -54,6 +54,14 @@ namespace Parsek
         // since last SaveRecordingFiles call. Checked in OnSave to skip unchanged recordings.
         [NonSerialized] public bool FilesDirty;
 
+        // Sidecar epoch: monotonically increasing counter stamped into both .sfs metadata
+        // and .prec sidecar file on each write. On load, if the .prec epoch doesn't match
+        // the .sfs epoch, the sidecar is stale (written by a different save point) and
+        // trajectory data is skipped. See bug #270.
+        // Intentionally NOT [NonSerialized] — persists via ConfigNode in RecordingTree
+        // Save/LoadRecordingInto so the epoch survives scene reloads.
+        internal int SidecarEpoch;
+
         /// <summary>
         /// Marks this recording as needing its <c>.prec</c> sidecar file rewritten
         /// on the next <c>OnSave</c>. MUST be called after any mutation to
