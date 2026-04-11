@@ -4753,6 +4753,17 @@ namespace Parsek
                     VesselName = activeTree.TreeName,
                     RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion
                 };
+                // Capture GhostVisualSnapshot at recording start — the FULL vessel
+                // before any staging or breakup events. This is the snapshot used for
+                // ghost mesh rendering. VesselSnapshot is captured later at stop/split
+                // time and may reflect a reduced part count.
+                if (FlightGlobals.ActiveVessel != null)
+                {
+                    var startSnap = VesselSpawner.TryBackupSnapshot(FlightGlobals.ActiveVessel);
+                    if (startSnap != null)
+                        rootRec.GhostVisualSnapshot = startSnap;
+                }
+
                 activeTree.Recordings[rootRecId] = rootRec;
 
                 backgroundRecorder = new BackgroundRecorder(activeTree);
@@ -4761,7 +4772,8 @@ namespace Parsek
 
                 ParsekLog.Info("Flight",
                     $"Always-tree: created single-node tree id={treeId}, root={rootRecId}, " +
-                    $"vessel={activeTree.TreeName} (pid={vesselPid})");
+                    $"vessel={activeTree.TreeName} (pid={vesselPid}), " +
+                    $"ghostSnap={rootRec.GhostVisualSnapshot != null}");
             }
 
             // Propagate tree mode to new recorder so DecideOnVesselSwitch uses tree decisions

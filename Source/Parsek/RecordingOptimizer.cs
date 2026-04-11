@@ -396,7 +396,13 @@ namespace Parsek
                 }
             }
 
-            // 8. Clone GhostVisualSnapshot (safe: CanAutoSplit ensures no ghosting triggers)
+            // 8. Clone GhostVisualSnapshot (safe: CanAutoSplit ensures no ghosting triggers).
+            // Bug #271 safety net: if GhostVisualSnapshot is null but VesselSnapshot exists,
+            // create GhostVisualSnapshot from VesselSnapshot before transferring. Without this,
+            // the original half ends up with both fields null after step 10 transfers
+            // VesselSnapshot to the second half.
+            if (original.GhostVisualSnapshot == null && original.VesselSnapshot != null)
+                original.GhostVisualSnapshot = original.VesselSnapshot.CreateCopy();
             if (original.GhostVisualSnapshot != null)
                 second.GhostVisualSnapshot = original.GhostVisualSnapshot.CreateCopy();
 
