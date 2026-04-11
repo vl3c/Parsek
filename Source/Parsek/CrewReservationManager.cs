@@ -861,7 +861,7 @@ namespace Parsek
         /// Used by RemoveReservedEvaVessels to avoid deleting Parsek-spawned EVA vessels (bug #233).
         /// Extracted for testability.
         /// </summary>
-        internal static HashSet<uint> BuildSpawnedVesselPidSet(List<Recording> recordings)
+        internal static HashSet<uint> BuildSpawnedVesselPidSet(IReadOnlyList<Recording> recordings)
         {
             var pids = new HashSet<uint>();
             if (recordings == null) return pids;

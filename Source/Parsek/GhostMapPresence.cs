@@ -750,7 +750,7 @@ namespace Parsek
         /// A recording is superseded if another recording's ParentRecordingId points to it.
         /// Chain-tip recordings are NOT in the returned set.
         /// </summary>
-        internal static HashSet<string> FindSupersededRecordingIds(List<Recording> recordings)
+        internal static HashSet<string> FindSupersededRecordingIds(IReadOnlyList<Recording> recordings)
         {
             var superseded = new HashSet<string>();
             if (recordings == null) return superseded;

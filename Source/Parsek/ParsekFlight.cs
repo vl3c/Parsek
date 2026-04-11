@@ -175,7 +175,7 @@ namespace Parsek
                 recorder,
                 RecordingStore.PendingTree,
                 RecordingStore.PendingTreeStateValue,
-                RecordingStore.Pending,
+                null, // standalone pending removed (T56)
                 pendingSplitRecorder,
                 pendingSplitInProgress,
                 chainManager,
@@ -2074,7 +2074,9 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Fallback: if tree creation fails, commit captured data as a standalone recording.
+        /// Fallback: if tree append fails, commit captured data directly.
+        /// In always-tree mode the tree path should succeed for the active vessel;
+        /// this fallback handles edge cases (no active tree, debris).
         /// </summary>
         void FallbackCommitSplitRecorder(FlightRecorder splitRec)
         {
@@ -2088,103 +2090,78 @@ namespace Parsek
             if (TryAppendCapturedToTree(activeTree, captured))
                 return;
 
-            if (captured.Points.Count >= 2)
-            {
-                RecordingStore.StashPending(
-                    captured.Points, captured.VesselName,
-                    orbitSegments: captured.OrbitSegments,
-                    partEvents: captured.PartEvents,
-                    flagEvents: captured.FlagEvents);
-                // Copy snapshot/vessel state to the pending recording
-                if (RecordingStore.HasPending)
-                {
-                    var pending = RecordingStore.Pending;
-                    pending.VesselSnapshot = captured.VesselSnapshot;
-                    pending.GhostVisualSnapshot = captured.GhostVisualSnapshot;
-                    pending.VesselDestroyed = captured.VesselDestroyed;
-                    pending.VesselSituation = captured.VesselSituation;
-                    pending.DistanceFromLaunch = captured.DistanceFromLaunch;
-                    pending.MaxDistanceFromLaunch = captured.MaxDistanceFromLaunch;
-                    pending.PreLaunchFunds = captured.PreLaunchFunds;
-                    pending.PreLaunchScience = captured.PreLaunchScience;
-                    pending.PreLaunchReputation = captured.PreLaunchReputation;
-                    pending.RewindSaveFileName = captured.RewindSaveFileName;
-                    pending.RewindReservedFunds = captured.RewindReservedFunds;
-                    pending.RewindReservedScience = captured.RewindReservedScience;
-                    pending.RewindReservedRep = captured.RewindReservedRep;
+            var rec = RecordingStore.CreateRecordingFromFlightData(
+                captured.Points, captured.VesselName,
+                orbitSegments: captured.OrbitSegments,
+                partEvents: captured.PartEvents,
+                flagEvents: captured.FlagEvents);
 
-                    // Location context (Phase 10)
-                    pending.CopyStartLocationFrom(captured);
-                    pending.EndBiome = captured.EndBiome;
-
-                    // Preserve chain membership if this segment was part of a chain
-                    chainManager.ApplyChainMetadataTo(pending);
-
-                    // Set terminal state for destroyed vessels
-                    if (captured.VesselDestroyed)
-                    {
-                        pending.TerminalStateValue = TerminalState.Destroyed;
-                        ParsekLog.Verbose("Flight", "FallbackCommitSplitRecorder: set TerminalState=Destroyed");
-                    }
-
-                    // Tag segment phase if untagged
-                    TagSegmentPhaseIfMissing(pending, FlightGlobals.ActiveVessel);
-                }
-
-                // Destroyed vessels: discard pad failures or idle-on-pad, otherwise commit or defer to dialog.
-                // Dialog is deferred via coroutine so it appears AFTER KSP's crash report.
-                if (RecordingStore.Pending.VesselDestroyed)
-                {
-                    double dur = RecordingStore.Pending.EndUT - RecordingStore.Pending.StartUT;
-                    double maxDist = RecordingStore.Pending.MaxDistanceFromLaunch;
-                    if (IsPadFailure(dur, maxDist))
-                    {
-                        ParsekLog.Info("Flight",
-                            $"Vessel destroyed during split — pad failure ({dur:F1}s, {maxDist:F0}m), discarding");
-                        RecordingStore.DiscardPending();
-                        return;
-                    }
-                    if (IsIdleOnPad(maxDist))
-                    {
-                        ParsekLog.Info("Flight",
-                            $"Vessel destroyed during split — idle on pad (maxDist={maxDist:F1}m), discarding");
-                        RecordingStore.DiscardPending();
-                        return;
-                    }
-                    if (ParsekScenario.IsAutoMerge)
-                    {
-                        string amRecId = RecordingStore.Pending.RecordingId;
-                        double amStart = RecordingStore.Pending.StartUT;
-                        double amEnd = RecordingStore.Pending.EndUT;
-                        RecordingStore.CommitPending();
-                        LedgerOrchestrator.OnRecordingCommitted(amRecId, amStart, amEnd);
-                        ParsekLog.Info("Flight",
-                            $"Vessel destroyed during split — auto-merged ({dur:F1}s)");
-                    }
-                    else
-                    {
-                        // Defer dialog — pending stays stashed, coroutine shows it after 2s
-                        ParsekLog.Info("Flight",
-                            $"Vessel destroyed during split — deferring dialog ({dur:F1}s)");
-                        StartCoroutine(ShowDeferredSplitMergeDialog());
-                    }
-                    return;
-                }
-
-                string recId = RecordingStore.Pending.RecordingId;
-                double sUT = RecordingStore.Pending.StartUT;
-                double eUT = RecordingStore.Pending.EndUT;
-                RecordingStore.CommitPending();
-                LedgerOrchestrator.OnRecordingCommitted(recId, sUT, eUT);
-                string chainInfo = chainManager.ActiveChainId != null
-                    ? $" (chain={chainManager.ActiveChainId}, idx={chainManager.ActiveChainNextIndex})"
-                    : " (standalone)";
-                ParsekLog.Info("Flight", $"Vessel destroyed during split — recording committed{chainInfo}");
-            }
-            else
+            if (rec == null)
             {
                 ParsekLog.Warn("Flight", "Split branch failed — recording too short to commit, data lost");
+                return;
             }
+
+            // Copy snapshot/vessel state to the recording
+            rec.VesselSnapshot = captured.VesselSnapshot;
+            rec.GhostVisualSnapshot = captured.GhostVisualSnapshot;
+            rec.VesselDestroyed = captured.VesselDestroyed;
+            rec.VesselSituation = captured.VesselSituation;
+            rec.DistanceFromLaunch = captured.DistanceFromLaunch;
+            rec.MaxDistanceFromLaunch = captured.MaxDistanceFromLaunch;
+            rec.PreLaunchFunds = captured.PreLaunchFunds;
+            rec.PreLaunchScience = captured.PreLaunchScience;
+            rec.PreLaunchReputation = captured.PreLaunchReputation;
+            rec.RewindSaveFileName = captured.RewindSaveFileName;
+            rec.RewindReservedFunds = captured.RewindReservedFunds;
+            rec.RewindReservedScience = captured.RewindReservedScience;
+            rec.RewindReservedRep = captured.RewindReservedRep;
+
+            // Location context (Phase 10)
+            rec.CopyStartLocationFrom(captured);
+            rec.EndBiome = captured.EndBiome;
+
+            // Preserve chain membership if this segment was part of a chain
+            chainManager.ApplyChainMetadataTo(rec);
+
+            // Set terminal state for destroyed vessels
+            if (captured.VesselDestroyed)
+            {
+                rec.TerminalStateValue = TerminalState.Destroyed;
+                ParsekLog.Verbose("Flight", "FallbackCommitSplitRecorder: set TerminalState=Destroyed");
+            }
+
+            // Tag segment phase if untagged
+            TagSegmentPhaseIfMissing(rec, FlightGlobals.ActiveVessel);
+
+            // Destroyed vessels: discard pad failures or idle-on-pad, otherwise commit directly.
+            if (rec.VesselDestroyed)
+            {
+                double dur = rec.EndUT - rec.StartUT;
+                double maxDist = rec.MaxDistanceFromLaunch;
+                if (IsPadFailure(dur, maxDist))
+                {
+                    ParsekLog.Info("Flight",
+                        $"Vessel destroyed during split — pad failure ({dur:F1}s, {maxDist:F0}m), discarding");
+                    return;
+                }
+                if (IsIdleOnPad(maxDist))
+                {
+                    ParsekLog.Info("Flight",
+                        $"Vessel destroyed during split — idle on pad (maxDist={maxDist:F1}m), discarding");
+                    return;
+                }
+            }
+
+            string recId = rec.RecordingId;
+            double sUT = rec.StartUT;
+            double eUT = rec.EndUT;
+            RecordingStore.CommitRecordingDirect(rec);
+            LedgerOrchestrator.OnRecordingCommitted(recId, sUT, eUT);
+            string chainInfo = chainManager.ActiveChainId != null
+                ? $" (chain={chainManager.ActiveChainId}, idx={chainManager.ActiveChainNextIndex})"
+                : "";
+            ParsekLog.Info("Flight", $"FallbackCommitSplitRecorder: recording committed{chainInfo}");
         }
 
         /// <summary>
@@ -3891,17 +3868,6 @@ namespace Parsek
                     "restore coroutine in progress (#293)");
             }
 
-            // Handle pending standalone recording.
-            // On non-revert scene changes, pending recordings are auto-committed by ParsekScenario.
-            // On reverts, the merge dialog is expected here (player chose to revert).
-            // #293: skip when restore coroutine is running — standalone and tree modes are
-            // mutually exclusive, so a pending standalone during tree restore is unexpected.
-            if (RecordingStore.HasPending && !restoringActiveTree)
-                HandlePendingStandaloneRecording();
-            else if (RecordingStore.HasPending && restoringActiveTree)
-                ParsekLog.Warn("Flight",
-                    "Pending standalone recording exists while restore coroutine is running — skipping (unexpected)");
-
             // Swap reserved crew out of the active vessel so the player
             // can't record with them again (they belong to deferred-spawn vessels)
             int swapResult = CrewReservationManager.SwapReservedCrewInFlight();
@@ -3925,61 +3891,6 @@ namespace Parsek
                     : "";
                 Log($"  Recording #{i}: \"{rec.VesselName}\" UT {rec.StartUT:F0}-{rec.EndUT:F0}, " +
                     $"{rec.Points.Count} pts{orbitInfo}, {hasVessel}{chainInfo}");
-            }
-        }
-
-        /// <summary>
-        /// Handles pending standalone recording on flight ready: marks for force-spawn,
-        /// routes to chain-level merge dialog, EVA auto-commit, or standard merge dialog.
-        /// </summary>
-        private void HandlePendingStandaloneRecording()
-        {
-            var pending = RecordingStore.Pending;
-
-            // No per-recording flag needed — SceneEntryActiveVesselPid (set above)
-            // lets SpawnVesselOrChainTip bypass PID dedup statelessly.
-
-            // Check if this is part of a chain with committed siblings
-            bool hasChainSiblings = !string.IsNullOrEmpty(pending.ChainId) &&
-                RecordingStore.GetChainRecordings(pending.ChainId) != null;
-
-            if (hasChainSiblings)
-            {
-                // Chain-level merge dialog (covers all segments)
-                Log($"Found pending chain recording (chain={pending.ChainId}, idx={pending.ChainIndex})");
-                CommitOrShowDialog(pending);
-            }
-            else if (!string.IsNullOrEmpty(pending.ParentRecordingId))
-            {
-                // Legacy: auto-commit EVA child recordings (skip merge dialog)
-                bool parentFound = false;
-                foreach (var rec in RecordingStore.CommittedRecordings)
-                {
-                    if (rec.RecordingId == pending.ParentRecordingId)
-                    {
-                        parentFound = true;
-                        break;
-                    }
-                }
-                if (parentFound)
-                {
-                    Log($"Auto-committing EVA child recording (parent={pending.ParentRecordingId}, crew={pending.EvaCrewName})");
-                    string recId = pending.RecordingId;
-                    double startUT = pending.StartUT;
-                    double endUT = pending.EndUT;
-                    RecordingStore.CommitPending();
-                    LedgerOrchestrator.OnRecordingCommitted(recId, startUT, endUT);
-                }
-                else
-                {
-                    Log($"EVA child recording has no matching parent — commit or dialog");
-                    CommitOrShowDialog(pending);
-                }
-            }
-            else
-            {
-                Log($"Found pending recording from {pending.VesselName} ({pending.Points.Count} points)");
-                CommitOrShowDialog(pending);
             }
         }
 
@@ -4856,7 +4767,10 @@ namespace Parsek
 
             // Propagate tree mode to new recorder so DecideOnVesselSwitch uses tree decisions
             if (activeTree != null)
+            {
                 recorder.ActiveTree = activeTree;
+                chainManager.ActiveTreeId = activeTree.Id;
+            }
             recorder.StartRecording(isPromotion: isContinuation);
             if (!recorder.IsRecording)
             {
@@ -5312,6 +5226,7 @@ namespace Parsek
             // Construct a fresh FlightRecorder pointed at the restored tree.
             recorder = new FlightRecorder();
             recorder.ActiveTree = activeTree;
+            chainManager.ActiveTreeId = activeTree.Id;
 
             // Restore recorder state persisted in the PARSEK_ACTIVE_TREE node
             if (!string.IsNullOrEmpty(ParsekScenario.pendingActiveTreeResumeRewindSave))
@@ -5414,6 +5329,8 @@ namespace Parsek
                     "we verified the tree exists");
                 yield break;
             }
+
+            chainManager.ActiveTreeId = activeTree.Id;
 
             // Re-attach the BackgroundRecorder for the tree (the previous instance was
             // shut down in FinalizeTreeOnSceneChange before the scene reload).
@@ -6711,7 +6628,7 @@ namespace Parsek
         /// Returns null if no recording covers this UT for this vessel.
         /// </summary>
         internal static Recording FindBackgroundRecordingForVessel(
-            List<Recording> committedRecordings, uint vesselPid, double currentUT)
+            IReadOnlyList<Recording> committedRecordings, uint vesselPid, double currentUT)
         {
             if (committedRecordings == null) return null;
             for (int i = 0; i < committedRecordings.Count; i++)
@@ -7045,7 +6962,7 @@ namespace Parsek
         /// from the hot path (was O(n^2), now O(n)).
         /// </summary>
         private TrajectoryPlaybackFlags[] ComputePlaybackFlags(
-            List<Recording> committed, double currentUT)
+            IReadOnlyList<Recording> committed, double currentUT)
         {
             var flags = new TrajectoryPlaybackFlags[committed.Count];
             for (int i = 0; i < committed.Count; i++)
@@ -7081,7 +6998,6 @@ namespace Parsek
                 flags[i] = new TrajectoryPlaybackFlags
                 {
                     skipGhost = !hasData || !rec.PlaybackEnabled || externalVesselSuppressed,
-                    isStandalone = !rec.IsTreeRecording,
                     isMidChain = RecordingStore.IsChainMidSegment(rec),
                     chainEndUT = RecordingStore.GetChainEndUT(rec),
                     needsSpawn = finalNeedsSpawn,
@@ -8586,55 +8502,6 @@ namespace Parsek
             return "unknown guard in FlightRecorder.StartRecording";
         }
 
-        /// <summary>
-        /// Commits or shows merge dialog for the pending recording, depending on the autoMerge setting.
-        /// </summary>
-        void CommitOrShowDialog(Recording pending)
-        {
-            // Auto-discard idle-on-pad recordings before committing or showing dialog
-            if (IsIdleOnPad(pending.MaxDistanceFromLaunch))
-            {
-                Log($"CommitOrShowDialog: idle on pad (maxDist={pending.MaxDistanceFromLaunch:F1}m) — auto-discarding");
-                ScreenMessage("Recording discarded — vessel idle on pad", 3f);
-                RecordingStore.DiscardPending();
-                return;
-            }
-
-            if (ParsekScenario.IsAutoMerge)
-            {
-                string recId = pending.RecordingId;
-                double startUT = pending.StartUT;
-                double endUT = pending.EndUT;
-                RecordingStore.CommitPending();
-                LedgerOrchestrator.OnRecordingCommitted(recId, startUT, endUT);
-                Log($"Auto-merged recording from {pending.VesselName} ({pending.Points.Count} points)");
-            }
-            else
-            {
-                Log($"Showing merge dialog for {pending.VesselName} ({pending.Points.Count} points)");
-                MergeDialog.Show(pending);
-            }
-        }
-
-        /// <summary>
-        /// Deferred merge dialog for destroyed vessels in the split path.
-        /// Waits one frame to let the destruction sequence complete. The Harmony
-        /// patch on FlightResultsDialog.Display handles ordering with KSP's report.
-        /// </summary>
-        IEnumerator ShowDeferredSplitMergeDialog()
-        {
-            yield return null;
-
-            if (!RecordingStore.HasPending)
-            {
-                Log("Deferred split merge dialog: pending consumed during wait — aborting");
-                yield break;
-            }
-
-            Log($"Showing deferred split merge dialog for {RecordingStore.Pending.VesselName}");
-            MergeDialog.Show(RecordingStore.Pending);
-        }
-
         // ────────────────────────────────────────────────────────────
         //  Phase 6d: Ghost labels, spawn warnings, chain status
         // ────────────────────────────────────────────────────────────
@@ -8782,7 +8649,7 @@ namespace Parsek
         /// Scans active ghosts for spawn-eligible recordings within proximity range.
         /// Populates nearbySpawnCandidates with qualifying entries.
         /// </summary>
-        private void CollectNearbySpawnCandidates(Vector3d activePos, double currentUT, List<Recording> committed)
+        private void CollectNearbySpawnCandidates(Vector3d activePos, double currentUT, IReadOnlyList<Recording> committed)
         {
             foreach (var kvp in ghostStates)
             {

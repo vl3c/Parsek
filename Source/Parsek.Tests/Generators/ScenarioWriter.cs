@@ -8,7 +8,6 @@ namespace Parsek.Tests.Generators
 {
     public class ScenarioWriter
     {
-        private readonly List<ConfigNode> recordings = new List<ConfigNode>();
         private readonly List<RecordingBuilder> v3Builders = new List<RecordingBuilder>();
         private readonly List<ConfigNode> trees = new List<ConfigNode>();
         private readonly List<(string original, string replacement)> crewReplacements
@@ -19,30 +18,9 @@ namespace Parsek.Tests.Generators
         private uint milestoneEpoch;
         private bool useV3Format;
 
-        public ScenarioWriter AddRecording(ConfigNode recNode)
-        {
-            recordings.Add(recNode);
-            return this;
-        }
-
-        public ScenarioWriter AddRecording(RecordingBuilder builder)
-        {
-            if (useV3Format)
-            {
-                recordings.Add(builder.BuildV3Metadata());
-                v3Builders.Add(builder);
-            }
-            else
-            {
-                recordings.Add(builder.Build());
-            }
-            return this;
-        }
-
         /// <summary>
         /// Wraps a single RecordingBuilder into a RECORDING_TREE node and adds it
-        /// to the scenario. This is the always-tree equivalent of AddRecording:
-        /// each standalone recording becomes a single-recording tree.
+        /// to the scenario. Each recording becomes a single-recording tree.
         /// Sidecar files (.prec, _vessel.craft, _ghost.craft) are also registered
         /// for writing when WithV3Format is active.
         /// </summary>
@@ -189,9 +167,6 @@ namespace Parsek.Tests.Generators
             var node = new ConfigNode("SCENARIO");
             node.AddValue("name", "ParsekScenario");
             node.AddValue("scene", "5, 6, 7, 8");
-
-            foreach (var rec in recordings)
-                node.AddNode(rec);
 
             foreach (var tree in trees)
                 node.AddNode("RECORDING_TREE", tree);

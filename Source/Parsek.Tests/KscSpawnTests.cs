@@ -269,8 +269,8 @@ namespace Parsek.Tests
             tipRec.ChainIndex = 1;
             tipRec.ChainBranch = 0;
 
-            RecordingStore.CommittedRecordings.Add(midRec);
-            RecordingStore.CommittedRecordings.Add(tipRec);
+            RecordingStore.AddRecordingWithTreeForTesting(midRec);
+            RecordingStore.AddRecordingWithTreeForTesting(tipRec);
 
             var (needsSpawn, reason) = GhostPlaybackLogic.ShouldSpawnAtKscEnd(tipRec, tipRec.EndUT + 1);
 
@@ -294,8 +294,8 @@ namespace Parsek.Tests
             tipRec.ChainBranch = 0;
             tipRec.PlaybackEnabled = false;
 
-            RecordingStore.CommittedRecordings.Add(midRec);
-            RecordingStore.CommittedRecordings.Add(tipRec);
+            RecordingStore.AddRecordingWithTreeForTesting(midRec);
+            RecordingStore.AddRecordingWithTreeForTesting(tipRec);
 
             var (needsSpawn, reason) = GhostPlaybackLogic.ShouldSpawnAtKscEnd(tipRec, tipRec.EndUT + 1);
 
@@ -321,8 +321,8 @@ namespace Parsek.Tests
             tipRec.PlaybackEnabled = true;
             tipRec.LoopPlayback = false;
 
-            RecordingStore.CommittedRecordings.Add(midRec);
-            RecordingStore.CommittedRecordings.Add(tipRec);
+            RecordingStore.AddRecordingWithTreeForTesting(midRec);
+            RecordingStore.AddRecordingWithTreeForTesting(tipRec);
 
             var (needsSpawn, reason) = GhostPlaybackLogic.ShouldSpawnAtKscEnd(tipRec, tipRec.EndUT + 1);
 
@@ -385,8 +385,8 @@ namespace Parsek.Tests
             tipRec.ChainId = "chain-1";
             tipRec.ChainIndex = 1;
 
-            RecordingStore.CommittedRecordings.Add(midRec);
-            RecordingStore.CommittedRecordings.Add(tipRec);
+            RecordingStore.AddRecordingWithTreeForTesting(midRec);
+            RecordingStore.AddRecordingWithTreeForTesting(tipRec);
 
             var (needsSpawn, reason) = GhostPlaybackLogic.ShouldSpawnAtKscEnd(midRec, midRec.EndUT + 1);
             Assert.False(needsSpawn);
@@ -404,8 +404,8 @@ namespace Parsek.Tests
             tipRec.ChainId = "chain-1";
             tipRec.ChainIndex = 1;
 
-            RecordingStore.CommittedRecordings.Add(midRec);
-            RecordingStore.CommittedRecordings.Add(tipRec);
+            RecordingStore.AddRecordingWithTreeForTesting(midRec);
+            RecordingStore.AddRecordingWithTreeForTesting(tipRec);
 
             var (needsSpawn, _) = GhostPlaybackLogic.ShouldSpawnAtKscEnd(tipRec, tipRec.EndUT + 1);
             Assert.True(needsSpawn);

@@ -36,8 +36,8 @@ namespace Parsek.Patches
             if (ParsekScenario.IsAutoMerge)
                 return true;
 
-            // Only intercept when there's a pending recording or the recorder has pending data
-            if (!RecordingStore.HasPending && !HasActiveDestroyedRecording())
+            // Only intercept when there's a pending tree or the recorder has pending data
+            if (!RecordingStore.HasPendingTree && !HasActiveDestroyedRecording())
                 return true;
 
             // Store the outcome message for later replay

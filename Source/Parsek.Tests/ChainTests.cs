@@ -114,153 +114,111 @@ namespace Parsek.Tests
 
         #endregion
 
-        #region GetRecommendedAction
+        #region CreateRecordingFromFlightData edge cases
 
         [Fact]
-        public void GetRecommendedAction_Destroyed_ReturnsGhostOnly()
+        public void CreateRecordingFromFlightData_NullPoints_ReturnsNull()
         {
-            var result = RecordingStore.GetRecommendedAction(destroyed: true, hasSnapshot: false);
-            Assert.Equal(MergeDefault.GhostOnly, result);
+            var rec = RecordingStore.CreateRecordingFromFlightData(null, "Test");
+            Assert.Null(rec);
         }
 
         [Fact]
-        public void GetRecommendedAction_DestroyedWithSnapshot_ReturnsGhostOnly()
+        public void CreateRecordingFromFlightData_OnePoint_ReturnsNull()
         {
-            var result = RecordingStore.GetRecommendedAction(destroyed: true, hasSnapshot: true);
-            Assert.Equal(MergeDefault.GhostOnly, result);
+            var rec = RecordingStore.CreateRecordingFromFlightData(MakePoints(1), "Test");
+            Assert.Null(rec);
         }
 
         [Fact]
-        public void GetRecommendedAction_NoSnapshot_ReturnsGhostOnly()
+        public void CreateRecordingFromFlightData_TwoPoints_CreatesRecording()
         {
-            var result = RecordingStore.GetRecommendedAction(destroyed: false, hasSnapshot: false);
-            Assert.Equal(MergeDefault.GhostOnly, result);
+            var rec = RecordingStore.CreateRecordingFromFlightData(MakePoints(2), "Test");
+            Assert.NotNull(rec);
+            Assert.Equal("Test", rec.VesselName);
+            Assert.Equal(2, rec.Points.Count);
         }
 
         [Fact]
-        public void GetRecommendedAction_IntactWithSnapshot_ReturnsPersist()
+        public void CreateRecordingFromFlightData_CustomId_UsesIt()
         {
-            var result = RecordingStore.GetRecommendedAction(destroyed: false, hasSnapshot: true);
-            Assert.Equal(MergeDefault.Persist, result);
-        }
-
-        #endregion
-
-        #region StashPending edge cases
-
-        [Fact]
-        public void StashPending_NullPoints_NoPending()
-        {
-            RecordingStore.StashPending(null, "Test");
-            Assert.False(RecordingStore.HasPending);
+            var rec = RecordingStore.CreateRecordingFromFlightData(MakePoints(3), "Ship", recordingId: "custom-id");
+            Assert.NotNull(rec);
+            Assert.Equal("custom-id", rec.RecordingId);
         }
 
         [Fact]
-        public void StashPending_OnePoint_NoPending()
+        public void CreateRecordingFromFlightData_NullId_GeneratesId()
         {
-            RecordingStore.StashPending(MakePoints(1), "Test");
-            Assert.False(RecordingStore.HasPending);
+            var rec = RecordingStore.CreateRecordingFromFlightData(MakePoints(3), "Ship", recordingId: null);
+            Assert.NotNull(rec);
+            Assert.False(string.IsNullOrEmpty(rec.RecordingId));
         }
 
         [Fact]
-        public void StashPending_TwoPoints_CreatesPending()
-        {
-            RecordingStore.StashPending(MakePoints(2), "Test");
-            Assert.True(RecordingStore.HasPending);
-            Assert.Equal("Test", RecordingStore.Pending.VesselName);
-            Assert.Equal(2, RecordingStore.Pending.Points.Count);
-        }
-
-        [Fact]
-        public void StashPending_CustomId_UsesIt()
-        {
-            RecordingStore.StashPending(MakePoints(3), "Ship", recordingId: "custom-id");
-            Assert.Equal("custom-id", RecordingStore.Pending.RecordingId);
-        }
-
-        [Fact]
-        public void StashPending_NullId_GeneratesId()
-        {
-            RecordingStore.StashPending(MakePoints(3), "Ship", recordingId: null);
-            Assert.False(string.IsNullOrEmpty(RecordingStore.Pending.RecordingId));
-        }
-
-        [Fact]
-        public void StashPending_WithOrbitSegments_PreservesThem()
+        public void CreateRecordingFromFlightData_WithOrbitSegments_PreservesThem()
         {
             var segs = new List<OrbitSegment> { new OrbitSegment { startUT = 100, endUT = 200 } };
-            RecordingStore.StashPending(MakePoints(3), "Ship", orbitSegments: segs);
-            Assert.Single(RecordingStore.Pending.OrbitSegments);
+            var rec = RecordingStore.CreateRecordingFromFlightData(MakePoints(3), "Ship", orbitSegments: segs);
+            Assert.NotNull(rec);
+            Assert.Single(rec.OrbitSegments);
         }
 
         [Fact]
-        public void StashPending_WithPartEvents_PreservesThem()
+        public void CreateRecordingFromFlightData_WithPartEvents_PreservesThem()
         {
             var events = new List<PartEvent> { new PartEvent { ut = 100, eventType = PartEventType.Decoupled } };
-            RecordingStore.StashPending(MakePoints(3), "Ship", partEvents: events);
-            Assert.Single(RecordingStore.Pending.PartEvents);
+            var rec = RecordingStore.CreateRecordingFromFlightData(MakePoints(3), "Ship", partEvents: events);
+            Assert.NotNull(rec);
+            Assert.Single(rec.PartEvents);
         }
 
         #endregion
 
-        #region CommitPending / DiscardPending / Clear
+        #region CommitRecordingDirect / Clear
 
         [Fact]
-        public void CommitPending_NoPending_DoesNothing()
+        public void CommitRecordingDirect_NullRecording_DoesNothing()
         {
-            RecordingStore.CommitPending();
+            RecordingStore.CommitRecordingDirect(null);
             Assert.Empty(RecordingStore.CommittedRecordings);
         }
 
         [Fact]
-        public void CommitPending_MovesPendingToCommitted()
+        public void CommitRecordingDirect_AddsToCommitted()
         {
-            RecordingStore.StashPending(MakePoints(3), "Ship");
-            RecordingStore.CommitPending();
-            Assert.False(RecordingStore.HasPending);
+            var rec = RecordingStore.CreateRecordingFromFlightData(MakePoints(3), "Ship");
+            Assert.NotNull(rec);
+            RecordingStore.CommitRecordingDirect(rec);
             Assert.Single(RecordingStore.CommittedRecordings);
             Assert.Equal("Ship", RecordingStore.CommittedRecordings[0].VesselName);
         }
 
         [Fact]
-        public void DiscardPending_ClearsPending()
-        {
-            RecordingStore.StashPending(MakePoints(3), "Ship");
-            Assert.True(RecordingStore.HasPending);
-            RecordingStore.DiscardPending();
-            Assert.False(RecordingStore.HasPending);
-        }
-
-        [Fact]
-        public void DiscardPending_NoPending_DoesNothing()
-        {
-            RecordingStore.DiscardPending(); // Should not throw
-            Assert.False(RecordingStore.HasPending);
-        }
-
-        [Fact]
         public void Clear_RemovesAll()
         {
-            RecordingStore.StashPending(MakePoints(3), "Pending");
-            RecordingStore.CommitPending();
-            RecordingStore.StashPending(MakePoints(3), "Pending2");
+            var rec1 = RecordingStore.CreateRecordingFromFlightData(MakePoints(3), "Rec1");
+            Assert.NotNull(rec1);
+            RecordingStore.CommitRecordingDirect(rec1);
+
+            var rec2 = RecordingStore.CreateRecordingFromFlightData(MakePoints(3), "Rec2");
+            Assert.NotNull(rec2);
+            RecordingStore.CommitRecordingDirect(rec2);
 
             RecordingStore.Clear();
 
-            Assert.False(RecordingStore.HasPending);
             Assert.Empty(RecordingStore.CommittedRecordings);
         }
 
         [Fact]
         public void ClearCommitted_OnlyClearsCommitted()
         {
-            RecordingStore.StashPending(MakePoints(3), "A");
-            RecordingStore.CommitPending();
-            RecordingStore.StashPending(MakePoints(3), "Pending");
+            var rec = RecordingStore.CreateRecordingFromFlightData(MakePoints(3), "A");
+            Assert.NotNull(rec);
+            RecordingStore.CommitRecordingDirect(rec);
 
             RecordingStore.ClearCommitted();
 
-            Assert.True(RecordingStore.HasPending);
             Assert.Empty(RecordingStore.CommittedRecordings);
         }
 
@@ -273,10 +231,11 @@ namespace Parsek.Tests
         {
             for (int i = 0; i < 3; i++)
             {
-                RecordingStore.StashPending(MakePoints(3, 100 + i * 50), $"Seg{i}");
-                RecordingStore.Pending.ChainId = "chain-valid";
-                RecordingStore.Pending.ChainIndex = i;
-                RecordingStore.CommitPending();
+                var rec = RecordingStore.CreateRecordingFromFlightData(MakePoints(3, 100 + i * 50), $"Seg{i}");
+                Assert.NotNull(rec);
+                rec.ChainId = "chain-valid";
+                rec.ChainIndex = i;
+                RecordingStore.CommitRecordingDirect(rec);
             }
 
             RecordingStore.ValidateChains();
@@ -293,15 +252,17 @@ namespace Parsek.Tests
         [Fact]
         public void ValidateChains_GapInIndices_DegradesToStandalone()
         {
-            RecordingStore.StashPending(MakePoints(3, 100), "Seg0");
-            RecordingStore.Pending.ChainId = "chain-gap";
-            RecordingStore.Pending.ChainIndex = 0;
-            RecordingStore.CommitPending();
+            var rec1 = RecordingStore.CreateRecordingFromFlightData(MakePoints(3, 100), "Seg0");
+            Assert.NotNull(rec1);
+            rec1.ChainId = "chain-gap";
+            rec1.ChainIndex = 0;
+            RecordingStore.CommitRecordingDirect(rec1);
 
-            RecordingStore.StashPending(MakePoints(3, 200), "Seg2");
-            RecordingStore.Pending.ChainId = "chain-gap";
-            RecordingStore.Pending.ChainIndex = 2;
-            RecordingStore.CommitPending();
+            var rec2 = RecordingStore.CreateRecordingFromFlightData(MakePoints(3, 200), "Seg2");
+            Assert.NotNull(rec2);
+            rec2.ChainId = "chain-gap";
+            rec2.ChainIndex = 2;
+            RecordingStore.CommitRecordingDirect(rec2);
 
             RecordingStore.ValidateChains();
 
@@ -317,10 +278,11 @@ namespace Parsek.Tests
         {
             for (int i = 0; i < 2; i++)
             {
-                RecordingStore.StashPending(MakePoints(3, 100 + i * 50), $"Seg{i}");
-                RecordingStore.Pending.ChainId = "chain-dup";
-                RecordingStore.Pending.ChainIndex = 0; // Both index 0
-                RecordingStore.CommitPending();
+                var rec = RecordingStore.CreateRecordingFromFlightData(MakePoints(3, 100 + i * 50), $"Seg{i}");
+                Assert.NotNull(rec);
+                rec.ChainId = "chain-dup";
+                rec.ChainIndex = 0; // Both index 0
+                RecordingStore.CommitRecordingDirect(rec);
             }
 
             RecordingStore.ValidateChains();
@@ -335,15 +297,17 @@ namespace Parsek.Tests
         [Fact]
         public void ValidateChains_NonMonotonicUT_DegradesToStandalone()
         {
-            RecordingStore.StashPending(MakePoints(3, 200), "Seg0");
-            RecordingStore.Pending.ChainId = "chain-ut";
-            RecordingStore.Pending.ChainIndex = 0;
-            RecordingStore.CommitPending();
+            var rec1 = RecordingStore.CreateRecordingFromFlightData(MakePoints(3, 200), "Seg0");
+            Assert.NotNull(rec1);
+            rec1.ChainId = "chain-ut";
+            rec1.ChainIndex = 0;
+            RecordingStore.CommitRecordingDirect(rec1);
 
-            RecordingStore.StashPending(MakePoints(3, 100), "Seg1");
-            RecordingStore.Pending.ChainId = "chain-ut";
-            RecordingStore.Pending.ChainIndex = 1;
-            RecordingStore.CommitPending();
+            var rec2 = RecordingStore.CreateRecordingFromFlightData(MakePoints(3, 100), "Seg1");
+            Assert.NotNull(rec2);
+            rec2.ChainId = "chain-ut";
+            rec2.ChainIndex = 1;
+            RecordingStore.CommitRecordingDirect(rec2);
 
             RecordingStore.ValidateChains();
 
@@ -360,22 +324,25 @@ namespace Parsek.Tests
             // Valid chain
             for (int i = 0; i < 2; i++)
             {
-                RecordingStore.StashPending(MakePoints(3, 100 + i * 50), $"Good{i}");
-                RecordingStore.Pending.ChainId = "chain-good";
-                RecordingStore.Pending.ChainIndex = i;
-                RecordingStore.CommitPending();
+                var rec = RecordingStore.CreateRecordingFromFlightData(MakePoints(3, 100 + i * 50), $"Good{i}");
+                Assert.NotNull(rec);
+                rec.ChainId = "chain-good";
+                rec.ChainIndex = i;
+                RecordingStore.CommitRecordingDirect(rec);
             }
 
             // Invalid chain (gap)
-            RecordingStore.StashPending(MakePoints(3, 300), "Bad0");
-            RecordingStore.Pending.ChainId = "chain-bad";
-            RecordingStore.Pending.ChainIndex = 0;
-            RecordingStore.CommitPending();
+            var bad1 = RecordingStore.CreateRecordingFromFlightData(MakePoints(3, 300), "Bad0");
+            Assert.NotNull(bad1);
+            bad1.ChainId = "chain-bad";
+            bad1.ChainIndex = 0;
+            RecordingStore.CommitRecordingDirect(bad1);
 
-            RecordingStore.StashPending(MakePoints(3, 400), "Bad2");
-            RecordingStore.Pending.ChainId = "chain-bad";
-            RecordingStore.Pending.ChainIndex = 2;
-            RecordingStore.CommitPending();
+            var bad2 = RecordingStore.CreateRecordingFromFlightData(MakePoints(3, 400), "Bad2");
+            Assert.NotNull(bad2);
+            bad2.ChainId = "chain-bad";
+            bad2.ChainIndex = 2;
+            RecordingStore.CommitRecordingDirect(bad2);
 
             RecordingStore.ValidateChains();
 
@@ -388,8 +355,9 @@ namespace Parsek.Tests
         [Fact]
         public void ValidateChains_StandaloneRecordings_Unaffected()
         {
-            RecordingStore.StashPending(MakePoints(3), "Standalone");
-            RecordingStore.CommitPending();
+            var rec = RecordingStore.CreateRecordingFromFlightData(MakePoints(3), "Standalone");
+            Assert.NotNull(rec);
+            RecordingStore.CommitRecordingDirect(rec);
 
             RecordingStore.ValidateChains();
 
@@ -400,10 +368,11 @@ namespace Parsek.Tests
         [Fact]
         public void ValidateChains_SingleSegmentChain_Valid()
         {
-            RecordingStore.StashPending(MakePoints(3, 100), "Solo");
-            RecordingStore.Pending.ChainId = "chain-solo";
-            RecordingStore.Pending.ChainIndex = 0;
-            RecordingStore.CommitPending();
+            var rec = RecordingStore.CreateRecordingFromFlightData(MakePoints(3, 100), "Solo");
+            Assert.NotNull(rec);
+            rec.ChainId = "chain-solo";
+            rec.ChainIndex = 0;
+            RecordingStore.CommitRecordingDirect(rec);
 
             RecordingStore.ValidateChains();
 
@@ -415,15 +384,17 @@ namespace Parsek.Tests
         public void ValidateChains_EqualStartUT_Valid()
         {
             // Boundary-anchored segments can have equal StartUT
-            RecordingStore.StashPending(MakePoints(3, 100), "Seg0");
-            RecordingStore.Pending.ChainId = "chain-eq-ut";
-            RecordingStore.Pending.ChainIndex = 0;
-            RecordingStore.CommitPending();
+            var rec1 = RecordingStore.CreateRecordingFromFlightData(MakePoints(3, 100), "Seg0");
+            Assert.NotNull(rec1);
+            rec1.ChainId = "chain-eq-ut";
+            rec1.ChainIndex = 0;
+            RecordingStore.CommitRecordingDirect(rec1);
 
-            RecordingStore.StashPending(MakePoints(3, 100), "Seg1");
-            RecordingStore.Pending.ChainId = "chain-eq-ut";
-            RecordingStore.Pending.ChainIndex = 1;
-            RecordingStore.CommitPending();
+            var rec2 = RecordingStore.CreateRecordingFromFlightData(MakePoints(3, 100), "Seg1");
+            Assert.NotNull(rec2);
+            rec2.ChainId = "chain-eq-ut";
+            rec2.ChainIndex = 1;
+            RecordingStore.CommitRecordingDirect(rec2);
 
             RecordingStore.ValidateChains();
 
@@ -435,15 +406,17 @@ namespace Parsek.Tests
         public void ValidateChains_StartsAtIndex1_Degraded()
         {
             // Chain starts at index 1, missing index 0
-            RecordingStore.StashPending(MakePoints(3, 100), "Seg1");
-            RecordingStore.Pending.ChainId = "chain-no-zero";
-            RecordingStore.Pending.ChainIndex = 1;
-            RecordingStore.CommitPending();
+            var rec1 = RecordingStore.CreateRecordingFromFlightData(MakePoints(3, 100), "Seg1");
+            Assert.NotNull(rec1);
+            rec1.ChainId = "chain-no-zero";
+            rec1.ChainIndex = 1;
+            RecordingStore.CommitRecordingDirect(rec1);
 
-            RecordingStore.StashPending(MakePoints(3, 200), "Seg2");
-            RecordingStore.Pending.ChainId = "chain-no-zero";
-            RecordingStore.Pending.ChainIndex = 2;
-            RecordingStore.CommitPending();
+            var rec2 = RecordingStore.CreateRecordingFromFlightData(MakePoints(3, 200), "Seg2");
+            Assert.NotNull(rec2);
+            rec2.ChainId = "chain-no-zero";
+            rec2.ChainIndex = 2;
+            RecordingStore.CommitRecordingDirect(rec2);
 
             RecordingStore.ValidateChains();
 
@@ -479,8 +452,9 @@ namespace Parsek.Tests
         [Fact]
         public void GetChainRecordings_NoMatches_ReturnsNull()
         {
-            RecordingStore.StashPending(MakePoints(3), "Ship");
-            RecordingStore.CommitPending();
+            var rec = RecordingStore.CreateRecordingFromFlightData(MakePoints(3), "Ship");
+            Assert.NotNull(rec);
+            RecordingStore.CommitRecordingDirect(rec);
 
             Assert.Null(RecordingStore.GetChainRecordings("nonexistent"));
         }
@@ -489,20 +463,23 @@ namespace Parsek.Tests
         public void GetChainRecordings_ReturnsSortedByIndex()
         {
             // Add in reverse order
-            RecordingStore.StashPending(MakePoints(3, 200), "Seg2");
-            RecordingStore.Pending.ChainId = "chain-sort";
-            RecordingStore.Pending.ChainIndex = 2;
-            RecordingStore.CommitPending();
+            var rec1 = RecordingStore.CreateRecordingFromFlightData(MakePoints(3, 200), "Seg2");
+            Assert.NotNull(rec1);
+            rec1.ChainId = "chain-sort";
+            rec1.ChainIndex = 2;
+            RecordingStore.CommitRecordingDirect(rec1);
 
-            RecordingStore.StashPending(MakePoints(3, 100), "Seg0");
-            RecordingStore.Pending.ChainId = "chain-sort";
-            RecordingStore.Pending.ChainIndex = 0;
-            RecordingStore.CommitPending();
+            var rec2 = RecordingStore.CreateRecordingFromFlightData(MakePoints(3, 100), "Seg0");
+            Assert.NotNull(rec2);
+            rec2.ChainId = "chain-sort";
+            rec2.ChainIndex = 0;
+            RecordingStore.CommitRecordingDirect(rec2);
 
-            RecordingStore.StashPending(MakePoints(3, 150), "Seg1");
-            RecordingStore.Pending.ChainId = "chain-sort";
-            RecordingStore.Pending.ChainIndex = 1;
-            RecordingStore.CommitPending();
+            var rec3 = RecordingStore.CreateRecordingFromFlightData(MakePoints(3, 150), "Seg1");
+            Assert.NotNull(rec3);
+            rec3.ChainId = "chain-sort";
+            rec3.ChainIndex = 1;
+            RecordingStore.CommitRecordingDirect(rec3);
 
             var chain = RecordingStore.GetChainRecordings("chain-sort");
             Assert.NotNull(chain);
@@ -515,10 +492,11 @@ namespace Parsek.Tests
         [Fact]
         public void GetChainRecordings_SingleMatch_ReturnsList()
         {
-            RecordingStore.StashPending(MakePoints(3, 100), "Solo");
-            RecordingStore.Pending.ChainId = "chain-single";
-            RecordingStore.Pending.ChainIndex = 0;
-            RecordingStore.CommitPending();
+            var rec = RecordingStore.CreateRecordingFromFlightData(MakePoints(3, 100), "Solo");
+            Assert.NotNull(rec);
+            rec.ChainId = "chain-single";
+            rec.ChainIndex = 0;
+            RecordingStore.CommitRecordingDirect(rec);
 
             var chain = RecordingStore.GetChainRecordings("chain-single");
             Assert.NotNull(chain);
@@ -529,20 +507,23 @@ namespace Parsek.Tests
         [Fact]
         public void GetChainRecordings_IgnoresOtherChains()
         {
-            RecordingStore.StashPending(MakePoints(3, 100), "A0");
-            RecordingStore.Pending.ChainId = "chain-a";
-            RecordingStore.Pending.ChainIndex = 0;
-            RecordingStore.CommitPending();
+            var rec1 = RecordingStore.CreateRecordingFromFlightData(MakePoints(3, 100), "A0");
+            Assert.NotNull(rec1);
+            rec1.ChainId = "chain-a";
+            rec1.ChainIndex = 0;
+            RecordingStore.CommitRecordingDirect(rec1);
 
-            RecordingStore.StashPending(MakePoints(3, 200), "B0");
-            RecordingStore.Pending.ChainId = "chain-b";
-            RecordingStore.Pending.ChainIndex = 0;
-            RecordingStore.CommitPending();
+            var rec2 = RecordingStore.CreateRecordingFromFlightData(MakePoints(3, 200), "B0");
+            Assert.NotNull(rec2);
+            rec2.ChainId = "chain-b";
+            rec2.ChainIndex = 0;
+            RecordingStore.CommitRecordingDirect(rec2);
 
-            RecordingStore.StashPending(MakePoints(3, 300), "A1");
-            RecordingStore.Pending.ChainId = "chain-a";
-            RecordingStore.Pending.ChainIndex = 1;
-            RecordingStore.CommitPending();
+            var rec3 = RecordingStore.CreateRecordingFromFlightData(MakePoints(3, 300), "A1");
+            Assert.NotNull(rec3);
+            rec3.ChainId = "chain-a";
+            rec3.ChainIndex = 1;
+            RecordingStore.CommitRecordingDirect(rec3);
 
             var chain = RecordingStore.GetChainRecordings("chain-a");
             Assert.NotNull(chain);
@@ -554,18 +535,21 @@ namespace Parsek.Tests
         [Fact]
         public void RemoveChainRecordings_RemovesMatchingOnly()
         {
-            RecordingStore.StashPending(MakePoints(3, 100), "Chain1");
-            RecordingStore.Pending.ChainId = "remove-me";
-            RecordingStore.Pending.ChainIndex = 0;
-            RecordingStore.CommitPending();
+            var rec1 = RecordingStore.CreateRecordingFromFlightData(MakePoints(3, 100), "Chain1");
+            Assert.NotNull(rec1);
+            rec1.ChainId = "remove-me";
+            rec1.ChainIndex = 0;
+            RecordingStore.CommitRecordingDirect(rec1);
 
-            RecordingStore.StashPending(MakePoints(3, 200), "Standalone");
-            RecordingStore.CommitPending();
+            var rec2 = RecordingStore.CreateRecordingFromFlightData(MakePoints(3, 200), "Standalone");
+            Assert.NotNull(rec2);
+            RecordingStore.CommitRecordingDirect(rec2);
 
-            RecordingStore.StashPending(MakePoints(3, 300), "Chain2");
-            RecordingStore.Pending.ChainId = "remove-me";
-            RecordingStore.Pending.ChainIndex = 1;
-            RecordingStore.CommitPending();
+            var rec3 = RecordingStore.CreateRecordingFromFlightData(MakePoints(3, 300), "Chain2");
+            Assert.NotNull(rec3);
+            rec3.ChainId = "remove-me";
+            rec3.ChainIndex = 1;
+            RecordingStore.CommitRecordingDirect(rec3);
 
             RecordingStore.RemoveChainRecordings("remove-me");
 
@@ -576,8 +560,9 @@ namespace Parsek.Tests
         [Fact]
         public void RemoveChainRecordings_NullId_DoesNothing()
         {
-            RecordingStore.StashPending(MakePoints(3), "Ship");
-            RecordingStore.CommitPending();
+            var rec = RecordingStore.CreateRecordingFromFlightData(MakePoints(3), "Ship");
+            Assert.NotNull(rec);
+            RecordingStore.CommitRecordingDirect(rec);
 
             RecordingStore.RemoveChainRecordings(null);
 
@@ -587,8 +572,9 @@ namespace Parsek.Tests
         [Fact]
         public void RemoveChainRecordings_EmptyId_DoesNothing()
         {
-            RecordingStore.StashPending(MakePoints(3), "Ship");
-            RecordingStore.CommitPending();
+            var rec = RecordingStore.CreateRecordingFromFlightData(MakePoints(3), "Ship");
+            Assert.NotNull(rec);
+            RecordingStore.CommitRecordingDirect(rec);
 
             RecordingStore.RemoveChainRecordings("");
 
@@ -598,8 +584,9 @@ namespace Parsek.Tests
         [Fact]
         public void RemoveChainRecordings_NoMatch_DoesNothing()
         {
-            RecordingStore.StashPending(MakePoints(3), "Ship");
-            RecordingStore.CommitPending();
+            var rec = RecordingStore.CreateRecordingFromFlightData(MakePoints(3), "Ship");
+            Assert.NotNull(rec);
+            RecordingStore.CommitRecordingDirect(rec);
 
             RecordingStore.RemoveChainRecordings("nonexistent");
 
@@ -611,10 +598,11 @@ namespace Parsek.Tests
         {
             for (int i = 0; i < 3; i++)
             {
-                RecordingStore.StashPending(MakePoints(3, 100 + i * 50), $"Seg{i}");
-                RecordingStore.Pending.ChainId = "remove-all";
-                RecordingStore.Pending.ChainIndex = i;
-                RecordingStore.CommitPending();
+                var rec = RecordingStore.CreateRecordingFromFlightData(MakePoints(3, 100 + i * 50), $"Seg{i}");
+                Assert.NotNull(rec);
+                rec.ChainId = "remove-all";
+                rec.ChainIndex = i;
+                RecordingStore.CommitRecordingDirect(rec);
             }
 
             RecordingStore.RemoveChainRecordings("remove-all");
@@ -629,15 +617,17 @@ namespace Parsek.Tests
         [Fact]
         public void IsChainMidSegment_MidSegment_ReturnsTrue()
         {
-            RecordingStore.StashPending(MakePoints(3, 100), "Seg0");
-            RecordingStore.Pending.ChainId = "mid-test";
-            RecordingStore.Pending.ChainIndex = 0;
-            RecordingStore.CommitPending();
+            var rec1 = RecordingStore.CreateRecordingFromFlightData(MakePoints(3, 100), "Seg0");
+            Assert.NotNull(rec1);
+            rec1.ChainId = "mid-test";
+            rec1.ChainIndex = 0;
+            RecordingStore.CommitRecordingDirect(rec1);
 
-            RecordingStore.StashPending(MakePoints(3, 200), "Seg1");
-            RecordingStore.Pending.ChainId = "mid-test";
-            RecordingStore.Pending.ChainIndex = 1;
-            RecordingStore.CommitPending();
+            var rec2 = RecordingStore.CreateRecordingFromFlightData(MakePoints(3, 200), "Seg1");
+            Assert.NotNull(rec2);
+            rec2.ChainId = "mid-test";
+            rec2.ChainIndex = 1;
+            RecordingStore.CommitRecordingDirect(rec2);
 
             Assert.True(RecordingStore.IsChainMidSegment(RecordingStore.CommittedRecordings[0]));
         }
@@ -645,15 +635,17 @@ namespace Parsek.Tests
         [Fact]
         public void IsChainMidSegment_LastSegment_ReturnsFalse()
         {
-            RecordingStore.StashPending(MakePoints(3, 100), "Seg0");
-            RecordingStore.Pending.ChainId = "last-test";
-            RecordingStore.Pending.ChainIndex = 0;
-            RecordingStore.CommitPending();
+            var rec1 = RecordingStore.CreateRecordingFromFlightData(MakePoints(3, 100), "Seg0");
+            Assert.NotNull(rec1);
+            rec1.ChainId = "last-test";
+            rec1.ChainIndex = 0;
+            RecordingStore.CommitRecordingDirect(rec1);
 
-            RecordingStore.StashPending(MakePoints(3, 200), "Seg1");
-            RecordingStore.Pending.ChainId = "last-test";
-            RecordingStore.Pending.ChainIndex = 1;
-            RecordingStore.CommitPending();
+            var rec2 = RecordingStore.CreateRecordingFromFlightData(MakePoints(3, 200), "Seg1");
+            Assert.NotNull(rec2);
+            rec2.ChainId = "last-test";
+            rec2.ChainIndex = 1;
+            RecordingStore.CommitRecordingDirect(rec2);
 
             Assert.False(RecordingStore.IsChainMidSegment(RecordingStore.CommittedRecordings[1]));
         }
@@ -661,8 +653,9 @@ namespace Parsek.Tests
         [Fact]
         public void IsChainMidSegment_Standalone_ReturnsFalse()
         {
-            RecordingStore.StashPending(MakePoints(3, 100), "Solo");
-            RecordingStore.CommitPending();
+            var rec = RecordingStore.CreateRecordingFromFlightData(MakePoints(3, 100), "Solo");
+            Assert.NotNull(rec);
+            RecordingStore.CommitRecordingDirect(rec);
 
             Assert.False(RecordingStore.IsChainMidSegment(RecordingStore.CommittedRecordings[0]));
         }
@@ -691,10 +684,11 @@ namespace Parsek.Tests
         [Fact]
         public void IsChainMidSegment_SingleSegmentChain_ReturnsFalse()
         {
-            RecordingStore.StashPending(MakePoints(3, 100), "Solo");
-            RecordingStore.Pending.ChainId = "chain-one";
-            RecordingStore.Pending.ChainIndex = 0;
-            RecordingStore.CommitPending();
+            var rec = RecordingStore.CreateRecordingFromFlightData(MakePoints(3, 100), "Solo");
+            Assert.NotNull(rec);
+            rec.ChainId = "chain-one";
+            rec.ChainIndex = 0;
+            RecordingStore.CommitRecordingDirect(rec);
 
             Assert.False(RecordingStore.IsChainMidSegment(RecordingStore.CommittedRecordings[0]));
         }
@@ -704,10 +698,11 @@ namespace Parsek.Tests
         {
             for (int i = 0; i < 3; i++)
             {
-                RecordingStore.StashPending(MakePoints(3, 100 + i * 50), $"Seg{i}");
-                RecordingStore.Pending.ChainId = "mid-three";
-                RecordingStore.Pending.ChainIndex = i;
-                RecordingStore.CommitPending();
+                var rec = RecordingStore.CreateRecordingFromFlightData(MakePoints(3, 100 + i * 50), $"Seg{i}");
+                Assert.NotNull(rec);
+                rec.ChainId = "mid-three";
+                rec.ChainIndex = i;
+                RecordingStore.CommitRecordingDirect(rec);
             }
 
             Assert.True(RecordingStore.IsChainMidSegment(RecordingStore.CommittedRecordings[0]));
@@ -722,15 +717,17 @@ namespace Parsek.Tests
         [Fact]
         public void GetChainEndUT_ReturnsMaxEndUT()
         {
-            RecordingStore.StashPending(MakePoints(3, 100), "Seg0");
-            RecordingStore.Pending.ChainId = "end-test";
-            RecordingStore.Pending.ChainIndex = 0;
-            RecordingStore.CommitPending();
+            var rec1 = RecordingStore.CreateRecordingFromFlightData(MakePoints(3, 100), "Seg0");
+            Assert.NotNull(rec1);
+            rec1.ChainId = "end-test";
+            rec1.ChainIndex = 0;
+            RecordingStore.CommitRecordingDirect(rec1);
 
-            RecordingStore.StashPending(MakePoints(3, 200), "Seg1");
-            RecordingStore.Pending.ChainId = "end-test";
-            RecordingStore.Pending.ChainIndex = 1;
-            RecordingStore.CommitPending();
+            var rec2 = RecordingStore.CreateRecordingFromFlightData(MakePoints(3, 200), "Seg1");
+            Assert.NotNull(rec2);
+            rec2.ChainId = "end-test";
+            rec2.ChainIndex = 1;
+            RecordingStore.CommitRecordingDirect(rec2);
 
             var seg0 = RecordingStore.CommittedRecordings[0];
             var seg1 = RecordingStore.CommittedRecordings[1];
@@ -742,11 +739,12 @@ namespace Parsek.Tests
         [Fact]
         public void GetChainEndUT_Standalone_ReturnsOwnEndUT()
         {
-            RecordingStore.StashPending(MakePoints(3, 100), "Solo");
-            RecordingStore.CommitPending();
+            var rec = RecordingStore.CreateRecordingFromFlightData(MakePoints(3, 100), "Solo");
+            Assert.NotNull(rec);
+            RecordingStore.CommitRecordingDirect(rec);
 
-            var rec = RecordingStore.CommittedRecordings[0];
-            Assert.Equal(rec.EndUT, RecordingStore.GetChainEndUT(rec));
+            var committed = RecordingStore.CommittedRecordings[0];
+            Assert.Equal(committed.EndUT, RecordingStore.GetChainEndUT(committed));
         }
 
         [Fact]
@@ -760,13 +758,14 @@ namespace Parsek.Tests
         [Fact]
         public void GetChainEndUT_SingleSegmentChain_ReturnsOwnEndUT()
         {
-            RecordingStore.StashPending(MakePoints(3, 100), "Solo");
-            RecordingStore.Pending.ChainId = "chain-one";
-            RecordingStore.Pending.ChainIndex = 0;
-            RecordingStore.CommitPending();
+            var rec = RecordingStore.CreateRecordingFromFlightData(MakePoints(3, 100), "Solo");
+            Assert.NotNull(rec);
+            rec.ChainId = "chain-one";
+            rec.ChainIndex = 0;
+            RecordingStore.CommitRecordingDirect(rec);
 
-            var rec = RecordingStore.CommittedRecordings[0];
-            Assert.Equal(rec.EndUT, RecordingStore.GetChainEndUT(rec));
+            var committed = RecordingStore.CommittedRecordings[0];
+            Assert.Equal(committed.EndUT, RecordingStore.GetChainEndUT(committed));
         }
 
         [Fact]
@@ -774,10 +773,11 @@ namespace Parsek.Tests
         {
             for (int i = 0; i < 3; i++)
             {
-                RecordingStore.StashPending(MakePoints(3, 100 + i * 50), $"Seg{i}");
-                RecordingStore.Pending.ChainId = "end-three";
-                RecordingStore.Pending.ChainIndex = i;
-                RecordingStore.CommitPending();
+                var rec = RecordingStore.CreateRecordingFromFlightData(MakePoints(3, 100 + i * 50), $"Seg{i}");
+                Assert.NotNull(rec);
+                rec.ChainId = "end-three";
+                rec.ChainIndex = i;
+                RecordingStore.CommitRecordingDirect(rec);
             }
 
             double lastEndUT = RecordingStore.CommittedRecordings[2].EndUT;
@@ -792,56 +792,61 @@ namespace Parsek.Tests
         [Fact]
         public void BuildExcludeCrewSet_ChainWithBoarding_ReturnsNull_CrewBoardedBack()
         {
-            // V(0) → EVA(1) → V(2): Jeb went EVA then boarded back.
-            // The final vessel (seg2) has Jeb on board — don't exclude.
-            RecordingStore.StashPending(MakePoints(3, 100), "Vessel1");
-            RecordingStore.Pending.ChainId = "crew-chain";
-            RecordingStore.Pending.ChainIndex = 0;
-            RecordingStore.Pending.RecordingId = "seg0";
-            RecordingStore.CommitPending();
+            // V(0) -> EVA(1) -> V(2): Jeb went EVA then boarded back.
+            // The final vessel (seg2) has Jeb on board -- don't exclude.
+            var rec1 = RecordingStore.CreateRecordingFromFlightData(MakePoints(3, 100), "Vessel1");
+            Assert.NotNull(rec1);
+            rec1.ChainId = "crew-chain";
+            rec1.ChainIndex = 0;
+            rec1.RecordingId = "seg0";
+            RecordingStore.CommitRecordingDirect(rec1);
 
-            RecordingStore.StashPending(MakePoints(3, 150), "EVA Jeb");
-            RecordingStore.Pending.ChainId = "crew-chain";
-            RecordingStore.Pending.ChainIndex = 1;
-            RecordingStore.Pending.EvaCrewName = "Jebediah Kerman";
-            RecordingStore.Pending.RecordingId = "seg1";
-            RecordingStore.CommitPending();
+            var rec2 = RecordingStore.CreateRecordingFromFlightData(MakePoints(3, 150), "EVA Jeb");
+            Assert.NotNull(rec2);
+            rec2.ChainId = "crew-chain";
+            rec2.ChainIndex = 1;
+            rec2.EvaCrewName = "Jebediah Kerman";
+            rec2.RecordingId = "seg1";
+            RecordingStore.CommitRecordingDirect(rec2);
 
-            RecordingStore.StashPending(MakePoints(3, 200), "Vessel2");
-            RecordingStore.Pending.ChainId = "crew-chain";
-            RecordingStore.Pending.ChainIndex = 2;
-            RecordingStore.Pending.RecordingId = "seg2";
-            RecordingStore.CommitPending();
+            var rec3 = RecordingStore.CreateRecordingFromFlightData(MakePoints(3, 200), "Vessel2");
+            Assert.NotNull(rec3);
+            rec3.ChainId = "crew-chain";
+            rec3.ChainIndex = 2;
+            rec3.RecordingId = "seg2";
+            RecordingStore.CommitRecordingDirect(rec3);
 
             var finalSeg = RecordingStore.CommittedRecordings[2];
             var excludeSet = VesselSpawner.BuildExcludeCrewSet(finalSeg);
 
-            // EVA crew boarded back (vessel segment after EVA) — don't exclude
+            // EVA crew boarded back (vessel segment after EVA) -- don't exclude
             Assert.Null(excludeSet);
         }
 
         [Fact]
         public void BuildExcludeCrewSet_ChainEvaExit_ExcludesCrewStillOnEva()
         {
-            // V(0) → EVA(1): Jeb went EVA and didn't board back.
+            // V(0) -> EVA(1): Jeb went EVA and didn't board back.
             // Parent vessel should exclude Jeb (he spawns separately as EVA).
-            RecordingStore.StashPending(MakePoints(3, 100), "Vessel");
-            RecordingStore.Pending.ChainId = "eva-exit";
-            RecordingStore.Pending.ChainIndex = 0;
-            RecordingStore.Pending.RecordingId = "seg0";
-            RecordingStore.CommitPending();
+            var rec1 = RecordingStore.CreateRecordingFromFlightData(MakePoints(3, 100), "Vessel");
+            Assert.NotNull(rec1);
+            rec1.ChainId = "eva-exit";
+            rec1.ChainIndex = 0;
+            rec1.RecordingId = "seg0";
+            RecordingStore.CommitRecordingDirect(rec1);
 
-            RecordingStore.StashPending(MakePoints(3, 150), "EVA Jeb");
-            RecordingStore.Pending.ChainId = "eva-exit";
-            RecordingStore.Pending.ChainIndex = 1;
-            RecordingStore.Pending.EvaCrewName = "Jebediah Kerman";
-            RecordingStore.Pending.RecordingId = "seg1";
-            RecordingStore.CommitPending();
+            var rec2 = RecordingStore.CreateRecordingFromFlightData(MakePoints(3, 150), "EVA Jeb");
+            Assert.NotNull(rec2);
+            rec2.ChainId = "eva-exit";
+            rec2.ChainIndex = 1;
+            rec2.EvaCrewName = "Jebediah Kerman";
+            rec2.RecordingId = "seg1";
+            RecordingStore.CommitRecordingDirect(rec2);
 
             var parentVessel = RecordingStore.CommittedRecordings[0];
             var excludeSet = VesselSpawner.BuildExcludeCrewSet(parentVessel);
 
-            // Jeb is still on EVA (no vessel segment after EVA) — exclude from parent spawn
+            // Jeb is still on EVA (no vessel segment after EVA) -- exclude from parent spawn
             Assert.NotNull(excludeSet);
             Assert.Contains("Jebediah Kerman", excludeSet);
         }
@@ -849,14 +854,16 @@ namespace Parsek.Tests
         [Fact]
         public void BuildExcludeCrewSet_LegacyParentChild_ExcludesChildCrew()
         {
-            RecordingStore.StashPending(MakePoints(3, 100), "Parent");
-            RecordingStore.Pending.RecordingId = "parent-id";
-            RecordingStore.CommitPending();
+            var rec1 = RecordingStore.CreateRecordingFromFlightData(MakePoints(3, 100), "Parent");
+            Assert.NotNull(rec1);
+            rec1.RecordingId = "parent-id";
+            RecordingStore.CommitRecordingDirect(rec1);
 
-            RecordingStore.StashPending(MakePoints(3, 150), "EVA Child");
-            RecordingStore.Pending.ParentRecordingId = "parent-id";
-            RecordingStore.Pending.EvaCrewName = "Bill Kerman";
-            RecordingStore.CommitPending();
+            var rec2 = RecordingStore.CreateRecordingFromFlightData(MakePoints(3, 150), "EVA Child");
+            Assert.NotNull(rec2);
+            rec2.ParentRecordingId = "parent-id";
+            rec2.EvaCrewName = "Bill Kerman";
+            RecordingStore.CommitRecordingDirect(rec2);
 
             var parent = RecordingStore.CommittedRecordings[0];
             var excludeSet = VesselSpawner.BuildExcludeCrewSet(parent);
@@ -868,20 +875,22 @@ namespace Parsek.Tests
         [Fact]
         public void BuildExcludeCrewSet_ChainEvaSegment_ReturnsNull_NeverExcludesOwnCrew()
         {
-            // V(0) → EVA(1): calling BuildExcludeCrewSet on the EVA segment itself
-            // should return null — EVA segments never exclude their own crew.
-            RecordingStore.StashPending(MakePoints(3, 100), "Vessel");
-            RecordingStore.Pending.ChainId = "eva-self";
-            RecordingStore.Pending.ChainIndex = 0;
-            RecordingStore.Pending.RecordingId = "seg0";
-            RecordingStore.CommitPending();
+            // V(0) -> EVA(1): calling BuildExcludeCrewSet on the EVA segment itself
+            // should return null -- EVA segments never exclude their own crew.
+            var rec1 = RecordingStore.CreateRecordingFromFlightData(MakePoints(3, 100), "Vessel");
+            Assert.NotNull(rec1);
+            rec1.ChainId = "eva-self";
+            rec1.ChainIndex = 0;
+            rec1.RecordingId = "seg0";
+            RecordingStore.CommitRecordingDirect(rec1);
 
-            RecordingStore.StashPending(MakePoints(3, 150), "EVA Jeb");
-            RecordingStore.Pending.ChainId = "eva-self";
-            RecordingStore.Pending.ChainIndex = 1;
-            RecordingStore.Pending.EvaCrewName = "Jebediah Kerman";
-            RecordingStore.Pending.RecordingId = "seg1";
-            RecordingStore.CommitPending();
+            var rec2 = RecordingStore.CreateRecordingFromFlightData(MakePoints(3, 150), "EVA Jeb");
+            Assert.NotNull(rec2);
+            rec2.ChainId = "eva-self";
+            rec2.ChainIndex = 1;
+            rec2.EvaCrewName = "Jebediah Kerman";
+            rec2.RecordingId = "seg1";
+            RecordingStore.CommitRecordingDirect(rec2);
 
             var evaSeg = RecordingStore.CommittedRecordings[1];
             var excludeSet = VesselSpawner.BuildExcludeCrewSet(evaSeg);
@@ -893,12 +902,13 @@ namespace Parsek.Tests
         [Fact]
         public void BuildExcludeCrewSet_Standalone_ReturnsNull()
         {
-            RecordingStore.StashPending(MakePoints(3), "Solo");
-            RecordingStore.Pending.RecordingId = "solo-id";
-            RecordingStore.CommitPending();
+            var rec = RecordingStore.CreateRecordingFromFlightData(MakePoints(3), "Solo");
+            Assert.NotNull(rec);
+            rec.RecordingId = "solo-id";
+            RecordingStore.CommitRecordingDirect(rec);
 
-            var rec = RecordingStore.CommittedRecordings[0];
-            var excludeSet = VesselSpawner.BuildExcludeCrewSet(rec);
+            var committed = RecordingStore.CommittedRecordings[0];
+            var excludeSet = VesselSpawner.BuildExcludeCrewSet(committed);
 
             Assert.Null(excludeSet);
         }
@@ -913,36 +923,40 @@ namespace Parsek.Tests
         [Fact]
         public void BuildExcludeCrewSet_MultiEvaChain_OnlyExcludesUnboarded()
         {
-            // V(0) → EVA_Jeb(1) → V(2) → EVA_Bill(3)
-            // Jeb boarded back (vessel segment 2 after EVA 1) — NOT excluded
-            // Bill still on EVA (no vessel after EVA 3) — excluded
-            RecordingStore.StashPending(MakePoints(3, 100), "Vessel1");
-            RecordingStore.Pending.ChainId = "multi-eva";
-            RecordingStore.Pending.ChainIndex = 0;
-            RecordingStore.Pending.RecordingId = "v0";
-            RecordingStore.CommitPending();
+            // V(0) -> EVA_Jeb(1) -> V(2) -> EVA_Bill(3)
+            // Jeb boarded back (vessel segment 2 after EVA 1) -- NOT excluded
+            // Bill still on EVA (no vessel after EVA 3) -- excluded
+            var rec1 = RecordingStore.CreateRecordingFromFlightData(MakePoints(3, 100), "Vessel1");
+            Assert.NotNull(rec1);
+            rec1.ChainId = "multi-eva";
+            rec1.ChainIndex = 0;
+            rec1.RecordingId = "v0";
+            RecordingStore.CommitRecordingDirect(rec1);
 
-            RecordingStore.StashPending(MakePoints(3, 150), "EVA Jeb");
-            RecordingStore.Pending.ChainId = "multi-eva";
-            RecordingStore.Pending.ChainIndex = 1;
-            RecordingStore.Pending.EvaCrewName = "Jebediah Kerman";
-            RecordingStore.Pending.RecordingId = "e1";
-            RecordingStore.CommitPending();
+            var rec2 = RecordingStore.CreateRecordingFromFlightData(MakePoints(3, 150), "EVA Jeb");
+            Assert.NotNull(rec2);
+            rec2.ChainId = "multi-eva";
+            rec2.ChainIndex = 1;
+            rec2.EvaCrewName = "Jebediah Kerman";
+            rec2.RecordingId = "e1";
+            RecordingStore.CommitRecordingDirect(rec2);
 
-            RecordingStore.StashPending(MakePoints(3, 200), "Vessel2");
-            RecordingStore.Pending.ChainId = "multi-eva";
-            RecordingStore.Pending.ChainIndex = 2;
-            RecordingStore.Pending.RecordingId = "v2";
-            RecordingStore.CommitPending();
+            var rec3 = RecordingStore.CreateRecordingFromFlightData(MakePoints(3, 200), "Vessel2");
+            Assert.NotNull(rec3);
+            rec3.ChainId = "multi-eva";
+            rec3.ChainIndex = 2;
+            rec3.RecordingId = "v2";
+            RecordingStore.CommitRecordingDirect(rec3);
 
-            RecordingStore.StashPending(MakePoints(3, 250), "EVA Bill");
-            RecordingStore.Pending.ChainId = "multi-eva";
-            RecordingStore.Pending.ChainIndex = 3;
-            RecordingStore.Pending.EvaCrewName = "Bill Kerman";
-            RecordingStore.Pending.RecordingId = "e3";
-            RecordingStore.CommitPending();
+            var rec4 = RecordingStore.CreateRecordingFromFlightData(MakePoints(3, 250), "EVA Bill");
+            Assert.NotNull(rec4);
+            rec4.ChainId = "multi-eva";
+            rec4.ChainIndex = 3;
+            rec4.EvaCrewName = "Bill Kerman";
+            rec4.RecordingId = "e3";
+            RecordingStore.CommitRecordingDirect(rec4);
 
-            // Check vessel segment 0 — Bill excluded (EVA index 3 > vessel index 2)
+            // Check vessel segment 0 -- Bill excluded (EVA index 3 > vessel index 2)
             var vessel0 = RecordingStore.CommittedRecordings[0];
             var excludeSet = VesselSpawner.BuildExcludeCrewSet(vessel0);
             Assert.NotNull(excludeSet);
@@ -953,18 +967,20 @@ namespace Parsek.Tests
         [Fact]
         public void BuildExcludeCrewSet_ChainVesselNoEva_ReturnsNull()
         {
-            // V(0) → V(1): vessel-only chain (no EVA segments)
-            RecordingStore.StashPending(MakePoints(3, 100), "Vessel1");
-            RecordingStore.Pending.ChainId = "no-eva";
-            RecordingStore.Pending.ChainIndex = 0;
-            RecordingStore.Pending.RecordingId = "v0";
-            RecordingStore.CommitPending();
+            // V(0) -> V(1): vessel-only chain (no EVA segments)
+            var rec1 = RecordingStore.CreateRecordingFromFlightData(MakePoints(3, 100), "Vessel1");
+            Assert.NotNull(rec1);
+            rec1.ChainId = "no-eva";
+            rec1.ChainIndex = 0;
+            rec1.RecordingId = "v0";
+            RecordingStore.CommitRecordingDirect(rec1);
 
-            RecordingStore.StashPending(MakePoints(3, 200), "Vessel2");
-            RecordingStore.Pending.ChainId = "no-eva";
-            RecordingStore.Pending.ChainIndex = 1;
-            RecordingStore.Pending.RecordingId = "v1";
-            RecordingStore.CommitPending();
+            var rec2 = RecordingStore.CreateRecordingFromFlightData(MakePoints(3, 200), "Vessel2");
+            Assert.NotNull(rec2);
+            rec2.ChainId = "no-eva";
+            rec2.ChainIndex = 1;
+            rec2.RecordingId = "v1";
+            RecordingStore.CommitRecordingDirect(rec2);
 
             var excludeSet = VesselSpawner.BuildExcludeCrewSet(RecordingStore.CommittedRecordings[0]);
             Assert.Null(excludeSet);
@@ -973,19 +989,22 @@ namespace Parsek.Tests
         [Fact]
         public void BuildExcludeCrewSet_LegacyMultipleChildren_ExcludesAll()
         {
-            RecordingStore.StashPending(MakePoints(3, 100), "Parent");
-            RecordingStore.Pending.RecordingId = "parent-multi";
-            RecordingStore.CommitPending();
+            var rec1 = RecordingStore.CreateRecordingFromFlightData(MakePoints(3, 100), "Parent");
+            Assert.NotNull(rec1);
+            rec1.RecordingId = "parent-multi";
+            RecordingStore.CommitRecordingDirect(rec1);
 
-            RecordingStore.StashPending(MakePoints(3, 150), "EVA Jeb");
-            RecordingStore.Pending.ParentRecordingId = "parent-multi";
-            RecordingStore.Pending.EvaCrewName = "Jebediah Kerman";
-            RecordingStore.CommitPending();
+            var rec2 = RecordingStore.CreateRecordingFromFlightData(MakePoints(3, 150), "EVA Jeb");
+            Assert.NotNull(rec2);
+            rec2.ParentRecordingId = "parent-multi";
+            rec2.EvaCrewName = "Jebediah Kerman";
+            RecordingStore.CommitRecordingDirect(rec2);
 
-            RecordingStore.StashPending(MakePoints(3, 200), "EVA Bill");
-            RecordingStore.Pending.ParentRecordingId = "parent-multi";
-            RecordingStore.Pending.EvaCrewName = "Bill Kerman";
-            RecordingStore.CommitPending();
+            var rec3 = RecordingStore.CreateRecordingFromFlightData(MakePoints(3, 200), "EVA Bill");
+            Assert.NotNull(rec3);
+            rec3.ParentRecordingId = "parent-multi";
+            rec3.EvaCrewName = "Bill Kerman";
+            RecordingStore.CommitRecordingDirect(rec3);
 
             var parent = RecordingStore.CommittedRecordings[0];
             var excludeSet = VesselSpawner.BuildExcludeCrewSet(parent);
@@ -1212,9 +1231,9 @@ namespace Parsek.Tests
             Assert.Equal("0", nodes[0].GetValue("chainIndex"));
             Assert.Equal("1", nodes[1].GetValue("chainIndex"));
 
-            // Segment 0 has VesselSnapshot (continuation extends trajectory — spawns at chain end)
+            // Segment 0 has VesselSnapshot (continuation extends trajectory -- spawns at chain end)
             Assert.NotNull(nodes[0].GetNode("VESSEL_SNAPSHOT"));
-            // Segment 1 is ghost-only (EVA — no vessel spawn)
+            // Segment 1 is ghost-only (EVA -- no vessel spawn)
             Assert.Null(nodes[1].GetNode("VESSEL_SNAPSHOT"));
 
             // Both have ghost visual snapshots
@@ -1255,11 +1274,12 @@ namespace Parsek.Tests
             // When CommitChainSegment commits the vessel segment but the EVA segment
             // hasn't been committed yet, IsChainMidSegment returns false.
             // This is the window where spawning must be suppressed by the activeChainId guard.
-            RecordingStore.StashPending(MakePoints(10, 100), "Vessel Seg");
-            RecordingStore.Pending.ChainId = "incomplete-chain";
-            RecordingStore.Pending.ChainIndex = 0;
-            RecordingStore.Pending.VesselSnapshot = new ConfigNode("VESSEL");
-            RecordingStore.CommitPending();
+            var rec = RecordingStore.CreateRecordingFromFlightData(MakePoints(10, 100), "Vessel Seg");
+            Assert.NotNull(rec);
+            rec.ChainId = "incomplete-chain";
+            rec.ChainIndex = 0;
+            rec.VesselSnapshot = new ConfigNode("VESSEL");
+            RecordingStore.CommitRecordingDirect(rec);
 
             var vessel = RecordingStore.CommittedRecordings[0];
 
@@ -1275,28 +1295,29 @@ namespace Parsek.Tests
         public void ContinuationAppendedPoints_ExtendEndUT()
         {
             // Appending trajectory points to a committed recording extends its EndUT
-            RecordingStore.StashPending(MakePoints(5, 100), "Test Vessel");
-            RecordingStore.CommitPending();
+            var rec = RecordingStore.CreateRecordingFromFlightData(MakePoints(5, 100), "Test Vessel");
+            Assert.NotNull(rec);
+            RecordingStore.CommitRecordingDirect(rec);
 
-            var rec = RecordingStore.CommittedRecordings[0];
-            double originalEndUT = rec.EndUT; // 140 (100 + 4*10)
+            var committed = RecordingStore.CommittedRecordings[0];
+            double originalEndUT = committed.EndUT; // 140 (100 + 4*10)
             Assert.Equal(140, originalEndUT);
 
             // Simulate continuation: append points with later UTs
-            rec.Points.Add(new TrajectoryPoint
+            committed.Points.Add(new TrajectoryPoint
             {
                 ut = 200, latitude = 0, longitude = 0, altitude = 100,
                 rotation = Quaternion.identity, velocity = Vector3.zero,
                 bodyName = "Kerbin"
             });
 
-            Assert.Equal(200, rec.EndUT);
-            Assert.True(rec.EndUT > originalEndUT);
+            Assert.Equal(200, committed.EndUT);
+            Assert.True(committed.EndUT > originalEndUT);
 
             // Chain EndUT also updates (it reads EndUT from the recording)
-            rec.ChainId = "extend-test";
-            rec.ChainIndex = 0;
-            Assert.Equal(200, RecordingStore.GetChainEndUT(rec));
+            committed.ChainId = "extend-test";
+            committed.ChainIndex = 0;
+            Assert.Equal(200, RecordingStore.GetChainEndUT(committed));
         }
 
         #endregion
@@ -1312,13 +1333,14 @@ namespace Parsek.Tests
                 new TrajectoryPoint { ut = 200 }
             };
 
-            RecordingStore.StashPending(points, "Test1");
-            RecordingStore.Pending.ChainId = "chain1";
-            RecordingStore.Pending.ChainIndex = 0;
-            RecordingStore.Pending.ChainBranch = 0;
-            RecordingStore.Pending.PlaybackEnabled = true;
-            RecordingStore.Pending.LoopPlayback = true;
-            RecordingStore.CommitPending();
+            var rec = RecordingStore.CreateRecordingFromFlightData(points, "Test1");
+            Assert.NotNull(rec);
+            rec.ChainId = "chain1";
+            rec.ChainIndex = 0;
+            rec.ChainBranch = 0;
+            rec.PlaybackEnabled = true;
+            rec.LoopPlayback = true;
+            RecordingStore.CommitRecordingDirect(rec);
 
             Assert.True(RecordingStore.IsChainLooping("chain1"));
             Assert.False(RecordingStore.IsChainFullyDisabled("chain1"));
@@ -1333,24 +1355,26 @@ namespace Parsek.Tests
                 new TrajectoryPoint { ut = 200 }
             };
 
-            RecordingStore.StashPending(points, "Test1");
-            RecordingStore.Pending.ChainId = "chain2";
-            RecordingStore.Pending.ChainIndex = 0;
-            RecordingStore.Pending.ChainBranch = 0;
-            RecordingStore.Pending.PlaybackEnabled = false;
-            RecordingStore.CommitPending();
+            var rec1 = RecordingStore.CreateRecordingFromFlightData(points, "Test1");
+            Assert.NotNull(rec1);
+            rec1.ChainId = "chain2";
+            rec1.ChainIndex = 0;
+            rec1.ChainBranch = 0;
+            rec1.PlaybackEnabled = false;
+            RecordingStore.CommitRecordingDirect(rec1);
 
-            RecordingStore.StashPending(points, "Test2");
-            RecordingStore.Pending.ChainId = "chain2";
-            RecordingStore.Pending.ChainIndex = 1;
-            RecordingStore.Pending.ChainBranch = 0;
-            RecordingStore.Pending.PlaybackEnabled = false;
-            RecordingStore.CommitPending();
+            var rec2 = RecordingStore.CreateRecordingFromFlightData(points, "Test2");
+            Assert.NotNull(rec2);
+            rec2.ChainId = "chain2";
+            rec2.ChainIndex = 1;
+            rec2.ChainBranch = 0;
+            rec2.PlaybackEnabled = false;
+            RecordingStore.CommitRecordingDirect(rec2);
 
             Assert.True(RecordingStore.IsChainFullyDisabled("chain2"));
             Assert.False(RecordingStore.IsChainLooping("chain2"));
 
-            // Enable one segment — no longer fully disabled
+            // Enable one segment -- no longer fully disabled
             RecordingStore.CommittedRecordings[0].PlaybackEnabled = true;
             Assert.False(RecordingStore.IsChainFullyDisabled("chain2"));
         }

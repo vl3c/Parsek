@@ -2884,7 +2884,7 @@ namespace Parsek
         /// <returns>Index into committed, or -1 if no target found.</returns>
         internal static int FindNextWatchTarget(
             Recording currentRec,
-            IList<Recording> committed,
+            IReadOnlyList<Recording> committed,
             IReadOnlyList<RecordingTree> trees,
             Func<int, bool> isGhostActive,
             int depth = 0)

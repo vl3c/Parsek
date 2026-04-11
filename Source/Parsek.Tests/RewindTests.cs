@@ -56,12 +56,12 @@ namespace Parsek.Tests
             };
             rec.Points.Add(new TrajectoryPoint { ut = 100 });
             rec.Points.Add(new TrajectoryPoint { ut = 200 });
-            RecordingStore.CommittedRecordings.Add(rec);
+            RecordingStore.AddRecordingWithTreeForTesting(rec);
 
-            var (standaloneCount, treeCount) = RecordingStore.ResetAllPlaybackState();
+            var (recordingCount, treeCount) = RecordingStore.ResetAllPlaybackState();
 
-            Assert.Equal(1, standaloneCount);
-            Assert.Equal(0, treeCount);
+            Assert.Equal(1, recordingCount);
+            Assert.Equal(1, treeCount);
             Assert.False(rec.VesselSpawned);
             Assert.Equal(0, rec.SpawnAttempts);
             Assert.Equal(0u, rec.SpawnedVesselPersistentId);
@@ -77,12 +77,12 @@ namespace Parsek.Tests
             rec.Points.Add(new TrajectoryPoint { ut = 100 });
             rec.Points.Add(new TrajectoryPoint { ut = 200 });
             rec.Points.Add(new TrajectoryPoint { ut = 300 });
-            RecordingStore.CommittedRecordings.Add(rec);
+            RecordingStore.AddRecordingWithTreeForTesting(rec);
 
             var (recCount, treeCount) = RecordingStore.MarkAllFullyApplied();
 
             Assert.Equal(1, recCount);
-            Assert.Equal(0, treeCount);
+            Assert.Equal(1, treeCount);
             Assert.Equal(2, rec.LastAppliedResourceIndex); // Points.Count - 1
         }
 
@@ -101,9 +101,9 @@ namespace Parsek.Tests
             rec3.Points.Add(new TrajectoryPoint { ut = 500 });
             rec3.Points.Add(new TrajectoryPoint { ut = 600 });
 
-            RecordingStore.CommittedRecordings.Add(rec1);
-            RecordingStore.CommittedRecordings.Add(rec2);
-            RecordingStore.CommittedRecordings.Add(rec3);
+            RecordingStore.AddRecordingWithTreeForTesting(rec1);
+            RecordingStore.AddRecordingWithTreeForTesting(rec2);
+            RecordingStore.AddRecordingWithTreeForTesting(rec3);
 
             Assert.Equal(2, RecordingStore.CountFutureRecordings(200));
             Assert.Equal(1, RecordingStore.CountFutureRecordings(400));
@@ -147,7 +147,7 @@ namespace Parsek.Tests
                 TerminalStateValue = TerminalState.Recovered
             };
             rec.Points.Add(new TrajectoryPoint { ut = 100 });
-            RecordingStore.CommittedRecordings.Add(rec);
+            RecordingStore.AddRecordingWithTreeForTesting(rec);
 
             RecordingStore.ResetAllPlaybackState();
 
@@ -166,7 +166,7 @@ namespace Parsek.Tests
                 TerminalStateValue = TerminalState.Destroyed
             };
             rec.Points.Add(new TrajectoryPoint { ut = 100 });
-            RecordingStore.CommittedRecordings.Add(rec);
+            RecordingStore.AddRecordingWithTreeForTesting(rec);
 
             RecordingStore.ResetAllPlaybackState();
 
@@ -184,7 +184,7 @@ namespace Parsek.Tests
                 TerminalStateValue = TerminalState.Destroyed
             };
             rec.Points.Add(new TrajectoryPoint { ut = 100 });
-            RecordingStore.CommittedRecordings.Add(rec);
+            RecordingStore.AddRecordingWithTreeForTesting(rec);
 
             RecordingStore.ResetAllPlaybackState();
 
@@ -203,7 +203,7 @@ namespace Parsek.Tests
                 TerminalStateValue = TerminalState.Landed
             };
             rec.Points.Add(new TrajectoryPoint { ut = 100 });
-            RecordingStore.CommittedRecordings.Add(rec);
+            RecordingStore.AddRecordingWithTreeForTesting(rec);
 
             RecordingStore.ResetAllPlaybackState();
 
@@ -216,7 +216,7 @@ namespace Parsek.Tests
         public void CollectSpawnedVesselInfo_NoSpawnedRecordings_ReturnsEmpty()
         {
             var rec = new Recording { VesselName = "Rocket", SpawnedVesselPersistentId = 0 };
-            RecordingStore.CommittedRecordings.Add(rec);
+            RecordingStore.AddRecordingWithTreeForTesting(rec);
 
             var (pids, names) = RecordingStore.CollectSpawnedVesselInfo();
 
@@ -227,9 +227,9 @@ namespace Parsek.Tests
         [Fact]
         public void CollectSpawnedVesselInfo_ReturnsNonZeroPidsAndNames()
         {
-            RecordingStore.CommittedRecordings.Add(new Recording
+            RecordingStore.AddRecordingWithTreeForTesting(new Recording
                 { VesselName = "Rocket", SpawnedVesselPersistentId = 42 });
-            RecordingStore.CommittedRecordings.Add(new Recording
+            RecordingStore.AddRecordingWithTreeForTesting(new Recording
                 { VesselName = "Shuttle", SpawnedVesselPersistentId = 99 });
 
             var (pids, names) = RecordingStore.CollectSpawnedVesselInfo();
@@ -245,9 +245,9 @@ namespace Parsek.Tests
         [Fact]
         public void CollectSpawnedVesselInfo_SkipsZeroPids()
         {
-            RecordingStore.CommittedRecordings.Add(new Recording
+            RecordingStore.AddRecordingWithTreeForTesting(new Recording
                 { VesselName = "Rocket", SpawnedVesselPersistentId = 42 });
-            RecordingStore.CommittedRecordings.Add(new Recording
+            RecordingStore.AddRecordingWithTreeForTesting(new Recording
                 { VesselName = "Shuttle", SpawnedVesselPersistentId = 0 });
 
             var (pids, names) = RecordingStore.CollectSpawnedVesselInfo();
@@ -261,9 +261,9 @@ namespace Parsek.Tests
         [Fact]
         public void CollectSpawnedVesselInfo_DeduplicatesSameName()
         {
-            RecordingStore.CommittedRecordings.Add(new Recording
+            RecordingStore.AddRecordingWithTreeForTesting(new Recording
                 { VesselName = "Rocket", SpawnedVesselPersistentId = 42 });
-            RecordingStore.CommittedRecordings.Add(new Recording
+            RecordingStore.AddRecordingWithTreeForTesting(new Recording
                 { VesselName = "Rocket", SpawnedVesselPersistentId = 99 });
 
             var (pids, names) = RecordingStore.CollectSpawnedVesselInfo();

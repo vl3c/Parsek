@@ -250,7 +250,7 @@ namespace Parsek.Tests
             rec.Points.Add(new TrajectoryPoint { ut = 100.0, funds = 40000.0 });
             rec.Points.Add(new TrajectoryPoint { ut = 200.0, funds = 39500.0 });
             RecordingStore.ResetForTesting();
-            RecordingStore.AddCommittedForTesting(rec);
+            RecordingStore.AddRecordingWithTreeForTesting(rec);
 
             var actions = LedgerOrchestrator.CreateVesselCostActions("rec-build-cost", 100.0, 200.0);
 
@@ -280,7 +280,7 @@ namespace Parsek.Tests
             rec.Points.Add(new TrajectoryPoint { ut = 200.0, funds = 40000.0 });
             rec.Points.Add(new TrajectoryPoint { ut = 300.0, funds = 47000.0 });
             RecordingStore.ResetForTesting();
-            RecordingStore.AddCommittedForTesting(rec);
+            RecordingStore.AddRecordingWithTreeForTesting(rec);
 
             var actions = LedgerOrchestrator.CreateVesselCostActions("rec-recovery", 100.0, 300.0);
 
@@ -316,7 +316,7 @@ namespace Parsek.Tests
             rec.Points.Add(new TrajectoryPoint { ut = 100.0, funds = 40000.0 });
             rec.Points.Add(new TrajectoryPoint { ut = 200.0, funds = 40000.0 });
             RecordingStore.ResetForTesting();
-            RecordingStore.AddCommittedForTesting(rec);
+            RecordingStore.AddRecordingWithTreeForTesting(rec);
 
             var actions = LedgerOrchestrator.CreateVesselCostActions("rec-no-delta", 100.0, 200.0);
 
@@ -346,7 +346,7 @@ namespace Parsek.Tests
                 PreLaunchFunds = 50000.0
             };
             RecordingStore.ResetForTesting();
-            RecordingStore.AddCommittedForTesting(rec);
+            RecordingStore.AddRecordingWithTreeForTesting(rec);
 
             var actions = LedgerOrchestrator.CreateVesselCostActions("rec-empty-pts", 100.0, 200.0);
 
@@ -369,7 +369,7 @@ namespace Parsek.Tests
             rec.Points.Add(new TrajectoryPoint { ut = 100.0, funds = 40000.0 });
             rec.Points.Add(new TrajectoryPoint { ut = 200.0, funds = 40000.0 });
             RecordingStore.ResetForTesting();
-            RecordingStore.AddCommittedForTesting(rec);
+            RecordingStore.AddRecordingWithTreeForTesting(rec);
 
             var actions = LedgerOrchestrator.CreateVesselCostActions("rec-orbiting", 100.0, 200.0);
 
@@ -393,7 +393,7 @@ namespace Parsek.Tests
             };
             rec.Points.Add(new TrajectoryPoint { ut = 100.0, funds = 47000.0 });
             RecordingStore.ResetForTesting();
-            RecordingStore.AddCommittedForTesting(rec);
+            RecordingStore.AddRecordingWithTreeForTesting(rec);
 
             var actions = LedgerOrchestrator.CreateVesselCostActions("rec-single-pt", 100.0, 100.0);
 
@@ -439,7 +439,7 @@ namespace Parsek.Tests
             };
             // No snapshot -> no crew
             RecordingStore.ResetForTesting();
-            RecordingStore.AddCommittedForTesting(rec);
+            RecordingStore.AddRecordingWithTreeForTesting(rec);
 
             var actions = LedgerOrchestrator.CreateKerbalAssignmentActions("rec-no-crew", 100.0, 200.0);
 
@@ -469,7 +469,7 @@ namespace Parsek.Tests
                 { "Bill Kerman", KerbalEndState.Aboard }
             };
             RecordingStore.ResetForTesting();
-            RecordingStore.AddCommittedForTesting(rec);
+            RecordingStore.AddRecordingWithTreeForTesting(rec);
 
             var actions = LedgerOrchestrator.CreateKerbalAssignmentActions("rec-crew-test", 100.0, 500.0);
 
@@ -510,7 +510,7 @@ namespace Parsek.Tests
                 // CrewEndStates intentionally null
             };
             RecordingStore.ResetForTesting();
-            RecordingStore.AddCommittedForTesting(rec);
+            RecordingStore.AddRecordingWithTreeForTesting(rec);
 
             var actions = LedgerOrchestrator.CreateKerbalAssignmentActions("rec-no-endstates", 50.0, 150.0);
 
@@ -538,7 +538,7 @@ namespace Parsek.Tests
                 // GhostVisualSnapshot intentionally null
             };
             RecordingStore.ResetForTesting();
-            RecordingStore.AddCommittedForTesting(rec);
+            RecordingStore.AddRecordingWithTreeForTesting(rec);
 
             var actions = LedgerOrchestrator.CreateKerbalAssignmentActions("rec-fallback", 10.0, 90.0);
 
@@ -719,7 +719,7 @@ namespace Parsek.Tests
         {
             var rec = new Recording { RecordingId = "rec-find-test" };
             RecordingStore.ResetForTesting();
-            RecordingStore.AddCommittedForTesting(rec);
+            RecordingStore.AddRecordingWithTreeForTesting(rec);
 
             var found = LedgerOrchestrator.FindRecordingById("rec-find-test");
 

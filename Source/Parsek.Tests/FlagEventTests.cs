@@ -173,7 +173,7 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void StashPending_WithFlagEvents_Preserved()
+        public void CreateRecordingFromFlightData_WithFlagEvents_Preserved()
         {
             var points = new List<TrajectoryPoint>();
             for (int i = 0; i < 5; i++)
@@ -184,14 +184,14 @@ namespace Parsek.Tests
                 new FlagEvent { ut = 120, flagSiteName = "Flag1", placedBy = "Jeb", bodyName = "Kerbin" }
             };
 
-            RecordingStore.StashPending(points, "TestVessel", flagEvents: flagEvents);
-            Assert.True(RecordingStore.HasPending);
-            Assert.Single(RecordingStore.Pending.FlagEvents);
-            Assert.Equal("Flag1", RecordingStore.Pending.FlagEvents[0].flagSiteName);
+            var rec = RecordingStore.CreateRecordingFromFlightData(points, "TestVessel", flagEvents: flagEvents);
+            Assert.NotNull(rec);
+            Assert.Single(rec.FlagEvents);
+            Assert.Equal("Flag1", rec.FlagEvents[0].flagSiteName);
         }
 
         [Fact]
-        public void StashPending_FlagEvents_RetimeBeforeTrim()
+        public void CreateRecordingFromFlightData_FlagEvents_RetimeBeforeTrim()
         {
             // Create points where the first few are stationary (same position, low speed)
             var points = new List<TrajectoryPoint>
@@ -208,12 +208,13 @@ namespace Parsek.Tests
                 new FlagEvent { ut = 105, flagSiteName = "EarlyFlag", bodyName = "Kerbin" }
             };
 
-            RecordingStore.StashPending(points, "TrimTest", flagEvents: flagEvents);
+            var rec = RecordingStore.CreateRecordingFromFlightData(points, "TrimTest", flagEvents: flagEvents);
+            Assert.NotNull(rec);
 
             // If trimming occurred, the flag event UT should be >= the first point's UT
-            double firstPointUT = RecordingStore.Pending.Points[0].ut;
-            Assert.True(RecordingStore.Pending.FlagEvents[0].ut >= firstPointUT,
-                $"Flag event UT {RecordingStore.Pending.FlagEvents[0].ut} should be >= first point UT {firstPointUT}");
+            double firstPointUT = rec.Points[0].ut;
+            Assert.True(rec.FlagEvents[0].ut >= firstPointUT,
+                $"Flag event UT {rec.FlagEvents[0].ut} should be >= first point UT {firstPointUT}");
         }
 
         [Fact]

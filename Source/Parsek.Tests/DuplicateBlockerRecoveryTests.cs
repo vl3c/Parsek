@@ -131,7 +131,7 @@ namespace Parsek.Tests
                 SpawnedVesselPersistentId = 12345
             };
 
-            RecordingStore.AddCommittedForTesting(rec);
+            RecordingStore.AddRecordingWithTreeForTesting(rec);
             RecordingStore.ResetAllPlaybackState();
 
             Assert.False(rec.DuplicateBlockerRecovered);

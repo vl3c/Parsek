@@ -325,27 +325,26 @@ namespace Parsek.Tests
         #region FallbackCommit Rewind Field Propagation
 
         [Fact]
-        public void StashAndCommit_WithRewindFields_PreservesRewindData()
+        public void CreateAndCommit_WithRewindFields_PreservesRewindData()
         {
-            // Simulate the FallbackCommitSplitRecorder path:
-            // StashPending → set rewind fields on Pending → CommitPending
+            // Simulate the commit path:
+            // CreateRecordingFromFlightData → set rewind fields → CommitRecordingDirect
             var points = new List<TrajectoryPoint>
             {
                 new TrajectoryPoint { ut = 100 },
                 new TrajectoryPoint { ut = 200 }
             };
 
-            RecordingStore.StashPending(points, "CrashedRocket");
-            Assert.True(RecordingStore.HasPending);
+            var rec = RecordingStore.CreateRecordingFromFlightData(points, "CrashedRocket");
+            Assert.NotNull(rec);
 
-            // Copy rewind fields (as FallbackCommitSplitRecorder does)
-            var pending = RecordingStore.Pending;
-            pending.RewindSaveFileName = "parsek_rw_crash01";
-            pending.RewindReservedFunds = 5000.0;
-            pending.RewindReservedScience = 25.0;
-            pending.RewindReservedRep = 3.0f;
+            // Copy rewind fields
+            rec.RewindSaveFileName = "parsek_rw_crash01";
+            rec.RewindReservedFunds = 5000.0;
+            rec.RewindReservedScience = 25.0;
+            rec.RewindReservedRep = 3.0f;
 
-            RecordingStore.CommitPending();
+            RecordingStore.CommitRecordingDirect(rec);
 
             // Verify committed recording has the rewind fields
             var committed = RecordingStore.CommittedRecordings;
@@ -357,7 +356,7 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void StashAndCommit_WithoutRewindFields_HasNullSaveName()
+        public void CreateAndCommit_WithoutRewindFields_HasNullSaveName()
         {
             // Normal commit (no crash) — rewind fields should be null/zero
             var points = new List<TrajectoryPoint>
@@ -366,8 +365,9 @@ namespace Parsek.Tests
                 new TrajectoryPoint { ut = 200 }
             };
 
-            RecordingStore.StashPending(points, "NormalRocket");
-            RecordingStore.CommitPending();
+            var rec = RecordingStore.CreateRecordingFromFlightData(points, "NormalRocket");
+            Assert.NotNull(rec);
+            RecordingStore.CommitRecordingDirect(rec);
 
             var committed = RecordingStore.CommittedRecordings;
             Assert.Single(committed);
@@ -412,19 +412,14 @@ namespace Parsek.Tests
         #region CanRewind Log Assertions
 
         [Fact]
-        public void CanRewind_HasPending_ReturnsFalse()
+        public void CanRewind_HasPendingTree_ReturnsFalse()
         {
-            var points = new List<TrajectoryPoint>
-            {
-                new TrajectoryPoint { ut = 100 },
-                new TrajectoryPoint { ut = 200 }
-            };
-            RecordingStore.StashPending(points, "PendingVessel");
+            RecordingStore.StashPendingTree(new RecordingTree());
 
             var rec = new Recording { RewindSaveFileName = "parsek_rw_test" };
             string reason;
             Assert.False(RecordingStore.CanRewind(rec, out reason, isRecording: false));
-            Assert.Equal("Merge or discard pending recording first", reason);
+            Assert.Equal("Merge or discard pending tree first", reason);
         }
 
         // Note: CanRewind_SaveFileMissing is not testable without Unity

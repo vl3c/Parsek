@@ -74,9 +74,9 @@ namespace Parsek.Tests
             var rec2 = BuildRecordingWithCounts("Beta", pointCount: 300, eventCount: 10, segmentCount: 1, withSnapshots: true);
             var rec3 = BuildRecordingWithCounts("Gamma", pointCount: 200, eventCount: 5, segmentCount: 0, withSnapshots: false);
 
-            RecordingStore.AddCommittedForTesting(rec1);
-            RecordingStore.AddCommittedForTesting(rec2);
-            RecordingStore.AddCommittedForTesting(rec3);
+            RecordingStore.AddRecordingWithTreeForTesting(rec1);
+            RecordingStore.AddRecordingWithTreeForTesting(rec2);
+            RecordingStore.AddRecordingWithTreeForTesting(rec3);
 
             DiagnosticsComputation.ClockSource = () => 2000.0;
             var snap = DiagnosticsComputation.ComputeSnapshot(500.0);
@@ -108,7 +108,7 @@ namespace Parsek.Tests
         public void SnapshotCache_ReturnsStaleWithinTTL()
         {
             var rec = BuildRecordingWithCounts("Cached", pointCount: 100, eventCount: 5, segmentCount: 1);
-            RecordingStore.AddCommittedForTesting(rec);
+            RecordingStore.AddRecordingWithTreeForTesting(rec);
 
             DiagnosticsComputation.ClockSource = () => 1000.0;
 
@@ -120,7 +120,7 @@ namespace Parsek.Tests
 
             // Add another recording (this would change the result if recomputed)
             var rec2 = BuildRecordingWithCounts("New", pointCount: 50, eventCount: 2, segmentCount: 0);
-            RecordingStore.AddCommittedForTesting(rec2);
+            RecordingStore.AddRecordingWithTreeForTesting(rec2);
 
             // Call at UT=101 (within 2s TTL)
             var snap2 = DiagnosticsComputation.GetOrComputeSnapshot(101.0);
@@ -140,7 +140,7 @@ namespace Parsek.Tests
         public void SnapshotCache_RecomputesAfterTTL()
         {
             var rec = BuildRecordingWithCounts("Initial", pointCount: 100, eventCount: 5, segmentCount: 1);
-            RecordingStore.AddCommittedForTesting(rec);
+            RecordingStore.AddRecordingWithTreeForTesting(rec);
 
             DiagnosticsComputation.ClockSource = () => 1000.0;
 
@@ -150,7 +150,7 @@ namespace Parsek.Tests
 
             // Add another recording
             var rec2 = BuildRecordingWithCounts("Added", pointCount: 75, eventCount: 3, segmentCount: 0);
-            RecordingStore.AddCommittedForTesting(rec2);
+            RecordingStore.AddRecordingWithTreeForTesting(rec2);
 
             // Call at UT=103 (past 2s TTL)
             var snap2 = DiagnosticsComputation.GetOrComputeSnapshot(103.0);
@@ -587,11 +587,11 @@ namespace Parsek.Tests
         {
             // Add a completely empty recording (no points, events, or segments)
             var emptyRec = new Recording { VesselName = "Empty" };
-            RecordingStore.AddCommittedForTesting(emptyRec);
+            RecordingStore.AddRecordingWithTreeForTesting(emptyRec);
 
             // Add a recording with data
             var dataRec = BuildRecordingWithCounts("HasData", pointCount: 50, eventCount: 10, segmentCount: 2);
-            RecordingStore.AddCommittedForTesting(dataRec);
+            RecordingStore.AddRecordingWithTreeForTesting(dataRec);
 
             DiagnosticsComputation.ClockSource = () => 1000.0;
             var snap = DiagnosticsComputation.ComputeSnapshot(100.0);
@@ -618,18 +618,18 @@ namespace Parsek.Tests
             var recBoth = new Recording { VesselName = "Both" };
             recBoth.VesselSnapshot = new ConfigNode("V");
             recBoth.GhostVisualSnapshot = new ConfigNode("G");
-            RecordingStore.AddCommittedForTesting(recBoth);
+            RecordingStore.AddRecordingWithTreeForTesting(recBoth);
 
             var recVesselOnly = new Recording { VesselName = "VesselOnly" };
             recVesselOnly.VesselSnapshot = new ConfigNode("V2");
-            RecordingStore.AddCommittedForTesting(recVesselOnly);
+            RecordingStore.AddRecordingWithTreeForTesting(recVesselOnly);
 
             var recGhostOnly = new Recording { VesselName = "GhostOnly" };
             recGhostOnly.GhostVisualSnapshot = new ConfigNode("G2");
-            RecordingStore.AddCommittedForTesting(recGhostOnly);
+            RecordingStore.AddRecordingWithTreeForTesting(recGhostOnly);
 
             var recNeither = new Recording { VesselName = "Neither" };
-            RecordingStore.AddCommittedForTesting(recNeither);
+            RecordingStore.AddRecordingWithTreeForTesting(recNeither);
 
             DiagnosticsComputation.ClockSource = () => 1000.0;
             var snap = DiagnosticsComputation.ComputeSnapshot(100.0);
@@ -650,8 +650,8 @@ namespace Parsek.Tests
         {
             var rec1 = BuildRecordingWithCounts("Alpha", pointCount: 1000, eventCount: 50, segmentCount: 3);
             var rec2 = BuildRecordingWithCounts("Beta", pointCount: 2000, eventCount: 100, segmentCount: 5);
-            RecordingStore.AddCommittedForTesting(rec1);
-            RecordingStore.AddCommittedForTesting(rec2);
+            RecordingStore.AddRecordingWithTreeForTesting(rec1);
+            RecordingStore.AddRecordingWithTreeForTesting(rec2);
 
             DiagnosticsComputation.ClockSource = () => 1000.0;
             var snap = DiagnosticsComputation.ComputeSnapshot(100.0);
@@ -701,7 +701,7 @@ namespace Parsek.Tests
 
             // Populate a cached snapshot
             var rec = BuildRecordingWithCounts("Cached", pointCount: 100, eventCount: 5, segmentCount: 1);
-            RecordingStore.AddCommittedForTesting(rec);
+            RecordingStore.AddRecordingWithTreeForTesting(rec);
             DiagnosticsComputation.ComputeSnapshot(100.0);
             Assert.True(DiagnosticsState.hasCachedSnapshot);
 
@@ -723,7 +723,7 @@ namespace Parsek.Tests
         public void RunDiagnosticsReport_ProducesCompleteOutput()
         {
             var rec = BuildRecordingWithCounts("Diagnostic", pointCount: 200, eventCount: 15, segmentCount: 2);
-            RecordingStore.AddCommittedForTesting(rec);
+            RecordingStore.AddRecordingWithTreeForTesting(rec);
 
             DiagnosticsComputation.ClockSource = () => 1000.0;
 

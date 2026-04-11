@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Linq;
 using Xunit;
 
 namespace Parsek.Tests
@@ -635,9 +636,9 @@ namespace Parsek.Tests
             var c = MakeChainSegment("chain1", 2, startUT: 17060, endUT: 17090);
 
             var recordings = RecordingStore.CommittedRecordings;
-            recordings.Add(a);
-            recordings.Add(b);
-            recordings.Add(c);
+            RecordingStore.AddRecordingWithTreeForTesting(a);
+            RecordingStore.AddRecordingWithTreeForTesting(b);
+            RecordingStore.AddRecordingWithTreeForTesting(c);
 
             RecordingStore.RunOptimizationPass();
 
@@ -663,9 +664,9 @@ namespace Parsek.Tests
             var c = MakeChainSegment("chain1", 2, startUT: 17060, endUT: 17090);
 
             var recordings = RecordingStore.CommittedRecordings;
-            recordings.Add(a);
-            recordings.Add(b);
-            recordings.Add(c);
+            RecordingStore.AddRecordingWithTreeForTesting(a);
+            RecordingStore.AddRecordingWithTreeForTesting(b);
+            RecordingStore.AddRecordingWithTreeForTesting(c);
 
             RecordingStore.RunOptimizationPass();
 
@@ -687,10 +688,10 @@ namespace Parsek.Tests
             var b2 = MakeChainSegment("chain2", 1, phase: "approach", startUT: 17020, endUT: 17040);
 
             var recordings = RecordingStore.CommittedRecordings;
-            recordings.Add(a1);
-            recordings.Add(a2);
-            recordings.Add(b1);
-            recordings.Add(b2);
+            RecordingStore.AddRecordingWithTreeForTesting(a1);
+            RecordingStore.AddRecordingWithTreeForTesting(a2);
+            RecordingStore.AddRecordingWithTreeForTesting(b1);
+            RecordingStore.AddRecordingWithTreeForTesting(b2);
 
             RecordingStore.RunOptimizationPass();
 
@@ -1008,7 +1009,7 @@ namespace Parsek.Tests
             rec.VesselPersistentId = 12345;
 
             var recordings = RecordingStore.CommittedRecordings;
-            recordings.Add(rec);
+            RecordingStore.AddRecordingWithTreeForTesting(rec);
 
             RecordingStore.RunOptimizationPass();
 
@@ -1034,7 +1035,7 @@ namespace Parsek.Tests
             rec.RecordingId = "orig_id";
 
             var recordings = RecordingStore.CommittedRecordings;
-            recordings.Add(rec);
+            RecordingStore.AddRecordingWithTreeForTesting(rec);
 
             RecordingStore.RunOptimizationPass();
 
@@ -1070,7 +1071,7 @@ namespace Parsek.Tests
             RecordingStore.CommittedTrees.Add(tree);
 
             var recordings = RecordingStore.CommittedRecordings;
-            recordings.Add(rec);
+            RecordingStore.AddRecordingWithTreeForTesting(rec);
 
             RecordingStore.RunOptimizationPass();
 
@@ -1096,7 +1097,7 @@ namespace Parsek.Tests
             rec.RecordingId = "body_test";
 
             var recordings = RecordingStore.CommittedRecordings;
-            recordings.Add(rec);
+            RecordingStore.AddRecordingWithTreeForTesting(rec);
 
             RecordingStore.RunOptimizationPass();
 
@@ -1141,7 +1142,7 @@ namespace Parsek.Tests
             RecordingStore.CommittedTrees.Add(tree);
 
             var recordings = RecordingStore.CommittedRecordings;
-            recordings.Add(rec);
+            RecordingStore.AddRecordingWithTreeForTesting(rec);
 
             RecordingStore.RunOptimizationPass();
 
@@ -1176,7 +1177,7 @@ namespace Parsek.Tests
             rec.RecordingId = "single_env";
 
             var recordings = RecordingStore.CommittedRecordings;
-            recordings.Add(rec);
+            RecordingStore.AddRecordingWithTreeForTesting(rec);
 
             RecordingStore.RunOptimizationPass();
 
@@ -1197,7 +1198,7 @@ namespace Parsek.Tests
             rec.RecordingId = "idem_test";
 
             var recordings = RecordingStore.CommittedRecordings;
-            recordings.Add(rec);
+            RecordingStore.AddRecordingWithTreeForTesting(rec);
 
             RecordingStore.RunOptimizationPass();
             Assert.Equal(2, recordings.Count);
@@ -1228,7 +1229,7 @@ namespace Parsek.Tests
             rec.PreLaunchReputation = 25;
 
             var recordings = RecordingStore.CommittedRecordings;
-            recordings.Add(rec);
+            RecordingStore.AddRecordingWithTreeForTesting(rec);
 
             RecordingStore.RunOptimizationPass();
 
@@ -1252,7 +1253,7 @@ namespace Parsek.Tests
             rec.RecordingGroups = new List<string> { "Launches", "Mun Missions" };
 
             var recordings = RecordingStore.CommittedRecordings;
-            recordings.Add(rec);
+            RecordingStore.AddRecordingWithTreeForTesting(rec);
 
             RecordingStore.RunOptimizationPass();
 
@@ -1277,7 +1278,7 @@ namespace Parsek.Tests
             rec.RecordingId = "no_parent_test";
 
             var recordings = RecordingStore.CommittedRecordings;
-            recordings.Add(rec);
+            RecordingStore.AddRecordingWithTreeForTesting(rec);
 
             RecordingStore.RunOptimizationPass();
 
@@ -2205,8 +2206,8 @@ namespace Parsek.Tests
             RecordingStore.CommittedTrees.Add(tree);
 
             var recordings = RecordingStore.CommittedRecordings;
-            recordings.Add(main);
-            recordings.Add(debris);
+            RecordingStore.AddRecordingWithTreeForTesting(main);
+            RecordingStore.AddRecordingWithTreeForTesting(debris);
 
             RecordingStore.RunOptimizationPass();
 
@@ -2215,7 +2216,7 @@ namespace Parsek.Tests
             Assert.Equal(5, tree.Recordings.Count);
 
             // All chain segments should have TreeId set and share a ChainId
-            var chainMembers = recordings.FindAll(r => r.RecordingId == "main_rec" || r.ChainId == main.ChainId);
+            var chainMembers = recordings.Where(r => r.RecordingId == "main_rec" || r.ChainId == main.ChainId).ToList();
             Assert.Equal(4, chainMembers.Count);
             chainMembers.Sort((a, b) => a.StartUT.CompareTo(b.StartUT));
             for (int i = 0; i < chainMembers.Count; i++)
@@ -2233,7 +2234,7 @@ namespace Parsek.Tests
             Assert.Contains(chainMembers[chainMembers.Count - 1].RecordingId, bp.ParentRecordingIds);
 
             // Debris recording unchanged
-            var debrisResult = recordings.Find(r => r.RecordingId == "debris_rec");
+            var debrisResult = recordings.FirstOrDefault(r => r.RecordingId == "debris_rec");
             Assert.NotNull(debrisResult);
             Assert.True(debrisResult.IsDebris);
             Assert.Equal("bp_staging", debrisResult.ParentBranchPointId);
@@ -2274,7 +2275,7 @@ namespace Parsek.Tests
             });
 
             var recordings = RecordingStore.CommittedRecordings;
-            recordings.Add(rec);
+            RecordingStore.AddRecordingWithTreeForTesting(rec);
 
             RecordingStore.RunOptimizationPass();
 

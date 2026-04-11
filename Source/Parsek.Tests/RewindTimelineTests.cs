@@ -492,23 +492,6 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void CanRewind_PendingRecording_ReturnsFalse()
-        {
-            var points = new List<TrajectoryPoint>
-            {
-                new TrajectoryPoint { ut = 100 },
-                new TrajectoryPoint { ut = 200 }
-            };
-            RecordingStore.StashPending(points, "PendingVessel");
-
-            var rec = new Recording { RewindSaveFileName = "parsek_rw_test" };
-
-            string reason;
-            Assert.False(RecordingStore.CanRewind(rec, out reason, isRecording: false));
-            Assert.Equal("Merge or discard pending recording first", reason);
-        }
-
-        [Fact]
         public void CanRewind_PendingTree_ReturnsFalse()
         {
             // Create a pending tree to trigger HasPendingTree
@@ -524,14 +507,9 @@ namespace Parsek.Tests
         [Fact]
         public void CanRewind_PriorityOrder_AlreadyRewindingFirst()
         {
-            // Even with pending recording and isRecording, "already rewinding" should win
+            // Even with pending tree and isRecording, "already rewinding" should win
             RewindContext.BeginRewind(0, default(BudgetSummary), 0, 0, 0);
-            var points = new List<TrajectoryPoint>
-            {
-                new TrajectoryPoint { ut = 100 },
-                new TrajectoryPoint { ut = 200 }
-            };
-            RecordingStore.StashPending(points, "PendingVessel");
+            RecordingStore.StashPendingTree(new RecordingTree());
 
             var rec = new Recording { RewindSaveFileName = "parsek_rw_test" };
 
@@ -554,7 +532,7 @@ namespace Parsek.Tests
                 SpawnAttempts = 2
             };
             rec.Points.Add(new TrajectoryPoint { ut = 100 });
-            RecordingStore.CommittedRecordings.Add(rec);
+            RecordingStore.AddRecordingWithTreeForTesting(rec);
 
             RecordingStore.ResetAllPlaybackState();
 
@@ -574,7 +552,7 @@ namespace Parsek.Tests
                 SpawnedVesselPersistentId = 42000
             };
             rec.Points.Add(new TrajectoryPoint { ut = 100 });
-            RecordingStore.CommittedRecordings.Add(rec);
+            RecordingStore.AddRecordingWithTreeForTesting(rec);
 
             RecordingStore.ResetAllPlaybackState();
 

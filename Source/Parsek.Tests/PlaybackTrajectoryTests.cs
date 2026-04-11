@@ -368,7 +368,6 @@ namespace Parsek.Tests
         {
             var flags = new TrajectoryPlaybackFlags();
             Assert.False(flags.skipGhost);
-            Assert.False(flags.isStandalone);
             Assert.False(flags.isMidChain);
             Assert.Equal(0.0, flags.chainEndUT);
             Assert.False(flags.needsSpawn);
@@ -385,7 +384,6 @@ namespace Parsek.Tests
             var flags = new TrajectoryPlaybackFlags
             {
                 skipGhost = true,
-                isStandalone = true,
                 isMidChain = true,
                 chainEndUT = 500.0,
                 needsSpawn = true,
@@ -396,7 +394,6 @@ namespace Parsek.Tests
                 vesselPersistentId = 42
             };
             Assert.True(flags.skipGhost);
-            Assert.True(flags.isStandalone);
             Assert.True(flags.isMidChain);
             Assert.Equal(500.0, flags.chainEndUT, 6);
             Assert.True(flags.needsSpawn);

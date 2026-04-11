@@ -66,17 +66,19 @@ namespace Parsek.Tests
         [Fact]
         public void IsChainMidSegment_BranchZero_MidSegment_ReturnsTrue()
         {
-            RecordingStore.StashPending(MakePoints(3, 100), "Seg0");
-            RecordingStore.Pending.ChainId = "dock-chain";
-            RecordingStore.Pending.ChainIndex = 0;
-            RecordingStore.Pending.ChainBranch = 0;
-            RecordingStore.CommitPending();
+            var rec1 = RecordingStore.CreateRecordingFromFlightData(MakePoints(3, 100), "Seg0");
+            Assert.NotNull(rec1);
+            rec1.ChainId = "dock-chain";
+            rec1.ChainIndex = 0;
+            rec1.ChainBranch = 0;
+            RecordingStore.CommitRecordingDirect(rec1);
 
-            RecordingStore.StashPending(MakePoints(3, 200), "Seg1");
-            RecordingStore.Pending.ChainId = "dock-chain";
-            RecordingStore.Pending.ChainIndex = 1;
-            RecordingStore.Pending.ChainBranch = 0;
-            RecordingStore.CommitPending();
+            var rec2 = RecordingStore.CreateRecordingFromFlightData(MakePoints(3, 200), "Seg1");
+            Assert.NotNull(rec2);
+            rec2.ChainId = "dock-chain";
+            rec2.ChainIndex = 1;
+            rec2.ChainBranch = 0;
+            RecordingStore.CommitRecordingDirect(rec2);
 
             Assert.True(RecordingStore.IsChainMidSegment(RecordingStore.CommittedRecordings[0]));
         }
@@ -84,23 +86,26 @@ namespace Parsek.Tests
         [Fact]
         public void IsChainMidSegment_BranchGreaterThanZero_AlwaysReturnsFalse()
         {
-            RecordingStore.StashPending(MakePoints(3, 100), "Seg0");
-            RecordingStore.Pending.ChainId = "dock-chain";
-            RecordingStore.Pending.ChainIndex = 0;
-            RecordingStore.Pending.ChainBranch = 0;
-            RecordingStore.CommitPending();
+            var rec1 = RecordingStore.CreateRecordingFromFlightData(MakePoints(3, 100), "Seg0");
+            Assert.NotNull(rec1);
+            rec1.ChainId = "dock-chain";
+            rec1.ChainIndex = 0;
+            rec1.ChainBranch = 0;
+            RecordingStore.CommitRecordingDirect(rec1);
 
-            RecordingStore.StashPending(MakePoints(3, 200), "Branch1");
-            RecordingStore.Pending.ChainId = "dock-chain";
-            RecordingStore.Pending.ChainIndex = 1;
-            RecordingStore.Pending.ChainBranch = 1;
-            RecordingStore.CommitPending();
+            var rec2 = RecordingStore.CreateRecordingFromFlightData(MakePoints(3, 200), "Branch1");
+            Assert.NotNull(rec2);
+            rec2.ChainId = "dock-chain";
+            rec2.ChainIndex = 1;
+            rec2.ChainBranch = 1;
+            RecordingStore.CommitRecordingDirect(rec2);
 
-            RecordingStore.StashPending(MakePoints(3, 200), "Seg1");
-            RecordingStore.Pending.ChainId = "dock-chain";
-            RecordingStore.Pending.ChainIndex = 1;
-            RecordingStore.Pending.ChainBranch = 0;
-            RecordingStore.CommitPending();
+            var rec3 = RecordingStore.CreateRecordingFromFlightData(MakePoints(3, 200), "Seg1");
+            Assert.NotNull(rec3);
+            rec3.ChainId = "dock-chain";
+            rec3.ChainIndex = 1;
+            rec3.ChainBranch = 0;
+            RecordingStore.CommitRecordingDirect(rec3);
 
             // Branch 1 recording — always returns false (ghost-only, despawns normally)
             Assert.False(RecordingStore.IsChainMidSegment(RecordingStore.CommittedRecordings[1]));
@@ -116,24 +121,27 @@ namespace Parsek.Tests
         [Fact]
         public void GetChainEndUT_IgnoresBranchGreaterThanZero()
         {
-            RecordingStore.StashPending(MakePoints(3, 100), "Seg0");
-            RecordingStore.Pending.ChainId = "end-branch";
-            RecordingStore.Pending.ChainIndex = 0;
-            RecordingStore.Pending.ChainBranch = 0;
-            RecordingStore.CommitPending();
+            var rec1 = RecordingStore.CreateRecordingFromFlightData(MakePoints(3, 100), "Seg0");
+            Assert.NotNull(rec1);
+            rec1.ChainId = "end-branch";
+            rec1.ChainIndex = 0;
+            rec1.ChainBranch = 0;
+            RecordingStore.CommitRecordingDirect(rec1);
 
-            RecordingStore.StashPending(MakePoints(3, 200), "Seg1");
-            RecordingStore.Pending.ChainId = "end-branch";
-            RecordingStore.Pending.ChainIndex = 1;
-            RecordingStore.Pending.ChainBranch = 0;
-            RecordingStore.CommitPending();
+            var rec2 = RecordingStore.CreateRecordingFromFlightData(MakePoints(3, 200), "Seg1");
+            Assert.NotNull(rec2);
+            rec2.ChainId = "end-branch";
+            rec2.ChainIndex = 1;
+            rec2.ChainBranch = 0;
+            RecordingStore.CommitRecordingDirect(rec2);
 
             // Branch 1 has a much later EndUT — should be ignored
-            RecordingStore.StashPending(MakePoints(10, 500), "Branch1");
-            RecordingStore.Pending.ChainId = "end-branch";
-            RecordingStore.Pending.ChainIndex = 1;
-            RecordingStore.Pending.ChainBranch = 1;
-            RecordingStore.CommitPending();
+            var rec3 = RecordingStore.CreateRecordingFromFlightData(MakePoints(10, 500), "Branch1");
+            Assert.NotNull(rec3);
+            rec3.ChainId = "end-branch";
+            rec3.ChainIndex = 1;
+            rec3.ChainBranch = 1;
+            RecordingStore.CommitRecordingDirect(rec3);
 
             var seg0 = RecordingStore.CommittedRecordings[0];
             var seg1 = RecordingStore.CommittedRecordings[1];
@@ -150,23 +158,26 @@ namespace Parsek.Tests
         public void GetChainRecordings_SortsByBranchThenIndex()
         {
             // Add in scrambled order
-            RecordingStore.StashPending(MakePoints(3, 300), "B1-Idx1");
-            RecordingStore.Pending.ChainId = "sort-chain";
-            RecordingStore.Pending.ChainIndex = 1;
-            RecordingStore.Pending.ChainBranch = 1;
-            RecordingStore.CommitPending();
+            var rec1 = RecordingStore.CreateRecordingFromFlightData(MakePoints(3, 300), "B1-Idx1");
+            Assert.NotNull(rec1);
+            rec1.ChainId = "sort-chain";
+            rec1.ChainIndex = 1;
+            rec1.ChainBranch = 1;
+            RecordingStore.CommitRecordingDirect(rec1);
 
-            RecordingStore.StashPending(MakePoints(3, 200), "B0-Idx1");
-            RecordingStore.Pending.ChainId = "sort-chain";
-            RecordingStore.Pending.ChainIndex = 1;
-            RecordingStore.Pending.ChainBranch = 0;
-            RecordingStore.CommitPending();
+            var rec2 = RecordingStore.CreateRecordingFromFlightData(MakePoints(3, 200), "B0-Idx1");
+            Assert.NotNull(rec2);
+            rec2.ChainId = "sort-chain";
+            rec2.ChainIndex = 1;
+            rec2.ChainBranch = 0;
+            RecordingStore.CommitRecordingDirect(rec2);
 
-            RecordingStore.StashPending(MakePoints(3, 100), "B0-Idx0");
-            RecordingStore.Pending.ChainId = "sort-chain";
-            RecordingStore.Pending.ChainIndex = 0;
-            RecordingStore.Pending.ChainBranch = 0;
-            RecordingStore.CommitPending();
+            var rec3 = RecordingStore.CreateRecordingFromFlightData(MakePoints(3, 100), "B0-Idx0");
+            Assert.NotNull(rec3);
+            rec3.ChainId = "sort-chain";
+            rec3.ChainIndex = 0;
+            rec3.ChainBranch = 0;
+            RecordingStore.CommitRecordingDirect(rec3);
 
             var chain = RecordingStore.GetChainRecordings("sort-chain");
             Assert.NotNull(chain);
@@ -192,24 +203,27 @@ namespace Parsek.Tests
         public void ValidateChains_ParallelBranches_Valid()
         {
             // Branch 0: indices 0, 1
-            RecordingStore.StashPending(MakePoints(3, 100), "B0-0");
-            RecordingStore.Pending.ChainId = "branch-valid";
-            RecordingStore.Pending.ChainIndex = 0;
-            RecordingStore.Pending.ChainBranch = 0;
-            RecordingStore.CommitPending();
+            var rec1 = RecordingStore.CreateRecordingFromFlightData(MakePoints(3, 100), "B0-0");
+            Assert.NotNull(rec1);
+            rec1.ChainId = "branch-valid";
+            rec1.ChainIndex = 0;
+            rec1.ChainBranch = 0;
+            RecordingStore.CommitRecordingDirect(rec1);
 
-            RecordingStore.StashPending(MakePoints(3, 200), "B0-1");
-            RecordingStore.Pending.ChainId = "branch-valid";
-            RecordingStore.Pending.ChainIndex = 1;
-            RecordingStore.Pending.ChainBranch = 0;
-            RecordingStore.CommitPending();
+            var rec2 = RecordingStore.CreateRecordingFromFlightData(MakePoints(3, 200), "B0-1");
+            Assert.NotNull(rec2);
+            rec2.ChainId = "branch-valid";
+            rec2.ChainIndex = 1;
+            rec2.ChainBranch = 0;
+            RecordingStore.CommitRecordingDirect(rec2);
 
             // Branch 1: index 1 (forks from branch 0 at index 1)
-            RecordingStore.StashPending(MakePoints(3, 200), "B1-1");
-            RecordingStore.Pending.ChainId = "branch-valid";
-            RecordingStore.Pending.ChainIndex = 1;
-            RecordingStore.Pending.ChainBranch = 1;
-            RecordingStore.CommitPending();
+            var rec3 = RecordingStore.CreateRecordingFromFlightData(MakePoints(3, 200), "B1-1");
+            Assert.NotNull(rec3);
+            rec3.ChainId = "branch-valid";
+            rec3.ChainIndex = 1;
+            rec3.ChainBranch = 1;
+            RecordingStore.CommitRecordingDirect(rec3);
 
             RecordingStore.ValidateChains();
 
@@ -224,30 +238,34 @@ namespace Parsek.Tests
         public void ValidateChains_InvalidBranch_DegradesEntireChain()
         {
             // Branch 0: valid (indices 0, 1)
-            RecordingStore.StashPending(MakePoints(3, 100), "B0-0");
-            RecordingStore.Pending.ChainId = "branch-invalid";
-            RecordingStore.Pending.ChainIndex = 0;
-            RecordingStore.Pending.ChainBranch = 0;
-            RecordingStore.CommitPending();
+            var rec1 = RecordingStore.CreateRecordingFromFlightData(MakePoints(3, 100), "B0-0");
+            Assert.NotNull(rec1);
+            rec1.ChainId = "branch-invalid";
+            rec1.ChainIndex = 0;
+            rec1.ChainBranch = 0;
+            RecordingStore.CommitRecordingDirect(rec1);
 
-            RecordingStore.StashPending(MakePoints(3, 200), "B0-1");
-            RecordingStore.Pending.ChainId = "branch-invalid";
-            RecordingStore.Pending.ChainIndex = 1;
-            RecordingStore.Pending.ChainBranch = 0;
-            RecordingStore.CommitPending();
+            var rec2 = RecordingStore.CreateRecordingFromFlightData(MakePoints(3, 200), "B0-1");
+            Assert.NotNull(rec2);
+            rec2.ChainId = "branch-invalid";
+            rec2.ChainIndex = 1;
+            rec2.ChainBranch = 0;
+            RecordingStore.CommitRecordingDirect(rec2);
 
             // Branch 1: invalid — gap (indices 1, 3 with no 2)
-            RecordingStore.StashPending(MakePoints(3, 200), "B1-1");
-            RecordingStore.Pending.ChainId = "branch-invalid";
-            RecordingStore.Pending.ChainIndex = 1;
-            RecordingStore.Pending.ChainBranch = 1;
-            RecordingStore.CommitPending();
+            var rec3 = RecordingStore.CreateRecordingFromFlightData(MakePoints(3, 200), "B1-1");
+            Assert.NotNull(rec3);
+            rec3.ChainId = "branch-invalid";
+            rec3.ChainIndex = 1;
+            rec3.ChainBranch = 1;
+            RecordingStore.CommitRecordingDirect(rec3);
 
-            RecordingStore.StashPending(MakePoints(3, 300), "B1-3");
-            RecordingStore.Pending.ChainId = "branch-invalid";
-            RecordingStore.Pending.ChainIndex = 3;
-            RecordingStore.Pending.ChainBranch = 1;
-            RecordingStore.CommitPending();
+            var rec4 = RecordingStore.CreateRecordingFromFlightData(MakePoints(3, 300), "B1-3");
+            Assert.NotNull(rec4);
+            rec4.ChainId = "branch-invalid";
+            rec4.ChainIndex = 3;
+            rec4.ChainBranch = 1;
+            RecordingStore.CommitRecordingDirect(rec4);
 
             RecordingStore.ValidateChains();
 
@@ -266,35 +284,39 @@ namespace Parsek.Tests
         [Fact]
         public void BuildExcludeCrewSet_DockChain_SkipsBranch1()
         {
-            // V(0) → docked V(1) → undocked V(2) with branch 1 continuation
-            RecordingStore.StashPending(MakePoints(3, 100), "Vessel Approach");
-            RecordingStore.Pending.ChainId = "dock-crew";
-            RecordingStore.Pending.ChainIndex = 0;
-            RecordingStore.Pending.ChainBranch = 0;
-            RecordingStore.Pending.RecordingId = "seg0";
-            RecordingStore.CommitPending();
+            // V(0) -> docked V(1) -> undocked V(2) with branch 1 continuation
+            var rec1 = RecordingStore.CreateRecordingFromFlightData(MakePoints(3, 100), "Vessel Approach");
+            Assert.NotNull(rec1);
+            rec1.ChainId = "dock-crew";
+            rec1.ChainIndex = 0;
+            rec1.ChainBranch = 0;
+            rec1.RecordingId = "seg0";
+            RecordingStore.CommitRecordingDirect(rec1);
 
-            RecordingStore.StashPending(MakePoints(3, 200), "Docked");
-            RecordingStore.Pending.ChainId = "dock-crew";
-            RecordingStore.Pending.ChainIndex = 1;
-            RecordingStore.Pending.ChainBranch = 0;
-            RecordingStore.Pending.RecordingId = "seg1";
-            RecordingStore.CommitPending();
+            var rec2 = RecordingStore.CreateRecordingFromFlightData(MakePoints(3, 200), "Docked");
+            Assert.NotNull(rec2);
+            rec2.ChainId = "dock-crew";
+            rec2.ChainIndex = 1;
+            rec2.ChainBranch = 0;
+            rec2.RecordingId = "seg1";
+            RecordingStore.CommitRecordingDirect(rec2);
 
-            RecordingStore.StashPending(MakePoints(3, 300), "Undocked");
-            RecordingStore.Pending.ChainId = "dock-crew";
-            RecordingStore.Pending.ChainIndex = 2;
-            RecordingStore.Pending.ChainBranch = 0;
-            RecordingStore.Pending.RecordingId = "seg2";
-            RecordingStore.CommitPending();
+            var rec3 = RecordingStore.CreateRecordingFromFlightData(MakePoints(3, 300), "Undocked");
+            Assert.NotNull(rec3);
+            rec3.ChainId = "dock-crew";
+            rec3.ChainIndex = 2;
+            rec3.ChainBranch = 0;
+            rec3.RecordingId = "seg2";
+            RecordingStore.CommitRecordingDirect(rec3);
 
             // Branch 1: station continuation (ghost-only)
-            RecordingStore.StashPending(MakePoints(3, 300), "Station");
-            RecordingStore.Pending.ChainId = "dock-crew";
-            RecordingStore.Pending.ChainIndex = 2;
-            RecordingStore.Pending.ChainBranch = 1;
-            RecordingStore.Pending.RecordingId = "station";
-            RecordingStore.CommitPending();
+            var rec4 = RecordingStore.CreateRecordingFromFlightData(MakePoints(3, 300), "Station");
+            Assert.NotNull(rec4);
+            rec4.ChainId = "dock-crew";
+            rec4.ChainIndex = 2;
+            rec4.ChainBranch = 1;
+            rec4.RecordingId = "station";
+            RecordingStore.CommitRecordingDirect(rec4);
 
             // Final vessel segment (branch 0) — no EVA, no exclusions
             var finalSeg = RecordingStore.CommittedRecordings[2];
@@ -409,34 +431,38 @@ namespace Parsek.Tests
         [Fact]
         public void DockUndockChain_FullScenario_BranchesAndEndUT()
         {
-            // Simulate: approach → dock → undock with station continuation
+            // Simulate: approach -> dock -> undock with station continuation
             // Branch 0: approach(0), docked(1), undocked(2)
             // Branch 1: station continuation(2)
 
-            RecordingStore.StashPending(MakePoints(5, 100), "Approach");
-            RecordingStore.Pending.ChainId = "dock-undock";
-            RecordingStore.Pending.ChainIndex = 0;
-            RecordingStore.Pending.ChainBranch = 0;
-            RecordingStore.CommitPending();
+            var approachRec = RecordingStore.CreateRecordingFromFlightData(MakePoints(5, 100), "Approach");
+            Assert.NotNull(approachRec);
+            approachRec.ChainId = "dock-undock";
+            approachRec.ChainIndex = 0;
+            approachRec.ChainBranch = 0;
+            RecordingStore.CommitRecordingDirect(approachRec);
 
-            RecordingStore.StashPending(MakePoints(5, 200), "Docked");
-            RecordingStore.Pending.ChainId = "dock-undock";
-            RecordingStore.Pending.ChainIndex = 1;
-            RecordingStore.Pending.ChainBranch = 0;
-            RecordingStore.CommitPending();
+            var dockedRec = RecordingStore.CreateRecordingFromFlightData(MakePoints(5, 200), "Docked");
+            Assert.NotNull(dockedRec);
+            dockedRec.ChainId = "dock-undock";
+            dockedRec.ChainIndex = 1;
+            dockedRec.ChainBranch = 0;
+            RecordingStore.CommitRecordingDirect(dockedRec);
 
-            RecordingStore.StashPending(MakePoints(5, 300), "Undocked");
-            RecordingStore.Pending.ChainId = "dock-undock";
-            RecordingStore.Pending.ChainIndex = 2;
-            RecordingStore.Pending.ChainBranch = 0;
-            RecordingStore.Pending.VesselSnapshot = new ConfigNode("VESSEL");
-            RecordingStore.CommitPending();
+            var undockedRec = RecordingStore.CreateRecordingFromFlightData(MakePoints(5, 300), "Undocked");
+            Assert.NotNull(undockedRec);
+            undockedRec.ChainId = "dock-undock";
+            undockedRec.ChainIndex = 2;
+            undockedRec.ChainBranch = 0;
+            undockedRec.VesselSnapshot = new ConfigNode("VESSEL");
+            RecordingStore.CommitRecordingDirect(undockedRec);
 
-            RecordingStore.StashPending(MakePoints(10, 300), "Station");
-            RecordingStore.Pending.ChainId = "dock-undock";
-            RecordingStore.Pending.ChainIndex = 2;
-            RecordingStore.Pending.ChainBranch = 1;
-            RecordingStore.CommitPending();
+            var stationRec = RecordingStore.CreateRecordingFromFlightData(MakePoints(10, 300), "Station");
+            Assert.NotNull(stationRec);
+            stationRec.ChainId = "dock-undock";
+            stationRec.ChainIndex = 2;
+            stationRec.ChainBranch = 1;
+            RecordingStore.CommitRecordingDirect(stationRec);
 
             // Validation should pass
             RecordingStore.ValidateChains();
@@ -474,32 +500,35 @@ namespace Parsek.Tests
         [Fact]
         public void DockUndockRedock_ChainGrowsLinearly()
         {
-            // Approach(0) → Dock(1) → Undock(2) → Redock(3) → Undock(4)
+            // Approach(0) -> Dock(1) -> Undock(2) -> Redock(3) -> Undock(4)
             // Old continuation stopped on redock, new started on second undock
             for (int i = 0; i < 5; i++)
             {
-                RecordingStore.StashPending(MakePoints(3, 100 + i * 50), $"Seg{i}");
-                RecordingStore.Pending.ChainId = "redock-chain";
-                RecordingStore.Pending.ChainIndex = i;
-                RecordingStore.Pending.ChainBranch = 0;
+                var segRec = RecordingStore.CreateRecordingFromFlightData(MakePoints(3, 100 + i * 50), $"Seg{i}");
+                Assert.NotNull(segRec);
+                segRec.ChainId = "redock-chain";
+                segRec.ChainIndex = i;
+                segRec.ChainBranch = 0;
                 if (i == 4)
-                    RecordingStore.Pending.VesselSnapshot = new ConfigNode("VESSEL");
-                RecordingStore.CommitPending();
+                    segRec.VesselSnapshot = new ConfigNode("VESSEL");
+                RecordingStore.CommitRecordingDirect(segRec);
             }
 
             // Station continuation from first undock (stopped on redock)
-            RecordingStore.StashPending(MakePoints(5, 200), "Station-1");
-            RecordingStore.Pending.ChainId = "redock-chain";
-            RecordingStore.Pending.ChainIndex = 2;
-            RecordingStore.Pending.ChainBranch = 1;
-            RecordingStore.CommitPending();
+            var station1Rec = RecordingStore.CreateRecordingFromFlightData(MakePoints(5, 200), "Station-1");
+            Assert.NotNull(station1Rec);
+            station1Rec.ChainId = "redock-chain";
+            station1Rec.ChainIndex = 2;
+            station1Rec.ChainBranch = 1;
+            RecordingStore.CommitRecordingDirect(station1Rec);
 
             // Station continuation from second undock
-            RecordingStore.StashPending(MakePoints(5, 350), "Station-2");
-            RecordingStore.Pending.ChainId = "redock-chain";
-            RecordingStore.Pending.ChainIndex = 4;
-            RecordingStore.Pending.ChainBranch = 2;
-            RecordingStore.CommitPending();
+            var station2Rec = RecordingStore.CreateRecordingFromFlightData(MakePoints(5, 350), "Station-2");
+            Assert.NotNull(station2Rec);
+            station2Rec.ChainId = "redock-chain";
+            station2Rec.ChainIndex = 4;
+            station2Rec.ChainBranch = 2;
+            RecordingStore.CommitRecordingDirect(station2Rec);
 
             RecordingStore.ValidateChains();
 
@@ -523,30 +552,33 @@ namespace Parsek.Tests
         [Fact]
         public void EvaWhileDocked_ChainContinuesWithEvaCrew()
         {
-            // Dock(0) → EVA Jeb(1) → Board back(2)
+            // Dock(0) -> EVA Jeb(1) -> Board back(2)
             // EVA fires on same chain — existing chain flow handles it
-            RecordingStore.StashPending(MakePoints(3, 100), "Docked");
-            RecordingStore.Pending.ChainId = "dock-eva";
-            RecordingStore.Pending.ChainIndex = 0;
-            RecordingStore.Pending.ChainBranch = 0;
-            RecordingStore.Pending.RecordingId = "docked";
-            RecordingStore.CommitPending();
+            var rec1 = RecordingStore.CreateRecordingFromFlightData(MakePoints(3, 100), "Docked");
+            Assert.NotNull(rec1);
+            rec1.ChainId = "dock-eva";
+            rec1.ChainIndex = 0;
+            rec1.ChainBranch = 0;
+            rec1.RecordingId = "docked";
+            RecordingStore.CommitRecordingDirect(rec1);
 
-            RecordingStore.StashPending(MakePoints(3, 200), "EVA Jeb");
-            RecordingStore.Pending.ChainId = "dock-eva";
-            RecordingStore.Pending.ChainIndex = 1;
-            RecordingStore.Pending.ChainBranch = 0;
-            RecordingStore.Pending.EvaCrewName = "Jebediah Kerman";
-            RecordingStore.Pending.RecordingId = "eva-jeb";
-            RecordingStore.CommitPending();
+            var rec2 = RecordingStore.CreateRecordingFromFlightData(MakePoints(3, 200), "EVA Jeb");
+            Assert.NotNull(rec2);
+            rec2.ChainId = "dock-eva";
+            rec2.ChainIndex = 1;
+            rec2.ChainBranch = 0;
+            rec2.EvaCrewName = "Jebediah Kerman";
+            rec2.RecordingId = "eva-jeb";
+            RecordingStore.CommitRecordingDirect(rec2);
 
-            RecordingStore.StashPending(MakePoints(3, 300), "Boarded");
-            RecordingStore.Pending.ChainId = "dock-eva";
-            RecordingStore.Pending.ChainIndex = 2;
-            RecordingStore.Pending.ChainBranch = 0;
-            RecordingStore.Pending.VesselSnapshot = new ConfigNode("VESSEL");
-            RecordingStore.Pending.RecordingId = "boarded";
-            RecordingStore.CommitPending();
+            var rec3 = RecordingStore.CreateRecordingFromFlightData(MakePoints(3, 300), "Boarded");
+            Assert.NotNull(rec3);
+            rec3.ChainId = "dock-eva";
+            rec3.ChainIndex = 2;
+            rec3.ChainBranch = 0;
+            rec3.VesselSnapshot = new ConfigNode("VESSEL");
+            rec3.RecordingId = "boarded";
+            RecordingStore.CommitRecordingDirect(rec3);
 
             RecordingStore.ValidateChains();
 
@@ -567,29 +599,32 @@ namespace Parsek.Tests
         [Fact]
         public void MultipleUndocks_LatestContinuationReplacesPrevious()
         {
-            // Dock(0) → Undock1(1) → Dock(2) → Undock2(3)
+            // Dock(0) -> Undock1(1) -> Dock(2) -> Undock2(3)
             // First continuation at branch 1 idx 1, second at branch 2 idx 3
             // Both valid as independent branches
             for (int i = 0; i < 4; i++)
             {
-                RecordingStore.StashPending(MakePoints(3, 100 + i * 50), $"Seg{i}");
-                RecordingStore.Pending.ChainId = "multi-undock";
-                RecordingStore.Pending.ChainIndex = i;
-                RecordingStore.Pending.ChainBranch = 0;
-                RecordingStore.CommitPending();
+                var segRec = RecordingStore.CreateRecordingFromFlightData(MakePoints(3, 100 + i * 50), $"Seg{i}");
+                Assert.NotNull(segRec);
+                segRec.ChainId = "multi-undock";
+                segRec.ChainIndex = i;
+                segRec.ChainBranch = 0;
+                RecordingStore.CommitRecordingDirect(segRec);
             }
 
-            RecordingStore.StashPending(MakePoints(3, 150), "Station-old");
-            RecordingStore.Pending.ChainId = "multi-undock";
-            RecordingStore.Pending.ChainIndex = 1;
-            RecordingStore.Pending.ChainBranch = 1;
-            RecordingStore.CommitPending();
+            var stationOldRec = RecordingStore.CreateRecordingFromFlightData(MakePoints(3, 150), "Station-old");
+            Assert.NotNull(stationOldRec);
+            stationOldRec.ChainId = "multi-undock";
+            stationOldRec.ChainIndex = 1;
+            stationOldRec.ChainBranch = 1;
+            RecordingStore.CommitRecordingDirect(stationOldRec);
 
-            RecordingStore.StashPending(MakePoints(3, 300), "Station-new");
-            RecordingStore.Pending.ChainId = "multi-undock";
-            RecordingStore.Pending.ChainIndex = 3;
-            RecordingStore.Pending.ChainBranch = 2;
-            RecordingStore.CommitPending();
+            var stationNewRec = RecordingStore.CreateRecordingFromFlightData(MakePoints(3, 300), "Station-new");
+            Assert.NotNull(stationNewRec);
+            stationNewRec.ChainId = "multi-undock";
+            stationNewRec.ChainIndex = 3;
+            stationNewRec.ChainBranch = 2;
+            RecordingStore.CommitRecordingDirect(stationNewRec);
 
             RecordingStore.ValidateChains();
 
@@ -607,7 +642,7 @@ namespace Parsek.Tests
         public void DecideOnVesselSwitch_UndockSiblingPid_DoesNotOverrideEva()
         {
             // If switched to EVA vessel that happens to match undockSiblingPid,
-            // and recording started as EVA → should still be ContinueOnEva?
+            // and recording started as EVA -> should still be ContinueOnEva?
             // Actually undockSiblingPid check comes first, so it returns UndockSwitch.
             var result = FlightRecorder.DecideOnVesselSwitch(100, 200, true, true, undockSiblingPid: 200);
             Assert.Equal(FlightRecorder.VesselSwitchDecision.UndockSwitch, result);
@@ -620,26 +655,30 @@ namespace Parsek.Tests
         [Fact]
         public void RemoveChainRecordings_RemovesAllBranches()
         {
-            RecordingStore.StashPending(MakePoints(3, 100), "B0-0");
-            RecordingStore.Pending.ChainId = "remove-branch";
-            RecordingStore.Pending.ChainIndex = 0;
-            RecordingStore.Pending.ChainBranch = 0;
-            RecordingStore.CommitPending();
+            var rec1 = RecordingStore.CreateRecordingFromFlightData(MakePoints(3, 100), "B0-0");
+            Assert.NotNull(rec1);
+            rec1.ChainId = "remove-branch";
+            rec1.ChainIndex = 0;
+            rec1.ChainBranch = 0;
+            RecordingStore.CommitRecordingDirect(rec1);
 
-            RecordingStore.StashPending(MakePoints(3, 200), "B0-1");
-            RecordingStore.Pending.ChainId = "remove-branch";
-            RecordingStore.Pending.ChainIndex = 1;
-            RecordingStore.Pending.ChainBranch = 0;
-            RecordingStore.CommitPending();
+            var rec2 = RecordingStore.CreateRecordingFromFlightData(MakePoints(3, 200), "B0-1");
+            Assert.NotNull(rec2);
+            rec2.ChainId = "remove-branch";
+            rec2.ChainIndex = 1;
+            rec2.ChainBranch = 0;
+            RecordingStore.CommitRecordingDirect(rec2);
 
-            RecordingStore.StashPending(MakePoints(3, 200), "B1-1");
-            RecordingStore.Pending.ChainId = "remove-branch";
-            RecordingStore.Pending.ChainIndex = 1;
-            RecordingStore.Pending.ChainBranch = 1;
-            RecordingStore.CommitPending();
+            var rec3 = RecordingStore.CreateRecordingFromFlightData(MakePoints(3, 200), "B1-1");
+            Assert.NotNull(rec3);
+            rec3.ChainId = "remove-branch";
+            rec3.ChainIndex = 1;
+            rec3.ChainBranch = 1;
+            RecordingStore.CommitRecordingDirect(rec3);
 
-            RecordingStore.StashPending(MakePoints(3, 300), "Standalone");
-            RecordingStore.CommitPending();
+            var standaloneRec = RecordingStore.CreateRecordingFromFlightData(MakePoints(3, 300), "Standalone");
+            Assert.NotNull(standaloneRec);
+            RecordingStore.CommitRecordingDirect(standaloneRec);
 
             RecordingStore.RemoveChainRecordings("remove-branch");
 
@@ -655,24 +694,27 @@ namespace Parsek.Tests
         public void ValidateChains_InvalidChain_ResetsChainBranchToZero()
         {
             // Branch 1 with a gap should degrade entire chain, including branch field reset
-            RecordingStore.StashPending(MakePoints(3, 100), "B0");
-            RecordingStore.Pending.ChainId = "reset-branch";
-            RecordingStore.Pending.ChainIndex = 0;
-            RecordingStore.Pending.ChainBranch = 0;
-            RecordingStore.CommitPending();
+            var rec1 = RecordingStore.CreateRecordingFromFlightData(MakePoints(3, 100), "B0");
+            Assert.NotNull(rec1);
+            rec1.ChainId = "reset-branch";
+            rec1.ChainIndex = 0;
+            rec1.ChainBranch = 0;
+            RecordingStore.CommitRecordingDirect(rec1);
 
-            RecordingStore.StashPending(MakePoints(3, 200), "B1");
-            RecordingStore.Pending.ChainId = "reset-branch";
-            RecordingStore.Pending.ChainIndex = 1;
-            RecordingStore.Pending.ChainBranch = 1;
-            RecordingStore.CommitPending();
+            var rec2 = RecordingStore.CreateRecordingFromFlightData(MakePoints(3, 200), "B1");
+            Assert.NotNull(rec2);
+            rec2.ChainId = "reset-branch";
+            rec2.ChainIndex = 1;
+            rec2.ChainBranch = 1;
+            RecordingStore.CommitRecordingDirect(rec2);
 
             // Gap: branch 1 jumps to index 3 (missing index 2)
-            RecordingStore.StashPending(MakePoints(3, 300), "B1-gap");
-            RecordingStore.Pending.ChainId = "reset-branch";
-            RecordingStore.Pending.ChainIndex = 3;
-            RecordingStore.Pending.ChainBranch = 1;
-            RecordingStore.CommitPending();
+            var rec3 = RecordingStore.CreateRecordingFromFlightData(MakePoints(3, 300), "B1-gap");
+            Assert.NotNull(rec3);
+            rec3.ChainId = "reset-branch";
+            rec3.ChainIndex = 3;
+            rec3.ChainBranch = 1;
+            RecordingStore.CommitRecordingDirect(rec3);
 
             RecordingStore.ValidateChains();
 
@@ -693,4 +735,3 @@ namespace Parsek.Tests
         }
     }
 }
-

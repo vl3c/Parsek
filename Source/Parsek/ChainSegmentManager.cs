@@ -12,6 +12,9 @@ namespace Parsek
     /// </summary>
     internal class ChainSegmentManager
     {
+        // Tree identity (propagated from ParsekFlight.activeTree)
+        internal string ActiveTreeId;
+
         // Core chain identity
         internal string ActiveChainId;          // null if not building a chain
         internal int ActiveChainNextIndex;      // next segment's ChainIndex
@@ -125,6 +128,7 @@ namespace Parsek
         /// </summary>
         internal void ClearAll()
         {
+            ActiveTreeId = null;
             ActiveChainId = null;
             ActiveChainNextIndex = 0;
             ActiveChainPrevId = null;
@@ -418,7 +422,7 @@ namespace Parsek
             // added to the committed list with an empty sidecar file.
             contRec.MarkFilesDirty();
 
-            RecordingStore.CommittedRecordings.Add(contRec);
+            RecordingStore.AddCommittedInternal(contRec);
             UndockContinuationRecIdx = RecordingStore.CommittedRecordings.Count - 1;
             UndockContinuationRecId = contRec.RecordingId;
             UndockContinuationPid = otherPid;
@@ -468,10 +472,10 @@ namespace Parsek
             string segmentId = captured?.RecordingId;
             int committedIndex = ActiveChainNextIndex;
             ParsekLog.Verbose("Chain",
-                $"CommitSegmentCore: stashing segment (id={segmentId}, chain={ActiveChainId}, " +
+                $"CommitSegmentCore: creating segment (id={segmentId}, chain={ActiveChainId}, " +
                 $"idx={committedIndex}, points={segmentRecorder.Recording.Count})");
 
-            RecordingStore.StashPending(
+            var rec = RecordingStore.CreateRecordingFromFlightData(
                 segmentRecorder.Recording,
                 vesselName,
                 segmentRecorder.OrbitSegments,
@@ -480,14 +484,17 @@ namespace Parsek
                 partEvents: segmentRecorder.PartEvents,
                 flagEvents: segmentRecorder.FlagEvents);
 
-            if (!RecordingStore.HasPending)
+            if (rec == null)
             {
-                ParsekLog.Verbose("Chain", "CommitSegmentCore: segment too short to stash — aborting");
+                ParsekLog.Verbose("Chain", "CommitSegmentCore: segment too short — aborting");
                 return false;
             }
 
             if (captured != null)
-                RecordingStore.Pending.ApplyPersistenceArtifactsFrom(captured);
+                rec.ApplyPersistenceArtifactsFrom(captured);
+
+            // Tag with tree ownership so the recording belongs to the active tree
+            rec.TreeId = ActiveTreeId;
 
             // First transition: initialize chain
             if (ActiveChainId == null)
@@ -498,23 +505,23 @@ namespace Parsek
                 // Auto-group chain under a group named after the starting vessel.
                 // Use GenerateUniqueGroupName to avoid merging multiple launches into one group (bug #104).
                 string chainGroupName = RecordingStore.GenerateUniqueGroupName(
-                    RecordingStore.Pending.VesselName ?? "Chain");
-                RecordingStore.Pending.RecordingGroups = new List<string> { chainGroupName };
+                    rec.VesselName ?? "Chain");
+                rec.RecordingGroups = new List<string> { chainGroupName };
                 ParsekLog.Verbose("Chain", $"CommitSegmentCore: started new chain (id={ActiveChainId}, group='{chainGroupName}')");
             }
 
             // Tag segment with chain metadata
-            RecordingStore.Pending.ChainId = ActiveChainId;
-            RecordingStore.Pending.ChainIndex = ActiveChainNextIndex;
-            RecordingStore.Pending.ParentRecordingId = ActiveChainPrevId;
+            rec.ChainId = ActiveChainId;
+            rec.ChainIndex = ActiveChainNextIndex;
+            rec.ParentRecordingId = ActiveChainPrevId;
 
             // Apply caller-specific customization
-            preCommitCustomization?.Invoke(RecordingStore.Pending);
+            preCommitCustomization?.Invoke(rec);
 
-            string recId = RecordingStore.Pending.RecordingId;
-            double startUT = RecordingStore.Pending.StartUT;
-            double endUT = RecordingStore.Pending.EndUT;
-            RecordingStore.CommitPending();
+            string recId = rec.RecordingId;
+            double startUT = rec.StartUT;
+            double endUT = rec.EndUT;
+            RecordingStore.CommitRecordingDirect(rec);
             RecordingStore.RunOptimizationPass();
             LedgerOrchestrator.OnRecordingCommitted(recId, startUT, endUT);
             CrewReservationManager.SwapReservedCrewInFlight();

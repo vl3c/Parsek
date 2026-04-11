@@ -91,7 +91,7 @@ namespace Parsek.Tests
         {
             // Setup: committed recording with a valid snapshot
             var rec = MakeCommittedRecording();
-            RecordingStore.CommittedRecordings.Add(rec);
+            RecordingStore.AddRecordingWithTreeForTesting(rec);
 
             // Simulate what the fixed destruction handler does:
             // Set VesselDestroyed=true but do NOT null VesselSnapshot
@@ -152,7 +152,7 @@ namespace Parsek.Tests
         {
             // Setup: committed recording representing a vessel segment
             var rec = MakeCommittedRecording();
-            RecordingStore.CommittedRecordings.Add(rec);
+            RecordingStore.AddRecordingWithTreeForTesting(rec);
             int recIdx = RecordingStore.CommittedRecordings.Count - 1;
 
             // The old code would have done: rec.VesselSnapshot = null;
@@ -174,7 +174,7 @@ namespace Parsek.Tests
         {
             // Verify that the boarding path logs snapshot preservation
             var rec = MakeCommittedRecording();
-            RecordingStore.CommittedRecordings.Add(rec);
+            RecordingStore.AddRecordingWithTreeForTesting(rec);
             int recIdx = RecordingStore.CommittedRecordings.Count - 1;
 
             // Create a ChainSegmentManager with continuation active
@@ -206,7 +206,7 @@ namespace Parsek.Tests
         {
             // Setup: committed recording with matching vessel name
             var rec = MakeCommittedRecording("MyRocket", 12345);
-            RecordingStore.CommittedRecordings.Add(rec);
+            RecordingStore.AddRecordingWithTreeForTesting(rec);
 
             var originalSnapshot = rec.VesselSnapshot;
             var originalTerminalState = rec.TerminalStateValue;
@@ -231,7 +231,7 @@ namespace Parsek.Tests
             var rec = MakeCommittedRecording("Flea", 99999);
             rec.VesselSpawned = false;
             rec.SpawnedVesselPersistentId = 0;
-            RecordingStore.CommittedRecordings.Add(rec);
+            RecordingStore.AddRecordingWithTreeForTesting(rec);
 
             var originalSnapshot = rec.VesselSnapshot;
 
@@ -244,42 +244,15 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void UpdateRecordingsForTerminalEvent_StillUpdatesPendingRecordings()
+        public void UpdateRecordingsForTerminalEvent_DoesNotAffectNonCommittedRecordings()
         {
-            // Verify the fix doesn't break legitimate pending recording updates.
-            // StashPending requires >= 2 points with distinct position/velocity.
-            var points = new List<TrajectoryPoint>
-            {
-                new TrajectoryPoint
-                {
-                    ut = 17000,
-                    latitude = 0, longitude = 0, altitude = 70,
-                    bodyName = "Kerbin",
-                    rotation = Quaternion.identity,
-                    velocity = Vector3.up * 50
-                },
-                new TrajectoryPoint
-                {
-                    ut = 17010,
-                    latitude = 0, longitude = 0, altitude = 500,
-                    bodyName = "Kerbin",
-                    rotation = Quaternion.identity,
-                    velocity = Vector3.up * 100
-                }
-            };
-
-            RecordingStore.StashPending(points, "MyRocket");
-            Assert.True(RecordingStore.HasPending, "StashPending should have created a pending recording");
-
-            var pending = RecordingStore.Pending;
-            pending.VesselSnapshot = MakeSnapshot("MyRocket");
-
+            // With standalone pending removed, UpdateRecordingsForTerminalEvent
+            // only operates on committed recordings. Verify it does not crash
+            // when no matching committed recording exists.
             bool updated = ParsekScenario.UpdateRecordingsForTerminalEvent(
                 "MyRocket", TerminalState.Recovered, 18000.0);
 
-            Assert.True(updated);
-            Assert.Null(pending.VesselSnapshot); // pending snapshot IS nulled (correct)
-            Assert.Equal(TerminalState.Recovered, pending.TerminalStateValue);
+            Assert.False(updated);
         }
 
         // ────────────────────────────────────────────────────────────
@@ -293,7 +266,7 @@ namespace Parsek.Tests
             // so that the preserved snapshot can actually be used for spawn.
             var rec = MakeCommittedRecording();
             rec.VesselDestroyed = true;
-            RecordingStore.CommittedRecordings.Add(rec);
+            RecordingStore.AddRecordingWithTreeForTesting(rec);
 
             RecordingStore.ResetAllPlaybackState();
 
@@ -307,7 +280,7 @@ namespace Parsek.Tests
             // End-to-end: destroy → reset → spawn eligibility check
             var rec = MakeCommittedRecording();
             rec.VesselDestroyed = true;
-            RecordingStore.CommittedRecordings.Add(rec);
+            RecordingStore.AddRecordingWithTreeForTesting(rec);
 
             RecordingStore.ResetAllPlaybackState();
 
@@ -330,7 +303,7 @@ namespace Parsek.Tests
             // code actually emits it (OnVesselWillDestroy requires KSP runtime).
             // Verifies the log message contract for the destruction handler.
             var rec = MakeCommittedRecording("TestRocket", 55555);
-            RecordingStore.CommittedRecordings.Add(rec);
+            RecordingStore.AddRecordingWithTreeForTesting(rec);
 
             ParsekLog.Info("Flight",
                 $"Continuation vessel destroyed (pid={55555}), " +
@@ -343,41 +316,14 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void UpdateTerminalEvent_PendingUpdated_LogsCorrectly()
+        public void UpdateTerminalEvent_NoMatchingCommitted_LogsSkip()
         {
-            var points = new List<TrajectoryPoint>
-            {
-                new TrajectoryPoint
-                {
-                    ut = 17000,
-                    latitude = 0, longitude = 0, altitude = 70,
-                    bodyName = "Kerbin",
-                    rotation = Quaternion.identity,
-                    velocity = Vector3.up * 50
-                },
-                new TrajectoryPoint
-                {
-                    ut = 17010,
-                    latitude = 0, longitude = 0, altitude = 500,
-                    bodyName = "Kerbin",
-                    rotation = Quaternion.identity,
-                    velocity = Vector3.up * 100
-                }
-            };
-
-            RecordingStore.StashPending(points, "RecoverMe");
-            Assert.True(RecordingStore.HasPending, "StashPending should have created a pending recording");
-
-            RecordingStore.Pending.VesselSnapshot = MakeSnapshot("RecoverMe");
-
-            ParsekScenario.UpdateRecordingsForTerminalEvent(
+            // With standalone pending removed, terminal event updates only target
+            // committed recordings. When none match, the method returns false.
+            bool updated = ParsekScenario.UpdateRecordingsForTerminalEvent(
                 "RecoverMe", TerminalState.Recovered, 18000.0);
 
-            Assert.Contains(logLines, l =>
-                l.Contains("[Scenario]") &&
-                l.Contains("Updated pending recording") &&
-                l.Contains("RecoverMe") &&
-                l.Contains("Recovered"));
+            Assert.False(updated);
         }
     }
 }

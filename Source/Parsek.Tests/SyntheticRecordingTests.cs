@@ -2632,16 +2632,15 @@ namespace Parsek.Tests
         public void ScenarioWriter_SerializesCorrectly()
         {
             var writer = new ScenarioWriter();
-            writer.AddRecording(KscHopper());
+            writer.AddRecordingAsTree(KscHopper());
 
             var scenarioNode = writer.BuildScenarioNode();
             Assert.Equal("ParsekScenario", scenarioNode.GetValue("name"));
-            Assert.Single(scenarioNode.GetNodes("RECORDING"));
+            Assert.Single(scenarioNode.GetNodes("RECORDING_TREE"));
 
             string text = writer.SerializeConfigNode(scenarioNode, "SCENARIO", 1);
             Assert.Contains("name = ParsekScenario", text);
-            Assert.Contains("RECORDING", text);
-            Assert.Contains("POINT", text);
+            Assert.Contains("RECORDING_TREE", text);
         }
 
         [Fact]
@@ -2654,7 +2653,7 @@ namespace Parsek.Tests
                 "}\n";
 
             var writer = new ScenarioWriter();
-            writer.AddRecording(KscHopper());
+            writer.AddRecordingAsTree(KscHopper());
 
             string result = writer.InjectIntoSave(fakeSave);
 
@@ -2678,7 +2677,7 @@ namespace Parsek.Tests
                 "}\n";
 
             var writer = new ScenarioWriter();
-            writer.AddRecording(KscHopper());
+            writer.AddRecordingAsTree(KscHopper());
 
             string result = writer.InjectIntoSave(saveWithParsek);
 
@@ -2702,7 +2701,7 @@ namespace Parsek.Tests
                 "}\n";
 
             var writer = new ScenarioWriter();
-            writer.AddRecording(KscHopper());
+            writer.AddRecordingAsTree(KscHopper());
 
             string first = writer.InjectIntoSave(fakeSave);
             string second = writer.InjectIntoSave(first);
@@ -2737,7 +2736,7 @@ namespace Parsek.Tests
                 "}\r\n";
 
             var writer = new ScenarioWriter();
-            writer.AddRecording(KscHopper());
+            writer.AddRecordingAsTree(KscHopper());
 
             string result = writer.InjectIntoSave(saveWithParsek);
 
@@ -2981,19 +2980,18 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void ScenarioWriter_V3Format_ProducesMetadataOnlyNodes()
+        public void ScenarioWriter_V3Format_ProducesTreeNodes()
         {
             var writer = new ScenarioWriter().WithV3Format();
-            writer.AddRecording(KscHopper());
+            writer.AddRecordingAsTree(KscHopper());
 
             var scenarioNode = writer.BuildScenarioNode();
-            var recNode = scenarioNode.GetNodes("RECORDING")[0];
+            Assert.Empty(scenarioNode.GetNodes("RECORDING"));
+            Assert.Single(scenarioNode.GetNodes("RECORDING_TREE"));
 
-            Assert.Equal("0", recNode.GetValue("recordingFormatVersion"));
-            Assert.Equal("KSC Hopper", recNode.GetValue("vesselName"));
-            Assert.Empty(recNode.GetNodes("POINT"));
-            Assert.Null(recNode.GetNode("VESSEL_SNAPSHOT"));
-            Assert.Null(recNode.GetNode("GHOST_VISUAL_SNAPSHOT"));
+            var treeNode = scenarioNode.GetNodes("RECORDING_TREE")[0];
+            Assert.NotNull(treeNode.GetValue("treeName"));
+            Assert.Equal("KSC Hopper", treeNode.GetValue("treeName"));
         }
 
         [Fact]
@@ -4541,7 +4539,7 @@ namespace Parsek.Tests
             {
                 var writer = new ScenarioWriter().WithV3Format();
                 var flight = FleaFlight();
-                writer.AddRecording(flight);
+                writer.AddRecordingAsTree(flight);
 
                 writer.WriteSidecarFiles(tempDir);
 
@@ -5524,14 +5522,8 @@ namespace Parsek.Tests
                     Assert.Contains("vesselName = Surviving Capsule", content);
                     Assert.Contains("vesselName = Destroyed Booster", content);
 
-                    // Real recordings from default career (conditional)
-                    if (realRecordingNodes.Length > 0)
-                    {
-                        // Verify at least one real recording was injected by checking
-                        // for any vesselName from the first real recording node
-                        string firstRealVessel = realRecordingNodes[0].GetValue("vesselName");
-                        Assert.Contains($"vesselName = {firstRealVessel}", content);
-                    }
+                    // Real career recordings from fixture are standalone RECORDING
+                    // format — no longer injected after T56 (only sidecar files copied)
 
                     Assert.Contains("FLIGHTSTATE", content);
 
@@ -5786,14 +5778,9 @@ namespace Parsek.Tests
             if (scenarioNode == null)
                 return new ConfigNode[0];
 
-            // Add all recordings with loopPlayback forced on and grouped
+            // Parse recording nodes for sidecar file copying (standalone RECORDING
+            // nodes are no longer loaded after T56 — only tree recordings are injected)
             var recNodes = scenarioNode.GetNodes("RECORDING");
-            for (int i = 0; i < recNodes.Length; i++)
-            {
-                recNodes[i].SetValue("loopPlayback", "True", true);
-                recNodes[i].SetValue("recordingGroup", "Real Recordings", true);
-                writer.AddRecording(recNodes[i]);
-            }
 
             // Add milestone states from the real career
             var milestoneStates = scenarioNode.GetNodes("MILESTONE_STATE");

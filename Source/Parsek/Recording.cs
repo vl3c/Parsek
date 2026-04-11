@@ -3,15 +3,6 @@ using System.Collections.Generic;
 
 namespace Parsek
 {
-    /// <summary>
-    /// Recommended merge action based on vessel state after recording.
-    /// </summary>
-    public enum MergeDefault
-    {
-        GhostOnly,  // Vessel destroyed or snapshot missing — merge recording only
-        Persist      // Vessel intact with snapshot — respawn where it ended up
-    }
-
     public enum LoopTimeUnit { Sec, Min, Hour, Auto }
 
     public class Recording : IPlaybackTrajectory
@@ -253,6 +244,7 @@ namespace Parsek
         }
 
         /// <summary>True if this recording belongs to a RecordingTree.</summary>
+        // In always-tree mode (post-T56), this is expected to be true for all committed recordings.
         internal bool IsTreeRecording => TreeId != null;
 
         /// <summary>True if this recording belongs to a chain (has ChainId and valid ChainIndex).</summary>
@@ -267,7 +259,7 @@ namespace Parsek
         /// <summary>
         /// Copies persistence/capture artifacts from a stop-time captured recording.
         /// Intentionally does NOT copy Points/OrbitSegments/VesselName, which are
-        /// set by StashPending from the current recorder buffers.
+        /// set by CreateRecordingFromFlightData from the current recorder buffers.
         /// </summary>
         public void ApplyPersistenceArtifactsFrom(Recording source)
         {
@@ -354,7 +346,7 @@ namespace Parsek
                 Controllers = new List<ControllerInfo>(source.Controllers);
             IsDebris = source.IsDebris;
             // Generation is transient, but copied so the cascade-depth state is
-            // preserved across StashPending/commit boundaries within a tree session.
+            // preserved across recording creation/commit boundaries within a tree session.
             // Loaded recordings reset to 0 since the field is [NonSerialized].
             Generation = source.Generation;
         }

@@ -75,7 +75,7 @@ namespace Parsek.Tests
 
             // Simulate initial load of save B: only CommittedRecordings.Clear() runs.
             // This is what the old code did when save B had no trees.
-            RecordingStore.CommittedRecordings.Clear();
+            RecordingStore.ClearCommittedInternal();
 
             // Bug: CommittedTrees still has save A's tree
             Assert.Single(RecordingStore.CommittedTrees);
@@ -91,7 +91,7 @@ namespace Parsek.Tests
             Assert.Single(RecordingStore.CommittedTrees);
 
             // Simulate the fix: always clear both lists on initial load
-            RecordingStore.CommittedRecordings.Clear();
+            RecordingStore.ClearCommittedInternal();
             RecordingStore.CommittedTrees.Clear();
 
             // Now save B has no trees — both lists are empty
@@ -113,19 +113,19 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void DiscardPending_ClearsStalePendingRecording()
+        public void CreateRecordingFromFlightData_DoesNotStorePending()
         {
+            // Standalone pending no longer exists. CreateRecordingFromFlightData
+            // returns a recording without storing it in any pending slot.
             var points = new List<TrajectoryPoint>
             {
                 new TrajectoryPoint { ut = 100 },
                 new TrajectoryPoint { ut = 200 }
             };
-            RecordingStore.StashPending(points, "StalePending");
-            Assert.True(RecordingStore.HasPending);
+            var rec = RecordingStore.CreateRecordingFromFlightData(points, "TestRec");
 
-            RecordingStore.DiscardPending();
-
-            Assert.False(RecordingStore.HasPending);
+            Assert.NotNull(rec);
+            Assert.Equal("TestRec", rec.VesselName);
         }
 
         // --- Helpers ---

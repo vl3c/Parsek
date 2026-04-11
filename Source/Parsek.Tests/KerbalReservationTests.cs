@@ -73,7 +73,7 @@ namespace Parsek.Tests
         {
             var rec = MakeRecording("Ship", new[] { "Jeb", "Bill" },
                 TerminalState.Recovered, 2000);
-            RecordingStore.AddCommittedForTesting(rec);
+            RecordingStore.AddRecordingWithTreeForTesting(rec);
 
             var kerbals = KerbalsTestHelper.RecalculateFromStore();
 
@@ -87,7 +87,7 @@ namespace Parsek.Tests
         {
             var rec = MakeRecording("Ship", new[] { "Jeb" },
                 TerminalState.Recovered, 2000);
-            RecordingStore.AddCommittedForTesting(rec);
+            RecordingStore.AddRecordingWithTreeForTesting(rec);
 
             var kerbals = KerbalsTestHelper.RecalculateFromStore();
 
@@ -100,7 +100,7 @@ namespace Parsek.Tests
         {
             var rec = MakeRecording("Ship", new[] { "Jeb" },
                 TerminalState.Destroyed, 1000);
-            RecordingStore.AddCommittedForTesting(rec);
+            RecordingStore.AddRecordingWithTreeForTesting(rec);
 
             var kerbals = KerbalsTestHelper.RecalculateFromStore();
 
@@ -115,8 +115,8 @@ namespace Parsek.Tests
                 TerminalState.Recovered, 2000);
             var recB = MakeRecording("Ship B", new[] { "Jeb" },
                 TerminalState.Recovered, 3000);
-            RecordingStore.AddCommittedForTesting(recA);
-            RecordingStore.AddCommittedForTesting(recB);
+            RecordingStore.AddRecordingWithTreeForTesting(recA);
+            RecordingStore.AddRecordingWithTreeForTesting(recB);
 
             var kerbals = KerbalsTestHelper.RecalculateFromStore();
 
@@ -130,7 +130,7 @@ namespace Parsek.Tests
             // Should be open-ended (infinity) but NOT permanent
             var rec = MakeRecording("Lander", new[] { "Jeb" },
                 TerminalState.Landed, 5000);
-            RecordingStore.AddCommittedForTesting(rec);
+            RecordingStore.AddRecordingWithTreeForTesting(rec);
 
             var kerbals = KerbalsTestHelper.RecalculateFromStore();
 
@@ -144,7 +144,7 @@ namespace Parsek.Tests
             // Orbiting = crew still aboard, intact terminal state
             var rec = MakeRecording("Orbiter", new[] { "Jeb" },
                 TerminalState.Orbiting, 8000);
-            RecordingStore.AddCommittedForTesting(rec);
+            RecordingStore.AddRecordingWithTreeForTesting(rec);
 
             var kerbals = KerbalsTestHelper.RecalculateFromStore();
 
@@ -166,7 +166,7 @@ namespace Parsek.Tests
                 ExplicitStartUT = 0,
                 ExplicitEndUT = 1000
             };
-            RecordingStore.AddCommittedForTesting(rec);
+            RecordingStore.AddRecordingWithTreeForTesting(rec);
 
             var kerbals = KerbalsTestHelper.RecalculateFromStore();
 
@@ -179,7 +179,7 @@ namespace Parsek.Tests
             var rec = MakeRecording("Ship", new[] { "Jeb" },
                 TerminalState.Recovered, 2000);
             rec.LoopPlayback = true;
-            RecordingStore.AddCommittedForTesting(rec);
+            RecordingStore.AddRecordingWithTreeForTesting(rec);
 
             var kerbals = KerbalsTestHelper.RecalculateFromStore();
 
@@ -195,7 +195,7 @@ namespace Parsek.Tests
             rec.ChainId = "test-chain";
             rec.ChainIndex = 0;
             rec.PlaybackEnabled = false;
-            RecordingStore.AddCommittedForTesting(rec);
+            RecordingStore.AddRecordingWithTreeForTesting(rec);
 
             var kerbals = KerbalsTestHelper.RecalculateFromStore();
 
@@ -218,7 +218,7 @@ namespace Parsek.Tests
                 ExplicitEndUT = 5000,
                 CrewEndStates = null // no end states populated
             };
-            RecordingStore.AddCommittedForTesting(rec);
+            RecordingStore.AddRecordingWithTreeForTesting(rec);
 
             var kerbals = KerbalsTestHelper.RecalculateFromStore();
 
@@ -238,8 +238,8 @@ namespace Parsek.Tests
             // Recording B: destroyed
             var recB = MakeRecording("Ship B", new[] { "Jeb" },
                 TerminalState.Destroyed, 1000);
-            RecordingStore.AddCommittedForTesting(recA);
-            RecordingStore.AddCommittedForTesting(recB);
+            RecordingStore.AddRecordingWithTreeForTesting(recA);
+            RecordingStore.AddRecordingWithTreeForTesting(recB);
 
             var kerbals = KerbalsTestHelper.RecalculateFromStore();
 
@@ -254,7 +254,7 @@ namespace Parsek.Tests
         {
             var rec = MakeRecording("Ship", new[] { "Jeb" },
                 TerminalState.Recovered, 2000);
-            RecordingStore.AddCommittedForTesting(rec);
+            RecordingStore.AddRecordingWithTreeForTesting(rec);
 
             var kerbals = KerbalsTestHelper.RecalculateFromStore();
 
@@ -267,7 +267,7 @@ namespace Parsek.Tests
         {
             var rec = MakeRecording("Ship", new[] { "Jeb" },
                 TerminalState.Recovered, 2000);
-            RecordingStore.AddCommittedForTesting(rec);
+            RecordingStore.AddRecordingWithTreeForTesting(rec);
 
             var kerbals = KerbalsTestHelper.RecalculateFromStore();
 
@@ -281,7 +281,7 @@ namespace Parsek.Tests
         {
             var rec = MakeRecording("Ship", new[] { "Jeb" },
                 TerminalState.Destroyed, 1000);
-            RecordingStore.AddCommittedForTesting(rec);
+            RecordingStore.AddRecordingWithTreeForTesting(rec);
 
             var kerbals = KerbalsTestHelper.RecalculateFromStore();
 
@@ -309,7 +309,7 @@ namespace Parsek.Tests
             // Now recalculate with Jeb reserved
             var rec = MakeRecording("Ship", new[] { "Jeb" },
                 TerminalState.Recovered, 2000);
-            RecordingStore.AddCommittedForTesting(rec);
+            RecordingStore.AddRecordingWithTreeForTesting(rec);
 
             var kerbals = KerbalsTestHelper.RecalculateModule(module);
 
@@ -336,8 +336,8 @@ namespace Parsek.Tests
                 TerminalState.Recovered, 2000);
             var recB = MakeRecording("Ship B", new[] { "Hanley" },
                 TerminalState.Recovered, 3000);
-            RecordingStore.AddCommittedForTesting(recA);
-            RecordingStore.AddCommittedForTesting(recB);
+            RecordingStore.AddRecordingWithTreeForTesting(recA);
+            RecordingStore.AddRecordingWithTreeForTesting(recB);
 
             var kerbals = KerbalsTestHelper.RecalculateModule(module);
 
@@ -373,7 +373,7 @@ namespace Parsek.Tests
             // Reserve Jeb but not Hanley
             var rec = MakeRecording("Ship", new[] { "Jeb" },
                 TerminalState.Recovered, 2000);
-            RecordingStore.AddCommittedForTesting(rec);
+            RecordingStore.AddRecordingWithTreeForTesting(rec);
             var kerbals = KerbalsTestHelper.RecalculateModule(module);
 
             Assert.Equal("Hanley", kerbals.GetActiveOccupant("Jeb"));
@@ -398,8 +398,8 @@ namespace Parsek.Tests
                 TerminalState.Recovered, 2000);
             var recB = MakeRecording("Ship B", new[] { "Hanley" },
                 TerminalState.Recovered, 3000);
-            RecordingStore.AddCommittedForTesting(recA);
-            RecordingStore.AddCommittedForTesting(recB);
+            RecordingStore.AddRecordingWithTreeForTesting(recA);
+            RecordingStore.AddRecordingWithTreeForTesting(recB);
             var kerbals = KerbalsTestHelper.RecalculateModule(module);
 
             // Both owner and stand-in reserved -> returns null (pending generation)
@@ -411,7 +411,7 @@ namespace Parsek.Tests
         {
             var rec = MakeRecording("Ship", new[] { "Jeb" },
                 TerminalState.Recovered, 2000);
-            RecordingStore.AddCommittedForTesting(rec);
+            RecordingStore.AddRecordingWithTreeForTesting(rec);
             var kerbals = KerbalsTestHelper.RecalculateFromStore();
 
             Assert.True(kerbals.IsManaged("Jeb"));
@@ -446,7 +446,7 @@ namespace Parsek.Tests
         {
             var rec = MakeRecording("Ship", new[] { "Jeb" },
                 TerminalState.Recovered, 2000);
-            RecordingStore.AddCommittedForTesting(rec);
+            RecordingStore.AddRecordingWithTreeForTesting(rec);
             var kerbals = KerbalsTestHelper.RecalculateFromStore(); // builds the allRecordingCrew HashSet
 
             Assert.True(kerbals.IsKerbalInAnyRecording("Jeb"));
@@ -457,7 +457,7 @@ namespace Parsek.Tests
         {
             var rec = MakeRecording("Ship", new[] { "Jeb" },
                 TerminalState.Recovered, 2000);
-            RecordingStore.AddCommittedForTesting(rec);
+            RecordingStore.AddRecordingWithTreeForTesting(rec);
             var kerbals = KerbalsTestHelper.RecalculateFromStore();
 
             Assert.False(kerbals.IsKerbalInAnyRecording("Val"));
@@ -469,7 +469,7 @@ namespace Parsek.Tests
             var rec = MakeRecording("Ship", new[] { "Jeb" },
                 TerminalState.Recovered, 2000);
             rec.LoopPlayback = true;
-            RecordingStore.AddCommittedForTesting(rec);
+            RecordingStore.AddRecordingWithTreeForTesting(rec);
             var kerbals = KerbalsTestHelper.RecalculateFromStore();
 
             Assert.False(kerbals.IsKerbalInAnyRecording("Jeb"));
@@ -504,7 +504,7 @@ namespace Parsek.Tests
             // 2. Only Hanley appears in a recording (the recording where Hanley was the stand-in)
             var rec = MakeRecording("Hanley's Ship", new[] { "Hanley" },
                 TerminalState.Recovered, 2000);
-            RecordingStore.AddCommittedForTesting(rec);
+            RecordingStore.AddRecordingWithTreeForTesting(rec);
 
             // 3. Recalculate: Jeb is NOT reserved (not in any recording), Hanley IS reserved
             var kerbals = KerbalsTestHelper.RecalculateModule(module);
@@ -658,7 +658,7 @@ namespace Parsek.Tests
         {
             var rec = MakeRecording("Ship", new[] { "Jeb", "Bill" },
                 TerminalState.Recovered, 2000);
-            RecordingStore.AddCommittedForTesting(rec);
+            RecordingStore.AddRecordingWithTreeForTesting(rec);
 
             KerbalsTestHelper.RecalculateFromStore();
 
@@ -671,7 +671,7 @@ namespace Parsek.Tests
         {
             var rec = MakeRecording("Ship", new[] { "Jeb" },
                 TerminalState.Recovered, 2000);
-            RecordingStore.AddCommittedForTesting(rec);
+            RecordingStore.AddRecordingWithTreeForTesting(rec);
 
             KerbalsTestHelper.RecalculateFromStore();
 
@@ -684,7 +684,7 @@ namespace Parsek.Tests
         {
             var rec = MakeRecording("Ship", new[] { "Jeb" },
                 TerminalState.Recovered, 2000);
-            RecordingStore.AddCommittedForTesting(rec);
+            RecordingStore.AddRecordingWithTreeForTesting(rec);
             var kerbals = KerbalsTestHelper.RecalculateFromStore();
 
             kerbals.IsKerbalAvailable("Jeb");
@@ -756,7 +756,7 @@ namespace Parsek.Tests
             // set them back to Assigned on the KSP roster.
             var rec = MakeRecording("Doomed Ship", new[] { "Jeb" },
                 TerminalState.Destroyed, 1000);
-            RecordingStore.AddCommittedForTesting(rec);
+            RecordingStore.AddRecordingWithTreeForTesting(rec);
 
             // First recalculation
             var kerbals = KerbalsTestHelper.RecalculateFromStore();
@@ -780,7 +780,7 @@ namespace Parsek.Tests
             // KSP cannot override this because ApplyToRoster sets Assigned status.
             var rec = MakeRecording("Safe Ship", new[] { "Val" },
                 TerminalState.Recovered, 5000);
-            RecordingStore.AddCommittedForTesting(rec);
+            RecordingStore.AddRecordingWithTreeForTesting(rec);
 
             var kerbals = KerbalsTestHelper.RecalculateFromStore();
 
@@ -797,7 +797,7 @@ namespace Parsek.Tests
             // are never touched.
             var rec = MakeRecording("Ship", new[] { "Jeb" },
                 TerminalState.Destroyed, 1000);
-            RecordingStore.AddCommittedForTesting(rec);
+            RecordingStore.AddRecordingWithTreeForTesting(rec);
 
             var kerbals = KerbalsTestHelper.RecalculateFromStore();
 
@@ -822,7 +822,7 @@ namespace Parsek.Tests
             // on each cycle, preventing KSP's MIA respawn from taking effect.
             var rec = MakeRecording("Doomed", new[] { "Jeb" },
                 TerminalState.Destroyed, 1000);
-            RecordingStore.AddCommittedForTesting(rec);
+            RecordingStore.AddRecordingWithTreeForTesting(rec);
 
             var kerbals = new KerbalsModule();
             for (int i = 0; i < 5; i++)
@@ -869,7 +869,7 @@ namespace Parsek.Tests
                 { "Jeb", KerbalEndState.Dead },
                 { "Val", KerbalEndState.Aboard }
             };
-            RecordingStore.AddCommittedForTesting(rec);
+            RecordingStore.AddRecordingWithTreeForTesting(rec);
 
             var kerbals = KerbalsTestHelper.RecalculateFromStore();
 
@@ -892,7 +892,7 @@ namespace Parsek.Tests
         {
             var rec = MakeRecording("Ship", new[] { "Jeb" },
                 TerminalState.Recovered, 2000);
-            RecordingStore.AddCommittedForTesting(rec);
+            RecordingStore.AddRecordingWithTreeForTesting(rec);
             var kerbals = KerbalsTestHelper.RecalculateFromStore();
 
             // Verify state exists

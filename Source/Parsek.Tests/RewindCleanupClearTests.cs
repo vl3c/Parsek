@@ -54,7 +54,7 @@ namespace Parsek.Tests
         {
             // Simulate the full sequence:
             // 1. Rewind path sets cleanup data
-            RecordingStore.CommittedRecordings.Add(new Recording
+            RecordingStore.AddRecordingWithTreeForTesting(new Recording
                 { VesselName = "Aeris 4A", SpawnedVesselPersistentId = 100 });
             var allNames = RecordingStore.CollectAllRecordingVesselNames();
             RecordingStore.PendingCleanupNames = allNames.Count > 0 ? allNames : null;
@@ -84,7 +84,7 @@ namespace Parsek.Tests
             RecordingStore.PendingCleanupNames = null;
 
             // Add a spawned recording to simulate post-rewind state
-            RecordingStore.CommittedRecordings.Add(new Recording
+            RecordingStore.AddRecordingWithTreeForTesting(new Recording
                 { VesselName = "Probe", SpawnedVesselPersistentId = 55 });
 
             // The revert path checks this guard:
@@ -134,9 +134,9 @@ namespace Parsek.Tests
             // then revert path fires and gets its own fresh data.
 
             // Step 1: Rewind path — add recordings with spawn data
-            RecordingStore.CommittedRecordings.Add(new Recording
+            RecordingStore.AddRecordingWithTreeForTesting(new Recording
                 { VesselName = "Rocket", SpawnedVesselPersistentId = 42 });
-            RecordingStore.CommittedRecordings.Add(new Recording
+            RecordingStore.AddRecordingWithTreeForTesting(new Recording
                 { VesselName = "Probe", SpawnedVesselPersistentId = 77 });
 
             // Step 2: Rewind collects ALL names (overbroad set for strip)

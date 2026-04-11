@@ -12,9 +12,6 @@ namespace Parsek
         /// <summary>Don't render this ghost (chain-suppressed, disabled, external vessel).</summary>
         public bool skipGhost;
 
-        /// <summary>Not part of a recording tree (gates resource event firing).</summary>
-        public bool isStandalone;
-
         /// <summary>Mid-chain segment — hold ghost at end position instead of destroying.</summary>
         public bool isMidChain;
 

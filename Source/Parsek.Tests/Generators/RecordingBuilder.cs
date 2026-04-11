@@ -627,7 +627,8 @@ namespace Parsek.Tests.Generators
         public ConfigNode GetGhostVisualSnapshot() => ghostVisualSnapshot ?? vesselSnapshot;
 
         /// <summary>
-        /// Builds a v2-format RECORDING node with inline POINT/snapshot data (existing behavior).
+        /// Builds a RECORDING ConfigNode with inline POINT/snapshot data.
+        /// Used by unit tests for ConfigNode-level assertions, not for save file injection.
         /// </summary>
         public ConfigNode Build()
         {

@@ -638,13 +638,13 @@ namespace Parsek.Tests
             rec.VesselSnapshot = new ConfigNode("VESSEL");
             rec.GhostVisualSnapshot = new ConfigNode("GHOST");
 
-            RecordingStore.AddCommittedForTesting(rec);
+            RecordingStore.AddRecordingWithTreeForTesting(rec);
 
             // Build a second recording with a snapshot too
             var rec2 = new Recording { VesselName = "TestVessel2" };
             rec2.VesselSnapshot = new ConfigNode("VESSEL2");
             rec2.GhostVisualSnapshot = new ConfigNode("GHOST2");
-            RecordingStore.AddCommittedForTesting(rec2);
+            RecordingStore.AddRecordingWithTreeForTesting(rec2);
 
             DiagnosticsComputation.ClockSource = () => 1000.0;
             var snap = DiagnosticsComputation.ComputeSnapshot(100.0);
@@ -752,7 +752,7 @@ namespace Parsek.Tests
             var rec = new Recording { VesselName = "New" };
             for (int i = 0; i < 50; i++)
                 rec.Points.Add(new TrajectoryPoint { ut = i });
-            RecordingStore.AddCommittedForTesting(rec);
+            RecordingStore.AddRecordingWithTreeForTesting(rec);
 
             // Compute after TTL expires (100 + 2.1 > 2.0 TTL)
             var snap2 = DiagnosticsComputation.GetOrComputeSnapshot(102.1);

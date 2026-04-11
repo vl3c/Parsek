@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.Linq;
 using Xunit;
 
 namespace Parsek.Tests
@@ -56,64 +57,36 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void HasPending_WhenRecordingStashed_ReturnsTrue()
+        public void CreateRecordingFromFlightData_WithPoints_ReturnsNonNull()
         {
-            // Need at least 2 points for StashPending to accept
+            // Need at least 2 points for CreateRecordingFromFlightData to accept
             var points = new List<TrajectoryPoint>
             {
                 new TrajectoryPoint { ut = 100.0 },
                 new TrajectoryPoint { ut = 200.0 }
             };
-            RecordingStore.StashPending(points, "Test Vessel");
+            var rec = RecordingStore.CreateRecordingFromFlightData(points, "Test Vessel");
 
-            Assert.True(RecordingStore.HasPending);
-        }
-
-        [Fact]
-        public void DiscardPending_ClearsPendingState()
-        {
-            var points = new List<TrajectoryPoint>
-            {
-                new TrajectoryPoint { ut = 100.0 },
-                new TrajectoryPoint { ut = 200.0 }
-            };
-            RecordingStore.StashPending(points, "Test Vessel Discard");
-
-            Assert.True(RecordingStore.HasPending);
-
-            RecordingStore.DiscardPending();
-
-            Assert.False(RecordingStore.HasPending);
+            Assert.NotNull(rec);
         }
 
         /// <summary>
-        /// The revert guard should clear both pending tree AND pending recording
-        /// when both exist simultaneously.
+        /// The revert guard should clear pending tree when it exists.
+        /// Standalone pending no longer exists.
         /// </summary>
         [Fact]
-        public void DiscardBoth_ClearsAllPendingState()
+        public void DiscardPendingTree_ClearsAllPendingState()
         {
             var tree = new RecordingTree { Id = "test-tree-64-both" };
             RecordingStore.StashPendingTree(tree);
 
-            var points = new List<TrajectoryPoint>
-            {
-                new TrajectoryPoint { ut = 100.0 },
-                new TrajectoryPoint { ut = 200.0 }
-            };
-            RecordingStore.StashPending(points, "Test Vessel Both");
-
             Assert.True(RecordingStore.HasPendingTree);
-            Assert.True(RecordingStore.HasPending);
 
             // Simulate the revert guard from ParsekScenario.OnLoad
             if (RecordingStore.HasPendingTree)
                 RecordingStore.DiscardPendingTree();
-            if (RecordingStore.HasPending)
-                RecordingStore.DiscardPending();
 
             Assert.False(RecordingStore.HasPendingTree);
-            Assert.False(RecordingStore.HasPending);
         }
     }
 
@@ -849,52 +822,6 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void FreshStash_SurvivesRevertGuard()
-        {
-            // Simulate: stash pending (OnSceneChangeRequested), then OnLoad revert guard
-            RecordingStore.StashPending(MakePoints(5), "FreshRocket");
-            Assert.True(RecordingStore.PendingStashedThisTransition);
-            Assert.True(RecordingStore.HasPending);
-
-            // Simulate the OnLoad guard: if flag is true, keep pending
-            if (RecordingStore.PendingStashedThisTransition)
-            {
-                ParsekLog.Info("Scenario",
-                    "Revert: keeping freshly-stashed pending (stashed this transition) — " +
-                    $"tree={RecordingStore.HasPendingTree}, standalone={RecordingStore.HasPending}");
-                RecordingStore.PendingStashedThisTransition = false;
-            }
-
-            // Pending survived
-            Assert.True(RecordingStore.HasPending);
-            Assert.Equal("FreshRocket", RecordingStore.Pending.VesselName);
-            Assert.False(RecordingStore.PendingStashedThisTransition);
-            Assert.Contains(logLines, l => l.Contains("keeping freshly-stashed pending"));
-        }
-
-        [Fact]
-        public void StaleStash_DiscardedByRevertGuard()
-        {
-            // Simulate: stash pending, then flag cleared (previous scene consumed it),
-            // then another revert runs OnLoad guard
-            RecordingStore.StashPending(MakePoints(5), "StaleRocket");
-            RecordingStore.PendingStashedThisTransition = false; // simulate consumed
-
-            // Simulate the OnLoad guard: if flag is false, discard
-            if (!RecordingStore.PendingStashedThisTransition)
-            {
-                if (RecordingStore.HasPending)
-                {
-                    ParsekLog.Info("Scenario", "Clearing orphaned pending recording on revert (stale from previous flight)");
-                    RecordingStore.DiscardPending();
-                }
-            }
-
-            Assert.False(RecordingStore.HasPending);
-            Assert.Contains(logLines, l => l.Contains("stale from previous flight"));
-        }
-
-        [Fact]
         public void FreshTreeStash_SurvivesRevertGuard()
         {
             var tree = new RecordingTree { TreeName = "FreshTree" };
@@ -1402,8 +1329,8 @@ namespace Parsek.Tests
             RecordingStore.CommitTree(tree);
 
             var committed = RecordingStore.CommittedRecordings;
-            var stage = committed.Find(r => r.RecordingId == "stage");
-            var debris = committed.Find(r => r.RecordingId == "debris");
+            var stage = committed.FirstOrDefault(r => r.RecordingId == "stage");
+            var debris = committed.FirstOrDefault(r => r.RecordingId == "debris");
 
             // Stage should be in the main group
             Assert.NotNull(stage.RecordingGroups);
@@ -1451,7 +1378,7 @@ namespace Parsek.Tests
         {
             // Pre-commit an orphaned recording with matching TreeId
             var orphan = MakeRec("orphan", "Rocket", treeId: "t3", pid: 100, startUT: 100, endUT: 150);
-            RecordingStore.CommitPendingForTesting(orphan);
+            RecordingStore.AddRecordingWithTreeForTesting(orphan);
             Assert.Null(orphan.RecordingGroups);
 
             var tree = new RecordingTree
@@ -1478,7 +1405,7 @@ namespace Parsek.Tests
         {
             var orphanDebris = MakeRec("orphan-d", "Rocket Debris", isDebris: true, pid: 200, startUT: 100, endUT: 120);
             orphanDebris.TreeId = "t4";
-            RecordingStore.CommitPendingForTesting(orphanDebris);
+            RecordingStore.AddRecordingWithTreeForTesting(orphanDebris);
 
             var tree = new RecordingTree
             {
@@ -1503,7 +1430,7 @@ namespace Parsek.Tests
         {
             var alreadyGrouped = MakeRec("grouped", "Rocket", pid: 100, startUT: 100, endUT: 150);
             alreadyGrouped.RecordingGroups = new List<string> { "OtherGroup" };
-            RecordingStore.CommitPendingForTesting(alreadyGrouped);
+            RecordingStore.AddRecordingWithTreeForTesting(alreadyGrouped);
 
             var tree = new RecordingTree
             {

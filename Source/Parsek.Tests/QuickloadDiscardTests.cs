@@ -161,54 +161,25 @@ namespace Parsek.Tests
         // ----- DiscardStashedOnQuickload log + state assertions -----
 
         [Fact]
-        public void DiscardStashedOnQuickload_WithPendingStandalone_DiscardsAndLogs()
+        public void DiscardStashedOnQuickload_WithPendingTree_DiscardsAndLogs()
         {
-            // Seed a pending standalone recording stashed "this transition"
-            var points = new List<TrajectoryPoint>
-            {
-                new TrajectoryPoint { ut = 370.0 },
-                new TrajectoryPoint { ut = 395.0 },
-            };
-            RecordingStore.StashPending(points, "Siford Kerman");
-            Assert.True(RecordingStore.HasPending);
+            // Seed a pending tree stashed "this transition"
+            var tree = MakeTree("t_sa", "Siford Kerman", 2);
+            RecordingStore.StashPendingTree(tree, PendingTreeState.Finalized);
+            Assert.True(RecordingStore.HasPendingTree);
             Assert.True(RecordingStore.PendingStashedThisTransition);
             logLines.Clear();
 
             ParsekScenario.DiscardStashedOnQuickload(preChangeUT: 397.2, currentUT: 369.2);
 
-            Assert.False(RecordingStore.HasPending);
-            Assert.False(RecordingStore.PendingStashedThisTransition);
+            Assert.False(RecordingStore.HasPendingTree);
             Assert.Contains(logLines, l =>
                 l.Contains("[Scenario]") && l.Contains("Quickload detected")
                 && l.Contains("397.20") && l.Contains("369.20"));
             Assert.Contains(logLines, l =>
-                l.Contains("[Scenario]") && l.Contains("discarded pending standalone")
-                && l.Contains("Siford Kerman"));
+                l.Contains("discarded pending tree") && l.Contains("Siford Kerman"));
             Assert.Contains(logLines, l =>
-                l.Contains("Quickload discard complete") && l.Contains("sa=1"));
-        }
-
-        [Fact]
-        public void DiscardStashedOnQuickload_WithPendingStandaloneNotThisTransition_Preserves()
-        {
-            // Simulate a pending standalone that was NOT stashed this transition
-            // (e.g. carried over from a previous flight, waiting on merge dialog).
-            // Quickload discard must not touch it — only same-transition stash is
-            // considered future-orphaned.
-            var points = new List<TrajectoryPoint>
-            {
-                new TrajectoryPoint { ut = 100.0 },
-                new TrajectoryPoint { ut = 200.0 },
-            };
-            RecordingStore.StashPending(points, "OldPending");
-            RecordingStore.PendingStashedThisTransition = false; // clear "this transition"
-            logLines.Clear();
-
-            ParsekScenario.DiscardStashedOnQuickload(preChangeUT: 397.2, currentUT: 369.2);
-
-            Assert.True(RecordingStore.HasPending); // preserved
-            Assert.Contains(logLines, l =>
-                l.Contains("Quickload discard complete") && l.Contains("sa=0"));
+                l.Contains("Quickload discard complete") && l.Contains("tree=1"));
         }
 
         [Fact]
@@ -279,11 +250,10 @@ namespace Parsek.Tests
         [Fact]
         public void DiscardStashedOnQuickload_NothingStashed_LogsOnlyHeader()
         {
-            // Empty state: no pending sa, no pending tree, no science. The
+            // Empty state: no pending tree, no science. The
             // discard call must still log the "Quickload detected" header (so
             // diagnostics always show why we took this path) and a final
-            // "discard complete sa=0 tree=0 science=0" line.
-            Assert.False(RecordingStore.HasPending);
+            // "discard complete tree=0 science=0" line.
             Assert.False(RecordingStore.HasPendingTree);
             Assert.Empty(GameStateRecorder.PendingScienceSubjects);
             logLines.Clear();
@@ -294,7 +264,7 @@ namespace Parsek.Tests
                 l.Contains("Quickload detected") && l.Contains("397.20") && l.Contains("369.20"));
             Assert.Contains(logLines, l =>
                 l.Contains("Quickload discard complete")
-                && l.Contains("sa=0") && l.Contains("tree=0") && l.Contains("science=0"));
+                && l.Contains("tree=0") && l.Contains("science=0"));
         }
 
         // ----- Defense in depth: tight frame cap -----
@@ -317,24 +287,20 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void DiscardStashedOnQuickload_StandalonePending_AlwaysDiscarded()
+        public void DiscardStashedOnQuickload_PendingTreeFinalized_AlwaysDiscarded()
         {
-            // With always-tree mode, standalone pending is always discarded on quickload.
-            var points = new List<TrajectoryPoint>
-            {
-                new TrajectoryPoint { ut = 300.0 },
-                new TrajectoryPoint { ut = 350.0 },
-            };
-            RecordingStore.StashPending(points, "Kerbal X");
-            Assert.True(RecordingStore.HasPending);
+            // Finalized pending tree is always discarded on quickload.
+            var tree = MakeTree("t_kx", "Kerbal X", 2);
+            RecordingStore.StashPendingTree(tree, PendingTreeState.Finalized);
+            Assert.True(RecordingStore.HasPendingTree);
             Assert.True(RecordingStore.PendingStashedThisTransition);
             logLines.Clear();
 
             ParsekScenario.DiscardStashedOnQuickload(preChangeUT: 350.0, currentUT: 295.0);
 
-            Assert.False(RecordingStore.HasPending); // discarded
+            Assert.False(RecordingStore.HasPendingTree); // discarded
             Assert.Contains(logLines, l =>
-                l.Contains("discarded pending standalone") && l.Contains("Kerbal X"));
+                l.Contains("discarded pending tree") && l.Contains("Kerbal X"));
         }
 
         // ----- Helpers -----
