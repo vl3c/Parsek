@@ -408,6 +408,56 @@ namespace Parsek
             }
         }
 
+        /// <summary>
+        /// T57: Resolves the parent recording's VesselPersistentId for EVA collision
+        /// exemption. Searches committed trees for the parent recording by ParentRecordingId.
+        /// Returns 0 if no parent found. Pure lookup, no side effects.
+        /// </summary>
+        internal static uint ResolveParentVesselPid(Recording rec)
+        {
+            if (rec == null || string.IsNullOrEmpty(rec.ParentRecordingId)
+                || string.IsNullOrEmpty(rec.TreeId))
+                return 0;
+
+            var trees = RecordingStore.CommittedTrees;
+            for (int i = 0; i < trees.Count; i++)
+            {
+                if (trees[i].Id != rec.TreeId) continue;
+                Recording parentRec;
+                if (trees[i].Recordings.TryGetValue(rec.ParentRecordingId, out parentRec))
+                {
+                    if (parentRec.VesselPersistentId != 0)
+                    {
+                        ParsekLog.Verbose("Spawner",
+                            $"ResolveParentVesselPid: EVA '{rec.VesselName}' parent='{parentRec.VesselName}' " +
+                            $"pid={parentRec.VesselPersistentId} (T57 exemption)");
+                        return parentRec.VesselPersistentId;
+                    }
+                }
+                break;
+            }
+
+            // Also check the pending tree (active recording in flight)
+            var pendingTree = RecordingStore.PendingTree;
+            if (pendingTree != null && pendingTree.Id == rec.TreeId)
+            {
+                Recording parentRec;
+                if (pendingTree.Recordings.TryGetValue(rec.ParentRecordingId, out parentRec)
+                    && parentRec.VesselPersistentId != 0)
+                {
+                    ParsekLog.Verbose("Spawner",
+                        $"ResolveParentVesselPid: EVA '{rec.VesselName}' parent='{parentRec.VesselName}' " +
+                        $"pid={parentRec.VesselPersistentId} (from pending tree, T57)");
+                    return parentRec.VesselPersistentId;
+                }
+            }
+
+            ParsekLog.Verbose("Spawner",
+                $"ResolveParentVesselPid: no parent found for EVA '{rec.VesselName}' " +
+                $"(parentId={rec.ParentRecordingId}, treeId={rec.TreeId})");
+            return 0;
+        }
+
         public static void SpawnOrRecoverIfTooClose(Recording rec, int index)
         {
             const int maxSpawnAttempts = 3;
@@ -451,8 +501,12 @@ namespace Parsek
             Vector3d spawnPos = body.GetWorldSurfacePosition(spawnLat, spawnLon, spawnAlt);
 
             bool isEva = !string.IsNullOrEmpty(rec.EvaCrewName);
+            // T57: resolve parent vessel PID for EVA collision exemption.
+            // EVA trajectories overlap the parent vessel for their entire length;
+            // without exemption, walkback exhausts all points and abandons the spawn.
+            uint exemptPid = isEva ? ResolveParentVesselPid(rec) : 0;
             var collision = CheckSpawnCollisions(rec, index, isEva, body,
-                spawnLat, spawnLon, spawnAlt, spawnPos);
+                spawnLat, spawnLon, spawnAlt, spawnPos, exemptPid);
             if (collision.blocked) return;
             // Walkback may have rewritten the spawn coordinates (#264)
             spawnLat = collision.lat;
@@ -644,7 +698,8 @@ namespace Parsek
         /// </summary>
         private static (bool blocked, double lat, double lon, double alt, Vector3d pos) CheckSpawnCollisions(
             Recording rec, int index, bool isEva, CelestialBody body,
-            double spawnLat, double spawnLon, double spawnAlt, Vector3d spawnPos)
+            double spawnLat, double spawnLon, double spawnAlt, Vector3d spawnPos,
+            uint exemptVesselPid = 0)
         {
             // KSC exclusion zone — block spawn near the launch pad to prevent collisions
             // with KSC infrastructure that isn't in FlightGlobals.Vessels. (#170)
@@ -689,7 +744,8 @@ namespace Parsek
             // to avoid the player's vessel blocking its own recording's spawn.
             bool skipActive = !isEva;
             var (overlap, overlapDist, blockerName, blockerVessel) =
-                SpawnCollisionDetector.CheckOverlapAgainstLoadedVessels(spawnPos, spawnBounds, 5f, skipActive);
+                SpawnCollisionDetector.CheckOverlapAgainstLoadedVessels(
+                    spawnPos, spawnBounds, 5f, skipActive, exemptVesselPid);
             if (overlap)
             {
                 // Precedence: duplicate-blocker-recovery FIRST (#112), walkback SECOND (#264).
@@ -713,7 +769,8 @@ namespace Parsek
 
                     // Re-check overlap after recovery — another vessel may still block
                     var (stillOverlap, recheckDist, recheckName, _) =
-                        SpawnCollisionDetector.CheckOverlapAgainstLoadedVessels(spawnPos, spawnBounds, 5f, skipActive);
+                        SpawnCollisionDetector.CheckOverlapAgainstLoadedVessels(
+                            spawnPos, spawnBounds, 5f, skipActive, exemptVesselPid);
                     if (!stillOverlap)
                     {
                         // Blocker removed, no other overlap — fall through to spawn at original position
@@ -731,7 +788,8 @@ namespace Parsek
                 {
                     double walkLat, walkLon, walkAlt;
                     bool walked = TryWalkbackForEndOfRecordingSpawn(
-                        rec, index, spawnBounds, body, out walkLat, out walkLon, out walkAlt);
+                        rec, index, spawnBounds, body, out walkLat, out walkLon, out walkAlt,
+                        exemptVesselPid);
                     if (walked)
                     {
                         Vector3d walkPos = body.GetWorldSurfacePosition(walkLat, walkLon, walkAlt);
@@ -787,7 +845,8 @@ namespace Parsek
         /// </summary>
         internal static bool TryWalkbackForEndOfRecordingSpawn(
             Recording rec, int index, Bounds spawnBounds, CelestialBody body,
-            out double walkLat, out double walkLon, out double walkAlt)
+            out double walkLat, out double walkLon, out double walkAlt,
+            uint exemptVesselPid = 0)
         {
             walkLat = 0;
             walkLon = 0;
@@ -810,7 +869,7 @@ namespace Parsek
                 worldPos =>
                 {
                     var (ov, _, _, _) = SpawnCollisionDetector.CheckOverlapAgainstLoadedVessels(
-                        worldPos, spawnBounds, 5f, skipActive);
+                        worldPos, spawnBounds, 5f, skipActive, exemptVesselPid);
                     return ov;
                 });
 

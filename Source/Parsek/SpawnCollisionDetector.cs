@@ -518,7 +518,8 @@ namespace Parsek
         /// overlapping vessel's info, or overlap=false if no overlap found.
         /// </summary>
         internal static (bool overlap, float closestDistance, string blockerName, Vessel blockerVessel) CheckOverlapAgainstLoadedVessels(
-            Vector3d spawnWorldPos, Bounds spawnBounds, float padding, bool skipActiveVessel = true)
+            Vector3d spawnWorldPos, Bounds spawnBounds, float padding, bool skipActiveVessel = true,
+            uint exemptVesselPid = 0)
         {
             ParsekLog.Verbose(Tag,
                 $"CheckOverlapAgainstLoadedVessels: checking spawn at ({spawnWorldPos.x.ToString("F0", IC)},{spawnWorldPos.y.ToString("F0", IC)},{spawnWorldPos.z.ToString("F0", IC)}) " +
@@ -536,9 +537,15 @@ namespace Parsek
                 if (GhostMapPresence.IsGhostMapVessel(other.persistentId)) continue;
 
                 // Skip player's own vessel — shouldn't block non-EVA spawns.
-                // EVA spawns need to detect the parent vessel (active vessel) as a
-                // blocker so the walkback can find a clear position. (#291)
+                // EVA spawns need to detect the active vessel (active vessel) as a
+                // blocker so the walkback can find a clear position (#291), UNLESS
+                // it's the EVA's parent vessel (#T57).
                 if (skipActiveVessel && other == FlightGlobals.ActiveVessel) continue;
+
+                // T57: skip the EVA's parent vessel — the EVA trajectory is always
+                // adjacent to the parent, so without exemption the entire walkback
+                // is exhausted and the spawn is abandoned.
+                if (exemptVesselPid != 0 && other.persistentId == exemptVesselPid) continue;
 
                 // Skip non-significant vessel types that shouldn't block spawns
                 if (ShouldSkipVesselType(other.vesselType))

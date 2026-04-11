@@ -22,6 +22,9 @@ All notable changes to Parsek are documented here.
 - Test runner window no longer spams IMGUI layout exceptions when opened during flight.
 - `T55` FlagEvents and SegmentEvents are now preserved across tree recording splits and flushes.
 - `#298b` Dead engine shutdown sentinels now work for active-vessel recordings (were only emitted for background vessel recordings).
+- `T59` Rewind (R button) now works after mid-recording EVA -- rewind save filename and budget are copied to the tree root at branch time.
+- `T58` Debris ghost engines no longer show running FX at zero throttle after staging -- inherited engine state respects the child vessel's operational assessment.
+- `T57` EVA recordings now spawn at end instead of being abandoned -- parent vessel is exempt from collision checks during EVA walkback.
 
 ### New Features
 
