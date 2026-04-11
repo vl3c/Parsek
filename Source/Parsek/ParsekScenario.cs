@@ -298,7 +298,6 @@ namespace Parsek
 
                 SaveStandaloneRecordings(node, recordings);
                 SaveTreeRecordings(node);
-                SaveActiveStandaloneIfAny(node);
                 PersistGameStateAndMilestones(node);
 
                 // Strip ghost map ProtoVessels — they are transient and reconstructed on load
@@ -506,70 +505,6 @@ namespace Parsek
         }
 
         /// <summary>
-        /// #294: Persists the active standalone recorder's buffer into a
-        /// PARSEK_ACTIVE_STANDALONE ConfigNode so F9 quickload can resume
-        /// from the F5 checkpoint instead of losing all in-progress data.
-        /// Mirrors the tree-mode pattern in <see cref="SaveActiveTreeIfAny"/>
-        /// but for standalone (non-tree) recordings.
-        /// The recorder's buffers are NOT cleared — unlike tree-mode flush,
-        /// the standalone recorder keeps running after F5. Data is deep-copied
-        /// into a temporary Recording for serialization.
-        /// </summary>
-        private static void SaveActiveStandaloneIfAny(ConfigNode node)
-        {
-            if (HighLogic.LoadedScene != GameScenes.FLIGHT) return;
-
-            var flight = ParsekFlight.Instance;
-            if (flight == null) return;
-
-            // Mutual exclusion: if tree mode is active, SaveActiveTreeIfAny handles it.
-            // Both should never coexist — standalone and tree are mutually exclusive.
-            if (flight.ActiveTreeForSerialization != null) return;
-
-            var recorder = flight.ActiveRecorderForSerialization;
-            if (recorder == null || !recorder.IsRecording) return;
-
-            // Deep-copy the recorder's buffers into a temporary Recording for serialization.
-            // We must NOT clear the recorder's buffers (unlike FlushRecorderIntoActiveTreeForSerialization)
-            // because the recorder keeps running after F5.
-            var tempRec = new Recording();
-            tempRec.Points.AddRange(recorder.Recording);
-            tempRec.OrbitSegments.AddRange(recorder.OrbitSegments);
-            tempRec.PartEvents.AddRange(recorder.PartEvents);
-            tempRec.FlagEvents.AddRange(recorder.FlagEvents);
-            tempRec.TrackSections.AddRange(recorder.TrackSections);
-            tempRec.SegmentEvents.AddRange(recorder.SegmentEvents);
-
-            ConfigNode saNode = node.AddNode("PARSEK_ACTIVE_STANDALONE");
-            saNode.AddValue("vesselName",
-                FlightGlobals.ActiveVessel != null ? FlightGlobals.ActiveVessel.vesselName : "");
-            saNode.AddValue("vesselPid",
-                recorder.RecordingVesselId.ToString(CultureInfo.InvariantCulture));
-
-            // Start location from the recorder (captured at original recording start)
-            if (!string.IsNullOrEmpty(recorder.StartBodyName))
-                saNode.AddValue("startBodyName", recorder.StartBodyName);
-            if (!string.IsNullOrEmpty(recorder.StartBiome))
-                saNode.AddValue("startBiome", recorder.StartBiome);
-            if (!string.IsNullOrEmpty(recorder.StartSituation))
-                saNode.AddValue("startSituation", recorder.StartSituation);
-            if (!string.IsNullOrEmpty(recorder.LaunchSiteName))
-                saNode.AddValue("launchSiteName", recorder.LaunchSiteName);
-
-            if (!string.IsNullOrEmpty(recorder.RewindSaveFileName))
-                saNode.AddValue("rewindSave", recorder.RewindSaveFileName);
-
-            // Serialize trajectory data inline (same format as .prec sidecar files)
-            RecordingStore.SerializeTrajectoryInto(saNode, tempRec);
-
-            ParsekLog.Info("Scenario",
-                $"SaveActiveStandaloneIfAny: serialized active standalone recorder " +
-                $"({tempRec.Points.Count} points, {tempRec.PartEvents.Count} events, " +
-                $"{tempRec.OrbitSegments.Count} orbit segs, {tempRec.TrackSections.Count} sections) " +
-                $"for quickload resume");
-        }
-
-        /// <summary>
         /// Persists crew state, group hierarchy, game state events, baselines,
         /// milestones, and ledger data to the save node and external files.
         /// </summary>
@@ -718,9 +653,8 @@ namespace Parsek
                     // affect the rest of OnLoad, but BEFORE revert detection so the
                     // pending slot is populated when it runs.
                     bool activeTreeRestoredFromSave = TryRestoreActiveTreeNode(node);
-                    // #294: Also check for an active standalone recording saved at F5 time.
-                    // Mutually exclusive with tree restore — TryRestoreActiveStandaloneNode
-                    // checks ScheduleActiveTreeRestoreOnFlightReady and skips if set.
+                    // Migration: check for legacy PARSEK_ACTIVE_STANDALONE from old saves.
+                    // Converts to a single-node RecordingTree and routes through tree restore.
                     TryRestoreActiveStandaloneNode(node);
                     ParsekLog.RecState("OnLoad:active-tree-restored", CaptureScenarioRecorderState());
 
@@ -1150,44 +1084,6 @@ namespace Parsek
                             ParsekLog.Info("Scenario",
                                 $"OnLoad: pending-Limbo tree '{RecordingStore.PendingTree?.TreeName}' " +
                                 "deferred to OnFlightReady for quickload-resume");
-                        }
-                    }
-
-                    // #305: Standalone Limbo dispatch — parallel to tree Limbo dispatch above.
-                    // Determines whether a Limbo standalone should be finalized for the merge
-                    // dialog (revert-to-launch) or discarded (F5/F9 resume takes over).
-                    if (RecordingStore.HasPending
-                        && RecordingStore.PendingStandaloneStateValue == PendingStandaloneState.Limbo)
-                    {
-                        ParsekLog.RecState("OnLoad:standalone-limbo-dispatched", CaptureScenarioRecorderState());
-                        if (isRevert)
-                        {
-                            // Real revert: finalize Limbo standalone for merge dialog.
-                            RecordingStore.MarkPendingStandaloneFinalized();
-                            ParsekLog.Info("Scenario",
-                                $"OnLoad: Limbo standalone '{RecordingStore.Pending?.VesselName}' " +
-                                "finalized for merge dialog (revert detected)");
-                        }
-                        else if (ScheduleActiveStandaloneRestoreOnFlightReady)
-                        {
-                            // F5/F9 mid-recording: the F5 save has PARSEK_ACTIVE_STANDALONE data that
-                            // TryRestoreActiveStandaloneNode will resume from. The Limbo standalone is
-                            // from after the F5 point (stale future data) — discard it.
-                            string saName = RecordingStore.Pending?.VesselName;
-                            RecordingStore.DiscardPending();
-                            ParsekLog.Info("Scenario",
-                                $"OnLoad: discarded Limbo standalone '{saName}' — " +
-                                "active-standalone restore scheduled from save");
-                        }
-                        else
-                        {
-                            // No revert detected AND no restore data: the loaded save has no
-                            // PARSEK_ACTIVE_STANDALONE, meaning the recording started after this
-                            // save point (revert-to-launch). Finalize for merge dialog.
-                            RecordingStore.MarkPendingStandaloneFinalized();
-                            ParsekLog.Info("Scenario",
-                                $"OnLoad: Limbo standalone '{RecordingStore.Pending?.VesselName}' " +
-                                "finalized for merge dialog (no active-standalone in loaded save)");
                         }
                     }
 
@@ -2036,46 +1932,18 @@ namespace Parsek
         /// </summary>
         internal static ActiveTreeRestoreMode ScheduleActiveTreeRestoreOnFlightReady;
 
-        // #294: Standalone quickload-resume state, parallel to the tree restore fields above.
-        // Populated by TryRestoreActiveStandaloneNode during OnLoad, consumed by
-        // ParsekFlight.RestoreActiveStandaloneFromPending coroutine on OnFlightReady.
-
         /// <summary>
-        /// Holds the deserialized PARSEK_ACTIVE_STANDALONE data between OnLoad and
-        /// OnFlightReady. Null when no standalone restore is pending.
-        /// </summary>
-        internal static Recording pendingActiveStandaloneRecording;
-
-        /// <summary>Vessel name from the saved standalone node, for matching on restore.</summary>
-        internal static string pendingActiveStandaloneVesselName;
-
-        /// <summary>Vessel PID from the saved standalone node, for PID remap on restore.</summary>
-        internal static uint pendingActiveStandaloneVesselPid;
-
-        /// <summary>Rewind save filename from the saved standalone node.</summary>
-        internal static string pendingActiveStandaloneRewindSave;
-
-        /// <summary>
-        /// Signal to <see cref="ParsekFlight.OnFlightReady"/> that a standalone
-        /// recording restore is pending. Set by OnLoad when it finds a
-        /// PARSEK_ACTIVE_STANDALONE node in the loaded save.
-        /// </summary>
-        internal static bool ScheduleActiveStandaloneRestoreOnFlightReady;
-
-        /// <summary>
-        /// #294: Extracts a PARSEK_ACTIVE_STANDALONE node from the loaded save and
-        /// stores its data for the standalone restore coroutine. Called from OnLoad
-        /// after tree restore logic. Mutually exclusive with active tree — both should
-        /// never coexist in a save.
+        /// Migration shim: converts a legacy PARSEK_ACTIVE_STANDALONE node from old saves
+        /// into a single-node RecordingTree and routes through the tree restore path.
+        /// New saves never write PARSEK_ACTIVE_STANDALONE (always-tree mode uses
+        /// PARSEK_ACTIVE_TREE exclusively).
         /// </summary>
         internal static void TryRestoreActiveStandaloneNode(ConfigNode node)
         {
             ConfigNode saNode = node.GetNode("PARSEK_ACTIVE_STANDALONE");
             if (saNode == null) return;
 
-            // Mutual exclusion check: if a tree restore is also scheduled, the tree wins.
-            // This shouldn't happen (standalone and tree are mutually exclusive at save time)
-            // but guard against corrupted saves.
+            // If a tree restore is already scheduled, the tree wins.
             if (ScheduleActiveTreeRestoreOnFlightReady != ActiveTreeRestoreMode.None)
             {
                 ParsekLog.Warn("Scenario",
@@ -2094,32 +1962,44 @@ namespace Parsek
             rec.StartSituation = saNode.GetValue("startSituation");
             rec.LaunchSiteName = saNode.GetValue("launchSiteName");
 
-            pendingActiveStandaloneRecording = rec;
-            pendingActiveStandaloneVesselName = saNode.GetValue("vesselName") ?? "";
-            uint.TryParse(saNode.GetValue("vesselPid"), NumberStyles.Integer, ic,
-                out pendingActiveStandaloneVesselPid);
-            pendingActiveStandaloneRewindSave = saNode.GetValue("rewindSave");
+            string vesselName = saNode.GetValue("vesselName") ?? "";
+            uint vesselPid = 0;
+            uint.TryParse(saNode.GetValue("vesselPid"), NumberStyles.Integer, ic, out vesselPid);
 
-            ScheduleActiveStandaloneRestoreOnFlightReady = true;
+            // Wrap the standalone data into a single-node RecordingTree
+            string treeId = Guid.NewGuid().ToString("N");
+            string rootRecId = Guid.NewGuid().ToString("N");
+
+            rec.RecordingId = rootRecId;
+            rec.TreeId = treeId;
+            rec.VesselPersistentId = vesselPid;
+            rec.VesselName = vesselName;
+            if (rec.Points.Count > 0)
+                rec.ExplicitStartUT = rec.Points[0].ut;
+
+            var tree = new RecordingTree
+            {
+                Id = treeId,
+                TreeName = vesselName,
+                RootRecordingId = rootRecId,
+                ActiveRecordingId = rootRecId,
+            };
+            tree.Recordings[rootRecId] = rec;
+
+            // Pop any existing pending tree, then stash the migrated tree
+            RecordingStore.PopPendingTree();
+            RecordingStore.StashPendingTree(tree, PendingTreeState.Limbo);
+
+            // Set resume hints
+            pendingActiveTreeResumeRewindSave = saNode.GetValue("rewindSave");
+
+            // Route through tree restore path
+            ScheduleActiveTreeRestoreOnFlightReady = ActiveTreeRestoreMode.Quickload;
 
             ParsekLog.Info("Scenario",
-                $"TryRestoreActiveStandaloneNode: loaded standalone restore data " +
-                $"(vessel='{pendingActiveStandaloneVesselName}', pid={pendingActiveStandaloneVesselPid}, " +
-                $"{rec.Points.Count} points, {rec.PartEvents.Count} events, " +
-                $"{rec.OrbitSegments.Count} orbit segs, {rec.TrackSections.Count} sections)");
-        }
-
-        /// <summary>
-        /// Clears all standalone restore pending state. Called after the restore
-        /// coroutine consumes the data, or when the restore is abandoned.
-        /// </summary>
-        internal static void ClearPendingActiveStandalone()
-        {
-            pendingActiveStandaloneRecording = null;
-            pendingActiveStandaloneVesselName = null;
-            pendingActiveStandaloneVesselPid = 0;
-            pendingActiveStandaloneRewindSave = null;
-            ScheduleActiveStandaloneRestoreOnFlightReady = false;
+                $"TryRestoreActiveStandaloneNode: migrated legacy standalone to tree " +
+                $"(vessel='{vesselName}', pid={vesselPid}, tree={treeId}, " +
+                $"{rec.Points.Count} points, {rec.PartEvents.Count} events)");
         }
 
         /// <summary>
