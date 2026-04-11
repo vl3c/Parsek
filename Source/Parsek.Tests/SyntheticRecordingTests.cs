@@ -3361,6 +3361,65 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void EngineShowcaseRecordings_RapierModeSwitchHasCorrectEventProfile()
+        {
+            var recordings = EngineShowcaseRecordings(baseUT: 17000);
+            ConfigNode rapier = null;
+            for (int i = 0; i < recordings.Length; i++)
+            {
+                ConfigNode built = recordings[i].Build();
+                if (built.GetValue("vesselName") == "Part Showcase - RAPIER")
+                {
+                    rapier = built;
+                    break;
+                }
+            }
+            Assert.NotNull(rapier);
+
+            var events = rapier.GetNodes("PART_EVENT");
+            Assert.Equal(8, events.Length);
+
+            // Verify all events target the primary part
+            var primaryPart = rapier.GetNode("GHOST_VISUAL_SNAPSHOT").GetNodes("PART")[0];
+            string expectedPid = primaryPart.GetValue("persistentId");
+            for (int i = 0; i < events.Length; i++)
+                Assert.Equal(expectedPid, events[i].GetValue("pid"));
+
+            // Verify UTs are monotonically increasing
+            double previousUt = double.MinValue;
+            for (int i = 0; i < events.Length; i++)
+            {
+                double ut = double.Parse(events[i].GetValue("ut"), CultureInfo.InvariantCulture);
+                Assert.True(ut > previousUt, $"Non-monotonic UT at event {i}");
+                previousUt = ut;
+            }
+
+            // Verify event type/moduleIndex sequence:
+            // jet ignite(0), jet throttle(0), jet shutdown(0),
+            // rocket ignite(1), rocket throttle(1), rocket shutdown(1),
+            // jet ignite(0), jet shutdown(0)
+            var expectedTypes = new[]
+            {
+                PartEventType.EngineIgnited,  PartEventType.EngineThrottle, PartEventType.EngineShutdown,
+                PartEventType.EngineIgnited,  PartEventType.EngineThrottle, PartEventType.EngineShutdown,
+                PartEventType.EngineIgnited,  PartEventType.EngineShutdown
+            };
+            var expectedMidx = new[] { 0, 0, 0, 1, 1, 1, 0, 0 };
+            for (int i = 0; i < events.Length; i++)
+            {
+                Assert.Equal(((int)expectedTypes[i]).ToString(CultureInfo.InvariantCulture),
+                    events[i].GetValue("type"));
+                Assert.Equal(expectedMidx[i].ToString(CultureInfo.InvariantCulture),
+                    events[i].GetValue("midx"));
+            }
+
+            // Verify throttle values on ignite events
+            Assert.Equal("0.5", events[0].GetValue("value"));  // jet ignite at 50%
+            Assert.Equal("0.8", events[3].GetValue("value"));  // rocket ignite at 80%
+            Assert.Equal("1", events[6].GetValue("value"));    // jet re-ignite at 100%
+        }
+
+        [Fact]
         public void RcsShowcaseRecordings_BuildExpectedShape()
         {
             var recordings = RcsShowcaseRecordings(baseUT: 17000);
