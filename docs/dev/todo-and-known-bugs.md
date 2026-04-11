@@ -158,15 +158,15 @@ Parts whose base/default variant is implicit (not a VARIANT node) showed the wro
 
 ---
 
-## ~~242. Ghost engine smoke emits perpendicular to flame direction~~
+## 242. Ghost engine smoke emits perpendicular to flame direction
 
-On Mammoth, Twin Boar, RAPIER, and Vector, ghost engine smoke fired sideways. Fire plumes were correct.
+On Mammoth, Twin Boar, RAPIER, and Vector, ghost engine smoke fires sideways. Fire plumes are visually correct. Diagnostic logging (effect group name + `emitDir`) added to `EngineFxBuilder`.
 
-**Root cause:** PREFAB_PARTICLE entries scanned from EFFECTS configs without explicit `localRotation` were placed at identity rotation. Unity ParticleSystems emit along local +Y, but the parent transform's thrust direction is local -Z. KSP's runtime applies an implicit -90 X rotation to align emission with thrust; the ghost FX builder was missing this default for scanned PREFAB_PARTICLE entries. (MODEL_MULTI_PARTICLE entries and hardcoded fallback entries already had correct -90 X rotation.)
+**Investigation:** A blanket -90 X rotation for scanned PREFAB_PARTICLE entries was attempted but failed -- `emitDir` (transform local +Y) doesn't consistently represent the actual particle emission direction because KSP FX models have internal `ParticleSystem.shape.rotation` that varies per model. The blanket approach fixed smoke on some engines but broke fire on others (Ant, Spider, Puff, Vector secondary effects).
 
-**Fix:** In `ScanEffectsPrefabParticleEntries`, when `hasCfgRot` is false and the prefab name doesn't end with `_Z` (which already emits along Z), apply `Quaternion.Euler(-90,0,0)` as default. Also relabeled diagnostic logging from misleading `fxFwd/fxUp` to `emitDir` (= FX local +Y, the actual emission axis).
+**Next step:** Decompile KSP's `EffectPrefab`/`ModelMultiParticlePersistFX` to see what rotation it applies at runtime. The fix needs to read the actual particle system shape configuration from each model, not assume a uniform emission axis.
 
-**Status:** ~~Fixed~~
+**Priority:** Low -- cosmetic, only affects smoke trail direction on a few engines
 
 ---
 

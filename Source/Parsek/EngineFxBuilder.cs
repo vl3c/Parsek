@@ -135,21 +135,6 @@ namespace Parsek
                     string rotStr = ppNodes[pp].GetValue("localRotation");
                     bool hasLocalRot = GhostVisualBuilder.TryParseFxLocalRotation(rotStr, out localRot);
 
-                    // #242: KSP's runtime applies an implicit -90 X rotation to
-                    // PREFAB_PARTICLE entries without explicit localRotation. This
-                    // rotates the particle system's emission axis (local +Y) to
-                    // align with the parent transform's forward (-Z = thrust direction).
-                    // Prefabs with _Z suffix already emit along Z and don't need this.
-                    if (!hasLocalRot &&
-                        !prefabName.EndsWith("_Z", System.StringComparison.OrdinalIgnoreCase))
-                    {
-                        localRot = Quaternion.Euler(-90f, 0f, 0f);
-                        hasLocalRot = true;
-                        ParsekLog.Verbose("EngineFx",
-                            $"default -90X rotation for prefab '{prefabName}' " +
-                            $"on '{transformName}' in group '{groupName}' (#242)");
-                    }
-
                     prefabFxEntries.Add((prefabName, transformName, localOffset, localRot, hasLocalRot, groupName));
                 }
             }
