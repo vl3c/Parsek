@@ -617,8 +617,10 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void ClassifyVesselDestruction_StandaloneMerge()
+        public void ClassifyVesselDestruction_NoTree_ReturnsNone()
         {
+            // With always-tree mode, hasActiveTree=false never happens during recording.
+            // StandaloneMerge was removed — this input now returns None.
             var mode = ParsekFlight.ClassifyVesselDestruction(
                 hasActiveTree: false,
                 isRecording: true,
@@ -626,7 +628,7 @@ namespace Parsek.Tests
                 isActiveVessel: true,
                 shouldDeferForTree: false,
                 treeDestructionDialogPending: false);
-            Assert.Equal(ParsekFlight.DestructionMode.StandaloneMerge, mode);
+            Assert.Equal(ParsekFlight.DestructionMode.None, mode);
         }
 
         [Fact]

@@ -533,26 +533,9 @@ namespace Parsek.Tests
         // ----- Integration phase-sequence test (the EVA + F5 + F9 repro walk) -----
 
         [Fact]
-        public void RecState_PhaseSequence_StandaloneToTreePromotionToQuickloadResume()
+        public void RecState_PhaseSequence_TreeRecordingToQuickloadResume()
         {
-            // Phase 1: standalone recording in flight
-            var snap1 = RecorderStateSnapshot.CaptureFromParts(
-                activeTree: null,
-                recorder: new FlightRecorder(),
-                pendingTree: null,
-                pendingTreeState: PendingTreeState.Finalized,
-                pendingStandalone: null,
-                pendingSplitRecorder: null,
-                pendingSplitInProgress: false,
-                chain: new ChainSegmentManager(),
-                currentUT: 17000.0,
-                loadedScene: GameScenes.FLIGHT);
-            ParsekLog.RecState("start-standalone", snap1);
-
-            // Phase 2: F5 quicksave taken
-            ParsekLog.RecState("OnSave:pre", snap1);
-
-            // Phase 3: tree promotion (e.g. EVA → tree branch)
+            // Phase 1: always-tree recording in flight (tree created at recording start)
             var tree = new RecordingTree
             {
                 Id = "treeXYZABCDEF",
@@ -565,46 +548,45 @@ namespace Parsek.Tests
                 VesselName = "Bob",
                 TreeId = tree.Id,
             };
-            var snap2 = RecorderStateSnapshot.CaptureFromParts(
+            var snap1 = RecorderStateSnapshot.CaptureFromParts(
                 tree, new FlightRecorder { ActiveTree = tree },
                 null, PendingTreeState.Finalized, null, null, false,
                 new ChainSegmentManager(),
-                17050.0, GameScenes.FLIGHT);
-            ParsekLog.RecState("PromoteToTreeForBreakup:exit", snap2);
+                17000.0, GameScenes.FLIGHT);
+            ParsekLog.RecState("start-tree", snap1);
 
-            // Phase 4: another F5 quicksave (now in tree mode)
-            ParsekLog.RecState("OnSave:pre", snap2);
+            // Phase 2: F5 quicksave taken
+            ParsekLog.RecState("OnSave:pre", snap1);
 
-            // Phase 5: scene change → StashTreeLimbo
-            var snap3 = RecorderStateSnapshot.CaptureFromParts(
+            // Phase 3: scene change -> StashTreeLimbo
+            var snap2 = RecorderStateSnapshot.CaptureFromParts(
                 tree, null, null, PendingTreeState.Finalized, null, null, false,
                 new ChainSegmentManager(),
                 17051.0, GameScenes.FLIGHT);
-            ParsekLog.RecState("StashTreeLimbo:pre", snap3);
+            ParsekLog.RecState("StashTreeLimbo:pre", snap2);
 
-            // Phase 6: F9 quickload → OnLoad sees tree restored to pending-Limbo
-            var snap4 = RecorderStateSnapshot.CaptureFromParts(
+            // Phase 4: F9 quickload -> OnLoad sees tree restored to pending-Limbo
+            var snap3 = RecorderStateSnapshot.CaptureFromParts(
                 null, null, tree, PendingTreeState.Limbo, null, null, false, null,
                 17050.0, GameScenes.FLIGHT);
-            ParsekLog.RecState("TryRestoreActiveTreeNode:stashed", snap4);
-            ParsekLog.RecState("OnLoad:limbo-dispatched", snap4);
+            ParsekLog.RecState("TryRestoreActiveTreeNode:stashed", snap3);
+            ParsekLog.RecState("OnLoad:limbo-dispatched", snap3);
 
-            // Phase 7: restore coroutine
-            ParsekLog.RecState("Restore:start", snap4);
-            ParsekLog.RecState("Restore:matched", snap4);
+            // Phase 5: restore coroutine
+            ParsekLog.RecState("Restore:start", snap3);
+            ParsekLog.RecState("Restore:matched", snap3);
 
-            // Phase 8: post-restore — back to live tree mode
-            var snap5 = RecorderStateSnapshot.CaptureFromParts(
+            // Phase 6: post-restore -- back to live tree mode
+            var snap4 = RecorderStateSnapshot.CaptureFromParts(
                 tree, new FlightRecorder { ActiveTree = tree }, null, PendingTreeState.Finalized,
                 null, null, false, new ChainSegmentManager(),
                 17050.5, GameScenes.FLIGHT);
-            ParsekLog.RecState("Restore:after-start", snap5);
+            ParsekLog.RecState("Restore:after-start", snap4);
 
-            // Verify: all 10 phases logged in order with strictly increasing sequence numbers
-            Assert.Equal(10, logLines.Count);
+            // Verify: all 8 phases logged in order with strictly increasing sequence numbers
+            Assert.Equal(8, logLines.Count);
             string[] expectedPhases = {
-                "start-standalone", "OnSave:pre", "PromoteToTreeForBreakup:exit",
-                "OnSave:pre", "StashTreeLimbo:pre",
+                "start-tree", "OnSave:pre", "StashTreeLimbo:pre",
                 "TryRestoreActiveTreeNode:stashed", "OnLoad:limbo-dispatched",
                 "Restore:start", "Restore:matched", "Restore:after-start"
             };
@@ -614,20 +596,18 @@ namespace Parsek.Tests
             }
 
             // Mode transitions visible at expected points
-            Assert.Contains("mode=sa", logLines[0]);   // start standalone
-            Assert.Contains("mode=sa", logLines[1]);   // OnSave:pre still standalone
-            Assert.Contains("mode=tree", logLines[2]); // promoted
-            Assert.Contains("mode=tree", logLines[3]); // OnSave in tree mode
-            Assert.Contains("mode=tree", logLines[4]); // stash tree pre (recorder gone but activeTree still set)
-            Assert.Contains("mode=none", logLines[5]); // OnLoad: only pending tree
-            Assert.Contains("mode=none", logLines[6]); // OnLoad limbo dispatch
-            Assert.Contains("mode=none", logLines[7]); // Restore start
-            Assert.Contains("mode=none", logLines[8]); // Restore matched (still in pending)
-            Assert.Contains("mode=tree", logLines[9]); // Restore after-start (live again)
+            Assert.Contains("mode=tree", logLines[0]); // start tree
+            Assert.Contains("mode=tree", logLines[1]); // OnSave:pre in tree mode
+            Assert.Contains("mode=tree", logLines[2]); // stash tree pre (recorder gone but activeTree still set)
+            Assert.Contains("mode=none", logLines[3]); // OnLoad: only pending tree
+            Assert.Contains("mode=none", logLines[4]); // OnLoad limbo dispatch
+            Assert.Contains("mode=none", logLines[5]); // Restore start
+            Assert.Contains("mode=none", logLines[6]); // Restore matched (still in pending)
+            Assert.Contains("mode=tree", logLines[7]); // Restore after-start (live again)
 
             // pend.tree=Limbo visible during the limbo phases
-            Assert.Contains("pend.tree=treeXYZA:Limbo", logLines[5]);
-            Assert.Contains("pend.tree=treeXYZA:Limbo", logLines[8]);
+            Assert.Contains("pend.tree=treeXYZA:Limbo", logLines[3]);
+            Assert.Contains("pend.tree=treeXYZA:Limbo", logLines[6]);
         }
     }
 }

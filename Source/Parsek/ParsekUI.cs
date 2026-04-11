@@ -249,21 +249,16 @@ namespace Parsek
                 recordingsTableUI.ShowClearRecordingConfirmation();
             }
 
-            bool canCommitStandalone = !flight.IsRecording && !flight.IsPlaying
-                && flight.recording.Count >= 2 && !flight.HasActiveChain && !flight.HasActiveTree;
             bool canCommitTree = flight.HasActiveTree;
             bool stableSituation = FlightGlobals.ActiveVessel != null
                 && RecordingStore.IsStableState((int)FlightGlobals.ActiveVessel.situation);
-            GUI.enabled = (canCommitStandalone || canCommitTree) && stableSituation;
+            GUI.enabled = canCommitTree && stableSituation;
             if (GUILayout.Button(stableSituation
                 ? new GUIContent("Commit Recording to Timeline")
                 : new GUIContent("Commit Recording to Timeline", "Land or stop before committing.")))
             {
                 ParsekLog.Verbose("UI", "Commit Flight button clicked");
-                if (flight.HasActiveTree)
-                    flight.CommitTreeFlight();
-                else
-                    flight.CommitFlight();
+                flight.CommitTreeFlight();
             }
             GUI.enabled = true;
         }

@@ -248,7 +248,7 @@ namespace Parsek
         /// </summary>
         /// <param name="phase">
         /// Short free-text tag identifying the call site (e.g. <c>"OnFlightReady"</c>,
-        /// <c>"PromoteToTreeForBreakup:exit"</c>). Always pass a string literal so the
+        /// <c>"OnSave:pre"</c>). Always pass a string literal so the
         /// tag is grep-stable across releases.
         /// </param>
         /// <param name="snap">Captured state to render.</param>

@@ -4762,8 +4762,8 @@ namespace Parsek
         /// content-matching logic as RemoveLastEmittedTerminals. Used by callers that
         /// need to clean terminals from a COPY of the recorder's events (e.g.,
         /// CaptureAtStop.PartEvents) rather than the recorder's own live list.
-        /// Bug #299 — PromoteToTreeForBreakup bakes CaptureAtStop BEFORE the caller
-        /// can call RemoveLastEmittedTerminals on the recorder's internal list.
+        /// Bug #299 — CaptureAtStop may bake terminals before the caller can call
+        /// RemoveLastEmittedTerminals on the recorder's internal list.
         /// </summary>
         internal static int RemoveTerminalsFromList(List<PartEvent> targetList, List<PartEvent> terminals)
         {
