@@ -276,6 +276,24 @@ and `FlushRecorderToTreeRecording`. Two new tests in `AppendCapturedDataTests.cs
 
 ---
 
+### T56. Remove standalone RECORDING format entirely
+
+Follow-up to bug #271 (always-tree unification). The runtime now always creates tree recordings, and the injector now produces RECORDING_TREE nodes for all synthetic recordings. But the codebase still supports the old standalone RECORDING format:
+
+- `RecordingStore.committedRecordings` list (238 refs across 28 production files, 300 refs across 27 test files)
+- `StashPending`/`CommitPending`/`DiscardPending` methods (used by ChainSegmentManager)
+- `MergeDialog.Show(Recording)` and `ShowStandaloneDialog` (used by chain commit and deferred split dialogs)
+- Standalone RECORDING serialization in `ParsekScenario.OnSave`/`OnLoad`
+- `PARSEK_ACTIVE_STANDALONE` migration shim in `TryRestoreActiveStandaloneNode`
+
+To remove: collapse `committedRecordings` into `committedTrees` (every recording accessed through its parent tree), delete the standalone pending slot, delete standalone merge dialog, delete standalone RECORDING serialization, delete chain segment standalone commit paths (dead code in always-tree mode). This is a ~55-file refactor.
+
+Prerequisite: delete all old save files (no users yet, clean slate).
+
+**Priority:** Medium -- the dual storage is confusing but not causing bugs since always-tree routes everything through the tree path at runtime
+
+---
+
 ## TODO — Nice to have
 
 ### ~~T53. Watch camera mode selection~~
