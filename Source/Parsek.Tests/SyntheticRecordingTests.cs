@@ -1475,6 +1475,48 @@ namespace Parsek.Tests
             return b;
         }
 
+        /// <summary>
+        /// RAPIER mode-switch showcase: jet mode (midx=0) then rocket mode (midx=1).
+        /// Demonstrates per-module FX switching via EngineIgnited/EngineShutdown events.
+        /// </summary>
+        private static RecordingBuilder BuildRapierModeSwitchShowcase(
+            double baseUT, int rowIndex, uint pidBase)
+        {
+            double t = baseUT + 30;
+            ShowcasePosition(rowIndex, ShowcaseDistanceFromPadMeters, out double lat, out double lon, out double alt);
+            alt += ShowcaseAltitudeOffset("RAPIER");
+
+            var b = new RecordingBuilder("Part Showcase - RAPIER")
+                .WithDefaultRotation(KscRotX, KscRotY, KscRotZ, KscRotW)
+                .WithLoopPlayback(loop: true, intervalSeconds: 0.0)
+                .WithRecordingGroup("Part Showcases");
+
+            for (int i = 0; i <= 8; i++)
+                b.AddPoint(t + (i * 3), lat, lon, alt);
+
+            // Jet mode (AirBreathing = midx 0): red exhaust
+            b.AddPartEvent(t + 0,    SinglePartPid, (int)PartEventType.EngineIgnited,  "RAPIER", value: 0.5f, moduleIndex: 0);
+            b.AddPartEvent(t + 3,    SinglePartPid, (int)PartEventType.EngineThrottle, "RAPIER", value: 1.0f, moduleIndex: 0);
+            b.AddPartEvent(t + 6,    SinglePartPid, (int)PartEventType.EngineShutdown, "RAPIER", moduleIndex: 0);
+            // Switch to rocket mode (ClosedCycle = midx 1): blue exhaust
+            b.AddPartEvent(t + 6.1,  SinglePartPid, (int)PartEventType.EngineIgnited,  "RAPIER", value: 0.8f, moduleIndex: 1);
+            b.AddPartEvent(t + 9,    SinglePartPid, (int)PartEventType.EngineThrottle, "RAPIER", value: 1.0f, moduleIndex: 1);
+            b.AddPartEvent(t + 15,   SinglePartPid, (int)PartEventType.EngineShutdown, "RAPIER", moduleIndex: 1);
+            // Back to jet mode
+            b.AddPartEvent(t + 15.1, SinglePartPid, (int)PartEventType.EngineIgnited,  "RAPIER", value: 1.0f, moduleIndex: 0);
+            b.AddPartEvent(t + 21,   SinglePartPid, (int)PartEventType.EngineShutdown, "RAPIER", moduleIndex: 0);
+
+            var snap = new VesselSnapshotBuilder()
+                .WithName("Part Showcase - RAPIER")
+                .WithPersistentId((uint)(pidBase + rowIndex))
+                .AddPart("RAPIER", rotation: "0,-0.7071068,0,0.7071068")
+                .AsLanded(lat, lon, alt)
+                .Build();
+
+            b.WithGhostVisualSnapshot(snap);
+            return b;
+        }
+
         internal static RecordingBuilder[] LightShowcaseRecordings(double baseUT = 0)
         {
             return new[]
@@ -1640,7 +1682,7 @@ namespace Parsek.Tests
                 BuildCombinedEngineShowcaseRecording(baseUT, "Part Showcase - Twin-Boar", "Size2LFB.v2", 220, pidBase),
                 BuildCombinedEngineShowcaseRecording(baseUT, "Part Showcase - Mammoth", "Size3EngineCluster", 221, pidBase),
                 BuildCombinedEngineShowcaseRecording(baseUT, "Part Showcase - Pug", "LiquidEngineRV-1", 222, pidBase),
-                BuildCombinedEngineShowcaseRecording(baseUT, "Part Showcase - RAPIER", "RAPIER", 223, pidBase),
+                BuildRapierModeSwitchShowcase(baseUT, 223, pidBase),
 
                 // ── SRBs flame only (rows 224-229) ──
                 BuildCombinedEngineShowcaseRecording(baseUT, "Part Showcase - Thumper", "solidBooster1-1", 224, pidBase, isSrb: true),
@@ -3238,6 +3280,11 @@ namespace Parsek.Tests
                     continue;
                 }
 
+                // RAPIER mode-switch showcase has a custom event profile (3 ignite/3 shutdown).
+                string vesselName = built.GetValue("vesselName");
+                if (string.Equals(vesselName, "Part Showcase - RAPIER", System.StringComparison.Ordinal))
+                    continue;
+
                 int shroudCount = 0;
                 int igniteCount = 0;
                 int throttleCount = 0;
@@ -4287,10 +4334,16 @@ namespace Parsek.Tests
             foreach (var rb in recordings)
             {
                 var rec = rb.Build();
+                string vesselName = rec.GetValue("vesselName");
                 var events = rec.GetNodes("PART_EVENT");
+
+                // RAPIER mode-switch showcase has a custom multi-midx event profile.
+                if (string.Equals(vesselName, "Part Showcase - RAPIER", System.StringComparison.Ordinal))
+                    continue;
+
                 Assert.True(
                     events.Length == 2 || events.Length == 3 || events.Length == 8,
-                    $"Unexpected event count {events.Length} for {rec.GetValue("vesselName")}");
+                    $"Unexpected event count {events.Length} for {vesselName}");
 
                 var primaryPart = rec.GetNode("GHOST_VISUAL_SNAPSHOT").GetNodes("PART")[0];
 
