@@ -779,10 +779,9 @@ namespace Parsek
                     {
                         uint pid; int midx;
                         FlightRecorder.DecodeEngineKey(kvp.Key, out pid, out midx);
-                        // eventType unused by SetEngineEmission/ApplyHeatState — only pid+midx matter
+                        // eventType unused by SetEngineEmission — only pid+midx matter
                         var syntheticEvt = new PartEvent { partPersistentId = pid, moduleIndex = midx };
                         SetEngineEmission(state, syntheticEvt, 1f);
-                        ApplyHeatState(state, syntheticEvt, HeatLevel.Hot);
                         ParsekLog.Verbose("GhostFx",
                             $"Auto-started engine FX for orphan engine key={kvp.Key} pid={pid} midx={midx} " +
                             $"(no engine events in recording — likely debris booster)");
@@ -1038,7 +1037,6 @@ namespace Parsek
                         break;
                     case PartEventType.RCSThrottle:
                         SetRcsEmission(state, evt, evt.value);
-                        ApplyHeatState(state, evt, HeatLevel.Hot);
                         break;
                     case PartEventType.RoboticMotionStarted:
                     case PartEventType.RoboticPositionSample:
