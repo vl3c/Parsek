@@ -74,13 +74,13 @@ sets terminal state and metadata. Standalone path only runs when not in tree mod
 
 ---
 
-## 296. EVA kerbal who planted flag did not appear after spawn
+## ~~296. EVA kerbal who planted flag did not appear after spawn~~
 
-Log shows KSCSpawn successfully spawned the EVA kerbal (Bill Kerman, pid=484546861), but the user reports not seeing it. Likely post-spawn physics destruction — EVA kerbals are fragile and can be killed by terrain collision or slope bounce.
+Log shows KSCSpawn successfully spawned the EVA kerbal (Bill Kerman, pid=484546861), but the user reports not seeing it. Originally attributed to post-spawn physics destruction.
 
-**Investigation:** Enhanced spawn logging to include lat/lon/alt/sit for all spawn paths (KSCSpawn, SpawnAtPosition, RespawnVessel fallback). The existing `RunSpawnDeathChecks` in `ParsekPlaybackPolicy` already detects and logs spawn-death cycles. Next playtest should reveal whether the kerbal is destroyed post-spawn.
+**Likely duplicate of T57.** The scenario is identical: surface EVA near the launchpad, parent vessel already spawned, kerbal never materialized. The "successfully spawned" log was misleading -- `VesselSpawned = true` is set for abandoned spawns too (prevents vessel-gone reset). T57's fix (exempt parent vessel from EVA collision checks) addresses the root cause. Verify in next playtest.
 
-**Status:** Investigation logging added. Root cause TBD — needs next playtest data.
+**Status:** ~~Closed as likely duplicate of T57.~~
 
 ---
 
@@ -304,50 +304,35 @@ Prerequisite: delete all old save files (no users yet, clean slate).
 
 ---
 
-### T57. EVA spawn-at-end blocked by parent vessel collision
+### ~~T57. EVA spawn-at-end blocked by parent vessel collision~~
 
 EVA recordings created by mid-flight EVA (tree branch) fail to spawn at end because the entire EVA trajectory overlaps with the already-spawned parent vessel. The spawn collision walkback exhausts every point in the trajectory and abandons the spawn.
 
-Observed in t56-optimizer-test session: Bob Kerman did a surface EVA near the launchpad. The parent vessel (Kerbal X) spawned first, then Bob's EVA spawn was abandoned because his entire trajectory (surface walk near pad) was within the 2.5m EVA collision bounds of the parent. Bob never materialized.
+**Fix:** Added `exemptVesselPid` parameter to `CheckOverlapAgainstLoadedVessels` and threaded it through `CheckSpawnCollisions` and `TryWalkbackForEndOfRecordingSpawn`. New `ResolveParentVesselPid` resolves the parent recording's `VesselPersistentId` via `ParentRecordingId`. EVA spawns skip the parent vessel during collision walkback while still detecting other vessels.
 
-Secondary issue: the held-ghost retry logic (`ParsekPlaybackPolicy.cs:395`) checks `VesselSpawned` but not `SpawnAbandoned`, so it logs "succeeded on retry" for abandoned spawns.
-
-Fix options:
-1. Exempt EVA vessels from collision checks against their known parent vessel (use `ParentRecordingId` to identify the parent, look up its `VesselPersistentId`)
-2. When EVA spawn is abandoned due to parent collision, fall back to boarding the crew member onto the parent vessel instead
-3. Both -- try spawning, skip collision against parent, fall back to boarding if still blocked
-
-**Priority:** Medium -- pre-existing issue, not caused by optimizer changes but exposed by enabling tree recording spawns
+**Status:** ~~Fixed~~
 
 ---
 
-### T58. Debris/booster ghost engines show running effects at zero throttle after staging
+### ~~T58. Debris/booster ghost engines show running effects at zero throttle after staging~~
 
-When a booster separates (staging, decouple), the debris recording inherits the engine state from the moment of separation. If the engine was running at separation, the ghost plays back engine FX (flame, smoke) even though the throttle is 0 on the separated stage. The engine was shut down by staging but the ghost's seed events or initial state show it as running.
+When a booster separates (staging, decouple), the debris recording inherits the engine state from the moment of separation. If the engine was running at separation, the ghost plays back engine FX (flame, smoke) even though the throttle is 0 on the separated stage.
 
-Likely cause: the engine shutdown event at separation is either not captured (the `EngineShutdown` event fires after the part is already on the debris vessel, and the recorder may not catch it on the new vessel's first frame), or the ghost FX system seeds the engine as running from the pre-separation snapshot without checking the throttle value.
+**Root cause:** `MergeInheritedEngineState` added inherited engines to the child's `activeEngineKeys` even when `SeedEngines` had already found the engine part but determined it was non-operational (fuel severed by decoupling). The check at line 1870 only verified the key wasn't in `activeEngineKeys`, not whether `SeedEngines` had already assessed the engine.
 
-Fix: ensure debris recordings either (a) capture the engine shutdown at separation as a seed event, or (b) the ghost FX system checks throttle == 0 and suppresses effects even if the engine state says "running."
+**Fix:** Added `allEngineKeys` parameter to `MergeInheritedEngineState`. `SeedEngines` adds ALL engine parts (operational or not) to `allEngineKeys`. If an inherited engine key is in `allEngineKeys` but not `activeEngineKeys`, the child vessel has the engine but it's non-operational -- skip inheritance. Only inherit when the engine wasn't found by `SeedEngines` at all (KSP timing issue).
 
-**Priority:** Low -- cosmetic, affects ghost visual fidelity only
+**Status:** ~~Fixed~~
 
 ---
 
-### T59. Rewind save lost after mid-recording EVA branch
+### ~~T59. Rewind save lost after mid-recording EVA branch~~
 
-The R button never appears in the recordings table because `RewindSaveFileName` is lost during the EVA branch flow. The sequence:
+The R button never appears in the recordings table because `RewindSaveFileName` is lost during the EVA branch flow. `BuildCaptureRecording` copies the filename into `CaptureAtStop` then clears the recorder field. The EVA child recorder never captures one. At commit, only the current (EVA) recorder is checked -- both sources are null.
 
-1. Recording starts, `CaptureRewindSave` sets `recorder.RewindSaveFileName = "parsek_rw_..."` 
-2. Mid-flight EVA triggers `BuildCaptureRecording` for the parent vessel, which copies `RewindSaveFileName` into `CaptureAtStop` and then clears `recorder.RewindSaveFileName = null` (line 4573)
-3. Bob's EVA recording starts as a promotion (rewind save skipped)
-4. At scene exit, `StashTreeLimbo` calls `recorder.ForceStop()` which calls `BuildCaptureRecording` for Bob's EVA -- this creates a NEW `CaptureAtStop` (with no rewind save) that OVERWRITES the previous one
-5. Line 5465: `recorder.CaptureAtStop?.RewindSaveFileName` = null (Bob's), `recorder.RewindSaveFileName` = null (cleared in step 2). Rewind save is never copied to the root recording
+**Fix:** Extracted `CopyRewindSaveToRoot` (ParsekFlight, internal static) that copies `RewindSaveFileName`, reserved budget (funds/science/rep), and pre-launch budget from a `CaptureAtStop` to the tree's root recording. Called from four sites: `CreateSplitBranch` (the primary T59 fix -- copies at branch time before the EVA recorder takes over), `FinalizeTreeRecordings`, `StashActiveTreeAsPendingLimbo`, and `MergeCommitFlush`. First-wins semantics: root fields are only set if currently empty.
 
-The rewind save file exists on disk (`Parsek/Saves/parsek_rw_*.sfs`) but the root Recording object never gets the filename, so `GetRewindSaveFileName` returns null, and the R button renders as empty space.
-
-Fix: in `FlushRecorderToTreeRecording` (or the EVA branch code), copy `recorder.RewindSaveFileName` to the root tree recording BEFORE `BuildCaptureRecording` clears it. Or preserve the rewind save across CaptureAtStop overwrites.
-
-**Priority:** High -- the R button is a core user affordance and never appears after any EVA during a recording session
+**Status:** ~~Fixed~~
 
 ---
 

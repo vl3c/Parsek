@@ -1662,7 +1662,7 @@ namespace Parsek
                 int merged = MergeInheritedEngineState(inherited,
                     state.activeEngineKeys, state.lastThrottle,
                     state.activeRcsKeys, state.lastRcsThrottle,
-                    childPartPids);
+                    childPartPids, state.allEngineKeys);
                 if (merged > 0)
                     ParsekLog.Info("BgRecorder",
                         $"Merged {merged} inherited engine/RCS key(s) for pid={vesselPid} recId={recordingId} (#298)");
@@ -1827,11 +1827,13 @@ namespace Parsek
             Dictionary<ulong, float> targetLastThrottle,
             HashSet<ulong> targetActiveRcsKeys,
             Dictionary<ulong, float> targetLastRcsThrottle,
-            HashSet<uint> childPartPids)
+            HashSet<uint> childPartPids,
+            HashSet<ulong> allEngineKeys = null)
         {
             if (!inherited.HasValue) return 0;
             var inh = inherited.Value;
             int merged = 0;
+            int skippedNonOperational = 0;
 
             if (inh.activeEngineKeys != null)
             {
@@ -1867,6 +1869,20 @@ namespace Parsek
                         continue;
                     }
 
+                    // T58: SeedEngines adds ALL engines to allEngineKeys (operational or not).
+                    // If the key is in allEngineKeys but NOT in activeEngineKeys, SeedEngines
+                    // found the engine but it's non-operational (fuel severed, flameout after
+                    // staging). Don't override with inherited state — the child's assessment
+                    // is correct. Only inherit when the engine wasn't found at all (timing).
+                    if (allEngineKeys != null && allEngineKeys.Contains(key))
+                    {
+                        skippedNonOperational++;
+                        ParsekLog.Verbose("BgRecorder",
+                            $"Inherited engine skipped (non-operational on child): pid={pid} midx={midx} " +
+                            $"inhThrottle={inhThrottle:F2} (T58)");
+                        continue;
+                    }
+
                     targetActiveEngineKeys.Add(key);
                     targetLastThrottle[key] = inhThrottle;
                     merged++;
@@ -1874,6 +1890,10 @@ namespace Parsek
                         $"Inherited engine key merged: pid={pid} midx={midx} throttle={inhThrottle:F2} (#298)");
                 }
             }
+
+            if (skippedNonOperational > 0)
+                ParsekLog.Info("BgRecorder",
+                    $"Skipped {skippedNonOperational} inherited engine(s) — non-operational on child (T58)");
 
             if (inh.activeRcsKeys != null)
             {

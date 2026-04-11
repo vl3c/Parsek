@@ -1095,6 +1095,121 @@ namespace Parsek.Tests
             }
         }
 
+        [Fact]
+        public void MergeInheritedEngineState_NonOperationalOnChild_SkippedT58()
+        {
+            // T58: Parent had engine running at 0.8, child has the engine part (in allEngineKeys)
+            // but SeedEngines determined it's non-operational (not in activeEngineKeys).
+            // This happens after staging when fuel is severed. Should NOT inherit.
+            ulong key = FlightRecorder.EncodeEngineKey(500, 0);
+            var inherited = new InheritedEngineState
+            {
+                activeEngineKeys = new HashSet<ulong> { key },
+                engineThrottles = new Dictionary<ulong, float> { { key, 0.8f } }
+            };
+            var activeEngineKeys = new HashSet<ulong>(); // NOT seeded (non-operational)
+            var lastThrottle = new Dictionary<ulong, float>();
+            var activeRcsKeys = new HashSet<ulong>();
+            var lastRcsThrottle = new Dictionary<ulong, float>();
+            var childPartPids = new HashSet<uint> { 500 };
+            var allEngineKeys = new HashSet<ulong> { key }; // SeedEngines found it, but not operational
+
+            int merged = BackgroundRecorder.MergeInheritedEngineState(
+                inherited, activeEngineKeys, lastThrottle,
+                activeRcsKeys, lastRcsThrottle, childPartPids, allEngineKeys);
+
+            Assert.Equal(0, merged);
+            Assert.DoesNotContain(key, activeEngineKeys);
+            Assert.False(lastThrottle.ContainsKey(key));
+        }
+
+        [Fact]
+        public void MergeInheritedEngineState_NotInAllEngineKeys_StillMergedT58()
+        {
+            // Engine not found by SeedEngines at all (KSP timing) — should still inherit.
+            ulong key = FlightRecorder.EncodeEngineKey(500, 0);
+            var inherited = new InheritedEngineState
+            {
+                activeEngineKeys = new HashSet<ulong> { key },
+                engineThrottles = new Dictionary<ulong, float> { { key, 0.8f } }
+            };
+            var activeEngineKeys = new HashSet<ulong>();
+            var lastThrottle = new Dictionary<ulong, float>();
+            var activeRcsKeys = new HashSet<ulong>();
+            var lastRcsThrottle = new Dictionary<ulong, float>();
+            var childPartPids = new HashSet<uint> { 500 };
+            var allEngineKeys = new HashSet<ulong>(); // SeedEngines didn't find this engine at all
+
+            int merged = BackgroundRecorder.MergeInheritedEngineState(
+                inherited, activeEngineKeys, lastThrottle,
+                activeRcsKeys, lastRcsThrottle, childPartPids, allEngineKeys);
+
+            Assert.Equal(1, merged);
+            Assert.Contains(key, activeEngineKeys);
+            Assert.Equal(0.8f, lastThrottle[key]);
+        }
+
+        [Fact]
+        public void MergeInheritedEngineState_NullAllEngineKeys_BackwardCompatT58()
+        {
+            // allEngineKeys=null (backward compat) — should merge like before.
+            ulong key = FlightRecorder.EncodeEngineKey(500, 0);
+            var inherited = new InheritedEngineState
+            {
+                activeEngineKeys = new HashSet<ulong> { key },
+                engineThrottles = new Dictionary<ulong, float> { { key, 0.7f } }
+            };
+            var activeEngineKeys = new HashSet<ulong>();
+            var lastThrottle = new Dictionary<ulong, float>();
+            var activeRcsKeys = new HashSet<ulong>();
+            var lastRcsThrottle = new Dictionary<ulong, float>();
+            var childPartPids = new HashSet<uint> { 500 };
+
+            int merged = BackgroundRecorder.MergeInheritedEngineState(
+                inherited, activeEngineKeys, lastThrottle,
+                activeRcsKeys, lastRcsThrottle, childPartPids, allEngineKeys: null);
+
+            Assert.Equal(1, merged);
+            Assert.Contains(key, activeEngineKeys);
+        }
+
+        [Fact]
+        public void MergeInheritedEngineState_NonOperationalLogs_T58()
+        {
+            var logLines = new List<string>();
+            ParsekLog.SuppressLogging = false;
+            ParsekLog.TestSinkForTesting = line => logLines.Add(line);
+            try
+            {
+                ulong key = FlightRecorder.EncodeEngineKey(500, 0);
+                var inherited = new InheritedEngineState
+                {
+                    activeEngineKeys = new HashSet<ulong> { key },
+                    engineThrottles = new Dictionary<ulong, float> { { key, 0.8f } }
+                };
+                var activeEngineKeys = new HashSet<ulong>();
+                var lastThrottle = new Dictionary<ulong, float>();
+                var activeRcsKeys = new HashSet<ulong>();
+                var lastRcsThrottle = new Dictionary<ulong, float>();
+                var childPartPids = new HashSet<uint> { 500 };
+                var allEngineKeys = new HashSet<ulong> { key };
+
+                BackgroundRecorder.MergeInheritedEngineState(
+                    inherited, activeEngineKeys, lastThrottle,
+                    activeRcsKeys, lastRcsThrottle, childPartPids, allEngineKeys);
+
+                Assert.Contains(logLines, l =>
+                    l.Contains("[BgRecorder]") &&
+                    l.Contains("non-operational on child") &&
+                    l.Contains("T58"));
+            }
+            finally
+            {
+                ParsekLog.ResetTestOverrides();
+                ParsekLog.SuppressLogging = true;
+            }
+        }
+
         #endregion
     }
 }

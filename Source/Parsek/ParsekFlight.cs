@@ -1445,6 +1445,54 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Copies the rewind save filename and reserved budget from a CaptureAtStop (or
+        /// recorder fallback) to the tree's root recording. Called from every flush/commit
+        /// site so the R button and rewind budget resolve correctly regardless of which
+        /// child recorder is active at commit time.
+        /// T59: without this, EVA branch recordings lose the rewind save because the EVA
+        /// recorder never captures one — the parent's CaptureAtStop is the only source.
+        /// </summary>
+        internal static void CopyRewindSaveToRoot(RecordingTree tree, Recording captureAtStop,
+            string recorderFallbackSave = null, string logTag = null)
+        {
+            if (tree == null || string.IsNullOrEmpty(tree.RootRecordingId)) return;
+
+            string rewindSave = captureAtStop?.RewindSaveFileName ?? recorderFallbackSave;
+            if (string.IsNullOrEmpty(rewindSave)) return;
+
+            Recording rootRec;
+            if (!tree.Recordings.TryGetValue(tree.RootRecordingId, out rootRec)) return;
+
+            // Only set if root doesn't already have a rewind save (first recorder wins)
+            if (string.IsNullOrEmpty(rootRec.RewindSaveFileName))
+            {
+                rootRec.RewindSaveFileName = rewindSave;
+                ParsekLog.Info("Flight",
+                    $"{logTag ?? "CopyRewindSaveToRoot"}: copied rewind save '{rewindSave}' " +
+                    $"to root recording '{tree.RootRecordingId}'");
+            }
+
+            // Copy reserved budget if not already set (same first-wins rule).
+            // InitiateRewind reads these from the root recording via GetRewindRecording.
+            if (captureAtStop != null && rootRec.RewindReservedFunds == 0
+                && rootRec.RewindReservedScience == 0 && rootRec.RewindReservedRep == 0)
+            {
+                rootRec.RewindReservedFunds = captureAtStop.RewindReservedFunds;
+                rootRec.RewindReservedScience = captureAtStop.RewindReservedScience;
+                rootRec.RewindReservedRep = captureAtStop.RewindReservedRep;
+            }
+
+            // Copy pre-launch budget if not already set.
+            if (captureAtStop != null && rootRec.PreLaunchFunds == 0
+                && rootRec.PreLaunchScience == 0 && rootRec.PreLaunchReputation == 0)
+            {
+                rootRec.PreLaunchFunds = captureAtStop.PreLaunchFunds;
+                rootRec.PreLaunchScience = captureAtStop.PreLaunchScience;
+                rootRec.PreLaunchReputation = captureAtStop.PreLaunchReputation;
+            }
+        }
+
+        /// <summary>
         /// Creates a new FlightRecorder for the promoted vessel, starts recording with
         /// isPromotion=true, updates activeTree state.
         /// </summary>
@@ -1800,6 +1848,14 @@ namespace Parsek
                         $"CreateSplitBranch: copied VesselSnapshot to parent '{parentRecordingId}' " +
                         "from CaptureAtStop (always-tree root had no snapshot)");
                 }
+
+                // T59: Copy rewind save from split recorder's CaptureAtStop to the root
+                // recording. BuildCaptureRecording (FlightRecorder line 4562) copies the
+                // filename into CaptureAtStop then clears it on the recorder (line 4573).
+                // After the split, the new child recorder never has the rewind save, so
+                // FinalizeTreeRecordings / StashActiveTreeAsPendingLimbo can't find it.
+                // Copying here preserves it for the R button and rewind budget.
+                CopyRewindSaveToRoot(activeTree, splitRecorder.CaptureAtStop);
             }
 
             // Set ChildBranchPointId on parent
@@ -5460,18 +5516,10 @@ namespace Parsek
                 }
                 FlushRecorderToTreeRecording(recorder, activeTree);
 
-                // Copy rewind save filename to the tree's root recording so the R button
-                // still works after a potential future revert on this tree.
-                string rewindSave = recorder.CaptureAtStop?.RewindSaveFileName
-                    ?? recorder.RewindSaveFileName;
-                if (!string.IsNullOrEmpty(rewindSave)
-                    && !string.IsNullOrEmpty(activeTree.RootRecordingId))
-                {
-                    if (activeTree.Recordings.TryGetValue(activeTree.RootRecordingId, out var rootRec))
-                    {
-                        rootRec.RewindSaveFileName = rewindSave;
-                    }
-                }
+                // Copy rewind save to the root recording so the R button works after revert.
+                CopyRewindSaveToRoot(activeTree, recorder.CaptureAtStop,
+                    recorderFallbackSave: recorder.RewindSaveFileName,
+                    logTag: "StashTreeLimbo");
             }
 
             // Close background recorder orbit segments and flush their data into tree
@@ -5656,18 +5704,10 @@ namespace Parsek
                 }
                 FlushRecorderToTreeRecording(recorder, activeTree);
 
-                // Copy rewind save filename to the tree's root recording so the R button
-                // still works after a potential future revert on this tree.
-                string rewindSave = recorder.CaptureAtStop?.RewindSaveFileName
-                    ?? recorder.RewindSaveFileName;
-                if (!string.IsNullOrEmpty(rewindSave)
-                    && !string.IsNullOrEmpty(activeTree.RootRecordingId))
-                {
-                    if (activeTree.Recordings.TryGetValue(activeTree.RootRecordingId, out var rootRec))
-                    {
-                        rootRec.RewindSaveFileName = rewindSave;
-                    }
-                }
+                // Copy rewind save + reserved budget to the root recording.
+                CopyRewindSaveToRoot(activeTree, recorder.CaptureAtStop,
+                    recorderFallbackSave: recorder.RewindSaveFileName,
+                    logTag: "MergeCommitFlush");
 
                 oldVesselPid = recorder.RecordingVesselId;
             }
@@ -5779,22 +5819,10 @@ namespace Parsek
                 }
                 FlushRecorderToTreeRecording(recorder, tree);
 
-                // Copy rewind save filename to the tree's root recording.
-                // BuildCaptureRecording clears recorder.RewindSaveFileName after capture,
-                // so we check CaptureAtStop first (has the captured copy), then recorder.
-                string rewindSave = recorder.CaptureAtStop?.RewindSaveFileName
-                    ?? recorder.RewindSaveFileName;
-                if (!string.IsNullOrEmpty(rewindSave)
-                    && !string.IsNullOrEmpty(tree.RootRecordingId))
-                {
-                    Recording rootRec;
-                    if (tree.Recordings.TryGetValue(tree.RootRecordingId, out rootRec))
-                    {
-                        rootRec.RewindSaveFileName = rewindSave;
-                        ParsekLog.Info("Flight",
-                            $"FinalizeTreeRecordings: copied rewind save '{rewindSave}' to root recording '{tree.RootRecordingId}'");
-                    }
-                }
+                // Copy rewind save + reserved budget to the root recording.
+                CopyRewindSaveToRoot(tree, recorder.CaptureAtStop,
+                    recorderFallbackSave: recorder.RewindSaveFileName,
+                    logTag: "FinalizeTreeRecordings");
             }
 
             // 2. Finalize background recorder (close orbit segments, flush data)
