@@ -39,6 +39,23 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Logs the FX emission direction relative to ground for a placed FX instance.
+        /// ParticleSystems emit along local +Y by default; reports that axis in world space
+        /// plus the angle from straight down (0 = correct for downward engine on pad).
+        /// </summary>
+        private static void LogFxDirection(string partName, int moduleIndex, string fxType,
+            string transformName, string fxName, Transform fxTransform)
+        {
+            Vector3 emitWorld = fxTransform.up; // local +Y in world space
+            float angle = Vector3.Angle(emitWorld, Vector3.down);
+            Quaternion localRot = fxTransform.localRotation;
+            ParsekLog.VerboseRateLimited("EngineFx", $"fxdir-{partName}-{moduleIndex}-{fxType}-{transformName}",
+                $"#242 dir: '{partName}' midx={moduleIndex} " +
+                $"type={fxType} transform='{transformName}' fx='{fxName}' " +
+                $"emitWorld={emitWorld} angleFromDown={angle:F1} localRot={localRot.eulerAngles}");
+        }
+
+        /// <summary>
         /// Scans EFFECTS config groups for MODEL_MULTI_PARTICLE/MODEL_PARTICLE entries.
         /// Populates modelFxEntries with transform/model/offset/rotation tuples and extracts
         /// the first emission and speed curves found.
@@ -218,6 +235,7 @@ namespace Parsek
                                 legacyFxOffset, legacyLocalRot, true);
                             ParsekLog.VerboseRateLimited("EngineFx", $"legacy-{partName}-{moduleIndex}",
                                 $"Engine FX (legacy): '{partName}' midx={moduleIndex} fx='{child.name}' systems={addedSystems}");
+                            LogFxDirection(partName, moduleIndex, "LEGACY", srcLegacyAnchor.name, child.name, fxClone.transform);
                         }
                         else
                         {
@@ -245,6 +263,7 @@ namespace Parsek
                             child.name, child.name, prefab.transform, ghostModelNode,
                             child, fallbackParent, fxClone.transform,
                             child.localPosition, child.localRotation, true);
+                        LogFxDirection(partName, moduleIndex, "LEGACY_FALLBACK", child.name, child.name, fxClone.transform);
                         ParsekLog.VerboseRateLimited("EngineFx", $"legacy-{partName}-{moduleIndex}",
                             $"Engine FX (legacy): '{partName}' midx={moduleIndex} fx='{child.name}' systems={addedSystems}");
                     }
@@ -308,18 +327,10 @@ namespace Parsek
                                 GhostVisualBuilder.LogFxInstancePlacementDiagnostic(partName, moduleIndex, nodeType, transformName,
                                     modelName, prefab.transform, ghostModelNode, srcFxTransform, ghostFxParent,
                                     fxInstance.transform, mmpLocalPos, mmpLocalRot, true);
-                                Vector3 srcFwd = srcFxTransform.forward;
-                                Vector3 srcUp = srcFxTransform.up;
-                                Quaternion srcLocalRot = srcFxTransform.localRotation;
-                                // #242 diag: log effect group + final FX direction for smoke/flame comparison
-                                Vector3 fxFwd = fxInstance.transform.forward;
-                                Vector3 fxUp = fxInstance.transform.up;
                                 ParsekLog.Verbose("EngineFx", $"cloned: '{partName}' midx={moduleIndex} " +
                                     $"group='{groupName}' type={nodeType} transform='{transformName}' model='{modelName}' " +
-                                    $"systems={addedSystems} " +
-                                    $"cfgRot={mmpLocalRot.eulerAngles} " +
-                                    $"srcLocalRot={srcLocalRot.eulerAngles} srcFwd={srcFwd} srcUp={srcUp} " +
-                                    $"fxFwd={fxFwd} fxUp={fxUp}");
+                                    $"systems={addedSystems} cfgRot={mmpLocalRot.eulerAngles}");
+                                LogFxDirection(partName, moduleIndex, nodeType, transformName, modelName, fxInstance.transform);
                             }
                             else
                             {
@@ -391,7 +402,21 @@ namespace Parsek
                     fxInstance.transform.SetParent(ghostFxParent, false);
                     fxInstance.transform.localPosition = localOffset;
                     if (hasLocalRot)
+                    {
                         fxInstance.transform.localRotation = localRot;
+                    }
+                    else
+                    {
+                        // #242: PREFAB_PARTICLE emits along local +Y. If the parent transform's
+                        // +Y is already close to the thrust axis (world up at build time), identity
+                        // is correct (e.g. SSME's thrustTransformYup). Otherwise apply -90 X to
+                        // rotate emission from sideways +Y onto the thrust axis.
+                        float yComponent = Mathf.Abs(ghostFxParent.up.y);
+                        if (yComponent > 0.5f)
+                            fxInstance.transform.localRotation = Quaternion.identity;
+                        else
+                            fxInstance.transform.localRotation = Quaternion.Euler(-90f, 0f, 0f);
+                    }
 
                     if (isRapierWhiteFlame)
                     {
@@ -413,14 +438,10 @@ namespace Parsek
                         GhostVisualBuilder.LogFxInstancePlacementDiagnostic(partName, moduleIndex, "PREFAB_PARTICLE", transformName,
                             prefabName, prefab.transform, ghostModelNode, srcFxTransform, ghostFxParent,
                             fxInstance.transform, localOffset, localRot, hasLocalRot);
-                        // #242 diag: log effect group + final FX direction for smoke/flame comparison
-                        Vector3 pfxFwd = fxInstance.transform.forward;
-                        Vector3 pfxUp = fxInstance.transform.up;
                         ParsekLog.Verbose("EngineFx", $"(prefab): '{partName}' midx={moduleIndex} " +
                             $"group='{groupName}' transform='{transformName}' prefab='{prefabName}' " +
-                            $"systems={addedSystems} " +
-                            $"cfgRot={localRot.eulerAngles} hasCfgRot={hasLocalRot} " +
-                            $"fxFwd={pfxFwd} fxUp={pfxUp}");
+                            $"systems={addedSystems} cfgRot={localRot.eulerAngles} hasCfgRot={hasLocalRot}");
+                        LogFxDirection(partName, moduleIndex, "PREFAB_PARTICLE", transformName, prefabName, fxInstance.transform);
                     }
                     else
                     {
