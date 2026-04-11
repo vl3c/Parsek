@@ -333,6 +333,24 @@ Fix: ensure debris recordings either (a) capture the engine shutdown at separati
 
 ---
 
+### T59. Rewind save lost after mid-recording EVA branch
+
+The R button never appears in the recordings table because `RewindSaveFileName` is lost during the EVA branch flow. The sequence:
+
+1. Recording starts, `CaptureRewindSave` sets `recorder.RewindSaveFileName = "parsek_rw_..."` 
+2. Mid-flight EVA triggers `BuildCaptureRecording` for the parent vessel, which copies `RewindSaveFileName` into `CaptureAtStop` and then clears `recorder.RewindSaveFileName = null` (line 4573)
+3. Bob's EVA recording starts as a promotion (rewind save skipped)
+4. At scene exit, `StashTreeLimbo` calls `recorder.ForceStop()` which calls `BuildCaptureRecording` for Bob's EVA -- this creates a NEW `CaptureAtStop` (with no rewind save) that OVERWRITES the previous one
+5. Line 5465: `recorder.CaptureAtStop?.RewindSaveFileName` = null (Bob's), `recorder.RewindSaveFileName` = null (cleared in step 2). Rewind save is never copied to the root recording
+
+The rewind save file exists on disk (`Parsek/Saves/parsek_rw_*.sfs`) but the root Recording object never gets the filename, so `GetRewindSaveFileName` returns null, and the R button renders as empty space.
+
+Fix: in `FlushRecorderToTreeRecording` (or the EVA branch code), copy `recorder.RewindSaveFileName` to the root tree recording BEFORE `BuildCaptureRecording` clears it. Or preserve the rewind save across CaptureAtStop overwrites.
+
+**Priority:** High -- the R button is a core user affordance and never appears after any EVA during a recording session
+
+---
+
 ## TODO — Nice to have
 
 ### ~~T53. Watch camera mode selection~~
