@@ -116,6 +116,20 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void IsTreeIdleOnPad_MixedPointsAndZeroPoints_ReturnsTrue()
+        {
+            // A tree with one recording that has points (confirms idle) and one with
+            // zero points (data-loss). Since at least one recording has trajectory data
+            // confirming the vessel stayed near the pad, the tree IS idle.
+            var tree = new RecordingTree { Recordings = new Dictionary<string, Recording>() };
+            var recA = new Recording { MaxDistanceFromLaunch = 5.0 };
+            recA.Points.Add(new TrajectoryPoint());
+            tree.Recordings["a"] = recA;
+            tree.Recordings["b"] = new Recording { MaxDistanceFromLaunch = 0.0 };
+            Assert.True(ParsekFlight.IsTreeIdleOnPad(tree));
+        }
+
+        [Fact]
         public void IsTreeIdleOnPad_ZeroPointRecordings_ReturnsFalse()
         {
             // Bug #290d: recordings with 0 trajectory points (e.g., sidecar epoch mismatch)

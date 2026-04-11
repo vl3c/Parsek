@@ -1039,6 +1039,10 @@ namespace Parsek
                         $"after finalize so post-finalize state survives the next OnLoad [#289]");
                 }
 
+                // Default state = Finalized. TryRestoreActiveTreeNode relies on this to
+                // skip replacing the in-memory tree with the stale .sfs version (which was
+                // written before FinalizeTreeRecordings and lacks MaxDistanceFromLaunch,
+                // terminal states, and re-snapshotted vessels). See bug #290d.
                 RecordingStore.StashPendingTree(activeTree);
                 ParsekLog.Info("Flight",
                     $"CommitTreeSceneExit (autoMerge off): stashed tree '{activeTree.TreeName}' with snapshots preserved");

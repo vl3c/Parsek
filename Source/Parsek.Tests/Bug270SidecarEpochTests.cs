@@ -196,23 +196,36 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void MultipleOutOfBandWrites_DoNotDriftEpoch()
+        public void MultipleOnSaveIncrements_AllMatchAfterQuickload()
         {
+            // Simulate: two OnSave cycles (epoch 0->1->2), then quickload
+            // from the second save. .sfs and .prec both at epoch 2.
             var rec = new Recording
             {
-                RecordingId = "test-multi-oob",
+                RecordingId = "test-multi-save",
                 SidecarEpoch = 0
             };
 
-            // OnSave: epoch 0 -> 1
+            // First OnSave
             rec.SidecarEpoch++;
             Assert.Equal(1, rec.SidecarEpoch);
 
-            // Three out-of-band writes (incrementEpoch: false) — epoch must not change
-            // (In real code, SaveRecordingFiles skips the increment when incrementEpoch=false)
-            Assert.Equal(1, rec.SidecarEpoch);
-            Assert.Equal(1, rec.SidecarEpoch);
-            Assert.Equal(1, rec.SidecarEpoch);
+            // Second OnSave
+            rec.SidecarEpoch++;
+            Assert.Equal(2, rec.SidecarEpoch);
+
+            // Write to .sfs at epoch 2
+            var sfsNode = new ConfigNode("RECORDING");
+            RecordingTree.SaveRecordingInto(sfsNode, rec);
+
+            // Quickload: restore from .sfs
+            var loaded = new Recording();
+            RecordingTree.LoadRecordingFrom(sfsNode, loaded);
+            Assert.Equal(2, loaded.SidecarEpoch);
+
+            // Validate: .prec epoch 2 matches .sfs epoch 2
+            bool skipped = RecordingStore.ShouldSkipStaleSidecar(loaded, 2);
+            Assert.False(skipped);
         }
 
         [Fact]
