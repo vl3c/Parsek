@@ -286,11 +286,13 @@ Follow-up to bug #271 (always-tree unification). The runtime now always creates 
 - Standalone RECORDING serialization in `ParsekScenario.OnSave`/`OnLoad`
 - `PARSEK_ACTIVE_STANDALONE` migration shim in `TryRestoreActiveStandaloneNode`
 
-To remove: collapse `committedRecordings` into `committedTrees` (every recording accessed through its parent tree), delete the standalone pending slot, delete standalone merge dialog, delete standalone RECORDING serialization, delete chain segment standalone commit paths (dead code in always-tree mode). Also update `RunOptimizationPass` (RecordingStore.cs) -- it currently operates on the flat `committedRecordings` list and produces standalone chain-linked recordings on splits. After unification it should operate on tree recordings and keep output within tree structure. This is a ~55-file refactor.
+To remove: collapse `committedRecordings` into `committedTrees` (every recording accessed through its parent tree), delete the standalone pending slot, delete standalone merge dialog, delete standalone RECORDING serialization, delete chain segment standalone commit paths (dead code in always-tree mode). This is a ~55-file refactor.
+
+Critical subtask: adapt `RunOptimizationPass` (RecordingStore.cs) to work within tree structure. Currently the optimizer operates on the flat `committedRecordings` list and `SplitAtSection` produces standalone chain-linked recordings outside the tree. This breaks ghost chain traversal and spawn-at-end for tree recordings. PR #210 added a temporary skip (`if (TreeId != null) return false` in `CanAutoSplitIgnoringGhostTriggers`) so tree recordings are not split. The proper fix: make `SplitAtSection` create new recordings within the parent tree (add to `tree.Recordings`, update `BackgroundMap`/`BranchPoints`), preserving the tree's structural integrity. The skip must be removed once this is done.
 
 Prerequisite: delete all old save files (no users yet, clean slate).
 
-**Priority:** Medium -- the dual storage is confusing but not causing bugs since always-tree routes everything through the tree path at runtime
+**Priority:** High -- the optimizer skip means tree recordings are never split at environment boundaries, losing the per-phase segment display in the UI
 
 ---
 
