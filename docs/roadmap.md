@@ -158,9 +158,9 @@ Recordings capture physical resource manifests at recording start and end.
 
 **Resource manifests (implemented):** `ExtractResourceManifest` walks vessel snapshot PART > RESOURCE nodes, sums by resource name. `StartResources`/`EndResources` fields on Recording, serialized as additive RESOURCE_MANIFEST ConfigNode. Captured at 8 boundary sites (recording start/stop, chain boundaries, breakup, background splits, optimizer splits/merges). EC and IntakeAir excluded (environmental noise). Dock target vessel PID (`DockTargetVesselPid`) captured at dock boundaries for route endpoint identification. Hover tooltip in Recordings Manager shows per-resource start-to-end with delta.
 
-**Inventory manifests (designed, not yet implemented):** KSP 1.12 `ModuleInventoryPart` items (stored parts in cargo containers). `ExtractInventoryManifest` walks MODULE > STOREDPARTS > STOREDPART nodes. `InventoryItem { count, slotsTaken }` struct + vessel-level `totalInventorySlots`. Same capture sites as resources.
+**Inventory manifests (implemented):** KSP 1.12 `ModuleInventoryPart` items (stored parts in cargo containers). `ExtractInventoryManifest` walks MODULE > STOREDPARTS > STOREDPART nodes. `InventoryItem { count, slotsTaken }` struct + vessel-level `totalInventorySlots`. Same capture sites as resources.
 
-**Crew manifests (designed, not yet implemented):** Crew composition by trait (Pilot/Scientist/Engineer/Tourist). Route delivery uses generic kerbals (separate from crew reservation system). Same capture pattern.
+**Crew manifests (implemented):** Crew composition by trait (Pilot/Scientist/Engineer/Tourist). Route delivery uses generic kerbals (separate from crew reservation system). Same capture pattern.
 
 ---
 
@@ -287,7 +287,7 @@ Phase 10: Location Context (v0.7 ✓)
     │  Recordings know WHERE they start/end (body, biome, situation)
     │
     ▼
-Phase 11: Resource Snapshots (resources done, inventory+crew designed)
+Phase 11: Resource Snapshots (done)
     |  Recordings know WHAT they carry
     │
     ▼
