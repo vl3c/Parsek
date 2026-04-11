@@ -169,6 +169,26 @@ Exception: SSME (Vector) has `thrustTransformYup` where +Y already points along 
 
 **Status:** ~~Fixed~~ (PREFAB_PARTICLE path)
 
+### 242b. Multi-mode engine ghosts show both modes simultaneously
+
+RAPIER and Panther (and any other `ModuleEnginesFX` multi-mode engines) rendered FX for all engine modes at once instead of only the active mode. Ghost would show jet exhaust and rocket exhaust simultaneously.
+
+**Root cause:** `TryBuildEngineFX` scanned ALL EFFECTS groups for every engine module on a part. Multi-mode engines like RAPIER have separate EFFECTS groups per mode (e.g. `running_closed` for rocket, `running_open` for jet). Without filtering, each `EngineGhostInfo` contained particles from all modes.
+
+**Fix:** Added `GetModuleEffectGroupNames(ModuleEngines)` which downcasts to `ModuleEnginesFX` and reads `runningEffectName`, `powerEffectName`, `spoolEffectName`, `directThrottleEffectName`. These names are used to filter EFFECTS groups so each engine module only scans its own referenced groups. Base `ModuleEngines` (not FX) returns empty set and falls through to scanning all groups (backward compat). Removed the old RAPIER `midx>0` skip that suppressed the second engine module entirely. RAPIER white flame fallback guarded by `modelFxEntries.Count == 0` to avoid doubling with per-module model exhaust. Added RAPIER mode-switch showcase recording with per-moduleIndex events demonstrating jet-to-rocket-to-jet switching.
+
+**Status:** ~~Fixed~~ (PR #220)
+
+---
+
+## 242c. Ghost variant geometry not toggled -- extra FX on multi-variant parts
+
+Parts with `ModulePartVariants` that toggle geometry via GAMEOBJECTS (e.g. Poodle DoubleBell/SingleBell) show all variant geometry on the ghost, including inactive variants. The Poodle ghost has 3 thrustTransforms (2 from DoubleBell + 1 from SingleBell) instead of 2, producing 3 flames instead of 2.
+
+**Root cause:** Ghost model is cloned from the raw prefab which contains ALL variant GameObjects. The variant system's `GAMEOBJECTS` visibility (e.g. `EngineFixed = true/false`) is not applied during ghost build. Variant texture support (#241) was implemented but geometry toggling was not.
+
+**Priority:** Low -- cosmetic, only affects parts with geometry-switching variants (Poodle, possibly others)
+
 ---
 
 ## ~~270. Sidecar file (.prec) version staleness across save points~~

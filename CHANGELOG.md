@@ -34,6 +34,7 @@ All notable changes to Parsek are documented here.
 - `T57` EVA recordings now spawn at end instead of being abandoned -- parent vessel is exempt from collision checks during EVA walkback.
 - `#290` Debris and EVA branch recordings in the active tree no longer lose trajectory data after two cold starts (quit KSP mid-flight, relaunch, quit again).
 - `#242` Ghost PREFAB_PARTICLE FX (smoke, small engine flames) no longer fires sideways -- auto-detects parent transform orientation and applies -90 X correction when needed.
+- `#242` RAPIER and Panther ghost FX now shows only the active engine mode (jet or rocket) instead of both simultaneously.
 
 ### New Features
 

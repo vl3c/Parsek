@@ -14,12 +14,12 @@ namespace Parsek
         private static readonly Dictionary<string, Vector3> fxModelRotationFallbackEuler =
             new Dictionary<string, Vector3>(System.StringComparer.OrdinalIgnoreCase)
             {
-                // These stock model FX are authored with implicit -90deg X orientation in KSP's
-                // runtime FX pipeline when localRotation is omitted in EFFECTS config.
+                // #242: MODEL_MULTI_PARTICLE models using KSPParticleEmitter emit along their
+                // internal axis — identity rotation is correct. shockExhaust entries removed
+                // (were causing perpendicular RAPIER flames). Monoprop entries kept for Ant/Spider
+                // where the model FX is visually overshadowed by the corrected PREFAB_PARTICLE.
                 { "Squad/FX/Monoprop_small", new Vector3(-90f, 0f, 0f) },
-                { "Squad/FX/Monoprop_medium", new Vector3(-90f, 0f, 0f) },
-                { "Squad/FX/shockExhaust_blue_small", new Vector3(-90f, 0f, 0f) },
-                { "Squad/FX/shockExhaust_red_small", new Vector3(-90f, 0f, 0f) }
+                { "Squad/FX/Monoprop_medium", new Vector3(-90f, 0f, 0f) }
             };
         private static readonly string[] EngineModelNodeTypes =
             { "MODEL_MULTI_PARTICLE_PERSIST", "MODEL_MULTI_PARTICLE", "MODEL_PARTICLE" };
@@ -36,6 +36,25 @@ namespace Parsek
 
             result = Quaternion.Euler(fallbackEuler);
             return true;
+        }
+
+        /// <summary>
+        /// Reads effect group names referenced by a single engine module.
+        /// Returns the set of EFFECTS group names this module uses (for per-module filtering).
+        /// Empty set means no filtering (base ModuleEngines without named effects).
+        /// </summary>
+        internal static HashSet<string> GetModuleEffectGroupNames(ModuleEngines engine)
+        {
+            var result = new HashSet<string>(System.StringComparer.OrdinalIgnoreCase);
+            var engineFX = engine as ModuleEnginesFX;
+            if (engineFX == null)
+                return result;
+
+            if (!string.IsNullOrEmpty(engineFX.runningEffectName)) result.Add(engineFX.runningEffectName);
+            if (!string.IsNullOrEmpty(engineFX.powerEffectName)) result.Add(engineFX.powerEffectName);
+            if (!string.IsNullOrEmpty(engineFX.spoolEffectName)) result.Add(engineFX.spoolEffectName);
+            if (!string.IsNullOrEmpty(engineFX.directThrottleEffectName)) result.Add(engineFX.directThrottleEffectName);
+            return result;
         }
 
         /// <summary>
@@ -494,13 +513,6 @@ namespace Parsek
 
                 bool isRapierPart =
                     string.Equals(partName, "RAPIER", System.StringComparison.OrdinalIgnoreCase);
-                if (isRapierPart && moduleIndex > 0)
-                {
-                    // RAPIER has multi-mode engine modules sharing nozzle transforms; recording events
-                    // target midx=0, so skip duplicate module FX to avoid doubled plumes.
-                    ParsekLog.Verbose("EngineFx", $"'{partName}' midx={moduleIndex}: skipped duplicate multi-mode FX module");
-                    continue;
-                }
 
                 // Try to read EFFECTS config from the part config
                 ConfigNode partConfig = prefab.partInfo?.partConfig;
@@ -526,12 +538,41 @@ namespace Parsek
 
                 if (effectsNode != null)
                 {
-                    ConfigNode[] effectGroups = effectsNode.GetNodes();
-                    // #242 diag: extract group names so we can log which EFFECTS group
-                    // each FX entry came from (running, power_open, engage, etc.)
-                    string[] effectGroupNames = new string[effectGroups.Length];
-                    for (int eg = 0; eg < effectGroups.Length; eg++)
-                        effectGroupNames[eg] = effectGroups[eg].name ?? "?";
+                    ConfigNode[] allGroups = effectsNode.GetNodes();
+                    string[] allGroupNames = new string[allGroups.Length];
+                    for (int eg = 0; eg < allGroups.Length; eg++)
+                        allGroupNames[eg] = allGroups[eg].name ?? "?";
+
+                    // Per-module EFFECTS group filtering: only scan groups referenced by
+                    // this engine module's effect name fields (multi-mode support).
+                    HashSet<string> moduleGroups = GetModuleEffectGroupNames(engine);
+                    ConfigNode[] effectGroups;
+                    string[] effectGroupNames;
+
+                    if (moduleGroups.Count > 0)
+                    {
+                        var filtered = new List<ConfigNode>();
+                        var filteredNames = new List<string>();
+                        for (int eg = 0; eg < allGroups.Length; eg++)
+                        {
+                            if (moduleGroups.Contains(allGroupNames[eg]))
+                            {
+                                filtered.Add(allGroups[eg]);
+                                filteredNames.Add(allGroupNames[eg]);
+                            }
+                        }
+                        effectGroups = filtered.Count > 0 ? filtered.ToArray() : allGroups;
+                        effectGroupNames = filtered.Count > 0 ? filteredNames.ToArray() : allGroupNames;
+                        ParsekLog.Verbose("EngineFx", $"'{partName}' midx={moduleIndex}: " +
+                            $"filtered {allGroups.Length} EFFECTS groups to {effectGroups.Length} " +
+                            $"by module effects=[{string.Join(",", moduleGroups)}]");
+                    }
+                    else
+                    {
+                        effectGroups = allGroups;
+                        effectGroupNames = allGroupNames;
+                    }
+
                     ScanEffectsModelFxEntries(effectGroups, effectGroupNames, modelFxEntries, ref emissionCurve, ref speedCurve);
                     ScanEffectsPrefabParticleEntries(effectGroups, effectGroupNames, prefabFxEntries);
                 }
@@ -962,9 +1003,10 @@ namespace Parsek
                         }
                     }
 
-                    if (!hasWhiteFlame)
+                    if (!hasWhiteFlame && modelFxEntries.Count == 0)
                     {
-                        // Keep it compact: anchor the added white core to the same smokePoint frame.
+                        // Only add white flame core when no MODEL_MULTI_PARTICLE FX exists.
+                        // With per-module filtering, each mode already has its own model exhaust.
                         string flameTransform = rapierSmokeTransform;
                         Vector3 flameOffset = Vector3.zero;
                         if (!HasNamedTransform(flameTransform))
