@@ -48,8 +48,8 @@ namespace Parsek.Tests
 
             Assert.NotNull(result);
             Assert.StartsWith("Inventory:", result);
-            Assert.Contains("solarPanels5: 4 -> 0 (-4)", result);
-            Assert.Contains("batteryPack: 2 -> 0 (-2)", result);
+            Assert.Contains("solarPanels5: 4 \u2192 0 (-4)", result);
+            Assert.Contains("batteryPack: 2 \u2192 0 (-2)", result);
         }
 
         [Fact]
@@ -84,7 +84,7 @@ namespace Parsek.Tests
             var result = RecordingsTableUI.FormatInventoryManifest(start, end);
 
             Assert.NotNull(result);
-            Assert.Contains("batteryPack: 2 -> 2 (+0)", result);
+            Assert.Contains("batteryPack: 2 \u2192 2 (+0)", result);
         }
     }
 }

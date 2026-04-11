@@ -2265,7 +2265,7 @@ namespace Parsek
                     int delta = endCount - startCount;
                     string sign = delta >= 0 ? "+" : "";
                     lines.Add(string.Format(CultureInfo.InvariantCulture,
-                        "  {0}: {1} -> {2} ({3}{4})",
+                        "  {0}: {1} \u2192 {2} ({3}{4})",
                         key,
                         startCount,
                         endCount,
