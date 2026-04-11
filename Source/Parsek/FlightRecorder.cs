@@ -18,12 +18,11 @@ namespace Parsek
         {
             None,
             ContinueOnEva,
-            Stop,
-            ChainToVessel,  // EVA recording → boarded a vessel
+            ChainToVessel,  // EVA recording -> boarded a vessel
             DockMerge,      // Vessel absorbed into dock target (pid changed)
             UndockSwitch,   // Player switched to undocked sibling vessel
-            TransitionToBackground,   // active recording → background (orbit segment)
-            PromoteFromBackground     // background recording → active (resume physics sampling)
+            TransitionToBackground,   // active recording -> background (orbit segment)
+            PromoteFromBackground     // background recording -> active (resume physics sampling)
         }
 
         // Recording output
@@ -5963,7 +5962,9 @@ namespace Parsek
             if (activeTree != null)
                 return VesselSwitchDecision.TransitionToBackground;
 
-            return VesselSwitchDecision.Stop;
+            // Safety fallback: with always-tree mode, activeTree is never null during recording.
+            // If somehow reached, default to background transition rather than stopping.
+            return VesselSwitchDecision.TransitionToBackground;
         }
     }
 }

@@ -45,10 +45,10 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void DecideOnVesselSwitch_DifferentPid_NonEva_NoTree_ReturnsStop()
+        public void DecideOnVesselSwitch_DifferentPid_NonEva_NoTree_ReturnsTransitionToBackground()
         {
             var result = FlightRecorder.DecideOnVesselSwitch(100, 200, false, false);
-            Assert.Equal(FlightRecorder.VesselSwitchDecision.Stop, result);
+            Assert.Equal(FlightRecorder.VesselSwitchDecision.TransitionToBackground, result);
         }
 
         [Fact]

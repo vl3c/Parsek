@@ -46,11 +46,11 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void DecideOnVesselSwitch_DifferentPidEva_StartedAsVessel_Stops()
+        public void DecideOnVesselSwitch_DifferentPidEva_StartedAsVessel_TransitionsToBackground()
         {
             var decision = FlightRecorder.DecideOnVesselSwitch(
                 10u, 11u, currentIsEva: true, recordingStartedAsEva: false);
-            Assert.Equal(FlightRecorder.VesselSwitchDecision.Stop, decision);
+            Assert.Equal(FlightRecorder.VesselSwitchDecision.TransitionToBackground, decision);
         }
 
         [Fact]
@@ -62,11 +62,11 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void DecideOnVesselSwitch_DifferentPidNonEva_Stops()
+        public void DecideOnVesselSwitch_DifferentPidNonEva_TransitionsToBackground()
         {
             var decision = FlightRecorder.DecideOnVesselSwitch(
                 10u, 11u, currentIsEva: false, recordingStartedAsEva: false);
-            Assert.Equal(FlightRecorder.VesselSwitchDecision.Stop, decision);
+            Assert.Equal(FlightRecorder.VesselSwitchDecision.TransitionToBackground, decision);
         }
 
         [Theory]

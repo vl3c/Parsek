@@ -71,11 +71,11 @@ namespace Parsek.Tests
         #region DecideOnVesselSwitch with tree parameter
 
         [Fact]
-        public void DecideOnVesselSwitch_NoTree_SameAsLegacy_Stop()
+        public void DecideOnVesselSwitch_NoTree_FallbackTransitionToBackground()
         {
-            // No tree active, different PIDs -> Stop (legacy behavior)
+            // No tree active, different PIDs -> TransitionToBackground (fallback)
             var result = FlightRecorder.DecideOnVesselSwitch(100, 200, false, false, 0, activeTree: null);
-            Assert.Equal(FlightRecorder.VesselSwitchDecision.Stop, result);
+            Assert.Equal(FlightRecorder.VesselSwitchDecision.TransitionToBackground, result);
         }
 
         [Fact]
@@ -149,9 +149,9 @@ namespace Parsek.Tests
         [Fact]
         public void DecideOnVesselSwitch_TreeNull_DoesNotCrash()
         {
-            // Explicit null tree -> legacy behavior (Stop)
+            // Explicit null tree -> fallback TransitionToBackground
             var result = FlightRecorder.DecideOnVesselSwitch(100, 200, false, false, 0, activeTree: null);
-            Assert.Equal(FlightRecorder.VesselSwitchDecision.Stop, result);
+            Assert.Equal(FlightRecorder.VesselSwitchDecision.TransitionToBackground, result);
         }
 
         #endregion
@@ -219,7 +219,7 @@ namespace Parsek.Tests
             // This verifies that existing callers using the old 5-parameter signature
             // still compile and produce correct results (activeTree defaults to null)
             var result = FlightRecorder.DecideOnVesselSwitch(100, 200, false, false);
-            Assert.Equal(FlightRecorder.VesselSwitchDecision.Stop, result);
+            Assert.Equal(FlightRecorder.VesselSwitchDecision.TransitionToBackground, result);
         }
 
         [Fact]

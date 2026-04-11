@@ -318,7 +318,7 @@ namespace Parsek.Tests
         {
             // undockSiblingPid = 0 should not affect the result
             var result = FlightRecorder.DecideOnVesselSwitch(100, 200, false, false, undockSiblingPid: 0);
-            Assert.Equal(FlightRecorder.VesselSwitchDecision.Stop, result);
+            Assert.Equal(FlightRecorder.VesselSwitchDecision.TransitionToBackground, result);
         }
 
         [Fact]
@@ -326,7 +326,7 @@ namespace Parsek.Tests
         {
             // Vessel switched to something that's NOT the sibling
             var result = FlightRecorder.DecideOnVesselSwitch(100, 300, false, false, undockSiblingPid: 200);
-            Assert.Equal(FlightRecorder.VesselSwitchDecision.Stop, result);
+            Assert.Equal(FlightRecorder.VesselSwitchDecision.TransitionToBackground, result);
         }
 
         [Fact]
