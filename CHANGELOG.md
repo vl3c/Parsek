@@ -25,6 +25,8 @@ All notable changes to Parsek are documented here.
 - Watch camera mode: press V during ghost watch to toggle between free orbit and horizon-locked (ground always at screen bottom). Auto-selects horizon-locked near planetary surfaces, free in orbit.
 - Sortable "Site" column in the Recordings Manager — sorts by launch site name with UT tiebreak within the same site.
 - Renamed the expanded-stats toggle button from "Stats" to "Info".
+- Resource snapshots: recordings capture physical resource manifests (LF, Ox, Ore, etc.) at start and end. Hover tooltip in Recordings Manager shows resource changes per recording. Prerequisite for logistics routes.
+- Dock target vessel PID captured at chain boundaries for future route endpoint identification.
 
 ---
 

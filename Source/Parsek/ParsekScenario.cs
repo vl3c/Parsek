@@ -3070,6 +3070,13 @@ namespace Parsek
             if (rec.Hidden)
                 recNode.AddValue("hidden", rec.Hidden.ToString());
 
+            // Resource manifests (Phase 11)
+            RecordingStore.SerializeResourceManifest(recNode, rec);
+
+            // Dock target vessel PID (Phase 11)
+            if (rec.DockTargetVesselPid != 0)
+                recNode.AddValue("dockTargetPid", rec.DockTargetVesselPid.ToString(CultureInfo.InvariantCulture));
+
         }
 
         /// <summary>
@@ -3235,6 +3242,18 @@ namespace Parsek
                 bool hidden;
                 if (bool.TryParse(hiddenStr, out hidden))
                     rec.Hidden = hidden;
+            }
+
+            // Resource manifests (Phase 11)
+            RecordingStore.DeserializeResourceManifest(recNode, rec);
+
+            // Dock target vessel PID (Phase 11)
+            string dockTargetPidStr = recNode.GetValue("dockTargetPid");
+            if (dockTargetPidStr != null)
+            {
+                uint dockTargetPid;
+                if (uint.TryParse(dockTargetPidStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out dockTargetPid))
+                    rec.DockTargetVesselPid = dockTargetPid;
             }
 
         }

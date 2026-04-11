@@ -211,10 +211,21 @@ namespace Parsek.Tests
             b.AddPartEvent(t + 50, 102222, 2, "parachuteSingle");      // ParachuteDeployed
 
             // Vessel spawn: FleaRocket with Bob — lands ~2km east of pad
-            b.WithVesselSnapshot(
-                VesselSnapshotBuilder.FleaRocket("Flea Flight", "Bob Kerman", pid: 22222222)
-                    .AsLanded(baseLat, baseLon + 0.0175, 77));
+            var snapshot = VesselSnapshotBuilder.FleaRocket("Flea Flight", "Bob Kerman", pid: 22222222)
+                .AddResourceToPart(1, "SolidFuel", 0, 227)   // SRB emptied after flight
+                .AsLanded(baseLat, baseLon + 0.0175, 77);
+            b.WithVesselSnapshot(snapshot);
             b.WithTerrainHeightAtEnd(65.0);
+
+            // Resource manifests: Flea has 227 SolidFuel at start, 0 at end
+            b.WithStartResources(new Dictionary<string, ResourceAmount>
+            {
+                { "SolidFuel", new ResourceAmount { amount = 227.0, maxAmount = 227.0 } }
+            });
+            b.WithEndResources(new Dictionary<string, ResourceAmount>
+            {
+                { "SolidFuel", new ResourceAmount { amount = 0.0, maxAmount = 227.0 } }
+            });
 
             return b;
         }

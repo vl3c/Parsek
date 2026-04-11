@@ -3009,16 +3009,22 @@ namespace Parsek
                 ConfigNode snapshot = VesselSpawner.TryBackupSnapshot(vessel);
                 childRec.GhostVisualSnapshot = snapshot;
                 childRec.VesselSnapshot = snapshot != null ? snapshot.CreateCopy() : null;
+                childRec.StartResources = VesselSpawner.ExtractResourceManifest(childRec.VesselSnapshot ?? childRec.GhostVisualSnapshot);
+                ParsekLog.Verbose("Coalescer",
+                    $"CreateBreakupChildRecording: captured {childRec.StartResources?.Count ?? 0} start resource type(s) for pid={pid}");
             }
             else if (fallbackSnapshot != null)
             {
                 // Vessel destroyed during coalescing window — use pre-captured snapshot (#157)
                 childRec.GhostVisualSnapshot = fallbackSnapshot;
                 childRec.VesselSnapshot = fallbackSnapshot.CreateCopy();
+                childRec.StartResources = VesselSpawner.ExtractResourceManifest(childRec.VesselSnapshot);
                 childRec.TerminalStateValue = TerminalState.Destroyed;
                 childRec.ExplicitEndUT = breakupBp.UT;
                 ParsekLog.Info("Coalescer",
                     $"CreateBreakupChildRecording: using pre-captured snapshot for pid={pid} (vessel destroyed)");
+                ParsekLog.Verbose("Coalescer",
+                    $"CreateBreakupChildRecording: captured {childRec.StartResources?.Count ?? 0} start resource type(s) for pid={pid} (fallback)");
             }
             else
             {
@@ -3261,6 +3267,11 @@ namespace Parsek
             // Decoupled part events at breakupUT hide detached parts during playback.
             rootRec.GhostVisualSnapshot = cap.GhostVisualSnapshot;
             rootRec.VesselSnapshot = cap.VesselSnapshot;
+            rootRec.StartResources = cap.StartResources;
+            rootRec.EndResources = VesselSpawner.ExtractResourceManifest(rootRec.VesselSnapshot);
+            ParsekLog.Verbose("Coalescer",
+                $"PromoteToTreeForBreakup: resources — start={rootRec.StartResources?.Count ?? 0} type(s), " +
+                $"end={rootRec.EndResources?.Count ?? 0} type(s)");
             rootRec.RewindSaveFileName = cap.RewindSaveFileName;
             rootRec.RewindReservedFunds = cap.RewindReservedFunds;
             rootRec.RewindReservedScience = cap.RewindReservedScience;

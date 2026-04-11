@@ -285,7 +285,7 @@ namespace Parsek
         /// Saves atmosphere segment metadata, pre-launch resources, rewind save metadata,
         /// mutable playback state, and UI grouping tags into a RECORDING ConfigNode.
         /// </summary>
-        private static void SaveRecordingResourceAndState(ConfigNode recNode, Recording rec)
+        internal static void SaveRecordingResourceAndState(ConfigNode recNode, Recording rec)
         {
             var ic = CultureInfo.InvariantCulture;
 
@@ -366,6 +366,13 @@ namespace Parsek
 
             // Crew end states (kerbals module)
             RecordingStore.SerializeCrewEndStates(recNode, rec);
+
+            // Resource manifests (Phase 11)
+            RecordingStore.SerializeResourceManifest(recNode, rec);
+
+            // Dock target vessel PID (Phase 11)
+            if (rec.DockTargetVesselPid != 0)
+                recNode.AddValue("dockTargetPid", rec.DockTargetVesselPid.ToString(ic));
         }
 
         internal static void LoadRecordingFrom(ConfigNode recNode, Recording rec)
@@ -563,7 +570,7 @@ namespace Parsek
         /// ghost geometry metadata, mutable playback state, and UI grouping tags from a
         /// RECORDING ConfigNode into the given Recording.
         /// </summary>
-        private static void LoadRecordingResourceAndState(ConfigNode recNode, Recording rec)
+        internal static void LoadRecordingResourceAndState(ConfigNode recNode, Recording rec)
         {
             var inv = NumberStyles.Float;
             var ic = CultureInfo.InvariantCulture;
@@ -706,6 +713,18 @@ namespace Parsek
 
             // Crew end states (kerbals module)
             RecordingStore.DeserializeCrewEndStates(recNode, rec);
+
+            // Resource manifests (Phase 11)
+            RecordingStore.DeserializeResourceManifest(recNode, rec);
+
+            // Dock target vessel PID (Phase 11)
+            string dockTargetPidStr = recNode.GetValue("dockTargetPid");
+            if (dockTargetPidStr != null)
+            {
+                uint dockTargetPid;
+                if (uint.TryParse(dockTargetPidStr, NumberStyles.Integer, ic, out dockTargetPid))
+                    rec.DockTargetVesselPid = dockTargetPid;
+            }
         }
 
         #endregion

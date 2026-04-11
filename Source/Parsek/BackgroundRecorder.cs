@@ -633,9 +633,11 @@ namespace Parsek
                     child.VesselSnapshot = VesselSpawner.TryBackupSnapshot(childVessel);
                     child.GhostVisualSnapshot = child.VesselSnapshot != null
                         ? child.VesselSnapshot.CreateCopy() : null;
+                    child.StartResources = VesselSpawner.ExtractResourceManifest(child.VesselSnapshot);
                     ParsekLog.Verbose("BgRecorder",
                         $"Captured snapshot for child vessel: pid={child.VesselPersistentId} " +
-                        $"name='{child.VesselName}' hasSnapshot={child.VesselSnapshot != null}");
+                        $"name='{child.VesselName}' hasSnapshot={child.VesselSnapshot != null} " +
+                        $"startResources={child.StartResources?.Count ?? 0} type(s)");
                 }
                 else
                 {
