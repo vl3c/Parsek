@@ -5133,124 +5133,124 @@ namespace Parsek.Tests
             double baseUT = ReadUTFromSave(targetPath);
 
             var writer = new ScenarioWriter().WithV3Format();
-            writer.AddRecording(PadWalk(baseUT).WithLoopPlayback()
+            writer.AddRecordingAsTree(PadWalk(baseUT).WithLoopPlayback()
                 .WithRecordingGroup("Synthetic"));
 
             // Pad-launch recordings — with rewind saves
-            writer.AddRecording(KscHopper(baseUT).WithLoopPlayback()
+            writer.AddRecordingAsTree(KscHopper(baseUT).WithLoopPlayback()
                 .WithRewindSave("parsek_rw_hop001").WithRecordingGroup("Synthetic"));
-            writer.AddRecording(FleaFlight(baseUT).WithLoopPlayback()
+            writer.AddRecordingAsTree(FleaFlight(baseUT).WithLoopPlayback()
                 .WithRewindSave("parsek_rw_flea01").WithRecordingGroup("Synthetic"));
-            writer.AddRecording(SuborbitalArc(baseUT).WithLoopPlayback()
+            writer.AddRecordingAsTree(SuborbitalArc(baseUT).WithLoopPlayback()
                 .WithRewindSave("parsek_rw_subo01").WithRecordingGroup("Synthetic"));
-            writer.AddRecording(KscPadDestroyed(baseUT).WithLoopPlayback()
+            writer.AddRecordingAsTree(KscPadDestroyed(baseUT).WithLoopPlayback()
                 .WithRewindSave("parsek_rw_dest01").WithRecordingGroup("Synthetic"));
-            writer.AddRecording(Orbit1(baseUT).WithLoopPlayback()
+            writer.AddRecordingAsTree(Orbit1(baseUT).WithLoopPlayback()
                 .WithRewindSave("parsek_rw_orb001").WithRecordingGroup("Synthetic"));
-            writer.AddRecording(CloseSpawnConflict(baseUT).WithLoopPlayback()
+            writer.AddRecordingAsTree(CloseSpawnConflict(baseUT).WithLoopPlayback()
                 .WithRecordingGroup("Synthetic"));
-            writer.AddRecording(IslandProbe(baseUT).WithLoopPlayback()
+            writer.AddRecordingAsTree(IslandProbe(baseUT).WithLoopPlayback()
                 .WithRewindSave("parsek_rw_isle01").WithRecordingGroup("Synthetic"));
 
             var lightShowcases = LightShowcaseRecordings(baseUT);
             for (int i = 0; i < lightShowcases.Length; i++)
-                writer.AddRecording(lightShowcases[i]);
+                writer.AddRecordingAsTree(lightShowcases[i]);
 
             var deployableShowcases = DeployableShowcaseRecordings(baseUT);
             for (int i = 0; i < deployableShowcases.Length; i++)
-                writer.AddRecording(deployableShowcases[i]);
+                writer.AddRecordingAsTree(deployableShowcases[i]);
 
             var gearShowcases = GearShowcaseRecordings(baseUT);
             for (int i = 0; i < gearShowcases.Length; i++)
-                writer.AddRecording(gearShowcases[i]);
+                writer.AddRecordingAsTree(gearShowcases[i]);
 
             var cargoBayShowcases = CargoBayShowcaseRecordings(baseUT);
             for (int i = 0; i < cargoBayShowcases.Length; i++)
-                writer.AddRecording(cargoBayShowcases[i]);
+                writer.AddRecordingAsTree(cargoBayShowcases[i]);
 
             var engineShowcases = EngineShowcaseRecordings(baseUT);
             for (int i = 0; i < engineShowcases.Length; i++)
-                writer.AddRecording(engineShowcases[i]);
+                writer.AddRecordingAsTree(engineShowcases[i]);
 
             var ladderShowcases = LadderShowcaseRecordings(baseUT);
             for (int i = 0; i < ladderShowcases.Length; i++)
-                writer.AddRecording(ladderShowcases[i]);
+                writer.AddRecordingAsTree(ladderShowcases[i]);
 
             var rcsShowcases = RcsShowcaseRecordings(baseUT);
             for (int i = 0; i < rcsShowcases.Length; i++)
-                writer.AddRecording(rcsShowcases[i]);
+                writer.AddRecordingAsTree(rcsShowcases[i]);
 
             var fairingShowcases = FairingShowcaseRecordings(baseUT);
             for (int i = 0; i < fairingShowcases.Length; i++)
-                writer.AddRecording(fairingShowcases[i]);
+                writer.AddRecordingAsTree(fairingShowcases[i]);
 
             var radiatorShowcases = RadiatorShowcaseRecordings(baseUT);
             for (int i = 0; i < radiatorShowcases.Length; i++)
-                writer.AddRecording(radiatorShowcases[i]);
+                writer.AddRecordingAsTree(radiatorShowcases[i]);
 
             var drillShowcases = DrillShowcaseRecordings(baseUT);
             for (int i = 0; i < drillShowcases.Length; i++)
-                writer.AddRecording(drillShowcases[i]);
+                writer.AddRecordingAsTree(drillShowcases[i]);
 
             var deployedScienceShowcases = DeployedScienceShowcaseRecordings(baseUT);
             for (int i = 0; i < deployedScienceShowcases.Length; i++)
-                writer.AddRecording(deployedScienceShowcases[i]);
+                writer.AddRecordingAsTree(deployedScienceShowcases[i]);
             var animationGroupShowcases = AnimationGroupShowcaseRecordings(baseUT);
             for (int i = 0; i < animationGroupShowcases.Length; i++)
-                writer.AddRecording(animationGroupShowcases[i]);
+                writer.AddRecordingAsTree(animationGroupShowcases[i]);
             var parachuteShowcases = ParachuteShowcaseRecordings(baseUT);
             for (int i = 0; i < parachuteShowcases.Length; i++)
-                writer.AddRecording(parachuteShowcases[i]);
+                writer.AddRecordingAsTree(parachuteShowcases[i]);
             var specialDeployAnimationShowcases = SpecialDeployAnimationShowcaseRecordings(baseUT);
             for (int i = 0; i < specialDeployAnimationShowcases.Length; i++)
-                writer.AddRecording(specialDeployAnimationShowcases[i]);
+                writer.AddRecordingAsTree(specialDeployAnimationShowcases[i]);
             var jettisonShowcases = JettisonShowcaseRecordings(baseUT);
             for (int i = 0; i < jettisonShowcases.Length; i++)
-                writer.AddRecording(jettisonShowcases[i]);
+                writer.AddRecordingAsTree(jettisonShowcases[i]);
             var roboticsShowcases = RoboticsShowcaseRecordings(baseUT);
             for (int i = 0; i < roboticsShowcases.Length; i++)
-                writer.AddRecording(roboticsShowcases[i]);
+                writer.AddRecordingAsTree(roboticsShowcases[i]);
             var aeroSurfaceShowcases = AeroSurfaceShowcaseRecordings(baseUT);
             for (int i = 0; i < aeroSurfaceShowcases.Length; i++)
-                writer.AddRecording(aeroSurfaceShowcases[i]);
+                writer.AddRecordingAsTree(aeroSurfaceShowcases[i]);
             var robotArmScannerShowcases = RobotArmScannerShowcaseRecordings(baseUT);
             for (int i = 0; i < robotArmScannerShowcases.Length; i++)
-                writer.AddRecording(robotArmScannerShowcases[i]);
+                writer.AddRecordingAsTree(robotArmScannerShowcases[i]);
             var controlSurfaceShowcases = ControlSurfaceShowcaseRecordings(baseUT);
             for (int i = 0; i < controlSurfaceShowcases.Length; i++)
-                writer.AddRecording(controlSurfaceShowcases[i]);
+                writer.AddRecordingAsTree(controlSurfaceShowcases[i]);
             var wheelDynamicsShowcases = WheelDynamicsShowcaseRecordings(baseUT);
             for (int i = 0; i < wheelDynamicsShowcases.Length; i++)
-                writer.AddRecording(wheelDynamicsShowcases[i]);
+                writer.AddRecordingAsTree(wheelDynamicsShowcases[i]);
             var animateHeatShowcases = AnimateHeatShowcaseRecordings(baseUT);
             for (int i = 0; i < animateHeatShowcases.Length; i++)
-                writer.AddRecording(animateHeatShowcases[i]);
+                writer.AddRecordingAsTree(animateHeatShowcases[i]);
             var colorChangerShowcases = ColorChangerShowcaseRecordings(baseUT);
             for (int i = 0; i < colorChangerShowcases.Length; i++)
-                writer.AddRecording(colorChangerShowcases[i]);
-            writer.AddRecording(InventoryPlacementShowcaseRecording(baseUT));
-            writer.AddRecording(FlagPlantShowcaseRecording(baseUT));
+                writer.AddRecordingAsTree(colorChangerShowcases[i]);
+            writer.AddRecordingAsTree(InventoryPlacementShowcaseRecording(baseUT));
+            writer.AddRecordingAsTree(FlagPlantShowcaseRecording(baseUT));
 
             var chainSegments = EvaBoardChain(baseUT);
             chainSegments[0].WithRewindSave("parsek_rw_evab01");
             for (int i = 0; i < chainSegments.Length; i++)
-                writer.AddRecording(chainSegments[i].WithLoopPlayback().WithRecordingGroup("Synthetic"));
+                writer.AddRecordingAsTree(chainSegments[i].WithLoopPlayback().WithRecordingGroup("Synthetic"));
             var walkChainSegments = EvaWalkChain(baseUT);
             walkChainSegments[0].WithRewindSave("parsek_rw_walk01");
             for (int i = 0; i < walkChainSegments.Length; i++)
-                writer.AddRecording(walkChainSegments[i].WithLoopPlayback().WithRecordingGroup("Synthetic"));
+                writer.AddRecordingAsTree(walkChainSegments[i].WithLoopPlayback().WithRecordingGroup("Synthetic"));
             var atmoChainSegments = KerbinAscentChain(baseUT);
             atmoChainSegments[0].WithRewindSave("parsek_rw_atmo01");
             for (int i = 0; i < atmoChainSegments.Length; i++)
-                writer.AddRecording(atmoChainSegments[i].WithLoopPlayback().WithRecordingGroup("Synthetic"));
+                writer.AddRecordingAsTree(atmoChainSegments[i].WithLoopPlayback().WithRecordingGroup("Synthetic"));
             var munTransferSegments = KerbinMunTransfer(baseUT);
             munTransferSegments[0].WithRewindSave("parsek_rw_mun001");
             for (int i = 0; i < munTransferSegments.Length; i++)
-                writer.AddRecording(munTransferSegments[i].WithLoopPlayback().WithRecordingGroup("Synthetic"));
+                writer.AddRecordingAsTree(munTransferSegments[i].WithLoopPlayback().WithRecordingGroup("Synthetic"));
 
-            writer.AddRecording(ReentryEast(baseUT).WithLoopPlayback().WithRecordingGroup("Synthetic"));
-            writer.AddRecording(ReentryShallow(baseUT).WithLoopPlayback().WithRecordingGroup("Synthetic"));
-            writer.AddRecording(ReentrySouth(baseUT).WithLoopPlayback().WithRecordingGroup("Synthetic"));
+            writer.AddRecordingAsTree(ReentryEast(baseUT).WithLoopPlayback().WithRecordingGroup("Synthetic"));
+            writer.AddRecordingAsTree(ReentryShallow(baseUT).WithLoopPlayback().WithRecordingGroup("Synthetic"));
+            writer.AddRecordingAsTree(ReentrySouth(baseUT).WithLoopPlayback().WithRecordingGroup("Synthetic"));
 
             // Add synthetic game actions so the Actions window has visible entries
             AddSyntheticGameActions(writer, baseUT);

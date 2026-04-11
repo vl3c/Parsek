@@ -40,6 +40,105 @@ namespace Parsek.Tests.Generators
         }
 
         /// <summary>
+        /// Wraps a single RecordingBuilder into a RECORDING_TREE node and adds it
+        /// to the scenario. This is the always-tree equivalent of AddRecording:
+        /// each standalone recording becomes a single-recording tree.
+        /// Sidecar files (.prec, _vessel.craft, _ghost.craft) are also registered
+        /// for writing when WithV3Format is active.
+        /// </summary>
+        public ScenarioWriter AddRecordingAsTree(RecordingBuilder builder)
+        {
+            string recordingId = builder.GetRecordingId();
+            string treeId = "tree-" + recordingId;
+
+            // Build a Recording object from the builder's data
+            var rec = new Recording
+            {
+                RecordingId = recordingId,
+                VesselName = builder.GetVesselName(),
+                RecordingFormatVersion = builder.GetFormatVersion(),
+                VesselPersistentId = StableHashToUint(recordingId),
+                ExplicitStartUT = builder.GetStartUT(),
+                ExplicitEndUT = builder.GetEndUT(),
+                TreeId = treeId,
+                LoopPlayback = builder.GetLoopPlayback(),
+                LoopIntervalSeconds = builder.GetLoopIntervalSeconds(),
+                PlaybackEnabled = builder.GetPlaybackEnabled(),
+            };
+
+            // Terminal state
+            int? ts = builder.GetTerminalState();
+            if (ts.HasValue)
+                rec.TerminalStateValue = (TerminalState)ts.Value;
+
+            // Terrain height at end
+            double terrainH = builder.GetTerrainHeightAtEnd();
+            if (!double.IsNaN(terrainH))
+                rec.TerrainHeightAtEnd = terrainH;
+
+            // Recording groups
+            var groups = builder.GetRecordingGroups();
+            if (groups != null && groups.Count > 0)
+                rec.RecordingGroups = new List<string>(groups);
+
+            // Segment metadata
+            if (!string.IsNullOrEmpty(builder.GetSegmentPhase()))
+                rec.SegmentPhase = builder.GetSegmentPhase();
+            if (!string.IsNullOrEmpty(builder.GetSegmentBodyName()))
+                rec.SegmentBodyName = builder.GetSegmentBodyName();
+
+            // Chain linkage
+            if (!string.IsNullOrEmpty(builder.GetChainId()))
+                rec.ChainId = builder.GetChainId();
+            if (builder.GetChainIndex() >= 0)
+                rec.ChainIndex = builder.GetChainIndex();
+            if (builder.GetChainBranch() > 0)
+                rec.ChainBranch = builder.GetChainBranch();
+
+            // EVA linkage
+            if (!string.IsNullOrEmpty(builder.GetParentRecordingId()))
+                rec.ParentRecordingId = builder.GetParentRecordingId();
+            if (!string.IsNullOrEmpty(builder.GetEvaCrewName()))
+                rec.EvaCrewName = builder.GetEvaCrewName();
+
+            // Rewind save
+            if (!string.IsNullOrEmpty(builder.GetRewindSaveFileName()))
+            {
+                rec.RewindSaveFileName = builder.GetRewindSaveFileName();
+                rec.RewindReservedFunds = builder.GetRewindReservedFunds();
+                rec.RewindReservedScience = builder.GetRewindReservedScience();
+                rec.RewindReservedRep = builder.GetRewindReservedRep();
+            }
+
+            // Controllers
+            var controllers = builder.GetControllers();
+            if (controllers != null)
+                rec.Controllers = new List<ControllerInfo>(controllers);
+            rec.IsDebris = builder.GetIsDebris();
+
+            // Build the tree
+            var tree = new RecordingTree
+            {
+                Id = treeId,
+                TreeName = builder.GetVesselName(),
+                RootRecordingId = recordingId,
+                ActiveRecordingId = null  // committed trees have no active recording
+            };
+            tree.Recordings[recordingId] = rec;
+
+            // Serialize via RecordingTree.Save
+            var treeNode = new ConfigNode("RECORDING_TREE");
+            tree.Save(treeNode);
+            trees.Add(treeNode);
+
+            // Register for sidecar file writing (same as v3 standalone)
+            if (useV3Format)
+                v3Builders.Add(builder);
+
+            return this;
+        }
+
+        /// <summary>
         /// Adds a pre-built RECORDING_TREE ConfigNode to be emitted in the scenario.
         /// The node should be built via RecordingTree.Save().
         /// </summary>
@@ -332,6 +431,22 @@ namespace Parsek.Tests.Generators
             // Preserve original line ending style
             string sep = content.Contains("\r\n") ? "\r\n" : "\n";
             return string.Join(sep, result);
+        }
+
+        /// <summary>
+        /// Generates a stable uint from a string via FNV-1a hash.
+        /// Used to derive VesselPersistentId from recordingId for synthetic trees.
+        /// </summary>
+        private static uint StableHashToUint(string input)
+        {
+            uint hash = 2166136261;
+            for (int i = 0; i < input.Length; i++)
+            {
+                hash ^= input[i];
+                hash *= 16777619;
+            }
+            // Avoid 0 (which means "not set" for VesselPersistentId)
+            return hash == 0 ? 1u : hash;
         }
     }
 }
