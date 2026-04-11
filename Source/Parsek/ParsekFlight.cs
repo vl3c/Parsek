@@ -5696,6 +5696,10 @@ namespace Parsek
             // Preserve snapshots for stable-terminal recordings (Landed/Splashed/Orbiting)
             // so the snapshot's sit field survives the save→load round-trip and the
             // spawn-at-end safety check doesn't block with "snapshot situation unsafe". (#289)
+            //
+            // Bug #271: preserve GhostVisualSnapshot before nulling VesselSnapshot so ghost
+            // rendering still has vessel geometry. Without this, the ghost mesh builder falls
+            // back to the green sphere for any recording whose VesselSnapshot was nulled here.
             foreach (var rec in activeTree.Recordings.Values)
             {
                 bool keepForSpawn = rec.TerminalStateValue.HasValue
@@ -5703,7 +5707,11 @@ namespace Parsek
                         || rec.TerminalStateValue.Value == TerminalState.Splashed
                         || rec.TerminalStateValue.Value == TerminalState.Orbiting);
                 if (!keepForSpawn)
+                {
+                    if (rec.GhostVisualSnapshot == null && rec.VesselSnapshot != null)
+                        rec.GhostVisualSnapshot = rec.VesselSnapshot.CreateCopy();
                     rec.VesselSnapshot = null;
+                }
             }
 
             // Stash as pending tree -- auto-committed ghost-only by ParsekScenario.OnLoad
