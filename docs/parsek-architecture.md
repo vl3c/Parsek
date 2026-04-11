@@ -843,7 +843,9 @@ Record entire multi-vessel missions as a single unit. Builds on top of the exist
 - `ResourceBudget.cs` - ComputeTotal with tree-level delta integration
 - `Patches/PhysicsFramePatch.cs` - background recorder integration
 
-**Key design principle:** the tree is additive. Existing chains, per-segment loop control, per-recording resources, atmospheric/SOI phase splits, merge dialogs - all preserved. Nothing removed.
+**Key design principle:** the timeline is additive. Committed recordings and game actions can be added but never deleted -- the world state at any point is fully determined by the ordered events before it. Chains (per-segment loop control, atmospheric/SOI phase splits), per-recording resources, and merge dialogs are all preserved within the tree structure.
+
+> **Note (v0.8.0, T56):** The standalone RECORDING format was removed. All recordings now use tree architecture internally (RECORDING_TREE). Chain segments are produced by the RecordingOptimizer's split pass within trees, not by a separate recording mode.
 
 **13 tasks completed.** 1342 tests pass. See `docs/dev/done/design-mission-tree.md` for full design, task breakdown, and progress tracker.
 

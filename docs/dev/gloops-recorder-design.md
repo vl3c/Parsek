@@ -223,7 +223,7 @@ Called once per physics frame by the host. The engine iterates trajectories, cre
 ```
 TrajectoryPlaybackFlags
   skipGhost:              bool — don't render (chain-suppressed, disabled)
-  isStandalone:           bool — not part of a tree (gates resource events)
+  isStandalone:           bool — not part of a tree (gates resource events). Always false post-T56 (all recordings are tree recordings)
   isMidChain:             bool — hold ghost at end position instead of destroying
   chainEndUT:             double — when the full chain ends
   needsSpawn:             bool — pre-computed spawn decision

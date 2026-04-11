@@ -946,7 +946,7 @@ Inventory:
 - Liquid: modify `ProtoPartResourceSnapshot.amount` (one field write)
 - Inventory: construct and insert `STOREDPART` ConfigNodes into `ModuleInventoryPart` MODULE data on unloaded vessels (subtree construction)
 
-**Recommendation:** Phase 12 ships liquid-resource delivery first. Inventory delivery is a follow-on (v1.1) — the capture and analysis data is available from day one, the delivery mechanism is the risky part.
+**Recommendation (updated):** Inventory delivery is included in Phase 12 v1. Capture and analysis data is available from Phase 11; delivery mechanism handles slot allocation and part validity checking.
 
 **Stored item internal state:** When Phase 12 delivers inventory items to unloaded vessels, it must decide whether to deliver items with their captured internal state (e.g., a half-charged stored battery) or in pristine state. The recording's STOREDPART > PART snapshot preserves the exact state at recording time. v1 recommendation: deliver in pristine state (use `PartLoader.getPartInfoByName` to construct a fresh snapshot). Captured state is a v2 refinement.
 
@@ -1026,7 +1026,7 @@ Crew transport routes use **generic kerbals** — completely separate from the n
 - **Generic kerbal pool.** Route kerbals are a separate population — they don't appear in the astronaut complex, don't have experience progression, and don't compete with named kerbals for missions. They're logistical crew, not player-managed characters.
 - **Moving crew on unloaded vessels** means adding `crew` values to `ProtoPartSnapshot` nodes and creating `ProtoCrewMember` entries in the roster with the right trait. Simpler than inventory delivery (no ConfigNode subtree construction — just name strings and roster entries).
 
-**Recommendation:** Same as inventory — capture crew manifests in Phase 11, defer delivery to Phase 12 v1.1. Lighter implementation than inventory delivery since crew is name+trait, not complex ConfigNode subtrees.
+**Recommendation (updated):** Crew delivery is included in Phase 12 v1 alongside inventory and resource delivery. Lighter implementation than inventory delivery since crew is name+trait, not complex ConfigNode subtrees.
 
 ### Edge cases
 

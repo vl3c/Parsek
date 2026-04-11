@@ -1,8 +1,8 @@
 # Parsek — Logistics Routes Design
 
-*Design specification for Parsek's automated resource delivery system — covering route creation, dispatch scheduling, resource transfer between unloaded vessels, endpoint resolution, transfer window computation, and round-trip linking across the rewind timeline.*
+*Design specification for Parsek's automated cargo delivery system — covering route creation, dispatch scheduling, resource/inventory/crew transfer between unloaded vessels, endpoint resolution, transfer window computation, and round-trip linking across the rewind timeline.*
 
-*Parsek is a KSP1 mod for time-rewind mission recording. Players fly missions, commit recordings to a timeline, rewind to earlier points, and see previously recorded missions play back as ghost vessels alongside new ones. This document specifies how committed recording chains are turned into logistics routes that physically move resources between vessels.*
+*Parsek is a KSP1 mod for time-rewind mission recording. Players fly missions, commit recordings to a timeline, rewind to earlier points, and see previously recorded missions play back as ghost vessels alongside new ones. This document specifies how committed recording chains are turned into logistics routes that physically move cargo (resources, inventory items, crew) between vessels.*
 
 **Version:** 0.2 (updated to reflect Phase 11/12 planning decisions)
 **Prerequisite:** Phase 11 (Resource Snapshots) must be implemented before routes. Phase 10 (Location Context) is already complete.
@@ -12,7 +12,7 @@
 
 ## 1. Introduction
 
-This document specifies how Parsek turns committed recording chains into automated supply routes. Routes are chain-sequential — the player flies a cargo mission (potentially multi-stop), commits it, and Parsek replays the entire chain in sequence each dispatch cycle with resource delivery at each stop. It covers:
+This document specifies how Parsek turns committed recording chains into automated supply routes. Routes are chain-sequential — the player flies a cargo mission (potentially multi-stop), commits it, and Parsek replays the entire chain in sequence each dispatch cycle with cargo delivery at each stop. It covers:
 
 - The "Start/End Route Recording" workflow and route analysis engine
 - How stops and delivery manifests are derived from the committed chain
@@ -21,14 +21,14 @@ This document specifies how Parsek turns committed recording chains into automat
 - Endpoint resolution: surface proximity fallback vs orbital PID matching
 - Transfer window scheduling via synodic period computation
 - Round-trip linking for paired one-way routes
-- Resource modification on unloaded vessels via ProtoPartResourceSnapshot
+- Cargo modification on unloaded vessels (resources via ProtoPartResourceSnapshot, inventory via ModuleInventoryPart, crew via ProtoCrewMember)
 - Timeline integration with epoch isolation for revert safety
 - Module architecture: self-contained `Logistics/` directory with 4 integration seams
 - Edge cases: destruction, full tanks, competing routes, time warp, reverts
 
 ### 1.1 What happens when the player creates a route
 
-The player starts a route recording session by clicking "Start Route Recording" in the Parsek UI. They then fly a cargo mission manually — drive a rover with fuel to a base, launch a tanker to an orbital station, or fly a multi-stop supply run. During the flight, they dock at each destination, transfer resources using KSP's standard UI, and undock. Parsek records the whole chain normally.
+The player starts a route recording session by clicking "Start Route Recording" in the Parsek UI. They then fly a cargo mission manually — drive a rover with fuel to a base, launch a tanker to an orbital station, or fly a multi-stop supply run. During the flight, they dock at each destination, transfer cargo (resources, inventory items, crew) using KSP's standard UI, and undock. Parsek records the whole chain normally.
 
 When done, the player clicks "End Route Recording." Parsek's route analysis engine walks the committed chain to extract stops — each dock-transfer-undock sequence becomes a route stop with its own delivery manifest. The player sees a route summary (origin, stops, deliveries, transit time), sets the dispatch interval, and confirms. The route goes live.
 
@@ -45,7 +45,7 @@ Before each cycle, the route evaluates whether dispatch is possible. It checks t
 | Start Route Recording | Player clicks button, flies mission normally. Parsek records the chain. |
 | End Route Recording | Route analysis extracts stops from committed chain. Player sees summary, sets interval, confirms. |
 | Route dispatches on schedule | Origin resources deducted (if non-KSC). Ghost begins chain-sequential replay. |
-| Route delivers at each stop | Resources appear in stop vessel tanks as ghost reaches each stop. |
+| Route delivers at each stop | Cargo (resources, inventory, crew) appears at stop vessel as ghost reaches each stop. |
 | Destination tanks full | Cycle skipped. Origin NOT deducted. No ghost replay for skipped cycle. |
 | Origin runs out of resources | Dispatch delayed until resources available. Route resumes automatically. |
 | Destination destroyed (surface) | Proximity fallback auto-reconnects to rebuilt base at same location. |
@@ -115,11 +115,11 @@ These principles govern every design decision in the logistics system. They are 
 
 ### 2.2 Resource safety
 
-4. **No infinite resource glitches.** Routes deliver exactly what was transferred during the recording — no more, no less. KSC origins are free (KSP charges funds to build vessels). Non-KSC origins deduct the transport's full start manifest. Recovery funds from the real vessel are one-time.
+4. **No infinite cargo glitches.** Routes deliver exactly what was transferred during the recording — no more, no less. This applies to resources, inventory items, and crew equally. KSC origins are free (KSP charges funds to build vessels). Non-KSC origins deduct the transport's full start manifest. Recovery funds from the real vessel are one-time.
 
-5. **Don't waste origin resources.** Origin is only deducted if at least one delivery resource can be accepted at the destination. If destination is completely full, the cycle is skipped and origin pays nothing. Per-resource delivery is independent: each resource fills what fits.
+5. **Don't waste origin cargo.** Origin is only deducted if at least one delivery item (resource, inventory part, or crew) can be accepted at the destination. If destination is completely full, the cycle is skipped and origin pays nothing. Per-item delivery is independent: each item fills what fits.
 
-6. **Dock + transfer + undock required.** A route can only be created from a recording chain where the transport docked, transferred resources, AND undocked (freeing the port for the next cycle) at least once. No undock = no route. The "Start/End Route Recording" workflow makes this explicit.
+6. **Dock + transfer + undock required.** A route can only be created from a recording chain where the transport docked, transferred cargo (resources, inventory, or crew), AND undocked (freeing the port for the next cycle) at least once. No undock = no route. The "Start/End Route Recording" workflow makes this explicit.
 
 ### 2.3 Abstraction model
 
@@ -127,7 +127,7 @@ These principles govern every design decision in the logistics system. They are 
 
 8. **Endpoints are locations, not specific vessels.** Surface endpoints use vessel PID as primary match, with 50m coordinate fallback if the vessel is gone. Orbital endpoints use PID only. This survives base rebuilding, vessel replacement, and mod compatibility (transfer tubes, claws, etc.).
 
-9. **The system doesn't produce resources.** Parsek moves resources between locations. Mining, ISRU, and solar power are the player's responsibility. Routes chain naturally: the output of one feeds the input of another.
+9. **The system doesn't produce cargo.** Parsek moves resources, inventory items, and crew between locations. Mining, ISRU, and solar power are the player's responsibility. Routes chain naturally: the output of one feeds the input of another.
 
 ### 2.4 Timeline integration
 
@@ -139,15 +139,15 @@ These principles govern every design decision in the logistics system. They are 
 
 ## 3. Terminology
 
-**Route** — a separate entity that defines a repeating resource transfer across one or more stops. Created from a committed recording chain via the "Start/End Route Recording" workflow. Uses chain-sequential ghost playback (not the per-recording loop system).
+**Route** — a separate entity that defines a repeating cargo transfer (resources, inventory, crew) across one or more stops. Created from a committed recording chain via the "Start/End Route Recording" workflow. Uses chain-sequential ghost playback (not the per-recording loop system).
 
-**Route stop** — a location where the transport docks, transfers resources, and undocks during the recorded chain. Each stop has its own endpoint and delivery manifest. A single-stop route is the common case; multi-stop routes are supported.
+**Route stop** — a location where the transport docks, transfers cargo, and undocks during the recorded chain. Each stop has its own endpoint and delivery manifest. A single-stop route is the common case; multi-stop routes are supported.
 
 **Recording chain** — the ordered list of recordings committed during a route recording session. The route scheduler replays these segments in sequence each cycle.
 
 **Endpoint** — origin or stop location of a route. Defined by body, coordinates, and the vessel PID from the dock event. Surface endpoints fall back to 50m proximity if the PID vessel is gone. Orbital endpoints use PID only.
 
-**Delivery manifest** — the per-resource amounts transferred at a stop. Computed from dock-segment EndResources minus undock-segment StartResources (positive = delivered to station, negative = picked up from station).
+**Delivery manifest** — the per-resource amounts, inventory items, and crew transferred at a stop. Resource deltas computed from dock-segment EndResources minus undock-segment StartResources (positive = delivered to station, negative = picked up from station). Inventory and crew deltas computed from the same boundary snapshots.
 
 **Cost manifest** — the transport vessel's resources at recording start. For non-KSC origins, this is deducted from the origin each cycle (cargo + transit fuel).
 
@@ -373,13 +373,13 @@ public uint DockTargetVesselPid;  // PID of vessel docked to at this segment's b
 
 Captured during `CommitDockUndockSegment` when the event type is `Docked`. Identifies which station/base the transport docked to — the route analysis engine uses this to determine stop endpoints.
 
-**Inventory manifests** (deferred to v1.1):
+**Inventory manifests** (implemented — Phase 11):
 
-Per-part inventory snapshots capturing what physical parts are stored in cargo containers. Would use an `InventoryItem` struct with `partName`, `count`, `slotsTaken`, plus `totalInventorySlots` on the manifest. Enables automated parts delivery (spare wheels, solar panels, etc.). Deferred because KSP's inventory system (Breaking Ground DLC) has limited logistics value compared to resource transfer.
+KSP 1.12 `ModuleInventoryPart` items (stored parts in cargo containers). `ExtractInventoryManifest` walks MODULE > STOREDPARTS > STOREDPART nodes. `InventoryItem { count, slotsTaken }` struct + vessel-level `totalInventorySlots`. Same capture sites as resources. Enables automated parts delivery (spare wheels, solar panels, etc.).
 
-**Crew manifests** (deferred to v1.1):
+**Crew manifests** (implemented — Phase 11):
 
-Crew state snapshots capturing trait counts (Pilot/Engineer/Scientist) and seat occupancy. Would use generic kerbals (trait + level, not named individuals) to avoid crew reservation conflicts with the existing KerbalsModule. Enables automated crew rotation routes. Deferred because crew delivery requires integration with the crew reservation system (KerbalsModule), which adds significant complexity.
+Crew composition by trait (Pilot/Scientist/Engineer/Tourist). Route delivery uses generic kerbals (trait + level, not named individuals — separate from the crew reservation system). Same capture pattern. Enables automated crew rotation routes.
 
 All manifest types are additive — missing node = no data. No format version bump.
 
@@ -394,7 +394,7 @@ Route creation uses an explicit recording session, not automatic derivation from
 **Player flow:**
 
 1. Player clicks "Start Route Recording" in Parsek UI
-2. Player flies mission normally — launch, transit, dock at destination(s), transfer resources via KSP UI, undock, optionally continue to more stops, fly home
+2. Player flies mission normally — launch, transit, dock at destination(s), transfer cargo via KSP UI (resources, inventory, crew), undock, optionally continue to more stops, fly home
 3. Player clicks "End Route Recording"
 4. Parsek's route analysis engine walks the committed chain, presents route summary
 5. Player sets dispatch interval, confirms
@@ -455,7 +455,7 @@ The route analysis pass validates the chain:
 
 1. At least one dock event exists (recording with `DockTargetVesselPid != 0`)
 2. At least one undock event exists AFTER the dock
-3. At least one resource changed on the transport between the dock and undock snapshots
+3. At least one resource, inventory item, or crew member changed on the transport between the dock and undock snapshots
 
 If validation fails, the route confirmation UI shows what's missing (e.g., "Transport must undock from destination to enable route — docking port needs to be free for the next cycle").
 
@@ -519,7 +519,7 @@ Routes do NOT use the per-recording loop toggle. The route scheduler owns all ti
 1. **Find stop vessels** at the stop's endpoint (section 7). If NO vessels found -> log warning. Resources for this stop are lost (transit already underway). Continue to next segment.
 2. **For each resource in the stop's `DeliveryManifest`:** distribute across stop vessel tanks, clamped to current `maxAmount`. Positive values add resources (delivery). Negative values remove resources (pickup — deducted from stop vessels). For unloaded vessels: modify `ProtoPartResourceSnapshot.amount` directly, respect `flowState`. For loaded vessels: use `Part.RequestResource()`.
 3. **Create ROUTE_DELIVERED timeline event.** Record amounts actually delivered and the stop index.
-4. **Inventory and crew delivery** are deferred to v1.1. In v1, only resource manifests trigger delivery operations.
+4. **Deliver inventory and crew** from their respective manifests. Inventory items are placed into destination cargo slots; crew (generic kerbals by trait) are assigned to available seats. See sections 4.7 for manifest formats.
 
 ### 6.4 Legacy single-delivery execution
 
@@ -536,7 +536,7 @@ For each resource in stop.DeliveryManifest:
     actualDelivery[resource] = deliver
 ```
 
-Origin cost: deduct full CostManifest at dispatch time if ANY delivery resource across ANY stop has a non-zero amount. Zero deduction only if total delivery is zero across all resources at all stops.
+Origin cost: deduct full CostManifest at dispatch time if ANY delivery item (resource, inventory, or crew) across ANY stop has a non-zero amount. Zero deduction only if total delivery is zero across all cargo types at all stops.
 
 ### 6.6 Pause, unpause, and re-target
 
@@ -664,9 +664,9 @@ Player selects two routes in the UI and clicks "Link as Round Trip." Sets `Linke
 **Scenario:** Player forgets to undock.
 **Behavior:** Validation fails. "Create Route" absent. Tooltip: "Transport must undock from destination."
 
-### 10.9 No resources transferred during docking
+### 10.9 No cargo transferred during docking
 **Scenario:** Player docks and undocks without transferring.
-**Behavior:** Validation fails. Tooltip: "No resource transfer detected during docking."
+**Behavior:** Validation fails. Tooltip: "No cargo transfer detected during docking."
 
 ### 10.10 Multiple dock/undock in one recording chain
 **Scenario:** Route recording chain has dock-transfer-undock-dock-transfer-undock.
@@ -686,7 +686,7 @@ Player selects two routes in the UI and clicks "Link as Round Trip." Sets `Linke
 
 ### 10.14 Recording deleted
 **Scenario:** Source recording for a route is deleted.
-**Behavior:** Route orphaned — resource transfers continue, ghost replay absent. "No ghost" indicator in UI.
+**Behavior:** Route orphaned — cargo transfers continue, ghost replay absent. "No ghost" indicator in UI.
 
 ### 10.15 Save/load round-trip
 **Scenario:** Save, load.
@@ -703,21 +703,21 @@ Player selects two routes in the UI and clicks "Link as Round Trip." Sets `Linke
 - **Origin loaded vs unloaded:** Same loaded/unloaded distinction as delivery.
 - **Scene handling:** Route scheduler runs in all scenes via ParsekScenario. `FlightGlobals.Vessels` available for endpoint resolution.
 - **Revert mechanism:** Route state serialized in .sfs. Quicksave load restores Route ConfigNode. Timeline events use epoch isolation.
-- **Inventory delivery deferred to v1.1:** Phase 11 captures inventory manifests (InventoryItem with count/slotsTaken + totalInventorySlots), but v1 routes only deliver resources. Inventory delivery (automated parts resupply) requires additional work on cargo bay slot allocation and part validity checking.
-- **Crew delivery deferred to v1.1:** Phase 11 captures crew manifests (trait counts, generic kerbals), but v1 routes do not transfer crew. Crew delivery requires integration with the existing KerbalsModule crew reservation system, which adds significant complexity (reservation conflicts, stand-in generation, seat allocation).
+- **Inventory delivery:** Inventory items delivered to destination cargo slots. If destination lacks available slots or the part type doesn't fit, excess items are silently skipped (same pattern as resource delivery clamping to maxAmount).
+- **Crew delivery:** Generic kerbals (by trait, not named individuals) assigned to available seats at destination. Separate from the crew reservation system — route crew are generated at delivery time, not reserved in advance.
 - **Route analysis edge cases:** The route analysis engine walks dock-transfer-undock sequences linearly. Complex docking patterns (dock to A, undock from A, dock to A again) are handled as separate stops at the same endpoint. Partial transfer detection (dock but no resource change) produces a stop with an empty delivery manifest, which is valid but does nothing.
 
 ---
 
 ## 12. What Doesn't Change
 
-- **Recording system** — recordings unchanged. Resource manifests (Phase 11) are additive metadata on Recording. The route module reads these fields but never writes to them.
+- **Recording system** — recordings unchanged. Cargo manifests (Phase 11: resources, inventory, crew) are additive metadata on Recording. The route module reads these fields but never writes to them.
 - **Ghost playback engine** — no changes to GhostPlaybackEngine, IPlaybackTrajectory, IGhostPositioner. The route scheduler uses the same playback engine as loops, but sequences segments manually via `OnPlaybackCompleted` events rather than using the built-in loop toggle.
 - **Loop system** — per-recording loop toggle, timing, cycle events all work as today. Routes do not use the loop system — they are siblings, not built on top of it. Both use the ghost playback engine, but through different scheduling paths.
 - **Chain system** — chain segments, dock/undock boundaries, snapshots all unchanged.
 - **Manifest capture systems (Phase 11)** — `ExtractResourceManifest`, `ComputeResourceDelta`, `DockTargetVesselPid` capture, and the three manifest types (resources, inventory, crew) are Phase 11 deliverables. They exist on Recording as additive fields, consumed read-only by both the route module and the UI tooltips.
 - **Merge dialog** — route creation happens after commit via explicit "Start/End Route Recording" workflow, not during merge.
-- **Crew reservation** — deferred to v1.1. Routes don't reserve crew in v1.
+- **Crew reservation** — route crew delivery uses generic kerbals, separate from the existing crew reservation system. No integration with KerbalsModule needed.
 - **Game actions system** — route events are new event types in existing ledger. No changes to recalculation engine.
 - **Map markers** — deferred. No map view integration in v1.
 
@@ -759,6 +759,8 @@ No changes to `FlightRecorder`, `GhostPlaybackEngine`, `RecordingStore`, `Record
 The route module is a read-only consumer of recording data. It reads:
 
 - `rec.StartResources` / `rec.EndResources` -- resource manifests (Phase 11)
+- `rec.StartInventory` / `rec.EndInventory` -- inventory manifests (Phase 11)
+- `rec.StartCrew` / `rec.EndCrew` -- crew manifests (Phase 11)
 - `rec.DockTargetVesselPid` -- dock target vessel identification (Phase 11)
 - `rec.StartBodyName`, `rec.StartLatitude`, `rec.StartLongitude` -- location context (Phase 10)
 - Chain boundary trajectory points for dock-time coordinates
@@ -923,9 +925,6 @@ The roadmap defers assembly extraction to the Gloops boundary (pre-Phase 13). Fo
 
 ## 17. Open Questions (deferred to v1.1+)
 
-- **Inventory delivery:** Automated parts delivery from cargo containers. Requires slot allocation logic and part validity checking. Phase 11 captures the data; delivery is deferred.
-- **Crew delivery:** Automated crew rotation. Requires KerbalsModule integration (reservation conflicts, stand-in generation, seat allocation). Phase 11 captures the data; delivery is deferred.
-- **Crewed routes:** Crew reservation for route dispatches. v1 ignores crew.
 - **Map view integration:** Route lines on the map. Deferred.
 - **Dispatch priority for competing routes:** v1 uses FIFO by NextDispatchUT.
 
