@@ -26,6 +26,8 @@ All notable changes to Parsek are documented here.
 - Sortable "Site" column in the Recordings Manager — sorts by launch site name with UT tiebreak within the same site.
 - Renamed the expanded-stats toggle button from "Stats" to "Info".
 - Resource snapshots: recordings capture physical resource manifests (LF, Ox, Ore, etc.) at start and end. Hover tooltip in Recordings Manager shows resource changes per recording. Prerequisite for logistics routes.
+- Inventory manifests: recordings capture stored inventory items (count, slots) at start and end. Hover tooltip shows inventory changes per recording.
+- Crew manifests: recordings capture crew by trait (Pilot/Scientist/Engineer/Tourist) at start and end. Hover tooltip shows crew changes per recording.
 - Dock target vessel PID captured at chain boundaries for future route endpoint identification.
 
 ---

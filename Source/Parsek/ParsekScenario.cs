@@ -3073,6 +3073,16 @@ namespace Parsek
             // Resource manifests (Phase 11)
             RecordingStore.SerializeResourceManifest(recNode, rec);
 
+            // Inventory manifests (Phase 11)
+            RecordingStore.SerializeInventoryManifest(recNode, rec);
+            if (rec.StartInventorySlots != 0)
+                recNode.AddValue("startInvSlots", rec.StartInventorySlots.ToString(CultureInfo.InvariantCulture));
+            if (rec.EndInventorySlots != 0)
+                recNode.AddValue("endInvSlots", rec.EndInventorySlots.ToString(CultureInfo.InvariantCulture));
+
+            // Crew manifests (Phase 11)
+            RecordingStore.SerializeCrewManifest(recNode, rec);
+
             // Dock target vessel PID (Phase 11)
             if (rec.DockTargetVesselPid != 0)
                 recNode.AddValue("dockTargetPid", rec.DockTargetVesselPid.ToString(CultureInfo.InvariantCulture));
@@ -3246,6 +3256,26 @@ namespace Parsek
 
             // Resource manifests (Phase 11)
             RecordingStore.DeserializeResourceManifest(recNode, rec);
+
+            // Inventory manifests (Phase 11)
+            RecordingStore.DeserializeInventoryManifest(recNode, rec);
+            string startInvSlotsStr = recNode.GetValue("startInvSlots");
+            if (startInvSlotsStr != null)
+            {
+                int startInvSlots;
+                if (int.TryParse(startInvSlotsStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out startInvSlots))
+                    rec.StartInventorySlots = startInvSlots;
+            }
+            string endInvSlotsStr = recNode.GetValue("endInvSlots");
+            if (endInvSlotsStr != null)
+            {
+                int endInvSlots;
+                if (int.TryParse(endInvSlotsStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out endInvSlots))
+                    rec.EndInventorySlots = endInvSlots;
+            }
+
+            // Crew manifests (Phase 11)
+            RecordingStore.DeserializeCrewManifest(recNode, rec);
 
             // Dock target vessel PID (Phase 11)
             string dockTargetPidStr = recNode.GetValue("dockTargetPid");
