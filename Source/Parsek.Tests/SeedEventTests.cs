@@ -569,6 +569,69 @@ namespace Parsek.Tests
             Assert.Contains(logLines, l => l.Contains("Skipped 1 zero-throttle engine seed"));
         }
 
+        [Fact]
+        public void EmitSeedEvents_DeadEngine_InAllButNotActive_EmitsShutdownSentinel()
+        {
+            // #298: allEngineKeys tracks all engine modules on the vessel.
+            // Engines present but NOT in activeEngineKeys get EngineShutdown sentinels
+            // to prevent the playback Count==0 auto-start heuristic from firing.
+            var sets = MakeEmptySets();
+            uint pidActive = 5100u;
+            uint pidDead = 5200u;
+            ulong keyActive = FlightRecorder.EncodeEngineKey(pidActive, 0);
+            ulong keyDead = FlightRecorder.EncodeEngineKey(pidDead, 0);
+            sets.activeEngineKeys.Add(keyActive);
+            sets.allEngineKeys.Add(keyActive);
+            sets.allEngineKeys.Add(keyDead); // present but not active
+            sets.lastThrottle[keyActive] = 0.8f;
+            var names = new Dictionary<uint, string>
+            {
+                { pidActive, "mainEngine" },
+                { pidDead, "depletedBooster" },
+            };
+
+            var result = PartStateSeeder.EmitSeedEvents(sets, names, 21000.0, "Test");
+
+            var ignited = result.FindAll(e => e.eventType == PartEventType.EngineIgnited);
+            var shutdown = result.FindAll(e => e.eventType == PartEventType.EngineShutdown);
+            Assert.Single(ignited);
+            Assert.Equal(pidActive, ignited[0].partPersistentId);
+            Assert.Single(shutdown);
+            Assert.Equal(pidDead, shutdown[0].partPersistentId);
+            Assert.Contains(logLines, l => l.Contains("EngineShutdown sentinel"));
+        }
+
+        [Fact]
+        public void EmitSeedEvents_AllEnginesActive_NoShutdownSentinels()
+        {
+            // When all engines in allEngineKeys are also in activeEngineKeys,
+            // no shutdown sentinels should be emitted.
+            var sets = MakeEmptySets();
+            uint pid = 5300u;
+            ulong key = FlightRecorder.EncodeEngineKey(pid, 0);
+            sets.activeEngineKeys.Add(key);
+            sets.allEngineKeys.Add(key);
+            sets.lastThrottle[key] = 1.0f;
+            var names = new Dictionary<uint, string> { { pid, "onlyEngine" } };
+
+            var result = PartStateSeeder.EmitSeedEvents(sets, names, 22000.0, "Test");
+
+            Assert.Single(result.FindAll(e => e.eventType == PartEventType.EngineIgnited));
+            Assert.Empty(result.FindAll(e => e.eventType == PartEventType.EngineShutdown));
+        }
+
+        [Fact]
+        public void EmitSeedEvents_EmptyAllEngineKeys_NoSentinels()
+        {
+            // When allEngineKeys is empty (no engines on vessel), no sentinels emitted.
+            var sets = MakeEmptySets();
+            var names = new Dictionary<uint, string>();
+
+            var result = PartStateSeeder.EmitSeedEvents(sets, names, 23000.0, "Test");
+
+            Assert.Empty(result.FindAll(e => e.eventType == PartEventType.EngineShutdown));
+        }
+
         #endregion
 
         #region ShouldSkipZeroThrottleEngineSeed — pure method (#165)
@@ -722,6 +785,7 @@ namespace Parsek.Tests
                 deployedRobotArmScannerModules = new HashSet<ulong>(),
                 animateHeatLevels = new Dictionary<ulong, HeatLevel>(),
                 activeEngineKeys = new HashSet<ulong>(),
+                allEngineKeys = new HashSet<ulong>(),
                 lastThrottle = new Dictionary<ulong, float>(),
                 activeRcsKeys = new HashSet<ulong>(),
                 lastRcsThrottle = new Dictionary<ulong, float>(),

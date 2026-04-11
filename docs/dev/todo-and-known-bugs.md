@@ -7,6 +7,24 @@ Entries 272–303 (78 bugs, 6 TODOs — mostly resolved) archived in `done/todo-
 
 # Known Bugs
 
+## ~~298b. FlightRecorder missing allEngineKeys -- #298 dead engine sentinels only work for BackgroundRecorder~~
+
+`PartStateSeeder.EmitEngineSeedEvents` emits `EngineShutdown` sentinels for dead engines
+using `sets.allEngineKeys` (#298). `BackgroundRecorder.BuildPartTrackingSetsFromState` sets
+`allEngineKeys = state.allEngineKeys`, but `FlightRecorder.BuildCurrentTrackingSets` omits it
+entirely. FlightRecorder has no `allEngineKeys` field, so `SeedEngines` populates it on a
+temporary `PartTrackingSets` that is immediately discarded. The subsequent `EmitSeedEvents`
+call creates a new set with an empty `allEngineKeys`, emitting zero sentinels.
+
+**Fix:** Add `private HashSet<ulong> allEngineKeys` to FlightRecorder and include it in
+`BuildCurrentTrackingSets`. `SeedEngines` will then populate FlightRecorder's own set
+(same reference pattern as `activeEngineKeys`), and the follow-up `EmitSeedEvents` will
+see the populated set and emit the sentinels.
+
+**Status:** ~~Fixed~~
+
+---
+
 ## ~~297. FallbackCommitSplitRecorder orphans tree continuation data as standalone recording~~
 
 When a vessel is destroyed during tree recording and the split recorder can't resume,
