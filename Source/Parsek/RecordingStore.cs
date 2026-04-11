@@ -47,6 +47,30 @@ namespace Parsek
     }
 
     /// <summary>
+    /// State of the pending standalone slot in <see cref="RecordingStore"/>.
+    /// Determines how <see cref="ParsekScenario.OnLoad"/> dispatches the pending
+    /// standalone after revert detection runs. Parallel to <see cref="PendingTreeState"/>.
+    /// </summary>
+    public enum PendingStandaloneState
+    {
+        /// <summary>
+        /// Standalone has been finalized: terminal state set, snapshots preserved,
+        /// ready for merge dialog. This is the default state — scene exits to KSC,
+        /// manual commits, and post-destruction paths all use Finalized.
+        /// </summary>
+        Finalized = 0,
+
+        /// <summary>
+        /// Standalone is still "in-flight": recorder was torn down because the scene
+        /// is unloading for a FLIGHT->FLIGHT transition (quickload or revert). OnLoad
+        /// decides based on the presence of PARSEK_ACTIVE_STANDALONE in the loaded save
+        /// whether to discard (F5/F9 resume takes over) or finalize for merge dialog
+        /// (revert-to-launch). Parallel to <see cref="PendingTreeState.Limbo"/>.
+        /// </summary>
+        Limbo = 1,
+    }
+
+    /// <summary>
     /// Static holder for recording data that survives scene changes.
     /// Static fields persist across scene loads within a KSP session.
     /// Save/load persistence is handled separately by ParsekScenario.
@@ -143,8 +167,13 @@ namespace Parsek
         // See docs/dev/plans/quickload-resume-recording.md.
         private static PendingTreeState pendingTreeState = PendingTreeState.Finalized;
 
+        // State of the pending standalone slot. Finalized = ready for merge dialog.
+        // Limbo = in-flight, stashed for FLIGHT->FLIGHT dispatch (parallel to pendingTreeState).
+        private static PendingStandaloneState pendingStandaloneState = PendingStandaloneState.Finalized;
+
         public static bool HasPending => pendingRecording != null;
         public static Recording Pending => pendingRecording;
+        public static PendingStandaloneState PendingStandaloneStateValue => pendingStandaloneState;
         public static List<Recording> CommittedRecordings => committedRecordings;
         public static List<RecordingTree> CommittedTrees => committedTrees;
         public static bool HasPendingTree => pendingTree != null;
@@ -158,7 +187,8 @@ namespace Parsek
             List<PartEvent> partEvents = null,
             List<FlagEvent> flagEvents = null,
             List<SegmentEvent> segmentEvents = null,
-            List<TrackSection> trackSections = null)
+            List<TrackSection> trackSections = null,
+            PendingStandaloneState state = PendingStandaloneState.Finalized)
         {
             if (points == null || points.Count < 2)
             {
@@ -245,6 +275,7 @@ namespace Parsek
                     : new List<TrackSection>(),
                 VesselName = vesselName
             };
+            pendingStandaloneState = state;
 
             PendingStashedThisTransition = true;
 
@@ -279,6 +310,7 @@ namespace Parsek
             string recordingId = pendingRecording.RecordingId;
             double endUT = pendingRecording.EndUT;
             pendingRecording = null;
+            pendingStandaloneState = PendingStandaloneState.Finalized;
 
             // Capture a game state baseline at each commit (single funnel point)
             GameStateStore.CaptureBaselineIfNeeded();
@@ -300,6 +332,7 @@ namespace Parsek
 
             Log($"[Parsek] Discarded pending recording from {pendingRecording.VesselName}");
             pendingRecording = null;
+            pendingStandaloneState = PendingStandaloneState.Finalized;
         }
 
         public static void ClearCommitted()
@@ -318,6 +351,7 @@ namespace Parsek
             if (pendingRecording != null)
                 DeleteRecordingFiles(pendingRecording);
             pendingRecording = null;
+            pendingStandaloneState = PendingStandaloneState.Finalized;
             pendingTree = null;
             pendingTreeState = PendingTreeState.Finalized;
             ClearCommitted();
@@ -623,6 +657,20 @@ namespace Parsek
             pendingTreeState = PendingTreeState.Finalized;
             ParsekLog.Info("RecordingStore",
                 $"Pending tree '{pendingTree.TreeName}' transitioned Limbo → Finalized");
+        }
+
+        /// <summary>
+        /// Marks the pending standalone's state as Finalized after the Limbo dispatch
+        /// has decided to keep it for the merge dialog (revert-to-launch path).
+        /// Parallel to <see cref="MarkPendingTreeFinalized"/>.
+        /// </summary>
+        internal static void MarkPendingStandaloneFinalized()
+        {
+            if (pendingRecording == null) return;
+            if (pendingStandaloneState == PendingStandaloneState.Finalized) return;
+            pendingStandaloneState = PendingStandaloneState.Finalized;
+            ParsekLog.Info("RecordingStore",
+                $"Pending standalone '{pendingRecording.VesselName}' transitioned Limbo → Finalized");
         }
 
         /// <summary>
@@ -1540,6 +1588,7 @@ namespace Parsek
         internal static void ResetForTesting()
         {
             pendingRecording = null;
+            pendingStandaloneState = PendingStandaloneState.Finalized;
             committedRecordings.Clear();
             committedTrees.Clear();
             pendingTree = null;

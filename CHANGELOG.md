@@ -14,6 +14,8 @@ All notable changes to Parsek are documented here.
 
 - `#241` Ghost parts with the base/default color variant (e.g., BlackAndWhite fuel tanks) no longer show the wrong variant texture (was Orange).
 - `#297` Vessel destruction during tree recording no longer orphans continuation data as a standalone recording.
+- `#304` Stock vessel recordings now show resolved names instead of raw `#autoLOC` keys in the UI, timeline, and logs.
+- `#305` Standalone recordings (rovers, planes) now survive revert-to-launch and show the merge dialog instead of being silently discarded.
 - Test runner window no longer spams IMGUI layout exceptions when opened during flight.
 - `T55` FlagEvents and SegmentEvents are now preserved across tree recording splits and flushes.
 - `#298b` Dead engine shutdown sentinels now work for active-vessel recordings (were only emitted for background vessel recordings).
