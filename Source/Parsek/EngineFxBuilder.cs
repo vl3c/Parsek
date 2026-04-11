@@ -151,6 +151,13 @@ namespace Parsek
                     Quaternion localRot = Quaternion.identity;
                     string rotStr = ppNodes[pp].GetValue("localRotation");
                     bool hasLocalRot = GhostVisualBuilder.TryParseFxLocalRotation(rotStr, out localRot);
+                    if (!hasLocalRot)
+                    {
+                        // #242: ghost model transforms have +Y sideways, not along thrust axis.
+                        // Default -90 X aligns PREFAB_PARTICLE emission (+Y) with thrust direction.
+                        localRot = Quaternion.Euler(-90f, 0f, 0f);
+                        hasLocalRot = true;
+                    }
 
                     prefabFxEntries.Add((prefabName, transformName, localOffset, localRot, hasLocalRot, groupName));
                 }
