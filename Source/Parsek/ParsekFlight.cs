@@ -5890,6 +5890,11 @@ namespace Parsek
                 ? FlightRecorder.FindVesselByPid(rec.VesselPersistentId)
                 : null;
 
+            if (isLeaf && rec.VesselPersistentId != 0 && finalizeVessel == null)
+                ParsekLog.Verbose("Flight",
+                    $"FinalizeIndividualRecording: vessel pid={rec.VesselPersistentId} not found " +
+                    $"for '{rec.RecordingId}' (isSceneExit={isSceneExit}) — re-snapshot will be skipped");
+
             // Determine terminal state for recordings that don't have one yet
             if (isLeaf && !rec.TerminalStateValue.HasValue)
             {
@@ -7878,10 +7883,16 @@ namespace Parsek
                 targetAlt = terrainAlt + VesselSpawner.LandedGhostClearanceMeters;
             }
 
-            if (p.altitude >= targetAlt)
+            // When we have recorded terrain data, always correct to preserve the original
+            // clearance — terrain may be higher OR lower now than at recording time.
+            // Without recorded terrain (NaN fallback), only push up to minimum clearance.
+            if (double.IsNaN(recordedTerrainHeight) && p.altitude >= targetAlt)
                 return p;
 
             double delta = targetAlt - p.altitude;
+            if (System.Math.Abs(delta) < 0.01)
+                return p; // already at target (within tolerance)
+
             ParsekLog.VerboseRateLimited("TerrainCorrect", $"landed-ghost-{index}",
                 $"Landed ghost clamp #{index} (\"{vesselName}\"): " +
                 $"alt={p.altitude.ToString("F1", ic)} terrain={terrainAlt.ToString("F1", ic)} " +
