@@ -158,11 +158,15 @@ Parts whose base/default variant is implicit (not a VARIANT node) showed the wro
 
 ---
 
-## 242. Ghost engine smoke emits perpendicular to flame direction
+## ~~242. Ghost engine smoke emits perpendicular to flame direction~~
 
-On some engines, the smoke/exhaust particle effect fires sideways (perpendicular to the thrust axis) instead of along it. The flame plume itself is oriented correctly but the secondary smoke effect has a wrong emission direction. Likely a particle system `rotation` or `shape.rotation` not being transformed correctly when cloning engine FX from the prefab EFFECTS config.
+On Mammoth, Twin Boar, RAPIER, and Vector, ghost engine smoke fired sideways. Fire plumes were correct.
 
-**Priority:** Low — cosmetic, only noticeable on certain engine models
+**Root cause:** PREFAB_PARTICLE entries scanned from EFFECTS configs without explicit `localRotation` were placed at identity rotation. Unity ParticleSystems emit along local +Y, but the parent transform's thrust direction is local -Z. KSP's runtime applies an implicit -90 X rotation to align emission with thrust; the ghost FX builder was missing this default for scanned PREFAB_PARTICLE entries. (MODEL_MULTI_PARTICLE entries and hardcoded fallback entries already had correct -90 X rotation.)
+
+**Fix:** In `ScanEffectsPrefabParticleEntries`, when `hasCfgRot` is false and the prefab name doesn't end with `_Z` (which already emits along Z), apply `Quaternion.Euler(-90,0,0)` as default. Also relabeled diagnostic logging from misleading `fxFwd/fxUp` to `emitDir` (= FX local +Y, the actual emission axis).
+
+**Status:** ~~Fixed~~
 
 ---
 

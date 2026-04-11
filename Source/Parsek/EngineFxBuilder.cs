@@ -135,6 +135,21 @@ namespace Parsek
                     string rotStr = ppNodes[pp].GetValue("localRotation");
                     bool hasLocalRot = GhostVisualBuilder.TryParseFxLocalRotation(rotStr, out localRot);
 
+                    // #242: KSP's runtime applies an implicit -90 X rotation to
+                    // PREFAB_PARTICLE entries without explicit localRotation. This
+                    // rotates the particle system's emission axis (local +Y) to
+                    // align with the parent transform's forward (-Z = thrust direction).
+                    // Prefabs with _Z suffix already emit along Z and don't need this.
+                    if (!hasLocalRot &&
+                        !prefabName.EndsWith("_Z", System.StringComparison.OrdinalIgnoreCase))
+                    {
+                        localRot = Quaternion.Euler(-90f, 0f, 0f);
+                        hasLocalRot = true;
+                        ParsekLog.Verbose("EngineFx",
+                            $"default -90X rotation for prefab '{prefabName}' " +
+                            $"on '{transformName}' in group '{groupName}' (#242)");
+                    }
+
                     prefabFxEntries.Add((prefabName, transformName, localOffset, localRot, hasLocalRot, groupName));
                 }
             }
@@ -311,15 +326,15 @@ namespace Parsek
                                 Vector3 srcFwd = srcFxTransform.forward;
                                 Vector3 srcUp = srcFxTransform.up;
                                 Quaternion srcLocalRot = srcFxTransform.localRotation;
-                                // #242 diag: log effect group + final FX direction for smoke/flame comparison
-                                Vector3 fxFwd = fxInstance.transform.forward;
-                                Vector3 fxUp = fxInstance.transform.up;
+                                // #242 diag: emitDir = FX local +Y (Unity ParticleSystem default cone emission axis).
+                                // A correct engine FX should have emitDir pointing along the thrust axis (down on pad).
+                                Vector3 emitDir = fxInstance.transform.up;
                                 ParsekLog.Verbose("EngineFx", $"cloned: '{partName}' midx={moduleIndex} " +
                                     $"group='{groupName}' type={nodeType} transform='{transformName}' model='{modelName}' " +
                                     $"systems={addedSystems} " +
                                     $"cfgRot={mmpLocalRot.eulerAngles} " +
                                     $"srcLocalRot={srcLocalRot.eulerAngles} srcFwd={srcFwd} srcUp={srcUp} " +
-                                    $"fxFwd={fxFwd} fxUp={fxUp}");
+                                    $"emitDir={emitDir}");
                             }
                             else
                             {
@@ -413,14 +428,13 @@ namespace Parsek
                         GhostVisualBuilder.LogFxInstancePlacementDiagnostic(partName, moduleIndex, "PREFAB_PARTICLE", transformName,
                             prefabName, prefab.transform, ghostModelNode, srcFxTransform, ghostFxParent,
                             fxInstance.transform, localOffset, localRot, hasLocalRot);
-                        // #242 diag: log effect group + final FX direction for smoke/flame comparison
-                        Vector3 pfxFwd = fxInstance.transform.forward;
-                        Vector3 pfxUp = fxInstance.transform.up;
+                        // #242 diag: emitDir = FX local +Y (Unity ParticleSystem default cone emission axis).
+                        Vector3 emitDir = fxInstance.transform.up;
                         ParsekLog.Verbose("EngineFx", $"(prefab): '{partName}' midx={moduleIndex} " +
                             $"group='{groupName}' transform='{transformName}' prefab='{prefabName}' " +
                             $"systems={addedSystems} " +
                             $"cfgRot={localRot.eulerAngles} hasCfgRot={hasLocalRot} " +
-                            $"fxFwd={pfxFwd} fxUp={pfxUp}");
+                            $"emitDir={emitDir}");
                     }
                     else
                     {
