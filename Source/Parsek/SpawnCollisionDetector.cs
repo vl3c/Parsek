@@ -523,7 +523,8 @@ namespace Parsek
         {
             ParsekLog.Verbose(Tag,
                 $"CheckOverlapAgainstLoadedVessels: checking spawn at ({spawnWorldPos.x.ToString("F0", IC)},{spawnWorldPos.y.ToString("F0", IC)},{spawnWorldPos.z.ToString("F0", IC)}) " +
-                $"padding={padding.ToString("F1", IC)}m against {FlightGlobals.Vessels.Count} vessels, skipActiveVessel={skipActiveVessel}");
+                $"padding={padding.ToString("F1", IC)}m against {FlightGlobals.Vessels.Count} vessels, skipActiveVessel={skipActiveVessel}" +
+                (exemptVesselPid != 0 ? $", exemptPid={exemptVesselPid} (T57)" : ""));
 
             bool anyOverlap = false;
             float closestDist = float.MaxValue;
@@ -537,7 +538,7 @@ namespace Parsek
                 if (GhostMapPresence.IsGhostMapVessel(other.persistentId)) continue;
 
                 // Skip player's own vessel — shouldn't block non-EVA spawns.
-                // EVA spawns need to detect the active vessel (active vessel) as a
+                // EVA spawns need to detect the active vessel (parent rocket) as a
                 // blocker so the walkback can find a clear position (#291), UNLESS
                 // it's the EVA's parent vessel (#T57).
                 if (skipActiveVessel && other == FlightGlobals.ActiveVessel) continue;
@@ -545,7 +546,13 @@ namespace Parsek
                 // T57: skip the EVA's parent vessel — the EVA trajectory is always
                 // adjacent to the parent, so without exemption the entire walkback
                 // is exhausted and the spawn is abandoned.
-                if (exemptVesselPid != 0 && other.persistentId == exemptVesselPid) continue;
+                if (exemptVesselPid != 0 && other.persistentId == exemptVesselPid)
+                {
+                    ParsekLog.Verbose(Tag,
+                        $"Skipping exempt parent vessel '{Recording.ResolveLocalizedName(other.vesselName)}' " +
+                        $"(pid={other.persistentId}) for EVA collision check (T57)");
+                    continue;
+                }
 
                 // Skip non-significant vessel types that shouldn't block spawns
                 if (ShouldSkipVesselType(other.vesselType))
