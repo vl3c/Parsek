@@ -198,8 +198,9 @@ This phase is explicitly measurement-first: add observability, playtest a full c
 
 Automated supply routes realized through Parsek's existing loop mechanic. Fly a cargo run once, loop the recording, each iteration is a supply delivery.
 
-- **Route definition** — a recording with declared origin (Phase 10) and destination (Phase 10) plus resource manifest (Phase 11)
-- **Delivery logic on loop completion** — recording completion triggers resource transfer to nearest vessel within range
+- **Route definition** — a recording with declared origin (Phase 10) and destination (Phase 10) plus resource/inventory/crew manifests (Phase 11)
+- **Three cargo types** — resources (LF, Ox, Ore, etc.), inventory items (stored parts in cargo containers), and crew (generic kerbals by trait)
+- **Delivery logic on loop completion** — recording completion triggers cargo transfer to nearest vessel within range
 - **Round-trip support** — initially two separate looped recordings (outbound loaded, return empty); eventual round-trip recording mode
 - **Time scaling** — deliveries at realistic intervals with UI showing "next delivery in: 3d 4h"
 - **Visual presence** — ghost supply ships actually fly (as ghosts) on every loop iteration; only approach/departure bubbles spawn visible ghosts, transit is invisible (the boring middle)

@@ -79,7 +79,7 @@ Val's FleaRocket flies southeast to the island airfield, cruising at ~1000m. **V
 
 ### Tree Recordings (RECORDING_TREE)
 
-The following 3 recordings are injected as `RECORDING_TREE` nodes, not standalone `RECORDING` nodes. Each tree contains multiple recordings connected by branch points.
+The following 3 recordings are injected as `RECORDING_TREE` nodes. Each tree contains multiple recordings connected by branch points.
 
 ### 9. Undock Test Tree (+270 to +390) - Tree: Split
 
