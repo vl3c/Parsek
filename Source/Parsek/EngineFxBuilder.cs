@@ -311,15 +311,15 @@ namespace Parsek
                                 Vector3 srcFwd = srcFxTransform.forward;
                                 Vector3 srcUp = srcFxTransform.up;
                                 Quaternion srcLocalRot = srcFxTransform.localRotation;
-                                // #242 diag: emitDir = FX local +Y (Unity ParticleSystem default cone emission axis).
-                                // A correct engine FX should have emitDir pointing along the thrust axis (down on pad).
-                                Vector3 emitDir = fxInstance.transform.up;
+                                // #242 diag: log effect group + final FX direction for smoke/flame comparison
+                                Vector3 fxFwd = fxInstance.transform.forward;
+                                Vector3 fxUp = fxInstance.transform.up;
                                 ParsekLog.Verbose("EngineFx", $"cloned: '{partName}' midx={moduleIndex} " +
                                     $"group='{groupName}' type={nodeType} transform='{transformName}' model='{modelName}' " +
                                     $"systems={addedSystems} " +
                                     $"cfgRot={mmpLocalRot.eulerAngles} " +
                                     $"srcLocalRot={srcLocalRot.eulerAngles} srcFwd={srcFwd} srcUp={srcUp} " +
-                                    $"emitDir={emitDir}");
+                                    $"fxFwd={fxFwd} fxUp={fxUp}");
                             }
                             else
                             {
@@ -413,13 +413,14 @@ namespace Parsek
                         GhostVisualBuilder.LogFxInstancePlacementDiagnostic(partName, moduleIndex, "PREFAB_PARTICLE", transformName,
                             prefabName, prefab.transform, ghostModelNode, srcFxTransform, ghostFxParent,
                             fxInstance.transform, localOffset, localRot, hasLocalRot);
-                        // #242 diag: emitDir = FX local +Y (Unity ParticleSystem default cone emission axis).
-                        Vector3 emitDir = fxInstance.transform.up;
+                        // #242 diag: log effect group + final FX direction for smoke/flame comparison
+                        Vector3 pfxFwd = fxInstance.transform.forward;
+                        Vector3 pfxUp = fxInstance.transform.up;
                         ParsekLog.Verbose("EngineFx", $"(prefab): '{partName}' midx={moduleIndex} " +
                             $"group='{groupName}' transform='{transformName}' prefab='{prefabName}' " +
                             $"systems={addedSystems} " +
                             $"cfgRot={localRot.eulerAngles} hasCfgRot={hasLocalRot} " +
-                            $"emitDir={emitDir}");
+                            $"fxFwd={pfxFwd} fxUp={pfxUp}");
                     }
                     else
                     {

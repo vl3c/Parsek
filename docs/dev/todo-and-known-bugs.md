@@ -160,13 +160,15 @@ Parts whose base/default variant is implicit (not a VARIANT node) showed the wro
 
 ## 242. Ghost engine smoke emits perpendicular to flame direction
 
-On Mammoth, Twin Boar, RAPIER, and Vector, ghost engine smoke fires sideways. Fire plumes are visually correct. Diagnostic logging (effect group name + `emitDir`) added to `EngineFxBuilder`.
+On Mammoth, Twin Boar, RAPIER, and Vector, ghost engine smoke fires sideways. Fire plumes are visually correct.
 
-**Investigation:** A blanket -90 X rotation for scanned PREFAB_PARTICLE entries was attempted but failed -- `emitDir` (transform local +Y) doesn't consistently represent the actual particle emission direction because KSP FX models have internal `ParticleSystem.shape.rotation` that varies per model. The blanket approach fixed smoke on some engines but broke fire on others (Ant, Spider, Puff, Vector secondary effects).
+**Investigation (decompiled KSP):** `ModelMultiParticleFX.OnInitialize` uses `Quaternion.Euler(localRotation)` defaulting to identity -- no implicit -90 X. `PrefabParticleFX` uses `Quaternion.AngleAxis(localRotation.w, localRotation)` defaulting to identity. KSP applies only what's in the config.
 
-**Next step:** Decompile KSP's `EffectPrefab`/`ModelMultiParticlePersistFX` to see what rotation it applies at runtime. The fix needs to read the actual particle system shape configuration from each model, not assume a uniform emission axis.
+**Root cause (confirmed):** Two problems: (1) `effectsNode.GetNodes()` scans ALL effect groups instead of just the engine's `runningEffectName` group, producing doubled FX from non-running groups. (2) Hardcoded fallback entries add PREFAB_PARTICLE effects even when the running group already has sufficient MODEL_MULTI_PARTICLE FX, doubling the flame count.
 
-**Priority:** Low -- cosmetic, only affects smoke trail direction on a few engines
+**Correct fix plan:** Read `runningEffectName`/`directThrottleEffectName`/`powerEffectName` from the engine MODULE config. Filter EFFECTS scanning to only those groups. Suppress fallback entries when the running group already provides FX. Then clear `fxModelRotationFallbackEuler` (4 wrong entries) and hardcoded -90 X rotations.
+
+**Priority:** Low -- cosmetic, only affects smoke trail direction and flame doubling on a few engines
 
 ---
 
