@@ -44,13 +44,14 @@ namespace Parsek
         /// the first emission and speed curves found.
         /// </summary>
         private static void ScanEffectsModelFxEntries(
-            ConfigNode[] effectGroups,
-            List<(string nodeType, string transformName, string modelName, Vector3 localPos, Quaternion localRot)> modelFxEntries,
+            ConfigNode[] effectGroups, string[] effectGroupNames,
+            List<(string nodeType, string transformName, string modelName, Vector3 localPos, Quaternion localRot, string groupName)> modelFxEntries,
             ref FloatCurve emissionCurve,
             ref FloatCurve speedCurve)
         {
             for (int g = 0; g < effectGroups.Length; g++)
             {
+                string groupName = g < effectGroupNames.Length ? effectGroupNames[g] : "?";
                 for (int n = 0; n < EngineModelNodeTypes.Length; n++)
                 {
                     string nodeType = EngineModelNodeTypes[n];
@@ -77,7 +78,7 @@ namespace Parsek
                                 }
                             }
 
-                            modelFxEntries.Add((nodeType, transformName, modelName ?? "", mmpLocalPos, mmpLocalRot));
+                            modelFxEntries.Add((nodeType, transformName, modelName ?? "", mmpLocalPos, mmpLocalRot, groupName));
 
                             if (emissionCurve == null)
                             {
@@ -106,11 +107,12 @@ namespace Parsek
         /// Skips flameout/sparks/debris prefabs -- only wants running FX.
         /// </summary>
         private static void ScanEffectsPrefabParticleEntries(
-            ConfigNode[] effectGroups,
-            List<(string prefabName, string transformName, Vector3 localOffset, Quaternion localRotation, bool hasLocalRotation)> prefabFxEntries)
+            ConfigNode[] effectGroups, string[] effectGroupNames,
+            List<(string prefabName, string transformName, Vector3 localOffset, Quaternion localRotation, bool hasLocalRotation, string groupName)> prefabFxEntries)
         {
             for (int g = 0; g < effectGroups.Length; g++)
             {
+                string groupName = g < effectGroupNames.Length ? effectGroupNames[g] : "?";
                 ConfigNode[] ppNodes = effectGroups[g].GetNodes("PREFAB_PARTICLE");
                 for (int pp = 0; pp < ppNodes.Length; pp++)
                 {
@@ -133,7 +135,7 @@ namespace Parsek
                     string rotStr = ppNodes[pp].GetValue("localRotation");
                     bool hasLocalRot = GhostVisualBuilder.TryParseFxLocalRotation(rotStr, out localRot);
 
-                    prefabFxEntries.Add((prefabName, transformName, localOffset, localRot, hasLocalRot));
+                    prefabFxEntries.Add((prefabName, transformName, localOffset, localRot, hasLocalRot, groupName));
                 }
             }
         }
@@ -261,7 +263,7 @@ namespace Parsek
         /// and parents them to the ghost's mirrored transform hierarchy.
         /// </summary>
         private static void ProcessEngineModelFxEntries(
-            List<(string nodeType, string transformName, string modelName, Vector3 localPos, Quaternion localRot)> modelFxEntries,
+            List<(string nodeType, string transformName, string modelName, Vector3 localPos, Quaternion localRot, string groupName)> modelFxEntries,
             Part prefab, EngineGhostInfo info,
             string partName, int moduleIndex,
             Transform modelRoot, Transform ghostModelNode,
@@ -269,7 +271,7 @@ namespace Parsek
         {
             for (int f = 0; f < modelFxEntries.Count; f++)
             {
-                var (nodeType, transformName, modelName, mmpLocalPos, mmpLocalRot) = modelFxEntries[f];
+                var (nodeType, transformName, modelName, mmpLocalPos, mmpLocalRot, groupName) = modelFxEntries[f];
 
                 var fxTransforms = GhostVisualBuilder.FindTransformsRecursive(prefab.transform, transformName);
                 for (int t = 0; t < fxTransforms.Count; t++)
@@ -309,10 +311,15 @@ namespace Parsek
                                 Vector3 srcFwd = srcFxTransform.forward;
                                 Vector3 srcUp = srcFxTransform.up;
                                 Quaternion srcLocalRot = srcFxTransform.localRotation;
+                                // #242 diag: log effect group + final FX direction for smoke/flame comparison
+                                Vector3 fxFwd = fxInstance.transform.forward;
+                                Vector3 fxUp = fxInstance.transform.up;
                                 ParsekLog.Verbose("EngineFx", $"cloned: '{partName}' midx={moduleIndex} " +
-                                    $"type={nodeType} transform='{transformName}' model='{modelName}' " +
+                                    $"group='{groupName}' type={nodeType} transform='{transformName}' model='{modelName}' " +
                                     $"systems={addedSystems} " +
-                                    $"srcLocalRot={srcLocalRot} srcFwd={srcFwd} srcUp={srcUp}");
+                                    $"cfgRot={mmpLocalRot.eulerAngles} " +
+                                    $"srcLocalRot={srcLocalRot.eulerAngles} srcFwd={srcFwd} srcUp={srcUp} " +
+                                    $"fxFwd={fxFwd} fxUp={fxUp}");
                             }
                             else
                             {
@@ -334,7 +341,7 @@ namespace Parsek
         /// ghost's mirrored transform hierarchy. Handles special cases like RAPIER white flame scaling.
         /// </summary>
         private static void ProcessEnginePrefabFxEntries(
-            List<(string prefabName, string transformName, Vector3 localOffset, Quaternion localRotation, bool hasLocalRotation)> prefabFxEntries,
+            List<(string prefabName, string transformName, Vector3 localOffset, Quaternion localRotation, bool hasLocalRotation, string groupName)> prefabFxEntries,
             Part prefab, EngineGhostInfo info,
             string partName, int moduleIndex,
             Transform modelRoot, Transform ghostModelNode,
@@ -342,7 +349,7 @@ namespace Parsek
         {
             for (int f = 0; f < prefabFxEntries.Count; f++)
             {
-                var (prefabName, transformName, localOffset, localRot, hasLocalRot) = prefabFxEntries[f];
+                var (prefabName, transformName, localOffset, localRot, hasLocalRot, groupName) = prefabFxEntries[f];
                 string normalizedPrefabName = GhostVisualBuilder.NormalizeFxPrefabName(prefabName);
                 bool isRapierWhiteFlame =
                     string.Equals(partName, "RAPIER", System.StringComparison.OrdinalIgnoreCase) &&
@@ -406,8 +413,14 @@ namespace Parsek
                         GhostVisualBuilder.LogFxInstancePlacementDiagnostic(partName, moduleIndex, "PREFAB_PARTICLE", transformName,
                             prefabName, prefab.transform, ghostModelNode, srcFxTransform, ghostFxParent,
                             fxInstance.transform, localOffset, localRot, hasLocalRot);
+                        // #242 diag: log effect group + final FX direction for smoke/flame comparison
+                        Vector3 pfxFwd = fxInstance.transform.forward;
+                        Vector3 pfxUp = fxInstance.transform.up;
                         ParsekLog.Verbose("EngineFx", $"(prefab): '{partName}' midx={moduleIndex} " +
-                            $"transform='{transformName}' prefab='{prefabName}' systems={addedSystems}");
+                            $"group='{groupName}' transform='{transformName}' prefab='{prefabName}' " +
+                            $"systems={addedSystems} " +
+                            $"cfgRot={localRot.eulerAngles} hasCfgRot={hasLocalRot} " +
+                            $"fxFwd={pfxFwd} fxUp={pfxUp}");
                     }
                     else
                     {
@@ -479,21 +492,27 @@ namespace Parsek
                 ConfigNode effectsNode = partConfig.GetNode("EFFECTS");
 
                 // Scan EFFECTS for particle FX entries (MODEL_MULTI_PARTICLE, MODEL_PARTICLE, PREFAB_PARTICLE)
-                var modelFxEntries = new List<(string nodeType, string transformName, string modelName, Vector3 localPos, Quaternion localRot)>();
+                var modelFxEntries = new List<(string nodeType, string transformName, string modelName, Vector3 localPos, Quaternion localRot, string groupName)>();
                 var prefabFxEntries = new List<(
                     string prefabName,
                     string transformName,
                     Vector3 localOffset,
                     Quaternion localRotation,
-                    bool hasLocalRotation)>();
+                    bool hasLocalRotation,
+                    string groupName)>();
                 FloatCurve emissionCurve = null;
                 FloatCurve speedCurve = null;
 
                 if (effectsNode != null)
                 {
                     ConfigNode[] effectGroups = effectsNode.GetNodes();
-                    ScanEffectsModelFxEntries(effectGroups, modelFxEntries, ref emissionCurve, ref speedCurve);
-                    ScanEffectsPrefabParticleEntries(effectGroups, prefabFxEntries);
+                    // #242 diag: extract group names so we can log which EFFECTS group
+                    // each FX entry came from (running, power_open, engage, etc.)
+                    string[] effectGroupNames = new string[effectGroups.Length];
+                    for (int eg = 0; eg < effectGroups.Length; eg++)
+                        effectGroupNames[eg] = effectGroups[eg].name ?? "?";
+                    ScanEffectsModelFxEntries(effectGroups, effectGroupNames, modelFxEntries, ref emissionCurve, ref speedCurve);
+                    ScanEffectsPrefabParticleEntries(effectGroups, effectGroupNames, prefabFxEntries);
                 }
 
                 var namedTransformCache = new Dictionary<string, List<Transform>>(System.StringComparer.OrdinalIgnoreCase);
@@ -596,7 +615,7 @@ namespace Parsek
                         defaultOffset,
                         matchFxTransformAlias);
 
-                    prefabFxEntries.Add((prefabName, fallbackTransform, fallbackOffset, localRotation, hasLocalRotation));
+                    prefabFxEntries.Add((prefabName, fallbackTransform, fallbackOffset, localRotation, hasLocalRotation, "fallback"));
                     string rotationSuffix = hasLocalRotation ? $" rot={localRotation.eulerAngles}" : "";
                     ParsekLog.Verbose("EngineFx", $"fallback: '{partName}' midx={moduleIndex} " +
                         $"added {description} on '{fallbackTransform}' offset={fallbackOffset}{rotationSuffix}");
@@ -697,9 +716,9 @@ namespace Parsek
                     }
 
                     prefabFxEntries.Add(("fx_smokeTrail_medium",
-                        kickbackTransform, kickbackOffset, kickbackThumperLocalRot, true));
+                        kickbackTransform, kickbackOffset, kickbackThumperLocalRot, true, "fallback"));
                     prefabFxEntries.Add(("fx_exhaustFlame_yellow",
-                        kickbackTransform, kickbackOffset, kickbackThumperLocalRot, true));
+                        kickbackTransform, kickbackOffset, kickbackThumperLocalRot, true, "fallback"));
                     ParsekLog.Verbose("EngineFx", $"fallback: '{partName}' midx={moduleIndex} " +
                         $"forced Thumper-style plume on '{kickbackTransform}' offset={kickbackOffset} " +
                         $"rot={kickbackThumperLocalRot.eulerAngles} hasRot=true " +
@@ -762,8 +781,8 @@ namespace Parsek
                         matchFxTransformAlias: false);
                     Quaternion rhinoPlumeRotation = Quaternion.Euler(-90f, 0f, 0f);
 
-                    prefabFxEntries.Add(("fx_smokeTrail_light", rhinoTransform, rhinoOffset, rhinoPlumeRotation, true));
-                    prefabFxEntries.Add(("fx_exhaustFlame_yellow_medium", rhinoTransform, rhinoOffset, rhinoPlumeRotation, true));
+                    prefabFxEntries.Add(("fx_smokeTrail_light", rhinoTransform, rhinoOffset, rhinoPlumeRotation, true, "fallback"));
+                    prefabFxEntries.Add(("fx_exhaustFlame_yellow_medium", rhinoTransform, rhinoOffset, rhinoPlumeRotation, true, "fallback"));
                     ParsekLog.Verbose("EngineFx", $"fallback: '{partName}' midx={moduleIndex} " +
                         $"forced compact Mainsail-like plume on '{rhinoTransform}' offset={rhinoOffset} " +
                         $"(removed MODEL={removedRhinoModelFx}, PREFAB={removedRhinoPrefabs})");
@@ -849,7 +868,7 @@ namespace Parsek
                                 fallbackTransform = engine.thrustVectorTransformName;
                         }
 
-                        prefabFxEntries.Add(("fx_exhaustFlame_blue", fallbackTransform, fallbackOffset, fallbackRotation, fallbackHasLocalRotation));
+                        prefabFxEntries.Add(("fx_exhaustFlame_blue", fallbackTransform, fallbackOffset, fallbackRotation, fallbackHasLocalRotation, "fallback"));
                         ParsekLog.Verbose("EngineFx", $"fallback: '{partName}' midx={moduleIndex} " +
                             $"added Skipper-style blue flame prefab on '{fallbackTransform}' offset={fallbackOffset} rot={fallbackRotation.eulerAngles}");
                     }
@@ -906,7 +925,7 @@ namespace Parsek
                     }
 
                     prefabFxEntries.Add(("fx_smokeTrail_large", rapierSmokeTransform, rapierSmokeOffset,
-                        rapierSmokeRotation, rapierSmokeHasLocalRotation));
+                        rapierSmokeRotation, rapierSmokeHasLocalRotation, "fallback"));
                     ParsekLog.Verbose("EngineFx", $"fallback: '{partName}' midx={moduleIndex} " +
                         $"replaced {removedRapierSmoke} smoke entries with Vector-style smoke on '{rapierSmokeTransform}' " +
                         $"offset={rapierSmokeOffset} rot={rapierSmokeRotation.eulerAngles}");
@@ -940,7 +959,7 @@ namespace Parsek
                         }
 
                         Quaternion flameRotation = Quaternion.Euler(-90f, 0f, 0f);
-                        prefabFxEntries.Add(("fx_exhaustFlame_white", flameTransform, flameOffset, flameRotation, true));
+                        prefabFxEntries.Add(("fx_exhaustFlame_white", flameTransform, flameOffset, flameRotation, true, "fallback"));
                         ParsekLog.Verbose("EngineFx", $"fallback: '{partName}' midx={moduleIndex} " +
                             $"added Vector-style white flame on '{flameTransform}' offset={flameOffset} rot={flameRotation.eulerAngles}");
                     }
