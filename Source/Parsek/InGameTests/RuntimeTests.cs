@@ -2755,5 +2755,37 @@ namespace Parsek.InGameTests
                 $"Double-seed guard necessity verified: first={countAfterFirst} " +
                 $"after-double={rec.PartEvents.Count} events");
         }
+
+        // ======================= ResourceManifest (Phase 11) =======================
+
+        [InGameTest(Category = "ResourceManifest", Scene = GameScenes.FLIGHT,
+            Description = "ExtractResourceManifest returns valid manifest from live vessel snapshot")]
+        public void ExtractResourceManifest_LiveVessel_ReturnsNonNull()
+        {
+            // Get active vessel
+            var vessel = FlightGlobals.ActiveVessel;
+            InGameAssert.IsNotNull(vessel, "No active vessel in flight");
+
+            // Take snapshot (same path as recording system)
+            var snapshot = VesselSpawner.TryBackupSnapshot(vessel);
+            InGameAssert.IsNotNull(snapshot, "Failed to snapshot active vessel");
+
+            // Extract resource manifest
+            var manifest = VesselSpawner.ExtractResourceManifest(snapshot);
+            InGameAssert.IsNotNull(manifest, "Resource manifest is null — vessel has no non-EC/IntakeAir resources?");
+            InGameAssert.IsTrue(manifest.Count > 0, "Resource manifest is empty");
+
+            // Log what we found for diagnostic verification
+            foreach (var kvp in manifest)
+                ParsekLog.Verbose("TestRunner", $"ResourceManifest test: {kvp.Key} = {kvp.Value}");
+
+            // Verify ElectricCharge is excluded
+            InGameAssert.IsFalse(manifest.ContainsKey("ElectricCharge"), "ElectricCharge should be excluded from manifest");
+
+            // Verify at least one common resource exists (most vessels have fuel)
+            bool hasCommonResource = manifest.ContainsKey("LiquidFuel") || manifest.ContainsKey("SolidFuel")
+                || manifest.ContainsKey("MonoPropellant") || manifest.ContainsKey("Oxidizer");
+            InGameAssert.IsTrue(hasCommonResource, "No common fuel resource found — test vessel needs fuel");
+        }
     }
 }
