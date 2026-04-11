@@ -1757,7 +1757,7 @@ namespace Parsek
 
         /// <summary>
         /// Creates a tree branch for a vessel split event.
-        /// If no tree exists yet, wraps the current recording as the root node.
+        /// Requires an active tree (always present in always-tree mode).
         /// Creates two child recordings (active + background), wires up BackgroundRecorder,
         /// and starts a new FlightRecorder for the active child.
         /// </summary>
@@ -2644,9 +2644,9 @@ namespace Parsek
 
         /// <summary>
         /// Processes a BREAKUP branch point emitted by the crash coalescer.
-        /// If an active tree exists, adds the BREAKUP event as a terminal-like marker
-        /// on the current recording segment. If no tree exists but a recorder is active,
-        /// promotes the standalone recording into a tree to enable debris tracking.
+        /// Adds the BREAKUP event as a branch point on the active tree recording and
+        /// creates child recordings for debris and controlled vessels.
+        /// If no active tree exists, the breakup is not recorded.
         /// </summary>
         void ProcessBreakupEvent(BranchPoint breakupBp)
         {

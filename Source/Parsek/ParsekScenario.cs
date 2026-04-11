@@ -1951,6 +1951,7 @@ namespace Parsek
             rec.TreeId = treeId;
             rec.VesselPersistentId = vesselPid;
             rec.VesselName = vesselName;
+            rec.RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion;
             if (rec.Points.Count > 0)
                 rec.ExplicitStartUT = rec.Points[0].ut;
 

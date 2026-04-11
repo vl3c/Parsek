@@ -793,8 +793,8 @@ namespace Parsek
 
         /// <summary>
         /// Sets the debris TTL expiry for an externally-created debris recording.
-        /// Called by ParsekFlight when promoting a standalone recording to a tree
-        /// and adding debris child recordings.
+        /// Called by ParsekFlight.ProcessBreakupEvent when adding debris child
+        /// recordings to the active tree.
         /// </summary>
         public void SetDebrisExpiry(uint vesselPid, double expiryUT)
         {
