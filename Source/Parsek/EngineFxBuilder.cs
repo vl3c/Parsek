@@ -151,13 +151,6 @@ namespace Parsek
                     Quaternion localRot = Quaternion.identity;
                     string rotStr = ppNodes[pp].GetValue("localRotation");
                     bool hasLocalRot = GhostVisualBuilder.TryParseFxLocalRotation(rotStr, out localRot);
-                    if (!hasLocalRot)
-                    {
-                        // #242: ghost model transforms have +Y sideways, not along thrust axis.
-                        // Default -90 X aligns PREFAB_PARTICLE emission (+Y) with thrust direction.
-                        localRot = Quaternion.Euler(-90f, 0f, 0f);
-                        hasLocalRot = true;
-                    }
 
                     prefabFxEntries.Add((prefabName, transformName, localOffset, localRot, hasLocalRot, groupName));
                 }
@@ -409,7 +402,21 @@ namespace Parsek
                     fxInstance.transform.SetParent(ghostFxParent, false);
                     fxInstance.transform.localPosition = localOffset;
                     if (hasLocalRot)
+                    {
                         fxInstance.transform.localRotation = localRot;
+                    }
+                    else
+                    {
+                        // #242: PREFAB_PARTICLE emits along local +Y. If the parent transform's
+                        // +Y is already close to the thrust axis (world up at build time), identity
+                        // is correct (e.g. SSME's thrustTransformYup). Otherwise apply -90 X to
+                        // rotate emission from sideways +Y onto the thrust axis.
+                        float yComponent = Mathf.Abs(ghostFxParent.up.y);
+                        if (yComponent > 0.5f)
+                            fxInstance.transform.localRotation = Quaternion.identity;
+                        else
+                            fxInstance.transform.localRotation = Quaternion.Euler(-90f, 0f, 0f);
+                    }
 
                     if (isRapierWhiteFlame)
                     {
