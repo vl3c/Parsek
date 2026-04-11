@@ -4028,6 +4028,7 @@ namespace Parsek
             int clonedMaterials = 0;
             int trackedMaterials = 0;
             int skippedRenderers = 0;
+            int clearedEmissives = 0;
 
             for (int i = 0; i < renderers.Length; i++)
             {
@@ -4083,6 +4084,16 @@ namespace Parsek
                     clonedMaterials++;
                     hasTrackedMaterial = true;
 
+                    // Clear inherited emissive immediately — prefab materials may have
+                    // non-zero _EmissiveColor baked in, but KSP's stock thermal system
+                    // drives that property at runtime from part.temperature. Ghost parts
+                    // have no temperature simulation, so cold state = no emissive glow.
+                    if (emissiveProperty != null)
+                    {
+                        materialClone.SetColor(emissiveProperty, Color.black);
+                        clearedEmissives++;
+                    }
+
                     Color coldColor = colorProperty != null
                         ? materialClone.GetColor(colorProperty)
                         : Color.white;
@@ -4090,11 +4101,9 @@ namespace Parsek
                         ? Color.Lerp(coldColor, HeatTintColor, 0.45f)
                         : coldColor;
 
-                    Color coldEmission = emissiveProperty != null
-                        ? materialClone.GetColor(emissiveProperty)
-                        : Color.black;
+                    Color coldEmission = Color.black;
                     Color hotEmission = emissiveProperty != null
-                        ? coldEmission + HeatEmissionColor
+                        ? HeatEmissionColor
                         : coldEmission;
 
                     Color mediumColor = Color.Lerp(coldColor, hotColor, 0.5f);
@@ -4122,6 +4131,9 @@ namespace Parsek
 
             if (trackedMaterials > 0)
             {
+                if (clearedEmissives > 0)
+                    ParsekLog.Verbose("GhostVisual",
+                        $"Part '{partName}' pid={persistentId}: cleared {clearedEmissives} inherited emissive(s) to black");
                 return materialStates;
             }
 
@@ -6027,6 +6039,10 @@ namespace Parsek
                         : null;
                     string emissiveProperty = TryGetHeatEmissiveProperty(materialClone);
 
+                    // Clear inherited emissive — see BuildHeatMaterialStates comment
+                    if (emissiveProperty != null)
+                        materialClone.SetColor(emissiveProperty, Color.black);
+
                     if (colorProperty == null && emissiveProperty == null)
                         continue;
 
@@ -6037,11 +6053,9 @@ namespace Parsek
                         ? Color.Lerp(coldColor, HeatTintColor, 0.45f)
                         : coldColor;
 
-                    Color coldEmission = emissiveProperty != null
-                        ? materialClone.GetColor(emissiveProperty)
-                        : Color.black;
+                    Color coldEmission = Color.black;
                     Color hotEmission = emissiveProperty != null
-                        ? coldEmission + ReentryHotEmissionLow
+                        ? ReentryHotEmissionLow
                         : coldEmission;
 
                     // Medium fields populated for struct consistency but unused by reentry FX,

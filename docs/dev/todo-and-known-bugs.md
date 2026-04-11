@@ -7,6 +7,18 @@ Entries 272–303 (78 bugs, 6 TODOs — mostly resolved) archived in `done/todo-
 
 # Known Bugs
 
+## ~~306. Ghost engine nozzles always glow red~~
+
+**Observed in:** 0.8.0 (2026-04-12). Engine nozzle parts on ghost vessels permanently displayed a red/orange emissive glow, as if overheating. Stock KSP engines do not glow during normal operation -- the emissive channel is driven at runtime by the thermal system (`part.temperature / part.maxTemperature`).
+
+**Root cause:** `BuildHeatMaterialStates` and `CollectReentryGlowMaterials` in `GhostVisualBuilder.cs` read `coldEmission` from the cloned prefab material via `materialClone.GetColor(emissiveProperty)`. Engine nozzle prefab materials have non-zero `_EmissiveColor` values baked in. Since ghost parts have no temperature simulation, this inherited emissive became the permanent baseline -- the nozzle always glowed at the prefab's emissive level.
+
+**Fix:** Force `coldEmission = Color.black` and clear the emissive property on cloned materials immediately after cloning, in both `BuildHeatMaterialStates` (per-part heat) and `CollectReentryGlowMaterials` (whole-ghost reentry glow). Ghost cold state now has zero emissive; heat/reentry systems still animate emissive from black to hot colors when appropriate.
+
+**Status:** Fixed
+
+---
+
 ## ~~304. Raw #autoLOC keys in standalone recording vessel names~~
 
 **Observed in:** Sandbox (2026-04-10). Rovers and stock vessels launched from runway/island airfield showed `#autoLOC_501182` instead of "Crater Crawler" in the Recordings Manager, timeline entries, and log messages.
