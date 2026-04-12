@@ -22,6 +22,9 @@ All notable changes to Parsek are documented here.
 
 - `#307` Rewind (R button) now works for recordings committed after an in-flight vessel switch -- the rewind save is now copied to the tree root in both vessel-switch flush paths.
 - `#308` Reserved kerbals no longer appear auto-assigned in the VAB/SPH crew dialog -- new Harmony patch replaces reserved crew with their stand-ins before the dialog builds.
+- `#309` Rovers and ghosts recorded on the Island Airfield (or launchpad/KSC buildings) no longer spawn 19 m underground -- recording now captures the true surface height from KSP's raycast-derived `vessel.terrainAltitude` instead of PQS-only terrain, and spawn/ghost altitudes trust the recorded value with only an underground safety floor against PQS.
+- `#310` Spawn collision detection now uses `Physics.OverlapBox` against real part colliders instead of a 2 m-cube blocker approximation, so large vessels (stations, planes, carriers) block spawns correctly.
+- `#311` Walkback spawns on diagonally-descending trajectories are now snapped to the true surface via top-down `Physics.Raycast`, preventing mid-air spawns that fall.
 - `#241` Ghost parts with the base/default color variant (e.g., BlackAndWhite fuel tanks) no longer show the wrong variant texture (was Orange).
 - `#297` Vessel destruction during tree recording no longer orphans continuation data as a standalone recording.
 - `#304` Stock vessel recordings now show resolved names instead of raw `#autoLOC` keys in the UI, timeline, and logs.
@@ -62,7 +65,7 @@ Dev notes: technical narratives for the fixes below live in `docs/dev/todo-and-k
 ### Bug Fixes — Name resolution & ghost positioning
 
 - Vessel names in split/EVA/background recordings now resolve KSP localization tags (e.g., `#autoLOC_501232` → "Kerbal X") instead of displaying raw tags.
-- `#282` Landed ghosts now sit at their natural recorded height above terrain instead of floating 4m up; uses `TerrainCorrector.ComputeCorrectedAltitude` with `Recording.TerrainHeightAtEnd` when available (NaN fallback preserves old behavior for legacy recordings).
+- `#282` Landed ghosts now sit at their natural recorded height above terrain instead of floating 4m up, using `Recording.TerrainHeightAtEnd` when available (NaN fallback preserves old behavior for legacy recordings).
 - `#BugC` Switching to a spawned vessel no longer fills empty seats with extra kerbals — crew swap skips Parsek-spawned vessels entirely.
 
 ### New Features

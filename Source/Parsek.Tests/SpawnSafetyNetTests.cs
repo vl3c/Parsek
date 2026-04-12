@@ -977,90 +977,84 @@ namespace Parsek.Tests
         }
 
         // ── ClampAltitudeForLanded (pure, testable without CelestialBody) ──
+        //
+        // NEW SEMANTICS (#309 mesh-object positioning fix):
+        //   The recorded altitude is trusted — it's where the vessel came to rest
+        //   per the LANDED terminal state. We no longer down-clamp to PQS terrain,
+        //   because body.TerrainAltitude() is blind to mesh objects (Island
+        //   Airfield, launchpad, KSC buildings) and the old clamp buried any
+        //   vessel recorded on a raised surface 19m below the runway. The only
+        //   case where the clamp fires is when the recorded altitude is below
+        //   (PQS terrain + UndergroundSafetyFloorMeters), meaning PQS terrain
+        //   has shifted UP since recording (rare: KSP update / terrain mod).
 
         [Fact]
-        public void ClampAltitudeForLanded_HighAboveTerrain_ClampsDown()
+        public void ClampAltitudeForLanded_HighAboveTerrain_Preserved_Airfield()
         {
-            // Vessel at 500m, terrain at 67m → clamp down to 67 + LandedClearanceMeters.
-            // #231 regression guard (original down-clamp behavior preserved).
-            double target = 67.0 + VesselSpawner.LandedClearanceMeters;
-            double result = VesselSpawner.ClampAltitudeForLanded(500.0, 67.0, 3, "Kerbal X");
-            Assert.Equal(target, result);
-            Assert.Contains(logLines, l =>
-                l.Contains("Clamped altitude") && l.Contains("LANDED")
-                && l.Contains("down-clamp"));
+            // Butterfly Rover on the Island Airfield: recorded alt=133.9m, PQS
+            // terrain beneath the airfield mesh=114.9m, mesh offset ~19m. The
+            // old down-clamp buried the rover 17m underground. New behavior:
+            // preserve the recorded altitude; KSP CheckGroundCollision will
+            // settle against real colliders (airfield runway) after spawn.
+            double result = VesselSpawner.ClampAltitudeForLanded(133.9, 114.9, 2, "Butterfly Rover");
+            Assert.Equal(133.9, result);
+            Assert.DoesNotContain(logLines, l => l.Contains("below-pqs-floor"));
         }
 
         [Fact]
-        public void ClampAltitudeForLanded_BelowTerrain_ClampsUpWithUndergroundReason()
+        public void ClampAltitudeForLanded_BelowTerrain_PushedUp()
         {
-            // Vessel at -5m, terrain at 67m → clamp up, reason "underground".
-            double target = 67.0 + VesselSpawner.LandedClearanceMeters;
+            // Vessel at -5m, PQS terrain at 67m → below safety floor, push up.
+            // This is the only case where we clamp now.
+            double expected = 67.0 + VesselSpawner.UndergroundSafetyFloorMeters;
             double result = VesselSpawner.ClampAltitudeForLanded(-5.0, 67.0, 3, "Kerbal X");
-            Assert.Equal(target, result);
+            Assert.Equal(expected, result);
             Assert.Contains(logLines, l =>
-                l.Contains("Clamped altitude") && l.Contains("underground"));
+                l.Contains("Clamped altitude") && l.Contains("below-pqs-floor"));
         }
 
         [Fact]
-        public void ClampAltitudeForLanded_LowClearanceGap_ClampsUp_Bug282()
+        public void ClampAltitudeForLanded_LowClearanceAboveTerrain_PushedToSafetyFloor_Bug282()
         {
-            // Bug #282 regression guard — the exact 2026-04-09 s33 playtest numbers.
-            // KSP.log:13768: vessel alt=176.5m, terrain=175.6m, clearance=0.9m.
-            // The original implementation left alt ∈ [terrainAlt, target) unchanged
-            // on the assumption that "alt ≥ terrain ⇒ not underground". That's
-            // wrong for any vessel with the command pod on top — the Mk1-3's
-            // lowest mesh vertex is ~1.77 m below the root origin, so a 0.9 m
-            // clearance buries the pod by ~0.87 m. The gap is now closed: any
-            // alt < target is clamped up, with reason "low-clearance" if alt is
-            // above terrain (as in the playtest) or "underground" if below.
-            double target = 175.6 + VesselSpawner.LandedClearanceMeters;
+            // #282 scenario: vessel recorded 0.9m above PQS terrain (Mk1-3 pod root
+            // with wheels/legs extending below). This is below the 2m underground
+            // safety floor, so we push up to terrain+2m. The safety floor handles
+            // the "bury the pod" case without the old aggressive blanket down-clamp
+            // that was breaking mesh-object positioning (Island Airfield, launchpad).
+            double expected = 175.6 + VesselSpawner.UndergroundSafetyFloorMeters;
             double result = VesselSpawner.ClampAltitudeForLanded(176.5, 175.6, 41, "Kerbal X");
-            Assert.Equal(target, result);
+            Assert.Equal(expected, result);
             Assert.Contains(logLines, l =>
-                l.Contains("Clamped altitude") && l.Contains("low-clearance"));
-            // Must NOT use the "underground" reason — alt is above terrain, just low.
-            Assert.DoesNotContain(logLines, l =>
-                l.Contains("Clamped altitude") && l.Contains("underground"));
+                l.Contains("Clamped altitude") && l.Contains("below-pqs-floor"));
         }
 
         [Fact]
-        public void ClampAltitudeForLanded_AtTarget_Unchanged()
+        public void ClampAltitudeForLanded_AtSafetyFloor_Preserved()
         {
-            double target = 67.0 + VesselSpawner.LandedClearanceMeters;
-            double result = VesselSpawner.ClampAltitudeForLanded(target, 67.0, 3, "Kerbal X");
-            Assert.Equal(target, result);
-            // Boundary: alt == target, no log line (no clamping happened).
+            // alt == safetyFloor exactly — treat as preserved (boundary).
+            double safetyFloor = 67.0 + VesselSpawner.UndergroundSafetyFloorMeters;
+            double result = VesselSpawner.ClampAltitudeForLanded(safetyFloor, 67.0, 3, "Kerbal X");
+            Assert.Equal(safetyFloor, result);
             Assert.DoesNotContain(logLines, l =>
-                l.Contains("Clamped altitude for LANDED spawn #3"));
+                l.Contains("below-pqs-floor"));
         }
 
         [Fact]
-        public void ClampAltitudeForLanded_JustAboveTerrainAtOneCm_ClampsUp()
+        public void ClampAltitudeForLanded_JustBelowSafetyFloor_PushedUp()
         {
-            // Boundary between "underground" and "low-clearance": 1 cm above terrain
-            // is still firmly in the gap, so reason should be "low-clearance".
-            double target = 67.0 + VesselSpawner.LandedClearanceMeters;
-            double result = VesselSpawner.ClampAltitudeForLanded(67.01, 67.0, 3, "Kerbal X");
-            Assert.Equal(target, result);
+            // 1 cm below the safety floor → push up by 1 cm to the floor.
+            double safetyFloor = 67.0 + VesselSpawner.UndergroundSafetyFloorMeters;
+            double result = VesselSpawner.ClampAltitudeForLanded(safetyFloor - 0.01, 67.0, 3, "Kerbal X");
+            Assert.Equal(safetyFloor, result);
             Assert.Contains(logLines, l =>
-                l.Contains("Clamped altitude") && l.Contains("low-clearance"));
+                l.Contains("Clamped altitude") && l.Contains("below-pqs-floor"));
         }
 
         [Fact]
-        public void LandedGhostClearanceMeters_IsLargerThanSpawnClearance_Bug282()
+        public void UndergroundSafetyFloorMeters_IsPinned()
         {
-            // Bug #282: ghost playback uses a larger clearance than spawn because
-            // ghosts are kinematic (no physics drop damage). The split-constant
-            // justification from the plan review — if this assertion flips,
-            // either someone unified the constants (should trip the review)
-            // or the physics drop concern from #231 was revisited.
-            Assert.True(VesselSpawner.LandedGhostClearanceMeters
-                > VesselSpawner.LandedClearanceMeters,
-                "Ghost clearance must exceed spawn clearance — see #282 revised plan " +
-                "and #231 physics-damage constraint.");
-            // Pin values so unintended drift is caught.
-            Assert.Equal(2.0, VesselSpawner.LandedClearanceMeters);
+            // Pin the constant so unintended drift is caught in review.
+            Assert.Equal(2.0, VesselSpawner.UndergroundSafetyFloorMeters);
             Assert.Equal(4.0, VesselSpawner.LandedGhostClearanceMeters);
         }
 

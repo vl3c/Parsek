@@ -586,9 +586,12 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Apply terrain correction to a vessel snapshot's altitude.
-        /// Queries current terrain height at the recording's terminal position
-        /// and adjusts the snapshot altitude to preserve clearance.
+        /// Applies underground safety floor against current PQS terrain at the
+        /// recording's terminal position. Only clamps UP — if the recorded
+        /// altitude is below (current PQS terrain + 0.5 m), push up to the floor.
+        /// Never down-clamps — the recorded altitude is the truth, including
+        /// mesh-object offsets (Island Airfield, launchpad, KSC buildings) that
+        /// PQS terrain alone cannot represent.
         /// </summary>
         private static void ApplyTerrainCorrection(Recording rec, ConfigNode vesselSnapshot)
         {
@@ -603,21 +606,23 @@ namespace Parsek
                 return;
             }
 
-            double currentTerrainHeight = body.TerrainAltitude(tp.latitude, tp.longitude);
-            double correctedAlt = TerrainCorrector.ComputeCorrectedAltitude(
-                currentTerrainHeight, tp.altitude, rec.TerrainHeightAtEnd);
+            double pqsTerrain = body.TerrainAltitude(tp.latitude, tp.longitude);
+            double safetyFloor = pqsTerrain + 0.5;
 
-            // Update the snapshot's altitude value if present
+            if (tp.altitude >= safetyFloor)
+                return; // trust recorded altitude
+
             string altStr = vesselSnapshot.GetValue("alt");
             if (!string.IsNullOrEmpty(altStr))
             {
-                vesselSnapshot.SetValue("alt", correctedAlt.ToString("R", ic));
+                vesselSnapshot.SetValue("alt", safetyFloor.ToString("R", ic));
                 ParsekLog.Info("TerrainCorrect",
                     string.Format(ic,
-                        "Applied terrain correction: recorded={0} current={1} corrected={2}",
+                        "Applied underground safety floor: recorded={0} pqsTerrain={1} -> {2} (delta=+{3})",
                         tp.altitude.ToString("F1", ic),
-                        currentTerrainHeight.ToString("F1", ic),
-                        correctedAlt.ToString("F1", ic)));
+                        pqsTerrain.ToString("F1", ic),
+                        safetyFloor.ToString("F1", ic),
+                        (safetyFloor - tp.altitude).ToString("F1", ic)));
             }
         }
 

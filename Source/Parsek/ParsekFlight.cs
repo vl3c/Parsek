@@ -6467,13 +6467,21 @@ namespace Parsek
                         : SurfaceSituation.Landed
                 };
 
-                // Capture terrain height for terrain correction on spawn
+                // Capture TRUE surface height (including buildings/mesh objects like
+                // the Island Airfield, launchpad, KSC facilities). vessel.terrainAltitude
+                // is computed by KSP from Physics.Raycast in CheckGroundCollision, so it
+                // accounts for placed colliders — unlike body.TerrainAltitude() which is
+                // PQS-only and returns the raw planetary surface UNDER any mesh object.
+                // Without this, a rover on the Island Airfield records its surface as the
+                // terrain far below the runway, and the ghost/spawn ends up underground.
                 if (vessel.mainBody != null)
                 {
-                    rec.TerrainHeightAtEnd = vessel.mainBody.TerrainAltitude(vessel.latitude, vessel.longitude);
+                    rec.TerrainHeightAtEnd = vessel.terrainAltitude;
+                    double pqs = vessel.mainBody.TerrainAltitude(vessel.latitude, vessel.longitude);
                     ParsekLog.Verbose("TerrainCorrect",
-                        $"Captured terrain height at recording end: {rec.TerrainHeightAtEnd:F1}m " +
-                        $"(vessel alt={vessel.altitude:F1}m, clearance={vessel.altitude - rec.TerrainHeightAtEnd:F1}m)");
+                        $"Captured surface height at recording end: {rec.TerrainHeightAtEnd:F1}m " +
+                        $"(vessel alt={vessel.altitude:F1}m, clearance={vessel.altitude - rec.TerrainHeightAtEnd:F1}m, " +
+                        $"pqsTerrain={pqs:F1}m, meshOffset={rec.TerrainHeightAtEnd - pqs:F1}m)");
                 }
             }
         }
@@ -7883,14 +7891,24 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Bug #282: position a Landed/Splashed ghost at its natural clearance
-        /// above terrain. When <paramref name="recordedTerrainHeight"/> is valid
-        /// (not NaN), preserves the original clearance from recording time via
-        /// <see cref="TerrainCorrector.ComputeCorrectedAltitude"/>, with a 0.5 m
-        /// safety floor. When NaN (legacy recordings without terrain data), falls
-        /// back to a fixed <see cref="VesselSpawner.LandedGhostClearanceMeters"/>
-        /// offset. <c>internal static</c> so in-game tests can exercise it
-        /// without needing a full <c>IGhostPositioner</c> chain.
+        /// Position a Landed/Splashed ghost. The recorded altitude is the TRUTH —
+        /// the vessel was literally at that world-space position when the terminal
+        /// state was determined. For vessels recorded on mesh objects (Island
+        /// Airfield, launchpad, KSC buildings), the altitude encodes the airfield
+        /// surface height, which <c>body.TerrainAltitude()</c> cannot see (PQS-only).
+        /// The old code applied terrain-relative correction via
+        /// <c>ComputeCorrectedAltitude</c> which pulled mesh-object ghosts down to
+        /// raw PQS terrain, burying them under the runway.
+        ///
+        /// <para>New behavior: preserve the recorded altitude. The only correction
+        /// is an underground safety floor — push up if the recorded altitude is
+        /// below (current PQS terrain + 0.5 m), which only fires when PQS terrain
+        /// has shifted UP since recording. For NaN-recorded-terrain legacy
+        /// recordings we fall back to a fixed clearance above PQS.</para>
+        ///
+        /// <para>Ghosts are kinematic — no physics damage concern — so the safety
+        /// floor is small (0.5 m). <c>internal static</c> so in-game tests can
+        /// exercise it without needing a full <c>IGhostPositioner</c> chain.</para>
         /// </summary>
         internal static TrajectoryPoint ApplyLandedGhostClearance(
             TrajectoryPoint p, int index, string vesselName, double recordedTerrainHeight)
@@ -7908,42 +7926,42 @@ namespace Parsek
             }
 
             var ic = System.Globalization.CultureInfo.InvariantCulture;
-            double terrainAlt = body.TerrainAltitude(p.latitude, p.longitude, true);
+            double pqsTerrain = body.TerrainAltitude(p.latitude, p.longitude, true);
 
-            double targetAlt;
-            if (!double.IsNaN(recordedTerrainHeight))
+            // Legacy (NaN) path: no recorded surface height — use fixed clearance
+            // above PQS terrain as before.
+            if (double.IsNaN(recordedTerrainHeight))
             {
-                // Preserve the vessel's original clearance above terrain.
-                // Ghosts are purely visual — no physics damage concern.
-                // ComputeCorrectedAltitude already enforces a terrain+0.5m floor.
-                targetAlt = TerrainCorrector.ComputeCorrectedAltitude(
-                    terrainAlt, p.altitude, recordedTerrainHeight);
-            }
-            else
-            {
-                // Legacy fallback: no recorded terrain data — use fixed clearance
-                targetAlt = terrainAlt + VesselSpawner.LandedGhostClearanceMeters;
+                double legacyTarget = pqsTerrain + VesselSpawner.LandedGhostClearanceMeters;
+                if (p.altitude >= legacyTarget)
+                    return p;
+                double delta = legacyTarget - p.altitude;
+                if (System.Math.Abs(delta) < 0.01)
+                    return p;
+                ParsekLog.VerboseRateLimited("TerrainCorrect", $"landed-ghost-{index}",
+                    $"Landed ghost clamp #{index} (\"{vesselName}\"): " +
+                    $"alt={p.altitude.ToString("F1", ic)} pqsTerrain={pqsTerrain.ToString("F1", ic)} " +
+                    $"-> {legacyTarget.ToString("F1", ic)} (delta=+{delta.ToString("F2", ic)}m, " +
+                    $"body={body.name}, NaN fallback)");
+                p.altitude = legacyTarget;
+                return p;
             }
 
-            // When we have recorded terrain data, always correct to preserve the original
-            // clearance — terrain may be higher OR lower now than at recording time.
-            // Without recorded terrain (NaN fallback), only push up to minimum clearance.
-            if (double.IsNaN(recordedTerrainHeight) && p.altitude >= targetAlt)
+            // Primary path: trust the recorded altitude. Only push up if the
+            // recorded altitude is below the current PQS terrain floor — which
+            // only happens when PQS terrain has shifted UP since recording.
+            double safetyFloor = pqsTerrain + 0.5;
+            if (p.altitude >= safetyFloor)
                 return p;
 
-            double delta = targetAlt - p.altitude;
-            if (System.Math.Abs(delta) < 0.01)
-                return p; // already at target (within tolerance)
-
+            double upDelta = safetyFloor - p.altitude;
             ParsekLog.VerboseRateLimited("TerrainCorrect", $"landed-ghost-{index}",
                 $"Landed ghost clamp #{index} (\"{vesselName}\"): " +
-                $"alt={p.altitude.ToString("F1", ic)} terrain={terrainAlt.ToString("F1", ic)} " +
-                $"-> {targetAlt.ToString("F1", ic)} (delta={delta.ToString("F2", ic)}m, body={body.name}" +
-                (!double.IsNaN(recordedTerrainHeight)
-                    ? $", recTerrain={recordedTerrainHeight.ToString("F1", ic)})"
-                    : ", NaN fallback)"));
-
-            p.altitude = targetAlt;
+                $"alt={p.altitude.ToString("F1", ic)} pqsTerrain={pqsTerrain.ToString("F1", ic)} " +
+                $"-> {safetyFloor.ToString("F1", ic)} (delta=+{upDelta.ToString("F2", ic)}m, " +
+                $"body={body.name}, below-pqs-floor, " +
+                $"recSurface={recordedTerrainHeight.ToString("F1", ic)})");
+            p.altitude = safetyFloor;
             return p;
         }
 

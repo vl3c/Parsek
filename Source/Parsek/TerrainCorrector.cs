@@ -13,41 +13,15 @@ namespace Parsek
         private const string Tag = "TerrainCorrect";
         private static readonly CultureInfo IC = CultureInfo.InvariantCulture;
 
-        /// <summary>
-        /// Computes the corrected altitude that preserves the vessel's clearance
-        /// above terrain, even when terrain height has changed since recording.
-        ///
-        /// correctedAlt = currentTerrainHeight + (recordedAltitude - recordedTerrainHeight)
-        ///
-        /// The difference (recordedAltitude - recordedTerrainHeight) is the recorded
-        /// clearance — how far above terrain the vessel was when recording ended.
-        /// Adding that clearance to the current terrain height gives the correct
-        /// altitude for spawning.
-        /// </summary>
-        internal static double ComputeCorrectedAltitude(
-            double currentTerrainHeight,
-            double recordedAltitude,
-            double recordedTerrainHeight)
-        {
-            double clearance = recordedAltitude - recordedTerrainHeight;
-            double corrected = currentTerrainHeight + clearance;
-
-            // Never spawn below terrain + 0.5m safety margin
-            double minAlt = currentTerrainHeight + 0.5;
-            if (corrected < minAlt)
-            {
-                ParsekLog.Verbose(Tag,
-                    $"ComputeCorrectedAltitude: clamped from {corrected.ToString("F1", IC)} to {minAlt.ToString("F1", IC)} (terrain+0.5m floor)");
-                corrected = minAlt;
-            }
-
-            ParsekLog.Verbose(Tag,
-                $"ComputeCorrectedAltitude: currentTerrain={currentTerrainHeight.ToString("F1", IC)} " +
-                $"recordedAlt={recordedAltitude.ToString("F1", IC)} recordedTerrain={recordedTerrainHeight.ToString("F1", IC)} " +
-                $"clearance={clearance.ToString("F1", IC)} corrected={corrected.ToString("F1", IC)}");
-
-            return corrected;
-        }
+        // ComputeCorrectedAltitude removed (#309): the terrain-relative clearance
+        // model ("currentTerrain + (recordedAlt - recordedTerrain)") buries any
+        // vessel recorded on a mesh object (Island Airfield runway, launchpad,
+        // KSC buildings) because body.TerrainAltitude() is PQS-only and returns
+        // the raw planetary surface UNDER placed colliders. Replaced by
+        // "trust the recorded altitude + underground safety floor" semantics in
+        // VesselSpawner.ClampAltitudeForLanded and ParsekFlight.ApplyLandedGhostClearance.
+        // The recorded altitude is the authoritative surface position — KSP's own
+        // CheckGroundCollision will settle against real colliders on load.
 
         /// <summary>
         /// Clamps a ghost altitude so it stays above terrain surface.

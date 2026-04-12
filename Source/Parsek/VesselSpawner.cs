@@ -879,12 +879,46 @@ namespace Parsek
                 walkLon = walkResult.lon;
                 walkAlt = walkResult.alt;
 
-                // Clamp altitude for surface terminals (#231) — the walkback candidate may be
-                // mid-flight altitude; ClampAltitudeForLanded puts the root part above terrain.
+                // For LANDED terminals: the walkback may return a mid-descent trajectory
+                // point where the vessel was 10-50m in the air (approaching the landing
+                // spot from a diagonal). Trusting that altitude would spawn the vessel in
+                // mid-air and let it fall. Fix: top-down Physics.Raycast at the walkback
+                // (lat, lon) to find the true surface (including mesh objects like the
+                // Island Airfield runway), and clamp the candidate altitude to
+                // surface + small clearance when it's notably higher.
+                //
+                // The raycast uses the same layer mask as KSP's Vessel.GetHeightFromSurface
+                // (default + terrain + buildings), so it hits both PQS terrain AND placed
+                // colliders correctly. Falls back to the PQS safety floor if the raycast
+                // misses (e.g., target area not loaded).
                 if (rec.TerminalStateValue == TerminalState.Landed)
                 {
-                    double terrainAlt = body.TerrainAltitude(walkLat, walkLon);
-                    walkAlt = ClampAltitudeForLanded(walkAlt, terrainAlt, index, rec.VesselName);
+                    double raycastSurface = TryFindSurfaceAltitudeViaRaycast(body, walkLat, walkLon, walkAlt);
+                    if (!double.IsNaN(raycastSurface))
+                    {
+                        double above = walkAlt - raycastSurface;
+                        if (above > WalkbackSurfaceSnapThresholdMeters)
+                        {
+                            double snapped = raycastSurface + WalkbackSurfaceClearanceMeters;
+                            ParsekLog.Info("Spawner",
+                                $"Walkback altitude too high above surface for #{index} ({rec.VesselName}): " +
+                                $"walkAlt={walkAlt.ToString("F1", System.Globalization.CultureInfo.InvariantCulture)} " +
+                                $"raycastSurface={raycastSurface.ToString("F1", System.Globalization.CultureInfo.InvariantCulture)} " +
+                                $"above={above.ToString("F1", System.Globalization.CultureInfo.InvariantCulture)}m " +
+                                $"-> snapping to {snapped.ToString("F1", System.Globalization.CultureInfo.InvariantCulture)} " +
+                                $"(raycast=surface + {WalkbackSurfaceClearanceMeters}m)");
+                            walkAlt = snapped;
+                        }
+                        // else: trusted — happy path, no log. Walkback substep spam.
+                    }
+                    else
+                    {
+                        double pqsTerrain = body.TerrainAltitude(walkLat, walkLon);
+                        ParsekLog.VerboseRateLimited("Spawner", $"walkback-pqs-fallback-{index}",
+                            $"Walkback raycast missed for #{index} ({rec.VesselName}) — " +
+                            $"falling back to PQS safety floor (pqsTerrain={pqsTerrain.ToString("F1", System.Globalization.CultureInfo.InvariantCulture)})");
+                        walkAlt = ClampAltitudeForLanded(walkAlt, pqsTerrain, index, rec.VesselName);
+                    }
                 }
                 else if (rec.TerminalStateValue == TerminalState.Splashed && walkAlt > 0)
                 {
@@ -956,10 +990,16 @@ namespace Parsek
             }
 
             // Safety net: clamp altitude for surface terminal states.
-            // The last trajectory point or snapshot may be from while still descending —
-            // altitude is above the actual rest position. Without clamping, KSP spawns
-            // a LANDED vessel in mid-air, reclassifies to FLYING, and it falls and crashes.
-            // SPLASHED: clamp to sea level. LANDED: clamp to terrain height. (#224, #231)
+            // SPLASHED: clamp to sea level.
+            // LANDED: trust the recorded altitude (it's where the vessel came to rest — the
+            // terminal state proves it had settled). Only push UP if the recorded altitude is
+            // below the current PQS terrain (indicates the surface has shifted UP since
+            // recording — rare, e.g. KSP version change or terrain-mod changes). Do NOT
+            // clamp DOWN to PQS terrain — that would bury vessels recorded on mesh objects
+            // (Island Airfield, launchpad, KSC buildings) since body.TerrainAltitude() is
+            // PQS-only and ignores placed colliders. KSP's Vessel.CheckGroundCollision will
+            // fire once the vessel loads and adjust using getLowestPoint() against real
+            // colliders (including buildings), handling any residual clipping properly.
             if (rec.TerminalStateValue == TerminalState.Splashed)
             {
                 if (alt > 0)
@@ -975,67 +1015,158 @@ namespace Parsek
                 CelestialBody body = FlightGlobals.Bodies?.Find(b => b.name == bodyName);
                 if (body != null)
                 {
-                    double terrainAlt = body.TerrainAltitude(lat, lon);
-                    alt = ClampAltitudeForLanded(alt, terrainAlt, index, rec.VesselName);
+                    double pqsTerrain = body.TerrainAltitude(lat, lon);
+                    alt = ClampAltitudeForLanded(alt, pqsTerrain, index, rec.VesselName);
                 }
             }
         }
 
         /// <summary>
-        /// Pure: clamp altitude to terrain height + clearance for LANDED spawns.
-        /// KSP's alt field positions the vessel's root part (typically the command pod at the top).
-        /// Setting alt = terrainAlt puts the root part at ground level, burying lower parts
-        /// (heat shields, engines, landing legs) underground. The clearance offset ensures the
-        /// entire vessel is above the surface so KSP's physics can settle it naturally. (#231)
-        ///
-        /// <para>Bug #282: the original implementation left <c>alt ∈ [terrainAlt, target)</c>
-        /// unchanged on the assumption that "alt ≥ terrain ⇒ not underground". That only
-        /// holds if the root part origin is the lowest point of the vessel, which is
-        /// false for any vessel with the command pod on top (Mk1-3: ~1.77 m below root).
-        /// The 2026-04-09 s33 playtest had three landed leaves with clearances 0.8/0.9/1.3 m,
-        /// all in the no-op range, all spawned clipped into terrain. The gap is now closed:
-        /// any alt below target is clamped up regardless of whether it's below terrain.</para>
+        /// Safety floor above PQS terrain. Only used when the recorded altitude is below
+        /// current PQS terrain (terrain shift since recording) — we push up by this much
+        /// above raw terrain to avoid an underground spawn. Not a clearance target.
         /// </summary>
-        internal const double LandedClearanceMeters = 2.0;
+        internal const double UndergroundSafetyFloorMeters = 2.0;
 
         /// <summary>
-        /// NaN-fallback clearance for ghost playback of Landed/Splashed recordings (#282).
+        /// Trigger threshold for walkback-to-surface snapping. If a walkback trajectory
+        /// candidate is more than this many metres above the raycast-detected surface at
+        /// its (lat, lon), we snap it down to surface + clearance — otherwise trust the
+        /// recorded altitude. Guards against spawning a diagonally-descending vessel in
+        /// mid-air.
+        /// </summary>
+        internal const double WalkbackSurfaceSnapThresholdMeters = 5.0;
+
+        /// <summary>
+        /// Clearance above the raycast-detected surface when snapping a walkback candidate
+        /// down to the ground. KSP's Vessel.CheckGroundCollision will fire on load and
+        /// further adjust via getLowestPoint(), so we only need a small breathing-room.
+        /// </summary>
+        internal const double WalkbackSurfaceClearanceMeters = 1.0;
+
+        /// <summary>
+        /// Part-collider layer mask used by the walkback raycast. Matches KSP's
+        /// Vessel.GetHeightFromSurface: <c>LayerUtil.DefaultEquivalent | 0x8000 | 0x80000</c>
+        /// — default layers + terrain (layer 15) + buildings (layer 19). Hits BOTH raw PQS
+        /// terrain AND placed mesh objects (Island Airfield, launchpad, KSC facilities),
+        /// unlike body.TerrainAltitude() which is PQS-only.
+        /// </summary>
+        private static int WalkbackSurfaceLayerMask
+        {
+            get { return LayerUtil.DefaultEquivalent | 0x8000 | 0x80000; }
+        }
+
+        /// <summary>
+        /// Starting height above expected surface for the walkback raycast origin. We
+        /// cast downward from (startAltAboveSurface + this) to ensure the ray origin is
+        /// above any collider at the query point.
+        /// </summary>
+        private const double WalkbackRaycastOriginOffsetMeters = 1000.0;
+
+        /// <summary>
+        /// Maximum raycast distance. Covers the offset + a margin for deep valleys.
+        /// </summary>
+        private const float WalkbackRaycastMaxDistanceMeters = 2500f;
+
+        /// <summary>
+        /// Fires a top-down <see cref="Physics.Raycast"/> at <paramref name="lat"/>/<paramref name="lon"/>
+        /// to find the true surface altitude — including mesh objects the PQS terrain
+        /// query cannot see. Returns <see cref="double.NaN"/> if no collider is hit
+        /// (target area not loaded, space, etc.). Used by the walkback clamp path to
+        /// snap mid-air trajectory candidates to the ground without losing mesh-object
+        /// offsets.
+        /// </summary>
+        internal static double TryFindSurfaceAltitudeViaRaycast(
+            CelestialBody body, double lat, double lon, double startAltAboveSurface)
+        {
+            if (body == null)
+            {
+                ParsekLog.Verbose("Spawner",
+                    "TryFindSurfaceAltitudeViaRaycast: null body — returning NaN");
+                return double.NaN;
+            }
+
+            double originAlt = startAltAboveSurface + WalkbackRaycastOriginOffsetMeters;
+            Vector3d originWorld = body.GetWorldSurfacePosition(lat, lon, originAlt);
+            Vector3d upAxis = body.GetSurfaceNVector(lat, lon);
+
+            RaycastHit hit;
+            bool didHit = Physics.Raycast(
+                (Vector3)originWorld,
+                -(Vector3)upAxis,
+                out hit,
+                WalkbackRaycastMaxDistanceMeters,
+                WalkbackSurfaceLayerMask,
+                QueryTriggerInteraction.Ignore);
+
+            if (!didHit)
+            {
+                // Rate-limited: walkback may call this once per sub-step on trajectories
+                // where the area is not loaded (distant spawn from tracking station).
+                ParsekLog.VerboseRateLimited("Spawner", "walkback-raycast-miss",
+                    $"TryFindSurfaceAltitudeViaRaycast: no hit at " +
+                    $"lat={lat.ToString("F6", System.Globalization.CultureInfo.InvariantCulture)} " +
+                    $"lon={lon.ToString("F6", System.Globalization.CultureInfo.InvariantCulture)} " +
+                    $"(origin alt={originAlt.ToString("F1", System.Globalization.CultureInfo.InvariantCulture)}) — returning NaN");
+                return double.NaN;
+            }
+
+            double hitAlt = FlightGlobals.getAltitudeAtPos((Vector3d)hit.point, body);
+            ParsekLog.VerboseRateLimited("Spawner", "walkback-raycast-hit",
+                $"TryFindSurfaceAltitudeViaRaycast: hit at alt={hitAlt.ToString("F1", System.Globalization.CultureInfo.InvariantCulture)} " +
+                $"(distance={hit.distance.ToString("F1", System.Globalization.CultureInfo.InvariantCulture)}m, " +
+                $"collider={(hit.collider != null ? hit.collider.name : "<null>")})");
+            return hitAlt;
+        }
+
+        /// <summary>
+        /// NaN-fallback clearance for ghost playback of Landed/Splashed recordings.
         /// Only used when <c>Recording.TerrainHeightAtEnd</c> is NaN (legacy recordings
-        /// without terrain data). When terrain data is available,
-        /// <c>ApplyLandedGhostClearance</c> uses <c>TerrainCorrector.ComputeCorrectedAltitude</c>
-        /// to preserve the vessel's original recorded clearance above terrain instead.
+        /// without surface data). When surface data is available,
+        /// <c>ApplyLandedGhostClearance</c> trusts the recorded altitude directly and
+        /// only pushes up when it falls below the current PQS underground safety floor.
         /// </summary>
         internal const double LandedGhostClearanceMeters = 4.0;
 
-        internal static double ClampAltitudeForLanded(double alt, double terrainAlt,
+        /// <summary>
+        /// Pure: sanity check landed spawn altitude against PQS terrain.
+        ///
+        /// <para>Philosophy: the recorded altitude is the TRUTH — the vessel was literally
+        /// at that altitude when the recording terminal state was determined to be LANDED.
+        /// For vessels on terrain, the recorded clearance above PQS is small (1-5m). For
+        /// vessels on mesh objects (Island Airfield, launchpad, KSC buildings), the recorded
+        /// clearance above PQS can be 10-30m because <c>body.TerrainAltitude()</c> only
+        /// returns the raw planetary surface UNDER the mesh object. We must preserve both.</para>
+        ///
+        /// <para>The only case where clamping is needed: the PQS terrain has shifted UP
+        /// since recording (KSP update, terrain mod change). Then the recorded altitude may
+        /// be below the current terrain, and we push up by <see cref="UndergroundSafetyFloorMeters"/>.
+        /// Otherwise we return the recorded altitude unchanged and let KSP's
+        /// <c>Vessel.CheckGroundCollision</c> handle any remaining part-geometry clipping
+        /// via <c>getLowestPoint()</c> against real colliders (including buildings).</para>
+        /// </summary>
+        internal static double ClampAltitudeForLanded(double alt, double pqsTerrainAlt,
             int index, string vesselName)
         {
             var ic = CultureInfo.InvariantCulture;
-            double target = terrainAlt + LandedClearanceMeters;
+            double safetyFloor = pqsTerrainAlt + UndergroundSafetyFloorMeters;
 
-            if (alt > target)
+            if (alt < safetyFloor)
             {
-                // Above target: clamp down (vessel was still descending when recorded)
-                double delta = alt - target;
-                ParsekLog.Verbose("Spawner",
+                // Rate-limited by spawn index so each spawn logs once, but repeated
+                // walkback substeps for the same spawn are deduped.
+                double delta = safetyFloor - alt;
+                ParsekLog.VerboseRateLimited("Spawner", $"clamp-pqs-floor-{index}",
                     $"Clamped altitude for LANDED spawn #{index} ({vesselName}): " +
-                    $"{alt.ToString("F1", ic)} -> {target.ToString("F1", ic)} " +
-                    $"(down-clamp, delta={delta.ToString("F1", ic)})");
-                return target;
+                    $"{alt.ToString("F1", ic)} -> {safetyFloor.ToString("F1", ic)} " +
+                    $"(below-pqs-floor, delta=+{delta.ToString("F1", ic)}m, pqsTerrain={pqsTerrainAlt.ToString("F1", ic)})");
+                return safetyFloor;
             }
-            if (alt < target)
-            {
-                // Below target: clamp up. Reason depends on whether alt is also below terrain
-                // (truly underground) or just in the low-clearance gap above terrain.
-                double delta = target - alt;
-                string reason = alt < terrainAlt ? "underground" : "low-clearance";
-                ParsekLog.Verbose("Spawner",
-                    $"Clamped altitude for LANDED spawn #{index} ({vesselName}): " +
-                    $"{alt.ToString("F1", ic)} -> {target.ToString("F1", ic)} " +
-                    $"({reason}, delta={delta.ToString("F1", ic)})");
-                return target;
-            }
-            // alt == target exactly — no-op (rare, but possible after a prior clamp)
+
+            // Happy path (recorded altitude preserved) — no log. Walkback calls this
+            // once per substep, so logging the no-op case would spam hundreds of lines
+            // per spawn attempt. The diagnostic value is low; callers already log when
+            // they actually resolve the final spawn position.
             return alt;
         }
 

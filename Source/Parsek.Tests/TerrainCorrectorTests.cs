@@ -27,48 +27,11 @@ namespace Parsek.Tests
             RecordingStore.SuppressLogging = false;
         }
 
-        #region ComputeCorrectedAltitude
-
-        [Fact]
-        public void ComputeCorrectedAltitude_TerrainHigher_AltitudeIncreases()
-        {
-            // recordedAlt=100, recordedTerrain=90, currentTerrain=100
-            // Expected: 100 + (100-90) = 110
-            // Guards: vessel clips into ground when terrain rises
-            double result = TerrainCorrector.ComputeCorrectedAltitude(100.0, 100.0, 90.0);
-            Assert.Equal(110.0, result);
-
-            Assert.Contains(logLines, l =>
-                l.Contains("[TerrainCorrect]") && l.Contains("corrected=110"));
-        }
-
-        [Fact]
-        public void ComputeCorrectedAltitude_TerrainLower_AltitudeDecreases()
-        {
-            // recordedAlt=100, recordedTerrain=90, currentTerrain=80
-            // Expected: 80 + (100-90) = 90
-            // Guards: vessel floats when terrain drops
-            double result = TerrainCorrector.ComputeCorrectedAltitude(80.0, 100.0, 90.0);
-            Assert.Equal(90.0, result);
-
-            Assert.Contains(logLines, l =>
-                l.Contains("[TerrainCorrect]") && l.Contains("corrected=90"));
-        }
-
-        [Fact]
-        public void ComputeCorrectedAltitude_TerrainUnchanged_AltitudeSame()
-        {
-            // recordedAlt=100, recordedTerrain=90, currentTerrain=90
-            // Expected: 90 + (100-90) = 100
-            // Guards: unnecessary correction
-            double result = TerrainCorrector.ComputeCorrectedAltitude(90.0, 100.0, 90.0);
-            Assert.Equal(100.0, result);
-
-            Assert.Contains(logLines, l =>
-                l.Contains("[TerrainCorrect]") && l.Contains("corrected=100"));
-        }
-
-        #endregion
+        // ComputeCorrectedAltitude removed (#309): terrain-relative correction buried
+        // vessels recorded on mesh objects (Island Airfield, launchpad, KSC buildings)
+        // because body.TerrainAltitude() is PQS-only and blind to placed colliders.
+        // Replaced by "trust recorded altitude + underground safety floor" semantics
+        // in VesselSpawner.ClampAltitudeForLanded and ParsekFlight.ApplyLandedGhostClearance.
 
         #region ShouldCorrectTerrain
 

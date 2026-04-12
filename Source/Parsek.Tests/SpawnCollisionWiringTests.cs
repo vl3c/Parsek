@@ -261,22 +261,16 @@ namespace Parsek.Tests
         #region TerrainCorrector integration
 
         [Fact]
-        public void TerrainCorrection_AppliedForSurfaceSpawn()
+        public void TerrainCorrection_ShouldCorrectForSurfaceSpawn()
         {
             // ShouldCorrectTerrain returns true for Landed + valid terrain height.
-            // ComputeCorrectedAltitude preserves clearance above terrain.
+            // (ComputeCorrectedAltitude was removed in #309 — terrain-relative
+            // correction broke mesh-object positioning. See
+            // ClampAltitudeForLanded for the new preserve-recorded-altitude behavior.)
             bool shouldCorrect = TerrainCorrector.ShouldCorrectTerrain(
                 TerminalState.Landed, 65.0);
 
             Assert.True(shouldCorrect);
-
-            // Recorded: altitude=66, terrainHeight=65 -> clearance=1m
-            // Current terrain=70 -> corrected altitude=71m
-            double corrected = TerrainCorrector.ComputeCorrectedAltitude(70.0, 66.0, 65.0);
-
-            Assert.Equal(71.0, corrected);
-            Assert.Contains(logLines, l =>
-                l.Contains("[TerrainCorrect]") && l.Contains("corrected=71"));
         }
 
         [Fact]
