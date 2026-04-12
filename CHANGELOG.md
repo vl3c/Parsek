@@ -33,6 +33,7 @@ All notable changes to Parsek are documented here.
 - Zero-throttle breakup debris now emits `EngineShutdown` sentinels instead of looking like a zero-event orphan-engine recording, so replay no longer auto-starts max-throttle booster FX/audio for staged-off debris.
 - The old warp-only orbital exemption no longer punches through the new `50-120 km` hidden-mesh tier. Orbital ghosts still get the legacy exemption only in the true `Beyond` zone.
 - Entering watch mode now uses the tracked playback distance first, avoiding false "in range" decisions from a hidden ghost's stale transform.
+- `#326` EVA branch recordings no longer seed bogus atmospheric start fragments when a landed or splashed kerbal is backgrounded before KSP finishes the vessel switch. The branch path now carries a one-shot surface override through delayed child initialization, and atmospheric-body EVA classification now keeps ground-adjacent or sea-level bobbing kerbals in surface segments instead of producing stray `atmo` optimizer splits.
 - The in-game test runner window now uses a more compact layout without the visible blank rows between tests, and disruptive quickload-resume tests run last in batch execution so they do not interfere with later scenarios.
 
 ### Developer Tools
@@ -42,6 +43,7 @@ All notable changes to Parsek are documented here.
 - Added regression coverage for hidden-tier shell-state handling so unloaded ghosts keep their logical loop identity and rebuild paths preserve playback bookkeeping.
 - Added regression coverage for watched-lineage debris visibility, so watch-mode protection now stays pinned to the intended same-tree same-vessel debris path instead of only the exact watched recording row.
 - Added regression coverage for zero-throttle engine seeding vs. orphan-engine auto-start, so staged-off debris boosters are pinned against replaying as visually full-throttle.
+- Added regression coverage for EVA branch surface seeding and atmospheric/splashed EVA environment classification, covering the queued background override path and the near-ground / sea-level EVA surface heuristics behind `#326`.
 - Diagnostics now report live engine/RCS FX counts plus last-frame ghost spawn/destroy timings, giving a measurement-first view of FX cost without changing FX behavior.
 - `scripts/inject-recordings.ps1 --run-diagnostics-tests` now runs the focused diagnostics/observability slice before showcase injection, including observability logging and in-game test runner ordering coverage.
 
