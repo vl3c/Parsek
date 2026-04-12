@@ -25,6 +25,7 @@ All notable changes to Parsek are documented here.
 - Watched ghosts now use exact watched-state identity (`recording + overlap cycle`) for full-fidelity protection. Overlap copies of the same looping recording no longer inherit watched-only exemptions or diagnostics counts.
 - Watch cutoff / zone state for hidden looped ghosts now follows their logical playback position instead of a stale hidden transform, so watch eligibility and auto-exit stay correct while a loop is off-screen.
 - Breakup child recordings now preserve split-time ghost visuals even when the child vessel mutates during the coalescing window, and watch transfers immediately bind/log the new watched cycle/target so debris and secondary-vessel handoff failures are diagnosable from `KSP.log`.
+- Watch-mode observability now logs structured camera-focus summaries and W-button eligibility context, so playback focus and watch-button enable/disable state can be correlated from the same log bundle.
 - The old warp-only orbital exemption no longer punches through the new `50-120 km` hidden-mesh tier. Orbital ghosts still get the legacy exemption only in the true `Beyond` zone.
 - Entering watch mode now uses the tracked playback distance first, avoiding false "in range" decisions from a hidden ghost's stale transform.
 - The in-game test runner window now uses a more compact layout without the visible blank rows between tests, and disruptive quickload-resume tests run last in batch execution so they do not interfere with later scenarios.

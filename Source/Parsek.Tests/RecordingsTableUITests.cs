@@ -232,6 +232,38 @@ namespace Parsek.Tests
             Assert.DoesNotContain("inRange", groupBlock);
         }
 
+        [Fact]
+        public void GetWatchButtonReason_PrioritizesDebris()
+        {
+            string reason = RecordingsTableUI.GetWatchButtonReason(
+                canWatch: false, hasGhost: false, sameBody: false, inRange: false, isDebris: true);
+
+            Assert.Equal("disabled (debris)", reason);
+        }
+
+        [Fact]
+        public void GetWatchButtonTooltip_ExplainsNoGhost()
+        {
+            string tooltip = RecordingsTableUI.GetWatchButtonTooltip(
+                isWatching: false, hasGhost: false, sameBody: true, inRange: true, isDebris: false);
+
+            Assert.Contains("No active ghost", tooltip);
+        }
+
+        [Fact]
+        public void WatchTransitionLogging_IncludesEligibilityAndFocusObservability_PinnedBySourceInspection()
+        {
+            string srcRoot = System.IO.Path.GetFullPath(
+                System.IO.Path.Combine(System.AppDomain.CurrentDomain.BaseDirectory,
+                    "..", "..", "..", "..", "Parsek"));
+            string uiSrc = System.IO.File.ReadAllText(
+                System.IO.Path.Combine(srcRoot, "UI", "RecordingsTableUI.cs"));
+
+            Assert.Contains("BuildWatchObservabilitySuffix(flight, ri)", uiSrc);
+            Assert.Contains("BuildWatchObservabilitySuffix(flight, mainIdx)", uiSrc);
+            Assert.Contains("beforeFocus={beforeFocus} afterFocus={flight.DescribeWatchFocusForLogs()}", uiSrc);
+        }
+
         // ── GetRecordingSortKey ──
 
         [Fact]
