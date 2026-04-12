@@ -155,6 +155,22 @@ namespace Parsek.Tests
             Assert.NotEmpty(engineKeys);
         }
 
+        [Fact]
+        public void EndToEnd_ZeroThrottleSeededEngine_ShutdownSentinelPreventsAutoStart()
+        {
+            var sets = new PartTrackingSets();
+            uint pid = 4200;
+            ulong key = FlightRecorder.EncodeEngineKey(pid, 0);
+            sets.activeEngineKeys.Add(key);
+            var names = new Dictionary<uint, string> { { pid, "solidBooster" } };
+
+            var events = PartStateSeeder.EmitSeedEvents(sets, names, 20000.0, "Test");
+            var engineKeys = GhostPlaybackLogic.BuildEngineEventKeySet(events);
+
+            Assert.Contains(events, e => e.eventType == PartEventType.EngineShutdown && e.partPersistentId == pid);
+            Assert.Contains(key, engineKeys);
+        }
+
         #endregion
     }
 }

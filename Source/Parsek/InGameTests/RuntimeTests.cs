@@ -1027,7 +1027,49 @@ namespace Parsek.InGameTests
 
             ParsekLog.Info("TestRunner",
                 $"External files: {found}/{checked_} .prec files found, {missing} missing");
-            // Don't fail on missing — some recordings may be v2 inline format
+            // Don't fail on missing here — saves can still contain partially-collected or legacy data.
+        }
+
+        [InGameTest(Category = "SaveLoad",
+            Description = "Current-format committed recordings probe as BinaryV3 .prec sidecars")]
+        public void CurrentFormatTrajectorySidecarsProbeAsBinary()
+        {
+            if (string.IsNullOrEmpty(HighLogic.SaveFolder))
+            {
+                InGameAssert.Skip("no SaveFolder set");
+                return;
+            }
+
+            int checkedCount = 0;
+
+            foreach (var rec in RecordingStore.CommittedRecordings)
+            {
+                if (rec == null || rec.RecordingFormatVersion < 2 || string.IsNullOrEmpty(rec.RecordingId))
+                    continue;
+
+                string precPath = RecordingPaths.ResolveSaveScopedPath(
+                    Path.Combine("Parsek", "Recordings", rec.RecordingId + ".prec"));
+                InGameAssert.IsTrue(!string.IsNullOrEmpty(precPath) && File.Exists(precPath),
+                    $"Current-format recording '{rec.RecordingId}' is missing its .prec sidecar");
+
+                TrajectorySidecarProbe probe;
+                InGameAssert.IsTrue(RecordingStore.TryProbeTrajectorySidecar(precPath, out probe),
+                    $"Could not probe .prec sidecar for current-format recording '{rec.RecordingId}'");
+                InGameAssert.AreEqual(TrajectorySidecarEncoding.BinaryV3, probe.Encoding,
+                    $"Current-format recording '{rec.RecordingId}' should use BinaryV3 sidecar encoding");
+                InGameAssert.AreEqual(rec.RecordingFormatVersion, probe.FormatVersion,
+                    $"Current-format recording '{rec.RecordingId}' should keep its on-disk format version");
+                checkedCount++;
+            }
+
+            if (checkedCount == 0)
+            {
+                InGameAssert.Skip("no current-format committed recordings in this save");
+                return;
+            }
+
+            ParsekLog.Verbose("TestRunner",
+                $"Binary sidecar check: verified {checkedCount} current-format recording(s)");
         }
     }
 

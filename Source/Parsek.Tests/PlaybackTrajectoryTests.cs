@@ -115,6 +115,100 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void Recording_OrbitSegmentsExtendBoundsBeyondPoints()
+        {
+            var rec = new Recording();
+            rec.Points.Add(new TrajectoryPoint
+            {
+                ut = 168.5, bodyName = "Kerbin", rotation = Quaternion.identity, velocity = Vector3.zero
+            });
+            rec.Points.Add(new TrajectoryPoint
+            {
+                ut = 6175.7, bodyName = "Kerbin", rotation = Quaternion.identity, velocity = Vector3.zero
+            });
+            rec.OrbitSegments.Add(new OrbitSegment
+            {
+                startUT = 104.2,
+                endUT = 168.5,
+                bodyName = "Kerbin"
+            });
+
+            IPlaybackTrajectory traj = rec;
+            Assert.Equal(104.2, traj.StartUT, 6);
+            Assert.Equal(6175.7, traj.EndUT, 6);
+        }
+
+        [Fact]
+        public void Recording_TrackSectionsExtendBoundsBeyondPoints()
+        {
+            var rec = new Recording();
+            rec.Points.Add(new TrajectoryPoint
+            {
+                ut = 168.5, bodyName = "Kerbin", rotation = Quaternion.identity, velocity = Vector3.zero
+            });
+            rec.Points.Add(new TrajectoryPoint
+            {
+                ut = 6175.7, bodyName = "Kerbin", rotation = Quaternion.identity, velocity = Vector3.zero
+            });
+            rec.TrackSections.Add(new TrackSection
+            {
+                referenceFrame = ReferenceFrame.OrbitalCheckpoint,
+                startUT = 104.2,
+                endUT = 168.5,
+                checkpoints = new List<OrbitSegment>
+                {
+                    new OrbitSegment { startUT = 104.2, endUT = 168.5, bodyName = "Kerbin" }
+                }
+            });
+            rec.TrackSections.Add(new TrackSection
+            {
+                referenceFrame = ReferenceFrame.Absolute,
+                startUT = 168.5,
+                endUT = 6175.7,
+                frames = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint
+                    {
+                        ut = 168.5, bodyName = "Kerbin", rotation = Quaternion.identity, velocity = Vector3.zero
+                    },
+                    new TrajectoryPoint
+                    {
+                        ut = 6175.7, bodyName = "Kerbin", rotation = Quaternion.identity, velocity = Vector3.zero
+                    }
+                }
+            });
+
+            IPlaybackTrajectory traj = rec;
+            Assert.Equal(104.2, traj.StartUT, 6);
+            Assert.Equal(6175.7, traj.EndUT, 6);
+        }
+
+        [Fact]
+        public void Recording_EmptyTrackSectionsDoNotOverridePointBounds()
+        {
+            var rec = new Recording();
+            rec.Points.Add(new TrajectoryPoint
+            {
+                ut = 168.5, bodyName = "Kerbin", rotation = Quaternion.identity, velocity = Vector3.zero
+            });
+            rec.Points.Add(new TrajectoryPoint
+            {
+                ut = 6175.7, bodyName = "Kerbin", rotation = Quaternion.identity, velocity = Vector3.zero
+            });
+            rec.TrackSections.Add(new TrackSection
+            {
+                referenceFrame = ReferenceFrame.OrbitalCheckpoint,
+                startUT = 104.2,
+                endUT = 168.5,
+                checkpoints = new List<OrbitSegment>()
+            });
+
+            IPlaybackTrajectory traj = rec;
+            Assert.Equal(168.5, traj.StartUT, 6);
+            Assert.Equal(6175.7, traj.EndUT, 6);
+        }
+
+        [Fact]
         public void Recording_RecordingFormatVersion_Matches()
         {
             var rec = new Recording();
@@ -595,11 +689,11 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void Recording_PointsOverrideExplicitUT()
+        public void Recording_ExplicitUT_ExtendsActualBoundsWithoutShrinking()
         {
             var rec = new Recording
             {
-                ExplicitStartUT = 500.0,
+                ExplicitStartUT = 50.0,
                 ExplicitEndUT = 600.0,
             };
             rec.Points.Add(new TrajectoryPoint
@@ -611,7 +705,28 @@ namespace Parsek.Tests
                 ut = 200, bodyName = "Kerbin", rotation = Quaternion.identity, velocity = Vector3.zero
             });
             IPlaybackTrajectory traj = rec;
-            // Points take priority over explicit UT
+            Assert.Equal(50.0, traj.StartUT, 6);
+            Assert.Equal(600.0, traj.EndUT, 6);
+        }
+
+        [Fact]
+        public void Recording_ExplicitUT_InsideActualBounds_DoesNotShrinkThem()
+        {
+            var rec = new Recording
+            {
+                ExplicitStartUT = 150.0,
+                ExplicitEndUT = 180.0,
+            };
+            rec.Points.Add(new TrajectoryPoint
+            {
+                ut = 100, bodyName = "Kerbin", rotation = Quaternion.identity, velocity = Vector3.zero
+            });
+            rec.Points.Add(new TrajectoryPoint
+            {
+                ut = 200, bodyName = "Kerbin", rotation = Quaternion.identity, velocity = Vector3.zero
+            });
+
+            IPlaybackTrajectory traj = rec;
             Assert.Equal(100.0, traj.StartUT, 6);
             Assert.Equal(200.0, traj.EndUT, 6);
         }

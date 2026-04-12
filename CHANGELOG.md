@@ -14,9 +14,23 @@ All notable changes to Parsek are documented here.
 
 ### Bug Fixes
 
+- Recording timing bounds now combine actual trajectory coverage (points, orbit segments, playable track sections) with explicit outer bounds, so watch handoff and playback activation no longer get stuck when a section-authoritative continuation starts before its first flat point while still preserving live background and terminal end times.
+- Optimizer boring-tail trims now cut nested section-authoritative frame/checkpoint payloads as well as the flat mirrors, so trimmed tails no longer grow back after save/load, and relative-section splits now resync their flat playback caches the same way the storage format does.
+- Optimizer merges now carry the later segment's branch/end-state metadata and remove absorbed recordings from tree ownership cleanly, so merged chains keep branch continuation, terminal state, and tree/background bookkeeping consistent.
 - Splashed terminal spawns now floor any slightly negative endpoint altitude back to sea level before spawn, so EVA and breakup-continuous splashdowns no longer materialize a few centimeters underwater (`#313`).
+- Section-authoritative recording merges/splits now resync derived flat trajectory lists when the section payload can rebuild them losslessly, and recordings-window stats now use section altitude metadata plus relative-offset distance handling instead of treating relative frames as absolute surface coordinates (`#318`).
+- Active-tree restore now keeps a matching in-memory pending tree when the saved active tree hits stale-sidecar epoch failures, and hydration-failed recordings are no longer pruned as disposable zero-point leaves during finalize (`#314`).
+- Active-tree restore still keeps the full matching pending tree for stale-sidecar epoch failures, and other matched hydration failures now salvage only the failed recordings from the pending tree into the loaded disk tree, marking them dirty so the next save heals the sidecars without jumping the whole restore to the future timeline.
+- Separate ghost snapshot sidecars now rewrite on later saves instead of behaving like write-once files, so `_ghost.craft` stays aligned with `ghostSnapshotMode=Separate` after snapshot changes.
+- Mixed background recordings no longer let incomplete `TrackSections` suppress top-level trajectory on disk. Current-format sidecars now fall back conservatively when loaded background sections have not yet captured their checkpoint payload, preserving secondary-vessel and debris orbit continuation across save/load.
+- Background `TrackSection` flushes now append their concrete frames back into the live flat `Points`/`OrbitSegments` lists with boundary dedupe, so background playback/UI paths do not need to wait for a save/load round-trip before secondary-vessel trajectory becomes usable.
 - Watched ghosts now use exact watched-state identity (`recording + overlap cycle`) for full-fidelity protection. Overlap copies of the same looping recording no longer inherit watched-only exemptions or diagnostics counts.
 - Watch cutoff / zone state for hidden looped ghosts now follows their logical playback position instead of a stale hidden transform, so watch eligibility and auto-exit stay correct while a loop is off-screen.
+- Breakup child recordings now preserve split-time ghost visuals even when the child vessel mutates during the coalescing window, and watch transfers immediately bind/log the new watched cycle/target so debris and secondary-vessel handoff failures are diagnosable from `KSP.log`.
+- Watch-mode observability now logs structured camera-focus summaries and W-button eligibility context, so playback focus and watch-button enable/disable state can be correlated from the same log bundle.
+- Watching a ghost now keeps its loop-synced breakup debris visible even beyond the normal distance-hiding tier, so long-range booster/debris playback no longer disappears just because the camera stayed on the parent vessel.
+- Watched-debris protection now follows same-tree ancestry through branch points as well as loop-sync parents, so secondary breakup fragments inherit the watched ghost's visibility protection even when they are no longer directly loop-synced.
+- Zero-throttle breakup debris now emits `EngineShutdown` sentinels instead of looking like a zero-event orphan-engine recording, so replay no longer auto-starts max-throttle booster FX/audio for staged-off debris.
 - The old warp-only orbital exemption no longer punches through the new `50-120 km` hidden-mesh tier. Orbital ghosts still get the legacy exemption only in the true `Beyond` zone.
 - Entering watch mode now uses the tracked playback distance first, avoiding false "in range" decisions from a hidden ghost's stale transform.
 - The in-game test runner window now uses a more compact layout without the visible blank rows between tests, and disruptive quickload-resume tests run last in batch execution so they do not interfere with later scenarios.
@@ -26,6 +40,8 @@ All notable changes to Parsek are documented here.
 - Added regression coverage for R/FF enablement reasons, including future/past timing, tree-branch rewind save resolution, and a UI guard that pins rewind/fast-forward independence from watch-distance state (`T60`).
 - Added regression coverage for exact watched-cycle protection, hidden-tier warp exemption, watched-override diagnostics counting, and the new frame-context watch-cycle field.
 - Added regression coverage for hidden-tier shell-state handling so unloaded ghosts keep their logical loop identity and rebuild paths preserve playback bookkeeping.
+- Added regression coverage for watched-lineage debris visibility, so watch-mode protection now stays pinned to the intended same-tree same-vessel debris path instead of only the exact watched recording row.
+- Added regression coverage for zero-throttle engine seeding vs. orphan-engine auto-start, so staged-off debris boosters are pinned against replaying as visually full-throttle.
 - Diagnostics now report live engine/RCS FX counts plus last-frame ghost spawn/destroy timings, giving a measurement-first view of FX cost without changing FX behavior.
 - `scripts/inject-recordings.ps1 --run-diagnostics-tests` now runs the focused diagnostics/observability slice before showcase injection, including observability logging and in-game test runner ordering coverage.
 
@@ -39,6 +55,9 @@ All notable changes to Parsek are documented here.
 
 ### Improvements
 
+- Phase 11.5 recording storage groundwork: added representative storage fixtures, golden round-trip coverage, and `v1` `.prec` sidecars that make `TrackSections` authoritative on disk instead of duplicating flat `POINT` / `ORBIT_SEGMENT` trajectory data.
+- Recording sidecars now alias identical ghost snapshots to `_vessel.craft` via `ghostSnapshotMode` metadata instead of always writing a duplicate `_ghost.craft` file. Diagnostics and load paths understand alias mode and stale ghost sidecars are cleaned up on save.
+- Phase 11.5 storage now writes current-format `.prec` sidecars as compact `v3` binary files with `PRKB` header dispatch, exact scalar payloads, a file-level string table, and conservative sparse defaults for stable per-point body/career fields. Legacy text `v0` / `v1` sidecars and binary `v2` sidecars still load, and the fixture/generator path covers mixed-format corpora.
 - Migrated 9 log contract checks from post-hoc KSP.log analysis to in-game tests (Ctrl+Shift+T) -- catches format, resource, and recording metric issues at runtime instead of after session ends.
 - Unified standalone and tree recording systems -- all recordings now use tree architecture internally (#271).
 - Optimizer now splits tree recordings at environment boundaries, restoring per-phase segment display in the UI.
@@ -47,6 +66,7 @@ All notable changes to Parsek are documented here.
 
 ### Bug Fixes
 
+- Recording tree metadata now preserves the last written `ghostSnapshotMode` instead of recomputing it from live snapshots on every save, preventing `.sfs` alias/separate drift from disagreeing with the actual sidecar files on disk.
 - `#307` Rewind (R button) now works for recordings committed after an in-flight vessel switch -- the rewind save is now copied to the tree root in both vessel-switch flush paths.
 - `#308` Reserved kerbals no longer appear auto-assigned in the VAB/SPH crew dialog -- new Harmony patch replaces reserved crew with their stand-ins before the dialog builds.
 - `#309` Rovers and ghosts recorded on the Island Airfield (or launchpad/KSC buildings) no longer spawn 19 m underground -- recording now captures the true surface height from KSP's raycast-derived `vessel.terrainAltitude` instead of PQS-only terrain, and spawn/ghost altitudes trust the recorded value with only an underground safety floor against PQS.

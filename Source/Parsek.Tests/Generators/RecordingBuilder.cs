@@ -44,7 +44,7 @@ namespace Parsek.Tests.Generators
         private float defaultRotX, defaultRotY, defaultRotZ;
         private float defaultRotW = 1;
         private bool hasDefaultRotation;
-        private int formatVersion = 0;
+        private int formatVersion = RecordingStore.CurrentRecordingFormatVersion;
 
         public RecordingBuilder(string vesselName)
         {
@@ -345,6 +345,23 @@ namespace Parsek.Tests.Generators
         }
 
         /// <summary>
+        /// Adds a fully-specified TrackSection, copying nested lists so fixtures can safely
+        /// reuse shared boundary points and metadata without leaking mutable references.
+        /// </summary>
+        public RecordingBuilder AddTrackSection(TrackSection section)
+        {
+            var copy = section;
+            copy.frames = section.frames != null
+                ? new List<TrajectoryPoint>(section.frames)
+                : new List<TrajectoryPoint>();
+            copy.checkpoints = section.checkpoints != null
+                ? new List<OrbitSegment>(section.checkpoints)
+                : new List<OrbitSegment>();
+            trackSections.Add(copy);
+            return this;
+        }
+
+        /// <summary>
         /// Convenience: creates an ATMOSPHERIC + ABSOLUTE + Active section with no frames.
         /// Frames can be added separately or the section can serve as a time-range marker.
         /// </summary>
@@ -465,6 +482,12 @@ namespace Parsek.Tests.Generators
             var node = new ConfigNode("PARSEK_RECORDING");
             node.AddValue("version", formatVersion.ToString());
             node.AddValue("recordingId", GetRecordingId());
+            if (formatVersion >= 1 && trackSections.Count > 0)
+            {
+                bool sectionAuthoritative = RecordingStore.HasCompleteTrackSectionPayloadForFlatSync(
+                    trackSections, allowRelativeSections: true);
+                node.AddValue("sectionAuthoritative", sectionAuthoritative ? "True" : "False");
+            }
 
             foreach (var pt in points)
                 node.AddNode(pt);
@@ -494,6 +517,14 @@ namespace Parsek.Tests.Generators
             node.AddValue("pointCount", points.Count);
             node.AddValue("recordingId", GetRecordingId());
             node.AddValue("recordingFormatVersion", formatVersion.ToString());
+            var snapshotModeRecording = new Recording
+            {
+                VesselSnapshot = vesselSnapshot,
+                GhostVisualSnapshot = ghostVisualSnapshot ?? vesselSnapshot
+            };
+            GhostSnapshotMode ghostSnapshotMode = RecordingStore.DetermineGhostSnapshotMode(snapshotModeRecording);
+            if (ghostSnapshotMode != GhostSnapshotMode.Unspecified)
+                node.AddValue("ghostSnapshotMode", ghostSnapshotMode.ToString());
             node.AddValue("loopPlayback", loopPlayback.ToString());
             node.AddValue("loopIntervalSeconds", loopIntervalSeconds.ToString("R", CultureInfo.InvariantCulture));
 

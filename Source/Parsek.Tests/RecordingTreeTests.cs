@@ -766,7 +766,7 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void Recording_PointsUT_TakesPrecedenceOverExplicit()
+        public void Recording_ExplicitUT_ExtendsPointBounds()
         {
             var rec = new Recording
             {
@@ -776,8 +776,8 @@ namespace Parsek.Tests
             rec.Points.Add(new TrajectoryPoint { ut = 200.0 });
             rec.Points.Add(new TrajectoryPoint { ut = 400.0 });
 
-            Assert.Equal(200.0, rec.StartUT);
-            Assert.Equal(400.0, rec.EndUT);
+            Assert.Equal(100.0, rec.StartUT);
+            Assert.Equal(500.0, rec.EndUT);
         }
 
         // --- ResourcesApplied field ---

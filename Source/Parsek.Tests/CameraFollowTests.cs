@@ -165,6 +165,18 @@ namespace Parsek.Tests
                 Vessel.Situations.ESCAPING, 100000, 70000));
         }
 
+        [Fact]
+        public void FormatWatchDistanceForLogs_MetersBelowOneKm()
+        {
+            Assert.Equal("842m", WatchModeController.FormatWatchDistanceForLogs(842));
+        }
+
+        [Fact]
+        public void FormatWatchDistanceForLogs_KilometersAtOrAboveOneKm()
+        {
+            Assert.Equal("3.9km", WatchModeController.FormatWatchDistanceForLogs(3858));
+        }
+
         #endregion
 
         #region ComputeWatchIndexAfterDelete

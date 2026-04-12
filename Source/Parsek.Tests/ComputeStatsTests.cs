@@ -242,6 +242,55 @@ namespace Parsek.Tests
 
             Assert.Equal("Kerbin", stats.primaryBody);
         }
+
+        [Fact]
+        public void RelativeTrackSections_UseSectionAltitudeMetadata_AndOffsetDistance()
+        {
+            var rec = new Recording();
+            rec.Points.Add(new TrajectoryPoint
+            {
+                ut = 100,
+                latitude = 0,
+                longitude = 0,
+                altitude = 0,
+                velocity = new Vector3(5, 0, 0),
+                bodyName = "Kerbin"
+            });
+            rec.Points.Add(new TrajectoryPoint
+            {
+                ut = 110,
+                latitude = 100,
+                longitude = 0,
+                altitude = 0,
+                velocity = new Vector3(15, 0, 0),
+                bodyName = "Kerbin"
+            });
+            rec.TrackSections.Add(new TrackSection
+            {
+                environment = SegmentEnvironment.Atmospheric,
+                referenceFrame = ReferenceFrame.Relative,
+                startUT = 100,
+                endUT = 110,
+                anchorVesselId = 42u,
+                minAltitude = 700f,
+                maxAltitude = 734f,
+                frames = new List<TrajectoryPoint>(rec.Points),
+                checkpoints = new List<OrbitSegment>()
+            });
+
+            Func<string, double[]> bodyLookup = name =>
+            {
+                if (name == "Kerbin") return new double[] { 600000, 3.5316e12 };
+                return null;
+            };
+
+            var stats = TrajectoryMath.ComputeStats(rec, bodyLookup);
+
+            Assert.Equal(734, stats.maxAltitude);
+            Assert.Equal(15, stats.maxSpeed, 1);
+            Assert.True(stats.distanceTravelled > 99 && stats.distanceTravelled < 101,
+                $"Expected relative offset distance of ~100m, got {stats.distanceTravelled}");
+        }
     }
 
     public class FormatAltitudeTests

@@ -53,8 +53,11 @@ namespace Parsek
     /// </summary>
     public static class RecordingStore
     {
-        public const int CurrentRecordingFormatVersion = 0;
+        public const int CurrentRecordingFormatVersion = 3;
         // v0: initial release format
+        // v1: track sections become authoritative on disk when present; flat lists rebuild on load
+        // v2: binary .prec sidecars with header dispatch, exact scalar storage, and file-level string tables
+        // v3: binary .prec sparse point defaults for stable body/career fields, still exact on load
 
         // When true, suppresses logging calls (for unit testing outside Unity)
         internal static bool SuppressLogging;
@@ -101,6 +104,87 @@ namespace Parsek
             }
 
             ParsekLog.Info("RecordingStore", clean);
+        }
+
+        internal static bool ConfigNodesEquivalent(ConfigNode expected, ConfigNode actual)
+        {
+            if (ReferenceEquals(expected, actual))
+                return true;
+            if (expected == null || actual == null)
+                return false;
+            if (!string.Equals(expected.name, actual.name, StringComparison.Ordinal))
+                return false;
+            if (expected.values.Count != actual.values.Count)
+                return false;
+            if (expected.nodes.Count != actual.nodes.Count)
+                return false;
+
+            for (int i = 0; i < expected.values.Count; i++)
+            {
+                if (!string.Equals(expected.values[i].name, actual.values[i].name, StringComparison.Ordinal) ||
+                    !string.Equals(expected.values[i].value, actual.values[i].value, StringComparison.Ordinal))
+                {
+                    return false;
+                }
+            }
+
+            for (int i = 0; i < expected.nodes.Count; i++)
+            {
+                if (!ConfigNodesEquivalent(expected.nodes[i], actual.nodes[i]))
+                    return false;
+            }
+
+            return true;
+        }
+
+        internal static GhostSnapshotMode DetermineGhostSnapshotMode(Recording rec)
+        {
+            if (rec == null)
+                return GhostSnapshotMode.Unspecified;
+
+            if (rec.GhostVisualSnapshot == null)
+            {
+                return rec.VesselSnapshot != null
+                    ? GhostSnapshotMode.AliasVessel
+                    : GhostSnapshotMode.Unspecified;
+            }
+
+            if (rec.VesselSnapshot == null)
+                return GhostSnapshotMode.Separate;
+
+            return ConfigNodesEquivalent(rec.VesselSnapshot, rec.GhostVisualSnapshot)
+                ? GhostSnapshotMode.AliasVessel
+                : GhostSnapshotMode.Separate;
+        }
+
+        internal static GhostSnapshotMode GetExpectedGhostSnapshotMode(Recording rec)
+        {
+            if (rec == null)
+                return GhostSnapshotMode.Unspecified;
+
+            return rec.GhostSnapshotMode != GhostSnapshotMode.Unspecified
+                ? rec.GhostSnapshotMode
+                : DetermineGhostSnapshotMode(rec);
+        }
+
+        internal static GhostSnapshotMode ParseGhostSnapshotMode(string modeValue)
+        {
+            if (string.IsNullOrEmpty(modeValue))
+                return GhostSnapshotMode.Unspecified;
+
+            GhostSnapshotMode parsed;
+            if (Enum.TryParse(modeValue, ignoreCase: false, result: out parsed) &&
+                Enum.IsDefined(typeof(GhostSnapshotMode), parsed))
+            {
+                return parsed;
+            }
+
+            if (!SuppressLogging)
+            {
+                ParsekLog.Warn("RecordingStore",
+                    $"LoadRecordingFiles: invalid ghostSnapshotMode '{modeValue}', treating as Unspecified");
+            }
+            return GhostSnapshotMode.Unspecified;
         }
 
         // Set true by StashPendingTree during OnSceneChangeRequested.
@@ -965,6 +1049,7 @@ namespace Parsek
                 string absorbedId = RecordingOptimizer.MergeInto(target, absorbed);
                 target.FilesDirty = true;
                 string chainId = target.ChainId;
+                UpdateTreeStateAfterOptimizationMerge(target, absorbed);
 
                 // Remove absorbed recording from committed list
                 recordings.RemoveAt(idxB);
@@ -1173,6 +1258,58 @@ namespace Parsek
             if (saved > 0 || failed > 0)
                 ParsekLog.Info("RecordingStore",
                     $"FlushDirtyFiles: saved {saved}, failed {failed}");
+        }
+
+        private static void UpdateTreeStateAfterOptimizationMerge(Recording target, Recording absorbed)
+        {
+            string treeId = target != null && !string.IsNullOrEmpty(target.TreeId)
+                ? target.TreeId
+                : absorbed?.TreeId;
+            if (string.IsNullOrEmpty(treeId) || absorbed == null)
+                return;
+
+            for (int t = 0; t < committedTrees.Count; t++)
+            {
+                var tree = committedTrees[t];
+                if (tree.Id != treeId)
+                    continue;
+
+                tree.Recordings.Remove(absorbed.RecordingId);
+                if (target != null)
+                    tree.Recordings[target.RecordingId] = target;
+
+                if (tree.RootRecordingId == absorbed.RecordingId && target != null)
+                    tree.RootRecordingId = target.RecordingId;
+                if (tree.ActiveRecordingId == absorbed.RecordingId && target != null)
+                    tree.ActiveRecordingId = target.RecordingId;
+
+                if (!string.IsNullOrEmpty(absorbed.ChildBranchPointId) && tree.BranchPoints != null)
+                {
+                    for (int b = 0; b < tree.BranchPoints.Count; b++)
+                    {
+                        if (tree.BranchPoints[b].Id != absorbed.ChildBranchPointId
+                            || tree.BranchPoints[b].ParentRecordingIds == null)
+                        {
+                            continue;
+                        }
+
+                        var parentIds = tree.BranchPoints[b].ParentRecordingIds;
+                        for (int p = 0; p < parentIds.Count; p++)
+                        {
+                            if (parentIds[p] == absorbed.RecordingId && target != null)
+                            {
+                                parentIds[p] = target.RecordingId;
+                                ParsekLog.Verbose("RecordingStore",
+                                    $"Merge: updated BranchPoint '{absorbed.ChildBranchPointId}' " +
+                                    $"ParentRecordingIds: {absorbed.RecordingId} → {target.RecordingId}");
+                            }
+                        }
+                        break;
+                    }
+                }
+
+                return;
+            }
         }
 
         /// <summary>
@@ -2651,14 +2788,336 @@ namespace Parsek
             return seg;
         }
 
+        private static int GetTrajectoryFormatVersion(ConfigNode sourceNode)
+        {
+            if (sourceNode == null)
+                return 0;
+
+            string versionStr = sourceNode.GetValue("version");
+            if (string.IsNullOrEmpty(versionStr))
+                return 0;
+
+            int version;
+            if (!int.TryParse(versionStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out version))
+            {
+                if (!SuppressLogging)
+                {
+                    ParsekLog.Warn("RecordingStore",
+                        $"DeserializeTrajectoryFrom: invalid trajectory version '{versionStr}', treating as v0");
+                }
+                return 0;
+            }
+
+            return version;
+        }
+
+        private const string SectionAuthoritativeHeaderKey = "sectionAuthoritative";
+
+        private static void EnsureTrajectoryHeader(ConfigNode targetNode, Recording rec)
+        {
+            if (targetNode == null || rec == null)
+                return;
+
+            if (string.IsNullOrEmpty(targetNode.GetValue("version")))
+            {
+                targetNode.AddValue("version",
+                    rec.RecordingFormatVersion.ToString(CultureInfo.InvariantCulture));
+            }
+
+            if (string.IsNullOrEmpty(targetNode.GetValue("recordingId")) &&
+                !string.IsNullOrEmpty(rec.RecordingId))
+            {
+                targetNode.AddValue("recordingId", rec.RecordingId);
+            }
+        }
+
+        private static void SetSectionAuthoritativeHeader(ConfigNode targetNode, bool useSectionAuthoritative)
+        {
+            if (targetNode == null)
+                return;
+
+            string value = useSectionAuthoritative ? "True" : "False";
+            if (targetNode.HasValue(SectionAuthoritativeHeaderKey))
+                targetNode.SetValue(SectionAuthoritativeHeaderKey, value, true);
+            else
+                targetNode.AddValue(SectionAuthoritativeHeaderKey, value);
+        }
+
+        internal static bool ShouldWriteSectionAuthoritativeTrajectory(Recording rec)
+        {
+            return rec != null
+                && rec.RecordingFormatVersion >= 1
+                && rec.TrackSections != null
+                && rec.TrackSections.Count > 0
+                && HasCompleteTrackSectionPayloadForFlatSync(rec.TrackSections, allowRelativeSections: true);
+        }
+
+        private static bool ShouldReadSectionAuthoritativeTrajectory(ConfigNode sourceNode, int formatVersion)
+        {
+            if (formatVersion < 1
+                || sourceNode == null
+                || sourceNode.GetNodes("TRACK_SECTION").Length == 0)
+            {
+                return false;
+            }
+
+            string explicitHeader = sourceNode.GetValue(SectionAuthoritativeHeaderKey);
+            bool useSectionAuthoritative;
+            if (!string.IsNullOrEmpty(explicitHeader)
+                && bool.TryParse(explicitHeader, out useSectionAuthoritative))
+            {
+                return useSectionAuthoritative;
+            }
+
+            return sourceNode.GetNodes("POINT").Length == 0
+                && sourceNode.GetNodes("ORBIT_SEGMENT").Length == 0;
+        }
+
+        internal static int RebuildPointsFromTrackSections(List<TrackSection> tracks, List<TrajectoryPoint> points)
+        {
+            points.Clear();
+            if (tracks == null || tracks.Count == 0)
+                return 0;
+
+            int dedupedBoundaryCopies = 0;
+            for (int t = 0; t < tracks.Count; t++)
+            {
+                if (tracks[t].referenceFrame == ReferenceFrame.OrbitalCheckpoint || tracks[t].frames == null)
+                    continue;
+
+                for (int i = 0; i < tracks[t].frames.Count; i++)
+                {
+                    var pt = tracks[t].frames[i];
+                    if (points.Count > 0 && TrajectoryPointEquals(points[points.Count - 1], pt))
+                    {
+                        dedupedBoundaryCopies++;
+                        continue;
+                    }
+
+                    points.Add(pt);
+                }
+            }
+
+            return dedupedBoundaryCopies;
+        }
+
+        internal static int AppendPointsFromTrackSections(List<TrackSection> tracks, List<TrajectoryPoint> points)
+        {
+            if (tracks == null || tracks.Count == 0 || points == null)
+                return 0;
+
+            int dedupedBoundaryCopies = 0;
+            for (int t = 0; t < tracks.Count; t++)
+            {
+                if (tracks[t].referenceFrame == ReferenceFrame.OrbitalCheckpoint || tracks[t].frames == null)
+                    continue;
+
+                for (int i = 0; i < tracks[t].frames.Count; i++)
+                {
+                    var pt = tracks[t].frames[i];
+                    if (points.Count > 0 && TrajectoryPointEquals(points[points.Count - 1], pt))
+                    {
+                        dedupedBoundaryCopies++;
+                        continue;
+                    }
+
+                    points.Add(pt);
+                }
+            }
+
+            return dedupedBoundaryCopies;
+        }
+
+        internal static bool ContainsRelativeTrackSections(List<TrackSection> tracks)
+        {
+            if (tracks == null)
+                return false;
+
+            for (int i = 0; i < tracks.Count; i++)
+            {
+                if (tracks[i].referenceFrame == ReferenceFrame.Relative)
+                    return true;
+            }
+
+            return false;
+        }
+
+        internal static bool HasCompleteTrackSectionPayloadForFlatSync(
+            List<TrackSection> tracks,
+            bool allowRelativeSections = false)
+        {
+            if (tracks == null || tracks.Count == 0)
+                return false;
+
+            bool sawPayload = false;
+            for (int i = 0; i < tracks.Count; i++)
+            {
+                var track = tracks[i];
+                switch (track.referenceFrame)
+                {
+                    case ReferenceFrame.Absolute:
+                        if (track.frames == null || track.frames.Count == 0)
+                            return false;
+                        sawPayload = true;
+                        break;
+
+                    case ReferenceFrame.Relative:
+                        if (!allowRelativeSections)
+                            return false;
+                        if (track.frames == null || track.frames.Count == 0)
+                            return false;
+                        sawPayload = true;
+                        break;
+
+                    case ReferenceFrame.OrbitalCheckpoint:
+                        if (track.checkpoints == null || track.checkpoints.Count == 0)
+                            return false;
+                        sawPayload = true;
+                        break;
+                }
+            }
+
+            return sawPayload;
+        }
+
+        internal static bool TrySyncFlatTrajectoryFromTrackSections(
+            Recording rec,
+            bool allowRelativeSections = false)
+        {
+            if (rec == null
+                || !HasCompleteTrackSectionPayloadForFlatSync(rec.TrackSections, allowRelativeSections))
+            {
+                return false;
+            }
+
+            RebuildPointsFromTrackSections(rec.TrackSections, rec.Points);
+            RebuildOrbitSegmentsFromTrackSections(rec.TrackSections, rec.OrbitSegments);
+            rec.CachedStats = null;
+            rec.CachedStatsPointCount = 0;
+            return true;
+        }
+
+        internal static int RebuildOrbitSegmentsFromTrackSections(List<TrackSection> tracks, List<OrbitSegment> orbitSegments)
+        {
+            orbitSegments.Clear();
+            if (tracks == null || tracks.Count == 0)
+                return 0;
+
+            int dedupedCopies = 0;
+            for (int t = 0; t < tracks.Count; t++)
+            {
+                if (tracks[t].referenceFrame != ReferenceFrame.OrbitalCheckpoint || tracks[t].checkpoints == null)
+                    continue;
+
+                for (int i = 0; i < tracks[t].checkpoints.Count; i++)
+                {
+                    var seg = tracks[t].checkpoints[i];
+                    if (orbitSegments.Count > 0 && OrbitSegmentEquals(orbitSegments[orbitSegments.Count - 1], seg))
+                    {
+                        dedupedCopies++;
+                        continue;
+                    }
+
+                    orbitSegments.Add(seg);
+                }
+            }
+
+            return dedupedCopies;
+        }
+
+        internal static int AppendOrbitSegmentsFromTrackSections(List<TrackSection> tracks, List<OrbitSegment> orbitSegments)
+        {
+            if (tracks == null || tracks.Count == 0 || orbitSegments == null)
+                return 0;
+
+            int dedupedCopies = 0;
+            for (int t = 0; t < tracks.Count; t++)
+            {
+                if (tracks[t].referenceFrame != ReferenceFrame.OrbitalCheckpoint || tracks[t].checkpoints == null)
+                    continue;
+
+                for (int i = 0; i < tracks[t].checkpoints.Count; i++)
+                {
+                    var seg = tracks[t].checkpoints[i];
+                    if (orbitSegments.Count > 0 && OrbitSegmentEquals(orbitSegments[orbitSegments.Count - 1], seg))
+                    {
+                        dedupedCopies++;
+                        continue;
+                    }
+
+                    orbitSegments.Add(seg);
+                }
+            }
+
+            return dedupedCopies;
+        }
+
+        private static bool TrajectoryPointEquals(TrajectoryPoint a, TrajectoryPoint b)
+        {
+            return a.ut == b.ut
+                && a.latitude == b.latitude
+                && a.longitude == b.longitude
+                && a.altitude == b.altitude
+                && a.rotation.x == b.rotation.x
+                && a.rotation.y == b.rotation.y
+                && a.rotation.z == b.rotation.z
+                && a.rotation.w == b.rotation.w
+                && a.velocity.x == b.velocity.x
+                && a.velocity.y == b.velocity.y
+                && a.velocity.z == b.velocity.z
+                && a.bodyName == b.bodyName
+                && a.funds == b.funds
+                && a.science == b.science
+                && a.reputation == b.reputation;
+        }
+
+        private static bool OrbitSegmentEquals(OrbitSegment a, OrbitSegment b)
+        {
+            return a.startUT == b.startUT
+                && a.endUT == b.endUT
+                && a.inclination == b.inclination
+                && a.eccentricity == b.eccentricity
+                && a.semiMajorAxis == b.semiMajorAxis
+                && a.longitudeOfAscendingNode == b.longitudeOfAscendingNode
+                && a.argumentOfPeriapsis == b.argumentOfPeriapsis
+                && a.meanAnomalyAtEpoch == b.meanAnomalyAtEpoch
+                && a.epoch == b.epoch
+                && a.bodyName == b.bodyName
+                && a.orbitalFrameRotation.x == b.orbitalFrameRotation.x
+                && a.orbitalFrameRotation.y == b.orbitalFrameRotation.y
+                && a.orbitalFrameRotation.z == b.orbitalFrameRotation.z
+                && a.orbitalFrameRotation.w == b.orbitalFrameRotation.w
+                && a.angularVelocity.x == b.angularVelocity.x
+                && a.angularVelocity.y == b.angularVelocity.y
+                && a.angularVelocity.z == b.angularVelocity.z;
+        }
+
         internal static void SerializeTrajectoryInto(ConfigNode targetNode, Recording rec)
         {
             var ic = CultureInfo.InvariantCulture;
-            for (int i = 0; i < rec.Points.Count; i++)
-                SerializePoint(targetNode, rec.Points[i], ic);
+            EnsureTrajectoryHeader(targetNode, rec);
+            bool useSectionAuthoritative = ShouldWriteSectionAuthoritativeTrajectory(rec);
+            if (rec != null && rec.RecordingFormatVersion >= 1)
+                SetSectionAuthoritativeHeader(targetNode, useSectionAuthoritative);
 
-            for (int s = 0; s < rec.OrbitSegments.Count; s++)
-                SerializeOrbitSegment(targetNode, rec.OrbitSegments[s], ic);
+            if (!useSectionAuthoritative)
+            {
+                for (int i = 0; i < rec.Points.Count; i++)
+                    SerializePoint(targetNode, rec.Points[i], ic);
+
+                for (int s = 0; s < rec.OrbitSegments.Count; s++)
+                    SerializeOrbitSegment(targetNode, rec.OrbitSegments[s], ic);
+            }
+            else
+            {
+                if (!SuppressLogging)
+                {
+                    ParsekLog.Verbose("RecordingStore",
+                        $"SerializeTrajectoryInto: recording={rec.RecordingId} version={rec.RecordingFormatVersion} " +
+                        $"using section-authoritative path sections={rec.TrackSections.Count} " +
+                        $"skippedTopLevelPoints={rec.Points.Count} skippedTopLevelOrbitSegments={rec.OrbitSegments.Count}");
+                }
+            }
 
             for (int pe = 0; pe < rec.PartEvents.Count; pe++)
             {
@@ -2696,16 +3155,62 @@ namespace Parsek
             // Serialize track sections (new recording system)
             if (rec.TrackSections != null && rec.TrackSections.Count > 0)
                 SerializeTrackSections(targetNode, rec.TrackSections);
+
+            if (!useSectionAuthoritative && rec.RecordingFormatVersion >= 1)
+            {
+                if (!SuppressLogging)
+                {
+                    ParsekLog.Verbose("RecordingStore",
+                        $"SerializeTrajectoryInto: recording={rec.RecordingId} version={rec.RecordingFormatVersion} " +
+                        $"used flat fallback path points={rec.Points.Count} orbitSegments={rec.OrbitSegments.Count} " +
+                        $"trackSections={rec.TrackSections?.Count ?? 0}");
+                }
+            }
         }
 
         internal static void DeserializeTrajectoryFrom(ConfigNode sourceNode, Recording rec)
         {
-            DeserializePoints(sourceNode, rec);
-            DeserializeOrbitSegments(sourceNode, rec);
+            int formatVersion = GetTrajectoryFormatVersion(sourceNode);
+            bool useSectionAuthoritative = ShouldReadSectionAuthoritativeTrajectory(sourceNode, formatVersion);
+
+            if (useSectionAuthoritative)
+            {
+                rec.TrackSections.Clear();
+                DeserializeTrackSections(sourceNode, rec.TrackSections);
+
+                int dedupedPointCopies = RebuildPointsFromTrackSections(rec.TrackSections, rec.Points);
+                int dedupedOrbitCopies = RebuildOrbitSegmentsFromTrackSections(rec.TrackSections, rec.OrbitSegments);
+
+                if (!SuppressLogging)
+                {
+                    ParsekLog.Verbose("RecordingStore",
+                        $"DeserializeTrajectoryFrom: recording={rec.RecordingId} version={formatVersion} " +
+                        $"using section-authoritative path sections={rec.TrackSections.Count} rebuiltPoints={rec.Points.Count} " +
+                        $"dedupedPointCopies={dedupedPointCopies} rebuiltOrbitSegments={rec.OrbitSegments.Count} " +
+                        $"dedupedOrbitCopies={dedupedOrbitCopies}");
+                }
+            }
+            else
+            {
+                DeserializePoints(sourceNode, rec);
+                DeserializeOrbitSegments(sourceNode, rec);
+                DeserializeTrackSections(sourceNode, rec.TrackSections);
+
+                if (formatVersion >= 1)
+                {
+                    if (!SuppressLogging)
+                    {
+                        ParsekLog.Verbose("RecordingStore",
+                            $"DeserializeTrajectoryFrom: recording={rec.RecordingId} version={formatVersion} " +
+                            $"used flat fallback path points={rec.Points.Count} orbitSegments={rec.OrbitSegments.Count} " +
+                            $"trackSections={rec.TrackSections.Count}");
+                    }
+                }
+            }
+
             DeserializePartEvents(sourceNode, rec);
             DeserializeFlagEvents(sourceNode, rec);
             DeserializeSegmentEvents(sourceNode, rec.SegmentEvents);
-            DeserializeTrackSections(sourceNode, rec.TrackSections);
         }
 
         /// <summary>
@@ -3508,6 +4013,24 @@ namespace Parsek
 
         #region Recording File I/O
 
+        internal static void ClearSidecarLoadFailure(Recording rec)
+        {
+            if (rec == null)
+                return;
+
+            rec.SidecarLoadFailed = false;
+            rec.SidecarLoadFailureReason = null;
+        }
+
+        internal static void MarkSidecarLoadFailure(Recording rec, string reason)
+        {
+            if (rec == null)
+                return;
+
+            rec.SidecarLoadFailed = true;
+            rec.SidecarLoadFailureReason = reason;
+        }
+
         internal static bool SaveRecordingFiles(Recording rec, bool incrementEpoch = true)
         {
             if (rec == null)
@@ -3530,11 +4053,13 @@ namespace Parsek
                     return false;
                 }
 
-                // Save .prec trajectory file
-                var precNode = new ConfigNode("PARSEK_RECORDING");
-                precNode.AddValue("version", rec.RecordingFormatVersion);
-                precNode.AddValue("recordingId", rec.RecordingId);
+                GhostSnapshotMode ghostSnapshotMode = DetermineGhostSnapshotMode(rec);
+                rec.GhostSnapshotMode = ghostSnapshotMode;
+                bool wroteVesselSnapshot = false;
+                bool wroteGhostSnapshot = false;
+                bool deletedStaleGhostSnapshot = false;
 
+                // Save .prec trajectory file
                 string precPath = RecordingPaths.ResolveSaveScopedPath(
                     RecordingPaths.BuildTrajectoryRelativePath(rec.RecordingId));
                 if (string.IsNullOrEmpty(precPath))
@@ -3552,9 +4077,7 @@ namespace Parsek
                 // causing false-positive staleness on quickload (bug #290).
                 if (incrementEpoch)
                     rec.SidecarEpoch++;
-                precNode.AddValue("sidecarEpoch", rec.SidecarEpoch.ToString(System.Globalization.CultureInfo.InvariantCulture));
-                SerializeTrajectoryInto(precNode, rec);
-                SafeWriteConfigNode(precNode, precPath);
+                WriteTrajectorySidecar(precPath, rec, rec.SidecarEpoch);
 
                 // Save _vessel.craft (always rewrite — snapshot can be mutated by spawn offset)
                 string vesselPath = RecordingPaths.ResolveSaveScopedPath(
@@ -3567,6 +4090,7 @@ namespace Parsek
                 if (rec.VesselSnapshot != null)
                 {
                     SafeWriteConfigNode(rec.VesselSnapshot, vesselPath);
+                    wroteVesselSnapshot = true;
                 }
                 // Bug #278 follow-up (PR #177, defense-in-depth): do NOT delete an
                 // existing _vessel.craft when in-memory VesselSnapshot is null. PR
@@ -3583,17 +4107,36 @@ namespace Parsek
                 // the next OnSave. Stale-cleanup is the responsibility of explicit
                 // recording-deletion paths (DeleteRecordingFiles), not of every save.
 
-                // Save _ghost.craft (write once — immutable after creation)
-                if (rec.GhostVisualSnapshot != null)
+                // Save _ghost.craft only when it carries data distinct from _vessel.craft.
+                string ghostPath = RecordingPaths.ResolveSaveScopedPath(
+                    RecordingPaths.BuildGhostSnapshotRelativePath(rec.RecordingId));
+                if (ghostSnapshotMode == GhostSnapshotMode.Separate && rec.GhostVisualSnapshot != null)
                 {
-                    string ghostPath = RecordingPaths.ResolveSaveScopedPath(
-                        RecordingPaths.BuildGhostSnapshotRelativePath(rec.RecordingId));
                     if (string.IsNullOrEmpty(ghostPath))
                     {
                         Log($"[Parsek] WARNING: SaveRecordingFiles could not resolve ghost snapshot path for {rec.RecordingId}");
                     }
-                    else if (!File.Exists(ghostPath))
+                    else
+                    {
                         SafeWriteConfigNode(rec.GhostVisualSnapshot, ghostPath);
+                        wroteGhostSnapshot = true;
+                    }
+                }
+                else if (ghostSnapshotMode == GhostSnapshotMode.AliasVessel &&
+                    !string.IsNullOrEmpty(ghostPath) &&
+                    File.Exists(ghostPath))
+                {
+                    File.Delete(ghostPath);
+                    deletedStaleGhostSnapshot = true;
+                }
+
+                if (!SuppressLogging)
+                {
+                    ParsekLog.Verbose("RecordingStore",
+                        $"SaveRecordingFiles: id={rec.RecordingId} trajectoryEncoding={GetTrajectorySidecarEncodingLabel(rec.RecordingFormatVersion)} " +
+                        $"ghostSnapshotMode={ghostSnapshotMode} " +
+                        $"wroteVessel={wroteVesselSnapshot} wroteGhost={wroteGhostSnapshot} " +
+                        $"deletedStaleGhost={deletedStaleGhostSnapshot}");
                 }
 
                 rec.FilesDirty = false;
@@ -3619,6 +4162,7 @@ namespace Parsek
                 return false;
             }
 
+            ClearSidecarLoadFailure(rec);
             try
             {
                 // Load .prec trajectory file
@@ -3628,36 +4172,44 @@ namespace Parsek
                     RecordingPaths.BuildTrajectoryRelativePath(rec.RecordingId));
                 if (string.IsNullOrEmpty(precPath) || !File.Exists(precPath))
                 {
+                    MarkSidecarLoadFailure(rec, "trajectory-missing");
                     Log($"[Parsek] Trajectory file missing for {rec.RecordingId} — recording degraded (0 points)");
                     return false;
                 }
 
-                var precNode = ConfigNode.Load(precPath);
-                if (precNode == null)
+                TrajectorySidecarProbe probe;
+                if (!TryProbeTrajectorySidecar(precPath, out probe))
                 {
+                    MarkSidecarLoadFailure(rec, "trajectory-invalid");
                     Log($"[Parsek] Invalid trajectory file for {rec.RecordingId} — failed to parse");
+                    return false;
+                }
+                if (!probe.Supported)
+                {
+                    MarkSidecarLoadFailure(rec, "trajectory-unsupported");
+                    ParsekLog.Warn("RecordingStore",
+                        $"LoadRecordingFiles: unsupported trajectory sidecar for {rec.RecordingId} " +
+                        $"(encoding={probe.Encoding}, version={probe.FormatVersion})");
                     return false;
                 }
 
                 // Validate recordingId inside file matches
-                string fileId = precNode.GetValue("recordingId");
+                string fileId = probe.RecordingId;
                 if (fileId != null && fileId != rec.RecordingId)
                 {
+                    MarkSidecarLoadFailure(rec, "trajectory-id-mismatch");
                     Log($"[Parsek] Recording ID mismatch in {rec.RecordingId}.prec: file says '{fileId}' — skipping");
                     return false;
                 }
 
                 // Bug #270: validate sidecar epoch
-                string fileEpochStr = precNode.GetValue("sidecarEpoch");
-                int fileEpoch = 0;
-                if (fileEpochStr != null)
-                    int.TryParse(fileEpochStr, System.Globalization.NumberStyles.Integer,
-                        System.Globalization.CultureInfo.InvariantCulture, out fileEpoch);
-
-                if (ShouldSkipStaleSidecar(rec, fileEpoch))
+                if (ShouldSkipStaleSidecar(rec, probe.SidecarEpoch))
+                {
+                    MarkSidecarLoadFailure(rec, "stale-sidecar-epoch");
                     return false;
+                }
 
-                DeserializeTrajectoryFrom(precNode, rec);
+                DeserializeTrajectorySidecar(precPath, probe, rec);
 
                 // #288: eagerly populate TerminalOrbit cache from the last orbit segment if
                 // the recording was loaded with empty cache fields. Without this, GhostMap
@@ -3684,24 +4236,79 @@ namespace Parsek
                         rec.VesselSnapshot = vesselNode;
                 }
 
-                // Load _ghost.craft
                 string ghostPath = RecordingPaths.ResolveSaveScopedPath(
                     RecordingPaths.BuildGhostSnapshotRelativePath(rec.RecordingId));
-                if (!string.IsNullOrEmpty(ghostPath) && File.Exists(ghostPath))
+                bool ghostFileExists = !string.IsNullOrEmpty(ghostPath) && File.Exists(ghostPath);
+                GhostSnapshotMode ghostSnapshotMode = rec.GhostSnapshotMode;
+
+                if (ghostSnapshotMode != GhostSnapshotMode.AliasVessel && ghostFileExists)
                 {
                     var ghostNode = ConfigNode.Load(ghostPath);
                     if (ghostNode != null)
                         rec.GhostVisualSnapshot = ghostNode;
                 }
 
-                // Backward compat: if no ghost snapshot, fall back to vessel snapshot
+                if (ghostSnapshotMode == GhostSnapshotMode.AliasVessel)
+                {
+                    if (rec.VesselSnapshot != null)
+                    {
+                        rec.GhostVisualSnapshot = rec.VesselSnapshot.CreateCopy();
+                    }
+                    else if (ghostFileExists)
+                    {
+                        var ghostNode = ConfigNode.Load(ghostPath);
+                        if (ghostNode != null)
+                        {
+                            rec.GhostVisualSnapshot = ghostNode;
+                            rec.VesselSnapshot = ghostNode.CreateCopy();
+                            if (!SuppressLogging)
+                            {
+                                ParsekLog.Warn("RecordingStore",
+                                    $"LoadRecordingFiles: id={rec.RecordingId} ghostSnapshotMode=AliasVessel " +
+                                    $"missing vessel snapshot, recovered from ghost sidecar");
+                            }
+                        }
+                    }
+                    else if (!SuppressLogging)
+                    {
+                        ParsekLog.Warn("RecordingStore",
+                            $"LoadRecordingFiles: id={rec.RecordingId} ghostSnapshotMode=AliasVessel " +
+                            $"but no snapshot sidecar was found");
+                    }
+                }
+
+                // Backward compat and resilience: if no ghost snapshot, fall back to vessel snapshot.
                 if (rec.GhostVisualSnapshot == null && rec.VesselSnapshot != null)
+                {
                     rec.GhostVisualSnapshot = rec.VesselSnapshot.CreateCopy();
+
+                    if (ghostSnapshotMode == GhostSnapshotMode.Unspecified)
+                        ghostSnapshotMode = GhostSnapshotMode.AliasVessel;
+                    else if (ghostSnapshotMode == GhostSnapshotMode.Separate && !SuppressLogging)
+                    {
+                        ParsekLog.Warn("RecordingStore",
+                            $"LoadRecordingFiles: id={rec.RecordingId} ghostSnapshotMode=Separate " +
+                            $"missing ghost snapshot, fell back to vessel snapshot");
+                    }
+                }
+
+                if (ghostSnapshotMode == GhostSnapshotMode.Unspecified)
+                    ghostSnapshotMode = DetermineGhostSnapshotMode(rec);
+
+                rec.GhostSnapshotMode = ghostSnapshotMode;
+
+                if (!SuppressLogging)
+                {
+                    ParsekLog.Verbose("RecordingStore",
+                        $"LoadRecordingFiles: id={rec.RecordingId} ghostSnapshotMode={rec.GhostSnapshotMode} " +
+                        $"hasVesselSnapshot={rec.VesselSnapshot != null} hasGhostSnapshot={rec.GhostVisualSnapshot != null}");
+                }
 
                 return true;
             }
             catch (Exception ex)
             {
+                MarkSidecarLoadFailure(rec, "exception:" + ex.GetType().Name);
                 Log($"[Parsek] Failed to load recording files for {rec.RecordingId}: {ex.Message}");
                 return false;
             }
@@ -3728,6 +4335,112 @@ namespace Parsek
                 $".sfs expects epoch {rec.SidecarEpoch}, .prec has epoch {fileEpoch} — " +
                 $"sidecar is stale (bug #270), skipping sidecar load (trajectory + snapshots)");
             return true;
+        }
+
+        internal static void WriteTrajectorySidecar(string path, Recording rec, int sidecarEpoch)
+        {
+            if (rec != null && rec.RecordingFormatVersion >= 2)
+            {
+                TrajectorySidecarBinary.Write(path, rec, sidecarEpoch);
+                return;
+            }
+
+            var precNode = new ConfigNode("PARSEK_RECORDING");
+            precNode.AddValue("version", rec?.RecordingFormatVersion ?? 0);
+            if (rec != null && !string.IsNullOrEmpty(rec.RecordingId))
+                precNode.AddValue("recordingId", rec.RecordingId);
+            precNode.AddValue("sidecarEpoch", sidecarEpoch.ToString(System.Globalization.CultureInfo.InvariantCulture));
+            SerializeTrajectoryInto(precNode, rec);
+            SafeWriteConfigNode(precNode, path);
+        }
+
+        internal static bool TryProbeTrajectorySidecar(string path, out TrajectorySidecarProbe probe)
+        {
+            probe = default(TrajectorySidecarProbe);
+            if (string.IsNullOrEmpty(path) || !File.Exists(path))
+                return false;
+
+            if (TrajectorySidecarBinary.HasBinaryMagic(path))
+            {
+                bool binaryProbeOk = TrajectorySidecarBinary.TryProbe(path, out probe);
+                if (binaryProbeOk && !SuppressLogging)
+                {
+                    ParsekLog.Verbose("RecordingStore",
+                        $"TryProbeTrajectorySidecar: encoding={probe.Encoding} version={probe.FormatVersion} " +
+                        $"recording={probe.RecordingId} sidecarEpoch={probe.SidecarEpoch}");
+                    if (!probe.Supported)
+                    {
+                        ParsekLog.Warn("RecordingStore",
+                            $"TryProbeTrajectorySidecar: unsupported binary trajectory version {probe.FormatVersion} " +
+                            $"for recording={probe.RecordingId}");
+                    }
+                }
+
+                return binaryProbeOk;
+            }
+
+            var precNode = ConfigNode.Load(path);
+            if (precNode == null)
+                return false;
+
+            int sidecarEpoch = 0;
+            string fileEpochStr = precNode.GetValue("sidecarEpoch");
+            if (fileEpochStr != null)
+            {
+                int.TryParse(fileEpochStr, System.Globalization.NumberStyles.Integer,
+                    System.Globalization.CultureInfo.InvariantCulture, out sidecarEpoch);
+            }
+
+            probe = new TrajectorySidecarProbe
+            {
+                Success = true,
+                Supported = true,
+                Encoding = TrajectorySidecarEncoding.TextConfigNode,
+                FormatVersion = GetTrajectoryFormatVersion(precNode),
+                SidecarEpoch = sidecarEpoch,
+                RecordingId = precNode.GetValue("recordingId"),
+                LegacyNode = precNode
+            };
+
+            if (!SuppressLogging)
+            {
+                ParsekLog.Verbose("RecordingStore",
+                    $"TryProbeTrajectorySidecar: encoding=TextConfigNode version={probe.FormatVersion} " +
+                    $"recording={probe.RecordingId} sidecarEpoch={probe.SidecarEpoch}");
+            }
+
+            return true;
+        }
+
+        internal static void DeserializeTrajectorySidecar(string path, TrajectorySidecarProbe probe, Recording rec)
+        {
+            if (probe.Encoding == TrajectorySidecarEncoding.BinaryV2 ||
+                probe.Encoding == TrajectorySidecarEncoding.BinaryV3)
+            {
+                TrajectorySidecarBinary.Read(path, rec, probe);
+                return;
+            }
+
+            DeserializeTrajectoryFrom(probe.LegacyNode, rec);
+        }
+
+        internal static bool LoadTrajectorySidecarForTesting(string path, Recording rec)
+        {
+            TrajectorySidecarProbe probe;
+            if (!TryProbeTrajectorySidecar(path, out probe) || !probe.Supported)
+                return false;
+
+            DeserializeTrajectorySidecar(path, probe, rec);
+            return true;
+        }
+
+        internal static string GetTrajectorySidecarEncodingLabel(int recordingFormatVersion)
+        {
+            if (recordingFormatVersion >= 3)
+                return "BinaryV3";
+            if (recordingFormatVersion >= 2)
+                return "BinaryV2";
+            return "TextConfigNode";
         }
 
         private static void SafeWriteConfigNode(ConfigNode node, string path)

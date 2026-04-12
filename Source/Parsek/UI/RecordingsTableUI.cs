@@ -426,6 +426,38 @@ namespace Parsek
             }
         }
 
+        internal static string GetWatchButtonReason(
+            bool canWatch, bool hasGhost, bool sameBody, bool inRange, bool isDebris)
+        {
+            if (canWatch) return "enabled";
+            if (isDebris) return "disabled (debris)";
+            if (!hasGhost) return "disabled (no ghost)";
+            if (!sameBody) return "disabled (different body)";
+            if (!inRange) return "disabled (out of range)";
+            return "disabled (unknown)";
+        }
+
+        internal static string GetWatchButtonTooltip(
+            bool isWatching, bool hasGhost, bool sameBody, bool inRange, bool isDebris)
+        {
+            if (isDebris)
+                return "Debris is not watchable";
+            if (!hasGhost)
+                return "No active ghost — recording is in the past/future or has no trajectory points";
+            if (!sameBody)
+                return "Ghost is on a different body";
+            if (!inRange)
+                return "Ghost is beyond camera cutoff";
+            return isWatching ? "Exit watch mode" : "Follow ghost in watch mode";
+        }
+
+        private string BuildWatchObservabilitySuffix(ParsekFlight flight, int index)
+        {
+            if (flight == null)
+                return "watchEval(unavailable=flight-null) watch=unavailable";
+            return flight.DescribeWatchEligibilityForLogs(index) + " " + flight.DescribeWatchFocusForLogs();
+        }
+
         private void HandleRecordingsDefocus(IReadOnlyList<Recording> committed)
         {
             // Click outside active rename field -> commit and close
@@ -909,41 +941,28 @@ namespace Parsek
                     && (!lastCanWatchByRecId.TryGetValue(watchKey, out prevCanWatch) || prevCanWatch != canWatch))
                 {
                     lastCanWatchByRecId[watchKey] = canWatch;
-                    string reason = canWatch ? "enabled"
-                        : rec.IsDebris ? "disabled (debris)"
-                        : !hasGhost ? "disabled (no ghost)"
-                        : !sameBody ? "disabled (different body)"
-                        : !inRange ? "disabled (out of range)"
-                        : "disabled (unknown)";
+                    string reason = GetWatchButtonReason(canWatch, hasGhost, sameBody, inRange, rec.IsDebris);
                     ParsekLog.Info("UI",
                         $"Watch button #{ri} \"{rec.VesselName}\" {reason} " +
-                        $"(hasGhost={hasGhost} sameBody={sameBody} inRange={inRange} debris={rec.IsDebris})");
+                        $"(hasGhost={hasGhost} sameBody={sameBody} inRange={inRange} debris={rec.IsDebris}) " +
+                        $"{BuildWatchObservabilitySuffix(flight, ri)}");
                 }
 
                 GUI.enabled = canWatch;
                 string watchLabel = isWatching ? "W*" : "W";
-                // Tooltip priority: debris first, then per-condition explanation.
-                // When !hasGhost, previously the tooltip was empty, making a
-                // disabled W button look broken rather than pending.
-                string watchTooltip;
-                if (rec.IsDebris)
-                    watchTooltip = "Debris is not watchable";
-                else if (!hasGhost)
-                    watchTooltip = "No active ghost — recording is in the past/future or has no trajectory points";
-                else if (!sameBody)
-                    watchTooltip = "Ghost is on a different body";
-                else if (!inRange)
-                    watchTooltip = "Ghost is beyond camera cutoff";
-                else
-                    watchTooltip = isWatching ? "Exit watch mode" : "Follow ghost in watch mode";
+                string watchTooltip = GetWatchButtonTooltip(isWatching, hasGhost, sameBody, inRange, rec.IsDebris);
                 var watchContent = new GUIContent(watchLabel, watchTooltip);
                 if (GUILayout.Button(watchContent, GUILayout.Width(ColW_Watch)))
                 {
-                    ParsekLog.Info("UI", $"Recording #{ri} W button clicked: {(isWatching ? "exit" : "enter")} watch on \"{rec.VesselName}\"");
+                    string beforeFocus = flight.DescribeWatchFocusForLogs();
+                    string beforeEligibility = flight.DescribeWatchEligibilityForLogs(ri);
                     if (isWatching)
                         flight.ExitWatchMode();
                     else
                         flight.EnterWatchMode(ri);
+                    ParsekLog.Info("UI",
+                        $"Recording #{ri} W button clicked: {(isWatching ? "exit" : "enter")} watch on \"{rec.VesselName}\" " +
+                        $"before={beforeEligibility} beforeFocus={beforeFocus} afterFocus={flight.DescribeWatchFocusForLogs()}");
                 }
                 GUI.enabled = true;
             }
@@ -1312,40 +1331,28 @@ namespace Parsek
                             || prevGroupCanWatch != canWatch)
                         {
                             lastCanWatchByGroup[groupWatchKey] = canWatch;
-                            string reason = canWatch ? "enabled"
-                                : !hasGhost ? "disabled (no ghost)"
-                                : !sameBody ? "disabled (different body)"
-                                : !inRange ? "disabled (out of range)"
-                                : "disabled (unknown)";
+                            string reason = GetWatchButtonReason(canWatch, hasGhost, sameBody, inRange, isDebris: false);
                             ParsekLog.Info("UI",
                                 $"Group Watch button '{groupName}' main=#{mainIdx} \"{committed[mainIdx].VesselName}\" {reason} " +
-                                $"(hasGhost={hasGhost} sameBody={sameBody} inRange={inRange})");
+                                $"(hasGhost={hasGhost} sameBody={sameBody} inRange={inRange}) " +
+                                $"{BuildWatchObservabilitySuffix(flight, mainIdx)}");
                         }
                     }
 
                     GUI.enabled = canWatch;
                     string watchLabel = isWatching ? "W*" : "W";
-                    // Same tooltip policy as the per-row W button: explain
-                    // !hasGhost explicitly so the user knows WHY it's disabled.
-                    // Uses "camera cutoff" wording consistently with the per-row
-                    // button — the setting it refers to is ghostCameraCutoffKm,
-                    // so "visual range" was imprecise.
-                    string watchTooltip;
-                    if (!hasGhost)
-                        watchTooltip = "No active ghost — recording is in the past/future or has no trajectory points";
-                    else if (!sameBody)
-                        watchTooltip = "Ghost is on a different body";
-                    else if (!inRange)
-                        watchTooltip = "Ghost is beyond camera cutoff";
-                    else
-                        watchTooltip = isWatching ? "Exit watch mode" : "Follow ghost in watch mode";
+                    string watchTooltip = GetWatchButtonTooltip(isWatching, hasGhost, sameBody, inRange, isDebris: false);
                     if (GUILayout.Button(new GUIContent(watchLabel, watchTooltip), GUILayout.Width(ColW_Watch)))
                     {
+                        string beforeFocus = flight.DescribeWatchFocusForLogs();
+                        string beforeEligibility = flight.DescribeWatchEligibilityForLogs(mainIdx);
                         if (isWatching)
                             flight.ExitWatchMode();
                         else
                             flight.EnterWatchMode(mainIdx);
-                        ParsekLog.Info("UI", $"Group '{groupName}' W button: {(isWatching ? "exit" : "enter")} watch on #{mainIdx} \"{committed[mainIdx].VesselName}\"");
+                        ParsekLog.Info("UI",
+                            $"Group '{groupName}' W button: {(isWatching ? "exit" : "enter")} watch on #{mainIdx} \"{committed[mainIdx].VesselName}\" " +
+                            $"before={beforeEligibility} beforeFocus={beforeFocus} afterFocus={flight.DescribeWatchFocusForLogs()}");
                     }
                     GUI.enabled = true;
                 }

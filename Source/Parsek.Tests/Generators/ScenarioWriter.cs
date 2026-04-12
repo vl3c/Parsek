@@ -258,18 +258,31 @@ namespace Parsek.Tests.Generators
                 string id = builder.GetRecordingId();
 
                 // Write .prec trajectory file
-                var trajNode = builder.BuildTrajectoryNode();
-                trajNode.Save(Path.Combine(recordingsDir, $"{id}.prec"));
+                var sourceTrajNode = builder.BuildTrajectoryNode();
+                var recording = new Recording
+                {
+                    RecordingId = id,
+                    RecordingFormatVersion = builder.GetFormatVersion(),
+                    VesselName = builder.GetVesselName(),
+                    VesselSnapshot = builder.GetVesselSnapshot()?.CreateCopy(),
+                    GhostVisualSnapshot = builder.GetGhostVisualSnapshot()?.CreateCopy(),
+                };
+                recording.GhostSnapshotMode = RecordingStore.DetermineGhostSnapshotMode(recording);
+                RecordingStore.DeserializeTrajectoryFrom(sourceTrajNode, recording);
 
-                // Write _vessel.craft
-                var vesselSnapshot = builder.GetVesselSnapshot();
-                if (vesselSnapshot != null)
-                    vesselSnapshot.Save(Path.Combine(recordingsDir, $"{id}_vessel.craft"));
+                RecordingStore.WriteTrajectorySidecar(
+                    Path.Combine(recordingsDir, $"{id}.prec"),
+                    recording,
+                    sidecarEpoch: recording.SidecarEpoch);
 
-                // Write _ghost.craft
-                var ghostSnapshot = builder.GetGhostVisualSnapshot();
-                if (ghostSnapshot != null)
-                    ghostSnapshot.Save(Path.Combine(recordingsDir, $"{id}_ghost.craft"));
+                if (recording.VesselSnapshot != null)
+                    recording.VesselSnapshot.Save(Path.Combine(recordingsDir, $"{id}_vessel.craft"));
+
+                if (RecordingStore.DetermineGhostSnapshotMode(recording) == GhostSnapshotMode.Separate &&
+                    recording.GhostVisualSnapshot != null)
+                {
+                    recording.GhostVisualSnapshot.Save(Path.Combine(recordingsDir, $"{id}_ghost.craft"));
+                }
             }
         }
 
@@ -425,7 +438,10 @@ namespace Parsek.Tests.Generators
                 LoopPlayback = builder.GetLoopPlayback(),
                 LoopIntervalSeconds = builder.GetLoopIntervalSeconds(),
                 PlaybackEnabled = builder.GetPlaybackEnabled(),
+                VesselSnapshot = builder.GetVesselSnapshot()?.CreateCopy(),
+                GhostVisualSnapshot = builder.GetGhostVisualSnapshot()?.CreateCopy(),
             };
+            rec.GhostSnapshotMode = RecordingStore.DetermineGhostSnapshotMode(rec);
 
             int? ts = builder.GetTerminalState();
             if (ts.HasValue)

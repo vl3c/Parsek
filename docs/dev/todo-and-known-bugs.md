@@ -7,6 +7,284 @@ Entries 272–303 (78 bugs, 6 TODOs — mostly resolved) archived in `done/todo-
 
 # Known Bugs
 
+## ~~314. Save/load can prune branched recordings even when sidecars still contain real data~~
+
+**Observed in:** 0.8.0 follow-up storage playtest (2026-04-12). During a branched `Kerbal X` flight, the user saved, loaded, and then merged the tree. Two EVA/branch recordings had real sidecars on disk before the load:
+
+- `33ea504b82cd479cbc2198c6701a9228.prec`
+- `519ae674050d40e3a462cba6328a1e34.prec`
+
+Collected evidence from `logs/2026-04-12_1549_storage-followup-playtest/`:
+
+- Before the load, both branch recordings were actively flushing real trajectory and part-event data, and their sidecars were rewritten (`SerializeTrajectoryInto` / `SaveRecordingFiles` for both IDs).
+- On load, `RecordingStore` logged sidecar epoch mismatches for both branch recordings: `.sfs expects epoch 1, .prec has epoch 2`, then skipped sidecar load entirely.
+- Immediately after load, both recordings were finalized as leaf nodes with `points=0 orbitSegs=0`.
+- `PruneZeroPointLeaves` then removed both zero-point leaves and the empty branch point.
+- The later merge dialog only offered the root and debris leaves; the branched EVA leaves were already gone.
+- The final saved tree still points `activeRecordingId = 33ea504b82cd479cbc2198c6701a9228`, but that recording is no longer serialized in the tree body.
+
+The skipped branch sidecars still existed on disk in both the collected snapshot and the live save, so this was not physical sidecar deletion; it was save-tree loss after load/prune.
+
+**Additional symptom:** The root recording `eb12d51ffaa64d80a79d3a0f3886e568` also appears to come back shortened: before the load it was saved with `skippedTopLevelPoints=186`, but after merge it was rewritten with `skippedTopLevelPoints=44` and `pointCount = 44` in `persistent.sfs`. The EVA branch loss is certain; root truncation may be part of the same bug or a secondary issue.
+
+**Root cause:** The stale-sidecar epoch guard itself was correct, but the follow-on behavior was not. When active-tree recordings hit an epoch mismatch, `LoadRecordingFiles` left them empty and the restore/finalize path still treated them like genuine zero-point debris leaves. That allowed a save/load cycle to replace a matching in-memory pending tree with a broken disk copy and later prune the hydration-failed leaves out of the tree.
+
+**Fix:** The stale-sidecar epoch guard stays in place, but hydration failures are now explicit runtime state instead of silent empties. Active-tree restore keeps a matching in-memory pending tree when the saved active tree hits stale-sidecar epoch failures, and finalize/prune no longer classifies hydration-failed recordings as removable zero-point leaves. That prevents the destructive branch-loss path even when the epoch guard rejects the disk sidecar.
+
+**Status:** ~~Fixed~~
+
+---
+
+## 315. TreeIntegrity PID collision check fails on historical vessel reuse
+
+**Observed in:** 0.8.0 follow-up storage playtest (2026-04-12). The in-game suite reported `RecordingTreeIntegrityTests.NoPidCollisionAcrossTrees` failed with `2 vessel PID(s) claimed by multiple trees`. The collected `persistent.sfs` was otherwise structurally clean: `ParentLinksValid` passed, and manual inspection found no dangling `ParentRecordingId` references.
+
+Concrete repro data from `logs/2026-04-12_1549_storage-followup-playtest/`: three committed `Kerbal X` roots from different trees share the same root vessel PID `2708531065`:
+
+- tree `1683a5d7535f4370baf1ca28b7823069` root `081e7b3ce4b84acc946166a0a3b7926e`
+- tree `258d8922c99a45d2a1bb4bf5f7aa7070` root `7f7eadcb943941c1a1668cd44f176459`
+- tree `2dc3fa77001f4ad19e766cf6f0ac5277` root `641be2f9522d439397f4ea9fa2caabd2`
+
+**Root cause / hypothesis:** `RecordingTree.RebuildBackgroundMap` populates `OwnedVesselPids` from every recording's `VesselPersistentId`, and the in-game test assumes that this set must be globally unique across all committed trees. That assumption appears too strict once the same long-lived vessel is recorded in multiple historical trees or sessions. Current runtime usage in `GhostPlaybackLogic.IsVesselPidOwnedByCommittedTree` only needs boolean membership, not a unique tree owner, so the failure currently looks like a contract mismatch between the test and the runtime meaning of `OwnedVesselPids`, not corrupted save data.
+
+**Fix direction:** Decide which invariant is actually required:
+
+- If tree ownership really must be unique, narrow `OwnedVesselPids` to only the live/background claim set that matters for runtime ownership checks.
+- If historical PID reuse is valid, relax or replace `NoPidCollisionAcrossTrees` with a stronger assertion that targets real conflicts in active/pending runtime state rather than archived trees.
+
+**Status:** Open
+
+---
+
+## 316. Breakup debris ghosts can spawn directly into Beyond and never become visible during playback
+
+**Observed in:** 0.8.0 follow-up storage playtest (2026-04-12). During the `s4` reentry/breakup session, some `Kerbal X Debris` recordings did render normally, but later debris recordings spawned so far from the active watch context that they immediately transitioned into the hidden `Beyond` zone and never became visible to the player.
+
+Collected evidence from `logs/2026-04-12_1857_phase-11-5-storage-followup-s4/`:
+
+- Early debris playback did enter the visible path: ghost `#5` transitioned `Physics->Visual dist=4457m`, and ghost `#7` transitioned `Physics->Visual dist=11876m`.
+- Later debris playback for the same recording family did not: ghost `#10` spawned, immediately transitioned `Physics->Beyond dist=943546m`, and was hidden by distance LOD in the same tick.
+- The same pattern repeated for ghost `#11`, which spawned and immediately transitioned `Physics->Beyond dist=952154m` before being hidden.
+- The recordings themselves were present and merged correctly; the issue is playback visibility, not missing recording data.
+
+**Root cause / hypothesis:** Breakup debris recordings that resume later in the chain can spawn from valid snapshots while the active vessel/watch context is nearly 1,000 km away, so the normal distance LOD policy hides them instantly. That makes boosters appear absent even though their ghosts were created and advanced logically.
+
+**Fix direction:** Decide whether breakup/debris ghosts need a watched-chain visibility exemption, a different spawn/watch anchoring rule, or a stricter policy for when distant debris ghosts should be considered meaningful enough to render.
+
+**Status:** Open
+
+---
+
+## 317. Horizon-locked watch camera can align retrograde instead of prograde during reentry playback
+
+**Observed in:** 0.8.0 follow-up storage playtest (2026-04-12). While watching the `s4` reentry ghost, the user reported that horizon mode pointed the camera retrograde rather than prograde.
+
+Collected evidence from `logs/2026-04-12_1857_phase-11-5-storage-followup-s4/`:
+
+- The session entered and re-entered horizon watch mode multiple times during the watched descent:
+  - `Watch camera auto-switched to HorizonLocked (alt=606m, body=Kerbin)`
+  - `Watch camera auto-switched to Free (alt=70003m, body=Kerbin)`
+  - repeated `Watch camera mode toggled to HorizonLocked (user override)` during the watched reentry path
+- Current logs do not emit the computed horizon forward vector, selected velocity direction, or a prograde/retrograde label, so the report cannot be proven or disproven from the collected logs alone.
+
+**Root cause / hypothesis:** `WatchModeController.ComputeHorizonForward` currently derives the forward vector from the projected playback velocity. A sign/convention issue during reentry, chain transfer, or negative-relative-velocity cases could flip the watch camera to the retrograde direction.
+
+**Fix direction:** Add one-shot observability around the chosen horizon forward vector and build a focused playback test for descending/reentry trajectories so the prograde direction is asserted rather than inferred visually.
+
+**Status:** Open
+
+---
+
+## ~~318. Recordings window stats can show impossible distance / altitude summaries on loaded surface recordings~~
+
+**Observed in:** 0.8.0 follow-up storage playtest (2026-04-12). In the `s4` save, the recordings window showed incorrect `dist` / `max alt` values for recent recordings.
+
+Collected evidence from `logs/2026-04-12_1857_phase-11-5-storage-followup-s4/`:
+
+- `TrajectoryMath.ComputeStats` produced suspicious summaries immediately after load:
+  - `points=29 segments=0 events=0 maxAlt=608 maxSpeed=175.1 dist=0 range=0 body=Kerbin`
+  - `points=13 segments=0 events=0 maxAlt=611 maxSpeed=0.0 dist=2 range=0 body=Kerbin`
+  - nearby recordings in the same table pass produced more plausible values (`points=58 ... dist=177`, `points=13 ... dist=126`)
+- The recordings window computes these values live from loaded recordings rather than trusting `.sfs` cache fields, so this points at a loaded-trajectory/stats issue, not merely stale serialized UI metadata.
+
+**Root cause:** Two storage-side consistency gaps were involved:
+
+- section-authoritative recordings could keep stale flat `Points` / `OrbitSegments` after merge or optimizer split because `TrackSections` changed but the derived flat lists were left copied from the pre-merge/pre-split source
+- `ComputeStats` treated relative-frame flattened points as if their `latitude` / `longitude` / `altitude` fields were absolute surface coordinates, even though relative sections reuse those fields for `(dx, dy, dz)` offsets
+
+That combination was enough to produce contradictory summaries like `maxSpeed>0` with `dist=0`.
+
+**Fix:** Section-authoritative merge/split paths now resync flat trajectory lists from `TrackSections` whenever the section payload can rebuild them losslessly, instead of keeping stale copied flats. `TrajectoryMath.ComputeStats` also now applies section altitude metadata and handles relative-frame point distances/ranges as offset-space measurements instead of feeding them through surface-distance math.
+
+**Status:** ~~Fixed~~
+
+---
+
+## 319. Watch buttons can disable as "no ghost" after chain transfer even when the user expects an in-range watch target
+
+**Observed in:** 0.8.0 follow-up storage playtest (2026-04-12). The user reported disabled watch buttons while apparently within the ghost camera cutoff distance.
+
+Collected evidence from `logs/2026-04-12_1857_phase-11-5-storage-followup-s4/`:
+
+- Before transfer, the group-level watch affordance was valid: `Group Watch button 'Kerbal X' main=#0 "Kerbal X" enabled (hasGhost=True sameBody=True inRange=True)`.
+- After `TransferWatch re-target: ghost #1 "Kerbal X" ...`, the same group button flipped to `disabled (no ghost) (hasGhost=False sameBody=False inRange=False)`.
+- Later rows for descendant recordings `#12` and `#13` also logged `disabled (no ghost)`, not `disabled (out of range)`.
+- Debris rows were separately disabled as `debris`, which is expected and distinct from the reported symptom.
+
+**Root cause / hypothesis:** This does not currently look like a pure cutoff-distance bug. The watched chain can retarget to a descendant ghost while the table/group still evaluates watch eligibility against the group's main recording, whose own ghost is gone. The resulting `no ghost` state looks like a range/cutoff failure to the player even though the underlying reason is target selection/UI state.
+
+**Fix direction:** Decide whether group and row watch affordances should follow the currently watchable chain descendant, or at least surface a clearer reason when the main row is unwatched but an active descendant ghost exists.
+
+**Status:** Open
+
+---
+
+## 320. Merge confirmation should appear before the stock crash report on vessel destruction
+
+**Observed in:** Phase 11.5 storage/watch follow-up playtests (2026-04-12). On vessel destruction, the old/good behavior was: Parsek's merge confirmation appeared before KSP's stock crash/flight-results report. The current ordering regressed, making the crash report take focus first.
+
+**Desired behavior:** When a recording session ends via vessel destruction and Parsek needs merge/commit input, surface the merge confirmation before the stock crash report so the Parsek flow is not hidden behind the stock dialog.
+
+**Root cause / hypothesis:** Likely an event-ordering regression between Parsek's destruction/finalize dialog path and the stock flight-results/crash-report dialog timing. This needs a focused pass on dialog scheduling rather than more storage work.
+
+**Fix direction:** Audit the vessel-destruction finalize path and restore the earlier ordering contract, ideally with an in-game test or log assertion that pins which dialog is raised first.
+
+**Status:** Open
+
+---
+
+## 321. After the main controller vessel crashes, camera recovery should prefer the anchor vessel, not debris
+
+**Observed in:** breakup/watch regression follow-up from `logs/2026-04-12_2055_main-stage-freeze-after-separation/` (`s6`). After the main controlling vessel crashed, the player expectation was to return camera focus to the anchor vessel rather than letting it drift to debris-focused behavior.
+
+**Desired behavior:** When the main controller vessel is lost, the camera should recover to the anchor vessel / stable owning vessel context, not to a debris fragment.
+
+**Root cause / hypothesis:** Camera recovery and watch/active-vessel fallback logic currently treat the next available post-breakup target too loosely. The anchor-vessel preference is not explicitly encoded, so debris can win the handoff/recovery path.
+
+**Fix direction:** Review watch exit, vessel-destruction camera restore, and any anchor-resolution path used during breakup-continuous playback. Add an explicit anchor-vessel preference rule and cover it with an in-game regression.
+
+**Status:** Open
+
+---
+
+## 322. Detached one-ended struts should not remain visible after separation
+
+**Observed in:** breakup/separation playback follow-ups (2026-04-12), including the `s6` separation run. After separation, some struts whose opposite endpoint no longer exists remain visible even though they are only attached to a single surviving part.
+
+**Desired behavior:** A strut should not render once separation leaves it effectively connected to only one part.
+
+**Root cause / hypothesis:** The current ghost visual / part-event path hides decoupled parts, but strut rendering likely does not re-evaluate whether both endpoints still exist after a split. That leaves orphaned visual struts hanging off the surviving vessel.
+
+**Fix direction:** Inspect the ghost visual builder and separation event application for strut/link components. Add a post-separation validity check that hides or destroys struts whose second endpoint is gone, and pin it with a focused playback test.
+
+**Status:** Open
+
+---
+
+## 323. Main-stage and debris group hierarchy can appear wrong after commit/playback
+
+**Observed in:** `logs/2026-04-12_2128_kerbalx-booster-throttle-regression/` (`s7`). User report: a recording did not correctly group the main-stage recordings group together with the debris group.
+
+**What the current logs show:** raw auto-grouping did run at commit time:
+
+- `Group 'Kerbal X / Debris' assigned to parent group 'Kerbal X'`
+- `Auto-grouped 1 stage(s) under 'Kerbal X', 10 debris under 'Kerbal X / Debris'`
+
+That means the bundle does not currently prove a bad `GroupHierarchyStore.SetGroupParent(...)` call during commit. If the UI/grouping was still wrong in-game, the bug is more likely in a later path such as orphan adoption, duplicate-name group selection, hierarchy persistence/load, or UI tree construction.
+
+**Fix direction:** Reproduce with a focused breakup tree that creates both a main stage and multiple debris recordings, then inspect:
+
+- the final `RecordingGroups` on committed recordings
+- saved hierarchy serialization in `persistent.sfs`
+- UI group tree building for duplicate base names / debris subgroups
+
+Add an in-game or unit-level regression that asserts the main stage group remains the parent of the debris subgroup after save/load.
+
+**Status:** Open
+
+---
+
+## 324. Pad-drop launch failures can surface a merge dialog instead of auto-discarding
+
+**Observed in:** 2026-04-12 follow-up playtests. User report: a vessel launched, engines were never activated, and it simply fell over / down on the pad. Despite essentially zero horizontal travel, Parsek still surfaced a merge dialog instead of treating the run as an auto-discardable launch failure.
+
+**Desired behavior:** Near-zero-distance launch failures on or immediately around the pad should be classified as pad failures / idle launch failures and discarded automatically, not promoted to merge/commit UI.
+
+**Root cause / hypothesis:** The current failure-discard heuristic likely keys too heavily on generic recording existence or total motion while missing the specific "never really left the pad" case when there is some vertical or physics noise but no meaningful horizontal travel. This is probably adjacent to `IsTreeIdleOnPad`, launch-failure classification, and any max-distance / distance-from-launch thresholds used before showing merge UI.
+
+**Fix direction:** Reproduce with a focused launch-failure scenario, then tighten the discard heuristic so a toppled-on-pad vessel with negligible horizontal displacement does not count as a meaningful recording. Add either a unit test around the idle-on-pad / pad-failure classifier or an in-game test that asserts no merge dialog is shown for the no-engine pad-drop case.
+
+**Status:** Open
+
+---
+
+## 325. Repeated F5/F9 during a branched recording can leave child sidecars time-discontinuous and break watch handoff
+
+**Observed in:** `logs/2026-04-12_2159_f5-f9-watch-regression/` (`s9`). The `Crater Crawler` tree survived repeated quickload cycles structurally, but watching the root playback failed at the branch: when root `#0` completed, watch entered the hold timer and then exited instead of handing off to the continuation.
+
+**Collected evidence:**
+
+- The final saved tree is still present and structurally valid in `persistent.sfs`: root `07bd...`, same-vessel continuation `db41...`, and EVA child `af7d...` under branch point `d3ca...`.
+- The watch failure itself is visible in `KSP.log`:
+  - root playback completed while watched: `PlaybackCompleted index=0 ... watched=True`
+  - `FindNextWatchTarget` saw the branch point, but no re-target happened
+  - watch fell into `Watch hold timer set ... (watched #0)` and then `Watch hold expired ... exiting watch`
+  - only several seconds later did the child ghosts actually spawn (`Ghost #2 "Jebediah Kerman" spawned`, then `Ghost #1 "Crater Crawler" spawned`)
+- The saved metadata and sidecars disagree badly on timing:
+  - root `07bd...` ends at the branch as expected (`explicitEndUT = 53.68`, last point `ut ~= 53.58`)
+  - continuation `db41...` claims `explicitStartUT = 53.68`, but its `.prec` first point is `ut = 83.04`
+  - EVA child `af7d...` claims `explicitStartUT = 53.68` and `explicitEndUT = 72.94`, but its `.prec` first point is `ut = 82.22` and it continues past `ut = 102.39`
+
+**Impact:** This is more than a camera/watch issue. Repeated quickload during a live branched tree can leave child recordings with stale explicit UT metadata and large gaps between the branch boundary and their actual saved trajectory. Watch handoff then fails because the same-PID continuation child is not ghost-active when the root ends, and the shorter hold expires before the delayed child ghost appears.
+
+**Root cause / hypothesis:** The quickload-resume path for active branched trees appears to preserve or restore stale explicit start/end metadata across resumed child recordings while appending newer post-quickload trajectory to the sidecar. That leaves the final recording internally inconsistent: branch/terminal metadata reflects the pre-quickload segment, but the saved points reflect only the later resumed segment. Likely touch points are `TryRestoreActiveTreeNode`, `RestoreActiveTreeFromPending`, and finalize/merge code that updates `ExplicitStartUT` / `ExplicitEndUT` after quickload-resumed branches.
+
+**Fix direction:** Reproduce with a focused branch + repeated quickload scenario, then pin two invariants:
+
+- any finalized recording must have `StartUT/EndUT` metadata consistent with the actual saved sidecar bounds
+- branch handoff/watch logic must tolerate delayed child activation after quickload resume, or the resumed child recordings must be stitched so there is no artificial boundary gap
+
+Add unit/in-game coverage around `F5/F9` during a branch, final save/load, and watch handoff at the parent branch point.
+
+**Status:** Open
+
+---
+
+## 326. Landed EVA branch can be seeded as Atmospheric, leaving a bogus 1-point EVA fragment and bad optimizer splits
+
+**Observed in:** `logs/2026-04-12_2242_quickload-branch-gaps-s10/` (`s10`). The latest retry did **not** reproduce the exact `s9` watch-handoff failure; main-vessel watch transfer worked on current head. But the run exposed a different regression in the EVA branch path.
+
+**Collected evidence:**
+
+- At the first EVA branch (`UT=70.24`), the new EVA vessel was background-seeded as atmospheric even though the kerbal was effectively on the surface:
+  - `BgRecorder TrackSection started: env=Atmospheric ... pid=1614280122 at UT=70.24`
+  - then almost immediately after vessel switch/promotion:
+    - `TrackSection closed: env=Atmospheric ... frames=1 duration=0.04s pid=1614280122`
+    - active EVA recorder started correctly as `SurfaceStationary`
+- The final tree preserves that bad fragment as a non-leaf Jeb recording with only one point:
+  - runtime timeline: `Recording #2: "Jebediah Kerman" UT 70-79, 1 pts, vessel`
+  - saved metadata: recording `5fa6cf9e...`, `pointCount = 1`, `childBranchPointId = c206...`
+- The second EVA branch repeated the same wrong initial environment:
+  - `BgRecorder TrackSection started: env=Atmospheric ... pid=1487825712 at UT=92.08`
+- Later, the optimizer split the second EVA recording into two `atmo` segments:
+  - `Split recording 'Jebediah Kerman' ... 'atmo' [92..99] + 'atmo' [99..127]`
+  - final runtime timeline: `#5 "Jebediah Kerman" UT 92-99, 13 pts, ghost, chain idx=0` and `#6 ... UT 99-127, 44 pts, vessel, chain idx=1`
+
+**Impact:** A surface EVA can be recorded as if it briefly started in atmosphere, which pollutes the final tree with a tiny non-leaf stub and causes later optimizer output to classify EVA chain segments as `atmo`. That matches the user-visible symptom of "gaps" / badly stitched EVA recordings even though watch transfer on the main vessel path works.
+
+**Root cause / hypothesis:** During EVA split creation, the child kerbal is first background-initialized from a transient pre-stable loaded state. The environment classifier appears to trust `inAtmo/altitude` too early, before landed/grounded state is stable, so it seeds `Atmospheric` for a loaded surface EVA. Once the switch completes, the active recorder correctly sees `SurfaceStationary`, but the one-frame atmospheric background section has already been persisted into the recording.
+
+**Fix direction:** In the EVA branch path, either:
+
+- seed surface EVAs conservatively as `SurfaceStationary` / `SurfaceMobile` when the source situation is landed/splashed or the EVA is known to be ground-adjacent, or
+- delay background loaded-state initialization for the new EVA vessel until its landed/ground-contact state stabilizes
+
+Then add coverage that a landed EVA split does not create a 1-point atmospheric stub and that optimizer output for the resulting EVA chain is surface-classified unless the kerbal actually goes airborne.
+
+**Status:** Open
+
+---
+
 ## ~~313. Splashed EVA spawn-at-end can place the kerbal slightly underwater~~
 
 **Observed in:** 0.8.0 (2026-04-12). In the Phase 11.5 playtest bundle, the parent splashed vessel (`#24 "Kerbal X"`) was clamped and spawned at sea level, but the EVA child (`#25 "Raydred Kerman"`) spawned at `alt=-0.2` with `terminal=Splashed`. Log sequence:
@@ -420,6 +698,30 @@ Create a `.netkan` file or submit to CKAN indexer so users can install Parsek vi
 ---
 
 ## TODO — Performance & Optimization
+
+### T61. Continue Phase 11.5 recording storage shrink work
+
+The first five storage slices are in place: representative fixture coverage, `v1`
+section-authoritative `.prec` sidecars, alias-mode ghost snapshot dedupe, header-dispatched binary
+`v2` `.prec` sidecars, and exact sparse `v3` defaults for stable per-point body/career fields.
+Remaining high-value work should stay measurement-gated and follow
+`docs/dev/plans/phase-11-5-recording-storage-optimization.md`:
+
+- fresh live-corpus rebaseline against current `v3` sidecars
+- next PR after merging this branch should target snapshot-side size reduction first
+- snapshot work should focus on `_ghost.craft` / `_vessel.craft` bytes, where the remaining storage bulk now lives
+- additional sparse payload work only where exact reconstruction and real byte wins are proven
+- post-commit, error-bounded trajectory thinning only after the format wins are re-measured
+- any further snapshot-side work should preserve current alias semantics and stay covered by
+  sidecar/load diagnostics
+- add an end-to-end active-tree salvage test that proves a later `OnSave` rewrites healed sidecars
+  and clears `FilesDirty`
+- add a mixed-case salvage test where several recordings fail hydration but only a subset can be
+  restored from the matching pending tree
+
+**Priority:** Current Phase 11.5 follow-on work
+
+---
 
 ### ~~T6. LOD culling for distant ghost meshes~~
 

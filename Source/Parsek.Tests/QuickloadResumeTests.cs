@@ -387,14 +387,13 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void TryRestoreActiveTreeNode_NoOverwriteWarningOnExpectedOverwrite()
+        public void TryRestoreActiveTreeNode_HydrationFailureSalvagesIntoDiskTreeWithoutOverwriteWarning()
         {
-            // StashActiveTreeAsPendingLimbo stashes the in-memory (future-timeline) tree
-            // at OnSceneChangeRequested time. Then TryRestoreActiveTreeNode loads the
-            // fresh disk version and stashes it. Without the PopPendingTree call,
-            // StashPendingTree's overwrite-warning log fires on every successful
-            // quickload. With the fix, TryRestoreActiveTreeNode pops first, then stashes
-            // silently.
+            // The save-backed tree below has no real sidecars in the unit-test environment,
+            // so TryRestoreActiveTreeNode will hit sidecar hydration failure(s). The restore
+            // path should now salvage the failed recordings from the matching in-memory pending
+            // tree into the disk tree rather than replacing the entire tree, and it should do
+            // so without firing the overwrite-warning path.
             var staleInMemoryTree = MakeTree("tree_y", "Stale In-Memory", 1);
             RecordingStore.StashPendingTree(staleInMemoryTree, PendingTreeState.Limbo);
 
@@ -409,9 +408,57 @@ namespace Parsek.Tests
             ParsekScenario.TryRestoreActiveTreeNode(scenarioNode);
 
             Assert.Equal("Disk Version", RecordingStore.PendingTree.TreeName);
-            // No "overwriting existing pending tree" warning on the expected-overwrite path
             Assert.DoesNotContain(logLines,
                 l => l.Contains("overwriting existing pending tree"));
+        }
+
+        [Fact]
+        public void ShouldKeepPendingTreeAfterHydrationFailure_MatchingPendingTreeAndStaleEpoch_ReturnsTrue()
+        {
+            var pendingTree = MakeTree("tree_hydration", "In-Memory Pending", 1);
+            RecordingStore.StashPendingTree(pendingTree, PendingTreeState.Limbo);
+            var diskTree = MakeTree("tree_hydration", "Disk Active", 1);
+
+            bool keepPending = ParsekScenario.ShouldKeepPendingTreeAfterHydrationFailure(
+                diskTree, staleEpochHydrationFailures: 1);
+
+            Assert.True(keepPending);
+        }
+
+        [Fact]
+        public void ShouldKeepPendingTreeAfterHydrationFailure_MatchingPendingTreeAndGenericFailure_ReturnsFalse()
+        {
+            var pendingTree = MakeTree("tree_hydration_generic", "In-Memory Pending", 1);
+            RecordingStore.StashPendingTree(pendingTree, PendingTreeState.Limbo);
+            var diskTree = MakeTree("tree_hydration_generic", "Disk Active", 1);
+
+            bool keepPending = ParsekScenario.ShouldKeepPendingTreeAfterHydrationFailure(
+                diskTree, staleEpochHydrationFailures: 0);
+
+            Assert.False(keepPending);
+        }
+
+        [Fact]
+        public void RestoreHydrationFailedRecordingsFromPendingTree_RestoresOnlyFailedMatches()
+        {
+            var pendingTree = MakeTree("tree_salvage", "Pending", 2);
+            pendingTree.Recordings["child_tree_salvage_1"].VesselName = "Pending Child";
+            pendingTree.Recordings["child_tree_salvage_1"].Points.Add(new TrajectoryPoint { ut = 999 });
+            RecordingStore.StashPendingTree(pendingTree, PendingTreeState.Limbo);
+
+            var loadedTree = MakeTree("tree_salvage", "Disk", 2);
+            loadedTree.Recordings["child_tree_salvage_1"].SidecarLoadFailed = true;
+            loadedTree.Recordings["child_tree_salvage_1"].SidecarLoadFailureReason = "trajectory-missing";
+
+            int restored = ParsekScenario.RestoreHydrationFailedRecordingsFromPendingTree(loadedTree);
+
+            Assert.Equal(1, restored);
+            Assert.Equal("Disk #0", loadedTree.Recordings["root_tree_salvage"].VesselName);
+            Assert.Equal("Pending Child", loadedTree.Recordings["child_tree_salvage_1"].VesselName);
+            Assert.Equal(3, loadedTree.Recordings["child_tree_salvage_1"].Points.Count);
+            Assert.True(loadedTree.Recordings["child_tree_salvage_1"].FilesDirty);
+            Assert.False(loadedTree.Recordings["child_tree_salvage_1"].SidecarLoadFailed);
+            Assert.Null(loadedTree.Recordings["child_tree_salvage_1"].SidecarLoadFailureReason);
         }
 
         // ============================================================

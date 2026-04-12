@@ -276,6 +276,141 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void IsWatchProtectedRecording_ExactWatchedRecording_ReturnsTrue()
+        {
+            var watched = new Recording
+            {
+                RecordingId = "watched",
+                TreeId = "tree1",
+                VesselPersistentId = 100
+            };
+
+            Assert.True(GhostPlaybackLogic.IsWatchProtectedRecording(
+                new List<Recording> { watched }, watchedRecordingIndex: 0, currentIndex: 0));
+        }
+
+        [Fact]
+        public void IsWatchProtectedRecording_DebrisOfWatchedVesselContinuation_ReturnsTrue()
+        {
+            var root = new Recording
+            {
+                RecordingId = "root",
+                TreeId = "tree1",
+                VesselPersistentId = 100,
+                IsDebris = false
+            };
+            var watchedContinuation = new Recording
+            {
+                RecordingId = "cont",
+                TreeId = "tree1",
+                VesselPersistentId = 100,
+                IsDebris = false
+            };
+            var debris = new Recording
+            {
+                RecordingId = "debris",
+                TreeId = "tree1",
+                VesselPersistentId = 200,
+                IsDebris = true,
+                LoopSyncParentIdx = 0
+            };
+
+            var committed = new List<Recording> { root, watchedContinuation, debris };
+
+            Assert.True(GhostPlaybackLogic.IsWatchProtectedRecording(
+                committed, watchedRecordingIndex: 1, currentIndex: 2));
+        }
+
+        [Fact]
+        public void IsWatchProtectedRecording_DebrisOfDifferentVessel_ReturnsFalse()
+        {
+            var watched = new Recording
+            {
+                RecordingId = "watched",
+                TreeId = "tree1",
+                VesselPersistentId = 100,
+                IsDebris = false
+            };
+            var otherParent = new Recording
+            {
+                RecordingId = "other",
+                TreeId = "tree1",
+                VesselPersistentId = 300,
+                IsDebris = false
+            };
+            var debris = new Recording
+            {
+                RecordingId = "debris",
+                TreeId = "tree1",
+                VesselPersistentId = 200,
+                IsDebris = true,
+                LoopSyncParentIdx = 1
+            };
+
+            var committed = new List<Recording> { watched, otherParent, debris };
+
+            Assert.False(GhostPlaybackLogic.IsWatchProtectedRecording(
+                committed, watchedRecordingIndex: 0, currentIndex: 2));
+        }
+
+        [Fact]
+        public void IsWatchProtectedRecording_RecursiveDebrisDescendantOfWatchedLineage_ReturnsTrue()
+        {
+            var watched = new Recording
+            {
+                RecordingId = "root",
+                TreeId = "tree1",
+                VesselPersistentId = 100,
+                IsDebris = false
+            };
+            var booster = new Recording
+            {
+                RecordingId = "booster",
+                TreeId = "tree1",
+                VesselPersistentId = 200,
+                IsDebris = true,
+                ParentBranchPointId = "bp-root"
+            };
+            var fragment = new Recording
+            {
+                RecordingId = "fragment",
+                TreeId = "tree1",
+                VesselPersistentId = 201,
+                IsDebris = true,
+                ParentBranchPointId = "bp-booster"
+            };
+
+            var tree = new RecordingTree
+            {
+                Id = "tree1",
+                Recordings = new Dictionary<string, Recording>
+                {
+                    ["root"] = watched,
+                    ["booster"] = booster,
+                    ["fragment"] = fragment
+                },
+                BranchPoints = new List<BranchPoint>
+                {
+                    new BranchPoint
+                    {
+                        Id = "bp-root",
+                        ParentRecordingIds = new List<string> { "root" }
+                    },
+                    new BranchPoint
+                    {
+                        Id = "bp-booster",
+                        ParentRecordingIds = new List<string> { "booster" }
+                    }
+                }
+            };
+
+            var committed = new List<Recording> { watched, booster, fragment };
+
+            Assert.True(GhostPlaybackLogic.IsWatchProtectedRecording(
+                committed, new List<RecordingTree> { tree }, watchedRecordingIndex: 0, currentIndex: 2));
+        }
+
+        [Fact]
         public void ShouldApplyWarpZoneHideExemption_BeyondOrbitalGhost_ReturnsTrue()
         {
             Assert.True(GhostPlaybackLogic.ShouldApplyWarpZoneHideExemption(

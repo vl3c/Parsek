@@ -2948,6 +2948,152 @@ namespace Parsek
                 && protectedLoopCycleIndex == currentLoopCycleIndex;
         }
 
+        /// <summary>
+        /// Returns true when the current recording should inherit watch-mode protection.
+        /// This is broader than the exact watched ghost: breakup debris linked to the
+        /// watched vessel's same-tree lineage should stay visible while that vessel is watched.
+        /// </summary>
+        internal static bool IsWatchProtectedRecording(
+            IReadOnlyList<Recording> committed, int watchedRecordingIndex, int currentIndex)
+        {
+            return IsWatchProtectedRecording(
+                committed, RecordingStore.CommittedTrees, watchedRecordingIndex, currentIndex);
+        }
+
+        internal static bool IsWatchProtectedRecording(
+            IReadOnlyList<Recording> committed,
+            IReadOnlyList<RecordingTree> committedTrees,
+            int watchedRecordingIndex, int currentIndex)
+        {
+            if (committed == null
+                || watchedRecordingIndex < 0
+                || currentIndex < 0
+                || watchedRecordingIndex >= committed.Count
+                || currentIndex >= committed.Count)
+                return false;
+
+            if (watchedRecordingIndex == currentIndex)
+                return true;
+
+            Recording watched = committed[watchedRecordingIndex];
+            Recording current = committed[currentIndex];
+            if (watched == null || current == null || !current.IsDebris)
+                return false;
+
+            if (string.IsNullOrEmpty(watched.TreeId)
+                || string.IsNullOrEmpty(current.TreeId)
+                || watched.TreeId != current.TreeId)
+                return false;
+
+            if (IsLoopSyncedDebrisOfWatchedLineage(committed, watched, current))
+                return true;
+
+            RecordingTree tree = FindTreeById(committedTrees, watched.TreeId);
+            return IsDebrisDescendedFromWatchedLineage(watched, current, tree);
+        }
+
+        private static bool IsLoopSyncedDebrisOfWatchedLineage(
+            IReadOnlyList<Recording> committed, Recording watched, Recording current)
+        {
+            int parentIdx = current.LoopSyncParentIdx;
+            if (committed == null || parentIdx < 0 || parentIdx >= committed.Count)
+                return false;
+
+            Recording parent = committed[parentIdx];
+            if (parent == null || parent.TreeId != watched.TreeId)
+                return false;
+
+            if (parent.RecordingId == watched.RecordingId)
+                return true;
+
+            if (watched.VesselPersistentId == 0 || parent.VesselPersistentId == 0)
+                return false;
+
+            return parent.VesselPersistentId == watched.VesselPersistentId;
+        }
+
+        private static bool IsDebrisDescendedFromWatchedLineage(
+            Recording watched, Recording current, RecordingTree tree)
+        {
+            if (watched == null || current == null || tree == null)
+                return false;
+
+            var pendingBranchPoints = new Queue<string>();
+            var visitedBranchPoints = new HashSet<string>();
+            var visitedRecordings = new HashSet<string>();
+
+            if (!string.IsNullOrEmpty(current.ParentBranchPointId))
+                pendingBranchPoints.Enqueue(current.ParentBranchPointId);
+
+            while (pendingBranchPoints.Count > 0)
+            {
+                string branchPointId = pendingBranchPoints.Dequeue();
+                if (string.IsNullOrEmpty(branchPointId) || !visitedBranchPoints.Add(branchPointId))
+                    continue;
+
+                BranchPoint branchPoint = FindBranchPointById(tree, branchPointId);
+                if (branchPoint?.ParentRecordingIds == null)
+                    continue;
+
+                for (int i = 0; i < branchPoint.ParentRecordingIds.Count; i++)
+                {
+                    string parentRecordingId = branchPoint.ParentRecordingIds[i];
+                    if (string.IsNullOrEmpty(parentRecordingId) || !visitedRecordings.Add(parentRecordingId))
+                        continue;
+
+                    Recording parent;
+                    if (!tree.Recordings.TryGetValue(parentRecordingId, out parent) || parent == null)
+                        continue;
+
+                    if (parent.RecordingId == watched.RecordingId)
+                        return true;
+
+                    if (watched.VesselPersistentId != 0
+                        && parent.VesselPersistentId != 0
+                        && parent.VesselPersistentId == watched.VesselPersistentId)
+                    {
+                        return true;
+                    }
+
+                    if (!string.IsNullOrEmpty(parent.ParentBranchPointId))
+                        pendingBranchPoints.Enqueue(parent.ParentBranchPointId);
+                }
+            }
+
+            return false;
+        }
+
+        private static RecordingTree FindTreeById(
+            IReadOnlyList<RecordingTree> committedTrees, string treeId)
+        {
+            if (committedTrees == null || string.IsNullOrEmpty(treeId))
+                return null;
+
+            for (int i = 0; i < committedTrees.Count; i++)
+            {
+                RecordingTree tree = committedTrees[i];
+                if (tree != null && tree.Id == treeId)
+                    return tree;
+            }
+
+            return null;
+        }
+
+        private static BranchPoint FindBranchPointById(RecordingTree tree, string branchPointId)
+        {
+            if (tree?.BranchPoints == null || string.IsNullOrEmpty(branchPointId))
+                return null;
+
+            for (int i = 0; i < tree.BranchPoints.Count; i++)
+            {
+                BranchPoint branchPoint = tree.BranchPoints[i];
+                if (branchPoint != null && branchPoint.Id == branchPointId)
+                    return branchPoint;
+            }
+
+            return null;
+        }
+
         #endregion
 
         #region Watch Mode Decisions

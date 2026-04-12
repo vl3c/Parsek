@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using System.Linq;
+using UnityEngine;
 using Xunit;
 
 namespace Parsek.Tests
@@ -501,6 +502,35 @@ namespace Parsek.Tests
             Assert.True(double.IsNaN(a.ExplicitEndUT));
         }
 
+        [Fact]
+        public void MergeInto_TransfersBranchAndTerminalMetadata()
+        {
+            var a = MakeChainSegment("c1", 0);
+            var b = MakeChainSegment("c1", 1);
+            b.ChildBranchPointId = "bp_001";
+            b.TerminalStateValue = TerminalState.Landed;
+            b.TerminalOrbitInclination = 28.5;
+            b.TerminalOrbitEccentricity = 0.01;
+            b.TerminalOrbitSemiMajorAxis = 700000;
+            b.TerminalOrbitLAN = 90.0;
+            b.TerminalOrbitArgumentOfPeriapsis = 45.0;
+            b.TerminalOrbitMeanAnomalyAtEpoch = 1.23;
+            b.TerminalOrbitEpoch = 17060;
+            b.TerminalOrbitBody = "Kerbin";
+            b.TerminalPosition = new SurfacePosition { body = "Kerbin", latitude = 1.0, longitude = 2.0, altitude = 3.0 };
+            b.TerrainHeightAtEnd = 123.4;
+            b.SurfacePos = new SurfacePosition { body = "Kerbin", latitude = 4.0, longitude = 5.0, altitude = 6.0 };
+
+            RecordingOptimizer.MergeInto(a, b);
+
+            Assert.Equal("bp_001", a.ChildBranchPointId);
+            Assert.Equal(TerminalState.Landed, a.TerminalStateValue);
+            Assert.Equal("Kerbin", a.TerminalOrbitBody);
+            Assert.Equal(123.4, a.TerrainHeightAtEnd);
+            Assert.True(a.TerminalPosition.HasValue);
+            Assert.True(a.SurfacePos.HasValue);
+        }
+
         #endregion
 
         #region SplitAtSection
@@ -583,6 +613,48 @@ namespace Parsek.Tests
             Assert.True(rec.EndUT <= second.StartUT);
         }
 
+        [Fact]
+        public void SplitAtSection_WithConcreteTrackFrames_RebuildsFlatTrajectoryPerHalf()
+        {
+            var rec = new Recording();
+            rec.Points.Add(new TrajectoryPoint { ut = 10, latitude = 10, longitude = 10, altitude = 10, bodyName = "Kerbin" });
+            rec.Points.Add(new TrajectoryPoint { ut = 20, latitude = 20, longitude = 20, altitude = 20, bodyName = "Kerbin" });
+            rec.Points.Add(new TrajectoryPoint { ut = 30, latitude = 30, longitude = 30, altitude = 30, bodyName = "Kerbin" });
+            rec.Points.Add(new TrajectoryPoint { ut = 40, latitude = 40, longitude = 40, altitude = 40, bodyName = "Kerbin" });
+
+            rec.TrackSections.Add(new TrackSection
+            {
+                environment = SegmentEnvironment.Atmospheric,
+                referenceFrame = ReferenceFrame.Absolute,
+                startUT = 10,
+                endUT = 20,
+                frames = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint { ut = 10, latitude = 1, longitude = 1, altitude = 100, bodyName = "Kerbin", rotation = Quaternion.identity, velocity = Vector3.zero },
+                    new TrajectoryPoint { ut = 20, latitude = 2, longitude = 2, altitude = 200, bodyName = "Kerbin", rotation = Quaternion.identity, velocity = Vector3.zero }
+                }
+            });
+            rec.TrackSections.Add(new TrackSection
+            {
+                environment = SegmentEnvironment.ExoBallistic,
+                referenceFrame = ReferenceFrame.Absolute,
+                startUT = 30,
+                endUT = 40,
+                frames = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint { ut = 30, latitude = 3, longitude = 3, altitude = 300, bodyName = "Kerbin", rotation = Quaternion.identity, velocity = Vector3.zero },
+                    new TrajectoryPoint { ut = 40, latitude = 4, longitude = 4, altitude = 400, bodyName = "Kerbin", rotation = Quaternion.identity, velocity = Vector3.zero }
+                }
+            });
+
+            var second = RecordingOptimizer.SplitAtSection(rec, 1);
+
+            Assert.Equal(new[] { 10.0, 20.0 }, rec.Points.Select(p => p.ut).ToArray());
+            Assert.Equal(new[] { 30.0, 40.0 }, second.Points.Select(p => p.ut).ToArray());
+            Assert.Equal(100, rec.Points[0].altitude);
+            Assert.Equal(400, second.Points[1].altitude);
+        }
+
         #endregion
 
         #region ReindexChain
@@ -648,6 +720,66 @@ namespace Parsek.Tests
             Assert.Equal(6, recordings[0].Points.Count); // 2+2+2
             Assert.Equal(17000, recordings[0].StartUT);
             Assert.Equal(17090, recordings[0].EndUT);
+
+            RecordingStore.ResetForTesting();
+        }
+
+        [Fact]
+        public void RunOptimizationPass_MergeUpdatesTreeMembershipAndBranchParentLinks()
+        {
+            RecordingStore.SuppressLogging = true;
+            RecordingStore.ResetForTesting();
+
+            var first = MakeChainSegment("merge_tree", 0);
+            first.RecordingId = "seg0";
+            first.TreeId = "tree_merge";
+
+            var second = MakeChainSegment("merge_tree", 1);
+            second.RecordingId = "seg1";
+            second.TreeId = "tree_merge";
+            second.ChildBranchPointId = "bp_merge";
+            second.TerminalStateValue = TerminalState.Landed;
+            second.TerminalPosition = new SurfacePosition
+            {
+                body = "Kerbin",
+                latitude = 1,
+                longitude = 2,
+                altitude = 3
+            };
+
+            var bp = new BranchPoint
+            {
+                Id = "bp_merge",
+                ParentRecordingIds = new List<string> { "seg1" }
+            };
+
+            var tree = new RecordingTree
+            {
+                Id = "tree_merge",
+                RootRecordingId = "seg0",
+                ActiveRecordingId = "seg1",
+                BranchPoints = new List<BranchPoint> { bp },
+                Recordings = new Dictionary<string, Recording>
+                {
+                    { "seg0", first },
+                    { "seg1", second }
+                }
+            };
+
+            RecordingStore.CommittedTrees.Add(tree);
+            RecordingStore.AddRecordingWithTreeForTesting(first);
+            RecordingStore.AddRecordingWithTreeForTesting(second);
+
+            RecordingStore.RunOptimizationPass();
+
+            Assert.Single(RecordingStore.CommittedRecordings);
+            Assert.Single(tree.Recordings);
+            Assert.Contains("seg0", tree.Recordings.Keys);
+            Assert.DoesNotContain("seg1", tree.Recordings.Keys);
+            Assert.Equal("seg0", tree.ActiveRecordingId);
+            Assert.Equal("bp_merge", first.ChildBranchPointId);
+            Assert.Contains("seg0", bp.ParentRecordingIds);
+            Assert.DoesNotContain("seg1", bp.ParentRecordingIds);
 
             RecordingStore.ResetForTesting();
         }
@@ -1845,6 +1977,166 @@ namespace Parsek.Tests
             // The boring section should be shortened, not removed (trimUT falls within it)
             Assert.Equal(2, rec.TrackSections.Count);
             Assert.True(rec.TrackSections[1].endUT <= 17060 + 1);
+        }
+
+        [Fact]
+        public void TrimBoringTail_TrimsSectionFramesAndFlatSyncDoesNotRegrowTail()
+        {
+            var rec = new Recording
+            {
+                VesselName = "TrimFrames",
+                RecordingId = "trim_frames"
+            };
+            rec.Points.Add(new TrajectoryPoint { ut = 17000, bodyName = "Kerbin" });
+            rec.Points.Add(new TrajectoryPoint { ut = 17020, bodyName = "Kerbin" });
+            rec.Points.Add(new TrajectoryPoint { ut = 17040, bodyName = "Kerbin" });
+            rec.Points.Add(new TrajectoryPoint { ut = 17050, bodyName = "Kerbin" });
+            rec.Points.Add(new TrajectoryPoint { ut = 17150, bodyName = "Kerbin" });
+            rec.Points.Add(new TrajectoryPoint { ut = 17250, bodyName = "Kerbin" });
+            rec.Points.Add(new TrajectoryPoint { ut = 17350, bodyName = "Kerbin" });
+
+            rec.TrackSections.Add(new TrackSection
+            {
+                environment = SegmentEnvironment.Atmospheric,
+                referenceFrame = ReferenceFrame.Absolute,
+                startUT = 17000,
+                endUT = 17050,
+                frames = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint { ut = 17000, bodyName = "Kerbin" },
+                    new TrajectoryPoint { ut = 17020, bodyName = "Kerbin" },
+                    new TrajectoryPoint { ut = 17040, bodyName = "Kerbin" },
+                    new TrajectoryPoint { ut = 17050, bodyName = "Kerbin" }
+                }
+            });
+            rec.TrackSections.Add(new TrackSection
+            {
+                environment = SegmentEnvironment.SurfaceStationary,
+                referenceFrame = ReferenceFrame.Absolute,
+                startUT = 17050,
+                endUT = 17350,
+                frames = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint { ut = 17050, bodyName = "Kerbin" },
+                    new TrajectoryPoint { ut = 17150, bodyName = "Kerbin" },
+                    new TrajectoryPoint { ut = 17250, bodyName = "Kerbin" },
+                    new TrajectoryPoint { ut = 17350, bodyName = "Kerbin" }
+                }
+            });
+
+            var recordings = new List<Recording> { rec };
+            Assert.True(RecordingOptimizer.TrimBoringTail(rec, recordings));
+            Assert.Equal(17050, rec.EndUT);
+            Assert.Single(rec.TrackSections[1].frames);
+            Assert.Equal(17050, rec.TrackSections[1].frames[0].ut);
+
+            Assert.True(RecordingStore.TrySyncFlatTrajectoryFromTrackSections(rec));
+            Assert.Equal(17050, rec.EndUT);
+            Assert.Equal(17050, rec.Points[rec.Points.Count - 1].ut);
+        }
+
+        [Fact]
+        public void TrimBoringTail_TrimsCheckpointSectionsAndFlatSyncDoesNotRegrowTail()
+        {
+            var rec = new Recording
+            {
+                VesselName = "TrimCheckpoints",
+                RecordingId = "trim_checkpoints"
+            };
+            rec.Points.Add(new TrajectoryPoint { ut = 17000, bodyName = "Kerbin" });
+            rec.Points.Add(new TrajectoryPoint { ut = 17020, bodyName = "Kerbin" });
+            rec.Points.Add(new TrajectoryPoint { ut = 17040, bodyName = "Kerbin" });
+            rec.Points.Add(new TrajectoryPoint { ut = 17050, bodyName = "Kerbin" });
+            rec.Points.Add(new TrajectoryPoint { ut = 17150, bodyName = "Kerbin" });
+            rec.Points.Add(new TrajectoryPoint { ut = 17250, bodyName = "Kerbin" });
+            rec.Points.Add(new TrajectoryPoint { ut = 17350, bodyName = "Kerbin" });
+
+            rec.TrackSections.Add(new TrackSection
+            {
+                environment = SegmentEnvironment.Atmospheric,
+                referenceFrame = ReferenceFrame.Absolute,
+                startUT = 17000,
+                endUT = 17050,
+                frames = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint { ut = 17000, bodyName = "Kerbin" },
+                    new TrajectoryPoint { ut = 17020, bodyName = "Kerbin" },
+                    new TrajectoryPoint { ut = 17040, bodyName = "Kerbin" },
+                    new TrajectoryPoint { ut = 17050, bodyName = "Kerbin" }
+                }
+            });
+            rec.TrackSections.Add(new TrackSection
+            {
+                environment = SegmentEnvironment.ExoBallistic,
+                referenceFrame = ReferenceFrame.OrbitalCheckpoint,
+                startUT = 17050,
+                endUT = 17350,
+                checkpoints = new List<OrbitSegment>
+                {
+                    new OrbitSegment { startUT = 17050, endUT = 17150, bodyName = "Kerbin" },
+                    new OrbitSegment { startUT = 17150, endUT = 17250, bodyName = "Kerbin" },
+                    new OrbitSegment { startUT = 17250, endUT = 17350, bodyName = "Kerbin" }
+                }
+            });
+            rec.OrbitSegments.AddRange(rec.TrackSections[1].checkpoints);
+
+            var recordings = new List<Recording> { rec };
+            Assert.True(RecordingOptimizer.TrimBoringTail(rec, recordings));
+            Assert.Equal(17060, rec.EndUT);
+            Assert.Single(rec.TrackSections[1].checkpoints);
+            Assert.Equal(17060, rec.TrackSections[1].checkpoints[0].endUT);
+
+            Assert.True(RecordingStore.TrySyncFlatTrajectoryFromTrackSections(rec));
+            Assert.Equal(17060, rec.EndUT);
+            Assert.Single(rec.OrbitSegments);
+            Assert.Equal(17060, rec.OrbitSegments[0].endUT);
+        }
+
+        [Fact]
+        public void SplitAtSection_RelativeSectionsUseFlatSync()
+        {
+            var rec = new Recording();
+            rec.Points.Add(new TrajectoryPoint { ut = 100, bodyName = "Kerbin" });
+            rec.Points.Add(new TrajectoryPoint { ut = 150, bodyName = "Kerbin" });
+            rec.Points.Add(new TrajectoryPoint { ut = 200, bodyName = "Kerbin" });
+            rec.Points.Add(new TrajectoryPoint { ut = 250, bodyName = "Kerbin" });
+            rec.Points.Add(new TrajectoryPoint { ut = 300, bodyName = "Kerbin" });
+            rec.TrackSections.Add(new TrackSection
+            {
+                environment = SegmentEnvironment.SurfaceMobile,
+                referenceFrame = ReferenceFrame.Relative,
+                startUT = 100,
+                endUT = 200,
+                frames = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint { ut = 100, bodyName = "Kerbin" },
+                    new TrajectoryPoint { ut = 125, bodyName = "Kerbin" },
+                    new TrajectoryPoint { ut = 150, bodyName = "Kerbin" },
+                    new TrajectoryPoint { ut = 200, bodyName = "Kerbin" }
+                }
+            });
+            rec.TrackSections.Add(new TrackSection
+            {
+                environment = SegmentEnvironment.SurfaceStationary,
+                referenceFrame = ReferenceFrame.Relative,
+                startUT = 200,
+                endUT = 300,
+                frames = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint { ut = 200, bodyName = "Kerbin" },
+                    new TrajectoryPoint { ut = 240, bodyName = "Kerbin" },
+                    new TrajectoryPoint { ut = 300, bodyName = "Kerbin" }
+                }
+            });
+
+            var second = RecordingOptimizer.SplitAtSection(rec, 1);
+
+            Assert.Equal(4, rec.Points.Count);
+            Assert.Equal(100, rec.Points[0].ut);
+            Assert.Equal(200, rec.Points[rec.Points.Count - 1].ut);
+            Assert.Equal(3, second.Points.Count);
+            Assert.Equal(200, second.Points[0].ut);
+            Assert.Equal(300, second.Points[second.Points.Count - 1].ut);
         }
 
         [Fact]

@@ -1605,6 +1605,29 @@ namespace Parsek.Tests
             Assert.NotSame(rec.GhostVisualSnapshot, rec.VesselSnapshot);
             Assert.Equal("42", rec.VesselSnapshot.GetValue("pid"));
         }
+
+        [Fact]
+        public void SeedBreakupChildSnapshots_PrefersPreCapturedGhostButKeepsLiveVesselSnapshot()
+        {
+            var rec = new Recording();
+            var liveSnapshot = new ConfigNode("VESSEL");
+            liveSnapshot.AddValue("name", "Live Vessel");
+            liveSnapshot.AddValue("liveOnly", "1");
+
+            var preCapturedSnapshot = new ConfigNode("VESSEL");
+            preCapturedSnapshot.AddValue("name", "PreCaptured Ghost");
+            preCapturedSnapshot.AddValue("preOnly", "1");
+
+            ParsekFlight.SeedBreakupChildSnapshots(rec, 42, liveSnapshot, preCapturedSnapshot);
+
+            Assert.NotNull(rec.GhostVisualSnapshot);
+            Assert.NotNull(rec.VesselSnapshot);
+            Assert.Equal("PreCaptured Ghost", rec.GhostVisualSnapshot.GetValue("name"));
+            Assert.Equal("Live Vessel", rec.VesselSnapshot.GetValue("name"));
+            Assert.Equal("1", rec.GhostVisualSnapshot.GetValue("preOnly"));
+            Assert.Null(rec.GhostVisualSnapshot.GetValue("liveOnly"));
+            Assert.Equal("1", rec.VesselSnapshot.GetValue("liveOnly"));
+        }
     }
 
     #endregion

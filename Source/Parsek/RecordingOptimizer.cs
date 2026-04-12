@@ -260,6 +260,8 @@ namespace Parsek
             // 7. VesselSnapshot: if absorbed was chain tip (non-null), target inherits it
             if (absorbed.VesselSnapshot != null)
                 target.VesselSnapshot = absorbed.VesselSnapshot;
+            if (!string.IsNullOrEmpty(absorbed.ChildBranchPointId))
+                target.ChildBranchPointId = absorbed.ChildBranchPointId;
 
             // Resource manifests: absorbed recording's end resources win (later segment)
             if (absorbed.EndResources != null)
@@ -285,6 +287,23 @@ namespace Parsek
             // 8. TerminalState: absorbed is the later segment, inherit its terminal state
             if (absorbed.TerminalStateValue.HasValue)
                 target.TerminalStateValue = absorbed.TerminalStateValue;
+            if (absorbed.TerminalOrbitBody != null)
+            {
+                target.TerminalOrbitInclination = absorbed.TerminalOrbitInclination;
+                target.TerminalOrbitEccentricity = absorbed.TerminalOrbitEccentricity;
+                target.TerminalOrbitSemiMajorAxis = absorbed.TerminalOrbitSemiMajorAxis;
+                target.TerminalOrbitLAN = absorbed.TerminalOrbitLAN;
+                target.TerminalOrbitArgumentOfPeriapsis = absorbed.TerminalOrbitArgumentOfPeriapsis;
+                target.TerminalOrbitMeanAnomalyAtEpoch = absorbed.TerminalOrbitMeanAnomalyAtEpoch;
+                target.TerminalOrbitEpoch = absorbed.TerminalOrbitEpoch;
+                target.TerminalOrbitBody = absorbed.TerminalOrbitBody;
+            }
+            if (absorbed.TerminalPosition.HasValue)
+                target.TerminalPosition = absorbed.TerminalPosition;
+            if (!double.IsNaN(absorbed.TerrainHeightAtEnd))
+                target.TerrainHeightAtEnd = absorbed.TerrainHeightAtEnd;
+            if (absorbed.SurfacePos.HasValue)
+                target.SurfacePos = absorbed.SurfacePos;
 
             // 9. Clear explicit UT ranges (Points now cover the full range)
             target.ExplicitStartUT = double.NaN;
@@ -527,9 +546,16 @@ namespace Parsek
             second.EvaCrewName = original.EvaCrewName;
             second.ParentRecordingId = original.ParentRecordingId;
 
+            bool syncedOriginalFlatTrajectory = RecordingStore.TrySyncFlatTrajectoryFromTrackSections(
+                original, allowRelativeSections: true);
+            bool syncedSecondFlatTrajectory = RecordingStore.TrySyncFlatTrajectoryFromTrackSections(
+                second, allowRelativeSections: true);
+
             // 12. Invalidate cached stats
             original.CachedStats = null;
             original.CachedStatsPointCount = 0;
+            second.CachedStats = null;
+            second.CachedStatsPointCount = 0;
 
             // 14. Clear explicit UT on both (Points define the range)
             original.ExplicitStartUT = double.NaN;
@@ -540,7 +566,8 @@ namespace Parsek
             ParsekLog.Info("Optimizer",
                 $"SplitAtSection: split {original.RecordingId} at UT={splitUT:F1} " +
                 $"(first: {original.Points.Count} pts/{original.TrackSections.Count} sections, " +
-                $"second: {second.Points.Count} pts/{second.TrackSections.Count} sections)");
+                $"second: {second.Points.Count} pts/{second.TrackSections.Count} sections, " +
+                $"flatSync={syncedOriginalFlatTrajectory}/{syncedSecondFlatTrajectory})");
 
             return second;
         }
@@ -922,8 +949,10 @@ namespace Parsek
                 }
                 else if (sec.endUT > trimUT)
                 {
-                    sec.endUT = trimUT;
-                    rec.TrackSections[i] = sec;
+                    if (TryTrimTrackSectionPayload(ref sec, trimUT))
+                        rec.TrackSections[i] = sec;
+                    else
+                        rec.TrackSections.RemoveAt(i);
                     break;
                 }
                 else break;
@@ -949,6 +978,8 @@ namespace Parsek
                 }
             }
 
+            RecordingStore.TrySyncFlatTrajectoryFromTrackSections(rec, allowRelativeSections: true);
+
             // Strip events past the new EndUT (they're inert during playback but
             // waste memory and disk space in serialized sidecar files)
             double newEndUT = rec.EndUT;
@@ -967,6 +998,62 @@ namespace Parsek
                 $"from endUT={originalEndUT:F1} to {rec.EndUT:F1} " +
                 $"(removed {removedSeconds:F0}s, {removedPoints} points)");
             return true;
+        }
+
+        private static bool TryTrimTrackSectionPayload(ref TrackSection sec, double trimUT)
+        {
+            switch (sec.referenceFrame)
+            {
+                case ReferenceFrame.OrbitalCheckpoint:
+                    if (sec.checkpoints == null || sec.checkpoints.Count == 0)
+                    {
+                        sec.endUT = trimUT;
+                        return true;
+                    }
+
+                    for (int i = sec.checkpoints.Count - 1; i >= 0; i--)
+                    {
+                        var checkpoint = sec.checkpoints[i];
+                        if (checkpoint.startUT >= trimUT)
+                        {
+                            sec.checkpoints.RemoveAt(i);
+                        }
+                        else if (checkpoint.endUT > trimUT)
+                        {
+                            checkpoint.endUT = trimUT;
+                            sec.checkpoints[i] = checkpoint;
+                            break;
+                        }
+                        else break;
+                    }
+
+                    if (sec.checkpoints.Count == 0)
+                        return false;
+
+                    sec.endUT = sec.checkpoints[sec.checkpoints.Count - 1].endUT;
+                    return true;
+
+                default:
+                    if (sec.frames == null || sec.frames.Count == 0)
+                    {
+                        sec.endUT = trimUT;
+                        return true;
+                    }
+
+                    for (int i = sec.frames.Count - 1; i >= 0; i--)
+                    {
+                        if (sec.frames[i].ut > trimUT)
+                            sec.frames.RemoveAt(i);
+                        else
+                            break;
+                    }
+
+                    if (sec.frames.Count == 0)
+                        return false;
+
+                    sec.endUT = sec.frames[sec.frames.Count - 1].ut;
+                    return true;
+            }
         }
 
         #endregion

@@ -105,11 +105,17 @@ namespace Parsek
                 merged.TrackSections = mergedSections;
                 merged.PartEvents = mergedEvents;
 
-                // Copy flat lists for backward compat
-                if (srcRec.Points != null)
-                    merged.Points = new List<TrajectoryPoint>(srcRec.Points);
-                if (srcRec.OrbitSegments != null)
-                    merged.OrbitSegments = new List<OrbitSegment>(srcRec.OrbitSegments);
+                // Keep flat lists consistent with the authoritative section payload when we
+                // can rebuild them losslessly. Relative or metadata-only sections still fall
+                // back to the caller-provided flat lists.
+                bool rebuiltFlatTrajectory = RecordingStore.TrySyncFlatTrajectoryFromTrackSections(merged);
+                if (!rebuiltFlatTrajectory)
+                {
+                    if (srcRec.Points != null)
+                        merged.Points = new List<TrajectoryPoint>(srcRec.Points);
+                    if (srcRec.OrbitSegments != null)
+                        merged.OrbitSegments = new List<OrbitSegment>(srcRec.OrbitSegments);
+                }
 
                 // Copy SegmentEvents
                 if (srcRec.SegmentEvents != null)
@@ -136,6 +142,9 @@ namespace Parsek
 
                 LogMergeDiagnostics(recId, srcRec.VesselName, inputSectionCount,
                     srcRec.TrackSections ?? new List<TrackSection>(), mergedSections);
+                ParsekLog.Verbose(Tag,
+                    $"MergeTree: recording='{recId}' flatSync=" +
+                    (rebuiltFlatTrajectory ? "track-sections" : "legacy-flat-copy"));
             }
 
             ParsekLog.Info(Tag,

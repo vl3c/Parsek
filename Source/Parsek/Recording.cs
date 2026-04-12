@@ -4,6 +4,7 @@ using System.Collections.Generic;
 namespace Parsek
 {
     public enum LoopTimeUnit { Sec, Min, Hour, Auto }
+    public enum GhostSnapshotMode { Unspecified = 0, Separate = 1, AliasVessel = 2 }
 
     public class Recording : IPlaybackTrajectory
     {
@@ -61,6 +62,13 @@ namespace Parsek
         // Intentionally NOT [NonSerialized] — persists via ConfigNode in RecordingTree
         // Save/LoadRecordingInto so the epoch survives scene reloads.
         internal int SidecarEpoch;
+
+        // Runtime-only hydration state: LoadRecordingFiles can fail because the current save
+        // point does not have a compatible sidecar for this recording. These flags are used to
+        // avoid destructive follow-on behavior (for example pruning an empty leaf that only
+        // looks empty because sidecar hydration was rejected).
+        [NonSerialized] internal bool SidecarLoadFailed;
+        [NonSerialized] internal string SidecarLoadFailureReason;
 
         /// <summary>
         /// Marks this recording as needing its <c>.prec</c> sidecar file rewritten
@@ -200,6 +208,7 @@ namespace Parsek
         // Vessel persistence fields (transient — only needed between revert and merge dialog)
         public ConfigNode VesselSnapshot;       // ProtoVessel as ConfigNode (null if destroyed)
         public ConfigNode GhostVisualSnapshot;  // Snapshot used for ghost visuals (prefer recording-start state)
+        public GhostSnapshotMode GhostSnapshotMode;
         public double DistanceFromLaunch;       // Meters from launch position
         public bool VesselDestroyed;            // Vessel was destroyed before revert
         public string VesselSituation;          // "Orbiting Kerbin", "Landed on Mun", etc.
@@ -215,10 +224,117 @@ namespace Parsek
         public int SpawnDeathCount;              // Spawn-then-die cycles: vessel spawned but immediately destroyed (transient)
         public int SceneExitSituation = -1;     // Vessel.Situations at scene exit (-1 = still in flight/unknown)
 
-        public double StartUT => Points.Count > 0 ? Points[0].ut :
-                                 !double.IsNaN(ExplicitStartUT) ? ExplicitStartUT : 0.0;
-        public double EndUT => Points.Count > 0 ? Points[Points.Count - 1].ut :
-                               !double.IsNaN(ExplicitEndUT) ? ExplicitEndUT : 0.0;
+        public double StartUT
+        {
+            get
+            {
+                if (TryGetActualTrajectoryBounds(out double startUT, out _))
+                {
+                    if (!double.IsNaN(ExplicitStartUT) && ExplicitStartUT < startUT)
+                        return ExplicitStartUT;
+                    return startUT;
+                }
+
+                return !double.IsNaN(ExplicitStartUT) ? ExplicitStartUT : 0.0;
+            }
+        }
+
+        public double EndUT
+        {
+            get
+            {
+                if (TryGetActualTrajectoryBounds(out _, out double endUT))
+                {
+                    if (!double.IsNaN(ExplicitEndUT) && ExplicitEndUT > endUT)
+                        return ExplicitEndUT;
+                    return endUT;
+                }
+
+                return !double.IsNaN(ExplicitEndUT) ? ExplicitEndUT : 0.0;
+            }
+        }
+
+        private bool TryGetActualTrajectoryBounds(out double startUT, out double endUT)
+        {
+            startUT = 0.0;
+            endUT = 0.0;
+            bool found = false;
+
+            if (Points != null && Points.Count > 0)
+            {
+                startUT = Points[0].ut;
+                endUT = Points[Points.Count - 1].ut;
+                found = true;
+            }
+
+            if (OrbitSegments != null && OrbitSegments.Count > 0)
+            {
+                double orbitStartUT = OrbitSegments[0].startUT;
+                double orbitEndUT = OrbitSegments[OrbitSegments.Count - 1].endUT;
+                if (!found || orbitStartUT < startUT)
+                    startUT = orbitStartUT;
+                if (!found || orbitEndUT > endUT)
+                    endUT = orbitEndUT;
+                found = true;
+            }
+
+            if (TryGetPlayableTrackSectionBounds(out double sectionStartUT, out double sectionEndUT))
+            {
+                if (!found || sectionStartUT < startUT)
+                    startUT = sectionStartUT;
+                if (!found || sectionEndUT > endUT)
+                    endUT = sectionEndUT;
+                found = true;
+            }
+
+            return found;
+        }
+
+        private bool TryGetPlayableTrackSectionBounds(out double startUT, out double endUT)
+        {
+            startUT = 0.0;
+            endUT = 0.0;
+            if (TrackSections == null || TrackSections.Count == 0)
+                return false;
+
+            int firstPlayable = -1;
+            for (int i = 0; i < TrackSections.Count; i++)
+            {
+                if (HasPlayablePayload(TrackSections[i]))
+                {
+                    firstPlayable = i;
+                    break;
+                }
+            }
+
+            if (firstPlayable < 0)
+                return false;
+
+            int lastPlayable = -1;
+            for (int i = TrackSections.Count - 1; i >= firstPlayable; i--)
+            {
+                if (HasPlayablePayload(TrackSections[i]))
+                {
+                    lastPlayable = i;
+                    break;
+                }
+            }
+
+            if (lastPlayable < 0)
+                return false;
+
+            startUT = TrackSections[firstPlayable].startUT;
+            endUT = TrackSections[lastPlayable].endUT;
+            return true;
+        }
+
+        private static bool HasPlayablePayload(TrackSection section)
+        {
+            if (section.referenceFrame == ReferenceFrame.OrbitalCheckpoint)
+                return section.checkpoints != null && section.checkpoints.Count > 0;
+
+            return section.frames != null && section.frames.Count > 0;
+        }
 
         /// <summary>
         /// Compact, grep-friendly identity string for diagnostic logs:
@@ -279,6 +395,7 @@ namespace Parsek
             GhostVisualSnapshot = source.GhostVisualSnapshot != null
                 ? source.GhostVisualSnapshot.CreateCopy()
                 : null;
+            GhostSnapshotMode = source.GhostSnapshotMode;
             RecordingId = source.RecordingId;
             DistanceFromLaunch = source.DistanceFromLaunch;
             VesselDestroyed = source.VesselDestroyed;
@@ -371,6 +488,85 @@ namespace Parsek
             StartBiome = source.StartBiome;
             StartSituation = source.StartSituation;
             LaunchSiteName = source.LaunchSiteName;
+        }
+
+        internal static Recording DeepClone(Recording source)
+        {
+            if (source == null) return null;
+
+            var clone = new Recording();
+            clone.ApplyPersistenceArtifactsFrom(source);
+            clone.CopyStartLocationFrom(source);
+            clone.VesselName = source.VesselName;
+
+            clone.Points = source.Points != null
+                ? new List<TrajectoryPoint>(source.Points)
+                : new List<TrajectoryPoint>();
+            clone.OrbitSegments = source.OrbitSegments != null
+                ? new List<OrbitSegment>(source.OrbitSegments)
+                : new List<OrbitSegment>();
+            clone.PartEvents = source.PartEvents != null
+                ? new List<PartEvent>(source.PartEvents)
+                : new List<PartEvent>();
+            clone.FlagEvents = source.FlagEvents != null
+                ? new List<FlagEvent>(source.FlagEvents)
+                : new List<FlagEvent>();
+            clone.SegmentEvents = source.SegmentEvents != null
+                ? new List<SegmentEvent>(source.SegmentEvents)
+                : new List<SegmentEvent>();
+            clone.TrackSections = source.TrackSections != null
+                ? DeepCopyTrackSections(source.TrackSections)
+                : new List<TrackSection>();
+            clone.Controllers = source.Controllers != null
+                ? new List<ControllerInfo>(source.Controllers)
+                : null;
+            clone.CrewEndStates = source.CrewEndStates != null
+                ? new Dictionary<string, KerbalEndState>(source.CrewEndStates)
+                : null;
+            clone.StartResources = source.StartResources != null
+                ? new Dictionary<string, ResourceAmount>(source.StartResources)
+                : null;
+            clone.EndResources = source.EndResources != null
+                ? new Dictionary<string, ResourceAmount>(source.EndResources)
+                : null;
+            clone.StartInventory = source.StartInventory != null
+                ? new Dictionary<string, InventoryItem>(source.StartInventory)
+                : null;
+            clone.EndInventory = source.EndInventory != null
+                ? new Dictionary<string, InventoryItem>(source.EndInventory)
+                : null;
+            clone.StartCrew = source.StartCrew != null
+                ? new Dictionary<string, int>(source.StartCrew)
+                : null;
+            clone.EndCrew = source.EndCrew != null
+                ? new Dictionary<string, int>(source.EndCrew)
+                : null;
+            clone.FilesDirty = source.FilesDirty;
+            clone.SidecarEpoch = source.SidecarEpoch;
+            clone.SidecarLoadFailed = source.SidecarLoadFailed;
+            clone.SidecarLoadFailureReason = source.SidecarLoadFailureReason;
+            clone.LoopSyncParentIdx = source.LoopSyncParentIdx;
+            clone.CachedStats = source.CachedStats;
+            clone.CachedStatsPointCount = source.CachedStatsPointCount;
+            clone.LastAppliedResourceIndex = source.LastAppliedResourceIndex;
+            clone.ContinuationBoundaryIndex = source.ContinuationBoundaryIndex;
+            clone.PreContinuationVesselSnapshot = source.PreContinuationVesselSnapshot != null
+                ? source.PreContinuationVesselSnapshot.CreateCopy()
+                : null;
+            clone.PreContinuationGhostSnapshot = source.PreContinuationGhostSnapshot != null
+                ? source.PreContinuationGhostSnapshot.CreateCopy()
+                : null;
+            clone.VesselSpawned = source.VesselSpawned;
+            clone.SpawnedVesselPersistentId = source.SpawnedVesselPersistentId;
+            clone.SpawnAttempts = source.SpawnAttempts;
+            clone.CollisionBlockCount = source.CollisionBlockCount;
+            clone.SpawnAbandoned = source.SpawnAbandoned;
+            clone.WalkbackExhausted = source.WalkbackExhausted;
+            clone.DuplicateBlockerRecovered = source.DuplicateBlockerRecovered;
+            clone.SpawnDeathCount = source.SpawnDeathCount;
+            clone.SceneExitSituation = source.SceneExitSituation;
+
+            return clone;
         }
 
         /// <summary>

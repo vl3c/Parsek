@@ -2985,7 +2985,8 @@ namespace Parsek.Tests
             // Has metadata
             Assert.Equal("Test Vessel", v3Node.GetValue("vesselName"));
             Assert.Equal("abc123", v3Node.GetValue("recordingId"));
-            Assert.Equal("0", v3Node.GetValue("recordingFormatVersion"));
+            Assert.Equal(RecordingStore.CurrentRecordingFormatVersion.ToString(CultureInfo.InvariantCulture),
+                v3Node.GetValue("recordingFormatVersion"));
             Assert.Equal("2", v3Node.GetValue("pointCount"));
 
             // No inline bulk data
@@ -3023,7 +3024,8 @@ namespace Parsek.Tests
             var trajNode = builder.BuildTrajectoryNode();
 
             Assert.Equal("PARSEK_RECORDING", trajNode.name);
-            Assert.Equal("0", trajNode.GetValue("version"));
+            Assert.Equal(RecordingStore.CurrentRecordingFormatVersion.ToString(CultureInfo.InvariantCulture),
+                trajNode.GetValue("version"));
             Assert.Equal("abc123", trajNode.GetValue("recordingId"));
             Assert.Equal(2, trajNode.GetNodes("POINT").Length);
             Assert.Single(trajNode.GetNodes("ORBIT_SEGMENT"));
@@ -4686,9 +4688,14 @@ namespace Parsek.Tests
                 // .prec file exists and has correct content
                 string precPath = Path.Combine(recDir, $"{id}.prec");
                 Assert.True(File.Exists(precPath), $"Expected .prec file at {precPath}");
-                string precContent = File.ReadAllText(precPath);
-                Assert.Contains($"recordingId = {id}", precContent);
-                Assert.Contains("POINT", precContent);
+                TrajectorySidecarProbe probe;
+                Assert.True(RecordingStore.TryProbeTrajectorySidecar(precPath, out probe));
+                Assert.Equal(TrajectorySidecarEncoding.BinaryV3, probe.Encoding);
+                Assert.Equal(id, probe.RecordingId);
+
+                var restored = new Recording { RecordingId = id };
+                Assert.True(RecordingStore.LoadTrajectorySidecarForTesting(precPath, restored));
+                Assert.True(restored.Points.Count >= 2, "Expected binary sidecar to preserve trajectory points");
 
                 // _vessel.craft file exists and has vessel data
                 string vesselPath = Path.Combine(recDir, $"{id}_vessel.craft");
@@ -4696,9 +4703,17 @@ namespace Parsek.Tests
                 string vesselContent = File.ReadAllText(vesselPath);
                 Assert.Contains("name = Flea Flight", vesselContent);
 
-                // _ghost.craft file exists (falls back to vessel snapshot)
+                // FleaFlight only has a vessel snapshot, so sidecar writing aliases the
+                // effective ghost snapshot to _vessel.craft instead of writing _ghost.craft.
                 string ghostPath = Path.Combine(recDir, $"{id}_ghost.craft");
-                Assert.True(File.Exists(ghostPath), $"Expected _ghost.craft at {ghostPath}");
+                Assert.False(File.Exists(ghostPath), $"Did not expect _ghost.craft at {ghostPath}");
+
+                ConfigNode scenarioNode = writer.BuildScenarioNode();
+                ConfigNode[] trees = scenarioNode.GetNodes("RECORDING_TREE");
+                Assert.Single(trees);
+                ConfigNode[] recordings = trees[0].GetNodes("RECORDING");
+                Assert.Single(recordings);
+                Assert.Equal("AliasVessel", recordings[0].GetValue("ghostSnapshotMode"));
             }
             finally
             {
@@ -4727,8 +4742,15 @@ namespace Parsek.Tests
                     string id = segments[i].GetRecordingId();
                     Assert.True(File.Exists(Path.Combine(recDir, $"{id}.prec")),
                         $"Expected .prec sidecar for segment {id}");
-                    Assert.True(File.Exists(Path.Combine(recDir, $"{id}_ghost.craft")),
-                        $"Expected _ghost.craft sidecar for segment {id}");
+
+                    var snapshotModeRecording = new Recording
+                    {
+                        VesselSnapshot = segments[i].GetVesselSnapshot()?.CreateCopy(),
+                        GhostVisualSnapshot = segments[i].GetGhostVisualSnapshot()?.CreateCopy(),
+                    };
+                    bool expectGhostSidecar =
+                        RecordingStore.DetermineGhostSnapshotMode(snapshotModeRecording) == GhostSnapshotMode.Separate;
+                    Assert.Equal(expectGhostSidecar, File.Exists(Path.Combine(recDir, $"{id}_ghost.craft")));
                 }
             }
             finally
@@ -5704,7 +5726,10 @@ namespace Parsek.Tests
 
                     // v3: no inline trajectory POINT data in .sfs
                     // (BRANCH_POINT nodes in RECORDING_TREE are expected)
-                    Assert.Contains("recordingFormatVersion = 0", content);
+                    Assert.Contains(
+                        "recordingFormatVersion = " +
+                        RecordingStore.CurrentRecordingFormatVersion.ToString(CultureInfo.InvariantCulture),
+                        content);
                     var scenarioSection = content.Substring(
                         content.IndexOf("name = ParsekScenario"),
                         content.IndexOf("FLIGHTSTATE") - content.IndexOf("name = ParsekScenario"));

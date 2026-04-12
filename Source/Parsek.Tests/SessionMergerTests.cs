@@ -663,6 +663,32 @@ namespace Parsek.Tests
             Assert.Equal(TerminalState.Orbiting, merged.TerminalStateValue);
         }
 
+        [Fact]
+        public void MergeTree_RebuildsFlatTrajectoryFromAbsoluteTrackSections()
+        {
+            var sections = new List<TrackSection>
+            {
+                MakeSection(0, 100, TrackSectionSource.Active, lat: 0.0, lon: 0.0, alt: 1000.0),
+                MakeSection(150, 200, TrackSectionSource.Background, lat: 0.1, lon: 0.1, alt: 1200.0)
+            };
+            var rec = MakeRecording("rec-sync", "Sync Vessel", sections);
+            rec.Points = new List<TrajectoryPoint>
+            {
+                new TrajectoryPoint { ut = 999, latitude = 9, longitude = 9, altitude = 9, bodyName = "Kerbin" }
+            };
+
+            var tree = MakeTree("Flat Sync", rec);
+
+            var result = SessionMerger.MergeTree(tree);
+            var merged = result["rec-sync"];
+
+            Assert.Equal(4, merged.Points.Count);
+            Assert.Equal(0.0, merged.Points[0].ut);
+            Assert.Equal(100.0, merged.Points[1].ut);
+            Assert.Equal(150.0, merged.Points[2].ut);
+            Assert.Equal(200.0, merged.Points[3].ut);
+        }
+
         #endregion
 
         #region Log assertions — overlap count
