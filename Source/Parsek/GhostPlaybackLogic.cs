@@ -2844,15 +2844,6 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Orbital-aware version: if the user has configured a cutoff, always respect it
-        /// regardless of recording type. The cutoff is explicitly user-configured (#243).
-        /// </summary>
-        internal static bool ShouldExitWatchForCutoff(double ghostDistanceMeters, float cutoffKm, bool isOrbitalRecording)
-        {
-            return ghostDistanceMeters >= cutoffKm * 1000.0;
-        }
-
-        /// <summary>
         /// Determines whether a ghost is within the camera cutoff distance
         /// (eligible for Watch button). Only checks distance against the
         /// user-configurable cutoff — zone is irrelevant because watch mode

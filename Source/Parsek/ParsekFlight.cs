@@ -7791,14 +7791,12 @@ namespace Parsek
             var (shouldHideMesh, shouldSkipPartEvents, shouldSkipPositioning) =
                 GhostPlaybackLogic.GetZoneRenderingPolicy(zone);
 
-            // Ghost camera cutoff: exit watch mode when the watched ghost exceeds the
-            // user-configured cutoff distance. Orbital ghosts are exempt — they naturally
-            // travel far from the active vessel during ascent/orbit.
+            // Ghost camera cutoff: exit watch mode when the watched ghost reaches or exceeds
+            // the user-configured cutoff distance. The cutoff applies uniformly to all ghosts.
             if (isWatchedGhost)
             {
                 float cutoffKm = DistanceThresholds.GhostFlight.GetWatchCameraCutoffKm(ParsekSettings.Current);
-                bool hasOrbitalSegments = rec.HasOrbitSegments;
-                if (GhostPlaybackLogic.ShouldExitWatchForCutoff(ghostDistance, cutoffKm, hasOrbitalSegments))
+                if (GhostPlaybackLogic.ShouldExitWatchForCutoff(ghostDistance, cutoffKm))
                 {
                     ParsekLog.Info("Zone",
                         $"Ghost #{recIdx} \"{rec.VesselName}\" exceeded ghost camera cutoff " +
@@ -7811,7 +7809,7 @@ namespace Parsek
                 {
                     // Watched ghost in Beyond zone — exempt from hide (camera is at ghost)
                     shouldHideMesh = false;
-                    string reason = hasOrbitalSegments ? "watched orbital ghost" : "watched";
+                    string reason = rec.HasOrbitSegments ? "watched orbital ghost" : "watched";
                     ParsekLog.VerboseRateLimited("Zone", $"watched-zone-exempt-{recIdx}",
                         $"Ghost #{recIdx} \"{rec.VesselName}\" beyond visual range " +
                         $"({ghostDistance.ToString("F0", CultureInfo.InvariantCulture)}m) but {reason} — exempt from zone hide",

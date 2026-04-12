@@ -36,14 +36,14 @@ Authoritative code location: `Source/Parsek/DistanceThresholds.cs`
 - Ghost audio has no dedicated flight-scene distance mute threshold beyond Unity rolloff;
   in-flight muting is currently driven by zone hide, warp suppression, and soft-cap actions.
 
-### Watch-mode conflict to resolve later
+### Watch-mode policy decision
 
-This refactor centralizes values first and preserves current runtime behavior.
+The watch cutoff now applies uniformly to all ghosts.
 
-Current watch behavior is still intentionally split:
+- Watch button eligibility uses the configured cutoff distance.
+- `EnterWatchMode` refuses ghosts at or beyond the cutoff distance.
+- Active in-flight watch exit also uses the same cutoff rule.
 
-- Watch button / `EnterWatchMode` treat orbital recordings as exempt from the distance cutoff.
-- Active in-flight watch exit still checks the configured cutoff distance.
-
-That mismatch is now easier to see because the cutoff value is centralized. It should be
-resolved deliberately during the LOD/watch policy pass, not hidden in inline literals.
+Follow-up LOD policy: when a ghost is actively watched and remains within the cutoff,
+it should stay at full fidelity even if its normal unwatched distance tier would reduce
+or hide it.
