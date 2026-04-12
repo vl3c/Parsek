@@ -7,6 +7,34 @@ Entries 272–303 (78 bugs, 6 TODOs — mostly resolved) archived in `done/todo-
 
 # Known Bugs
 
+## 314. Save/load can prune branched recordings even when sidecars still contain real data
+
+**Observed in:** 0.8.0 follow-up storage playtest (2026-04-12). During a branched `Kerbal X` flight, the user saved, loaded, and then merged the tree. Two EVA/branch recordings had real sidecars on disk before the load:
+
+- `33ea504b82cd479cbc2198c6701a9228.prec`
+- `519ae674050d40e3a462cba6328a1e34.prec`
+
+Collected evidence from `logs/2026-04-12_1549_storage-followup-playtest/`:
+
+- Before the load, both branch recordings were actively flushing real trajectory and part-event data, and their sidecars were rewritten (`SerializeTrajectoryInto` / `SaveRecordingFiles` for both IDs).
+- On load, `RecordingStore` logged sidecar epoch mismatches for both branch recordings: `.sfs expects epoch 1, .prec has epoch 2`, then skipped sidecar load entirely.
+- Immediately after load, both recordings were finalized as leaf nodes with `points=0 orbitSegs=0`.
+- `PruneZeroPointLeaves` then removed both zero-point leaves and the empty branch point.
+- The later merge dialog only offered the root and debris leaves; the branched EVA leaves were already gone.
+- The final saved tree still points `activeRecordingId = 33ea504b82cd479cbc2198c6701a9228`, but that recording is no longer serialized in the tree body.
+
+The skipped branch sidecars still existed on disk in both the collected snapshot and the live save, so this was not physical sidecar deletion; it was save-tree loss after load/prune.
+
+**Additional symptom:** The root recording `eb12d51ffaa64d80a79d3a0f3886e568` also appears to come back shortened: before the load it was saved with `skippedTopLevelPoints=186`, but after merge it was rewritten with `skippedTopLevelPoints=44` and `pointCount = 44` in `persistent.sfs`. The EVA branch loss is certain; root truncation may be part of the same bug or a secondary issue.
+
+**Root cause / hypothesis:** There is still an unresolved sidecar-epoch drift path for branch recordings around save/load or quickload transitions. When the stale epoch path fires, the loader skips valid branch sidecars, the in-memory recordings look empty, and tree finalization/pruning treats them as disposable. The dangling `activeRecordingId` suggests merge/final-save cleanup is not validating that active/root references still point at serialized recordings.
+
+**Fix direction:** Investigate the branch-recording epoch lifecycle around OnSave/OnLoad, especially the transition where the branch sidecars were written with epoch `2` but the serialized tree nodes still expected epoch `1`. Add a regression that covers: active tree with branched children -> save -> load -> merge, then assert that branch recordings survive with non-zero playback data and tree references remain internally consistent.
+
+**Status:** Open
+
+---
+
 ## 313. TreeIntegrity PID collision check fails on historical vessel reuse
 
 **Observed in:** 0.8.0 follow-up storage playtest (2026-04-12). The in-game suite reported `RecordingTreeIntegrityTests.NoPidCollisionAcrossTrees` failed with `2 vessel PID(s) claimed by multiple trees`. The collected `persistent.sfs` was otherwise structurally clean: `ParentLinksValid` passed, and manual inspection found no dangling `ParentRecordingId` references.
