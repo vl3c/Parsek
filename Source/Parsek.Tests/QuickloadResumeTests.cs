@@ -456,6 +456,9 @@ namespace Parsek.Tests
             Assert.Equal("Disk #0", loadedTree.Recordings["root_tree_salvage"].VesselName);
             Assert.Equal("Pending Child", loadedTree.Recordings["child_tree_salvage_1"].VesselName);
             Assert.Equal(3, loadedTree.Recordings["child_tree_salvage_1"].Points.Count);
+            Assert.True(loadedTree.Recordings["child_tree_salvage_1"].FilesDirty);
+            Assert.False(loadedTree.Recordings["child_tree_salvage_1"].SidecarLoadFailed);
+            Assert.Null(loadedTree.Recordings["child_tree_salvage_1"].SidecarLoadFailureReason);
         }
 
         // ============================================================

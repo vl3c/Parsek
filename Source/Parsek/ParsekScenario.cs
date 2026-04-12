@@ -1873,7 +1873,11 @@ namespace Parsek
                 if (!pendingTree.Recordings.TryGetValue(recordingId, out pendingRec) || pendingRec == null)
                     continue;
 
-                loadedTree.Recordings[recordingId] = Recording.DeepClone(pendingRec);
+                Recording restoredRec = Recording.DeepClone(pendingRec);
+                restoredRec.SidecarLoadFailed = false;
+                restoredRec.SidecarLoadFailureReason = null;
+                restoredRec.MarkFilesDirty();
+                loadedTree.Recordings[recordingId] = restoredRec;
                 restored++;
             }
 
