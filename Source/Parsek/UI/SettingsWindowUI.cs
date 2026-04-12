@@ -188,7 +188,7 @@ namespace Parsek
                 s.ghostCapZone1Reduce = 8;
                 s.ghostCapZone1Despawn = 15;
                 s.ghostCapZone2Simplify = 20;
-                s.ghostCameraCutoffKm = 300f;
+                s.ghostCameraCutoffKm = DistanceThresholds.GhostFlight.DefaultWatchCameraCutoffKm;
                 GhostSoftCapManager.Enabled = false;
                 GhostSoftCapManager.ApplySettings(8, 15, 20);
                 settingsAutoLoopEditing = false;

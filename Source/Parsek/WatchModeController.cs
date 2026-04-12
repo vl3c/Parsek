@@ -166,7 +166,7 @@ namespace Parsek
             var committed = RecordingStore.CommittedRecordings;
             if (index >= 0 && index < committed.Count && committed[index].HasOrbitSegments)
                 return true;
-            float cutoffKm = ParsekSettings.Current?.ghostCameraCutoffKm ?? 300f;
+            float cutoffKm = DistanceThresholds.GhostFlight.GetWatchCameraCutoffKm(ParsekSettings.Current);
             return GhostPlaybackLogic.IsWithinWatchRange(s.lastDistance, cutoffKm);
         }
 
@@ -274,7 +274,7 @@ namespace Parsek
             // Refuse watch if ghost is beyond the user's camera cutoff distance setting.
             // Orbital ghosts are exempt -- they naturally travel far during ascent/orbit.
             var rec = committed[index];
-            float maxWatchKm = ParsekSettings.Current?.ghostCameraCutoffKm ?? 300f;
+            float maxWatchKm = DistanceThresholds.GhostFlight.GetWatchCameraCutoffKm(ParsekSettings.Current);
             if (FlightGlobals.ActiveVessel != null && gs.ghost != null && !rec.HasOrbitSegments)
             {
                 float distKm = (float)(Vector3d.Distance(
@@ -503,8 +503,8 @@ namespace Parsek
         /// </summary>
         internal static bool ShouldAutoHorizonLock(bool hasAtmosphere, double atmosphereDepth, double altitude)
         {
-            double threshold = hasAtmosphere ? atmosphereDepth : 50000.0;
-            return altitude < threshold;
+            return DistanceThresholds.GhostFlight.ShouldAutoHorizonLock(
+                hasAtmosphere, atmosphereDepth, altitude);
         }
 
         /// <summary>

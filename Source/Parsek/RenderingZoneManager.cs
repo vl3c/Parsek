@@ -12,12 +12,12 @@ namespace Parsek
     internal static class RenderingZoneManager
     {
         // Zone boundary distances (km converted to meters for consistency)
-        internal const double PhysicsBubbleRadius = 2300.0;      // 2.3 km
-        internal const double VisualRangeRadius = 120000.0;       // 120 km (matches KSP physics range)
+        internal const double PhysicsBubbleRadius = DistanceThresholds.PhysicsBubbleMeters;
+        internal const double VisualRangeRadius = DistanceThresholds.GhostVisualRangeMeters;
 
         // Looped ghost spawn thresholds (tighter than full-timeline)
-        internal const double LoopFullFidelityRadius = 2300.0;    // Full fidelity within physics bubble
-        internal const double LoopSimplifiedRadius = 50000.0;     // Simplified rendering within 50km
+        internal const double LoopFullFidelityRadius = DistanceThresholds.GhostFlight.LoopFullFidelityMeters;
+        internal const double LoopSimplifiedRadius = DistanceThresholds.GhostFlight.LoopSimplifiedMeters;
         // Beyond 50km: looped ghosts not spawned
         // Beyond 120km: no ghosts rendered at all
 

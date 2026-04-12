@@ -6792,7 +6792,7 @@ namespace Parsek
         }
 
         /// <summary>Physics bubble radius for spawn scoping (meters).</summary>
-        internal const double PhysicsBubbleSpawnRadius = 2300.0;
+        internal const double PhysicsBubbleSpawnRadius = DistanceThresholds.PhysicsBubbleMeters;
 
         /// <summary>
         /// Computes world position for a recording's endpoint using last trajectory point
@@ -7609,12 +7609,7 @@ namespace Parsek
         /// </summary>
         internal static double ComputeTerrainClearance(double distanceToVessel)
         {
-            if (distanceToVessel <= RenderingZoneManager.PhysicsBubbleRadius)
-                return 0.5;
-            double t = (distanceToVessel - RenderingZoneManager.PhysicsBubbleRadius)
-                / (RenderingZoneManager.VisualRangeRadius - RenderingZoneManager.PhysicsBubbleRadius);
-            if (t > 1.0) t = 1.0;
-            return 2.0 + t * 3.0;
+            return DistanceThresholds.GhostFlight.ComputeTerrainClearance(distanceToVessel);
         }
 
         /// <summary>
@@ -7801,7 +7796,7 @@ namespace Parsek
             // travel far from the active vessel during ascent/orbit.
             if (isWatchedGhost)
             {
-                float cutoffKm = ParsekSettings.Current?.ghostCameraCutoffKm ?? 300f;
+                float cutoffKm = DistanceThresholds.GhostFlight.GetWatchCameraCutoffKm(ParsekSettings.Current);
                 bool hasOrbitalSegments = rec.HasOrbitSegments;
                 if (GhostPlaybackLogic.ShouldExitWatchForCutoff(ghostDistance, cutoffKm, hasOrbitalSegments))
                 {

@@ -54,7 +54,7 @@ namespace Parsek
         public float ghostAudioVolume = 0.7f;
 
         // Ghost camera cutoff distance in km — watch mode auto-exits beyond this.
-        public float ghostCameraCutoffKm = 300f;
+        public float ghostCameraCutoffKm = DistanceThresholds.GhostFlight.DefaultWatchCameraCutoffKm;
 
         // Ghost soft cap — disabled by default until profiled with real-world ghost counts
         public bool ghostCapEnabled = false;

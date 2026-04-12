@@ -13,9 +13,9 @@ namespace Parsek
     internal static class AnchorDetector
     {
         // Transition thresholds (meters)
-        internal const double RelativeEntryDistance = 2300.0;   // Enter RELATIVE at physics bubble edge
-        internal const double RelativeExitDistance = 2500.0;    // Exit with 200m hysteresis to prevent toggling
-        internal const double DockingApproachDistance = 200.0;  // High-priority RELATIVE for docking precision
+        internal const double RelativeEntryDistance = DistanceThresholds.RelativeFrame.EntryMeters;
+        internal const double RelativeExitDistance = DistanceThresholds.RelativeFrame.ExitMeters;
+        internal const double DockingApproachDistance = DistanceThresholds.RelativeFrame.DockingApproachMeters;
 
         /// <summary>
         /// Scans for the nearest pre-existing vessel within RELATIVE range.
