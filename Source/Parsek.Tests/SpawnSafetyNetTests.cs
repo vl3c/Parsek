@@ -959,6 +959,36 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void ResolveSpawnPosition_NonBreakupSplashed_NegativeSnapshotAltitude_FloorsToSeaLevel()
+        {
+            // The splashed safety net must also floor slightly negative snapshot altitudes,
+            // not just positive ones, for non-breakup snapshot-based spawns.
+            var snapshot = new ConfigNode("VESSEL");
+            snapshot.AddValue("lat", "-0.12");
+            snapshot.AddValue("lon", "-73.72");
+            snapshot.AddValue("alt", "-0.25");
+
+            var rec = new Recording
+            {
+                VesselSnapshot = snapshot,
+                EvaCrewName = null,
+                ChildBranchPointId = null,
+                TerminalStateValue = TerminalState.Splashed,
+                VesselName = "Snapshot Floater"
+            };
+
+            var lastPt = new TrajectoryPoint { latitude = 0, longitude = 0, altitude = 0 };
+            VesselSpawner.ResolveSpawnPosition(rec, 6, lastPt, out double lat, out double lon, out double alt);
+
+            Assert.Equal(-0.12, lat);
+            Assert.Equal(-73.72, lon);
+            Assert.Equal(0.0, alt);
+            Assert.Contains(logLines, l =>
+                l.Contains("Clamped altitude for SPLASHED spawn #6")
+                && l.Contains("Snapshot Floater"));
+        }
+
+        [Fact]
         public void ResolveSpawnPosition_EvaLanded_FallsThroughToSplashedClamp()
         {
             // EVA recordings previously returned early, bypassing altitude clamping.

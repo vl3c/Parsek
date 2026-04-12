@@ -477,15 +477,22 @@ Test game actions system with popular mods: CustomBarnKit (non-standard facility
 
 **Primary log:** `.tmp/logs/2026-04-12_163227_phase-11-5-branch-validation/KSP.log`
 
-The current Phase 11.5 playtest log shows R/FF row enablement is driven by recording state, not ghost distance. Examples:
+Available local playtest logs show R/FF row enablement is driven by recording/runtime state, not ghost distance. Examples:
 
-- `R #0 "Kerbal X": disabled — Stop recording before rewinding`
-- `FF #24 "Kerbal X": disabled — Stop recording before fast-forwarding`
-- later in the same session, the same rows become enabled again once recording stops
+- `logs/2026-04-10_engine-fx-regression/KSP.log:15443` — `FF #13 "Kerbal X": disabled — Stop recording before fast-forwarding`
+- `logs/2026-04-12_0348_bugfixes-2-walkback/KSP.log:23067` — `R #4 "Crater Crawler": disabled — Stop recording before rewinding`
+- `logs/2026-04-12_0213_bugfixes-2/KSP.log:12946-12961` — `BeginRewind` is immediately followed by `R #0 "Crater Crawler": disabled — Rewind already in progress`
+
+The local `s3` / LOD archive (`logs/2026-04-11_2339_290-rover-underground/KSP.log`) predates those explicit UI-reason lines, but it does show two long active tree-recording windows:
+
+- `StartRecording succeeded` at `9137`, then the tree is finalized/committed at `11702-12030`
+- `StartRecording succeeded` at `12502`, then the tree is finalized/committed at `14659-15003`
+
+That means the long disabled interval reported for the `s3` save lines up with an active recording window; distance is not involved, and the most likely reason in that bundle is the normal `Stop recording before rewinding/fast-forwarding` guard.
 
 The governing code is `RecordingsTableUI` + `RecordingStore.CanRewind/CanFastForward`. Distance/watch state is only used for the `W` button path and should never affect R/FF availability.
 
-**Conclusion:** No real R/FF distance bug found. The runtime behavior was already correct: row/group R/FF enablement comes from recording timing/save/runtime state, while watch distance only gates `W`.
+**Conclusion:** No real R/FF distance bug found. The runtime behavior was already correct: row/group R/FF enablement comes from recording timing/save/runtime state, while watch distance only gates `W`. In the archived `s3` / LOD save, the long disabled interval tracks active recording; in later reason-logged bundles, the same buttons also legitimately disable during an active rewind.
 
 **Fix:** Added focused coverage for:
 
