@@ -387,14 +387,13 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void TryRestoreActiveTreeNode_NoOverwriteWarningOnExpectedOverwrite()
+        public void TryRestoreActiveTreeNode_HydrationFailureKeepsPendingWithoutOverwriteWarning()
         {
-            // StashActiveTreeAsPendingLimbo stashes the in-memory (future-timeline) tree
-            // at OnSceneChangeRequested time. Then TryRestoreActiveTreeNode loads the
-            // fresh disk version and stashes it. Without the PopPendingTree call,
-            // StashPendingTree's overwrite-warning log fires on every successful
-            // quickload. With the fix, TryRestoreActiveTreeNode pops first, then stashes
-            // silently.
+            // The save-backed tree below has no real sidecars in the unit-test environment,
+            // so TryRestoreActiveTreeNode will hit sidecar hydration failure(s). The restore
+            // path should now keep the matching in-memory pending tree rather than replacing
+            // it with the degraded disk copy, and it should do so without firing the
+            // overwrite-warning path.
             var staleInMemoryTree = MakeTree("tree_y", "Stale In-Memory", 1);
             RecordingStore.StashPendingTree(staleInMemoryTree, PendingTreeState.Limbo);
 
@@ -408,8 +407,7 @@ namespace Parsek.Tests
 
             ParsekScenario.TryRestoreActiveTreeNode(scenarioNode);
 
-            Assert.Equal("Disk Version", RecordingStore.PendingTree.TreeName);
-            // No "overwriting existing pending tree" warning on the expected-overwrite path
+            Assert.Equal("Stale In-Memory", RecordingStore.PendingTree.TreeName);
             Assert.DoesNotContain(logLines,
                 l => l.Contains("overwriting existing pending tree"));
         }
@@ -422,7 +420,20 @@ namespace Parsek.Tests
             var diskTree = MakeTree("tree_hydration", "Disk Active", 1);
 
             bool keepPending = ParsekScenario.ShouldKeepPendingTreeAfterHydrationFailure(
-                diskTree, staleEpochHydrationFailures: 1);
+                diskTree, sidecarHydrationFailures: 1);
+
+            Assert.True(keepPending);
+        }
+
+        [Fact]
+        public void ShouldKeepPendingTreeAfterHydrationFailure_MatchingPendingTreeAndGenericFailure_ReturnsTrue()
+        {
+            var pendingTree = MakeTree("tree_hydration_generic", "In-Memory Pending", 1);
+            RecordingStore.StashPendingTree(pendingTree, PendingTreeState.Limbo);
+            var diskTree = MakeTree("tree_hydration_generic", "Disk Active", 1);
+
+            bool keepPending = ParsekScenario.ShouldKeepPendingTreeAfterHydrationFailure(
+                diskTree, sidecarHydrationFailures: 1);
 
             Assert.True(keepPending);
         }

@@ -1732,12 +1732,18 @@ namespace Parsek
                     }
                 }
 
-                if (ShouldKeepPendingTreeAfterHydrationFailure(tree, staleEpochHydrationFailures))
+                if (ShouldKeepPendingTreeAfterHydrationFailure(tree, sidecarHydrationFailures))
                 {
+                    string failureSummary = staleEpochHydrationFailures == sidecarHydrationFailures
+                        ? $"{sidecarHydrationFailures} stale-sidecar epoch failure(s)"
+                        : $"{sidecarHydrationFailures} sidecar hydration failure(s)" +
+                          (staleEpochHydrationFailures > 0
+                              ? $" ({staleEpochHydrationFailures} stale-sidecar epoch)"
+                              : "");
                     ParsekLog.Warn("Scenario",
                         $"TryRestoreActiveTreeNode: keeping in-memory pending tree " +
                         $"'{RecordingStore.PendingTree.TreeName}' because saved active tree " +
-                        $"'{tree.TreeName}' had {staleEpochHydrationFailures} stale-sidecar epoch failure(s)");
+                        $"'{tree.TreeName}' had {failureSummary}");
                     return true;
                 }
 
@@ -1830,9 +1836,9 @@ namespace Parsek
 
         internal static bool ShouldKeepPendingTreeAfterHydrationFailure(
             RecordingTree loadedTree,
-            int staleEpochHydrationFailures)
+            int sidecarHydrationFailures)
         {
-            return staleEpochHydrationFailures > 0
+            return sidecarHydrationFailures > 0
                 && loadedTree != null
                 && RecordingStore.HasPendingTree
                 && RecordingStore.PendingTree != null
