@@ -274,6 +274,33 @@ namespace Parsek.Tests
         }
 
         /// <summary>
+        /// Equal-time claims must still sort deterministically so later chain lookup does
+        /// not depend on unstable List.Sort tie handling.
+        /// Guards: same-UT links use a stable secondary key order.
+        /// </summary>
+        [Fact]
+        public void EqualTimeClaims_SortDeterministically()
+        {
+            var aRec = MakeRecording("A-rec", 50, 1000, 1060, childBpId: "bp-a");
+            var aLeaf = MakeRecording("A-leaf", 100, 1060, 1120, parentBpId: "bp-a");
+            var aTree = MakeTree("tree-a", new[] { aRec, aLeaf },
+                new[] { MakeBranchPoint("bp-a", BranchPointType.Dock, 1060, 100, new[] { "A-rec" }, new[] { "A-leaf" }) });
+
+            var bRec = MakeRecording("B-rec", 60, 1000, 1060, childBpId: "bp-b");
+            var bLeaf = MakeRecording("B-leaf", 100, 1060, 1140, parentBpId: "bp-b");
+            var bTree = MakeTree("tree-b", new[] { bRec, bLeaf },
+                new[] { MakeBranchPoint("bp-b", BranchPointType.Dock, 1060, 100, new[] { "B-rec" }, new[] { "B-leaf" }) });
+
+            var chains = GhostChainWalker.ComputeAllGhostChains(
+                new List<RecordingTree> { bTree, aTree }, 900);
+
+            var chain = chains[100];
+            Assert.Equal(2, chain.Links.Count);
+            Assert.Equal("tree-a", chain.Links[0].treeId);
+            Assert.Equal("tree-b", chain.Links[1].treeId);
+        }
+
+        /// <summary>
         /// R1 targets S1(100), R2 targets S2(200). Two independent chains.
         /// Guards: chains don't bleed.
         /// </summary>

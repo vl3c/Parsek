@@ -482,6 +482,52 @@ namespace Parsek.Tests
         }
 
         /// <summary>
+        /// If the first claim tree has multiple pre-claim candidates for the PID, the
+        /// lookup should not suppress fallback entirely. Ambiguous tree-local pre-claim
+        /// coverage is less useful than a clear point-backed candidate elsewhere.
+        /// Guards: ambiguous same-tree pre-claim overlap still falls back globally.
+        /// </summary>
+        [Fact]
+        public void FindBackgroundRecordingForChain_AmbiguousPreClaimTreeCoverage_AllowsGlobalFallback()
+        {
+            var altRec = MakeRecordingWithPoints("bg-alt", 100, 1000, 1100);
+            var altTree = MakeTree("tree-alt", new[] { altRec }, null);
+
+            var claimRec = MakeRecordingNoPoints("R1", 50, 1000, 1060);
+            claimRec.ChildBranchPointId = "bp-dock";
+            var preA = MakeRecordingWithPoints("bg-chain-pre-a", 100, 1000, 1050);
+            var preB = MakeRecordingWithPoints("bg-chain-pre-b", 100, 1000, 1050);
+            var postClaimChainRec = MakeRecordingWithPoints("bg-chain-post", 100, 1060, 1120);
+            postClaimChainRec.ParentBranchPointId = "bp-dock";
+            var chainTree = MakeTree("tree-1", new[] { claimRec, preA, preB, postClaimChainRec },
+                new[]
+                {
+                    MakeBranchPoint("bp-dock", BranchPointType.Dock, 1060, 100,
+                        new[] { "R1" }, new[] { "bg-chain-post" })
+                });
+
+            var recordings = new List<Recording> { altRec, claimRec, preA, preB, postClaimChainRec };
+            var trees = new List<RecordingTree> { altTree, chainTree };
+            var chain = new GhostChain
+            {
+                OriginalVesselPid = 100,
+                TipTreeId = "tree-1"
+            };
+            chain.Links.Add(new ChainLink
+            {
+                recordingId = "R1",
+                treeId = "tree-1",
+                ut = 1060,
+                interactionType = "MERGE"
+            });
+
+            var result = ParsekFlight.FindBackgroundRecordingForChain(recordings, trees, chain, 1030);
+
+            Assert.NotNull(result);
+            Assert.Equal("bg-alt", result.RecordingId);
+        }
+
+        /// <summary>
         /// A pre-claim placeholder in the first claim tree should not suppress the old
         /// global fallback unless it actually has usable playback payload.
         /// Guards: empty/degraded same-tree placeholders do not hide valid global history.

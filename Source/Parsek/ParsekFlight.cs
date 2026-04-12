@@ -6873,7 +6873,6 @@ namespace Parsek
 
                 if (unique != null)
                 {
-                    hasChainLocalCoverage = true;
                     return null;
                 }
 

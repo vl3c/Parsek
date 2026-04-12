@@ -72,7 +72,7 @@ namespace Parsek
             {
                 uint pid = kvp.Key;
                 var links = new List<ChainLink>(kvp.Value);
-                links.Sort((a, b) => a.ut.CompareTo(b.ut));
+                links.Sort(CompareChainLinks);
                 if (links.Count == 0)
                     continue;
 
@@ -435,7 +435,7 @@ namespace Parsek
                         chain.Links.Add(linkedChain.Links[i]);
 
                     // Re-sort after merge
-                    chain.Links.Sort((a, b) => a.ut.CompareTo(b.ut));
+                    chain.Links.Sort(CompareChainLinks);
 
                     // Update tip from merged chain
                     chain.TipRecordingId = linkedChain.TipRecordingId;
@@ -686,6 +686,27 @@ namespace Parsek
         }
 
         #endregion
+
+        private static int CompareChainLinks(ChainLink a, ChainLink b)
+        {
+            int cmp = a.ut.CompareTo(b.ut);
+            if (cmp != 0)
+                return cmp;
+
+            cmp = string.CompareOrdinal(a.treeId ?? "", b.treeId ?? "");
+            if (cmp != 0)
+                return cmp;
+
+            cmp = string.CompareOrdinal(a.recordingId ?? "", b.recordingId ?? "");
+            if (cmp != 0)
+                return cmp;
+
+            cmp = string.CompareOrdinal(a.branchPointId ?? "", b.branchPointId ?? "");
+            if (cmp != 0)
+                return cmp;
+
+            return string.CompareOrdinal(a.interactionType ?? "", b.interactionType ?? "");
+        }
 
         /// <summary>
         /// Returns true if every leaf recording in the tree has a terminal state of
