@@ -1142,6 +1142,8 @@ namespace Parsek
                     break;
                 }
                 case DestructionMode.TreeAllLeavesCheck:
+                    Patches.FlightResultsPatch.ArmForDeferredMerge(
+                        "active vessel destroyed in tree mode");
                     treeDestructionDialogPending = true;
                     ParsekLog.Info("Flight", "Active vessel destroyed in tree mode — scheduling tree destruction check");
                     StartCoroutine(ShowPostDestructionTreeMergeDialog());
@@ -1189,7 +1191,19 @@ namespace Parsek
             // Guard: tree cleaned up during wait (scene change, etc.)
             if (activeTree == null)
             {
-                ParsekLog.Verbose("Flight", "ShowPostDestructionTreeMergeDialog: activeTree is null — aborting");
+                if (sceneChangeInProgress)
+                {
+                    ParsekLog.Info("Flight",
+                        "ShowPostDestructionTreeMergeDialog: activeTree is null during scene change — " +
+                        "leaving deferred FlightResults to transition owner");
+                }
+                else
+                {
+                    Patches.FlightResultsPatch.CancelDeferredMerge(
+                        "tree destruction dialog aborted: activeTree null");
+                    ParsekLog.Verbose("Flight",
+                        "ShowPostDestructionTreeMergeDialog: activeTree is null — aborting");
+                }
                 treeDestructionDialogPending = false;
                 yield break;
             }
@@ -1204,6 +1218,8 @@ namespace Parsek
             // Guard: active vessel still alive
             if (recorder != null && recorder.IsRecording && !recorder.VesselDestroyedDuringRecording)
             {
+                Patches.FlightResultsPatch.CancelDeferredMerge(
+                    "tree destruction dialog aborted: active vessel survived");
                 ParsekLog.Verbose("Flight", "ShowPostDestructionTreeMergeDialog: active vessel still alive — aborting");
                 treeDestructionDialogPending = false;
                 yield break;
@@ -1214,6 +1230,8 @@ namespace Parsek
             if (!RecordingTree.AreAllLeavesTerminal(activeTree.Recordings,
                 activeTree.ActiveRecordingId, activeDestroyed))
             {
+                Patches.FlightResultsPatch.CancelDeferredMerge(
+                    "tree destruction dialog aborted: not all leaves terminal");
                 ParsekLog.Info("Flight",
                     "ShowPostDestructionTreeMergeDialog: not all leaves terminal — other vessels still alive");
                 treeDestructionDialogPending = false;
@@ -1244,6 +1262,8 @@ namespace Parsek
                     $"ShowPostDestructionTreeMergeDialog: tree {reason} — auto-discarding");
                 ScreenMessage($"Recording discarded — {reason}", 3f);
                 RecordingStore.DiscardPendingTree();
+                Patches.FlightResultsPatch.CancelDeferredMerge(
+                    $"tree destruction auto-discarded ({reason})");
                 // Clean up flight state
                 recorder = null;
                 if (backgroundRecorder != null)
@@ -1275,7 +1295,7 @@ namespace Parsek
                 var treeToCommit = RecordingStore.PendingTree;
                 RecordingStore.CommitPendingTree();
                 LedgerOrchestrator.NotifyLedgerTreeCommitted(treeToCommit);
-                MergeDialog.ReplayFlightResultsIfPending();
+                MergeDialog.ResolveDeferredFlightResults();
             }
             else
             {
@@ -3194,6 +3214,8 @@ namespace Parsek
                 if (RecordingTree.AreAllLeavesTerminal(activeTree.Recordings,
                     activeTree.ActiveRecordingId, activeDestroyed))
                 {
+                    Patches.FlightResultsPatch.ArmForDeferredMerge(
+                        "all tree leaves terminal after background destruction");
                     treeDestructionDialogPending = true;
                     ParsekLog.Info("Flight",
                         "All tree leaves now terminal after background destruction — triggering tree merge");
@@ -3813,10 +3835,17 @@ namespace Parsek
 
             // Safety net: if FlightResultsPatch has a pending message that was never replayed
             // (e.g., tree destruction path didn't fire), replay it now
-            if (Patches.FlightResultsPatch.HasPendingResults())
+            if (Patches.FlightResultsPatch.ShouldReplayOnFlightReady(
+                RecordingStore.HasPendingTree,
+                ParsekScenario.MergeDialogPending))
             {
                 ParsekLog.Warn("Flight", "FlightResults safety net: replaying suppressed results on OnFlightReady");
-                Patches.FlightResultsPatch.ReplayFlightResults();
+                Patches.FlightResultsPatch.ReplayFlightResults("OnFlightReady safety net");
+            }
+            else if (Patches.FlightResultsPatch.HasPendingResults())
+            {
+                ParsekLog.Info("Flight",
+                    "FlightResults safety net deferred — pending merge flow owns the replay");
             }
 
             // #267: if a restore coroutine is already running (double OnFlightReady fire),
@@ -3961,6 +3990,8 @@ namespace Parsek
         /// </summary>
         private void ClearSceneChangeTransientState()
         {
+            bool hadTreeDestructionDialogPending = treeDestructionDialogPending;
+
             // Clear dock/undock pending state
             ClearDockUndockState();
 
@@ -3970,11 +4001,30 @@ namespace Parsek
             dockingInProgress.Clear();
             treeDestructionDialogPending = false;
 
-            // Clear any suppressed flight results — don't carry stale crash reports across scenes
+            // Clear any stale suppressed flight results on scene change, but preserve
+            // captured crash reports when a pending merge flow still owns their replay.
             if (Patches.FlightResultsPatch.HasPendingResults())
             {
-                ParsekLog.Info("Flight", "Clearing suppressed FlightResults on scene change");
-                Patches.FlightResultsPatch.ClearPending();
+                if (Patches.FlightResultsPatch.ShouldPreserveCapturedResultsOnSceneChange(
+                    RecordingStore.HasPendingTree,
+                    hadTreeDestructionDialogPending,
+                    ParsekScenario.MergeDialogPending))
+                {
+                    ParsekLog.Info("Flight",
+                        "Preserving captured FlightResults on scene change — pending merge flow will replay it");
+                }
+                else
+                {
+                    ParsekLog.Info("Flight", "Clearing suppressed FlightResults on scene change");
+                    Patches.FlightResultsPatch.ClearPending("scene change with no merge owner");
+                }
+            }
+            else if (Patches.FlightResultsPatch.DeferredMergeArmed)
+            {
+                ParsekLog.Info("Flight",
+                    "Clearing armed FlightResults suppression on scene change before any stock dialog was intercepted");
+                Patches.FlightResultsPatch.ClearPending(
+                    "scene change before stock FlightResults were intercepted");
             }
 
             // Clear split event detection state

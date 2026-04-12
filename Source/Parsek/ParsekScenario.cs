@@ -1054,6 +1054,8 @@ namespace Parsek
                             {
                                 ParsekLog.Info("Scenario", "Idle on pad at scene exit — auto-discarding tree");
                                 RecordingStore.DiscardPendingTree();
+                                Patches.FlightResultsPatch.ReplayFlightResults(
+                                    "scene-exit idle-on-pad auto-discard");
                             }
 
                             bool anythingLeft = RecordingStore.HasPendingTree;
@@ -1217,6 +1219,8 @@ namespace Parsek
                     {
                         ScenarioLog("[Parsek Scenario] Idle on pad — auto-discarding pending tree");
                         RecordingStore.DiscardPendingTree();
+                        Patches.FlightResultsPatch.ReplayFlightResults(
+                            "non-flight idle-on-pad auto-discard");
                     }
 
                     if (IsAutoMerge || HighLogic.LoadedScene == GameScenes.MAINMENU)
@@ -2029,6 +2033,8 @@ namespace Parsek
             {
                 ParsekLog.Info("Scenario", "Idle on pad detected — auto-discarding tree recording");
                 RecordingStore.DiscardPendingTree();
+                Patches.FlightResultsPatch.ReplayFlightResults(
+                    "deferred merge dialog idle-on-pad auto-discard");
                 ScreenMessages.PostScreenMessage("Recording discarded — vessel idle on pad", 4f);
                 mergeDialogPending = false;
                 yield break;
