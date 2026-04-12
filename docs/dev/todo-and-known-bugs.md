@@ -627,6 +627,8 @@ Remaining high-value work should stay measurement-gated and follow
 `docs/dev/plans/phase-11-5-recording-storage-optimization.md`:
 
 - fresh live-corpus rebaseline against current `v3` sidecars
+- next PR after merging this branch should target snapshot-side size reduction first
+- snapshot work should focus on `_ghost.craft` / `_vessel.craft` bytes, where the remaining storage bulk now lives
 - additional sparse payload work only where exact reconstruction and real byte wins are proven
 - post-commit, error-bounded trajectory thinning only after the format wins are re-measured
 - any further snapshot-side work should preserve current alias semantics and stay covered by
