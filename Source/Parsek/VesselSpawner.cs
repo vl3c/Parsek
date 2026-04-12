@@ -1006,7 +1006,7 @@ namespace Parsek
             // colliders (including buildings), handling any residual clipping properly.
             if (rec.TerminalStateValue == TerminalState.Splashed)
             {
-                if (alt > 0)
+                if (alt != 0.0)
                 {
                     ParsekLog.Verbose("Spawner",
                         $"Clamped altitude for SPLASHED spawn #{index} ({rec.VesselName}): {alt:F1} -> 0");
