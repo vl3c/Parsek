@@ -9,6 +9,7 @@ All notable changes to Parsek are documented here.
 ### Improvements
 
 - Phase 11.5 ghost LOD is now live in Flight: shared distance thresholds, unwatched reduced tier at `2.3-50 km`, hidden-mesh tier at `50-120 km`, and live diagnostics counts for `full / reduced / hidden / watched override`.
+- Phase 11.5 snapshot-storage follow-up now writes `_vessel.craft` / `_ghost.craft` sidecars as lossless header-dispatched `Deflate` envelopes at the highest built-in .NET compression level, while still loading legacy text snapshot files and preserving the existing alias/separate fallback rules.
 - Hidden-tier ghosts now unload built mesh/resources while keeping their logical playback shell alive, prewarm shortly before visible-tier re-entry or imminent structural part events, and rebuild from snapshot state without replaying transient puff/audio effects.
 - Ghost performance tuning is now backend-owned. The old ghost soft-cap settings and the soft-cap subsystem were removed instead of leaving user-facing knobs that conflicted with the new distance policy.
 
@@ -39,6 +40,7 @@ All notable changes to Parsek are documented here.
 ### Developer Tools
 
 - Added regression coverage for R/FF enablement reasons, including future/past timing, tree-branch rewind save resolution, and a UI guard that pins rewind/fast-forward independence from watch-distance state (`T60`).
+- Added regression coverage for compressed snapshot sidecars: legacy/new mixed corpora, alias/separate/ghost-only fallback behavior, corrupt-envelope rejection, and failed-write healing of sidecar epoch state.
 - Added regression coverage for exact watched-cycle protection, hidden-tier warp exemption, watched-override diagnostics counting, and the new frame-context watch-cycle field.
 - Added regression coverage for hidden-tier shell-state handling so unloaded ghosts keep their logical loop identity and rebuild paths preserve playback bookkeeping.
 - Added regression coverage for watched-lineage debris visibility, so watch-mode protection now stays pinned to the intended same-tree same-vessel debris path instead of only the exact watched recording row.

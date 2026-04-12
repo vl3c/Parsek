@@ -4700,8 +4700,13 @@ namespace Parsek.Tests
                 // _vessel.craft file exists and has vessel data
                 string vesselPath = Path.Combine(recDir, $"{id}_vessel.craft");
                 Assert.True(File.Exists(vesselPath), $"Expected _vessel.craft at {vesselPath}");
-                string vesselContent = File.ReadAllText(vesselPath);
-                Assert.Contains("name = Flea Flight", vesselContent);
+                SnapshotSidecarProbe vesselProbe;
+                Assert.True(RecordingStore.TryProbeSnapshotSidecar(vesselPath, out vesselProbe));
+                Assert.Equal(SnapshotSidecarEncoding.DeflateV1, vesselProbe.Encoding);
+
+                ConfigNode vesselSnapshot;
+                Assert.True(RecordingStore.LoadSnapshotSidecarForTesting(vesselPath, out vesselSnapshot));
+                Assert.Equal("Flea Flight", vesselSnapshot.GetValue("name"));
 
                 // FleaFlight only has a vessel snapshot, so sidecar writing aliases the
                 // effective ghost snapshot to _vessel.craft instead of writing _ghost.craft.

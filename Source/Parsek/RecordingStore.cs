@@ -4053,12 +4053,6 @@ namespace Parsek
                     return false;
                 }
 
-                GhostSnapshotMode ghostSnapshotMode = DetermineGhostSnapshotMode(rec);
-                rec.GhostSnapshotMode = ghostSnapshotMode;
-                bool wroteVesselSnapshot = false;
-                bool wroteGhostSnapshot = false;
-                bool deletedStaleGhostSnapshot = false;
-
                 // Save .prec trajectory file
                 string precPath = RecordingPaths.ResolveSaveScopedPath(
                     RecordingPaths.BuildTrajectoryRelativePath(rec.RecordingId));
@@ -4068,17 +4062,6 @@ namespace Parsek
                     return false;
                 }
 
-                // Bug #270 / #290: sidecar epoch synchronization.
-                // On OnSave (incrementEpoch=true): advance the epoch before writing so
-                // .prec and .sfs (written later by SaveRecordingInto) stay in sync.
-                // On out-of-band writes (incrementEpoch=false): preserve the current epoch
-                // so the .prec matches the last OnSave's .sfs. Without this, BgRecorder
-                // and scene-exit force-writes would advance the epoch independently,
-                // causing false-positive staleness on quickload (bug #290).
-                if (incrementEpoch)
-                    rec.SidecarEpoch++;
-                WriteTrajectorySidecar(precPath, rec, rec.SidecarEpoch);
-
                 // Save _vessel.craft (always rewrite — snapshot can be mutated by spawn offset)
                 string vesselPath = RecordingPaths.ResolveSaveScopedPath(
                     RecordingPaths.BuildVesselSnapshotRelativePath(rec.RecordingId));
@@ -4086,11 +4069,6 @@ namespace Parsek
                 {
                     Log($"[Parsek] WARNING: SaveRecordingFiles could not resolve vessel snapshot path for {rec.RecordingId}");
                     return false;
-                }
-                if (rec.VesselSnapshot != null)
-                {
-                    SafeWriteConfigNode(rec.VesselSnapshot, vesselPath);
-                    wroteVesselSnapshot = true;
                 }
                 // Bug #278 follow-up (PR #177, defense-in-depth): do NOT delete an
                 // existing _vessel.craft when in-memory VesselSnapshot is null. PR
@@ -4110,37 +4088,7 @@ namespace Parsek
                 // Save _ghost.craft only when it carries data distinct from _vessel.craft.
                 string ghostPath = RecordingPaths.ResolveSaveScopedPath(
                     RecordingPaths.BuildGhostSnapshotRelativePath(rec.RecordingId));
-                if (ghostSnapshotMode == GhostSnapshotMode.Separate && rec.GhostVisualSnapshot != null)
-                {
-                    if (string.IsNullOrEmpty(ghostPath))
-                    {
-                        Log($"[Parsek] WARNING: SaveRecordingFiles could not resolve ghost snapshot path for {rec.RecordingId}");
-                    }
-                    else
-                    {
-                        SafeWriteConfigNode(rec.GhostVisualSnapshot, ghostPath);
-                        wroteGhostSnapshot = true;
-                    }
-                }
-                else if (ghostSnapshotMode == GhostSnapshotMode.AliasVessel &&
-                    !string.IsNullOrEmpty(ghostPath) &&
-                    File.Exists(ghostPath))
-                {
-                    File.Delete(ghostPath);
-                    deletedStaleGhostSnapshot = true;
-                }
-
-                if (!SuppressLogging)
-                {
-                    ParsekLog.Verbose("RecordingStore",
-                        $"SaveRecordingFiles: id={rec.RecordingId} trajectoryEncoding={GetTrajectorySidecarEncodingLabel(rec.RecordingFormatVersion)} " +
-                        $"ghostSnapshotMode={ghostSnapshotMode} " +
-                        $"wroteVessel={wroteVesselSnapshot} wroteGhost={wroteGhostSnapshot} " +
-                        $"deletedStaleGhost={deletedStaleGhostSnapshot}");
-                }
-
-                rec.FilesDirty = false;
-                return true;
+                return SaveRecordingFilesToPathsInternal(rec, precPath, vesselPath, ghostPath, incrementEpoch);
             }
             catch (Exception ex)
             {
@@ -4226,76 +4174,13 @@ namespace Parsek
                     }
                 }
 
-                // Load _vessel.craft — ConfigNode.Load returns the snapshot directly
+                // Load snapshot sidecars only after the trajectory probe passes the
+                // recording-id and sidecar-epoch safety gates.
                 string vesselPath = RecordingPaths.ResolveSaveScopedPath(
                     RecordingPaths.BuildVesselSnapshotRelativePath(rec.RecordingId));
-                if (!string.IsNullOrEmpty(vesselPath) && File.Exists(vesselPath))
-                {
-                    var vesselNode = ConfigNode.Load(vesselPath);
-                    if (vesselNode != null)
-                        rec.VesselSnapshot = vesselNode;
-                }
-
                 string ghostPath = RecordingPaths.ResolveSaveScopedPath(
                     RecordingPaths.BuildGhostSnapshotRelativePath(rec.RecordingId));
-                bool ghostFileExists = !string.IsNullOrEmpty(ghostPath) && File.Exists(ghostPath);
-                GhostSnapshotMode ghostSnapshotMode = rec.GhostSnapshotMode;
-
-                if (ghostSnapshotMode != GhostSnapshotMode.AliasVessel && ghostFileExists)
-                {
-                    var ghostNode = ConfigNode.Load(ghostPath);
-                    if (ghostNode != null)
-                        rec.GhostVisualSnapshot = ghostNode;
-                }
-
-                if (ghostSnapshotMode == GhostSnapshotMode.AliasVessel)
-                {
-                    if (rec.VesselSnapshot != null)
-                    {
-                        rec.GhostVisualSnapshot = rec.VesselSnapshot.CreateCopy();
-                    }
-                    else if (ghostFileExists)
-                    {
-                        var ghostNode = ConfigNode.Load(ghostPath);
-                        if (ghostNode != null)
-                        {
-                            rec.GhostVisualSnapshot = ghostNode;
-                            rec.VesselSnapshot = ghostNode.CreateCopy();
-                            if (!SuppressLogging)
-                            {
-                                ParsekLog.Warn("RecordingStore",
-                                    $"LoadRecordingFiles: id={rec.RecordingId} ghostSnapshotMode=AliasVessel " +
-                                    $"missing vessel snapshot, recovered from ghost sidecar");
-                            }
-                        }
-                    }
-                    else if (!SuppressLogging)
-                    {
-                        ParsekLog.Warn("RecordingStore",
-                            $"LoadRecordingFiles: id={rec.RecordingId} ghostSnapshotMode=AliasVessel " +
-                            $"but no snapshot sidecar was found");
-                    }
-                }
-
-                // Backward compat and resilience: if no ghost snapshot, fall back to vessel snapshot.
-                if (rec.GhostVisualSnapshot == null && rec.VesselSnapshot != null)
-                {
-                    rec.GhostVisualSnapshot = rec.VesselSnapshot.CreateCopy();
-
-                    if (ghostSnapshotMode == GhostSnapshotMode.Unspecified)
-                        ghostSnapshotMode = GhostSnapshotMode.AliasVessel;
-                    else if (ghostSnapshotMode == GhostSnapshotMode.Separate && !SuppressLogging)
-                    {
-                        ParsekLog.Warn("RecordingStore",
-                            $"LoadRecordingFiles: id={rec.RecordingId} ghostSnapshotMode=Separate " +
-                            $"missing ghost snapshot, fell back to vessel snapshot");
-                    }
-                }
-
-                if (ghostSnapshotMode == GhostSnapshotMode.Unspecified)
-                    ghostSnapshotMode = DetermineGhostSnapshotMode(rec);
-
-                rec.GhostSnapshotMode = ghostSnapshotMode;
+                LoadSnapshotSidecarsFromPaths(rec, vesselPath, ghostPath);
 
                 if (!SuppressLogging)
                 {
@@ -4434,6 +4319,52 @@ namespace Parsek
             return true;
         }
 
+        internal static bool SaveRecordingFilesToPathsForTesting(
+            Recording rec, string precPath, string vesselPath, string ghostPath, bool incrementEpoch = true)
+        {
+            return SaveRecordingFilesToPathsInternal(rec, precPath, vesselPath, ghostPath, incrementEpoch);
+        }
+
+        internal static bool TryProbeSnapshotSidecar(string path, out SnapshotSidecarProbe probe)
+        {
+            probe = default(SnapshotSidecarProbe);
+            bool probeOk = SnapshotSidecarCodec.TryProbe(path, out probe);
+            if (probeOk && !SuppressLogging)
+            {
+                ParsekLog.Verbose("RecordingStore",
+                    $"TryProbeSnapshotSidecar: encoding={SnapshotSidecarCodec.GetEncodingLabel(probe)} " +
+                    $"version={probe.FormatVersion} node={probe.NodeName ?? "<unknown>"} " +
+                    $"uncompressedBytes={probe.UncompressedLength} compressedBytes={probe.CompressedLength}");
+                if (!probe.Supported)
+                {
+                    ParsekLog.Warn("RecordingStore",
+                        $"TryProbeSnapshotSidecar: unsupported snapshot sidecar version={probe.FormatVersion} " +
+                        $"codec={probe.Codec} path={Path.GetFileName(path)}");
+                }
+            }
+
+            return probeOk;
+        }
+
+        internal static bool TryLoadSnapshotSidecar(string path, out ConfigNode node, out SnapshotSidecarProbe probe)
+        {
+            return SnapshotSidecarCodec.TryLoad(path, out node, out probe);
+        }
+
+        internal static bool LoadSnapshotSidecarForTesting(string path, out ConfigNode node)
+        {
+            SnapshotSidecarProbe probe;
+            if (!TryLoadSnapshotSidecar(path, out node, out probe) || !probe.Supported)
+                return false;
+
+            return node != null;
+        }
+
+        internal static void WriteSnapshotSidecarForTesting(string path, ConfigNode node)
+        {
+            WriteSnapshotSidecar(path, node);
+        }
+
         internal static string GetTrajectorySidecarEncodingLabel(int recordingFormatVersion)
         {
             if (recordingFormatVersion >= 3)
@@ -4446,6 +4377,196 @@ namespace Parsek
         private static void SafeWriteConfigNode(ConfigNode node, string path)
         {
             FileIOUtils.SafeWriteConfigNode(node, path, "RecordingStore");
+        }
+
+        private static void WriteSnapshotSidecar(string path, ConfigNode node)
+        {
+            SnapshotSidecarCodec.Write(path, node);
+        }
+
+        private static bool SaveRecordingFilesToPathsInternal(
+            Recording rec, string precPath, string vesselPath, string ghostPath, bool incrementEpoch)
+        {
+            int originalSidecarEpoch = rec.SidecarEpoch;
+            GhostSnapshotMode originalGhostSnapshotMode = rec.GhostSnapshotMode;
+            GhostSnapshotMode ghostSnapshotMode = DetermineGhostSnapshotMode(rec);
+            rec.GhostSnapshotMode = ghostSnapshotMode;
+            bool wroteVesselSnapshot = false;
+            bool wroteGhostSnapshot = false;
+            bool deletedStaleGhostSnapshot = false;
+
+            try
+            {
+                // Bug #270 / #290: sidecar epoch synchronization.
+                // On OnSave (incrementEpoch=true): advance the epoch before writing so
+                // .prec and .sfs (written later by SaveRecordingInto) stay in sync.
+                // On out-of-band writes (incrementEpoch=false): preserve the current epoch
+                // so the .prec matches the last OnSave's .sfs. Without this, BgRecorder
+                // and scene-exit force-writes would advance the epoch independently,
+                // causing false-positive staleness on quickload (bug #290).
+                if (incrementEpoch)
+                    rec.SidecarEpoch++;
+                WriteTrajectorySidecar(precPath, rec, rec.SidecarEpoch);
+
+                if (rec.VesselSnapshot != null)
+                {
+                    WriteSnapshotSidecar(vesselPath, rec.VesselSnapshot);
+                    wroteVesselSnapshot = true;
+                }
+
+                if (ghostSnapshotMode == GhostSnapshotMode.Separate && rec.GhostVisualSnapshot != null)
+                {
+                    if (string.IsNullOrEmpty(ghostPath))
+                    {
+                        Log($"[Parsek] WARNING: SaveRecordingFiles could not resolve ghost snapshot path for {rec.RecordingId}");
+                    }
+                    else
+                    {
+                        WriteSnapshotSidecar(ghostPath, rec.GhostVisualSnapshot);
+                        wroteGhostSnapshot = true;
+                    }
+                }
+                else if (ghostSnapshotMode == GhostSnapshotMode.AliasVessel &&
+                    !string.IsNullOrEmpty(ghostPath) &&
+                    File.Exists(ghostPath))
+                {
+                    File.Delete(ghostPath);
+                    deletedStaleGhostSnapshot = true;
+                }
+
+                if (!SuppressLogging)
+                {
+                    ParsekLog.Verbose("RecordingStore",
+                        $"SaveRecordingFiles: id={rec.RecordingId} trajectoryEncoding={GetTrajectorySidecarEncodingLabel(rec.RecordingFormatVersion)} " +
+                        $"snapshotEncoding={SnapshotSidecarCodec.CurrentEncodingLabel} " +
+                        $"snapshotCompression={SnapshotSidecarCodec.CurrentCompressionLevelLabel} " +
+                        $"ghostSnapshotMode={ghostSnapshotMode} " +
+                        $"wroteVessel={wroteVesselSnapshot} wroteGhost={wroteGhostSnapshot} " +
+                        $"deletedStaleGhost={deletedStaleGhostSnapshot}");
+                }
+
+                rec.FilesDirty = false;
+                return true;
+            }
+            catch (Exception ex)
+            {
+                // Keep .sfs metadata authoritative if the sidecar write set did not
+                // complete after an OnSave-triggered epoch bump.
+                rec.SidecarEpoch = originalSidecarEpoch;
+                rec.GhostSnapshotMode = originalGhostSnapshotMode;
+                Log($"[Parsek] Failed to save recording files for {rec.RecordingId}: {ex.Message}");
+                return false;
+            }
+        }
+
+        internal static void LoadSnapshotSidecarsFromPaths(Recording rec, string vesselPath, string ghostPath)
+        {
+            if (rec == null)
+                throw new ArgumentNullException(nameof(rec));
+
+            rec.VesselSnapshot = null;
+            rec.GhostVisualSnapshot = null;
+
+            bool vesselFileExists = !string.IsNullOrEmpty(vesselPath) && File.Exists(vesselPath);
+            bool ghostFileExists = !string.IsNullOrEmpty(ghostPath) && File.Exists(ghostPath);
+
+            bool vesselLoaded = TryLoadSnapshotSidecarIfPresent(vesselPath, rec.RecordingId, "vessel", out ConfigNode vesselNode);
+            bool ghostLoaded = false;
+            ConfigNode ghostNode = null;
+            GhostSnapshotMode ghostSnapshotMode = rec.GhostSnapshotMode;
+
+            if (vesselLoaded)
+                rec.VesselSnapshot = vesselNode;
+
+            if (ghostSnapshotMode != GhostSnapshotMode.AliasVessel)
+            {
+                ghostLoaded = TryLoadSnapshotSidecarIfPresent(ghostPath, rec.RecordingId, "ghost", out ghostNode);
+                if (ghostLoaded)
+                    rec.GhostVisualSnapshot = ghostNode;
+            }
+
+            if (ghostSnapshotMode == GhostSnapshotMode.AliasVessel)
+            {
+                if (rec.VesselSnapshot != null)
+                {
+                    rec.GhostVisualSnapshot = rec.VesselSnapshot.CreateCopy();
+                }
+                else
+                {
+                    ghostLoaded = TryLoadSnapshotSidecarIfPresent(ghostPath, rec.RecordingId, "ghost", out ghostNode);
+                    if (ghostLoaded)
+                    {
+                        rec.GhostVisualSnapshot = ghostNode;
+                        rec.VesselSnapshot = ghostNode.CreateCopy();
+                        if (!SuppressLogging)
+                        {
+                            ParsekLog.Warn("RecordingStore",
+                                $"LoadRecordingFiles: id={rec.RecordingId} ghostSnapshotMode=AliasVessel " +
+                                $"missing vessel snapshot, recovered from ghost sidecar");
+                        }
+                    }
+                    else if (!vesselFileExists && !ghostFileExists && !SuppressLogging)
+                    {
+                        ParsekLog.Warn("RecordingStore",
+                            $"LoadRecordingFiles: id={rec.RecordingId} ghostSnapshotMode=AliasVessel " +
+                            $"but no snapshot sidecar was found");
+                    }
+                }
+            }
+
+            // Backward compat and resilience: if no ghost snapshot, fall back to vessel snapshot.
+            if (rec.GhostVisualSnapshot == null && rec.VesselSnapshot != null)
+            {
+                rec.GhostVisualSnapshot = rec.VesselSnapshot.CreateCopy();
+
+                if (ghostSnapshotMode == GhostSnapshotMode.Unspecified)
+                    ghostSnapshotMode = GhostSnapshotMode.AliasVessel;
+                else if (ghostSnapshotMode == GhostSnapshotMode.Separate && !SuppressLogging)
+                {
+                    ParsekLog.Warn("RecordingStore",
+                        $"LoadRecordingFiles: id={rec.RecordingId} ghostSnapshotMode=Separate " +
+                        $"missing ghost snapshot, fell back to vessel snapshot");
+                }
+            }
+
+            if (ghostSnapshotMode == GhostSnapshotMode.Unspecified)
+                ghostSnapshotMode = DetermineGhostSnapshotMode(rec);
+
+            rec.GhostSnapshotMode = ghostSnapshotMode;
+        }
+
+        private static bool TryLoadSnapshotSidecarIfPresent(string path, string recordingId, string label, out ConfigNode node)
+        {
+            node = null;
+            if (string.IsNullOrEmpty(path) || !File.Exists(path))
+                return false;
+
+            SnapshotSidecarProbe probe;
+            bool loadOk = TryLoadSnapshotSidecar(path, out node, out probe);
+            if (loadOk && probe.Supported && node != null)
+                return true;
+
+            if (SuppressLogging)
+                return false;
+
+            string fileName = Path.GetFileName(path);
+            if (probe.Success && !probe.Supported)
+            {
+                ParsekLog.Warn("RecordingStore",
+                    $"LoadRecordingFiles: id={recordingId} unsupported {label} snapshot sidecar " +
+                    $"at {fileName} (version={probe.FormatVersion}, codec={probe.Codec})");
+            }
+            else
+            {
+                string reason = string.IsNullOrEmpty(probe.FailureReason)
+                    ? "unknown failure"
+                    : probe.FailureReason;
+                ParsekLog.Warn("RecordingStore",
+                    $"LoadRecordingFiles: id={recordingId} invalid {label} snapshot sidecar " +
+                    $"at {fileName} ({reason})");
+            }
+
+            return false;
         }
 
         #endregion
