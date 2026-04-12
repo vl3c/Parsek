@@ -584,11 +584,25 @@ Ghost meshes built for recordings whose UT range is far from current playback ti
 
 **Priority:** Deferred to Phase 11.5 (Recording Optimization & Observability)
 
-### T8. Particle system pooling for engine/RCS FX
+### ~~T8. Particle system pooling for engine/RCS FX~~
 
-Engine and RCS particle systems are instantiated per ghost. Pooling would reduce GC pressure with many active ghosts.
+Phase 11.5 investigation completed as a measurement-first pass without touching FX behavior.
 
-**Priority:** Deferred to Phase 11.5 (Recording Optimization & Observability)
+What shipped:
+
+- playback diagnostics now capture live engine/RCS ghost counts, module counts, particle-system counts, and last-frame ghost spawn/destroy timings
+- the showcase injection workflow can run the focused diagnostics/observability slice before mutating the save
+- the in-game test runner layout/order was cleaned up so diagnostics and FX-heavy categories are easier to run repeatedly during playtests
+
+Outcome:
+
+- the injected showcase validation passed `Diagnostics` and `PartEventFX`
+- exported logs did not show a clear FX-specific correctness or performance regression that justifies touching the current engine/RCS FX lifecycle
+- the only notable failure in that bundle was `GhostCountReasonable` (`246` ghosts), which points at overall ghost population pressure rather than FX pooling specifically
+
+Conclusion: no pooling or FX lifecycle optimization is scheduled now. Re-open only if future profiling shows playback spikes, spawn/destroy spikes, or GC pressure that clearly correlates with FX-heavy ghost churn.
+
+**Status:** ~~Closed for Phase 11.5 -- measurement shipped, optimization deferred unless future evidence justifies it~~
 
 ---
 

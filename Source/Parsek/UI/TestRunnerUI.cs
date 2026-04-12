@@ -23,8 +23,15 @@ namespace Parsek
         private readonly HashSet<string> expandedTestCategories = new HashSet<string>();
         private List<KeyValuePair<string, List<InGameTestInfo>>> cachedTestGroups;
         private bool testRunnerWasRunning;
+        private GUIStyle zeroHeightLabelStyle;
+        private GUIStyle wrappedErrorLabelStyle;
+        private GUIStyle wrappedTooltipStyle;
 
         private const float SpacingSmall = 3f;
+        private const float DefaultWindowWidth = 440f;
+        private const float DefaultWindowHeight = 500f;
+        private const float ErrorIndent = 40f;
+        private const float ErrorMaxWidth = 380f;
 
         public bool IsOpen
         {
@@ -59,7 +66,7 @@ namespace Parsek
                 testRunnerWindowRect = new Rect(
                     mainWindowRect.x + mainWindowRect.width + 10,
                     mainWindowRect.y,
-                    380, 500);
+                    DefaultWindowWidth, DefaultWindowHeight);
             }
 
             var opaqueWindowStyle = parentUI.GetOpaqueWindowStyle();
@@ -69,7 +76,7 @@ namespace Parsek
                 DrawTestRunnerWindow,
                 "Parsek \u2014 Test Runner",
                 opaqueWindowStyle,
-                GUILayout.Width(380)
+                GUILayout.Width(DefaultWindowWidth)
             );
             parentUI.LogWindowPosition("TestRunner", ref lastTestRunnerWindowRect, testRunnerWindowRect);
 
@@ -113,6 +120,8 @@ namespace Parsek
 
         private void DrawTestCategoryList()
         {
+            EnsureLayoutStyles();
+
             foreach (var group in cachedTestGroups)
             {
                 var category = group.Key;
@@ -173,8 +182,10 @@ namespace Parsek
                         testLabel = test.Method.Name; // short name within category
                     if (test.DurationMs > 0)
                         testLabel += $" ({test.DurationMs:F0}ms)";
-                    GUILayout.Label(new GUIContent(testLabel,
-                        test.Description ?? (eligible ? "" : $"Requires {test.RequiredScene} scene")));
+                    GUILayout.Label(
+                        new GUIContent(testLabel,
+                            test.Description ?? (eligible ? "" : $"Requires {test.RequiredScene} scene")),
+                        GUILayout.ExpandWidth(true));
                     GUI.enabled = true;
 
                     // Run single button
@@ -192,23 +203,49 @@ namespace Parsek
                     // Always render error row — conditional begin/end causes
                     // Layout/Repaint control count mismatch when status changes mid-frame.
                     bool showError = test.Status == TestStatus.Failed && !string.IsNullOrEmpty(test.ErrorMessage);
-                    if (showError)
-                    {
-                        GUILayout.BeginHorizontal();
-                        GUILayout.Space(40);
-                        var prevCol = GUI.contentColor;
-                        GUI.contentColor = Color.red;
-                        GUILayout.Label(test.ErrorMessage, GUILayout.MaxWidth(320));
-                        GUI.contentColor = prevCol;
-                        GUILayout.EndHorizontal();
-                    }
-                    else
-                    {
-                        GUILayout.BeginHorizontal();
-                        GUILayout.Label("", GUILayout.Height(0));
-                        GUILayout.EndHorizontal();
-                    }
+                    GUILayout.BeginHorizontal();
+                    GUILayout.Space(ErrorIndent);
+                    var prevCol = GUI.contentColor;
+                    GUI.contentColor = Color.red;
+                    GUILayout.Label(
+                        showError ? test.ErrorMessage : string.Empty,
+                        showError ? wrappedErrorLabelStyle : zeroHeightLabelStyle,
+                        showError ? GUILayout.MaxWidth(ErrorMaxWidth) : GUILayout.Height(0f));
+                    GUI.contentColor = prevCol;
+                    GUILayout.EndHorizontal();
                 }
+            }
+        }
+
+        private void EnsureLayoutStyles()
+        {
+            if (zeroHeightLabelStyle == null)
+            {
+                zeroHeightLabelStyle = new GUIStyle(GUI.skin.label)
+                {
+                    fixedHeight = 0f,
+                    stretchHeight = false,
+                    wordWrap = false
+                };
+                zeroHeightLabelStyle.margin = new RectOffset(0, 0, 0, 0);
+                zeroHeightLabelStyle.padding = new RectOffset(0, 0, 0, 0);
+            }
+
+            if (wrappedErrorLabelStyle == null)
+            {
+                wrappedErrorLabelStyle = new GUIStyle(GUI.skin.label)
+                {
+                    wordWrap = true
+                };
+                wrappedErrorLabelStyle.margin = new RectOffset(0, 0, 0, 0);
+            }
+
+            if (wrappedTooltipStyle == null)
+            {
+                wrappedTooltipStyle = new GUIStyle(GUI.skin.box)
+                {
+                    wordWrap = true
+                };
             }
         }
 
@@ -220,6 +257,8 @@ namespace Parsek
                 GUI.DragWindow();
                 return;
             }
+
+            EnsureLayoutStyles();
 
             // --- Controls bar ---
             GUILayout.BeginHorizontal();
@@ -288,15 +327,11 @@ namespace Parsek
             // Always render tooltip label — conditional rendering causes
             // Layout/Repaint control count mismatch (IMGUI exception).
             string tooltip = GUI.tooltip ?? "";
-            if (tooltip.Length > 0)
-            {
-                GUILayout.Space(SpacingSmall);
-                GUILayout.Label(tooltip, GUI.skin.box);
-            }
-            else
-            {
-                GUILayout.Label("", GUILayout.Height(0));
-            }
+            GUILayout.Space(SpacingSmall);
+            GUILayout.Label(
+                tooltip.Length > 0 ? tooltip : string.Empty,
+                tooltip.Length > 0 ? wrappedTooltipStyle : zeroHeightLabelStyle,
+                tooltip.Length > 0 ? GUILayout.ExpandWidth(true) : GUILayout.Height(0f));
 
             GUI.DragWindow();
         }

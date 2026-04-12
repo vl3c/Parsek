@@ -522,7 +522,20 @@ namespace Parsek.Tests
                 reducedGhostCount = 2,
                 hiddenGhostCount = 3,
                 watchedOverrideGhostCount = 1,
-                lastPlaybackBudget = new FrameBudget { warpRate = 1.0f },
+                zone1GhostCount = 3,
+                zone2GhostCount = 5,
+                ghostsWithEngineFx = 4,
+                engineModuleCount = 11,
+                engineParticleSystemCount = 28,
+                ghostsWithRcsFx = 3,
+                rcsModuleCount = 7,
+                rcsParticleSystemCount = 19,
+                lastPlaybackBudget = new FrameBudget
+                {
+                    warpRate = 1.0f,
+                    spawnMicroseconds = 1200,
+                    destroyMicroseconds = 600
+                },
                 // Populate playback rolling stats so the gate (entriesInWindow > 0) shows formatted values
                 playbackAvgTotalMs = 2.5,
                 playbackPeakTotalMs = 3.2,
@@ -547,9 +560,11 @@ namespace Parsek.Tests
             Assert.Contains("18 segs", report);
             Assert.Contains("46 snapshots", report);
             Assert.Contains("Ghosts: 8 active (2 overlap), 3 full, 2 reduced, 3 hidden, 1 watched override", report);
+            Assert.Contains("FX: engine 4 ghosts / 11 modules / 28 systems | RCS 3 ghosts / 7 modules / 19 systems", report);
             Assert.Contains("Playback budget:", report);
             Assert.Contains("ms avg", report);
             Assert.Contains("ms peak", report);
+            Assert.Contains("spawn 1.2 ms, destroy 0.6 ms, warp: 1x", report);
             Assert.Contains("Save: 120 ms last (3 dirty)", report);
             Assert.Contains("Load: 340 ms last (23 total)", report);
             Assert.Contains("cache", report);
@@ -721,6 +736,51 @@ namespace Parsek.Tests
             Assert.Equal(0L, snap.estimatedMemoryBytes);
             Assert.NotNull(snap.perRecording);
             Assert.Empty(snap.perRecording);
+        }
+
+        [Fact]
+        public void ComputeSnapshot_CopiesGhostObservabilityFromPlaybackBudget()
+        {
+            DiagnosticsState.playbackBudget = new FrameBudget
+            {
+                totalMicroseconds = 4200,
+                spawnMicroseconds = 900,
+                destroyMicroseconds = 300,
+                ghostsProcessed = 6,
+                warpRate = 2.0f,
+                ghostObservability = new GhostObservability
+                {
+                    activePrimaryGhostCount = 5,
+                    activeOverlapGhostCount = 2,
+                    zone1GhostCount = 3,
+                    zone2GhostCount = 1,
+                    softCapReducedCount = 1,
+                    softCapSimplifiedCount = 2,
+                    ghostsWithEngineFx = 4,
+                    engineModuleCount = 9,
+                    engineParticleSystemCount = 21,
+                    ghostsWithRcsFx = 3,
+                    rcsModuleCount = 5,
+                    rcsParticleSystemCount = 11
+                }
+            };
+
+            DiagnosticsComputation.ClockSource = () => 1000.0;
+            var snap = DiagnosticsComputation.ComputeSnapshot(100.0);
+
+            Assert.Equal(7, snap.activeGhostCount);
+            Assert.Equal(2, snap.activeOverlapGhostCount);
+            Assert.Equal(3, snap.zone1GhostCount);
+            Assert.Equal(1, snap.zone2GhostCount);
+            Assert.Equal(1, snap.softCapReducedCount);
+            Assert.Equal(2, snap.softCapSimplifiedCount);
+            Assert.Equal(4, snap.ghostsWithEngineFx);
+            Assert.Equal(9, snap.engineModuleCount);
+            Assert.Equal(21, snap.engineParticleSystemCount);
+            Assert.Equal(3, snap.ghostsWithRcsFx);
+            Assert.Equal(5, snap.rcsModuleCount);
+            Assert.Equal(11, snap.rcsParticleSystemCount);
+            Assert.Equal(300, snap.lastPlaybackBudget.destroyMicroseconds);
         }
 
         [Fact]

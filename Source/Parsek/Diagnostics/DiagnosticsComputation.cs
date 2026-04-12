@@ -281,20 +281,34 @@ namespace Parsek
             // --- Ghost state: derive live LOD counts from the engine when available ---
             var flight = ParsekFlight.Instance;
             var engine = flight?.Engine;
+            GhostObservability ghostObs;
             if (engine != null)
             {
+                ghostObs = engine.CaptureGhostObservability();
                 PopulateGhostStateCounts(
                     ref snap,
                     engine.ghostStates,
                     engine.overlapGhosts,
                     flight.WatchedRecordingIndexForDiagnostics,
                     flight.WatchedLoopCycleIndexForDiagnostics,
-                    DiagnosticsState.playbackBudget.ghostsProcessed);
+                    ghostObs.activePrimaryGhostCount + ghostObs.activeOverlapGhostCount);
             }
             else
             {
-                snap.activeGhostCount = DiagnosticsState.playbackBudget.ghostsProcessed;
+                ghostObs = DiagnosticsState.playbackBudget.ghostObservability;
+                snap.activeGhostCount = ghostObs.activePrimaryGhostCount + ghostObs.activeOverlapGhostCount;
+                snap.activeOverlapGhostCount = ghostObs.activeOverlapGhostCount;
             }
+            snap.zone1GhostCount = ghostObs.zone1GhostCount;
+            snap.zone2GhostCount = ghostObs.zone2GhostCount;
+            snap.softCapReducedCount = ghostObs.softCapReducedCount;
+            snap.softCapSimplifiedCount = ghostObs.softCapSimplifiedCount;
+            snap.ghostsWithEngineFx = ghostObs.ghostsWithEngineFx;
+            snap.engineModuleCount = ghostObs.engineModuleCount;
+            snap.engineParticleSystemCount = ghostObs.engineParticleSystemCount;
+            snap.ghostsWithRcsFx = ghostObs.ghostsWithRcsFx;
+            snap.rcsModuleCount = ghostObs.rcsModuleCount;
+            snap.rcsParticleSystemCount = ghostObs.rcsParticleSystemCount;
 
             // --- Timing: raw last-frame budgets ---
             snap.lastPlaybackBudget = DiagnosticsState.playbackBudget;
@@ -400,6 +414,16 @@ namespace Parsek
                 snapshot.watchedOverrideGhostCount);
             sb.AppendLine();
 
+            sb.AppendFormat(Inv,
+                "FX: engine {0} ghosts / {1} modules / {2} systems | RCS {3} ghosts / {4} modules / {5} systems",
+                snapshot.ghostsWithEngineFx,
+                snapshot.engineModuleCount,
+                snapshot.engineParticleSystemCount,
+                snapshot.ghostsWithRcsFx,
+                snapshot.rcsModuleCount,
+                snapshot.rcsParticleSystemCount);
+            sb.AppendLine();
+
             // Playback budget — read from snapshot, not live buffer.
             // The snapshot may have been computed when the buffer had entries that were
             // all outside the 4 s rolling window; in that case avg/peak/duration are 0
@@ -408,15 +432,21 @@ namespace Parsek
             if (hasPlaybackData)
             {
                 sb.AppendFormat(Inv,
-                    "Playback budget: {0} ms avg, {1} ms peak ({2}s window), warp: {3}x",
+                    "Playback budget: {0} ms avg, {1} ms peak ({2}s window), spawn {3} ms, destroy {4} ms, warp: {5}x",
                     snapshot.playbackAvgTotalMs.ToString("F1", Inv),
                     snapshot.playbackPeakTotalMs.ToString("F1", Inv),
                     snapshot.playbackWindowDurationSeconds.ToString("F1", Inv),
+                    (snapshot.lastPlaybackBudget.spawnMicroseconds / 1000.0).ToString("F1", Inv),
+                    (snapshot.lastPlaybackBudget.destroyMicroseconds / 1000.0).ToString("F1", Inv),
                     snapshot.lastPlaybackBudget.warpRate.ToString("F0", Inv));
             }
             else
             {
-                sb.Append("Playback budget: N/A");
+                sb.AppendFormat(Inv,
+                    "Playback budget: N/A (spawn {0} ms, destroy {1} ms, warp: {2}x)",
+                    (snapshot.lastPlaybackBudget.spawnMicroseconds / 1000.0).ToString("F1", Inv),
+                    (snapshot.lastPlaybackBudget.destroyMicroseconds / 1000.0).ToString("F1", Inv),
+                    snapshot.lastPlaybackBudget.warpRate.ToString("F0", Inv));
             }
             sb.AppendLine();
 

@@ -22,6 +22,12 @@ namespace Parsek.InGameTests
 
         /// <summary>Short description shown in the UI tooltip.</summary>
         public string Description { get; set; }
+
+        /// <summary>
+        /// Run this test after normal tests in batch execution.
+        /// Use for disruptive scenarios that mutate or reload live game state.
+        /// </summary>
+        public bool RunLast { get; set; }
     }
 
     /// <summary>
