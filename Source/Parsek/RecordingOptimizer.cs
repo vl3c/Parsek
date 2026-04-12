@@ -260,6 +260,8 @@ namespace Parsek
             // 7. VesselSnapshot: if absorbed was chain tip (non-null), target inherits it
             if (absorbed.VesselSnapshot != null)
                 target.VesselSnapshot = absorbed.VesselSnapshot;
+            if (!string.IsNullOrEmpty(absorbed.ChildBranchPointId))
+                target.ChildBranchPointId = absorbed.ChildBranchPointId;
 
             // Resource manifests: absorbed recording's end resources win (later segment)
             if (absorbed.EndResources != null)
@@ -285,6 +287,23 @@ namespace Parsek
             // 8. TerminalState: absorbed is the later segment, inherit its terminal state
             if (absorbed.TerminalStateValue.HasValue)
                 target.TerminalStateValue = absorbed.TerminalStateValue;
+            if (absorbed.TerminalOrbitBody != null)
+            {
+                target.TerminalOrbitInclination = absorbed.TerminalOrbitInclination;
+                target.TerminalOrbitEccentricity = absorbed.TerminalOrbitEccentricity;
+                target.TerminalOrbitSemiMajorAxis = absorbed.TerminalOrbitSemiMajorAxis;
+                target.TerminalOrbitLAN = absorbed.TerminalOrbitLAN;
+                target.TerminalOrbitArgumentOfPeriapsis = absorbed.TerminalOrbitArgumentOfPeriapsis;
+                target.TerminalOrbitMeanAnomalyAtEpoch = absorbed.TerminalOrbitMeanAnomalyAtEpoch;
+                target.TerminalOrbitEpoch = absorbed.TerminalOrbitEpoch;
+                target.TerminalOrbitBody = absorbed.TerminalOrbitBody;
+            }
+            if (absorbed.TerminalPosition.HasValue)
+                target.TerminalPosition = absorbed.TerminalPosition;
+            if (!double.IsNaN(absorbed.TerrainHeightAtEnd))
+                target.TerrainHeightAtEnd = absorbed.TerrainHeightAtEnd;
+            if (absorbed.SurfacePos.HasValue)
+                target.SurfacePos = absorbed.SurfacePos;
 
             // 9. Clear explicit UT ranges (Points now cover the full range)
             target.ExplicitStartUT = double.NaN;

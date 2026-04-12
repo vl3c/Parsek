@@ -502,6 +502,35 @@ namespace Parsek.Tests
             Assert.True(double.IsNaN(a.ExplicitEndUT));
         }
 
+        [Fact]
+        public void MergeInto_TransfersBranchAndTerminalMetadata()
+        {
+            var a = MakeChainSegment("c1", 0);
+            var b = MakeChainSegment("c1", 1);
+            b.ChildBranchPointId = "bp_001";
+            b.TerminalStateValue = TerminalState.Landed;
+            b.TerminalOrbitInclination = 28.5;
+            b.TerminalOrbitEccentricity = 0.01;
+            b.TerminalOrbitSemiMajorAxis = 700000;
+            b.TerminalOrbitLAN = 90.0;
+            b.TerminalOrbitArgumentOfPeriapsis = 45.0;
+            b.TerminalOrbitMeanAnomalyAtEpoch = 1.23;
+            b.TerminalOrbitEpoch = 17060;
+            b.TerminalOrbitBody = "Kerbin";
+            b.TerminalPosition = new SurfacePosition { body = "Kerbin", latitude = 1.0, longitude = 2.0, altitude = 3.0 };
+            b.TerrainHeightAtEnd = 123.4;
+            b.SurfacePos = new SurfacePosition { body = "Kerbin", latitude = 4.0, longitude = 5.0, altitude = 6.0 };
+
+            RecordingOptimizer.MergeInto(a, b);
+
+            Assert.Equal("bp_001", a.ChildBranchPointId);
+            Assert.Equal(TerminalState.Landed, a.TerminalStateValue);
+            Assert.Equal("Kerbin", a.TerminalOrbitBody);
+            Assert.Equal(123.4, a.TerrainHeightAtEnd);
+            Assert.True(a.TerminalPosition.HasValue);
+            Assert.True(a.SurfacePos.HasValue);
+        }
+
         #endregion
 
         #region SplitAtSection
@@ -691,6 +720,66 @@ namespace Parsek.Tests
             Assert.Equal(6, recordings[0].Points.Count); // 2+2+2
             Assert.Equal(17000, recordings[0].StartUT);
             Assert.Equal(17090, recordings[0].EndUT);
+
+            RecordingStore.ResetForTesting();
+        }
+
+        [Fact]
+        public void RunOptimizationPass_MergeUpdatesTreeMembershipAndBranchParentLinks()
+        {
+            RecordingStore.SuppressLogging = true;
+            RecordingStore.ResetForTesting();
+
+            var first = MakeChainSegment("merge_tree", 0);
+            first.RecordingId = "seg0";
+            first.TreeId = "tree_merge";
+
+            var second = MakeChainSegment("merge_tree", 1);
+            second.RecordingId = "seg1";
+            second.TreeId = "tree_merge";
+            second.ChildBranchPointId = "bp_merge";
+            second.TerminalStateValue = TerminalState.Landed;
+            second.TerminalPosition = new SurfacePosition
+            {
+                body = "Kerbin",
+                latitude = 1,
+                longitude = 2,
+                altitude = 3
+            };
+
+            var bp = new BranchPoint
+            {
+                Id = "bp_merge",
+                ParentRecordingIds = new List<string> { "seg1" }
+            };
+
+            var tree = new RecordingTree
+            {
+                Id = "tree_merge",
+                RootRecordingId = "seg0",
+                ActiveRecordingId = "seg1",
+                BranchPoints = new List<BranchPoint> { bp },
+                Recordings = new Dictionary<string, Recording>
+                {
+                    { "seg0", first },
+                    { "seg1", second }
+                }
+            };
+
+            RecordingStore.CommittedTrees.Add(tree);
+            RecordingStore.AddRecordingWithTreeForTesting(first);
+            RecordingStore.AddRecordingWithTreeForTesting(second);
+
+            RecordingStore.RunOptimizationPass();
+
+            Assert.Single(RecordingStore.CommittedRecordings);
+            Assert.Single(tree.Recordings);
+            Assert.Contains("seg0", tree.Recordings.Keys);
+            Assert.DoesNotContain("seg1", tree.Recordings.Keys);
+            Assert.Equal("seg0", tree.ActiveRecordingId);
+            Assert.Equal("bp_merge", first.ChildBranchPointId);
+            Assert.Contains("seg0", bp.ParentRecordingIds);
+            Assert.DoesNotContain("seg1", bp.ParentRecordingIds);
 
             RecordingStore.ResetForTesting();
         }

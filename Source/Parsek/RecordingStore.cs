@@ -1049,6 +1049,7 @@ namespace Parsek
                 string absorbedId = RecordingOptimizer.MergeInto(target, absorbed);
                 target.FilesDirty = true;
                 string chainId = target.ChainId;
+                UpdateTreeStateAfterOptimizationMerge(target, absorbed);
 
                 // Remove absorbed recording from committed list
                 recordings.RemoveAt(idxB);
@@ -1257,6 +1258,58 @@ namespace Parsek
             if (saved > 0 || failed > 0)
                 ParsekLog.Info("RecordingStore",
                     $"FlushDirtyFiles: saved {saved}, failed {failed}");
+        }
+
+        private static void UpdateTreeStateAfterOptimizationMerge(Recording target, Recording absorbed)
+        {
+            string treeId = target != null && !string.IsNullOrEmpty(target.TreeId)
+                ? target.TreeId
+                : absorbed?.TreeId;
+            if (string.IsNullOrEmpty(treeId) || absorbed == null)
+                return;
+
+            for (int t = 0; t < committedTrees.Count; t++)
+            {
+                var tree = committedTrees[t];
+                if (tree.Id != treeId)
+                    continue;
+
+                tree.Recordings.Remove(absorbed.RecordingId);
+                if (target != null)
+                    tree.Recordings[target.RecordingId] = target;
+
+                if (tree.RootRecordingId == absorbed.RecordingId && target != null)
+                    tree.RootRecordingId = target.RecordingId;
+                if (tree.ActiveRecordingId == absorbed.RecordingId && target != null)
+                    tree.ActiveRecordingId = target.RecordingId;
+
+                if (!string.IsNullOrEmpty(absorbed.ChildBranchPointId) && tree.BranchPoints != null)
+                {
+                    for (int b = 0; b < tree.BranchPoints.Count; b++)
+                    {
+                        if (tree.BranchPoints[b].Id != absorbed.ChildBranchPointId
+                            || tree.BranchPoints[b].ParentRecordingIds == null)
+                        {
+                            continue;
+                        }
+
+                        var parentIds = tree.BranchPoints[b].ParentRecordingIds;
+                        for (int p = 0; p < parentIds.Count; p++)
+                        {
+                            if (parentIds[p] == absorbed.RecordingId && target != null)
+                            {
+                                parentIds[p] = target.RecordingId;
+                                ParsekLog.Verbose("RecordingStore",
+                                    $"Merge: updated BranchPoint '{absorbed.ChildBranchPointId}' " +
+                                    $"ParentRecordingIds: {absorbed.RecordingId} → {target.RecordingId}");
+                            }
+                        }
+                        break;
+                    }
+                }
+
+                return;
+            }
         }
 
         /// <summary>
