@@ -87,7 +87,7 @@ if ($RunDiagnosticsTests) {
         "test",
         "Source/Parsek.Tests/Parsek.Tests.csproj",
         "--filter",
-        "FullyQualifiedName~DiagnosticsStateTests|FullyQualifiedName~DiagnosticsComputationTests|FullyQualifiedName~DiagnosticsIntegrationTests|FullyQualifiedName~GhostPlaybackEngineTests",
+        "FullyQualifiedName~DiagnosticsStateTests|FullyQualifiedName~DiagnosticsComputationTests|FullyQualifiedName~DiagnosticsIntegrationTests|FullyQualifiedName~GhostPlaybackEngineTests|FullyQualifiedName~ObservabilityLoggingTests|FullyQualifiedName~InGameTestRunnerTests",
         "-v", "minimal"
     )
     if (-not $Build) {
