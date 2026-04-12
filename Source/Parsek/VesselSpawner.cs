@@ -756,7 +756,7 @@ namespace Parsek
                 if (!rec.DuplicateBlockerRecovered
                     && blockerVessel != null
                     && blockerVessel.loaded
-                    && ShouldRecoverBlockerVessel(blockerName, resolvedRecName))
+                    && ShouldRecoverBlockerVessel(rec, blockerName, resolvedRecName, blockerVessel.persistentId))
                 {
                     ParsekLog.Warn("Spawner",
                         $"Duplicate blocker detected for #{index} ({rec.VesselName}): " +
@@ -1232,15 +1232,41 @@ namespace Parsek
 
         /// <summary>
         /// Pure decision: should the blocking vessel be recovered as a likely duplicate?
-        /// Returns true when the blocker's resolved name matches the recording's vessel name,
-        /// indicating a leftover from a previous spawn (e.g., quicksave-loaded duplicate after rewind).
-        /// Both names must already be resolved via ResolveLocalizedName. (#112)
+        ///
+        /// <para>#112 original scenario: the player quicksaves a Parsek-spawned vessel and
+        /// then loads. KSP restores the vessel from the quicksave with its original PID,
+        /// and Parsek tries to spawn the same recording again. We end up with two copies
+        /// of the same recording's vessel overlapping. The correct response is to destroy
+        /// the quicksave-restored copy (same PID as before) and keep the fresh spawn.</para>
+        ///
+        /// <para>#312 regression: the original check matched by NAME only. When multiple
+        /// recordings of the same vessel (e.g. four "Crater Crawler" showcases on the
+        /// runway) spawn near each other, each new spawn's overlap-check found the
+        /// PREVIOUS recording's vessel -- same name -- and destroyed it. Only 2 of 4
+        /// recordings survived in a playtest because each new spawn killed the last.
+        /// Siblings should walkback, not recover.</para>
+        ///
+        /// <para>Fix: the blocker must match this recording's OWN <see cref="Recording.SpawnedVesselPersistentId"/>
+        /// -- the PID we recorded the last time WE spawned. That's the only way to be
+        /// certain the blocker is a duplicate of ourselves (the #112 scenario). If the
+        /// blocker belongs to a sibling recording or to a non-Parsek vessel, PIDs
+        /// differ and we fall through to walkback.</para>
         /// </summary>
-        internal static bool ShouldRecoverBlockerVessel(string blockerName, string recordingVesselName)
+        internal static bool ShouldRecoverBlockerVessel(
+            Recording rec, string blockerName, string recordingVesselName, uint blockerPid)
         {
+            if (rec == null || blockerPid == 0) return false;
             if (string.IsNullOrEmpty(blockerName) || string.IsNullOrEmpty(recordingVesselName))
                 return false;
-            return string.Equals(blockerName, recordingVesselName, StringComparison.Ordinal);
+            if (!string.Equals(blockerName, recordingVesselName, StringComparison.Ordinal))
+                return false;
+
+            // Primary discriminator: the blocker must be the SAME vessel we spawned
+            // previously for THIS recording. #112 applies only when KSP's quicksave
+            // restored our own spawn with the same PID.
+            return rec.VesselSpawned
+                && rec.SpawnedVesselPersistentId != 0
+                && rec.SpawnedVesselPersistentId == blockerPid;
         }
 
         /// <summary>
