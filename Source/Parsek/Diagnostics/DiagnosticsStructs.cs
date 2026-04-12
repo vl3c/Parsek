@@ -1,6 +1,26 @@
 namespace Parsek
 {
     /// <summary>
+    /// Last-frame ghost/FX counts captured from GhostPlaybackEngine.
+    /// Pure observability data — never read by gameplay logic.
+    /// </summary>
+    internal struct GhostObservability
+    {
+        public int activePrimaryGhostCount;
+        public int activeOverlapGhostCount;
+        public int zone1GhostCount;
+        public int zone2GhostCount;
+        public int softCapReducedCount;
+        public int softCapSimplifiedCount;
+        public int ghostsWithEngineFx;
+        public int engineModuleCount;
+        public int engineParticleSystemCount;
+        public int ghostsWithRcsFx;
+        public int rcsModuleCount;
+        public int rcsParticleSystemCount;
+    }
+
+    /// <summary>
     /// Per-frame timing breakdown for playback or recording.
     /// Raw timing only — rolling stats are computed from RollingTimingBuffer at read time.
     /// </summary>
@@ -8,8 +28,10 @@ namespace Parsek
     {
         public long totalMicroseconds;
         public long spawnMicroseconds;
+        public long destroyMicroseconds;
         public int ghostsProcessed;
         public float warpRate;
+        public GhostObservability ghostObservability;
     }
 
     /// <summary>
@@ -66,6 +88,12 @@ namespace Parsek
         public int softCapReducedCount;
         public int softCapSimplifiedCount;
         public bool softCapsEnabled;
+        public int ghostsWithEngineFx;
+        public int engineModuleCount;
+        public int engineParticleSystemCount;
+        public int ghostsWithRcsFx;
+        public int rcsModuleCount;
+        public int rcsParticleSystemCount;
 
         // Timing — raw last-frame budgets
         public FrameBudget lastPlaybackBudget;

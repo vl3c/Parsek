@@ -1,4 +1,5 @@
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
 using UnityEngine;
@@ -25,6 +26,34 @@ namespace Parsek.Tests
             ParsekLog.ResetTestOverrides();
             ParsekLog.SuppressLogging = true;
             RecordingStore.ResetForTesting();
+        }
+
+        private static EngineGhostInfo BuildEngineGhostInfo(int particleSystemCount)
+        {
+            var info = new EngineGhostInfo();
+            SetParticleSystemCount(info, "particleSystems", particleSystemCount);
+            return info;
+        }
+
+        private static RcsGhostInfo BuildRcsGhostInfo(int particleSystemCount)
+        {
+            var info = new RcsGhostInfo();
+            SetParticleSystemCount(info, "particleSystems", particleSystemCount);
+            return info;
+        }
+
+        private static void SetParticleSystemCount(object target, string fieldName, int count)
+        {
+            var field = target.GetType().GetField(fieldName);
+            Assert.NotNull(field);
+
+            var list = Activator.CreateInstance(field.FieldType) as IList;
+            Assert.NotNull(list);
+
+            for (int i = 0; i < count; i++)
+                list.Add(null);
+
+            field.SetValue(target, list);
         }
 
         // ===================================================================
@@ -728,6 +757,96 @@ namespace Parsek.Tests
             // Same object references, just moved
             Assert.Same(state2, engine.ghostStates[1]);
             Assert.Same(state3, engine.ghostStates[2]);
+        }
+
+        #endregion
+
+        // ===================================================================
+        // CaptureGhostObservability — pure aggregation over engine state
+        // ===================================================================
+
+        #region CaptureGhostObservability
+
+        [Fact]
+        public void CaptureGhostObservability_CountsPrimaryOverlapAndFxInstances()
+        {
+            var engine = new GhostPlaybackEngine(null);
+            engine.ghostStates[0] = new GhostPlaybackState
+            {
+                currentZone = RenderingZone.Physics,
+                fidelityReduced = true,
+                engineInfos = new Dictionary<ulong, EngineGhostInfo>
+                {
+                    [1] = BuildEngineGhostInfo(2),
+                    [2] = BuildEngineGhostInfo(1)
+                },
+                rcsInfos = new Dictionary<ulong, RcsGhostInfo>
+                {
+                    [3] = BuildRcsGhostInfo(3)
+                }
+            };
+            engine.ghostStates[1] = new GhostPlaybackState
+            {
+                currentZone = RenderingZone.Visual,
+                simplified = true,
+                rcsInfos = new Dictionary<ulong, RcsGhostInfo>
+                {
+                    [4] = BuildRcsGhostInfo(0),
+                    [5] = BuildRcsGhostInfo(1)
+                }
+            };
+            engine.overlapGhosts[0] = new List<GhostPlaybackState>
+            {
+                new GhostPlaybackState
+                {
+                    engineInfos = new Dictionary<ulong, EngineGhostInfo>
+                    {
+                        [6] = BuildEngineGhostInfo(4)
+                    }
+                }
+            };
+
+            GhostObservability result = engine.CaptureGhostObservability();
+
+            Assert.Equal(2, result.activePrimaryGhostCount);
+            Assert.Equal(1, result.activeOverlapGhostCount);
+            Assert.Equal(1, result.zone1GhostCount);
+            Assert.Equal(1, result.zone2GhostCount);
+            Assert.Equal(1, result.softCapReducedCount);
+            Assert.Equal(1, result.softCapSimplifiedCount);
+            Assert.Equal(2, result.ghostsWithEngineFx);
+            Assert.Equal(3, result.engineModuleCount);
+            Assert.Equal(7, result.engineParticleSystemCount);
+            Assert.Equal(2, result.ghostsWithRcsFx);
+            Assert.Equal(3, result.rcsModuleCount);
+            Assert.Equal(4, result.rcsParticleSystemCount);
+        }
+
+        [Fact]
+        public void CaptureGhostObservability_IgnoresNullStatesAndEmptyFxMaps()
+        {
+            var engine = new GhostPlaybackEngine(null);
+            engine.ghostStates[0] = null;
+            engine.ghostStates[1] = new GhostPlaybackState
+            {
+                currentZone = RenderingZone.Beyond,
+                engineInfos = new Dictionary<ulong, EngineGhostInfo>(),
+                rcsInfos = null
+            };
+            engine.overlapGhosts[2] = new List<GhostPlaybackState> { null };
+
+            GhostObservability result = engine.CaptureGhostObservability();
+
+            Assert.Equal(1, result.activePrimaryGhostCount);
+            Assert.Equal(0, result.activeOverlapGhostCount);
+            Assert.Equal(0, result.zone1GhostCount);
+            Assert.Equal(0, result.zone2GhostCount);
+            Assert.Equal(0, result.ghostsWithEngineFx);
+            Assert.Equal(0, result.engineModuleCount);
+            Assert.Equal(0, result.engineParticleSystemCount);
+            Assert.Equal(0, result.ghostsWithRcsFx);
+            Assert.Equal(0, result.rcsModuleCount);
+            Assert.Equal(0, result.rcsParticleSystemCount);
         }
 
         #endregion

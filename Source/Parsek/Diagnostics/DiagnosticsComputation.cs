@@ -276,10 +276,20 @@ namespace Parsek
                                       + (long)totalSegs * 120L
                                       + (long)totalSnaps * 8192L;
 
-            // --- Ghost state: read from DiagnosticsState (populated by engine in Phase 3) ---
-            snap.activeGhostCount = DiagnosticsState.playbackBudget.ghostsProcessed;
-            // Zone/softcap details will be filled in Phase 3 engine instrumentation.
-            // For now, read whatever is in DiagnosticsState fields — they default to 0.
+            // --- Ghost state: read from last-frame engine instrumentation ---
+            var ghostObs = DiagnosticsState.playbackBudget.ghostObservability;
+            snap.activeGhostCount = ghostObs.activePrimaryGhostCount;
+            snap.activeOverlapGhostCount = ghostObs.activeOverlapGhostCount;
+            snap.zone1GhostCount = ghostObs.zone1GhostCount;
+            snap.zone2GhostCount = ghostObs.zone2GhostCount;
+            snap.softCapReducedCount = ghostObs.softCapReducedCount;
+            snap.softCapSimplifiedCount = ghostObs.softCapSimplifiedCount;
+            snap.ghostsWithEngineFx = ghostObs.ghostsWithEngineFx;
+            snap.engineModuleCount = ghostObs.engineModuleCount;
+            snap.engineParticleSystemCount = ghostObs.engineParticleSystemCount;
+            snap.ghostsWithRcsFx = ghostObs.ghostsWithRcsFx;
+            snap.rcsModuleCount = ghostObs.rcsModuleCount;
+            snap.rcsParticleSystemCount = ghostObs.rcsParticleSystemCount;
 
             // --- Timing: raw last-frame budgets ---
             snap.lastPlaybackBudget = DiagnosticsState.playbackBudget;
@@ -376,12 +386,23 @@ namespace Parsek
 
             // Ghosts
             sb.AppendFormat(Inv,
-                "Ghosts: {0} active (z1:{1} z2:{2}), {3} reduced, {4} simplified",
+                "Ghosts: {0} primary + {1} overlap (z1:{2} z2:{3}), {4} reduced, {5} simplified",
                 snapshot.activeGhostCount,
+                snapshot.activeOverlapGhostCount,
                 snapshot.zone1GhostCount,
                 snapshot.zone2GhostCount,
                 snapshot.softCapReducedCount,
                 snapshot.softCapSimplifiedCount);
+            sb.AppendLine();
+
+            sb.AppendFormat(Inv,
+                "FX: engine {0} ghosts / {1} modules / {2} systems | RCS {3} ghosts / {4} modules / {5} systems",
+                snapshot.ghostsWithEngineFx,
+                snapshot.engineModuleCount,
+                snapshot.engineParticleSystemCount,
+                snapshot.ghostsWithRcsFx,
+                snapshot.rcsModuleCount,
+                snapshot.rcsParticleSystemCount);
             sb.AppendLine();
 
             // Playback budget — read from snapshot, not live buffer.
@@ -392,15 +413,21 @@ namespace Parsek
             if (hasPlaybackData)
             {
                 sb.AppendFormat(Inv,
-                    "Playback budget: {0} ms avg, {1} ms peak ({2}s window), warp: {3}x",
+                    "Playback budget: {0} ms avg, {1} ms peak ({2}s window), spawn {3} ms, destroy {4} ms, warp: {5}x",
                     snapshot.playbackAvgTotalMs.ToString("F1", Inv),
                     snapshot.playbackPeakTotalMs.ToString("F1", Inv),
                     snapshot.playbackWindowDurationSeconds.ToString("F1", Inv),
+                    (snapshot.lastPlaybackBudget.spawnMicroseconds / 1000.0).ToString("F1", Inv),
+                    (snapshot.lastPlaybackBudget.destroyMicroseconds / 1000.0).ToString("F1", Inv),
                     snapshot.lastPlaybackBudget.warpRate.ToString("F0", Inv));
             }
             else
             {
-                sb.Append("Playback budget: N/A");
+                sb.AppendFormat(Inv,
+                    "Playback budget: N/A (spawn {0} ms, destroy {1} ms, warp: {2}x)",
+                    (snapshot.lastPlaybackBudget.spawnMicroseconds / 1000.0).ToString("F1", Inv),
+                    (snapshot.lastPlaybackBudget.destroyMicroseconds / 1000.0).ToString("F1", Inv),
+                    snapshot.lastPlaybackBudget.warpRate.ToString("F0", Inv));
             }
             sb.AppendLine();
 
