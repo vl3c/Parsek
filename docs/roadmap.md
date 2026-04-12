@@ -168,6 +168,14 @@ Recordings capture physical resource manifests at recording start and end.
 
 Optimization pass before logistics routes add many long-lived looped recordings. A long career with dozens of missions will accumulate significant disk and memory footprint — this phase makes that measurable and then reduces it.
 
+Phase 11.5 now also includes the shipped Flight ghost LOD policy used to keep replay density sane during playtests:
+
+- shared internal distance thresholds (`2.3 km`, `50 km`, `120 km`, watch cutoff)
+- watched ghosts inside cutoff forced to full fidelity
+- unwatched reduced tier (`2.3-50 km`)
+- unwatched hidden-mesh tier (`50-120 km`)
+- live diagnostics reporting for the active LOD buckets
+
 ### Observability (first)
 
 Instrument the system so size/performance problems are visible during playtesting, without introducing behavior changes:
@@ -349,8 +357,8 @@ Commit crash window closed (sidecar files flushed immediately). Remaining gap: s
 ### Recording file size optimization
 Shorter key names, compact numeric encoding, optional compression, event name deduplication. Becomes important at scale (many recordings, long missions).
 
-### Ghost soft cap completion
-LOD culling for distant ghost meshes. Ghost mesh unloading outside active time range. Particle system pooling for engine/RCS FX. Benchmark with synthetic stress tests.
+### Ghost LOD follow-up
+Distance-based ghost LOD shipped in `0.8.1`. Remaining follow-ups are ghost mesh unloading outside active time range, particle pooling for engine/RCS FX, and synthetic stress benchmarking/tuning.
 
 ### Kerbal reservation refactor (T44)
 Replace `rosterStatus = Assigned` workaround with Parsek-internal state + Harmony crew dialog filtering. Would eliminate 2 workaround patches and ~27 KSP warnings per session. Low priority — current workaround is functional.

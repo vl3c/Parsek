@@ -421,11 +421,17 @@ Create a `.netkan` file or submit to CKAN indexer so users can install Parsek vi
 
 ## TODO — Performance & Optimization
 
-### T6. LOD culling for distant ghost meshes
+### ~~T6. LOD culling for distant ghost meshes~~
 
-Don't render full ghost meshes far from camera. Unity LOD groups or manual distance culling.
+Implemented in `0.8.1` as the shipped Flight ghost LOD policy:
 
-**Priority:** Deferred to Phase 11.5 (Recording Optimization & Observability)
+- `0 - 2300 m`: full fidelity
+- `2300 m - 50000 m`: reduced mesh / no part events / muted expensive FX
+- `50000 m - 120000 m`: hidden mesh, logical playback retained
+- watched ghosts inside cutoff bypass the distance degradation path
+- diagnostics now report live `full / reduced / hidden / watched override` counts
+
+**Status:** Fixed in `0.8.1`
 
 ### T7. Ghost mesh unloading outside active time range
 
