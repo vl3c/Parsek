@@ -23,6 +23,7 @@ namespace Parsek
             ControlTypes.STAGING | ControlTypes.THROTTLE |
             ControlTypes.VESSEL_SWITCHING | ControlTypes.EVA_INPUT |
             ControlTypes.CAMERAMODES;
+        internal static Func<float> RealtimeNow = () => Time.time;
 
         // Camera follow state — transient, never serialized
         private int watchedRecordingIndex = -1;       // -1 = not watching
@@ -440,7 +441,7 @@ namespace Parsek
 
             watchedRecordingIndex = index;
             watchedRecordingId = committed[index].RecordingId;
-            watchStartTime = Time.time;
+            watchStartTime = RealtimeNow();
 
             // Reset camera mode state for new watch session
             userModeOverride = false;
@@ -994,7 +995,7 @@ namespace Parsek
 
             // Reset watch start time so the zone-exemption logging starts fresh
             // for the new segment (no stale elapsed time from the previous segment)
-            watchStartTime = Time.time;
+            watchStartTime = RealtimeNow();
 
             ParsekLog.Info("CameraFollow",
                 $"TransferWatch re-target: ghost #{nextIndex} \"{newName}\"" +
@@ -1141,7 +1142,7 @@ namespace Parsek
             }
 
             // Hold expired -- no continuation found, destroy and exit
-            if (Time.time >= watchEndHoldUntilRealTime)
+            if (RealtimeNow() >= watchEndHoldUntilRealTime)
             {
                 ParsekLog.Info("CameraFollow",
                     $"Watch hold expired for #{idx} at t={watchEndHoldUntilRealTime:F1} \u2014 destroying ghost and exiting watch");

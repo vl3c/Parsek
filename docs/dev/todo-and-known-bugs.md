@@ -153,17 +153,17 @@ Collected evidence from `logs/2026-04-12_1857_phase-11-5-storage-followup-s4/`:
 
 ---
 
-## 321. After the main controller vessel crashes, camera recovery should prefer the anchor vessel, not debris
+## ~~321. After the main controller vessel crashes, camera recovery should prefer the anchor vessel, not debris~~
 
 **Observed in:** breakup/watch regression follow-up from `logs/2026-04-12_2055_main-stage-freeze-after-separation/` (`s6`). After the main controlling vessel crashed, the player expectation was to return camera focus to the anchor vessel rather than letting it drift to debris-focused behavior.
 
 **Desired behavior:** When the main controller vessel is lost, the camera should recover to the anchor vessel / stable owning vessel context, not to a debris fragment.
 
-**Root cause / hypothesis:** Camera recovery and watch/active-vessel fallback logic currently treat the next available post-breakup target too loosely. The anchor-vessel preference is not explicitly encoded, so debris can win the handoff/recovery path.
+**Root cause:** `GhostPlaybackLogic.FindNextWatchTarget` treated the first active tree child as a generic watch handoff fallback when no same-PID continuation existed. On breakup/crash trees, that let debris win the handoff path.
 
-**Fix direction:** Review watch exit, vessel-destruction camera restore, and any anchor-resolution path used during breakup-continuous playback. Add an explicit anchor-vessel preference rule and cover it with an in-game regression.
+**Fix:** Breakup/crash watch recovery no longer auto-follows any different-PID breakup child as a generic fallback. Same-PID continuation and `#158` recursive hold/retry behavior are unchanged, but breakup branches without same-PID continuation now return `-1` and let the existing watch hold/exit path restore the preserved live vessel context instead of transferring to debris or another fragment. Added regression coverage for non-breakup fallback, breakup no-fallback, debris-only `-1`, and hold-path behavior.
 
-**Status:** Open
+**Status:** Fixed
 
 ---
 
