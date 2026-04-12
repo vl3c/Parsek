@@ -775,12 +775,57 @@ namespace Parsek.Tests
                 primary,
                 overlap,
                 watchedIndex: 3,
+                watchedLoopCycleIndex: -1,
                 fallbackActiveGhostCount: 99);
 
             Assert.Equal(5, snap.activeGhostCount);
             Assert.Equal(1, snap.activeOverlapGhostCount);
             Assert.Equal(2, snap.fullGhostCount);
             Assert.Equal(2, snap.reducedGhostCount);
+            Assert.Equal(1, snap.hiddenGhostCount);
+            Assert.Equal(1, snap.watchedOverrideGhostCount);
+        }
+
+        [Fact]
+        public void PopulateGhostStateCounts_WatchedOverlapCycleMismatch_DoesNotCountOverride()
+        {
+            var primary = new Dictionary<int, GhostPlaybackState>
+            {
+                { 3, new GhostPlaybackState
+                    {
+                        loopCycleIndex = 7,
+                        currentZone = RenderingZone.Beyond,
+                        lastDistance = 150000.0
+                    }
+                }
+            };
+
+            var overlap = new Dictionary<int, List<GhostPlaybackState>>
+            {
+                { 3, new List<GhostPlaybackState>
+                    {
+                        new GhostPlaybackState
+                        {
+                            loopCycleIndex = 6,
+                            currentZone = RenderingZone.Beyond,
+                            lastDistance = 150000.0
+                        }
+                    }
+                }
+            };
+
+            var snap = new MetricSnapshot();
+            DiagnosticsComputation.PopulateGhostStateCounts(
+                ref snap,
+                primary,
+                overlap,
+                watchedIndex: 3,
+                watchedLoopCycleIndex: 7,
+                fallbackActiveGhostCount: 99);
+
+            Assert.Equal(2, snap.activeGhostCount);
+            Assert.Equal(1, snap.activeOverlapGhostCount);
+            Assert.Equal(1, snap.fullGhostCount);
             Assert.Equal(1, snap.hiddenGhostCount);
             Assert.Equal(1, snap.watchedOverrideGhostCount);
         }

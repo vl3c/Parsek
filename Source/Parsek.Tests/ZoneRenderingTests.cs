@@ -259,6 +259,42 @@ namespace Parsek.Tests
                 protectedIndex: 5, currentIndex: 3));
         }
 
+        [Fact]
+        public void IsProtectedGhost_ExactCycleMatch_ReturnsTrue()
+        {
+            Assert.True(GhostPlaybackLogic.IsProtectedGhost(
+                protectedIndex: 5, protectedLoopCycleIndex: 12,
+                currentIndex: 5, currentLoopCycleIndex: 12));
+        }
+
+        [Fact]
+        public void IsProtectedGhost_DifferentCycle_ReturnsFalse()
+        {
+            Assert.False(GhostPlaybackLogic.IsProtectedGhost(
+                protectedIndex: 5, protectedLoopCycleIndex: 12,
+                currentIndex: 5, currentLoopCycleIndex: 11));
+        }
+
+        [Fact]
+        public void ShouldApplyWarpZoneHideExemption_BeyondOrbitalGhost_ReturnsTrue()
+        {
+            Assert.True(GhostPlaybackLogic.ShouldApplyWarpZoneHideExemption(
+                shouldHideMesh: true,
+                zone: RenderingZone.Beyond,
+                currentWarpRate: 10f,
+                hasOrbitalSegments: true));
+        }
+
+        [Fact]
+        public void ShouldApplyWarpZoneHideExemption_HiddenTierVisualGhost_ReturnsFalse()
+        {
+            Assert.False(GhostPlaybackLogic.ShouldApplyWarpZoneHideExemption(
+                shouldHideMesh: true,
+                zone: RenderingZone.Visual,
+                currentWarpRate: 10f,
+                hasOrbitalSegments: true));
+        }
+
         #endregion
 
         #region Looped Ghost Spawn Gating

@@ -287,6 +287,7 @@ namespace Parsek
                     engine.ghostStates,
                     engine.overlapGhosts,
                     flight.WatchedRecordingIndexForDiagnostics,
+                    flight.WatchedLoopCycleIndexForDiagnostics,
                     DiagnosticsState.playbackBudget.ghostsProcessed);
             }
             else
@@ -512,6 +513,7 @@ namespace Parsek
             IReadOnlyDictionary<int, GhostPlaybackState> primaryStates,
             IReadOnlyDictionary<int, List<GhostPlaybackState>> overlapStates,
             int watchedIndex,
+            long watchedLoopCycleIndex,
             int fallbackActiveGhostCount)
         {
             if (primaryStates == null && overlapStates == null)
@@ -527,7 +529,7 @@ namespace Parsek
                     if (kvp.Value == null) continue;
                     snap.activeGhostCount++;
                     AccumulateGhostTierCounts(
-                        kvp.Key, kvp.Value, watchedIndex,
+                        kvp.Key, kvp.Value, watchedIndex, watchedLoopCycleIndex,
                         ref snap.fullGhostCount,
                         ref snap.reducedGhostCount,
                         ref snap.hiddenGhostCount,
@@ -550,7 +552,7 @@ namespace Parsek
                         snap.activeGhostCount++;
                         snap.activeOverlapGhostCount++;
                         AccumulateGhostTierCounts(
-                            kvp.Key, state, watchedIndex,
+                            kvp.Key, state, watchedIndex, watchedLoopCycleIndex,
                             ref snap.fullGhostCount,
                             ref snap.reducedGhostCount,
                             ref snap.hiddenGhostCount,
@@ -568,6 +570,7 @@ namespace Parsek
             int recordingIndex,
             GhostPlaybackState state,
             int watchedIndex,
+            long watchedLoopCycleIndex,
             ref int fullGhostCount,
             ref int reducedGhostCount,
             ref int hiddenGhostCount,
@@ -576,7 +579,9 @@ namespace Parsek
             if (state == null) return;
 
             bool watchedOverrideActive =
-                recordingIndex == watchedIndex &&
+                GhostPlaybackLogic.IsProtectedGhost(
+                    watchedIndex, watchedLoopCycleIndex,
+                    recordingIndex, state.loopCycleIndex) &&
                 state.lastDistance >= DistanceThresholds.PhysicsBubbleMeters;
 
             if (watchedOverrideActive)

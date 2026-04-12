@@ -49,6 +49,18 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Warp-zone hide exemption only applies to true Beyond-zone hiding. It must not
+        /// cancel the 50-120 km hidden-mesh tier introduced by distance LOD.
+        /// </summary>
+        internal static bool ShouldApplyWarpZoneHideExemption(
+            bool shouldHideMesh, RenderingZone zone, float currentWarpRate, bool hasOrbitalSegments)
+        {
+            return shouldHideMesh
+                && zone == RenderingZone.Beyond
+                && ShouldExemptFromZoneHide(currentWarpRate, hasOrbitalSegments);
+        }
+
+        /// <summary>
         /// Returns true if a commit approval dialog should be shown instead of auto-committing (#88).
         /// Triggers when leaving Flight to KSC or Tracking Station with a landed/splashed vessel.
         /// </summary>
@@ -2903,6 +2915,14 @@ namespace Parsek
         internal static bool IsProtectedGhost(int protectedIndex, int currentIndex)
         {
             return protectedIndex == currentIndex;
+        }
+
+        internal static bool IsProtectedGhost(
+            int protectedIndex, long protectedLoopCycleIndex,
+            int currentIndex, long currentLoopCycleIndex)
+        {
+            return protectedIndex == currentIndex
+                && protectedLoopCycleIndex == currentLoopCycleIndex;
         }
 
         #endregion

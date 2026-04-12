@@ -83,6 +83,18 @@ namespace Parsek
         /// </summary>
         internal System.Func<int, bool> IsGhostHeld;
 
+        /// <summary>
+        /// Optional host-supplied exact watched-state predicate. Needed so overlap cycles
+        /// don't inherit watched-only exemptions from the recording index alone.
+        /// </summary>
+        internal System.Func<int, GhostPlaybackState, bool> IsWatchedGhostStateResolver;
+
+        /// <summary>
+        /// Optional host-supplied logical distance resolver. Lets the engine classify hidden
+        /// or inactive ghosts against their current playback position rather than a stale transform.
+        /// </summary>
+        internal System.Func<int, IPlaybackTrajectory, GhostPlaybackState, double, double> ResolvePlaybackDistanceOverride;
+
         // Camera events (engine detects cycle changes, host handles FlightCamera).
         internal event Action<CameraActionEvent> OnLoopCameraAction;
         internal event Action<CameraActionEvent> OnOverlapCameraAction;
@@ -363,17 +375,8 @@ namespace Parsek
 
             if (!ghostActive) return false;
 
-            // Re-show ghost after warp-down (but not if soft cap simplified it)
-            if (!state.ghost.activeSelf && state.currentZone != RenderingZone.Beyond && !state.simplified)
-            {
-                state.ghost.SetActive(true);
-                if (loggedReshow.Add(i))
-                    ParsekLog.Info("Engine", $"Ghost re-shown after warp-down: #{i} \"{traj.VesselName}\"");
-            }
-
             // Zone-based rendering
-            double ghostDist = Vector3d.Distance(ctx.activeVesselPos,
-                (Vector3d)state.ghost.transform.position);
+            double ghostDist = ResolvePlaybackDistance(i, traj, state, ctx.currentUT, ctx.activeVesselPos);
             var zoneResult = positioner.ApplyZoneRendering(i, state, traj, ghostDist, ctx.protectedIndex);
 
             // Flag events spawn permanent world vessels — apply regardless of zone distance (#249).
@@ -592,23 +595,11 @@ namespace Parsek
             }
 
             // Looped ghost distance gating
-            double loopGhostDistance = double.MaxValue;
-            if (ghostActive && state != null && state.ghost != null)
-            {
-                loopGhostDistance = Vector3d.Distance(
-                    (Vector3d)state.ghost.transform.position, ctx.activeVesselPos);
-            }
+            double loopGhostDistance = ResolvePlaybackDistance(
+                index, traj, state, loopUT, ctx.activeVesselPos);
 
-            var (loopShouldSpawn, loopSimplified) =
+            var (_, loopSimplified) =
                 GhostPlaybackLogic.EvaluateLoopedGhostSpawn(loopGhostDistance);
-
-            // Suppress ghost beyond spawn threshold (but not if protected/watched)
-            if (!loopShouldSpawn && ghostActive && ctx.protectedIndex != index)
-            {
-                if (state.ghost.activeSelf)
-                    state.ghost.SetActive(false);
-                return;
-            }
 
             if (!ghostActive)
             {
@@ -639,27 +630,19 @@ namespace Parsek
 
                 ghostActive = true;
             }
-            else if (!state.ghost.activeSelf && state.currentZone != RenderingZone.Beyond && !state.simplified)
-            {
-                state.ghost.SetActive(true);
-                if (loggedReshow.Add(index))
-                    ParsekLog.Info("Engine",
-                        $"Ghost #{index} \"{traj.VesselName}\" (loop) re-shown after warp-down");
-            }
 
             if (state == null || state.ghost == null)
                 return;
 
             // Zone-based rendering
-            double loopZoneDistance = Vector3d.Distance(
-                (Vector3d)state.ghost.transform.position, ctx.activeVesselPos);
+            double loopZoneDistance = ResolvePlaybackDistance(
+                index, traj, state, loopUT, ctx.activeVesselPos);
             var zoneResult = positioner.ApplyZoneRendering(index, state, traj, loopZoneDistance, ctx.protectedIndex);
             if (zoneResult.hiddenByZone)
                 return;
 
             GhostPlaybackLogic.ApplyDistanceLodFidelity(state, zoneResult.reduceFidelity);
-            bool forceWatchedFullFidelity = GhostPlaybackLogic.IsProtectedGhost(
-                ctx.protectedIndex, index);
+            bool forceWatchedFullFidelity = IsWatchedGhostState(index, state, ctx);
             bool skipLoopPartEvents = zoneResult.skipPartEvents || (loopSimplified && !forceWatchedFullFidelity);
             bool effectiveSuppressVisualFx = suppressVisualFx || zoneResult.suppressVisualFx;
 
@@ -768,8 +751,8 @@ namespace Parsek
                 double cycleStartUT = traj.StartUT + lastCycle * cycleDuration;
                 double phase = Math.Max(0, Math.Min(ctx.currentUT - cycleStartUT, duration));
                 double loopUT = traj.StartUT + phase;
-                double primaryDistance = Vector3d.Distance(
-                    (Vector3d)primaryState.ghost.transform.position, ctx.activeVesselPos);
+                double primaryDistance = ResolvePlaybackDistance(
+                    index, traj, primaryState, loopUT, ctx.activeVesselPos);
                 var zoneResult = positioner.ApplyZoneRendering(
                     index, primaryState, traj, primaryDistance, ctx.protectedIndex);
                 if (!zoneResult.hiddenByZone)
@@ -852,8 +835,8 @@ namespace Parsek
 
                 phase = Math.Max(0, Math.Min(phase, duration));
                 double loopUT = traj.StartUT + phase;
-                double overlapDistance = Vector3d.Distance(
-                    (Vector3d)ovState.ghost.transform.position, ctx.activeVesselPos);
+                double overlapDistance = ResolvePlaybackDistance(
+                    index, traj, ovState, loopUT, ctx.activeVesselPos);
                 var zoneResult = positioner.ApplyZoneRendering(
                     index, ovState, traj, overlapDistance, ctx.protectedIndex);
                 if (zoneResult.hiddenByZone)
@@ -1028,6 +1011,37 @@ namespace Parsek
         internal static bool IsAnyWarpActive(FrameContext ctx)
         {
             return GhostPlaybackLogic.IsAnyWarpActive(ctx.warpRateIndex, ctx.warpRate);
+        }
+
+        private bool IsWatchedGhostState(int recordingIndex, GhostPlaybackState state, FrameContext ctx)
+        {
+            if (state == null)
+                return false;
+
+            if (IsWatchedGhostStateResolver != null)
+                return IsWatchedGhostStateResolver(recordingIndex, state);
+
+            return GhostPlaybackLogic.IsProtectedGhost(
+                ctx.protectedIndex, ctx.protectedLoopCycleIndex,
+                recordingIndex, state.loopCycleIndex);
+        }
+
+        private double ResolvePlaybackDistance(
+            int recordingIndex, IPlaybackTrajectory traj, GhostPlaybackState state,
+            double playbackUT, Vector3d activeVesselPos)
+        {
+            if (ResolvePlaybackDistanceOverride != null)
+            {
+                double resolved = ResolvePlaybackDistanceOverride(
+                    recordingIndex, traj, state, playbackUT);
+                if (!double.IsNaN(resolved) && !double.IsInfinity(resolved) && resolved >= 0)
+                    return resolved;
+            }
+
+            if (state != null && state.ghost != null)
+                return Vector3d.Distance((Vector3d)state.ghost.transform.position, activeVesselPos);
+
+            return double.MaxValue;
         }
 
         /// <summary>Whether any time warp is active (reads KSP globals directly — host convenience wrapper).</summary>
