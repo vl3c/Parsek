@@ -6834,6 +6834,9 @@ namespace Parsek
             if (chainRec != null)
                 return chainRec.Points != null && chainRec.Points.Count > 0 ? chainRec : null;
 
+            if (ChainHasStarted(chain, currentUT))
+                return null;
+
             return FindBackgroundRecordingForVessel(
                 committedRecordings, chain.OriginalVesselPid, currentUT);
         }
@@ -6984,47 +6987,66 @@ namespace Parsek
             return null;
         }
 
-        private static List<string> GetPreferredChainTreeIds(GhostChain chain, double currentUT)
+        private static bool ChainHasStarted(GhostChain chain, double currentUT)
         {
-            var ordered = new List<string>();
-            if (chain == null)
-                return ordered;
+            if (chain == null || chain.Links == null)
+                return false;
 
-            string preferredTreeId = null;
-            if (chain.Links != null && chain.Links.Count > 0)
+            for (int i = 0; i < chain.Links.Count; i++)
             {
-                preferredTreeId = chain.Links[0].treeId;
-                for (int i = 0; i < chain.Links.Count; i++)
-                {
-                    if (chain.Links[i].ut <= currentUT + 0.001)
-                        preferredTreeId = chain.Links[i].treeId;
-                    else
-                        break;
-                }
-            }
-            else
-            {
-                preferredTreeId = chain.TipTreeId;
+                if (chain.Links[i].ut <= currentUT + 0.001)
+                    return true;
             }
 
-            AddChainTreeId(ordered, preferredTreeId);
-
-            if (chain.Links != null)
-            {
-                for (int i = 0; i < chain.Links.Count; i++)
-                    AddChainTreeId(ordered, chain.Links[i].treeId);
-            }
-
-            AddChainTreeId(ordered, chain.TipTreeId);
-            return ordered;
+            return false;
         }
 
-        private static void AddChainTreeId(List<string> ordered, string treeId)
+        private bool TryPositionChainFallbackFromRecording(
+            GameObject ghostGO, GhostChain chain, Recording rec, double currentUT)
         {
-            if (ordered == null || string.IsNullOrEmpty(treeId) || ordered.Contains(treeId))
-                return;
+            if (ghostGO == null || chain == null || rec == null)
+                return false;
 
-            ordered.Add(treeId);
+            if (rec.HasOrbitSegments)
+            {
+                bool hasOrbitCoverage = false;
+                for (int s = 0; s < rec.OrbitSegments.Count; s++)
+                {
+                    if (currentUT >= rec.OrbitSegments[s].startUT && currentUT <= rec.OrbitSegments[s].endUT)
+                    {
+                        hasOrbitCoverage = true;
+                        break;
+                    }
+                }
+
+                if (!hasOrbitCoverage)
+                    return false;
+
+                PositionGhostFromOrbitOnly(ghostGO, rec, currentUT,
+                    (int)(chain.OriginalVesselPid * 10000));
+                UpdateChainGhostOrbitIfNeeded(chain, rec.OrbitSegments, currentUT);
+                ParsekLog.VerboseRateLimited("Flight",
+                    "chain-ghost-orbit-" + chain.OriginalVesselPid,
+                    string.Format(CultureInfo.InvariantCulture,
+                        "Chain ghost positioned from orbit: pid={0} rec={1} tree={2} UT={3:F1}",
+                        chain.OriginalVesselPid, rec.RecordingId, rec.TreeId, currentUT));
+                return true;
+            }
+
+            if (rec.SurfacePos.HasValue
+                && currentUT >= rec.StartUT && currentUT <= rec.EndUT)
+            {
+                PositionGhostAtSurface(ghostGO, rec.SurfacePos.Value);
+                ParsekLog.VerboseRateLimited("Flight",
+                    "chain-ghost-surface-" + chain.OriginalVesselPid,
+                    string.Format(CultureInfo.InvariantCulture,
+                        "Chain ghost positioned at surface: pid={0} rec={1} tree={2} body={3}",
+                        chain.OriginalVesselPid, rec.RecordingId, rec.TreeId,
+                        rec.SurfacePos.Value.body));
+                return true;
+            }
+
+            return false;
         }
 
         /// <summary>
@@ -7151,105 +7173,17 @@ namespace Parsek
             if (committed != null)
             {
                 var exactChainRec = FindExactChainRecordingAtUT(committedTrees, chain, currentUT);
-                if (exactChainRec != null)
-                {
-                    if (exactChainRec.HasOrbitSegments)
-                    {
-                        PositionGhostFromOrbitOnly(ghostGO, exactChainRec, currentUT,
-                            (int)(chain.OriginalVesselPid * 10000));
-                        UpdateChainGhostOrbitIfNeeded(chain, exactChainRec.OrbitSegments, currentUT);
-                        positioned = true;
-                        ParsekLog.VerboseRateLimited("Flight",
-                            "chain-ghost-orbit-" + chain.OriginalVesselPid,
-                            string.Format(CultureInfo.InvariantCulture,
-                                "Chain ghost positioned from orbit: pid={0} rec={1} tree={2} UT={3:F1}",
-                                chain.OriginalVesselPid, exactChainRec.RecordingId,
-                                exactChainRec.TreeId, currentUT));
-                    }
-                    else if (exactChainRec.SurfacePos.HasValue)
-                    {
-                        PositionGhostAtSurface(ghostGO, exactChainRec.SurfacePos.Value);
-                        positioned = true;
-                        ParsekLog.VerboseRateLimited("Flight",
-                            "chain-ghost-surface-" + chain.OriginalVesselPid,
-                            string.Format(CultureInfo.InvariantCulture,
-                                "Chain ghost positioned at surface: pid={0} rec={1} tree={2} body={3}",
-                                chain.OriginalVesselPid, exactChainRec.RecordingId,
-                                exactChainRec.TreeId, exactChainRec.SurfacePos.Value.body));
-                    }
-                }
+                positioned = TryPositionChainFallbackFromRecording(
+                    ghostGO, chain, exactChainRec, currentUT);
 
-                var preferredTreeIds = GetPreferredChainTreeIds(chain, currentUT);
-                for (int t = 0; t < preferredTreeIds.Count && !positioned; t++)
-                {
-                    string treeId = preferredTreeIds[t];
-                    for (int i = 0; i < committed.Count; i++)
-                    {
-                        var rec = committed[i];
-                        if (rec.TreeId != treeId || rec.VesselPersistentId != chain.OriginalVesselPid)
-                            continue;
-
-                        if (rec.HasOrbitSegments)
-                        {
-                            PositionGhostFromOrbitOnly(ghostGO, rec, currentUT,
-                                (int)(chain.OriginalVesselPid * 10000));
-                            UpdateChainGhostOrbitIfNeeded(chain, rec.OrbitSegments, currentUT);
-                            positioned = true;
-                            ParsekLog.VerboseRateLimited("Flight",
-                                "chain-ghost-orbit-" + chain.OriginalVesselPid,
-                                string.Format(CultureInfo.InvariantCulture,
-                                    "Chain ghost positioned from orbit: pid={0} rec={1} tree={2} UT={3:F1}",
-                                    chain.OriginalVesselPid, rec.RecordingId, rec.TreeId, currentUT));
-                            break;
-                        }
-
-                        if (rec.SurfacePos.HasValue)
-                        {
-                            PositionGhostAtSurface(ghostGO, rec.SurfacePos.Value);
-                            positioned = true;
-                            ParsekLog.VerboseRateLimited("Flight",
-                                "chain-ghost-surface-" + chain.OriginalVesselPid,
-                                string.Format(CultureInfo.InvariantCulture,
-                                    "Chain ghost positioned at surface: pid={0} rec={1} tree={2} body={3}",
-                                    chain.OriginalVesselPid, rec.RecordingId, rec.TreeId,
-                                    rec.SurfacePos.Value.body));
-                            break;
-                        }
-                    }
-                }
-
-                for (int i = 0; i < committed.Count && !positioned; i++)
+                bool chainHasStarted = ChainHasStarted(chain, currentUT);
+                for (int i = 0; i < committed.Count && !positioned && !chainHasStarted; i++)
                 {
                     var rec = committed[i];
                     if (rec.VesselPersistentId != chain.OriginalVesselPid)
                         continue;
-
-                    if (rec.HasOrbitSegments)
-                    {
-                        PositionGhostFromOrbitOnly(ghostGO, rec, currentUT,
-                            (int)(chain.OriginalVesselPid * 10000));
-                        UpdateChainGhostOrbitIfNeeded(chain, rec.OrbitSegments, currentUT);
-                        positioned = true;
-                        ParsekLog.VerboseRateLimited("Flight",
-                            "chain-ghost-orbit-" + chain.OriginalVesselPid,
-                            string.Format(CultureInfo.InvariantCulture,
-                                "Chain ghost positioned from orbit: pid={0} rec={1} tree={2} UT={3:F1}",
-                                chain.OriginalVesselPid, rec.RecordingId, rec.TreeId, currentUT));
-                        break;
-                    }
-
-                    if (rec.SurfacePos.HasValue)
-                    {
-                        PositionGhostAtSurface(ghostGO, rec.SurfacePos.Value);
-                        positioned = true;
-                        ParsekLog.VerboseRateLimited("Flight",
-                            "chain-ghost-surface-" + chain.OriginalVesselPid,
-                            string.Format(CultureInfo.InvariantCulture,
-                                "Chain ghost positioned at surface: pid={0} rec={1} tree={2} body={3}",
-                                chain.OriginalVesselPid, rec.RecordingId, rec.TreeId,
-                                rec.SurfacePos.Value.body));
-                        break;
-                    }
+                    positioned = TryPositionChainFallbackFromRecording(
+                        ghostGO, chain, rec, currentUT);
                 }
             }
 

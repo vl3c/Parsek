@@ -439,6 +439,48 @@ namespace Parsek.Tests
         }
 
         /// <summary>
+        /// After a chain has started, a missing exact chain-path recording must not reopen
+        /// the old global PID-only lookup, or an unrelated alternate history can take over.
+        /// Guards: post-claim gaps stay unresolved instead of selecting another tree's data.
+        /// </summary>
+        [Fact]
+        public void FindBackgroundRecordingForChain_PostClaimGap_DoesNotFallbackGlobal()
+        {
+            var altRec = MakeRecordingWithPoints("bg-alt", 100, 1000, 1300);
+            var altTree = MakeTree("tree-alt", new[] { altRec }, null);
+
+            var claimRec = MakeRecordingNoPoints("R1", 50, 1000, 1060);
+            claimRec.ChildBranchPointId = "bp-dock";
+            var chainRec = MakeRecordingWithPoints("bg-chain", 100, 1060, 1100);
+            chainRec.ParentBranchPointId = "bp-dock";
+            var chainTree = MakeTree("tree-1", new[] { claimRec, chainRec },
+                new[]
+                {
+                    MakeBranchPoint("bp-dock", BranchPointType.Dock, 1060, 100,
+                        new[] { "R1" }, new[] { "bg-chain" })
+                });
+
+            var recordings = new List<Recording> { altRec, claimRec, chainRec };
+            var trees = new List<RecordingTree> { altTree, chainTree };
+            var chain = new GhostChain
+            {
+                OriginalVesselPid = 100,
+                TipTreeId = "tree-1"
+            };
+            chain.Links.Add(new ChainLink
+            {
+                recordingId = "R1",
+                treeId = "tree-1",
+                ut = 1060,
+                interactionType = "MERGE"
+            });
+
+            var result = ParsekFlight.FindBackgroundRecordingForChain(recordings, trees, chain, 1150);
+
+            Assert.Null(result);
+        }
+
+        /// <summary>
         /// When two branches in the same tree both claim the same vessel PID, chain
         /// trajectory resolution must follow the active branch's link path instead of
         /// picking an arbitrary same-tree recording by PID.
