@@ -592,6 +592,7 @@ namespace Parsek
             if (sets.activeEngineKeys == null) return;
 
             int skippedZeroThrottle = 0;
+            int idleSentinels = 0;
             foreach (ulong key in sets.activeEngineKeys)
             {
                 uint pid; int midx;
@@ -608,6 +609,9 @@ namespace Parsek
                 {
                     skippedZeroThrottle++;
                     ParsekLog.Verbose(logTag, $"Seed event skipped: EngineIgnited pid={pid} midx={midx} throttle={throttle.ToString("F2", CultureInfo.InvariantCulture)} (idle engine, #165) part='{NameFor(pid)}'");
+                    EmitEngineShutdownSentinel(events, startUT, pid, midx, NameFor, logTag,
+                        "idle engine — prevents orphan auto-start");
+                    idleSentinels++;
                     continue;
                 }
 
@@ -625,6 +629,9 @@ namespace Parsek
 
             if (skippedZeroThrottle > 0)
                 ParsekLog.Info(logTag, $"Skipped {skippedZeroThrottle} zero-throttle engine seed event(s) (#165)");
+            if (idleSentinels > 0)
+                ParsekLog.Info(logTag,
+                    $"Emitted {idleSentinels} EngineShutdown sentinel(s) for idle zero-throttle engines (#165/#298)");
 
             // Emit EngineShutdown sentinels for engines present on the vessel but NOT
             // active. This prevents the playback Count==0 auto-start heuristic from
@@ -639,19 +646,9 @@ namespace Parsek
                         continue; // active engine — already handled above
                     uint pid; int midx;
                     FlightRecorder.DecodeEngineKey(key, out pid, out midx);
-                    events.Add(new PartEvent
-                    {
-                        ut = startUT,
-                        partPersistentId = pid,
-                        eventType = PartEventType.EngineShutdown,
-                        partName = NameFor(pid),
-                        value = 0f,
-                        moduleIndex = midx
-                    });
+                    EmitEngineShutdownSentinel(events, startUT, pid, midx, NameFor, logTag,
+                        "engine present but not operational — prevents orphan auto-start");
                     sentinels++;
-                    ParsekLog.Verbose(logTag,
-                        $"Seed event: EngineShutdown sentinel pid={pid} midx={midx} " +
-                        $"(engine present but not operational — prevents orphan auto-start)");
                 }
                 if (sentinels > 0)
                     ParsekLog.Info(logTag, $"Emitted {sentinels} EngineShutdown sentinel(s) for dead engines (#298)");
@@ -667,6 +664,23 @@ namespace Parsek
         internal static bool ShouldSkipZeroThrottleEngineSeed(float throttle)
         {
             return throttle <= 0f;
+        }
+
+        private static void EmitEngineShutdownSentinel(
+            List<PartEvent> events, double startUT, uint pid, int midx,
+            System.Func<uint, string> NameFor, string logTag, string reason)
+        {
+            events.Add(new PartEvent
+            {
+                ut = startUT,
+                partPersistentId = pid,
+                eventType = PartEventType.EngineShutdown,
+                partName = NameFor(pid),
+                value = 0f,
+                moduleIndex = midx
+            });
+            ParsekLog.Verbose(logTag,
+                $"Seed event: EngineShutdown sentinel pid={pid} midx={midx} ({reason})");
         }
 
         /// <summary>
@@ -730,8 +744,9 @@ namespace Parsek
         /// <summary>
         /// All engine keys present on the vessel (active + inactive). Populated by
         /// SeedEngines. Used by EmitEngineSeedEvents to emit EngineShutdown sentinels
-        /// for dead engines, preventing the playback Count==0 auto-start heuristic
-        /// from incorrectly firing on debris with depleted-fuel engines (#298).
+        /// for dead or idle-zero-throttle engines, preventing the playback Count==0
+        /// auto-start heuristic from incorrectly firing on debris engines that
+        /// should start visually off (#165/#298).
         /// </summary>
         public HashSet<ulong> allEngineKeys = new HashSet<ulong>();
     }

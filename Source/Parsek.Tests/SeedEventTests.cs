@@ -498,14 +498,16 @@ namespace Parsek.Tests
             var result = PartStateSeeder.EmitSeedEvents(sets, names, 19500.0, "Test");
 
             Assert.DoesNotContain(result, e => e.eventType == PartEventType.EngineIgnited && e.partPersistentId == pid);
+            Assert.Contains(result, e => e.eventType == PartEventType.EngineShutdown && e.partPersistentId == pid);
             Assert.Contains(logLines, l => l.Contains("Seed event skipped") && l.Contains("pid=4100") && l.Contains("#165"));
         }
 
         [Fact]
-        public void EmitSeedEvents_ActiveEngine_ZeroThrottle_SkippedWithLog()
+        public void EmitSeedEvents_ActiveEngine_ZeroThrottle_EmitsShutdownSentinel()
         {
             // #165: engine ignited at throttle=0 (staged but idle on pad) should NOT
-            // emit a seed event — prevents plume flash-off at playback start
+            // emit EngineIgnited, but it must still emit an engine event so playback
+            // does not auto-start debris FX as if the engine were running.
             var sets = MakeEmptySets();
             uint pid = 4200u;
             int midx = 0;
@@ -517,7 +519,10 @@ namespace Parsek.Tests
             var result = PartStateSeeder.EmitSeedEvents(sets, names, 19600.0, "Test");
 
             Assert.DoesNotContain(result, e => e.eventType == PartEventType.EngineIgnited && e.partPersistentId == pid);
+            var shutdown = Assert.Single(result.Where(e => e.eventType == PartEventType.EngineShutdown && e.partPersistentId == pid));
+            Assert.Equal(0f, shutdown.value);
             Assert.Contains(logLines, l => l.Contains("Seed event skipped") && l.Contains("pid=4200") && l.Contains("throttle=0") && l.Contains("#165"));
+            Assert.Contains(logLines, l => l.Contains("EngineShutdown sentinel") && l.Contains("pid=4200") && l.Contains("idle engine"));
             Assert.Contains(logLines, l => l.Contains("Skipped 1 zero-throttle engine seed"));
         }
 
