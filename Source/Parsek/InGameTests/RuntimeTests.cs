@@ -1031,7 +1031,7 @@ namespace Parsek.InGameTests
         }
 
         [InGameTest(Category = "SaveLoad",
-            Description = "Current-format committed recordings probe as BinaryV2 .prec sidecars")]
+            Description = "Current-format committed recordings probe as BinaryV3 .prec sidecars")]
         public void CurrentFormatTrajectorySidecarsProbeAsBinary()
         {
             if (string.IsNullOrEmpty(HighLogic.SaveFolder))
@@ -1055,8 +1055,8 @@ namespace Parsek.InGameTests
                 TrajectorySidecarProbe probe;
                 InGameAssert.IsTrue(RecordingStore.TryProbeTrajectorySidecar(precPath, out probe),
                     $"Could not probe .prec sidecar for current-format recording '{rec.RecordingId}'");
-                InGameAssert.AreEqual(TrajectorySidecarEncoding.BinaryV2, probe.Encoding,
-                    $"Current-format recording '{rec.RecordingId}' should use BinaryV2 sidecar encoding");
+                InGameAssert.AreEqual(TrajectorySidecarEncoding.BinaryV3, probe.Encoding,
+                    $"Current-format recording '{rec.RecordingId}' should use BinaryV3 sidecar encoding");
                 InGameAssert.AreEqual(rec.RecordingFormatVersion, probe.FormatVersion,
                     $"Current-format recording '{rec.RecordingId}' should keep its on-disk format version");
                 checkedCount++;

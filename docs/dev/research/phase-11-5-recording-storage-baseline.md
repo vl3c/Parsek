@@ -46,6 +46,26 @@ Even after the `v1` / alias changes, `.prec` remains a large enough bucket to ju
 format work because it still stores verbose text scalars and repeated key names for every point,
 event, and section boundary.
 
+## Post-Slice-5 Format Status
+
+Current-format recordings now write `.prec` sidecars as binary `v3`.
+
+- `v3` keeps the exact scalar encoding from `v2`
+- `v3` adds conservative sparse defaults for repeated per-point `bodyName`, `funds`, `science`,
+  and `reputation`
+- the sparse path only activates when it saves bytes for that specific point list
+- this slice is still lossless: no quantization, no sampler changes, and no gameplay-facing data
+  drops
+
+The regression corpus now proves two size relations:
+
+1. binary `v2` is smaller than equivalent text `v1`
+2. sparse binary `v3` is smaller than equivalent legacy binary `v2` when those fields are stable
+
+Fresh live-corpus numbers for `v3` are still pending. The next rebaseline should use the latest
+collected playtest package, including the extra recordings present in
+`logs/2026-04-12_1549_storage-followup-playtest/`.
+
 ## Current Format Pressure Points
 
 The current `version = 0` `.prec` format is plain-text `ConfigNode` data.

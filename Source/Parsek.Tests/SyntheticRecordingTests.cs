@@ -4665,7 +4665,7 @@ namespace Parsek.Tests
                 Assert.True(File.Exists(precPath), $"Expected .prec file at {precPath}");
                 TrajectorySidecarProbe probe;
                 Assert.True(RecordingStore.TryProbeTrajectorySidecar(precPath, out probe));
-                Assert.Equal(TrajectorySidecarEncoding.BinaryV2, probe.Encoding);
+                Assert.Equal(TrajectorySidecarEncoding.BinaryV3, probe.Encoding);
                 Assert.Equal(id, probe.RecordingId);
 
                 var restored = new Recording { RecordingId = id };

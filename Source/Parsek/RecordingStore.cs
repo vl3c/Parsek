@@ -53,10 +53,11 @@ namespace Parsek
     /// </summary>
     public static class RecordingStore
     {
-        public const int CurrentRecordingFormatVersion = 2;
+        public const int CurrentRecordingFormatVersion = 3;
         // v0: initial release format
         // v1: track sections become authoritative on disk when present; flat lists rebuild on load
         // v2: binary .prec sidecars with header dispatch, exact scalar storage, and file-level string tables
+        // v3: binary .prec sparse point defaults for stable body/career fields, still exact on load
 
         // When true, suppresses logging calls (for unit testing outside Unity)
         internal static bool SuppressLogging;
@@ -4090,7 +4091,7 @@ namespace Parsek
                 if (binaryProbeOk && !SuppressLogging)
                 {
                     ParsekLog.Verbose("RecordingStore",
-                        $"TryProbeTrajectorySidecar: encoding=BinaryV2 version={probe.FormatVersion} " +
+                        $"TryProbeTrajectorySidecar: encoding={probe.Encoding} version={probe.FormatVersion} " +
                         $"recording={probe.RecordingId} sidecarEpoch={probe.SidecarEpoch}");
                     if (!probe.Supported)
                     {
@@ -4138,7 +4139,8 @@ namespace Parsek
 
         internal static void DeserializeTrajectorySidecar(string path, TrajectorySidecarProbe probe, Recording rec)
         {
-            if (probe.Encoding == TrajectorySidecarEncoding.BinaryV2)
+            if (probe.Encoding == TrajectorySidecarEncoding.BinaryV2 ||
+                probe.Encoding == TrajectorySidecarEncoding.BinaryV3)
             {
                 TrajectorySidecarBinary.Read(path, rec, probe);
                 return;
@@ -4159,7 +4161,11 @@ namespace Parsek
 
         internal static string GetTrajectorySidecarEncodingLabel(int recordingFormatVersion)
         {
-            return recordingFormatVersion >= 2 ? "BinaryV2" : "TextConfigNode";
+            if (recordingFormatVersion >= 3)
+                return "BinaryV3";
+            if (recordingFormatVersion >= 2)
+                return "BinaryV2";
+            return "TextConfigNode";
         }
 
         private static void SafeWriteConfigNode(ConfigNode node, string path)

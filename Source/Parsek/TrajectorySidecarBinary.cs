@@ -9,7 +9,8 @@ namespace Parsek
     internal enum TrajectorySidecarEncoding
     {
         TextConfigNode = 0,
-        BinaryV2 = 1
+        BinaryV2 = 1,
+        BinaryV3 = 2
     }
 
     internal struct TrajectorySidecarProbe
@@ -27,8 +28,18 @@ namespace Parsek
     internal static class TrajectorySidecarBinary
     {
         private static readonly byte[] Magic = Encoding.ASCII.GetBytes("PRKB");
-        private const int SupportedBinaryVersion = 2;
+        private const int LegacyBinaryVersion = 2;
+        private const int CurrentBinaryVersion = 3;
         private const byte FlagSectionAuthoritative = 1 << 0;
+        private const byte SparsePointListFlagEnabled = 1 << 0;
+        private const byte SparsePointListFlagBodyDefault = 1 << 1;
+        private const byte SparsePointListFlagFundsDefault = 1 << 2;
+        private const byte SparsePointListFlagScienceDefault = 1 << 3;
+        private const byte SparsePointListFlagReputationDefault = 1 << 4;
+        private const byte SparsePointOverrideBody = 1 << 0;
+        private const byte SparsePointOverrideFunds = 1 << 1;
+        private const byte SparsePointOverrideScience = 1 << 2;
+        private const byte SparsePointOverrideReputation = 1 << 3;
 
         internal static bool HasBinaryMagic(string path)
         {
@@ -84,11 +95,11 @@ namespace Parsek
                 string recordingId = reader.ReadString();
 
                 probe.Success = true;
-                probe.Encoding = TrajectorySidecarEncoding.BinaryV2;
+                probe.Encoding = GetBinaryEncoding(formatVersion);
                 probe.FormatVersion = formatVersion;
                 probe.SidecarEpoch = sidecarEpoch;
                 probe.RecordingId = recordingId;
-                probe.Supported = formatVersion == SupportedBinaryVersion;
+                probe.Supported = formatVersion == LegacyBinaryVersion || formatVersion == CurrentBinaryVersion;
                 probe.FailureReason = probe.Supported
                     ? null
                     : $"unsupported binary trajectory version {formatVersion}";
@@ -103,12 +114,16 @@ namespace Parsek
 
             bool sectionAuthoritative = rec.TrackSections != null && rec.TrackSections.Count > 0;
             var table = BuildStringTable(rec);
+            int binaryVersion = rec.RecordingFormatVersion >= CurrentBinaryVersion
+                ? CurrentBinaryVersion
+                : LegacyBinaryVersion;
+            SparsePointWriteStats stats = default(SparsePointWriteStats);
 
             using (var stream = new MemoryStream())
             using (var writer = new BinaryWriter(stream, Encoding.UTF8))
             {
                 writer.Write(Magic);
-                writer.Write(SupportedBinaryVersion);
+                writer.Write(binaryVersion);
                 writer.Write(sidecarEpoch);
                 writer.Write(rec.RecordingId ?? string.Empty);
                 writer.Write(sectionAuthoritative ? FlagSectionAuthoritative : (byte)0);
@@ -117,12 +132,12 @@ namespace Parsek
                 for (int i = 0; i < table.Strings.Count; i++)
                     writer.Write(table.Strings[i] ?? string.Empty);
 
-                WritePointList(writer, sectionAuthoritative ? null : rec.Points, table);
+                WritePointList(writer, sectionAuthoritative ? null : rec.Points, table, binaryVersion, ref stats);
                 WriteOrbitSegmentList(writer, sectionAuthoritative ? null : rec.OrbitSegments, table);
                 WritePartEventList(writer, rec.PartEvents, table);
                 WriteFlagEventList(writer, rec.FlagEvents, table);
                 WriteSegmentEventList(writer, rec.SegmentEvents, table);
-                WriteTrackSections(writer, rec.TrackSections, table);
+                WriteTrackSections(writer, rec.TrackSections, table, binaryVersion, ref stats);
                 writer.Flush();
 
                 FileIOUtils.SafeWriteBytes(stream.ToArray(), path, "RecordingStore");
@@ -132,10 +147,13 @@ namespace Parsek
             {
                 int nonDefaultSectionSources = CountNonDefaultSectionSources(rec.TrackSections);
                 ParsekLog.Verbose("RecordingStore",
-                    $"WriteBinaryTrajectoryFile: recording={rec.RecordingId} version={SupportedBinaryVersion} " +
+                    $"WriteBinaryTrajectoryFile: recording={rec.RecordingId} version={binaryVersion} " +
                     $"sectionAuthoritative={sectionAuthoritative} strings={table.Strings.Count} " +
                     $"points={(sectionAuthoritative ? 0 : rec.Points.Count)} orbitSegments={(sectionAuthoritative ? 0 : rec.OrbitSegments.Count)} " +
-                    $"trackSections={rec.TrackSections?.Count ?? 0} nonDefaultSectionSources={nonDefaultSectionSources}");
+                    $"trackSections={rec.TrackSections?.Count ?? 0} nonDefaultSectionSources={nonDefaultSectionSources} " +
+                    $"sparsePointLists={stats.SparsePointLists} sparsePoints={stats.SparsePoints} " +
+                    $"omittedBody={stats.OmittedBody} omittedFunds={stats.OmittedFunds} " +
+                    $"omittedScience={stats.OmittedScience} omittedRep={stats.OmittedReputation}");
             }
         }
 
@@ -161,12 +179,13 @@ namespace Parsek
                 rec.SegmentEvents.Clear();
                 rec.TrackSections.Clear();
 
-                ReadPointList(reader, rec.Points, stringTable);
+                SparsePointReadStats stats = default(SparsePointReadStats);
+                ReadPointList(reader, rec.Points, stringTable, probe.FormatVersion, ref stats);
                 ReadOrbitSegmentList(reader, rec.OrbitSegments, stringTable);
                 ReadPartEventList(reader, rec.PartEvents, stringTable);
                 ReadFlagEventList(reader, rec.FlagEvents, stringTable);
                 ReadSegmentEventList(reader, rec.SegmentEvents, stringTable);
-                ReadTrackSections(reader, rec.TrackSections, stringTable);
+                ReadTrackSections(reader, rec.TrackSections, stringTable, probe.FormatVersion, ref stats);
 
                 rec.RecordingFormatVersion = probe.FormatVersion;
                 if (string.IsNullOrEmpty(rec.RecordingId))
@@ -183,7 +202,9 @@ namespace Parsek
                             $"ReadBinaryTrajectoryFile: recording={rec.RecordingId} version={probe.FormatVersion} " +
                             $"using section-authoritative path sections={rec.TrackSections.Count} rebuiltPoints={rec.Points.Count} " +
                             $"dedupedPointCopies={dedupedPointCopies} rebuiltOrbitSegments={rec.OrbitSegments.Count} " +
-                            $"dedupedOrbitCopies={dedupedOrbitCopies}");
+                            $"dedupedOrbitCopies={dedupedOrbitCopies} sparsePointLists={stats.SparsePointLists} " +
+                            $"defaultedBody={stats.DefaultedBody} defaultedFunds={stats.DefaultedFunds} " +
+                            $"defaultedScience={stats.DefaultedScience} defaultedRep={stats.DefaultedReputation}");
                     }
                 }
                 else if (!RecordingStore.SuppressLogging)
@@ -191,7 +212,9 @@ namespace Parsek
                     ParsekLog.Verbose("RecordingStore",
                         $"ReadBinaryTrajectoryFile: recording={rec.RecordingId} version={probe.FormatVersion} " +
                         $"used flat fallback path points={rec.Points.Count} orbitSegments={rec.OrbitSegments.Count} " +
-                        $"trackSections={rec.TrackSections.Count}");
+                        $"trackSections={rec.TrackSections.Count} sparsePointLists={stats.SparsePointLists} " +
+                        $"defaultedBody={stats.DefaultedBody} defaultedFunds={stats.DefaultedFunds} " +
+                        $"defaultedScience={stats.DefaultedScience} defaultedRep={stats.DefaultedReputation}");
                 }
             }
         }
@@ -268,19 +291,41 @@ namespace Parsek
             return table;
         }
 
-        private static void WritePointList(BinaryWriter writer, List<TrajectoryPoint> points, BinaryStringTable table)
+        private static TrajectorySidecarEncoding GetBinaryEncoding(int version)
+        {
+            return version >= CurrentBinaryVersion
+                ? TrajectorySidecarEncoding.BinaryV3
+                : TrajectorySidecarEncoding.BinaryV2;
+        }
+
+        private static void WritePointList(BinaryWriter writer, List<TrajectoryPoint> points, BinaryStringTable table, int binaryVersion, ref SparsePointWriteStats stats)
         {
             writer.Write(points?.Count ?? 0);
-            if (points == null)
+            if (points == null || points.Count == 0)
                 return;
+
+            if (binaryVersion >= CurrentBinaryVersion)
+            {
+                WriteSparsePointList(writer, points, table, ref stats);
+                return;
+            }
 
             for (int i = 0; i < points.Count; i++)
                 WritePoint(writer, points[i], table);
         }
 
-        private static void ReadPointList(BinaryReader reader, List<TrajectoryPoint> points, List<string> stringTable)
+        private static void ReadPointList(BinaryReader reader, List<TrajectoryPoint> points, List<string> stringTable, int binaryVersion, ref SparsePointReadStats stats)
         {
             int count = reader.ReadInt32();
+            if (count == 0)
+                return;
+
+            if (binaryVersion >= CurrentBinaryVersion)
+            {
+                ReadSparsePointList(reader, points, stringTable, count, ref stats);
+                return;
+            }
+
             for (int i = 0; i < count; i++)
                 points.Add(ReadPoint(reader, stringTable));
         }
@@ -505,7 +550,7 @@ namespace Parsek
             }
         }
 
-        private static void WriteTrackSections(BinaryWriter writer, List<TrackSection> tracks, BinaryStringTable table)
+        private static void WriteTrackSections(BinaryWriter writer, List<TrackSection> tracks, BinaryStringTable table, int binaryVersion, ref SparsePointWriteStats stats)
         {
             writer.Write(tracks?.Count ?? 0);
             if (tracks == null)
@@ -524,12 +569,12 @@ namespace Parsek
                 writer.Write(track.boundaryDiscontinuityMeters);
                 writer.Write(track.minAltitude);
                 writer.Write(track.maxAltitude);
-                WritePointList(writer, track.frames, table);
+                WritePointList(writer, track.frames, table, binaryVersion, ref stats);
                 WriteOrbitSegmentList(writer, track.checkpoints, table);
             }
         }
 
-        private static void ReadTrackSections(BinaryReader reader, List<TrackSection> tracks, List<string> stringTable)
+        private static void ReadTrackSections(BinaryReader reader, List<TrackSection> tracks, List<string> stringTable, int binaryVersion, ref SparsePointReadStats stats)
         {
             int count = reader.ReadInt32();
             for (int i = 0; i < count; i++)
@@ -550,10 +595,285 @@ namespace Parsek
                     checkpoints = new List<OrbitSegment>()
                 };
 
-                ReadPointList(reader, track.frames, stringTable);
+                ReadPointList(reader, track.frames, stringTable, binaryVersion, ref stats);
                 ReadOrbitSegmentList(reader, track.checkpoints, stringTable);
                 tracks.Add(track);
             }
+        }
+
+        private static void WriteSparsePointList(BinaryWriter writer, List<TrajectoryPoint> points, BinaryStringTable table, ref SparsePointWriteStats stats)
+        {
+            SparsePointListPlan plan = BuildSparsePointListPlan(points);
+            writer.Write(plan.ListFlags);
+
+            if (!plan.Enabled)
+            {
+                for (int i = 0; i < points.Count; i++)
+                    WritePoint(writer, points[i], table);
+                return;
+            }
+
+            if (plan.HasBodyDefault)
+                writer.Write(table.GetIndex(plan.DefaultBodyName));
+            if (plan.HasFundsDefault)
+                writer.Write(plan.DefaultFunds);
+            if (plan.HasScienceDefault)
+                writer.Write(plan.DefaultScience);
+            if (plan.HasReputationDefault)
+                writer.Write(plan.DefaultReputation);
+
+            stats.SparsePointLists++;
+            stats.SparsePoints += points.Count;
+
+            for (int i = 0; i < points.Count; i++)
+            {
+                var pt = points[i];
+                writer.Write(pt.ut);
+                writer.Write(pt.latitude);
+                writer.Write(pt.longitude);
+                writer.Write(pt.altitude);
+                writer.Write(pt.rotation.x);
+                writer.Write(pt.rotation.y);
+                writer.Write(pt.rotation.z);
+                writer.Write(pt.rotation.w);
+                writer.Write(pt.velocity.x);
+                writer.Write(pt.velocity.y);
+                writer.Write(pt.velocity.z);
+
+                byte pointFlags = 0;
+                if (plan.HasBodyDefault && !string.Equals(pt.bodyName, plan.DefaultBodyName, StringComparison.Ordinal))
+                    pointFlags |= SparsePointOverrideBody;
+                if (plan.HasFundsDefault && pt.funds != plan.DefaultFunds)
+                    pointFlags |= SparsePointOverrideFunds;
+                if (plan.HasScienceDefault && pt.science != plan.DefaultScience)
+                    pointFlags |= SparsePointOverrideScience;
+                if (plan.HasReputationDefault && pt.reputation != plan.DefaultReputation)
+                    pointFlags |= SparsePointOverrideReputation;
+
+                writer.Write(pointFlags);
+
+                if (plan.HasBodyDefault)
+                {
+                    if ((pointFlags & SparsePointOverrideBody) != 0)
+                        writer.Write(table.GetIndex(pt.bodyName));
+                    else
+                        stats.OmittedBody++;
+                }
+                else
+                {
+                    writer.Write(table.GetIndex(pt.bodyName));
+                }
+
+                if (plan.HasFundsDefault)
+                {
+                    if ((pointFlags & SparsePointOverrideFunds) != 0)
+                        writer.Write(pt.funds);
+                    else
+                        stats.OmittedFunds++;
+                }
+                else
+                {
+                    writer.Write(pt.funds);
+                }
+
+                if (plan.HasScienceDefault)
+                {
+                    if ((pointFlags & SparsePointOverrideScience) != 0)
+                        writer.Write(pt.science);
+                    else
+                        stats.OmittedScience++;
+                }
+                else
+                {
+                    writer.Write(pt.science);
+                }
+
+                if (plan.HasReputationDefault)
+                {
+                    if ((pointFlags & SparsePointOverrideReputation) != 0)
+                        writer.Write(pt.reputation);
+                    else
+                        stats.OmittedReputation++;
+                }
+                else
+                {
+                    writer.Write(pt.reputation);
+                }
+            }
+        }
+
+        private static void ReadSparsePointList(BinaryReader reader, List<TrajectoryPoint> points, List<string> stringTable, int count, ref SparsePointReadStats stats)
+        {
+            byte listFlags = reader.ReadByte();
+            if ((listFlags & SparsePointListFlagEnabled) == 0)
+            {
+                for (int i = 0; i < count; i++)
+                    points.Add(ReadPoint(reader, stringTable));
+                return;
+            }
+
+            string defaultBodyName = null;
+            double defaultFunds = 0;
+            float defaultScience = 0;
+            float defaultReputation = 0;
+
+            bool hasBodyDefault = (listFlags & SparsePointListFlagBodyDefault) != 0;
+            bool hasFundsDefault = (listFlags & SparsePointListFlagFundsDefault) != 0;
+            bool hasScienceDefault = (listFlags & SparsePointListFlagScienceDefault) != 0;
+            bool hasReputationDefault = (listFlags & SparsePointListFlagReputationDefault) != 0;
+
+            if (hasBodyDefault)
+                defaultBodyName = ReadIndexedString(reader, stringTable);
+            if (hasFundsDefault)
+                defaultFunds = reader.ReadDouble();
+            if (hasScienceDefault)
+                defaultScience = reader.ReadSingle();
+            if (hasReputationDefault)
+                defaultReputation = reader.ReadSingle();
+
+            stats.SparsePointLists++;
+            stats.SparsePoints += count;
+
+            for (int i = 0; i < count; i++)
+            {
+                var pt = new TrajectoryPoint
+                {
+                    ut = reader.ReadDouble(),
+                    latitude = reader.ReadDouble(),
+                    longitude = reader.ReadDouble(),
+                    altitude = reader.ReadDouble(),
+                    rotation = new Quaternion(
+                        reader.ReadSingle(),
+                        reader.ReadSingle(),
+                        reader.ReadSingle(),
+                        reader.ReadSingle()),
+                    velocity = new Vector3(
+                        reader.ReadSingle(),
+                        reader.ReadSingle(),
+                        reader.ReadSingle())
+                };
+
+                byte pointFlags = reader.ReadByte();
+
+                if (hasBodyDefault)
+                {
+                    if ((pointFlags & SparsePointOverrideBody) != 0)
+                        pt.bodyName = ReadIndexedString(reader, stringTable);
+                    else
+                    {
+                        pt.bodyName = defaultBodyName;
+                        stats.DefaultedBody++;
+                    }
+                }
+                else
+                {
+                    pt.bodyName = ReadIndexedString(reader, stringTable);
+                }
+
+                if (hasFundsDefault)
+                {
+                    if ((pointFlags & SparsePointOverrideFunds) != 0)
+                        pt.funds = reader.ReadDouble();
+                    else
+                    {
+                        pt.funds = defaultFunds;
+                        stats.DefaultedFunds++;
+                    }
+                }
+                else
+                {
+                    pt.funds = reader.ReadDouble();
+                }
+
+                if (hasScienceDefault)
+                {
+                    if ((pointFlags & SparsePointOverrideScience) != 0)
+                        pt.science = reader.ReadSingle();
+                    else
+                    {
+                        pt.science = defaultScience;
+                        stats.DefaultedScience++;
+                    }
+                }
+                else
+                {
+                    pt.science = reader.ReadSingle();
+                }
+
+                if (hasReputationDefault)
+                {
+                    if ((pointFlags & SparsePointOverrideReputation) != 0)
+                        pt.reputation = reader.ReadSingle();
+                    else
+                    {
+                        pt.reputation = defaultReputation;
+                        stats.DefaultedReputation++;
+                    }
+                }
+                else
+                {
+                    pt.reputation = reader.ReadSingle();
+                }
+
+                points.Add(pt);
+            }
+        }
+
+        private static SparsePointListPlan BuildSparsePointListPlan(List<TrajectoryPoint> points)
+        {
+            var plan = new SparsePointListPlan();
+            if (points == null || points.Count == 0)
+                return plan;
+
+            string bestBody = FindMostCommonString(points, pt => pt.bodyName, out int bodyMatches);
+            double bestFunds = FindMostCommonDouble(points, pt => pt.funds, out int fundsMatches);
+            float bestScience = FindMostCommonFloat(points, pt => pt.science, out int scienceMatches);
+            float bestRep = FindMostCommonFloat(points, pt => pt.reputation, out int repMatches);
+
+            int localNetSavings = 0;
+
+            if (!string.IsNullOrEmpty(bestBody) && ((4 * bodyMatches) - 4) > 0)
+            {
+                plan.HasBodyDefault = true;
+                plan.DefaultBodyName = bestBody;
+                localNetSavings += (4 * bodyMatches) - 4;
+            }
+
+            if (((8 * fundsMatches) - 8) > 0)
+            {
+                plan.HasFundsDefault = true;
+                plan.DefaultFunds = bestFunds;
+                localNetSavings += (8 * fundsMatches) - 8;
+            }
+
+            if (((4 * scienceMatches) - 4) > 0)
+            {
+                plan.HasScienceDefault = true;
+                plan.DefaultScience = bestScience;
+                localNetSavings += (4 * scienceMatches) - 4;
+            }
+
+            if (((4 * repMatches) - 4) > 0)
+            {
+                plan.HasReputationDefault = true;
+                plan.DefaultReputation = bestRep;
+                localNetSavings += (4 * repMatches) - 4;
+            }
+
+            if (localNetSavings <= (points.Count + 1))
+                return plan;
+
+            plan.Enabled = true;
+            plan.ListFlags = SparsePointListFlagEnabled;
+            if (plan.HasBodyDefault)
+                plan.ListFlags |= SparsePointListFlagBodyDefault;
+            if (plan.HasFundsDefault)
+                plan.ListFlags |= SparsePointListFlagFundsDefault;
+            if (plan.HasScienceDefault)
+                plan.ListFlags |= SparsePointListFlagScienceDefault;
+            if (plan.HasReputationDefault)
+                plan.ListFlags |= SparsePointListFlagReputationDefault;
+            return plan;
         }
 
         private static List<string> ReadStringTable(BinaryReader reader)
@@ -596,6 +916,109 @@ namespace Parsek
             }
 
             return count;
+        }
+
+        private static string FindMostCommonString(List<TrajectoryPoint> points, Func<TrajectoryPoint, string> selector, out int matches)
+        {
+            var counts = new Dictionary<string, int>(StringComparer.Ordinal);
+            string best = null;
+            matches = 0;
+
+            for (int i = 0; i < points.Count; i++)
+            {
+                string value = selector(points[i]) ?? string.Empty;
+                int count;
+                counts.TryGetValue(value, out count);
+                count++;
+                counts[value] = count;
+                if (count > matches)
+                {
+                    matches = count;
+                    best = value;
+                }
+            }
+
+            return best;
+        }
+
+        private static double FindMostCommonDouble(List<TrajectoryPoint> points, Func<TrajectoryPoint, double> selector, out int matches)
+        {
+            var counts = new Dictionary<double, int>();
+            double best = 0;
+            matches = 0;
+
+            for (int i = 0; i < points.Count; i++)
+            {
+                double value = selector(points[i]);
+                int count;
+                counts.TryGetValue(value, out count);
+                count++;
+                counts[value] = count;
+                if (count > matches)
+                {
+                    matches = count;
+                    best = value;
+                }
+            }
+
+            return best;
+        }
+
+        private static float FindMostCommonFloat(List<TrajectoryPoint> points, Func<TrajectoryPoint, float> selector, out int matches)
+        {
+            var counts = new Dictionary<float, int>();
+            float best = 0;
+            matches = 0;
+
+            for (int i = 0; i < points.Count; i++)
+            {
+                float value = selector(points[i]);
+                int count;
+                counts.TryGetValue(value, out count);
+                count++;
+                counts[value] = count;
+                if (count > matches)
+                {
+                    matches = count;
+                    best = value;
+                }
+            }
+
+            return best;
+        }
+
+        private struct SparsePointListPlan
+        {
+            public bool Enabled;
+            public byte ListFlags;
+            public bool HasBodyDefault;
+            public string DefaultBodyName;
+            public bool HasFundsDefault;
+            public double DefaultFunds;
+            public bool HasScienceDefault;
+            public float DefaultScience;
+            public bool HasReputationDefault;
+            public float DefaultReputation;
+        }
+
+        private struct SparsePointWriteStats
+        {
+            public int SparsePointLists;
+            public int SparsePoints;
+            public int OmittedBody;
+            public int OmittedFunds;
+            public int OmittedScience;
+            public int OmittedReputation;
+        }
+
+        private struct SparsePointReadStats
+        {
+            public int SparsePointLists;
+            public int SparsePoints;
+            public int DefaultedBody;
+            public int DefaultedFunds;
+            public int DefaultedScience;
+            public int DefaultedReputation;
         }
 
         private sealed class BinaryStringTable
