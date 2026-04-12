@@ -29,6 +29,7 @@ All notable changes to Parsek are documented here.
 - Breakup child recordings now preserve split-time ghost visuals even when the child vessel mutates during the coalescing window, and watch transfers immediately bind/log the new watched cycle/target so debris and secondary-vessel handoff failures are diagnosable from `KSP.log`.
 - Watch-mode observability now logs structured camera-focus summaries and W-button eligibility context, so playback focus and watch-button enable/disable state can be correlated from the same log bundle.
 - Watching a ghost now keeps its loop-synced breakup debris visible even beyond the normal distance-hiding tier, so long-range booster/debris playback no longer disappears just because the camera stayed on the parent vessel.
+- Watched-debris protection now follows same-tree ancestry through branch points as well as loop-sync parents, so secondary breakup fragments inherit the watched ghost's visibility protection even when they are no longer directly loop-synced.
 - Zero-throttle breakup debris now emits `EngineShutdown` sentinels instead of looking like a zero-event orphan-engine recording, so replay no longer auto-starts max-throttle booster FX/audio for staged-off debris.
 - The old warp-only orbital exemption no longer punches through the new `50-120 km` hidden-mesh tier. Orbital ghosts still get the legacy exemption only in the true `Beyond` zone.
 - Entering watch mode now uses the tracked playback distance first, avoiding false "in range" decisions from a hidden ghost's stale transform.

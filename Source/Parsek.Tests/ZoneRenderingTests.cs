@@ -354,6 +354,63 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void IsWatchProtectedRecording_RecursiveDebrisDescendantOfWatchedLineage_ReturnsTrue()
+        {
+            var watched = new Recording
+            {
+                RecordingId = "root",
+                TreeId = "tree1",
+                VesselPersistentId = 100,
+                IsDebris = false
+            };
+            var booster = new Recording
+            {
+                RecordingId = "booster",
+                TreeId = "tree1",
+                VesselPersistentId = 200,
+                IsDebris = true,
+                ParentBranchPointId = "bp-root"
+            };
+            var fragment = new Recording
+            {
+                RecordingId = "fragment",
+                TreeId = "tree1",
+                VesselPersistentId = 201,
+                IsDebris = true,
+                ParentBranchPointId = "bp-booster"
+            };
+
+            var tree = new RecordingTree
+            {
+                Id = "tree1",
+                Recordings = new Dictionary<string, Recording>
+                {
+                    ["root"] = watched,
+                    ["booster"] = booster,
+                    ["fragment"] = fragment
+                },
+                BranchPoints = new List<BranchPoint>
+                {
+                    new BranchPoint
+                    {
+                        Id = "bp-root",
+                        ParentRecordingIds = new List<string> { "root" }
+                    },
+                    new BranchPoint
+                    {
+                        Id = "bp-booster",
+                        ParentRecordingIds = new List<string> { "booster" }
+                    }
+                }
+            };
+
+            var committed = new List<Recording> { watched, booster, fragment };
+
+            Assert.True(GhostPlaybackLogic.IsWatchProtectedRecording(
+                committed, new List<RecordingTree> { tree }, watchedRecordingIndex: 0, currentIndex: 2));
+        }
+
+        [Fact]
         public void ShouldApplyWarpZoneHideExemption_BeyondOrbitalGhost_ReturnsTrue()
         {
             Assert.True(GhostPlaybackLogic.ShouldApplyWarpZoneHideExemption(
