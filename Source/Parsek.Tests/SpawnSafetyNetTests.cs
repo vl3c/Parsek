@@ -912,9 +912,11 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void ResolveSpawnPosition_BreakupContinuousSplashed_NegativeAlt_NoClamp()
+        public void ResolveSpawnPosition_BreakupContinuousSplashed_NegativeAlt_FloorsToZero()
         {
-            // Already at or below sea level — no clamping needed
+            // Bug #313 follow-up: breakup-continuous splashed endpoints use the same
+            // sea-surface floor as EVA/non-breakup spawns. Slightly negative altitudes
+            // are numerical noise and must be corrected back to 0 before spawn.
             var rec = new Recording
             {
                 VesselSnapshot = new ConfigNode("VESSEL"),
@@ -926,7 +928,8 @@ namespace Parsek.Tests
             var lastPt = new TrajectoryPoint { latitude = -0.12, longitude = -73.72, altitude = -1.5 };
             VesselSpawner.ResolveSpawnPosition(rec, 13, lastPt, out double lat, out double lon, out double alt);
 
-            Assert.Equal(-1.5, alt);
+            Assert.Equal(0.0, alt);
+            Assert.Contains(logLines, l => l.Contains("Clamped altitude") && l.Contains("SPLASHED"));
         }
 
         [Fact]
@@ -956,6 +959,36 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void ResolveSpawnPosition_NonBreakupSplashed_NegativeSnapshotAltitude_FloorsToSeaLevel()
+        {
+            // The splashed safety net must also floor slightly negative snapshot altitudes,
+            // not just positive ones, for non-breakup snapshot-based spawns.
+            var snapshot = new ConfigNode("VESSEL");
+            snapshot.AddValue("lat", "-0.12");
+            snapshot.AddValue("lon", "-73.72");
+            snapshot.AddValue("alt", "-0.25");
+
+            var rec = new Recording
+            {
+                VesselSnapshot = snapshot,
+                EvaCrewName = null,
+                ChildBranchPointId = null,
+                TerminalStateValue = TerminalState.Splashed,
+                VesselName = "Snapshot Floater"
+            };
+
+            var lastPt = new TrajectoryPoint { latitude = 0, longitude = 0, altitude = 0 };
+            VesselSpawner.ResolveSpawnPosition(rec, 6, lastPt, out double lat, out double lon, out double alt);
+
+            Assert.Equal(-0.12, lat);
+            Assert.Equal(-73.72, lon);
+            Assert.Equal(0.0, alt);
+            Assert.Contains(logLines, l =>
+                l.Contains("Clamped altitude for SPLASHED spawn #6")
+                && l.Contains("Snapshot Floater"));
+        }
+
+        [Fact]
         public void ResolveSpawnPosition_EvaLanded_FallsThroughToSplashedClamp()
         {
             // EVA recordings previously returned early, bypassing altitude clamping.
@@ -974,6 +1007,38 @@ namespace Parsek.Tests
             Assert.Equal(10.0, lon);
             Assert.Equal(0.0, alt);
             Assert.Contains(logLines, l => l.Contains("Clamped altitude") && l.Contains("SPLASHED"));
+        }
+
+        [Fact]
+        public void ResolveSpawnPosition_EvaSplashed_NegativeEndpointAltitude_FloorsToSeaLevel()
+        {
+            // Bug #313: splashed EVA endpoints can land slightly below sea level due to
+            // the recorded final trajectory sample. The spawn safety net must floor those
+            // negative values back to the water surface before snapshot override/spawn.
+            var rec = new Recording
+            {
+                VesselSnapshot = new ConfigNode("VESSEL"),
+                EvaCrewName = "Raydred Kerman",
+                TerminalStateValue = TerminalState.Splashed,
+                VesselName = "Raydred Kerman"
+            };
+
+            var lastPt = new TrajectoryPoint
+            {
+                latitude = 1.25,
+                longitude = -74.5,
+                altitude = -0.213434,
+                bodyName = "Kerbin"
+            };
+
+            VesselSpawner.ResolveSpawnPosition(rec, 25, lastPt, out double lat, out double lon, out double alt);
+
+            Assert.Equal(1.25, lat);
+            Assert.Equal(-74.5, lon);
+            Assert.Equal(0.0, alt);
+            Assert.Contains(logLines, l =>
+                l.Contains("Clamped altitude for SPLASHED spawn #25")
+                && l.Contains("Raydred Kerman"));
         }
 
         // ── ClampAltitudeForLanded (pure, testable without CelestialBody) ──
