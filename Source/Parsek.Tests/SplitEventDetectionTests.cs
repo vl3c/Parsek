@@ -70,7 +70,7 @@ namespace Parsek.Tests
                 BranchPointType.EVA,
                 backgroundChildIsEva: true,
                 activeSituation: (int)Vessel.Situations.LANDED,
-                activeSrfSpeed: 0.0);
+                backgroundSrfSpeed: 0.0);
 
             Assert.Equal(SegmentEnvironment.SurfaceStationary, result);
         }
@@ -82,9 +82,21 @@ namespace Parsek.Tests
                 BranchPointType.EVA,
                 backgroundChildIsEva: true,
                 activeSituation: (int)Vessel.Situations.LANDED,
-                activeSrfSpeed: 2.0);
+                backgroundSrfSpeed: 2.0);
 
             Assert.Equal(SegmentEnvironment.SurfaceMobile, result);
+        }
+
+        [Fact]
+        public void GetEvaBackgroundInitialEnvironmentOverride_UsesBackgroundEvaSpeed()
+        {
+            var result = ParsekFlight.GetEvaBackgroundInitialEnvironmentOverride(
+                BranchPointType.EVA,
+                backgroundChildIsEva: true,
+                activeSituation: (int)Vessel.Situations.LANDED,
+                backgroundSrfSpeed: 0.0);
+
+            Assert.Equal(SegmentEnvironment.SurfaceStationary, result);
         }
 
         [Fact]
@@ -94,7 +106,7 @@ namespace Parsek.Tests
                 BranchPointType.EVA,
                 backgroundChildIsEva: true,
                 activeSituation: (int)Vessel.Situations.FLYING,
-                activeSrfSpeed: 50.0);
+                backgroundSrfSpeed: 50.0);
 
             Assert.Null(result);
         }
@@ -106,7 +118,7 @@ namespace Parsek.Tests
                 BranchPointType.EVA,
                 backgroundChildIsEva: false,
                 activeSituation: (int)Vessel.Situations.LANDED,
-                activeSrfSpeed: 0.0);
+                backgroundSrfSpeed: 0.0);
 
             Assert.Null(result);
         }

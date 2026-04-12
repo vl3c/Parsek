@@ -565,6 +565,42 @@ namespace Parsek.Tests
             Assert.Equal(SegmentEnvironment.Atmospheric, result);
         }
 
+        [Fact]
+        public void Classify_AtmosphericEvaAtSeaLevelWithOcean_ReturnsSurface()
+        {
+            var result = EnvironmentDetector.Classify(
+                hasAtmosphere: true,
+                altitude: 0.2,
+                atmosphereDepth: 70000,
+                situation: 8, // FLYING
+                srfSpeed: 0.5,
+                hasActiveThrust: false,
+                isEva: true,
+                heightFromTerrain: 600.0,
+                heightFromTerrainValid: true,
+                hasOcean: true);
+
+            Assert.Equal(SegmentEnvironment.SurfaceMobile, result);
+        }
+
+        [Fact]
+        public void Classify_AtmosphericEvaAboveSeaLevelThreshold_RemainsAtmospheric()
+        {
+            var result = EnvironmentDetector.Classify(
+                hasAtmosphere: true,
+                altitude: 3.0,
+                atmosphereDepth: 70000,
+                situation: 8, // FLYING
+                srfSpeed: 0.5,
+                hasActiveThrust: false,
+                isEva: true,
+                heightFromTerrain: 600.0,
+                heightFromTerrainValid: true,
+                hasOcean: true);
+
+            Assert.Equal(SegmentEnvironment.Atmospheric, result);
+        }
+
         #endregion
 
         #region Classify — Surface takes priority over atmosphere

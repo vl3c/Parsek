@@ -1822,7 +1822,7 @@ namespace Parsek
             BranchPointType branchType,
             bool backgroundChildIsEva,
             int activeSituation,
-            double activeSrfSpeed)
+            double backgroundSrfSpeed)
         {
             if (branchType != BranchPointType.EVA || !backgroundChildIsEva)
                 return null;
@@ -1831,7 +1831,7 @@ namespace Parsek
                 activeSituation == (int)Vessel.Situations.SPLASHED ||
                 activeSituation == (int)Vessel.Situations.PRELAUNCH)
             {
-                return activeSrfSpeed > 0.1
+                return backgroundSrfSpeed > 0.1
                     ? SegmentEnvironment.SurfaceMobile
                     : SegmentEnvironment.SurfaceStationary;
             }
@@ -1981,7 +1981,7 @@ namespace Parsek
                     branchType,
                     backgroundVessel.isEVA,
                     activeVessel != null ? (int)activeVessel.situation : 0,
-                    activeVessel != null ? activeVessel.srfSpeed : 0.0);
+                    backgroundVessel.srfSpeed);
 
                 if (initialBackgroundEnvOverride.HasValue)
                 {

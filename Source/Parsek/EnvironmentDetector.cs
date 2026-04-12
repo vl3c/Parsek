@@ -9,6 +9,7 @@ namespace Parsek
     internal static class EnvironmentDetector
     {
         internal const double AtmosphericEvaNearSurfaceMeters = 5.0;
+        internal const double AtmosphericEvaNearSeaLevelMeters = 1.0;
 
         /// <summary>
         /// Pure classification — no hysteresis, no debounce.
@@ -24,6 +25,7 @@ namespace Parsek
         /// <param name="isEva">true for Kerbal EVA vessels only</param>
         /// <param name="heightFromTerrain">vessel.heightFromTerrain when available</param>
         /// <param name="heightFromTerrainValid">true when heightFromTerrain comes from a valid ground query</param>
+        /// <param name="hasOcean">body.ocean</param>
         internal static SegmentEnvironment Classify(
             bool hasAtmosphere,
             double altitude,
@@ -34,7 +36,8 @@ namespace Parsek
             double approachAltitude = 0,
             bool isEva = false,
             double heightFromTerrain = -1,
-            bool heightFromTerrainValid = false)
+            bool heightFromTerrainValid = false,
+            bool hasOcean = false)
         {
             // Landed/Splashed/Prelaunch -> surface states
             // situation == 1 (LANDED) or situation == 2 (SPLASHED) or situation == 4 (PRELAUNCH)
@@ -50,6 +53,17 @@ namespace Parsek
             // turning actual jetpack flight into a surface segment.
             if (isEva && hasAtmosphere && heightFromTerrainValid &&
                 heightFromTerrain <= AtmosphericEvaNearSurfaceMeters)
+            {
+                return srfSpeed > 0.1
+                    ? SegmentEnvironment.SurfaceMobile
+                    : SegmentEnvironment.SurfaceStationary;
+            }
+
+            // Swimming / bobbing EVA kerbals on atmospheric ocean worlds can jitter out of
+            // SPLASHED while heightFromTerrain still measures the seafloor, not the water
+            // surface. Treat sea-level-adjacent EVA as surface as well.
+            if (isEva && hasAtmosphere && hasOcean &&
+                altitude <= AtmosphericEvaNearSeaLevelMeters)
             {
                 return srfSpeed > 0.1
                     ? SegmentEnvironment.SurfaceMobile

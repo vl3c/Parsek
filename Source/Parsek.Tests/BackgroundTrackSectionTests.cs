@@ -247,6 +247,18 @@ namespace Parsek.Tests
             Assert.Equal(SegmentEnvironment.SurfaceMobile, result);
         }
 
+        [Fact]
+        public void ClassifyBackgroundEnvironment_AtmosphericEvaAtSeaLevelWithOcean_ReturnsSurfaceMobile()
+        {
+            var result = BackgroundRecorder.ClassifyBackgroundEnvironment(
+                hasAtmosphere: true, altitude: 0.2, atmosphereDepth: 70000,
+                situation: 8, srfSpeed: 1.5, cachedEngines: null,
+                isEva: true, heightFromTerrain: 600.0, heightFromTerrainValid: true,
+                hasOcean: true);
+
+            Assert.Equal(SegmentEnvironment.SurfaceMobile, result);
+        }
+
         #endregion
 
         #region Environment transition creates new section

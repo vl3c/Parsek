@@ -3851,7 +3851,8 @@ namespace Parsek
                 hasAtmosphere, v.altitude, atmosphereDepth,
                 (int)v.situation, v.srfSpeed, hasActiveThrust, approachAlt,
                 v.isEVA, v.heightFromTerrain,
-                EnvironmentDetector.IsHeightFromTerrainValid(v.heightFromTerrain));
+                EnvironmentDetector.IsHeightFromTerrainValid(v.heightFromTerrain),
+                v.mainBody != null && v.mainBody.ocean);
         }
 
         /// <summary>

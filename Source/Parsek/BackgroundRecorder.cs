@@ -977,7 +977,8 @@ namespace Parsek
                     hasAtmo, bgVessel.altitude, atmoDepth,
                     (int)bgVessel.situation, bgVessel.srfSpeed, state.cachedEngines, approachAlt,
                     bgVessel.isEVA, bgVessel.heightFromTerrain,
-                    EnvironmentDetector.IsHeightFromTerrainValid(bgVessel.heightFromTerrain));
+                    EnvironmentDetector.IsHeightFromTerrainValid(bgVessel.heightFromTerrain),
+                    bgVessel.mainBody != null && bgVessel.mainBody.ocean);
                 if (state.environmentHysteresis.Update(rawEnv, ut))
                 {
                     var newEnv = state.environmentHysteresis.CurrentEnvironment;
@@ -1767,7 +1768,8 @@ namespace Parsek
                     hasAtmo, v.altitude, atmoDepth,
                     (int)v.situation, v.srfSpeed, state.cachedEngines, approachAlt,
                     v.isEVA, v.heightFromTerrain,
-                    EnvironmentDetector.IsHeightFromTerrainValid(v.heightFromTerrain));
+                    EnvironmentDetector.IsHeightFromTerrainValid(v.heightFromTerrain),
+                    v.mainBody != null && v.mainBody.ocean);
             }
             state.environmentHysteresis = new EnvironmentHysteresis(initialEnv);
             StartBackgroundTrackSection(state, initialEnv, ReferenceFrame.Absolute, ut);
@@ -2083,7 +2085,8 @@ namespace Parsek
             double approachAltitude = 0,
             bool isEva = false,
             double heightFromTerrain = -1,
-            bool heightFromTerrainValid = false)
+            bool heightFromTerrainValid = false,
+            bool hasOcean = false)
         {
             bool hasActiveThrust = false;
             if (cachedEngines != null)
@@ -2103,7 +2106,7 @@ namespace Parsek
             return EnvironmentDetector.Classify(
                 hasAtmosphere, altitude, atmosphereDepth,
                 situation, srfSpeed, hasActiveThrust, approachAltitude,
-                isEva, heightFromTerrain, heightFromTerrainValid);
+                isEva, heightFromTerrain, heightFromTerrainValid, hasOcean);
         }
 
         private bool TryConsumePendingInitialEnvironmentOverride(uint vesselPid, out SegmentEnvironment environment)
