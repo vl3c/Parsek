@@ -897,11 +897,15 @@ namespace Parsek
                     if (!double.IsNaN(raycastSurface))
                     {
                         double above = walkAlt - raycastSurface;
-                        if (above > WalkbackSurfaceSnapThresholdMeters)
+                        // Snap when the candidate is well above the surface (mid-descent
+                        // trajectory point) OR below the surface (physics glitch / recorded
+                        // alt ended up under the real mesh). Review finding: the original
+                        // `above > threshold` check silently passed negative values through.
+                        if (above > WalkbackSurfaceSnapThresholdMeters || above < 0)
                         {
                             double snapped = raycastSurface + WalkbackSurfaceClearanceMeters;
                             ParsekLog.Info("Spawner",
-                                $"Walkback altitude too high above surface for #{index} ({rec.VesselName}): " +
+                                $"Walkback altitude snapping to surface for #{index} ({rec.VesselName}): " +
                                 $"walkAlt={walkAlt.ToString("F1", System.Globalization.CultureInfo.InvariantCulture)} " +
                                 $"raycastSurface={raycastSurface.ToString("F1", System.Globalization.CultureInfo.InvariantCulture)} " +
                                 $"above={above.ToString("F1", System.Globalization.CultureInfo.InvariantCulture)}m " +
@@ -1065,6 +1069,14 @@ namespace Parsek
 
         /// <summary>
         /// Maximum raycast distance. Covers the offset + a margin for deep valleys.
+        /// Combined with <see cref="WalkbackRaycastOriginOffsetMeters"/> this gives a
+        /// practical altitude ceiling of ~1500 m above surface for walkback candidates
+        /// (above that, the ray won't reach the surface and <see cref="TryFindSurfaceAltitudeViaRaycast"/>
+        /// returns NaN, falling back to the PQS safety floor via
+        /// <see cref="ClampAltitudeForLanded"/>). This is fine for the walkback's target
+        /// use case — LANDED terminal trajectories where the final descent happens in
+        /// the last few hundred meters. Higher-altitude sub-orbital walkback candidates
+        /// degrade gracefully to PQS-based clamping.
         /// </summary>
         private const float WalkbackRaycastMaxDistanceMeters = 2500f;
 

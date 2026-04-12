@@ -607,7 +607,12 @@ namespace Parsek
             }
 
             double pqsTerrain = body.TerrainAltitude(tp.latitude, tp.longitude);
-            double safetyFloor = pqsTerrain + 0.5;
+            // Use the shared underground safety floor (2 m) so the snapshot-alt
+            // path matches what ClampAltitudeForLanded would apply downstream.
+            // Review finding: the previous hard-coded 0.5 m value was consistent
+            // only with ApplyLandedGhostClearance (for kinematic ghosts), not
+            // with the spawn path this code serves.
+            double safetyFloor = pqsTerrain + VesselSpawner.UndergroundSafetyFloorMeters;
 
             if (tp.altitude >= safetyFloor)
                 return; // trust recorded altitude

@@ -6472,15 +6472,53 @@ namespace Parsek
                 // is computed by KSP from Physics.Raycast in CheckGroundCollision, so it
                 // accounts for placed colliders — unlike body.TerrainAltitude() which is
                 // PQS-only and returns the raw planetary surface UNDER any mesh object.
-                // Without this, a rover on the Island Airfield records its surface as the
-                // terrain far below the runway, and the ghost/spawn ends up underground.
+                //
+                // CAVEAT (review finding): KSP's Vessel.UpdatePosVel sets
+                //   terrainAltitude = altitude - heightFromTerrain   // raycast path, includes buildings
+                // only when vessel.heightFromTerrain != -1f, which requires the vessel to
+                // be loaded AND unpacked. For a packed vessel it falls through to
+                //   terrainAltitude = pqsAltitude                     // PQS-only path
+                // which is exactly the value we're trying to escape. So if the vessel is
+                // packed at capture time (commit-tree-later flow with a backgrounded
+                // airfield vessel), fall back to firing our own raycast against the same
+                // layer mask KSP uses in GetHeightFromSurface. Covers the mesh-object
+                // case without requiring the vessel to be active.
                 if (vessel.mainBody != null)
                 {
-                    rec.TerrainHeightAtEnd = vessel.terrainAltitude;
+                    double captured;
+                    string source;
+                    if (!vessel.packed)
+                    {
+                        captured = vessel.terrainAltitude;
+                        source = "vessel.terrainAltitude";
+                    }
+                    else
+                    {
+                        double raycastSurface = VesselSpawner.TryFindSurfaceAltitudeViaRaycast(
+                            vessel.mainBody, vessel.latitude, vessel.longitude, vessel.altitude);
+                        if (!double.IsNaN(raycastSurface))
+                        {
+                            captured = raycastSurface;
+                            source = "packed-vessel raycast";
+                        }
+                        else
+                        {
+                            // Last-resort fallback: PQS terrain. Logs a warning so it's visible
+                            // if the mesh-object fix silently degrades on a future recording.
+                            captured = vessel.mainBody.TerrainAltitude(vessel.latitude, vessel.longitude);
+                            source = "PQS fallback";
+                            ParsekLog.Warn("TerrainCorrect",
+                                $"CaptureTerminalPosition: vessel '{vessel.vesselName}' is packed and " +
+                                $"raycast missed — falling back to PQS terrain (may bury mesh-object spawns)");
+                        }
+                    }
+
+                    rec.TerrainHeightAtEnd = captured;
                     double pqs = vessel.mainBody.TerrainAltitude(vessel.latitude, vessel.longitude);
                     ParsekLog.Verbose("TerrainCorrect",
                         $"Captured surface height at recording end: {rec.TerrainHeightAtEnd:F1}m " +
-                        $"(vessel alt={vessel.altitude:F1}m, clearance={vessel.altitude - rec.TerrainHeightAtEnd:F1}m, " +
+                        $"(source={source}, vessel alt={vessel.altitude:F1}m, " +
+                        $"clearance={vessel.altitude - rec.TerrainHeightAtEnd:F1}m, " +
                         $"pqsTerrain={pqs:F1}m, meshOffset={rec.TerrainHeightAtEnd - pqs:F1}m)");
                 }
             }
@@ -7935,9 +7973,8 @@ namespace Parsek
                 double legacyTarget = pqsTerrain + VesselSpawner.LandedGhostClearanceMeters;
                 if (p.altitude >= legacyTarget)
                     return p;
+                // delta is always > 0 here because we already verified p.altitude < legacyTarget.
                 double delta = legacyTarget - p.altitude;
-                if (System.Math.Abs(delta) < 0.01)
-                    return p;
                 ParsekLog.VerboseRateLimited("TerrainCorrect", $"landed-ghost-{index}",
                     $"Landed ghost clamp #{index} (\"{vesselName}\"): " +
                     $"alt={p.altitude.ToString("F1", ic)} pqsTerrain={pqsTerrain.ToString("F1", ic)} " +

@@ -104,8 +104,23 @@ namespace Parsek.Patches
         /// <summary>
         /// Prefix that walks the incoming VesselCrewManifest and replaces any
         /// reserved kerbals with their stand-ins before the UI lists are built.
+        /// Thin wrapper around <see cref="ApplyCrewAssignmentSwaps"/> so the
+        /// body is exercisable from in-game tests without Harmony.
         /// </summary>
         static void Prefix(VesselCrewManifest crewManifest)
+        {
+            ApplyCrewAssignmentSwaps(crewManifest);
+        }
+
+        /// <summary>
+        /// Core swap logic extracted from <c>Prefix</c>. Walks each part manifest
+        /// in <paramref name="crewManifest"/>, and for every occupied seat holding
+        /// a reserved kerbal, swaps the seat for the registered stand-in (or
+        /// clears it if no stand-in is available / already seated elsewhere).
+        /// Pulls its own state (kerbals module, replacements, roster) so callers
+        /// don't have to thread four arguments through the Harmony prefix.
+        /// </summary>
+        internal static void ApplyCrewAssignmentSwaps(VesselCrewManifest crewManifest)
         {
             if (crewManifest == null) return;
 
@@ -123,6 +138,12 @@ namespace Parsek.Patches
 
             foreach (PartCrewManifest pcm in crewManifest.PartManifests)
             {
+                // Defensive null guard (review finding): KSP initializes partCrew
+                // for every part that can host crew, but a custom part with zero
+                // crew capacity or a malformed manifest could theoretically leave
+                // it null. Skip rather than NRE.
+                if (pcm == null || pcm.partCrew == null) continue;
+
                 for (int i = 0; i < pcm.partCrew.Length; i++)
                 {
                     string crewName = pcm.partCrew[i];

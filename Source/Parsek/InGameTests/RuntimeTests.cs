@@ -1434,6 +1434,86 @@ namespace Parsek.InGameTests
                     $"(expected={savedReplacements.Count}, actual={CrewReservationManager.CrewReplacements.Count})");
             }
         }
+
+        [InGameTest(Category = "CrewReservation", Scene = GameScenes.SPACECENTER,
+            Description = "#308 CrewAutoAssignPatch.ApplyCrewAssignmentSwaps replaces reserved crew with stand-ins in a VesselCrewManifest")]
+        public void CrewAutoAssignPatch_SwapsReservedCrew()
+        {
+            // Construct a synthetic VesselCrewManifest with one command pod and
+            // a reserved kerbal pre-assigned (simulating KSP's DefaultCrewForVessel
+            // auto-assign). Then call the extracted ApplyCrewAssignmentSwaps logic
+            // and verify the reserved name was replaced with the registered stand-in.
+
+            var replacements = CrewReservationManager.CrewReplacements;
+            if (replacements.Count == 0)
+            {
+                InGameAssert.Skip("needs at least one active crew reservation to exercise the swap path");
+                return;
+            }
+
+            // Pick a reservation whose stand-in is Available (so the patch can place it).
+            var roster = HighLogic.CurrentGame?.CrewRoster;
+            if (roster == null)
+            {
+                InGameAssert.Skip("No crew roster");
+                return;
+            }
+            string reservedName = null;
+            string standInName = null;
+            foreach (var kvp in replacements)
+            {
+                var pcmStandIn = roster[kvp.Value];
+                if (pcmStandIn != null && pcmStandIn.rosterStatus == ProtoCrewMember.RosterStatus.Available)
+                {
+                    reservedName = kvp.Key;
+                    standInName = kvp.Value;
+                    break;
+                }
+            }
+            if (reservedName == null)
+            {
+                InGameAssert.Skip("no active reservation with an Available stand-in in the roster");
+                return;
+            }
+
+            // Resolve a stock command pod with at least one crew seat. Try v2 first,
+            // then fall back to the original Mk1.
+            AvailablePart pod = PartLoader.getPartInfoByName("mk1pod.v2")
+                ?? PartLoader.getPartInfoByName("mk1pod")
+                ?? PartLoader.getPartInfoByName("Mark1Cockpit");
+            if (pod == null || pod.partPrefab == null || pod.partPrefab.CrewCapacity == 0)
+            {
+                InGameAssert.Skip("no stock crew-capable pod found in PartLoader");
+                return;
+            }
+
+            // Build a minimal SHIP ConfigNode and let VesselCrewManifest.FromConfigNode
+            // construct the manifest. "part" value is "name_id".
+            var shipNode = new ConfigNode("SHIP");
+            var partNode = shipNode.AddNode("PART");
+            partNode.AddValue("part", pod.name + "_12345");
+
+            VesselCrewManifest vcm = VesselCrewManifest.FromConfigNode(shipNode);
+            InGameAssert.IsNotNull(vcm, "FromConfigNode should return a manifest");
+            InGameAssert.AreEqual(1, vcm.PartManifests.Count, "manifest should have exactly one part");
+
+            var pcm = vcm.PartManifests[0];
+            InGameAssert.IsTrue(pcm.partCrew.Length >= 1,
+                $"test pod must have at least one seat (got {pcm.partCrew.Length})");
+
+            // Pre-assign the reserved kerbal into seat 0 (simulating auto-assign).
+            pcm.partCrew[0] = reservedName;
+
+            // Fire the patch logic.
+            Parsek.Patches.CrewAutoAssignPatch.ApplyCrewAssignmentSwaps(vcm);
+
+            // Verify the reserved kerbal is no longer in the seat.
+            InGameAssert.AreNotEqual(reservedName, pcm.partCrew[0],
+                $"Reserved '{reservedName}' should have been removed from seat 0");
+            // Stand-in should have been placed (Available + not already in manifest).
+            InGameAssert.AreEqual(standInName, pcm.partCrew[0],
+                $"Stand-in '{standInName}' should have been placed in seat 0 (got '{pcm.partCrew[0]}')");
+        }
     }
 
     /// <summary>

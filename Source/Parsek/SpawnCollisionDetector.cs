@@ -513,14 +513,23 @@ namespace Parsek
         // ────────────────────────────────────────────────────────────
 
         /// <summary>
-        /// Layer mask for part-collider overlap checks. Matches the default layers
-        /// KSP parts live on (layer 0 = Default, layer 19 = PartTriggers per
-        /// LayerUtil). We deliberately exclude terrain (15) and local scenery (23)
-        /// since building/runway colliders are not blockers — only other vessels
-        /// are. Hit filtering by Part-in-parent-chain is the actual source of
-        /// truth; this mask is a broad first-pass.
+        /// Layer mask for part-collider overlap checks. Matches KSP's own
+        /// <c>LayerUtil.DefaultEquivalent = 0x820001</c> (bits 0, 17, 23) — the
+        /// authoritative "part-bearing layers" mask used inside
+        /// <c>Vessel.CheckGroundCollision</c>, verified against the decompiled
+        /// KSP source. Using KSP's own constant guarantees we'll see every layer
+        /// the game considers a part-ownable surface.
+        ///
+        /// <para>We do NOT widen to include terrain (layer 15) or building
+        /// layers — they aren't part-ownable, and the downstream
+        /// <see cref="FlightGlobals.GetPartUpwardsCached"/> filter would strip
+        /// them anyway. But narrowing the mask keeps the overlap query cheaper
+        /// when spawning near cluttered KSC scenery.</para>
         /// </summary>
-        private const int PartOverlapLayerMask = (1 << 0) | (1 << 17) | (1 << 19);
+        private static int PartOverlapLayerMask
+        {
+            get { return LayerUtil.DefaultEquivalent; }
+        }
 
         /// <summary>
         /// Checks whether a vessel spawned at <paramref name="spawnWorldPos"/> with
@@ -540,7 +549,33 @@ namespace Parsek
             Vector3d spawnWorldPos, Bounds spawnBounds, float padding, bool skipActiveVessel = true,
             uint exemptVesselPid = 0)
         {
-            Vector3 worldCenter = (Vector3)spawnWorldPos + spawnBounds.center;
+            // Compute the surface-aligned rotation for the spawn box. spawnBounds is in
+            // vessel-local space, where the vessel's local Y axis points along the surface
+            // normal (a landed vessel sits "up" from the body). On a curved body that Y
+            // axis is tilted relative to world-Y. FromToRotation maps Vector3.up to the
+            // actual local up at the spawn position, so the OverlapBox's extents are
+            // oriented correctly. For the previous Quaternion.identity the error was small
+            // for vessels near KSC (world-Y is nearly parallel to Kerbin-up there), but
+            // grew for spawns on the far side of a body. Review finding from PR #225.
+            Vector3 upAxis = Vector3.up;
+            for (int bi = 0; FlightGlobals.Bodies != null && bi < FlightGlobals.Bodies.Count; bi++)
+            {
+                CelestialBody b = FlightGlobals.Bodies[bi];
+                if (b == null) continue;
+                double distSq = (spawnWorldPos - b.position).sqrMagnitude;
+                double r = b.Radius;
+                // The closest body whose center-to-spawn distance is within its
+                // sphere of influence radius is "the body we're spawning near".
+                // For our use case — landed/splashed spawns near the surface —
+                // testing against 1.5x body radius is enough to pick the correct one.
+                if (distSq < (r * 1.5) * (r * 1.5))
+                {
+                    upAxis = (Vector3)FlightGlobals.getUpAxis(b, (Vector3d)spawnWorldPos);
+                    break;
+                }
+            }
+            Quaternion surfaceRot = Quaternion.FromToRotation(Vector3.up, upAxis);
+            Vector3 worldCenter = (Vector3)spawnWorldPos + surfaceRot * spawnBounds.center;
             Vector3 halfExtents = spawnBounds.extents + Vector3.one * padding;
 
             // Rate-limited: walkback calls this once per sub-step (potentially hundreds of
@@ -553,7 +588,7 @@ namespace Parsek
                 $"padding={padding.ToString("F1", IC)}m, skipActiveVessel={skipActiveVessel}" +
                 (exemptVesselPid != 0 ? $", exemptPid={exemptVesselPid} (T57)" : ""));
 
-            Collider[] hits = Physics.OverlapBox(worldCenter, halfExtents, Quaternion.identity,
+            Collider[] hits = Physics.OverlapBox(worldCenter, halfExtents, surfaceRot,
                 PartOverlapLayerMask, QueryTriggerInteraction.Ignore);
 
             if (hits == null || hits.Length == 0)
