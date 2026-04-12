@@ -1334,6 +1334,9 @@ namespace Parsek
             {
                 recorder.TransitionToBackground();
                 FlushRecorderToTreeRecording(recorder, activeTree);
+                CopyRewindSaveToRoot(activeTree, recorder.CaptureAtStop,
+                    recorderFallbackSave: recorder.RewindSaveFileName,
+                    logTag: "OnVesselSwitch(active)");
 
                 // Add old vessel to BackgroundMap
                 string oldRecId = activeTree.ActiveRecordingId;
@@ -1356,6 +1359,9 @@ namespace Parsek
             else if (recorder != null && recorder.IsBackgrounded && recorder.TransitionToBackgroundPending)
             {
                 FlushRecorderToTreeRecording(recorder, activeTree);
+                CopyRewindSaveToRoot(activeTree, recorder.CaptureAtStop,
+                    recorderFallbackSave: recorder.RewindSaveFileName,
+                    logTag: "OnVesselSwitch(bg)");
 
                 string oldRecId = activeTree.ActiveRecordingId;
                 Recording oldRec;
