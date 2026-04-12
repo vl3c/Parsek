@@ -18,11 +18,14 @@ All notable changes to Parsek are documented here.
 - Watch cutoff / zone state for hidden looped ghosts now follows their logical playback position instead of a stale hidden transform, so watch eligibility and auto-exit stay correct while a loop is off-screen.
 - The old warp-only orbital exemption no longer punches through the new `50-120 km` hidden-mesh tier. Orbital ghosts still get the legacy exemption only in the true `Beyond` zone.
 - Entering watch mode now uses the tracked playback distance first, avoiding false "in range" decisions from a hidden ghost's stale transform.
+- The in-game test runner window now uses a more compact layout without the visible blank rows between tests, and disruptive quickload-resume tests run last in batch execution so they do not interfere with later scenarios.
 
 ### Developer Tools
 
 - Added regression coverage for R/FF enablement reasons, including future/past timing, tree-branch rewind save resolution, and a UI guard that pins rewind/fast-forward independence from watch-distance state (`T60`).
 - Added regression coverage for exact watched-cycle protection, hidden-tier warp exemption, watched-override diagnostics counting, and the new frame-context watch-cycle field.
+- Diagnostics now report live engine/RCS FX counts plus last-frame ghost spawn/destroy timings, giving a measurement-first view of FX cost without changing FX behavior.
+- `scripts/inject-recordings.ps1 --run-diagnostics-tests` now runs the focused diagnostics/observability slice before showcase injection, including observability logging and in-game test runner ordering coverage.
 
 ---
 
