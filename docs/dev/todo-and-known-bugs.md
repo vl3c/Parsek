@@ -7,6 +7,27 @@ Entries 272–303 (78 bugs, 6 TODOs — mostly resolved) archived in `done/todo-
 
 # Known Bugs
 
+## 313. Splashed EVA spawn-at-end can place the kerbal slightly underwater
+
+**Observed in:** 0.8.0 (2026-04-12). In the Phase 11.5 playtest bundle, the parent splashed vessel (`#24 "Kerbal X"`) was clamped and spawned at sea level, but the EVA child (`#25 "Raydred Kerman"`) spawned at `alt=-0.2` with `terminal=Splashed`. Log sequence:
+
+- `Clamped altitude for SPLASHED spawn #24 (Kerbal X): 0.4 -> 0`
+- `Vessel spawn for #24 (Kerbal X) ... alt=0`
+- `Snapshot position override for #25 (Raydred Kerman): alt -0.213434... -> -0.213434...`
+- `EVA vessel spawn for #25 (Raydred Kerman) ... alt=-0.2 terminal=Splashed`
+
+From: `.tmp/logs/2026-04-12_163227_phase-11-5-branch-validation/KSP.log`.
+
+**Root cause:** `VesselSpawner.ResolveSpawnPosition` only clamps splashed terminal-state altitudes when `alt > 0`. That fixes the "recorded slightly above the surface" case, but not the observed EVA endpoint case where the final trajectory point is slightly below sea level. The EVA path uses the trajectory endpoint, `OverrideSnapshotPosition` writes the negative altitude into the snapshot unchanged, and `SpawnAtPosition`/terminal-state override does not enforce a sea-surface floor for splashed EVA spawns. The parent vessel takes the clamp; the EVA child does not.
+
+**Test gap:** `SpawnSafetyNetTests.ResolveSpawnPosition_EvaLanded_FallsThroughToSplashedClamp` only covers `alt > 0 -> 0`. There is no regression test for a splashed EVA endpoint with `alt < 0`.
+
+**Follow-up:** Add a sea-surface floor invariant for splashed terminal spawns on the EVA path as well, and add a regression test that a negative splashed EVA endpoint is floored to `0.0` before spawn.
+
+**Status:** Open
+
+---
+
 ## ~~312. Duplicate-blocker recovery destroys sibling recordings~~
 
 **Observed in:** 0.8.0 (2026-04-12). Playtest placed 4 "Crater Crawler" ghosts on the runway within ~10 m of each other. Only 2 of 4 spawned -- each new spawn destroyed the previous one. Log sequence showed `Duplicate blocker detected for #6: recovering pid=... at 8m -- likely quicksave-loaded duplicate (#112)` firing for every pair.
@@ -441,6 +462,28 @@ Test game actions system with popular mods: CustomBarnKit (non-standard facility
 ---
 
 ## TODO — Recording Data Integrity
+
+### T60. Add regression coverage and diagnostics for R/FF enablement reasons
+
+The current Phase 11.5 playtest log shows R/FF row enablement is driven by recording state, not ghost distance. Examples from `.tmp/logs/2026-04-12_163227_phase-11-5-branch-validation/KSP.log`:
+
+- `R #0 "Kerbal X": disabled — Stop recording before rewinding`
+- `FF #24 "Kerbal X": disabled — Stop recording before fast-forwarding`
+- later in the same session, the same rows become enabled again once recording stops
+
+The governing code is `RecordingsTableUI` + `RecordingStore.CanRewind/CanFastForward`. Distance/watch state is only used for the `W` button path and should never affect R/FF availability.
+
+Add focused coverage for:
+
+- `CanFastForward`: 0-point recordings return `Recording not available`
+- `CanFastForward`: current/past recordings return `Recording is not in the future`
+- `CanRewind`: tree branches with no root rewind save return `No rewind save available` / `Rewind save file missing`
+- transient blocks: `isRecording`, `IsRewinding`, and `HasPendingTree`
+- UI-level guard that distance/watch state never changes R/FF enablement
+
+**Priority:** Medium — current runtime logic is mostly correct, but the failure modes are easy to misread in playtests unless we lock them down with tests and explicit reasoning
+
+---
 
 ### ~~T55. AppendCapturedDataToRecording does not copy FlagEvents or SegmentEvents~~
 
