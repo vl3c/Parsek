@@ -62,9 +62,36 @@ The regression corpus now proves two size relations:
 1. binary `v2` is smaller than equivalent text `v1`
 2. sparse binary `v3` is smaller than equivalent legacy binary `v2` when those fields are stable
 
-Fresh live-corpus numbers for `v3` are still pending. The next rebaseline should use the latest
-collected playtest package, including the extra recordings present in
-`logs/2026-04-12_1549_storage-followup-playtest/`.
+## Live `v3` Rebaseline
+
+Measured from the live `v3` playtest bundles:
+
+- `logs/2026-04-12_1857_phase-11-5-storage-followup-test-career/`
+- `logs/2026-04-12_1857_phase-11-5-storage-followup-s4/`
+
+`test career`:
+
+- total recording sidecar payload: `736,965` bytes
+- `.prec`: `255,726` bytes
+
+`s4`:
+
+- total recording sidecar payload: `1,071,161` bytes
+- `.prec`: `26,894` bytes
+
+Combined:
+
+- total recording sidecar payload: `1,808,126` bytes (`1.72 MiB`)
+- `.prec` trajectory sidecars: `282,620` bytes (`15.6%`)
+- `_vessel.craft` snapshots: `370,479` bytes (`20.5%`)
+- `_ghost.craft` snapshots: `1,155,027` bytes (`63.9%`)
+
+This is the key Phase 11.5 storage outcome:
+
+1. trajectory sidecars stopped being the dominant storage bucket
+2. snapshot-side payload is now the next clear optimization target
+3. the next PR should focus on `_ghost.craft` / `_vessel.craft` size rather than more speculative
+   `.prec` work
 
 ## Current Format Pressure Points
 

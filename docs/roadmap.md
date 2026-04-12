@@ -166,39 +166,67 @@ Recordings capture physical resource manifests at recording start and end.
 
 ## Phase 11.5: Recording Optimization & Observability
 
-Optimization pass before logistics routes add many long-lived looped recordings. A long career with dozens of missions will accumulate significant disk and memory footprint — this phase makes that measurable and then reduces it.
+Optimization pass before logistics routes add many long-lived looped recordings. A long career with
+dozens of missions will accumulate significant disk, memory, and playback pressure. Phase 11.5 now
+has two shipped halves and one explicit follow-up:
 
-Phase 11.5 now also includes the shipped Flight ghost LOD policy used to keep replay density sane during playtests:
+1. observability and diagnostics so storage/perf pressure is measurable during playtests
+2. trajectory-side and playback-side optimizations that were justified by those measurements
+3. snapshot-size reduction as the next follow-up PR after the current storage branch merges
+
+### Observability (shipped)
+
+Phase 11.5 shipped the measurement/reporting pieces needed to make optimization work evidence-based:
+
+- **Per-save storage report** — total disk size of Parsek data (sidecar files + `.sfs` metadata),
+  broken down by recording in diagnostics.
+- **Per-recording stats** — point count, part event count, orbit segment count, sidecar file sizes
+  (`.prec`, `_vessel.craft`, `_ghost.craft`) visible in diagnostics / recording details.
+- **Playback budget visibility** — playback timings, zone behavior, and FX counts exposed through
+  diagnostics and one-shot/rate-limited logging.
+- **Memory / LOD visibility** — live diagnostics for active ghost buckets and hidden-tier shell
+  state, plus spawn/destroy timings for recent ghost lifecycle work.
+
+### Flight Playback / LOD (shipped)
+
+Phase 11.5 also shipped the current Flight ghost LOD policy used to keep replay density sane during
+playtests:
 
 - shared internal distance thresholds (`2.3 km`, `50 km`, `120 km`, watch cutoff)
 - watched ghosts inside cutoff forced to full fidelity
 - unwatched reduced tier (`2.3-50 km`)
 - unwatched hidden-mesh tier (`50-120 km`)
-- live diagnostics reporting for the active LOD buckets
+- hidden-tier shells keep logical playback alive while unloading built mesh/resources
+- live diagnostics reporting for `full / reduced / hidden / watched override`
 
-### Observability (first)
+### Recording Storage (shipped on the current branch)
 
-Instrument the system so size/performance problems are visible during playtesting, without introducing behavior changes:
+The storage-focused half of Phase 11.5 removed the biggest measured trajectory-side waste without
+changing visible playback contracts:
 
-- **Per-save storage report** — total disk size of Parsek data (sidecar files + .sfs metadata), broken down by recording. Accessible from Settings > Diagnostics.
-- **Per-recording stats** — point count, part event count, orbit segment count, sidecar file sizes (.prec, _vessel.craft, _ghost.craft). Visible in Recordings Manager tooltip or detail view.
-- **Playback budget** — per-frame timing for ghost positioning, part event application, zone evaluation. Logged via `ParsekLog.VerboseRateLimited`, surfaced in diagnostics.
-- **Memory footprint estimate** — loaded trajectory point count, loaded snapshot count, ghost mesh count. Logged at scene load and on-demand.
-- **Recording growth rate** — logged during recording: points/second, events/second, estimated file size at current rate.
+- **Authoritative section sidecars** — `v1` `.prec` files stop duplicating flat `POINT` /
+  `ORBIT_SEGMENT` data when `TrackSections` already contain the same trajectory.
+- **Ghost snapshot alias mode** — identical ghost/vessel snapshots are stored once via
+  `ghostSnapshotMode` metadata instead of always writing duplicate `_ghost.craft` files.
+- **Compact binary trajectory sidecars** — current-format `.prec` files now use header-dispatched
+  binary `v3` with exact scalar payloads, a file-level string table, and conservative sparse
+  defaults for stable body/career point fields.
+- **Storage regression harness** — representative fixtures, mixed-format round-trips, sidecar log
+  assertions, and scenario-writer coverage protect the new format path.
 
-### Optimization (after measurement)
+Measured outcome so far: trajectory sidecars stopped being the dominant on-disk bucket. In the
+latest live `v3` playtest corpus, `.prec` files are down to about `15.6%` of total sidecar bytes,
+and the remaining bulk is snapshot-side (`_ghost.craft` / `_vessel.craft`).
 
-Based on what the observability pass reveals, candidates include:
+### Remaining Follow-Up
 
-- **Shorter key names** in .prec trajectory serialization (e.g., `u` instead of `ut`, `la` instead of `lat`)
-- **Compact numeric encoding** — fixed decimal places instead of round-trip `"R"` format where precision isn't needed
-- **Vessel snapshot deduplication** — ghost visual snapshot often duplicates vessel snapshot; store once and reference
-- **Part event name deduplication** — index table for repeated part names in event lists
-- **Trajectory point thinning** — post-commit pass that removes redundant points (straight-line segments, stationary holds) beyond what adaptive sampling already does
-- **Optional gzip compression** for sidecar files
-- **Lazy loading** — don't load trajectory data for recordings outside the current playback window
+The next PR after this branch should stay focused on snapshot-side shrink work rather than more
+aggressive trajectory changes:
 
-This phase is explicitly measurement-first: add observability, playtest a full career, identify the actual bottlenecks, then optimize the ones that matter. No speculative optimization.
+- reduce `_ghost.craft` / `_vessel.craft` size while preserving exact reconstruction
+- keep current alias semantics and sidecar diagnostics intact
+- defer trajectory thinning, compression, or lazy loading until the snapshot bucket is re-measured
+  and still justifies more work
 
 ---
 
@@ -300,8 +328,9 @@ Phase 11: Resource Snapshots (done)
     |  Recordings know WHAT they carry
     │
     ▼
-Phase 11.5: Recording Optimization & Observability
-    │  Measure disk/memory/perf, then optimize what matters
+Phase 11.5: Recording Optimization & Observability (v0.8.x)
+    │  Observability + ghost LOD + trajectory-side shrink shipped;
+    │  snapshot-side shrink remains as the next follow-up
     │
     ▼
 Phase 12: Looped Transport Logistics
@@ -354,8 +383,11 @@ Commit crash window closed (sidecar files flushed immediately). Remaining gap: s
 - Two-phase engine startup (spool-up animations on some engines)
 - Engine plate covers / interstage fairings (partially fixed — mesh cloned but positioning may be wrong)
 
-### Recording file size optimization
-Shorter key names, compact numeric encoding, optional compression, event name deduplication. Becomes important at scale (many recordings, long missions).
+### Snapshot-side recording size optimization
+The trajectory-side half of Phase 11.5 is now shipped: section-authoritative `.prec`, alias-mode
+ghost snapshot dedupe, and binary/sparse `v3` trajectory sidecars. The remaining storage work is
+snapshot-side shrink (`_ghost.craft` / `_vessel.craft`), to be handled in the next PR after the
+current branch merges.
 
 ### Ghost LOD follow-up
 Distance-based ghost LOD shipped in `0.8.1`, including the hidden-tier ghost unload/rebuild follow-up. Particle pooling for engine/RCS FX is not scheduled; the Phase 11.5 outcome there was observability/measurement only. Remaining follow-up: synthetic stress benchmarking/tuning.

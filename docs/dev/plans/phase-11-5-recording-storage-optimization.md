@@ -5,7 +5,7 @@
 This plan covers the storage-focused half of Phase 11.5. It is separate from the ghost LOD work
 already tracked in `phase-11-5-ghost-lod-implementation.md`.
 
-Current measured findings from archived recordings:
+Original measured findings from archived recordings:
 
 - Total sidecar payload in sampled logs: about `54.6 MB`
 - `.prec` trajectory/event sidecars: about `23.9 MB` (`43.7%`)
@@ -14,8 +14,18 @@ Current measured findings from archived recordings:
 - For sectioned `.prec` files, point-node duplication averages about `2.1x`
 - About `73.5%` of `_vessel.craft` / `_ghost.craft` pairs in the archive are byte-identical
 
-These numbers are large enough to justify format work before logistics routes add more long-lived
+These numbers were large enough to justify format work before logistics routes add more long-lived
 recordings.
+
+Implementation status on `fix/phase-11-5-recording-storage`:
+
+- slices `1-5` in this plan have landed
+- current-format `.prec` sidecars are now section-authoritative `v1+` and binary/sparse `v3`
+- ghost/vessel snapshot alias mode is live for identical snapshot pairs
+- fixture, round-trip, mixed-format, and scenario-writer coverage landed with the format work
+- slices `6-7` remain deferred
+- the next PR after this branch merges should target snapshot-side shrink before revisiting more
+  trajectory work
 
 ---
 
@@ -164,18 +174,20 @@ deterministically.
 
 ## Staging Overview
 
-Implementation is split into seven slices. Slices 1-4 are the intended first wave. Slices 5-7 are
-follow-on work gated by the measured results from the earlier slices.
+Implementation is split into seven slices. Slices `1-5` are now implemented on this branch. Slices
+`6-7` remain follow-on work gated by the measured results from the shipped trajectory-side changes
+and the pending snapshot-size pass.
 
-1. Baseline instrumentation and golden fixtures
-2. `.prec` format v1: remove duplicated on-disk flat trajectory/orbit copies
-3. Snapshot deduplication for `_vessel.craft` and `_ghost.craft`
-4. `.prec` format v2: compact point/event encoding
-5. Sparse point payloads and section dictionaries
-6. Post-commit trajectory thinning
-7. Optional compression and windowed loading
+1. `Shipped` — baseline instrumentation and golden fixtures
+2. `Shipped` — `.prec` format `v1`: remove duplicated on-disk flat trajectory/orbit copies
+3. `Shipped` — snapshot deduplication for `_vessel.craft` and `_ghost.craft`
+4. `Shipped` — `.prec` format `v2`: compact point/event encoding
+5. `Shipped` — sparse point payloads and section dictionaries
+6. `Deferred` — post-commit trajectory thinning
+7. `Deferred` — optional compression and windowed loading
 
-Each slice should land with explicit tests and a before/after storage measurement.
+Each shipped slice landed with explicit tests. Remaining slices should still require a fresh
+before/after storage measurement before implementation starts.
 
 ---
 
