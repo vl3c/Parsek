@@ -56,6 +56,84 @@ Concrete repro data from `logs/2026-04-12_1549_storage-followup-playtest/`: thre
 
 ---
 
+## 316. Breakup debris ghosts can spawn directly into Beyond and never become visible during playback
+
+**Observed in:** 0.8.0 follow-up storage playtest (2026-04-12). During the `s4` reentry/breakup session, some `Kerbal X Debris` recordings did render normally, but later debris recordings spawned so far from the active watch context that they immediately transitioned into the hidden `Beyond` zone and never became visible to the player.
+
+Collected evidence from `logs/2026-04-12_1857_phase-11-5-storage-followup-s4/`:
+
+- Early debris playback did enter the visible path: ghost `#5` transitioned `Physics->Visual dist=4457m`, and ghost `#7` transitioned `Physics->Visual dist=11876m`.
+- Later debris playback for the same recording family did not: ghost `#10` spawned, immediately transitioned `Physics->Beyond dist=943546m`, and was hidden by distance LOD in the same tick.
+- The same pattern repeated for ghost `#11`, which spawned and immediately transitioned `Physics->Beyond dist=952154m` before being hidden.
+- The recordings themselves were present and merged correctly; the issue is playback visibility, not missing recording data.
+
+**Root cause / hypothesis:** Breakup debris recordings that resume later in the chain can spawn from valid snapshots while the active vessel/watch context is nearly 1,000 km away, so the normal distance LOD policy hides them instantly. That makes boosters appear absent even though their ghosts were created and advanced logically.
+
+**Fix direction:** Decide whether breakup/debris ghosts need a watched-chain visibility exemption, a different spawn/watch anchoring rule, or a stricter policy for when distant debris ghosts should be considered meaningful enough to render.
+
+**Status:** Open
+
+---
+
+## 317. Horizon-locked watch camera can align retrograde instead of prograde during reentry playback
+
+**Observed in:** 0.8.0 follow-up storage playtest (2026-04-12). While watching the `s4` reentry ghost, the user reported that horizon mode pointed the camera retrograde rather than prograde.
+
+Collected evidence from `logs/2026-04-12_1857_phase-11-5-storage-followup-s4/`:
+
+- The session entered and re-entered horizon watch mode multiple times during the watched descent:
+  - `Watch camera auto-switched to HorizonLocked (alt=606m, body=Kerbin)`
+  - `Watch camera auto-switched to Free (alt=70003m, body=Kerbin)`
+  - repeated `Watch camera mode toggled to HorizonLocked (user override)` during the watched reentry path
+- Current logs do not emit the computed horizon forward vector, selected velocity direction, or a prograde/retrograde label, so the report cannot be proven or disproven from the collected logs alone.
+
+**Root cause / hypothesis:** `WatchModeController.ComputeHorizonForward` currently derives the forward vector from the projected playback velocity. A sign/convention issue during reentry, chain transfer, or negative-relative-velocity cases could flip the watch camera to the retrograde direction.
+
+**Fix direction:** Add one-shot observability around the chosen horizon forward vector and build a focused playback test for descending/reentry trajectories so the prograde direction is asserted rather than inferred visually.
+
+**Status:** Open
+
+---
+
+## 318. Recordings window stats can show impossible distance / altitude summaries on loaded surface recordings
+
+**Observed in:** 0.8.0 follow-up storage playtest (2026-04-12). In the `s4` save, the recordings window showed incorrect `dist` / `max alt` values for recent recordings.
+
+Collected evidence from `logs/2026-04-12_1857_phase-11-5-storage-followup-s4/`:
+
+- `TrajectoryMath.ComputeStats` produced suspicious summaries immediately after load:
+  - `points=29 segments=0 events=0 maxAlt=608 maxSpeed=175.1 dist=0 range=0 body=Kerbin`
+  - `points=13 segments=0 events=0 maxAlt=611 maxSpeed=0.0 dist=2 range=0 body=Kerbin`
+  - nearby recordings in the same table pass produced more plausible values (`points=58 ... dist=177`, `points=13 ... dist=126`)
+- The recordings window computes these values live from loaded recordings rather than trusting `.sfs` cache fields, so this points at a loaded-trajectory/stats issue, not merely stale serialized UI metadata.
+
+**Root cause / hypothesis:** Some recently loaded surface recordings are reconstructing into point sequences that make `ComputeStats` think total distance is zero or near-zero even when the underlying recording should have meaningful motion. This may be a stats bug, a section-rebuild issue, or an edge case in how surface points/ranges are interpreted after binary `v3` load.
+
+**Fix direction:** Capture the offending recording IDs from the `s4` bundle, dump the reconstructed points that feed `ComputeStats`, and compare them with the stored track sections / pre-save values to determine whether the error is in load reconstruction or in the stats calculation itself.
+
+**Status:** Open
+
+---
+
+## 319. Watch buttons can disable as "no ghost" after chain transfer even when the user expects an in-range watch target
+
+**Observed in:** 0.8.0 follow-up storage playtest (2026-04-12). The user reported disabled watch buttons while apparently within the ghost camera cutoff distance.
+
+Collected evidence from `logs/2026-04-12_1857_phase-11-5-storage-followup-s4/`:
+
+- Before transfer, the group-level watch affordance was valid: `Group Watch button 'Kerbal X' main=#0 "Kerbal X" enabled (hasGhost=True sameBody=True inRange=True)`.
+- After `TransferWatch re-target: ghost #1 "Kerbal X" ...`, the same group button flipped to `disabled (no ghost) (hasGhost=False sameBody=False inRange=False)`.
+- Later rows for descendant recordings `#12` and `#13` also logged `disabled (no ghost)`, not `disabled (out of range)`.
+- Debris rows were separately disabled as `debris`, which is expected and distinct from the reported symptom.
+
+**Root cause / hypothesis:** This does not currently look like a pure cutoff-distance bug. The watched chain can retarget to a descendant ghost while the table/group still evaluates watch eligibility against the group's main recording, whose own ghost is gone. The resulting `no ghost` state looks like a range/cutoff failure to the player even though the underlying reason is target selection/UI state.
+
+**Fix direction:** Decide whether group and row watch affordances should follow the currently watchable chain descendant, or at least surface a clearer reason when the main row is unwatched but an active descendant ghost exists.
+
+**Status:** Open
+
+---
+
 ## ~~313. Splashed EVA spawn-at-end can place the kerbal slightly underwater~~
 
 **Observed in:** 0.8.0 (2026-04-12). In the Phase 11.5 playtest bundle, the parent splashed vessel (`#24 "Kerbal X"`) was clamped and spawned at sea level, but the EVA child (`#25 "Raydred Kerman"`) spawned at `alt=-0.2` with `terminal=Splashed`. Log sequence:
