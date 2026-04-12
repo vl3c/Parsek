@@ -56,7 +56,7 @@ Concrete repro data from `logs/2026-04-12_1549_storage-followup-playtest/`: thre
 
 ---
 
-## 316. Breakup debris ghosts can spawn directly into Beyond and never become visible during playback
+## ~~316. Breakup debris ghosts can spawn directly into Beyond and never become visible during playback~~
 
 **Observed in:** 0.8.0 follow-up storage playtest (2026-04-12). During the `s4` reentry/breakup session, some `Kerbal X Debris` recordings did render normally, but later debris recordings spawned so far from the active watch context that they immediately transitioned into the hidden `Beyond` zone and never became visible to the player.
 
@@ -67,11 +67,18 @@ Collected evidence from `logs/2026-04-12_1857_phase-11-5-storage-followup-s4/`:
 - The same pattern repeated for ghost `#11`, which spawned and immediately transitioned `Physics->Beyond dist=952154m` before being hidden.
 - The recordings themselves were present and merged correctly; the issue is playback visibility, not missing recording data.
 
-**Root cause / hypothesis:** Breakup debris recordings that resume later in the chain can spawn from valid snapshots while the active vessel/watch context is nearly 1,000 km away, so the normal distance LOD policy hides them instantly. That makes boosters appear absent even though their ghosts were created and advanced logically.
+**Root cause:** The archived failure was two bugs folded together. Early watched-lineage debris could miss protection because the archived build only protected the exact watched row, not same-tree breakup ancestry. Later debris could still fail even on newer ancestry-aware builds because automatic watch exit cleared the only visibility-protection source before those descendant debris recordings began playback.
 
-**Fix direction:** Decide whether breakup/debris ghosts need a watched-chain visibility exemption, a different spawn/watch anchoring rule, or a stricter policy for when distant debris ghosts should be considered meaningful enough to render.
+**Fix:** Same-tree watched-debris protection now survives missing `LoopSyncParentIdx` by following branch ancestry, and automatic watch exit now retains a bounded watched-lineage debris protection window through the last pending descendant debris `EndUT`. The camera still exits normally; only the debris visibility exemption is retained. Added archived-topology regression coverage for:
 
-**Status:** Open
+- late debris with `LoopSyncParentIdx == -1` after final chain splitting
+- same-tree ancestry fallback from watched segment to root-parented debris
+- retained watched-lineage protection through the last late-debris playback window
+- the existing watch-target rule that still refuses to retarget camera to non-child same-tree debris
+
+This closes the "spawned but never visible" playback path without loosening the camera handoff rule introduced for `#158`.
+
+**Status:** ~~Fixed~~
 
 ---
 

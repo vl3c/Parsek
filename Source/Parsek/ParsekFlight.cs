@@ -7812,8 +7812,11 @@ namespace Parsek
             bool isWatchedGhost = watchMode != null
                 ? watchMode.IsWatchedGhostState(recIdx, state)
                 : GhostPlaybackLogic.IsProtectedGhost(protectedIndex, recIdx);
+            int watchProtectionIndex = watchMode != null
+                ? watchMode.WatchProtectionRecordingIndex
+                : protectedIndex;
             bool isWatchProtectedRecording = GhostPlaybackLogic.IsWatchProtectedRecording(
-                RecordingStore.CommittedRecordings, RecordingStore.CommittedTrees, protectedIndex, recIdx);
+                RecordingStore.CommittedRecordings, RecordingStore.CommittedTrees, watchProtectionIndex, recIdx);
 
             // Cache distance on state for use by IsGhostWithinVisualRange
             if (state != null)

@@ -2992,6 +2992,38 @@ namespace Parsek
             return IsDebrisDescendedFromWatchedLineage(watched, current, tree);
         }
 
+        internal static double ComputeWatchLineageProtectionUntilUT(
+            IReadOnlyList<Recording> committed,
+            IReadOnlyList<RecordingTree> committedTrees,
+            int watchedRecordingIndex,
+            double currentUT)
+        {
+            if (committed == null
+                || watchedRecordingIndex < 0
+                || watchedRecordingIndex >= committed.Count)
+            {
+                return double.NaN;
+            }
+
+            bool hasCurrentUT = !double.IsNaN(currentUT) && !double.IsInfinity(currentUT);
+            double protectionUntilUT = double.NaN;
+            for (int i = 0; i < committed.Count; i++)
+            {
+                Recording candidate = committed[i];
+                if (candidate == null || !candidate.IsDebris)
+                    continue;
+                if (hasCurrentUT && candidate.EndUT < currentUT)
+                    continue;
+                if (!IsWatchProtectedRecording(committed, committedTrees, watchedRecordingIndex, i))
+                    continue;
+
+                if (double.IsNaN(protectionUntilUT) || candidate.EndUT > protectionUntilUT)
+                    protectionUntilUT = candidate.EndUT;
+            }
+
+            return protectionUntilUT;
+        }
+
         private static bool IsLoopSyncedDebrisOfWatchedLineage(
             IReadOnlyList<Recording> committed, Recording watched, Recording current)
         {

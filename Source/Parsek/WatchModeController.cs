@@ -36,6 +36,9 @@ namespace Parsek
         private float savedCameraPitch;
         private float savedCameraHeading;
         private float watchEndHoldUntilRealTime = -1;  // non-looped end hold timer (real time, warp-independent)
+        private int lineageProtectionRecordingIndex = -1; // post-watch debris visibility root
+        private string lineageProtectionRecordingId;
+        private double lineageProtectionUntilUT = double.NaN;
         private float savedPivotSharpness = 0.5f;
         private int watchNoTargetFrames;               // consecutive frames with no valid camera target (safety net)
 
@@ -58,8 +61,74 @@ namespace Parsek
 
         internal bool IsWatchingGhost => watchedRecordingIndex >= 0;
         internal int WatchedRecordingIndex => watchedRecordingIndex;
+        internal int WatchProtectionRecordingIndex => ResolveWatchProtectionRecordingIndex();
         internal long WatchedLoopCycleIndex => watchedOverlapCycleIndex;
         internal WatchCameraMode CurrentCameraMode => currentCameraMode;
+
+        private int ResolveWatchProtectionRecordingIndex()
+        {
+            if (watchedRecordingIndex >= 0)
+                return watchedRecordingIndex;
+
+            RefreshLineageProtection();
+            return lineageProtectionRecordingIndex;
+        }
+
+        private void RefreshLineageProtection()
+        {
+            if (lineageProtectionRecordingIndex < 0)
+                return;
+
+            if (Planetarium.fetch != null
+                && !double.IsNaN(lineageProtectionUntilUT)
+                && Planetarium.GetUniversalTime() > lineageProtectionUntilUT)
+            {
+                ClearLineageProtection(
+                    $"Lineage protection expired for recording #{lineageProtectionRecordingIndex} at UT {lineageProtectionUntilUT:F1}");
+            }
+        }
+
+        private void ClearLineageProtection(string logMessage = null)
+        {
+            if (!string.IsNullOrEmpty(logMessage))
+                ParsekLog.Info("CameraFollow", logMessage);
+
+            lineageProtectionRecordingIndex = -1;
+            lineageProtectionRecordingId = null;
+            lineageProtectionUntilUT = double.NaN;
+        }
+
+        private void PreserveLineageProtectionOnExit()
+        {
+            var committed = RecordingStore.CommittedRecordings;
+            if (watchedRecordingIndex < 0 || watchedRecordingIndex >= committed.Count)
+            {
+                ClearLineageProtection();
+                return;
+            }
+
+            double currentUT = Planetarium.fetch != null
+                ? Planetarium.GetUniversalTime()
+                : committed[watchedRecordingIndex].EndUT;
+            double protectionUntilUT = GhostPlaybackLogic.ComputeWatchLineageProtectionUntilUT(
+                committed,
+                RecordingStore.CommittedTrees,
+                watchedRecordingIndex,
+                currentUT);
+
+            if (double.IsNaN(protectionUntilUT) || protectionUntilUT < currentUT)
+            {
+                ClearLineageProtection();
+                return;
+            }
+
+            lineageProtectionRecordingIndex = watchedRecordingIndex;
+            lineageProtectionRecordingId = committed[watchedRecordingIndex].RecordingId;
+            lineageProtectionUntilUT = protectionUntilUT;
+            ParsekLog.Info("CameraFollow",
+                $"Retaining watched-lineage debris protection for #{watchedRecordingIndex} " +
+                $"\"{committed[watchedRecordingIndex].VesselName}\" until UT {protectionUntilUT:F1}");
+        }
 
         internal static string FormatWatchDistanceForLogs(double distanceMeters)
         {
@@ -438,6 +507,7 @@ namespace Parsek
                 ExitWatchMode(skipCameraRestore: true);
             }
 
+            ClearLineageProtection();
             watchedRecordingIndex = index;
             watchedRecordingId = committed[index].RecordingId;
             watchStartTime = Time.time;
@@ -579,7 +649,7 @@ namespace Parsek
         /// Exit watch mode: return camera to the active vessel.
         /// When skipCameraRestore is true (switching between ghosts), the camera is not restored.
         /// </summary>
-        internal void ExitWatchMode(bool skipCameraRestore = false)
+        internal void ExitWatchMode(bool skipCameraRestore = false, bool preserveLineageProtection = false)
         {
             if (watchedRecordingIndex < 0) return;
             if (FlightCamera.fetch != null)
@@ -620,6 +690,11 @@ namespace Parsek
             // Remove input locks
             InputLockManager.RemoveControlLock(WatchModeLockId);
             ParsekLog.Verbose("CameraFollow", $"InputLockManager control lock \"{WatchModeLockId}\" removed");
+
+            if (preserveLineageProtection)
+                PreserveLineageProtectionOnExit();
+            else
+                ClearLineageProtection();
 
             watchedRecordingIndex = -1;
             watchedRecordingId = null;
@@ -1155,7 +1230,7 @@ namespace Parsek
                         host.Engine.DestroyGhost(idx, traj, default(TrajectoryPlaybackFlags), reason: "watch hold expired");
                     }
                 }
-                ExitWatchMode();
+                ExitWatchMode(preserveLineageProtection: true);
                 return true;
             }
 
@@ -1410,25 +1485,43 @@ namespace Parsek
         /// </summary>
         internal void OnRecordingDeleted(int index)
         {
-            if (watchedRecordingIndex < 0) return;
-
-            var result = ComputeWatchIndexAfterDelete(
-                watchedRecordingIndex, watchedRecordingId, index,
-                RecordingStore.CommittedRecordings);
-            if (result.newIndex < 0)
+            if (watchedRecordingIndex >= 0)
             {
-                ParsekLog.Warn("CameraFollow",
-                    $"Watched recording \"{watchedRecordingId}\" deleted \u2014 auto-exiting watch mode");
-                ExitWatchMode();
+                var result = ComputeWatchIndexAfterDelete(
+                    watchedRecordingIndex, watchedRecordingId, index,
+                    RecordingStore.CommittedRecordings);
+                if (result.newIndex < 0)
+                {
+                    ParsekLog.Warn("CameraFollow",
+                        $"Watched recording \"{watchedRecordingId}\" deleted \u2014 auto-exiting watch mode");
+                    ExitWatchMode();
+                }
+                else
+                {
+                    int oldIdx = watchedRecordingIndex;
+                    watchedRecordingIndex = result.newIndex;
+                    watchedRecordingId = result.newId;
+                    if (oldIdx != result.newIndex)
+                        ParsekLog.Info("CameraFollow",
+                            $"Recording deleted at #{index} \u2014 watchedRecordingIndex adjusted from {oldIdx} to {result.newIndex}");
+                }
             }
-            else
+
+            if (lineageProtectionRecordingIndex >= 0)
             {
-                int oldIdx = watchedRecordingIndex;
-                watchedRecordingIndex = result.newIndex;
-                watchedRecordingId = result.newId;
-                if (oldIdx != result.newIndex)
-                    ParsekLog.Info("CameraFollow",
-                        $"Recording deleted at #{index} \u2014 watchedRecordingIndex adjusted from {oldIdx} to {result.newIndex}");
+                var protectionResult = ComputeWatchIndexAfterDelete(
+                    lineageProtectionRecordingIndex, lineageProtectionRecordingId, index,
+                    RecordingStore.CommittedRecordings);
+                if (protectionResult.newIndex < 0)
+                {
+                    ClearLineageProtection(
+                        $"Protected watch-lineage root \"{lineageProtectionRecordingId}\" deleted \u2014 clearing retained debris protection");
+                }
+                else
+                {
+                    lineageProtectionRecordingIndex = protectionResult.newIndex;
+                    lineageProtectionRecordingId = protectionResult.newId;
+                }
             }
         }
 
