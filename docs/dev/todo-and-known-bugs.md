@@ -218,6 +218,38 @@ Add an in-game or unit-level regression that asserts the main stage group remain
 
 ---
 
+## 325. Repeated F5/F9 during a branched recording can leave child sidecars time-discontinuous and break watch handoff
+
+**Observed in:** `logs/2026-04-12_2159_f5-f9-watch-regression/` (`s9`). The `Crater Crawler` tree survived repeated quickload cycles structurally, but watching the root playback failed at the branch: when root `#0` completed, watch entered the hold timer and then exited instead of handing off to the continuation.
+
+**Collected evidence:**
+
+- The final saved tree is still present and structurally valid in `persistent.sfs`: root `07bd...`, same-vessel continuation `db41...`, and EVA child `af7d...` under branch point `d3ca...`.
+- The watch failure itself is visible in `KSP.log`:
+  - root playback completed while watched: `PlaybackCompleted index=0 ... watched=True`
+  - `FindNextWatchTarget` saw the branch point, but no re-target happened
+  - watch fell into `Watch hold timer set ... (watched #0)` and then `Watch hold expired ... exiting watch`
+  - only several seconds later did the child ghosts actually spawn (`Ghost #2 "Jebediah Kerman" spawned`, then `Ghost #1 "Crater Crawler" spawned`)
+- The saved metadata and sidecars disagree badly on timing:
+  - root `07bd...` ends at the branch as expected (`explicitEndUT = 53.68`, last point `ut ~= 53.58`)
+  - continuation `db41...` claims `explicitStartUT = 53.68`, but its `.prec` first point is `ut = 83.04`
+  - EVA child `af7d...` claims `explicitStartUT = 53.68` and `explicitEndUT = 72.94`, but its `.prec` first point is `ut = 82.22` and it continues past `ut = 102.39`
+
+**Impact:** This is more than a camera/watch issue. Repeated quickload during a live branched tree can leave child recordings with stale explicit UT metadata and large gaps between the branch boundary and their actual saved trajectory. Watch handoff then fails because the same-PID continuation child is not ghost-active when the root ends, and the shorter hold expires before the delayed child ghost appears.
+
+**Root cause / hypothesis:** The quickload-resume path for active branched trees appears to preserve or restore stale explicit start/end metadata across resumed child recordings while appending newer post-quickload trajectory to the sidecar. That leaves the final recording internally inconsistent: branch/terminal metadata reflects the pre-quickload segment, but the saved points reflect only the later resumed segment. Likely touch points are `TryRestoreActiveTreeNode`, `RestoreActiveTreeFromPending`, and finalize/merge code that updates `ExplicitStartUT` / `ExplicitEndUT` after quickload-resumed branches.
+
+**Fix direction:** Reproduce with a focused branch + repeated quickload scenario, then pin two invariants:
+
+- any finalized recording must have `StartUT/EndUT` metadata consistent with the actual saved sidecar bounds
+- branch handoff/watch logic must tolerate delayed child activation after quickload resume, or the resumed child recordings must be stitched so there is no artificial boundary gap
+
+Add unit/in-game coverage around `F5/F9` during a branch, final save/load, and watch handoff at the parent branch point.
+
+**Status:** Open
+
+---
+
 ## ~~313. Splashed EVA spawn-at-end can place the kerbal slightly underwater~~
 
 **Observed in:** 0.8.0 (2026-04-12). In the Phase 11.5 playtest bundle, the parent splashed vessel (`#24 "Kerbal X"`) was clamped and spawned at sea level, but the EVA child (`#25 "Raydred Kerman"`) spawned at `alt=-0.2` with `terminal=Splashed`. Log sequence:
