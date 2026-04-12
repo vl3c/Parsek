@@ -527,9 +527,14 @@ namespace Parsek
             second.EvaCrewName = original.EvaCrewName;
             second.ParentRecordingId = original.ParentRecordingId;
 
+            bool syncedOriginalFlatTrajectory = RecordingStore.TrySyncFlatTrajectoryFromTrackSections(original);
+            bool syncedSecondFlatTrajectory = RecordingStore.TrySyncFlatTrajectoryFromTrackSections(second);
+
             // 12. Invalidate cached stats
             original.CachedStats = null;
             original.CachedStatsPointCount = 0;
+            second.CachedStats = null;
+            second.CachedStatsPointCount = 0;
 
             // 14. Clear explicit UT on both (Points define the range)
             original.ExplicitStartUT = double.NaN;
@@ -540,7 +545,8 @@ namespace Parsek
             ParsekLog.Info("Optimizer",
                 $"SplitAtSection: split {original.RecordingId} at UT={splitUT:F1} " +
                 $"(first: {original.Points.Count} pts/{original.TrackSections.Count} sections, " +
-                $"second: {second.Points.Count} pts/{second.TrackSections.Count} sections)");
+                $"second: {second.Points.Count} pts/{second.TrackSections.Count} sections, " +
+                $"flatSync={syncedOriginalFlatTrajectory}/{syncedSecondFlatTrajectory})");
 
             return second;
         }

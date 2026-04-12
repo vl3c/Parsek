@@ -236,6 +236,12 @@ namespace Parsek
             double lat0 = rec.Points[0].latitude;
             double lon0 = rec.Points[0].longitude;
             string body0 = rec.Points[0].bodyName ?? "Kerbin";
+            int firstPointSectionIdx = FindTrackSectionForUT(rec.TrackSections, rec.Points[0].ut);
+            ReferenceFrame firstPointFrame = firstPointSectionIdx >= 0
+                ? rec.TrackSections[firstPointSectionIdx].referenceFrame
+                : ReferenceFrame.Absolute;
+
+            ApplyTrackSectionAltitudeMetadata(rec.TrackSections, ref stats);
 
             for (int i = 0; i < rec.Points.Count; i++)
             {
@@ -271,25 +277,61 @@ namespace Parsek
                             bool inOrbitSegment = FindOrbitSegment(rec.OrbitSegments, midUT) != null;
                             if (!inOrbitSegment)
                             {
-                                double avgAlt = (prev.altitude + pt.altitude) * 0.5;
-                                double surfaceDist = HaversineDistance(
-                                    prev.latitude, prev.longitude,
-                                    pt.latitude, pt.longitude,
-                                    bodyRadius + avgAlt);
-                                double altDiff = System.Math.Abs(pt.altitude - prev.altitude);
-                                stats.distanceTravelled += System.Math.Sqrt(
-                                    surfaceDist * surfaceDist + altDiff * altDiff);
+                                int sectionIdx = FindTrackSectionForUT(rec.TrackSections, midUT);
+                                ReferenceFrame frame = sectionIdx >= 0
+                                    ? rec.TrackSections[sectionIdx].referenceFrame
+                                    : ReferenceFrame.Absolute;
+
+                                if (frame == ReferenceFrame.Relative)
+                                {
+                                    double dx = pt.latitude - prev.latitude;
+                                    double dy = pt.longitude - prev.longitude;
+                                    double dz = pt.altitude - prev.altitude;
+                                    stats.distanceTravelled += System.Math.Sqrt(
+                                        dx * dx + dy * dy + dz * dz);
+                                }
+                                else
+                                {
+                                    double avgAlt = (prev.altitude + pt.altitude) * 0.5;
+                                    double surfaceDist = HaversineDistance(
+                                        prev.latitude, prev.longitude,
+                                        pt.latitude, pt.longitude,
+                                        bodyRadius + avgAlt);
+                                    double altDiff = System.Math.Abs(pt.altitude - prev.altitude);
+                                    stats.distanceTravelled += System.Math.Sqrt(
+                                        surfaceDist * surfaceDist + altDiff * altDiff);
+                                }
                             }
                         }
 
                         // Max range from first point (same body only)
                         if (body == body0)
                         {
-                            double avgAlt = (rec.Points[0].altitude + pt.altitude) * 0.5;
-                            double range = HaversineDistance(
-                                lat0, lon0,
-                                pt.latitude, pt.longitude,
-                                bodyRadius + avgAlt);
+                            int pointSectionIdx = FindTrackSectionForUT(rec.TrackSections, pt.ut);
+                            ReferenceFrame pointFrame = pointSectionIdx >= 0
+                                ? rec.TrackSections[pointSectionIdx].referenceFrame
+                                : ReferenceFrame.Absolute;
+                            double range;
+                            if (firstPointFrame == ReferenceFrame.Relative
+                                && pointFrame == ReferenceFrame.Relative)
+                            {
+                                double dx = pt.latitude - lat0;
+                                double dy = pt.longitude - lon0;
+                                double dz = pt.altitude - rec.Points[0].altitude;
+                                range = System.Math.Sqrt(dx * dx + dy * dy + dz * dz);
+                            }
+                            else if (pointFrame == ReferenceFrame.Relative)
+                            {
+                                range = 0.0;
+                            }
+                            else
+                            {
+                                double avgAlt = (rec.Points[0].altitude + pt.altitude) * 0.5;
+                                range = HaversineDistance(
+                                    lat0, lon0,
+                                    pt.latitude, pt.longitude,
+                                    bodyRadius + avgAlt);
+                            }
                             if (range > stats.maxRange)
                                 stats.maxRange = range;
                         }
@@ -306,6 +348,23 @@ namespace Parsek
                 $"dist={stats.distanceTravelled:F0} range={stats.maxRange:F0} body={stats.primaryBody}");
 
             return stats;
+        }
+
+        private static void ApplyTrackSectionAltitudeMetadata(
+            List<TrackSection> sections,
+            ref RecordingStats stats)
+        {
+            if (sections == null)
+                return;
+
+            for (int i = 0; i < sections.Count; i++)
+            {
+                if (!float.IsNaN(sections[i].maxAltitude)
+                    && sections[i].maxAltitude > stats.maxAltitude)
+                {
+                    stats.maxAltitude = sections[i].maxAltitude;
+                }
+            }
         }
 
         /// <summary>

@@ -14,6 +14,7 @@ All notable changes to Parsek are documented here.
 ### Bug Fixes
 
 - Splashed terminal spawns now floor any slightly negative endpoint altitude back to sea level before spawn, so EVA and breakup-continuous splashdowns no longer materialize a few centimeters underwater (`#313`).
+- Section-authoritative recording merges/splits now resync derived flat trajectory lists when the section payload can rebuild them losslessly, and recordings-window stats now use section altitude metadata plus relative-offset distance handling instead of treating relative frames as absolute surface coordinates (`#318`).
 - Watched ghosts now use exact watched-state identity (`recording + overlap cycle`) for full-fidelity protection. Overlap copies of the same looping recording no longer inherit watched-only exemptions or diagnostics counts.
 - Watch cutoff / zone state for hidden looped ghosts now follows their logical playback position instead of a stale hidden transform, so watch eligibility and auto-exit stay correct while a loop is off-screen.
 - The old warp-only orbital exemption no longer punches through the new `50-120 km` hidden-mesh tier. Orbital ghosts still get the legacy exemption only in the true `Beyond` zone.

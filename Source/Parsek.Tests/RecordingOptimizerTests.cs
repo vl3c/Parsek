@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using System.Linq;
+using UnityEngine;
 using Xunit;
 
 namespace Parsek.Tests
@@ -581,6 +582,48 @@ namespace Parsek.Tests
             Assert.True(rec.StartUT < rec.EndUT);
             Assert.True(second.StartUT < second.EndUT);
             Assert.True(rec.EndUT <= second.StartUT);
+        }
+
+        [Fact]
+        public void SplitAtSection_WithConcreteTrackFrames_RebuildsFlatTrajectoryPerHalf()
+        {
+            var rec = new Recording();
+            rec.Points.Add(new TrajectoryPoint { ut = 10, latitude = 10, longitude = 10, altitude = 10, bodyName = "Kerbin" });
+            rec.Points.Add(new TrajectoryPoint { ut = 20, latitude = 20, longitude = 20, altitude = 20, bodyName = "Kerbin" });
+            rec.Points.Add(new TrajectoryPoint { ut = 30, latitude = 30, longitude = 30, altitude = 30, bodyName = "Kerbin" });
+            rec.Points.Add(new TrajectoryPoint { ut = 40, latitude = 40, longitude = 40, altitude = 40, bodyName = "Kerbin" });
+
+            rec.TrackSections.Add(new TrackSection
+            {
+                environment = SegmentEnvironment.Atmospheric,
+                referenceFrame = ReferenceFrame.Absolute,
+                startUT = 10,
+                endUT = 20,
+                frames = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint { ut = 10, latitude = 1, longitude = 1, altitude = 100, bodyName = "Kerbin", rotation = Quaternion.identity, velocity = Vector3.zero },
+                    new TrajectoryPoint { ut = 20, latitude = 2, longitude = 2, altitude = 200, bodyName = "Kerbin", rotation = Quaternion.identity, velocity = Vector3.zero }
+                }
+            });
+            rec.TrackSections.Add(new TrackSection
+            {
+                environment = SegmentEnvironment.ExoBallistic,
+                referenceFrame = ReferenceFrame.Absolute,
+                startUT = 30,
+                endUT = 40,
+                frames = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint { ut = 30, latitude = 3, longitude = 3, altitude = 300, bodyName = "Kerbin", rotation = Quaternion.identity, velocity = Vector3.zero },
+                    new TrajectoryPoint { ut = 40, latitude = 4, longitude = 4, altitude = 400, bodyName = "Kerbin", rotation = Quaternion.identity, velocity = Vector3.zero }
+                }
+            });
+
+            var second = RecordingOptimizer.SplitAtSection(rec, 1);
+
+            Assert.Equal(new[] { 10.0, 20.0 }, rec.Points.Select(p => p.ut).ToArray());
+            Assert.Equal(new[] { 30.0, 40.0 }, second.Points.Select(p => p.ut).ToArray());
+            Assert.Equal(100, rec.Points[0].altitude);
+            Assert.Equal(400, second.Points[1].altitude);
         }
 
         #endregion

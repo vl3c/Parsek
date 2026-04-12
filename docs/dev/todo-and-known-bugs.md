@@ -95,7 +95,7 @@ Collected evidence from `logs/2026-04-12_1857_phase-11-5-storage-followup-s4/`:
 
 ---
 
-## 318. Recordings window stats can show impossible distance / altitude summaries on loaded surface recordings
+## ~~318. Recordings window stats can show impossible distance / altitude summaries on loaded surface recordings~~
 
 **Observed in:** 0.8.0 follow-up storage playtest (2026-04-12). In the `s4` save, the recordings window showed incorrect `dist` / `max alt` values for recent recordings.
 
@@ -107,11 +107,16 @@ Collected evidence from `logs/2026-04-12_1857_phase-11-5-storage-followup-s4/`:
   - nearby recordings in the same table pass produced more plausible values (`points=58 ... dist=177`, `points=13 ... dist=126`)
 - The recordings window computes these values live from loaded recordings rather than trusting `.sfs` cache fields, so this points at a loaded-trajectory/stats issue, not merely stale serialized UI metadata.
 
-**Root cause / hypothesis:** Some recently loaded surface recordings are reconstructing into point sequences that make `ComputeStats` think total distance is zero or near-zero even when the underlying recording should have meaningful motion. This may be a stats bug, a section-rebuild issue, or an edge case in how surface points/ranges are interpreted after binary `v3` load.
+**Root cause:** Two storage-side consistency gaps were involved:
 
-**Fix direction:** Capture the offending recording IDs from the `s4` bundle, dump the reconstructed points that feed `ComputeStats`, and compare them with the stored track sections / pre-save values to determine whether the error is in load reconstruction or in the stats calculation itself.
+- section-authoritative recordings could keep stale flat `Points` / `OrbitSegments` after merge or optimizer split because `TrackSections` changed but the derived flat lists were left copied from the pre-merge/pre-split source
+- `ComputeStats` treated relative-frame flattened points as if their `latitude` / `longitude` / `altitude` fields were absolute surface coordinates, even though relative sections reuse those fields for `(dx, dy, dz)` offsets
 
-**Status:** Open
+That combination was enough to produce contradictory summaries like `maxSpeed>0` with `dist=0`.
+
+**Fix:** Section-authoritative merge/split paths now resync flat trajectory lists from `TrackSections` whenever the section payload can rebuild them losslessly, instead of keeping stale copied flats. `TrajectoryMath.ComputeStats` also now applies section altitude metadata and handles relative-frame point distances/ranges as offset-space measurements instead of feeding them through surface-distance math.
+
+**Status:** ~~Fixed~~
 
 ---
 

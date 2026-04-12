@@ -2819,6 +2819,75 @@ namespace Parsek
             return dedupedBoundaryCopies;
         }
 
+        internal static bool ContainsRelativeTrackSections(List<TrackSection> tracks)
+        {
+            if (tracks == null)
+                return false;
+
+            for (int i = 0; i < tracks.Count; i++)
+            {
+                if (tracks[i].referenceFrame == ReferenceFrame.Relative)
+                    return true;
+            }
+
+            return false;
+        }
+
+        internal static bool HasCompleteTrackSectionPayloadForFlatSync(
+            List<TrackSection> tracks,
+            bool allowRelativeSections = false)
+        {
+            if (tracks == null || tracks.Count == 0)
+                return false;
+
+            bool sawPayload = false;
+            for (int i = 0; i < tracks.Count; i++)
+            {
+                var track = tracks[i];
+                switch (track.referenceFrame)
+                {
+                    case ReferenceFrame.Absolute:
+                        if (track.frames == null || track.frames.Count == 0)
+                            return false;
+                        sawPayload = true;
+                        break;
+
+                    case ReferenceFrame.Relative:
+                        if (!allowRelativeSections)
+                            return false;
+                        if (track.frames == null || track.frames.Count == 0)
+                            return false;
+                        sawPayload = true;
+                        break;
+
+                    case ReferenceFrame.OrbitalCheckpoint:
+                        if (track.checkpoints == null || track.checkpoints.Count == 0)
+                            return false;
+                        sawPayload = true;
+                        break;
+                }
+            }
+
+            return sawPayload;
+        }
+
+        internal static bool TrySyncFlatTrajectoryFromTrackSections(
+            Recording rec,
+            bool allowRelativeSections = false)
+        {
+            if (rec == null
+                || !HasCompleteTrackSectionPayloadForFlatSync(rec.TrackSections, allowRelativeSections))
+            {
+                return false;
+            }
+
+            RebuildPointsFromTrackSections(rec.TrackSections, rec.Points);
+            RebuildOrbitSegmentsFromTrackSections(rec.TrackSections, rec.OrbitSegments);
+            rec.CachedStats = null;
+            rec.CachedStatsPointCount = 0;
+            return true;
+        }
+
         internal static int RebuildOrbitSegmentsFromTrackSections(List<TrackSection> tracks, List<OrbitSegment> orbitSegments)
         {
             orbitSegments.Clear();
