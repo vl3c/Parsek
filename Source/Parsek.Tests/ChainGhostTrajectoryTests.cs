@@ -93,6 +93,29 @@ namespace Parsek.Tests
             };
         }
 
+        static Recording MakeRecordingOrbitOnly(string id, uint vesselPid,
+            double startUT, double endUT)
+        {
+            return new Recording
+            {
+                RecordingId = id,
+                VesselPersistentId = vesselPid,
+                ExplicitStartUT = startUT,
+                ExplicitEndUT = endUT,
+                Points = new List<TrajectoryPoint>(),
+                OrbitSegments = new List<OrbitSegment>
+                {
+                    new OrbitSegment
+                    {
+                        startUT = startUT,
+                        endUT = endUT,
+                        bodyName = "Kerbin",
+                        semiMajorAxis = 700000
+                    }
+                }
+            };
+        }
+
         #endregion
 
         #region FindBackgroundRecordingForVessel — core behavior
@@ -296,6 +319,41 @@ namespace Parsek.Tests
 
             Assert.NotNull(result);
             Assert.Equal("bg-alt", result.RecordingId);
+        }
+
+        /// <summary>
+        /// Once a chain-participating tree covers the UT, a point-backed alternate history
+        /// must not override that tree's orbit-only/surface-only playback source.
+        /// Returning null here is intentional: PositionChainGhostFallback should then use
+        /// the chain-local orbit/surface path instead of a global PID-only point lookup.
+        /// Guards: post-claim orbit-only chain segments keep priority over alternate history.
+        /// </summary>
+        [Fact]
+        public void FindBackgroundRecordingForChain_DoesNotOverrideChainLocalOrbitOnlyCoverage()
+        {
+            var altRec = MakeRecordingWithPoints("bg-alt", 100, 1200, 1300);
+            altRec.TreeId = "tree-alt";
+
+            var chainOrbitRec = MakeRecordingOrbitOnly("bg-chain-orbit", 100, 1200, 1300);
+            chainOrbitRec.TreeId = "tree-1";
+
+            var recordings = new List<Recording> { altRec, chainOrbitRec };
+            var chain = new GhostChain
+            {
+                OriginalVesselPid = 100,
+                TipTreeId = "tree-1"
+            };
+            chain.Links.Add(new ChainLink
+            {
+                recordingId = "R1",
+                treeId = "tree-1",
+                ut = 1060,
+                interactionType = "MERGE"
+            });
+
+            var result = ParsekFlight.FindBackgroundRecordingForChain(recordings, chain, 1250);
+
+            Assert.Null(result);
         }
 
         /// <summary>

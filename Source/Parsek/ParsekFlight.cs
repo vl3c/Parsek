@@ -6828,19 +6828,27 @@ namespace Parsek
                 return null;
 
             var preferredTreeIds = GetPreferredChainTreeIds(chain, currentUT);
+            bool hasChainLocalCoverage = false;
             for (int t = 0; t < preferredTreeIds.Count; t++)
             {
-                var rec = FindBackgroundRecordingForVesselInTree(
+                var rec = FindCoveredBackgroundRecordingForVesselInTree(
                     committedRecordings, preferredTreeIds[t], chain.OriginalVesselPid, currentUT);
-                if (rec != null)
+                if (rec == null)
+                    continue;
+
+                hasChainLocalCoverage = true;
+                if (rec.Points != null && rec.Points.Count > 0)
                     return rec;
             }
+
+            if (hasChainLocalCoverage)
+                return null;
 
             return FindBackgroundRecordingForVessel(
                 committedRecordings, chain.OriginalVesselPid, currentUT);
         }
 
-        private static Recording FindBackgroundRecordingForVesselInTree(
+        private static Recording FindCoveredBackgroundRecordingForVesselInTree(
             IReadOnlyList<Recording> committedRecordings, string treeId, uint vesselPid, double currentUT)
         {
             if (committedRecordings == null || string.IsNullOrEmpty(treeId))
@@ -6851,9 +6859,8 @@ namespace Parsek
                 var rec = committedRecordings[i];
                 if (rec.TreeId != treeId)
                     continue;
-                if (rec.VesselPersistentId == vesselPid &&
-                    rec.Points != null && rec.Points.Count > 0 &&
-                    currentUT >= rec.StartUT && currentUT <= rec.EndUT)
+                if (rec.VesselPersistentId == vesselPid
+                    && currentUT >= rec.StartUT && currentUT <= rec.EndUT)
                     return rec;
             }
 

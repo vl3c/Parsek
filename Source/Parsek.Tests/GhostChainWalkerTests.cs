@@ -335,6 +335,34 @@ namespace Parsek.Tests
         }
 
         /// <summary>
+        /// A root-lineage recording can contain ghost-trigger events, but that does not
+        /// make the tree claim its own vessel via BACKGROUND_EVENT.
+        /// Guards: self/root recordings are never treated as background claims.
+        /// </summary>
+        [Fact]
+        public void RootLineageRecording_WithTriggerEvents_DoesNotCreateBackgroundClaim()
+        {
+            var root = MakeRecording("R1", 50, 1000, 1120);
+            root.PartEvents = new List<PartEvent>
+            {
+                new PartEvent
+                {
+                    ut = 1050,
+                    partPersistentId = 123,
+                    eventType = PartEventType.Destroyed,
+                    partName = "panel"
+                }
+            };
+
+            var tree = MakeTree("tree-1", new[] { root }, null);
+
+            var chains = GhostChainWalker.ComputeAllGhostChains(
+                new List<RecordingTree> { tree }, 900);
+
+            Assert.Empty(chains);
+        }
+
+        /// <summary>
         /// Background recording with only cosmetic events (LightOn/LightOff) does NOT
         /// create a chain claim. Only ghosting-trigger events qualify.
         /// Guards: cosmetic-only background recordings don't ghost.

@@ -265,9 +265,9 @@ namespace Parsek
                     continue;
 
                 // Skip recordings that were already part of the tree's own lineage
-                // before this background recording started. Later PID reuse in the
-                // root lineage does not make an earlier background recording "owned."
-                if (TreeOwnsPidBeforeUT(rootLineageFirstSeen, rec.VesselPersistentId, rec.StartUT))
+                // by the time this recording starts. Later PID reuse in the root
+                // lineage does not make an earlier background recording "owned."
+                if (TreeOwnsPidAtOrBeforeUT(rootLineageFirstSeen, rec.VesselPersistentId, rec.StartUT))
                     continue;
 
                 if (!GhostingTriggerClassifier.HasGhostingTriggerEvents(rec))
@@ -722,6 +722,15 @@ namespace Parsek
             return rootLineageFirstSeen != null
                 && rootLineageFirstSeen.TryGetValue(pid, out firstSeenUT)
                 && firstSeenUT < ut - ClaimOverlapTolerance;
+        }
+
+        private static bool TreeOwnsPidAtOrBeforeUT(
+            Dictionary<uint, double> rootLineageFirstSeen, uint pid, double ut)
+        {
+            double firstSeenUT;
+            return rootLineageFirstSeen != null
+                && rootLineageFirstSeen.TryGetValue(pid, out firstSeenUT)
+                && firstSeenUT <= ut + ClaimOverlapTolerance;
         }
 
         #endregion
