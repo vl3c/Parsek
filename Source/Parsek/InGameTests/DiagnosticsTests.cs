@@ -18,6 +18,8 @@ namespace Parsek.InGameTests
             InGameAssert.Contains(report, "DIAGNOSTICS REPORT", "Report missing header");
             InGameAssert.Contains(report, "Storage:", "Report missing Storage section");
             InGameAssert.Contains(report, "Memory:", "Report missing Memory section");
+            InGameAssert.Contains(report, "Ghosts:", "Report missing Ghost section");
+            InGameAssert.Contains(report, "FX:", "Report missing FX section");
             InGameAssert.Contains(report, "Playback budget:", "Report missing Playback section");
             InGameAssert.Contains(report, "Health:", "Report missing Health section");
             InGameAssert.Contains(report, "END REPORT", "Report missing footer");
@@ -37,9 +39,24 @@ namespace Parsek.InGameTests
                 $"Ghost count should be non-negative, was {snapshot.lastPlaybackBudget.ghostsProcessed}");
             InGameAssert.IsTrue(snapshot.activeGhostCount >= 0,
                 $"Active ghost count should be non-negative, was {snapshot.activeGhostCount}");
+            InGameAssert.IsTrue(snapshot.activeOverlapGhostCount >= 0,
+                $"Overlap ghost count should be non-negative, was {snapshot.activeOverlapGhostCount}");
+            InGameAssert.IsTrue(snapshot.ghostsWithEngineFx >= 0,
+                $"Engine FX ghost count should be non-negative, was {snapshot.ghostsWithEngineFx}");
+            InGameAssert.IsTrue(snapshot.engineParticleSystemCount >= 0,
+                $"Engine particle system count should be non-negative, was {snapshot.engineParticleSystemCount}");
+            InGameAssert.IsTrue(snapshot.ghostsWithRcsFx >= 0,
+                $"RCS FX ghost count should be non-negative, was {snapshot.ghostsWithRcsFx}");
+            InGameAssert.IsTrue(snapshot.rcsParticleSystemCount >= 0,
+                $"RCS particle system count should be non-negative, was {snapshot.rcsParticleSystemCount}");
+            InGameAssert.IsTrue(snapshot.lastPlaybackBudget.destroyMicroseconds >= 0,
+                $"Destroy timing should be non-negative, was {snapshot.lastPlaybackBudget.destroyMicroseconds}");
 
             ParsekLog.Verbose("TestRunner",
-                $"Ghost counts: processed={snapshot.lastPlaybackBudget.ghostsProcessed}, active={snapshot.activeGhostCount}");
+                $"Ghost counts: processed={snapshot.lastPlaybackBudget.ghostsProcessed}, " +
+                $"primary={snapshot.activeGhostCount}, overlap={snapshot.activeOverlapGhostCount}, " +
+                $"engineFx={snapshot.ghostsWithEngineFx}/{snapshot.engineParticleSystemCount}, " +
+                $"rcsFx={snapshot.ghostsWithRcsFx}/{snapshot.rcsParticleSystemCount}");
         }
 
         [InGameTest(Category = "Diagnostics",
@@ -96,6 +113,48 @@ namespace Parsek.InGameTests
 
             ParsekLog.Verbose("TestRunner",
                 $"Recording count consistent: store={storeCount}, snapshot={snapshot.recordingCount}");
+        }
+
+        [InGameTest(Category = "Diagnostics", Scene = GameScenes.FLIGHT,
+            Description = "Snapshot ghost/FX counts match GhostPlaybackEngine observability")]
+        public static void DiagnosticsSnapshotMatchesEngineObservability()
+        {
+            var flight = ParsekFlight.Instance;
+            if (flight == null) InGameAssert.Skip("No ParsekFlight instance");
+
+            double ut = Planetarium.GetUniversalTime();
+            var snapshot = DiagnosticsComputation.ComputeSnapshot(ut);
+            var expected = flight.Engine.CaptureGhostObservability();
+
+            int expectedActiveGhostCount = expected.activePrimaryGhostCount + expected.activeOverlapGhostCount;
+            InGameAssert.AreEqual(expectedActiveGhostCount, snapshot.activeGhostCount,
+                $"Active ghost count mismatch: expected {expectedActiveGhostCount}, got {snapshot.activeGhostCount}");
+            InGameAssert.AreEqual(expected.activeOverlapGhostCount, snapshot.activeOverlapGhostCount,
+                $"Overlap ghost count mismatch: expected {expected.activeOverlapGhostCount}, got {snapshot.activeOverlapGhostCount}");
+            InGameAssert.AreEqual(expected.zone1GhostCount, snapshot.zone1GhostCount,
+                $"Zone 1 ghost count mismatch: expected {expected.zone1GhostCount}, got {snapshot.zone1GhostCount}");
+            InGameAssert.AreEqual(expected.zone2GhostCount, snapshot.zone2GhostCount,
+                $"Zone 2 ghost count mismatch: expected {expected.zone2GhostCount}, got {snapshot.zone2GhostCount}");
+            InGameAssert.AreEqual(expected.softCapReducedCount, snapshot.softCapReducedCount,
+                $"Reduced ghost count mismatch: expected {expected.softCapReducedCount}, got {snapshot.softCapReducedCount}");
+            InGameAssert.AreEqual(expected.softCapSimplifiedCount, snapshot.softCapSimplifiedCount,
+                $"Simplified ghost count mismatch: expected {expected.softCapSimplifiedCount}, got {snapshot.softCapSimplifiedCount}");
+            InGameAssert.AreEqual(expected.ghostsWithEngineFx, snapshot.ghostsWithEngineFx,
+                $"Engine FX ghost count mismatch: expected {expected.ghostsWithEngineFx}, got {snapshot.ghostsWithEngineFx}");
+            InGameAssert.AreEqual(expected.engineModuleCount, snapshot.engineModuleCount,
+                $"Engine FX module count mismatch: expected {expected.engineModuleCount}, got {snapshot.engineModuleCount}");
+            InGameAssert.AreEqual(expected.engineParticleSystemCount, snapshot.engineParticleSystemCount,
+                $"Engine FX particle count mismatch: expected {expected.engineParticleSystemCount}, got {snapshot.engineParticleSystemCount}");
+            InGameAssert.AreEqual(expected.ghostsWithRcsFx, snapshot.ghostsWithRcsFx,
+                $"RCS FX ghost count mismatch: expected {expected.ghostsWithRcsFx}, got {snapshot.ghostsWithRcsFx}");
+            InGameAssert.AreEqual(expected.rcsModuleCount, snapshot.rcsModuleCount,
+                $"RCS FX module count mismatch: expected {expected.rcsModuleCount}, got {snapshot.rcsModuleCount}");
+            InGameAssert.AreEqual(expected.rcsParticleSystemCount, snapshot.rcsParticleSystemCount,
+                $"RCS FX particle count mismatch: expected {expected.rcsParticleSystemCount}, got {snapshot.rcsParticleSystemCount}");
+
+            ParsekLog.Verbose("TestRunner",
+                $"Diagnostics snapshot matches engine observability: active={snapshot.activeGhostCount}, " +
+                $"overlap={snapshot.activeOverlapGhostCount}, engineFx={snapshot.ghostsWithEngineFx}, rcsFx={snapshot.ghostsWithRcsFx}");
         }
     }
 }

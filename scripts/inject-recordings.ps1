@@ -2,7 +2,8 @@ param(
     [switch]$CleanStart,
     [string]$SaveName = "test career",
     [string]$TargetSave = "1.sfs",
-    [switch]$Build
+    [switch]$Build,
+    [switch]$RunDiagnosticsTests
 )
 
 $ErrorActionPreference = "Stop"
@@ -34,11 +35,12 @@ function Resolve-KspDir {
 }
 
 # GNU-style compatibility:
-#   --clean-start, --save-name "test career", --target-save 1.sfs, --build
+#   --clean-start, --save-name "test career", --target-save 1.sfs, --build, --run-diagnostics-tests
 for ($i = 0; $i -lt $args.Count; $i++) {
     switch ($args[$i]) {
         "--clean-start" { $CleanStart = $true; continue }
         "--build" { $Build = $true; continue }
+        "--run-diagnostics-tests" { $RunDiagnosticsTests = $true; continue }
         "--save-name" {
             if ($i + 1 -lt $args.Count) { $SaveName = $args[$i + 1]; $i++ }
             continue
@@ -78,6 +80,30 @@ $env:KSPDIR = $kspDir
 
 Write-Host "Injecting recordings into save '$SaveName' target '$TargetSave' (clean-start=$($CleanStart.IsPresent))"
 Write-Host "Resolved KSP dir: $kspDir"
+
+if ($RunDiagnosticsTests) {
+    Write-Host "Running diagnostics/observability unit tests before save injection..."
+    $diagnosticsArgs = @(
+        "test",
+        "Source/Parsek.Tests/Parsek.Tests.csproj",
+        "--filter",
+        "FullyQualifiedName~DiagnosticsStateTests|FullyQualifiedName~DiagnosticsComputationTests|FullyQualifiedName~DiagnosticsIntegrationTests|FullyQualifiedName~GhostPlaybackEngineTests|FullyQualifiedName~ObservabilityLoggingTests|FullyQualifiedName~InGameTestRunnerTests",
+        "-v", "minimal"
+    )
+    if (-not $Build) {
+        $diagnosticsArgs += "--no-build"
+    }
+
+    dotnet @diagnosticsArgs
+
+    if ($LASTEXITCODE -ne 0) {
+        if (-not $Build) {
+            throw "Diagnostics/observability unit tests failed with exit code $LASTEXITCODE. If assemblies are stale, rerun with --build after closing KSP."
+        }
+        throw "Diagnostics/observability unit tests failed with exit code $LASTEXITCODE"
+    }
+}
+
 $testArgs = @(
     "test",
     "Source/Parsek.Tests/Parsek.Tests.csproj",
@@ -106,3 +132,4 @@ if ($TargetSave -ne "persistent.sfs") {
 }
 
 Write-Host "Injection complete."
+Write-Host "In KSP, run Test Runner categories 'Diagnostics' and 'PartEventFX' for FX-heavy validation on the injected showcase save."

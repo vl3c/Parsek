@@ -54,6 +54,7 @@ namespace Parsek
         // Diagnostics: reusable Stopwatches (allocated once, no per-frame GC)
         private readonly Stopwatch updateStopwatch = new Stopwatch();
         private readonly Stopwatch spawnStopwatch = new Stopwatch();
+        private readonly Stopwatch destroyStopwatch = new Stopwatch();
 
         // Deferred event lists (reused per frame to avoid GC allocation)
         private readonly List<PlaybackCompletedEvent> deferredCompletedEvents = new List<PlaybackCompletedEvent>();
@@ -156,6 +157,7 @@ namespace Parsek
             // Reset spawn timer to zero — Start()/Stop() pairs inside SpawnGhost
             // accumulate across multiple spawns per frame (Start resumes, not resets)
             spawnStopwatch.Reset();
+            destroyStopwatch.Reset();
             long spawnMicroseconds = 0;
             int ghostsProcessed = 0;
 
@@ -332,11 +334,15 @@ namespace Parsek
             updateStopwatch.Stop();
             long totalMicroseconds = updateStopwatch.ElapsedTicks * 1000000L / Stopwatch.Frequency;
             spawnMicroseconds = spawnStopwatch.ElapsedTicks * 1000000L / Stopwatch.Frequency;
+            long destroyMicroseconds = destroyStopwatch.ElapsedTicks * 1000000L / Stopwatch.Frequency;
+            GhostObservability ghostObservability = CaptureGhostObservability();
 
             DiagnosticsState.playbackBudget.totalMicroseconds = totalMicroseconds;
             DiagnosticsState.playbackBudget.spawnMicroseconds = spawnMicroseconds;
+            DiagnosticsState.playbackBudget.destroyMicroseconds = destroyMicroseconds;
             DiagnosticsState.playbackBudget.ghostsProcessed = ghostsProcessed;
             DiagnosticsState.playbackBudget.warpRate = ctx.warpRate;
+            DiagnosticsState.playbackBudget.ghostObservability = ghostObservability;
 
             DiagnosticsState.playbackFrameHistory.Append(
                 Time.realtimeSinceStartup, totalMicroseconds);
@@ -1262,6 +1268,109 @@ namespace Parsek
 
         #endregion
 
+        #region Observability helpers
+
+        /// <summary>
+        /// Aggregates the current primary/overlap ghost counts and engine/RCS FX counts.
+        /// Purely observational — callers must not use this to drive gameplay decisions.
+        /// </summary>
+        internal GhostObservability CaptureGhostObservability()
+        {
+            var result = new GhostObservability();
+
+            foreach (var kvp in ghostStates)
+            {
+                CountPrimaryGhostForObservability(kvp.Value, ref result);
+            }
+
+            foreach (var kvp in overlapGhosts)
+            {
+                var overlaps = kvp.Value;
+                if (overlaps == null) continue;
+
+                for (int i = 0; i < overlaps.Count; i++)
+                    CountOverlapGhostForObservability(overlaps[i], ref result);
+            }
+
+            return result;
+        }
+
+        private static void CountPrimaryGhostForObservability(
+            GhostPlaybackState state, ref GhostObservability result)
+        {
+            if (state == null) return;
+
+            result.activePrimaryGhostCount++;
+
+            if (state.currentZone == RenderingZone.Physics)
+                result.zone1GhostCount++;
+            else if (state.currentZone == RenderingZone.Visual)
+                result.zone2GhostCount++;
+
+            if (state.fidelityReduced)
+                result.softCapReducedCount++;
+            if (state.simplified)
+                result.softCapSimplifiedCount++;
+
+            CountFxForObservability(state, ref result);
+        }
+
+        private static void CountOverlapGhostForObservability(
+            GhostPlaybackState state, ref GhostObservability result)
+        {
+            if (state == null) return;
+
+            result.activeOverlapGhostCount++;
+            CountFxForObservability(state, ref result);
+        }
+
+        private static void CountFxForObservability(
+            GhostPlaybackState state, ref GhostObservability result)
+        {
+            int engineModulesForGhost = CountModulesAndParticleSystems(
+                state?.engineInfos, out int engineSystemsForGhost);
+            if (engineModulesForGhost > 0)
+            {
+                result.ghostsWithEngineFx++;
+                result.engineModuleCount += engineModulesForGhost;
+                result.engineParticleSystemCount += engineSystemsForGhost;
+            }
+
+            int rcsModulesForGhost = CountModulesAndParticleSystems(
+                state?.rcsInfos, out int rcsSystemsForGhost);
+            if (rcsModulesForGhost > 0)
+            {
+                result.ghostsWithRcsFx++;
+                result.rcsModuleCount += rcsModulesForGhost;
+                result.rcsParticleSystemCount += rcsSystemsForGhost;
+            }
+        }
+
+        private static int CountModulesAndParticleSystems<TGhostInfo>(
+            Dictionary<ulong, TGhostInfo> infos, out int particleSystemCount)
+            where TGhostInfo : class
+        {
+            particleSystemCount = 0;
+            if (infos == null || infos.Count == 0)
+                return 0;
+
+            int moduleCount = 0;
+            foreach (var info in infos.Values)
+            {
+                if (info == null) continue;
+
+                moduleCount++;
+                if (info is EngineGhostInfo engineInfo)
+                    particleSystemCount += engineInfo.particleSystems?.Count ?? 0;
+                else if (info is RcsGhostInfo rcsInfo)
+                    particleSystemCount += rcsInfo.particleSystems?.Count ?? 0;
+            }
+
+            return moduleCount;
+        }
+
+        #endregion
+
         #region Query API
 
         /// <summary>Number of active primary timeline ghosts.</summary>
@@ -1510,6 +1619,28 @@ namespace Parsek
             GhostPlaybackLogic.DestroyAllFakeCanopies(state);
         }
 
+        private void DestroyGhostResourcesWithMetrics(GhostPlaybackState state)
+        {
+            if (state == null)
+                return;
+
+            if (!updateStopwatch.IsRunning)
+            {
+                DestroyGhostResources(state);
+                return;
+            }
+
+            destroyStopwatch.Start();
+            try
+            {
+                DestroyGhostResources(state);
+            }
+            finally
+            {
+                destroyStopwatch.Stop();
+            }
+        }
+
         /// <summary>
         /// Destroys reentry FX resources (cloned materials, generated texture, emission mesh).
         /// </summary>
@@ -1549,7 +1680,7 @@ namespace Parsek
                 Index = index, Trajectory = traj, State = state, Flags = flags
             });
 
-            DestroyGhostResources(state);
+            DestroyGhostResourcesWithMetrics(state);
 
             ghostStates.Remove(index);
             loopPhaseOffsets.Remove(index);
@@ -1565,7 +1696,7 @@ namespace Parsek
             if (state == null) return;
             ParsekLog.VerboseRateLimited("Engine", "destroy-overlap",
                 $"Destroying overlap ghost cycle={state.loopCycleIndex}", 2.0);
-            DestroyGhostResources(state);
+            DestroyGhostResourcesWithMetrics(state);
         }
 
         /// <summary>
