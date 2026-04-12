@@ -1,6 +1,6 @@
 # Fix Plan: #316 Breakup Debris Ghosts Spawn Into Beyond
 
-Status: implemented 2026-04-13 after log/code investigation, targeted regression coverage, and bounded post-watch lineage-protection fix.
+Status: implemented 2026-04-13 after log/code investigation, targeted regression coverage, bounded post-watch lineage-protection fix, and clean-review follow-up fixes for automatic-exit coverage and failed watch-start retention.
 
 ## Background
 
@@ -82,16 +82,27 @@ Focused verification on current `HEAD`:
 - `dotnet test Source\\Parsek.Tests\\Parsek.Tests.csproj --filter ZoneRenderingTests`
 - Result: `54 passed, 0 failed`
 
-Additional headless characterization on 2026-04-13:
+Additional headless characterization on 2026-04-13 before the final fix:
 
 - `dotnet test Source\\Parsek.Tests\\Parsek.Tests.csproj --filter "FullyQualifiedName~Issue316"`
-- Result: `3 passed, 0 failed`
+- Result before review follow-up: `3 passed, 0 failed`
 - `Issue316_PopulateLoopSync_LateDebrisAfterWatchedSegment_GetsMinusOne`
   proves the archived `#10` / `#11` timings leave both debris recordings without a direct `LoopSyncParentIdx` after final chain splitting.
 - `Issue316_IsWatchProtectedRecording_ArchivedSplitLineageFallsBackToBranchAncestry`
   proves current `HEAD`'s recursive same-tree ancestry fallback would still classify both debris recordings as watch-protected while watch remains active, even with `LoopSyncParentIdx == -1`.
 - `Issue316_ArchivedSameTreeDebrisOutsideWatchedBranch_IsNotAutoFollowTarget`
   proves current watch auto-follow still ignores active same-tree debris that is not a child of the watched segment's own `ChildBranchPointId`.
+
+Review follow-up on the same day tightened the implementation and added shared headless coverage around the extracted exit/zone/start seams:
+
+- `dotnet test Source\\Parsek.Tests\\Parsek.Tests.csproj --filter "FullyQualifiedName~Issue316"`
+- Result after review follow-up: `8 passed, 0 failed`
+- `Issue316_FinalizeAutomaticExitForTesting_RetainsLineageProtectionWithoutSpam`
+  proves the shared automatic-exit state transition retains the watched-lineage root once and does not spam the retention log on repeated resolution.
+- `Issue316_ResolveZoneWatchState_RetainedProtectionKeepsLateDebrisFullFidelity`
+  proves the zone-rendering path consumes `WatchProtectionRecordingIndex` from retained post-watch state and keeps late same-lineage debris on the full-fidelity path even in `Beyond`.
+- `Issue316_TryCommitWatchSessionStart_NullLoadedState_PreservesExistingLineageProtection`
+  proves a failed replacement watch start does not clear an already-retained protection window unless a new watch state is actually committed.
 
 What is still unproven:
 
@@ -147,11 +158,4 @@ If current `HEAD` shows both archived cases are acceptable under the intended de
 
 ## Recommended Next Action
 
-Treat `#316` as "partially diagnosed, not yet closed."
-
-The lowest-risk next step is:
-
-1. Reproduce the archived save on current `HEAD` in a live KSP playback session with targeted watch/lineage diagnostics.
-2. Split the result into `#10` ancestry behavior and `#11` watch-lifetime behavior.
-3. Treat helper-level ancestry as likely sufficient for `#10` unless live playback disproves it.
-4. Implement only the still-failing half instead of assuming one ancestry fix explains the whole bug.
+Implementation and headless regression coverage are complete. The only remaining optional confidence step is a live KSP playback pass on the archived save to confirm the reviewed behavior against the original playtest, but there is no remaining headless evidence gap blocking closure of `#316`.

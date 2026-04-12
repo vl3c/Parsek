@@ -7045,7 +7045,10 @@ namespace Parsek
             watchMode.TransferWatchToNextSegment(nextIndex);
 
         /// <summary>Called by policy to exit watch mode.</summary>
-        internal void ExitWatchModeFromPolicy() => watchMode.ExitWatchMode();
+        internal void ExitWatchModeFromPolicy() => watchMode.ExitWatchModePreservingLineage();
+
+        internal void ExitWatchModePreservingLineage(bool skipCameraRestore = false) =>
+            watchMode.ExitWatchModePreservingLineage(skipCameraRestore);
 
         /// <summary>Called by policy to switch camera to a spawned vessel after watch-mode spawn.</summary>
         internal void DeferredActivateVesselFromPolicy(uint vesselPid) =>
@@ -7054,6 +7057,23 @@ namespace Parsek
         /// <summary>Called by policy to start the watch-mode hold timer at recording end.</summary>
         internal void StartWatchHoldFromPolicy(float holdUntilRealTime) =>
             watchMode.StartWatchHold(holdUntilRealTime);
+
+        private static float GetCurrentWarpRateSafe()
+        {
+            try
+            {
+                return TimeWarp.CurrentRate;
+            }
+            catch (System.Security.SecurityException)
+            {
+                // Unit-test host does not provide the live KSP warp singleton.
+                return 1f;
+            }
+            catch (MethodAccessException)
+            {
+                return 1f;
+            }
+        }
 
         private void SpawnVesselOrChainTip(Recording rec, int index)
         {
@@ -7809,14 +7829,8 @@ namespace Parsek
             double ghostDistance, int protectedIndex)
         {
             var zone = RenderingZoneManager.ClassifyDistance(ghostDistance);
-            bool isWatchedGhost = watchMode != null
-                ? watchMode.IsWatchedGhostState(recIdx, state)
-                : GhostPlaybackLogic.IsProtectedGhost(protectedIndex, recIdx);
-            int watchProtectionIndex = watchMode != null
-                ? watchMode.WatchProtectionRecordingIndex
-                : protectedIndex;
-            bool isWatchProtectedRecording = GhostPlaybackLogic.IsWatchProtectedRecording(
-                RecordingStore.CommittedRecordings, RecordingStore.CommittedTrees, watchProtectionIndex, recIdx);
+            var (isWatchedGhost, _, isWatchProtectedRecording) =
+                ResolveZoneWatchState(recIdx, state, protectedIndex);
 
             // Cache distance on state for use by IsGhostWithinVisualRange
             if (state != null)
@@ -7849,7 +7863,7 @@ namespace Parsek
                         $"Ghost #{recIdx} \"{rec.VesselName}\" exceeded ghost camera cutoff " +
                         $"({ghostDistance.ToString("F0", CultureInfo.InvariantCulture)}m >= " +
                         $"{(cutoffKm * 1000.0).ToString("F0", CultureInfo.InvariantCulture)}m) — exiting watch mode");
-                    ExitWatchMode();
+                    ExitWatchModePreservingLineage();
                     // Don't return — let zone rendering continue (ghost will be hidden if Beyond)
                 }
                 else
@@ -7892,7 +7906,7 @@ namespace Parsek
             // #171: During warp, exempt orbital ghosts from zone hiding — they travel far
             // from the player and would complete playback while invisible.
             if (GhostPlaybackLogic.ShouldApplyWarpZoneHideExemption(
-                    shouldHideMesh, zone, TimeWarp.CurrentRate, rec.HasOrbitSegments))
+                    shouldHideMesh, zone, GetCurrentWarpRateSafe(), rec.HasOrbitSegments))
             {
                 shouldHideMesh = false;
                 ParsekLog.VerboseRateLimited("Zone", $"warp-zone-exempt-{recIdx}",
@@ -7935,6 +7949,20 @@ namespace Parsek
                 suppressVisualFx = distanceSuppressVisualFx,
                 reduceFidelity = distanceReduceFidelity
             };
+        }
+
+        internal (bool isWatchedGhost, int watchProtectionIndex, bool isWatchProtectedRecording)
+            ResolveZoneWatchState(int recIdx, GhostPlaybackState state, int protectedIndex)
+        {
+            bool isWatchedGhost = watchMode != null
+                ? watchMode.IsWatchedGhostState(recIdx, state)
+                : GhostPlaybackLogic.IsProtectedGhost(protectedIndex, recIdx);
+            int watchProtectionIndex = watchMode != null
+                ? watchMode.WatchProtectionRecordingIndex
+                : protectedIndex;
+            bool isWatchProtectedRecording = GhostPlaybackLogic.IsWatchProtectedRecording(
+                RecordingStore.CommittedRecordings, RecordingStore.CommittedTrees, watchProtectionIndex, recIdx);
+            return (isWatchedGhost, watchProtectionIndex, isWatchProtectedRecording);
         }
 
         #endregion

@@ -69,11 +69,13 @@ Collected evidence from `logs/2026-04-12_1857_phase-11-5-storage-followup-s4/`:
 
 **Root cause:** The archived failure was two bugs folded together. Early watched-lineage debris could miss protection because the archived build only protected the exact watched row, not same-tree breakup ancestry. Later debris could still fail even on newer ancestry-aware builds because automatic watch exit cleared the only visibility-protection source before those descendant debris recordings began playback.
 
-**Fix:** Same-tree watched-debris protection now survives missing `LoopSyncParentIdx` by following branch ancestry, and automatic watch exit now retains a bounded watched-lineage debris protection window through the last pending descendant debris `EndUT`. The camera still exits normally; only the debris visibility exemption is retained. Added archived-topology regression coverage for:
+**Fix:** Same-tree watched-debris protection now survives missing `LoopSyncParentIdx` by following branch ancestry, and playback-driven automatic watch exits now retain a bounded watched-lineage debris protection window through the last pending descendant debris `EndUT`. Failed replacement watch starts no longer clear that retained protection unless a new watch session is actually committed. The camera still exits normally; only the debris visibility exemption is retained. Added archived-topology regression coverage for:
 
 - late debris with `LoopSyncParentIdx == -1` after final chain splitting
 - same-tree ancestry fallback from watched segment to root-parented debris
-- retained watched-lineage protection through the last late-debris playback window
+- retained watched-lineage protection through the last late-debris playback window without repeated retention logs
+- zone-rendering watch-protection resolution consuming the retained root for late debris
+- null-loaded watch-start commits preserving the prior retained protection window
 - the existing watch-target rule that still refuses to retarget camera to non-child same-tree debris
 
 This closes the "spawned but never visible" playback path without loosening the camera handoff rule introduced for `#158`.
