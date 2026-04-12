@@ -714,6 +714,10 @@ Remaining high-value work should stay measurement-gated and follow
 - post-commit, error-bounded trajectory thinning only after the format wins are re-measured
 - any further snapshot-side work should preserve current alias semantics and stay covered by
   sidecar/load diagnostics
+- add an end-to-end active-tree salvage test that proves a later `OnSave` rewrites healed sidecars
+  and clears `FilesDirty`
+- add a mixed-case salvage test where several recordings fail hydration but only a subset can be
+  restored from the matching pending tree
 
 **Priority:** Current Phase 11.5 follow-on work
 
