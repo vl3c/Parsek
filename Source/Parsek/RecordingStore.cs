@@ -2130,14 +2130,12 @@ namespace Parsek
         internal static bool CanRewind(Recording rec, out string reason, bool isRecording)
         {
             string resolvedSave = GetRewindSaveFileName(rec);
-            bool saveExists = false;
-            if (!string.IsNullOrEmpty(resolvedSave))
-            {
-                string savePath = RecordingPaths.ResolveSaveScopedPath(
-                    RecordingPaths.BuildRewindSaveRelativePath(resolvedSave));
-                saveExists = !string.IsNullOrEmpty(savePath) && File.Exists(savePath);
-            }
+            if (!CanRewindPreFileCheck(resolvedSave, out reason, isRecording))
+                return false;
 
+            string savePath = RecordingPaths.ResolveSaveScopedPath(
+                RecordingPaths.BuildRewindSaveRelativePath(resolvedSave));
+            bool saveExists = !string.IsNullOrEmpty(savePath) && File.Exists(savePath);
             return CanRewindWithResolvedSaveState(resolvedSave, saveExists, out reason, isRecording);
         }
 
@@ -2147,6 +2145,23 @@ namespace Parsek
         /// </summary>
         internal static bool CanRewindWithResolvedSaveState(
             string resolvedSave, bool saveExists, out string reason, bool isRecording)
+        {
+            if (!CanRewindPreFileCheck(resolvedSave, out reason, isRecording))
+                return false;
+
+            if (!saveExists)
+            {
+                reason = "Rewind save file missing";
+                // Per-frame logging removed (was 3.7% of all log output); reason returned to caller
+                return false;
+            }
+
+            reason = "";
+            // Per-frame logging removed; reason returned to caller
+            return true;
+        }
+
+        private static bool CanRewindPreFileCheck(string resolvedSave, out string reason, bool isRecording)
         {
             if (IsRewinding)
             {
@@ -2172,13 +2187,6 @@ namespace Parsek
             if (HasPendingTree)
             {
                 reason = "Merge or discard pending tree first";
-                // Per-frame logging removed (was 3.7% of all log output); reason returned to caller
-                return false;
-            }
-
-            if (!saveExists)
-            {
-                reason = "Rewind save file missing";
                 // Per-frame logging removed (was 3.7% of all log output); reason returned to caller
                 return false;
             }

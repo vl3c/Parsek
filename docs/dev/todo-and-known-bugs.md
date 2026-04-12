@@ -7,7 +7,7 @@ Entries 272–303 (78 bugs, 6 TODOs — mostly resolved) archived in `done/todo-
 
 # Known Bugs
 
-## 313. Splashed EVA spawn-at-end can place the kerbal slightly underwater
+## ~~313. Splashed EVA spawn-at-end can place the kerbal slightly underwater~~
 
 **Observed in:** 0.8.0 (2026-04-12). In the Phase 11.5 playtest bundle, the parent splashed vessel (`#24 "Kerbal X"`) was clamped and spawned at sea level, but the EVA child (`#25 "Raydred Kerman"`) spawned at `alt=-0.2` with `terminal=Splashed`. Log sequence:
 
@@ -24,9 +24,9 @@ Entries 272–303 (78 bugs, 6 TODOs — mostly resolved) archived in `done/todo-
 
 **Test gap:** `SpawnSafetyNetTests.ResolveSpawnPosition_EvaLanded_FallsThroughToSplashedClamp` only covers `alt > 0 -> 0`. There is no regression test for a splashed EVA endpoint with `alt < 0`.
 
-**Follow-up:** Add a sea-surface floor invariant for splashed terminal spawns on the EVA path as well, and add a regression test that a negative splashed EVA endpoint is floored to `0.0` before spawn.
+**Fix:** `VesselSpawner.ResolveSpawnPosition` now floors every non-zero `TerminalState.Splashed` altitude to sea level (`0.0`), not just the `alt > 0` case. That applies uniformly to EVA, breakup-continuous, and snapshot-based splashed spawns before `OverrideSnapshotPosition` / `SpawnAtPosition` runs. Added `ResolveSpawnPosition_EvaSplashed_NegativeEndpointAltitude_FloorsToSeaLevel` and updated breakup-continuous coverage so slightly negative terminal samples cannot place a spawned vessel underwater.
 
-**Status:** Open
+**Status:** ~~Fixed~~
 
 ---
 
@@ -471,7 +471,7 @@ Test game actions system with popular mods: CustomBarnKit (non-standard facility
 
 ## TODO — Recording Data Integrity
 
-### T60. Add regression coverage and diagnostics for R/FF enablement reasons
+### ~~T60. Add regression coverage and diagnostics for R/FF enablement reasons~~
 
 **Evidence bundle:** `.tmp/logs/2026-04-12_163227_phase-11-5-branch-validation/`
 
@@ -485,15 +485,20 @@ The current Phase 11.5 playtest log shows R/FF row enablement is driven by recor
 
 The governing code is `RecordingsTableUI` + `RecordingStore.CanRewind/CanFastForward`. Distance/watch state is only used for the `W` button path and should never affect R/FF availability.
 
-Add focused coverage for:
+**Conclusion:** No real R/FF distance bug found. The runtime behavior was already correct: row/group R/FF enablement comes from recording timing/save/runtime state, while watch distance only gates `W`.
+
+**Fix:** Added focused coverage for:
 
 - `CanFastForward`: 0-point recordings return `Recording not available`
 - `CanFastForward`: current/past recordings return `Recording is not in the future`
 - `CanRewind`: tree branches with no root rewind save return `No rewind save available` / `Rewind save file missing`
 - transient blocks: `isRecording`, `IsRewinding`, and `HasPendingTree`
 - UI-level guard that distance/watch state never changes R/FF enablement
+- testable core helpers: `CanFastForwardAtUT` and `CanRewindWithResolvedSaveState` preserve the runtime guard order while making the missing reason cases unit-testable
 
 **Priority:** Medium — current runtime logic is mostly correct, but the failure modes are easy to misread in playtests unless we lock them down with tests and explicit reasoning
+
+**Status:** ~~Fixed~~
 
 ---
 
