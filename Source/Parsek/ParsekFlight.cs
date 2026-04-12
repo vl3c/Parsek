@@ -1818,6 +1818,27 @@ namespace Parsek
             return (bp, activeChild, backgroundChild);
         }
 
+        internal static SegmentEnvironment? GetEvaBackgroundInitialEnvironmentOverride(
+            BranchPointType branchType,
+            bool backgroundChildIsEva,
+            int activeSituation,
+            double backgroundSrfSpeed)
+        {
+            if (branchType != BranchPointType.EVA || !backgroundChildIsEva)
+                return null;
+
+            if (activeSituation == (int)Vessel.Situations.LANDED ||
+                activeSituation == (int)Vessel.Situations.SPLASHED ||
+                activeSituation == (int)Vessel.Situations.PRELAUNCH)
+            {
+                return backgroundSrfSpeed > 0.1
+                    ? SegmentEnvironment.SurfaceMobile
+                    : SegmentEnvironment.SurfaceStationary;
+            }
+
+            return null;
+        }
+
         /// <summary>
         /// Pure data-model method: creates the BranchPoint and one child Recording object
         /// for a vessel merge (dock or board). Testable without Unity.
@@ -1956,8 +1977,23 @@ namespace Parsek
             // Add background child to BackgroundMap FIRST, then notify BackgroundRecorder
             if (backgroundVessel != null && backgroundVessel.persistentId != 0)
             {
+                var initialBackgroundEnvOverride = GetEvaBackgroundInitialEnvironmentOverride(
+                    branchType,
+                    backgroundVessel.isEVA,
+                    activeVessel != null ? (int)activeVessel.situation : 0,
+                    backgroundVessel.srfSpeed);
+
+                if (initialBackgroundEnvOverride.HasValue)
+                {
+                    ParsekLog.Verbose("Flight",
+                        $"CreateSplitBranch: forcing initial background env {initialBackgroundEnvOverride.Value} " +
+                        $"for pid={backgroundVessel.persistentId}");
+                }
+
                 activeTree.BackgroundMap[backgroundVessel.persistentId] = bgChild.RecordingId;
-                backgroundRecorder?.OnVesselBackgrounded(backgroundVessel.persistentId);
+                backgroundRecorder?.OnVesselBackgrounded(
+                    backgroundVessel.persistentId,
+                    initialEnvironmentOverride: initialBackgroundEnvOverride);
             }
 
             // Stop any existing undock continuation and vessel continuation (tree handles them)

@@ -250,7 +250,7 @@ Add unit/in-game coverage around `F5/F9` during a branch, final save/load, and w
 
 ---
 
-## 326. Landed EVA branch can be seeded as Atmospheric, leaving a bogus 1-point EVA fragment and bad optimizer splits
+## ~~326. Landed EVA branch can be seeded as Atmospheric, leaving a bogus 1-point EVA fragment and bad optimizer splits~~
 
 **Observed in:** `logs/2026-04-12_2242_quickload-branch-gaps-s10/` (`s10`). The latest retry did **not** reproduce the exact `s9` watch-handoff failure; main-vessel watch transfer worked on current head. But the run exposed a different regression in the EVA branch path.
 
@@ -272,16 +272,14 @@ Add unit/in-game coverage around `F5/F9` during a branch, final save/load, and w
 
 **Impact:** A surface EVA can be recorded as if it briefly started in atmosphere, which pollutes the final tree with a tiny non-leaf stub and causes later optimizer output to classify EVA chain segments as `atmo`. That matches the user-visible symptom of "gaps" / badly stitched EVA recordings even though watch transfer on the main vessel path works.
 
-**Root cause / hypothesis:** During EVA split creation, the child kerbal is first background-initialized from a transient pre-stable loaded state. The environment classifier appears to trust `inAtmo/altitude` too early, before landed/grounded state is stable, so it seeds `Atmospheric` for a loaded surface EVA. Once the switch completes, the active recorder correctly sees `SurfaceStationary`, but the one-frame atmospheric background section has already been persisted into the recording.
+**Root cause:** This turned out to be two related defects:
 
-**Fix direction:** In the EVA branch path, either:
+- when KSP left the source vessel active for one more frame, `CreateSplitBranch -> OnVesselBackgrounded -> InitializeLoadedState` could background-seed the new EVA child from a transient pre-stable loaded state, producing the 1-point `Atmospheric` stub
+- later, atmospheric-body EVA classification still trusted transient `FLYING` / `SUB_ORBITAL` state too much for ground-adjacent and splashed kerbals, so near-surface or sea-level bobbing EVAs could still flip into `Atmospheric` and create bogus optimizer splits
 
-- seed surface EVAs conservatively as `SurfaceStationary` / `SurfaceMobile` when the source situation is landed/splashed or the EVA is known to be ground-adjacent, or
-- delay background loaded-state initialization for the new EVA vessel until its landed/ground-contact state stabilizes
+**Fix:** EVA branch creation now queues a PID-keyed one-shot initial environment override when the background child is an EVA spawned from a landed / splashed / prelaunch source, and `BackgroundRecorder.InitializeLoadedState` consumes that override on the first real loaded init, including delayed go-off-rails initialization. `EnvironmentDetector`, `FlightRecorder`, and `BackgroundRecorder` now also keep atmospheric-body EVAs in surface segments when they are validly near terrain or bobbing at sea level on an ocean world. Added regression coverage for the branch override helper, pending override bookkeeping, and landed/splashed atmospheric-body EVA classification.
 
-Then add coverage that a landed EVA split does not create a 1-point atmospheric stub and that optimizer output for the resulting EVA chain is surface-classified unless the kerbal actually goes airborne.
-
-**Status:** Open
+**Status:** ~~Fixed~~
 
 ---
 
@@ -592,7 +590,7 @@ After removing ResourceBudget.ComputeTotal logging (52% of output), remaining sp
 
 ---
 
-## 189b. Ghost escape orbit line stops short of Kerbin SOI edge
+## ~~189b. Ghost escape orbit line stops short of Kerbin SOI edge~~
 
 For hyperbolic escape orbits, KSP's `OrbitRendererBase.UpdateSpline` draws the geometric hyperbola from `-acos(-1/e)` to `+acos(-1/e)` using circular trig (cos/sin), which clips at a finite distance (~12,000 km for e=1.342). The active vessel shows the full escape trajectory to the SOI boundary because it uses `PatchedConicSolver` + `PatchRendering`. Ghost ProtoVessels don't get a `PatchedConicSolver`.
 
@@ -602,6 +600,8 @@ For hyperbolic escape orbits, KSP's `OrbitRendererBase.UpdateSpline` draws the g
 3. Give the ghost a `PatchedConicSolver` (complex, may conflict with KSP internals)
 
 **Priority:** Deferred to Phase 11.5 (Recording Optimization & Observability) — cosmetic, same tier as T25 fairing truss
+
+**Status:** ~~Closed as expected behavior.~~
 
 ---
 
