@@ -250,6 +250,28 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void GhostSnapshotMode_PersistsLastSidecarMode_WhenSnapshotsDriftInMemory()
+        {
+            var snapshot = new ConfigNode("VESSEL");
+            snapshot.AddValue("name", "Alias Test");
+            var rec = new Recording
+            {
+                RecordingId = "test_ghost_mode_drift",
+                VesselSnapshot = snapshot.CreateCopy(),
+                GhostVisualSnapshot = snapshot.CreateCopy(),
+                GhostSnapshotMode = GhostSnapshotMode.AliasVessel
+            };
+
+            rec.GhostVisualSnapshot = new ConfigNode("VESSEL");
+            rec.GhostVisualSnapshot.AddValue("name", "Ghost Drifted");
+
+            var node = new ConfigNode("RECORDING");
+            RecordingTree.SaveRecordingInto(node, rec);
+
+            Assert.Equal("AliasVessel", node.GetValue("ghostSnapshotMode"));
+        }
+
+        [Fact]
         public void GhostSnapshotMode_InvalidMetadata_DefaultsToUnspecifiedAndLogsWarning()
         {
             var node = new ConfigNode("RECORDING");

@@ -401,8 +401,10 @@ Create a `.netkan` file or submit to CKAN indexer so users can install Parsek vi
 ### T57. Continue Phase 11.5 recording storage shrink work
 
 The first storage slices are in place: representative fixture coverage, `v1` section-authoritative
-`.prec` sidecars, and alias-mode ghost snapshot dedupe. Remaining high-value work should stay in
-the same staged order documented in `docs/dev/plans/phase-11-5-recording-storage-optimization.md`:
+`.prec` sidecars, alias-mode ghost snapshot dedupe, and the follow-up metadata sync fix that keeps
+`.sfs` `ghostSnapshotMode` aligned with the last written sidecar mode across later saves. Remaining
+high-value work should stay in the same staged order documented in
+`docs/dev/plans/phase-11-5-recording-storage-optimization.md`:
 
 - compact binary `.prec` encoding with explicit header dispatch
 - sparse per-point payloads and section dictionaries

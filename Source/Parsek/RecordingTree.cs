@@ -251,7 +251,10 @@ namespace Parsek
 
             // Existing recording metadata
             recNode.AddValue("recordingFormatVersion", rec.RecordingFormatVersion);
-            GhostSnapshotMode ghostSnapshotMode = RecordingStore.DetermineGhostSnapshotMode(rec);
+            // Persist the mode that matches the current sidecars on disk. Recomputing
+            // from live snapshots here can drift .sfs metadata away from sidecars when
+            // later saves serialize tree state without rewriting files.
+            GhostSnapshotMode ghostSnapshotMode = RecordingStore.GetExpectedGhostSnapshotMode(rec);
             rec.GhostSnapshotMode = ghostSnapshotMode;
             if (ghostSnapshotMode != GhostSnapshotMode.Unspecified)
                 recNode.AddValue("ghostSnapshotMode", ghostSnapshotMode.ToString());

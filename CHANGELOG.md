@@ -22,6 +22,7 @@ All notable changes to Parsek are documented here.
 
 ### Bug Fixes
 
+- Recording tree metadata now preserves the last written `ghostSnapshotMode` instead of recomputing it from live snapshots on every save, preventing `.sfs` alias/separate drift from disagreeing with the actual sidecar files on disk.
 - `#307` Rewind (R button) now works for recordings committed after an in-flight vessel switch -- the rewind save is now copied to the tree root in both vessel-switch flush paths.
 - `#308` Reserved kerbals no longer appear auto-assigned in the VAB/SPH crew dialog -- new Harmony patch replaces reserved crew with their stand-ins before the dialog builds.
 - `#309` Rovers and ghosts recorded on the Island Airfield (or launchpad/KSC buildings) no longer spawn 19 m underground -- recording now captures the true surface height from KSP's raycast-derived `vessel.terrainAltitude` instead of PQS-only terrain, and spawn/ghost altitudes trust the recorded value with only an underground safety floor against PQS.
