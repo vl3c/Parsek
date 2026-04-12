@@ -875,7 +875,9 @@ namespace Parsek
 
         #region Part Events
 
-        internal static void ApplyPartEvents(int recIdx, IPlaybackTrajectory rec, double currentUT, GhostPlaybackState state)
+        internal static void ApplyPartEvents(
+            int recIdx, IPlaybackTrajectory rec, double currentUT, GhostPlaybackState state,
+            bool allowTransientEffects = true)
         {
             if (rec.PartEvents == null || rec.PartEvents.Count == 0) return;
             if (state.ghost == null)
@@ -900,7 +902,8 @@ namespace Parsek
                         StopRcsFxForPart(state, evt.partPersistentId);
                         StopAudioForPart(state, evt.partPersistentId);
                         ApplyHeatState(state, evt, HeatLevel.Cold);
-                        SpawnPartPuffAtPart(ghost, evt.partPersistentId);
+                        if (allowTransientEffects)
+                            SpawnPartPuffAtPart(ghost, evt.partPersistentId);
                         if (tree != null)
                             HidePartSubtree(ghost, evt.partPersistentId, tree);
                         else
@@ -912,9 +915,11 @@ namespace Parsek
                         StopEngineFxForPart(state, evt.partPersistentId);
                         StopRcsFxForPart(state, evt.partPersistentId);
                         StopAudioForPart(state, evt.partPersistentId);
-                        PlayOneShotAtGhost(state, evt.eventType);
+                        if (allowTransientEffects)
+                            PlayOneShotAtGhost(state, evt.eventType);
                         ApplyHeatState(state, evt, HeatLevel.Cold);
-                        SpawnPartPuffAtPart(ghost, evt.partPersistentId);
+                        if (allowTransientEffects)
+                            SpawnPartPuffAtPart(ghost, evt.partPersistentId);
                         HideGhostPart(ghost, evt.partPersistentId);
                         GhostVisualBuilder.RebuildReentryMeshes(ghost, state.reentryFxInfo);
                         visibilityChanged = true;

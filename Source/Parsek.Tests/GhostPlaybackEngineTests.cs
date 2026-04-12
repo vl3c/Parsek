@@ -849,6 +849,75 @@ namespace Parsek.Tests
         #endregion
 
         // ===================================================================
+        // Ghost shell lifecycle helpers
+        // ===================================================================
+
+        #region GhostShellLifecycle
+
+        [Fact]
+        public void HasLoopCycleChanged_UnloadedShellSameCycle_ReturnsFalse()
+        {
+            var state = new GhostPlaybackState
+            {
+                loopCycleIndex = 12,
+                ghost = null
+            };
+
+            Assert.False(GhostPlaybackEngine.HasLoopCycleChanged(state, 12));
+        }
+
+        [Fact]
+        public void ClearLoadedVisualReferences_PreservesLogicalPlaybackState()
+        {
+            var state = new GhostPlaybackState
+            {
+                vesselName = "Test",
+                playbackIndex = 17,
+                partEventIndex = 9,
+                loopCycleIndex = 4,
+                flagEventIndex = 3,
+                currentZone = RenderingZone.Beyond,
+                lastDistance = 67890,
+                explosionFired = true,
+                pauseHidden = true,
+                fidelityReduced = true,
+                distanceLodReduced = true,
+                simplified = true,
+                materials = new List<Material>(),
+                partTree = new Dictionary<uint, List<uint>> { [1] = new List<uint> { 2, 3 } },
+                engineInfos = new Dictionary<ulong, EngineGhostInfo> { [1] = new EngineGhostInfo() },
+                rcsInfos = new Dictionary<ulong, RcsGhostInfo> { [2] = new RcsGhostInfo() },
+                audioInfos = new Dictionary<ulong, AudioGhostInfo> { [3] = new AudioGhostInfo() },
+                fakeCanopies = new Dictionary<uint, GameObject>(),
+                reentryFxInfo = new ReentryFxInfo()
+            };
+
+            state.ClearLoadedVisualReferences();
+
+            Assert.Equal("Test", state.vesselName);
+            Assert.Equal(17, state.playbackIndex);
+            Assert.Equal(9, state.partEventIndex);
+            Assert.Equal(4, state.loopCycleIndex);
+            Assert.Equal(3, state.flagEventIndex);
+            Assert.Equal(RenderingZone.Beyond, state.currentZone);
+            Assert.Equal(67890, state.lastDistance);
+            Assert.True(state.explosionFired);
+            Assert.NotNull(state.partTree);
+            Assert.Null(state.materials);
+            Assert.Null(state.engineInfos);
+            Assert.Null(state.rcsInfos);
+            Assert.Null(state.audioInfos);
+            Assert.Null(state.fakeCanopies);
+            Assert.Null(state.reentryFxInfo);
+            Assert.False(state.pauseHidden);
+            Assert.False(state.fidelityReduced);
+            Assert.False(state.distanceLodReduced);
+            Assert.False(state.simplified);
+        }
+
+        #endregion
+
+        // ===================================================================
         // Query API — HasGhost, HasActiveGhost, IsGhostOnBody, etc.
         // ===================================================================
 

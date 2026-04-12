@@ -56,6 +56,39 @@ namespace Parsek
         public double lastDistance; // meters from active vessel, updated per frame in ApplyZonePolicy
         public int flagEventIndex;               // tracks which flags have been spawned
 
+        internal void ClearLoadedVisualReferences()
+        {
+            ghost = null;
+            materials = null;
+            parachuteInfos = null;
+            jettisonInfos = null;
+            engineInfos = null;
+            rcsInfos = null;
+            audioInfos = null;
+            oneShotAudio = null;
+            audioMuted = false;
+            cachedAudioBody = null;
+            cachedAudioBodyName = null;
+            roboticInfos = null;
+            deployableInfos = null;
+            heatInfos = null;
+            lightInfos = null;
+            lightPlaybackStates = null;
+            colorChangerInfos = null;
+            fairingInfos = null;
+            fakeCanopies = null;
+            reentryFxInfo = null;
+            reentryMpb = null;
+            pauseHidden = false;
+            rcsSuppressed = false;
+            fidelityReduced = false;
+            distanceLodReduced = false;
+            fidelityDisabledRenderers = null;
+            simplified = false;
+            cameraPivot = null;
+            horizonProxy = null;
+        }
+
         public void SetInterpolated(InterpolationResult r)
         {
             lastInterpolatedVelocity = r.velocity;

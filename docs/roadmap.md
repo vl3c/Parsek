@@ -358,7 +358,7 @@ Commit crash window closed (sidecar files flushed immediately). Remaining gap: s
 Shorter key names, compact numeric encoding, optional compression, event name deduplication. Becomes important at scale (many recordings, long missions).
 
 ### Ghost LOD follow-up
-Distance-based ghost LOD shipped in `0.8.1`. Remaining follow-ups are ghost mesh unloading outside active time range, particle pooling for engine/RCS FX, and synthetic stress benchmarking/tuning.
+Distance-based ghost LOD shipped in `0.8.1`, including the hidden-tier ghost unload/rebuild follow-up. Particle pooling for engine/RCS FX is not scheduled; the Phase 11.5 outcome there was observability/measurement only. Remaining follow-up: synthetic stress benchmarking/tuning.
 
 ### Kerbal reservation refactor (T44)
 Replace `rosterStatus = Assigned` workaround with Parsek-internal state + Harmony crew dialog filtering. Would eliminate 2 workaround patches and ~27 KSP warnings per session. Low priority — current workaround is functional.
