@@ -393,6 +393,7 @@ namespace Parsek
             GhostPlaybackLogic.ApplyFlagEvents(state, traj, ctx.currentUT);
 
             if (zoneResult.hiddenByZone) return true;
+            GhostPlaybackLogic.ApplyDistanceLodFidelity(state, zoneResult.reduceFidelity);
 
             // Position the ghost
             if (hasPoints)
@@ -426,7 +427,7 @@ namespace Parsek
 
             // Apply visual events
             ApplyFrameVisuals(i, traj, state, ctx.currentUT, ctx.warpRate,
-                zoneResult.skipPartEvents, suppressVisualFx);
+                zoneResult.skipPartEvents, suppressVisualFx || zoneResult.suppressVisualFx);
 
             return true;
         }
@@ -484,15 +485,17 @@ namespace Parsek
                 // Flag events are applied earlier in RenderInRangeGhost, before zone check (#249).
             }
 
-            UpdateReentryFx(index, state, traj.VesselName, warpRate);
-
             if (suppressVisualFx)
             {
+                GhostPlaybackLogic.StopAllEngineFx(state);
+                GhostPlaybackLogic.StopAllRcsFx(state);
                 GhostPlaybackLogic.StopAllRcsEmissions(state);
+                GhostPlaybackLogic.ResetReentryFx(state, index);
                 GhostPlaybackLogic.MuteAllAudio(state);
             }
             else
             {
+                UpdateReentryFx(index, state, traj.VesselName, warpRate);
                 GhostPlaybackLogic.RestoreAllRcsEmissions(state);
                 GhostPlaybackLogic.UnmuteAllAudio(state);
             }
@@ -789,9 +792,11 @@ namespace Parsek
             if (zoneResult.hiddenByZone)
                 return;
 
+            GhostPlaybackLogic.ApplyDistanceLodFidelity(state, zoneResult.reduceFidelity);
             bool forceWatchedFullFidelity = GhostPlaybackLogic.ShouldProtectGhostFromSoftCap(
                 ctx.protectedIndex, index);
             bool skipLoopPartEvents = zoneResult.skipPartEvents || (loopSimplified && !forceWatchedFullFidelity);
+            bool effectiveSuppressVisualFx = suppressVisualFx || zoneResult.suppressVisualFx;
 
             // Pause window: position at end, hide parts, zero velocity for reentry decay
             if (inPauseWindow)
@@ -801,11 +806,11 @@ namespace Parsek
             }
 
             // Position the loop ghost
-            positioner.PositionLoop(index, traj, state, loopUT, suppressVisualFx);
+            positioner.PositionLoop(index, traj, state, loopUT, effectiveSuppressVisualFx);
 
             // Apply visual events
             if (!skipLoopPartEvents)
-                ApplyFrameVisuals(index, traj, state, loopUT, ctx.warpRate, false, suppressVisualFx);
+                ApplyFrameVisuals(index, traj, state, loopUT, ctx.warpRate, false, effectiveSuppressVisualFx);
         }
 
         /// <summary>
@@ -898,9 +903,18 @@ namespace Parsek
                 double cycleStartUT = traj.StartUT + lastCycle * cycleDuration;
                 double phase = Math.Max(0, Math.Min(ctx.currentUT - cycleStartUT, duration));
                 double loopUT = traj.StartUT + phase;
-
-                positioner.PositionLoop(index, traj, primaryState, loopUT, suppressVisualFx);
-                ApplyFrameVisuals(index, traj, primaryState, loopUT, ctx.warpRate, false, suppressVisualFx);
+                double primaryDistance = Vector3d.Distance(
+                    (Vector3d)primaryState.ghost.transform.position, ctx.activeVesselPos);
+                var zoneResult = positioner.ApplyZoneRendering(
+                    index, primaryState, traj, primaryDistance, ctx.protectedIndex);
+                if (!zoneResult.hiddenByZone)
+                {
+                    GhostPlaybackLogic.ApplyDistanceLodFidelity(primaryState, zoneResult.reduceFidelity);
+                    bool effectiveSuppressVisualFx = suppressVisualFx || zoneResult.suppressVisualFx;
+                    positioner.PositionLoop(index, traj, primaryState, loopUT, effectiveSuppressVisualFx);
+                    ApplyFrameVisuals(index, traj, primaryState, loopUT, ctx.warpRate,
+                        zoneResult.skipPartEvents, effectiveSuppressVisualFx);
+                }
             }
 
             // Update overlap ghosts (older cycles)
@@ -973,9 +987,18 @@ namespace Parsek
 
                 phase = Math.Max(0, Math.Min(phase, duration));
                 double loopUT = traj.StartUT + phase;
+                double overlapDistance = Vector3d.Distance(
+                    (Vector3d)ovState.ghost.transform.position, ctx.activeVesselPos);
+                var zoneResult = positioner.ApplyZoneRendering(
+                    index, ovState, traj, overlapDistance, ctx.protectedIndex);
+                if (zoneResult.hiddenByZone)
+                    continue;
 
-                positioner.PositionLoop(index, traj, ovState, loopUT, suppressVisualFx);
-                ApplyFrameVisuals(index, traj, ovState, loopUT, ctx.warpRate, false, suppressVisualFx);
+                GhostPlaybackLogic.ApplyDistanceLodFidelity(ovState, zoneResult.reduceFidelity);
+                bool effectiveSuppressVisualFx = suppressVisualFx || zoneResult.suppressVisualFx;
+                positioner.PositionLoop(index, traj, ovState, loopUT, effectiveSuppressVisualFx);
+                ApplyFrameVisuals(index, traj, ovState, loopUT, ctx.warpRate,
+                    zoneResult.skipPartEvents, effectiveSuppressVisualFx);
             }
         }
 

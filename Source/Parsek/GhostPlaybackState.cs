@@ -43,6 +43,7 @@ namespace Parsek
         public bool pauseHidden;
         public bool rcsSuppressed;
         public bool fidelityReduced;     // true when ReduceFidelity soft cap disabled some renderers
+        public bool distanceLodReduced;  // true when distance-based LOD applied ReduceFidelity
         public List<Renderer> fidelityDisabledRenderers; // renderers disabled by ReduceFidelity (for precise restore)
         public bool simplified;          // true when SimplifyToOrbitLine soft cap hid the ghost mesh
         public Transform cameraPivot; // child of ghost; centroid of active parts — camera targets this

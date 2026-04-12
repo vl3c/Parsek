@@ -7786,6 +7786,7 @@ namespace Parsek
 
             // Ghost camera cutoff: exit watch mode when the watched ghost reaches or exceeds
             // the user-configured cutoff distance. The cutoff applies uniformly to all ghosts.
+            bool forceWatchedFullFidelity = false;
             if (isWatchedGhost)
             {
                 float cutoffKm = DistanceThresholds.GhostFlight.GetWatchCameraCutoffKm(ParsekSettings.Current);
@@ -7800,7 +7801,7 @@ namespace Parsek
                 }
                 else
                 {
-                    bool forceWatchedFullFidelity = GhostPlaybackLogic.ShouldForceWatchedFullFidelity(
+                    forceWatchedFullFidelity = GhostPlaybackLogic.ShouldForceWatchedFullFidelity(
                         isWatchedGhost, ghostDistance, cutoffKm);
                     (shouldHideMesh, shouldSkipPartEvents, shouldSkipPositioning) =
                         GhostPlaybackLogic.ApplyWatchedFullFidelityOverride(
@@ -7822,6 +7823,15 @@ namespace Parsek
                 }
             }
 
+            var (distanceHideMesh, distanceSkipPartEvents, distanceSkipPositioning,
+                distanceSuppressVisualFx, distanceReduceFidelity) =
+                GhostPlaybackLogic.ApplyDistanceLodPolicy(
+                    shouldHideMesh, shouldSkipPartEvents, shouldSkipPositioning,
+                    ghostDistance, forceWatchedFullFidelity);
+            shouldHideMesh = distanceHideMesh;
+            shouldSkipPartEvents = distanceSkipPartEvents;
+            shouldSkipPositioning = distanceSkipPositioning;
+
             // #171: During warp, exempt orbital ghosts from zone hiding — they travel far
             // from the player and would complete playback while invisible.
             if (shouldHideMesh && GhostPlaybackLogic.ShouldExemptFromZoneHide(
@@ -7840,10 +7850,16 @@ namespace Parsek
                 {
                     state.ghost.SetActive(false);
                     ParsekLog.VerboseRateLimited("Zone", "zone-hide",
-                        $"Ghost #{recIdx} \"{rec.VesselName}\" hidden: beyond visual range " +
+                        $"Ghost #{recIdx} \"{rec.VesselName}\" hidden by distance LOD " +
                         $"({ghostDistance.ToString("F0", CultureInfo.InvariantCulture)}m)");
                 }
-                return new ZoneRenderingResult { hiddenByZone = true, skipPartEvents = true };
+                return new ZoneRenderingResult
+                {
+                    hiddenByZone = true,
+                    skipPartEvents = true,
+                    suppressVisualFx = true,
+                    reduceFidelity = false
+                };
             }
 
             // Zone 1 or 2: ensure ghost is visible
@@ -7851,11 +7867,17 @@ namespace Parsek
             {
                 state.ghost.SetActive(true);
                 ParsekLog.VerboseRateLimited("Zone", "zone-show",
-                    $"Ghost #{recIdx} \"{rec.VesselName}\" re-shown: entered visual range " +
+                    $"Ghost #{recIdx} \"{rec.VesselName}\" re-shown: entered visible distance tier " +
                     $"({ghostDistance.ToString("F0", CultureInfo.InvariantCulture)}m)");
             }
 
-            return new ZoneRenderingResult { hiddenByZone = false, skipPartEvents = shouldSkipPartEvents };
+            return new ZoneRenderingResult
+            {
+                hiddenByZone = false,
+                skipPartEvents = shouldSkipPartEvents,
+                suppressVisualFx = distanceSuppressVisualFx,
+                reduceFidelity = distanceReduceFidelity
+            };
         }
 
         #endregion

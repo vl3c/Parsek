@@ -2744,6 +2744,32 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Applies the distance-based LOD tiers for unwatched ghosts on top of the base zone policy.
+        /// The thresholds intentionally reuse the shared distance constants rather than adding
+        /// another set of rendering knobs.
+        /// </summary>
+        internal static (bool shouldHideMesh, bool shouldSkipPartEvents, bool shouldSkipPositioning,
+            bool shouldSuppressVisualFx, bool shouldReduceFidelity)
+            ApplyDistanceLodPolicy(
+                bool shouldHideMesh, bool shouldSkipPartEvents, bool shouldSkipPositioning,
+                double ghostDistanceMeters, bool forceFullFidelity)
+        {
+            if (forceFullFidelity)
+                return (false, false, false, false, false);
+
+            if (shouldHideMesh)
+                return (true, true, true, true, false);
+
+            if (ghostDistanceMeters >= DistanceThresholds.GhostFlight.LoopSimplifiedMeters)
+                return (true, true, true, true, false);
+
+            if (ghostDistanceMeters >= DistanceThresholds.PhysicsBubbleMeters)
+                return (false, true, false, true, true);
+
+            return (shouldHideMesh, shouldSkipPartEvents, shouldSkipPositioning, false, false);
+        }
+
+        /// <summary>
         /// Detects a zone transition and returns whether the zone changed.
         /// Pure decision method — does not mutate state or log.
         /// </summary>
@@ -2835,12 +2861,38 @@ namespace Parsek
 
             if (state.fidelityReduced)
                 RestoreGhostFidelity(state);
+            state.distanceLodReduced = false;
 
             if (state.simplified)
             {
                 if (state.ghost != null && !state.ghost.activeSelf)
                     state.ghost.SetActive(true);
                 state.simplified = false;
+            }
+        }
+
+        /// <summary>
+        /// Applies or removes the distance-based reduced-fidelity renderer mode without
+        /// interfering with the soft-cap ownership of the same visual primitive.
+        /// </summary>
+        internal static void ApplyDistanceLodFidelity(GhostPlaybackState state, bool shouldReduceFidelity)
+        {
+            if (state == null || state.ghost == null) return;
+
+            if (shouldReduceFidelity)
+            {
+                if (!state.distanceLodReduced && !state.fidelityReduced)
+                {
+                    ReduceGhostFidelity(state);
+                    state.distanceLodReduced = true;
+                }
+                return;
+            }
+
+            if (state.distanceLodReduced)
+            {
+                RestoreGhostFidelity(state);
+                state.distanceLodReduced = false;
             }
         }
 

@@ -204,6 +204,48 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void ApplyDistanceLodPolicy_ReducedTier_SuppressesEventsFx_AndReducesFidelity()
+        {
+            var result = GhostPlaybackLogic.ApplyDistanceLodPolicy(
+                shouldHideMesh: false, shouldSkipPartEvents: false, shouldSkipPositioning: false,
+                ghostDistanceMeters: 10000, forceFullFidelity: false);
+
+            Assert.False(result.shouldHideMesh);
+            Assert.True(result.shouldSkipPartEvents);
+            Assert.False(result.shouldSkipPositioning);
+            Assert.True(result.shouldSuppressVisualFx);
+            Assert.True(result.shouldReduceFidelity);
+        }
+
+        [Fact]
+        public void ApplyDistanceLodPolicy_HiddenTier_HidesMesh_AndSuppressesEverything()
+        {
+            var result = GhostPlaybackLogic.ApplyDistanceLodPolicy(
+                shouldHideMesh: false, shouldSkipPartEvents: false, shouldSkipPositioning: false,
+                ghostDistanceMeters: 60000, forceFullFidelity: false);
+
+            Assert.True(result.shouldHideMesh);
+            Assert.True(result.shouldSkipPartEvents);
+            Assert.True(result.shouldSkipPositioning);
+            Assert.True(result.shouldSuppressVisualFx);
+            Assert.False(result.shouldReduceFidelity);
+        }
+
+        [Fact]
+        public void ApplyDistanceLodPolicy_ForcedFullFidelity_OverridesReducedTier()
+        {
+            var result = GhostPlaybackLogic.ApplyDistanceLodPolicy(
+                shouldHideMesh: false, shouldSkipPartEvents: false, shouldSkipPositioning: false,
+                ghostDistanceMeters: 60000, forceFullFidelity: true);
+
+            Assert.False(result.shouldHideMesh);
+            Assert.False(result.shouldSkipPartEvents);
+            Assert.False(result.shouldSkipPositioning);
+            Assert.False(result.shouldSuppressVisualFx);
+            Assert.False(result.shouldReduceFidelity);
+        }
+
+        [Fact]
         public void ShouldProtectGhostFromSoftCap_WatchedGhost_ReturnsTrue()
         {
             Assert.True(GhostPlaybackLogic.ShouldProtectGhostFromSoftCap(
