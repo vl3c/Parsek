@@ -3181,6 +3181,7 @@ namespace Parsek
                 {
                     int fallbackIdx = -1;
                     bool pidMatchFound = false;
+                    bool allowDifferentPidFallback = bp.Type != BranchPointType.Breakup;
                     for (int c = 0; c < bp.ChildRecordingIds.Count; c++)
                     {
                         string childId = bp.ChildRecordingIds[c];
@@ -3196,7 +3197,13 @@ namespace Parsek
                                 if (isPidMatch)
                                     return j;
 
-                                if (fallbackIdx < 0)
+                                // Bug #321: breakup/crash watch recovery should stay with
+                                // the preserved live vessel context unless the same vessel
+                                // actually continues. Non-breakup branches may still fall
+                                // back to the first active non-debris child.
+                                if (allowDifferentPidFallback
+                                    && !committed[j].IsDebris
+                                    && fallbackIdx < 0)
                                     fallbackIdx = j;
                             }
                             else if (isPidMatch)
