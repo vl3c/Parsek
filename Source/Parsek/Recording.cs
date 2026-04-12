@@ -224,10 +224,117 @@ namespace Parsek
         public int SpawnDeathCount;              // Spawn-then-die cycles: vessel spawned but immediately destroyed (transient)
         public int SceneExitSituation = -1;     // Vessel.Situations at scene exit (-1 = still in flight/unknown)
 
-        public double StartUT => Points.Count > 0 ? Points[0].ut :
-                                 !double.IsNaN(ExplicitStartUT) ? ExplicitStartUT : 0.0;
-        public double EndUT => Points.Count > 0 ? Points[Points.Count - 1].ut :
-                               !double.IsNaN(ExplicitEndUT) ? ExplicitEndUT : 0.0;
+        public double StartUT
+        {
+            get
+            {
+                if (TryGetActualTrajectoryBounds(out double startUT, out _))
+                {
+                    if (!double.IsNaN(ExplicitStartUT) && ExplicitStartUT < startUT)
+                        return ExplicitStartUT;
+                    return startUT;
+                }
+
+                return !double.IsNaN(ExplicitStartUT) ? ExplicitStartUT : 0.0;
+            }
+        }
+
+        public double EndUT
+        {
+            get
+            {
+                if (TryGetActualTrajectoryBounds(out _, out double endUT))
+                {
+                    if (!double.IsNaN(ExplicitEndUT) && ExplicitEndUT > endUT)
+                        return ExplicitEndUT;
+                    return endUT;
+                }
+
+                return !double.IsNaN(ExplicitEndUT) ? ExplicitEndUT : 0.0;
+            }
+        }
+
+        private bool TryGetActualTrajectoryBounds(out double startUT, out double endUT)
+        {
+            startUT = 0.0;
+            endUT = 0.0;
+            bool found = false;
+
+            if (Points != null && Points.Count > 0)
+            {
+                startUT = Points[0].ut;
+                endUT = Points[Points.Count - 1].ut;
+                found = true;
+            }
+
+            if (OrbitSegments != null && OrbitSegments.Count > 0)
+            {
+                double orbitStartUT = OrbitSegments[0].startUT;
+                double orbitEndUT = OrbitSegments[OrbitSegments.Count - 1].endUT;
+                if (!found || orbitStartUT < startUT)
+                    startUT = orbitStartUT;
+                if (!found || orbitEndUT > endUT)
+                    endUT = orbitEndUT;
+                found = true;
+            }
+
+            if (TryGetPlayableTrackSectionBounds(out double sectionStartUT, out double sectionEndUT))
+            {
+                if (!found || sectionStartUT < startUT)
+                    startUT = sectionStartUT;
+                if (!found || sectionEndUT > endUT)
+                    endUT = sectionEndUT;
+                found = true;
+            }
+
+            return found;
+        }
+
+        private bool TryGetPlayableTrackSectionBounds(out double startUT, out double endUT)
+        {
+            startUT = 0.0;
+            endUT = 0.0;
+            if (TrackSections == null || TrackSections.Count == 0)
+                return false;
+
+            int firstPlayable = -1;
+            for (int i = 0; i < TrackSections.Count; i++)
+            {
+                if (HasPlayablePayload(TrackSections[i]))
+                {
+                    firstPlayable = i;
+                    break;
+                }
+            }
+
+            if (firstPlayable < 0)
+                return false;
+
+            int lastPlayable = -1;
+            for (int i = TrackSections.Count - 1; i >= firstPlayable; i--)
+            {
+                if (HasPlayablePayload(TrackSections[i]))
+                {
+                    lastPlayable = i;
+                    break;
+                }
+            }
+
+            if (lastPlayable < 0)
+                return false;
+
+            startUT = TrackSections[firstPlayable].startUT;
+            endUT = TrackSections[lastPlayable].endUT;
+            return true;
+        }
+
+        private static bool HasPlayablePayload(TrackSection section)
+        {
+            if (section.referenceFrame == ReferenceFrame.OrbitalCheckpoint)
+                return section.checkpoints != null && section.checkpoints.Count > 0;
+
+            return section.frames != null && section.frames.Count > 0;
+        }
 
         /// <summary>
         /// Compact, grep-friendly identity string for diagnostic logs:

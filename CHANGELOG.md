@@ -13,6 +13,7 @@ All notable changes to Parsek are documented here.
 
 ### Bug Fixes
 
+- Recording timing bounds now combine actual trajectory coverage (points, orbit segments, playable track sections) with explicit outer bounds, so watch handoff and playback activation no longer get stuck when a section-authoritative continuation starts before its first flat point while still preserving live background and terminal end times.
 - Splashed terminal spawns now floor any slightly negative endpoint altitude back to sea level before spawn, so EVA and breakup-continuous splashdowns no longer materialize a few centimeters underwater (`#313`).
 - Section-authoritative recording merges/splits now resync derived flat trajectory lists when the section payload can rebuild them losslessly, and recordings-window stats now use section altitude metadata plus relative-offset distance handling instead of treating relative frames as absolute surface coordinates (`#318`).
 - Active-tree restore now keeps a matching in-memory pending tree when the saved active tree hits stale-sidecar epoch failures, and hydration-failed recordings are no longer pruned as disposable zero-point leaves during finalize (`#314`).

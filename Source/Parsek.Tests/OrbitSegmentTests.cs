@@ -219,9 +219,8 @@ namespace Parsek.Tests
             var rec = new Recording();
             rec.OrbitSegments.Add(MakeSegment(500, 1000));
 
-            // StartUT/EndUT come from Points, which is empty
-            Assert.Equal(0, rec.StartUT);
-            Assert.Equal(0, rec.EndUT);
+            Assert.Equal(500, rec.StartUT);
+            Assert.Equal(1000, rec.EndUT);
         }
 
         [Fact]
