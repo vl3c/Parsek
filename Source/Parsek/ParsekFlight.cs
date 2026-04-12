@@ -7804,6 +7804,8 @@ namespace Parsek
             bool isWatchedGhost = watchMode != null
                 ? watchMode.IsWatchedGhostState(recIdx, state)
                 : GhostPlaybackLogic.IsProtectedGhost(protectedIndex, recIdx);
+            bool isWatchProtectedRecording = GhostPlaybackLogic.IsWatchProtectedRecording(
+                RecordingStore.CommittedRecordings, protectedIndex, recIdx);
 
             // Cache distance on state for use by IsGhostWithinVisualRange
             if (state != null)
@@ -7827,10 +7829,10 @@ namespace Parsek
             // Ghost camera cutoff: exit watch mode when the watched ghost reaches or exceeds
             // the user-configured cutoff distance. The cutoff applies uniformly to all ghosts.
             bool forceWatchedFullFidelity = false;
-            if (isWatchedGhost)
+            if (isWatchedGhost || isWatchProtectedRecording)
             {
                 float cutoffKm = DistanceThresholds.GhostFlight.GetWatchCameraCutoffKm(ParsekSettings.Current);
-                if (GhostPlaybackLogic.ShouldExitWatchForCutoff(ghostDistance, cutoffKm))
+                if (isWatchedGhost && GhostPlaybackLogic.ShouldExitWatchForCutoff(ghostDistance, cutoffKm))
                 {
                     ParsekLog.Info("Zone",
                         $"Ghost #{recIdx} \"{rec.VesselName}\" exceeded ghost camera cutoff " +
@@ -7841,7 +7843,7 @@ namespace Parsek
                 }
                 else
                 {
-                    forceWatchedFullFidelity = GhostPlaybackLogic.ShouldForceWatchedFullFidelity(
+                    forceWatchedFullFidelity = isWatchProtectedRecording || GhostPlaybackLogic.ShouldForceWatchedFullFidelity(
                         isWatchedGhost, ghostDistance, cutoffKm);
                     (shouldHideMesh, shouldSkipPartEvents, shouldSkipPositioning) =
                         GhostPlaybackLogic.ApplyWatchedFullFidelityOverride(
@@ -7855,8 +7857,10 @@ namespace Parsek
                             state.ghost.SetActive(true);
                         if (zone == RenderingZone.Beyond)
                         {
-                            string reason = rec.HasOrbitSegments ? "watched orbital ghost" : "watched";
-                            ParsekLog.VerboseRateLimited("Zone", $"watched-zone-exempt-{recIdx}",
+                            string reason = isWatchedGhost
+                                ? (rec.HasOrbitSegments ? "watched orbital ghost" : "watched")
+                                : "watch-protected debris";
+                            ParsekLog.VerboseRateLimited("Zone", $"watch-protected-zone-exempt-{recIdx}",
                                 $"Ghost #{recIdx} \"{rec.VesselName}\" beyond visual range " +
                                 $"({ghostDistance.ToString("F0", CultureInfo.InvariantCulture)}m) but {reason} — exempt from full-fidelity LOD suppression",
                                 5.0);

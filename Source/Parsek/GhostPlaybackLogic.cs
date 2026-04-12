@@ -2925,6 +2925,48 @@ namespace Parsek
                 && protectedLoopCycleIndex == currentLoopCycleIndex;
         }
 
+        /// <summary>
+        /// Returns true when the current recording should inherit watch-mode protection.
+        /// This is broader than the exact watched ghost: breakup debris linked to the
+        /// watched vessel's same-tree lineage should stay visible while that vessel is watched.
+        /// </summary>
+        internal static bool IsWatchProtectedRecording(
+            IReadOnlyList<Recording> committed, int watchedRecordingIndex, int currentIndex)
+        {
+            if (committed == null
+                || watchedRecordingIndex < 0
+                || currentIndex < 0
+                || watchedRecordingIndex >= committed.Count
+                || currentIndex >= committed.Count)
+                return false;
+
+            if (watchedRecordingIndex == currentIndex)
+                return true;
+
+            Recording watched = committed[watchedRecordingIndex];
+            Recording current = committed[currentIndex];
+            if (watched == null || current == null || !current.IsDebris)
+                return false;
+
+            if (string.IsNullOrEmpty(watched.TreeId)
+                || string.IsNullOrEmpty(current.TreeId)
+                || watched.TreeId != current.TreeId)
+                return false;
+
+            int parentIdx = current.LoopSyncParentIdx;
+            if (parentIdx < 0 || parentIdx >= committed.Count)
+                return false;
+
+            Recording parent = committed[parentIdx];
+            if (parent == null || parent.IsDebris || parent.TreeId != watched.TreeId)
+                return false;
+
+            if (watched.VesselPersistentId == 0 || parent.VesselPersistentId == 0)
+                return false;
+
+            return parent.VesselPersistentId == watched.VesselPersistentId;
+        }
+
         #endregion
 
         #region Watch Mode Decisions
