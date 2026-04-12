@@ -388,6 +388,14 @@ namespace Parsek
                                     ?? GhostPlaybackLogic.DefaultLoopIntervalSeconds;
             return engine.GetLoopIntervalSeconds(rec, globalInterval);
         }
+        internal bool TryComputeLoopPlaybackUTForWatch(
+            Recording rec, double currentUT,
+            out double loopUT, out long cycleIndex, out bool inPauseWindow,
+            int recIdx = -1)
+        {
+            return TryComputeLoopPlaybackUT(rec, currentUT,
+                out loopUT, out cycleIndex, out inPauseWindow, recIdx);
+        }
         internal void PositionGhostAtForWatch(GameObject ghost, TrajectoryPoint point) => PositionGhostAt(ghost, point);
 
         // Cached per-frame allocations for engine path (avoid GC pressure)
@@ -400,7 +408,7 @@ namespace Parsek
 
         public bool IsRecording => recorder?.IsRecording ?? false;
         public bool IsPlaying => isPlaying;
-        public int TimelineGhostCount => ghostStates.Count;
+        public int TimelineGhostCount => engine.GhostCount;
         public GameObject PreviewGhost => ghostObject;
         public Dictionary<int, GameObject> TimelineGhosts
         {

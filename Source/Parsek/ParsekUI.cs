@@ -652,7 +652,7 @@ namespace Parsek
 
             // First pass: find the highest active index per chain
             chainTipIndexBuffer.Clear();
-            foreach (var kvp in flight.TimelineGhosts)
+            foreach (var kvp in flight.Engine.ghostStates)
             {
                 if (kvp.Value == null) continue;
                 if (kvp.Key >= committed.Count) continue;
@@ -671,10 +671,11 @@ namespace Parsek
             bool isMapView = MapView.MapIsEnabled;
             double currentUT = isMapView ? Planetarium.GetUniversalTime() : 0;
 
-            foreach (var kvp in flight.TimelineGhosts)
+            foreach (var kvp in flight.Engine.ghostStates)
             {
-                if (kvp.Value == null) continue;
-                bool meshActive = kvp.Value.activeSelf;
+                var state = kvp.Value;
+                if (state == null) continue;
+                bool meshActive = state.ghost != null && state.ghost.activeSelf;
 
                 // In flight view, skip hidden ghosts (stale positions cause wrong markers #245/#247)
                 if (!meshActive && !isMapView) continue;
@@ -703,7 +704,7 @@ namespace Parsek
                 Vector3 markerPos;
                 if (meshActive)
                 {
-                    markerPos = kvp.Value.transform.position;
+                    markerPos = state.ghost.transform.position;
                 }
                 else
                 {

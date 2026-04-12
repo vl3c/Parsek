@@ -9,6 +9,7 @@ All notable changes to Parsek are documented here.
 ### Improvements
 
 - Phase 11.5 ghost LOD is now live in Flight: shared distance thresholds, unwatched reduced tier at `2.3-50 km`, hidden-mesh tier at `50-120 km`, and live diagnostics counts for `full / reduced / hidden / watched override`.
+- Hidden-tier ghosts now unload built mesh/resources while keeping their logical playback shell alive, prewarm shortly before visible-tier re-entry or imminent structural part events, and rebuild from snapshot state without replaying transient puff/audio effects.
 - Ghost performance tuning is now backend-owned. The old ghost soft-cap settings and the soft-cap subsystem were removed instead of leaving user-facing knobs that conflicted with the new distance policy.
 
 ### Bug Fixes
@@ -24,6 +25,7 @@ All notable changes to Parsek are documented here.
 
 - Added regression coverage for R/FF enablement reasons, including future/past timing, tree-branch rewind save resolution, and a UI guard that pins rewind/fast-forward independence from watch-distance state (`T60`).
 - Added regression coverage for exact watched-cycle protection, hidden-tier warp exemption, watched-override diagnostics counting, and the new frame-context watch-cycle field.
+- Added regression coverage for hidden-tier shell-state handling so unloaded ghosts keep their logical loop identity and rebuild paths preserve playback bookkeeping.
 - Diagnostics now report live engine/RCS FX counts plus last-frame ghost spawn/destroy timings, giving a measurement-first view of FX cost without changing FX behavior.
 - `scripts/inject-recordings.ps1 --run-diagnostics-tests` now runs the focused diagnostics/observability slice before showcase injection, including observability logging and in-game test runner ordering coverage.
 
