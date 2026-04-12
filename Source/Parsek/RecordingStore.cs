@@ -2129,6 +2129,25 @@ namespace Parsek
         /// </summary>
         internal static bool CanRewind(Recording rec, out string reason, bool isRecording)
         {
+            string resolvedSave = GetRewindSaveFileName(rec);
+            bool saveExists = false;
+            if (!string.IsNullOrEmpty(resolvedSave))
+            {
+                string savePath = RecordingPaths.ResolveSaveScopedPath(
+                    RecordingPaths.BuildRewindSaveRelativePath(resolvedSave));
+                saveExists = !string.IsNullOrEmpty(savePath) && File.Exists(savePath);
+            }
+
+            return CanRewindWithResolvedSaveState(resolvedSave, saveExists, out reason, isRecording);
+        }
+
+        /// <summary>
+        /// Testable core of <see cref="CanRewind"/> once tree-root save resolution and file
+        /// existence have already been computed by the caller.
+        /// </summary>
+        internal static bool CanRewindWithResolvedSaveState(
+            string resolvedSave, bool saveExists, out string reason, bool isRecording)
+        {
             if (IsRewinding)
             {
                 reason = "Rewind already in progress";
@@ -2136,8 +2155,6 @@ namespace Parsek
                 return false;
             }
 
-            // Resolve rewind save through tree root if needed
-            string resolvedSave = GetRewindSaveFileName(rec);
             if (string.IsNullOrEmpty(resolvedSave))
             {
                 reason = "No rewind save available";
@@ -2159,10 +2176,7 @@ namespace Parsek
                 return false;
             }
 
-            // Verify the save file exists
-            string savePath = RecordingPaths.ResolveSaveScopedPath(
-                RecordingPaths.BuildRewindSaveRelativePath(resolvedSave));
-            if (string.IsNullOrEmpty(savePath) || !File.Exists(savePath))
+            if (!saveExists)
             {
                 reason = "Rewind save file missing";
                 // Per-frame logging removed (was 3.7% of all log output); reason returned to caller
@@ -2179,6 +2193,34 @@ namespace Parsek
         /// Subset of CanRewind — no save file required (FF advances UT, doesn't load a save).
         /// </summary>
         internal static bool CanFastForward(Recording rec, out string reason, bool isRecording)
+        {
+            if (!CanFastForwardPreRuntime(rec, out reason, isRecording))
+                return false;
+
+            return CanFastForwardAtUT(rec, Planetarium.GetUniversalTime(), out reason, isRecording);
+        }
+
+        /// <summary>
+        /// Testable core of <see cref="CanFastForward"/> with the current UT supplied by the caller.
+        /// </summary>
+        internal static bool CanFastForwardAtUT(Recording rec, double now, out string reason, bool isRecording)
+        {
+            if (!CanFastForwardPreRuntime(rec, out reason, isRecording))
+                return false;
+
+            if (now >= rec.StartUT)
+            {
+                reason = "Recording is not in the future";
+                // Per-frame logging removed (was 20% of all log output); reason returned to caller
+                return false;
+            }
+
+            reason = "";
+            // Per-frame logging removed; reason returned to caller
+            return true;
+        }
+
+        private static bool CanFastForwardPreRuntime(Recording rec, out string reason, bool isRecording)
         {
             if (IsRewinding)
             {
@@ -2204,15 +2246,6 @@ namespace Parsek
             if (HasPendingTree)
             {
                 reason = "Merge or discard pending tree first";
-                // Per-frame logging removed (was 20% of all log output); reason returned to caller
-                return false;
-            }
-
-            // Timing check last — requires KSP runtime (Planetarium)
-            double now = Planetarium.GetUniversalTime();
-            if (now >= rec.StartUT)
-            {
-                reason = "Recording is not in the future";
                 // Per-frame logging removed (was 20% of all log output); reason returned to caller
                 return false;
             }
