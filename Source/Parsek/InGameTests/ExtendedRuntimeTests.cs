@@ -148,35 +148,6 @@ namespace Parsek.InGameTests
         }
 
         [InGameTest(Category = "GhostLifecycle", Scene = GameScenes.FLIGHT,
-            Description = "Soft-cap suppressed set is consistent — suppressed ghosts have no active GO")]
-        public void SoftCapConsistency()
-        {
-            var flight = ParsekFlight.Instance;
-            if (flight == null) InGameAssert.Skip("No ParsekFlight instance");
-
-            var suppressed = flight.Engine.softCapSuppressed;
-            if (suppressed.Count == 0)
-                InGameAssert.Skip("No soft-cap suppressed ghosts");
-
-            int inconsistent = 0;
-            foreach (int idx in suppressed)
-            {
-                // A suppressed ghost should not have an active (visible) ghost GO
-                if (flight.Engine.HasActiveGhost(idx))
-                {
-                    inconsistent++;
-                    ParsekLog.Warn("TestRunner",
-                        $"Ghost index={idx} is in softCapSuppressed but HasActiveGhost=true");
-                }
-            }
-
-            ParsekLog.Verbose("TestRunner",
-                $"Soft-cap: {suppressed.Count} suppressed, {inconsistent} inconsistent");
-            InGameAssert.AreEqual(0, inconsistent,
-                $"{inconsistent} ghosts in softCapSuppressed still have active GameObjects");
-        }
-
-        [InGameTest(Category = "GhostLifecycle", Scene = GameScenes.FLIGHT,
             Description = "Ghost count from engine matches expected count")]
         public void GhostCountReasonable()
         {

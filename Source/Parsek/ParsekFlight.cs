@@ -3842,10 +3842,6 @@ namespace Parsek
                     "OnFlightReady: no pending cleanup data — skipping CleanupOrphanedSpawnedVessels");
             }
 
-            // Apply backend-owned ghost soft-cap defaults. These thresholds are no longer
-            // user-tuned through settings; runtime policy owns them centrally.
-            GhostSoftCapManager.ApplyAutomaticDefaults();
-
             // Seed lastLandedUT if vessel is already on the surface (save-loaded pad, Mun lander, etc.)
             var activeVessel = FlightGlobals.ActiveVessel;
             if (activeVessel != null &&
@@ -7235,9 +7231,6 @@ namespace Parsek
         // ValidateWatchedGhostStillActive moved to WatchModeController
 
         // FlushDeferredSpawns moved to ParsekPlaybackPolicy (#132)
-
-        // EvaluateGhostSoftCaps removed (T25 Phase 9 — engine is primary path)
-
 
         private bool ShouldLoopPlayback(Recording rec) => GhostPlaybackEngine.ShouldLoopPlayback(rec);
 

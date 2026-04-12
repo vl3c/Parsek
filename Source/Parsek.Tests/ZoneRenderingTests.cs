@@ -246,16 +246,16 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void ShouldProtectGhostFromSoftCap_WatchedGhost_ReturnsTrue()
+        public void IsProtectedGhost_WatchedGhost_ReturnsTrue()
         {
-            Assert.True(GhostPlaybackLogic.ShouldProtectGhostFromSoftCap(
+            Assert.True(GhostPlaybackLogic.IsProtectedGhost(
                 protectedIndex: 5, currentIndex: 5));
         }
 
         [Fact]
-        public void ShouldProtectGhostFromSoftCap_UnwatchedGhost_ReturnsFalse()
+        public void IsProtectedGhost_UnwatchedGhost_ReturnsFalse()
         {
-            Assert.False(GhostPlaybackLogic.ShouldProtectGhostFromSoftCap(
+            Assert.False(GhostPlaybackLogic.IsProtectedGhost(
                 protectedIndex: 5, currentIndex: 3));
         }
 

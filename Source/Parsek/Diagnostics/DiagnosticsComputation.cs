@@ -380,8 +380,8 @@ namespace Parsek
                 snapshot.activeGhostCount,
                 snapshot.zone1GhostCount,
                 snapshot.zone2GhostCount,
-                snapshot.softCapReducedCount,
-                snapshot.softCapSimplifiedCount);
+                snapshot.reducedGhostCount,
+                snapshot.simplifiedGhostCount);
             sb.AppendLine();
 
             // Playback budget — read from snapshot, not live buffer.

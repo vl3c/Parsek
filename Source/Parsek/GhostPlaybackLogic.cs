@@ -2897,10 +2897,10 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Protected ghosts (currently watched) should not receive soft-cap reductions,
-        /// simplification, or despawn actions.
+        /// Protected ghosts (currently watched) should ignore runtime suppression that
+        /// would reduce or hide them.
         /// </summary>
-        internal static bool ShouldProtectGhostFromSoftCap(int protectedIndex, int currentIndex)
+        internal static bool IsProtectedGhost(int protectedIndex, int currentIndex)
         {
             return protectedIndex == currentIndex;
         }

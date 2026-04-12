@@ -235,8 +235,6 @@ namespace Parsek.Tests
             h.snapshotRefreshSpikes = 3;
             h.spawnFailures = 2;
             h.spawnRetries = 1;
-            h.softCapActivations = 4;
-            h.softCapDespawns = 2;
             h.ghostBuildsThisSession = 7;
             h.ghostDestroysThisSession = 6;
 
@@ -247,8 +245,6 @@ namespace Parsek.Tests
             Assert.Equal(0, h.snapshotRefreshSpikes);
             Assert.Equal(0, h.spawnFailures);
             Assert.Equal(0, h.spawnRetries);
-            Assert.Equal(0, h.softCapActivations);
-            Assert.Equal(0, h.softCapDespawns);
             Assert.Equal(0, h.ghostBuildsThisSession);
             Assert.Equal(0, h.ghostDestroysThisSession);
             // gcGen0Baseline should be set to current GC count, not zero

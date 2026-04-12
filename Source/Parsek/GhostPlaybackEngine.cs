@@ -38,14 +38,6 @@ namespace Parsek
         // Anchor vessel tracking: which anchor vessels are loaded (for looped ghost lifecycle).
         internal readonly HashSet<uint> loadedAnchorVessels = new HashSet<uint>();
 
-        // Soft cap evaluation — cached lists to avoid per-frame allocation.
-        internal readonly List<(int recordingIndex, GhostPriority priority)> cachedZone1Ghosts =
-            new List<(int, GhostPriority)>();
-        internal readonly List<(int recordingIndex, GhostPriority priority)> cachedZone2Ghosts =
-            new List<(int, GhostPriority)>();
-        internal bool softCapTriggeredThisFrame;
-        internal readonly HashSet<int> softCapSuppressed = new HashSet<int>();
-
         // Diagnostic logging guards (log once per state transition, not per frame).
         internal readonly HashSet<int> loggedGhostEnter = new HashSet<int>();
         internal readonly HashSet<int> loggedReshow = new HashSet<int>();
@@ -310,9 +302,6 @@ namespace Parsek
                 ParsekLog.VerboseRateLimited("Engine", "frame-summary",
                     $"Frame: spawned={frameSpawnCount} destroyed={frameDestroyCount} active={ghostStates.Count}");
 
-            // Post-loop: soft caps
-            EvaluateSoftCaps(trajectories, ctx);
-
             // Post-loop: cleanup explosions
             for (int i = activeExplosions.Count - 1; i >= 0; i--)
             {
@@ -353,7 +342,7 @@ namespace Parsek
             bool hasPoints, bool hasSurfaceData, bool hasOrbitData,
             ref GhostPlaybackState state, ref bool ghostActive)
         {
-            if (!ghostActive && !softCapSuppressed.Contains(i))
+            if (!ghostActive)
             {
                 SpawnGhost(i, traj);
                 ghostStates.TryGetValue(i, out state);
@@ -503,130 +492,6 @@ namespace Parsek
             // Per-frame atmosphere attenuation — smoothly fade audio as ghost ascends/descends.
             // Runs after part events (which may start/stop audio) and after mute/unmute.
             GhostPlaybackLogic.UpdateAudioAtmosphere(state);
-        }
-
-        /// <summary>
-        /// Evaluates ghost soft caps: if too many ghosts are active, despawn or simplify
-        /// the lowest-priority ones. Uses zone-based priority classification.
-        /// </summary>
-        private void EvaluateSoftCaps(IReadOnlyList<IPlaybackTrajectory> trajectories, FrameContext ctx)
-        {
-            cachedZone1Ghosts.Clear();
-            cachedZone2Ghosts.Clear();
-
-            foreach (var kvp in ghostStates)
-            {
-                int idx = kvp.Key;
-                var capState = kvp.Value;
-                if (capState == null || capState.ghost == null) continue;
-                if (idx < 0 || idx >= trajectories.Count) continue;
-
-                var priority = GhostSoftCapManager.ClassifyPriority(trajectories[idx], capState.loopCycleIndex);
-
-                if (capState.currentZone == RenderingZone.Physics)
-                    cachedZone1Ghosts.Add((idx, priority));
-                else if (capState.currentZone == RenderingZone.Visual)
-                    cachedZone2Ghosts.Add((idx, priority));
-            }
-
-            if (cachedZone1Ghosts.Count > GhostSoftCapManager.Zone1ReduceThreshold ||
-                cachedZone2Ghosts.Count > GhostSoftCapManager.Zone2SimplifyThreshold)
-            {
-                var capActions = GhostSoftCapManager.EvaluateCaps(
-                    cachedZone1Ghosts.Count, cachedZone2Ghosts.Count,
-                    cachedZone1Ghosts, cachedZone2Ghosts);
-
-                if (capActions.Count > 0)
-                {
-                    if (!softCapTriggeredThisFrame)
-                    {
-                        ParsekLog.VerboseRateLimited("Diagnostics", "soft-cap-activation",
-                            $"Soft cap activation: zone1={cachedZone1Ghosts.Count} zone2={cachedZone2Ghosts.Count} " +
-                            $"actions={capActions.Count}", 30.0);
-                        softCapTriggeredThisFrame = true;
-                        DiagnosticsState.health.softCapActivations++;
-                    }
-
-                    foreach (var capKvp in capActions)
-                    {
-                        int capIdx = capKvp.Key;
-                        GhostCapAction action = capKvp.Value;
-                        string vesselName = capIdx >= 0 && capIdx < trajectories.Count
-                            ? trajectories[capIdx].VesselName : "?";
-
-                        if (GhostPlaybackLogic.ShouldProtectGhostFromSoftCap(ctx.protectedIndex, capIdx))
-                        {
-                            GhostPlaybackState protectedState;
-                            if (ghostStates.TryGetValue(capIdx, out protectedState))
-                                GhostPlaybackLogic.RestoreWatchedFullFidelityState(protectedState);
-                            continue;
-                        }
-
-                        switch (action)
-                        {
-                            case GhostCapAction.Despawn:
-                                ParsekLog.Info("Engine",
-                                    $"SoftCap: despawning ghost #{capIdx} \"{vesselName}\"");
-                                IPlaybackTrajectory capTraj = capIdx >= 0 && capIdx < trajectories.Count
-                                    ? trajectories[capIdx] : null;
-                                DestroyGhost(capIdx, capTraj, reason: "soft cap despawn");
-                                softCapSuppressed.Add(capIdx);
-                                DiagnosticsState.health.softCapDespawns++;
-                                break;
-                            case GhostCapAction.SimplifyToOrbitLine:
-                                GhostPlaybackState simplifyState;
-                                if (ghostStates.TryGetValue(capIdx, out simplifyState) &&
-                                    simplifyState?.ghost != null && !simplifyState.simplified)
-                                {
-                                    if (simplifyState.ghost.activeSelf)
-                                        simplifyState.ghost.SetActive(false);
-                                    simplifyState.simplified = true;
-                                    GhostPlaybackLogic.MuteAllAudio(simplifyState);
-                                    ParsekLog.Verbose("Engine",
-                                        $"SoftCap: SimplifyToOrbitLine ghost #{capIdx} \"{vesselName}\" — mesh hidden, audio muted");
-                                }
-                                break;
-                            case GhostCapAction.ReduceFidelity:
-                                GhostPlaybackState reduceState;
-                                if (ghostStates.TryGetValue(capIdx, out reduceState) &&
-                                    reduceState?.ghost != null && !reduceState.fidelityReduced)
-                                {
-                                    GhostPlaybackLogic.ReduceGhostFidelity(reduceState);
-                                    GhostPlaybackLogic.MuteAllAudio(reduceState);
-                                    ParsekLog.Verbose("Engine",
-                                        $"SoftCap: ReduceFidelity ghost #{capIdx} \"{vesselName}\", audio muted");
-                                }
-                                break;
-                        }
-                    }
-                }
-            }
-            else
-            {
-                softCapTriggeredThisFrame = false;
-                if (softCapSuppressed.Count > 0)
-                {
-                    ParsekLog.Verbose("Engine",
-                        $"SoftCap resolved, clearing {softCapSuppressed.Count} suppressed ghosts");
-                    softCapSuppressed.Clear();
-                }
-
-                // Restore fidelity and re-show simplified ghosts now that caps are resolved
-                foreach (var kvp in ghostStates)
-                {
-                    var capState = kvp.Value;
-                    if (capState == null) continue;
-                    if (capState.fidelityReduced)
-                        GhostPlaybackLogic.RestoreGhostFidelity(capState);
-                    if (capState.simplified && capState.ghost != null)
-                    {
-                        capState.ghost.SetActive(true);
-                        capState.simplified = false;
-                        ParsekLog.Verbose("Engine",
-                            $"SoftCap resolved: re-showing simplified ghost #{kvp.Key}");
-                    }
-                }
-            }
         }
 
         /// <summary>
@@ -793,7 +658,7 @@ namespace Parsek
                 return;
 
             GhostPlaybackLogic.ApplyDistanceLodFidelity(state, zoneResult.reduceFidelity);
-            bool forceWatchedFullFidelity = GhostPlaybackLogic.ShouldProtectGhostFromSoftCap(
+            bool forceWatchedFullFidelity = GhostPlaybackLogic.IsProtectedGhost(
                 ctx.protectedIndex, index);
             bool skipLoopPartEvents = zoneResult.skipPartEvents || (loopSimplified && !forceWatchedFullFidelity);
             bool effectiveSuppressVisualFx = suppressVisualFx || zoneResult.suppressVisualFx;
@@ -1882,12 +1747,8 @@ namespace Parsek
             overlapGhosts.Clear();
             loopPhaseOffsets.Clear();
             loadedAnchorVessels.Clear();
-            softCapSuppressed.Clear();
             loggedGhostEnter.Clear();
             loggedReshow.Clear();
-            cachedZone1Ghosts.Clear();
-            cachedZone2Ghosts.Clear();
-            softCapTriggeredThisFrame = false;
             completedEventFired.Clear();
 
             CleanupActiveExplosions();
@@ -1904,7 +1765,6 @@ namespace Parsek
             ReindexDict(loopPhaseOffsets, removedIndex);
             ReindexSet(loggedGhostEnter, removedIndex);
             ReindexSet(loggedReshow, removedIndex);
-            ReindexSet(softCapSuppressed, removedIndex);
             ReindexSet(completedEventFired, removedIndex);
         }
 
