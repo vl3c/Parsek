@@ -25,6 +25,27 @@ The two dominant wastes are:
 1. duplicated trajectory data inside `.prec`
 2. duplicated snapshot payload across `_vessel.craft` and `_ghost.craft`
 
+## Post-Slice-3 Rebaseline
+
+Measured from the current follow-up storage corpus in
+`logs/2026-04-12_1549_storage-followup-playtest/parsek/Recordings/` after the section-authoritative
+`v1` sidecar work and ghost snapshot alias mode landed:
+
+- total recording sidecar payload: `5,609,867` bytes (`5.35 MiB`)
+- `.prec` trajectory sidecars: `1,405,497` bytes across `68` files (`25.1%`)
+- `_vessel.craft` snapshots: `1,542,466` bytes across `68` files (`27.5%`)
+- `_ghost.craft` snapshots: `2,661,904` bytes across `59` files (`47.5%`)
+- alias or vessel-only snapshot mode is active for `9` of `68` recordings in this corpus
+
+This confirms two things:
+
+1. slices 2-3 removed the measured low-risk duplication and are already shrinking new saves
+2. the next structural win is still `.prec` encoding rather than more snapshot plumbing
+
+Even after the `v1` / alias changes, `.prec` remains a large enough bucket to justify the binary
+format work because it still stores verbose text scalars and repeated key names for every point,
+event, and section boundary.
+
 ## Current Format Pressure Points
 
 The current `version = 0` `.prec` format is plain-text `ConfigNode` data.

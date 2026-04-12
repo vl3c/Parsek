@@ -8,7 +8,7 @@ using Xunit;
 namespace Parsek.Tests
 {
     /// <summary>
-    /// Tests for recording format version dispatch and the v1 section-authoritative path.
+    /// Tests for recording format version dispatch and the v1/v2 storage paths.
     /// </summary>
     [Collection("Sequential")]
     public class FormatVersionTests : IDisposable
@@ -42,9 +42,9 @@ namespace Parsek.Tests
         #region Version constants
 
         [Fact]
-        public void CurrentRecordingFormatVersion_Is1()
+        public void CurrentRecordingFormatVersion_Is2()
         {
-            Assert.Equal(1, RecordingStore.CurrentRecordingFormatVersion);
+            Assert.Equal(2, RecordingStore.CurrentRecordingFormatVersion);
         }
 
         [Fact]
@@ -55,14 +55,16 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void RecordingBuilder_DefaultVersion_Is1()
+        public void RecordingBuilder_DefaultVersion_IsCurrentVersion()
         {
             var builder = new RecordingBuilder("TestVessel");
             builder.AddPoint(17000, 0, 0, 100);
             builder.AddPoint(17010, 0, 0, 200);
 
             var trajectoryNode = builder.BuildTrajectoryNode();
-            Assert.Equal("1", trajectoryNode.GetValue("version"));
+            Assert.Equal(
+                RecordingStore.CurrentRecordingFormatVersion.ToString(CultureInfo.InvariantCulture),
+                trajectoryNode.GetValue("version"));
         }
 
         [Fact]
@@ -129,7 +131,7 @@ namespace Parsek.Tests
 
         #endregion
 
-        #region V1 section-authoritative write path
+        #region V1+ section-authoritative write path
 
         [Fact]
         public void SerializeTrajectoryInto_V1WithTrackSections_SkipsTopLevelTrajectoryCopies()
@@ -186,14 +188,14 @@ namespace Parsek.Tests
             var rec = new Recording
             {
                 RecordingId = "missing-header",
-                RecordingFormatVersion = 1
+                RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion
             };
             rec.Points.Add(new TrajectoryPoint { ut = 100, latitude = 0, longitude = 0, altitude = 100, bodyName = "Kerbin" });
 
             var node = new ConfigNode("TEST");
             RecordingStore.SerializeTrajectoryInto(node, rec);
 
-            Assert.Equal("1", node.GetValue("version"));
+            Assert.Equal(RecordingStore.CurrentRecordingFormatVersion.ToString(CultureInfo.InvariantCulture), node.GetValue("version"));
             Assert.Equal("missing-header", node.GetValue("recordingId"));
         }
 
@@ -203,7 +205,7 @@ namespace Parsek.Tests
             var rec = new Recording
             {
                 RecordingId = "preserve-header",
-                RecordingFormatVersion = 1
+                RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion
             };
             rec.Points.Add(new TrajectoryPoint { ut = 100, latitude = 0, longitude = 0, altitude = 100, bodyName = "Kerbin" });
 

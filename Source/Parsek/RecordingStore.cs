@@ -53,9 +53,10 @@ namespace Parsek
     /// </summary>
     public static class RecordingStore
     {
-        public const int CurrentRecordingFormatVersion = 1;
+        public const int CurrentRecordingFormatVersion = 2;
         // v0: initial release format
         // v1: track sections become authoritative on disk when present; flat lists rebuild on load
+        // v2: binary .prec sidecars with header dispatch, exact scalar storage, and file-level string tables
 
         // When true, suppresses logging calls (for unit testing outside Unity)
         internal static bool SuppressLogging;
@@ -2733,7 +2734,7 @@ namespace Parsek
             }
         }
 
-        private static bool ShouldWriteSectionAuthoritativeTrajectory(Recording rec)
+        internal static bool ShouldWriteSectionAuthoritativeTrajectory(Recording rec)
         {
             return rec != null
                 && rec.RecordingFormatVersion >= 1
@@ -2748,7 +2749,7 @@ namespace Parsek
                 && sourceNode.GetNodes("TRACK_SECTION").Length > 0;
         }
 
-        private static int RebuildPointsFromTrackSections(List<TrackSection> tracks, List<TrajectoryPoint> points)
+        internal static int RebuildPointsFromTrackSections(List<TrackSection> tracks, List<TrajectoryPoint> points)
         {
             points.Clear();
             if (tracks == null || tracks.Count == 0)
@@ -2776,7 +2777,7 @@ namespace Parsek
             return dedupedBoundaryCopies;
         }
 
-        private static int RebuildOrbitSegmentsFromTrackSections(List<TrackSection> tracks, List<OrbitSegment> orbitSegments)
+        internal static int RebuildOrbitSegmentsFromTrackSections(List<TrackSection> tracks, List<OrbitSegment> orbitSegments)
         {
             orbitSegments.Clear();
             if (tracks == null || tracks.Count == 0)
@@ -3792,10 +3793,6 @@ namespace Parsek
                 bool deletedStaleGhostSnapshot = false;
 
                 // Save .prec trajectory file
-                var precNode = new ConfigNode("PARSEK_RECORDING");
-                precNode.AddValue("version", rec.RecordingFormatVersion);
-                precNode.AddValue("recordingId", rec.RecordingId);
-
                 string precPath = RecordingPaths.ResolveSaveScopedPath(
                     RecordingPaths.BuildTrajectoryRelativePath(rec.RecordingId));
                 if (string.IsNullOrEmpty(precPath))
@@ -3813,9 +3810,7 @@ namespace Parsek
                 // causing false-positive staleness on quickload (bug #290).
                 if (incrementEpoch)
                     rec.SidecarEpoch++;
-                precNode.AddValue("sidecarEpoch", rec.SidecarEpoch.ToString(System.Globalization.CultureInfo.InvariantCulture));
-                SerializeTrajectoryInto(precNode, rec);
-                SafeWriteConfigNode(precNode, precPath);
+                WriteTrajectorySidecar(precPath, rec, rec.SidecarEpoch);
 
                 // Save _vessel.craft (always rewrite — snapshot can be mutated by spawn offset)
                 string vesselPath = RecordingPaths.ResolveSaveScopedPath(
@@ -3871,7 +3866,8 @@ namespace Parsek
                 if (!SuppressLogging)
                 {
                     ParsekLog.Verbose("RecordingStore",
-                        $"SaveRecordingFiles: id={rec.RecordingId} ghostSnapshotMode={ghostSnapshotMode} " +
+                        $"SaveRecordingFiles: id={rec.RecordingId} trajectoryEncoding={GetTrajectorySidecarEncodingLabel(rec.RecordingFormatVersion)} " +
+                        $"ghostSnapshotMode={ghostSnapshotMode} " +
                         $"wroteVessel={wroteVesselSnapshot} wroteGhost={wroteGhostSnapshot} " +
                         $"deletedStaleGhost={deletedStaleGhostSnapshot}");
                 }
@@ -3912,15 +3908,22 @@ namespace Parsek
                     return false;
                 }
 
-                var precNode = ConfigNode.Load(precPath);
-                if (precNode == null)
+                TrajectorySidecarProbe probe;
+                if (!TryProbeTrajectorySidecar(precPath, out probe))
                 {
                     Log($"[Parsek] Invalid trajectory file for {rec.RecordingId} — failed to parse");
                     return false;
                 }
+                if (!probe.Supported)
+                {
+                    ParsekLog.Warn("RecordingStore",
+                        $"LoadRecordingFiles: unsupported trajectory sidecar for {rec.RecordingId} " +
+                        $"(encoding={probe.Encoding}, version={probe.FormatVersion})");
+                    return false;
+                }
 
                 // Validate recordingId inside file matches
-                string fileId = precNode.GetValue("recordingId");
+                string fileId = probe.RecordingId;
                 if (fileId != null && fileId != rec.RecordingId)
                 {
                     Log($"[Parsek] Recording ID mismatch in {rec.RecordingId}.prec: file says '{fileId}' — skipping");
@@ -3928,16 +3931,10 @@ namespace Parsek
                 }
 
                 // Bug #270: validate sidecar epoch
-                string fileEpochStr = precNode.GetValue("sidecarEpoch");
-                int fileEpoch = 0;
-                if (fileEpochStr != null)
-                    int.TryParse(fileEpochStr, System.Globalization.NumberStyles.Integer,
-                        System.Globalization.CultureInfo.InvariantCulture, out fileEpoch);
-
-                if (ShouldSkipStaleSidecar(rec, fileEpoch))
+                if (ShouldSkipStaleSidecar(rec, probe.SidecarEpoch))
                     return false;
 
-                DeserializeTrajectoryFrom(precNode, rec);
+                DeserializeTrajectorySidecar(precPath, probe, rec);
 
                 // #288: eagerly populate TerminalOrbit cache from the last orbit segment if
                 // the recording was loaded with empty cache fields. Without this, GhostMap
@@ -4062,6 +4059,107 @@ namespace Parsek
                 $".sfs expects epoch {rec.SidecarEpoch}, .prec has epoch {fileEpoch} — " +
                 $"sidecar is stale (bug #270), skipping sidecar load (trajectory + snapshots)");
             return true;
+        }
+
+        internal static void WriteTrajectorySidecar(string path, Recording rec, int sidecarEpoch)
+        {
+            if (rec != null && rec.RecordingFormatVersion >= 2)
+            {
+                TrajectorySidecarBinary.Write(path, rec, sidecarEpoch);
+                return;
+            }
+
+            var precNode = new ConfigNode("PARSEK_RECORDING");
+            precNode.AddValue("version", rec?.RecordingFormatVersion ?? 0);
+            if (rec != null && !string.IsNullOrEmpty(rec.RecordingId))
+                precNode.AddValue("recordingId", rec.RecordingId);
+            precNode.AddValue("sidecarEpoch", sidecarEpoch.ToString(System.Globalization.CultureInfo.InvariantCulture));
+            SerializeTrajectoryInto(precNode, rec);
+            SafeWriteConfigNode(precNode, path);
+        }
+
+        internal static bool TryProbeTrajectorySidecar(string path, out TrajectorySidecarProbe probe)
+        {
+            probe = default(TrajectorySidecarProbe);
+            if (string.IsNullOrEmpty(path) || !File.Exists(path))
+                return false;
+
+            if (TrajectorySidecarBinary.HasBinaryMagic(path))
+            {
+                bool binaryProbeOk = TrajectorySidecarBinary.TryProbe(path, out probe);
+                if (binaryProbeOk && !SuppressLogging)
+                {
+                    ParsekLog.Verbose("RecordingStore",
+                        $"TryProbeTrajectorySidecar: encoding=BinaryV2 version={probe.FormatVersion} " +
+                        $"recording={probe.RecordingId} sidecarEpoch={probe.SidecarEpoch}");
+                    if (!probe.Supported)
+                    {
+                        ParsekLog.Warn("RecordingStore",
+                            $"TryProbeTrajectorySidecar: unsupported binary trajectory version {probe.FormatVersion} " +
+                            $"for recording={probe.RecordingId}");
+                    }
+                }
+
+                return binaryProbeOk;
+            }
+
+            var precNode = ConfigNode.Load(path);
+            if (precNode == null)
+                return false;
+
+            int sidecarEpoch = 0;
+            string fileEpochStr = precNode.GetValue("sidecarEpoch");
+            if (fileEpochStr != null)
+            {
+                int.TryParse(fileEpochStr, System.Globalization.NumberStyles.Integer,
+                    System.Globalization.CultureInfo.InvariantCulture, out sidecarEpoch);
+            }
+
+            probe = new TrajectorySidecarProbe
+            {
+                Success = true,
+                Supported = true,
+                Encoding = TrajectorySidecarEncoding.TextConfigNode,
+                FormatVersion = GetTrajectoryFormatVersion(precNode),
+                SidecarEpoch = sidecarEpoch,
+                RecordingId = precNode.GetValue("recordingId"),
+                LegacyNode = precNode
+            };
+
+            if (!SuppressLogging)
+            {
+                ParsekLog.Verbose("RecordingStore",
+                    $"TryProbeTrajectorySidecar: encoding=TextConfigNode version={probe.FormatVersion} " +
+                    $"recording={probe.RecordingId} sidecarEpoch={probe.SidecarEpoch}");
+            }
+
+            return true;
+        }
+
+        internal static void DeserializeTrajectorySidecar(string path, TrajectorySidecarProbe probe, Recording rec)
+        {
+            if (probe.Encoding == TrajectorySidecarEncoding.BinaryV2)
+            {
+                TrajectorySidecarBinary.Read(path, rec, probe);
+                return;
+            }
+
+            DeserializeTrajectoryFrom(probe.LegacyNode, rec);
+        }
+
+        internal static bool LoadTrajectorySidecarForTesting(string path, Recording rec)
+        {
+            TrajectorySidecarProbe probe;
+            if (!TryProbeTrajectorySidecar(path, out probe) || !probe.Supported)
+                return false;
+
+            DeserializeTrajectorySidecar(path, probe, rec);
+            return true;
+        }
+
+        internal static string GetTrajectorySidecarEncodingLabel(int recordingFormatVersion)
+        {
+            return recordingFormatVersion >= 2 ? "BinaryV2" : "TextConfigNode";
         }
 
         private static void SafeWriteConfigNode(ConfigNode node, string path)

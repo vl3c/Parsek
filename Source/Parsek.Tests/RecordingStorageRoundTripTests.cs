@@ -85,20 +85,28 @@ namespace Parsek.Tests
             Assert.True(File.Exists(precPath), $"Expected trajectory sidecar for {fixture.Name}");
 
             var original = RecordingStorageFixtures.MaterializeTrajectory(fixture.Builder);
-            ConfigNode expectedPrecNode = new ConfigNode("PARSEK_RECORDING");
-            expectedPrecNode.AddValue("version",
-                fixture.Builder.GetFormatVersion().ToString(System.Globalization.CultureInfo.InvariantCulture));
-            expectedPrecNode.AddValue("recordingId", recordingId);
-            RecordingStore.SerializeTrajectoryInto(expectedPrecNode, original);
             var loadedTrajectory = new Recording { RecordingId = recordingId };
-            ConfigNode precNode = ConfigNode.Load(precPath);
-            Assert.NotNull(precNode);
-            Assert.Equal(
-                fixture.Builder.GetFormatVersion().ToString(System.Globalization.CultureInfo.InvariantCulture),
-                precNode.GetValue("version"));
-            AssertConfigNodeEquivalent(expectedPrecNode, precNode, "prec");
-            RecordingStore.DeserializeTrajectoryFrom(precNode, loadedTrajectory);
+            Assert.True(RecordingStore.LoadTrajectorySidecarForTesting(precPath, loadedTrajectory));
             AssertSemanticTrajectoryEqual(original, loadedTrajectory);
+
+            TrajectorySidecarProbe probe;
+            Assert.True(RecordingStore.TryProbeTrajectorySidecar(precPath, out probe));
+            Assert.Equal(fixture.Builder.GetFormatVersion(), probe.FormatVersion);
+            Assert.Equal(
+                fixture.Builder.GetFormatVersion() >= 2
+                    ? TrajectorySidecarEncoding.BinaryV2
+                    : TrajectorySidecarEncoding.TextConfigNode,
+                probe.Encoding);
+
+            if (probe.Encoding == TrajectorySidecarEncoding.TextConfigNode)
+            {
+                ConfigNode expectedPrecNode = new ConfigNode("PARSEK_RECORDING");
+                expectedPrecNode.AddValue("version",
+                    fixture.Builder.GetFormatVersion().ToString(System.Globalization.CultureInfo.InvariantCulture));
+                expectedPrecNode.AddValue("recordingId", recordingId);
+                RecordingStore.SerializeTrajectoryInto(expectedPrecNode, original);
+                AssertConfigNodeEquivalent(expectedPrecNode, probe.LegacyNode, "prec");
+            }
 
             ConfigNode expectedVessel = fixture.Builder.GetVesselSnapshot();
             Assert.Equal(expectedVessel != null, File.Exists(vesselPath));
@@ -158,6 +166,120 @@ namespace Parsek.Tests
             Assert.Equal(expectedSectionFrameCount, sectionFrameCount);
             Assert.True(sectionFrameCount > rec.Points.Count,
                 "Fixture must retain duplicated section frames so slice 2 can prove the on-disk win.");
+        }
+
+        [Fact]
+        public void CurrentFormatTrajectorySidecar_WritesBinaryHeader_AndRoundTrips()
+        {
+            Recording original = RecordingStorageFixtures.MaterializeTrajectory(
+                RecordingStorageFixtures.MixedActiveBackground().Builder);
+            string path = Path.Combine(tempDir, "current-format.prec");
+
+            logLines.Clear();
+            ParsekLog.VerboseOverrideForTesting = true;
+            RecordingStore.WriteTrajectorySidecar(path, original, sidecarEpoch: 7);
+
+            TrajectorySidecarProbe probe;
+            Assert.True(RecordingStore.TryProbeTrajectorySidecar(path, out probe));
+            Assert.Equal(TrajectorySidecarEncoding.BinaryV2, probe.Encoding);
+            Assert.Equal(RecordingStore.CurrentRecordingFormatVersion, probe.FormatVersion);
+            Assert.Equal(7, probe.SidecarEpoch);
+            Assert.Contains(logLines, l =>
+                l.Contains("[RecordingStore]") &&
+                l.Contains("WriteBinaryTrajectoryFile"));
+
+            var restored = new Recording { RecordingId = original.RecordingId };
+            RecordingStore.DeserializeTrajectorySidecar(path, probe, restored);
+            AssertSemanticTrajectoryEqual(original, restored);
+        }
+
+        [Fact]
+        public void MixedFormatTrajectorySidecars_LoadInSameProcess()
+        {
+            var legacy = RecordingStorageFixtures.MaterializeTrajectory(
+                RecordingStorageFixtures.AtmosphericActiveMultiSection().Builder);
+            legacy.RecordingId = "mixed-v0";
+            legacy.RecordingFormatVersion = 0;
+
+            var sectionedText = RecordingStorageFixtures.MaterializeTrajectory(
+                RecordingStorageFixtures.OrbitalCheckpointTransition().Builder);
+            sectionedText.RecordingId = "mixed-v1";
+            sectionedText.RecordingFormatVersion = 1;
+
+            var binary = RecordingStorageFixtures.MaterializeTrajectory(
+                RecordingStorageFixtures.MixedActiveBackground().Builder);
+            binary.RecordingId = "mixed-v2";
+            binary.RecordingFormatVersion = 2;
+
+            var cases = new[]
+            {
+                new { Original = legacy, Path = Path.Combine(tempDir, "mixed-v0.prec"), ExpectedEncoding = TrajectorySidecarEncoding.TextConfigNode },
+                new { Original = sectionedText, Path = Path.Combine(tempDir, "mixed-v1.prec"), ExpectedEncoding = TrajectorySidecarEncoding.TextConfigNode },
+                new { Original = binary, Path = Path.Combine(tempDir, "mixed-v2.prec"), ExpectedEncoding = TrajectorySidecarEncoding.BinaryV2 }
+            };
+
+            for (int i = 0; i < cases.Length; i++)
+            {
+                RecordingStore.WriteTrajectorySidecar(cases[i].Path, cases[i].Original, sidecarEpoch: i + 1);
+
+                TrajectorySidecarProbe probe;
+                Assert.True(RecordingStore.TryProbeTrajectorySidecar(cases[i].Path, out probe));
+                Assert.Equal(cases[i].ExpectedEncoding, probe.Encoding);
+                Assert.Equal(cases[i].Original.RecordingFormatVersion, probe.FormatVersion);
+
+                var restored = new Recording { RecordingId = cases[i].Original.RecordingId };
+                RecordingStore.DeserializeTrajectorySidecar(cases[i].Path, probe, restored);
+                AssertSemanticTrajectoryEqual(cases[i].Original, restored);
+            }
+        }
+
+        [Fact]
+        public void UnsupportedBinaryTrajectoryVersion_IsRejected()
+        {
+            string path = Path.Combine(tempDir, "unsupported-binary.prec");
+            using (var stream = new FileStream(path, FileMode.Create, FileAccess.Write))
+            using (var writer = new BinaryWriter(stream))
+            {
+                writer.Write(new byte[] { (byte)'P', (byte)'R', (byte)'K', (byte)'B' });
+                writer.Write(99);
+                writer.Write(0);
+                writer.Write("unsupported");
+            }
+
+            logLines.Clear();
+            TrajectorySidecarProbe probe;
+            Assert.True(RecordingStore.TryProbeTrajectorySidecar(path, out probe));
+            Assert.False(probe.Supported);
+            Assert.Contains(logLines, l =>
+                l.Contains("[WARN]") &&
+                l.Contains("[RecordingStore]") &&
+                l.Contains("unsupported binary trajectory version"));
+        }
+
+        [Fact]
+        public void BinaryTrajectorySidecar_IsSmallerThanEquivalentTextSidecar()
+        {
+            Recording text = RecordingStorageFixtures.MaterializeTrajectory(
+                RecordingStorageFixtures.AtmosphericActiveMultiSection().Builder);
+            text.RecordingId = "size-text";
+            text.RecordingFormatVersion = 1;
+
+            Recording binary = RecordingStorageFixtures.MaterializeTrajectory(
+                RecordingStorageFixtures.AtmosphericActiveMultiSection().Builder);
+            binary.RecordingId = "size-binary";
+            binary.RecordingFormatVersion = 2;
+
+            string textPath = Path.Combine(tempDir, "size-text.prec");
+            string binaryPath = Path.Combine(tempDir, "size-binary.prec");
+
+            RecordingStore.WriteTrajectorySidecar(textPath, text, sidecarEpoch: 1);
+            RecordingStore.WriteTrajectorySidecar(binaryPath, binary, sidecarEpoch: 1);
+
+            long textBytes = new FileInfo(textPath).Length;
+            long binaryBytes = new FileInfo(binaryPath).Length;
+
+            Assert.True(binaryBytes < textBytes,
+                $"Expected binary sidecar ({binaryBytes} bytes) to be smaller than text ({textBytes} bytes)");
         }
 
         private static Recording RoundTrip(Recording original)

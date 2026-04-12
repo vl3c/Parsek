@@ -303,11 +303,10 @@ namespace Parsek.Tests.Generators
                 recording.GhostSnapshotMode = RecordingStore.DetermineGhostSnapshotMode(recording);
                 RecordingStore.DeserializeTrajectoryFrom(sourceTrajNode, recording);
 
-                var trajNode = new ConfigNode("PARSEK_RECORDING");
-                trajNode.AddValue("version", builder.GetFormatVersion().ToString(CultureInfo.InvariantCulture));
-                trajNode.AddValue("recordingId", id);
-                RecordingStore.SerializeTrajectoryInto(trajNode, recording);
-                trajNode.Save(Path.Combine(recordingsDir, $"{id}.prec"));
+                RecordingStore.WriteTrajectorySidecar(
+                    Path.Combine(recordingsDir, $"{id}.prec"),
+                    recording,
+                    sidecarEpoch: recording.SidecarEpoch);
 
                 if (recording.VesselSnapshot != null)
                     recording.VesselSnapshot.Save(Path.Combine(recordingsDir, $"{id}_vessel.craft"));

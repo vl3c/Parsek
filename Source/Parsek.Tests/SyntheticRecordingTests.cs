@@ -4663,9 +4663,14 @@ namespace Parsek.Tests
                 // .prec file exists and has correct content
                 string precPath = Path.Combine(recDir, $"{id}.prec");
                 Assert.True(File.Exists(precPath), $"Expected .prec file at {precPath}");
-                string precContent = File.ReadAllText(precPath);
-                Assert.Contains($"recordingId = {id}", precContent);
-                Assert.Contains("POINT", precContent);
+                TrajectorySidecarProbe probe;
+                Assert.True(RecordingStore.TryProbeTrajectorySidecar(precPath, out probe));
+                Assert.Equal(TrajectorySidecarEncoding.BinaryV2, probe.Encoding);
+                Assert.Equal(id, probe.RecordingId);
+
+                var restored = new Recording { RecordingId = id };
+                Assert.True(RecordingStore.LoadTrajectorySidecarForTesting(precPath, restored));
+                Assert.True(restored.Points.Count >= 2, "Expected binary sidecar to preserve trajectory points");
 
                 // _vessel.craft file exists and has vessel data
                 string vesselPath = Path.Combine(recDir, $"{id}_vessel.craft");
