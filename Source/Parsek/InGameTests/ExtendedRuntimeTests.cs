@@ -739,30 +739,33 @@ namespace Parsek.InGameTests
         }
 
         [InGameTest(Category = "TreeIntegrity",
-            Description = "No tree has duplicate eligible BackgroundMap PIDs")]
-        public void BackgroundMapEligiblePidsUniqueWithinTree()
+            Description = "BackgroundMap picks the deterministic preferred eligible recording for each PID")]
+        public void BackgroundMapUsesPreferredEligibleRecordingWithinTree()
         {
             var trees = RecordingStore.CommittedTrees;
-            int duplicatePidCount = 0;
+            int mismatches = 0;
 
             for (int i = 0; i < trees.Count; i++)
             {
-                var duplicates = trees[i].FindDuplicateBackgroundMapPids();
-                if (duplicates.Count == 0)
-                    continue;
+                foreach (var kvp in trees[i].BackgroundMap)
+                {
+                    string preferredId = trees[i].FindPreferredBackgroundMapRecordingId(kvp.Key);
+                    if (preferredId == null || preferredId == kvp.Value)
+                        continue;
 
-                duplicatePidCount += duplicates.Count;
-                ParsekLog.Warn("TestRunner",
-                    $"Tree '{trees[i].Id}' has duplicate eligible BackgroundMap PIDs: {string.Join(", ", duplicates)}");
+                    mismatches++;
+                    ParsekLog.Warn("TestRunner",
+                        $"Tree '{trees[i].Id}' BackgroundMap pid={kvp.Key} points at '{kvp.Value}', expected preferred '{preferredId}'");
+                }
             }
 
             if (trees.Count == 0)
                 InGameAssert.Skip("No committed trees");
 
             ParsekLog.Verbose("TestRunner",
-                $"BackgroundMap duplicate PID check: trees={trees.Count} duplicatePidCount={duplicatePidCount}");
-            InGameAssert.AreEqual(0, duplicatePidCount,
-                $"{duplicatePidCount} duplicate eligible BackgroundMap PID(s) found across committed trees");
+                $"BackgroundMap preferred-recording check: trees={trees.Count} mismatches={mismatches}");
+            InGameAssert.AreEqual(0, mismatches,
+                $"{mismatches} BackgroundMap preferred-recording mismatch(es) found");
         }
 
         [InGameTest(Category = "TreeIntegrity",

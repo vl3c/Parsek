@@ -6868,6 +6868,8 @@ namespace Parsek
                     continue;
                 if (currentUT < rec.StartUT || currentUT > rec.EndUT)
                     continue;
+                if (!RecordingHasUsablePlaybackDataAtUT(rec, currentUT))
+                    continue;
 
                 if (unique != null)
                 {
@@ -6894,10 +6896,8 @@ namespace Parsek
                 if (link.ut > currentUT + 0.001)
                     continue;
 
-                var rec = FindChainPathRecordingAtUT(
+                return FindChainPathRecordingAtUT(
                     committedTrees, link, chain.OriginalVesselPid, currentUT);
-                if (rec != null)
-                    return rec;
             }
 
             return null;
@@ -7050,17 +7050,7 @@ namespace Parsek
 
             if (rec.HasOrbitSegments)
             {
-                bool hasOrbitCoverage = false;
-                for (int s = 0; s < rec.OrbitSegments.Count; s++)
-                {
-                    if (currentUT >= rec.OrbitSegments[s].startUT && currentUT <= rec.OrbitSegments[s].endUT)
-                    {
-                        hasOrbitCoverage = true;
-                        break;
-                    }
-                }
-
-                if (!hasOrbitCoverage)
+                if (!HasOrbitCoverageAtUT(rec, currentUT))
                     return false;
 
                 PositionGhostFromOrbitOnly(ghostGO, rec, currentUT,
@@ -7085,6 +7075,35 @@ namespace Parsek
                         chain.OriginalVesselPid, rec.RecordingId, rec.TreeId,
                         rec.SurfacePos.Value.body));
                 return true;
+            }
+
+            return false;
+        }
+
+        private static bool RecordingHasUsablePlaybackDataAtUT(Recording rec, double currentUT)
+        {
+            if (rec == null)
+                return false;
+
+            if (rec.Points != null && rec.Points.Count > 0)
+                return true;
+
+            if (HasOrbitCoverageAtUT(rec, currentUT))
+                return true;
+
+            return rec.SurfacePos.HasValue
+                && currentUT >= rec.StartUT && currentUT <= rec.EndUT;
+        }
+
+        private static bool HasOrbitCoverageAtUT(Recording rec, double currentUT)
+        {
+            if (rec == null || !rec.HasOrbitSegments)
+                return false;
+
+            for (int s = 0; s < rec.OrbitSegments.Count; s++)
+            {
+                if (currentUT >= rec.OrbitSegments[s].startUT && currentUT <= rec.OrbitSegments[s].endUT)
+                    return true;
             }
 
             return false;

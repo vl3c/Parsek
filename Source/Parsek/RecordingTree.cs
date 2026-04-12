@@ -157,6 +157,7 @@ namespace Parsek
         {
             BackgroundMap.Clear();
             RecordedVesselPids.Clear();
+            var bestByPid = new Dictionary<uint, Recording>();
             foreach (var kvp in Recordings)
             {
                 var rec = kvp.Value;
@@ -165,13 +166,16 @@ namespace Parsek
 
                 if (IsBackgroundMapEligible(rec))
                 {
-                    if (BackgroundMap.ContainsKey(rec.VesselPersistentId))
-                        ParsekLog.Warn("RecordingTree",
-                            $"RebuildBackgroundMap: duplicate PID={rec.VesselPersistentId} " +
-                            $"(existing={BackgroundMap[rec.VesselPersistentId]}, replacing with={rec.RecordingId})");
-                    BackgroundMap[rec.VesselPersistentId] = rec.RecordingId;
+                    if (!bestByPid.TryGetValue(rec.VesselPersistentId, out Recording existing)
+                        || CompareBackgroundMapCandidates(rec, existing) > 0)
+                    {
+                        bestByPid[rec.VesselPersistentId] = rec;
+                    }
                 }
             }
+
+            foreach (var kvp in bestByPid)
+                BackgroundMap[kvp.Key] = kvp.Value.RecordingId;
 
             ParsekLog.Verbose("RecordingTree",
                 $"RebuildBackgroundMap: entries={BackgroundMap.Count} recordedPids={RecordedVesselPids.Count} totalRecordings={Recordings.Count}");
@@ -206,6 +210,26 @@ namespace Parsek
             return false;
         }
 
+        private static int CompareBackgroundMapCandidates(Recording candidate, Recording existing)
+        {
+            if (candidate == null && existing == null)
+                return 0;
+            if (candidate == null)
+                return -1;
+            if (existing == null)
+                return 1;
+
+            int cmp = candidate.EndUT.CompareTo(existing.EndUT);
+            if (cmp != 0)
+                return cmp;
+
+            cmp = candidate.StartUT.CompareTo(existing.StartUT);
+            if (cmp != 0)
+                return cmp;
+
+            return string.CompareOrdinal(candidate.RecordingId, existing.RecordingId);
+        }
+
         internal List<uint> FindDuplicateBackgroundMapPids()
         {
             var counts = new Dictionary<uint, int>();
@@ -226,6 +250,21 @@ namespace Parsek
             }
 
             return duplicates;
+        }
+
+        internal string FindPreferredBackgroundMapRecordingId(uint pid)
+        {
+            Recording best = null;
+            foreach (var rec in Recordings.Values)
+            {
+                if (rec.VesselPersistentId != pid || !IsBackgroundMapEligible(rec))
+                    continue;
+
+                if (best == null || CompareBackgroundMapCandidates(rec, best) > 0)
+                    best = rec;
+            }
+
+            return best != null ? best.RecordingId : null;
         }
 
         // --- Recording serialization helpers ---

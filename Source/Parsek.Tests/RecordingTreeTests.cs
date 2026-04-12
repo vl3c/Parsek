@@ -777,6 +777,48 @@ namespace Parsek.Tests
             Assert.Equal("R2", tree.BackgroundMap[500]);
         }
 
+        [Fact]
+        public void RebuildBackgroundMap_DuplicateEligiblePids_ChoosesDeterministicPreferredRecording()
+        {
+            var tree = new RecordingTree
+            {
+                Id = "tree_overlap_bg",
+                TreeName = "Overlap BackgroundMap Test",
+                RootRecordingId = "R1",
+                ActiveRecordingId = "R3"
+            };
+
+            tree.Recordings["R1"] = new Recording
+            {
+                RecordingId = "R1",
+                VesselPersistentId = 900,
+                TerminalStateValue = null,
+                ExplicitStartUT = 100.0,
+                ExplicitEndUT = 150.0
+            };
+            tree.Recordings["R2"] = new Recording
+            {
+                RecordingId = "R2",
+                VesselPersistentId = 900,
+                TerminalStateValue = null,
+                ExplicitStartUT = 120.0,
+                ExplicitEndUT = 180.0
+            };
+            tree.Recordings["R3"] = new Recording
+            {
+                RecordingId = "R3",
+                VesselPersistentId = 999,
+                TerminalStateValue = null,
+                ExplicitStartUT = 200.0,
+                ExplicitEndUT = 250.0
+            };
+
+            tree.RebuildBackgroundMap();
+
+            Assert.Equal("R2", tree.FindPreferredBackgroundMapRecordingId(900));
+            Assert.Equal("R2", tree.BackgroundMap[900]);
+        }
+
         // --- Resource fields ---
 
         [Fact]
