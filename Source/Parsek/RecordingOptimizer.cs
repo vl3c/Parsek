@@ -527,8 +527,10 @@ namespace Parsek
             second.EvaCrewName = original.EvaCrewName;
             second.ParentRecordingId = original.ParentRecordingId;
 
-            bool syncedOriginalFlatTrajectory = RecordingStore.TrySyncFlatTrajectoryFromTrackSections(original);
-            bool syncedSecondFlatTrajectory = RecordingStore.TrySyncFlatTrajectoryFromTrackSections(second);
+            bool syncedOriginalFlatTrajectory = RecordingStore.TrySyncFlatTrajectoryFromTrackSections(
+                original, allowRelativeSections: true);
+            bool syncedSecondFlatTrajectory = RecordingStore.TrySyncFlatTrajectoryFromTrackSections(
+                second, allowRelativeSections: true);
 
             // 12. Invalidate cached stats
             original.CachedStats = null;
@@ -928,8 +930,10 @@ namespace Parsek
                 }
                 else if (sec.endUT > trimUT)
                 {
-                    sec.endUT = trimUT;
-                    rec.TrackSections[i] = sec;
+                    if (TryTrimTrackSectionPayload(ref sec, trimUT))
+                        rec.TrackSections[i] = sec;
+                    else
+                        rec.TrackSections.RemoveAt(i);
                     break;
                 }
                 else break;
@@ -955,6 +959,8 @@ namespace Parsek
                 }
             }
 
+            RecordingStore.TrySyncFlatTrajectoryFromTrackSections(rec, allowRelativeSections: true);
+
             // Strip events past the new EndUT (they're inert during playback but
             // waste memory and disk space in serialized sidecar files)
             double newEndUT = rec.EndUT;
@@ -973,6 +979,62 @@ namespace Parsek
                 $"from endUT={originalEndUT:F1} to {rec.EndUT:F1} " +
                 $"(removed {removedSeconds:F0}s, {removedPoints} points)");
             return true;
+        }
+
+        private static bool TryTrimTrackSectionPayload(ref TrackSection sec, double trimUT)
+        {
+            switch (sec.referenceFrame)
+            {
+                case ReferenceFrame.OrbitalCheckpoint:
+                    if (sec.checkpoints == null || sec.checkpoints.Count == 0)
+                    {
+                        sec.endUT = trimUT;
+                        return true;
+                    }
+
+                    for (int i = sec.checkpoints.Count - 1; i >= 0; i--)
+                    {
+                        var checkpoint = sec.checkpoints[i];
+                        if (checkpoint.startUT >= trimUT)
+                        {
+                            sec.checkpoints.RemoveAt(i);
+                        }
+                        else if (checkpoint.endUT > trimUT)
+                        {
+                            checkpoint.endUT = trimUT;
+                            sec.checkpoints[i] = checkpoint;
+                            break;
+                        }
+                        else break;
+                    }
+
+                    if (sec.checkpoints.Count == 0)
+                        return false;
+
+                    sec.endUT = sec.checkpoints[sec.checkpoints.Count - 1].endUT;
+                    return true;
+
+                default:
+                    if (sec.frames == null || sec.frames.Count == 0)
+                    {
+                        sec.endUT = trimUT;
+                        return true;
+                    }
+
+                    for (int i = sec.frames.Count - 1; i >= 0; i--)
+                    {
+                        if (sec.frames[i].ut > trimUT)
+                            sec.frames.RemoveAt(i);
+                        else
+                            break;
+                    }
+
+                    if (sec.frames.Count == 0)
+                        return false;
+
+                    sec.endUT = sec.frames[sec.frames.Count - 1].ut;
+                    return true;
+            }
         }
 
         #endregion
