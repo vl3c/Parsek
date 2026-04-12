@@ -243,6 +243,42 @@ namespace Parsek.Tests
             Assert.Equal("No rewind save available", reason);
         }
 
+        [Fact]
+        public void CanRewind_TreeBranchRootHasNoSave_ReturnsNoSaveAvailable()
+        {
+            var tree = BuildTree("tree6", "root6", null,
+                ("branch6", "EVAKerbal"));
+            RecordingStore.AddCommittedTreeForTesting(tree);
+
+            var branch = tree.Recordings["branch6"];
+            string resolvedSave = RecordingStore.GetRewindSaveFileName(branch);
+
+            string reason;
+            bool result = RecordingStore.CanRewindWithResolvedSaveState(
+                resolvedSave, saveExists: false, out reason, isRecording: false);
+
+            Assert.False(result);
+            Assert.Equal("No rewind save available", reason);
+        }
+
+        [Fact]
+        public void CanRewind_TreeBranchSaveFileMissing_ReturnsSaveMissing()
+        {
+            var tree = BuildTree("tree7", "root7", "parsek_rw_r7",
+                ("branch7", "EVAKerbal"));
+            RecordingStore.AddCommittedTreeForTesting(tree);
+
+            var branch = tree.Recordings["branch7"];
+            string resolvedSave = RecordingStore.GetRewindSaveFileName(branch);
+
+            string reason;
+            bool result = RecordingStore.CanRewindWithResolvedSaveState(
+                resolvedSave, saveExists: false, out reason, isRecording: false);
+
+            Assert.False(result);
+            Assert.Equal("Rewind save file missing", reason);
+        }
+
         #endregion
 
         #region Logging
