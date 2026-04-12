@@ -104,8 +104,9 @@ Priority targets:
 
 Add explicit negative regressions here, not just a code audit:
 
-- overlapping alternate-history trees that share a PID but do not have a real claim handoff must not merge into one ghost chain
-- a chain trajectory lookup must not select the wrong recording just because another committed tree has the same PID and overlapping UT
+- archived root/history PID overlap by itself must not be mistaken for a background/claim collision
+- overlapping rewind continuations that really are the same claimed vessel lineage must still merge into one ghost chain
+- a chain trajectory lookup should prefer chain-participating trees when they cover the UT, but still fall back to global PID lookup before the first claim when no chain-local trajectory exists
 
 If a truly globally unique runtime claim set is needed later, introduce a separate cache derived from branch-point targets / background claims instead of overloading the "all recorded PIDs" cache.
 
@@ -114,7 +115,7 @@ If a truly globally unique runtime claim set is needed later, introduce a separa
 - Unit tests for the renamed tree PID cache semantics
 - Unit tests for the new historical-reuse regression
 - Unit tests for the replacement integrity checks around `BackgroundMap`
-- Negative regression tests for PID-only helpers on overlapping alternate histories
+- Focused PID-helper regressions for overlapping rewind continuations and pre-claim trajectory fallback
 - In-game `TreeIntegrity` suite rerun against the 2026-04-12 follow-up storage playtest
 - Manual review of any PID-only helper touched by the fix to confirm it is using the right semantic set
 

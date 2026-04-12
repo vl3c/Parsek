@@ -199,13 +199,12 @@ namespace Parsek.Tests
         }
 
         /// <summary>
-        /// Two trees claim the same external vessel PID, but the second claim starts
-        /// before the first chain's leaf has finished. These are overlapping alternate
-        /// histories, not a real handoff, so the later claim must not merge in.
-        /// Guards: same-PID overlap is skipped instead of collapsing into one chain.
+        /// Two committed trees can both continue the same claimed vessel across an
+        /// overlapping rewind window. The later claim must still extend the chain.
+        /// Guards: overlapping continuations are not dropped as "ambiguous."
         /// </summary>
         [Fact]
-        public void CrossTree_OverlappingHistoricalReuse_DoesNotMergeClaims()
+        public void CrossTree_OverlappingHistoricalReuse_StillExtendsChain()
         {
             var r1 = MakeRecording("R1", 50, 1000, 1060, childBpId: "bp-dock1");
             var r1Leaf = MakeRecording("R1-leaf", 100, 1060, 1120,
@@ -227,9 +226,9 @@ namespace Parsek.Tests
             Assert.Single(chains);
             Assert.True(chains.ContainsKey(100));
             var chain = chains[100];
-            Assert.Single(chain.Links);
-            Assert.Equal("R1-leaf", chain.TipRecordingId);
-            Assert.Equal(1120.0, chain.SpawnUT);
+            Assert.Equal(2, chain.Links.Count);
+            Assert.Equal("R2-leaf", chain.TipRecordingId);
+            Assert.Equal(1160.0, chain.SpawnUT);
         }
 
         /// <summary>

@@ -35,7 +35,7 @@ The skipped branch sidecars still existed on disk in both the collected snapshot
 
 ---
 
-## 315. TreeIntegrity PID collision check fails on historical vessel reuse
+## ~~315. TreeIntegrity PID collision check fails on historical vessel reuse~~
 
 **Observed in:** 0.8.0 follow-up storage playtest (2026-04-12). The in-game suite reported `RecordingTreeIntegrityTests.NoPidCollisionAcrossTrees` failed with `2 vessel PID(s) claimed by multiple trees`. The collected `persistent.sfs` was otherwise structurally clean: `ParentLinksValid` passed, and manual inspection found no dangling `ParentRecordingId` references.
 
@@ -45,14 +45,11 @@ Concrete repro data from `logs/2026-04-12_1549_storage-followup-playtest/`: thre
 - tree `258d8922c99a45d2a1bb4bf5f7aa7070` root `7f7eadcb943941c1a1668cd44f176459`
 - tree `2dc3fa77001f4ad19e766cf6f0ac5277` root `641be2f9522d439397f4ea9fa2caabd2`
 
-**Root cause / hypothesis:** `RecordingTree.RebuildBackgroundMap` populates `OwnedVesselPids` from every recording's `VesselPersistentId`, and the in-game test assumes that this set must be globally unique across all committed trees. That assumption appears too strict once the same long-lived vessel is recorded in multiple historical trees or sessions. Current runtime usage in `GhostPlaybackLogic.IsVesselPidOwnedByCommittedTree` only needs boolean membership, not a unique tree owner, so the failure currently looks like a contract mismatch between the test and the runtime meaning of `OwnedVesselPids`, not corrupted save data.
+**Root cause:** `RecordingTree.RebuildBackgroundMap` populated an ambiguously named cache (`OwnedVesselPids`) from every recording's `VesselPersistentId`, while the in-game integrity test treated that cache like a globally unique cross-tree ownership set. Historical/alternate-history trees can legitimately reuse the same vessel PID, so the test was asserting the wrong contract.
 
-**Fix direction:** Decide which invariant is actually required:
+**Fix:** The cache was renamed to `RecordedVesselPids` to match its real meaning ("this PID appears somewhere in this tree's recordings"), `NoPidCollisionAcrossTrees` was replaced with `BackgroundMap` integrity checks that target real corruption, and regression coverage now pins historical PID reuse as valid archived data. Chain trajectory lookup also now prefers chain-participating trees without losing the pre-claim global fallback, so overlapping historical trees do not leave chain ghosts without trajectory data.
 
-- If tree ownership really must be unique, narrow `OwnedVesselPids` to only the live/background claim set that matters for runtime ownership checks.
-- If historical PID reuse is valid, relax or replace `NoPidCollisionAcrossTrees` with a stronger assertion that targets real conflicts in active/pending runtime state rather than archived trees.
-
-**Status:** Open
+**Status:** ~~Fixed~~
 
 ---
 

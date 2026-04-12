@@ -6836,7 +6836,8 @@ namespace Parsek
                     return rec;
             }
 
-            return null;
+            return FindBackgroundRecordingForVessel(
+                committedRecordings, chain.OriginalVesselPid, currentUT);
         }
 
         private static Recording FindBackgroundRecordingForVesselInTree(
@@ -7060,6 +7061,40 @@ namespace Parsek
                                     rec.SurfacePos.Value.body));
                             break;
                         }
+                    }
+                }
+
+                for (int i = 0; i < committed.Count && !positioned; i++)
+                {
+                    var rec = committed[i];
+                    if (rec.VesselPersistentId != chain.OriginalVesselPid)
+                        continue;
+
+                    if (rec.HasOrbitSegments)
+                    {
+                        PositionGhostFromOrbitOnly(ghostGO, rec, currentUT,
+                            (int)(chain.OriginalVesselPid * 10000));
+                        UpdateChainGhostOrbitIfNeeded(chain, rec.OrbitSegments, currentUT);
+                        positioned = true;
+                        ParsekLog.VerboseRateLimited("Flight",
+                            "chain-ghost-orbit-" + chain.OriginalVesselPid,
+                            string.Format(CultureInfo.InvariantCulture,
+                                "Chain ghost positioned from orbit: pid={0} rec={1} tree={2} UT={3:F1}",
+                                chain.OriginalVesselPid, rec.RecordingId, rec.TreeId, currentUT));
+                        break;
+                    }
+
+                    if (rec.SurfacePos.HasValue)
+                    {
+                        PositionGhostAtSurface(ghostGO, rec.SurfacePos.Value);
+                        positioned = true;
+                        ParsekLog.VerboseRateLimited("Flight",
+                            "chain-ghost-surface-" + chain.OriginalVesselPid,
+                            string.Format(CultureInfo.InvariantCulture,
+                                "Chain ghost positioned at surface: pid={0} rec={1} tree={2} body={3}",
+                                chain.OriginalVesselPid, rec.RecordingId, rec.TreeId,
+                                rec.SurfacePos.Value.body));
+                        break;
                     }
                 }
             }

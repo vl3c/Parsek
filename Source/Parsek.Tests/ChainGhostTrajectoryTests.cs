@@ -264,6 +264,41 @@ namespace Parsek.Tests
         }
 
         /// <summary>
+        /// Chain ghosts are active from rewind, not from first claim UT. If the
+        /// claiming tree has no pre-claim trajectory for the claimed vessel, lookup
+        /// must fall back to any committed recording that actually covers the UT.
+        /// Guards: foreign-merge chains still have a trajectory source before claim.
+        /// </summary>
+        [Fact]
+        public void FindBackgroundRecordingForChain_FallsBackToGlobalHistoryBeforeFirstClaim()
+        {
+            var preClaimRec = MakeRecordingWithPoints("bg-alt", 100, 1000, 1100);
+            preClaimRec.TreeId = "tree-alt";
+
+            var postClaimRec = MakeRecordingWithPoints("bg-chain", 100, 1060, 1120);
+            postClaimRec.TreeId = "tree-1";
+
+            var recordings = new List<Recording> { preClaimRec, postClaimRec };
+            var chain = new GhostChain
+            {
+                OriginalVesselPid = 100,
+                TipTreeId = "tree-1"
+            };
+            chain.Links.Add(new ChainLink
+            {
+                recordingId = "R1",
+                treeId = "tree-1",
+                ut = 1060,
+                interactionType = "MERGE"
+            });
+
+            var result = ParsekFlight.FindBackgroundRecordingForChain(recordings, chain, 1030);
+
+            Assert.NotNull(result);
+            Assert.Equal("bg-alt", result.RecordingId);
+        }
+
+        /// <summary>
         /// UT equals exactly the recording's StartUT. Returns the recording.
         /// Guards: inclusive start boundary.
         /// </summary>

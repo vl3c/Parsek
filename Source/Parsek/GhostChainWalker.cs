@@ -72,7 +72,8 @@ namespace Parsek
             foreach (var kvp in claimsByPid)
             {
                 uint pid = kvp.Key;
-                var links = BuildSequentialChainLinks(pid, kvp.Value, committedTrees);
+                var links = new List<ChainLink>(kvp.Value);
+                links.Sort((a, b) => a.ut.CompareTo(b.ut));
                 if (links.Count == 0)
                     continue;
 
@@ -456,16 +457,6 @@ namespace Parsek
                         break;
                     }
 
-                    if (linkedChain.GhostStartUT < current.SpawnUT - ClaimOverlapTolerance)
-                    {
-                        ParsekLog.Warn(Tag,
-                            string.Format(ic,
-                                "Skipping ambiguous cross-tree merge: vessel={0} tipPid={1} " +
-                                "linkedStartUT={2:F1} overlaps currentSpawnUT={3:F1}",
-                                originPid, tipVesselPid, linkedChain.GhostStartUT, current.SpawnUT));
-                        break;
-                    }
-
                     chainVisited.Add(tipVesselPid);
                     visited.Add(tipVesselPid);
 
@@ -731,52 +722,6 @@ namespace Parsek
             return rootLineageFirstSeen != null
                 && rootLineageFirstSeen.TryGetValue(pid, out firstSeenUT)
                 && firstSeenUT < ut - ClaimOverlapTolerance;
-        }
-
-        private static List<ChainLink> BuildSequentialChainLinks(
-            uint pid, List<ChainLink> candidateLinks, List<RecordingTree> committedTrees)
-        {
-            var accepted = new List<ChainLink>();
-            if (candidateLinks == null || candidateLinks.Count == 0)
-                return accepted;
-
-            var sorted = new List<ChainLink>(candidateLinks);
-            sorted.Sort((a, b) => a.ut.CompareTo(b.ut));
-
-            double coveredUntilUT = double.NegativeInfinity;
-            for (int i = 0; i < sorted.Count; i++)
-            {
-                var link = sorted[i];
-                double candidateEndUT = ResolveClaimEndUT(link, committedTrees);
-
-                if (accepted.Count > 0 && link.ut < coveredUntilUT - ClaimOverlapTolerance)
-                {
-                    ParsekLog.Warn(Tag,
-                        string.Format(CultureInfo.InvariantCulture,
-                            "Skipping overlapping claim for pid={0}: tree={1} rec={2} claimUT={3:F1} " +
-                            "overlaps acceptedChainEndUT={4:F1}",
-                            pid, link.treeId, link.recordingId, link.ut, coveredUntilUT));
-                    continue;
-                }
-
-                accepted.Add(link);
-                if (candidateEndUT > coveredUntilUT)
-                    coveredUntilUT = candidateEndUT;
-            }
-
-            return accepted;
-        }
-
-        private static double ResolveClaimEndUT(
-            ChainLink link, List<RecordingTree> committedTrees)
-        {
-            Recording rec = FindRecording(link.recordingId, link.treeId, committedTrees);
-            RecordingTree tree = FindTree(link.treeId, committedTrees);
-            if (rec == null || tree == null)
-                return link.ut;
-
-            Recording leaf = WalkToLeaf(rec, tree);
-            return leaf != null ? leaf.EndUT : link.ut;
         }
 
         #endregion
