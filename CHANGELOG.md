@@ -21,6 +21,7 @@ All notable changes to Parsek are documented here.
 ### Bug Fixes
 
 - `#307` Rewind (R button) now works for recordings committed after an in-flight vessel switch -- the rewind save is now copied to the tree root in both vessel-switch flush paths.
+- `#308` Reserved kerbals no longer appear auto-assigned in the VAB/SPH crew dialog -- new Harmony patch replaces reserved crew with their stand-ins before the dialog builds.
 - `#241` Ghost parts with the base/default color variant (e.g., BlackAndWhite fuel tanks) no longer show the wrong variant texture (was Orange).
 - `#297` Vessel destruction during tree recording no longer orphans continuation data as a standalone recording.
 - `#304` Stock vessel recordings now show resolved names instead of raw `#autoLOC` keys in the UI, timeline, and logs.
