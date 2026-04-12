@@ -16,7 +16,9 @@ Entries 272–303 (78 bugs, 6 TODOs — mostly resolved) archived in `done/todo-
 - `Snapshot position override for #25 (Raydred Kerman): alt -0.213434... -> -0.213434...`
 - `EVA vessel spawn for #25 (Raydred Kerman) ... alt=-0.2 terminal=Splashed`
 
-From: `.tmp/logs/2026-04-12_163227_phase-11-5-branch-validation/KSP.log`.
+**Evidence bundle:** `.tmp/logs/2026-04-12_163227_phase-11-5-branch-validation/`
+
+**Primary log:** `.tmp/logs/2026-04-12_163227_phase-11-5-branch-validation/KSP.log`
 
 **Root cause:** `VesselSpawner.ResolveSpawnPosition` only clamps splashed terminal-state altitudes when `alt > 0`. That fixes the "recorded slightly above the surface" case, but not the observed EVA endpoint case where the final trajectory point is slightly below sea level. The EVA path uses the trajectory endpoint, `OverrideSnapshotPosition` writes the negative altitude into the snapshot unchanged, and `SpawnAtPosition`/terminal-state override does not enforce a sea-surface floor for splashed EVA spawns. The parent vessel takes the clamp; the EVA child does not.
 
@@ -465,7 +467,11 @@ Test game actions system with popular mods: CustomBarnKit (non-standard facility
 
 ### T60. Add regression coverage and diagnostics for R/FF enablement reasons
 
-The current Phase 11.5 playtest log shows R/FF row enablement is driven by recording state, not ghost distance. Examples from `.tmp/logs/2026-04-12_163227_phase-11-5-branch-validation/KSP.log`:
+**Evidence bundle:** `.tmp/logs/2026-04-12_163227_phase-11-5-branch-validation/`
+
+**Primary log:** `.tmp/logs/2026-04-12_163227_phase-11-5-branch-validation/KSP.log`
+
+The current Phase 11.5 playtest log shows R/FF row enablement is driven by recording state, not ghost distance. Examples:
 
 - `R #0 "Kerbal X": disabled — Stop recording before rewinding`
 - `FF #24 "Kerbal X": disabled — Stop recording before fast-forwarding`
