@@ -197,6 +197,93 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void CurrentFormatTrajectorySidecar_MixedBackgroundCheckpointFallback_RoundTripsWithoutDroppingOrbitSegments()
+        {
+            var original = new Recording
+            {
+                RecordingId = "bg-mixed-fallback",
+                RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion,
+                VesselName = "Background Booster"
+            };
+            original.Points.Add(new TrajectoryPoint
+            {
+                ut = 100,
+                latitude = 0,
+                longitude = 0,
+                altitude = 1000,
+                rotation = new Quaternion(0, 0, 0, 1),
+                velocity = new Vector3(0, 120, 0),
+                bodyName = "Kerbin"
+            });
+            original.Points.Add(new TrajectoryPoint
+            {
+                ut = 110,
+                latitude = 0.01,
+                longitude = 0.02,
+                altitude = 1500,
+                rotation = new Quaternion(0, 0.1f, 0, 0.99f),
+                velocity = new Vector3(0, 200, 0),
+                bodyName = "Kerbin"
+            });
+            original.OrbitSegments.Add(new OrbitSegment
+            {
+                startUT = 110,
+                endUT = 500,
+                inclination = 28.5,
+                eccentricity = 0.01,
+                semiMajorAxis = 705000,
+                longitudeOfAscendingNode = 90,
+                argumentOfPeriapsis = 45,
+                meanAnomalyAtEpoch = 0.2,
+                epoch = 110,
+                bodyName = "Kerbin"
+            });
+            original.TrackSections.Add(new TrackSection
+            {
+                environment = SegmentEnvironment.Atmospheric,
+                referenceFrame = ReferenceFrame.Absolute,
+                startUT = 100,
+                endUT = 110,
+                source = TrackSectionSource.Background,
+                frames = new List<TrajectoryPoint> { original.Points[0], original.Points[1] },
+                checkpoints = new List<OrbitSegment>()
+            });
+            original.TrackSections.Add(new TrackSection
+            {
+                environment = SegmentEnvironment.ExoBallistic,
+                referenceFrame = ReferenceFrame.OrbitalCheckpoint,
+                startUT = 110,
+                endUT = 500,
+                source = TrackSectionSource.Checkpoint,
+                frames = new List<TrajectoryPoint>(),
+                checkpoints = new List<OrbitSegment>()
+            });
+
+            string path = Path.Combine(tempDir, "bg-mixed-fallback.prec");
+            logLines.Clear();
+            ParsekLog.VerboseOverrideForTesting = true;
+            RecordingStore.WriteTrajectorySidecar(path, original, sidecarEpoch: 5);
+
+            TrajectorySidecarProbe probe;
+            Assert.True(RecordingStore.TryProbeTrajectorySidecar(path, out probe));
+            Assert.Equal(TrajectorySidecarEncoding.BinaryV3, probe.Encoding);
+            Assert.Contains(logLines, l =>
+                l.Contains("[RecordingStore]") &&
+                l.Contains("WriteBinaryTrajectoryFile") &&
+                l.Contains("sectionAuthoritative=False"));
+
+            var restored = new Recording { RecordingId = original.RecordingId };
+            logLines.Clear();
+            RecordingStore.DeserializeTrajectorySidecar(path, probe, restored);
+
+            Assert.Contains(logLines, l =>
+                l.Contains("[RecordingStore]") &&
+                l.Contains("ReadBinaryTrajectoryFile") &&
+                l.Contains("used flat fallback path"));
+            AssertSemanticTrajectoryEqual(original, restored);
+        }
+
+        [Fact]
         public void MixedFormatTrajectorySidecars_LoadInSameProcess()
         {
             var legacy = RecordingStorageFixtures.MaterializeTrajectory(

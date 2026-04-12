@@ -112,7 +112,7 @@ namespace Parsek
             if (rec == null)
                 throw new ArgumentNullException(nameof(rec));
 
-            bool sectionAuthoritative = rec.TrackSections != null && rec.TrackSections.Count > 0;
+            bool sectionAuthoritative = RecordingStore.ShouldWriteSectionAuthoritativeTrajectory(rec);
             var table = BuildStringTable(rec);
             int binaryVersion = rec.RecordingFormatVersion >= CurrentBinaryVersion
                 ? CurrentBinaryVersion

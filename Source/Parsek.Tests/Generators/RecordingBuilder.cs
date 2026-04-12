@@ -482,6 +482,12 @@ namespace Parsek.Tests.Generators
             var node = new ConfigNode("PARSEK_RECORDING");
             node.AddValue("version", formatVersion.ToString());
             node.AddValue("recordingId", GetRecordingId());
+            if (formatVersion >= 1 && trackSections.Count > 0)
+            {
+                bool sectionAuthoritative = RecordingStore.HasCompleteTrackSectionPayloadForFlatSync(
+                    trackSections, allowRelativeSections: true);
+                node.AddValue("sectionAuthoritative", sectionAuthoritative ? "True" : "False");
+            }
 
             foreach (var pt in points)
                 node.AddNode(pt);

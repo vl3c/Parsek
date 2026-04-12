@@ -2758,6 +2758,8 @@ namespace Parsek
             return version;
         }
 
+        private const string SectionAuthoritativeHeaderKey = "sectionAuthoritative";
+
         private static void EnsureTrajectoryHeader(ConfigNode targetNode, Recording rec)
         {
             if (targetNode == null || rec == null)
@@ -2776,19 +2778,46 @@ namespace Parsek
             }
         }
 
+        private static void SetSectionAuthoritativeHeader(ConfigNode targetNode, bool useSectionAuthoritative)
+        {
+            if (targetNode == null)
+                return;
+
+            string value = useSectionAuthoritative ? "True" : "False";
+            if (targetNode.HasValue(SectionAuthoritativeHeaderKey))
+                targetNode.SetValue(SectionAuthoritativeHeaderKey, value, true);
+            else
+                targetNode.AddValue(SectionAuthoritativeHeaderKey, value);
+        }
+
         internal static bool ShouldWriteSectionAuthoritativeTrajectory(Recording rec)
         {
             return rec != null
                 && rec.RecordingFormatVersion >= 1
                 && rec.TrackSections != null
-                && rec.TrackSections.Count > 0;
+                && rec.TrackSections.Count > 0
+                && HasCompleteTrackSectionPayloadForFlatSync(rec.TrackSections, allowRelativeSections: true);
         }
 
         private static bool ShouldReadSectionAuthoritativeTrajectory(ConfigNode sourceNode, int formatVersion)
         {
-            return formatVersion >= 1
-                && sourceNode != null
-                && sourceNode.GetNodes("TRACK_SECTION").Length > 0;
+            if (formatVersion < 1
+                || sourceNode == null
+                || sourceNode.GetNodes("TRACK_SECTION").Length == 0)
+            {
+                return false;
+            }
+
+            string explicitHeader = sourceNode.GetValue(SectionAuthoritativeHeaderKey);
+            bool useSectionAuthoritative;
+            if (!string.IsNullOrEmpty(explicitHeader)
+                && bool.TryParse(explicitHeader, out useSectionAuthoritative))
+            {
+                return useSectionAuthoritative;
+            }
+
+            return sourceNode.GetNodes("POINT").Length == 0
+                && sourceNode.GetNodes("ORBIT_SEGMENT").Length == 0;
         }
 
         internal static int RebuildPointsFromTrackSections(List<TrackSection> tracks, List<TrajectoryPoint> points)
@@ -2961,6 +2990,8 @@ namespace Parsek
             var ic = CultureInfo.InvariantCulture;
             EnsureTrajectoryHeader(targetNode, rec);
             bool useSectionAuthoritative = ShouldWriteSectionAuthoritativeTrajectory(rec);
+            if (rec != null && rec.RecordingFormatVersion >= 1)
+                SetSectionAuthoritativeHeader(targetNode, useSectionAuthoritative);
 
             if (!useSectionAuthoritative)
             {

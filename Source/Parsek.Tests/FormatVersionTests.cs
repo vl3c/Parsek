@@ -183,6 +183,62 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void SerializeTrajectoryInto_V1WithIncompleteCheckpointTrackSections_FallsBackToFlatTrajectory()
+        {
+            var rec = new Recording
+            {
+                RecordingId = "v1-mixed-background",
+                RecordingFormatVersion = 1
+            };
+            rec.Points.Add(new TrajectoryPoint { ut = 100, latitude = 0, longitude = 0, altitude = 100, bodyName = "Kerbin" });
+            rec.Points.Add(new TrajectoryPoint { ut = 110, latitude = 0.1, longitude = 0.1, altitude = 200, bodyName = "Kerbin" });
+            rec.OrbitSegments.Add(new OrbitSegment
+            {
+                startUT = 110,
+                endUT = 500,
+                semiMajorAxis = 700000,
+                eccentricity = 0.01,
+                bodyName = "Kerbin"
+            });
+            rec.TrackSections.Add(new TrackSection
+            {
+                environment = SegmentEnvironment.Atmospheric,
+                referenceFrame = ReferenceFrame.Absolute,
+                source = TrackSectionSource.Background,
+                startUT = 100,
+                endUT = 110,
+                frames = new List<TrajectoryPoint>
+                {
+                    rec.Points[0],
+                    rec.Points[1]
+                },
+                checkpoints = new List<OrbitSegment>()
+            });
+            rec.TrackSections.Add(new TrackSection
+            {
+                environment = SegmentEnvironment.ExoBallistic,
+                referenceFrame = ReferenceFrame.OrbitalCheckpoint,
+                source = TrackSectionSource.Checkpoint,
+                startUT = 110,
+                endUT = 500,
+                frames = new List<TrajectoryPoint>(),
+                checkpoints = new List<OrbitSegment>()
+            });
+
+            var node = new ConfigNode("PARSEK_RECORDING");
+            RecordingStore.SerializeTrajectoryInto(node, rec);
+
+            Assert.Equal(2, node.GetNodes("POINT").Length);
+            Assert.Single(node.GetNodes("ORBIT_SEGMENT"));
+            Assert.Equal(2, node.GetNodes("TRACK_SECTION").Length);
+            Assert.Equal("False", node.GetValue("sectionAuthoritative"));
+            Assert.Contains(logLines, l =>
+                l.Contains("[RecordingStore]") &&
+                l.Contains("SerializeTrajectoryInto") &&
+                l.Contains("used flat fallback path"));
+        }
+
+        [Fact]
         public void SerializeTrajectoryInto_MissingHeader_BackfillsVersionAndRecordingId()
         {
             var rec = new Recording
@@ -273,6 +329,51 @@ namespace Parsek.Tests
 
             Assert.Equal(2, rec.Points.Count);
             Assert.Empty(rec.TrackSections);
+            Assert.Contains(logLines, l =>
+                l.Contains("[RecordingStore]") &&
+                l.Contains("DeserializeTrajectoryFrom") &&
+                l.Contains("used flat fallback path"));
+        }
+
+        [Fact]
+        public void DeserializeTrajectoryFrom_V1WithTrackSectionsAndFlatTrajectory_UsesFlatFallbackPath()
+        {
+            var node = new ConfigNode("PARSEK_RECORDING");
+            node.AddValue("version", "1");
+            node.AddValue("recordingId", "mixed_v1");
+            AddMinimalPoint(node, 17000.0);
+            AddMinimalPoint(node, 17010.0);
+
+            var seg = node.AddNode("ORBIT_SEGMENT");
+            seg.AddValue("startUT", "17010");
+            seg.AddValue("endUT", "17500");
+            seg.AddValue("inc", "0");
+            seg.AddValue("ecc", "0.01");
+            seg.AddValue("sma", "700000");
+            seg.AddValue("lan", "0");
+            seg.AddValue("argPe", "0");
+            seg.AddValue("mna", "0");
+            seg.AddValue("epoch", "17010");
+            seg.AddValue("body", "Kerbin");
+
+            var tsNode = node.AddNode("TRACK_SECTION");
+            tsNode.AddValue("env", ((int)SegmentEnvironment.Atmospheric).ToString(CultureInfo.InvariantCulture));
+            tsNode.AddValue("ref", ((int)ReferenceFrame.Absolute).ToString(CultureInfo.InvariantCulture));
+            tsNode.AddValue("startUT", "17000");
+            tsNode.AddValue("endUT", "17010");
+
+            var cpNode = node.AddNode("TRACK_SECTION");
+            cpNode.AddValue("env", ((int)SegmentEnvironment.ExoBallistic).ToString(CultureInfo.InvariantCulture));
+            cpNode.AddValue("ref", ((int)ReferenceFrame.OrbitalCheckpoint).ToString(CultureInfo.InvariantCulture));
+            cpNode.AddValue("startUT", "17010");
+            cpNode.AddValue("endUT", "17500");
+
+            var rec = new Recording { RecordingId = "mixed_v1" };
+            RecordingStore.DeserializeTrajectoryFrom(node, rec);
+
+            Assert.Equal(2, rec.Points.Count);
+            Assert.Single(rec.OrbitSegments);
+            Assert.Equal(2, rec.TrackSections.Count);
             Assert.Contains(logLines, l =>
                 l.Contains("[RecordingStore]") &&
                 l.Contains("DeserializeTrajectoryFrom") &&
