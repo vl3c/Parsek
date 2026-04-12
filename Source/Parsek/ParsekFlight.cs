@@ -2675,6 +2675,47 @@ namespace Parsek
         /// The child inherits Generation = parentGeneration + 1, where parentGeneration
         /// is the breakup parent's recording generation (the active recording or rootRec).
         /// </summary>
+        internal static void SeedBreakupChildSnapshots(
+            Recording childRec,
+            uint pid,
+            ConfigNode liveSnapshot,
+            ConfigNode preCapturedSnapshot)
+        {
+            if (childRec == null) return;
+
+            // Prefer the pre-captured split-time snapshot for ghost visuals and start
+            // manifests so fast-mutating debris does not spawn from its terminal wreck
+            // state on playback. Keep the live snapshot for vessel-spawn state when
+            // the child is still alive.
+            childRec.GhostVisualSnapshot = preCapturedSnapshot != null
+                ? preCapturedSnapshot.CreateCopy()
+                : (liveSnapshot != null ? liveSnapshot.CreateCopy() : null);
+            childRec.VesselSnapshot = liveSnapshot != null
+                ? liveSnapshot.CreateCopy()
+                : (preCapturedSnapshot != null ? preCapturedSnapshot.CreateCopy() : null);
+
+            ConfigNode manifestSnapshot = childRec.GhostVisualSnapshot ?? childRec.VesselSnapshot;
+            childRec.StartResources = VesselSpawner.ExtractResourceManifest(manifestSnapshot);
+            int childInvSlots;
+            childRec.StartInventory = VesselSpawner.ExtractInventoryManifest(manifestSnapshot, out childInvSlots);
+            childRec.StartInventorySlots = childInvSlots;
+            childRec.StartCrew = VesselSpawner.ExtractCrewManifest(manifestSnapshot);
+
+            string snapshotSource = preCapturedSnapshot != null
+                ? (liveSnapshot != null ? "pre-captured-ghost + live-vessel" : "pre-captured")
+                : (liveSnapshot != null ? "live" : "none");
+            ParsekLog.Info("Coalescer",
+                $"CreateBreakupChildRecording: pid={pid} snapshotSource={snapshotSource} " +
+                $"hasGhostSnapshot={childRec.GhostVisualSnapshot != null} " +
+                $"hasVesselSnapshot={childRec.VesselSnapshot != null}");
+            ParsekLog.Verbose("Coalescer",
+                $"CreateBreakupChildRecording: captured {childRec.StartResources?.Count ?? 0} start resource type(s) for pid={pid}");
+            ParsekLog.Verbose("Coalescer",
+                $"CreateBreakupChildRecording: captured {childRec.StartInventory?.Count ?? 0} start inventory item type(s) for pid={pid}");
+            ParsekLog.Verbose("Coalescer",
+                $"CreateBreakupChildRecording: captured {childRec.StartCrew?.Count ?? 0} start crew trait(s) for pid={pid}");
+        }
+
         internal static Recording CreateBreakupChildRecording(
             RecordingTree tree, BranchPoint breakupBp,
             uint pid, Vessel vessel, bool isDebris, string fallbackName,
@@ -2698,41 +2739,17 @@ namespace Parsek
 
             if (vessel != null)
             {
-                ConfigNode snapshot = VesselSpawner.TryBackupSnapshot(vessel);
-                childRec.GhostVisualSnapshot = snapshot;
-                childRec.VesselSnapshot = snapshot != null ? snapshot.CreateCopy() : null;
-                childRec.StartResources = VesselSpawner.ExtractResourceManifest(childRec.VesselSnapshot ?? childRec.GhostVisualSnapshot);
-                ParsekLog.Verbose("Coalescer",
-                    $"CreateBreakupChildRecording: captured {childRec.StartResources?.Count ?? 0} start resource type(s) for pid={pid}");
-                int childInvSlots;
-                childRec.StartInventory = VesselSpawner.ExtractInventoryManifest(childRec.VesselSnapshot ?? childRec.GhostVisualSnapshot, out childInvSlots);
-                childRec.StartInventorySlots = childInvSlots;
-                ParsekLog.Verbose("Coalescer",
-                    $"CreateBreakupChildRecording: captured {childRec.StartInventory?.Count ?? 0} start inventory item type(s) for pid={pid}");
-                childRec.StartCrew = VesselSpawner.ExtractCrewManifest(childRec.VesselSnapshot ?? childRec.GhostVisualSnapshot);
-                ParsekLog.Verbose("Coalescer",
-                    $"CreateBreakupChildRecording: captured {childRec.StartCrew?.Count ?? 0} start crew trait(s) for pid={pid}");
+                ConfigNode liveSnapshot = VesselSpawner.TryBackupSnapshot(vessel);
+                SeedBreakupChildSnapshots(childRec, pid, liveSnapshot, fallbackSnapshot);
             }
             else if (fallbackSnapshot != null)
             {
                 // Vessel destroyed during coalescing window — use pre-captured snapshot (#157)
-                childRec.GhostVisualSnapshot = fallbackSnapshot;
-                childRec.VesselSnapshot = fallbackSnapshot.CreateCopy();
-                childRec.StartResources = VesselSpawner.ExtractResourceManifest(childRec.VesselSnapshot);
-                int fallbackInvSlots;
-                childRec.StartInventory = VesselSpawner.ExtractInventoryManifest(childRec.VesselSnapshot, out fallbackInvSlots);
-                childRec.StartInventorySlots = fallbackInvSlots;
-                childRec.StartCrew = VesselSpawner.ExtractCrewManifest(childRec.VesselSnapshot);
+                SeedBreakupChildSnapshots(childRec, pid, liveSnapshot: null, preCapturedSnapshot: fallbackSnapshot);
                 childRec.TerminalStateValue = TerminalState.Destroyed;
                 childRec.ExplicitEndUT = breakupBp.UT;
                 ParsekLog.Info("Coalescer",
                     $"CreateBreakupChildRecording: using pre-captured snapshot for pid={pid} (vessel destroyed)");
-                ParsekLog.Verbose("Coalescer",
-                    $"CreateBreakupChildRecording: captured {childRec.StartResources?.Count ?? 0} start resource type(s) for pid={pid} (fallback)");
-                ParsekLog.Verbose("Coalescer",
-                    $"CreateBreakupChildRecording: captured {childRec.StartInventory?.Count ?? 0} start inventory item type(s) for pid={pid} (fallback)");
-                ParsekLog.Verbose("Coalescer",
-                    $"CreateBreakupChildRecording: captured {childRec.StartCrew?.Count ?? 0} start crew trait(s) for pid={pid} (fallback)");
             }
             else
             {

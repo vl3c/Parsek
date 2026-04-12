@@ -46,6 +46,7 @@ namespace Parsek
         // Lazy-initialized GUI styles for the watch mode overlay
         private GUIStyle watchOverlayStyle;
         private GUIStyle watchOverlayHintStyle;
+        private string lastLoggedWatchTargetMismatch;
 
         internal WatchModeController(ParsekFlight host)
         {
@@ -367,6 +368,7 @@ namespace Parsek
             // Clear hold timer and safety counter
             watchEndHoldUntilRealTime = -1;
             watchNoTargetFrames = 0;
+            lastLoggedWatchTargetMismatch = null;
 
             string body = gs.lastInterpolatedBodyName ?? "?";
             string altStr = gs.lastInterpolatedAltitude.ToString("F0", CultureInfo.InvariantCulture);
@@ -478,6 +480,7 @@ namespace Parsek
             watchNoTargetFrames = 0;
             currentCameraMode = WatchCameraMode.Free;
             userModeOverride = false;
+            lastLoggedWatchTargetMismatch = null;
         }
 
         /// <summary>
@@ -821,9 +824,13 @@ namespace Parsek
             savedCameraHeading = preservedHeading;
             currentCameraMode = preservedCameraMode;
             userModeOverride = preservedModeOverride;
-
-            var segTarget = GetWatchTarget(gs.cameraPivot) ?? gs.ghost.transform;
-            FlightCamera.fetch.SetTargetTransform(segTarget);
+            watchedOverlapCycleIndex = gs.loopCycleIndex;
+            watchNoTargetFrames = 0;
+            if (FlightCamera.fetch != null)
+                FlightCamera.fetch.pivotTranslateSharpness = 0f;
+            ApplyCameraTarget(gs);
+            if (FlightCamera.fetch?.transform?.parent != null && gs.cameraPivot != null)
+                FlightCamera.fetch.transform.parent.position = gs.cameraPivot.position;
             InputLockManager.SetControlLock(WatchModeLockMask, WatchModeLockId);
             ParsekLog.Verbose("CameraFollow",
                 $"InputLockManager control lock \"{WatchModeLockId}\" re-set after transfer");
@@ -836,8 +843,10 @@ namespace Parsek
 
             ParsekLog.Info("CameraFollow",
                 $"TransferWatch re-target: ghost #{nextIndex} \"{newName}\"" +
-                $" target='{segTarget.name}' pivotLocal=({segTarget.localPosition.x:F2},{segTarget.localPosition.y:F2},{segTarget.localPosition.z:F2})" +
+                $" target='{(FlightCamera.fetch?.Target != null ? FlightCamera.fetch.Target.name : "null")}'" +
+                $" cycle={watchedOverlapCycleIndex} mode={currentCameraMode}" +
                 $" ghostPos=({gs.ghost.transform.position.x:F1},{gs.ghost.transform.position.y:F1},{gs.ghost.transform.position.z:F1})" +
+                $" pivotPos=({gs.cameraPivot.position.x:F1},{gs.cameraPivot.position.y:F1},{gs.cameraPivot.position.z:F1})" +
                 $" camDist={FlightCamera.fetch.Distance:F1}" +
                 $" watchStartTime={watchStartTime.ToString("F2", CultureInfo.InvariantCulture)}");
         }
@@ -935,6 +944,7 @@ namespace Parsek
 
             // Update horizon proxy rotation and auto-detect camera mode
             UpdateHorizonProxy(state);
+            LogWatchTargetMismatch(state);
         }
 
         /// <summary>
@@ -1102,6 +1112,30 @@ namespace Parsek
                 watchNoTargetFrames = 0;
                 return true;
             }
+        }
+
+        private void LogWatchTargetMismatch(GhostPlaybackState state)
+        {
+            if (FlightCamera.fetch == null || state == null) return;
+
+            Transform expectedTarget = GetWatchTarget(state.cameraPivot) ?? state.ghost?.transform;
+            Transform actualTarget = FlightCamera.fetch.Target;
+            if (expectedTarget == null || actualTarget == expectedTarget)
+            {
+                lastLoggedWatchTargetMismatch = null;
+                return;
+            }
+
+            string actualName = actualTarget != null ? actualTarget.name : "null";
+            string mismatchKey = $"{watchedRecordingId}:{expectedTarget.name}:{actualName}:{watchedOverlapCycleIndex}:{currentCameraMode}";
+            if (mismatchKey == lastLoggedWatchTargetMismatch)
+                return;
+
+            lastLoggedWatchTargetMismatch = mismatchKey;
+            ParsekLog.Warn("CameraFollow",
+                $"Watch target mismatch: rec=#{watchedRecordingIndex} id={watchedRecordingId ?? "null"} " +
+                $"expected='{expectedTarget.name}' actual='{actualName}' cycle={watchedOverlapCycleIndex} " +
+                $"mode={currentCameraMode} pivotPos=({state.cameraPivot.position.x:F1},{state.cameraPivot.position.y:F1},{state.cameraPivot.position.z:F1})");
         }
 
         /// <summary>
