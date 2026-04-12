@@ -7,7 +7,7 @@ Entries 272–303 (78 bugs, 6 TODOs — mostly resolved) archived in `done/todo-
 
 # Known Bugs
 
-## 314. Save/load can prune branched recordings even when sidecars still contain real data
+## ~~314. Save/load can prune branched recordings even when sidecars still contain real data~~
 
 **Observed in:** 0.8.0 follow-up storage playtest (2026-04-12). During a branched `Kerbal X` flight, the user saved, loaded, and then merged the tree. Two EVA/branch recordings had real sidecars on disk before the load:
 
@@ -27,11 +27,11 @@ The skipped branch sidecars still existed on disk in both the collected snapshot
 
 **Additional symptom:** The root recording `eb12d51ffaa64d80a79d3a0f3886e568` also appears to come back shortened: before the load it was saved with `skippedTopLevelPoints=186`, but after merge it was rewritten with `skippedTopLevelPoints=44` and `pointCount = 44` in `persistent.sfs`. The EVA branch loss is certain; root truncation may be part of the same bug or a secondary issue.
 
-**Root cause / hypothesis:** There is still an unresolved sidecar-epoch drift path for branch recordings around save/load or quickload transitions. When the stale epoch path fires, the loader skips valid branch sidecars, the in-memory recordings look empty, and tree finalization/pruning treats them as disposable. The dangling `activeRecordingId` suggests merge/final-save cleanup is not validating that active/root references still point at serialized recordings.
+**Root cause:** The stale-sidecar epoch guard itself was correct, but the follow-on behavior was not. When active-tree recordings hit an epoch mismatch, `LoadRecordingFiles` left them empty and the restore/finalize path still treated them like genuine zero-point debris leaves. That allowed a save/load cycle to replace a matching in-memory pending tree with a broken disk copy and later prune the hydration-failed leaves out of the tree.
 
-**Fix direction:** Investigate the branch-recording epoch lifecycle around OnSave/OnLoad, especially the transition where the branch sidecars were written with epoch `2` but the serialized tree nodes still expected epoch `1`. Add a regression that covers: active tree with branched children -> save -> load -> merge, then assert that branch recordings survive with non-zero playback data and tree references remain internally consistent.
+**Fix:** The stale-sidecar epoch guard stays in place, but hydration failures are now explicit runtime state instead of silent empties. Active-tree restore keeps a matching in-memory pending tree when the saved active tree hits stale-sidecar epoch failures, and finalize/prune no longer classifies hydration-failed recordings as removable zero-point leaves. That prevents the destructive branch-loss path even when the epoch guard rejects the disk sidecar.
 
-**Status:** Open
+**Status:** ~~Fixed~~
 
 ---
 

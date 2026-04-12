@@ -414,6 +414,19 @@ namespace Parsek.Tests
                 l => l.Contains("overwriting existing pending tree"));
         }
 
+        [Fact]
+        public void ShouldKeepPendingTreeAfterHydrationFailure_MatchingPendingTreeAndStaleEpoch_ReturnsTrue()
+        {
+            var pendingTree = MakeTree("tree_hydration", "In-Memory Pending", 1);
+            RecordingStore.StashPendingTree(pendingTree, PendingTreeState.Limbo);
+            var diskTree = MakeTree("tree_hydration", "Disk Active", 1);
+
+            bool keepPending = ParsekScenario.ShouldKeepPendingTreeAfterHydrationFailure(
+                diskTree, staleEpochHydrationFailures: 1);
+
+            Assert.True(keepPending);
+        }
+
         // ============================================================
         // isRevert logic: removal of || isFlightToFlight clause
         // ============================================================

@@ -6067,7 +6067,18 @@ namespace Parsek
 
             // Warn if leaf has no playback data
             if (isLeaf && rec.Points.Count == 0 && rec.OrbitSegments.Count == 0 && !rec.SurfacePos.HasValue)
-                ParsekLog.Warn("Flight", $"FinalizeTreeRecordings: leaf '{rec.RecordingId}' has no playback data");
+            {
+                if (rec.SidecarLoadFailed)
+                {
+                    ParsekLog.Warn("Flight",
+                        $"FinalizeTreeRecordings: leaf '{rec.RecordingId}' has no playback data " +
+                        $"because sidecar hydration failed ({rec.SidecarLoadFailureReason ?? "unknown"})");
+                }
+                else
+                {
+                    ParsekLog.Warn("Flight", $"FinalizeTreeRecordings: leaf '{rec.RecordingId}' has no playback data");
+                }
+            }
 
             ParsekLog.Verbose("Flight",
                 $"FinalizeTreeRecordings: rec='{rec.RecordingId}' vessel='{rec.VesselName}' " +
@@ -6199,6 +6210,7 @@ namespace Parsek
         internal static bool IsZeroPointLeaf(Recording rec)
         {
             if (rec.ChildBranchPointId != null) return false; // not a leaf
+            if (rec.SidecarLoadFailed) return false; // keep explicit hydration failures for later recovery/inspection
             return rec.Points.Count == 0
                 && rec.OrbitSegments.Count == 0
                 && !rec.SurfacePos.HasValue;

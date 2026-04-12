@@ -3875,6 +3875,24 @@ namespace Parsek
 
         #region Recording File I/O
 
+        internal static void ClearSidecarLoadFailure(Recording rec)
+        {
+            if (rec == null)
+                return;
+
+            rec.SidecarLoadFailed = false;
+            rec.SidecarLoadFailureReason = null;
+        }
+
+        internal static void MarkSidecarLoadFailure(Recording rec, string reason)
+        {
+            if (rec == null)
+                return;
+
+            rec.SidecarLoadFailed = true;
+            rec.SidecarLoadFailureReason = reason;
+        }
+
         internal static bool SaveRecordingFiles(Recording rec, bool incrementEpoch = true)
         {
             if (rec == null)
@@ -3960,7 +3978,7 @@ namespace Parsek
                     {
                         Log($"[Parsek] WARNING: SaveRecordingFiles could not resolve ghost snapshot path for {rec.RecordingId}");
                     }
-                    else if (!File.Exists(ghostPath))
+                    else
                     {
                         SafeWriteConfigNode(rec.GhostVisualSnapshot, ghostPath);
                         wroteGhostSnapshot = true;
@@ -4006,6 +4024,7 @@ namespace Parsek
                 return false;
             }
 
+            ClearSidecarLoadFailure(rec);
             try
             {
                 // Load .prec trajectory file
@@ -4015,6 +4034,7 @@ namespace Parsek
                     RecordingPaths.BuildTrajectoryRelativePath(rec.RecordingId));
                 if (string.IsNullOrEmpty(precPath) || !File.Exists(precPath))
                 {
+                    MarkSidecarLoadFailure(rec, "trajectory-missing");
                     Log($"[Parsek] Trajectory file missing for {rec.RecordingId} — recording degraded (0 points)");
                     return false;
                 }
@@ -4022,11 +4042,13 @@ namespace Parsek
                 TrajectorySidecarProbe probe;
                 if (!TryProbeTrajectorySidecar(precPath, out probe))
                 {
+                    MarkSidecarLoadFailure(rec, "trajectory-invalid");
                     Log($"[Parsek] Invalid trajectory file for {rec.RecordingId} — failed to parse");
                     return false;
                 }
                 if (!probe.Supported)
                 {
+                    MarkSidecarLoadFailure(rec, "trajectory-unsupported");
                     ParsekLog.Warn("RecordingStore",
                         $"LoadRecordingFiles: unsupported trajectory sidecar for {rec.RecordingId} " +
                         $"(encoding={probe.Encoding}, version={probe.FormatVersion})");
@@ -4037,13 +4059,17 @@ namespace Parsek
                 string fileId = probe.RecordingId;
                 if (fileId != null && fileId != rec.RecordingId)
                 {
+                    MarkSidecarLoadFailure(rec, "trajectory-id-mismatch");
                     Log($"[Parsek] Recording ID mismatch in {rec.RecordingId}.prec: file says '{fileId}' — skipping");
                     return false;
                 }
 
                 // Bug #270: validate sidecar epoch
                 if (ShouldSkipStaleSidecar(rec, probe.SidecarEpoch))
+                {
+                    MarkSidecarLoadFailure(rec, "stale-sidecar-epoch");
                     return false;
+                }
 
                 DeserializeTrajectorySidecar(precPath, probe, rec);
 
@@ -4144,6 +4170,7 @@ namespace Parsek
             }
             catch (Exception ex)
             {
+                MarkSidecarLoadFailure(rec, "exception:" + ex.GetType().Name);
                 Log($"[Parsek] Failed to load recording files for {rec.RecordingId}: {ex.Message}");
                 return false;
             }

@@ -63,6 +63,13 @@ namespace Parsek
         // Save/LoadRecordingInto so the epoch survives scene reloads.
         internal int SidecarEpoch;
 
+        // Runtime-only hydration state: LoadRecordingFiles can fail because the current save
+        // point does not have a compatible sidecar for this recording. These flags are used to
+        // avoid destructive follow-on behavior (for example pruning an empty leaf that only
+        // looks empty because sidecar hydration was rejected).
+        [NonSerialized] internal bool SidecarLoadFailed;
+        [NonSerialized] internal string SidecarLoadFailureReason;
+
         /// <summary>
         /// Marks this recording as needing its <c>.prec</c> sidecar file rewritten
         /// on the next <c>OnSave</c>. MUST be called after any mutation to

@@ -150,6 +150,22 @@ namespace Parsek.Tests
             Assert.False(ParsekFlight.IsZeroPointLeaf(rec));
         }
 
+        [Fact]
+        public void LeafWithSidecarHydrationFailure_NotZeroPoint()
+        {
+            var rec = new Recording
+            {
+                RecordingId = "hydration-failed",
+                Points = new List<TrajectoryPoint>(),
+                OrbitSegments = new List<OrbitSegment>(),
+                SurfacePos = null,
+                ChildBranchPointId = null,
+                SidecarLoadFailed = true,
+                SidecarLoadFailureReason = "stale-sidecar-epoch"
+            };
+            Assert.False(ParsekFlight.IsZeroPointLeaf(rec));
+        }
+
         #endregion
 
         #region CollectZeroPointLeafIds
@@ -229,6 +245,26 @@ namespace Parsek.Tests
             Assert.NotNull(result);
             Assert.Single(result);
             Assert.Equal("zero-leaf", result[0]);
+        }
+
+        [Fact]
+        public void CollectZeroPointLeafIds_SkipsHydrationFailedLeaf()
+        {
+            var tree = new RecordingTree { Id = "t1", TreeName = "Test" };
+            tree.Recordings["hydration-failed"] = new Recording
+            {
+                RecordingId = "hydration-failed",
+                Points = new List<TrajectoryPoint>(),
+                OrbitSegments = new List<OrbitSegment>(),
+                SurfacePos = null,
+                ChildBranchPointId = null,
+                SidecarLoadFailed = true,
+                SidecarLoadFailureReason = "stale-sidecar-epoch"
+            };
+
+            var result = ParsekFlight.CollectZeroPointLeafIds(tree);
+
+            Assert.Null(result);
         }
 
         #endregion
