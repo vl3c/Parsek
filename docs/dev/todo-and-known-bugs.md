@@ -731,11 +731,11 @@ Implemented in `0.8.1` as the shipped Flight ghost LOD policy:
 
 **Status:** Fixed in `0.8.1`
 
-### T7. Ghost mesh unloading outside active time range
+### ~~T7. Ghost mesh unloading outside active time range~~
 
-Ghost meshes built for recordings whose UT range is far from current playback time could be unloaded and rebuilt on demand.
+The Phase 11.5 LOD follow-up landed: ghosts that enter the hidden tier now unload built mesh/resources while keeping their logical playback shell alive, then rebuild on demand when they return to a visible tier.
 
-**Priority:** Deferred to Phase 11.5 (Recording Optimization & Observability)
+**Status:** Fixed in `0.8.1`
 
 ### ~~T8. Particle system pooling for engine/RCS FX~~
 

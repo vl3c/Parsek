@@ -805,18 +805,18 @@ namespace Parsek.Tests
 
             GhostObservability result = engine.CaptureGhostObservability();
 
-            Assert.Equal(2, result.activePrimaryGhostCount);
-            Assert.Equal(1, result.activeOverlapGhostCount);
-            Assert.Equal(1, result.zone1GhostCount);
-            Assert.Equal(1, result.zone2GhostCount);
-            Assert.Equal(1, result.softCapReducedCount);
-            Assert.Equal(1, result.softCapSimplifiedCount);
-            Assert.Equal(2, result.ghostsWithEngineFx);
-            Assert.Equal(3, result.engineModuleCount);
-            Assert.Equal(7, result.engineParticleSystemCount);
-            Assert.Equal(2, result.ghostsWithRcsFx);
-            Assert.Equal(3, result.rcsModuleCount);
-            Assert.Equal(4, result.rcsParticleSystemCount);
+            Assert.Equal(0, result.activePrimaryGhostCount);
+            Assert.Equal(0, result.activeOverlapGhostCount);
+            Assert.Equal(0, result.zone1GhostCount);
+            Assert.Equal(0, result.zone2GhostCount);
+            Assert.Equal(0, result.softCapReducedCount);
+            Assert.Equal(0, result.softCapSimplifiedCount);
+            Assert.Equal(0, result.ghostsWithEngineFx);
+            Assert.Equal(0, result.engineModuleCount);
+            Assert.Equal(0, result.engineParticleSystemCount);
+            Assert.Equal(0, result.ghostsWithRcsFx);
+            Assert.Equal(0, result.rcsModuleCount);
+            Assert.Equal(0, result.rcsParticleSystemCount);
         }
 
         [Fact]
@@ -834,7 +834,7 @@ namespace Parsek.Tests
 
             GhostObservability result = engine.CaptureGhostObservability();
 
-            Assert.Equal(1, result.activePrimaryGhostCount);
+            Assert.Equal(0, result.activePrimaryGhostCount);
             Assert.Equal(0, result.activeOverlapGhostCount);
             Assert.Equal(0, result.zone1GhostCount);
             Assert.Equal(0, result.zone2GhostCount);
@@ -844,6 +844,127 @@ namespace Parsek.Tests
             Assert.Equal(0, result.ghostsWithRcsFx);
             Assert.Equal(0, result.rcsModuleCount);
             Assert.Equal(0, result.rcsParticleSystemCount);
+        }
+
+        #endregion
+
+        // ===================================================================
+        // Ghost shell lifecycle helpers
+        // ===================================================================
+
+        #region GhostShellLifecycle
+
+        [Fact]
+        public void HasLoopCycleChanged_UnloadedShellSameCycle_ReturnsFalse()
+        {
+            var state = new GhostPlaybackState
+            {
+                loopCycleIndex = 12,
+                ghost = null
+            };
+
+            Assert.False(GhostPlaybackEngine.HasLoopCycleChanged(state, 12));
+        }
+
+        [Fact]
+        public void ClearLoadedVisualReferences_PreservesLogicalPlaybackState()
+        {
+            var state = new GhostPlaybackState
+            {
+                vesselName = "Test",
+                playbackIndex = 17,
+                partEventIndex = 9,
+                loopCycleIndex = 4,
+                flagEventIndex = 3,
+                currentZone = RenderingZone.Beyond,
+                lastDistance = 67890,
+                explosionFired = true,
+                pauseHidden = true,
+                fidelityReduced = true,
+                distanceLodReduced = true,
+                simplified = true,
+                materials = new List<Material>(),
+                partTree = new Dictionary<uint, List<uint>> { [1] = new List<uint> { 2, 3 } },
+                engineInfos = new Dictionary<ulong, EngineGhostInfo> { [1] = new EngineGhostInfo() },
+                rcsInfos = new Dictionary<ulong, RcsGhostInfo> { [2] = new RcsGhostInfo() },
+                audioInfos = new Dictionary<ulong, AudioGhostInfo> { [3] = new AudioGhostInfo() },
+                fakeCanopies = new Dictionary<uint, GameObject>(),
+                reentryFxInfo = new ReentryFxInfo()
+            };
+
+            state.ClearLoadedVisualReferences();
+
+            Assert.Equal("Test", state.vesselName);
+            Assert.Equal(17, state.playbackIndex);
+            Assert.Equal(9, state.partEventIndex);
+            Assert.Equal(4, state.loopCycleIndex);
+            Assert.Equal(3, state.flagEventIndex);
+            Assert.Equal(RenderingZone.Beyond, state.currentZone);
+            Assert.Equal(67890, state.lastDistance);
+            Assert.True(state.explosionFired);
+            Assert.NotNull(state.partTree);
+            Assert.Null(state.materials);
+            Assert.Null(state.engineInfos);
+            Assert.Null(state.rcsInfos);
+            Assert.Null(state.audioInfos);
+            Assert.Null(state.fakeCanopies);
+            Assert.Null(state.reentryFxInfo);
+            Assert.False(state.pauseHidden);
+            Assert.False(state.fidelityReduced);
+            Assert.False(state.distanceLodReduced);
+            Assert.False(state.simplified);
+        }
+
+        [Fact]
+        public void ShouldPrewarmHiddenGhost_NearVisibleTierBoundary_ReturnsTrue()
+        {
+            var traj = new MockTrajectory().WithTimeRange(100, 200);
+            var state = new GhostPlaybackState { partEventIndex = 0 };
+
+            bool result = GhostPlaybackEngine.ShouldPrewarmHiddenGhost(
+                traj, state,
+                DistanceThresholds.GhostFlight.LoopSimplifiedMeters + 1000,
+                currentUT: 120);
+
+            Assert.True(result);
+        }
+
+        [Fact]
+        public void ShouldPrewarmHiddenGhost_UpcomingDecoupleEvent_ReturnsTrue()
+        {
+            var traj = new MockTrajectory().WithTimeRange(100, 200);
+            traj.PartEvents.Add(new PartEvent
+            {
+                ut = 121.5,
+                eventType = PartEventType.Decoupled
+            });
+            var state = new GhostPlaybackState { partEventIndex = 0 };
+
+            bool result = GhostPlaybackEngine.ShouldPrewarmHiddenGhost(
+                traj, state,
+                DistanceThresholds.GhostFlight.LoopSimplifiedMeters + 20000,
+                currentUT: 120);
+
+            Assert.True(result);
+        }
+
+        [Fact]
+        public void ShouldPrewarmHiddenGhost_UpcomingThrottleOnlyEvent_ReturnsFalse()
+        {
+            var traj = new MockTrajectory().WithTimeRange(100, 200);
+            traj.PartEvents.Add(new PartEvent
+            {
+                ut = 121.5,
+                eventType = PartEventType.EngineThrottle
+            });
+            var state = new GhostPlaybackState { partEventIndex = 0 };
+
+            bool result = GhostPlaybackEngine.ShouldPrewarmHiddenGhost(
+                traj, state,
+                DistanceThresholds.GhostFlight.LoopSimplifiedMeters + 20000,
+                currentUT: 120);
+
+            Assert.False(result);
         }
 
         #endregion
@@ -993,13 +1114,13 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void GhostCount_ReflectsGhostStatesCount()
+        public void GhostCount_ReflectsLoadedGhostVisualCount()
         {
             var engine = new GhostPlaybackEngine(null);
             Assert.Equal(0, engine.GhostCount);
             engine.ghostStates[0] = new GhostPlaybackState();
             engine.ghostStates[3] = new GhostPlaybackState();
-            Assert.Equal(2, engine.GhostCount);
+            Assert.Equal(0, engine.GhostCount);
         }
 
         #endregion

@@ -838,8 +838,8 @@ namespace Parsek.Tests
                 watchedLoopCycleIndex: -1,
                 fallbackActiveGhostCount: 99);
 
-            Assert.Equal(5, snap.activeGhostCount);
-            Assert.Equal(1, snap.activeOverlapGhostCount);
+            Assert.Equal(0, snap.activeGhostCount);
+            Assert.Equal(0, snap.activeOverlapGhostCount);
             Assert.Equal(2, snap.fullGhostCount);
             Assert.Equal(2, snap.reducedGhostCount);
             Assert.Equal(1, snap.hiddenGhostCount);
@@ -883,8 +883,8 @@ namespace Parsek.Tests
                 watchedLoopCycleIndex: 7,
                 fallbackActiveGhostCount: 99);
 
-            Assert.Equal(2, snap.activeGhostCount);
-            Assert.Equal(1, snap.activeOverlapGhostCount);
+            Assert.Equal(0, snap.activeGhostCount);
+            Assert.Equal(0, snap.activeOverlapGhostCount);
             Assert.Equal(1, snap.fullGhostCount);
             Assert.Equal(1, snap.hiddenGhostCount);
             Assert.Equal(1, snap.watchedOverrideGhostCount);

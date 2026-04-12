@@ -259,13 +259,14 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Returns true if recording at index has an active ghost (exists and not null).
+        /// Returns true if recording at index has a live playback shell.
+        /// Hidden-tier ghosts may have unloaded visuals but are still watchable.
         /// </summary>
         internal bool HasActiveGhost(int index)
         {
             var ghostStates = host.Engine.ghostStates;
             GhostPlaybackState s;
-            return ghostStates.TryGetValue(index, out s) && s != null && s.ghost != null;
+            return ghostStates.TryGetValue(index, out s) && s != null;
         }
 
         /// <summary>
@@ -378,10 +379,11 @@ namespace Parsek
                 return;
             }
 
-            // Ghost must exist
+            // Ghost playback state must exist. Hidden-tier ghosts may not currently
+            // have a loaded mesh, but watch mode is allowed to force a rebuild.
             var ghostStates = host.Engine.ghostStates;
             GhostPlaybackState gs;
-            if (!ghostStates.TryGetValue(index, out gs) || gs == null || gs.ghost == null)
+            if (!ghostStates.TryGetValue(index, out gs) || gs == null)
                 return;
 
             // Ghost must be on the same body as the active vessel
@@ -447,8 +449,28 @@ namespace Parsek
             // If the ghost is currently beyond visual range and the recording loops,
             // reset the loop phase so the ghost starts from the beginning of the recording
             // (at the pad) instead of wherever it is mid-flight (e.g. near the Mun).
-            if (gs.currentZone == RenderingZone.Beyond && host.ShouldLoopPlaybackForWatch(rec))
+            double watchLoadUT = Planetarium.GetUniversalTime();
+            double loopIntervalSeconds = host.GetLoopIntervalSecondsForWatch(rec);
+            bool usesOverlapLooping = loopIntervalSeconds < 0;
+            bool resetLoopPhaseForWatch = gs.currentZone == RenderingZone.Beyond
+                && host.ShouldLoopPlaybackForWatch(rec)
+                && !usesOverlapLooping;
+            if (resetLoopPhaseForWatch)
+            {
                 ResetLoopPhaseForWatch(index, gs, rec);
+                watchLoadUT = GhostPlaybackEngine.EffectiveLoopStartUT(rec);
+            }
+            else
+            {
+                watchLoadUT = ResolveWatchPlaybackUT(rec, gs, watchLoadUT);
+            }
+
+            if (!host.Engine.EnsureGhostVisualsLoadedForWatch(index, rec, watchLoadUT,
+                forceRebuildLoadedVisuals: resetLoopPhaseForWatch))
+                return;
+            ghostStates.TryGetValue(index, out gs);
+            if (gs == null)
+                return;
 
             // Save camera state only when entering fresh (not switching between ghosts)
             if (!switching)
@@ -464,15 +486,24 @@ namespace Parsek
             FlightCamera.fetch.pivotTranslateSharpness = 0f;
 
             // Point camera at ghost (use cameraPivot or horizonProxy based on mode)
-            var watchTarget = GetWatchTarget(gs.cameraPivot) ?? gs.ghost.transform;
-            FlightCamera.fetch.SetTargetTransform(watchTarget);
+            var watchTarget = GetWatchTarget(gs.cameraPivot) ?? gs.ghost?.transform;
+            if (watchTarget != null)
+                FlightCamera.fetch.SetTargetTransform(watchTarget);
             FlightCamera.fetch.SetDistance(50f);  // override [75,400] entry clamp
             watchedOverlapCycleIndex = gs.loopCycleIndex; // track which cycle we're following
-            ParsekLog.Info("CameraFollow",
-                $"EnterWatchMode: ghost #{index} \"{committed[index].VesselName}\"" +
-                $" target='{watchTarget.name}' pivotLocal=({watchTarget.localPosition.x:F2},{watchTarget.localPosition.y:F2},{watchTarget.localPosition.z:F2})" +
-                $" ghostPos=({gs.ghost.transform.position.x:F1},{gs.ghost.transform.position.y:F1},{gs.ghost.transform.position.z:F1})" +
-                $" camDist={FlightCamera.fetch.Distance.ToString("F1", CultureInfo.InvariantCulture)}");
+            if (watchTarget != null && gs.ghost != null)
+            {
+                ParsekLog.Info("CameraFollow",
+                    $"EnterWatchMode: ghost #{index} \"{committed[index].VesselName}\"" +
+                    $" target='{watchTarget.name}' pivotLocal=({watchTarget.localPosition.x:F2},{watchTarget.localPosition.y:F2},{watchTarget.localPosition.z:F2})" +
+                    $" ghostPos=({gs.ghost.transform.position.x:F1},{gs.ghost.transform.position.y:F1},{gs.ghost.transform.position.z:F1})" +
+                    $" camDist={FlightCamera.fetch.Distance.ToString("F1", CultureInfo.InvariantCulture)}");
+            }
+            else
+            {
+                ParsekLog.Info("CameraFollow",
+                    $"EnterWatchMode: ghost #{index} \"{committed[index].VesselName}\" waiting for rebuilt camera target");
+            }
 
             // Block inputs that could affect the active vessel
             InputLockManager.SetControlLock(WatchModeLockMask, WatchModeLockId);
@@ -498,7 +529,9 @@ namespace Parsek
         private void ResetLoopPhaseForWatch(int index, GhostPlaybackState gs, Recording rec)
         {
             double currentUT = Planetarium.GetUniversalTime();
-            double duration = rec.EndUT - rec.StartUT;
+            double loopStartUT = GhostPlaybackEngine.EffectiveLoopStartUT(rec);
+            double loopEndUT = GhostPlaybackEngine.EffectiveLoopEndUT(rec);
+            double duration = loopEndUT - loopStartUT;
             double intervalSeconds = host.GetLoopIntervalSecondsForWatch(rec);
             double cycleDuration = duration + intervalSeconds;
             if (cycleDuration <= GhostPlaybackLogic.MinLoopDurationSeconds)
@@ -507,7 +540,7 @@ namespace Parsek
             var loopPhaseOffsets = host.Engine.loopPhaseOffsets;
 
             // Current elapsed time (with any existing offset)
-            double elapsed = currentUT - rec.StartUT;
+            double elapsed = currentUT - loopStartUT;
             double existingOffset;
             if (loopPhaseOffsets.TryGetValue(index, out existingOffset))
                 elapsed += existingOffset;
@@ -522,18 +555,24 @@ namespace Parsek
             loopPhaseOffsets[index] = newOffset;
 
             // Re-show the ghost so the camera has something to target
-            gs.ghost.SetActive(true);
-            gs.currentZone = RenderingZone.Physics;
-            gs.playbackIndex = 0;
-
-            // Position ghost at first trajectory point so camera targets the pad
-            if (rec.Points != null && rec.Points.Count > 0)
-                host.PositionGhostAtForWatch(gs.ghost, rec.Points[0]);
+            PrimeLoopWatchResetState(gs);
 
             ParsekLog.Info("CameraFollow",
                 string.Format(CultureInfo.InvariantCulture,
                     "Watch mode loop reset: ghost #{0} \"{1}\" cycleTime={2:F1}s -> offset={3:F1}s (ghost repositioned to recording start)",
                     index, rec.VesselName, cycleTime, newOffset));
+        }
+
+        internal static void PrimeLoopWatchResetState(GhostPlaybackState state)
+        {
+            if (state == null)
+                return;
+
+            state.currentZone = RenderingZone.Physics;
+            state.playbackIndex = 0;
+            state.partEventIndex = 0;
+            state.pauseHidden = false;
+            state.explosionFired = false;
         }
 
         /// <summary>
@@ -975,7 +1014,7 @@ namespace Parsek
         internal void ValidateWatchedGhostStillActive()
         {
             if (watchedRecordingIndex < 0) return;
-            if (host.Engine.HasActiveGhost(watchedRecordingIndex)) return;
+            if (host.Engine.TryGetGhostState(watchedRecordingIndex, out var primary) && primary != null) return;
 
             // Check overlap ghosts
             bool hasOverlap = false;
@@ -1154,7 +1193,12 @@ namespace Parsek
                     GhostPlaybackState primary;
                     if (ghostStates.TryGetValue(watchedRecordingIndex, out primary)
                         && primary != null && primary.loopCycleIndex == watchedOverlapCycleIndex)
+                    {
+                        if ((primary.ghost == null || primary.cameraPivot == null)
+                            && !TryEnsurePrimaryWatchGhostLoaded(primary, out primary))
+                            primary = null;
                         state = primary;
+                    }
                 }
 
                 // Fallback: tracked cycle not found -- switch to primary if available
@@ -1162,8 +1206,13 @@ namespace Parsek
                 {
                     GhostPlaybackState primary;
                     if (ghostStates.TryGetValue(watchedRecordingIndex, out primary)
-                        && primary != null && primary.ghost != null
-                        && primary.cameraPivot != null)
+                        && primary != null)
+                    {
+                        if ((primary.ghost == null || primary.cameraPivot == null)
+                            && !TryEnsurePrimaryWatchGhostLoaded(primary, out primary))
+                            primary = null;
+                    }
+                    if (primary != null && primary.ghost != null && primary.cameraPivot != null)
                     {
                         state = primary;
                         watchedOverlapCycleIndex = primary.loopCycleIndex;
@@ -1178,6 +1227,8 @@ namespace Parsek
             else
             {
                 ghostStates.TryGetValue(watchedRecordingIndex, out state);
+                if (state != null && (state.ghost == null || state.cameraPivot == null))
+                    TryEnsurePrimaryWatchGhostLoaded(state, out state);
             }
             return state;
         }
@@ -1202,8 +1253,13 @@ namespace Parsek
                 // Immediately target the current primary ghost so FlightCamera
                 // doesn't reference the destroyed anchor
                 GhostPlaybackState primary;
+                bool primaryReady = ghostStates.TryGetValue(watchedRecordingIndex, out primary)
+                    && primary != null;
+                if (primaryReady && (primary.ghost == null || primary.cameraPivot == null))
+                    primaryReady = TryEnsurePrimaryWatchGhostLoaded(primary, out primary);
+
                 if (FlightCamera.fetch != null
-                    && ghostStates.TryGetValue(watchedRecordingIndex, out primary)
+                    && primaryReady
                     && primary != null && primary.ghost != null)
                 {
                     var target = GetWatchTarget(primary.cameraPivot) ?? primary.ghost.transform;
@@ -1269,6 +1325,68 @@ namespace Parsek
             lastLoggedWatchFocusKey = key;
             string prefix = string.IsNullOrEmpty(context) ? "Watch focus" : $"Watch focus ({context})";
             ParsekLog.Info("CameraFollow", $"{prefix}: {BuildWatchFocusSummary(state)}");
+        }
+
+        private double ResolveWatchPlaybackUT(
+            Recording rec, GhostPlaybackState currentState, double fallbackUT)
+        {
+            if (rec == null || !host.ShouldLoopPlaybackForWatch(rec))
+                return fallbackUT;
+
+            double intervalSeconds = host.GetLoopIntervalSecondsForWatch(rec);
+            if (intervalSeconds < 0)
+            {
+                if (currentState == null || currentState.loopCycleIndex < 0)
+                    return fallbackUT;
+
+                double duration = rec.EndUT - rec.StartUT;
+                if (duration <= GhostPlaybackLogic.MinCycleDuration)
+                    return fallbackUT;
+
+                double cycleDuration = duration + intervalSeconds;
+                if (cycleDuration < GhostPlaybackLogic.MinCycleDuration)
+                    cycleDuration = GhostPlaybackLogic.MinCycleDuration;
+
+                double cycleStartUT = rec.StartUT + currentState.loopCycleIndex * cycleDuration;
+                double phase = Math.Max(0, Math.Min(Planetarium.GetUniversalTime() - cycleStartUT, duration));
+                return rec.StartUT + phase;
+            }
+
+            if (host.TryComputeLoopPlaybackUTForWatch(rec, Planetarium.GetUniversalTime(),
+                out double loopUT, out _, out _, watchedRecordingIndex))
+            {
+                return loopUT;
+            }
+
+            return fallbackUT;
+        }
+
+        private bool TryEnsurePrimaryWatchGhostLoaded(
+            GhostPlaybackState currentState, out GhostPlaybackState state)
+        {
+            state = null;
+            int index = watchedRecordingIndex;
+            if (index < 0)
+                return false;
+
+            var committed = RecordingStore.CommittedRecordings;
+            if (index >= committed.Count)
+                return false;
+
+            var traj = committed[index] as IPlaybackTrajectory;
+            if (traj == null)
+                return false;
+
+            double playbackUT = ResolveWatchPlaybackUT(committed[index], currentState,
+                Planetarium.GetUniversalTime());
+
+            if (!host.Engine.EnsureGhostVisualsLoadedForWatch(index, traj, playbackUT))
+                return false;
+
+            return host.Engine.TryGetGhostState(index, out state)
+                && state != null
+                && state.ghost != null
+                && state.cameraPivot != null;
         }
 
         /// <summary>

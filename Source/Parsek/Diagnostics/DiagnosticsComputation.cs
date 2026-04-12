@@ -558,7 +558,8 @@ namespace Parsek
                 foreach (var kvp in primaryStates)
                 {
                     if (kvp.Value == null) continue;
-                    snap.activeGhostCount++;
+                    if (GhostPlaybackEngine.HasLoadedGhostVisuals(kvp.Value))
+                        snap.activeGhostCount++;
                     AccumulateGhostTierCounts(
                         kvp.Key, kvp.Value, watchedIndex, watchedLoopCycleIndex,
                         ref snap.fullGhostCount,
@@ -580,8 +581,11 @@ namespace Parsek
                         var state = overlaps[i];
                         if (state == null) continue;
 
-                        snap.activeGhostCount++;
-                        snap.activeOverlapGhostCount++;
+                        if (GhostPlaybackEngine.HasLoadedGhostVisuals(state))
+                        {
+                            snap.activeGhostCount++;
+                            snap.activeOverlapGhostCount++;
+                        }
                         AccumulateGhostTierCounts(
                             kvp.Key, state, watchedIndex, watchedLoopCycleIndex,
                             ref snap.fullGhostCount,
