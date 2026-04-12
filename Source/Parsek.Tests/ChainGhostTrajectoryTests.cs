@@ -440,6 +440,48 @@ namespace Parsek.Tests
         }
 
         /// <summary>
+        /// Pre-claim chain-local coverage can be orbit-only/surface-only. The claim-tree
+        /// helper must still return that recording so fallback positioning stays on the
+        /// intended branch instead of reopening a global PID-only scan.
+        /// Guards: pre-claim orbit-only chain-local coverage is preserved.
+        /// </summary>
+        [Fact]
+        public void FindPreClaimChainRecordingAtUT_ReturnsOrbitOnlyCoverageInClaimTree()
+        {
+            var claimRec = MakeRecordingNoPoints("R1", 50, 1000, 1060);
+            claimRec.ChildBranchPointId = "bp-dock";
+            var preClaimOrbitRec = MakeRecordingOrbitOnly("bg-chain-pre", 100, 1000, 1050);
+            var postClaimChainRec = MakeRecordingWithPoints("bg-chain-post", 100, 1060, 1120);
+            postClaimChainRec.ParentBranchPointId = "bp-dock";
+            var chainTree = MakeTree("tree-1", new[] { claimRec, preClaimOrbitRec, postClaimChainRec },
+                new[]
+                {
+                    MakeBranchPoint("bp-dock", BranchPointType.Dock, 1060, 100,
+                        new[] { "R1" }, new[] { "bg-chain-post" })
+                });
+
+            var chain = new GhostChain
+            {
+                OriginalVesselPid = 100,
+                TipTreeId = "tree-1"
+            };
+            chain.Links.Add(new ChainLink
+            {
+                recordingId = "R1",
+                treeId = "tree-1",
+                ut = 1060,
+                interactionType = "MERGE"
+            });
+
+            var result = ParsekFlight.FindPreClaimChainRecordingAtUT(
+                new List<RecordingTree> { chainTree }, chain, 1030, out bool hasCoverage);
+
+            Assert.True(hasCoverage);
+            Assert.NotNull(result);
+            Assert.Equal("bg-chain-pre", result.RecordingId);
+        }
+
+        /// <summary>
         /// A pre-claim placeholder in the first claim tree should not suppress the old
         /// global fallback unless it actually has usable playback payload.
         /// Guards: empty/degraded same-tree placeholders do not hide valid global history.

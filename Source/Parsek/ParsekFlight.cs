@@ -6847,7 +6847,7 @@ namespace Parsek
                 committedRecordings, chain.OriginalVesselPid, currentUT);
         }
 
-        private static Recording FindPreClaimChainRecordingAtUT(
+        internal static Recording FindPreClaimChainRecordingAtUT(
             IReadOnlyList<RecordingTree> committedTrees,
             GhostChain chain,
             double currentUT,
@@ -7237,13 +7237,24 @@ namespace Parsek
                     ghostGO, chain, exactChainRec, currentUT);
 
                 bool chainHasStarted = ChainHasStarted(chain, currentUT);
-                for (int i = 0; i < committed.Count && !positioned && !chainHasStarted; i++)
+                if (!chainHasStarted)
                 {
-                    var rec = committed[i];
-                    if (rec.VesselPersistentId != chain.OriginalVesselPid)
-                        continue;
-                    positioned = TryPositionChainFallbackFromRecording(
-                        ghostGO, chain, rec, currentUT);
+                    var preClaimRec = FindPreClaimChainRecordingAtUT(
+                        committedTrees, chain, currentUT, out bool hasPreClaimCoverage);
+                    if (hasPreClaimCoverage)
+                    {
+                        positioned = TryPositionChainFallbackFromRecording(
+                            ghostGO, chain, preClaimRec, currentUT);
+                    }
+
+                    for (int i = 0; i < committed.Count && !positioned && !hasPreClaimCoverage; i++)
+                    {
+                        var rec = committed[i];
+                        if (rec.VesselPersistentId != chain.OriginalVesselPid)
+                            continue;
+                        positioned = TryPositionChainFallbackFromRecording(
+                            ghostGO, chain, rec, currentUT);
+                    }
                 }
             }
 
