@@ -12,6 +12,8 @@ All notable changes to Parsek are documented here.
 
 ### Improvements
 
+- Phase 11.5 recording storage groundwork: added representative storage fixtures, golden round-trip coverage, and `v1` `.prec` sidecars that make `TrackSections` authoritative on disk instead of duplicating flat `POINT` / `ORBIT_SEGMENT` trajectory data.
+- Recording sidecars now alias identical ghost snapshots to `_vessel.craft` via `ghostSnapshotMode` metadata instead of always writing a duplicate `_ghost.craft` file. Diagnostics and load paths understand alias mode and stale ghost sidecars are cleaned up on save.
 - Migrated 9 log contract checks from post-hoc KSP.log analysis to in-game tests (Ctrl+Shift+T) -- catches format, resource, and recording metric issues at runtime instead of after session ends.
 - Unified standalone and tree recording systems -- all recordings now use tree architecture internally (#271).
 - Optimizer now splits tree recordings at environment boundaries, restoring per-phase segment display in the UI.

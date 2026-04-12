@@ -361,7 +361,7 @@ namespace Parsek.Tests
         // Mirrors RecordingStore.SaveRecordingFiles' write conditions:
         //   .prec → always
         //   _vessel.craft → only when rec.VesselSnapshot != null
-        //   _ghost.craft → only when rec.GhostVisualSnapshot != null
+        //   _ghost.craft → only when ghostSnapshotMode resolves to Separate
         // Tree continuation recordings, ghost-only-merged debris, and chain
         // mid-segments legitimately have null snapshots and no sidecar file.
         // =====================================================================
@@ -395,10 +395,18 @@ namespace Parsek.Tests
         {
             var withGhost = new Recording { GhostVisualSnapshot = new ConfigNode("G") };
             var withoutGhost = new Recording();
+            var aliasGhost = new Recording
+            {
+                VesselSnapshot = new ConfigNode("V"),
+                GhostVisualSnapshot = new ConfigNode("V"),
+                GhostSnapshotMode = GhostSnapshotMode.AliasVessel
+            };
 
             Assert.True(DiagnosticsComputation.ShouldExpectSidecarFile(withGhost,
                 DiagnosticsComputation.SidecarFileType.GhostSnapshot));
             Assert.False(DiagnosticsComputation.ShouldExpectSidecarFile(withoutGhost,
+                DiagnosticsComputation.SidecarFileType.GhostSnapshot));
+            Assert.False(DiagnosticsComputation.ShouldExpectSidecarFile(aliasGhost,
                 DiagnosticsComputation.SidecarFileType.GhostSnapshot));
         }
 

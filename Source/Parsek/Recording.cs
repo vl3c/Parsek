@@ -4,6 +4,7 @@ using System.Collections.Generic;
 namespace Parsek
 {
     public enum LoopTimeUnit { Sec, Min, Hour, Auto }
+    public enum GhostSnapshotMode { Unspecified = 0, Separate = 1, AliasVessel = 2 }
 
     public class Recording : IPlaybackTrajectory
     {
@@ -200,6 +201,7 @@ namespace Parsek
         // Vessel persistence fields (transient — only needed between revert and merge dialog)
         public ConfigNode VesselSnapshot;       // ProtoVessel as ConfigNode (null if destroyed)
         public ConfigNode GhostVisualSnapshot;  // Snapshot used for ghost visuals (prefer recording-start state)
+        public GhostSnapshotMode GhostSnapshotMode;
         public double DistanceFromLaunch;       // Meters from launch position
         public bool VesselDestroyed;            // Vessel was destroyed before revert
         public string VesselSituation;          // "Orbiting Kerbin", "Landed on Mun", etc.
@@ -279,6 +281,7 @@ namespace Parsek
             GhostVisualSnapshot = source.GhostVisualSnapshot != null
                 ? source.GhostVisualSnapshot.CreateCopy()
                 : null;
+            GhostSnapshotMode = source.GhostSnapshotMode;
             RecordingId = source.RecordingId;
             DistanceFromLaunch = source.DistanceFromLaunch;
             VesselDestroyed = source.VesselDestroyed;

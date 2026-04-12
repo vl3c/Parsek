@@ -155,7 +155,7 @@ namespace Parsek
         /// Mirrors RecordingStore.SaveRecordingFiles' write conditions:
         /// - .prec is always written
         /// - _vessel.craft only when rec.VesselSnapshot != null
-        /// - _ghost.craft only when rec.GhostVisualSnapshot != null
+        /// - _ghost.craft only when ghost snapshot mode resolves to Separate
         /// Tree continuation recordings, ghost-only-merged debris, and chain
         /// mid-segments legitimately have null snapshots and no sidecar file.
         /// </summary>
@@ -166,7 +166,8 @@ namespace Parsek
             {
                 case SidecarFileType.Trajectory:     return true;
                 case SidecarFileType.VesselSnapshot: return rec.VesselSnapshot != null;
-                case SidecarFileType.GhostSnapshot:  return rec.GhostVisualSnapshot != null;
+                case SidecarFileType.GhostSnapshot:
+                    return RecordingStore.GetExpectedGhostSnapshotMode(rec) == GhostSnapshotMode.Separate;
                 default: return false;
             }
         }

@@ -242,7 +242,7 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Saves playback settings (format version, loop, playback enabled),
+        /// Saves playback settings (format version, ghost snapshot mode, loop, playback enabled),
         /// EVA child linkage, and chain linkage into a RECORDING ConfigNode.
         /// </summary>
         private static void SaveRecordingPlaybackAndLinkage(ConfigNode recNode, Recording rec)
@@ -251,6 +251,10 @@ namespace Parsek
 
             // Existing recording metadata
             recNode.AddValue("recordingFormatVersion", rec.RecordingFormatVersion);
+            GhostSnapshotMode ghostSnapshotMode = RecordingStore.DetermineGhostSnapshotMode(rec);
+            rec.GhostSnapshotMode = ghostSnapshotMode;
+            if (ghostSnapshotMode != GhostSnapshotMode.Unspecified)
+                recNode.AddValue("ghostSnapshotMode", ghostSnapshotMode.ToString());
 
             // Sidecar epoch (bug #270): stamped into .prec on write, validated on load
             if (rec.SidecarEpoch > 0)
@@ -497,6 +501,7 @@ namespace Parsek
                 if (int.TryParse(formatVersionStr, NumberStyles.Integer, ic, out formatVersion))
                     rec.RecordingFormatVersion = formatVersion;
             }
+            rec.GhostSnapshotMode = RecordingStore.ParseGhostSnapshotMode(recNode.GetValue("ghostSnapshotMode"));
 
             // Sidecar epoch (bug #270)
             string sidecarEpochStr = recNode.GetValue("sidecarEpoch");

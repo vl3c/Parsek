@@ -2960,7 +2960,8 @@ namespace Parsek.Tests
             // Has metadata
             Assert.Equal("Test Vessel", v3Node.GetValue("vesselName"));
             Assert.Equal("abc123", v3Node.GetValue("recordingId"));
-            Assert.Equal("0", v3Node.GetValue("recordingFormatVersion"));
+            Assert.Equal(RecordingStore.CurrentRecordingFormatVersion.ToString(CultureInfo.InvariantCulture),
+                v3Node.GetValue("recordingFormatVersion"));
             Assert.Equal("2", v3Node.GetValue("pointCount"));
 
             // No inline bulk data
@@ -2998,7 +2999,8 @@ namespace Parsek.Tests
             var trajNode = builder.BuildTrajectoryNode();
 
             Assert.Equal("PARSEK_RECORDING", trajNode.name);
-            Assert.Equal("0", trajNode.GetValue("version"));
+            Assert.Equal(RecordingStore.CurrentRecordingFormatVersion.ToString(CultureInfo.InvariantCulture),
+                trajNode.GetValue("version"));
             Assert.Equal("abc123", trajNode.GetValue("recordingId"));
             Assert.Equal(2, trajNode.GetNodes("POINT").Length);
             Assert.Single(trajNode.GetNodes("ORBIT_SEGMENT"));
@@ -4671,9 +4673,17 @@ namespace Parsek.Tests
                 string vesselContent = File.ReadAllText(vesselPath);
                 Assert.Contains("name = Flea Flight", vesselContent);
 
-                // _ghost.craft file exists (falls back to vessel snapshot)
+                // FleaFlight only has a vessel snapshot, so sidecar writing aliases the
+                // effective ghost snapshot to _vessel.craft instead of writing _ghost.craft.
                 string ghostPath = Path.Combine(recDir, $"{id}_ghost.craft");
-                Assert.True(File.Exists(ghostPath), $"Expected _ghost.craft at {ghostPath}");
+                Assert.False(File.Exists(ghostPath), $"Did not expect _ghost.craft at {ghostPath}");
+
+                ConfigNode scenarioNode = writer.BuildScenarioNode();
+                ConfigNode[] trees = scenarioNode.GetNodes("RECORDING_TREE");
+                Assert.Single(trees);
+                ConfigNode[] recordings = trees[0].GetNodes("RECORDING");
+                Assert.Single(recordings);
+                Assert.Equal("AliasVessel", recordings[0].GetValue("ghostSnapshotMode"));
             }
             finally
             {
@@ -5641,7 +5651,10 @@ namespace Parsek.Tests
 
                     // v3: no inline trajectory POINT data in .sfs
                     // (BRANCH_POINT nodes in RECORDING_TREE are expected)
-                    Assert.Contains("recordingFormatVersion = 0", content);
+                    Assert.Contains(
+                        "recordingFormatVersion = " +
+                        RecordingStore.CurrentRecordingFormatVersion.ToString(CultureInfo.InvariantCulture),
+                        content);
                     var scenarioSection = content.Substring(
                         content.IndexOf("name = ParsekScenario"),
                         content.IndexOf("FLIGHTSTATE") - content.IndexOf("name = ParsekScenario"));

@@ -518,7 +518,8 @@ namespace Parsek.Tests
             Assert.Equal("True", metadata.GetValue("isDebris"));
 
             // Format version
-            Assert.Equal("0", metadata.GetValue("recordingFormatVersion"));
+            Assert.Equal(RecordingStore.CurrentRecordingFormatVersion.ToString(CultureInfo.InvariantCulture),
+                metadata.GetValue("recordingFormatVersion"));
         }
 
         [Fact]

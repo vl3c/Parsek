@@ -203,6 +203,77 @@ namespace Parsek.Tests
             Assert.False(target.IsDebris);
         }
 
+        [Fact]
+        public void GhostSnapshotMode_IdenticalSnapshots_SaveLoad_AsAliasVessel()
+        {
+            var snapshot = new ConfigNode("VESSEL");
+            snapshot.AddValue("name", "Alias Test");
+            var rec = new Recording
+            {
+                RecordingId = "test_ghost_alias",
+                VesselSnapshot = snapshot.CreateCopy(),
+                GhostVisualSnapshot = snapshot.CreateCopy()
+            };
+
+            var node = new ConfigNode("RECORDING");
+            RecordingTree.SaveRecordingInto(node, rec);
+
+            Assert.Equal("AliasVessel", node.GetValue("ghostSnapshotMode"));
+
+            var restored = new Recording();
+            RecordingTree.LoadRecordingFrom(node, restored);
+
+            Assert.Equal(GhostSnapshotMode.AliasVessel, restored.GhostSnapshotMode);
+        }
+
+        [Fact]
+        public void GhostSnapshotMode_DifferentSnapshots_SaveLoad_AsSeparate()
+        {
+            var rec = new Recording
+            {
+                RecordingId = "test_ghost_separate",
+                VesselSnapshot = new ConfigNode("VESSEL"),
+                GhostVisualSnapshot = new ConfigNode("VESSEL")
+            };
+            rec.VesselSnapshot.AddValue("name", "Vessel");
+            rec.GhostVisualSnapshot.AddValue("name", "Ghost");
+
+            var node = new ConfigNode("RECORDING");
+            RecordingTree.SaveRecordingInto(node, rec);
+
+            Assert.Equal("Separate", node.GetValue("ghostSnapshotMode"));
+
+            var restored = new Recording();
+            RecordingTree.LoadRecordingFrom(node, restored);
+
+            Assert.Equal(GhostSnapshotMode.Separate, restored.GhostSnapshotMode);
+        }
+
+        [Fact]
+        public void GhostSnapshotMode_InvalidMetadata_DefaultsToUnspecifiedAndLogsWarning()
+        {
+            var node = new ConfigNode("RECORDING");
+            node.AddValue("recordingId", "bad_ghost_mode");
+            node.AddValue("ghostSnapshotMode", "BogusValue");
+
+            try
+            {
+                RecordingStore.SuppressLogging = false;
+                var restored = new Recording();
+                RecordingTree.LoadRecordingFrom(node, restored);
+
+                Assert.Equal(GhostSnapshotMode.Unspecified, restored.GhostSnapshotMode);
+                Assert.Contains(logLines, l =>
+                    l.Contains("[WARN]") &&
+                    l.Contains("[RecordingStore]") &&
+                    l.Contains("invalid ghostSnapshotMode"));
+            }
+            finally
+            {
+                RecordingStore.SuppressLogging = true;
+            }
+        }
+
         // --- Empty controllers list ---
 
         [Fact]
