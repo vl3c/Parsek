@@ -714,8 +714,11 @@ Remaining high-value work should stay measurement-gated and follow
 - only pursue intra-save snapshot dedupe or any custom binary snapshot schema if the post-compression rebaseline still shows a meaningful measured win
 - additional sparse payload work only where exact reconstruction and real byte wins are proven
 - post-commit, error-bounded trajectory thinning only after the format wins are re-measured
-- any further snapshot-side work should preserve current alias semantics and stay covered by
-  sidecar/load diagnostics
+- snapshot-only hydration salvage must keep the loaded disk trajectory authoritative; if pending-tree data is used to heal bad snapshot sidecars, it should restore only snapshot state, not overwrite trajectory/timing with future in-memory data
+- out-of-band `incrementEpoch=false` sidecar writes still rely on the existing `.sfs` epoch and staged per-file replacement; if we ever need crash-proof mixed-generation detection there, add a sidecar-set commit marker/manifest instead of pretending the current epoch gate can prove it
+- any further snapshot-side work should preserve current alias semantics, keep the
+  missing-only ghost fallback contract, keep partial-write rollback safety intact, and stay
+  covered by sidecar/load diagnostics
 - add an end-to-end active-tree salvage test that proves a later `OnSave` rewrites healed sidecars
   and clears `FilesDirty`
 - add a mixed-case salvage test where several recordings fail hydration but only a subset can be

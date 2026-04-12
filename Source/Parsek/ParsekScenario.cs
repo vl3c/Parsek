@@ -1866,16 +1866,30 @@ namespace Parsek
                 return 0;
 
             int restored = 0;
+            int snapshotOnlyRestored = 0;
             for (int i = 0; i < failedIds.Count; i++)
             {
                 string recordingId = failedIds[i];
+                Recording loadedRec;
+                if (!loadedTree.Recordings.TryGetValue(recordingId, out loadedRec) || loadedRec == null)
+                    continue;
+
                 Recording pendingRec;
                 if (!pendingTree.Recordings.TryGetValue(recordingId, out pendingRec) || pendingRec == null)
                     continue;
 
+                bool snapshotFailure = IsSnapshotHydrationFailure(loadedRec.SidecarLoadFailureReason);
+                if (TryRestoreSnapshotStateFromPendingRecording(loadedRec, pendingRec))
+                {
+                    restored++;
+                    snapshotOnlyRestored++;
+                    continue;
+                }
+                if (snapshotFailure)
+                    continue;
+
                 Recording restoredRec = Recording.DeepClone(pendingRec);
-                restoredRec.SidecarLoadFailed = false;
-                restoredRec.SidecarLoadFailureReason = null;
+                RecordingStore.ClearSidecarLoadFailure(restoredRec);
                 restoredRec.MarkFilesDirty();
                 loadedTree.Recordings[recordingId] = restoredRec;
                 restored++;
@@ -1886,10 +1900,105 @@ namespace Parsek
                 loadedTree.RebuildBackgroundMap();
                 ParsekLog.Warn("Scenario",
                     $"TryRestoreActiveTreeNode: restored {restored} hydration-failed recording(s) " +
-                    $"from matching pending tree '{pendingTree.TreeName}' into '{loadedTree.TreeName}'");
+                    $"from matching pending tree '{pendingTree.TreeName}' into '{loadedTree.TreeName}'" +
+                    (snapshotOnlyRestored > 0
+                        ? $" ({snapshotOnlyRestored} snapshot-only, {restored - snapshotOnlyRestored} full)"
+                        : ""));
             }
 
             return restored;
+        }
+
+        private static bool TryRestoreSnapshotStateFromPendingRecording(Recording loadedRec, Recording pendingRec)
+        {
+            if (loadedRec == null || pendingRec == null)
+                return false;
+
+            if (!IsSnapshotHydrationFailure(loadedRec.SidecarLoadFailureReason))
+                return false;
+
+            bool restoredAny = false;
+            if (loadedRec.VesselSnapshot == null)
+            {
+                if (pendingRec.VesselSnapshot != null)
+                {
+                    loadedRec.VesselSnapshot = pendingRec.VesselSnapshot.CreateCopy();
+                    restoredAny = true;
+                }
+                else if (pendingRec.GhostSnapshotMode == GhostSnapshotMode.AliasVessel
+                    && pendingRec.GhostVisualSnapshot != null)
+                {
+                    loadedRec.VesselSnapshot = pendingRec.GhostVisualSnapshot.CreateCopy();
+                    restoredAny = true;
+                }
+            }
+
+            GhostSnapshotMode restoredMode = pendingRec.GhostSnapshotMode != GhostSnapshotMode.Unspecified
+                ? pendingRec.GhostSnapshotMode
+                : loadedRec.GhostSnapshotMode;
+
+            if (loadedRec.GhostVisualSnapshot == null)
+            {
+                if (pendingRec.GhostVisualSnapshot != null)
+                {
+                    loadedRec.GhostVisualSnapshot = pendingRec.GhostVisualSnapshot.CreateCopy();
+                    restoredAny = true;
+                }
+                else if (restoredMode == GhostSnapshotMode.AliasVessel)
+                {
+                    ConfigNode aliasSource = loadedRec.VesselSnapshot ?? pendingRec.VesselSnapshot;
+                    if (aliasSource != null)
+                    {
+                        loadedRec.GhostVisualSnapshot = aliasSource.CreateCopy();
+                        restoredAny = true;
+                    }
+                }
+            }
+
+            if (!restoredAny)
+                return false;
+
+            loadedRec.GhostSnapshotMode = restoredMode;
+
+            if (loadedRec.VesselSnapshot != null
+                && loadedRec.GhostSnapshotMode == GhostSnapshotMode.AliasVessel)
+            {
+                loadedRec.GhostVisualSnapshot = loadedRec.VesselSnapshot.CreateCopy();
+            }
+
+            if (!HasCoherentSnapshotState(loadedRec))
+                return false;
+
+            RecordingStore.ClearSidecarLoadFailure(loadedRec);
+            loadedRec.MarkFilesDirty();
+            return true;
+        }
+
+        private static bool IsSnapshotHydrationFailure(string reason)
+        {
+            return reason == "snapshot-vessel-invalid"
+                || reason == "snapshot-vessel-unsupported"
+                || reason == "snapshot-ghost-invalid"
+                || reason == "snapshot-ghost-unsupported";
+        }
+
+        private static bool HasCoherentSnapshotState(Recording rec)
+        {
+            if (rec == null)
+                return false;
+
+            GhostSnapshotMode mode = rec.GhostSnapshotMode != GhostSnapshotMode.Unspecified
+                ? rec.GhostSnapshotMode
+                : RecordingStore.DetermineGhostSnapshotMode(rec);
+            if (mode == GhostSnapshotMode.AliasVessel)
+            {
+                return rec.VesselSnapshot != null
+                    && rec.GhostVisualSnapshot != null
+                    && RecordingStore.ConfigNodesEquivalent(rec.VesselSnapshot, rec.GhostVisualSnapshot);
+            }
+            if (mode == GhostSnapshotMode.Separate)
+                return rec.GhostVisualSnapshot != null;
+            return rec.VesselSnapshot != null || rec.GhostVisualSnapshot != null;
         }
 
         // Resume hints parsed from PARSEK_ACTIVE_TREE node, consumed by ParsekFlight

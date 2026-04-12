@@ -1811,6 +1811,25 @@ namespace Parsek
             return false;
         }
 
+        internal static bool IsTransientSidecarArtifactFile(string fileName)
+        {
+            if (string.IsNullOrEmpty(fileName))
+                return false;
+
+            for (int i = 0; i < RecordingFileSuffixes.Length; i++)
+            {
+                string suffix = RecordingFileSuffixes[i];
+                if (fileName.EndsWith(suffix + ".tmp", StringComparison.OrdinalIgnoreCase)
+                    || fileName.IndexOf(suffix + ".stage.", StringComparison.OrdinalIgnoreCase) >= 0
+                    || fileName.IndexOf(suffix + ".bak.", StringComparison.OrdinalIgnoreCase) >= 0)
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
         /// <summary>
         /// Builds the set of all recording IDs that are currently known to the store
         /// (committed recordings, committed trees, and the pending tree). Used by
@@ -1902,6 +1921,7 @@ namespace Parsek
 
             int orphanCount = 0;
             int legacyCount = 0;
+            int transientCount = 0;
             int skippedUnrecognized = 0;
             for (int i = 0; i < files.Length; i++)
             {
@@ -1925,6 +1945,21 @@ namespace Parsek
                         }
                         continue;
                     }
+                    if (IsTransientSidecarArtifactFile(fileName))
+                    {
+                        try
+                        {
+                            File.Delete(files[i]);
+                            transientCount++;
+                            ParsekLog.Verbose("RecordingStore", $"Deleted transient sidecar artifact: {fileName}");
+                        }
+                        catch (Exception ex)
+                        {
+                            ParsekLog.Warn("RecordingStore",
+                                $"Failed to delete transient sidecar artifact '{fileName}': {ex.Message}");
+                        }
+                        continue;
+                    }
                     skippedUnrecognized++;
                     continue; // Not a recognized sidecar file — leave it alone
                 }
@@ -1944,10 +1979,11 @@ namespace Parsek
                 }
             }
 
-            if (orphanCount > 0 || legacyCount > 0)
+            if (orphanCount > 0 || legacyCount > 0 || transientCount > 0)
                 ParsekLog.Info("RecordingStore",
                     $"Cleaned {orphanCount} orphaned recording file(s)" +
                     (legacyCount > 0 ? $", {legacyCount} legacy sidecar file(s)" : "") +
+                    (transientCount > 0 ? $", {transientCount} transient sidecar artifact(s)" : "") +
                     (skippedUnrecognized > 0 ? $", skipped {skippedUnrecognized} unrecognized file(s)" : ""));
             else
                 ParsekLog.Verbose("RecordingStore",
@@ -4113,83 +4149,13 @@ namespace Parsek
             ClearSidecarLoadFailure(rec);
             try
             {
-                // Load .prec trajectory file
-                // ConfigNode.Save writes the node's contents (values + children),
-                // and ConfigNode.Load returns a node containing those contents directly.
                 string precPath = RecordingPaths.ResolveSaveScopedPath(
                     RecordingPaths.BuildTrajectoryRelativePath(rec.RecordingId));
-                if (string.IsNullOrEmpty(precPath) || !File.Exists(precPath))
-                {
-                    MarkSidecarLoadFailure(rec, "trajectory-missing");
-                    Log($"[Parsek] Trajectory file missing for {rec.RecordingId} — recording degraded (0 points)");
-                    return false;
-                }
-
-                TrajectorySidecarProbe probe;
-                if (!TryProbeTrajectorySidecar(precPath, out probe))
-                {
-                    MarkSidecarLoadFailure(rec, "trajectory-invalid");
-                    Log($"[Parsek] Invalid trajectory file for {rec.RecordingId} — failed to parse");
-                    return false;
-                }
-                if (!probe.Supported)
-                {
-                    MarkSidecarLoadFailure(rec, "trajectory-unsupported");
-                    ParsekLog.Warn("RecordingStore",
-                        $"LoadRecordingFiles: unsupported trajectory sidecar for {rec.RecordingId} " +
-                        $"(encoding={probe.Encoding}, version={probe.FormatVersion})");
-                    return false;
-                }
-
-                // Validate recordingId inside file matches
-                string fileId = probe.RecordingId;
-                if (fileId != null && fileId != rec.RecordingId)
-                {
-                    MarkSidecarLoadFailure(rec, "trajectory-id-mismatch");
-                    Log($"[Parsek] Recording ID mismatch in {rec.RecordingId}.prec: file says '{fileId}' — skipping");
-                    return false;
-                }
-
-                // Bug #270: validate sidecar epoch
-                if (ShouldSkipStaleSidecar(rec, probe.SidecarEpoch))
-                {
-                    MarkSidecarLoadFailure(rec, "stale-sidecar-epoch");
-                    return false;
-                }
-
-                DeserializeTrajectorySidecar(precPath, probe, rec);
-
-                // #288: eagerly populate TerminalOrbit cache from the last orbit segment if
-                // the recording was loaded with empty cache fields. Without this, GhostMap
-                // and other consumers see an empty TerminalOrbit cache and fail to create
-                // map vessels for non-finalized recordings (forces the user to press W to
-                // build the icon via WatchModeController, which reads OrbitSegments directly).
-                if (string.IsNullOrEmpty(rec.TerminalOrbitBody)
-                    && rec.OrbitSegments != null && rec.OrbitSegments.Count > 0)
-                {
-                    ParsekFlight.PopulateTerminalOrbitFromLastSegment(rec);
-                    if (!string.IsNullOrEmpty(rec.TerminalOrbitBody))
-                    {
-                        Log($"[Parsek] Eager-populated TerminalOrbit for {rec.RecordingId} from last orbit segment (body={rec.TerminalOrbitBody}, sma={rec.TerminalOrbitSemiMajorAxis:F0})");
-                    }
-                }
-
-                // Load snapshot sidecars only after the trajectory probe passes the
-                // recording-id and sidecar-epoch safety gates.
                 string vesselPath = RecordingPaths.ResolveSaveScopedPath(
                     RecordingPaths.BuildVesselSnapshotRelativePath(rec.RecordingId));
                 string ghostPath = RecordingPaths.ResolveSaveScopedPath(
                     RecordingPaths.BuildGhostSnapshotRelativePath(rec.RecordingId));
-                LoadSnapshotSidecarsFromPaths(rec, vesselPath, ghostPath);
-
-                if (!SuppressLogging)
-                {
-                    ParsekLog.Verbose("RecordingStore",
-                        $"LoadRecordingFiles: id={rec.RecordingId} ghostSnapshotMode={rec.GhostSnapshotMode} " +
-                        $"hasVesselSnapshot={rec.VesselSnapshot != null} hasGhostSnapshot={rec.GhostVisualSnapshot != null}");
-                }
-
-                return true;
+                return LoadRecordingFilesFromPathsInternal(rec, precPath, vesselPath, ghostPath);
             }
             catch (Exception ex)
             {
@@ -4325,6 +4291,46 @@ namespace Parsek
             return SaveRecordingFilesToPathsInternal(rec, precPath, vesselPath, ghostPath, incrementEpoch);
         }
 
+        internal static bool LoadRecordingFilesFromPathsForTesting(
+            Recording rec, string precPath, string vesselPath, string ghostPath)
+        {
+            if (rec == null)
+                throw new ArgumentNullException(nameof(rec));
+
+            ClearSidecarLoadFailure(rec);
+            return LoadRecordingFilesFromPathsInternal(rec, precPath, vesselPath, ghostPath);
+        }
+
+        internal enum SnapshotSidecarLoadState
+        {
+            Missing = 0,
+            Loaded = 1,
+            Invalid = 2,
+            Unsupported = 3
+        }
+
+        internal struct SnapshotSidecarLoadSummary
+        {
+            public SnapshotSidecarLoadState VesselState;
+            public SnapshotSidecarLoadState GhostState;
+            public string FailureReason;
+        }
+
+        private sealed class StagedSidecarChange
+        {
+            public string FinalPath;
+            public string StagedPath;
+            public bool DeleteExisting;
+        }
+
+        private sealed class CommittedSidecarChange
+        {
+            public StagedSidecarChange Change;
+            public bool HadOriginalFile;
+            public bool Committed;
+            public string BackupPath;
+        }
+
         internal static bool TryProbeSnapshotSidecar(string path, out SnapshotSidecarProbe probe)
         {
             probe = default(SnapshotSidecarProbe);
@@ -4384,6 +4390,87 @@ namespace Parsek
             SnapshotSidecarCodec.Write(path, node);
         }
 
+        private static bool LoadRecordingFilesFromPathsInternal(
+            Recording rec, string precPath, string vesselPath, string ghostPath)
+        {
+            // Load .prec trajectory file
+            // ConfigNode.Save writes the node's contents (values + children),
+            // and ConfigNode.Load returns a node containing those contents directly.
+            if (string.IsNullOrEmpty(precPath) || !File.Exists(precPath))
+            {
+                MarkSidecarLoadFailure(rec, "trajectory-missing");
+                Log($"[Parsek] Trajectory file missing for {rec.RecordingId} — recording degraded (0 points)");
+                return false;
+            }
+
+            TrajectorySidecarProbe probe;
+            if (!TryProbeTrajectorySidecar(precPath, out probe))
+            {
+                MarkSidecarLoadFailure(rec, "trajectory-invalid");
+                Log($"[Parsek] Invalid trajectory file for {rec.RecordingId} — failed to parse");
+                return false;
+            }
+            if (!probe.Supported)
+            {
+                MarkSidecarLoadFailure(rec, "trajectory-unsupported");
+                ParsekLog.Warn("RecordingStore",
+                    $"LoadRecordingFiles: unsupported trajectory sidecar for {rec.RecordingId} " +
+                    $"(encoding={probe.Encoding}, version={probe.FormatVersion})");
+                return false;
+            }
+
+            // Validate recordingId inside file matches
+            string fileId = probe.RecordingId;
+            if (fileId != null && fileId != rec.RecordingId)
+            {
+                MarkSidecarLoadFailure(rec, "trajectory-id-mismatch");
+                Log($"[Parsek] Recording ID mismatch in {rec.RecordingId}.prec: file says '{fileId}' — skipping");
+                return false;
+            }
+
+            // Bug #270: validate sidecar epoch
+            if (ShouldSkipStaleSidecar(rec, probe.SidecarEpoch))
+            {
+                MarkSidecarLoadFailure(rec, "stale-sidecar-epoch");
+                return false;
+            }
+
+            DeserializeTrajectorySidecar(precPath, probe, rec);
+
+            // #288: eagerly populate TerminalOrbit cache from the last orbit segment if
+            // the recording was loaded with empty cache fields. Without this, GhostMap
+            // and other consumers see an empty TerminalOrbit cache and fail to create
+            // map vessels for non-finalized recordings (forces the user to press W to
+            // build the icon via WatchModeController, which reads OrbitSegments directly).
+            if (string.IsNullOrEmpty(rec.TerminalOrbitBody)
+                && rec.OrbitSegments != null && rec.OrbitSegments.Count > 0)
+            {
+                ParsekFlight.PopulateTerminalOrbitFromLastSegment(rec);
+                if (!string.IsNullOrEmpty(rec.TerminalOrbitBody))
+                {
+                    Log($"[Parsek] Eager-populated TerminalOrbit for {rec.RecordingId} from last orbit segment (body={rec.TerminalOrbitBody}, sma={rec.TerminalOrbitSemiMajorAxis:F0})");
+                }
+            }
+
+            // Load snapshot sidecars only after the trajectory probe passes the
+            // recording-id and sidecar-epoch safety gates.
+            SnapshotSidecarLoadSummary snapshotSummary = LoadSnapshotSidecarsFromPaths(rec, vesselPath, ghostPath);
+            if (!string.IsNullOrEmpty(snapshotSummary.FailureReason))
+            {
+                MarkSidecarLoadFailure(rec, snapshotSummary.FailureReason);
+                return false;
+            }
+
+            if (!SuppressLogging)
+            {
+                ParsekLog.Verbose("RecordingStore",
+                    $"LoadRecordingFiles: id={rec.RecordingId} ghostSnapshotMode={rec.GhostSnapshotMode} " +
+                    $"hasVesselSnapshot={rec.VesselSnapshot != null} hasGhostSnapshot={rec.GhostVisualSnapshot != null}");
+            }
+
+            return true;
+        }
+
         private static bool SaveRecordingFilesToPathsInternal(
             Recording rec, string precPath, string vesselPath, string ghostPath, bool incrementEpoch)
         {
@@ -4394,6 +4481,7 @@ namespace Parsek
             bool wroteVesselSnapshot = false;
             bool wroteGhostSnapshot = false;
             bool deletedStaleGhostSnapshot = false;
+            var changes = new List<StagedSidecarChange>();
 
             try
             {
@@ -4406,11 +4494,12 @@ namespace Parsek
                 // causing false-positive staleness on quickload (bug #290).
                 if (incrementEpoch)
                     rec.SidecarEpoch++;
-                WriteTrajectorySidecar(precPath, rec, rec.SidecarEpoch);
+
+                changes.Add(StageSidecarWrite(path => WriteTrajectorySidecar(path, rec, rec.SidecarEpoch), precPath));
 
                 if (rec.VesselSnapshot != null)
                 {
-                    WriteSnapshotSidecar(vesselPath, rec.VesselSnapshot);
+                    changes.Add(StageSidecarWrite(path => WriteSnapshotSidecar(path, rec.VesselSnapshot), vesselPath));
                     wroteVesselSnapshot = true;
                 }
 
@@ -4422,7 +4511,7 @@ namespace Parsek
                     }
                     else
                     {
-                        WriteSnapshotSidecar(ghostPath, rec.GhostVisualSnapshot);
+                        changes.Add(StageSidecarWrite(path => WriteSnapshotSidecar(path, rec.GhostVisualSnapshot), ghostPath));
                         wroteGhostSnapshot = true;
                     }
                 }
@@ -4430,9 +4519,15 @@ namespace Parsek
                     !string.IsNullOrEmpty(ghostPath) &&
                     File.Exists(ghostPath))
                 {
-                    File.Delete(ghostPath);
+                    changes.Add(new StagedSidecarChange
+                    {
+                        FinalPath = ghostPath,
+                        DeleteExisting = true
+                    });
                     deletedStaleGhostSnapshot = true;
                 }
+
+                ApplyStagedSidecarChanges(changes);
 
                 if (!SuppressLogging)
                 {
@@ -4450,6 +4545,7 @@ namespace Parsek
             }
             catch (Exception ex)
             {
+                CleanupStagedSidecarArtifacts(changes, committed: null);
                 // Keep .sfs metadata authoritative if the sidecar write set did not
                 // complete after an OnSave-triggered epoch bump.
                 rec.SidecarEpoch = originalSidecarEpoch;
@@ -4459,29 +4555,32 @@ namespace Parsek
             }
         }
 
-        internal static void LoadSnapshotSidecarsFromPaths(Recording rec, string vesselPath, string ghostPath)
+        internal static SnapshotSidecarLoadSummary LoadSnapshotSidecarsFromPaths(Recording rec, string vesselPath, string ghostPath)
         {
             if (rec == null)
                 throw new ArgumentNullException(nameof(rec));
 
+            var summary = default(SnapshotSidecarLoadSummary);
             rec.VesselSnapshot = null;
             rec.GhostVisualSnapshot = null;
 
             bool vesselFileExists = !string.IsNullOrEmpty(vesselPath) && File.Exists(vesselPath);
             bool ghostFileExists = !string.IsNullOrEmpty(ghostPath) && File.Exists(ghostPath);
 
-            bool vesselLoaded = TryLoadSnapshotSidecarIfPresent(vesselPath, rec.RecordingId, "vessel", out ConfigNode vesselNode);
-            bool ghostLoaded = false;
+            summary.VesselState = TryLoadSnapshotSidecarIfPresent(
+                vesselPath, rec.RecordingId, "vessel", out ConfigNode vesselNode);
+            summary.GhostState = SnapshotSidecarLoadState.Missing;
             ConfigNode ghostNode = null;
             GhostSnapshotMode ghostSnapshotMode = rec.GhostSnapshotMode;
 
-            if (vesselLoaded)
+            if (summary.VesselState == SnapshotSidecarLoadState.Loaded)
                 rec.VesselSnapshot = vesselNode;
 
             if (ghostSnapshotMode != GhostSnapshotMode.AliasVessel)
             {
-                ghostLoaded = TryLoadSnapshotSidecarIfPresent(ghostPath, rec.RecordingId, "ghost", out ghostNode);
-                if (ghostLoaded)
+                summary.GhostState = TryLoadSnapshotSidecarIfPresent(
+                    ghostPath, rec.RecordingId, "ghost", out ghostNode);
+                if (summary.GhostState == SnapshotSidecarLoadState.Loaded)
                     rec.GhostVisualSnapshot = ghostNode;
             }
 
@@ -4493,8 +4592,9 @@ namespace Parsek
                 }
                 else
                 {
-                    ghostLoaded = TryLoadSnapshotSidecarIfPresent(ghostPath, rec.RecordingId, "ghost", out ghostNode);
-                    if (ghostLoaded)
+                    summary.GhostState = TryLoadSnapshotSidecarIfPresent(
+                        ghostPath, rec.RecordingId, "ghost", out ghostNode);
+                    if (summary.GhostState == SnapshotSidecarLoadState.Loaded)
                     {
                         rec.GhostVisualSnapshot = ghostNode;
                         rec.VesselSnapshot = ghostNode.CreateCopy();
@@ -4514,8 +4614,12 @@ namespace Parsek
                 }
             }
 
-            // Backward compat and resilience: if no ghost snapshot, fall back to vessel snapshot.
-            if (rec.GhostVisualSnapshot == null && rec.VesselSnapshot != null)
+            // Backward compat and resilience: only a genuinely missing ghost sidecar may
+            // fall back to vessel visuals. Invalid/unsupported ghost files must surface as
+            // hydration failures so salvage can preserve the distinct snapshot.
+            if (summary.GhostState == SnapshotSidecarLoadState.Missing
+                && rec.GhostVisualSnapshot == null
+                && rec.VesselSnapshot != null)
             {
                 rec.GhostVisualSnapshot = rec.VesselSnapshot.CreateCopy();
 
@@ -4533,40 +4637,228 @@ namespace Parsek
                 ghostSnapshotMode = DetermineGhostSnapshotMode(rec);
 
             rec.GhostSnapshotMode = ghostSnapshotMode;
+            summary.FailureReason = DetermineSnapshotLoadFailureReason(summary, rec);
+            return summary;
         }
 
-        private static bool TryLoadSnapshotSidecarIfPresent(string path, string recordingId, string label, out ConfigNode node)
+        private static SnapshotSidecarLoadState TryLoadSnapshotSidecarIfPresent(
+            string path, string recordingId, string label, out ConfigNode node)
         {
             node = null;
             if (string.IsNullOrEmpty(path) || !File.Exists(path))
-                return false;
+                return SnapshotSidecarLoadState.Missing;
 
             SnapshotSidecarProbe probe;
             bool loadOk = TryLoadSnapshotSidecar(path, out node, out probe);
             if (loadOk && probe.Supported && node != null)
-                return true;
+                return SnapshotSidecarLoadState.Loaded;
 
-            if (SuppressLogging)
-                return false;
+            SnapshotSidecarLoadState state = probe.Success && !probe.Supported
+                ? SnapshotSidecarLoadState.Unsupported
+                : SnapshotSidecarLoadState.Invalid;
 
-            string fileName = Path.GetFileName(path);
-            if (probe.Success && !probe.Supported)
+            if (!SuppressLogging)
             {
-                ParsekLog.Warn("RecordingStore",
-                    $"LoadRecordingFiles: id={recordingId} unsupported {label} snapshot sidecar " +
-                    $"at {fileName} (version={probe.FormatVersion}, codec={probe.Codec})");
-            }
-            else
-            {
-                string reason = string.IsNullOrEmpty(probe.FailureReason)
-                    ? "unknown failure"
-                    : probe.FailureReason;
-                ParsekLog.Warn("RecordingStore",
-                    $"LoadRecordingFiles: id={recordingId} invalid {label} snapshot sidecar " +
-                    $"at {fileName} ({reason})");
+                string fileName = Path.GetFileName(path);
+                if (state == SnapshotSidecarLoadState.Unsupported)
+                {
+                    ParsekLog.Warn("RecordingStore",
+                        $"LoadRecordingFiles: id={recordingId} unsupported {label} snapshot sidecar " +
+                        $"at {fileName} (version={probe.FormatVersion}, codec={probe.Codec})");
+                }
+                else
+                {
+                    string reason = string.IsNullOrEmpty(probe.FailureReason)
+                        ? "unknown failure"
+                        : probe.FailureReason;
+                    ParsekLog.Warn("RecordingStore",
+                        $"LoadRecordingFiles: id={recordingId} invalid {label} snapshot sidecar " +
+                        $"at {fileName} ({reason})");
+                }
             }
 
-            return false;
+            return state;
+        }
+
+        private static string DetermineSnapshotLoadFailureReason(SnapshotSidecarLoadSummary summary, Recording rec)
+        {
+            if (rec == null)
+                return null;
+
+            if (rec.VesselSnapshot == null)
+            {
+                if (summary.VesselState == SnapshotSidecarLoadState.Invalid)
+                    return "snapshot-vessel-invalid";
+                if (summary.VesselState == SnapshotSidecarLoadState.Unsupported)
+                    return "snapshot-vessel-unsupported";
+            }
+
+            if (rec.GhostVisualSnapshot == null)
+            {
+                if (summary.GhostState == SnapshotSidecarLoadState.Invalid)
+                    return "snapshot-ghost-invalid";
+                if (summary.GhostState == SnapshotSidecarLoadState.Unsupported)
+                    return "snapshot-ghost-unsupported";
+            }
+
+            return null;
+        }
+
+        private static StagedSidecarChange StageSidecarWrite(Action<string> writer, string finalPath)
+        {
+            if (writer == null)
+                throw new ArgumentNullException(nameof(writer));
+            if (string.IsNullOrEmpty(finalPath))
+                throw new ArgumentException("Final path is required.", nameof(finalPath));
+
+            string dir = Path.GetDirectoryName(finalPath);
+            if (!string.IsNullOrEmpty(dir) && !Directory.Exists(dir))
+                Directory.CreateDirectory(dir);
+
+            string stagedPath = finalPath + ".stage." + Guid.NewGuid().ToString("N");
+            try
+            {
+                writer(stagedPath);
+            }
+            catch
+            {
+                DeleteTransientSidecarArtifact(stagedPath);
+                DeleteTransientSidecarArtifact(stagedPath + ".tmp");
+                throw;
+            }
+
+            return new StagedSidecarChange
+            {
+                FinalPath = finalPath,
+                StagedPath = stagedPath,
+                DeleteExisting = false
+            };
+        }
+
+        private static void ApplyStagedSidecarChanges(List<StagedSidecarChange> changes)
+        {
+            if (changes == null || changes.Count == 0)
+                return;
+
+            var committed = new List<CommittedSidecarChange>(changes.Count);
+            try
+            {
+                for (int i = 0; i < changes.Count; i++)
+                {
+                    StagedSidecarChange change = changes[i];
+                    var state = new CommittedSidecarChange
+                    {
+                        Change = change,
+                        HadOriginalFile = !string.IsNullOrEmpty(change.FinalPath) && File.Exists(change.FinalPath),
+                        BackupPath = string.IsNullOrEmpty(change.FinalPath)
+                            ? null
+                            : change.FinalPath + ".bak." + Guid.NewGuid().ToString("N")
+                    };
+
+                    if (change.DeleteExisting)
+                    {
+                        if (state.HadOriginalFile)
+                        {
+                            File.Move(change.FinalPath, state.BackupPath);
+                            state.Committed = true;
+                        }
+                    }
+                    else if (!string.IsNullOrEmpty(change.StagedPath))
+                    {
+                        if (state.HadOriginalFile)
+                            File.Replace(change.StagedPath, change.FinalPath, state.BackupPath, true);
+                        else
+                            File.Move(change.StagedPath, change.FinalPath);
+
+                        state.Committed = true;
+                    }
+
+                    committed.Add(state);
+                }
+            }
+            catch
+            {
+                for (int i = committed.Count - 1; i >= 0; i--)
+                    RestoreCommittedSidecarChange(committed[i]);
+                throw;
+            }
+            finally
+            {
+                CleanupStagedSidecarArtifacts(changes, committed: null);
+            }
+
+            CleanupCommittedSidecarBackups(committed);
+        }
+
+        private static void RestoreCommittedSidecarChange(CommittedSidecarChange state)
+        {
+            if (state == null || !state.Committed || state.Change == null || string.IsNullOrEmpty(state.Change.FinalPath))
+                return;
+
+            if (state.Change.DeleteExisting)
+            {
+                if (!state.HadOriginalFile || string.IsNullOrEmpty(state.BackupPath) || !File.Exists(state.BackupPath))
+                    return;
+
+                if (File.Exists(state.Change.FinalPath))
+                    File.Delete(state.Change.FinalPath);
+
+                File.Move(state.BackupPath, state.Change.FinalPath);
+                return;
+            }
+
+            if (state.HadOriginalFile)
+            {
+                if (string.IsNullOrEmpty(state.BackupPath) || !File.Exists(state.BackupPath))
+                    return;
+
+                if (File.Exists(state.Change.FinalPath))
+                    File.Replace(state.BackupPath, state.Change.FinalPath, null, true);
+                else
+                    File.Move(state.BackupPath, state.Change.FinalPath);
+                return;
+            }
+
+            if (File.Exists(state.Change.FinalPath))
+                File.Delete(state.Change.FinalPath);
+        }
+
+        private static void CleanupStagedSidecarArtifacts(
+            List<StagedSidecarChange> changes, List<CommittedSidecarChange> committed)
+        {
+            if (changes != null)
+            {
+                for (int i = 0; i < changes.Count; i++)
+                {
+                    string stagedPath = changes[i]?.StagedPath;
+                    DeleteTransientSidecarArtifact(stagedPath);
+                    DeleteTransientSidecarArtifact(
+                        string.IsNullOrEmpty(stagedPath) ? null : stagedPath + ".tmp");
+                }
+            }
+
+            if (committed != null)
+            {
+                for (int i = 0; i < committed.Count; i++)
+                {
+                    string backupPath = committed[i]?.BackupPath;
+                    DeleteTransientSidecarArtifact(backupPath);
+                }
+            }
+        }
+
+        private static void CleanupCommittedSidecarBackups(List<CommittedSidecarChange> committed)
+        {
+            CleanupStagedSidecarArtifacts(changes: null, committed: committed);
+        }
+
+        private static void DeleteTransientSidecarArtifact(string path)
+        {
+            if (string.IsNullOrEmpty(path) || !File.Exists(path))
+                return;
+
+            try { File.Delete(path); }
+            catch { }
         }
 
         #endregion

@@ -36,11 +36,13 @@ namespace Parsek
         private const string WrapperNodeName = "SNAPSHOT_SIDECAR";
         private const string FallbackNodeName = "SNAPSHOT";
         private const int HeaderByteCount = 4 + sizeof(int) + sizeof(byte) + sizeof(int) + sizeof(int) + sizeof(uint);
+        private const int MaxPayloadBytesLimit = 16 * 1024 * 1024;
 
         internal static int CurrentVersion => CurrentFormatVersion;
         internal static string CurrentEncodingLabel => "DeflateV1";
         internal static string CurrentCompressionLevelLabel => "Optimal";
         internal static CompressionLevel CurrentCompressionLevel => CompressionLevel.Optimal;
+        internal static int MaxPayloadBytes => MaxPayloadBytesLimit;
 
         internal static bool HasBinaryMagic(string path)
         {
@@ -172,7 +174,12 @@ namespace Parsek
                 throw new ArgumentNullException(nameof(node));
 
             byte[] payload = SerializeWrappedPayload(node);
+            if (payload.Length > MaxPayloadBytesLimit)
+                throw new InvalidOperationException($"Snapshot sidecar payload too large ({payload.Length} bytes)");
+
             byte[] compressedPayload = Compress(payload);
+            if (compressedPayload.Length > MaxPayloadBytesLimit)
+                throw new InvalidOperationException($"Compressed snapshot sidecar payload too large ({compressedPayload.Length} bytes)");
 
             using (var stream = new MemoryStream())
             using (var writer = new BinaryWriter(stream, Encoding.UTF8))
@@ -241,9 +248,21 @@ namespace Parsek
                 return false;
             }
 
+            if (uncompressedLength > MaxPayloadBytesLimit)
+            {
+                probe.FailureReason = $"uncompressed payload too large ({uncompressedLength} bytes)";
+                return false;
+            }
+
             if (compressedLength < 0)
             {
                 probe.FailureReason = "negative compressed length";
+                return false;
+            }
+
+            if (compressedLength > MaxPayloadBytesLimit)
+            {
+                probe.FailureReason = $"compressed payload too large ({compressedLength} bytes)";
                 return false;
             }
 
