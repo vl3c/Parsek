@@ -56,6 +56,7 @@ namespace Parsek
 
         internal bool IsWatchingGhost => watchedRecordingIndex >= 0;
         internal int WatchedRecordingIndex => watchedRecordingIndex;
+        internal long WatchedLoopCycleIndex => watchedOverlapCycleIndex;
         internal WatchCameraMode CurrentCameraMode => currentCameraMode;
 
         // === Camera event handlers for engine loop/overlap cycle transitions ===
@@ -154,20 +155,26 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Returns true if the ghost at index is within the camera cutoff distance,
-        /// or if it's an orbital recording (exempt from cutoff -- naturally travels far).
+        /// Returns true if the ghost at index is within the camera cutoff distance.
+        /// The cutoff applies uniformly to all ghosts.
         /// </summary>
         internal bool IsGhostWithinVisualRange(int index)
         {
             var ghostStates = host.Engine.ghostStates;
-            GhostPlaybackState s;
-            if (!ghostStates.TryGetValue(index, out s) || s == null) return false;
-            // Orbital recordings are always "in range" for watch purposes
-            var committed = RecordingStore.CommittedRecordings;
-            if (index >= 0 && index < committed.Count && committed[index].HasOrbitSegments)
-                return true;
-            float cutoffKm = ParsekSettings.Current?.ghostCameraCutoffKm ?? 300f;
+            GhostPlaybackState s = index == watchedRecordingIndex
+                ? FindWatchedGhostState()
+                : null;
+            if (s == null && (!ghostStates.TryGetValue(index, out s) || s == null))
+                return false;
+            float cutoffKm = DistanceThresholds.GhostFlight.GetWatchCameraCutoffKm(ParsekSettings.Current);
             return GhostPlaybackLogic.IsWithinWatchRange(s.lastDistance, cutoffKm);
+        }
+
+        internal bool IsWatchedGhostState(int recordingIndex, GhostPlaybackState state)
+        {
+            if (state == null) return false;
+            return recordingIndex == watchedRecordingIndex
+                && state.loopCycleIndex == watchedOverlapCycleIndex;
         }
 
         /// <summary>
@@ -269,18 +276,23 @@ namespace Parsek
             if (string.IsNullOrEmpty(ghostBody) || string.IsNullOrEmpty(activeBody) || ghostBody != activeBody)
                 return;
 
+            var rec = committed[index];
+
             // Distance guard: KSP rendering breaks when camera is far from the active vessel
             // (FloatingOrigin, terrain, atmosphere, skybox are all anchored to active vessel).
-            // Refuse watch if ghost is beyond the user's camera cutoff distance setting.
-            // Orbital ghosts are exempt -- they naturally travel far during ascent/orbit.
-            var rec = committed[index];
-            float maxWatchKm = ParsekSettings.Current?.ghostCameraCutoffKm ?? 300f;
-            if (FlightGlobals.ActiveVessel != null && gs.ghost != null && !rec.HasOrbitSegments)
+            // Refuse watch if ghost is at or beyond the user's camera cutoff distance setting.
+            float maxWatchKm = DistanceThresholds.GhostFlight.GetWatchCameraCutoffKm(ParsekSettings.Current);
+            if (FlightGlobals.ActiveVessel != null)
             {
-                float distKm = (float)(Vector3d.Distance(
-                    gs.ghost.transform.position, FlightGlobals.ActiveVessel.transform.position) / 1000.0);
-                if (distKm > maxWatchKm)
+                double distMeters = gs.lastDistance;
+                if (distMeters <= 0 && gs.ghost != null)
                 {
+                    distMeters = Vector3d.Distance(
+                        gs.ghost.transform.position, FlightGlobals.ActiveVessel.transform.position);
+                }
+                if (!GhostPlaybackLogic.IsWithinWatchRange(distMeters, maxWatchKm))
+                {
+                    float distKm = (float)(distMeters / 1000.0);
                     ParsekLog.Info("CameraFollow",
                         $"EnterWatchMode refused: ghost #{index} \"{committed[index].VesselName}\" " +
                         $"is {distKm.ToString("F0", CultureInfo.InvariantCulture)}km from active vessel (max {maxWatchKm.ToString("F0", CultureInfo.InvariantCulture)}km)");
@@ -503,8 +515,8 @@ namespace Parsek
         /// </summary>
         internal static bool ShouldAutoHorizonLock(bool hasAtmosphere, double atmosphereDepth, double altitude)
         {
-            double threshold = hasAtmosphere ? atmosphereDepth : 50000.0;
-            return altitude < threshold;
+            return DistanceThresholds.GhostFlight.ShouldAutoHorizonLock(
+                hasAtmosphere, atmosphereDepth, altitude);
         }
 
         /// <summary>

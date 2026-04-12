@@ -7,9 +7,9 @@ namespace Parsek
     internal static class ProximityRateSelector
     {
         // Distance thresholds (meters)
-        internal const double DockingRange = 200.0;
-        internal const double MidRange = 1000.0;
-        internal const double PhysicsBubble = 2300.0;
+        internal const double DockingRange = DistanceThresholds.BackgroundSampling.DockingRangeMeters;
+        internal const double MidRange = DistanceThresholds.BackgroundSampling.MidRangeMeters;
+        internal const double PhysicsBubble = DistanceThresholds.BackgroundSampling.MaxDistanceMeters;
 
         // Sample intervals (seconds between samples)
         internal const double DockingInterval = 0.2;       // 5 Hz

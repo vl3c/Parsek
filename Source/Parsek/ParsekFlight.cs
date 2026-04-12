@@ -424,6 +424,12 @@ namespace Parsek
 
         // Camera follow (watch mode) — forwarded from WatchModeController
         internal bool IsWatchingGhost => watchMode.IsWatchingGhost;
+        internal int WatchedRecordingIndexForDiagnostics => watchMode != null
+            ? watchMode.WatchedRecordingIndex
+            : -1;
+        internal long WatchedLoopCycleIndexForDiagnostics => watchMode != null
+            ? watchMode.WatchedLoopCycleIndex
+            : -1;
         internal int WatchedRecordingIndex => watchMode.WatchedRecordingIndex;
 
         #endregion
@@ -469,6 +475,9 @@ namespace Parsek
             engine = new GhostPlaybackEngine(this);
             engine.OnLoopCameraAction += watchMode.HandleLoopCameraAction;
             engine.OnOverlapCameraAction += watchMode.HandleOverlapCameraAction;
+            engine.IsWatchedGhostStateResolver = (recordingIndex, state) =>
+                watchMode != null && watchMode.IsWatchedGhostState(recordingIndex, state);
+            engine.ResolvePlaybackDistanceOverride = ResolvePlaybackDistanceForEngine;
             policy = new ParsekPlaybackPolicy(engine, this);
 
             // Clean up any orphaned toolbar from rapid scene transitions (e.g. rewind)
@@ -3842,17 +3851,6 @@ namespace Parsek
                     "OnFlightReady: no pending cleanup data — skipping CleanupOrphanedSpawnedVessels");
             }
 
-            // Apply ghost soft cap settings from persisted game parameters
-            var capSettings = ParsekSettings.Current;
-            if (capSettings != null)
-            {
-                GhostSoftCapManager.Enabled = capSettings.ghostCapEnabled;
-                GhostSoftCapManager.ApplySettings(
-                    capSettings.ghostCapZone1Reduce,
-                    capSettings.ghostCapZone1Despawn,
-                    capSettings.ghostCapZone2Simplify);
-            }
-
             // Seed lastLandedUT if vessel is already on the surface (save-loaded pad, Mun lander, etc.)
             var activeVessel = FlightGlobals.ActiveVessel;
             if (activeVessel != null &&
@@ -6792,7 +6790,7 @@ namespace Parsek
         }
 
         /// <summary>Physics bubble radius for spawn scoping (meters).</summary>
-        internal const double PhysicsBubbleSpawnRadius = 2300.0;
+        internal const double PhysicsBubbleSpawnRadius = DistanceThresholds.PhysicsBubbleMeters;
 
         /// <summary>
         /// Computes world position for a recording's endpoint using last trajectory point
@@ -7180,6 +7178,7 @@ namespace Parsek
                     ? (Vector3d)FlightGlobals.ActiveVessel.transform.position
                     : Vector3d.zero,
                 protectedIndex = watchMode.WatchedRecordingIndex,
+                protectedLoopCycleIndex = watchMode.WatchedLoopCycleIndex,
                 externalGhostCount = activeGhostChains?.Count ?? 0,
                 mapViewEnabled = MapView.MapIsEnabled,
                 autoLoopIntervalSeconds = ParsekSettings.Current?.autoLoopIntervalSeconds
@@ -7242,9 +7241,6 @@ namespace Parsek
         // ValidateWatchedGhostStillActive moved to WatchModeController
 
         // FlushDeferredSpawns moved to ParsekPlaybackPolicy (#132)
-
-        // EvaluateGhostSoftCaps removed (T25 Phase 9 — engine is primary path)
-
 
         private bool ShouldLoopPlayback(Recording rec) => GhostPlaybackEngine.ShouldLoopPlayback(rec);
 
@@ -7609,12 +7605,7 @@ namespace Parsek
         /// </summary>
         internal static double ComputeTerrainClearance(double distanceToVessel)
         {
-            if (distanceToVessel <= RenderingZoneManager.PhysicsBubbleRadius)
-                return 0.5;
-            double t = (distanceToVessel - RenderingZoneManager.PhysicsBubbleRadius)
-                / (RenderingZoneManager.VisualRangeRadius - RenderingZoneManager.PhysicsBubbleRadius);
-            if (t > 1.0) t = 1.0;
-            return 2.0 + t * 3.0;
+            return DistanceThresholds.GhostFlight.ComputeTerrainClearance(distanceToVessel);
         }
 
         /// <summary>
@@ -7775,7 +7766,9 @@ namespace Parsek
             double ghostDistance, int protectedIndex)
         {
             var zone = RenderingZoneManager.ClassifyDistance(ghostDistance);
-            bool isWatchedGhost = protectedIndex == recIdx;
+            bool isWatchedGhost = watchMode != null
+                ? watchMode.IsWatchedGhostState(recIdx, state)
+                : GhostPlaybackLogic.IsProtectedGhost(protectedIndex, recIdx);
 
             // Cache distance on state for use by IsGhostWithinVisualRange
             if (state != null)
@@ -7796,38 +7789,60 @@ namespace Parsek
             var (shouldHideMesh, shouldSkipPartEvents, shouldSkipPositioning) =
                 GhostPlaybackLogic.GetZoneRenderingPolicy(zone);
 
-            // Ghost camera cutoff: exit watch mode when the watched ghost exceeds the
-            // user-configured cutoff distance. Orbital ghosts are exempt — they naturally
-            // travel far from the active vessel during ascent/orbit.
+            // Ghost camera cutoff: exit watch mode when the watched ghost reaches or exceeds
+            // the user-configured cutoff distance. The cutoff applies uniformly to all ghosts.
+            bool forceWatchedFullFidelity = false;
             if (isWatchedGhost)
             {
-                float cutoffKm = ParsekSettings.Current?.ghostCameraCutoffKm ?? 300f;
-                bool hasOrbitalSegments = rec.HasOrbitSegments;
-                if (GhostPlaybackLogic.ShouldExitWatchForCutoff(ghostDistance, cutoffKm, hasOrbitalSegments))
+                float cutoffKm = DistanceThresholds.GhostFlight.GetWatchCameraCutoffKm(ParsekSettings.Current);
+                if (GhostPlaybackLogic.ShouldExitWatchForCutoff(ghostDistance, cutoffKm))
                 {
                     ParsekLog.Info("Zone",
                         $"Ghost #{recIdx} \"{rec.VesselName}\" exceeded ghost camera cutoff " +
-                        $"({ghostDistance.ToString("F0", CultureInfo.InvariantCulture)}m > " +
+                        $"({ghostDistance.ToString("F0", CultureInfo.InvariantCulture)}m >= " +
                         $"{(cutoffKm * 1000.0).ToString("F0", CultureInfo.InvariantCulture)}m) — exiting watch mode");
                     ExitWatchMode();
                     // Don't return — let zone rendering continue (ghost will be hidden if Beyond)
                 }
-                else if (shouldHideMesh)
+                else
                 {
-                    // Watched ghost in Beyond zone — exempt from hide (camera is at ghost)
-                    shouldHideMesh = false;
-                    string reason = hasOrbitalSegments ? "watched orbital ghost" : "watched";
-                    ParsekLog.VerboseRateLimited("Zone", $"watched-zone-exempt-{recIdx}",
-                        $"Ghost #{recIdx} \"{rec.VesselName}\" beyond visual range " +
-                        $"({ghostDistance.ToString("F0", CultureInfo.InvariantCulture)}m) but {reason} — exempt from zone hide",
-                        5.0);
+                    forceWatchedFullFidelity = GhostPlaybackLogic.ShouldForceWatchedFullFidelity(
+                        isWatchedGhost, ghostDistance, cutoffKm);
+                    (shouldHideMesh, shouldSkipPartEvents, shouldSkipPositioning) =
+                        GhostPlaybackLogic.ApplyWatchedFullFidelityOverride(
+                            shouldHideMesh, shouldSkipPartEvents, shouldSkipPositioning,
+                            forceWatchedFullFidelity);
+
+                    if (forceWatchedFullFidelity)
+                    {
+                        GhostPlaybackLogic.RestoreWatchedFullFidelityState(state);
+                        if (state != null && state.ghost != null && !state.ghost.activeSelf)
+                            state.ghost.SetActive(true);
+                        if (zone == RenderingZone.Beyond)
+                        {
+                            string reason = rec.HasOrbitSegments ? "watched orbital ghost" : "watched";
+                            ParsekLog.VerboseRateLimited("Zone", $"watched-zone-exempt-{recIdx}",
+                                $"Ghost #{recIdx} \"{rec.VesselName}\" beyond visual range " +
+                                $"({ghostDistance.ToString("F0", CultureInfo.InvariantCulture)}m) but {reason} — exempt from full-fidelity LOD suppression",
+                                5.0);
+                        }
+                    }
                 }
             }
 
+            var (distanceHideMesh, distanceSkipPartEvents, distanceSkipPositioning,
+                distanceSuppressVisualFx, distanceReduceFidelity) =
+                GhostPlaybackLogic.ApplyDistanceLodPolicy(
+                    shouldHideMesh, shouldSkipPartEvents, shouldSkipPositioning,
+                    ghostDistance, forceWatchedFullFidelity);
+            shouldHideMesh = distanceHideMesh;
+            shouldSkipPartEvents = distanceSkipPartEvents;
+            shouldSkipPositioning = distanceSkipPositioning;
+
             // #171: During warp, exempt orbital ghosts from zone hiding — they travel far
             // from the player and would complete playback while invisible.
-            if (shouldHideMesh && GhostPlaybackLogic.ShouldExemptFromZoneHide(
-                    TimeWarp.CurrentRate, rec.HasOrbitSegments))
+            if (GhostPlaybackLogic.ShouldApplyWarpZoneHideExemption(
+                    shouldHideMesh, zone, TimeWarp.CurrentRate, rec.HasOrbitSegments))
             {
                 shouldHideMesh = false;
                 ParsekLog.VerboseRateLimited("Zone", $"warp-zone-exempt-{recIdx}",
@@ -7842,10 +7857,16 @@ namespace Parsek
                 {
                     state.ghost.SetActive(false);
                     ParsekLog.VerboseRateLimited("Zone", "zone-hide",
-                        $"Ghost #{recIdx} \"{rec.VesselName}\" hidden: beyond visual range " +
+                        $"Ghost #{recIdx} \"{rec.VesselName}\" hidden by distance LOD " +
                         $"({ghostDistance.ToString("F0", CultureInfo.InvariantCulture)}m)");
                 }
-                return new ZoneRenderingResult { hiddenByZone = true, skipPartEvents = true };
+                return new ZoneRenderingResult
+                {
+                    hiddenByZone = true,
+                    skipPartEvents = true,
+                    suppressVisualFx = true,
+                    reduceFidelity = false
+                };
             }
 
             // Zone 1 or 2: ensure ghost is visible
@@ -7853,11 +7874,17 @@ namespace Parsek
             {
                 state.ghost.SetActive(true);
                 ParsekLog.VerboseRateLimited("Zone", "zone-show",
-                    $"Ghost #{recIdx} \"{rec.VesselName}\" re-shown: entered visual range " +
+                    $"Ghost #{recIdx} \"{rec.VesselName}\" re-shown: entered visible distance tier " +
                     $"({ghostDistance.ToString("F0", CultureInfo.InvariantCulture)}m)");
             }
 
-            return new ZoneRenderingResult { hiddenByZone = false, skipPartEvents = shouldSkipPartEvents };
+            return new ZoneRenderingResult
+            {
+                hiddenByZone = false,
+                skipPartEvents = shouldSkipPartEvents,
+                suppressVisualFx = distanceSuppressVisualFx,
+                reduceFidelity = distanceReduceFidelity
+            };
         }
 
         #endregion
@@ -8386,6 +8413,272 @@ namespace Parsek
         private readonly HashSet<long> loggedRelativeStart = new HashSet<long>();
         // Tracks which anchor-not-found warnings have been logged
         private readonly HashSet<long> loggedAnchorNotFound = new HashSet<long>();
+
+        double ResolvePlaybackDistanceForEngine(
+            int index, IPlaybackTrajectory traj, GhostPlaybackState state, double playbackUT)
+        {
+            if (FlightGlobals.ActiveVessel == null)
+                return double.NaN;
+
+            Vector3d worldPos;
+            if (TryResolvePlaybackWorldPosition(index, traj, state, playbackUT, out worldPos))
+            {
+                return Vector3d.Distance(
+                    worldPos,
+                    (Vector3d)FlightGlobals.ActiveVessel.transform.position);
+            }
+
+            if (state != null && state.ghost != null)
+            {
+                return Vector3d.Distance(
+                    (Vector3d)state.ghost.transform.position,
+                    (Vector3d)FlightGlobals.ActiveVessel.transform.position);
+            }
+
+            return double.NaN;
+        }
+
+        bool TryResolvePlaybackWorldPosition(
+            int index, IPlaybackTrajectory traj, GhostPlaybackState state,
+            double playbackUT, out Vector3d worldPos)
+        {
+            worldPos = Vector3d.zero;
+            if (traj == null)
+                return false;
+
+            if (traj.TrackSections != null && traj.TrackSections.Count > 0)
+            {
+                int sectionIdx = TrajectoryMath.FindTrackSectionForUT(traj.TrackSections, playbackUT);
+                if (sectionIdx >= 0)
+                {
+                    var section = traj.TrackSections[sectionIdx];
+                    if (section.referenceFrame == ReferenceFrame.Relative)
+                    {
+                        uint anchorPid = section.anchorVesselId != 0
+                            ? section.anchorVesselId
+                            : traj.LoopAnchorVesselId;
+                        if (anchorPid != 0 && TryResolveRelativeWorldPosition(
+                                section.frames ?? traj.Points, playbackUT, anchorPid, out worldPos))
+                        {
+                            return true;
+                        }
+                    }
+                }
+            }
+
+            bool surfaceSkip = TrajectoryMath.IsSurfaceAtUT(traj.TrackSections, playbackUT);
+            int cachedIndex = state != null ? state.playbackIndex : 0;
+            if (TryResolveInterpolatedWorldPosition(
+                    traj.Points, traj.OrbitSegments, ref cachedIndex,
+                    playbackUT, index * 10000, surfaceSkip, out worldPos))
+            {
+                return true;
+            }
+
+            if (traj.SurfacePos.HasValue)
+                return TryResolveSurfaceWorldPosition(traj.SurfacePos.Value, out worldPos);
+
+            return false;
+        }
+
+        bool TryResolveInterpolatedWorldPosition(
+            List<TrajectoryPoint> points,
+            List<OrbitSegment> segments,
+            ref int cachedIndex,
+            double targetUT,
+            int orbitCacheBase,
+            bool skipOrbitSegments,
+            out Vector3d worldPos)
+        {
+            if (!skipOrbitSegments
+                && TryResolveOrbitWorldPosition(segments, targetUT, orbitCacheBase, out worldPos))
+            {
+                return true;
+            }
+
+            return TryResolvePointWorldPosition(points, ref cachedIndex, targetUT, out worldPos);
+        }
+
+        bool TryResolvePointWorldPosition(
+            List<TrajectoryPoint> points,
+            ref int cachedIndex,
+            double targetUT,
+            out Vector3d worldPos)
+        {
+            worldPos = Vector3d.zero;
+            if (points == null || points.Count == 0)
+                return false;
+            if (points.Count == 1)
+                return TryResolveTrajectoryPointWorldPosition(points[0], out worldPos);
+
+            TrajectoryPoint before;
+            TrajectoryPoint after;
+            float t;
+            bool hasSegment = TrajectoryMath.InterpolatePoints(
+                points, ref cachedIndex, targetUT, out before, out after, out t);
+            if (!hasSegment)
+            {
+                return points != null
+                    && points.Count > 0
+                    && TryResolveTrajectoryPointWorldPosition(before, out worldPos);
+            }
+
+            if (t == 0f && before.ut == after.ut)
+                return TryResolveTrajectoryPointWorldPosition(before, out worldPos);
+
+            CelestialBody bodyBefore = FlightGlobals.Bodies?.Find(b => b.name == before.bodyName);
+            CelestialBody bodyAfter = FlightGlobals.Bodies?.Find(b => b.name == after.bodyName);
+            if (bodyBefore == null || bodyAfter == null)
+                return false;
+
+            Vector3d posBefore = bodyBefore.GetWorldSurfacePosition(
+                before.latitude, before.longitude, before.altitude);
+            Vector3d posAfter = bodyAfter.GetWorldSurfacePosition(
+                after.latitude, after.longitude, after.altitude);
+
+            worldPos = Vector3d.Lerp(posBefore, posAfter, t);
+            if (double.IsNaN(worldPos.x) || double.IsNaN(worldPos.y) || double.IsNaN(worldPos.z))
+                worldPos = posBefore;
+            return true;
+        }
+
+        bool TryResolveTrajectoryPointWorldPosition(TrajectoryPoint point, out Vector3d worldPos)
+        {
+            worldPos = Vector3d.zero;
+            CelestialBody body = FlightGlobals.Bodies?.Find(b => b.name == point.bodyName);
+            if (body == null)
+                return false;
+
+            worldPos = body.GetWorldSurfacePosition(
+                point.latitude, point.longitude, point.altitude);
+            return true;
+        }
+
+        bool TryResolveOrbitWorldPosition(
+            List<OrbitSegment> segments, double targetUT, int orbitCacheBase, out Vector3d worldPos)
+        {
+            worldPos = Vector3d.zero;
+            if (segments == null || segments.Count == 0)
+                return false;
+
+            for (int i = 0; i < segments.Count; i++)
+            {
+                OrbitSegment seg = segments[i];
+                if (targetUT < seg.startUT || targetUT > seg.endUT)
+                    continue;
+
+                CelestialBody body = FlightGlobals.Bodies?.Find(b => b.name == seg.bodyName);
+                if (body == null)
+                    return false;
+
+                double bodyRadius = body.Radius;
+                double absSma = System.Math.Abs(seg.semiMajorAxis);
+                if (absSma < bodyRadius * 0.9)
+                    return false;
+
+                Orbit orbit;
+                int cacheKey = orbitCacheBase + i;
+                if (!orbitCache.TryGetValue(cacheKey, out orbit))
+                {
+                    orbit = new Orbit(
+                        seg.inclination,
+                        seg.eccentricity,
+                        seg.semiMajorAxis,
+                        seg.longitudeOfAscendingNode,
+                        seg.argumentOfPeriapsis,
+                        seg.meanAnomalyAtEpoch,
+                        seg.epoch,
+                        body);
+                    orbitCache[cacheKey] = orbit;
+                }
+
+                worldPos = orbit.getPositionAtUT(targetUT);
+                if (body.GetAltitude(worldPos) < 0)
+                {
+                    double lat = body.GetLatitude(worldPos);
+                    double lon = body.GetLongitude(worldPos);
+                    worldPos = body.GetWorldSurfacePosition(lat, lon, 0);
+                }
+
+                return true;
+            }
+
+            return false;
+        }
+
+        bool TryResolveRelativeWorldPosition(
+            List<TrajectoryPoint> frames, double targetUT, uint anchorVesselId, out Vector3d worldPos)
+        {
+            worldPos = Vector3d.zero;
+            if (frames == null || frames.Count == 0)
+                return false;
+            if (frames.Count == 1)
+            {
+                return TryResolveRelativeOffsetWorldPosition(
+                    frames[0].latitude, frames[0].longitude, frames[0].altitude,
+                    anchorVesselId, out worldPos);
+            }
+
+            int cachedIndex = 0;
+            int indexBefore = TrajectoryMath.FindWaypointIndex(frames, ref cachedIndex, targetUT);
+            if (indexBefore < 0)
+                return TryResolveRelativeOffsetWorldPosition(
+                    frames[0].latitude, frames[0].longitude, frames[0].altitude,
+                    anchorVesselId, out worldPos);
+            if (indexBefore >= frames.Count - 1)
+            {
+                return TryResolveRelativeOffsetWorldPosition(
+                    frames[frames.Count - 1].latitude,
+                    frames[frames.Count - 1].longitude,
+                    frames[frames.Count - 1].altitude,
+                    anchorVesselId, out worldPos);
+            }
+
+            TrajectoryPoint before = frames[indexBefore];
+            TrajectoryPoint after = frames[indexBefore + 1];
+            double segmentDuration = after.ut - before.ut;
+            if (segmentDuration <= 0.0001)
+            {
+                return TryResolveRelativeOffsetWorldPosition(
+                    before.latitude, before.longitude, before.altitude,
+                    anchorVesselId, out worldPos);
+            }
+
+            float t = (float)((targetUT - before.ut) / segmentDuration);
+            t = Mathf.Clamp01(t);
+
+            double dx = before.latitude + (after.latitude - before.latitude) * t;
+            double dy = before.longitude + (after.longitude - before.longitude) * t;
+            double dz = before.altitude + (after.altitude - before.altitude) * t;
+            return TryResolveRelativeOffsetWorldPosition(dx, dy, dz, anchorVesselId, out worldPos);
+        }
+
+        bool TryResolveRelativeOffsetWorldPosition(
+            double dx, double dy, double dz, uint anchorVesselId, out Vector3d worldPos)
+        {
+            worldPos = Vector3d.zero;
+            Vessel anchor = FlightRecorder.FindVesselByPid(anchorVesselId);
+            if (anchor == null)
+                return false;
+
+            Vector3d anchorPos = anchor.GetWorldPos3D();
+            worldPos = TrajectoryMath.ApplyRelativeOffset(anchorPos, dx, dy, dz);
+            if (double.IsNaN(worldPos.x) || double.IsNaN(worldPos.y) || double.IsNaN(worldPos.z))
+                worldPos = anchorPos;
+            return true;
+        }
+
+        bool TryResolveSurfaceWorldPosition(SurfacePosition surfacePos, out Vector3d worldPos)
+        {
+            worldPos = Vector3d.zero;
+            CelestialBody body = FlightGlobals.Bodies?.Find(b => b.name == surfacePos.body);
+            if (body == null)
+                return false;
+
+            worldPos = body.GetWorldSurfacePosition(
+                surfacePos.latitude, surfacePos.longitude, surfacePos.altitude);
+            return true;
+        }
 
         /// <summary>
         /// Unified positioning method for loop ghosts. Selects between anchor-relative

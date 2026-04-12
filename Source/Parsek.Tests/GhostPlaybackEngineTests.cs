@@ -702,16 +702,13 @@ namespace Parsek.Tests
             // Populate all sets that get reindexed
             engine.loggedGhostEnter.Add(5);
             engine.loggedReshow.Add(5);
-            engine.softCapSuppressed.Add(5);
 
             engine.ReindexAfterDelete(2);
 
             Assert.Contains(4, engine.loggedGhostEnter);
             Assert.Contains(4, engine.loggedReshow);
-            Assert.Contains(4, engine.softCapSuppressed);
             Assert.DoesNotContain(5, engine.loggedGhostEnter);
             Assert.DoesNotContain(5, engine.loggedReshow);
-            Assert.DoesNotContain(5, engine.softCapSuppressed);
         }
 
         [Fact]

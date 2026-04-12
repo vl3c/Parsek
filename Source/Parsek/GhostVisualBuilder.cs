@@ -2242,8 +2242,8 @@ namespace Parsek
         private static void ConfigureGhostRolloff(AudioSource source)
         {
             source.rolloffMode = AudioRolloffMode.Logarithmic;
-            source.minDistance = 30f; // logarithmic: vol = minDist/dist, so 30/300m=10%, 30/1km=3%
-            source.maxDistance = 5000f;
+            source.minDistance = DistanceThresholds.GhostAudio.RolloffMinDistanceMeters;
+            source.maxDistance = DistanceThresholds.GhostAudio.RolloffMaxDistanceMeters;
         }
 
         #endregion

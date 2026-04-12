@@ -235,8 +235,6 @@ namespace Parsek.Tests
             h.snapshotRefreshSpikes = 3;
             h.spawnFailures = 2;
             h.spawnRetries = 1;
-            h.softCapActivations = 4;
-            h.softCapDespawns = 2;
             h.ghostBuildsThisSession = 7;
             h.ghostDestroysThisSession = 6;
 
@@ -247,8 +245,6 @@ namespace Parsek.Tests
             Assert.Equal(0, h.snapshotRefreshSpikes);
             Assert.Equal(0, h.spawnFailures);
             Assert.Equal(0, h.spawnRetries);
-            Assert.Equal(0, h.softCapActivations);
-            Assert.Equal(0, h.softCapDespawns);
             Assert.Equal(0, h.ghostBuildsThisSession);
             Assert.Equal(0, h.ghostDestroysThisSession);
             // gcGen0Baseline should be set to current GC count, not zero
@@ -522,6 +518,10 @@ namespace Parsek.Tests
                 estimatedMemoryBytes = 47200L * 136 + 312L * 88 + 18L * 120 + 46L * 8192,
                 activeGhostCount = 8,
                 activeOverlapGhostCount = 2,
+                fullGhostCount = 3,
+                reducedGhostCount = 2,
+                hiddenGhostCount = 3,
+                watchedOverrideGhostCount = 1,
                 zone1GhostCount = 3,
                 zone2GhostCount = 5,
                 ghostsWithEngineFx = 4,
@@ -559,7 +559,7 @@ namespace Parsek.Tests
             Assert.Contains("312 evts", report);
             Assert.Contains("18 segs", report);
             Assert.Contains("46 snapshots", report);
-            Assert.Contains("Ghosts: 8 primary + 2 overlap (z1:3 z2:5)", report);
+            Assert.Contains("Ghosts: 8 active (2 overlap), 3 full, 2 reduced, 3 hidden, 1 watched override", report);
             Assert.Contains("FX: engine 4 ghosts / 11 modules / 28 systems | RCS 3 ghosts / 7 modules / 19 systems", report);
             Assert.Contains("Playback budget:", report);
             Assert.Contains("ms avg", report);
@@ -768,7 +768,7 @@ namespace Parsek.Tests
             DiagnosticsComputation.ClockSource = () => 1000.0;
             var snap = DiagnosticsComputation.ComputeSnapshot(100.0);
 
-            Assert.Equal(5, snap.activeGhostCount);
+            Assert.Equal(7, snap.activeGhostCount);
             Assert.Equal(2, snap.activeOverlapGhostCount);
             Assert.Equal(3, snap.zone1GhostCount);
             Assert.Equal(1, snap.zone2GhostCount);
@@ -781,6 +781,113 @@ namespace Parsek.Tests
             Assert.Equal(5, snap.rcsModuleCount);
             Assert.Equal(11, snap.rcsParticleSystemCount);
             Assert.Equal(300, snap.lastPlaybackBudget.destroyMicroseconds);
+        }
+
+        [Fact]
+        public void PopulateGhostStateCounts_ClassifiesLiveLodTiers()
+        {
+            var primary = new Dictionary<int, GhostPlaybackState>
+            {
+                { 0, new GhostPlaybackState
+                    {
+                        currentZone = RenderingZone.Physics,
+                        lastDistance = 1000.0
+                    }
+                },
+                { 1, new GhostPlaybackState
+                    {
+                        currentZone = RenderingZone.Visual,
+                        lastDistance = 10000.0,
+                        distanceLodReduced = true
+                    }
+                },
+                { 2, new GhostPlaybackState
+                    {
+                        currentZone = RenderingZone.Visual,
+                        lastDistance = 60000.0
+                    }
+                },
+                { 3, new GhostPlaybackState
+                    {
+                        currentZone = RenderingZone.Beyond,
+                        lastDistance = 150000.0
+                    }
+                }
+            };
+
+            var overlap = new Dictionary<int, List<GhostPlaybackState>>
+            {
+                { 1, new List<GhostPlaybackState>
+                    {
+                        new GhostPlaybackState
+                        {
+                            currentZone = RenderingZone.Visual,
+                            lastDistance = 5000.0,
+                            distanceLodReduced = true
+                        }
+                    }
+                }
+            };
+
+            var snap = new MetricSnapshot();
+            DiagnosticsComputation.PopulateGhostStateCounts(
+                ref snap,
+                primary,
+                overlap,
+                watchedIndex: 3,
+                watchedLoopCycleIndex: -1,
+                fallbackActiveGhostCount: 99);
+
+            Assert.Equal(5, snap.activeGhostCount);
+            Assert.Equal(1, snap.activeOverlapGhostCount);
+            Assert.Equal(2, snap.fullGhostCount);
+            Assert.Equal(2, snap.reducedGhostCount);
+            Assert.Equal(1, snap.hiddenGhostCount);
+            Assert.Equal(1, snap.watchedOverrideGhostCount);
+        }
+
+        [Fact]
+        public void PopulateGhostStateCounts_WatchedOverlapCycleMismatch_DoesNotCountOverride()
+        {
+            var primary = new Dictionary<int, GhostPlaybackState>
+            {
+                { 3, new GhostPlaybackState
+                    {
+                        loopCycleIndex = 7,
+                        currentZone = RenderingZone.Beyond,
+                        lastDistance = 150000.0
+                    }
+                }
+            };
+
+            var overlap = new Dictionary<int, List<GhostPlaybackState>>
+            {
+                { 3, new List<GhostPlaybackState>
+                    {
+                        new GhostPlaybackState
+                        {
+                            loopCycleIndex = 6,
+                            currentZone = RenderingZone.Beyond,
+                            lastDistance = 150000.0
+                        }
+                    }
+                }
+            };
+
+            var snap = new MetricSnapshot();
+            DiagnosticsComputation.PopulateGhostStateCounts(
+                ref snap,
+                primary,
+                overlap,
+                watchedIndex: 3,
+                watchedLoopCycleIndex: 7,
+                fallbackActiveGhostCount: 99);
+
+            Assert.Equal(2, snap.activeGhostCount);
+            Assert.Equal(1, snap.activeOverlapGhostCount);
+            Assert.Equal(1, snap.fullGhostCount);
+            Assert.Equal(1, snap.hiddenGhostCount);
+            Assert.Equal(1, snap.watchedOverrideGhostCount);
         }
 
         [Fact]

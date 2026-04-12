@@ -83,11 +83,14 @@ namespace Parsek
         // Ghost state
         public int activeGhostCount;
         public int activeOverlapGhostCount;
+        public int fullGhostCount;
+        public int reducedGhostCount;
+        public int hiddenGhostCount;
+        public int watchedOverrideGhostCount;
         public int zone1GhostCount;
         public int zone2GhostCount;
         public int softCapReducedCount;
         public int softCapSimplifiedCount;
-        public bool softCapsEnabled;
         public int ghostsWithEngineFx;
         public int engineModuleCount;
         public int engineParticleSystemCount;
@@ -135,8 +138,6 @@ namespace Parsek
         public int snapshotRefreshSpikes;
         public int spawnFailures;
         public int spawnRetries;
-        public int softCapActivations;
-        public int softCapDespawns;
         public int ghostBuildsThisSession;
         public int ghostDestroysThisSession;
         public int gcGen0Baseline;
@@ -148,8 +149,6 @@ namespace Parsek
             snapshotRefreshSpikes = 0;
             spawnFailures = 0;
             spawnRetries = 0;
-            softCapActivations = 0;
-            softCapDespawns = 0;
             ghostBuildsThisSession = 0;
             ghostDestroysThisSession = 0;
             gcGen0Baseline = System.GC.CollectionCount(0);

@@ -126,8 +126,9 @@ namespace Parsek.InGameTests
             var snapshot = DiagnosticsComputation.ComputeSnapshot(ut);
             var expected = flight.Engine.CaptureGhostObservability();
 
-            InGameAssert.AreEqual(expected.activePrimaryGhostCount, snapshot.activeGhostCount,
-                $"Primary ghost count mismatch: expected {expected.activePrimaryGhostCount}, got {snapshot.activeGhostCount}");
+            int expectedActiveGhostCount = expected.activePrimaryGhostCount + expected.activeOverlapGhostCount;
+            InGameAssert.AreEqual(expectedActiveGhostCount, snapshot.activeGhostCount,
+                $"Active ghost count mismatch: expected {expectedActiveGhostCount}, got {snapshot.activeGhostCount}");
             InGameAssert.AreEqual(expected.activeOverlapGhostCount, snapshot.activeOverlapGhostCount,
                 $"Overlap ghost count mismatch: expected {expected.activeOverlapGhostCount}, got {snapshot.activeOverlapGhostCount}");
             InGameAssert.AreEqual(expected.zone1GhostCount, snapshot.zone1GhostCount,
@@ -152,7 +153,7 @@ namespace Parsek.InGameTests
                 $"RCS FX particle count mismatch: expected {expected.rcsParticleSystemCount}, got {snapshot.rcsParticleSystemCount}");
 
             ParsekLog.Verbose("TestRunner",
-                $"Diagnostics snapshot matches engine observability: primary={snapshot.activeGhostCount}, " +
+                $"Diagnostics snapshot matches engine observability: active={snapshot.activeGhostCount}, " +
                 $"overlap={snapshot.activeOverlapGhostCount}, engineFx={snapshot.ghostsWithEngineFx}, rcsFx={snapshot.ghostsWithRcsFx}");
         }
     }

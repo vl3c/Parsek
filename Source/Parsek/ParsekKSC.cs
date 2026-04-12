@@ -48,7 +48,7 @@ namespace Parsek
 
         // Distance culling: skip part events and deactivate ghosts beyond this range from camera.
         // 25km matches Kerbal Konstructs' default activation range for statics.
-        private const float GhostCullDistanceSq = 25000f * 25000f;
+        private const float GhostCullDistanceSq = DistanceThresholds.KscGhosts.CullDistanceSq;
 
         void Start()
         {
