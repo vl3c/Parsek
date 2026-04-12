@@ -24,9 +24,13 @@ pwsh -File scripts/inject-recordings.ps1 -SaveName "career hard" --clean-start
 
 # Force a rebuild (use when code changed and KSP is closed)
 pwsh -File scripts/inject-recordings.ps1 --clean-start --build
+
+# Also run diagnostics/observability unit tests before injecting
+pwsh -File scripts/inject-recordings.ps1 --clean-start --run-diagnostics-tests
 ```
 
 By default the script runs `dotnet test --no-build` to avoid plugin DLL copy-lock issues while KSP is running.
+With `--run-diagnostics-tests`, it first runs the focused diagnostics/observability unit tests and then performs the normal injection step.
 
 `InjectAllRecordings` is tagged `[Trait("Category", "Manual")]` since it mutates a real save file. It silently skips if the save file doesn't exist (CI-safe). To exclude it from automated runs:
 
@@ -44,6 +48,15 @@ Advanced: the manual injector test also respects environment variables:
 After injecting, launch KSP and load **test career**. The save UT is set to 17000 (KSC mid-morning, good lighting) during clean-start, and all recordings are scheduled starting 30s after that. Enter any flight and time warp forward to see ghosts appear.
 
 All crewed recordings use the **FleaRocket** craft (mk1pod.v2 + solidBooster.sm.v2 + parachuteSingle) unless noted otherwise.
+
+### Recommended validation after injection
+
+Open the **Parsek Test Runner** in KSP and run these categories in a FLIGHT scene:
+
+- `Diagnostics` — verifies the diagnostics snapshot/report and the new ghost/FX observability counters
+- `PartEventFX` — verifies that engine/RCS and other showcase FX built successfully on active ghosts
+
+The injected showcase save is the best manual verification bed because it includes the engine/RCS showcase rows along with the rest of the part-event coverage.
 
 ### 1. Pad Walk (+30 to +60) - Ghost EVA
 
