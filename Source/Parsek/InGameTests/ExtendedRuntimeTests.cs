@@ -719,15 +719,27 @@ namespace Parsek.InGameTests
         }
 
         [InGameTest(Category = "TreeIntegrity",
-            Description = "OwnedVesselPids don't collide between different trees")]
+            Description = "Unexpected OwnedVesselPids don't collide between different trees")]
         public void NoPidCollisionAcrossTrees()
         {
             var trees = RecordingStore.CommittedTrees;
             if (trees.Count < 2)
                 InGameAssert.Skip($"Only {trees.Count} tree(s) — need 2+ for cross-tree check");
 
+            var allowedSharedPids = new HashSet<uint>();
+            for (int i = 0; i < trees.Count; i++)
+            {
+                for (int j = 0; j < trees[i].BranchPoints.Count; j++)
+                {
+                    uint targetPid = trees[i].BranchPoints[j].TargetVesselPersistentId;
+                    if (targetPid != 0)
+                        allowedSharedPids.Add(targetPid);
+                }
+            }
+
             var globalPids = new Dictionary<uint, int>(); // pid -> tree index
             int collisions = 0;
+            int allowedCollisions = 0;
 
             for (int i = 0; i < trees.Count; i++)
             {
@@ -735,9 +747,18 @@ namespace Parsek.InGameTests
                 {
                     if (globalPids.TryGetValue(pid, out int otherTree))
                     {
-                        collisions++;
-                        ParsekLog.Warn("TestRunner",
-                            $"PID {pid} owned by both tree[{otherTree}] and tree[{i}]");
+                        if (allowedSharedPids.Contains(pid))
+                        {
+                            allowedCollisions++;
+                            ParsekLog.Verbose("TestRunner",
+                                $"Allowing shared PID {pid} across tree[{otherTree}] and tree[{i}] due to dock target handoff");
+                        }
+                        else
+                        {
+                            collisions++;
+                            ParsekLog.Warn("TestRunner",
+                                $"PID {pid} owned by both tree[{otherTree}] and tree[{i}]");
+                        }
                     }
                     else
                     {
@@ -746,8 +767,10 @@ namespace Parsek.InGameTests
                 }
             }
 
+            ParsekLog.Verbose("TestRunner",
+                $"Cross-tree PID ownership: unexpected={collisions}, allowedDockTargets={allowedCollisions}");
             InGameAssert.AreEqual(0, collisions,
-                $"{collisions} vessel PID(s) claimed by multiple trees");
+                $"{collisions} unexpected vessel PID(s) claimed by multiple trees");
         }
 
         [InGameTest(Category = "TreeIntegrity",
