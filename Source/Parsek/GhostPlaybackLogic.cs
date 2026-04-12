@@ -2700,39 +2700,9 @@ namespace Parsek
         #region Zone-Based Rendering
 
         /// <summary>
-        /// Determines whether a ghost mesh should be hidden because it entered Zone 3 (Beyond).
-        /// Returns true if the ghost is active and in Beyond zone, meaning it should be hidden.
-        /// </summary>
-        internal static bool ShouldHideGhostForZone(bool ghostIsActive, RenderingZone zone)
-        {
-            return ghostIsActive && zone == RenderingZone.Beyond;
-        }
-
-        /// <summary>
-        /// Determines whether watch mode should be exited because the watched ghost entered Zone 3.
-        /// Returns true if the ghost being watched moved beyond visual range.
-        /// </summary>
-        internal static bool ShouldExitWatchModeForZone(
-            int watchedRecordingIndex, int currentRecordingIndex, RenderingZone zone)
-        {
-            return watchedRecordingIndex == currentRecordingIndex && zone == RenderingZone.Beyond;
-        }
-
-        /// <summary>
-        /// Determines whether part events should be applied for the given zone.
-        /// Part events fire in Physics and Visual zones — structural changes (decoupling,
-        /// fairing jettison, destruction) must be applied even when the ghost is distant.
-        /// Only Beyond zone skips part events (ghost mesh is hidden anyway).
-        /// </summary>
-        internal static bool ShouldApplyPartEventsForZone(RenderingZone zone)
-        {
-            return zone != RenderingZone.Beyond;
-        }
-
-        /// <summary>
-        /// Determines the rendering actions to take when a ghost transitions between zones.
-        /// Returns (shouldHideMesh, shouldSkipPartEvents, shouldSkipPositioning).
-        /// </summary>
+         /// Determines the rendering actions to take when a ghost transitions between zones.
+         /// Returns (shouldHideMesh, shouldSkipPartEvents, shouldSkipPositioning).
+         /// </summary>
         internal static (bool shouldHideMesh, bool shouldSkipPartEvents, bool shouldSkipPositioning)
             GetZoneRenderingPolicy(RenderingZone zone)
         {
@@ -2746,6 +2716,31 @@ namespace Parsek
                 default:
                     return (false, false, false);
             }
+        }
+
+        /// <summary>
+        /// Returns true when the watched ghost should ignore distance-based LOD suppression
+        /// and stay at full fidelity for the current frame.
+        /// </summary>
+        internal static bool ShouldForceWatchedFullFidelity(
+            bool isWatchedGhost, double ghostDistanceMeters, float cutoffKm)
+        {
+            return isWatchedGhost && !ShouldExitWatchForCutoff(ghostDistanceMeters, cutoffKm);
+        }
+
+        /// <summary>
+        /// Applies the watched-ghost full-fidelity override to a zone policy tuple.
+        /// Distance-based LOD should not suppress a watched ghost that is still within cutoff.
+        /// </summary>
+        internal static (bool shouldHideMesh, bool shouldSkipPartEvents, bool shouldSkipPositioning)
+            ApplyWatchedFullFidelityOverride(
+                bool shouldHideMesh, bool shouldSkipPartEvents, bool shouldSkipPositioning,
+                bool forceFullFidelity)
+        {
+            if (!forceFullFidelity)
+                return (shouldHideMesh, shouldSkipPartEvents, shouldSkipPositioning);
+
+            return (false, false, false);
         }
 
         /// <summary>
@@ -2828,6 +2823,34 @@ namespace Parsek
                 state.fidelityDisabledRenderers = null;
             }
             state.fidelityReduced = false;
+        }
+
+        /// <summary>
+        /// Restores any runtime suppression state that would prevent a watched ghost from
+        /// rendering at full fidelity. Used when watch mode overrides distance-based LOD.
+        /// </summary>
+        internal static void RestoreWatchedFullFidelityState(GhostPlaybackState state)
+        {
+            if (state == null) return;
+
+            if (state.fidelityReduced)
+                RestoreGhostFidelity(state);
+
+            if (state.simplified)
+            {
+                if (state.ghost != null && !state.ghost.activeSelf)
+                    state.ghost.SetActive(true);
+                state.simplified = false;
+            }
+        }
+
+        /// <summary>
+        /// Protected ghosts (currently watched) should not receive soft-cap reductions,
+        /// simplification, or despawn actions.
+        /// </summary>
+        internal static bool ShouldProtectGhostFromSoftCap(int protectedIndex, int currentIndex)
+        {
+            return protectedIndex == currentIndex;
         }
 
         #endregion

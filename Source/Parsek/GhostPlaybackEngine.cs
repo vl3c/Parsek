@@ -551,11 +551,17 @@ namespace Parsek
                         string vesselName = capIdx >= 0 && capIdx < trajectories.Count
                             ? trajectories[capIdx].VesselName : "?";
 
+                        if (GhostPlaybackLogic.ShouldProtectGhostFromSoftCap(ctx.protectedIndex, capIdx))
+                        {
+                            GhostPlaybackState protectedState;
+                            if (ghostStates.TryGetValue(capIdx, out protectedState))
+                                GhostPlaybackLogic.RestoreWatchedFullFidelityState(protectedState);
+                            continue;
+                        }
+
                         switch (action)
                         {
                             case GhostCapAction.Despawn:
-                                // Don't despawn the protected (watched) ghost
-                                if (capIdx == ctx.protectedIndex) break;
                                 ParsekLog.Info("Engine",
                                     $"SoftCap: despawning ghost #{capIdx} \"{vesselName}\"");
                                 IPlaybackTrajectory capTraj = capIdx >= 0 && capIdx < trajectories.Count
@@ -783,7 +789,9 @@ namespace Parsek
             if (zoneResult.hiddenByZone)
                 return;
 
-            bool skipLoopPartEvents = zoneResult.skipPartEvents || loopSimplified;
+            bool forceWatchedFullFidelity = GhostPlaybackLogic.ShouldProtectGhostFromSoftCap(
+                ctx.protectedIndex, index);
+            bool skipLoopPartEvents = zoneResult.skipPartEvents || (loopSimplified && !forceWatchedFullFidelity);
 
             // Pause window: position at end, hide parts, zero velocity for reentry decay
             if (inPauseWindow)

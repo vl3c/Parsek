@@ -167,82 +167,54 @@ namespace Parsek.Tests
 
         #endregion
 
-        #region Should Hide Ghost / Exit Watch Mode
+        #region Watched Full-Fidelity Override
 
         [Fact]
-        public void ShouldHideGhostForZone_ActiveAndBeyond_ReturnsTrue()
+        public void ShouldForceWatchedFullFidelity_WatchedWithinCutoff_ReturnsTrue()
         {
-            Assert.True(GhostPlaybackLogic.ShouldHideGhostForZone(true, RenderingZone.Beyond));
+            Assert.True(GhostPlaybackLogic.ShouldForceWatchedFullFidelity(
+                isWatchedGhost: true, ghostDistanceMeters: 100000, cutoffKm: 300));
         }
 
         [Fact]
-        public void ShouldHideGhostForZone_ActiveAndVisual_ReturnsFalse()
+        public void ShouldForceWatchedFullFidelity_AtCutoff_ReturnsFalse()
         {
-            Assert.False(GhostPlaybackLogic.ShouldHideGhostForZone(true, RenderingZone.Visual));
+            Assert.False(GhostPlaybackLogic.ShouldForceWatchedFullFidelity(
+                isWatchedGhost: true, ghostDistanceMeters: 300000, cutoffKm: 300));
         }
 
         [Fact]
-        public void ShouldHideGhostForZone_ActiveAndPhysics_ReturnsFalse()
+        public void ShouldForceWatchedFullFidelity_NotWatched_ReturnsFalse()
         {
-            Assert.False(GhostPlaybackLogic.ShouldHideGhostForZone(true, RenderingZone.Physics));
+            Assert.False(GhostPlaybackLogic.ShouldForceWatchedFullFidelity(
+                isWatchedGhost: false, ghostDistanceMeters: 100000, cutoffKm: 300));
         }
 
         [Fact]
-        public void ShouldHideGhostForZone_InactiveAndBeyond_ReturnsFalse()
+        public void ApplyWatchedFullFidelityOverride_Forced_ClearsAllSuppression()
         {
-            Assert.False(GhostPlaybackLogic.ShouldHideGhostForZone(false, RenderingZone.Beyond));
+            var (shouldHide, skipPartEvents, skipPositioning) =
+                GhostPlaybackLogic.ApplyWatchedFullFidelityOverride(
+                    shouldHideMesh: true, shouldSkipPartEvents: true, shouldSkipPositioning: true,
+                    forceFullFidelity: true);
+
+            Assert.False(shouldHide);
+            Assert.False(skipPartEvents);
+            Assert.False(skipPositioning);
         }
 
         [Fact]
-        public void ShouldExitWatchModeForZone_WatchingAndBeyond_ReturnsTrue()
+        public void ShouldProtectGhostFromSoftCap_WatchedGhost_ReturnsTrue()
         {
-            Assert.True(GhostPlaybackLogic.ShouldExitWatchModeForZone(
-                watchedRecordingIndex: 5, currentRecordingIndex: 5, zone: RenderingZone.Beyond));
+            Assert.True(GhostPlaybackLogic.ShouldProtectGhostFromSoftCap(
+                protectedIndex: 5, currentIndex: 5));
         }
 
         [Fact]
-        public void ShouldExitWatchModeForZone_WatchingDifferentGhost_ReturnsFalse()
+        public void ShouldProtectGhostFromSoftCap_UnwatchedGhost_ReturnsFalse()
         {
-            Assert.False(GhostPlaybackLogic.ShouldExitWatchModeForZone(
-                watchedRecordingIndex: 3, currentRecordingIndex: 5, zone: RenderingZone.Beyond));
-        }
-
-        [Fact]
-        public void ShouldExitWatchModeForZone_NotWatching_ReturnsFalse()
-        {
-            Assert.False(GhostPlaybackLogic.ShouldExitWatchModeForZone(
-                watchedRecordingIndex: -1, currentRecordingIndex: 5, zone: RenderingZone.Beyond));
-        }
-
-        [Fact]
-        public void ShouldExitWatchModeForZone_WatchingButNotBeyond_ReturnsFalse()
-        {
-            Assert.False(GhostPlaybackLogic.ShouldExitWatchModeForZone(
-                watchedRecordingIndex: 5, currentRecordingIndex: 5, zone: RenderingZone.Visual));
-            Assert.False(GhostPlaybackLogic.ShouldExitWatchModeForZone(
-                watchedRecordingIndex: 5, currentRecordingIndex: 5, zone: RenderingZone.Physics));
-        }
-
-        #endregion
-
-        #region Part Event Gating
-
-        [Fact]
-        public void ShouldApplyPartEventsForZone_Physics_ReturnsTrue()
-        {
-            Assert.True(GhostPlaybackLogic.ShouldApplyPartEventsForZone(RenderingZone.Physics));
-        }
-
-        [Fact]
-        public void ShouldApplyPartEventsForZone_Visual_ReturnsTrue()
-        {
-            Assert.True(GhostPlaybackLogic.ShouldApplyPartEventsForZone(RenderingZone.Visual));
-        }
-
-        [Fact]
-        public void ShouldApplyPartEventsForZone_Beyond_ReturnsFalse()
-        {
-            Assert.False(GhostPlaybackLogic.ShouldApplyPartEventsForZone(RenderingZone.Beyond));
+            Assert.False(GhostPlaybackLogic.ShouldProtectGhostFromSoftCap(
+                protectedIndex: 5, currentIndex: 3));
         }
 
         #endregion
