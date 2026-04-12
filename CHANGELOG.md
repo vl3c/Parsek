@@ -32,6 +32,7 @@ All notable changes to Parsek are documented here.
 - Watch-mode observability now logs structured camera-focus summaries and W-button eligibility context, so playback focus and watch-button enable/disable state can be correlated from the same log bundle.
 - Watching a ghost now keeps its loop-synced breakup debris visible even beyond the normal distance-hiding tier, so long-range booster/debris playback no longer disappears just because the camera stayed on the parent vessel.
 - Watched-debris protection now follows same-tree ancestry through branch points as well as loop-sync parents, so secondary breakup fragments inherit the watched ghost's visibility protection even when they are no longer directly loop-synced.
+- Playback-driven automatic watch exits now retain same-lineage debris visibility through the last pending descendant debris playback across hold-expiry, high-warp hide, cutoff, policy, and target-loss exits, and failed replacement watch starts no longer clear that retained protection before a new watch session is actually established.
 - Zero-throttle breakup debris now emits `EngineShutdown` sentinels instead of looking like a zero-event orphan-engine recording, so replay no longer auto-starts max-throttle booster FX/audio for staged-off debris.
 - The old warp-only orbital exemption no longer punches through the new `50-120 km` hidden-mesh tier. Orbital ghosts still get the legacy exemption only in the true `Beyond` zone.
 - Entering watch mode now uses the tracked playback distance first, avoiding false "in range" decisions from a hidden ghost's stale transform.
@@ -44,6 +45,7 @@ All notable changes to Parsek are documented here.
 - Added regression coverage for exact watched-cycle protection, hidden-tier warp exemption, watched-override diagnostics counting, and the new frame-context watch-cycle field.
 - Added regression coverage for hidden-tier shell-state handling so unloaded ghosts keep their logical loop identity and rebuild paths preserve playback bookkeeping.
 - Added regression coverage for watched-lineage debris visibility, so watch-mode protection now stays pinned to the intended same-tree same-vessel debris path instead of only the exact watched recording row.
+- Added archived-topology regression coverage for issue `#316`, including missing loop-sync parents after chain splitting, retained watched-lineage protection through late debris end times, and the current non-retarget-to-debris watch-target rule.
 - Added regression coverage for zero-throttle engine seeding vs. orphan-engine auto-start, so staged-off debris boosters are pinned against replaying as visually full-throttle.
 - Added regression coverage for EVA branch surface seeding and atmospheric/splashed EVA environment classification, covering the queued background override path and the near-ground / sea-level EVA surface heuristics behind `#326`.
 - Diagnostics now report live engine/RCS FX counts plus last-frame ghost spawn/destroy timings, giving a measurement-first view of FX cost without changing FX behavior.

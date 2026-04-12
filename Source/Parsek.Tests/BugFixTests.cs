@@ -1410,6 +1410,45 @@ namespace Parsek.Tests
                 recs[0], recs, new List<RecordingTree> { tree }, idx => true);
             Assert.Equal(2, result);
         }
+
+        [Fact]
+        public void Issue316_ArchivedSameTreeDebrisOutsideWatchedBranch_IsNotAutoFollowTarget()
+        {
+            var watchBranch = new BranchPoint
+            {
+                Id = "bp-watch-end",
+                ChildRecordingIds = new List<string> { "future-main-a", "future-main-b" }
+            };
+            var earlierBreakup = new BranchPoint
+            {
+                Id = "bp-earlier-breakup",
+                ParentRecordingIds = new List<string> { "root" },
+                ChildRecordingIds = new List<string> { "active-debris" }
+            };
+            var tree = new RecordingTree
+            {
+                Id = "t1",
+                TreeName = "Issue316",
+                BranchPoints = new List<BranchPoint> { watchBranch, earlierBreakup }
+            };
+
+            var recs = new List<Recording>
+            {
+                MakeRec("root", vesselPid: 100, treeId: "t1", chainId: "c1", chainIndex: 0),
+                MakeRec("mid", vesselPid: 100, treeId: "t1", chainId: "c1", chainIndex: 1),
+                MakeRec("watched", vesselPid: 100, treeId: "t1", chainId: "c1", chainIndex: 2, childBpId: "bp-watch-end"),
+                MakeRec("future-main-a", vesselPid: 100, treeId: "t1"),
+                MakeRec("future-main-b", vesselPid: 100, treeId: "t1"),
+                MakeRec("active-debris", vesselPid: 200, treeId: "t1"),
+            };
+            recs[5].IsDebris = true;
+            recs[5].ParentBranchPointId = "bp-earlier-breakup";
+
+            int result = GhostPlaybackLogic.FindNextWatchTarget(
+                recs[2], recs, new List<RecordingTree> { tree }, idx => idx == 5);
+
+            Assert.Equal(-1, result);
+        }
     }
 
     #endregion
