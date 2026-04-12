@@ -1434,6 +1434,86 @@ namespace Parsek.InGameTests
                     $"(expected={savedReplacements.Count}, actual={CrewReservationManager.CrewReplacements.Count})");
             }
         }
+
+        [InGameTest(Category = "CrewReservation", Scene = GameScenes.SPACECENTER,
+            Description = "#308 CrewAutoAssignPatch.ApplyCrewAssignmentSwaps replaces reserved crew with stand-ins in a VesselCrewManifest")]
+        public void CrewAutoAssignPatch_SwapsReservedCrew()
+        {
+            // Construct a synthetic VesselCrewManifest with one command pod and
+            // a reserved kerbal pre-assigned (simulating KSP's DefaultCrewForVessel
+            // auto-assign). Then call the extracted ApplyCrewAssignmentSwaps logic
+            // and verify the reserved name was replaced with the registered stand-in.
+
+            var replacements = CrewReservationManager.CrewReplacements;
+            if (replacements.Count == 0)
+            {
+                InGameAssert.Skip("needs at least one active crew reservation to exercise the swap path");
+                return;
+            }
+
+            // Pick a reservation whose stand-in is Available (so the patch can place it).
+            var roster = HighLogic.CurrentGame?.CrewRoster;
+            if (roster == null)
+            {
+                InGameAssert.Skip("No crew roster");
+                return;
+            }
+            string reservedName = null;
+            string standInName = null;
+            foreach (var kvp in replacements)
+            {
+                var pcmStandIn = roster[kvp.Value];
+                if (pcmStandIn != null && pcmStandIn.rosterStatus == ProtoCrewMember.RosterStatus.Available)
+                {
+                    reservedName = kvp.Key;
+                    standInName = kvp.Value;
+                    break;
+                }
+            }
+            if (reservedName == null)
+            {
+                InGameAssert.Skip("no active reservation with an Available stand-in in the roster");
+                return;
+            }
+
+            // Resolve a stock command pod with at least one crew seat. Try v2 first,
+            // then fall back to the original Mk1.
+            AvailablePart pod = PartLoader.getPartInfoByName("mk1pod.v2")
+                ?? PartLoader.getPartInfoByName("mk1pod")
+                ?? PartLoader.getPartInfoByName("Mark1Cockpit");
+            if (pod == null || pod.partPrefab == null || pod.partPrefab.CrewCapacity == 0)
+            {
+                InGameAssert.Skip("no stock crew-capable pod found in PartLoader");
+                return;
+            }
+
+            // Build a minimal SHIP ConfigNode and let VesselCrewManifest.FromConfigNode
+            // construct the manifest. "part" value is "name_id".
+            var shipNode = new ConfigNode("SHIP");
+            var partNode = shipNode.AddNode("PART");
+            partNode.AddValue("part", pod.name + "_12345");
+
+            VesselCrewManifest vcm = VesselCrewManifest.FromConfigNode(shipNode);
+            InGameAssert.IsNotNull(vcm, "FromConfigNode should return a manifest");
+            InGameAssert.AreEqual(1, vcm.PartManifests.Count, "manifest should have exactly one part");
+
+            var pcm = vcm.PartManifests[0];
+            InGameAssert.IsTrue(pcm.partCrew.Length >= 1,
+                $"test pod must have at least one seat (got {pcm.partCrew.Length})");
+
+            // Pre-assign the reserved kerbal into seat 0 (simulating auto-assign).
+            pcm.partCrew[0] = reservedName;
+
+            // Fire the patch logic.
+            Parsek.Patches.CrewAutoAssignPatch.ApplyCrewAssignmentSwaps(vcm);
+
+            // Verify the reserved kerbal is no longer in the seat.
+            InGameAssert.AreNotEqual(reservedName, pcm.partCrew[0],
+                $"Reserved '{reservedName}' should have been removed from seat 0");
+            // Stand-in should have been placed (Available + not already in manifest).
+            InGameAssert.AreEqual(standInName, pcm.partCrew[0],
+                $"Stand-in '{standInName}' should have been placed in seat 0 (got '{pcm.partCrew[0]}')");
+        }
     }
 
     /// <summary>
@@ -1661,7 +1741,7 @@ namespace Parsek.InGameTests
         }
 
         [InGameTest(Category = "TerrainClearance", Scene = GameScenes.FLIGHT,
-            Description = "Recorded terrain: ghost sits at natural clearance above current terrain (#282)")]
+            Description = "Recorded surface: ghost altitude is preserved when above the PQS safety floor (#309)")]
         public void LandedGhostClearance_RecordedTerrain_PreservesClearance()
         {
             var activeVessel = FlightGlobals.ActiveVessel;
@@ -1676,11 +1756,12 @@ namespace Parsek.InGameTests
             double lon = activeVessel.longitude;
             double currentTerrain = body.TerrainAltitude(lat, lon, true);
 
-            // Simulate: at recording time, terrain was 100m, vessel at 100.8m (0.8m clearance).
-            // Current terrain may differ — clearance should be preserved.
-            double recordedTerrain = 100.0;
-            double recordedAlt = 100.8;
-            double expectedClearance = recordedAlt - recordedTerrain; // 0.8m
+            // #309 new semantics: the recorded altitude is the truth. Position the
+            // recorded altitude well above the current PQS safety floor so it's
+            // preserved exactly. Simulates a vessel recorded on a mesh object
+            // (Island Airfield) where alt is far above the raw PQS surface.
+            double recordedTerrain = currentTerrain + 19.0; // mesh-object offset like the airfield
+            double recordedAlt = recordedTerrain + 1.0;     // 1m clearance above the mesh
 
             var point = new Parsek.TrajectoryPoint
             {
@@ -1694,20 +1775,12 @@ namespace Parsek.InGameTests
             };
 
             var clamped = ParsekFlight.ApplyLandedGhostClearance(
-                point, index: 282, vesselName: "Bug282Terrain", recordedTerrainHeight: recordedTerrain);
+                point, index: 309, vesselName: "Bug309MeshObject", recordedTerrainHeight: recordedTerrain);
 
-            double expectedAlt = currentTerrain + expectedClearance;
-            // Safety floor: at least terrain + 0.5m
-            if (expectedAlt < currentTerrain + 0.5)
-                expectedAlt = currentTerrain + 0.5;
-
-            InGameAssert.IsGreaterThan(clamped.altitude, expectedAlt - 0.01,
-                $"With recorded terrain, ghost should be at ~{expectedAlt:F2} " +
-                $"(currentTerrain={currentTerrain:F2} + clearance={expectedClearance:F1}) " +
-                $"(got {clamped.altitude:F2})");
-            InGameAssert.IsLessThan(clamped.altitude, expectedAlt + 0.01,
-                $"Ghost should not be significantly above expected alt {expectedAlt:F2} " +
-                $"(got {clamped.altitude:F2})");
+            // Recorded alt is well above (currentTerrain + 0.5m floor) → preserved exactly.
+            InGameAssert.AreEqual(recordedAlt, clamped.altitude,
+                $"Recorded altitude ({recordedAlt:F2}) above PQS safety floor " +
+                $"({currentTerrain + 0.5:F2}) must be preserved exactly (got {clamped.altitude:F2})");
         }
 
         [InGameTest(Category = "TerrainClearance", Scene = GameScenes.FLIGHT,
@@ -1746,7 +1819,7 @@ namespace Parsek.InGameTests
         }
 
         [InGameTest(Category = "TerrainClearance", Scene = GameScenes.FLIGHT,
-            Description = "Recorded-terrain no-op: point already above corrected altitude is unchanged (#282)")]
+            Description = "Recorded-surface no-op: high altitude (e.g. mid-orbit reentry sample) is unchanged (#309)")]
         public void LandedGhostClearance_RecordedTerrain_AlreadyClear_Unchanged()
         {
             var activeVessel = FlightGlobals.ActiveVessel;
@@ -1761,15 +1834,11 @@ namespace Parsek.InGameTests
             double lon = activeVessel.longitude;
             double currentTerrain = body.TerrainAltitude(lat, lon, true);
 
-            // Simulate: at recording time terrain was HIGHER than current (e.g., terrain
-            // erosion between sessions). Vessel had 5m clearance above recorded terrain.
-            // ComputeCorrectedAltitude formula: corrected = currentTerrain + (alt - recTerrain).
-            // No-op path requires recTerrain >= currentTerrain so corrected <= alt.
+            // #309 new semantics: as long as the recorded altitude is above the
+            // current PQS terrain + 0.5m safety floor, it is preserved unchanged.
+            // The old terrain-relative correction formula has been removed.
             double recordedTerrain = currentTerrain + 200.0;
-            double clearance = 5.0;
-            double recordedAlt = recordedTerrain + clearance;
-            double correctedTarget = currentTerrain + clearance;
-            // recordedAlt > correctedTarget because recordedTerrain > currentTerrain
+            double recordedAlt = recordedTerrain + 5.0;
 
             var point = new Parsek.TrajectoryPoint
             {
@@ -1783,15 +1852,15 @@ namespace Parsek.InGameTests
             };
 
             var clamped = ParsekFlight.ApplyLandedGhostClearance(
-                point, index: 282, vesselName: "Bug282RecNoOp", recordedTerrainHeight: recordedTerrain);
+                point, index: 309, vesselName: "Bug309AboveFloor", recordedTerrainHeight: recordedTerrain);
 
             InGameAssert.AreEqual(recordedAlt, clamped.altitude,
-                $"Point already above corrected target ({correctedTarget:F2}) must not be modified " +
-                $"(got {clamped.altitude:F2})");
+                $"Recorded altitude above PQS safety floor must be preserved exactly " +
+                $"(got {clamped.altitude:F2}, expected {recordedAlt:F2})");
         }
 
         [InGameTest(Category = "TerrainClearance", Scene = GameScenes.FLIGHT,
-            Description = "Negative recorded clearance (physics glitch) is clamped to 0.5m floor (#282)")]
+            Description = "Recorded altitude below current PQS terrain is pushed up to safety floor (#309)")]
         public void LandedGhostClearance_NegativeClearance_ClampsToFloor()
         {
             var activeVessel = FlightGlobals.ActiveVessel;
@@ -1806,10 +1875,11 @@ namespace Parsek.InGameTests
             double lon = activeVessel.longitude;
             double currentTerrain = body.TerrainAltitude(lat, lon, true);
 
-            // Simulate physics glitch: vessel was below terrain at recording time
-            // (recordedAlt < recordedTerrain → negative clearance)
-            double recordedTerrain = 100.0;
-            double recordedAlt = 99.0; // 1m below terrain
+            // #309 new semantics: the safety floor is against CURRENT PQS terrain
+            // (not recorded terrain). Place the recorded altitude clearly below
+            // the current floor so the clamp fires.
+            double recordedTerrain = currentTerrain - 5.0; // arbitrary "recorded surface"
+            double recordedAlt = currentTerrain - 5.0;     // 5m below current floor
 
             var point = new Parsek.TrajectoryPoint
             {
@@ -1823,11 +1893,11 @@ namespace Parsek.InGameTests
             };
 
             var clamped = ParsekFlight.ApplyLandedGhostClearance(
-                point, index: 282, vesselName: "Bug282NegClearance", recordedTerrainHeight: recordedTerrain);
+                point, index: 309, vesselName: "Bug309BelowFloor", recordedTerrainHeight: recordedTerrain);
 
             double floor = currentTerrain + 0.5;
             InGameAssert.IsGreaterThan(clamped.altitude, floor - 0.001,
-                $"Negative clearance must be caught by 0.5m safety floor: " +
+                $"Recorded altitude below PQS floor must be pushed up to floor: " +
                 $"expected >= {floor:F2} (got {clamped.altitude:F2})");
         }
 

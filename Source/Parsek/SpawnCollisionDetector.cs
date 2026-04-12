@@ -513,87 +513,166 @@ namespace Parsek
         // ────────────────────────────────────────────────────────────
 
         /// <summary>
-        /// Checks whether the spawn bounding box (at spawnWorldPos) overlaps with
-        /// any loaded vessel's approximate bounding box. Returns the closest
-        /// overlapping vessel's info, or overlap=false if no overlap found.
+        /// Layer mask for part-collider overlap checks. Matches KSP's own
+        /// <c>LayerUtil.DefaultEquivalent = 0x820001</c> (bits 0, 17, 23) — the
+        /// authoritative "part-bearing layers" mask used inside
+        /// <c>Vessel.CheckGroundCollision</c>, verified against the decompiled
+        /// KSP source. Using KSP's own constant guarantees we'll see every layer
+        /// the game considers a part-ownable surface.
+        ///
+        /// <para>We do NOT widen to include terrain (layer 15) or building
+        /// layers — they aren't part-ownable, and the downstream
+        /// <see cref="FlightGlobals.GetPartUpwardsCached"/> filter would strip
+        /// them anyway. But narrowing the mask keeps the overlap query cheaper
+        /// when spawning near cluttered KSC scenery.</para>
+        /// </summary>
+        private static int PartOverlapLayerMask
+        {
+            get { return LayerUtil.DefaultEquivalent; }
+        }
+
+        /// <summary>
+        /// Checks whether a vessel spawned at <paramref name="spawnWorldPos"/> with
+        /// the given local <paramref name="spawnBounds"/> would overlap any real
+        /// part collider of a loaded vessel. Uses <see cref="Physics.OverlapBox"/>
+        /// so the other vessel's actual part geometry is considered — no more
+        /// 2 m-cube approximation.
+        ///
+        /// <para>Hit filtering: each overlapping collider is resolved to its owning
+        /// <see cref="Part"/> via <see cref="FlightGlobals.GetPartUpwardsCached"/>
+        /// (same helper KSP uses in <c>Vessel.CheckGroundCollision</c>). Hits
+        /// without a Part owner (terrain, buildings, runway mesh colliders) are
+        /// ignored. Hits on the active vessel / exempt vessel / skipped vessel
+        /// types are filtered per the existing semantics.</para>
         /// </summary>
         internal static (bool overlap, float closestDistance, string blockerName, Vessel blockerVessel) CheckOverlapAgainstLoadedVessels(
             Vector3d spawnWorldPos, Bounds spawnBounds, float padding, bool skipActiveVessel = true,
             uint exemptVesselPid = 0)
         {
-            ParsekLog.Verbose(Tag,
-                $"CheckOverlapAgainstLoadedVessels: checking spawn at ({spawnWorldPos.x.ToString("F0", IC)},{spawnWorldPos.y.ToString("F0", IC)},{spawnWorldPos.z.ToString("F0", IC)}) " +
-                $"padding={padding.ToString("F1", IC)}m against {FlightGlobals.Vessels.Count} vessels, skipActiveVessel={skipActiveVessel}" +
+            // Compute the surface-aligned rotation for the spawn box. spawnBounds is in
+            // vessel-local space, where the vessel's local Y axis points along the surface
+            // normal (a landed vessel sits "up" from the body). On a curved body that Y
+            // axis is tilted relative to world-Y. FromToRotation maps Vector3.up to the
+            // actual local up at the spawn position, so the OverlapBox's extents are
+            // oriented correctly. For the previous Quaternion.identity the error was small
+            // for vessels near KSC (world-Y is nearly parallel to Kerbin-up there), but
+            // grew for spawns on the far side of a body. Review finding from PR #225.
+            Vector3 upAxis = Vector3.up;
+            for (int bi = 0; FlightGlobals.Bodies != null && bi < FlightGlobals.Bodies.Count; bi++)
+            {
+                CelestialBody b = FlightGlobals.Bodies[bi];
+                if (b == null) continue;
+                double distSq = (spawnWorldPos - b.position).sqrMagnitude;
+                double r = b.Radius;
+                // The closest body whose center-to-spawn distance is within its
+                // sphere of influence radius is "the body we're spawning near".
+                // For our use case — landed/splashed spawns near the surface —
+                // testing against 1.5x body radius is enough to pick the correct one.
+                if (distSq < (r * 1.5) * (r * 1.5))
+                {
+                    upAxis = (Vector3)FlightGlobals.getUpAxis(b, (Vector3d)spawnWorldPos);
+                    break;
+                }
+            }
+            Quaternion surfaceRot = Quaternion.FromToRotation(Vector3.up, upAxis);
+            Vector3 worldCenter = (Vector3)spawnWorldPos + surfaceRot * spawnBounds.center;
+            Vector3 halfExtents = spawnBounds.extents + Vector3.one * padding;
+
+            // Rate-limited: walkback calls this once per sub-step (potentially hundreds of
+            // calls per spawn attempt). A single diagnostic line per second is enough to
+            // confirm the method is being called and see the latest parameters.
+            ParsekLog.VerboseRateLimited(Tag, "overlap-check-entry",
+                $"CheckOverlapAgainstLoadedVessels: Physics.OverlapBox at " +
+                $"({worldCenter.x.ToString("F0", IC)},{worldCenter.y.ToString("F0", IC)},{worldCenter.z.ToString("F0", IC)}) " +
+                $"halfExtents=({halfExtents.x.ToString("F1", IC)},{halfExtents.y.ToString("F1", IC)},{halfExtents.z.ToString("F1", IC)}) " +
+                $"padding={padding.ToString("F1", IC)}m, skipActiveVessel={skipActiveVessel}" +
                 (exemptVesselPid != 0 ? $", exemptPid={exemptVesselPid} (T57)" : ""));
+
+            Collider[] hits = Physics.OverlapBox(worldCenter, halfExtents, surfaceRot,
+                PartOverlapLayerMask, QueryTriggerInteraction.Ignore);
+
+            if (hits == null || hits.Length == 0)
+            {
+                // Happy path, no log -- walkback's per-substep summary is enough.
+                return (false, float.MaxValue, null, null);
+            }
 
             bool anyOverlap = false;
             float closestDist = float.MaxValue;
             string blockerName = null;
             Vessel blockerVessel = null;
+            int totalHits = hits.Length;
+            int nonPartHits = 0;
+            int filteredHits = 0;
+            var reportedPids = new HashSet<uint>();
 
-            for (int i = 0; i < FlightGlobals.Vessels.Count; i++)
+            for (int i = 0; i < hits.Length; i++)
             {
-                Vessel other = FlightGlobals.Vessels[i];
-                if (!other.loaded) continue;
-                if (GhostMapPresence.IsGhostMapVessel(other.persistentId)) continue;
+                Collider hit = hits[i];
+                if (hit == null) continue;
 
-                // Skip player's own vessel — shouldn't block non-EVA spawns.
-                // EVA spawns need to detect the active vessel (parent rocket) as a
-                // blocker so the walkback can find a clear position (#291), UNLESS
-                // it's the EVA's parent vessel (#T57).
-                if (skipActiveVessel && other == FlightGlobals.ActiveVessel) continue;
+                Part part = FlightGlobals.GetPartUpwardsCached(hit.gameObject);
+                if (part == null)
+                {
+                    nonPartHits++;
+                    continue;
+                }
 
-                // T57: skip the EVA's parent vessel — the EVA trajectory is always
-                // adjacent to the parent, so without exemption the entire walkback
-                // is exhausted and the spawn is abandoned.
+                Vessel other = part.vessel;
+                if (other == null)
+                {
+                    nonPartHits++;
+                    continue;
+                }
+
+                if (!other.loaded) { filteredHits++; continue; }
+                if (GhostMapPresence.IsGhostMapVessel(other.persistentId)) { filteredHits++; continue; }
+                if (skipActiveVessel && other == FlightGlobals.ActiveVessel) { filteredHits++; continue; }
                 if (exemptVesselPid != 0 && other.persistentId == exemptVesselPid)
                 {
-                    ParsekLog.Verbose(Tag,
-                        $"Skipping exempt parent vessel '{Recording.ResolveLocalizedName(other.vesselName)}' " +
-                        $"(pid={other.persistentId}) for EVA collision check (T57)");
+                    // Rate-limited per-vessel: walkback substeps hitting the same exempt
+                    // parent vessel would otherwise log once per substep.
+                    if (reportedPids.Add(other.persistentId))
+                        ParsekLog.VerboseRateLimited(Tag, "overlap-exempt-" + other.persistentId,
+                            $"Skipping exempt parent vessel '{Recording.ResolveLocalizedName(other.vesselName)}' " +
+                            $"(pid={other.persistentId}) for EVA collision check (T57)");
+                    filteredHits++;
                     continue;
                 }
-
-                // Skip non-significant vessel types that shouldn't block spawns
                 if (ShouldSkipVesselType(other.vesselType))
                 {
-                    ParsekLog.Verbose(Tag,
-                        string.Format(IC, "Skipping {0} vessel {1} in overlap check",
-                            other.vesselType, Recording.ResolveLocalizedName(other.vesselName)));
+                    if (reportedPids.Add(other.persistentId))
+                        ParsekLog.VerboseRateLimited(Tag, "overlap-skiptype-" + other.persistentId,
+                            string.Format(IC, "Skipping {0} vessel '{1}' in overlap check",
+                                other.vesselType, Recording.ResolveLocalizedName(other.vesselName)));
+                    filteredHits++;
                     continue;
                 }
 
+                anyOverlap = true;
                 Vector3d otherPos = other.GetWorldPos3D();
                 float dist = (float)Vector3d.Distance(spawnWorldPos, otherPos);
-
-                // Approximate other vessel bounds as a default-sized cube
-                Bounds otherBounds = new Bounds(Vector3.zero, Vector3.one * FallbackBoundsSize);
-
-                if (BoundsOverlap(spawnBounds, spawnWorldPos, otherBounds, otherPos, padding))
+                if (dist < closestDist)
                 {
-                    anyOverlap = true;
-                    if (dist < closestDist)
-                    {
-                        closestDist = dist;
-                        blockerName = Recording.ResolveLocalizedName(other.vesselName);
-                        blockerVessel = other;
-                    }
+                    closestDist = dist;
+                    blockerName = Recording.ResolveLocalizedName(other.vesselName);
+                    blockerVessel = other;
+                }
 
+                if (reportedPids.Add(other.persistentId))
+                {
                     ParsekLog.VerboseRateLimited(Tag,
                         "overlap-" + other.persistentId,
-                        $"Spawn overlaps with {Recording.ResolveLocalizedName(other.vesselName)} (pid={other.persistentId}) at {dist.ToString("F1", IC)}m");
-                }
-                else
-                {
-                    ParsekLog.Verbose(Tag,
-                        $"No overlap with {Recording.ResolveLocalizedName(other.vesselName)} at {dist.ToString("F1", IC)}m");
+                        $"Spawn overlaps with {Recording.ResolveLocalizedName(other.vesselName)} " +
+                        $"(pid={other.persistentId}) via part '{part.partInfo?.name ?? "?"}' at {dist.ToString("F1", IC)}m");
                 }
             }
 
-            if (!anyOverlap)
-            {
-                ParsekLog.Verbose(Tag, "No spawn overlap detected against loaded vessels");
-            }
+            // Rate-limited summary: same key spans all walkback substeps so we get at most
+            // one summary per second even when walkback is hammering this call.
+            ParsekLog.VerboseRateLimited(Tag, "overlap-check-summary",
+                $"OverlapBox summary: {totalHits} total hits, {nonPartHits} non-part (terrain/building), " +
+                $"{filteredHits} filtered vessels, {(anyOverlap ? "BLOCKED by " + blockerName : "CLEAR")}");
 
             return (anyOverlap, closestDist, blockerName, blockerVessel);
         }

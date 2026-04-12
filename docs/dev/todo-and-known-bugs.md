@@ -7,6 +7,90 @@ Entries 272–303 (78 bugs, 6 TODOs — mostly resolved) archived in `done/todo-
 
 # Known Bugs
 
+## ~~312. Duplicate-blocker recovery destroys sibling recordings~~
+
+**Observed in:** 0.8.0 (2026-04-12). Playtest placed 4 "Crater Crawler" ghosts on the runway within ~10 m of each other. Only 2 of 4 spawned -- each new spawn destroyed the previous one. Log sequence showed `Duplicate blocker detected for #6: recovering pid=... at 8m -- likely quicksave-loaded duplicate (#112)` firing for every pair.
+
+**Root cause:** `VesselSpawner.ShouldRecoverBlockerVessel` matched by NAME only. The #112 fix was written for a specific scenario -- KSP's quicksave restores a Parsek-spawned vessel with the same PID while Parsek is also trying to spawn the same recording, creating two copies owned by the same recording. The correct response in that case is to destroy the restored duplicate. But a name-only check cannot distinguish that scenario from "four sibling recordings of the same vessel type landed near each other" -- in the latter, each new spawn found a sibling with the same vesselName and destroyed it, cascading across all four showcases.
+
+**Fix:** `ShouldRecoverBlockerVessel` now also requires the blocker's PID to match THIS recording's own `Recording.SpawnedVesselPersistentId`. That's the only way to be certain the blocker is a duplicate of OURSELVES (the #112 scenario). If the blocker belongs to a sibling recording (different `SpawnedVesselPersistentId`), the check returns false and `CheckSpawnCollisions` falls through to walkback, which finds a clear sub-step along the trajectory and spawns in the correct place.
+
+Signature change: `ShouldRecoverBlockerVessel(Recording rec, string blockerName, string recordingVesselName, uint blockerPid)`. The single call site in `CheckSpawnCollisions` now passes the recording and `blockerVessel.persistentId`. Unit tests in `DuplicateBlockerRecoveryTests` rewritten to cover the new PID-match logic: the #112 self-PID case (recover), the #312 sibling case (walkback), the first-spawn / `SpawnedVesselPersistentId == 0` case (walkback), and preserved null/empty/case-sensitive behavior from the original.
+
+**Status:** Fixed
+
+---
+
+## ~~311. Walkback spawns mid-air on diagonally-descending trajectories~~
+
+**Observed in:** 0.8.0 (2026-04-12). When `TryWalkbackForEndOfRecordingSpawn` steps backward through a trajectory to find a non-overlapping candidate, it historically used the raw trajectory altitude for the clear position. For a vessel diagonally descending onto a landing site, the earlier trajectory points were 10-30 m in the air — walking back found a lateral-clear spot but placed the vessel mid-air, and it fell. Related to #309 (old `ClampAltitudeForLanded` would down-clamp the walkback result aggressively, which *accidentally* masked this, but broke mesh-object positioning).
+
+**Root cause:** The walkback callback used `body.TerrainAltitude(lat, lon)` as the surface reference, which is PQS-only and cannot see the real surface when it includes mesh objects (Island Airfield runway, launchpad, KSC buildings). Either the vessel was spawned underground (mesh-object case) or left mid-air (regular terrain with sparse PQS fallback).
+
+**Fix:** After walkback returns a clear candidate, fire a top-down `Physics.Raycast` at the candidate `(lat, lon)` using the same layer mask as `Vessel.GetHeightFromSurface` (`LayerUtil.DefaultEquivalent | 0x8000 | 0x80000` — default + terrain + buildings). If the raycast hits AND the candidate altitude is more than `WalkbackSurfaceSnapThresholdMeters` (5 m) above the hit, snap the altitude down to `surface + WalkbackSurfaceClearanceMeters` (1 m). If the raycast misses (target area unloaded), fall back to the PQS safety floor via `ClampAltitudeForLanded`. The raycast catches real mesh-object surfaces that PQS terrain alone cannot represent. New helper: `VesselSpawner.TryFindSurfaceAltitudeViaRaycast(body, lat, lon, startAltAboveSurface)`. Uses `FlightGlobals.getAltitudeAtPos` to convert the hit point to ASL altitude.
+
+**Status:** Fixed
+
+---
+
+## ~~310. Spawn collision detection used 2 m-cube blocker approximation~~
+
+**Observed in:** 0.8.0 (2026-04-12). `SpawnCollisionDetector.CheckOverlapAgainstLoadedVessels` approximated every loaded vessel as a 2 m-cube at its `GetWorldPos3D()` position and did an AABB overlap check against the spawn bounds. Large vessels (stations, planes, carriers) were under-represented, letting walkback candidates pass inside their real geometry. Small rovers spawned near a docked station would be flagged as clear despite being inside the station's wings. Conversely, AABB false-positives were possible for sparse vessels with wide bounds.
+
+**Root cause:** The original implementation (#127 or earlier) used `FallbackBoundsSize = 2f` as a conservative placeholder for the blocker vessel's bounds because there was no easy way to get the real bounds from a loaded `Vessel` object. The spawn side had access to the snapshot-computed AABB, but the blocker side used the 2 m cube. This was accurate enough for most rocket-to-rocket cases but broke down for large blockers and for mesh-object-adjacent spawns.
+
+**Fix:** Rewrote `CheckOverlapAgainstLoadedVessels` to use `Physics.OverlapBox` against real part colliders. Each hit is resolved to its owning `Part` via `FlightGlobals.GetPartUpwardsCached` (the same helper KSP uses in `Vessel.CheckGroundCollision`). Non-part hits (terrain, building, runway mesh colliders) are skipped via the null-Part filter — the airfield runway never blocks a spawn, but real vessel parts do.
+
+Layer mask: `LayerUtil.DefaultEquivalent` (0x820001 = bits 0, 17, 23) — the same mask KSP itself uses inside `Vessel.CheckGroundCollision` as the "part-bearing layers" identifier. An earlier revision of this fix used `(1<<0)|(1<<17)|(1<<19)` based on a misreading of Unity's layer map (assumed layer 19 was "PartTriggers"; per Principia's verified layer enum layer 19 is PhysicalObjects and PartTriggers is actually layer 21). Using KSP's own constant directly is both correct and future-proof against layer renumbering.
+
+OverlapBox rotation: `Quaternion.FromToRotation(Vector3.up, upAxis)` where `upAxis` is the surface normal at the spawn position (derived from the enclosing celestial body). Aligns the local-space AABB with the body's local up direction so spawns on the far side of a curved body use a correctly-oriented query box.
+
+Legacy filters (skip debris/EVA/flag, exempt parent vessel PID, skip active vessel) retained. The `BoundsOverlap` pure helper is kept for unit tests using injected predicates.
+
+**Status:** Fixed
+
+---
+
+## ~~309. Rovers on Island Airfield spawn 19 m underground~~
+
+**Observed in:** 0.8.0 (2026-04-12). Rover recordings captured at the Island Airfield runway spawned 19 m below the runway surface, inside the raw PQS terrain. Ghost playback of the same recordings also rendered below the runway. Both spawn and ghost placement were treating the airfield as if it didn't exist.
+
+**Root cause:** Three call sites used `body.TerrainAltitude(lat, lon)` which is PQS-only — it queries `pqsController.GetSurfaceHeight()` and returns the raw planetary surface UNDER any placed mesh object (Island Airfield, launchpad, KSC facilities). For a vessel recorded ON the airfield at alt=133.9 m, `body.TerrainAltitude()` returned ~114.9 m (raw terrain under the runway). The three sites and their bugs:
+
+1. **`ParsekFlight.CaptureTerminalPosition`** stored `rec.TerrainHeightAtEnd = body.TerrainAltitude(...)` — losing the 19 m airfield offset. Downstream consumers computed `recordedClearance = alt - TerrainHeightAtEnd` and got ~19 m, which was meaningless to them.
+2. **`VesselSpawner.ClampAltitudeForLanded`** computed `target = terrainAlt + LandedClearanceMeters` and aggressively down-clamped any altitude above the target — specifically to fix #282 (Mk1-3 pod low-clearance clipping). For airfield rovers, this buried them 17 m below the runway.
+3. **`VesselGhoster.ApplyTerrainCorrection`** called `TerrainCorrector.ComputeCorrectedAltitude(currentTerrain, recordedAlt, recordedTerrain)` which computed `corrected = currentTerrain + (recordedAlt - recordedTerrain)` — mathematically correct for terrain-relative correction, but `currentTerrain` was PQS-only, so the "corrected" altitude was placed relative to PQS, burying ghosts under the runway.
+
+Decompiling `Vessel.CheckGroundCollision` and `Vessel.GetHeightFromSurface` confirmed the right API: KSP uses `Physics.Raycast` with layer mask `LayerUtil.DefaultEquivalent | 0x8000 | 0x80000` to find the true surface including building colliders. The `Vessel.terrainAltitude` property (documented as "height in meters of the nearest terrain **including buildings**") is reverse-computed from that raycast — available on loaded vessels.
+
+**Fix:** Replaced PQS-only terrain queries with the correct surface-aware sources and changed the clamping philosophy from "force to terrain+2 m" to "trust the recorded altitude, only push up if below PQS safety floor":
+
+1. **`ParsekFlight.CaptureTerminalPosition`** — captures `vessel.terrainAltitude` (raycast-derived, includes buildings) instead of `body.TerrainAltitude()`. Also logs the PQS vs. mesh offset for diagnostics.
+2. **`VesselSpawner.ClampAltitudeForLanded`** — rewritten. No more down-clamp. Only clamps UP when `alt < (pqsTerrain + UndergroundSafetyFloorMeters)` (2 m), which only fires when PQS terrain has shifted up since recording (rare: KSP update / terrain mod). The #282 low-clearance case is still caught by this floor. KSP's own `Vessel.CheckGroundCollision` handles part-geometry clipping via `getLowestPoint()` on vessel load, so we don't need to front-run it. Renamed `LandedClearanceMeters` → `UndergroundSafetyFloorMeters` (semantic shift — it's a floor, not a target).
+3. **`ParsekFlight.ApplyLandedGhostClearance`** — same philosophy. Trusts the recorded altitude; only pushes up if below `pqsTerrain + 0.5 m`. NaN-fallback legacy path unchanged.
+4. **`VesselGhoster.ApplyTerrainCorrection`** — rewritten to apply the underground safety floor (0.5 m above PQS) instead of terrain-relative correction.
+5. **Removed `TerrainCorrector.ComputeCorrectedAltitude`** — the terrain-relative correction formula was the core of the bug. Tests that encoded it also removed.
+
+**Test rewrite:** `SpawnSafetyNetTests.ClampAltitudeForLanded_*` updated to match the new semantics. The #282 low-clearance case (176.5 m recorded, 175.6 m PQS terrain, 0.9 m clearance) is preserved as a regression guard — it now triggers the 2 m safety floor and pushes up to 177.6 m. Airfield case (133.9 m recorded, 114.9 m PQS terrain, 19 m mesh offset) passes through unchanged.
+
+**Status:** Fixed
+
+---
+
+## ~~307. Rewind save lost on vessel switch during recording~~
+
+**Observed in:** 0.8.0 (2026-04-12). When the player switches vessels during an active recording session (e.g. switching from a booster to a payload, or clicking a different vessel in the tracking station), the R (rewind) button never appears on recordings committed after the switch.
+
+**Root cause:** `OnVesselSwitchComplete` has two flush paths for the outgoing recorder: (1) still-active recorder transitioned to background (line 1335), and (2) already-backgrounded recorder with pending flush (line 1361). Both paths called `FlushRecorderToTreeRecording` but did not call `CopyRewindSaveToRoot`. The rewind save filename from the outgoing recorder's `CaptureAtStop` was never propagated to the tree root recording. After the switch, `recorder` is set to null, and when the tree is eventually committed, `GetRewindRecording` resolves through the root -- which has a null `RewindSaveFileName`.
+
+Related to T59 (EVA branch case), which fixed the same underlying problem in `CreateSplitBranch`. The vessel-switch paths were missed.
+
+**Fix:** Added `CopyRewindSaveToRoot` calls in both vessel-switch flush paths in `OnVesselSwitchComplete` (lines 1337 and 1362), right after `FlushRecorderToTreeRecording` and before `recorder = null`. Uses `recorder.CaptureAtStop` as primary source with `recorder.RewindSaveFileName` as fallback, consistent with all other flush sites.
+
+**Status:** Fixed
+
+---
+
 ## ~~306. Ghost engine nozzles always glow red~~
 
 **Observed in:** 0.8.0 (2026-04-12). Engine nozzle parts on ghost vessels permanently displayed a red/orange emissive glow, as if overheating. Stock KSP engines do not glow during normal operation -- the emissive channel is driven at runtime by the thermal system (`part.temperature / part.maxTemperature`).
@@ -435,6 +519,18 @@ The R button never appears in the recordings table because `RewindSaveFileName` 
 **Fix:** Extracted `CopyRewindSaveToRoot` (ParsekFlight, internal static) that copies `RewindSaveFileName`, reserved budget (funds/science/rep), and pre-launch budget from a `CaptureAtStop` to the tree's root recording. Called from four sites: `CreateSplitBranch` (the primary T59 fix -- copies at branch time before the EVA recorder takes over), `FinalizeTreeRecordings`, `StashActiveTreeAsPendingLimbo`, and `MergeCommitFlush`. First-wins semantics: root fields are only set if currently empty.
 
 **Status:** ~~Fixed~~
+
+---
+
+## 308. Reserved kerbals appear assignable in VAB/SPH crew dialog
+
+**Observed in:** 0.8.0 (2026-04-12). Reserved kerbals (those whose recordings are playing back as ghosts) appear auto-assigned to vessel seats in the VAB/SPH crew dialog. The player sees them in the crew panel and thinks the reservation system failed.
+
+**Root cause:** KSP's `KerbalRoster.DefaultCrewForVessel` auto-assigns all Available kerbals into command pod seats. Reserved kerbals stay at Available status by design (changing rosterStatus caused tug-of-war bugs with `ValidateAssignments` -- see `CrewDialogFilterPatch` history). The existing `CrewDialogFilterPatch` (prefix on `BaseCrewAssignmentDialog.AddAvailItem`) correctly filters reserved kerbals from the Available crew list, but `DefaultCrewForVessel` runs before that filter, so reserved kerbals are already seated in the manifest. The flight-ready swap (`SwapReservedCrewInFlight` in `CrewReservationManager.cs`) catches this at launch time, but the user sees the wrong crew in the editor.
+
+**Fix:** Added `CrewAutoAssignPatch` (Harmony prefix on `BaseCrewAssignmentDialog.RefreshCrewLists`). Walks the `VesselCrewManifest` before UI list creation and replaces any reserved crew with their stand-ins from `CrewReservationManager.CrewReplacements`. If no stand-in is available, the seat is cleared. Pure decision logic extracted into `DecideSlotAction` (internal static) for testability. 8 unit tests in `CrewAutoAssignPatchTests.cs`. Files: `Patches/CrewAutoAssignPatch.cs`.
+
+**Status:** Fixed
 
 ---
 

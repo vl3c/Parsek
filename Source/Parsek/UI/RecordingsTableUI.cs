@@ -1578,15 +1578,16 @@ namespace Parsek
                 : statusStylePast;
             GUILayout.Label(chainStatusText, chainStatusStyle, GUILayout.Width(ColW_Status));
 
-            // Chain G button (share ColW_Group width with X placeholder)
-            float halfGroup = (ColW_Group - 4f) * 0.5f;
-            if (GUILayout.Button("G", GUILayout.Width(halfGroup)))
+            // Chain G button takes the full ColW_Group width since chain blocks have
+            // no X (disband) button — chain segments must stay grouped to preserve
+            // tree lineage and rewind anchors. Matches the per-recording row layout
+            // where G also fills ColW_Group.
+            if (GUILayout.Button("G", GUILayout.Width(ColW_Group)))
             {
                 var mousePos = GUIUtility.GUIToScreenPoint(Event.current.mousePosition);
                 groupPicker.OpenForChain(chainId, mousePos);
                 ParsekLog.Verbose("UI", $"Group popup opened for chain '{chainName}'");
             }
-            GUILayout.Space(halfGroup + 4f);
 
             // Loop checkbox (aggregate over chain members)
             int chainLoopCount = 0;
