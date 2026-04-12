@@ -529,8 +529,6 @@ namespace Parsek.Tests
             DiagnosticsState.health.snapshotRefreshSpikes = 10;
             DiagnosticsState.health.spawnFailures = 7;
             DiagnosticsState.health.spawnRetries = 3;
-            DiagnosticsState.health.softCapActivations = 5;
-            DiagnosticsState.health.softCapDespawns = 12;
             DiagnosticsState.health.ghostBuildsThisSession = 25;
             DiagnosticsState.health.ghostDestroysThisSession = 20;
             DiagnosticsState.health.gcGen0Baseline = 999;
@@ -542,8 +540,6 @@ namespace Parsek.Tests
             Assert.Equal(0, DiagnosticsState.health.snapshotRefreshSpikes);
             Assert.Equal(0, DiagnosticsState.health.spawnFailures);
             Assert.Equal(0, DiagnosticsState.health.spawnRetries);
-            Assert.Equal(0, DiagnosticsState.health.softCapActivations);
-            Assert.Equal(0, DiagnosticsState.health.softCapDespawns);
             Assert.Equal(0, DiagnosticsState.health.ghostBuildsThisSession);
             Assert.Equal(0, DiagnosticsState.health.ghostDestroysThisSession);
             // gcGen0Baseline should be current GC count, not zero or the old value

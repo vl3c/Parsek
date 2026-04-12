@@ -8,11 +8,17 @@ namespace Parsek
     /// </summary>
     internal struct ZoneRenderingResult
     {
-        /// <summary>Ghost was hidden (Beyond zone) — engine should skip further work.</summary>
+        /// <summary>Ghost was hidden by distance/zone render policy — engine should skip further work.</summary>
         public bool hiddenByZone;
 
-        /// <summary>Part events should not be applied this frame (zone policy).</summary>
+        /// <summary>Part events should not be applied this frame.</summary>
         public bool skipPartEvents;
+
+        /// <summary>Audio, engine/RCS FX, and reentry FX should be suppressed this frame.</summary>
+        public bool suppressVisualFx;
+
+        /// <summary>Apply reduced renderer fidelity while the ghost remains visible.</summary>
+        public bool reduceFidelity;
     }
 
     /// <summary>

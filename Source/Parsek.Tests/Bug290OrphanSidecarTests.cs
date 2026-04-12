@@ -151,7 +151,7 @@ namespace Parsek.Tests
             var knownIds = RecordingStore.BuildKnownRecordingIds();
 
             Assert.Contains("only-committed", knownIds);
-            Assert.Equal(1, knownIds.Count);
+            Assert.Single(knownIds);
         }
 
         [Fact]
@@ -209,7 +209,7 @@ namespace Parsek.Tests
 
             Assert.Contains("dup-id", knownIds);
             // Count should be 1, not 2 — HashSet deduplicates
-            Assert.Equal(1, knownIds.Count);
+            Assert.Single(knownIds);
         }
 
         [Fact]

@@ -890,16 +890,97 @@ namespace Parsek.Tests
             Assert.False(GhostPlaybackLogic.IsWithinWatchRange(300000, 300));
         }
 
-        [Theory]
-        [InlineData(500000, 300, true, true)]    // orbital ghost 500km away — exit (#243: respect user cutoff)
-        [InlineData(500000, 300, false, true)]   // non-orbital ghost 500km away — exit
-        [InlineData(100000, 300, true, false)]   // orbital ghost within cutoff — no exit
-        [InlineData(100000, 300, false, false)]  // non-orbital ghost within cutoff — no exit
-        [InlineData(300000, 300, true, true)]    // orbital at exact boundary — exit
-        [InlineData(300000, 300, false, true)]   // non-orbital at exact boundary — exit
-        public void ShouldExitWatchForCutoff_OrbitalExemption(double distMeters, float cutoffKm, bool isOrbital, bool expected)
+        private static WatchModeController MakeWatchModeController(double lastDistanceMeters)
         {
-            Assert.Equal(expected, GhostPlaybackLogic.ShouldExitWatchForCutoff(distMeters, cutoffKm, isOrbital));
+            var host = (ParsekFlight)System.Runtime.Serialization.FormatterServices
+                .GetUninitializedObject(typeof(ParsekFlight));
+            var engine = new GhostPlaybackEngine(null);
+            engine.ghostStates[0] = new GhostPlaybackState
+            {
+                lastDistance = lastDistanceMeters
+            };
+
+            var engineField = typeof(ParsekFlight).GetField("engine",
+                System.Reflection.BindingFlags.Instance |
+                System.Reflection.BindingFlags.NonPublic);
+            engineField.SetValue(host, engine);
+
+            return new WatchModeController(host);
+        }
+
+        [Fact]
+        public void IsGhostWithinVisualRange_OrbitalGhostBeyondCutoff_False()
+        {
+            RecordingStore.ResetForTesting();
+            try
+            {
+                RecordingStore.AddCommittedInternal(new Recording
+                {
+                    VesselName = "Orbiter",
+                    OrbitSegments = new List<OrbitSegment> { new OrbitSegment() }
+                });
+
+                var controller = MakeWatchModeController(500000);
+
+                Assert.False(controller.IsGhostWithinVisualRange(0));
+            }
+            finally
+            {
+                RecordingStore.ResetForTesting();
+            }
+        }
+
+        [Fact]
+        public void IsGhostWithinVisualRange_OrbitalGhostAtExactCutoff_False()
+        {
+            RecordingStore.ResetForTesting();
+            try
+            {
+                RecordingStore.AddCommittedInternal(new Recording
+                {
+                    VesselName = "BoundaryOrbiter",
+                    OrbitSegments = new List<OrbitSegment> { new OrbitSegment() }
+                });
+
+                var controller = MakeWatchModeController(300000);
+
+                Assert.False(controller.IsGhostWithinVisualRange(0));
+            }
+            finally
+            {
+                RecordingStore.ResetForTesting();
+            }
+        }
+
+        [Fact]
+        public void IsGhostWithinVisualRange_OrbitalGhostWithinCutoff_True()
+        {
+            RecordingStore.ResetForTesting();
+            try
+            {
+                RecordingStore.AddCommittedInternal(new Recording
+                {
+                    VesselName = "CloseOrbiter",
+                    OrbitSegments = new List<OrbitSegment> { new OrbitSegment() }
+                });
+
+                var controller = MakeWatchModeController(100000);
+
+                Assert.True(controller.IsGhostWithinVisualRange(0));
+            }
+            finally
+            {
+                RecordingStore.ResetForTesting();
+            }
+        }
+
+        [Theory]
+        [InlineData(500000, 300, true)]    // orbital ghost 500km away — exit
+        [InlineData(100000, 300, false)]   // orbital ghost within cutoff — no exit
+        [InlineData(300000, 300, true)]    // orbital at exact boundary — exit
+        public void ShouldExitWatchForCutoff_AppliesUniformly(double distMeters, float cutoffKm, bool expected)
+        {
+            Assert.Equal(expected, GhostPlaybackLogic.ShouldExitWatchForCutoff(distMeters, cutoffKm));
         }
     }
 

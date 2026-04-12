@@ -2,6 +2,7 @@ using System;
 using System.Globalization;
 using System.IO;
 using System.Text;
+using System.Collections.Generic;
 
 namespace Parsek
 {
@@ -276,10 +277,23 @@ namespace Parsek
                                       + (long)totalSegs * 120L
                                       + (long)totalSnaps * 8192L;
 
-            // --- Ghost state: read from DiagnosticsState (populated by engine in Phase 3) ---
-            snap.activeGhostCount = DiagnosticsState.playbackBudget.ghostsProcessed;
-            // Zone/softcap details will be filled in Phase 3 engine instrumentation.
-            // For now, read whatever is in DiagnosticsState fields — they default to 0.
+            // --- Ghost state: derive live LOD counts from the engine when available ---
+            var flight = ParsekFlight.Instance;
+            var engine = flight?.Engine;
+            if (engine != null)
+            {
+                PopulateGhostStateCounts(
+                    ref snap,
+                    engine.ghostStates,
+                    engine.overlapGhosts,
+                    flight.WatchedRecordingIndexForDiagnostics,
+                    flight.WatchedLoopCycleIndexForDiagnostics,
+                    DiagnosticsState.playbackBudget.ghostsProcessed);
+            }
+            else
+            {
+                snap.activeGhostCount = DiagnosticsState.playbackBudget.ghostsProcessed;
+            }
 
             // --- Timing: raw last-frame budgets ---
             snap.lastPlaybackBudget = DiagnosticsState.playbackBudget;
@@ -376,12 +390,13 @@ namespace Parsek
 
             // Ghosts
             sb.AppendFormat(Inv,
-                "Ghosts: {0} active (z1:{1} z2:{2}), {3} reduced, {4} simplified",
+                "Ghosts: {0} active ({1} overlap), {2} full, {3} reduced, {4} hidden, {5} watched override",
                 snapshot.activeGhostCount,
-                snapshot.zone1GhostCount,
-                snapshot.zone2GhostCount,
-                snapshot.softCapReducedCount,
-                snapshot.softCapSimplifiedCount);
+                snapshot.activeOverlapGhostCount,
+                snapshot.fullGhostCount,
+                snapshot.reducedGhostCount,
+                snapshot.hiddenGhostCount,
+                snapshot.watchedOverrideGhostCount);
             sb.AppendLine();
 
             // Playback budget — read from snapshot, not live buffer.
@@ -487,6 +502,112 @@ namespace Parsek
             }
 
             return report;
+        }
+
+        /// <summary>
+        /// Populates live ghost-state counts for the diagnostics report from the engine's
+        /// active primary/overlap ghost dictionaries.
+        /// </summary>
+        internal static void PopulateGhostStateCounts(
+            ref MetricSnapshot snap,
+            IReadOnlyDictionary<int, GhostPlaybackState> primaryStates,
+            IReadOnlyDictionary<int, List<GhostPlaybackState>> overlapStates,
+            int watchedIndex,
+            long watchedLoopCycleIndex,
+            int fallbackActiveGhostCount)
+        {
+            if (primaryStates == null && overlapStates == null)
+            {
+                snap.activeGhostCount = fallbackActiveGhostCount;
+                return;
+            }
+
+            if (primaryStates != null)
+            {
+                foreach (var kvp in primaryStates)
+                {
+                    if (kvp.Value == null) continue;
+                    snap.activeGhostCount++;
+                    AccumulateGhostTierCounts(
+                        kvp.Key, kvp.Value, watchedIndex, watchedLoopCycleIndex,
+                        ref snap.fullGhostCount,
+                        ref snap.reducedGhostCount,
+                        ref snap.hiddenGhostCount,
+                        ref snap.watchedOverrideGhostCount);
+                }
+            }
+
+            if (overlapStates != null)
+            {
+                foreach (var kvp in overlapStates)
+                {
+                    var overlaps = kvp.Value;
+                    if (overlaps == null) continue;
+
+                    for (int i = 0; i < overlaps.Count; i++)
+                    {
+                        var state = overlaps[i];
+                        if (state == null) continue;
+
+                        snap.activeGhostCount++;
+                        snap.activeOverlapGhostCount++;
+                        AccumulateGhostTierCounts(
+                            kvp.Key, state, watchedIndex, watchedLoopCycleIndex,
+                            ref snap.fullGhostCount,
+                            ref snap.reducedGhostCount,
+                            ref snap.hiddenGhostCount,
+                            ref snap.watchedOverrideGhostCount);
+                    }
+                }
+            }
+        }
+
+        /// <summary>
+        /// Classifies a single live ghost state into the shipped distance LOD buckets.
+        /// Watched override is reported separately and counts as full fidelity.
+        /// </summary>
+        internal static void AccumulateGhostTierCounts(
+            int recordingIndex,
+            GhostPlaybackState state,
+            int watchedIndex,
+            long watchedLoopCycleIndex,
+            ref int fullGhostCount,
+            ref int reducedGhostCount,
+            ref int hiddenGhostCount,
+            ref int watchedOverrideGhostCount)
+        {
+            if (state == null) return;
+
+            bool watchedOverrideActive =
+                GhostPlaybackLogic.IsProtectedGhost(
+                    watchedIndex, watchedLoopCycleIndex,
+                    recordingIndex, state.loopCycleIndex) &&
+                state.lastDistance >= DistanceThresholds.PhysicsBubbleMeters;
+
+            if (watchedOverrideActive)
+            {
+                watchedOverrideGhostCount++;
+                fullGhostCount++;
+                return;
+            }
+
+            if (state.simplified
+                || state.currentZone == RenderingZone.Beyond
+                || state.lastDistance >= DistanceThresholds.GhostFlight.LoopSimplifiedMeters)
+            {
+                hiddenGhostCount++;
+                return;
+            }
+
+            if (state.distanceLodReduced
+                || state.fidelityReduced
+                || state.lastDistance >= DistanceThresholds.PhysicsBubbleMeters)
+            {
+                reducedGhostCount++;
+                return;
+            }
+
+            fullGhostCount++;
         }
 
         // ------------------------------------------------------------------

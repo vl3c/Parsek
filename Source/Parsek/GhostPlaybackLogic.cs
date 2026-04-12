@@ -49,6 +49,18 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Warp-zone hide exemption only applies to true Beyond-zone hiding. It must not
+        /// cancel the 50-120 km hidden-mesh tier introduced by distance LOD.
+        /// </summary>
+        internal static bool ShouldApplyWarpZoneHideExemption(
+            bool shouldHideMesh, RenderingZone zone, float currentWarpRate, bool hasOrbitalSegments)
+        {
+            return shouldHideMesh
+                && zone == RenderingZone.Beyond
+                && ShouldExemptFromZoneHide(currentWarpRate, hasOrbitalSegments);
+        }
+
+        /// <summary>
         /// Returns true if a commit approval dialog should be shown instead of auto-committing (#88).
         /// Triggers when leaving Flight to KSC or Tracking Station with a landed/splashed vessel.
         /// </summary>
@@ -2700,39 +2712,9 @@ namespace Parsek
         #region Zone-Based Rendering
 
         /// <summary>
-        /// Determines whether a ghost mesh should be hidden because it entered Zone 3 (Beyond).
-        /// Returns true if the ghost is active and in Beyond zone, meaning it should be hidden.
-        /// </summary>
-        internal static bool ShouldHideGhostForZone(bool ghostIsActive, RenderingZone zone)
-        {
-            return ghostIsActive && zone == RenderingZone.Beyond;
-        }
-
-        /// <summary>
-        /// Determines whether watch mode should be exited because the watched ghost entered Zone 3.
-        /// Returns true if the ghost being watched moved beyond visual range.
-        /// </summary>
-        internal static bool ShouldExitWatchModeForZone(
-            int watchedRecordingIndex, int currentRecordingIndex, RenderingZone zone)
-        {
-            return watchedRecordingIndex == currentRecordingIndex && zone == RenderingZone.Beyond;
-        }
-
-        /// <summary>
-        /// Determines whether part events should be applied for the given zone.
-        /// Part events fire in Physics and Visual zones — structural changes (decoupling,
-        /// fairing jettison, destruction) must be applied even when the ghost is distant.
-        /// Only Beyond zone skips part events (ghost mesh is hidden anyway).
-        /// </summary>
-        internal static bool ShouldApplyPartEventsForZone(RenderingZone zone)
-        {
-            return zone != RenderingZone.Beyond;
-        }
-
-        /// <summary>
-        /// Determines the rendering actions to take when a ghost transitions between zones.
-        /// Returns (shouldHideMesh, shouldSkipPartEvents, shouldSkipPositioning).
-        /// </summary>
+         /// Determines the rendering actions to take when a ghost transitions between zones.
+         /// Returns (shouldHideMesh, shouldSkipPartEvents, shouldSkipPositioning).
+         /// </summary>
         internal static (bool shouldHideMesh, bool shouldSkipPartEvents, bool shouldSkipPositioning)
             GetZoneRenderingPolicy(RenderingZone zone)
         {
@@ -2746,6 +2728,57 @@ namespace Parsek
                 default:
                     return (false, false, false);
             }
+        }
+
+        /// <summary>
+        /// Returns true when the watched ghost should ignore distance-based LOD suppression
+        /// and stay at full fidelity for the current frame.
+        /// </summary>
+        internal static bool ShouldForceWatchedFullFidelity(
+            bool isWatchedGhost, double ghostDistanceMeters, float cutoffKm)
+        {
+            return isWatchedGhost && !ShouldExitWatchForCutoff(ghostDistanceMeters, cutoffKm);
+        }
+
+        /// <summary>
+        /// Applies the watched-ghost full-fidelity override to a zone policy tuple.
+        /// Distance-based LOD should not suppress a watched ghost that is still within cutoff.
+        /// </summary>
+        internal static (bool shouldHideMesh, bool shouldSkipPartEvents, bool shouldSkipPositioning)
+            ApplyWatchedFullFidelityOverride(
+                bool shouldHideMesh, bool shouldSkipPartEvents, bool shouldSkipPositioning,
+                bool forceFullFidelity)
+        {
+            if (!forceFullFidelity)
+                return (shouldHideMesh, shouldSkipPartEvents, shouldSkipPositioning);
+
+            return (false, false, false);
+        }
+
+        /// <summary>
+        /// Applies the distance-based LOD tiers for unwatched ghosts on top of the base zone policy.
+        /// The thresholds intentionally reuse the shared distance constants rather than adding
+        /// another set of rendering knobs.
+        /// </summary>
+        internal static (bool shouldHideMesh, bool shouldSkipPartEvents, bool shouldSkipPositioning,
+            bool shouldSuppressVisualFx, bool shouldReduceFidelity)
+            ApplyDistanceLodPolicy(
+                bool shouldHideMesh, bool shouldSkipPartEvents, bool shouldSkipPositioning,
+                double ghostDistanceMeters, bool forceFullFidelity)
+        {
+            if (forceFullFidelity)
+                return (false, false, false, false, false);
+
+            if (shouldHideMesh)
+                return (true, true, true, true, false);
+
+            if (ghostDistanceMeters >= DistanceThresholds.GhostFlight.LoopSimplifiedMeters)
+                return (true, true, true, true, false);
+
+            if (ghostDistanceMeters >= DistanceThresholds.PhysicsBubbleMeters)
+                return (false, true, false, true, true);
+
+            return (shouldHideMesh, shouldSkipPartEvents, shouldSkipPositioning, false, false);
         }
 
         /// <summary>
@@ -2830,6 +2863,68 @@ namespace Parsek
             state.fidelityReduced = false;
         }
 
+        /// <summary>
+        /// Restores any runtime suppression state that would prevent a watched ghost from
+        /// rendering at full fidelity. Used when watch mode overrides distance-based LOD.
+        /// </summary>
+        internal static void RestoreWatchedFullFidelityState(GhostPlaybackState state)
+        {
+            if (state == null) return;
+
+            if (state.fidelityReduced)
+                RestoreGhostFidelity(state);
+            state.distanceLodReduced = false;
+
+            if (state.simplified)
+            {
+                if (state.ghost != null && !state.ghost.activeSelf)
+                    state.ghost.SetActive(true);
+                state.simplified = false;
+            }
+        }
+
+        /// <summary>
+        /// Applies or removes the distance-based reduced-fidelity renderer mode without
+        /// interfering with the soft-cap ownership of the same visual primitive.
+        /// </summary>
+        internal static void ApplyDistanceLodFidelity(GhostPlaybackState state, bool shouldReduceFidelity)
+        {
+            if (state == null || state.ghost == null) return;
+
+            if (shouldReduceFidelity)
+            {
+                if (!state.distanceLodReduced && !state.fidelityReduced)
+                {
+                    ReduceGhostFidelity(state);
+                    state.distanceLodReduced = true;
+                }
+                return;
+            }
+
+            if (state.distanceLodReduced)
+            {
+                RestoreGhostFidelity(state);
+                state.distanceLodReduced = false;
+            }
+        }
+
+        /// <summary>
+        /// Protected ghosts (currently watched) should ignore runtime suppression that
+        /// would reduce or hide them.
+        /// </summary>
+        internal static bool IsProtectedGhost(int protectedIndex, int currentIndex)
+        {
+            return protectedIndex == currentIndex;
+        }
+
+        internal static bool IsProtectedGhost(
+            int protectedIndex, long protectedLoopCycleIndex,
+            int currentIndex, long currentLoopCycleIndex)
+        {
+            return protectedIndex == currentIndex
+                && protectedLoopCycleIndex == currentLoopCycleIndex;
+        }
+
         #endregion
 
         #region Watch Mode Decisions
@@ -2839,15 +2934,6 @@ namespace Parsek
         /// exceeded the camera cutoff distance.
         /// </summary>
         internal static bool ShouldExitWatchForCutoff(double ghostDistanceMeters, float cutoffKm)
-        {
-            return ghostDistanceMeters >= cutoffKm * 1000.0;
-        }
-
-        /// <summary>
-        /// Orbital-aware version: if the user has configured a cutoff, always respect it
-        /// regardless of recording type. The cutoff is explicitly user-configured (#243).
-        /// </summary>
-        internal static bool ShouldExitWatchForCutoff(double ghostDistanceMeters, float cutoffKm, bool isOrbitalRecording)
         {
             return ghostDistanceMeters >= cutoffKm * 1000.0;
         }

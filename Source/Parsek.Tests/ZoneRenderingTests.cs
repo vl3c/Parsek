@@ -167,82 +167,132 @@ namespace Parsek.Tests
 
         #endregion
 
-        #region Should Hide Ghost / Exit Watch Mode
+        #region Watched Full-Fidelity Override
 
         [Fact]
-        public void ShouldHideGhostForZone_ActiveAndBeyond_ReturnsTrue()
+        public void ShouldForceWatchedFullFidelity_WatchedWithinCutoff_ReturnsTrue()
         {
-            Assert.True(GhostPlaybackLogic.ShouldHideGhostForZone(true, RenderingZone.Beyond));
+            Assert.True(GhostPlaybackLogic.ShouldForceWatchedFullFidelity(
+                isWatchedGhost: true, ghostDistanceMeters: 100000, cutoffKm: 300));
         }
 
         [Fact]
-        public void ShouldHideGhostForZone_ActiveAndVisual_ReturnsFalse()
+        public void ShouldForceWatchedFullFidelity_AtCutoff_ReturnsFalse()
         {
-            Assert.False(GhostPlaybackLogic.ShouldHideGhostForZone(true, RenderingZone.Visual));
+            Assert.False(GhostPlaybackLogic.ShouldForceWatchedFullFidelity(
+                isWatchedGhost: true, ghostDistanceMeters: 300000, cutoffKm: 300));
         }
 
         [Fact]
-        public void ShouldHideGhostForZone_ActiveAndPhysics_ReturnsFalse()
+        public void ShouldForceWatchedFullFidelity_NotWatched_ReturnsFalse()
         {
-            Assert.False(GhostPlaybackLogic.ShouldHideGhostForZone(true, RenderingZone.Physics));
+            Assert.False(GhostPlaybackLogic.ShouldForceWatchedFullFidelity(
+                isWatchedGhost: false, ghostDistanceMeters: 100000, cutoffKm: 300));
         }
 
         [Fact]
-        public void ShouldHideGhostForZone_InactiveAndBeyond_ReturnsFalse()
+        public void ApplyWatchedFullFidelityOverride_Forced_ClearsAllSuppression()
         {
-            Assert.False(GhostPlaybackLogic.ShouldHideGhostForZone(false, RenderingZone.Beyond));
+            var (shouldHide, skipPartEvents, skipPositioning) =
+                GhostPlaybackLogic.ApplyWatchedFullFidelityOverride(
+                    shouldHideMesh: true, shouldSkipPartEvents: true, shouldSkipPositioning: true,
+                    forceFullFidelity: true);
+
+            Assert.False(shouldHide);
+            Assert.False(skipPartEvents);
+            Assert.False(skipPositioning);
         }
 
         [Fact]
-        public void ShouldExitWatchModeForZone_WatchingAndBeyond_ReturnsTrue()
+        public void ApplyDistanceLodPolicy_ReducedTier_SuppressesEventsFx_AndReducesFidelity()
         {
-            Assert.True(GhostPlaybackLogic.ShouldExitWatchModeForZone(
-                watchedRecordingIndex: 5, currentRecordingIndex: 5, zone: RenderingZone.Beyond));
+            var result = GhostPlaybackLogic.ApplyDistanceLodPolicy(
+                shouldHideMesh: false, shouldSkipPartEvents: false, shouldSkipPositioning: false,
+                ghostDistanceMeters: 10000, forceFullFidelity: false);
+
+            Assert.False(result.shouldHideMesh);
+            Assert.True(result.shouldSkipPartEvents);
+            Assert.False(result.shouldSkipPositioning);
+            Assert.True(result.shouldSuppressVisualFx);
+            Assert.True(result.shouldReduceFidelity);
         }
 
         [Fact]
-        public void ShouldExitWatchModeForZone_WatchingDifferentGhost_ReturnsFalse()
+        public void ApplyDistanceLodPolicy_HiddenTier_HidesMesh_AndSuppressesEverything()
         {
-            Assert.False(GhostPlaybackLogic.ShouldExitWatchModeForZone(
-                watchedRecordingIndex: 3, currentRecordingIndex: 5, zone: RenderingZone.Beyond));
+            var result = GhostPlaybackLogic.ApplyDistanceLodPolicy(
+                shouldHideMesh: false, shouldSkipPartEvents: false, shouldSkipPositioning: false,
+                ghostDistanceMeters: 60000, forceFullFidelity: false);
+
+            Assert.True(result.shouldHideMesh);
+            Assert.True(result.shouldSkipPartEvents);
+            Assert.True(result.shouldSkipPositioning);
+            Assert.True(result.shouldSuppressVisualFx);
+            Assert.False(result.shouldReduceFidelity);
         }
 
         [Fact]
-        public void ShouldExitWatchModeForZone_NotWatching_ReturnsFalse()
+        public void ApplyDistanceLodPolicy_ForcedFullFidelity_OverridesReducedTier()
         {
-            Assert.False(GhostPlaybackLogic.ShouldExitWatchModeForZone(
-                watchedRecordingIndex: -1, currentRecordingIndex: 5, zone: RenderingZone.Beyond));
+            var result = GhostPlaybackLogic.ApplyDistanceLodPolicy(
+                shouldHideMesh: false, shouldSkipPartEvents: false, shouldSkipPositioning: false,
+                ghostDistanceMeters: 60000, forceFullFidelity: true);
+
+            Assert.False(result.shouldHideMesh);
+            Assert.False(result.shouldSkipPartEvents);
+            Assert.False(result.shouldSkipPositioning);
+            Assert.False(result.shouldSuppressVisualFx);
+            Assert.False(result.shouldReduceFidelity);
         }
 
         [Fact]
-        public void ShouldExitWatchModeForZone_WatchingButNotBeyond_ReturnsFalse()
+        public void IsProtectedGhost_WatchedGhost_ReturnsTrue()
         {
-            Assert.False(GhostPlaybackLogic.ShouldExitWatchModeForZone(
-                watchedRecordingIndex: 5, currentRecordingIndex: 5, zone: RenderingZone.Visual));
-            Assert.False(GhostPlaybackLogic.ShouldExitWatchModeForZone(
-                watchedRecordingIndex: 5, currentRecordingIndex: 5, zone: RenderingZone.Physics));
-        }
-
-        #endregion
-
-        #region Part Event Gating
-
-        [Fact]
-        public void ShouldApplyPartEventsForZone_Physics_ReturnsTrue()
-        {
-            Assert.True(GhostPlaybackLogic.ShouldApplyPartEventsForZone(RenderingZone.Physics));
+            Assert.True(GhostPlaybackLogic.IsProtectedGhost(
+                protectedIndex: 5, currentIndex: 5));
         }
 
         [Fact]
-        public void ShouldApplyPartEventsForZone_Visual_ReturnsTrue()
+        public void IsProtectedGhost_UnwatchedGhost_ReturnsFalse()
         {
-            Assert.True(GhostPlaybackLogic.ShouldApplyPartEventsForZone(RenderingZone.Visual));
+            Assert.False(GhostPlaybackLogic.IsProtectedGhost(
+                protectedIndex: 5, currentIndex: 3));
         }
 
         [Fact]
-        public void ShouldApplyPartEventsForZone_Beyond_ReturnsFalse()
+        public void IsProtectedGhost_ExactCycleMatch_ReturnsTrue()
         {
-            Assert.False(GhostPlaybackLogic.ShouldApplyPartEventsForZone(RenderingZone.Beyond));
+            Assert.True(GhostPlaybackLogic.IsProtectedGhost(
+                protectedIndex: 5, protectedLoopCycleIndex: 12,
+                currentIndex: 5, currentLoopCycleIndex: 12));
+        }
+
+        [Fact]
+        public void IsProtectedGhost_DifferentCycle_ReturnsFalse()
+        {
+            Assert.False(GhostPlaybackLogic.IsProtectedGhost(
+                protectedIndex: 5, protectedLoopCycleIndex: 12,
+                currentIndex: 5, currentLoopCycleIndex: 11));
+        }
+
+        [Fact]
+        public void ShouldApplyWarpZoneHideExemption_BeyondOrbitalGhost_ReturnsTrue()
+        {
+            Assert.True(GhostPlaybackLogic.ShouldApplyWarpZoneHideExemption(
+                shouldHideMesh: true,
+                zone: RenderingZone.Beyond,
+                currentWarpRate: 10f,
+                hasOrbitalSegments: true));
+        }
+
+        [Fact]
+        public void ShouldApplyWarpZoneHideExemption_HiddenTierVisualGhost_ReturnsFalse()
+        {
+            Assert.False(GhostPlaybackLogic.ShouldApplyWarpZoneHideExemption(
+                shouldHideMesh: true,
+                zone: RenderingZone.Visual,
+                currentWarpRate: 10f,
+                hasOrbitalSegments: true));
         }
 
         #endregion

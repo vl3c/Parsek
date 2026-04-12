@@ -55,8 +55,11 @@ namespace Parsek
         /// <summary>Active vessel world position (for bubble-distance checks).</summary>
         public Vector3d activeVesselPos;
 
-        /// <summary>Index of the watched ghost — exempt from soft cap and zone hiding. -1 if none.</summary>
+        /// <summary>Index of the watched ghost. -1 if none.</summary>
         public int protectedIndex;
+
+        /// <summary>Exact loop cycle currently being watched. -1 for non-looped primary or bridge state, -2 during explosion hold.</summary>
+        public long protectedLoopCycleIndex;
 
         /// <summary>Number of ghosts managed outside the engine (chain ghosts etc.) for soft cap accounting.</summary>
         public int externalGhostCount;
