@@ -250,6 +250,41 @@ Add unit/in-game coverage around `F5/F9` during a branch, final save/load, and w
 
 ---
 
+## 326. Landed EVA branch can be seeded as Atmospheric, leaving a bogus 1-point EVA fragment and bad optimizer splits
+
+**Observed in:** `logs/2026-04-12_2242_quickload-branch-gaps-s10/` (`s10`). The latest retry did **not** reproduce the exact `s9` watch-handoff failure; main-vessel watch transfer worked on current head. But the run exposed a different regression in the EVA branch path.
+
+**Collected evidence:**
+
+- At the first EVA branch (`UT=70.24`), the new EVA vessel was background-seeded as atmospheric even though the kerbal was effectively on the surface:
+  - `BgRecorder TrackSection started: env=Atmospheric ... pid=1614280122 at UT=70.24`
+  - then almost immediately after vessel switch/promotion:
+    - `TrackSection closed: env=Atmospheric ... frames=1 duration=0.04s pid=1614280122`
+    - active EVA recorder started correctly as `SurfaceStationary`
+- The final tree preserves that bad fragment as a non-leaf Jeb recording with only one point:
+  - runtime timeline: `Recording #2: "Jebediah Kerman" UT 70-79, 1 pts, vessel`
+  - saved metadata: recording `5fa6cf9e...`, `pointCount = 1`, `childBranchPointId = c206...`
+- The second EVA branch repeated the same wrong initial environment:
+  - `BgRecorder TrackSection started: env=Atmospheric ... pid=1487825712 at UT=92.08`
+- Later, the optimizer split the second EVA recording into two `atmo` segments:
+  - `Split recording 'Jebediah Kerman' ... 'atmo' [92..99] + 'atmo' [99..127]`
+  - final runtime timeline: `#5 "Jebediah Kerman" UT 92-99, 13 pts, ghost, chain idx=0` and `#6 ... UT 99-127, 44 pts, vessel, chain idx=1`
+
+**Impact:** A surface EVA can be recorded as if it briefly started in atmosphere, which pollutes the final tree with a tiny non-leaf stub and causes later optimizer output to classify EVA chain segments as `atmo`. That matches the user-visible symptom of "gaps" / badly stitched EVA recordings even though watch transfer on the main vessel path works.
+
+**Root cause / hypothesis:** During EVA split creation, the child kerbal is first background-initialized from a transient pre-stable loaded state. The environment classifier appears to trust `inAtmo/altitude` too early, before landed/grounded state is stable, so it seeds `Atmospheric` for a loaded surface EVA. Once the switch completes, the active recorder correctly sees `SurfaceStationary`, but the one-frame atmospheric background section has already been persisted into the recording.
+
+**Fix direction:** In the EVA branch path, either:
+
+- seed surface EVAs conservatively as `SurfaceStationary` / `SurfaceMobile` when the source situation is landed/splashed or the EVA is known to be ground-adjacent, or
+- delay background loaded-state initialization for the new EVA vessel until its landed/ground-contact state stabilizes
+
+Then add coverage that a landed EVA split does not create a 1-point atmospheric stub and that optimizer output for the resulting EVA chain is surface-classified unless the kerbal actually goes airborne.
+
+**Status:** Open
+
+---
+
 ## ~~313. Splashed EVA spawn-at-end can place the kerbal slightly underwater~~
 
 **Observed in:** 0.8.0 (2026-04-12). In the Phase 11.5 playtest bundle, the parent splashed vessel (`#24 "Kerbal X"`) was clamped and spawned at sea level, but the EVA child (`#25 "Raydred Kerman"`) spawned at `alt=-0.2` with `terminal=Splashed`. Log sequence:
