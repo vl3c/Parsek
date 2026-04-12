@@ -45,7 +45,7 @@ All notable changes to Parsek are documented here.
 ### Developer Tools
 
 - Added regression coverage for R/FF enablement reasons, including future/past timing, tree-branch rewind save resolution, and a UI guard that pins rewind/fast-forward independence from watch-distance state (`T60`).
-- Added regression coverage for compressed snapshot sidecars: legacy/new mixed corpora, alias/separate/ghost-only fallback behavior, corrupt/unsupported/oversized-envelope rejection, snapshot-hydration failure surfacing without misleading fallback logs, snapshot-only quickload salvage that preserves disk trajectory and alias invariants, and staged-write rollback/heal behavior after late write failures.
+- Added regression coverage for compressed snapshot sidecars: legacy/new mixed corpora, alias/separate/ghost-only fallback behavior, corrupt/unsupported/oversized-envelope rejection, snapshot-hydration failure surfacing without misleading fallback logs, snapshot-only quickload salvage that preserves disk trajectory and alias invariants, transient sidecar-artifact cleanup, and staged-write rollback/heal behavior for both first-write and stale-ghost-delete branches.
 - Added regression coverage for exact watched-cycle protection, hidden-tier warp exemption, watched-override diagnostics counting, and the new frame-context watch-cycle field.
 - Added regression coverage for hidden-tier shell-state handling so unloaded ghosts keep their logical loop identity and rebuild paths preserve playback bookkeeping.
 - Added regression coverage for watched-lineage debris visibility, so watch-mode protection now stays pinned to the intended same-tree same-vessel debris path instead of only the exact watched recording row.

@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.IO.Compression;
 using System.Linq;
+using System.Reflection;
 using Parsek.Tests.Generators;
 using UnityEngine;
 using Xunit;
@@ -793,6 +794,62 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void SaveRecordingFiles_FirstWriteFailureAfterTrajectoryCommit_RollsBackNewFiles()
+        {
+            string dir = Path.Combine(tempDir, "first-write-rollback");
+            Directory.CreateDirectory(dir);
+
+            string precPath = Path.Combine(dir, "first-write-rollback.prec");
+            string vesselPath = Path.Combine(dir, "first-write-rollback_vessel.craft");
+            string ghostPath = Path.Combine(dir, "first-write-rollback_ghost.craft");
+            Directory.CreateDirectory(vesselPath);
+
+            Recording rec = BuildRecordingWithSnapshots(
+                "first-write-rollback",
+                sidecarEpoch: 0,
+                vesselName: "First Write Vessel",
+                ghostName: "First Write Ghost",
+                pidBase: 5300,
+                pointUt: 321);
+
+            logLines.Clear();
+            Assert.False(RecordingStore.SaveRecordingFilesToPathsForTesting(
+                rec, precPath, vesselPath, ghostPath, incrementEpoch: true));
+            Assert.Equal(0, rec.SidecarEpoch);
+            Assert.True(rec.FilesDirty);
+            Assert.False(File.Exists(precPath));
+            Assert.False(File.Exists(ghostPath));
+            Assert.True(Directory.Exists(vesselPath));
+            AssertNoTransientSidecarArtifacts(dir);
+        }
+
+        [Fact]
+        public void ApplyStagedSidecarChanges_DeleteExistingRollback_RestoresOriginalGhostFile()
+        {
+            string dir = Path.Combine(tempDir, "delete-existing-rollback");
+            Directory.CreateDirectory(dir);
+
+            string ghostPath = Path.Combine(dir, "delete-existing-rollback_ghost.craft");
+            string blockedPath = Path.Combine(dir, "delete-existing-rollback_blocked.prec");
+            string stagedBlockedPath = Path.Combine(dir, "delete-existing-rollback_blocked.prec.stage.test");
+            File.WriteAllText(ghostPath, "original ghost snapshot");
+            File.WriteAllText(stagedBlockedPath, "staged trajectory");
+            Directory.CreateDirectory(blockedPath);
+
+            TargetInvocationException ex = Assert.Throws<TargetInvocationException>(
+                () => InvokeApplyStagedSidecarChangesForTesting(
+                    CreateStagedDeleteChangeForTesting(ghostPath),
+                    CreateStagedWriteChangeForTesting(blockedPath, stagedBlockedPath)));
+
+            Assert.NotNull(ex.InnerException);
+            Assert.True(File.Exists(ghostPath));
+            Assert.Equal("original ghost snapshot", File.ReadAllText(ghostPath));
+            Assert.True(Directory.Exists(blockedPath));
+            Assert.False(File.Exists(stagedBlockedPath));
+            AssertNoTransientSidecarArtifacts(dir);
+        }
+
+        [Fact]
         public void BinaryTrajectorySidecar_IsSmallerThanEquivalentTextSidecar()
         {
             Recording text = RecordingStorageFixtures.MaterializeTrajectory(
@@ -1185,6 +1242,53 @@ namespace Parsek.Tests
                 writer.Write(0u);
                 writer.Write(new byte[] { 1, 2, 3, 4 });
             }
+        }
+
+        private static void AssertNoTransientSidecarArtifacts(string dir)
+        {
+            string[] files = Directory.GetFiles(dir);
+            Assert.DoesNotContain(files, f => RecordingStore.IsTransientSidecarArtifactFile(Path.GetFileName(f)));
+        }
+
+        private static object CreateStagedDeleteChangeForTesting(string finalPath)
+        {
+            Type stagedType = GetStagedSidecarChangeType();
+            object change = Activator.CreateInstance(stagedType, nonPublic: true);
+            stagedType.GetField("FinalPath").SetValue(change, finalPath);
+            stagedType.GetField("DeleteExisting").SetValue(change, true);
+            return change;
+        }
+
+        private static object CreateStagedWriteChangeForTesting(string finalPath, string stagedPath)
+        {
+            Type stagedType = GetStagedSidecarChangeType();
+            object change = Activator.CreateInstance(stagedType, nonPublic: true);
+            stagedType.GetField("FinalPath").SetValue(change, finalPath);
+            stagedType.GetField("StagedPath").SetValue(change, stagedPath);
+            stagedType.GetField("DeleteExisting").SetValue(change, false);
+            return change;
+        }
+
+        private static void InvokeApplyStagedSidecarChangesForTesting(params object[] changes)
+        {
+            Type stagedType = GetStagedSidecarChangeType();
+            Type listType = typeof(List<>).MakeGenericType(stagedType);
+            object list = Activator.CreateInstance(listType);
+            MethodInfo addMethod = listType.GetMethod("Add");
+            for (int i = 0; i < changes.Length; i++)
+                addMethod.Invoke(list, new[] { changes[i] });
+
+            MethodInfo applyMethod = typeof(RecordingStore).GetMethod(
+                "ApplyStagedSidecarChanges",
+                BindingFlags.Static | BindingFlags.NonPublic);
+            applyMethod.Invoke(null, new[] { list });
+        }
+
+        private static Type GetStagedSidecarChangeType()
+        {
+            return typeof(RecordingStore).GetNestedType(
+                "StagedSidecarChange",
+                BindingFlags.NonPublic);
         }
     }
 }

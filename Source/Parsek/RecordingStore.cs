@@ -213,6 +213,7 @@ namespace Parsek
         // still "in-flight", untriaged, waiting for OnLoad to decide revert-vs-quickload.
         // See docs/dev/plans/quickload-resume-recording.md.
         private static PendingTreeState pendingTreeState = PendingTreeState.Finalized;
+        internal static string CleanOrphanFilesDirectoryOverrideForTesting;
 
         public static IReadOnlyList<Recording> CommittedRecordings => committedRecordings;
         public static List<RecordingTree> CommittedTrees => committedTrees;
@@ -1683,6 +1684,7 @@ namespace Parsek
             committedTrees.Clear();
             pendingTree = null;
             pendingTreeState = PendingTreeState.Finalized;
+            CleanOrphanFilesDirectoryOverrideForTesting = null;
             SceneEntryActiveVesselPid = 0;
             RewindContext.ResetForTesting();
             RewindUTAdjustmentPending = false;
@@ -1883,14 +1885,22 @@ namespace Parsek
         internal static void CleanOrphanFiles()
         {
             // Resolve without creating — don't create an empty directory just to scan it
-            string root = KSPUtil.ApplicationRootPath ?? "";
-            string saveFolder = HighLogic.SaveFolder ?? "";
-            if (string.IsNullOrEmpty(root) || string.IsNullOrEmpty(saveFolder))
+            string recordingsDir;
+            if (!string.IsNullOrEmpty(CleanOrphanFilesDirectoryOverrideForTesting))
             {
-                ParsekLog.Verbose("RecordingStore", "CleanOrphanFiles: no save context — skipping");
-                return;
+                recordingsDir = Path.GetFullPath(CleanOrphanFilesDirectoryOverrideForTesting);
             }
-            string recordingsDir = Path.GetFullPath(Path.Combine(root, "saves", saveFolder, "Parsek", "Recordings"));
+            else
+            {
+                string root = KSPUtil.ApplicationRootPath ?? "";
+                string saveFolder = HighLogic.SaveFolder ?? "";
+                if (string.IsNullOrEmpty(root) || string.IsNullOrEmpty(saveFolder))
+                {
+                    ParsekLog.Verbose("RecordingStore", "CleanOrphanFiles: no save context — skipping");
+                    return;
+                }
+                recordingsDir = Path.GetFullPath(Path.Combine(root, "saves", saveFolder, "Parsek", "Recordings"));
+            }
             if (!Directory.Exists(recordingsDir))
             {
                 ParsekLog.Verbose("RecordingStore", "CleanOrphanFiles: no recordings directory — skipping");
