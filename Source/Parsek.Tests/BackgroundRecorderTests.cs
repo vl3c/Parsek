@@ -436,6 +436,48 @@ namespace Parsek.Tests
             Assert.False(bgRecorder.HasOnRailsState(999));
         }
 
+        [Fact]
+        public void OnVesselBackgrounded_WithInitialEnvironmentOverride_QueuesPendingOverride()
+        {
+            var tree = MakeTree((100, "rec_bg1"));
+            var bgRecorder = new BackgroundRecorder(tree);
+
+            bgRecorder.OnVesselBackgrounded(100,
+                initialEnvironmentOverride: SegmentEnvironment.SurfaceStationary);
+
+            Assert.Equal(1, bgRecorder.PendingInitialEnvironmentOverrideCount);
+            Assert.Equal(SegmentEnvironment.SurfaceStationary,
+                bgRecorder.PeekPendingInitialEnvironmentOverrideForTesting(100));
+        }
+
+        [Fact]
+        public void ConsumePendingInitialEnvironmentOverrideForTesting_RemovesQueuedOverride()
+        {
+            var tree = MakeTree((100, "rec_bg1"));
+            var bgRecorder = new BackgroundRecorder(tree);
+
+            bgRecorder.OnVesselBackgrounded(100,
+                initialEnvironmentOverride: SegmentEnvironment.SurfaceStationary);
+
+            Assert.Equal(SegmentEnvironment.SurfaceStationary,
+                bgRecorder.ConsumePendingInitialEnvironmentOverrideForTesting(100));
+            Assert.Equal(0, bgRecorder.PendingInitialEnvironmentOverrideCount);
+        }
+
+        [Fact]
+        public void OnVesselRemovedFromBackground_ClearsPendingInitialEnvironmentOverride()
+        {
+            var tree = MakeTree((100, "rec_bg1"));
+            var bgRecorder = new BackgroundRecorder(tree);
+
+            bgRecorder.OnVesselBackgrounded(100,
+                initialEnvironmentOverride: SegmentEnvironment.SurfaceStationary);
+            bgRecorder.OnVesselRemovedFromBackground(100);
+
+            Assert.Equal(0, bgRecorder.PendingInitialEnvironmentOverrideCount);
+            Assert.Null(bgRecorder.PeekPendingInitialEnvironmentOverrideForTesting(100));
+        }
+
         #endregion
 
         #region EncodeEngineKey consistency

@@ -236,6 +236,17 @@ namespace Parsek.Tests
             Assert.Equal(SegmentEnvironment.ExoBallistic, result);
         }
 
+        [Fact]
+        public void ClassifyBackgroundEnvironment_AtmosphericEvaNearGround_ReturnsSurfaceMobile()
+        {
+            var result = BackgroundRecorder.ClassifyBackgroundEnvironment(
+                hasAtmosphere: true, altitude: 75, atmosphereDepth: 70000,
+                situation: 8, srfSpeed: 1.5, cachedEngines: null,
+                isEva: true, heightFromTerrain: 1.0, heightFromTerrainValid: true);
+
+            Assert.Equal(SegmentEnvironment.SurfaceMobile, result);
+        }
+
         #endregion
 
         #region Environment transition creates new section

@@ -531,6 +531,40 @@ namespace Parsek.Tests
             Assert.Equal(SegmentEnvironment.Approach, result);
         }
 
+        [Fact]
+        public void Classify_AtmosphericEvaNearGroundFlying_ReturnsSurface()
+        {
+            var result = EnvironmentDetector.Classify(
+                hasAtmosphere: true,
+                altitude: 75,
+                atmosphereDepth: 70000,
+                situation: 8, // FLYING
+                srfSpeed: 1.5,
+                hasActiveThrust: false,
+                isEva: true,
+                heightFromTerrain: 1.0,
+                heightFromTerrainValid: true);
+
+            Assert.Equal(SegmentEnvironment.SurfaceMobile, result);
+        }
+
+        [Fact]
+        public void Classify_AtmosphericEvaWithoutValidTerrainHeight_RemainsAtmospheric()
+        {
+            var result = EnvironmentDetector.Classify(
+                hasAtmosphere: true,
+                altitude: 75,
+                atmosphereDepth: 70000,
+                situation: 8, // FLYING
+                srfSpeed: 1.5,
+                hasActiveThrust: false,
+                isEva: true,
+                heightFromTerrain: -1.0,
+                heightFromTerrainValid: false);
+
+            Assert.Equal(SegmentEnvironment.Atmospheric, result);
+        }
+
         #endregion
 
         #region Classify — Surface takes priority over atmosphere

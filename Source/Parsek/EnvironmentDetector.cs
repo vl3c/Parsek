@@ -8,6 +8,8 @@ namespace Parsek
     /// </summary>
     internal static class EnvironmentDetector
     {
+        internal const double AtmosphericEvaNearSurfaceMeters = 5.0;
+
         /// <summary>
         /// Pure classification — no hysteresis, no debounce.
         /// Parameters extracted from Vessel for testability (no Vessel dependency).
@@ -19,6 +21,9 @@ namespace Parsek
         /// <param name="srfSpeed">vessel.srfSpeed</param>
         /// <param name="hasActiveThrust">any engine with currentThrust > 0</param>
         /// <param name="approachAltitude">approach altitude threshold for airless bodies (0 = not applicable)</param>
+        /// <param name="isEva">true for Kerbal EVA vessels only</param>
+        /// <param name="heightFromTerrain">vessel.heightFromTerrain when available</param>
+        /// <param name="heightFromTerrainValid">true when heightFromTerrain comes from a valid ground query</param>
         internal static SegmentEnvironment Classify(
             bool hasAtmosphere,
             double altitude,
@@ -26,11 +31,25 @@ namespace Parsek
             int situation,
             double srfSpeed,
             bool hasActiveThrust,
-            double approachAltitude = 0)
+            double approachAltitude = 0,
+            bool isEva = false,
+            double heightFromTerrain = -1,
+            bool heightFromTerrainValid = false)
         {
             // Landed/Splashed/Prelaunch -> surface states
             // situation == 1 (LANDED) or situation == 2 (SPLASHED) or situation == 4 (PRELAUNCH)
             if (situation == 1 || situation == 2 || situation == 4)
+            {
+                return srfSpeed > 0.1
+                    ? SegmentEnvironment.SurfaceMobile
+                    : SegmentEnvironment.SurfaceStationary;
+            }
+
+            // Kerbin/Laythe EVA vessels can briefly report FLYING/SUB_ORBITAL while the
+            // kerbal is still effectively on the ground. Keep this narrow to avoid
+            // turning actual jetpack flight into a surface segment.
+            if (isEva && hasAtmosphere && heightFromTerrainValid &&
+                heightFromTerrain <= AtmosphericEvaNearSurfaceMeters)
             {
                 return srfSpeed > 0.1
                     ? SegmentEnvironment.SurfaceMobile
@@ -92,6 +111,9 @@ namespace Parsek
                 return IsSurfaceEnvironment(envHint.Value);
             return situation == 1 || situation == 2 || situation == 4;
         }
+
+        internal static bool IsHeightFromTerrainValid(double heightFromTerrain)
+            => !double.IsNaN(heightFromTerrain) && heightFromTerrain >= 0.0;
     }
 
     /// <summary>

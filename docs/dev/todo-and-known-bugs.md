@@ -592,7 +592,7 @@ After removing ResourceBudget.ComputeTotal logging (52% of output), remaining sp
 
 ---
 
-## 189b. Ghost escape orbit line stops short of Kerbin SOI edge
+## ~~189b. Ghost escape orbit line stops short of Kerbin SOI edge~~
 
 For hyperbolic escape orbits, KSP's `OrbitRendererBase.UpdateSpline` draws the geometric hyperbola from `-acos(-1/e)` to `+acos(-1/e)` using circular trig (cos/sin), which clips at a finite distance (~12,000 km for e=1.342). The active vessel shows the full escape trajectory to the SOI boundary because it uses `PatchedConicSolver` + `PatchRendering`. Ghost ProtoVessels don't get a `PatchedConicSolver`.
 
@@ -602,6 +602,8 @@ For hyperbolic escape orbits, KSP's `OrbitRendererBase.UpdateSpline` draws the g
 3. Give the ghost a `PatchedConicSolver` (complex, may conflict with KSP internals)
 
 **Priority:** Deferred to Phase 11.5 (Recording Optimization & Observability) — cosmetic, same tier as T25 fairing truss
+
+**Status:** ~~Closed as expected behavior.~~
 
 ---
 
