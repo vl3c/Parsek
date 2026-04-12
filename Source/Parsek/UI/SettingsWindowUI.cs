@@ -184,13 +184,7 @@ namespace Parsek
                 s.speedChangeThreshold = 5.0f;
                 s.autoLoopIntervalSeconds = 10.0f;
                 s.autoLoopTimeUnit = 0;
-                s.ghostCapEnabled = false;
-                s.ghostCapZone1Reduce = 8;
-                s.ghostCapZone1Despawn = 15;
-                s.ghostCapZone2Simplify = 20;
                 s.ghostCameraCutoffKm = DistanceThresholds.GhostFlight.DefaultWatchCameraCutoffKm;
-                GhostSoftCapManager.Enabled = false;
-                GhostSoftCapManager.ApplySettings(8, 15, 20);
                 settingsAutoLoopEditing = false;
                 settingsCameraCutoffEditing = false;
                 ParsekLog.Info("UI", "Settings reset to defaults");
@@ -354,44 +348,6 @@ namespace Parsek
             }
             GUILayout.Label("km");
             GUILayout.EndHorizontal();
-
-            GUILayout.Space(SpacingSmall);
-
-            bool enabled = GUILayout.Toggle(s.ghostCapEnabled,
-                new GUIContent(" Enable soft caps",
-                    "Limit ghost count per distance zone to reduce rendering load"));
-            if (enabled != s.ghostCapEnabled)
-            {
-                s.ghostCapEnabled = enabled;
-                GhostSoftCapManager.Enabled = enabled;
-                ParsekLog.Info("UI", $"Ghost soft caps {(enabled ? "enabled" : "disabled")}");
-            }
-
-            // Always draw slider controls even when caps are disabled — IMGUI requires
-            // identical control counts in Layout and Repaint passes. The toggle click changes
-            // ghostCapEnabled between passes, causing a mismatch if controls are conditionally
-            // skipped. GUI.enabled grays out sliders without affecting layout. (Bug #217)
-            bool prevEnabled = GUI.enabled;
-            GUI.enabled = s.ghostCapEnabled;
-
-            DrawGhostCapSlider("Zone 1 reduce", "Nearby ghosts above this count get reduced fidelity",
-                ref s.ghostCapZone1Reduce, 2, 30, "ghostCap.zone1Reduce", s);
-            DrawGhostCapSlider("Zone 1 despawn", "Nearby ghosts above this count get despawned (lowest priority first)",
-                ref s.ghostCapZone1Despawn, 5, 50, "ghostCap.zone1Despawn", s);
-            DrawGhostCapSlider("Zone 2 simplify", "Distant ghosts above this count get simplified to orbit lines",
-                ref s.ghostCapZone2Simplify, 5, 60, "ghostCap.zone2Simplify", s);
-
-            GUI.enabled = prevEnabled;
-
-            if (s.ghostCapEnabled && s.ghostCapZone1Reduce >= s.ghostCapZone1Despawn)
-            {
-                s.ghostCapZone1Reduce = System.Math.Max(2, s.ghostCapZone1Despawn - 1);
-                GhostSoftCapManager.ApplySettings(
-                    s.ghostCapZone1Reduce, s.ghostCapZone1Despawn, s.ghostCapZone2Simplify);
-                ParsekLog.Info("UI",
-                    $"Clamped ghostCapZone1Reduce={s.ghostCapZone1Reduce} to stay below " +
-                    $"ghostCapZone1Despawn={s.ghostCapZone1Despawn}");
-            }
         }
 
         private void DrawDiagnosticsSettings(ParsekSettings s)
@@ -465,26 +421,6 @@ namespace Parsek
                 s.speedChangeThreshold = speedChangeThreshold;
                 ParsekLog.VerboseRateLimited("UI", "sampling.speedChangeThreshold",
                     $"Setting changed: speedChangeThreshold={s.speedChangeThreshold:F0}%", 1.0);
-            }
-            GUILayout.EndHorizontal();
-        }
-
-        private void DrawGhostCapSlider(string label, string tooltip, ref int value,
-            int min, int max, string logKey, ParsekSettings s)
-        {
-            GUILayout.BeginHorizontal();
-            GUILayout.Label(
-                new GUIContent($"{label}: {value}", tooltip),
-                GUILayout.Width(140));
-            int newValue = Mathf.RoundToInt(
-                GUILayout.HorizontalSlider(value, min, max));
-            if (newValue != value)
-            {
-                value = newValue;
-                GhostSoftCapManager.ApplySettings(
-                    s.ghostCapZone1Reduce, s.ghostCapZone1Despawn, s.ghostCapZone2Simplify);
-                ParsekLog.VerboseRateLimited("UI", logKey,
-                    $"Setting changed: {logKey}={value}", 1.0);
             }
             GUILayout.EndHorizontal();
         }

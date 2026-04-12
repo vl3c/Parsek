@@ -56,12 +56,6 @@ namespace Parsek
         // Ghost camera cutoff distance in km — watch mode auto-exits beyond this.
         public float ghostCameraCutoffKm = DistanceThresholds.GhostFlight.DefaultWatchCameraCutoffKm;
 
-        // Ghost soft cap — disabled by default until profiled with real-world ghost counts
-        public bool ghostCapEnabled = false;
-        public int ghostCapZone1Reduce = 8;
-        public int ghostCapZone1Despawn = 15;
-        public int ghostCapZone2Simplify = 20;
-
         public LoopTimeUnit AutoLoopDisplayUnit
         {
             get => autoLoopTimeUnit == 1 ? LoopTimeUnit.Min

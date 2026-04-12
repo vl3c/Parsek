@@ -3842,16 +3842,9 @@ namespace Parsek
                     "OnFlightReady: no pending cleanup data — skipping CleanupOrphanedSpawnedVessels");
             }
 
-            // Apply ghost soft cap settings from persisted game parameters
-            var capSettings = ParsekSettings.Current;
-            if (capSettings != null)
-            {
-                GhostSoftCapManager.Enabled = capSettings.ghostCapEnabled;
-                GhostSoftCapManager.ApplySettings(
-                    capSettings.ghostCapZone1Reduce,
-                    capSettings.ghostCapZone1Despawn,
-                    capSettings.ghostCapZone2Simplify);
-            }
+            // Apply backend-owned ghost soft-cap defaults. These thresholds are no longer
+            // user-tuned through settings; runtime policy owns them centrally.
+            GhostSoftCapManager.ApplyAutomaticDefaults();
 
             // Seed lastLandedUT if vessel is already on the surface (save-loaded pad, Mun lander, etc.)
             var activeVessel = FlightGlobals.ActiveVessel;

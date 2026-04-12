@@ -23,7 +23,7 @@ namespace Parsek.Tests
         {
             ParsekLog.ResetTestOverrides();
             ParsekLog.SuppressLogging = true;
-            GhostSoftCapManager.ResetThresholds(); // resets Enabled to false
+            GhostSoftCapManager.ResetThresholds();
         }
 
         #region ApplySettings — Threshold Flow
@@ -234,46 +234,45 @@ namespace Parsek.Tests
 
         #endregion
 
-        #region Settings Flow — ParsekSettings Fields
+        #region Backend Bootstrap — Internal Defaults
 
         [Fact]
-        public void ParsekSettings_HasGhostCapFields_WithDefaults()
+        public void ApplyAutomaticDefaults_EnablesManager_AndRestoresThresholds()
         {
-            var settings = new ParsekSettings();
+            GhostSoftCapManager.Enabled = false;
+            GhostSoftCapManager.ApplySettings(5, 10, 15);
 
-            Assert.Equal(8, settings.ghostCapZone1Reduce);
-            Assert.Equal(15, settings.ghostCapZone1Despawn);
-            Assert.Equal(20, settings.ghostCapZone2Simplify);
+            GhostSoftCapManager.ApplyAutomaticDefaults();
+
+            Assert.True(GhostSoftCapManager.Enabled);
+            Assert.Equal(GhostSoftCapManager.DefaultZone1ReduceThreshold, GhostSoftCapManager.Zone1ReduceThreshold);
+            Assert.Equal(GhostSoftCapManager.DefaultZone1DespawnThreshold, GhostSoftCapManager.Zone1DespawnThreshold);
+            Assert.Equal(GhostSoftCapManager.DefaultZone2SimplifyThreshold, GhostSoftCapManager.Zone2SimplifyThreshold);
         }
 
         [Fact]
-        public void ParsekSettings_GhostCapFields_FlowToManager()
+        public void ApplyAutomaticDefaults_LogsBackendOwnedDefaults()
         {
-            var settings = new ParsekSettings();
-            settings.ghostCapZone1Reduce = 5;
-            settings.ghostCapZone1Despawn = 10;
-            settings.ghostCapZone2Simplify = 15;
+            GhostSoftCapManager.ApplyAutomaticDefaults();
 
-            GhostSoftCapManager.ApplySettings(
-                settings.ghostCapZone1Reduce,
-                settings.ghostCapZone1Despawn,
-                settings.ghostCapZone2Simplify);
+            Assert.Contains(logLines, l =>
+                l.Contains("[SoftCap]") &&
+                l.Contains("Automatic defaults applied") &&
+                l.Contains("enabled=True") &&
+                l.Contains($"zone1Reduce={GhostSoftCapManager.DefaultZone1ReduceThreshold}") &&
+                l.Contains($"zone1Despawn={GhostSoftCapManager.DefaultZone1DespawnThreshold}") &&
+                l.Contains($"zone2Simplify={GhostSoftCapManager.DefaultZone2SimplifyThreshold}"));
+        }
 
-            Assert.Equal(5, GhostSoftCapManager.Zone1ReduceThreshold);
-            Assert.Equal(10, GhostSoftCapManager.Zone1DespawnThreshold);
-            Assert.Equal(15, GhostSoftCapManager.Zone2SimplifyThreshold);
+        [Fact]
+        public void ParsekSettings_DoesNotExposeGhostCapFields()
+        {
+            var settingsType = typeof(ParsekSettings);
 
-            // Verify the applied thresholds actually affect cap evaluation
-            var zone1 = new List<(int, GhostPriority)>();
-            for (int i = 0; i < 6; i++)
-                zone1.Add((i, GhostPriority.LoopedOldest));
-
-            var actions = GhostSoftCapManager.EvaluateCaps(
-                6, 0, zone1, new List<(int, GhostPriority)>());
-
-            // 6 > 5 reduce threshold, but <= 10 despawn → 1 reduced (not despawned)
-            Assert.Single(actions);
-            Assert.Equal(GhostCapAction.ReduceFidelity, actions.Values.First());
+            Assert.Null(settingsType.GetField("ghostCapEnabled"));
+            Assert.Null(settingsType.GetField("ghostCapZone1Reduce"));
+            Assert.Null(settingsType.GetField("ghostCapZone1Despawn"));
+            Assert.Null(settingsType.GetField("ghostCapZone2Simplify"));
         }
 
         #endregion

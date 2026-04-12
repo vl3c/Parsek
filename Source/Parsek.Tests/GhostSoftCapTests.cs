@@ -23,7 +23,7 @@ namespace Parsek.Tests
         {
             ParsekLog.ResetTestOverrides();
             ParsekLog.SuppressLogging = true;
-            GhostSoftCapManager.ResetThresholds(); // resets Enabled to false
+            GhostSoftCapManager.ResetThresholds();
         }
 
         #region ClassifyPriority — Looping Recordings

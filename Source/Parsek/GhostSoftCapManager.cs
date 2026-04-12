@@ -20,13 +20,16 @@ namespace Parsek
 
     internal static class GhostSoftCapManager
     {
-        // Enabled toggle — off by default until profiled with real-world ghost counts
-        internal static bool Enabled = false;
+        internal const bool DefaultEnabled = true;
+        internal const int DefaultZone1ReduceThreshold = 8;
+        internal const int DefaultZone1DespawnThreshold = 15;
+        internal const int DefaultZone2SimplifyThreshold = 20;
 
-        // Default thresholds (configurable via settings)
-        internal static int Zone1ReduceThreshold = 8;
-        internal static int Zone1DespawnThreshold = 15;
-        internal static int Zone2SimplifyThreshold = 20;
+        // Backend-owned defaults. User-facing settings no longer tune these.
+        internal static bool Enabled = DefaultEnabled;
+        internal static int Zone1ReduceThreshold = DefaultZone1ReduceThreshold;
+        internal static int Zone1DespawnThreshold = DefaultZone1DespawnThreshold;
+        internal static int Zone2SimplifyThreshold = DefaultZone2SimplifyThreshold;
 
         /// <summary>
         /// Determines priority for a ghost recording. Lower priority = despawned first.
@@ -123,8 +126,8 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Applies threshold settings from ParsekSettings to static fields.
-        /// Called at scene load to sync persisted settings with runtime thresholds.
+        /// Applies explicit threshold values to the runtime state. Used by tests and
+        /// any future internal policy layer that wants to override the defaults.
         /// Pure static for testability.
         /// </summary>
         internal static void ApplySettings(int zone1Reduce, int zone1Despawn, int zone2Simplify)
@@ -137,14 +140,30 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Resets thresholds to defaults. For testing.
+        /// Applies the backend-owned runtime defaults. Called at scene entry so soft caps
+        /// are initialized without relying on user-tuned settings knobs.
+        /// </summary>
+        internal static void ApplyAutomaticDefaults()
+        {
+            Enabled = DefaultEnabled;
+            Zone1ReduceThreshold = DefaultZone1ReduceThreshold;
+            Zone1DespawnThreshold = DefaultZone1DespawnThreshold;
+            Zone2SimplifyThreshold = DefaultZone2SimplifyThreshold;
+            ParsekLog.Info("SoftCap",
+                $"Automatic defaults applied: enabled={Enabled} " +
+                $"zone1Reduce={Zone1ReduceThreshold} zone1Despawn={Zone1DespawnThreshold} " +
+                $"zone2Simplify={Zone2SimplifyThreshold}");
+        }
+
+        /// <summary>
+        /// Resets thresholds to runtime defaults. For testing.
         /// </summary>
         internal static void ResetThresholds()
         {
-            Enabled = false;
-            Zone1ReduceThreshold = 8;
-            Zone1DespawnThreshold = 15;
-            Zone2SimplifyThreshold = 20;
+            Enabled = DefaultEnabled;
+            Zone1ReduceThreshold = DefaultZone1ReduceThreshold;
+            Zone1DespawnThreshold = DefaultZone1DespawnThreshold;
+            Zone2SimplifyThreshold = DefaultZone2SimplifyThreshold;
         }
     }
 }
