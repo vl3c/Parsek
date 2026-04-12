@@ -126,9 +126,11 @@ If deferred stock results are carried across scene change for a fallback merge d
 
 Plan change:
 
-- gate or reorder the `OnFlightReady()` safety net so it only replays when no pending tree / merge dialog owner exists
+- gate or reorder the `OnFlightReady()` safety net so it only replays when no real merge owner exists
+- treat only finalized pending trees as merge owners; `Limbo` / `LimboVesselSwitch` are restore carriers and must not suppress replay ownership checks
 - stop treating `ClearPending()` on scene change as the only protection against wrong ordering
 - make the fallback merge-dialog path responsible for resolving deferred stock results after user choice
+- when a pending tree is discarded as abandoned future / stale state, clear deferred stock results with it so old crash dialogs cannot leak into a later session
 
 #### 6. Add tests that pin the ordering contract
 

@@ -202,33 +202,45 @@ namespace Parsek.Patches
         }
 
         /// <summary>
+        /// Returns true when a pending tree represents a real merge owner for deferred
+        /// stock flight results. Limbo carriers are restore state, not merge dialogs.
+        /// </summary>
+        internal static bool PendingTreeOwnsReplay(
+            bool hasPendingTree,
+            PendingTreeState pendingTreeState)
+        {
+            return hasPendingTree && pendingTreeState == PendingTreeState.Finalized;
+        }
+
+        /// <summary>
         /// Returns true when a captured stock dialog should be replayed on flight ready.
-        /// Pending-tree / merge-dialog owners suppress the safety-net replay because they
-        /// are responsible for showing Parsek's dialog first.
+        /// Pending-tree merge owners / merge-dialog owners suppress the safety-net replay
+        /// because they are responsible for showing Parsek's dialog first.
         /// </summary>
         internal static bool ShouldReplayOnFlightReady(
-            bool hasPendingTree,
+            bool pendingTreeOwnsReplay,
             bool mergeDialogPending)
         {
             if (!HasPendingResults())
                 return false;
 
-            return !hasPendingTree && !mergeDialogPending;
+            return !pendingTreeOwnsReplay && !mergeDialogPending;
         }
 
         /// <summary>
         /// Returns true when a captured stock dialog should survive scene change because
-        /// another owner (pending tree or in-flight / scenario merge path) will resolve it later.
+        /// another owner (existing pending tree, current scene-exit merge path, or an
+        /// already-pending scenario merge dialog) will resolve it later.
         /// </summary>
         internal static bool ShouldPreserveCapturedResultsOnSceneChange(
-            bool hasPendingTree,
-            bool treeDestructionDialogPending,
+            bool pendingTreeOwnsReplay,
+            bool sceneChangeWillCreateMergeOwner,
             bool mergeDialogPending)
         {
             if (!HasPendingResults())
                 return false;
 
-            return hasPendingTree || treeDestructionDialogPending || mergeDialogPending;
+            return pendingTreeOwnsReplay || sceneChangeWillCreateMergeOwner || mergeDialogPending;
         }
 
         /// <summary>

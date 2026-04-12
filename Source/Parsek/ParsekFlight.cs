@@ -3835,8 +3835,11 @@ namespace Parsek
 
             // Safety net: if FlightResultsPatch has a pending message that was never replayed
             // (e.g., tree destruction path didn't fire), replay it now
-            if (Patches.FlightResultsPatch.ShouldReplayOnFlightReady(
+            bool pendingTreeOwnsReplay = Patches.FlightResultsPatch.PendingTreeOwnsReplay(
                 RecordingStore.HasPendingTree,
+                RecordingStore.PendingTreeStateValue);
+            if (Patches.FlightResultsPatch.ShouldReplayOnFlightReady(
+                pendingTreeOwnsReplay,
                 ParsekScenario.MergeDialogPending))
             {
                 ParsekLog.Warn("Flight", "FlightResults safety net: replaying suppressed results on OnFlightReady");
@@ -3991,6 +3994,14 @@ namespace Parsek
         private void ClearSceneChangeTransientState()
         {
             bool hadTreeDestructionDialogPending = treeDestructionDialogPending;
+            bool pendingTreeOwnsReplay = Patches.FlightResultsPatch.PendingTreeOwnsReplay(
+                RecordingStore.HasPendingTree,
+                RecordingStore.PendingTreeStateValue);
+            bool sceneChangeWillCreateMergeOwner = hadTreeDestructionDialogPending
+                && RecordingStore.PendingDestinationScene.HasValue
+                && RecordingStore.PendingDestinationScene.Value != GameScenes.FLIGHT
+                && RecordingStore.PendingDestinationScene.Value != GameScenes.MAINMENU
+                && !ParsekScenario.IsAutoMerge;
 
             // Clear dock/undock pending state
             ClearDockUndockState();
@@ -4006,8 +4017,8 @@ namespace Parsek
             if (Patches.FlightResultsPatch.HasPendingResults())
             {
                 if (Patches.FlightResultsPatch.ShouldPreserveCapturedResultsOnSceneChange(
-                    RecordingStore.HasPendingTree,
-                    hadTreeDestructionDialogPending,
+                    pendingTreeOwnsReplay,
+                    sceneChangeWillCreateMergeOwner,
                     ParsekScenario.MergeDialogPending))
                 {
                     ParsekLog.Info("Flight",
