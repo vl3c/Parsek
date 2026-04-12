@@ -424,6 +424,9 @@ namespace Parsek
 
         // Camera follow (watch mode) — forwarded from WatchModeController
         internal bool IsWatchingGhost => watchMode.IsWatchingGhost;
+        internal int WatchedRecordingIndexForDiagnostics => watchMode != null
+            ? watchMode.WatchedRecordingIndex
+            : -1;
         internal int WatchedRecordingIndex => watchMode.WatchedRecordingIndex;
 
         #endregion

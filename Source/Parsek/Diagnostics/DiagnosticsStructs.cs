@@ -61,10 +61,10 @@ namespace Parsek
         // Ghost state
         public int activeGhostCount;
         public int activeOverlapGhostCount;
-        public int zone1GhostCount;
-        public int zone2GhostCount;
+        public int fullGhostCount;
         public int reducedGhostCount;
-        public int simplifiedGhostCount;
+        public int hiddenGhostCount;
+        public int watchedOverrideGhostCount;
 
         // Timing — raw last-frame budgets
         public FrameBudget lastPlaybackBudget;

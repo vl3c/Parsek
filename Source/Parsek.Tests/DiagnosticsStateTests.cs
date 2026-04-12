@@ -517,8 +517,11 @@ namespace Parsek.Tests
                 loadedSnapshotCount = 46,
                 estimatedMemoryBytes = 47200L * 136 + 312L * 88 + 18L * 120 + 46L * 8192,
                 activeGhostCount = 8,
-                zone1GhostCount = 3,
-                zone2GhostCount = 5,
+                activeOverlapGhostCount = 2,
+                fullGhostCount = 3,
+                reducedGhostCount = 2,
+                hiddenGhostCount = 3,
+                watchedOverrideGhostCount = 1,
                 lastPlaybackBudget = new FrameBudget { warpRate = 1.0f },
                 // Populate playback rolling stats so the gate (entriesInWindow > 0) shows formatted values
                 playbackAvgTotalMs = 2.5,
@@ -543,7 +546,7 @@ namespace Parsek.Tests
             Assert.Contains("312 evts", report);
             Assert.Contains("18 segs", report);
             Assert.Contains("46 snapshots", report);
-            Assert.Contains("Ghosts: 8 active (z1:3 z2:5)", report);
+            Assert.Contains("Ghosts: 8 active (2 overlap), 3 full, 2 reduced, 3 hidden, 1 watched override", report);
             Assert.Contains("Playback budget:", report);
             Assert.Contains("ms avg", report);
             Assert.Contains("ms peak", report);
@@ -718,6 +721,68 @@ namespace Parsek.Tests
             Assert.Equal(0L, snap.estimatedMemoryBytes);
             Assert.NotNull(snap.perRecording);
             Assert.Empty(snap.perRecording);
+        }
+
+        [Fact]
+        public void PopulateGhostStateCounts_ClassifiesLiveLodTiers()
+        {
+            var primary = new Dictionary<int, GhostPlaybackState>
+            {
+                { 0, new GhostPlaybackState
+                    {
+                        currentZone = RenderingZone.Physics,
+                        lastDistance = 1000.0
+                    }
+                },
+                { 1, new GhostPlaybackState
+                    {
+                        currentZone = RenderingZone.Visual,
+                        lastDistance = 10000.0,
+                        distanceLodReduced = true
+                    }
+                },
+                { 2, new GhostPlaybackState
+                    {
+                        currentZone = RenderingZone.Visual,
+                        lastDistance = 60000.0
+                    }
+                },
+                { 3, new GhostPlaybackState
+                    {
+                        currentZone = RenderingZone.Beyond,
+                        lastDistance = 150000.0
+                    }
+                }
+            };
+
+            var overlap = new Dictionary<int, List<GhostPlaybackState>>
+            {
+                { 1, new List<GhostPlaybackState>
+                    {
+                        new GhostPlaybackState
+                        {
+                            currentZone = RenderingZone.Visual,
+                            lastDistance = 5000.0,
+                            distanceLodReduced = true
+                        }
+                    }
+                }
+            };
+
+            var snap = new MetricSnapshot();
+            DiagnosticsComputation.PopulateGhostStateCounts(
+                ref snap,
+                primary,
+                overlap,
+                watchedIndex: 3,
+                fallbackActiveGhostCount: 99);
+
+            Assert.Equal(5, snap.activeGhostCount);
+            Assert.Equal(1, snap.activeOverlapGhostCount);
+            Assert.Equal(2, snap.fullGhostCount);
+            Assert.Equal(2, snap.reducedGhostCount);
+            Assert.Equal(1, snap.hiddenGhostCount);
+            Assert.Equal(1, snap.watchedOverrideGhostCount);
         }
 
         [Fact]
