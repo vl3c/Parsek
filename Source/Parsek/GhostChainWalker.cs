@@ -11,6 +11,7 @@ namespace Parsek
     internal static class GhostChainWalker
     {
         private const string Tag = "ChainWalker";
+        private const double ClaimOverlapTolerance = 0.001;
 
         /// <summary>
         /// Scans all committed trees and builds ghost chains for every pre-existing
@@ -71,15 +72,16 @@ namespace Parsek
             foreach (var kvp in claimsByPid)
             {
                 uint pid = kvp.Key;
-                var links = kvp.Value;
-                links.Sort((a, b) => a.ut.CompareTo(b.ut));
+                var links = BuildSequentialChainLinks(pid, kvp.Value, committedTrees);
+                if (links.Count == 0)
+                    continue;
 
                 var chain = new GhostChain
                 {
                     OriginalVesselPid = pid,
-                    Links = links,
                     GhostStartUT = links[0].ut
                 };
+                chain.Links.AddRange(links);
 
                 chains[pid] = chain;
             }
@@ -170,6 +172,7 @@ namespace Parsek
             RecordingTree tree, Dictionary<uint, List<ChainLink>> claimsByPid)
         {
             var ic = CultureInfo.InvariantCulture;
+            var rootLineageFirstSeen = GetRootLineagePidFirstSeenUTs(tree);
 
             for (int i = 0; i < tree.BranchPoints.Count; i++)
             {
@@ -180,6 +183,15 @@ namespace Parsek
 
                 if (bp.TargetVesselPersistentId == 0)
                     continue;
+
+                if (TreeOwnsPidBeforeUT(rootLineageFirstSeen, bp.TargetVesselPersistentId, bp.UT))
+                {
+                    ParsekLog.Verbose(Tag,
+                        string.Format(ic,
+                            "Skipping self-owned claim: tree={0} pid={1} already in root lineage before UT={2:F1}",
+                            tree.Id, bp.TargetVesselPersistentId, bp.UT));
+                    continue;
+                }
 
                 // Determine interaction type and claiming recording
                 string interactionType;
@@ -243,9 +255,7 @@ namespace Parsek
             RecordingTree tree, Dictionary<uint, List<ChainLink>> claimsByPid)
         {
             var ic = CultureInfo.InvariantCulture;
-
-            // Find root lineage vessel PIDs by tracing from the root recording
-            var rootLineagePids = GetRootLineageVesselPids(tree);
+            var rootLineageFirstSeen = GetRootLineagePidFirstSeenUTs(tree);
 
             foreach (var kvp in tree.Recordings)
             {
@@ -253,8 +263,10 @@ namespace Parsek
                 if (rec.VesselPersistentId == 0)
                     continue;
 
-                // Skip recordings that belong to the tree's own lineage
-                if (rootLineagePids.Contains(rec.VesselPersistentId))
+                // Skip recordings that were already part of the tree's own lineage
+                // before this background recording started. Later PID reuse in the
+                // root lineage does not make an earlier background recording "owned."
+                if (TreeOwnsPidBeforeUT(rootLineageFirstSeen, rec.VesselPersistentId, rec.StartUT))
                     continue;
 
                 if (!GhostingTriggerClassifier.HasGhostingTriggerEvents(rec))
@@ -292,17 +304,7 @@ namespace Parsek
         /// </summary>
         internal static HashSet<uint> GetRootLineageVesselPids(RecordingTree tree)
         {
-            var pids = new HashSet<uint>();
-
-            // Find root recording
-            Recording rootRec;
-            if (!string.IsNullOrEmpty(tree.RootRecordingId)
-                && tree.Recordings.TryGetValue(tree.RootRecordingId, out rootRec))
-            {
-                TraceLineagePids(tree, rootRec, pids, new HashSet<string>());
-            }
-
-            return pids;
+            return new HashSet<uint>(GetRootLineagePidFirstSeenUTs(tree).Keys);
         }
 
         /// <summary>
@@ -310,9 +312,28 @@ namespace Parsek
         /// all VesselPersistentIds in the lineage. Tracks visited recording IDs to avoid
         /// infinite loops.
         /// </summary>
+        private static Dictionary<uint, double> GetRootLineagePidFirstSeenUTs(RecordingTree tree)
+        {
+            var firstSeen = new Dictionary<uint, double>();
+
+            Recording rootRec;
+            if (!string.IsNullOrEmpty(tree.RootRecordingId)
+                && tree.Recordings.TryGetValue(tree.RootRecordingId, out rootRec))
+            {
+                TraceLineagePids(tree, rootRec, firstSeen, new HashSet<string>());
+            }
+
+            return firstSeen;
+        }
+
+        /// <summary>
+        /// Recursively traces from a recording through its ChildBranchPointId to collect
+        /// all root-lineage VesselPersistentIds, recording the earliest StartUT at which
+        /// each PID appears. Tracks visited recording IDs to avoid infinite loops.
+        /// </summary>
         private static void TraceLineagePids(
             RecordingTree tree, Recording rec,
-            HashSet<uint> pids, HashSet<string> visited)
+            Dictionary<uint, double> firstSeenByPid, HashSet<string> visited)
         {
             if (rec == null || visited.Contains(rec.RecordingId))
                 return;
@@ -320,7 +341,14 @@ namespace Parsek
             visited.Add(rec.RecordingId);
 
             if (rec.VesselPersistentId != 0)
-                pids.Add(rec.VesselPersistentId);
+            {
+                double firstSeenUT;
+                if (!firstSeenByPid.TryGetValue(rec.VesselPersistentId, out firstSeenUT)
+                    || rec.StartUT < firstSeenUT)
+                {
+                    firstSeenByPid[rec.VesselPersistentId] = rec.StartUT;
+                }
+            }
 
             // Follow ChildBranchPointId to find child recordings
             if (rec.ChildBranchPointId != null)
@@ -334,7 +362,7 @@ namespace Parsek
                         {
                             Recording childRec;
                             if (tree.Recordings.TryGetValue(bp.ChildRecordingIds[c], out childRec))
-                                TraceLineagePids(tree, childRec, pids, visited);
+                                TraceLineagePids(tree, childRec, firstSeenByPid, visited);
                         }
                         break;
                     }
@@ -353,7 +381,7 @@ namespace Parsek
                         && kvp.Value.ChainIndex == nextIdx
                         && kvp.Value.ChainBranch == rec.ChainBranch)
                     {
-                        TraceLineagePids(tree, kvp.Value, pids, visited);
+                        TraceLineagePids(tree, kvp.Value, firstSeenByPid, visited);
                         break;
                     }
                 }
@@ -425,6 +453,16 @@ namespace Parsek
                             string.Format(ic,
                                 "Cross-tree link cycle detected: vessel={0} already visited — breaking",
                                 tipVesselPid));
+                        break;
+                    }
+
+                    if (linkedChain.GhostStartUT < current.SpawnUT - ClaimOverlapTolerance)
+                    {
+                        ParsekLog.Warn(Tag,
+                            string.Format(ic,
+                                "Skipping ambiguous cross-tree merge: vessel={0} tipPid={1} " +
+                                "linkedStartUT={2:F1} overlaps currentSpawnUT={3:F1}",
+                                originPid, tipVesselPid, linkedChain.GhostStartUT, current.SpawnUT));
                         break;
                     }
 
@@ -684,6 +722,61 @@ namespace Parsek
         {
             Recording rec = FindRecording(recordingId, treeId, committedTrees);
             return rec != null ? rec.VesselPersistentId : 0;
+        }
+
+        private static bool TreeOwnsPidBeforeUT(
+            Dictionary<uint, double> rootLineageFirstSeen, uint pid, double ut)
+        {
+            double firstSeenUT;
+            return rootLineageFirstSeen != null
+                && rootLineageFirstSeen.TryGetValue(pid, out firstSeenUT)
+                && firstSeenUT < ut - ClaimOverlapTolerance;
+        }
+
+        private static List<ChainLink> BuildSequentialChainLinks(
+            uint pid, List<ChainLink> candidateLinks, List<RecordingTree> committedTrees)
+        {
+            var accepted = new List<ChainLink>();
+            if (candidateLinks == null || candidateLinks.Count == 0)
+                return accepted;
+
+            var sorted = new List<ChainLink>(candidateLinks);
+            sorted.Sort((a, b) => a.ut.CompareTo(b.ut));
+
+            double coveredUntilUT = double.NegativeInfinity;
+            for (int i = 0; i < sorted.Count; i++)
+            {
+                var link = sorted[i];
+                double candidateEndUT = ResolveClaimEndUT(link, committedTrees);
+
+                if (accepted.Count > 0 && link.ut < coveredUntilUT - ClaimOverlapTolerance)
+                {
+                    ParsekLog.Warn(Tag,
+                        string.Format(CultureInfo.InvariantCulture,
+                            "Skipping overlapping claim for pid={0}: tree={1} rec={2} claimUT={3:F1} " +
+                            "overlaps acceptedChainEndUT={4:F1}",
+                            pid, link.treeId, link.recordingId, link.ut, coveredUntilUT));
+                    continue;
+                }
+
+                accepted.Add(link);
+                if (candidateEndUT > coveredUntilUT)
+                    coveredUntilUT = candidateEndUT;
+            }
+
+            return accepted;
+        }
+
+        private static double ResolveClaimEndUT(
+            ChainLink link, List<RecordingTree> committedTrees)
+        {
+            Recording rec = FindRecording(link.recordingId, link.treeId, committedTrees);
+            RecordingTree tree = FindTree(link.treeId, committedTrees);
+            if (rec == null || tree == null)
+                return link.ut;
+
+            Recording leaf = WalkToLeaf(rec, tree);
+            return leaf != null ? leaf.EndUT : link.ut;
         }
 
         #endregion

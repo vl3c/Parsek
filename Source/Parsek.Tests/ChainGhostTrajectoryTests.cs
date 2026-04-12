@@ -189,6 +189,81 @@ namespace Parsek.Tests
         }
 
         /// <summary>
+        /// Chain-scoped lookup must prefer the tree that actually owns the chain link,
+        /// not an overlapping alternate-history recording with the same PID.
+        /// Guards: same-PID historical reuse does not steal chain trajectory playback.
+        /// </summary>
+        [Fact]
+        public void FindBackgroundRecordingForChain_PrefersClaimingTreeOverAlternateHistory()
+        {
+            var altRec = MakeRecordingWithPoints("bg-alt", 100, 1000, 1100);
+            altRec.TreeId = "tree-alt";
+
+            var chainRec = MakeRecordingWithPoints("bg-chain", 100, 1060, 1120);
+            chainRec.TreeId = "tree-1";
+
+            var recordings = new List<Recording> { altRec, chainRec };
+            var chain = new GhostChain
+            {
+                OriginalVesselPid = 100,
+                TipTreeId = "tree-1"
+            };
+            chain.Links.Add(new ChainLink
+            {
+                recordingId = "R1",
+                treeId = "tree-1",
+                ut = 1060,
+                interactionType = "MERGE"
+            });
+
+            var result = ParsekFlight.FindBackgroundRecordingForChain(recordings, chain, 1070);
+
+            Assert.NotNull(result);
+            Assert.Equal("bg-chain", result.RecordingId);
+        }
+
+        /// <summary>
+        /// When a later tree extends the same chain, lookup should advance to the
+        /// most recent claim tree once its claim UT has been reached.
+        /// Guards: cross-tree continuation picks the newest link's trajectory.
+        /// </summary>
+        [Fact]
+        public void FindBackgroundRecordingForChain_PrefersMostRecentClaimTreeAtCurrentUT()
+        {
+            var tree1Rec = MakeRecordingWithPoints("bg-tree-1", 100, 1060, 1300);
+            tree1Rec.TreeId = "tree-1";
+
+            var tree2Rec = MakeRecordingWithPoints("bg-tree-2", 100, 1260, 1320);
+            tree2Rec.TreeId = "tree-2";
+
+            var recordings = new List<Recording> { tree1Rec, tree2Rec };
+            var chain = new GhostChain
+            {
+                OriginalVesselPid = 100,
+                TipTreeId = "tree-2"
+            };
+            chain.Links.Add(new ChainLink
+            {
+                recordingId = "R1",
+                treeId = "tree-1",
+                ut = 1060,
+                interactionType = "MERGE"
+            });
+            chain.Links.Add(new ChainLink
+            {
+                recordingId = "R2",
+                treeId = "tree-2",
+                ut = 1260,
+                interactionType = "MERGE"
+            });
+
+            var result = ParsekFlight.FindBackgroundRecordingForChain(recordings, chain, 1270);
+
+            Assert.NotNull(result);
+            Assert.Equal("bg-tree-2", result.RecordingId);
+        }
+
+        /// <summary>
         /// UT equals exactly the recording's StartUT. Returns the recording.
         /// Guards: inclusive start boundary.
         /// </summary>

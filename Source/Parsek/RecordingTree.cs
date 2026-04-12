@@ -32,10 +32,12 @@ namespace Parsek
         public Dictionary<uint, string> BackgroundMap
             = new Dictionary<uint, string>();
 
-        // Set of all vessel PIDs that appear in this tree's recordings.
-        // Used to distinguish tree-owned vessels from external vessels in ghost skip logic.
+        // Set of all vessel PIDs that appear anywhere in this tree's recordings.
+        // This is archived-history membership, not a globally unique ownership claim.
+        // Used by ghost skip logic to answer the tree-local question
+        // "does this PID appear in this tree at all?".
         // Rebuilt alongside BackgroundMap via RebuildBackgroundMap().
-        public HashSet<uint> OwnedVesselPids = new HashSet<uint>();
+        public HashSet<uint> RecordedVesselPids = new HashSet<uint>();
 
         /// <summary>
         /// Returns the maximum EndUT across all recordings in this tree.
@@ -154,17 +156,14 @@ namespace Parsek
         public void RebuildBackgroundMap()
         {
             BackgroundMap.Clear();
-            OwnedVesselPids.Clear();
+            RecordedVesselPids.Clear();
             foreach (var kvp in Recordings)
             {
                 var rec = kvp.Value;
                 if (rec.VesselPersistentId != 0)
-                    OwnedVesselPids.Add(rec.VesselPersistentId);
+                    RecordedVesselPids.Add(rec.VesselPersistentId);
 
-                if (rec.VesselPersistentId != 0
-                    && rec.TerminalStateValue == null
-                    && rec.ChildBranchPointId == null  // has branched → no longer a live recording
-                    && rec.RecordingId != ActiveRecordingId)
+                if (IsBackgroundMapEligible(rec))
                 {
                     if (BackgroundMap.ContainsKey(rec.VesselPersistentId))
                         ParsekLog.Warn("RecordingTree",
@@ -175,7 +174,38 @@ namespace Parsek
             }
 
             ParsekLog.Verbose("RecordingTree",
-                $"RebuildBackgroundMap: entries={BackgroundMap.Count} ownedPids={OwnedVesselPids.Count} totalRecordings={Recordings.Count}");
+                $"RebuildBackgroundMap: entries={BackgroundMap.Count} recordedPids={RecordedVesselPids.Count} totalRecordings={Recordings.Count}");
+        }
+
+        internal bool IsBackgroundMapEligible(Recording rec)
+        {
+            return rec != null
+                && rec.VesselPersistentId != 0
+                && rec.TerminalStateValue == null
+                && rec.ChildBranchPointId == null
+                && rec.RecordingId != ActiveRecordingId;
+        }
+
+        internal List<uint> FindDuplicateBackgroundMapPids()
+        {
+            var counts = new Dictionary<uint, int>();
+            var duplicates = new List<uint>();
+
+            foreach (var rec in Recordings.Values)
+            {
+                if (!IsBackgroundMapEligible(rec))
+                    continue;
+
+                int nextCount = 1;
+                if (counts.TryGetValue(rec.VesselPersistentId, out int existing))
+                    nextCount = existing + 1;
+
+                counts[rec.VesselPersistentId] = nextCount;
+                if (nextCount == 2)
+                    duplicates.Add(rec.VesselPersistentId);
+            }
+
+            return duplicates;
         }
 
         // --- Recording serialization helpers ---

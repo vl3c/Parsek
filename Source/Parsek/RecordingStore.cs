@@ -586,7 +586,7 @@ namespace Parsek
             // recordings and flush again with the final optimized state.
             FlushDirtyFiles(committedRecordings);
 
-            // Ensure OwnedVesselPids is populated (covers runtime-created trees
+            // Ensure RecordedVesselPids is populated (covers runtime-created trees
             // that never went through RecordingTree.Load)
             tree.RebuildBackgroundMap();
 

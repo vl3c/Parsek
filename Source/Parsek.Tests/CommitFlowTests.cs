@@ -404,9 +404,9 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void ShouldSkip_TreeOwnedVessel_ReturnsFalse()
+        public void ShouldSkip_TreeRecordedVessel_ReturnsFalse()
         {
-            // Tree-owned vessel: recording belongs to a committed tree that has this PID
+            // Tree-recorded vessel: recording belongs to a committed tree that has this PID
             // Ghost should play to show the recorded trajectory even if real vessel exists
             GhostPlaybackLogic.SetVesselExistsOverrideForTesting(pid => true);
             var rec = MakeRecording("rec-1", "tree-own", "Jumping Flea", pid: 9000,
@@ -419,9 +419,9 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void ShouldSkip_TreeOwnedEvaBranch_ReturnsFalse()
+        public void ShouldSkip_TreeRecordedEvaBranch_ReturnsFalse()
         {
-            // EVA branch vessel PID is also owned by the tree — ghost should play
+            // EVA branch vessel PID is also recorded by the tree — ghost should play
             GhostPlaybackLogic.SetVesselExistsOverrideForTesting(pid => true);
             var rec1 = MakeRecording("rec-ship", "tree-eva", "Ship", pid: 8000,
                 sections: new List<TrackSection> { MakeSection(100, 200) });
@@ -430,7 +430,7 @@ namespace Parsek.Tests
             var tree = MakeTree("Ship", "tree-eva", rec1, rec2);
             RecordingStore.CommitTree(tree);
 
-            // Both PIDs should be owned by the tree
+            // Both PIDs should be recorded by the tree
             Assert.False(GhostPlaybackLogic.ShouldSkipExternalVesselGhost(
                 "tree-eva", 8000, false));
             Assert.False(GhostPlaybackLogic.ShouldSkipExternalVesselGhost(
@@ -438,7 +438,7 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void ShouldSkip_ExternalVesselNotOwnedByTree_ReturnsTrue()
+        public void ShouldSkip_ExternalVesselNotRecordedByTree_ReturnsTrue()
         {
             // External vessel from a different tree — should be skipped
             GhostPlaybackLogic.SetVesselExistsOverrideForTesting(pid => pid == 6000);
@@ -453,16 +453,35 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void ShouldSkip_OwnedVesselPids_PopulatedFromRecordings()
+        public void ShouldSkip_RecordedVesselPids_PopulatedFromRecordings()
         {
             var rec1 = MakeRecording("rec-1", "tree-pid", "Ship", pid: 1111);
             var rec2 = MakeRecording("rec-2", "tree-pid", "Kerbal", pid: 2222);
             var rec3 = MakeRecording("rec-3", "tree-pid", "Ship", pid: 1111); // duplicate PID
             var tree = MakeTree("Ship", "tree-pid", rec1, rec2, rec3);
 
-            Assert.Contains((uint)1111, tree.OwnedVesselPids);
-            Assert.Contains((uint)2222, tree.OwnedVesselPids);
-            Assert.Equal(2, tree.OwnedVesselPids.Count); // deduped
+            Assert.Contains((uint)1111, tree.RecordedVesselPids);
+            Assert.Contains((uint)2222, tree.RecordedVesselPids);
+            Assert.Equal(2, tree.RecordedVesselPids.Count); // deduped
+        }
+
+        [Fact]
+        public void ShouldSkip_HistoricalPidReuseAcrossTrees_RemainsTreeLocal()
+        {
+            GhostPlaybackLogic.SetVesselExistsOverrideForTesting(pid => pid == 9000);
+
+            var treeA = MakeTree("Kerbal X A", "tree-A",
+                MakeRecording("rec-a", "tree-A", "Kerbal X", pid: 9000));
+            var treeB = MakeTree("Kerbal X B", "tree-B",
+                MakeRecording("rec-b", "tree-B", "Kerbal X", pid: 9000));
+
+            RecordingStore.CommitTree(treeA);
+            RecordingStore.CommitTree(treeB);
+
+            Assert.False(GhostPlaybackLogic.ShouldSkipExternalVesselGhost(
+                "tree-A", 9000, false));
+            Assert.False(GhostPlaybackLogic.ShouldSkipExternalVesselGhost(
+                "tree-B", 9000, false));
         }
 
         #endregion

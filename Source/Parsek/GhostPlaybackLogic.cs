@@ -564,7 +564,7 @@ namespace Parsek
             // the vessel is part of the tree's own flight history — always show the ghost
             // so the user can see the recorded trajectory replayed. The real vessel may sit
             // at its save-time position, which is different from the ghost's interpolated path.
-            if (IsVesselOwnedByTree(treeId, vesselPersistentId))
+            if (IsVesselRecordedByTree(treeId, vesselPersistentId))
                 return false;
 
             if (RealVesselExists(vesselPersistentId))
@@ -577,11 +577,11 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Checks whether the given vessel PID belongs to any recording in the same tree.
-        /// A tree "owns" a vessel PID if any of its recordings has that VesselPersistentId.
-        /// Uses the cached OwnedVesselPids set on RecordingTree for O(1) lookup.
+        /// Checks whether the given vessel PID appears anywhere in the same tree's recordings.
+        /// This is tree-local recorded-history membership, not a global ownership claim.
+        /// Uses the cached RecordedVesselPids set on RecordingTree for O(1) lookup.
         /// </summary>
-        internal static bool IsVesselOwnedByTree(string treeId, uint vesselPersistentId)
+        internal static bool IsVesselRecordedByTree(string treeId, uint vesselPersistentId)
         {
             if (string.IsNullOrEmpty(treeId) || vesselPersistentId == 0) return false;
 
@@ -589,7 +589,7 @@ namespace Parsek
             for (int i = 0; i < trees.Count; i++)
             {
                 if (trees[i].Id == treeId)
-                    return trees[i].OwnedVesselPids.Contains(vesselPersistentId);
+                    return trees[i].RecordedVesselPids.Contains(vesselPersistentId);
             }
             return false;
         }

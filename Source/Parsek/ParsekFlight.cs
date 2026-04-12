@@ -6796,9 +6796,10 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Finds a committed recording that covers the given UT for a vessel PID.
-        /// Used to find background recording trajectory data for chain ghosts.
-        /// Returns null if no recording covers this UT for this vessel.
+        /// Finds the first committed recording that covers the given UT for a vessel PID.
+        /// This is a global PID-only lookup. Chain playback must use the chain-scoped
+        /// helper below to avoid selecting a different alternate-history tree that
+        /// happens to reuse the same PID.
         /// </summary>
         internal static Recording FindBackgroundRecordingForVessel(
             IReadOnlyList<Recording> committedRecordings, uint vesselPid, double currentUT)
@@ -6813,6 +6814,92 @@ namespace Parsek
                     return rec;
             }
             return null;
+        }
+
+        /// <summary>
+        /// Finds a trajectory recording for a chain at the given UT, preferring the
+        /// tree that most recently claimed the chain by that time and falling back to
+        /// other trees that actually participate in the chain.
+        /// </summary>
+        internal static Recording FindBackgroundRecordingForChain(
+            IReadOnlyList<Recording> committedRecordings, GhostChain chain, double currentUT)
+        {
+            if (committedRecordings == null || chain == null)
+                return null;
+
+            var preferredTreeIds = GetPreferredChainTreeIds(chain, currentUT);
+            for (int t = 0; t < preferredTreeIds.Count; t++)
+            {
+                var rec = FindBackgroundRecordingForVesselInTree(
+                    committedRecordings, preferredTreeIds[t], chain.OriginalVesselPid, currentUT);
+                if (rec != null)
+                    return rec;
+            }
+
+            return null;
+        }
+
+        private static Recording FindBackgroundRecordingForVesselInTree(
+            IReadOnlyList<Recording> committedRecordings, string treeId, uint vesselPid, double currentUT)
+        {
+            if (committedRecordings == null || string.IsNullOrEmpty(treeId))
+                return null;
+
+            for (int i = 0; i < committedRecordings.Count; i++)
+            {
+                var rec = committedRecordings[i];
+                if (rec.TreeId != treeId)
+                    continue;
+                if (rec.VesselPersistentId == vesselPid &&
+                    rec.Points != null && rec.Points.Count > 0 &&
+                    currentUT >= rec.StartUT && currentUT <= rec.EndUT)
+                    return rec;
+            }
+
+            return null;
+        }
+
+        private static List<string> GetPreferredChainTreeIds(GhostChain chain, double currentUT)
+        {
+            var ordered = new List<string>();
+            if (chain == null)
+                return ordered;
+
+            string preferredTreeId = null;
+            if (chain.Links != null && chain.Links.Count > 0)
+            {
+                preferredTreeId = chain.Links[0].treeId;
+                for (int i = 0; i < chain.Links.Count; i++)
+                {
+                    if (chain.Links[i].ut <= currentUT + 0.001)
+                        preferredTreeId = chain.Links[i].treeId;
+                    else
+                        break;
+                }
+            }
+            else
+            {
+                preferredTreeId = chain.TipTreeId;
+            }
+
+            AddChainTreeId(ordered, preferredTreeId);
+
+            if (chain.Links != null)
+            {
+                for (int i = 0; i < chain.Links.Count; i++)
+                    AddChainTreeId(ordered, chain.Links[i].treeId);
+            }
+
+            AddChainTreeId(ordered, chain.TipTreeId);
+            return ordered;
+        }
+
+        private static void AddChainTreeId(List<string> ordered, string treeId)
+        {
+            if (ordered == null || string.IsNullOrEmpty(treeId) || ordered.Contains(treeId))
+                return;
+
+            ordered.Add(treeId);
         }
 
         /// <summary>
@@ -6899,9 +6986,10 @@ namespace Parsek
                 var info = vesselGhoster.GetGhostedInfo(chain.OriginalVesselPid);
                 if (info == null || info.ghostGO == null) continue;
 
-                // Find background recording covering current UT
-                Recording bgRec = FindBackgroundRecordingForVessel(
-                    RecordingStore.CommittedRecordings, chain.OriginalVesselPid, currentUT);
+                // Find background recording covering current UT within the chain's
+                // own tree sequence, not by global PID-only lookup.
+                Recording bgRec = FindBackgroundRecordingForChain(
+                    RecordingStore.CommittedRecordings, chain, currentUT);
 
                 if (bgRec != null && bgRec.Points.Count > 0)
                 {
@@ -6936,36 +7024,42 @@ namespace Parsek
             var committed = RecordingStore.CommittedRecordings;
             if (committed != null)
             {
-                for (int i = 0; i < committed.Count; i++)
+                var preferredTreeIds = GetPreferredChainTreeIds(chain, currentUT);
+                for (int t = 0; t < preferredTreeIds.Count && !positioned; t++)
                 {
-                    var rec = committed[i];
-                    if (rec.VesselPersistentId != chain.OriginalVesselPid) continue;
-
-                    if (rec.HasOrbitSegments)
+                    string treeId = preferredTreeIds[t];
+                    for (int i = 0; i < committed.Count; i++)
                     {
-                        PositionGhostFromOrbitOnly(ghostGO, rec, currentUT,
-                            (int)(chain.OriginalVesselPid * 10000));
-                        UpdateChainGhostOrbitIfNeeded(chain, rec.OrbitSegments, currentUT);
-                        positioned = true;
-                        ParsekLog.VerboseRateLimited("Flight",
-                            "chain-ghost-orbit-" + chain.OriginalVesselPid,
-                            string.Format(CultureInfo.InvariantCulture,
-                                "Chain ghost positioned from orbit: pid={0} rec={1} UT={2:F1}",
-                                chain.OriginalVesselPid, rec.RecordingId, currentUT));
-                        break;
-                    }
+                        var rec = committed[i];
+                        if (rec.TreeId != treeId || rec.VesselPersistentId != chain.OriginalVesselPid)
+                            continue;
 
-                    if (rec.SurfacePos.HasValue)
-                    {
-                        PositionGhostAtSurface(ghostGO, rec.SurfacePos.Value);
-                        positioned = true;
-                        ParsekLog.VerboseRateLimited("Flight",
-                            "chain-ghost-surface-" + chain.OriginalVesselPid,
-                            string.Format(CultureInfo.InvariantCulture,
-                                "Chain ghost positioned at surface: pid={0} rec={1} body={2}",
-                                chain.OriginalVesselPid, rec.RecordingId,
-                                rec.SurfacePos.Value.body));
-                        break;
+                        if (rec.HasOrbitSegments)
+                        {
+                            PositionGhostFromOrbitOnly(ghostGO, rec, currentUT,
+                                (int)(chain.OriginalVesselPid * 10000));
+                            UpdateChainGhostOrbitIfNeeded(chain, rec.OrbitSegments, currentUT);
+                            positioned = true;
+                            ParsekLog.VerboseRateLimited("Flight",
+                                "chain-ghost-orbit-" + chain.OriginalVesselPid,
+                                string.Format(CultureInfo.InvariantCulture,
+                                    "Chain ghost positioned from orbit: pid={0} rec={1} tree={2} UT={3:F1}",
+                                    chain.OriginalVesselPid, rec.RecordingId, rec.TreeId, currentUT));
+                            break;
+                        }
+
+                        if (rec.SurfacePos.HasValue)
+                        {
+                            PositionGhostAtSurface(ghostGO, rec.SurfacePos.Value);
+                            positioned = true;
+                            ParsekLog.VerboseRateLimited("Flight",
+                                "chain-ghost-surface-" + chain.OriginalVesselPid,
+                                string.Format(CultureInfo.InvariantCulture,
+                                    "Chain ghost positioned at surface: pid={0} rec={1} tree={2} body={3}",
+                                    chain.OriginalVesselPid, rec.RecordingId, rec.TreeId,
+                                    rec.SurfacePos.Value.body));
+                            break;
+                        }
                     }
                 }
             }

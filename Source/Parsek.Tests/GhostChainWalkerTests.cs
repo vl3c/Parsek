@@ -199,6 +199,40 @@ namespace Parsek.Tests
         }
 
         /// <summary>
+        /// Two trees claim the same external vessel PID, but the second claim starts
+        /// before the first chain's leaf has finished. These are overlapping alternate
+        /// histories, not a real handoff, so the later claim must not merge in.
+        /// Guards: same-PID overlap is skipped instead of collapsing into one chain.
+        /// </summary>
+        [Fact]
+        public void CrossTree_OverlappingHistoricalReuse_DoesNotMergeClaims()
+        {
+            var r1 = MakeRecording("R1", 50, 1000, 1060, childBpId: "bp-dock1");
+            var r1Leaf = MakeRecording("R1-leaf", 100, 1060, 1120,
+                parentBpId: "bp-dock1");
+            var dock1 = MakeBranchPoint("bp-dock1", BranchPointType.Dock,
+                1060, 100, new[] { "R1" }, new[] { "R1-leaf" });
+            var tree1 = MakeTree("tree-1", new[] { r1, r1Leaf }, new[] { dock1 });
+
+            var r2 = MakeRecording("R2", 60, 1020, 1080, childBpId: "bp-dock2");
+            var r2Leaf = MakeRecording("R2-leaf", 100, 1080, 1160,
+                parentBpId: "bp-dock2");
+            var dock2 = MakeBranchPoint("bp-dock2", BranchPointType.Dock,
+                1080, 100, new[] { "R2" }, new[] { "R2-leaf" });
+            var tree2 = MakeTree("tree-2", new[] { r2, r2Leaf }, new[] { dock2 });
+
+            var chains = GhostChainWalker.ComputeAllGhostChains(
+                new List<RecordingTree> { tree1, tree2 }, 900);
+
+            Assert.Single(chains);
+            Assert.True(chains.ContainsKey(100));
+            var chain = chains[100];
+            Assert.Single(chain.Links);
+            Assert.Equal("R1-leaf", chain.TipRecordingId);
+            Assert.Equal(1120.0, chain.SpawnUT);
+        }
+
+        /// <summary>
         /// R1 targets S1(100), R2 targets S2(200). Two independent chains.
         /// Guards: chains don't bleed.
         /// </summary>
