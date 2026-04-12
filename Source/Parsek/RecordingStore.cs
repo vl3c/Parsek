@@ -2848,6 +2848,33 @@ namespace Parsek
             return dedupedBoundaryCopies;
         }
 
+        internal static int AppendPointsFromTrackSections(List<TrackSection> tracks, List<TrajectoryPoint> points)
+        {
+            if (tracks == null || tracks.Count == 0 || points == null)
+                return 0;
+
+            int dedupedBoundaryCopies = 0;
+            for (int t = 0; t < tracks.Count; t++)
+            {
+                if (tracks[t].referenceFrame == ReferenceFrame.OrbitalCheckpoint || tracks[t].frames == null)
+                    continue;
+
+                for (int i = 0; i < tracks[t].frames.Count; i++)
+                {
+                    var pt = tracks[t].frames[i];
+                    if (points.Count > 0 && TrajectoryPointEquals(points[points.Count - 1], pt))
+                    {
+                        dedupedBoundaryCopies++;
+                        continue;
+                    }
+
+                    points.Add(pt);
+                }
+            }
+
+            return dedupedBoundaryCopies;
+        }
+
         internal static bool ContainsRelativeTrackSections(List<TrackSection> tracks)
         {
             if (tracks == null)
@@ -2921,6 +2948,33 @@ namespace Parsek
         {
             orbitSegments.Clear();
             if (tracks == null || tracks.Count == 0)
+                return 0;
+
+            int dedupedCopies = 0;
+            for (int t = 0; t < tracks.Count; t++)
+            {
+                if (tracks[t].referenceFrame != ReferenceFrame.OrbitalCheckpoint || tracks[t].checkpoints == null)
+                    continue;
+
+                for (int i = 0; i < tracks[t].checkpoints.Count; i++)
+                {
+                    var seg = tracks[t].checkpoints[i];
+                    if (orbitSegments.Count > 0 && OrbitSegmentEquals(orbitSegments[orbitSegments.Count - 1], seg))
+                    {
+                        dedupedCopies++;
+                        continue;
+                    }
+
+                    orbitSegments.Add(seg);
+                }
+            }
+
+            return dedupedCopies;
+        }
+
+        internal static int AppendOrbitSegmentsFromTrackSections(List<TrackSection> tracks, List<OrbitSegment> orbitSegments)
+        {
+            if (tracks == null || tracks.Count == 0 || orbitSegments == null)
                 return 0;
 
             int dedupedCopies = 0;

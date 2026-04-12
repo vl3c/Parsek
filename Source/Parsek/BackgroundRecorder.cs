@@ -2182,10 +2182,16 @@ namespace Parsek
                 treeRec.TrackSections.Add(state.trackSections[i]);
             }
             treeRec.MarkFilesDirty();
+            int dedupedPointCopies = RecordingStore.AppendPointsFromTrackSections(state.trackSections, treeRec.Points);
+            int dedupedOrbitCopies = RecordingStore.AppendOrbitSegmentsFromTrackSections(state.trackSections, treeRec.OrbitSegments);
+            treeRec.CachedStats = null;
+            treeRec.CachedStatsPointCount = 0;
 
             ParsekLog.Info("BgRecorder",
                 $"Flushed {state.trackSections.Count} TrackSections to recording: " +
-                $"pid={state.vesselPid} recId={state.recordingId}");
+                $"pid={state.vesselPid} recId={state.recordingId} " +
+                $"points={treeRec.Points.Count} orbitSegments={treeRec.OrbitSegments.Count} " +
+                $"dedupedPointCopies={dedupedPointCopies} dedupedOrbitCopies={dedupedOrbitCopies}");
 
             // Clear after flush to prevent duplicate sections if flushed again
             // (e.g., FinalizeAllForCommit followed by Shutdown)
@@ -3219,6 +3225,29 @@ namespace Parsek
             };
             state.environmentHysteresis = new EnvironmentHysteresis(initialEnv);
             StartBackgroundTrackSection(state, initialEnv, ReferenceFrame.Absolute, ut);
+            loadedStates[vesselPid] = state;
+        }
+
+        internal void InjectCurrentTrackSectionFrameForTesting(uint vesselPid, TrajectoryPoint point)
+        {
+            BackgroundVesselState state;
+            if (!loadedStates.TryGetValue(vesselPid, out state))
+                return;
+
+            if (!state.trackSectionActive || state.currentTrackSection.frames == null)
+                return;
+
+            state.currentTrackSection.frames.Add(point);
+            if (float.IsNaN(state.currentTrackSection.minAltitude)
+                || point.altitude < state.currentTrackSection.minAltitude)
+            {
+                state.currentTrackSection.minAltitude = (float)point.altitude;
+            }
+            if (float.IsNaN(state.currentTrackSection.maxAltitude)
+                || point.altitude > state.currentTrackSection.maxAltitude)
+            {
+                state.currentTrackSection.maxAltitude = (float)point.altitude;
+            }
             loadedStates[vesselPid] = state;
         }
 

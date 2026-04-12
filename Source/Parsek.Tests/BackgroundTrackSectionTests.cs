@@ -385,6 +385,94 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void FinalizeAllForCommit_FlushesFramesIntoFlatPoints()
+        {
+            uint pid = 7031;
+            string recId = "rec_flat_sync";
+            var tree = MakeTree(pid, recId);
+            var bgRecorder = new BackgroundRecorder(tree);
+
+            bgRecorder.InjectLoadedStateWithEnvironmentForTesting(
+                pid, recId, SegmentEnvironment.Atmospheric, 2000.0);
+            bgRecorder.InjectCurrentTrackSectionFrameForTesting(pid, new TrajectoryPoint
+            {
+                ut = 2000.0,
+                latitude = 1.0,
+                longitude = 2.0,
+                altitude = 100.0,
+                rotation = new UnityEngine.Quaternion(0, 0, 0, 1),
+                bodyName = "Kerbin",
+                velocity = new UnityEngine.Vector3(0, 10, 0)
+            });
+            bgRecorder.InjectCurrentTrackSectionFrameForTesting(pid, new TrajectoryPoint
+            {
+                ut = 2010.0,
+                latitude = 1.1,
+                longitude = 2.1,
+                altitude = 140.0,
+                rotation = new UnityEngine.Quaternion(0, 0.1f, 0, 0.99f),
+                bodyName = "Kerbin",
+                velocity = new UnityEngine.Vector3(0, 20, 0)
+            });
+
+            bgRecorder.FinalizeAllForCommit(2010.0);
+
+            var rec = tree.Recordings[recId];
+            Assert.Equal(2, rec.Points.Count);
+            Assert.Equal(2000.0, rec.Points[0].ut);
+            Assert.Equal(2010.0, rec.Points[1].ut);
+        }
+
+        [Fact]
+        public void FinalizeAllForCommit_DedupesBoundaryPointAgainstExistingFlatTrajectory()
+        {
+            uint pid = 7032;
+            string recId = "rec_flat_dedupe";
+            var tree = MakeTree(pid, recId);
+            tree.Recordings[recId].Points.Add(new TrajectoryPoint
+            {
+                ut = 2000.0,
+                latitude = 1.0,
+                longitude = 2.0,
+                altitude = 100.0,
+                rotation = new UnityEngine.Quaternion(0, 0, 0, 1),
+                bodyName = "Kerbin",
+                velocity = new UnityEngine.Vector3(0, 10, 0)
+            });
+            var bgRecorder = new BackgroundRecorder(tree);
+
+            bgRecorder.InjectLoadedStateWithEnvironmentForTesting(
+                pid, recId, SegmentEnvironment.Atmospheric, 2000.0);
+            bgRecorder.InjectCurrentTrackSectionFrameForTesting(pid, new TrajectoryPoint
+            {
+                ut = 2000.0,
+                latitude = 1.0,
+                longitude = 2.0,
+                altitude = 100.0,
+                rotation = new UnityEngine.Quaternion(0, 0, 0, 1),
+                bodyName = "Kerbin",
+                velocity = new UnityEngine.Vector3(0, 10, 0)
+            });
+            bgRecorder.InjectCurrentTrackSectionFrameForTesting(pid, new TrajectoryPoint
+            {
+                ut = 2010.0,
+                latitude = 1.1,
+                longitude = 2.1,
+                altitude = 140.0,
+                rotation = new UnityEngine.Quaternion(0, 0.1f, 0, 0.99f),
+                bodyName = "Kerbin",
+                velocity = new UnityEngine.Vector3(0, 20, 0)
+            });
+
+            bgRecorder.FinalizeAllForCommit(2010.0);
+
+            var rec = tree.Recordings[recId];
+            Assert.Equal(2, rec.Points.Count);
+            Assert.Equal(2000.0, rec.Points[0].ut);
+            Assert.Equal(2010.0, rec.Points[1].ut);
+        }
+
+        [Fact]
         public void FinalizeAllForCommit_SurfaceMobile_FlushesWithCorrectSource()
         {
             uint pid = 704;
