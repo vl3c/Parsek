@@ -1789,6 +1789,24 @@ namespace Parsek
             particleSystems.Clear();
         }
 
+        internal static void StopAndClearParticleSystems(
+            List<ParticleSystem> particleSystems, List<KspEmitterRef> kspEmitters)
+        {
+            if (kspEmitters != null)
+                SetKspEmittersEnabled(kspEmitters, false);
+            if (particleSystems == null) return;
+
+            for (int i = 0; i < particleSystems.Count; i++)
+            {
+                var ps = particleSystems[i];
+                if (ps == null) continue;
+                ps.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
+                ps.Clear(true);
+                SetParticleRenderersEnabled(ps, false);
+            }
+            particleSystems.Clear();
+        }
+
         internal static void SetParticleRenderersEnabled(ParticleSystem ps, bool enabled)
         {
             if (ps == null)
