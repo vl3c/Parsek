@@ -181,6 +181,29 @@ Collected evidence from `logs/2026-04-12_1857_phase-11-5-storage-followup-s4/`:
 
 ---
 
+## 323. Main-stage and debris group hierarchy can appear wrong after commit/playback
+
+**Observed in:** `logs/2026-04-12_2128_kerbalx-booster-throttle-regression/` (`s7`). User report: a recording did not correctly group the main-stage recordings group together with the debris group.
+
+**What the current logs show:** raw auto-grouping did run at commit time:
+
+- `Group 'Kerbal X / Debris' assigned to parent group 'Kerbal X'`
+- `Auto-grouped 1 stage(s) under 'Kerbal X', 10 debris under 'Kerbal X / Debris'`
+
+That means the bundle does not currently prove a bad `GroupHierarchyStore.SetGroupParent(...)` call during commit. If the UI/grouping was still wrong in-game, the bug is more likely in a later path such as orphan adoption, duplicate-name group selection, hierarchy persistence/load, or UI tree construction.
+
+**Fix direction:** Reproduce with a focused breakup tree that creates both a main stage and multiple debris recordings, then inspect:
+
+- the final `RecordingGroups` on committed recordings
+- saved hierarchy serialization in `persistent.sfs`
+- UI group tree building for duplicate base names / debris subgroups
+
+Add an in-game or unit-level regression that asserts the main stage group remains the parent of the debris subgroup after save/load.
+
+**Status:** Open
+
+---
+
 ## ~~313. Splashed EVA spawn-at-end can place the kerbal slightly underwater~~
 
 **Observed in:** 0.8.0 (2026-04-12). In the Phase 11.5 playtest bundle, the parent splashed vessel (`#24 "Kerbal X"`) was clamped and spawned at sea level, but the EVA child (`#25 "Raydred Kerman"`) spawned at `alt=-0.2` with `terminal=Splashed`. Log sequence:
