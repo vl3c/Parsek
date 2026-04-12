@@ -6837,8 +6837,49 @@ namespace Parsek
             if (ChainHasStarted(chain, currentUT))
                 return null;
 
+            var preClaimRec = FindPreClaimChainRecordingAtUT(
+                committedTrees, chain, currentUT, out bool hasPreClaimCoverage);
+            if (hasPreClaimCoverage)
+                return preClaimRec != null && preClaimRec.Points != null && preClaimRec.Points.Count > 0
+                    ? preClaimRec : null;
+
             return FindBackgroundRecordingForVessel(
                 committedRecordings, chain.OriginalVesselPid, currentUT);
+        }
+
+        private static Recording FindPreClaimChainRecordingAtUT(
+            IReadOnlyList<RecordingTree> committedTrees,
+            GhostChain chain,
+            double currentUT,
+            out bool hasChainLocalCoverage)
+        {
+            hasChainLocalCoverage = false;
+            if (committedTrees == null || chain == null || chain.Links == null || chain.Links.Count == 0)
+                return null;
+
+            RecordingTree firstClaimTree = FindCommittedTree(committedTrees, chain.Links[0].treeId);
+            if (firstClaimTree == null)
+                return null;
+
+            Recording unique = null;
+            foreach (var rec in firstClaimTree.Recordings.Values)
+            {
+                if (rec.VesselPersistentId != chain.OriginalVesselPid)
+                    continue;
+                if (currentUT < rec.StartUT || currentUT > rec.EndUT)
+                    continue;
+
+                if (unique != null)
+                {
+                    hasChainLocalCoverage = true;
+                    return null;
+                }
+
+                unique = rec;
+            }
+
+            hasChainLocalCoverage = unique != null;
+            return unique;
         }
 
         internal static Recording FindExactChainRecordingAtUT(

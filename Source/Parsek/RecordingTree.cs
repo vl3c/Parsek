@@ -182,8 +182,28 @@ namespace Parsek
             return rec != null
                 && rec.VesselPersistentId != 0
                 && rec.TerminalStateValue == null
+                && !HasNextChainSegment(rec)
                 && rec.ChildBranchPointId == null
                 && rec.RecordingId != ActiveRecordingId;
+        }
+
+        private bool HasNextChainSegment(Recording rec)
+        {
+            if (rec == null || string.IsNullOrEmpty(rec.ChainId))
+                return false;
+
+            int nextIdx = rec.ChainIndex + 1;
+            foreach (var other in Recordings.Values)
+            {
+                if (other.ChainId == rec.ChainId
+                    && other.ChainIndex == nextIdx
+                    && other.ChainBranch == rec.ChainBranch)
+                {
+                    return true;
+                }
+            }
+
+            return false;
         }
 
         internal List<uint> FindDuplicateBackgroundMapPids()

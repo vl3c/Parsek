@@ -395,6 +395,51 @@ namespace Parsek.Tests
         }
 
         /// <summary>
+        /// If the first claiming tree already contains a unique recording for the claimed
+        /// vessel before the claim UT, chain lookup should stay in that tree instead of
+        /// falling back to another committed tree with the same PID.
+        /// Guards: pre-claim chain-local coverage wins over global PID-only lookup.
+        /// </summary>
+        [Fact]
+        public void FindBackgroundRecordingForChain_PrefersUniquePreClaimCoverageInClaimTree()
+        {
+            var altRec = MakeRecordingWithPoints("bg-alt", 100, 1000, 1100);
+            var altTree = MakeTree("tree-alt", new[] { altRec }, null);
+
+            var claimRec = MakeRecordingNoPoints("R1", 50, 1000, 1060);
+            claimRec.ChildBranchPointId = "bp-dock";
+            var preClaimChainRec = MakeRecordingWithPoints("bg-chain-pre", 100, 1000, 1050);
+            var postClaimChainRec = MakeRecordingWithPoints("bg-chain-post", 100, 1060, 1120);
+            postClaimChainRec.ParentBranchPointId = "bp-dock";
+            var chainTree = MakeTree("tree-1", new[] { claimRec, preClaimChainRec, postClaimChainRec },
+                new[]
+                {
+                    MakeBranchPoint("bp-dock", BranchPointType.Dock, 1060, 100,
+                        new[] { "R1" }, new[] { "bg-chain-post" })
+                });
+
+            var recordings = new List<Recording> { altRec, claimRec, preClaimChainRec, postClaimChainRec };
+            var trees = new List<RecordingTree> { altTree, chainTree };
+            var chain = new GhostChain
+            {
+                OriginalVesselPid = 100,
+                TipTreeId = "tree-1"
+            };
+            chain.Links.Add(new ChainLink
+            {
+                recordingId = "R1",
+                treeId = "tree-1",
+                ut = 1060,
+                interactionType = "MERGE"
+            });
+
+            var result = ParsekFlight.FindBackgroundRecordingForChain(recordings, trees, chain, 1030);
+
+            Assert.NotNull(result);
+            Assert.Equal("bg-chain-pre", result.RecordingId);
+        }
+
+        /// <summary>
         /// Once a chain-participating tree covers the UT, a point-backed alternate history
         /// must not override that tree's orbit-only/surface-only playback source.
         /// Returning null here is intentional: PositionChainGhostFallback should then use

@@ -725,6 +725,58 @@ namespace Parsek.Tests
             Assert.DoesNotContain((uint)700, duplicates);
         }
 
+        [Fact]
+        public void BackgroundMapEligibility_IgnoresOptimizerSplitIntermediateChainSegments()
+        {
+            var tree = new RecordingTree
+            {
+                Id = "tree_chain_bg",
+                TreeName = "Chain Segment BackgroundMap Test",
+                RootRecordingId = "R1",
+                ActiveRecordingId = "R3"
+            };
+
+            tree.Recordings["R1"] = new Recording
+            {
+                RecordingId = "R1",
+                VesselPersistentId = 500,
+                TerminalStateValue = null,
+                ExplicitStartUT = 100.0,
+                ExplicitEndUT = 150.0,
+                ChainId = "chain-1",
+                ChainIndex = 0,
+                ChainBranch = 0
+            };
+            tree.Recordings["R2"] = new Recording
+            {
+                RecordingId = "R2",
+                VesselPersistentId = 500,
+                TerminalStateValue = null,
+                ExplicitStartUT = 150.0,
+                ExplicitEndUT = 200.0,
+                ChainId = "chain-1",
+                ChainIndex = 1,
+                ChainBranch = 0
+            };
+            tree.Recordings["R3"] = new Recording
+            {
+                RecordingId = "R3",
+                VesselPersistentId = 700,
+                TerminalStateValue = null,
+                ExplicitStartUT = 200.0,
+                ExplicitEndUT = 250.0
+            };
+
+            Assert.False(tree.IsBackgroundMapEligible(tree.Recordings["R1"]));
+            Assert.True(tree.IsBackgroundMapEligible(tree.Recordings["R2"]));
+
+            var duplicates = tree.FindDuplicateBackgroundMapPids();
+            tree.RebuildBackgroundMap();
+
+            Assert.Empty(duplicates);
+            Assert.Equal("R2", tree.BackgroundMap[500]);
+        }
+
         // --- Resource fields ---
 
         [Fact]
