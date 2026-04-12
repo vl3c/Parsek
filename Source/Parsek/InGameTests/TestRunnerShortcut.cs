@@ -26,9 +26,16 @@ namespace Parsek.InGameTests
         private List<KeyValuePair<string, List<InGameTestInfo>>> cachedGroups;
         private bool wasRunning;
         private GUIStyle opaqueStyle;
+        private GUIStyle zeroHeightLabelStyle;
+        private GUIStyle wrappedErrorLabelStyle;
+        private GUIStyle wrappedTooltipStyle;
 
         private bool shortcutHeld;
         private static TestRunnerShortcut instance;
+        private const float DefaultWindowWidth = 440f;
+        private const float DefaultWindowHeight = 500f;
+        private const float ErrorIndent = 40f;
+        private const float ErrorMaxWidth = 380f;
 
         /// <summary>
         /// Singleton accessor — non-null after Awake when DontDestroyOnLoad keeps the
@@ -96,7 +103,7 @@ namespace Parsek.InGameTests
             }
 
             if (windowRect.width < 1f)
-                windowRect = new Rect(20, 60, 380, 500);
+                windowRect = new Rect(20, 60, DefaultWindowWidth, DefaultWindowHeight);
 
             if (opaqueStyle == null)
             {
@@ -118,7 +125,7 @@ namespace Parsek.InGameTests
                 DrawWindow,
                 "Parsek \u2014 Test Runner",
                 opaqueStyle,
-                GUILayout.Width(380));
+                GUILayout.Width(DefaultWindowWidth));
 
             if (windowRect.Contains(Event.current.mousePosition))
             {
@@ -160,11 +167,16 @@ namespace Parsek.InGameTests
         {
             windowHasInputLock = false;
             opaqueStyle = null;
+            zeroHeightLabelStyle = null;
+            wrappedErrorLabelStyle = null;
+            wrappedTooltipStyle = null;
         }
 
         private void DrawWindow(int windowID)
         {
             if (runner == null) { GUI.DragWindow(); return; }
+
+            EnsureLayoutStyles();
 
             bool running = runner.IsRunning;
             if (cachedGroups == null || (wasRunning && !running))
@@ -237,7 +249,7 @@ namespace Parsek.InGameTests
                     if (!eligible) GUI.enabled = false;
                     string label = test.Method.Name;
                     if (test.DurationMs > 0) label += $" ({test.DurationMs:F0}ms)";
-                    GUILayout.Label(new GUIContent(label, test.Description ?? ""));
+                    GUILayout.Label(new GUIContent(label, test.Description ?? ""), GUILayout.ExpandWidth(true));
                     GUI.enabled = true;
 
                     GUI.enabled = !running && eligible;
@@ -253,22 +265,16 @@ namespace Parsek.InGameTests
                     // Always render error row — conditional begin/end causes
                     // Layout/Repaint control count mismatch when status changes mid-frame.
                     bool showError = test.Status == TestStatus.Failed && !string.IsNullOrEmpty(test.ErrorMessage);
-                    if (showError)
-                    {
-                        GUILayout.BeginHorizontal();
-                        GUILayout.Space(40);
-                        var prev = GUI.contentColor;
-                        GUI.contentColor = Color.red;
-                        GUILayout.Label(test.ErrorMessage, GUILayout.MaxWidth(320));
-                        GUI.contentColor = prev;
-                        GUILayout.EndHorizontal();
-                    }
-                    else
-                    {
-                        GUILayout.BeginHorizontal();
-                        GUILayout.Label("", GUILayout.Height(0));
-                        GUILayout.EndHorizontal();
-                    }
+                    GUILayout.BeginHorizontal();
+                    GUILayout.Space(ErrorIndent);
+                    var prev = GUI.contentColor;
+                    GUI.contentColor = Color.red;
+                    GUILayout.Label(
+                        showError ? test.ErrorMessage : string.Empty,
+                        showError ? wrappedErrorLabelStyle : zeroHeightLabelStyle,
+                        showError ? GUILayout.MaxWidth(ErrorMaxWidth) : GUILayout.Height(0f));
+                    GUI.contentColor = prev;
+                    GUILayout.EndHorizontal();
                 }
             }
 
@@ -283,10 +289,10 @@ namespace Parsek.InGameTests
             // Always render tooltip label — conditional rendering causes
             // Layout/Repaint control count mismatch (IMGUI exception).
             string tooltip = GUI.tooltip ?? "";
-            if (tooltip.Length > 0)
-                GUILayout.Label(tooltip, GUI.skin.box);
-            else
-                GUILayout.Label("", GUILayout.Height(0));
+            GUILayout.Label(
+                tooltip.Length > 0 ? tooltip : string.Empty,
+                tooltip.Length > 0 ? wrappedTooltipStyle : zeroHeightLabelStyle,
+                tooltip.Length > 0 ? GUILayout.ExpandWidth(true) : GUILayout.Height(0f));
 
             GUI.DragWindow();
         }
@@ -306,6 +312,38 @@ namespace Parsek.InGameTests
             var sorted = new List<KeyValuePair<string, List<InGameTestInfo>>>(groups);
             sorted.Sort((a, b) => string.Compare(a.Key, b.Key, System.StringComparison.Ordinal));
             cachedGroups = sorted;
+        }
+
+        private void EnsureLayoutStyles()
+        {
+            if (zeroHeightLabelStyle == null)
+            {
+                zeroHeightLabelStyle = new GUIStyle(GUI.skin.label)
+                {
+                    fixedHeight = 0f,
+                    stretchHeight = false,
+                    wordWrap = false
+                };
+                zeroHeightLabelStyle.margin = new RectOffset(0, 0, 0, 0);
+                zeroHeightLabelStyle.padding = new RectOffset(0, 0, 0, 0);
+            }
+
+            if (wrappedErrorLabelStyle == null)
+            {
+                wrappedErrorLabelStyle = new GUIStyle(GUI.skin.label)
+                {
+                    wordWrap = true
+                };
+                wrappedErrorLabelStyle.margin = new RectOffset(0, 0, 0, 0);
+            }
+
+            if (wrappedTooltipStyle == null)
+            {
+                wrappedTooltipStyle = new GUIStyle(GUI.skin.box)
+                {
+                    wordWrap = true
+                };
+            }
         }
 
         private static string GetStatusIcon(TestStatus s)

@@ -20,6 +20,7 @@ namespace Parsek.InGameTests
         public GameScenes RequiredScene;
         public MethodInfo Method;
         public Type DeclaringType;
+        public bool RunLast;
         public TestStatus Status = TestStatus.NotRun;
         public string ErrorMessage;
         public float DurationMs;
@@ -84,28 +85,28 @@ namespace Parsek.InGameTests
                         Description = attr.Description,
                         RequiredScene = attr.Scene,
                         Method = method,
-                        DeclaringType = type
+                        DeclaringType = type,
+                        RunLast = attr.RunLast
                     });
                 }
             }
 
-            allTests = allTests.OrderBy(t => t.Category).ThenBy(t => t.Name).ToList();
+            allTests = OrderForBatchExecution(allTests);
             ParsekLog.Info(Tag, $"Discovered {allTests.Count} in-game tests");
         }
 
         public void RunAll()
         {
             if (isRunning) return;
-            var eligible = allTests.Where(t => IsEligibleForScene(t)).ToList();
+            var eligible = OrderForBatchExecution(allTests.Where(t => IsEligibleForScene(t)));
             activeCoroutine = coroutineHost.StartCoroutine(RunBatch(eligible));
         }
 
         public void RunCategory(string category)
         {
             if (isRunning) return;
-            var eligible = allTests
-                .Where(t => t.Category == category && IsEligibleForScene(t))
-                .ToList();
+            var eligible = OrderForBatchExecution(allTests
+                .Where(t => t.Category == category && IsEligibleForScene(t)));
             activeCoroutine = coroutineHost.StartCoroutine(RunBatch(eligible));
         }
 
@@ -156,6 +157,15 @@ namespace Parsek.InGameTests
         {
             if (test.RequiredScene == InGameTestAttribute.AnyScene) return true;
             return test.RequiredScene == HighLogic.LoadedScene;
+        }
+
+        internal static List<InGameTestInfo> OrderForBatchExecution(IEnumerable<InGameTestInfo> tests)
+        {
+            return tests
+                .OrderBy(t => t.RunLast)
+                .ThenBy(t => t.Category, StringComparer.Ordinal)
+                .ThenBy(t => t.Name, StringComparer.Ordinal)
+                .ToList();
         }
 
         private IEnumerator RunBatch(List<InGameTestInfo> tests)

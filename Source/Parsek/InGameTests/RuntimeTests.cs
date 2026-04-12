@@ -2465,7 +2465,7 @@ namespace Parsek.InGameTests
         /// scene transition via quickload. If this fails, all other QuickloadResume
         /// tests are meaningless — the test infrastructure can't survive the reload.
         /// </summary>
-        [InGameTest(Category = "QuickloadResume", Scene = GameScenes.FLIGHT,
+        [InGameTest(Category = "QuickloadResume", Scene = GameScenes.FLIGHT, RunLast = true,
             Description = "Verify TestRunnerShortcut DontDestroyOnLoad survives quickload")]
         public IEnumerator BridgeSurvivesSceneTransition()
         {
@@ -2491,7 +2491,7 @@ namespace Parsek.InGameTests
         /// #269 core test: quickload mid-recording resumes with the same activeRecordingId.
         /// Verifies the full F5 → fly → F9 → restore coroutine → resumed recording path.
         /// </summary>
-        [InGameTest(Category = "QuickloadResume", Scene = GameScenes.FLIGHT,
+        [InGameTest(Category = "QuickloadResume", Scene = GameScenes.FLIGHT, RunLast = true,
             Description = "F5/F9 mid-recording resumes same activeRecordingId")]
         public IEnumerator Quickload_MidRecording_ResumesSameActiveRecordingId()
         {
