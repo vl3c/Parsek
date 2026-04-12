@@ -7,6 +7,27 @@ Entries 272–303 (78 bugs, 6 TODOs — mostly resolved) archived in `done/todo-
 
 # Known Bugs
 
+## 313. TreeIntegrity PID collision check fails on historical vessel reuse
+
+**Observed in:** 0.8.0 follow-up storage playtest (2026-04-12). The in-game suite reported `RecordingTreeIntegrityTests.NoPidCollisionAcrossTrees` failed with `2 vessel PID(s) claimed by multiple trees`. The collected `persistent.sfs` was otherwise structurally clean: `ParentLinksValid` passed, and manual inspection found no dangling `ParentRecordingId` references.
+
+Concrete repro data from `logs/2026-04-12_1549_storage-followup-playtest/`: three committed `Kerbal X` roots from different trees share the same root vessel PID `2708531065`:
+
+- tree `1683a5d7535f4370baf1ca28b7823069` root `081e7b3ce4b84acc946166a0a3b7926e`
+- tree `258d8922c99a45d2a1bb4bf5f7aa7070` root `7f7eadcb943941c1a1668cd44f176459`
+- tree `2dc3fa77001f4ad19e766cf6f0ac5277` root `641be2f9522d439397f4ea9fa2caabd2`
+
+**Root cause / hypothesis:** `RecordingTree.RebuildBackgroundMap` populates `OwnedVesselPids` from every recording's `VesselPersistentId`, and the in-game test assumes that this set must be globally unique across all committed trees. That assumption appears too strict once the same long-lived vessel is recorded in multiple historical trees or sessions. Current runtime usage in `GhostPlaybackLogic.IsVesselPidOwnedByCommittedTree` only needs boolean membership, not a unique tree owner, so the failure currently looks like a contract mismatch between the test and the runtime meaning of `OwnedVesselPids`, not corrupted save data.
+
+**Fix direction:** Decide which invariant is actually required:
+
+- If tree ownership really must be unique, narrow `OwnedVesselPids` to only the live/background claim set that matters for runtime ownership checks.
+- If historical PID reuse is valid, relax or replace `NoPidCollisionAcrossTrees` with a stronger assertion that targets real conflicts in active/pending runtime state rather than archived trees.
+
+**Status:** Open
+
+---
+
 ## ~~312. Duplicate-blocker recovery destroys sibling recordings~~
 
 **Observed in:** 0.8.0 (2026-04-12). Playtest placed 4 "Crater Crawler" ghosts on the runway within ~10 m of each other. Only 2 of 4 spawned -- each new spawn destroyed the previous one. Log sequence showed `Duplicate blocker detected for #6: recovering pid=... at 8m -- likely quicksave-loaded duplicate (#112)` firing for every pair.
