@@ -1732,20 +1732,16 @@ namespace Parsek
                     }
                 }
 
-                if (ShouldKeepPendingTreeAfterHydrationFailure(tree, sidecarHydrationFailures))
+                if (ShouldKeepPendingTreeAfterHydrationFailure(tree, staleEpochHydrationFailures))
                 {
-                    string failureSummary = staleEpochHydrationFailures == sidecarHydrationFailures
-                        ? $"{sidecarHydrationFailures} stale-sidecar epoch failure(s)"
-                        : $"{sidecarHydrationFailures} sidecar hydration failure(s)" +
-                          (staleEpochHydrationFailures > 0
-                              ? $" ({staleEpochHydrationFailures} stale-sidecar epoch)"
-                              : "");
                     ParsekLog.Warn("Scenario",
                         $"TryRestoreActiveTreeNode: keeping in-memory pending tree " +
                         $"'{RecordingStore.PendingTree.TreeName}' because saved active tree " +
-                        $"'{tree.TreeName}' had {failureSummary}");
+                        $"'{tree.TreeName}' had {staleEpochHydrationFailures} stale-sidecar epoch failure(s)");
                     return true;
                 }
+
+                int salvagedHydrationFailures = RestoreHydrationFailedRecordingsFromPendingTree(tree);
 
                 // If the same tree id is already in committedTrees (e.g. the player
                 // quicksaved in flight, then exited to TS which committed the tree, then
@@ -1798,7 +1794,10 @@ namespace Parsek
                     $"({tree.Recordings.Count} recording(s), activeRecId={tree.ActiveRecordingId ?? "<null>"}) " +
                     $"into pending-{stashState} slot for revert-detection dispatch" +
                     (sidecarHydrationFailures > 0
-                        ? $" with {sidecarHydrationFailures} sidecar hydration failure(s)"
+                        ? $" with {sidecarHydrationFailures} sidecar hydration failure(s)" +
+                          (salvagedHydrationFailures > 0
+                              ? $", salvaged {salvagedHydrationFailures} from pending"
+                              : "")
                         : ""));
                 ParsekLog.RecState("TryRestoreActiveTreeNode:stashed", CaptureScenarioRecorderState());
                 return true;
@@ -1836,13 +1835,57 @@ namespace Parsek
 
         internal static bool ShouldKeepPendingTreeAfterHydrationFailure(
             RecordingTree loadedTree,
-            int sidecarHydrationFailures)
+            int staleEpochHydrationFailures)
         {
-            return sidecarHydrationFailures > 0
+            return staleEpochHydrationFailures > 0
                 && loadedTree != null
                 && RecordingStore.HasPendingTree
                 && RecordingStore.PendingTree != null
                 && RecordingStore.PendingTree.Id == loadedTree.Id;
+        }
+
+        internal static int RestoreHydrationFailedRecordingsFromPendingTree(RecordingTree loadedTree)
+        {
+            if (loadedTree == null
+                || !RecordingStore.HasPendingTree
+                || RecordingStore.PendingTree == null
+                || RecordingStore.PendingTree.Id != loadedTree.Id)
+            {
+                return 0;
+            }
+
+            var pendingTree = RecordingStore.PendingTree;
+            var failedIds = new List<string>();
+            foreach (var kvp in loadedTree.Recordings)
+            {
+                if (kvp.Value != null && kvp.Value.SidecarLoadFailed)
+                    failedIds.Add(kvp.Key);
+            }
+
+            if (failedIds.Count == 0)
+                return 0;
+
+            int restored = 0;
+            for (int i = 0; i < failedIds.Count; i++)
+            {
+                string recordingId = failedIds[i];
+                Recording pendingRec;
+                if (!pendingTree.Recordings.TryGetValue(recordingId, out pendingRec) || pendingRec == null)
+                    continue;
+
+                loadedTree.Recordings[recordingId] = Recording.DeepClone(pendingRec);
+                restored++;
+            }
+
+            if (restored > 0)
+            {
+                loadedTree.RebuildBackgroundMap();
+                ParsekLog.Warn("Scenario",
+                    $"TryRestoreActiveTreeNode: restored {restored} hydration-failed recording(s) " +
+                    $"from matching pending tree '{pendingTree.TreeName}' into '{loadedTree.TreeName}'");
+            }
+
+            return restored;
         }
 
         // Resume hints parsed from PARSEK_ACTIVE_TREE node, consumed by ParsekFlight

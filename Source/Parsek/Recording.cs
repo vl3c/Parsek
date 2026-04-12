@@ -490,6 +490,85 @@ namespace Parsek
             LaunchSiteName = source.LaunchSiteName;
         }
 
+        internal static Recording DeepClone(Recording source)
+        {
+            if (source == null) return null;
+
+            var clone = new Recording();
+            clone.ApplyPersistenceArtifactsFrom(source);
+            clone.CopyStartLocationFrom(source);
+            clone.VesselName = source.VesselName;
+
+            clone.Points = source.Points != null
+                ? new List<TrajectoryPoint>(source.Points)
+                : new List<TrajectoryPoint>();
+            clone.OrbitSegments = source.OrbitSegments != null
+                ? new List<OrbitSegment>(source.OrbitSegments)
+                : new List<OrbitSegment>();
+            clone.PartEvents = source.PartEvents != null
+                ? new List<PartEvent>(source.PartEvents)
+                : new List<PartEvent>();
+            clone.FlagEvents = source.FlagEvents != null
+                ? new List<FlagEvent>(source.FlagEvents)
+                : new List<FlagEvent>();
+            clone.SegmentEvents = source.SegmentEvents != null
+                ? new List<SegmentEvent>(source.SegmentEvents)
+                : new List<SegmentEvent>();
+            clone.TrackSections = source.TrackSections != null
+                ? DeepCopyTrackSections(source.TrackSections)
+                : new List<TrackSection>();
+            clone.Controllers = source.Controllers != null
+                ? new List<ControllerInfo>(source.Controllers)
+                : null;
+            clone.CrewEndStates = source.CrewEndStates != null
+                ? new Dictionary<string, KerbalEndState>(source.CrewEndStates)
+                : null;
+            clone.StartResources = source.StartResources != null
+                ? new Dictionary<string, ResourceAmount>(source.StartResources)
+                : null;
+            clone.EndResources = source.EndResources != null
+                ? new Dictionary<string, ResourceAmount>(source.EndResources)
+                : null;
+            clone.StartInventory = source.StartInventory != null
+                ? new Dictionary<string, InventoryItem>(source.StartInventory)
+                : null;
+            clone.EndInventory = source.EndInventory != null
+                ? new Dictionary<string, InventoryItem>(source.EndInventory)
+                : null;
+            clone.StartCrew = source.StartCrew != null
+                ? new Dictionary<string, int>(source.StartCrew)
+                : null;
+            clone.EndCrew = source.EndCrew != null
+                ? new Dictionary<string, int>(source.EndCrew)
+                : null;
+            clone.FilesDirty = source.FilesDirty;
+            clone.SidecarEpoch = source.SidecarEpoch;
+            clone.SidecarLoadFailed = source.SidecarLoadFailed;
+            clone.SidecarLoadFailureReason = source.SidecarLoadFailureReason;
+            clone.LoopSyncParentIdx = source.LoopSyncParentIdx;
+            clone.CachedStats = source.CachedStats;
+            clone.CachedStatsPointCount = source.CachedStatsPointCount;
+            clone.LastAppliedResourceIndex = source.LastAppliedResourceIndex;
+            clone.ContinuationBoundaryIndex = source.ContinuationBoundaryIndex;
+            clone.PreContinuationVesselSnapshot = source.PreContinuationVesselSnapshot != null
+                ? source.PreContinuationVesselSnapshot.CreateCopy()
+                : null;
+            clone.PreContinuationGhostSnapshot = source.PreContinuationGhostSnapshot != null
+                ? source.PreContinuationGhostSnapshot.CreateCopy()
+                : null;
+            clone.VesselSpawned = source.VesselSpawned;
+            clone.SpawnedVesselPersistentId = source.SpawnedVesselPersistentId;
+            clone.SpawnAttempts = source.SpawnAttempts;
+            clone.CollisionBlockCount = source.CollisionBlockCount;
+            clone.SpawnAbandoned = source.SpawnAbandoned;
+            clone.WalkbackExhausted = source.WalkbackExhausted;
+            clone.DuplicateBlockerRecovered = source.DuplicateBlockerRecovered;
+            clone.SpawnDeathCount = source.SpawnDeathCount;
+            clone.SceneExitSituation = source.SceneExitSituation;
+
+            return clone;
+        }
+
         /// <summary>
         /// Deep copies a list of TrackSection structs, creating new list instances for
         /// the mutable frames and checkpoints fields. Prevents shared references between
