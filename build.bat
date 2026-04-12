@@ -25,18 +25,9 @@ if not "%KSPDIR_ARG%"=="" (
 )
 for %%I in ("%KSPDIR%") do set "KSPDIR=%%~fI"
 
-:: Find MSBuild
-set MSBUILD=
-for %%i in (
-    "C:\Program Files (x86)\Microsoft Visual Studio\2019\BuildTools\MSBuild\Current\Bin\MSBuild.exe"
-    "C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\MSBuild\Current\Bin\MSBuild.exe"
-    "C:\Program Files\Microsoft Visual Studio\2022\Community\MSBuild\Current\Bin\MSBuild.exe"
-) do (
-    if exist %%i set MSBUILD=%%i
-)
-
-if "%MSBUILD%"=="" (
-    echo ERROR: MSBuild not found. Install Visual Studio Build Tools.
+where dotnet >nul 2>nul
+if errorlevel 1 (
+    echo ERROR: dotnet SDK not found in PATH.
     exit /b 1
 )
 
@@ -44,12 +35,14 @@ echo.
 echo === Parsek Build ===
 echo Config:  %CONFIG%
 echo KSP Dir: %KSPDIR%
-echo MSBuild: %MSBUILD%
+echo Engine:  dotnet build
 echo.
 
-:: Build
+:: Build the mod project directly.
+:: This avoids a flaky solution-level parallel restore/build path on the local .NET SDK
+:: and keeps deployment behavior identical via Parsek.csproj's post-build copy target.
 echo Building...
-%MSBUILD% "Source\Parsek.sln" /p:Configuration=%CONFIG% /p:KSPDIR="%KSPDIR%" /verbosity:minimal /nologo
+dotnet build "Source\Parsek\Parsek.csproj" -c %CONFIG% -m:1 /p:KSPDIR="%KSPDIR%" -v minimal --nologo
 
 if errorlevel 1 (
     echo.

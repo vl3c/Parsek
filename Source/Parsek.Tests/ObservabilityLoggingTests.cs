@@ -240,8 +240,11 @@ namespace Parsek.Tests
                 loadedSnapshotCount = 4,
                 estimatedMemoryBytes = 300L * 136 + 30L * 88 + 3L * 120 + 4L * 8192,
                 activeGhostCount = 5,
-                zone1GhostCount = 2,
-                zone2GhostCount = 3,
+                activeOverlapGhostCount = 1,
+                fullGhostCount = 2,
+                reducedGhostCount = 1,
+                hiddenGhostCount = 2,
+                watchedOverrideGhostCount = 1,
                 lastPlaybackBudget = new FrameBudget { warpRate = 1.0f },
                 lastSaveTiming = new SaveLoadTiming { totalMilliseconds = 50, dirtyRecordingsWritten = 1 },
                 lastLoadTiming = new SaveLoadTiming { totalMilliseconds = 100, recordingsProcessed = 2 }

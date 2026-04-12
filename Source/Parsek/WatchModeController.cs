@@ -56,6 +56,7 @@ namespace Parsek
 
         internal bool IsWatchingGhost => watchedRecordingIndex >= 0;
         internal int WatchedRecordingIndex => watchedRecordingIndex;
+        internal long WatchedLoopCycleIndex => watchedOverlapCycleIndex;
         internal WatchCameraMode CurrentCameraMode => currentCameraMode;
 
         // === Camera event handlers for engine loop/overlap cycle transitions ===
@@ -160,10 +161,20 @@ namespace Parsek
         internal bool IsGhostWithinVisualRange(int index)
         {
             var ghostStates = host.Engine.ghostStates;
-            GhostPlaybackState s;
-            if (!ghostStates.TryGetValue(index, out s) || s == null) return false;
+            GhostPlaybackState s = index == watchedRecordingIndex
+                ? FindWatchedGhostState()
+                : null;
+            if (s == null && (!ghostStates.TryGetValue(index, out s) || s == null))
+                return false;
             float cutoffKm = DistanceThresholds.GhostFlight.GetWatchCameraCutoffKm(ParsekSettings.Current);
             return GhostPlaybackLogic.IsWithinWatchRange(s.lastDistance, cutoffKm);
+        }
+
+        internal bool IsWatchedGhostState(int recordingIndex, GhostPlaybackState state)
+        {
+            if (state == null) return false;
+            return recordingIndex == watchedRecordingIndex
+                && state.loopCycleIndex == watchedOverlapCycleIndex;
         }
 
         /// <summary>
@@ -271,10 +282,14 @@ namespace Parsek
             // (FloatingOrigin, terrain, atmosphere, skybox are all anchored to active vessel).
             // Refuse watch if ghost is at or beyond the user's camera cutoff distance setting.
             float maxWatchKm = DistanceThresholds.GhostFlight.GetWatchCameraCutoffKm(ParsekSettings.Current);
-            if (FlightGlobals.ActiveVessel != null && gs.ghost != null)
+            if (FlightGlobals.ActiveVessel != null)
             {
-                double distMeters = Vector3d.Distance(
-                    gs.ghost.transform.position, FlightGlobals.ActiveVessel.transform.position);
+                double distMeters = gs.lastDistance;
+                if (distMeters <= 0 && gs.ghost != null)
+                {
+                    distMeters = Vector3d.Distance(
+                        gs.ghost.transform.position, FlightGlobals.ActiveVessel.transform.position);
+                }
                 if (!GhostPlaybackLogic.IsWithinWatchRange(distMeters, maxWatchKm))
                 {
                     float distKm = (float)(distMeters / 1000.0);

@@ -2,13 +2,23 @@
 
 ## Status
 
-Foundation already landed:
+Completed on `fix/phase-11-5-lod-culling`.
+
+Foundation landed first:
 
 - `4718cda` `Centralize ghost distance thresholds`
 - `b495fe0` `Apply watch cutoff uniformly`
 
-This plan covers the remaining implementation work for Phase 11.5 ghost LOD behavior,
-watch-mode interaction, settings cleanup, and verification.
+Implementation then landed in these logical units:
+
+- `d075ab2` `Remove ghost soft-cap settings knobs`
+- `8e24266` `Keep watched ghosts at full fidelity inside cutoff`
+- `51457c5` `Add distance-based unwatched ghost LOD tiers`
+- `1fee511` `Remove ghost soft-cap system`
+- `ffd91e6` `Report live ghost LOD tiers in diagnostics`
+- follow-up review fix commit(s) to harden exact watched-state matching, logical loop distance, and diagnostics counting
+
+This document now serves as the implementation record for the shipped Phase 11.5 ghost LOD behavior.
 
 ---
 
@@ -23,7 +33,7 @@ These are already decided and should not be reopened during implementation:
 - For watched ghosts, do not suppress part-event playback, audio, mesh, or FX due to distance.
 - For unwatched ghosts, distance-based LOD may suppress part events and visuals by tier.
 - KSC keeps separate behavior from Flight. Do not try to unify KSC culling with Flight LOD.
-- Remove the performance soft-cap knobs from settings UI; backend owns those defaults.
+- Remove the performance soft-cap knobs from settings UI, and do not keep the old soft-cap subsystem alive in parallel with distance LOD.
 
 ---
 
@@ -93,12 +103,9 @@ Remove from the user-facing settings surface:
 
 Backend policy after cleanup:
 
-- `GhostSoftCapManager` remains internal.
-- Initial internal thresholds should stay at the current defaults (`8 / 15 / 20`) to avoid
-  mixing a policy redesign with the first LOD pass.
-- Runtime enables / thresholds should be driven internally by code, not `ParsekSettings`.
-- `ParsekFlight.OnFlightReady` should bootstrap the manager from an internal
-  `GhostSoftCapManager` initializer, not from game-parameter settings fields.
+- The old ghost soft-cap subsystem is removed for this pass.
+- Flight ghost degradation is owned by the distance LOD path only.
+- Remaining optimization work is deferred to separate follow-ups (`T7`, `T8`) instead of keeping two overlapping runtime policies.
 
 ---
 

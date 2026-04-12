@@ -4,6 +4,28 @@ All notable changes to Parsek are documented here.
 
 ---
 
+## 0.8.1
+
+### Improvements
+
+- Phase 11.5 ghost LOD is now live in Flight: shared distance thresholds, unwatched reduced tier at `2.3-50 km`, hidden-mesh tier at `50-120 km`, and live diagnostics counts for `full / reduced / hidden / watched override`.
+- Ghost performance tuning is now backend-owned. The old ghost soft-cap settings and the soft-cap subsystem were removed instead of leaving user-facing knobs that conflicted with the new distance policy.
+
+### Bug Fixes
+
+- Splashed terminal spawns now floor any slightly negative endpoint altitude back to sea level before spawn, so EVA and breakup-continuous splashdowns no longer materialize a few centimeters underwater (`#313`).
+- Watched ghosts now use exact watched-state identity (`recording + overlap cycle`) for full-fidelity protection. Overlap copies of the same looping recording no longer inherit watched-only exemptions or diagnostics counts.
+- Watch cutoff / zone state for hidden looped ghosts now follows their logical playback position instead of a stale hidden transform, so watch eligibility and auto-exit stay correct while a loop is off-screen.
+- The old warp-only orbital exemption no longer punches through the new `50-120 km` hidden-mesh tier. Orbital ghosts still get the legacy exemption only in the true `Beyond` zone.
+- Entering watch mode now uses the tracked playback distance first, avoiding false "in range" decisions from a hidden ghost's stale transform.
+
+### Developer Tools
+
+- Added regression coverage for R/FF enablement reasons, including future/past timing, tree-branch rewind save resolution, and a UI guard that pins rewind/fast-forward independence from watch-distance state (`T60`).
+- Added regression coverage for exact watched-cycle protection, hidden-tier warp exemption, watched-override diagnostics counting, and the new frame-context watch-cycle field.
+
+---
+
 ## 0.8.0
 
 ### Breaking Changes

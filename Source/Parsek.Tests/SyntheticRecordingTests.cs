@@ -2686,6 +2686,31 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void ScenarioWriter_AddRecordingsAsTree_PreservesChainParentLinks()
+        {
+            var writer = new ScenarioWriter().WithV3Format();
+            var segments = EvaBoardChain();
+            for (int i = 0; i < segments.Length; i++)
+                segments[i].WithLoopPlayback().WithRecordingGroup("Synthetic");
+
+            writer.AddRecordingsAsTree(segments);
+
+            var scenarioNode = writer.BuildScenarioNode();
+            var treeNodes = scenarioNode.GetNodes("RECORDING_TREE");
+            Assert.Single(treeNodes);
+
+            var tree = RecordingTree.Load(treeNodes[0]);
+            Assert.Equal(segments.Length, tree.Recordings.Count);
+            Assert.Equal("chain-seg0", tree.RootRecordingId);
+            Assert.Equal("Flea Chain", tree.TreeName);
+            Assert.Equal(tree.Id, tree.Recordings["chain-seg0"].TreeId);
+            Assert.Equal(tree.Id, tree.Recordings["chain-seg1"].TreeId);
+            Assert.Equal(tree.Id, tree.Recordings["chain-seg2"].TreeId);
+            Assert.Equal("chain-seg0", tree.Recordings["chain-seg1"].ParentRecordingId);
+            Assert.Equal("chain-seg1", tree.Recordings["chain-seg2"].ParentRecordingId);
+        }
+
+        [Fact]
         public void ScenarioWriter_InjectIntoSave_InsertsBeforeFlightstate()
         {
             string fakeSave =
@@ -4697,6 +4722,44 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void ScenarioWriter_AddRecordingsAsTree_V3Format_WritesSidecarFilesForEverySegment()
+        {
+            string tempDir = Path.Combine(Path.GetTempPath(), "parsek_sidecar_chain_" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(tempDir);
+            try
+            {
+                var writer = new ScenarioWriter().WithV3Format();
+                var segments = EvaWalkChain();
+                for (int i = 0; i < segments.Length; i++)
+                    segments[i].WithLoopPlayback().WithRecordingGroup("Synthetic");
+                writer.AddRecordingsAsTree(segments);
+
+                writer.WriteSidecarFiles(tempDir);
+
+                string recDir = Path.Combine(tempDir, "Parsek", "Recordings");
+                for (int i = 0; i < segments.Length; i++)
+                {
+                    string id = segments[i].GetRecordingId();
+                    Assert.True(File.Exists(Path.Combine(recDir, $"{id}.prec")),
+                        $"Expected .prec sidecar for segment {id}");
+
+                    var snapshotModeRecording = new Recording
+                    {
+                        VesselSnapshot = segments[i].GetVesselSnapshot()?.CreateCopy(),
+                        GhostVisualSnapshot = segments[i].GetGhostVisualSnapshot()?.CreateCopy(),
+                    };
+                    bool expectGhostSidecar =
+                        RecordingStore.DetermineGhostSnapshotMode(snapshotModeRecording) == GhostSnapshotMode.Separate;
+                    Assert.Equal(expectGhostSidecar, File.Exists(Path.Combine(recDir, $"{id}_ghost.craft")));
+                }
+            }
+            finally
+            {
+                Directory.Delete(tempDir, true);
+            }
+        }
+
+        [Fact]
         public void RecordingPaths_ValidateRecordingId_RejectsInvalidIds()
         {
             Assert.False(RecordingPaths.ValidateRecordingId(null));
@@ -5370,19 +5433,26 @@ namespace Parsek.Tests
             var chainSegments = EvaBoardChain(baseUT);
             chainSegments[0].WithRewindSave("parsek_rw_evab01");
             for (int i = 0; i < chainSegments.Length; i++)
-                writer.AddRecordingAsTree(chainSegments[i].WithLoopPlayback().WithRecordingGroup("Synthetic"));
+                chainSegments[i].WithLoopPlayback().WithRecordingGroup("Synthetic");
+            writer.AddRecordingsAsTree(chainSegments);
+
             var walkChainSegments = EvaWalkChain(baseUT);
             walkChainSegments[0].WithRewindSave("parsek_rw_walk01");
             for (int i = 0; i < walkChainSegments.Length; i++)
-                writer.AddRecordingAsTree(walkChainSegments[i].WithLoopPlayback().WithRecordingGroup("Synthetic"));
+                walkChainSegments[i].WithLoopPlayback().WithRecordingGroup("Synthetic");
+            writer.AddRecordingsAsTree(walkChainSegments);
+
             var atmoChainSegments = KerbinAscentChain(baseUT);
             atmoChainSegments[0].WithRewindSave("parsek_rw_atmo01");
             for (int i = 0; i < atmoChainSegments.Length; i++)
-                writer.AddRecordingAsTree(atmoChainSegments[i].WithLoopPlayback().WithRecordingGroup("Synthetic"));
+                atmoChainSegments[i].WithLoopPlayback().WithRecordingGroup("Synthetic");
+            writer.AddRecordingsAsTree(atmoChainSegments);
+
             var munTransferSegments = KerbinMunTransfer(baseUT);
             munTransferSegments[0].WithRewindSave("parsek_rw_mun001");
             for (int i = 0; i < munTransferSegments.Length; i++)
-                writer.AddRecordingAsTree(munTransferSegments[i].WithLoopPlayback().WithRecordingGroup("Synthetic"));
+                munTransferSegments[i].WithLoopPlayback().WithRecordingGroup("Synthetic");
+            writer.AddRecordingsAsTree(munTransferSegments);
 
             writer.AddRecordingAsTree(ReentryEast(baseUT).WithLoopPlayback().WithRecordingGroup("Synthetic"));
             writer.AddRecordingAsTree(ReentryShallow(baseUT).WithLoopPlayback().WithRecordingGroup("Synthetic"));

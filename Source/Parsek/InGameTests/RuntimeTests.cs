@@ -2152,11 +2152,14 @@ namespace Parsek.InGameTests
                 testKerbal.rosterStatus = ProtoCrewMember.RosterStatus.Available;
 
                 // Start 100 m away from the active vessel, walk TOWARD it, terminating
-                // at the active vessel's lat/lon. Trajectory last point is inside the
-                // parent bounding box, forcing walkback to trigger.
-                double targetLat = activeVessel.latitude;
-                double targetLon = activeVessel.longitude;
-                double targetAlt = body.TerrainAltitude(targetLat, targetLon) + 0.5;
+                // at the active vessel's current center-of-mass world position rather than
+                // its terrain contact point. That makes the test prove endpoint overlap
+                // up front instead of assuming the vessel bounds happen to reach the
+                // surface sample at latitude/longitude alone.
+                Vector3d targetWorldPos = activeVessel.CoMD;
+                double targetLat = body.GetLatitude(targetWorldPos);
+                double targetLon = body.GetLongitude(targetWorldPos);
+                double targetAlt = body.GetAltitude(targetWorldPos);
                 double latStepDeg = 5.0 / body.Radius * (180.0 / System.Math.PI);
                 double startLat = targetLat - (19 * latStepDeg);
 
@@ -2195,6 +2198,14 @@ namespace Parsek.InGameTests
                 }
                 // (body name is already carried on each TrajectoryPoint)
 
+                Bounds kerbalBounds = Parsek.SpawnCollisionDetector.ComputeVesselBounds(snapshot);
+                Vector3d endpointWorldPos = body.GetWorldSurfacePosition(targetLat, targetLon, targetAlt);
+                var (endpointOverlap, _, endpointBlockerName, _) =
+                    Parsek.SpawnCollisionDetector.CheckOverlapAgainstLoadedVessels(
+                        endpointWorldPos, kerbalBounds, 5f, skipActiveVessel: false);
+                InGameAssert.IsTrue(endpointOverlap,
+                    $"Test setup must force endpoint overlap before walkback (blocker='{endpointBlockerName ?? "none"}')");
+
                 Parsek.VesselSpawner.SpawnOrRecoverIfTooClose(rec, 0);
 
                 yield return new WaitForFixedUpdate();
@@ -2221,13 +2232,18 @@ namespace Parsek.InGameTests
                     $"Walkback should have moved the spawn off the parent (was {distFromParent:F1} m)");
                 InGameAssert.IsLessThan(distFromParent, 100.0,
                     $"Walkback should not have walked back to trajectory start (was {distFromParent:F1} m)");
+                double distFromEndpoint = Vector3d.Distance(spawnedVessel.CoMD, endpointWorldPos);
+                InGameAssert.IsGreaterThan(distFromEndpoint, 1.0,
+                    $"Walkback should move the EVA off the overlapping endpoint (was {distFromEndpoint:F1} m)");
 
-                // Assert the walkback log line appeared
+                // Assert the runtime walkback path ran. The helper and the spawn wrapper
+                // emit separate lines; accept either so the test keys off behavior, not
+                // one exact string variant.
                 bool sawWalkbackLog = captured.Any(l =>
-                    l.Contains("[SpawnCollision]") &&
-                    l.Contains("WalkbackSubdivided: cleared"));
+                    (l.Contains("[SpawnCollision]") && l.Contains("WalkbackSubdivided: cleared")) ||
+                    (l.Contains("[Spawner]") && l.Contains("TryWalkbackForEndOfRecordingSpawn: found clear position")));
                 InGameAssert.IsTrue(sawWalkbackLog,
-                    "Expected 'WalkbackSubdivided: cleared' log line during spawn");
+                    "Expected walkback success log line during spawn");
             }
             finally
             {

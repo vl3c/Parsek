@@ -148,35 +148,6 @@ namespace Parsek.InGameTests
         }
 
         [InGameTest(Category = "GhostLifecycle", Scene = GameScenes.FLIGHT,
-            Description = "Soft-cap suppressed set is consistent — suppressed ghosts have no active GO")]
-        public void SoftCapConsistency()
-        {
-            var flight = ParsekFlight.Instance;
-            if (flight == null) InGameAssert.Skip("No ParsekFlight instance");
-
-            var suppressed = flight.Engine.softCapSuppressed;
-            if (suppressed.Count == 0)
-                InGameAssert.Skip("No soft-cap suppressed ghosts");
-
-            int inconsistent = 0;
-            foreach (int idx in suppressed)
-            {
-                // A suppressed ghost should not have an active (visible) ghost GO
-                if (flight.Engine.HasActiveGhost(idx))
-                {
-                    inconsistent++;
-                    ParsekLog.Warn("TestRunner",
-                        $"Ghost index={idx} is in softCapSuppressed but HasActiveGhost=true");
-                }
-            }
-
-            ParsekLog.Verbose("TestRunner",
-                $"Soft-cap: {suppressed.Count} suppressed, {inconsistent} inconsistent");
-            InGameAssert.AreEqual(0, inconsistent,
-                $"{inconsistent} ghosts in softCapSuppressed still have active GameObjects");
-        }
-
-        [InGameTest(Category = "GhostLifecycle", Scene = GameScenes.FLIGHT,
             Description = "Ghost count from engine matches expected count")]
         public void GhostCountReasonable()
         {
@@ -719,15 +690,27 @@ namespace Parsek.InGameTests
         }
 
         [InGameTest(Category = "TreeIntegrity",
-            Description = "OwnedVesselPids don't collide between different trees")]
+            Description = "Unexpected OwnedVesselPids don't collide between different trees")]
         public void NoPidCollisionAcrossTrees()
         {
             var trees = RecordingStore.CommittedTrees;
             if (trees.Count < 2)
                 InGameAssert.Skip($"Only {trees.Count} tree(s) — need 2+ for cross-tree check");
 
+            var allowedSharedPids = new HashSet<uint>();
+            for (int i = 0; i < trees.Count; i++)
+            {
+                for (int j = 0; j < trees[i].BranchPoints.Count; j++)
+                {
+                    uint targetPid = trees[i].BranchPoints[j].TargetVesselPersistentId;
+                    if (targetPid != 0)
+                        allowedSharedPids.Add(targetPid);
+                }
+            }
+
             var globalPids = new Dictionary<uint, int>(); // pid -> tree index
             int collisions = 0;
+            int allowedCollisions = 0;
 
             for (int i = 0; i < trees.Count; i++)
             {
@@ -735,9 +718,18 @@ namespace Parsek.InGameTests
                 {
                     if (globalPids.TryGetValue(pid, out int otherTree))
                     {
-                        collisions++;
-                        ParsekLog.Warn("TestRunner",
-                            $"PID {pid} owned by both tree[{otherTree}] and tree[{i}]");
+                        if (allowedSharedPids.Contains(pid))
+                        {
+                            allowedCollisions++;
+                            ParsekLog.Verbose("TestRunner",
+                                $"Allowing shared PID {pid} across tree[{otherTree}] and tree[{i}] due to dock target handoff");
+                        }
+                        else
+                        {
+                            collisions++;
+                            ParsekLog.Warn("TestRunner",
+                                $"PID {pid} owned by both tree[{otherTree}] and tree[{i}]");
+                        }
                     }
                     else
                     {
@@ -746,8 +738,10 @@ namespace Parsek.InGameTests
                 }
             }
 
+            ParsekLog.Verbose("TestRunner",
+                $"Cross-tree PID ownership: unexpected={collisions}, allowedDockTargets={allowedCollisions}");
             InGameAssert.AreEqual(0, collisions,
-                $"{collisions} vessel PID(s) claimed by multiple trees");
+                $"{collisions} unexpected vessel PID(s) claimed by multiple trees");
         }
 
         [InGameTest(Category = "TreeIntegrity",

@@ -196,6 +196,42 @@ namespace Parsek.Tests
             Assert.DoesNotContain("groupName + \"/\" + (mainRecId ?? \"\")", uiSrc);
         }
 
+        [Fact]
+        public void TemporalButtons_RemainIndependentFromWatchState_PinnedBySourceInspection()
+        {
+            // T60: the watch button uses ghost presence/body/range, but R/FF must stay
+            // coupled only to recording timing/save/runtime state. Pin that separation
+            // in both row and group call sites so a future refactor can't silently wire
+            // watch-distance variables into the temporal controls.
+            string srcRoot = System.IO.Path.GetFullPath(
+                System.IO.Path.Combine(System.AppDomain.CurrentDomain.BaseDirectory,
+                    "..", "..", "..", "..", "Parsek"));
+            string uiSrc = System.IO.File.ReadAllText(
+                System.IO.Path.Combine(srcRoot, "UI", "RecordingsTableUI.cs"));
+
+            int rowStart = uiSrc.IndexOf("// Rewind / Fast-forward button", StringComparison.Ordinal);
+            int rowEnd = uiSrc.IndexOf("// Hide checkbox", rowStart, StringComparison.Ordinal);
+            string rowBlock = uiSrc.Substring(rowStart, rowEnd - rowStart);
+
+            Assert.Contains("RecordingStore.CanFastForward(rec, out ffReason, isRecording: isRecording)", rowBlock);
+            Assert.Contains("RecordingStore.CanRewind(rec, out rewindReason, isRecording: isRecording)", rowBlock);
+            Assert.DoesNotContain("canWatch", rowBlock);
+            Assert.DoesNotContain("hasGhost", rowBlock);
+            Assert.DoesNotContain("sameBody", rowBlock);
+            Assert.DoesNotContain("inRange", rowBlock);
+
+            int groupStart = uiSrc.IndexOf("// Rewind / Fast-forward button — targets main recording", StringComparison.Ordinal);
+            int groupEnd = uiSrc.IndexOf("// Hide group checkbox", groupStart, StringComparison.Ordinal);
+            string groupBlock = uiSrc.Substring(groupStart, groupEnd - groupStart);
+
+            Assert.Contains("RecordingStore.CanFastForward(mainRec, out ffReason, isRecording: isRecording)", groupBlock);
+            Assert.Contains("RecordingStore.CanRewind(mainRec, out rewindReason, isRecording: isRecording)", groupBlock);
+            Assert.DoesNotContain("canWatch", groupBlock);
+            Assert.DoesNotContain("hasGhost", groupBlock);
+            Assert.DoesNotContain("sameBody", groupBlock);
+            Assert.DoesNotContain("inRange", groupBlock);
+        }
+
         // ── GetRecordingSortKey ──
 
         [Fact]

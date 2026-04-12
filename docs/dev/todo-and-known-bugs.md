@@ -35,7 +35,7 @@ The skipped branch sidecars still existed on disk in both the collected snapshot
 
 ---
 
-## 313. TreeIntegrity PID collision check fails on historical vessel reuse
+## 315. TreeIntegrity PID collision check fails on historical vessel reuse
 
 **Observed in:** 0.8.0 follow-up storage playtest (2026-04-12). The in-game suite reported `RecordingTreeIntegrityTests.NoPidCollisionAcrossTrees` failed with `2 vessel PID(s) claimed by multiple trees`. The collected `persistent.sfs` was otherwise structurally clean: `ParentLinksValid` passed, and manual inspection found no dangling `ParentRecordingId` references.
 
@@ -53,6 +53,29 @@ Concrete repro data from `logs/2026-04-12_1549_storage-followup-playtest/`: thre
 - If historical PID reuse is valid, relax or replace `NoPidCollisionAcrossTrees` with a stronger assertion that targets real conflicts in active/pending runtime state rather than archived trees.
 
 **Status:** Open
+
+---
+
+## ~~313. Splashed EVA spawn-at-end can place the kerbal slightly underwater~~
+
+**Observed in:** 0.8.0 (2026-04-12). In the Phase 11.5 playtest bundle, the parent splashed vessel (`#24 "Kerbal X"`) was clamped and spawned at sea level, but the EVA child (`#25 "Raydred Kerman"`) spawned at `alt=-0.2` with `terminal=Splashed`. Log sequence:
+
+- `Clamped altitude for SPLASHED spawn #24 (Kerbal X): 0.4 -> 0`
+- `Vessel spawn for #24 (Kerbal X) ... alt=0`
+- `Snapshot position override for #25 (Raydred Kerman): alt -0.213434... -> -0.213434...`
+- `EVA vessel spawn for #25 (Raydred Kerman) ... alt=-0.2 terminal=Splashed`
+
+**Evidence bundle:** `.tmp/logs/2026-04-12_163227_phase-11-5-branch-validation/`
+
+**Primary log:** `.tmp/logs/2026-04-12_163227_phase-11-5-branch-validation/KSP.log`
+
+**Root cause:** `VesselSpawner.ResolveSpawnPosition` only clamps splashed terminal-state altitudes when `alt > 0`. That fixes the "recorded slightly above the surface" case, but not the observed EVA endpoint case where the final trajectory point is slightly below sea level. The EVA path uses the trajectory endpoint, `OverrideSnapshotPosition` writes the negative altitude into the snapshot unchanged, and `SpawnAtPosition`/terminal-state override does not enforce a sea-surface floor for splashed EVA spawns. The parent vessel takes the clamp; the EVA child does not.
+
+**Test gap:** `SpawnSafetyNetTests.ResolveSpawnPosition_EvaLanded_FallsThroughToSplashedClamp` only covers `alt > 0 -> 0`. There is no regression test for a splashed EVA endpoint with `alt < 0`.
+
+**Fix:** `VesselSpawner.ResolveSpawnPosition` now floors every non-zero `TerminalState.Splashed` altitude to sea level (`0.0`), not just the `alt > 0` case. That applies uniformly to EVA, breakup-continuous, and snapshot-based splashed spawns before `OverrideSnapshotPosition` / `SpawnAtPosition` runs. Added `ResolveSpawnPosition_EvaSplashed_NegativeEndpointAltitude_FloorsToSeaLevel` and updated breakup-continuous coverage so slightly negative terminal samples cannot place a spawned vessel underwater.
+
+**Status:** ~~Fixed~~
 
 ---
 
@@ -447,27 +470,35 @@ Create a `.netkan` file or submit to CKAN indexer so users can install Parsek vi
 
 ## TODO — Performance & Optimization
 
-### T57. Continue Phase 11.5 recording storage shrink work
+### T61. Continue Phase 11.5 recording storage shrink work
 
-The first storage slices are in place: representative fixture coverage, `v1` section-authoritative
-`.prec` sidecars, alias-mode ghost snapshot dedupe, and the follow-up metadata sync fix that keeps
-`.sfs` `ghostSnapshotMode` aligned with the last written sidecar mode across later saves. Remaining
-high-value work should stay in the same staged order documented in
+The first five storage slices are in place: representative fixture coverage, `v1`
+section-authoritative `.prec` sidecars, alias-mode ghost snapshot dedupe, header-dispatched binary
+`v2` `.prec` sidecars, and exact sparse `v3` defaults for stable per-point body/career fields.
+Remaining high-value work should stay measurement-gated and follow
 `docs/dev/plans/phase-11-5-recording-storage-optimization.md`:
 
-- compact binary `.prec` encoding with explicit header dispatch
-- sparse per-point payloads and section dictionaries
+- fresh live-corpus rebaseline against current `v3` sidecars
+- additional sparse payload work only where exact reconstruction and real byte wins are proven
 - post-commit, error-bounded trajectory thinning only after the format wins are re-measured
+- any further snapshot-side work should preserve current alias semantics and stay covered by
+  sidecar/load diagnostics
 
 **Priority:** Current Phase 11.5 follow-on work
 
 ---
 
-### T6. LOD culling for distant ghost meshes
+### ~~T6. LOD culling for distant ghost meshes~~
 
-Don't render full ghost meshes far from camera. Unity LOD groups or manual distance culling.
+Implemented in `0.8.1` as the shipped Flight ghost LOD policy:
 
-**Priority:** Deferred to Phase 11.5 (Recording Optimization & Observability)
+- `0 - 2300 m`: full fidelity
+- `2300 m - 50000 m`: reduced mesh / no part events / muted expensive FX
+- `50000 m - 120000 m`: hidden mesh, logical playback retained
+- watched ghosts inside cutoff bypass the distance degradation path
+- diagnostics now report live `full / reduced / hidden / watched override` counts
+
+**Status:** Fixed in `0.8.1`
 
 ### T7. Ghost mesh unloading outside active time range
 
@@ -506,6 +537,44 @@ Test game actions system with popular mods: CustomBarnKit (non-standard facility
 ---
 
 ## TODO — Recording Data Integrity
+
+### ~~T60. Add regression coverage and diagnostics for R/FF enablement reasons~~
+
+**Evidence bundle:** `.tmp/logs/2026-04-12_163227_phase-11-5-branch-validation/`
+
+**Primary log:** `.tmp/logs/2026-04-12_163227_phase-11-5-branch-validation/KSP.log`
+
+Available local playtest logs show R/FF row enablement is driven by recording/runtime state, not ghost distance. Examples:
+
+- `logs/2026-04-10_engine-fx-regression/KSP.log:15443` — `FF #13 "Kerbal X": disabled — Stop recording before fast-forwarding`
+- `logs/2026-04-12_0348_bugfixes-2-walkback/KSP.log:23067` — `R #4 "Crater Crawler": disabled — Stop recording before rewinding`
+- `logs/2026-04-12_0213_bugfixes-2/KSP.log:12946-12961` — `BeginRewind` is immediately followed by `R #0 "Crater Crawler": disabled — Rewind already in progress`
+
+The local `s3` / LOD archive (`logs/2026-04-11_2339_290-rover-underground/KSP.log`) predates those explicit UI-reason lines, but it does show two long active tree-recording windows:
+
+- `StartRecording succeeded` at `9137`, then the tree is finalized/committed at `11702-12030`
+- `StartRecording succeeded` at `12502`, then the tree is finalized/committed at `14659-15003`
+
+That means the long disabled interval reported for the `s3` save lines up with an active recording window; distance is not involved, and the most likely reason in that bundle is the normal `Stop recording before rewinding/fast-forwarding` guard.
+
+The governing code is `RecordingsTableUI` + `RecordingStore.CanRewind/CanFastForward`. Distance/watch state is only used for the `W` button path and should never affect R/FF availability.
+
+**Conclusion:** No real R/FF distance bug found. The runtime behavior was already correct: row/group R/FF enablement comes from recording timing/save/runtime state, while watch distance only gates `W`. In the archived `s3` / LOD save, the long disabled interval tracks active recording; in later reason-logged bundles, the same buttons also legitimately disable during an active rewind.
+
+**Fix:** Added focused coverage for:
+
+- `CanFastForward`: 0-point recordings return `Recording not available`
+- `CanFastForward`: current/past recordings return `Recording is not in the future`
+- `CanRewind`: tree branches with no root rewind save return `No rewind save available` / `Rewind save file missing`
+- transient blocks: `isRecording`, `IsRewinding`, and `HasPendingTree`
+- UI-level guard that distance/watch state never changes R/FF enablement
+- testable core helpers: `CanFastForwardAtUT` and `CanRewindWithResolvedSaveState` preserve the runtime guard order while making the missing reason cases unit-testable
+
+**Priority:** Medium — current runtime logic is mostly correct, but the failure modes are easy to misread in playtests unless we lock them down with tests and explicit reasoning
+
+**Status:** ~~Fixed~~
+
+---
 
 ### ~~T55. AppendCapturedDataToRecording does not copy FlagEvents or SegmentEvents~~
 

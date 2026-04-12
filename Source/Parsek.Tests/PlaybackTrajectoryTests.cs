@@ -419,6 +419,7 @@ namespace Parsek.Tests
             Assert.Equal(0.0, ctx.currentUT);
             Assert.Equal(0f, ctx.warpRate);
             Assert.Equal(0, ctx.protectedIndex);
+            Assert.Equal(0, ctx.protectedLoopCycleIndex);
             Assert.Equal(0, ctx.externalGhostCount);
             Assert.Equal(0.0, ctx.autoLoopIntervalSeconds);
         }
@@ -432,12 +433,14 @@ namespace Parsek.Tests
                 warpRate = 100f,
                 activeVesselPos = new Vector3d(1, 2, 3),
                 protectedIndex = 3,
+                protectedLoopCycleIndex = 9,
                 externalGhostCount = 7,
                 autoLoopIntervalSeconds = 15.0
             };
             Assert.Equal(1234.5, ctx.currentUT, 6);
             Assert.Equal(100f, ctx.warpRate);
             Assert.Equal(3, ctx.protectedIndex);
+            Assert.Equal(9, ctx.protectedLoopCycleIndex);
             Assert.Equal(7, ctx.externalGhostCount);
             Assert.Equal(15.0, ctx.autoLoopIntervalSeconds, 6);
         }

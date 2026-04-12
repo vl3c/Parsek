@@ -26,96 +26,63 @@ namespace Parsek.Tests.Generators
         /// </summary>
         public ScenarioWriter AddRecordingAsTree(RecordingBuilder builder)
         {
-            string recordingId = builder.GetRecordingId();
-            string treeId = "tree-" + recordingId;
+            if (builder == null)
+                throw new ArgumentNullException(nameof(builder));
 
-            // Build a Recording object from the builder's data
-            var rec = new Recording
+            return AddRecordingsAsTree(new[] { builder });
+        }
+
+        /// <summary>
+        /// Wraps multiple related RecordingBuilders into a single RECORDING_TREE node.
+        /// This is used for linked chain fixtures so ParentRecordingId references stay
+        /// within the same tree when injected into synthetic saves.
+        /// </summary>
+        public ScenarioWriter AddRecordingsAsTree(IEnumerable<RecordingBuilder> builders)
+        {
+            if (builders == null)
+                throw new ArgumentNullException(nameof(builders));
+
+            var builderList = new List<RecordingBuilder>();
+            foreach (var builder in builders)
             {
-                RecordingId = recordingId,
-                VesselName = builder.GetVesselName(),
-                RecordingFormatVersion = builder.GetFormatVersion(),
-                VesselPersistentId = StableHashToUint(recordingId),
-                ExplicitStartUT = builder.GetStartUT(),
-                ExplicitEndUT = builder.GetEndUT(),
-                TreeId = treeId,
-                LoopPlayback = builder.GetLoopPlayback(),
-                LoopIntervalSeconds = builder.GetLoopIntervalSeconds(),
-                PlaybackEnabled = builder.GetPlaybackEnabled(),
-                VesselSnapshot = builder.GetVesselSnapshot()?.CreateCopy(),
-                GhostVisualSnapshot = builder.GetGhostVisualSnapshot()?.CreateCopy(),
-            };
-            rec.GhostSnapshotMode = RecordingStore.DetermineGhostSnapshotMode(rec);
-
-            // Terminal state
-            int? ts = builder.GetTerminalState();
-            if (ts.HasValue)
-                rec.TerminalStateValue = (TerminalState)ts.Value;
-
-            // Terrain height at end
-            double terrainH = builder.GetTerrainHeightAtEnd();
-            if (!double.IsNaN(terrainH))
-                rec.TerrainHeightAtEnd = terrainH;
-
-            // Recording groups
-            var groups = builder.GetRecordingGroups();
-            if (groups != null && groups.Count > 0)
-                rec.RecordingGroups = new List<string>(groups);
-
-            // Segment metadata
-            if (!string.IsNullOrEmpty(builder.GetSegmentPhase()))
-                rec.SegmentPhase = builder.GetSegmentPhase();
-            if (!string.IsNullOrEmpty(builder.GetSegmentBodyName()))
-                rec.SegmentBodyName = builder.GetSegmentBodyName();
-
-            // Chain linkage
-            if (!string.IsNullOrEmpty(builder.GetChainId()))
-                rec.ChainId = builder.GetChainId();
-            if (builder.GetChainIndex() >= 0)
-                rec.ChainIndex = builder.GetChainIndex();
-            if (builder.GetChainBranch() > 0)
-                rec.ChainBranch = builder.GetChainBranch();
-
-            // EVA linkage
-            if (!string.IsNullOrEmpty(builder.GetParentRecordingId()))
-                rec.ParentRecordingId = builder.GetParentRecordingId();
-            if (!string.IsNullOrEmpty(builder.GetEvaCrewName()))
-                rec.EvaCrewName = builder.GetEvaCrewName();
-
-            // Rewind save
-            if (!string.IsNullOrEmpty(builder.GetRewindSaveFileName()))
-            {
-                rec.RewindSaveFileName = builder.GetRewindSaveFileName();
-                rec.RewindReservedFunds = builder.GetRewindReservedFunds();
-                rec.RewindReservedScience = builder.GetRewindReservedScience();
-                rec.RewindReservedRep = builder.GetRewindReservedRep();
+                if (builder == null)
+                    throw new ArgumentException("Recording tree builders cannot contain null entries.", nameof(builders));
+                builderList.Add(builder);
             }
 
-            // Controllers
-            var controllers = builder.GetControllers();
-            if (controllers != null)
-                rec.Controllers = new List<ControllerInfo>(controllers);
-            rec.IsDebris = builder.GetIsDebris();
+            if (builderList.Count == 0)
+                throw new ArgumentException("Recording tree requires at least one builder.", nameof(builders));
 
-            // Build the tree
+            var recordings = new List<Recording>(builderList.Count);
+            Recording root = null;
+
+            for (int i = 0; i < builderList.Count; i++)
+            {
+                var rec = BuildRecording(builderList[i]);
+                recordings.Add(rec);
+                if (root == null && string.IsNullOrEmpty(rec.ParentRecordingId))
+                    root = rec;
+            }
+
+            if (root == null)
+                root = recordings[0];
+
             var tree = new RecordingTree
             {
-                Id = treeId,
-                TreeName = builder.GetVesselName(),
-                RootRecordingId = recordingId,
-                ActiveRecordingId = null  // committed trees have no active recording
+                Id = "tree-" + root.RecordingId,
+                TreeName = root.VesselName,
+                RootRecordingId = root.RecordingId,
+                ActiveRecordingId = null
             };
-            tree.Recordings[recordingId] = rec;
 
-            // Serialize via RecordingTree.Save
-            var treeNode = new ConfigNode("RECORDING_TREE");
-            tree.Save(treeNode);
-            trees.Add(treeNode);
+            for (int i = 0; i < recordings.Count; i++)
+            {
+                recordings[i].TreeId = tree.Id;
+                tree.Recordings[recordings[i].RecordingId] = recordings[i];
+            }
 
-            // Register for sidecar file writing (same as v3 standalone)
-            if (useV3Format)
-                v3Builders.Add(builder);
-
+            AddSerializedTree(tree);
+            RegisterV3Builders(builderList);
             return this;
         }
 
@@ -438,6 +405,87 @@ namespace Parsek.Tests.Generators
             }
             // Avoid 0 (which means "not set" for VesselPersistentId)
             return hash == 0 ? 1u : hash;
+        }
+
+        private void AddSerializedTree(RecordingTree tree)
+        {
+            var treeNode = new ConfigNode("RECORDING_TREE");
+            tree.Save(treeNode);
+            trees.Add(treeNode);
+        }
+
+        private void RegisterV3Builders(IEnumerable<RecordingBuilder> builders)
+        {
+            if (!useV3Format)
+                return;
+
+            foreach (var builder in builders)
+                v3Builders.Add(builder);
+        }
+
+        private static Recording BuildRecording(RecordingBuilder builder)
+        {
+            string recordingId = builder.GetRecordingId();
+
+            var rec = new Recording
+            {
+                RecordingId = recordingId,
+                VesselName = builder.GetVesselName(),
+                RecordingFormatVersion = builder.GetFormatVersion(),
+                VesselPersistentId = StableHashToUint(recordingId),
+                ExplicitStartUT = builder.GetStartUT(),
+                ExplicitEndUT = builder.GetEndUT(),
+                LoopPlayback = builder.GetLoopPlayback(),
+                LoopIntervalSeconds = builder.GetLoopIntervalSeconds(),
+                PlaybackEnabled = builder.GetPlaybackEnabled(),
+                VesselSnapshot = builder.GetVesselSnapshot()?.CreateCopy(),
+                GhostVisualSnapshot = builder.GetGhostVisualSnapshot()?.CreateCopy(),
+            };
+            rec.GhostSnapshotMode = RecordingStore.DetermineGhostSnapshotMode(rec);
+
+            int? ts = builder.GetTerminalState();
+            if (ts.HasValue)
+                rec.TerminalStateValue = (TerminalState)ts.Value;
+
+            double terrainH = builder.GetTerrainHeightAtEnd();
+            if (!double.IsNaN(terrainH))
+                rec.TerrainHeightAtEnd = terrainH;
+
+            var groups = builder.GetRecordingGroups();
+            if (groups != null && groups.Count > 0)
+                rec.RecordingGroups = new List<string>(groups);
+
+            if (!string.IsNullOrEmpty(builder.GetSegmentPhase()))
+                rec.SegmentPhase = builder.GetSegmentPhase();
+            if (!string.IsNullOrEmpty(builder.GetSegmentBodyName()))
+                rec.SegmentBodyName = builder.GetSegmentBodyName();
+
+            if (!string.IsNullOrEmpty(builder.GetChainId()))
+                rec.ChainId = builder.GetChainId();
+            if (builder.GetChainIndex() >= 0)
+                rec.ChainIndex = builder.GetChainIndex();
+            if (builder.GetChainBranch() > 0)
+                rec.ChainBranch = builder.GetChainBranch();
+
+            if (!string.IsNullOrEmpty(builder.GetParentRecordingId()))
+                rec.ParentRecordingId = builder.GetParentRecordingId();
+            if (!string.IsNullOrEmpty(builder.GetEvaCrewName()))
+                rec.EvaCrewName = builder.GetEvaCrewName();
+
+            if (!string.IsNullOrEmpty(builder.GetRewindSaveFileName()))
+            {
+                rec.RewindSaveFileName = builder.GetRewindSaveFileName();
+                rec.RewindReservedFunds = builder.GetRewindReservedFunds();
+                rec.RewindReservedScience = builder.GetRewindReservedScience();
+                rec.RewindReservedRep = builder.GetRewindReservedRep();
+            }
+
+            var controllers = builder.GetControllers();
+            if (controllers != null)
+                rec.Controllers = new List<ControllerInfo>(controllers);
+            rec.IsDebris = builder.GetIsDebris();
+
+            return rec;
         }
     }
 }

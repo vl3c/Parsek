@@ -84,6 +84,42 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void CanFastForwardAtUT_CurrentRecording_ReturnsFalse()
+        {
+            var rec = new Recording { VesselName = "Current" };
+            rec.Points.Add(new TrajectoryPoint { ut = 100.0 });
+            rec.Points.Add(new TrajectoryPoint { ut = 150.0 });
+
+            string reason;
+            Assert.False(RecordingStore.CanFastForwardAtUT(rec, 100.0, out reason, isRecording: false));
+            Assert.Equal("Recording is not in the future", reason);
+        }
+
+        [Fact]
+        public void CanFastForwardAtUT_PastRecording_ReturnsFalse()
+        {
+            var rec = new Recording { VesselName = "Past" };
+            rec.Points.Add(new TrajectoryPoint { ut = 100.0 });
+            rec.Points.Add(new TrajectoryPoint { ut = 150.0 });
+
+            string reason;
+            Assert.False(RecordingStore.CanFastForwardAtUT(rec, 500.0, out reason, isRecording: false));
+            Assert.Equal("Recording is not in the future", reason);
+        }
+
+        [Fact]
+        public void CanFastForwardAtUT_FutureRecording_ReturnsTrue()
+        {
+            var rec = new Recording { VesselName = "Future" };
+            rec.Points.Add(new TrajectoryPoint { ut = 100.0 });
+            rec.Points.Add(new TrajectoryPoint { ut = 150.0 });
+
+            string reason;
+            Assert.True(RecordingStore.CanFastForwardAtUT(rec, 50.0, out reason, isRecording: false));
+            Assert.Equal(string.Empty, reason);
+        }
+
+        [Fact]
         public void CanFastForward_IsRecording_ReturnsFalse()
         {
             var rec = MakeFutureRecording();

@@ -246,17 +246,53 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void ShouldProtectGhostFromSoftCap_WatchedGhost_ReturnsTrue()
+        public void IsProtectedGhost_WatchedGhost_ReturnsTrue()
         {
-            Assert.True(GhostPlaybackLogic.ShouldProtectGhostFromSoftCap(
+            Assert.True(GhostPlaybackLogic.IsProtectedGhost(
                 protectedIndex: 5, currentIndex: 5));
         }
 
         [Fact]
-        public void ShouldProtectGhostFromSoftCap_UnwatchedGhost_ReturnsFalse()
+        public void IsProtectedGhost_UnwatchedGhost_ReturnsFalse()
         {
-            Assert.False(GhostPlaybackLogic.ShouldProtectGhostFromSoftCap(
+            Assert.False(GhostPlaybackLogic.IsProtectedGhost(
                 protectedIndex: 5, currentIndex: 3));
+        }
+
+        [Fact]
+        public void IsProtectedGhost_ExactCycleMatch_ReturnsTrue()
+        {
+            Assert.True(GhostPlaybackLogic.IsProtectedGhost(
+                protectedIndex: 5, protectedLoopCycleIndex: 12,
+                currentIndex: 5, currentLoopCycleIndex: 12));
+        }
+
+        [Fact]
+        public void IsProtectedGhost_DifferentCycle_ReturnsFalse()
+        {
+            Assert.False(GhostPlaybackLogic.IsProtectedGhost(
+                protectedIndex: 5, protectedLoopCycleIndex: 12,
+                currentIndex: 5, currentLoopCycleIndex: 11));
+        }
+
+        [Fact]
+        public void ShouldApplyWarpZoneHideExemption_BeyondOrbitalGhost_ReturnsTrue()
+        {
+            Assert.True(GhostPlaybackLogic.ShouldApplyWarpZoneHideExemption(
+                shouldHideMesh: true,
+                zone: RenderingZone.Beyond,
+                currentWarpRate: 10f,
+                hasOrbitalSegments: true));
+        }
+
+        [Fact]
+        public void ShouldApplyWarpZoneHideExemption_HiddenTierVisualGhost_ReturnsFalse()
+        {
+            Assert.False(GhostPlaybackLogic.ShouldApplyWarpZoneHideExemption(
+                shouldHideMesh: true,
+                zone: RenderingZone.Visual,
+                currentWarpRate: 10f,
+                hasOrbitalSegments: true));
         }
 
         #endregion
