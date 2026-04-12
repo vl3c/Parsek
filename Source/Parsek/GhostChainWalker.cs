@@ -11,7 +11,6 @@ namespace Parsek
     internal static class GhostChainWalker
     {
         private const string Tag = "ChainWalker";
-        private const double ClaimOverlapTolerance = 0.001;
 
         /// <summary>
         /// Scans all committed trees and builds ghost chains for every pre-existing
@@ -173,7 +172,6 @@ namespace Parsek
             RecordingTree tree, Dictionary<uint, List<ChainLink>> claimsByPid)
         {
             var ic = CultureInfo.InvariantCulture;
-            var rootLineageFirstSeen = GetRootLineagePidFirstSeenUTs(tree);
 
             for (int i = 0; i < tree.BranchPoints.Count; i++)
             {
@@ -184,15 +182,6 @@ namespace Parsek
 
                 if (bp.TargetVesselPersistentId == 0)
                     continue;
-
-                if (TreeOwnsPidBeforeUT(rootLineageFirstSeen, bp.TargetVesselPersistentId, bp.UT))
-                {
-                    ParsekLog.Verbose(Tag,
-                        string.Format(ic,
-                            "Skipping self-owned claim: tree={0} pid={1} already in root lineage before UT={2:F1}",
-                            tree.Id, bp.TargetVesselPersistentId, bp.UT));
-                    continue;
-                }
 
                 // Determine interaction type and claiming recording
                 string interactionType;
@@ -256,7 +245,9 @@ namespace Parsek
             RecordingTree tree, Dictionary<uint, List<ChainLink>> claimsByPid)
         {
             var ic = CultureInfo.InvariantCulture;
-            var rootLineageFirstSeen = GetRootLineagePidFirstSeenUTs(tree);
+
+            // Find root lineage vessel PIDs by tracing from the root recording
+            var rootLineagePids = GetRootLineageVesselPids(tree);
 
             foreach (var kvp in tree.Recordings)
             {
@@ -264,10 +255,8 @@ namespace Parsek
                 if (rec.VesselPersistentId == 0)
                     continue;
 
-                // Skip recordings that were already part of the tree's own lineage
-                // by the time this recording starts. Later PID reuse in the root
-                // lineage does not make an earlier background recording "owned."
-                if (TreeOwnsPidAtOrBeforeUT(rootLineageFirstSeen, rec.VesselPersistentId, rec.StartUT))
+                // Skip recordings that belong to the tree's own lineage
+                if (rootLineagePids.Contains(rec.VesselPersistentId))
                     continue;
 
                 if (!GhostingTriggerClassifier.HasGhostingTriggerEvents(rec))
@@ -305,7 +294,15 @@ namespace Parsek
         /// </summary>
         internal static HashSet<uint> GetRootLineageVesselPids(RecordingTree tree)
         {
-            return new HashSet<uint>(GetRootLineagePidFirstSeenUTs(tree).Keys);
+            var pids = new HashSet<uint>();
+
+            if (!string.IsNullOrEmpty(tree.RootRecordingId)
+                && tree.Recordings.TryGetValue(tree.RootRecordingId, out Recording rootRec))
+            {
+                TraceLineagePids(tree, rootRec, pids, new HashSet<string>());
+            }
+
+            return pids;
         }
 
         /// <summary>
@@ -313,28 +310,9 @@ namespace Parsek
         /// all VesselPersistentIds in the lineage. Tracks visited recording IDs to avoid
         /// infinite loops.
         /// </summary>
-        private static Dictionary<uint, double> GetRootLineagePidFirstSeenUTs(RecordingTree tree)
-        {
-            var firstSeen = new Dictionary<uint, double>();
-
-            Recording rootRec;
-            if (!string.IsNullOrEmpty(tree.RootRecordingId)
-                && tree.Recordings.TryGetValue(tree.RootRecordingId, out rootRec))
-            {
-                TraceLineagePids(tree, rootRec, firstSeen, new HashSet<string>());
-            }
-
-            return firstSeen;
-        }
-
-        /// <summary>
-        /// Recursively traces from a recording through its ChildBranchPointId to collect
-        /// all root-lineage VesselPersistentIds, recording the earliest StartUT at which
-        /// each PID appears. Tracks visited recording IDs to avoid infinite loops.
-        /// </summary>
         private static void TraceLineagePids(
             RecordingTree tree, Recording rec,
-            Dictionary<uint, double> firstSeenByPid, HashSet<string> visited)
+            HashSet<uint> pids, HashSet<string> visited)
         {
             if (rec == null || visited.Contains(rec.RecordingId))
                 return;
@@ -342,14 +320,7 @@ namespace Parsek
             visited.Add(rec.RecordingId);
 
             if (rec.VesselPersistentId != 0)
-            {
-                double firstSeenUT;
-                if (!firstSeenByPid.TryGetValue(rec.VesselPersistentId, out firstSeenUT)
-                    || rec.StartUT < firstSeenUT)
-                {
-                    firstSeenByPid[rec.VesselPersistentId] = rec.StartUT;
-                }
-            }
+                pids.Add(rec.VesselPersistentId);
 
             // Follow ChildBranchPointId to find child recordings
             if (rec.ChildBranchPointId != null)
@@ -361,9 +332,8 @@ namespace Parsek
                         var bp = tree.BranchPoints[i];
                         for (int c = 0; c < bp.ChildRecordingIds.Count; c++)
                         {
-                            Recording childRec;
-                            if (tree.Recordings.TryGetValue(bp.ChildRecordingIds[c], out childRec))
-                                TraceLineagePids(tree, childRec, firstSeenByPid, visited);
+                            if (tree.Recordings.TryGetValue(bp.ChildRecordingIds[c], out Recording childRec))
+                                TraceLineagePids(tree, childRec, pids, visited);
                         }
                         break;
                     }
@@ -382,7 +352,7 @@ namespace Parsek
                         && kvp.Value.ChainIndex == nextIdx
                         && kvp.Value.ChainBranch == rec.ChainBranch)
                     {
-                        TraceLineagePids(tree, kvp.Value, firstSeenByPid, visited);
+                        TraceLineagePids(tree, kvp.Value, pids, visited);
                         break;
                     }
                 }
@@ -713,24 +683,6 @@ namespace Parsek
         {
             Recording rec = FindRecording(recordingId, treeId, committedTrees);
             return rec != null ? rec.VesselPersistentId : 0;
-        }
-
-        private static bool TreeOwnsPidBeforeUT(
-            Dictionary<uint, double> rootLineageFirstSeen, uint pid, double ut)
-        {
-            double firstSeenUT;
-            return rootLineageFirstSeen != null
-                && rootLineageFirstSeen.TryGetValue(pid, out firstSeenUT)
-                && firstSeenUT < ut - ClaimOverlapTolerance;
-        }
-
-        private static bool TreeOwnsPidAtOrBeforeUT(
-            Dictionary<uint, double> rootLineageFirstSeen, uint pid, double ut)
-        {
-            double firstSeenUT;
-            return rootLineageFirstSeen != null
-                && rootLineageFirstSeen.TryGetValue(pid, out firstSeenUT)
-                && firstSeenUT <= ut + ClaimOverlapTolerance;
         }
 
         #endregion

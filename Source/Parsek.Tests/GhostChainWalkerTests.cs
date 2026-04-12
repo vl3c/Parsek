@@ -232,6 +232,48 @@ namespace Parsek.Tests
         }
 
         /// <summary>
+        /// Two rewind branches inside the same tree can both continue the same claimed
+        /// vessel PID. The later branch must still extend the chain.
+        /// Guards: branch-local overlap is not treated as self-owned history.
+        /// </summary>
+        [Fact]
+        public void SameTree_OverlappingHistoricalReuse_StillExtendsChain()
+        {
+            var root = MakeRecording("root", 50, 1000, 1020, childBpId: "bp-split");
+
+            var branchA = MakeRecording("branch-a", 60, 1020, 1060,
+                parentBpId: "bp-split", childBpId: "bp-dock-a");
+            var branchALeaf = MakeRecording("branch-a-leaf", 100, 1060, 1120,
+                parentBpId: "bp-dock-a");
+
+            var branchB = MakeRecording("branch-b", 70, 1020, 1080,
+                parentBpId: "bp-split", childBpId: "bp-dock-b");
+            var branchBLeaf = MakeRecording("branch-b-leaf", 100, 1080, 1160,
+                parentBpId: "bp-dock-b");
+
+            var splitBp = MakeBranchPoint("bp-split", BranchPointType.Breakup,
+                1020, 0, new[] { "root" }, new[] { "branch-a", "branch-b" });
+            var dockA = MakeBranchPoint("bp-dock-a", BranchPointType.Dock,
+                1060, 100, new[] { "branch-a" }, new[] { "branch-a-leaf" });
+            var dockB = MakeBranchPoint("bp-dock-b", BranchPointType.Dock,
+                1080, 100, new[] { "branch-b" }, new[] { "branch-b-leaf" });
+
+            var tree = MakeTree("tree-1",
+                new[] { root, branchA, branchALeaf, branchB, branchBLeaf },
+                new[] { splitBp, dockA, dockB });
+
+            var chains = GhostChainWalker.ComputeAllGhostChains(
+                new List<RecordingTree> { tree }, 900);
+
+            Assert.Single(chains);
+            Assert.True(chains.ContainsKey(100));
+            var chain = chains[100];
+            Assert.Equal(2, chain.Links.Count);
+            Assert.Equal("branch-b-leaf", chain.TipRecordingId);
+            Assert.Equal(1160.0, chain.SpawnUT);
+        }
+
+        /// <summary>
         /// R1 targets S1(100), R2 targets S2(200). Two independent chains.
         /// Guards: chains don't bleed.
         /// </summary>

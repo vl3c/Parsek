@@ -116,6 +116,44 @@ namespace Parsek.Tests
             };
         }
 
+        static RecordingTree MakeTree(string treeId, Recording[] recordings, BranchPoint[] branchPoints)
+        {
+            var tree = new RecordingTree
+            {
+                Id = treeId,
+                RootRecordingId = recordings.Length > 0 ? recordings[0].RecordingId : ""
+            };
+
+            for (int i = 0; i < recordings.Length; i++)
+            {
+                recordings[i].TreeId = treeId;
+                tree.Recordings[recordings[i].RecordingId] = recordings[i];
+            }
+
+            if (branchPoints != null)
+            {
+                for (int i = 0; i < branchPoints.Length; i++)
+                    tree.BranchPoints.Add(branchPoints[i]);
+            }
+
+            return tree;
+        }
+
+        static BranchPoint MakeBranchPoint(string id, BranchPointType type,
+            double ut, uint targetVesselPid,
+            string[] parentRecIds, string[] childRecIds)
+        {
+            return new BranchPoint
+            {
+                Id = id,
+                Type = type,
+                UT = ut,
+                TargetVesselPersistentId = targetVesselPid,
+                ParentRecordingIds = new List<string>(parentRecIds),
+                ChildRecordingIds = new List<string>(childRecIds)
+            };
+        }
+
         #endregion
 
         #region FindBackgroundRecordingForVessel — core behavior
@@ -220,12 +258,21 @@ namespace Parsek.Tests
         public void FindBackgroundRecordingForChain_PrefersClaimingTreeOverAlternateHistory()
         {
             var altRec = MakeRecordingWithPoints("bg-alt", 100, 1000, 1100);
-            altRec.TreeId = "tree-alt";
+            var altTree = MakeTree("tree-alt", new[] { altRec }, null);
 
+            var claimRec = MakeRecordingNoPoints("R1", 50, 1000, 1060);
+            claimRec.ChildBranchPointId = "bp-dock";
             var chainRec = MakeRecordingWithPoints("bg-chain", 100, 1060, 1120);
-            chainRec.TreeId = "tree-1";
+            chainRec.ParentBranchPointId = "bp-dock";
+            var chainTree = MakeTree("tree-1", new[] { claimRec, chainRec },
+                new[]
+                {
+                    MakeBranchPoint("bp-dock", BranchPointType.Dock, 1060, 100,
+                        new[] { "R1" }, new[] { "bg-chain" })
+                });
 
-            var recordings = new List<Recording> { altRec, chainRec };
+            var recordings = new List<Recording> { altRec, claimRec, chainRec };
+            var trees = new List<RecordingTree> { altTree, chainTree };
             var chain = new GhostChain
             {
                 OriginalVesselPid = 100,
@@ -239,7 +286,7 @@ namespace Parsek.Tests
                 interactionType = "MERGE"
             });
 
-            var result = ParsekFlight.FindBackgroundRecordingForChain(recordings, chain, 1070);
+            var result = ParsekFlight.FindBackgroundRecordingForChain(recordings, trees, chain, 1070);
 
             Assert.NotNull(result);
             Assert.Equal("bg-chain", result.RecordingId);
@@ -253,13 +300,30 @@ namespace Parsek.Tests
         [Fact]
         public void FindBackgroundRecordingForChain_PrefersMostRecentClaimTreeAtCurrentUT()
         {
+            var claim1 = MakeRecordingNoPoints("R1", 50, 1000, 1060);
+            claim1.ChildBranchPointId = "bp-dock-1";
             var tree1Rec = MakeRecordingWithPoints("bg-tree-1", 100, 1060, 1300);
-            tree1Rec.TreeId = "tree-1";
+            tree1Rec.ParentBranchPointId = "bp-dock-1";
+            var tree1 = MakeTree("tree-1", new[] { claim1, tree1Rec },
+                new[]
+                {
+                    MakeBranchPoint("bp-dock-1", BranchPointType.Dock, 1060, 100,
+                        new[] { "R1" }, new[] { "bg-tree-1" })
+                });
 
+            var claim2 = MakeRecordingNoPoints("R2", 60, 1200, 1260);
+            claim2.ChildBranchPointId = "bp-dock-2";
             var tree2Rec = MakeRecordingWithPoints("bg-tree-2", 100, 1260, 1320);
-            tree2Rec.TreeId = "tree-2";
+            tree2Rec.ParentBranchPointId = "bp-dock-2";
+            var tree2 = MakeTree("tree-2", new[] { claim2, tree2Rec },
+                new[]
+                {
+                    MakeBranchPoint("bp-dock-2", BranchPointType.Dock, 1260, 100,
+                        new[] { "R2" }, new[] { "bg-tree-2" })
+                });
 
-            var recordings = new List<Recording> { tree1Rec, tree2Rec };
+            var recordings = new List<Recording> { claim1, tree1Rec, claim2, tree2Rec };
+            var trees = new List<RecordingTree> { tree1, tree2 };
             var chain = new GhostChain
             {
                 OriginalVesselPid = 100,
@@ -280,7 +344,7 @@ namespace Parsek.Tests
                 interactionType = "MERGE"
             });
 
-            var result = ParsekFlight.FindBackgroundRecordingForChain(recordings, chain, 1270);
+            var result = ParsekFlight.FindBackgroundRecordingForChain(recordings, trees, chain, 1270);
 
             Assert.NotNull(result);
             Assert.Equal("bg-tree-2", result.RecordingId);
@@ -296,12 +360,21 @@ namespace Parsek.Tests
         public void FindBackgroundRecordingForChain_FallsBackToGlobalHistoryBeforeFirstClaim()
         {
             var preClaimRec = MakeRecordingWithPoints("bg-alt", 100, 1000, 1100);
-            preClaimRec.TreeId = "tree-alt";
+            var altTree = MakeTree("tree-alt", new[] { preClaimRec }, null);
 
+            var claimRec = MakeRecordingNoPoints("R1", 50, 1000, 1060);
+            claimRec.ChildBranchPointId = "bp-dock";
             var postClaimRec = MakeRecordingWithPoints("bg-chain", 100, 1060, 1120);
-            postClaimRec.TreeId = "tree-1";
+            postClaimRec.ParentBranchPointId = "bp-dock";
+            var chainTree = MakeTree("tree-1", new[] { claimRec, postClaimRec },
+                new[]
+                {
+                    MakeBranchPoint("bp-dock", BranchPointType.Dock, 1060, 100,
+                        new[] { "R1" }, new[] { "bg-chain" })
+                });
 
-            var recordings = new List<Recording> { preClaimRec, postClaimRec };
+            var recordings = new List<Recording> { preClaimRec, claimRec, postClaimRec };
+            var trees = new List<RecordingTree> { altTree, chainTree };
             var chain = new GhostChain
             {
                 OriginalVesselPid = 100,
@@ -315,7 +388,7 @@ namespace Parsek.Tests
                 interactionType = "MERGE"
             });
 
-            var result = ParsekFlight.FindBackgroundRecordingForChain(recordings, chain, 1030);
+            var result = ParsekFlight.FindBackgroundRecordingForChain(recordings, trees, chain, 1030);
 
             Assert.NotNull(result);
             Assert.Equal("bg-alt", result.RecordingId);
@@ -332,12 +405,21 @@ namespace Parsek.Tests
         public void FindBackgroundRecordingForChain_DoesNotOverrideChainLocalOrbitOnlyCoverage()
         {
             var altRec = MakeRecordingWithPoints("bg-alt", 100, 1200, 1300);
-            altRec.TreeId = "tree-alt";
+            var altTree = MakeTree("tree-alt", new[] { altRec }, null);
 
+            var claimRec = MakeRecordingNoPoints("R1", 50, 1140, 1200);
+            claimRec.ChildBranchPointId = "bp-dock";
             var chainOrbitRec = MakeRecordingOrbitOnly("bg-chain-orbit", 100, 1200, 1300);
-            chainOrbitRec.TreeId = "tree-1";
+            chainOrbitRec.ParentBranchPointId = "bp-dock";
+            var chainTree = MakeTree("tree-1", new[] { claimRec, chainOrbitRec },
+                new[]
+                {
+                    MakeBranchPoint("bp-dock", BranchPointType.Dock, 1200, 100,
+                        new[] { "R1" }, new[] { "bg-chain-orbit" })
+                });
 
-            var recordings = new List<Recording> { altRec, chainOrbitRec };
+            var recordings = new List<Recording> { altRec, claimRec, chainOrbitRec };
+            var trees = new List<RecordingTree> { altTree, chainTree };
             var chain = new GhostChain
             {
                 OriginalVesselPid = 100,
@@ -347,13 +429,62 @@ namespace Parsek.Tests
             {
                 recordingId = "R1",
                 treeId = "tree-1",
-                ut = 1060,
+                ut = 1200,
                 interactionType = "MERGE"
             });
 
-            var result = ParsekFlight.FindBackgroundRecordingForChain(recordings, chain, 1250);
+            var result = ParsekFlight.FindBackgroundRecordingForChain(recordings, trees, chain, 1250);
 
             Assert.Null(result);
+        }
+
+        /// <summary>
+        /// When two branches in the same tree both claim the same vessel PID, chain
+        /// trajectory resolution must follow the active branch's link path instead of
+        /// picking an arbitrary same-tree recording by PID.
+        /// Guards: same-tree alternate histories stay branch-specific.
+        /// </summary>
+        [Fact]
+        public void FindExactChainRecordingAtUT_SameTreeOverlap_PicksCurrentBranch()
+        {
+            var root = MakeRecordingNoPoints("root", 50, 1000, 1020);
+            root.ChildBranchPointId = "bp-split";
+
+            var branchA = MakeRecordingNoPoints("branch-a", 60, 1020, 1060);
+            branchA.ParentBranchPointId = "bp-split";
+            branchA.ChildBranchPointId = "bp-dock-a";
+
+            var branchB = MakeRecordingNoPoints("branch-b", 70, 1020, 1080);
+            branchB.ParentBranchPointId = "bp-split";
+            branchB.ChildBranchPointId = "bp-dock-b";
+
+            var branchALeaf = MakeRecordingWithPoints("branch-a-leaf", 100, 1060, 1120);
+            branchALeaf.ParentBranchPointId = "bp-dock-a";
+
+            var branchBLeaf = MakeRecordingWithPoints("branch-b-leaf", 100, 1080, 1160);
+            branchBLeaf.ParentBranchPointId = "bp-dock-b";
+
+            var tree = MakeTree("tree-1",
+                new[] { root, branchA, branchB, branchALeaf, branchBLeaf },
+                new[]
+                {
+                    MakeBranchPoint("bp-split", BranchPointType.Breakup, 1020, 0,
+                        new[] { "root" }, new[] { "branch-a", "branch-b" }),
+                    MakeBranchPoint("bp-dock-a", BranchPointType.Dock, 1060, 100,
+                        new[] { "branch-a" }, new[] { "branch-a-leaf" }),
+                    MakeBranchPoint("bp-dock-b", BranchPointType.Dock, 1080, 100,
+                        new[] { "branch-b" }, new[] { "branch-b-leaf" })
+                });
+
+            var chains = GhostChainWalker.ComputeAllGhostChains(new List<RecordingTree> { tree }, 900);
+            var chain = chains[100];
+
+            Assert.Null(ParsekFlight.FindExactChainRecordingAtUT(
+                new List<RecordingTree> { tree }, chain, 1030));
+            Assert.Equal("branch-a-leaf", ParsekFlight.FindExactChainRecordingAtUT(
+                new List<RecordingTree> { tree }, chain, 1070).RecordingId);
+            Assert.Equal("branch-b-leaf", ParsekFlight.FindExactChainRecordingAtUT(
+                new List<RecordingTree> { tree }, chain, 1090).RecordingId);
         }
 
         /// <summary>

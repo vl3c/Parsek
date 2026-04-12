@@ -6817,51 +6817,168 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Finds a trajectory recording for a chain at the given UT, preferring the
-        /// tree that most recently claimed the chain by that time and falling back to
-        /// other trees that actually participate in the chain.
+        /// Finds a point-backed trajectory recording for a chain at the given UT.
+        /// Uses the exact chain path within committed trees when available, and only
+        /// falls back to global PID lookup before the first claim.
         /// </summary>
         internal static Recording FindBackgroundRecordingForChain(
-            IReadOnlyList<Recording> committedRecordings, GhostChain chain, double currentUT)
+            IReadOnlyList<Recording> committedRecordings,
+            IReadOnlyList<RecordingTree> committedTrees,
+            GhostChain chain,
+            double currentUT)
         {
             if (committedRecordings == null || chain == null)
                 return null;
 
-            var preferredTreeIds = GetPreferredChainTreeIds(chain, currentUT);
-            bool hasChainLocalCoverage = false;
-            for (int t = 0; t < preferredTreeIds.Count; t++)
-            {
-                var rec = FindCoveredBackgroundRecordingForVesselInTree(
-                    committedRecordings, preferredTreeIds[t], chain.OriginalVesselPid, currentUT);
-                if (rec == null)
-                    continue;
-
-                hasChainLocalCoverage = true;
-                if (rec.Points != null && rec.Points.Count > 0)
-                    return rec;
-            }
-
-            if (hasChainLocalCoverage)
-                return null;
+            var chainRec = FindExactChainRecordingAtUT(committedTrees, chain, currentUT);
+            if (chainRec != null)
+                return chainRec.Points != null && chainRec.Points.Count > 0 ? chainRec : null;
 
             return FindBackgroundRecordingForVessel(
                 committedRecordings, chain.OriginalVesselPid, currentUT);
         }
 
-        private static Recording FindCoveredBackgroundRecordingForVesselInTree(
-            IReadOnlyList<Recording> committedRecordings, string treeId, uint vesselPid, double currentUT)
+        internal static Recording FindExactChainRecordingAtUT(
+            IReadOnlyList<RecordingTree> committedTrees, GhostChain chain, double currentUT)
         {
-            if (committedRecordings == null || string.IsNullOrEmpty(treeId))
+            if (committedTrees == null || chain == null || chain.Links == null)
                 return null;
 
-            for (int i = 0; i < committedRecordings.Count; i++)
+            for (int i = chain.Links.Count - 1; i >= 0; i--)
             {
-                var rec = committedRecordings[i];
-                if (rec.TreeId != treeId)
+                var link = chain.Links[i];
+                if (link.ut > currentUT + 0.001)
                     continue;
-                if (rec.VesselPersistentId == vesselPid
-                    && currentUT >= rec.StartUT && currentUT <= rec.EndUT)
+
+                var rec = FindChainPathRecordingAtUT(
+                    committedTrees, link, chain.OriginalVesselPid, currentUT);
+                if (rec != null)
                     return rec;
+            }
+
+            return null;
+        }
+
+        private static Recording FindChainPathRecordingAtUT(
+            IReadOnlyList<RecordingTree> committedTrees,
+            ChainLink link,
+            uint vesselPid,
+            double currentUT)
+        {
+            if (committedTrees == null || string.IsNullOrEmpty(link.treeId))
+                return null;
+
+            RecordingTree tree = FindCommittedTree(committedTrees, link.treeId);
+            if (tree == null)
+                return null;
+
+            Recording startRec;
+            if (!tree.Recordings.TryGetValue(link.recordingId, out startRec))
+                return null;
+
+            return FindChainPathRecordingAtUT(tree, startRec, vesselPid, currentUT);
+        }
+
+        private static Recording FindChainPathRecordingAtUT(
+            RecordingTree tree,
+            Recording startRec,
+            uint vesselPid,
+            double currentUT)
+        {
+            if (tree == null || startRec == null)
+                return null;
+
+            var visited = new HashSet<string>();
+            var current = startRec;
+            while (current != null && !visited.Contains(current.RecordingId))
+            {
+                visited.Add(current.RecordingId);
+
+                if (current.VesselPersistentId == vesselPid
+                    && currentUT >= current.StartUT && currentUT <= current.EndUT)
+                {
+                    return current;
+                }
+
+                var nextChainRec = FindNextChainRecording(tree, current);
+                if (nextChainRec != null)
+                {
+                    current = nextChainRec;
+                    continue;
+                }
+
+                current = FindPreferredChildRecording(tree, current);
+            }
+
+            return null;
+        }
+
+        private static Recording FindNextChainRecording(RecordingTree tree, Recording rec)
+        {
+            if (tree == null || rec == null || string.IsNullOrEmpty(rec.ChainId))
+                return null;
+
+            int nextIdx = rec.ChainIndex + 1;
+            foreach (var kvp in tree.Recordings)
+            {
+                if (kvp.Value.ChainId == rec.ChainId
+                    && kvp.Value.ChainIndex == nextIdx
+                    && kvp.Value.ChainBranch == rec.ChainBranch)
+                {
+                    return kvp.Value;
+                }
+            }
+
+            return null;
+        }
+
+        private static Recording FindPreferredChildRecording(RecordingTree tree, Recording rec)
+        {
+            if (tree == null || rec == null || string.IsNullOrEmpty(rec.ChildBranchPointId))
+                return null;
+
+            BranchPoint bp = null;
+            for (int i = 0; i < tree.BranchPoints.Count; i++)
+            {
+                if (tree.BranchPoints[i].Id == rec.ChildBranchPointId)
+                {
+                    bp = tree.BranchPoints[i];
+                    break;
+                }
+            }
+
+            if (bp == null || bp.ChildRecordingIds.Count == 0)
+                return null;
+
+            string bestChildId = bp.ChildRecordingIds[0];
+            if (rec.VesselPersistentId != 0)
+            {
+                for (int c = 0; c < bp.ChildRecordingIds.Count; c++)
+                {
+                    Recording candidate;
+                    if (tree.Recordings.TryGetValue(bp.ChildRecordingIds[c], out candidate)
+                        && candidate.VesselPersistentId == rec.VesselPersistentId)
+                    {
+                        bestChildId = bp.ChildRecordingIds[c];
+                        break;
+                    }
+                }
+            }
+
+            Recording child;
+            return tree.Recordings.TryGetValue(bestChildId, out child) ? child : null;
+        }
+
+        private static RecordingTree FindCommittedTree(
+            IReadOnlyList<RecordingTree> committedTrees, string treeId)
+        {
+            if (committedTrees == null || string.IsNullOrEmpty(treeId))
+                return null;
+
+            for (int i = 0; i < committedTrees.Count; i++)
+            {
+                if (committedTrees[i].Id == treeId)
+                    return committedTrees[i];
             }
 
             return null;
@@ -6997,7 +7114,7 @@ namespace Parsek
                 // Find background recording covering current UT within the chain's
                 // own tree sequence, not by global PID-only lookup.
                 Recording bgRec = FindBackgroundRecordingForChain(
-                    RecordingStore.CommittedRecordings, chain, currentUT);
+                    RecordingStore.CommittedRecordings, RecordingStore.CommittedTrees, chain, currentUT);
 
                 if (bgRec != null && bgRec.Points.Count > 0)
                 {
@@ -7030,8 +7147,38 @@ namespace Parsek
         {
             bool positioned = false;
             var committed = RecordingStore.CommittedRecordings;
+            var committedTrees = RecordingStore.CommittedTrees;
             if (committed != null)
             {
+                var exactChainRec = FindExactChainRecordingAtUT(committedTrees, chain, currentUT);
+                if (exactChainRec != null)
+                {
+                    if (exactChainRec.HasOrbitSegments)
+                    {
+                        PositionGhostFromOrbitOnly(ghostGO, exactChainRec, currentUT,
+                            (int)(chain.OriginalVesselPid * 10000));
+                        UpdateChainGhostOrbitIfNeeded(chain, exactChainRec.OrbitSegments, currentUT);
+                        positioned = true;
+                        ParsekLog.VerboseRateLimited("Flight",
+                            "chain-ghost-orbit-" + chain.OriginalVesselPid,
+                            string.Format(CultureInfo.InvariantCulture,
+                                "Chain ghost positioned from orbit: pid={0} rec={1} tree={2} UT={3:F1}",
+                                chain.OriginalVesselPid, exactChainRec.RecordingId,
+                                exactChainRec.TreeId, currentUT));
+                    }
+                    else if (exactChainRec.SurfacePos.HasValue)
+                    {
+                        PositionGhostAtSurface(ghostGO, exactChainRec.SurfacePos.Value);
+                        positioned = true;
+                        ParsekLog.VerboseRateLimited("Flight",
+                            "chain-ghost-surface-" + chain.OriginalVesselPid,
+                            string.Format(CultureInfo.InvariantCulture,
+                                "Chain ghost positioned at surface: pid={0} rec={1} tree={2} body={3}",
+                                chain.OriginalVesselPid, exactChainRec.RecordingId,
+                                exactChainRec.TreeId, exactChainRec.SurfacePos.Value.body));
+                    }
+                }
+
                 var preferredTreeIds = GetPreferredChainTreeIds(chain, currentUT);
                 for (int t = 0; t < preferredTreeIds.Count && !positioned; t++)
                 {
