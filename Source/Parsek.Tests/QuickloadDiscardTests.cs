@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using Parsek.Patches;
 using Xunit;
 
 namespace Parsek.Tests
@@ -203,6 +204,25 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void DiscardStashedOnQuickload_WithDeferredFlightResults_ClearsDiscardedFutureState()
+        {
+            var tree = MakeTree("t_qd", "Quickload Victim", 2);
+            RecordingStore.StashPendingTree(tree, PendingTreeState.Finalized);
+            FlightResultsPatch.PendingOutcomeMsg = "Outcome: Catastrophic Failure!";
+            FlightResultsPatch.DeferredMergeArmed = true;
+            logLines.Clear();
+
+            ParsekScenario.DiscardStashedOnQuickload(preChangeUT: 400.0, currentUT: 370.0);
+
+            Assert.False(RecordingStore.HasPendingTree);
+            Assert.False(FlightResultsPatch.HasPendingResults());
+            Assert.False(FlightResultsPatch.DeferredMergeArmed);
+            Assert.Contains(logLines, l =>
+                l.Contains("Cleared pending results")
+                && l.Contains("pending tree discarded on quickload"));
+        }
+
+        [Fact]
         public void DiscardStashedOnQuickload_WithPendingTreeLimbo_Preserves()
         {
             // Limbo pending tree is the quickload-resume carrier — must survive
@@ -222,6 +242,22 @@ namespace Parsek.Tests
                 l.Contains("Quickload discard complete") && l.Contains("tree=0"));
             // The preserve path must NOT log a "discarded pending tree" line.
             Assert.DoesNotContain(logLines, l => l.Contains("discarded pending tree"));
+        }
+
+        [Fact]
+        public void DiscardPendingTreeAndAbandonDeferredFlightResults_ClearsOwnerAndDeferredState()
+        {
+            var tree = MakeTree("t_cleanup", "Cleanup Carrier", 2);
+            RecordingStore.StashPendingTree(tree, PendingTreeState.Finalized);
+            FlightResultsPatch.PendingOutcomeMsg = "Outcome: Catastrophic Failure!";
+            FlightResultsPatch.DeferredMergeArmed = true;
+
+            ParsekScenario.DiscardPendingTreeAndAbandonDeferredFlightResults(
+                "unit test abandoned pending tree");
+
+            Assert.False(RecordingStore.HasPendingTree);
+            Assert.False(FlightResultsPatch.HasPendingResults());
+            Assert.False(FlightResultsPatch.DeferredMergeArmed);
         }
 
         [Fact]

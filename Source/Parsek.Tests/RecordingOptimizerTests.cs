@@ -1690,6 +1690,77 @@ namespace Parsek.Tests
             Assert.Equal(1, debris2.LoopSyncParentIdx); // parent2 covers UT 70
         }
 
+        [Fact]
+        public void Issue316_PopulateLoopSync_LateDebrisAfterWatchedSegment_GetsMinusOne()
+        {
+            var chain0 = new Recording
+            {
+                RecordingId = "8582d3de9ee74681856352edc49563c3",
+                TreeId = "tree-316",
+                VesselPersistentId = 100,
+                ChainId = "chain-316",
+                ChainIndex = 0
+            };
+            chain0.Points.Add(new TrajectoryPoint { ut = 60.1 });
+            chain0.Points.Add(new TrajectoryPoint { ut = 193.6 });
+
+            var chain1 = new Recording
+            {
+                RecordingId = "06efb0cf37ac493ca3e3fa72c8c2d0d0",
+                TreeId = "tree-316",
+                VesselPersistentId = 100,
+                ChainId = "chain-316",
+                ChainIndex = 1
+            };
+            chain1.Points.Add(new TrajectoryPoint { ut = 193.6 });
+            chain1.Points.Add(new TrajectoryPoint { ut = 784.2 });
+
+            var watched = new Recording
+            {
+                RecordingId = "707490bbcabe495895eecadabed34c2b",
+                TreeId = "tree-316",
+                VesselPersistentId = 100,
+                ChainId = "chain-316",
+                ChainIndex = 2
+            };
+            watched.Points.Add(new TrajectoryPoint { ut = 784.2 });
+            watched.Points.Add(new TrajectoryPoint { ut = 817.5 });
+
+            var debrisDuringHold = new Recording
+            {
+                RecordingId = "aea21e7f06914584be43bebc00ce52f2",
+                TreeId = "tree-316",
+                VesselPersistentId = 200,
+                IsDebris = true
+            };
+            debrisDuringHold.Points.Add(new TrajectoryPoint { ut = 817.66795427392969 });
+            debrisDuringHold.Points.Add(new TrajectoryPoint { ut = 850.44795427389988 });
+
+            var debrisAfterHold = new Recording
+            {
+                RecordingId = "62e4c90147454cc8aec091d2950e6056",
+                TreeId = "tree-316",
+                VesselPersistentId = 201,
+                IsDebris = true
+            };
+            debrisAfterHold.Points.Add(new TrajectoryPoint { ut = 921.89877580711743 });
+            debrisAfterHold.Points.Add(new TrajectoryPoint { ut = 932.71452898094788 });
+
+            var recordings = new List<Recording>
+            {
+                chain0,
+                chain1,
+                watched,
+                debrisDuringHold,
+                debrisAfterHold
+            };
+
+            RecordingStore.PopulateLoopSyncParentIndices(recordings);
+
+            Assert.Equal(-1, debrisDuringHold.LoopSyncParentIdx);
+            Assert.Equal(-1, debrisAfterHold.LoopSyncParentIdx);
+        }
+
         #endregion
 
         #region FindLastInterestingUT

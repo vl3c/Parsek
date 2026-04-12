@@ -56,7 +56,7 @@ Concrete repro data from `logs/2026-04-12_1549_storage-followup-playtest/`: thre
 
 ---
 
-## 316. Breakup debris ghosts can spawn directly into Beyond and never become visible during playback
+## ~~316. Breakup debris ghosts can spawn directly into Beyond and never become visible during playback~~
 
 **Observed in:** 0.8.0 follow-up storage playtest (2026-04-12). During the `s4` reentry/breakup session, some `Kerbal X Debris` recordings did render normally, but later debris recordings spawned so far from the active watch context that they immediately transitioned into the hidden `Beyond` zone and never became visible to the player.
 
@@ -67,11 +67,20 @@ Collected evidence from `logs/2026-04-12_1857_phase-11-5-storage-followup-s4/`:
 - The same pattern repeated for ghost `#11`, which spawned and immediately transitioned `Physics->Beyond dist=952154m` before being hidden.
 - The recordings themselves were present and merged correctly; the issue is playback visibility, not missing recording data.
 
-**Root cause / hypothesis:** Breakup debris recordings that resume later in the chain can spawn from valid snapshots while the active vessel/watch context is nearly 1,000 km away, so the normal distance LOD policy hides them instantly. That makes boosters appear absent even though their ghosts were created and advanced logically.
+**Root cause:** The archived failure was two bugs folded together. Early watched-lineage debris could miss protection because the archived build only protected the exact watched row, not same-tree breakup ancestry. Later debris could still fail even on newer ancestry-aware builds because automatic watch exit cleared the only visibility-protection source before those descendant debris recordings began playback.
 
-**Fix direction:** Decide whether breakup/debris ghosts need a watched-chain visibility exemption, a different spawn/watch anchoring rule, or a stricter policy for when distant debris ghosts should be considered meaningful enough to render.
+**Fix:** Same-tree watched-debris protection now survives missing `LoopSyncParentIdx` by following branch ancestry, and playback-driven automatic watch exits now retain a bounded watched-lineage debris protection window through the last pending descendant debris `EndUT`. Failed replacement watch starts no longer clear that retained protection unless a new watch session is actually committed. The camera still exits normally; only the debris visibility exemption is retained. Added archived-topology regression coverage for:
 
-**Status:** Open
+- late debris with `LoopSyncParentIdx == -1` after final chain splitting
+- same-tree ancestry fallback from watched segment to root-parented debris
+- retained watched-lineage protection through the last late-debris playback window without repeated retention logs
+- zone-rendering watch-protection resolution consuming the retained root for late debris
+- null-loaded watch-start commits preserving the prior retained protection window
+- the existing watch-target rule that still refuses to retarget camera to non-child same-tree debris
+
+This closes the "spawned but never visible" playback path without loosening the camera handoff rule introduced for `#158`.
+
+**Status:** ~~Fixed~~
 
 ---
 
@@ -139,31 +148,31 @@ Collected evidence from `logs/2026-04-12_1857_phase-11-5-storage-followup-s4/`:
 
 ---
 
-## 320. Merge confirmation should appear before the stock crash report on vessel destruction
+## ~~320. Merge confirmation should appear before the stock crash report on vessel destruction~~
 
 **Observed in:** Phase 11.5 storage/watch follow-up playtests (2026-04-12). On vessel destruction, the old/good behavior was: Parsek's merge confirmation appeared before KSP's stock crash/flight-results report. The current ordering regressed, making the crash report take focus first.
 
 **Desired behavior:** When a recording session ends via vessel destruction and Parsek needs merge/commit input, surface the merge confirmation before the stock crash report so the Parsek flow is not hidden behind the stock dialog.
 
-**Root cause / hypothesis:** Likely an event-ordering regression between Parsek's destruction/finalize dialog path and the stock flight-results/crash-report dialog timing. This needs a focused pass on dialog scheduling rather than more storage work.
+**Root cause:** Deferred stock crash suppression was inferred from transient recorder / pending-tree timing instead of explicit merge ownership. The tree-destruction path had a real handoff gap before the pending tree existed, and stale pending-tree cleanup could preserve or later replay crash dialogs from abandoned futures.
 
-**Fix direction:** Audit the vessel-destruction finalize path and restore the earlier ordering contract, ideally with an in-game test or log assertion that pins which dialog is raised first.
+**Fix:** Flight-results suppression now has an explicit arm / capture / resolve state machine. Tree-destruction flow arms suppression before the coroutine gap, merge/discard/auto-discard paths resolve or cancel it explicitly, scene-change / `OnFlightReady()` only treat finalized pending trees as replay owners, and quickload/revert/stale-save cleanup clears deferred crash results when the pending-tree owner is abandoned. Regression coverage now pins `Prefix` capture/duplicate/bypass behavior, finalized-vs-Limbo ownership, and quickload discard cleanup.
 
-**Status:** Open
+**Status:** ~~Fixed~~
 
 ---
 
-## 321. After the main controller vessel crashes, camera recovery should prefer the anchor vessel, not debris
+## ~~321. After the main controller vessel crashes, camera recovery should prefer the anchor vessel, not debris~~
 
 **Observed in:** breakup/watch regression follow-up from `logs/2026-04-12_2055_main-stage-freeze-after-separation/` (`s6`). After the main controlling vessel crashed, the player expectation was to return camera focus to the anchor vessel rather than letting it drift to debris-focused behavior.
 
 **Desired behavior:** When the main controller vessel is lost, the camera should recover to the anchor vessel / stable owning vessel context, not to a debris fragment.
 
-**Root cause / hypothesis:** Camera recovery and watch/active-vessel fallback logic currently treat the next available post-breakup target too loosely. The anchor-vessel preference is not explicitly encoded, so debris can win the handoff/recovery path.
+**Root cause:** `GhostPlaybackLogic.FindNextWatchTarget` treated the first active tree child as a generic watch handoff fallback when no same-PID continuation existed. On breakup/crash trees, that let debris win the handoff path.
 
-**Fix direction:** Review watch exit, vessel-destruction camera restore, and any anchor-resolution path used during breakup-continuous playback. Add an explicit anchor-vessel preference rule and cover it with an in-game regression.
+**Fix:** Breakup/crash watch recovery no longer auto-follows any different-PID breakup child as a generic fallback. Same-PID continuation and `#158` recursive hold/retry behavior are unchanged, but breakup branches without same-PID continuation now return `-1` and let the existing watch hold/exit path restore the preserved live vessel context instead of transferring to debris or another fragment. Added regression coverage for non-breakup fallback, breakup no-fallback, debris-only `-1`, and hold-path behavior.
 
-**Status:** Open
+**Status:** Fixed
 
 ---
 
