@@ -204,6 +204,20 @@ Add an in-game or unit-level regression that asserts the main stage group remain
 
 ---
 
+## 324. Pad-drop launch failures can surface a merge dialog instead of auto-discarding
+
+**Observed in:** 2026-04-12 follow-up playtests. User report: a vessel launched, engines were never activated, and it simply fell over / down on the pad. Despite essentially zero horizontal travel, Parsek still surfaced a merge dialog instead of treating the run as an auto-discardable launch failure.
+
+**Desired behavior:** Near-zero-distance launch failures on or immediately around the pad should be classified as pad failures / idle launch failures and discarded automatically, not promoted to merge/commit UI.
+
+**Root cause / hypothesis:** The current failure-discard heuristic likely keys too heavily on generic recording existence or total motion while missing the specific "never really left the pad" case when there is some vertical or physics noise but no meaningful horizontal travel. This is probably adjacent to `IsTreeIdleOnPad`, launch-failure classification, and any max-distance / distance-from-launch thresholds used before showing merge UI.
+
+**Fix direction:** Reproduce with a focused launch-failure scenario, then tighten the discard heuristic so a toppled-on-pad vessel with negligible horizontal displacement does not count as a meaningful recording. Add either a unit test around the idle-on-pad / pad-failure classifier or an in-game test that asserts no merge dialog is shown for the no-engine pad-drop case.
+
+**Status:** Open
+
+---
+
 ## ~~313. Splashed EVA spawn-at-end can place the kerbal slightly underwater~~
 
 **Observed in:** 0.8.0 (2026-04-12). In the Phase 11.5 playtest bundle, the parent splashed vessel (`#24 "Kerbal X"`) was clamped and spawned at sea level, but the EVA child (`#25 "Raydred Kerman"`) spawned at `alt=-0.2` with `terminal=Splashed`. Log sequence:
