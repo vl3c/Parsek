@@ -141,6 +141,16 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Discards a pending tree from an abandoned future / stale context and clears any
+        /// deferred stock flight-results state tied to that tree owner.
+        /// </summary>
+        internal static void DiscardPendingTreeAndAbandonDeferredFlightResults(string reason)
+        {
+            RecordingStore.DiscardPendingTree();
+            Patches.FlightResultsPatch.ClearPending(reason);
+        }
+
+        /// <summary>
         /// Discards any pending tree that was stashed
         /// during the current scene transition, on a detected quickload
         /// (UT regressed between OnSceneChangeRequested and OnLoad). Clears
@@ -176,7 +186,8 @@ namespace Parsek
                 // the ScheduleActiveTreeRestoreOnFlightReady path.
                 string treeName = RecordingStore.PendingTree?.TreeName;
                 int recCount = RecordingStore.PendingTree?.Recordings?.Count ?? 0;
-                RecordingStore.DiscardPendingTree();
+                DiscardPendingTreeAndAbandonDeferredFlightResults(
+                    "pending tree discarded on quickload");
                 discardedTree = 1;
                 ParsekLog.Info("Scenario",
                     $"Quickload: discarded pending tree '{treeName}' " +
@@ -830,7 +841,8 @@ namespace Parsek
                                 else
                                 {
                                     ParsekLog.Info("Scenario", "Clearing orphaned pending tree on revert (stale from previous flight)");
-                                    RecordingStore.DiscardPendingTree();
+                                    DiscardPendingTreeAndAbandonDeferredFlightResults(
+                                        "orphaned pending tree discarded on revert");
                                 }
                             }
                         }
@@ -1054,6 +1066,8 @@ namespace Parsek
                             {
                                 ParsekLog.Info("Scenario", "Idle on pad at scene exit — auto-discarding tree");
                                 RecordingStore.DiscardPendingTree();
+                                Patches.FlightResultsPatch.ReplayFlightResults(
+                                    "scene-exit idle-on-pad auto-discard");
                             }
 
                             bool anythingLeft = RecordingStore.HasPendingTree;
@@ -1217,6 +1231,8 @@ namespace Parsek
                     {
                         ScenarioLog("[Parsek Scenario] Idle on pad — auto-discarding pending tree");
                         RecordingStore.DiscardPendingTree();
+                        Patches.FlightResultsPatch.ReplayFlightResults(
+                            "non-flight idle-on-pad auto-discard");
                     }
 
                     if (IsAutoMerge || HighLogic.LoadedScene == GameScenes.MAINMENU)
@@ -1581,7 +1597,8 @@ namespace Parsek
             {
                 ParsekLog.Warn("Scenario",
                     "OnLoad initial: discarding pending tree from previous save");
-                RecordingStore.DiscardPendingTree();
+                DiscardPendingTreeAndAbandonDeferredFlightResults(
+                    "stale pending tree discarded on initial load");
             }
             if (RewindContext.IsRewinding)
             {
@@ -2029,6 +2046,8 @@ namespace Parsek
             {
                 ParsekLog.Info("Scenario", "Idle on pad detected — auto-discarding tree recording");
                 RecordingStore.DiscardPendingTree();
+                Patches.FlightResultsPatch.ReplayFlightResults(
+                    "deferred merge dialog idle-on-pad auto-discard");
                 ScreenMessages.PostScreenMessage("Recording discarded — vessel idle on pad", 4f);
                 mergeDialogPending = false;
                 yield break;

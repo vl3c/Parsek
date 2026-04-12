@@ -139,17 +139,17 @@ Collected evidence from `logs/2026-04-12_1857_phase-11-5-storage-followup-s4/`:
 
 ---
 
-## 320. Merge confirmation should appear before the stock crash report on vessel destruction
+## ~~320. Merge confirmation should appear before the stock crash report on vessel destruction~~
 
 **Observed in:** Phase 11.5 storage/watch follow-up playtests (2026-04-12). On vessel destruction, the old/good behavior was: Parsek's merge confirmation appeared before KSP's stock crash/flight-results report. The current ordering regressed, making the crash report take focus first.
 
 **Desired behavior:** When a recording session ends via vessel destruction and Parsek needs merge/commit input, surface the merge confirmation before the stock crash report so the Parsek flow is not hidden behind the stock dialog.
 
-**Root cause / hypothesis:** Likely an event-ordering regression between Parsek's destruction/finalize dialog path and the stock flight-results/crash-report dialog timing. This needs a focused pass on dialog scheduling rather than more storage work.
+**Root cause:** Deferred stock crash suppression was inferred from transient recorder / pending-tree timing instead of explicit merge ownership. The tree-destruction path had a real handoff gap before the pending tree existed, and stale pending-tree cleanup could preserve or later replay crash dialogs from abandoned futures.
 
-**Fix direction:** Audit the vessel-destruction finalize path and restore the earlier ordering contract, ideally with an in-game test or log assertion that pins which dialog is raised first.
+**Fix:** Flight-results suppression now has an explicit arm / capture / resolve state machine. Tree-destruction flow arms suppression before the coroutine gap, merge/discard/auto-discard paths resolve or cancel it explicitly, scene-change / `OnFlightReady()` only treat finalized pending trees as replay owners, and quickload/revert/stale-save cleanup clears deferred crash results when the pending-tree owner is abandoned. Regression coverage now pins `Prefix` capture/duplicate/bypass behavior, finalized-vs-Limbo ownership, and quickload discard cleanup.
 
-**Status:** Open
+**Status:** ~~Fixed~~
 
 ---
 
