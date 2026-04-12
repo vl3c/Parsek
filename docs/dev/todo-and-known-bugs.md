@@ -139,6 +139,48 @@ Collected evidence from `logs/2026-04-12_1857_phase-11-5-storage-followup-s4/`:
 
 ---
 
+## 320. Merge confirmation should appear before the stock crash report on vessel destruction
+
+**Observed in:** Phase 11.5 storage/watch follow-up playtests (2026-04-12). On vessel destruction, the old/good behavior was: Parsek's merge confirmation appeared before KSP's stock crash/flight-results report. The current ordering regressed, making the crash report take focus first.
+
+**Desired behavior:** When a recording session ends via vessel destruction and Parsek needs merge/commit input, surface the merge confirmation before the stock crash report so the Parsek flow is not hidden behind the stock dialog.
+
+**Root cause / hypothesis:** Likely an event-ordering regression between Parsek's destruction/finalize dialog path and the stock flight-results/crash-report dialog timing. This needs a focused pass on dialog scheduling rather than more storage work.
+
+**Fix direction:** Audit the vessel-destruction finalize path and restore the earlier ordering contract, ideally with an in-game test or log assertion that pins which dialog is raised first.
+
+**Status:** Open
+
+---
+
+## 321. After the main controller vessel crashes, camera recovery should prefer the anchor vessel, not debris
+
+**Observed in:** breakup/watch regression follow-up from `logs/2026-04-12_2055_main-stage-freeze-after-separation/` (`s6`). After the main controlling vessel crashed, the player expectation was to return camera focus to the anchor vessel rather than letting it drift to debris-focused behavior.
+
+**Desired behavior:** When the main controller vessel is lost, the camera should recover to the anchor vessel / stable owning vessel context, not to a debris fragment.
+
+**Root cause / hypothesis:** Camera recovery and watch/active-vessel fallback logic currently treat the next available post-breakup target too loosely. The anchor-vessel preference is not explicitly encoded, so debris can win the handoff/recovery path.
+
+**Fix direction:** Review watch exit, vessel-destruction camera restore, and any anchor-resolution path used during breakup-continuous playback. Add an explicit anchor-vessel preference rule and cover it with an in-game regression.
+
+**Status:** Open
+
+---
+
+## 322. Detached one-ended struts should not remain visible after separation
+
+**Observed in:** breakup/separation playback follow-ups (2026-04-12), including the `s6` separation run. After separation, some struts whose opposite endpoint no longer exists remain visible even though they are only attached to a single surviving part.
+
+**Desired behavior:** A strut should not render once separation leaves it effectively connected to only one part.
+
+**Root cause / hypothesis:** The current ghost visual / part-event path hides decoupled parts, but strut rendering likely does not re-evaluate whether both endpoints still exist after a split. That leaves orphaned visual struts hanging off the surviving vessel.
+
+**Fix direction:** Inspect the ghost visual builder and separation event application for strut/link components. Add a post-separation validity check that hides or destroys struts whose second endpoint is gone, and pin it with a focused playback test.
+
+**Status:** Open
+
+---
+
 ## ~~313. Splashed EVA spawn-at-end can place the kerbal slightly underwater~~
 
 **Observed in:** 0.8.0 (2026-04-12). In the Phase 11.5 playtest bundle, the parent splashed vessel (`#24 "Kerbal X"`) was clamped and spawned at sea level, but the EVA child (`#25 "Raydred Kerman"`) spawned at `alt=-0.2` with `terminal=Splashed`. Log sequence:
