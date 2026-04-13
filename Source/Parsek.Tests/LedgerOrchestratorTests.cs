@@ -975,6 +975,66 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void MigrateKerbalAssignments_RewritesStandInActionFromPersistedSlots()
+        {
+            var kerbals = new KerbalsModule();
+            var parent = new ConfigNode("TEST");
+            var slotsNode = parent.AddNode("KERBAL_SLOTS");
+            var slotNode = slotsNode.AddNode("SLOT");
+            slotNode.AddValue("owner", "Jebediah Kerman");
+            slotNode.AddValue("trait", "Pilot");
+            var entry = slotNode.AddNode("CHAIN_ENTRY");
+            entry.AddValue("name", "Hanley Kerman");
+            kerbals.LoadSlots(parent);
+            LedgerOrchestrator.SetKerbalsForTesting(kerbals);
+            CrewReservationManager.ResetReplacementsForTesting();
+
+            var snapshot = new ConfigNode("VESSEL");
+            var part = snapshot.AddNode("PART");
+            part.AddValue("crew", "Hanley Kerman");
+
+            var rec = new Recording
+            {
+                RecordingId = "rec-slot-repair",
+                VesselName = "Crew Ship",
+                GhostVisualSnapshot = snapshot,
+                ExplicitStartUT = 10,
+                ExplicitEndUT = 20,
+                CrewEndStates = new Dictionary<string, KerbalEndState>
+                {
+                    { "Jebediah Kerman", KerbalEndState.Recovered }
+                }
+            };
+            RecordingStore.ResetForTesting();
+            RecordingStore.AddRecordingWithTreeForTesting(rec);
+
+            Ledger.AddAction(new GameAction
+            {
+                UT = 10.0,
+                Type = GameActionType.KerbalAssignment,
+                RecordingId = "rec-slot-repair",
+                KerbalName = "Hanley Kerman",
+                KerbalRole = "Pilot",
+                StartUT = 10,
+                EndUT = 20,
+                KerbalEndStateField = KerbalEndState.Unknown,
+                Sequence = 1
+            });
+
+            MethodInfo method = typeof(LedgerOrchestrator).GetMethod(
+                "MigrateKerbalAssignments", BindingFlags.Static | BindingFlags.NonPublic);
+            Assert.NotNull(method);
+
+            method.Invoke(null, null);
+
+            Assert.Single(Ledger.Actions);
+            Assert.Equal("Jebediah Kerman", Ledger.Actions[0].KerbalName);
+            Assert.Equal(KerbalEndState.Recovered, Ledger.Actions[0].KerbalEndStateField);
+
+            RecordingStore.ResetForTesting();
+        }
+
+        [Fact]
         public void MigrateKerbalAssignments_RewritesExistingGhostOnlyUnknownAction()
         {
             var snapshot = new ConfigNode("VESSEL");

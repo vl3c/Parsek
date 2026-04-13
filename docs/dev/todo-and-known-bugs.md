@@ -7,6 +7,18 @@ Entries 272–303 (78 bugs, 6 TODOs — mostly resolved) archived in `done/todo-
 
 # Known Bugs
 
+## ~~347. Historical stand-in repairs can fail once the live replacement bridge has been cleared~~
+
+**Observed in:** second GPT-5.4 xhigh PR review for `review/kerbals-recording-audit` (2026-04-13). The new persisted-row repair compared old ledger rows against freshly regenerated rows, but regeneration still reverse-mapped stand-ins only through the live `CREW_REPLACEMENTS` bridge. If a slot owner had already reclaimed their place and the current replacement map was empty, an old stand-in row like `Hanley` still regenerated as `Hanley` even though `KERBAL_SLOTS` still knew that stand-in belonged to `Jeb`.
+
+**Root cause:** Reverse-mapping logic ignored persisted slot-chain metadata. `CREW_REPLACEMENTS` is transient bridge state rebuilt from the current derived roster, not a complete historical identity source.
+
+**Fix:** Stand-in reverse-mapping now falls back to persisted `KERBAL_SLOTS` when the live replacement bridge has no match, so migration/repair can still recover the original slot owner from saved chain metadata. Added regression coverage for an empty `CREW_REPLACEMENTS` map plus populated `KERBAL_SLOTS`.
+
+**Status:** ~~Fixed~~
+
+---
+
 ## ~~346. Ghost-only handoff fallback can misclassify stable snapshot-less chain tips as finite `Recovered`~~
 
 **Observed in:** second GPT-5.4 xhigh PR review for `review/kerbals-recording-audit` (2026-04-13). The first handoff fix treated every ghost-only chain recording as an internal handoff. Auto-committed tree recordings can also become ghost-only by having `VesselSnapshot` nulled before ledger notification, including stable tips whose terminal state is still `Orbiting`, `Landed`, `Splashed`, or `Docked`.

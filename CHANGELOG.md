@@ -16,6 +16,7 @@ All notable changes to Parsek are documented here.
 
 ### Bug Fixes
 
+- `#347` Historical stand-in repair now falls back to persisted `KERBAL_SLOTS` as well as the live `CREW_REPLACEMENTS` bridge, so old ledgers with stale stand-in names still heal after the current replacement map has already been cleared.
 - `#346` Ghost-only handoff fallback is now limited to unresolved or truly resolved chain segments instead of every snapshot-less chain recording, so auto-committed stable chain tips with `Orbiting`/`Landed`/`Splashed`/`Docked` terminals no longer get incorrectly collapsed to finite `Recovered` reservations.
 - `#345` Save-load kerbal-action migration now rewrites stale per-recording `KerbalAssignment` rows instead of only filling missing ones, so legacy ledgers with old stand-in names or pre-fix `Unknown` end states are repaired in place on the next load.
 - `#344` Ghost-only chain segments now resolve fallback kerbal end states as finite handoffs instead of open-ended `Unknown` reservations, so mid-chain vessel/EVA commits still reserve crew but no longer poison the reservation graph with indefinite placeholders.

@@ -295,21 +295,53 @@ namespace Parsek
         {
             for (int i = 0; i < crew.Count; i++)
             {
+                string originalName = null;
                 foreach (var kvp in replacements)
                 {
                     if (kvp.Value == crew[i])
                     {
-                        if (vesselNameForLog != null)
-                        {
-                            ParsekLog.Info(Tag,
-                                $"PopulateCrewEndStates: reverse-mapped stand-in '{crew[i]}' " +
-                                $"back to original '{kvp.Key}' in recording '{vesselNameForLog}'");
-                        }
-                        crew[i] = kvp.Key;
+                        originalName = kvp.Key;
                         break;
                     }
                 }
+
+                if (originalName == null)
+                    originalName = TryReverseMapCrewNameFromSlots(crew[i]);
+
+                if (originalName == null)
+                    continue;
+
+                if (vesselNameForLog != null)
+                {
+                    ParsekLog.Info(Tag,
+                        $"PopulateCrewEndStates: reverse-mapped stand-in '{crew[i]}' " +
+                        $"back to original '{originalName}' in recording '{vesselNameForLog}'");
+                }
+
+                crew[i] = originalName;
             }
+        }
+
+        private static string TryReverseMapCrewNameFromSlots(string crewName)
+        {
+            var kerbals = LedgerOrchestrator.Kerbals;
+            var slotsMap = kerbals != null ? kerbals.Slots : null;
+            if (slotsMap == null || string.IsNullOrEmpty(crewName))
+                return null;
+
+            foreach (var slot in slotsMap.Values)
+            {
+                if (slot == null || string.IsNullOrEmpty(slot.OwnerName) || slot.Chain == null)
+                    continue;
+
+                for (int i = 0; i < slot.Chain.Count; i++)
+                {
+                    if (string.Equals(slot.Chain[i], crewName, System.StringComparison.Ordinal))
+                        return slot.OwnerName;
+                }
+            }
+
+            return null;
         }
 
         internal static KerbalEndState InferCrewEndState(
