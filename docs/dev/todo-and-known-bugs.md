@@ -7,6 +7,18 @@ Entries 272–303 (78 bugs, 6 TODOs — mostly resolved) archived in `done/todo-
 
 # Known Bugs
 
+## ~~344. Ghost-only chain segments fall back to open-ended `Unknown` kerbal reservations~~
+
+**Observed in:** GPT-5.4 xhigh PR review for `review/kerbals-recording-audit` (2026-04-13). Mid-chain vessel/EVA recordings are committed with `VesselSnapshot = null`, but `CreateKerbalAssignmentActions()` still extracted crew from `GhostVisualSnapshot`. Because the old end-state population guard only trusted `VesselSnapshot` or `EvaCrewName`, those segments emitted `KerbalAssignment` rows with `KerbalEndState.Unknown`, which the kerbals walk treated as infinite temporary reservations.
+
+**Root cause:** Ghost-only chain handoff segments had no dedicated fallback end-state rule. The end-state population path assumed "no end snapshot" meant "can't resolve", even though these recordings are a known internal handoff case where the reservation should stay finite until later chain segments extend it.
+
+**Fix:** Ghost-only chain recordings now participate in crew end-state population, and their fallback state is treated as a finite chain handoff (`Recovered`, or `Dead` when the segment truly ended destroyed). `CreateKerbalAssignmentActions()` now forces that shared population path before emitting actions, so commit-time, migration, and load-repair all converge on the same non-`Unknown` result. Added regression coverage for both direct action creation and the load-time safety net.
+
+**Status:** ~~Fixed~~
+
+---
+
 ## ~~343. Persisted displaced stand-ins can be recreated on every later roster walk~~
 
 **Observed in:** GPT-5.4 xhigh PR review for `review/kerbals-recording-audit` (2026-04-13). After bug `#339` started preserving displaced chain metadata, `ApplyToRoster()` still recreated any missing non-null chain entry before the delete/retire pass, so a stand-in that had already been deleted as displaced/unused would be re-hired and deleted again on every recalculation.

@@ -526,6 +526,38 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void CreateKerbalAssignmentActions_GhostOnlyChainSegment_UsesFiniteHandoffEndState()
+        {
+            var snapshot = new ConfigNode("VESSEL");
+            var part = new ConfigNode("PART");
+            part.AddValue("crew", "Jeb Kerman");
+            snapshot.AddNode(part);
+
+            var rec = new Recording
+            {
+                RecordingId = "rec-ghost-chain",
+                VesselName = "Chain Ship",
+                ChainId = "chain-ghost",
+                ChainIndex = 0,
+                GhostVisualSnapshot = snapshot,
+                ExplicitStartUT = 10,
+                ExplicitEndUT = 20
+            };
+            RecordingStore.ResetForTesting();
+            RecordingStore.AddRecordingWithTreeForTesting(rec);
+
+            var actions = LedgerOrchestrator.CreateKerbalAssignmentActions("rec-ghost-chain", 10.0, 20.0);
+
+            Assert.Single(actions);
+            Assert.Equal("Jeb Kerman", actions[0].KerbalName);
+            Assert.Equal(KerbalEndState.Recovered, actions[0].KerbalEndStateField);
+            Assert.True(rec.CrewEndStatesResolved);
+            Assert.Equal(KerbalEndState.Recovered, rec.CrewEndStates["Jeb Kerman"]);
+
+            RecordingStore.ResetForTesting();
+        }
+
+        [Fact]
         public void CreateKerbalAssignmentActions_FallsBackToVesselSnapshot()
         {
             // No GhostVisualSnapshot, but VesselSnapshot has crew
@@ -794,6 +826,37 @@ namespace Parsek.Tests
             Assert.NotNull(rec.CrewEndStates);
             Assert.True(rec.CrewEndStatesResolved);
             Assert.Equal(KerbalEndState.Dead, rec.CrewEndStates["Bill Kerman"]);
+
+            RecordingStore.ResetForTesting();
+        }
+
+        [Fact]
+        public void PopulateUnpopulatedCrewEndStates_GhostOnlyChainRecording_UsesFiniteHandoffEndState()
+        {
+            var snapshot = new ConfigNode("VESSEL");
+            var part = snapshot.AddNode("PART");
+            part.AddValue("crew", "Val Kerman");
+
+            var rec = new Recording
+            {
+                RecordingId = "rec-ghost-chain-populate",
+                VesselName = "Chain Ship",
+                ChainId = "chain-ghost-populate",
+                ChainIndex = 1,
+                GhostVisualSnapshot = snapshot
+            };
+            RecordingStore.ResetForTesting();
+            RecordingStore.AddRecordingWithTreeForTesting(rec);
+
+            MethodInfo method = typeof(LedgerOrchestrator).GetMethod(
+                "PopulateUnpopulatedCrewEndStates", BindingFlags.Static | BindingFlags.NonPublic);
+            Assert.NotNull(method);
+
+            method.Invoke(null, null);
+
+            Assert.NotNull(rec.CrewEndStates);
+            Assert.True(rec.CrewEndStatesResolved);
+            Assert.Equal(KerbalEndState.Recovered, rec.CrewEndStates["Val Kerman"]);
 
             RecordingStore.ResetForTesting();
         }

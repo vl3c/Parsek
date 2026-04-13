@@ -113,10 +113,7 @@ namespace Parsek
 
             // 3b. Populate crew end states before action creation so KerbalEndStateField is correct
             var recForEndStates = FindRecordingById(recordingId);
-            if (recForEndStates != null
-                && !recForEndStates.CrewEndStatesResolved
-                && recForEndStates.CrewEndStates == null
-                && (recForEndStates.VesselSnapshot != null || !string.IsNullOrEmpty(recForEndStates.EvaCrewName)))
+            if (NeedsCrewEndStatePopulation(recForEndStates))
                 KerbalsModule.PopulateCrewEndStates(recForEndStates);
 
             // 3c. Generate KerbalAssignment actions from vessel crew data
@@ -302,6 +299,9 @@ namespace Parsek
             var rec = FindRecordingById(recordingId);
             if (rec == null) return result;
 
+            if (NeedsCrewEndStatePopulation(rec))
+                KerbalsModule.PopulateCrewEndStates(rec);
+
             // Extract crew from vessel snapshot (same source KerbalsModule.ProcessAction uses)
             var crew = ExtractCrewFromRecording(rec);
             if (crew == null || crew.Count == 0) return result;
@@ -404,7 +404,9 @@ namespace Parsek
             return rec != null
                 && !rec.CrewEndStatesResolved
                 && rec.CrewEndStates == null
-                && (rec.VesselSnapshot != null || !string.IsNullOrEmpty(rec.EvaCrewName));
+                && (rec.VesselSnapshot != null
+                    || !string.IsNullOrEmpty(rec.EvaCrewName)
+                    || KerbalsModule.ShouldUseGhostOnlyChainHandoffEndState(rec));
         }
 
         /// <summary>

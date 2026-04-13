@@ -417,6 +417,7 @@ namespace Parsek
             var endCrew = CrewReservationManager.ExtractCrewFromSnapshot(rec.VesselSnapshot);
             ReverseMapCrewNames(endCrew, replacements, null);
             var endCrewSet = new HashSet<string>(endCrew);
+            bool useGhostOnlyChainHandoffFallback = ShouldUseGhostOnlyChainHandoffEndState(rec);
 
             rec.CrewEndStates = new Dictionary<string, KerbalEndState>();
             int aboardCount = 0, deadCount = 0, recoveredCount = 0, unknownCount = 0;
@@ -424,7 +425,9 @@ namespace Parsek
             for (int i = 0; i < startingCrew.Count; i++)
             {
                 string name = startingCrew[i];
-                var state = InferCrewEndState(name, rec.TerminalStateValue, endCrewSet);
+                var state = useGhostOnlyChainHandoffFallback
+                    ? InferGhostOnlyChainHandoffEndState(rec.TerminalStateValue)
+                    : InferCrewEndState(name, rec.TerminalStateValue, endCrewSet);
                 rec.CrewEndStates[name] = state;
 
                 switch (state)
@@ -833,6 +836,24 @@ namespace Parsek
                 KerbalRoster.SetExperienceTrait(pcm, trait);
             }
             return pcm;
+        }
+
+        internal static bool ShouldUseGhostOnlyChainHandoffEndState(Recording rec)
+        {
+            return rec != null
+                && !string.IsNullOrEmpty(rec.ChainId)
+                && rec.VesselSnapshot == null
+                && (rec.GhostVisualSnapshot != null || !string.IsNullOrEmpty(rec.EvaCrewName));
+        }
+
+        internal static KerbalEndState InferGhostOnlyChainHandoffEndState(TerminalState? terminalState)
+        {
+            // Ghost-only chain segments end at an internal handoff, not at a final
+            // spawn/resolution point. Keep their reservation finite so later committed
+            // segments extend the chain instead of inheriting an indefinite Unknown.
+            return terminalState == TerminalState.Destroyed
+                ? KerbalEndState.Dead
+                : KerbalEndState.Recovered;
         }
 
         private const int ActiveOwnerIndex = -1;
