@@ -919,7 +919,6 @@ namespace Parsek
 
             bool changed = false;
             var logicalPartIds = state.logicalPartIds;
-            var ghostTransform = state.ghost.transform;
             for (int i = 0; i < state.compoundPartInfos.Count; i++)
             {
                 CompoundPartGhostInfo info = state.compoundPartInfos[i];
@@ -937,7 +936,8 @@ namespace Parsek
                 if (!partObject.activeSelf)
                     continue;
 
-                Transform targetTransform = ghostTransform.Find($"ghost_part_{info.targetPersistentId}");
+                Transform targetTransform = GhostVisualBuilder.FindGhostPartTransform(
+                    state.ghost, info.targetPersistentId);
                 bool hidePart = ShouldHideCompoundPart(
                     info.targetPersistentId,
                     logicalPartIds,
@@ -1026,7 +1026,6 @@ namespace Parsek
 
             bool changed = false;
             var logicalPartIds = state.logicalPartIds;
-            var ghostTransform = state.ghost.transform;
             for (int i = 0; i < state.compoundPartInfos.Count; i++)
             {
                 CompoundPartGhostInfo info = state.compoundPartInfos[i];
@@ -1038,7 +1037,8 @@ namespace Parsek
                 if (partObject == null || partObject.activeSelf)
                     continue;
 
-                Transform targetTransform = ghostTransform.Find($"ghost_part_{info.targetPersistentId}");
+                Transform targetTransform = GhostVisualBuilder.FindGhostPartTransform(
+                    state.ghost, info.targetPersistentId);
                 if (!ShouldRestoreCompoundPart(
                     info.partPersistentId,
                     info.targetPersistentId,
@@ -1299,7 +1299,7 @@ namespace Parsek
         {
             if (ghost == null) return;
             if (ShouldSuppressVisualFx(TimeWarp.CurrentRate)) return;
-            var t = ghost.transform.Find($"ghost_part_{persistentId}");
+            var t = GhostVisualBuilder.FindGhostPartTransform(ghost, persistentId);
             if (t == null)
             {
                 return;
@@ -1321,14 +1321,14 @@ namespace Parsek
 
         internal static void HideGhostPart(GameObject ghost, uint persistentId)
         {
-            var t = ghost.transform.Find($"ghost_part_{persistentId}");
+            var t = GhostVisualBuilder.FindGhostPartTransform(ghost, persistentId);
             if (t != null) t.gameObject.SetActive(false);
         }
 
         internal static void SetGhostPartActive(GameObject ghost, uint persistentId, bool active)
         {
             if (ghost == null) return;
-            var t = ghost.transform.Find($"ghost_part_{persistentId}");
+            var t = GhostVisualBuilder.FindGhostPartTransform(ghost, persistentId);
             if (t != null) t.gameObject.SetActive(active);
         }
 
@@ -1431,7 +1431,7 @@ namespace Parsek
             while (stack.Count > 0)
             {
                 uint pid = stack.Pop();
-                var t = ghost.transform.Find($"ghost_part_{pid}");
+                var t = GhostVisualBuilder.FindGhostPartTransform(ghost, pid);
                 if (t != null)
                 {
                     t.gameObject.SetActive(false);
@@ -1454,14 +1454,20 @@ namespace Parsek
         {
             if (state.ghost == null || state.cameraPivot == null) return;
             var ghostTransform = state.ghost.transform;
+            var partContainer = GhostVisualBuilder.GetGhostPartContainer(ghostTransform);
+            if (partContainer == null)
+            {
+                state.cameraPivot.localPosition = Vector3.zero;
+                return;
+            }
             int count = 0;
             Vector3 min = Vector3.zero, max = Vector3.zero;
-            for (int i = 0; i < ghostTransform.childCount; i++)
+            for (int i = 0; i < partContainer.childCount; i++)
             {
-                var child = ghostTransform.GetChild(i);
+                var child = partContainer.GetChild(i);
                 if (!child.gameObject.activeSelf || !child.name.StartsWith("ghost_part_"))
                     continue;
-                var pos = child.localPosition;
+                var pos = ghostTransform.InverseTransformPoint(child.position);
                 if (count == 0) { min = max = pos; }
                 else { min = Vector3.Min(min, pos); max = Vector3.Max(max, pos); }
                 count++;

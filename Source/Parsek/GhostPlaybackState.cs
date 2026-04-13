@@ -58,6 +58,8 @@ namespace Parsek
         public RenderingZone currentZone = RenderingZone.Physics; // distance-based rendering zone
         public double lastDistance; // meters from active vessel, updated per frame in ApplyZonePolicy
         public int flagEventIndex;               // tracks which flags have been spawned
+        public bool hadVisibleRenderersLastFrame; // true after the ghost produced visible mesh on the previous frame
+        public int appearanceCount;              // increments every time the ghost becomes visibly rendered again
 
         internal void ClearLoadedVisualReferences()
         {
@@ -92,6 +94,7 @@ namespace Parsek
             deferVisibilityUntilPlaybackSync = false;
             cameraPivot = null;
             horizonProxy = null;
+            hadVisibleRenderersLastFrame = false;
         }
 
         public void SetInterpolated(InterpolationResult r)

@@ -20,6 +20,7 @@ namespace Parsek
         private const float LightShowcaseMinimumRange = 25f;
         private const float RcsShowcaseEmissionScale = 1f;
         private const float RcsShowcaseSpeedScale = 1f;
+        internal const string GhostVisualsRootName = "ghost_visuals";
         private static readonly Color HeatTintColor = new Color(1f, 0.45f, 0.2f, 1f);
         private static readonly Color HeatEmissionColor = new Color(1.5f, 0.6f, 0.15f, 1f);
 
@@ -299,6 +300,15 @@ namespace Parsek
             }
 
             GameObject root = new GameObject(rootName);
+            Transform visualsRoot = EnsureGhostVisualsRoot(root.transform);
+            Vector3 visualsRootLocalOffset = ComputeSnapshotVisualRootLocalOffset(rec, snapshotNode);
+            visualsRoot.localPosition = visualsRootLocalOffset;
+            if (visualsRootLocalOffset.sqrMagnitude > 1e-6f)
+            {
+                ParsekLog.VerboseRateLimited("GhostVisual", $"debris-visual-root-{rootName}",
+                    $"Ghost '{rec?.VesselName ?? "unknown"}' visual-root offset applied: " +
+                    $"snapshotCoM={-visualsRootLocalOffset} visualsRootLocal={visualsRootLocalOffset}", 60.0);
+            }
             bool addedAnyVisual = false;
             int visualCount = 0;
             int skippedName = 0;
@@ -362,7 +372,7 @@ namespace Parsek
                 bool raiseRcsVisualOnly =
                     !string.IsNullOrEmpty(rec.VesselName) &&
                     rec.VesselName.StartsWith(RcsShowcaseRecordingPrefix, System.StringComparison.Ordinal);
-                bool partVisualAdded = AddPartVisuals(root.transform, partNode, ap.partPrefab,
+                bool partVisualAdded = AddPartVisuals(visualsRoot, partNode, ap.partPrefab,
                     persistentId, partName, out meshCount, out parachuteInfo, out jettisonInfo,
                     out partEngineInfos, out deployableInfo, out heatInfo, out lightInfo, out fairingInfo,
                     out partRcsInfos, out partRoboticInfos, out partColorChangerInfos, out compoundPartInfo,
@@ -441,6 +451,108 @@ namespace Parsek
         {
             if (rec == null) return null;
             return rec.GhostVisualSnapshot ?? rec.VesselSnapshot;
+        }
+
+        internal static Transform EnsureGhostVisualsRoot(Transform ghostRoot)
+        {
+            if (ghostRoot == null)
+                return null;
+
+            Transform visualsRoot = ghostRoot.Find(GhostVisualsRootName);
+            if (visualsRoot != null)
+                return visualsRoot;
+
+            var visualsRootObj = new GameObject(GhostVisualsRootName);
+            visualsRootObj.transform.SetParent(ghostRoot, false);
+            return visualsRootObj.transform;
+        }
+
+        internal static Transform GetGhostPartContainer(Transform ghostRoot)
+        {
+            if (ghostRoot == null)
+                return null;
+
+            Transform visualsRoot = ghostRoot.Find(GhostVisualsRootName);
+            return visualsRoot ?? ghostRoot;
+        }
+
+        internal static Transform FindGhostPartTransform(GameObject ghostRoot, uint partPersistentId)
+        {
+            if (ghostRoot == null)
+                return null;
+
+            Transform partContainer = GetGhostPartContainer(ghostRoot.transform);
+            if (partContainer == null)
+                return null;
+
+            return partContainer.Find($"ghost_part_{partPersistentId}");
+        }
+
+        internal static Vector3 ComputeSnapshotVisualRootLocalOffset(
+            IPlaybackTrajectory rec, ConfigNode snapshotNode)
+        {
+            if (rec == null || !rec.IsDebris)
+                return Vector3.zero;
+
+            Vector3 snapshotCoM;
+            if (!TryGetSnapshotCenterOfMass(snapshotNode, out snapshotCoM))
+                return Vector3.zero;
+
+            return -snapshotCoM;
+        }
+
+        internal static bool TryGetSnapshotCenterOfMass(ConfigNode snapshotNode, out Vector3 centerOfMass)
+        {
+            centerOfMass = Vector3.zero;
+            if (snapshotNode == null)
+                return false;
+
+            return TryParseVector3(snapshotNode.GetValue("CoM"), out centerOfMass);
+        }
+
+        internal static bool TryGetSnapshotRootPartInfo(
+            ConfigNode snapshotNode,
+            out string partName,
+            out uint persistentId,
+            out Vector3 localPosition,
+            out Quaternion localRotation)
+        {
+            partName = null;
+            persistentId = 0;
+            localPosition = Vector3.zero;
+            localRotation = Quaternion.identity;
+            if (snapshotNode == null)
+                return false;
+
+            var partNodes = snapshotNode.GetNodes("PART");
+            if (partNodes == null || partNodes.Length == 0)
+                return false;
+
+            int rootIndex = 0;
+            string rootIndexRaw = snapshotNode.GetValue("root");
+            if (!string.IsNullOrEmpty(rootIndexRaw))
+                int.TryParse(rootIndexRaw, NumberStyles.Integer, CultureInfo.InvariantCulture, out rootIndex);
+            if (rootIndex < 0 || rootIndex >= partNodes.Length)
+                rootIndex = 0;
+
+            ConfigNode rootPartNode = partNodes[rootIndex];
+            if (rootPartNode == null)
+                return false;
+
+            partName = TryExtractPartName(rootPartNode.GetValue("name") ?? rootPartNode.GetValue("part"));
+            string persistentIdRaw = rootPartNode.GetValue("persistentId");
+            if (!string.IsNullOrEmpty(persistentIdRaw))
+                uint.TryParse(persistentIdRaw, NumberStyles.Integer, CultureInfo.InvariantCulture, out persistentId);
+
+            Vector3 parsedPosition;
+            if (TryParseVector3(GetPartPositionRaw(rootPartNode), out parsedPosition))
+                localPosition = parsedPosition;
+
+            Quaternion parsedRotation;
+            if (TryParseQuaternion(GetPartRotationRaw(rootPartNode), out parsedRotation))
+                localRotation = parsedRotation;
+
+            return true;
         }
 
         internal static string TryExtractPartName(string rawPart)
@@ -1038,7 +1150,7 @@ namespace Parsek
         {
             if (ghostRoot == null) return null;
 
-            Transform partTransform = ghostRoot.transform.Find($"ghost_part_{partPersistentId}");
+            Transform partTransform = FindGhostPartTransform(ghostRoot, partPersistentId);
             if (partTransform == null) return null;
 
             GameObject canopy = GameObject.CreatePrimitive(PrimitiveType.Sphere);
@@ -2182,7 +2294,7 @@ namespace Parsek
             if (prefab == null || ghostRoot == null) return null;
 
             // Find the ghost part GO by persistentId
-            Transform partTransform = ghostRoot.transform.Find($"ghost_part_{persistentId}");
+            Transform partTransform = FindGhostPartTransform(ghostRoot, persistentId);
             if (partTransform == null) return null;
 
             var result = new List<AudioGhostInfo>();
