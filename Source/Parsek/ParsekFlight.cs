@@ -1187,6 +1187,8 @@ namespace Parsek
         /// <summary>
         /// Coroutine that checks whether all tree leaves are terminal after the active vessel
         /// is destroyed. If so, finalizes the tree and shows the tree merge dialog.
+        /// Waits for any deferred split/coalescer work still in progress so false-alarm
+        /// split data or real breakup children are attached to the tree before finalize.
         /// </summary>
         IEnumerator ShowPostDestructionTreeMergeDialog()
         {
@@ -1231,40 +1233,109 @@ namespace Parsek
                 yield break;
             }
 
-            bool activeDestroyed = recorder == null || !recorder.IsRecording
-                || recorder.VesselDestroyedDuringRecording;
-            bool allLeavesTerminal = RecordingTree.AreAllLeavesTerminal(
-                activeTree.Recordings,
-                activeTree.ActiveRecordingId,
-                activeDestroyed);
-            bool onlyDebrisBlockersRemain = RecordingTree.AreAllActiveCrashBlockersDebris(
-                activeTree.Recordings,
-                activeTree.ActiveRecordingId);
-            switch (ClassifyPostDestructionMergeResolution(
-                activeDestroyed,
-                allLeavesTerminal,
-                onlyDebrisBlockersRemain))
+            bool ignorePendingCrashWait = false;
+            float pendingCrashWaitStart = 0f;
+            while (true)
             {
-                case PostDestructionMergeResolution.CancelDeferredMerge:
-                    Patches.FlightResultsPatch.CancelDeferredMerge(
-                        "tree destruction dialog aborted: not all leaves terminal");
-                    ParsekLog.Info("Flight",
-                        "ShowPostDestructionTreeMergeDialog: not all leaves terminal — other vessels still alive");
-                    treeDestructionDialogPending = false;
-                    yield break;
+                bool activeDestroyed = recorder == null || !recorder.IsRecording
+                    || recorder.VesselDestroyedDuringRecording;
+                bool allLeavesTerminal = RecordingTree.AreAllLeavesTerminal(
+                    activeTree.Recordings,
+                    activeTree.ActiveRecordingId,
+                    activeDestroyed);
+                bool onlyDebrisBlockersRemain = RecordingTree.AreAllActiveCrashBlockersDebris(
+                    activeTree.Recordings,
+                    activeTree.ActiveRecordingId);
+                bool pendingCrashResolution = !ignorePendingCrashWait
+                    && HasPendingPostDestructionCrashResolution(
+                        activeDestroyed,
+                        pendingSplitInProgress,
+                        crashCoalescer != null && crashCoalescer.HasPendingBreakup);
 
-                case PostDestructionMergeResolution.FinalizeNow:
-                    if (allLeavesTerminal)
-                    {
+                switch (ClassifyPostDestructionMergeResolution(
+                    activeDestroyed,
+                    allLeavesTerminal,
+                    onlyDebrisBlockersRemain,
+                    pendingCrashResolution))
+                {
+                    case PostDestructionMergeResolution.WaitForPendingCrashResolution:
+                        if (pendingCrashWaitStart <= 0f)
+                        {
+                            pendingCrashWaitStart = Time.unscaledTime;
+                            ParsekLog.Info("Flight",
+                                "ShowPostDestructionTreeMergeDialog: waiting for pending split/coalescer resolution before finalizing tree");
+                        }
+                        else if (Time.unscaledTime - pendingCrashWaitStart > 5f)
+                        {
+                            ParsekLog.Warn("Flight",
+                                "ShowPostDestructionTreeMergeDialog: pending split/coalescer wait timed out (5s real-time) — continuing with current tree state");
+                            ignorePendingCrashWait = true;
+                            continue;
+                        }
+
+                        yield return null;
+
+                        // Re-run the guards after yielding while the deferred split resolves.
+                        if (activeTree == null)
+                        {
+                            if (sceneChangeInProgress)
+                            {
+                                ParsekLog.Info("Flight",
+                                    "ShowPostDestructionTreeMergeDialog: activeTree is null during scene change — aborting in-flight merge");
+                            }
+                            else
+                            {
+                                Patches.FlightResultsPatch.CancelDeferredMerge(
+                                    "tree destruction dialog aborted: activeTree null");
+                                ParsekLog.Verbose("Flight",
+                                    "ShowPostDestructionTreeMergeDialog: activeTree is null — aborting");
+                            }
+                            treeDestructionDialogPending = false;
+                            yield break;
+                        }
+
+                        if (!treeDestructionDialogPending)
+                        {
+                            ParsekLog.Verbose("Flight",
+                                "ShowPostDestructionTreeMergeDialog: flag cleared while waiting for pending crash resolution — aborting");
+                            yield break;
+                        }
+
+                        if (recorder != null && recorder.IsRecording && !recorder.VesselDestroyedDuringRecording)
+                        {
+                            Patches.FlightResultsPatch.CancelDeferredMerge(
+                                "tree destruction dialog aborted: active vessel survived");
+                            ParsekLog.Verbose("Flight",
+                                "ShowPostDestructionTreeMergeDialog: active vessel still alive — aborting");
+                            treeDestructionDialogPending = false;
+                            yield break;
+                        }
+
+                        continue;
+
+                    case PostDestructionMergeResolution.CancelDeferredMerge:
+                        Patches.FlightResultsPatch.CancelDeferredMerge(
+                            "tree destruction dialog aborted: not all leaves terminal");
                         ParsekLog.Info("Flight",
-                            "ShowPostDestructionTreeMergeDialog: all leaves terminal — finalizing tree");
-                    }
-                    else
-                    {
-                        ParsekLog.Info("Flight",
-                            "ShowPostDestructionTreeMergeDialog: only debris leaves still block same-scene merge — finalizing tree in flight");
-                    }
-                    break;
+                            "ShowPostDestructionTreeMergeDialog: not all leaves terminal — other vessels still alive");
+                        treeDestructionDialogPending = false;
+                        yield break;
+
+                    case PostDestructionMergeResolution.FinalizeNow:
+                        if (allLeavesTerminal)
+                        {
+                            ParsekLog.Info("Flight",
+                                "ShowPostDestructionTreeMergeDialog: all leaves terminal — finalizing tree");
+                        }
+                        else
+                        {
+                            ParsekLog.Info("Flight",
+                                "ShowPostDestructionTreeMergeDialog: only debris leaves still block same-scene merge — finalizing tree in flight");
+                        }
+                        break;
+                }
+
+                break;
             }
 
             double commitUT = Planetarium.GetUniversalTime();
@@ -3052,14 +3123,27 @@ namespace Parsek
         internal enum PostDestructionMergeResolution
         {
             FinalizeNow,
+            WaitForPendingCrashResolution,
             CancelDeferredMerge,
+        }
+
+        internal static bool HasPendingPostDestructionCrashResolution(
+            bool activeDestroyed,
+            bool pendingSplitInProgress,
+            bool hasPendingBreakup)
+        {
+            return activeDestroyed && (pendingSplitInProgress || hasPendingBreakup);
         }
 
         internal static PostDestructionMergeResolution ClassifyPostDestructionMergeResolution(
             bool activeDestroyed,
             bool allLeavesTerminal,
-            bool onlyDebrisBlockersRemain)
+            bool onlyDebrisBlockersRemain,
+            bool pendingCrashResolution)
         {
+            if (activeDestroyed && pendingCrashResolution)
+                return PostDestructionMergeResolution.WaitForPendingCrashResolution;
+
             if (allLeavesTerminal || (activeDestroyed && onlyDebrisBlockersRemain))
                 return PostDestructionMergeResolution.FinalizeNow;
 
@@ -6275,9 +6359,9 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Removes zero-point leaf recordings from the tree (#173). These are debris fragments
-        /// that were destroyed within the same physics frame as their creation — they have no
-        /// trajectory data, no snapshot, and serve no purpose.
+        /// Removes zero-point leaf recordings from the tree (#173). These empty leaves have no
+        /// trajectory data, no orbit segments, and no surface position. They can be same-frame
+        /// debris fragments or transient placeholders left behind by split/finalize edge cases.
         /// </summary>
         internal static void PruneZeroPointLeaves(RecordingTree tree)
         {
@@ -6316,13 +6400,13 @@ namespace Parsek
             }
 
             ParsekLog.Info("Flight",
-                $"PruneZeroPointLeaves: removed {toPrune.Count} zero-point debris leaf recording(s)" +
+                $"PruneZeroPointLeaves: removed {toPrune.Count} zero-point leaf recording(s)" +
                 (prunedBPs > 0 ? $" and {prunedBPs} empty branch point(s)" : "") +
                 $" from tree '{tree.TreeName}'");
         }
 
         /// <summary>
-        /// Pure static helper: collects IDs of leaf recordings with no playback data.
+        /// Pure static helper: collects IDs of empty leaf recordings with no playback data.
         /// A leaf has no ChildBranchPointId and zero points + zero orbit segments + no surface pos.
         /// </summary>
         internal static List<string> CollectZeroPointLeafIds(RecordingTree tree)
