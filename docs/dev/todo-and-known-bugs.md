@@ -231,6 +231,8 @@ Add an in-game or unit-level regression that asserts the main stage group remain
 
 **Observed in:** `logs/2026-04-12_2159_f5-f9-watch-regression/` (`s9`). The `Crater Crawler` tree survived repeated quickload cycles structurally, but watching the root playback failed at the branch: when root `#0` completed, watch entered the hold timer and then exited instead of handing off to the continuation.
 
+**Latest follow-up:** 2026-04-13 local smoke reports described the same symptom family in more user-facing terms: a rover/tree mission came back with the "first part missing" after save/load, and later playback still showed a section that should have been abandoned by the reload. The current snapshot-storage validation bundle (`logs/2026-04-13_0315_s13-snapshot-storage-check/`) verified the new compressed `_craft` sidecars were healthy, so this still points at branched quickload stitching rather than snapshot compression.
+
 **Collected evidence:**
 
 - The final saved tree is still present and structurally valid in `persistent.sfs`: root `07bd...`, same-vessel continuation `db41...`, and EVA child `af7d...` under branch point `d3ca...`.
@@ -254,6 +256,88 @@ Add an in-game or unit-level regression that asserts the main stage group remain
 - branch handoff/watch logic must tolerate delayed child activation after quickload resume, or the resumed child recordings must be stitched so there is no artificial boundary gap
 
 Add unit/in-game coverage around `F5/F9` during a branch, final save/load, and watch handoff at the parent branch point.
+
+**Status:** Open
+
+---
+
+## 327. Main stage can appear frozen or off-trajectory after separation while debris paths continue
+
+**Observed in:** 2026-04-13 local smoke after the snapshot-storage PR. User report: the main stage appeared to freeze in the air or move along the wrong trajectory position, while the debris recordings continued playing normally.
+
+**Collected evidence so far:**
+
+- The fresh `s13` validation bundle does **not** currently reproduce the failure. In `logs/2026-04-13_0315_s13-snapshot-storage-check/KSP.log`, watched same-vessel handoff stayed on the main PID continuation:
+  - `Auto-follow on completion: #0 -> #10 (vessel=Kerbal X)`
+  - `Auto-follow on completion: #10 -> #13 (vessel=Kerbal X)`
+  - the corresponding watch-focus lines show descending altitude (`278 m` then `65 m`), not a frozen parent trajectory
+- The older `s6` breakup bundle (`logs/2026-04-12_2055_main-stage-freeze-after-separation/`) did show a different watch bug where focus transferred to debris (`#0 -> #6 "GDLV3 Debris"`), but that was the now-fixed `#321` issue and is not proof of a current regression.
+
+**Impact:** If this is real on current head, the parent/main-stage recording can become visually unreliable after separation even while child debris recordings continue correctly. That would be a more serious playback-integrity bug than simple camera recovery or grouping.
+
+**Root cause / hypothesis:** Not isolated yet. Candidate areas are:
+
+- same-PID continuation selection around breakup/save/load
+- parent trajectory hydration after save/load when child branches already exist
+- ghost/watch lifecycle around breakup-continuous effective-leaf parents versus debris children
+
+**Fix direction:** Capture a focused reproduction bundle where the frozen main stage is visible on current head, preferably with watch active and a save/load in the middle. Compare the parent `.prec` bounds, branchpoint ordering, watch transitions, and parent/child recording metadata before and after load. Add a regression only after the failure is reproduced concretely.
+
+**Status:** Open (needs focused repro)
+
+---
+
+## 328. Continuous EVA chains can still remain split across `atmo` -> `surface` boundaries
+
+**Observed in:** `logs/2026-04-13_0315_s13-snapshot-storage-check/` (`s13`). User expectation was that a continuous EVA should merge if the motion is continuous, but the committed Bill Kerman chain remained split into atmospheric and surface segments.
+
+**Collected evidence:**
+
+- `KSP.log` shows the optimizer refusing to merge before the split:
+  - `Optimization pass: no merge candidates found`
+  - `Split recording 'Bill Kerman' at section 3 ... 'atmo' [127..157] + 'surface' [156..158]`
+- `persistent.sfs` preserves two real Bill recordings in the same tree:
+  - chain index `0`, `segmentPhase = atmo`, `pointCount = 49`
+  - chain index `1`, `segmentPhase = surface`, `pointCount = 2`
+- Current merge policy makes this behavior explicit. `RecordingOptimizer.CanAutoMerge(...)` requires both `SegmentPhase` and `SegmentBodyName` to match exactly before any automatic merge is allowed.
+
+**Impact:** On atmospheric bodies, a continuous EVA touchdown / near-surface sequence can still appear as two adjacent recordings even after the old bogus-atmospheric-stub bug (`#326`) was fixed. This is not the same defect as `#326`: both resulting segments contain real data.
+
+**Root cause:** Current optimizer policy treats phase changes as hard merge boundaries. For EVA chains, `atmo -> surface` is therefore never eligible for auto-merge, even when the sidecar timing is continuous and there is no ghosting-trigger event between the sections.
+
+**Fix direction:** Decide whether this should remain intentional or whether EVA-only merge rules should allow adjacent `atmo <-> surface` sections to merge when all of the following are true:
+
+- same chain, consecutive indices, primary branch
+- same body
+- sidecar bounds are continuous / non-gapped
+- no branch point between them
+- no ghosting-trigger events that require separate snapshots
+
+If the answer is yes, add focused regression coverage for a real continuous EVA touchdown/liftoff on an atmospheric body and keep non-continuous or event-bearing transitions split.
+
+**Status:** Open (policy / design decision needed)
+
+---
+
+## 329. Debris explosion FX can fire noticeably after visible ground contact
+
+**Observed in:** 2026-04-13 local smoke after the snapshot-storage PR. User report: there was a visible delay between debris hitting the ground and the explosion effect.
+
+**Collected evidence / current behavior:**
+
+- Breakup branchpoints in the current `s13` run are saved with `coalesceWindow=0.500` in `KSP.log`.
+- `CrashCoalescer.Tick(...)` intentionally waits for the coalescing window to expire before emitting the `BREAKUP` branchpoint.
+- Ghost explosion FX are triggered later from the playback destruction path (`TriggerExplosionIfDestroyed(...)`), not from the original impact event itself.
+- The `s13` logs show the expected explosion trigger lines for multiple debris ghosts, but do not yet pin exact impact-vs-FX deltas for the user-visible cases.
+
+**Impact:** Even when breakup classification and playback are otherwise correct, crash moments can feel late or "soft" because the visual explosion is not aligned tightly enough with the apparent impact point.
+
+**Root cause / hypothesis:** Timing is likely being influenced by two separate mechanisms:
+
+- the deliberate `0.5 s` crash-coalescing window before the breakup branchpoint exists
+- explosion FX being tied to ghost terminal/past-end destruction timing instead of the earliest impact-aligned sample
+
+**Fix direction:** Capture a focused debris-impact bundle and compare three times for the same fragment: trajectory impact/contact, breakup branchpoint UT, and `Triggering explosion for ghost ...` log time. If the delay is confirmed, consider keeping the coalescer for branch classification while moving the FX timing closer to the first impact-aligned sample, or reducing/special-casing the coalescing window for simple crash playback.
 
 **Status:** Open
 
