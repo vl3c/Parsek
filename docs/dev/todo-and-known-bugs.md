@@ -7,6 +7,30 @@ Entries 272–303 (78 bugs, 6 TODOs — mostly resolved) archived in `done/todo-
 
 # Known Bugs
 
+## ~~351. Long-range landed ghosts can clip into terrain on held final-pose paths~~
+
+**Observed in:** `logs/2026-04-13_2136` ghost-underground follow-up (2026-04-13). A landed watched ghost in the visual tier could still end a playback step with its mesh partially sunk into terrain even though the normal in-flight clamp path kept earlier frames above ground.
+
+**Root cause:** the immediate surface-position paths (`past-end` hold, loop hold/boundary, overlap expiry) still used only the small fixed landed-ghost floor while normal frame-by-frame playback already used distance-aware terrain clearance. At long watch distances, or on legacy recordings with `TerrainHeightAtEnd = NaN`, the held terminal pose could therefore clip into terrain on the last frame.
+
+**Fix:** `PositionGhostAtPoint` now routes landed/splashed hold positioning through the same clearance-aware `ApplyLandedGhostClearance(...)` logic, and the legacy-NaN fallback keeps the historical minimum floor while allowing larger distance-aware clearance when needed. Added regression coverage for the long-range repro and the NaN fallback policy.
+
+**Status:** ~~Fixed~~ in PR `#262`
+
+---
+
+## ~~350. Automatic watch handoff can briefly snap `HorizonLocked` camera orientation on retarget~~
+
+**Observed in:** automatic watch-retarget follow-up (2026-04-13). When watch auto-follow transferred to a continuation ghost while already `HorizonLocked`, the first frame after retarget could use the new target with a stale horizon basis, causing a visible heading/pitch snap before the next per-frame horizon update corrected it.
+
+**Root cause:** `TransferWatchToNextSegment()` and the watch-mode toggle path applied the new target before refreshing that ghost's `horizonProxy` rotation. Camera-target compensation therefore ran against stale orientation state on the first retargeted frame.
+
+**Fix:** extracted `UpdateHorizonProxyRotation()` and now prime the target orientation before `ApplyCameraTarget()` on auto-follow retargets and watch-mode toggles, so the first `HorizonLocked` frame already uses the correct target basis.
+
+**Status:** ~~Fixed~~ in PR `#255`
+
+---
+
 ## ~~350. Boarded EVA re-entry playback can drop the boarded tail and final capsule spawn~~
 
 **Observed in:** `logs/2026-04-14_0000_main-stage-forward-bias/`. User report: during playback, the last kerbal showed the initial EVA exit but not the later circling/re-entry back into the capsule, and at recording end only the two EVA kerbals spawned while the capsule with the re-boarded kerbal never materialized.
@@ -645,7 +669,9 @@ That confirms PR `#258` removed the original "ghost is visible before its first 
 
 **Implemented fix:** Seed breakup/background child recordings with split-time trajectory data only when that pose is actually captured at the split moment, and otherwise fall back to the first honest post-split sample instead of backdating a later pose to the earlier branch UT. Packed/on-rails background starts still persist that seed immediately into the recording, and loaded starts still use it as the recorder's first-sample baseline.
 
-**Status:** Fix implemented in PR `#264`; `gpt-5.4` `xhigh` review found no remaining substantive issues. Runtime validation is still pending from a fresh replay/save bundle.
+**Fresh validation:** `logs/2026-04-14_0000_main-stage-forward-bias` confirmed the split-time snapshot/seed fix is working: breakup children now build with `snapshotSource=pre-captured-ghost + live-vessel`, and the old slide-into-place behavior is gone. The remaining residual was a smaller but still visible debris-only root-frame bias: ghost playback was still applying a blanket `visualRootLocal = -snapshotCoM` shift to breakup debris, which moved both radial boosters and the stack-separated main stage forward from the recorded split point by roughly the magnitude of their saved `CoM`.
+
+**Status:** Follow-up root-frame fix implemented locally after the fresh bundle: debris ghosts no longer apply the snapshot-`CoM` visual-root shift. Runtime revalidation is still pending from the next replay/save bundle.
 
 ---
 
@@ -675,7 +701,7 @@ The debris-only watch-protection lineage introduced for `#316` remains separate.
 
 **Fix:** `ParsekFlight.ResolvePlaybackDistanceForEngine(...)` now resolves playback LOD distance from the live flight camera position in flight view, falls back to the active vessel when no usable scene camera exists or when map view is active, and has focused regression coverage in `PlaybackDistancePolicyTests`.
 
-**Status:** Fixed in branch `investigate/watch-eva-lod` — pending fresh runtime validation
+**Status:** Fix implemented in PR `#260`; pending fresh runtime validation
 
 ---
 
