@@ -115,6 +115,87 @@ namespace Parsek.Tests
             Assert.False(result);
         }
 
+        [Fact]
+        public void TryGetEarlyDestroyedDebrisExplosionUT_DestroyedDebris_ReturnsFirstDestroyedEvent()
+        {
+            var rec = new Recording
+            {
+                IsDebris = true,
+                TerminalStateValue = TerminalState.Destroyed,
+                ExplicitStartUT = 10.0,
+                ExplicitEndUT = 20.0
+            };
+            rec.PartEvents.Add(new PartEvent
+            {
+                ut = 11.5,
+                eventType = PartEventType.EngineIgnited,
+                partName = "engine"
+            });
+            rec.PartEvents.Add(new PartEvent
+            {
+                ut = 12.5,
+                eventType = PartEventType.Destroyed,
+                partName = "tank"
+            });
+            rec.PartEvents.Add(new PartEvent
+            {
+                ut = 14.0,
+                eventType = PartEventType.Destroyed,
+                partName = "noseCone"
+            });
+
+            bool result = GhostPlaybackLogic.TryGetEarlyDestroyedDebrisExplosionUT(rec, out double explosionUT);
+
+            Assert.True(result);
+            Assert.Equal(12.5, explosionUT, 3);
+        }
+
+        [Fact]
+        public void TryGetEarlyDestroyedDebrisExplosionUT_OnlyEndDestroyedEvent_ReturnsFalse()
+        {
+            var rec = new Recording
+            {
+                IsDebris = true,
+                TerminalStateValue = TerminalState.Destroyed,
+                ExplicitStartUT = 10.0,
+                ExplicitEndUT = 20.0
+            };
+            rec.PartEvents.Add(new PartEvent
+            {
+                ut = 20.0,
+                eventType = PartEventType.Destroyed,
+                partName = "tank"
+            });
+
+            bool result = GhostPlaybackLogic.TryGetEarlyDestroyedDebrisExplosionUT(rec, out double explosionUT);
+
+            Assert.False(result);
+            Assert.True(double.IsNaN(explosionUT));
+        }
+
+        [Fact]
+        public void TryGetEarlyDestroyedDebrisExplosionUT_NonDebris_ReturnsFalse()
+        {
+            var rec = new Recording
+            {
+                IsDebris = false,
+                TerminalStateValue = TerminalState.Destroyed,
+                ExplicitStartUT = 10.0,
+                ExplicitEndUT = 20.0
+            };
+            rec.PartEvents.Add(new PartEvent
+            {
+                ut = 12.5,
+                eventType = PartEventType.Destroyed,
+                partName = "tank"
+            });
+
+            bool result = GhostPlaybackLogic.TryGetEarlyDestroyedDebrisExplosionUT(rec, out double explosionUT);
+
+            Assert.False(result);
+            Assert.True(double.IsNaN(explosionUT));
+        }
+
         // --- Guard evaluation order: already-fired checked before terminal state ---
 
         [Fact]

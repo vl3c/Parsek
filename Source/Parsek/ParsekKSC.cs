@@ -267,7 +267,14 @@ namespace Parsek
                 else
                     GhostPlaybackLogic.RestoreAllRcsEmissions(state);
 
-                if (!state.explosionFired && targetUT >= rec.EndUT)
+                bool shouldTriggerExplosion = targetUT >= rec.EndUT;
+                if (!shouldTriggerExplosion
+                    && GhostPlaybackLogic.TryGetEarlyDestroyedDebrisExplosionUT(rec, out double earlyExplosionUT))
+                {
+                    shouldTriggerExplosion = targetUT >= earlyExplosionUT;
+                }
+
+                if (!state.explosionFired && shouldTriggerExplosion)
                     TriggerExplosionIfDestroyed(state, rec, recIdx);
             }
             else if (ghostActive)
@@ -385,7 +392,14 @@ namespace Parsek
                 else
                     GhostPlaybackLogic.RestoreAllRcsEmissions(primaryState);
 
-                if (!primaryState.explosionFired && phase >= duration)
+                bool shouldTriggerExplosion = phase >= duration;
+                if (!shouldTriggerExplosion
+                    && GhostPlaybackLogic.TryGetEarlyDestroyedDebrisExplosionUT(rec, out double earlyExplosionUT))
+                {
+                    shouldTriggerExplosion = loopUT >= earlyExplosionUT;
+                }
+
+                if (!primaryState.explosionFired && shouldTriggerExplosion)
                     TriggerExplosionIfDestroyed(primaryState, rec, recIdx);
             }
 
@@ -432,6 +446,13 @@ namespace Parsek
                     GhostPlaybackLogic.StopAllRcsEmissions(ovState);
                 else
                     GhostPlaybackLogic.RestoreAllRcsEmissions(ovState);
+
+                if (!ovState.explosionFired
+                    && GhostPlaybackLogic.TryGetEarlyDestroyedDebrisExplosionUT(rec, out double earlyExplosionUT)
+                    && loopUT >= earlyExplosionUT)
+                {
+                    TriggerExplosionIfDestroyed(ovState, rec, recIdx);
+                }
             }
         }
 
