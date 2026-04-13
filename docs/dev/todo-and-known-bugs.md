@@ -316,6 +316,32 @@ So the problem was not "bad auto-grouping on commit"; it was "stale hierarchy lo
 
 ---
 
+## ~~332. In-game FLIGHT test batches can poison the live session (transparent diagnostics window, broken camera/watch context, null active vessel after quickload canary)~~
+
+**Observed in:** 2026-04-13 local FLIGHT batch runs after collecting `logs/2026-04-13_1635_332-flight-save-load-anchor-ui/` and the follow-up `logs/2026-04-13_1739_332-followup-unsolved/`. User report: after running the in-game FLIGHT tests, the diagnostics window became transparent, the camera/watch anchor no longer stayed on the expected anchor vehicle on the pad, and later the whole session was left broken.
+
+**Collected evidence:**
+
+- `KSP.log` repeatedly threw `ArgumentException: Getting control ... position in a group with only ... controls when doing repaint` from `Parsek.SettingsWindowUI.DrawSettingsWindow`, which explains the transparent/corrupt diagnostics/settings window.
+- The failing code rendered the tooltip row conditionally: tooltip present emitted `GUILayout.Space(...)` + `GUILayout.Label(...)`, tooltip absent emitted a zero-height label only. That is the same IMGUI layout/repaint mismatch already avoided in `TestRunnerShortcut`.
+- The FLIGHT round-trip tests (`SaveLoadTests.ScenarioRoundTripPreservesCount`, `SceneAndPatchTests.ScenarioRoundTripPreservesTreeStructure`, `SceneAndPatchTests.CrewReplacementsRoundTrip`) call live `ParsekScenario.OnSave`/`OnLoad` mid-batch, which re-subscribes scenario/runtime state without a real scene transition.
+- `ParsekFlight` already had the right cleanup primitives (`ExitWatchMode`, `StopPlayback`, `DestroyAllTimelineGhosts`), but the destructive tests were not using them, so stale watch/ghost state could survive after the synthetic `OnLoad`.
+- The first bundle also showed the quickload canary path timing out after a broken restore while still reporting pass, because `QuickloadResumeHelpers.WaitForFlightReady` and `WaitForActiveRecording` only logged warnings instead of failing the test.
+- The follow-up bundle proved the live-session break was still happening after that detection fix: `RuntimeTests.BridgeSurvivesSceneTransition` triggered a real `TriggerQuickload`, stock `FlightDriver.Start()` immediately threw `NullReferenceException`, and the session stayed in `scene=FLIGHT, flightReady=False, activeVessel=null` while `FlightCamera`, autopilot UI, and related systems kept throwing.
+- `parsek-test-results.txt` in the follow-up bundle was stale from an earlier run, which means the broken quickload path never reached clean result export; the reliable evidence was the fresh `KSP.log`.
+
+**Root cause:** The final diagnosis was two different harness faults, only one of which the first patch fully addressed:
+
+- the settings/diagnostics window had a real IMGUI control-count bug in its tooltip row
+- the destructive live `OnSave`/`OnLoad` tests mutated the running FLIGHT session without being isolated or normalized afterward
+- the real F5/F9 quickload scene-transition canaries were still being batched into normal FLIGHT runs, so once quickload wait helpers started failing honestly, the test harness could finally reveal that stock quickload itself was sometimes leaving the live session half-dead; hardening the wait helper did not stop the destructive scene transition from running
+
+**Fix:** `SettingsWindowUI` now always renders a stable tooltip row using cached zero-height/wrapped styles. The destructive live `ParsekScenario.OnSave`/`OnLoad` round-trip tests were removed from the in-game suite entirely instead of trying to normalize the session after mutating it. Quickload wait helpers still fail with explicit scene/readiness context, and the destructive quickload canaries are now marked single-run-only and are excluded from `Run All` / `Run category` batches, with explicit skip reasons in the runner UI and exported results. They remain available from the row play button when intentionally run in a disposable session.
+
+**Status:** ~~Fixed~~
+
+---
+
 ## ~~329. Debris explosion FX can fire noticeably after visible ground contact~~
 
 **Observed in:** 2026-04-13 local smoke after the snapshot-storage PR. User report: there was a visible delay between debris hitting the ground and the explosion effect.
@@ -337,6 +363,35 @@ So the problem was not "bad auto-grouping on commit"; it was "stale hierarchy lo
 **Fix implemented:** Destroyed debris playback now resolves an earlier explosion UT from the earliest eligible recorded `PartEventType.Destroyed` and completes the debris ghost there instead of waiting for `EndUT`. Flight and KSC playback both use the same helper, while breakup coalescing/classification timing remains unchanged.
 
 **Status:** Fixed in PR `#241`
+
+---
+
+## ~~331. Debris-only breakup false alarms can truncate the active main-stage sparse trajectory after resume~~
+
+**Observed in:** `logs/2026-04-12_2055_main-stage-freeze-after-separation/` (`s6`). User report: during playback, the main/controller stage froze mid-flight or drifted onto the wrong path while debris recordings continued normally.
+
+**Collected evidence:**
+
+- The active recorder started one atmospheric active `TrackSection` at `UT=42.24` and closed it at the first breakup boundary (`UT=53.82`).
+- The same session then logged repeated false-alarm resumes on the root recorder with growing preserved flat-point counts:
+  - `Recording resumed after false alarm (43 points preserved)`
+  - `Recording resumed after false alarm (82 points preserved)`
+  - `Recording resumed after false alarm (84 points preserved)`
+- But the logs never showed a new active `TrackSection started` after those resumes, and later sidecar writes for the root recording still serialized only `trackSections=1 ... sparsePoints=43`.
+- The saved tree metadata and the saved sidecar disagreed badly on the root/main-stage recording:
+  - `persistent.sfs` still recorded root `e1767d3aa36142c1a314092aad62a9bb` with `explicitEndUT = 77.58`, `pointCount = 95`, and `childBranchPointId = 6dabc8...`
+  - `tools/inspect-recording-sidecar.ps1` showed the persisted `.prec` for that same recording had only one playable section ending at `UT=53.82` with `43` points
+- Playback then treated the root as finished at that first saved sparse boundary and transferred watch to debris:
+  - `PlaybackCompleted index=0 vessel=GDLV3 ... watched=True`
+  - `TransferWatch re-target: ghost #6 "GDLV3 Debris"`
+
+**Impact:** The active/main-stage recording could look frozen or off-trajectory after the first debris-only breakup even though the flat recording data kept advancing in memory and the debris children continued to replay correctly. Because playback is section-authoritative, the missing resumed sparse section was enough to end the watched root early and hand control to debris.
+
+**Root cause:** `StopRecordingForChainBoundary()` correctly closed the active `TrackSection` before building `CaptureAtStop`, but when the split later resolved as a false alarm, `ResumeAfterFalseAlarm()` only restored the flat recorder state. It did **not** reopen a replacement `TrackSection`. After that, new samples kept appending to `Recording.Points` in memory, while section-authoritative sidecar writes continued to persist only the pre-resume sparse section set. That left playback truncated at the first breakup boundary.
+
+**Fix:** PR `#251` now reopens a continuation `TrackSection` whenever a recorder resumes after a false alarm, but it no longer trusts only the last persisted section. Resume now prefers the recorder's latest closed-or-discarded section snapshot, so brief zero-frame relative/environment flickers do not reopen stale metadata, restores the relative anchor when needed, and rehydrates packed `OrbitalCheckpoint` on-rails state by reopening the live orbit segment before the next off-rails transition. Absolute/relative resumes still seed the boundary frame for continuity, and regression coverage now pins absolute, relative, discarded-section, and orbital-checkpoint false-alarm resumes.
+
+**Status:** Fixed in PR `#251`
 
 ---
 
@@ -799,12 +854,15 @@ The first five storage slices are in place: representative fixture coverage, `v1
 section-authoritative `.prec` sidecars, alias-mode ghost snapshot dedupe, header-dispatched binary
 `v2` `.prec` sidecars, exact sparse `v3` defaults for stable per-point body/career fields, and
 lossless header-dispatched `Deflate` compression for `_vessel.craft` / `_ghost.craft` snapshot
-sidecars with legacy-text fallback.
+sidecars with legacy-text fallback. Current builds also keep a default-on readable `.txt` mirror
+path for `.prec` / `_vessel.craft` / `_ghost.craft` so binary-comparison debugging can happen
+without unpacking the authoritative files first.
 Remaining high-value work should stay measurement-gated and follow
 `docs/dev/plans/phase-11-5-recording-storage-optimization.md`:
 
 - fresh live-corpus rebaseline against current `v3` sidecars
 - snapshot-side work should keep focusing on `_ghost.craft` / `_vessel.craft` bytes, where the remaining storage bulk still lives after the first lossless compression slice
+- keep the readable mirror path strictly diagnostic: authoritative load/save stays on `.prec` / `.craft`, mirror failures stay non-fatal, and stale mirrors should continue to reconcile cleanly on flag changes
 - only pursue intra-save snapshot dedupe or any custom binary snapshot schema if the post-compression rebaseline still shows a meaningful measured win
 - additional sparse payload work only where exact reconstruction and real byte wins are proven
 - post-commit, error-bounded trajectory thinning only after the format wins are re-measured
@@ -868,7 +926,13 @@ Conclusion: no pooling or FX lifecycle optimization is scheduled now. Re-open on
 
 After fairing jettison, the ghost currently shows just the payload and base adapter. KSP's real vessel can show an internal truss structure (Cap/Truss meshes controlled by `ModuleStructuralNodeToggle.showMesh`). The prefab meshes are at placeholder scale (2000x10x2000) that only KSP's runtime `ModuleProceduralFairing` can set correctly. A procedural truss mesh was attempted but removed due to insufficient visual quality.
 
-To implement properly: either rescale prefab Cap/Truss meshes from XSECTION data (need to reverse-engineer the mesh unit geometry), or generate higher-fidelity procedural geometry with proper materials.
+Latest investigation: a second procedural-truss attempt was tested against fresh collected logs in `logs/2026-04-13_1529_fairing-truss-artifact`. The run correctly detected `FairingJettisoned` and rebuilt the ghost with `showMesh=True`, but the generated truss still looked bad in game: visible dark bars with transparent gaps following the fairing outline from base to tip. This confirms the simplified procedural replacement is still not shippable.
+
+Important constraint: the current ghost snapshot is just a normal `ProtoVessel`/`ConfigNode` capture (`BackupVessel` output copied into `GhostVisualSnapshot`). That preserves fairing state such as `fsm`, `ModuleStructuralNodeToggle.showMesh`, and `XSECTION`, but it does not preserve the live runtime-generated stock Cap/Truss mesh deformation/material state from `ModuleProceduralFairing`. So the ghost cannot reproduce the exact stock truss visual from snapshot data alone.
+
+To implement properly: prefer a stock-authoritative approach instead of another simplified procedural mesh. Most likely options are either capturing the live stock fairing truss render/mesh state at record time, or spawning/regenerating a hidden stock fairing from the snapshot and cloning the resulting stock truss renderers for the ghost. Only fall back to custom geometry if it can genuinely match stock quality.
+
+**Status:** Open — do not revive the current simplified procedural-strip truss
 
 **Priority:** Low — cosmetic, only visible briefly after fairing jettison
 

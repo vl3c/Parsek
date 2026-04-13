@@ -243,9 +243,10 @@ namespace Parsek.Tests.Generators
         }
 
         /// <summary>
-        /// Writes .prec, _vessel.craft, and _ghost.craft sidecar files
-        /// for all v3 recordings to the Parsek/Recordings/ subdirectory
-        /// relative to the given save directory.
+        /// Writes recording sidecar files for all v3 recordings to the
+        /// Parsek/Recordings/ subdirectory relative to the given save directory.
+        /// Uses RecordingStore's test-facing save path so generated corpora
+        /// stay aligned with live sidecar behavior.
         /// </summary>
         public void WriteSidecarFiles(string saveDir)
         {
@@ -266,27 +267,16 @@ namespace Parsek.Tests.Generators
                     VesselName = builder.GetVesselName(),
                     VesselSnapshot = builder.GetVesselSnapshot()?.CreateCopy(),
                     GhostVisualSnapshot = builder.GetGhostVisualSnapshot()?.CreateCopy(),
+                    FilesDirty = true,
                 };
                 recording.GhostSnapshotMode = RecordingStore.DetermineGhostSnapshotMode(recording);
                 RecordingStore.DeserializeTrajectoryFrom(sourceTrajNode, recording);
-
-                RecordingStore.WriteTrajectorySidecar(
-                    Path.Combine(recordingsDir, $"{id}.prec"),
-                    recording,
-                    sidecarEpoch: recording.SidecarEpoch);
-
-                if (recording.VesselSnapshot != null)
-                {
-                    string vesselPath = Path.Combine(recordingsDir, $"{id}_vessel.craft");
-                    RecordingStore.WriteSnapshotSidecarForTesting(vesselPath, recording.VesselSnapshot);
-                }
-
-                if (RecordingStore.DetermineGhostSnapshotMode(recording) == GhostSnapshotMode.Separate &&
-                    recording.GhostVisualSnapshot != null)
-                {
-                    string ghostPath = Path.Combine(recordingsDir, $"{id}_ghost.craft");
-                    RecordingStore.WriteSnapshotSidecarForTesting(ghostPath, recording.GhostVisualSnapshot);
-                }
+                string precPath = Path.Combine(recordingsDir, $"{id}.prec");
+                string vesselPath = Path.Combine(recordingsDir, $"{id}_vessel.craft");
+                string ghostPath = Path.Combine(recordingsDir, $"{id}_ghost.craft");
+                if (!RecordingStore.SaveRecordingFilesToPathsForTesting(
+                        recording, precPath, vesselPath, ghostPath, incrementEpoch: false))
+                    throw new InvalidOperationException($"Failed to write sidecar files for {id}");
             }
         }
 

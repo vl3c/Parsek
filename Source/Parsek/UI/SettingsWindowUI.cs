@@ -29,6 +29,8 @@ namespace Parsek
 
         private const float SpacingSmall = 3f;
         private const float SpacingLarge = 10f;
+        private GUIStyle zeroHeightLabelStyle;
+        private GUIStyle wrappedTooltipStyle;
 
         public bool IsOpen
         {
@@ -136,6 +138,7 @@ namespace Parsek
 
         private void DrawSettingsWindow(int windowID)
         {
+            EnsureLayoutStyles();
             var s = ParsekSettings.Current;
             if (s == null)
             {
@@ -178,6 +181,7 @@ namespace Parsek
                 s.autoRecordOnEva = true;
                 s.autoMerge = false;
                 s.verboseLogging = true;
+                s.writeReadableSidecarMirrors = true;
                 s.minSampleInterval = 0.2f;
                 s.maxSampleInterval = 3.0f;
                 s.velocityDirThreshold = 2.0f;
@@ -185,6 +189,9 @@ namespace Parsek
                 s.autoLoopIntervalSeconds = 10.0f;
                 s.autoLoopTimeUnit = 0;
                 s.ghostCameraCutoffKm = DistanceThresholds.GhostFlight.DefaultWatchCameraCutoffKm;
+                ParsekSettingsPersistence.RecordGhostCameraCutoff(s.ghostCameraCutoffKm);
+                ParsekSettingsPersistence.RecordReadableSidecarMirrors(s.writeReadableSidecarMirrors);
+                RecordingStore.ReconcileReadableSidecarMirrorsForKnownRecordings();
                 settingsAutoLoopEditing = false;
                 settingsCameraCutoffEditing = false;
                 ParsekLog.Info("UI", "Settings reset to defaults");
@@ -197,17 +204,36 @@ namespace Parsek
             GUILayout.EndHorizontal();
 
             string tooltip = GUI.tooltip ?? "";
-            if (tooltip.Length > 0)
-            {
-                GUILayout.Space(SpacingSmall);
-                GUILayout.Label(tooltip, GUI.skin.box);
-            }
-            else
-            {
-                GUILayout.Label("", GUILayout.Height(0));
-            }
+            GUILayout.Space(tooltip.Length > 0 ? SpacingSmall : 0f);
+            GUILayout.Label(
+                tooltip.Length > 0 ? tooltip : string.Empty,
+                tooltip.Length > 0 ? wrappedTooltipStyle : zeroHeightLabelStyle,
+                tooltip.Length > 0 ? GUILayout.ExpandWidth(true) : GUILayout.Height(0f));
 
             GUI.DragWindow();
+        }
+
+        private void EnsureLayoutStyles()
+        {
+            if (zeroHeightLabelStyle == null)
+            {
+                zeroHeightLabelStyle = new GUIStyle(GUI.skin.label)
+                {
+                    fixedHeight = 0f,
+                    stretchHeight = false,
+                    wordWrap = false
+                };
+                zeroHeightLabelStyle.margin = new RectOffset(0, 0, 0, 0);
+                zeroHeightLabelStyle.padding = new RectOffset(0, 0, 0, 0);
+            }
+
+            if (wrappedTooltipStyle == null)
+            {
+                wrappedTooltipStyle = new GUIStyle(GUI.skin.box)
+                {
+                    wordWrap = true
+                };
+            }
         }
 
         private void DrawRecordingSettings(ParsekSettings s)
@@ -358,6 +384,17 @@ namespace Parsek
             {
                 s.verboseLogging = verboseLogging;
                 ParsekLog.Info("UI", $"Setting changed: verboseLogging={s.verboseLogging}");
+            }
+
+            bool writeReadableSidecarMirrors = GUILayout.Toggle(s.writeReadableSidecarMirrors,
+                new GUIContent(" Write readable sidecar mirrors",
+                    "Also write human-readable .txt mirrors of .prec and snapshot sidecars for debugging and binary/text comparison"));
+            if (writeReadableSidecarMirrors != s.writeReadableSidecarMirrors)
+            {
+                s.writeReadableSidecarMirrors = writeReadableSidecarMirrors;
+                ParsekSettingsPersistence.RecordReadableSidecarMirrors(s.writeReadableSidecarMirrors);
+                RecordingStore.ReconcileReadableSidecarMirrorsForKnownRecordings();
+                ParsekLog.Info("UI", $"Setting changed: writeReadableSidecarMirrors={s.writeReadableSidecarMirrors}");
             }
 
             if (GUILayout.Button(new GUIContent("In-Game Test Runner",

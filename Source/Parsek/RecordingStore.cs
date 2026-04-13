@@ -61,6 +61,7 @@ namespace Parsek
 
         // When true, suppresses logging calls (for unit testing outside Unity)
         internal static bool SuppressLogging;
+        internal static bool? WriteReadableSidecarMirrorsOverrideForTesting;
 
         // PID of the active vessel at scene entry. Used by SpawnVesselOrChainTip to
         // bypass PID dedup statelessly — if a recording's VesselPersistentId matches
@@ -1726,6 +1727,7 @@ namespace Parsek
             pendingTree = null;
             pendingTreeState = PendingTreeState.Finalized;
             CleanOrphanFilesDirectoryOverrideForTesting = null;
+            WriteReadableSidecarMirrorsOverrideForTesting = null;
             SceneEntryActiveVesselPid = 0;
             RewindContext.ResetForTesting();
             RewindUTAdjustmentPending = false;
@@ -1784,6 +1786,9 @@ namespace Parsek
             DeleteFileIfExists(RecordingPaths.BuildTrajectoryRelativePath(rec.RecordingId));
             DeleteFileIfExists(RecordingPaths.BuildVesselSnapshotRelativePath(rec.RecordingId));
             DeleteFileIfExists(RecordingPaths.BuildGhostSnapshotRelativePath(rec.RecordingId));
+            DeleteFileIfExists(RecordingPaths.BuildReadableTrajectoryMirrorRelativePath(rec.RecordingId));
+            DeleteFileIfExists(RecordingPaths.BuildReadableVesselSnapshotMirrorRelativePath(rec.RecordingId));
+            DeleteFileIfExists(RecordingPaths.BuildReadableGhostSnapshotMirrorRelativePath(rec.RecordingId));
 
             if (!string.IsNullOrEmpty(rec.RewindSaveFileName))
                 DeleteFileIfExists(RecordingPaths.BuildRewindSaveRelativePath(rec.RewindSaveFileName));
@@ -1809,7 +1814,15 @@ namespace Parsek
         /// <summary>
         /// Known sidecar file suffixes for recording files. Used for orphan detection.
         /// </summary>
-        private static readonly string[] RecordingFileSuffixes = { ".prec", "_vessel.craft", "_ghost.craft" };
+        private static readonly string[] RecordingFileSuffixes =
+        {
+            ".prec",
+            "_vessel.craft",
+            "_ghost.craft",
+            ".prec.txt",
+            "_vessel.craft.txt",
+            "_ghost.craft.txt"
+        };
 
         /// <summary>
         /// Suffixes for recording files written by previous Parsek versions but no longer
@@ -4184,6 +4197,98 @@ namespace Parsek
             }
         }
 
+        internal static void ReconcileReadableSidecarMirrorsForKnownRecordings()
+        {
+            var seenRecordingIds = new HashSet<string>(StringComparer.Ordinal);
+            int attempted = 0;
+            int failed = 0;
+
+            ReconcileReadableSidecarMirrorsForRecordingSet(
+                committedRecordings, seenRecordingIds, ref attempted, ref failed);
+
+            if (pendingTree != null && pendingTree.Recordings != null)
+            {
+                ReconcileReadableSidecarMirrorsForRecordingSet(
+                    pendingTree.Recordings.Values, seenRecordingIds, ref attempted, ref failed);
+            }
+
+            if (!SuppressLogging && attempted > 0)
+            {
+                ParsekLog.Info("RecordingStore",
+                    $"Readable sidecar mirror reconcile pass: attempted={attempted} failed={failed} " +
+                    $"enabled={ShouldWriteReadableSidecarMirrors()}");
+            }
+        }
+
+        private static void ReconcileReadableSidecarMirrorsForRecordingSet(
+            IEnumerable<Recording> recordings,
+            HashSet<string> seenRecordingIds,
+            ref int attempted,
+            ref int failed)
+        {
+            if (recordings == null)
+                return;
+
+            foreach (var rec in recordings)
+            {
+                if (rec == null
+                    || string.IsNullOrEmpty(rec.RecordingId)
+                    || !seenRecordingIds.Add(rec.RecordingId))
+                {
+                    continue;
+                }
+
+                attempted++;
+                if (!ReconcileReadableSidecarMirrorsForRecording(rec))
+                    failed++;
+            }
+        }
+
+        private static bool ReconcileReadableSidecarMirrorsForRecording(Recording rec)
+        {
+            if (rec == null)
+                return true;
+
+            if (!RecordingPaths.ValidateRecordingId(rec.RecordingId))
+            {
+                if (!SuppressLogging)
+                {
+                    ParsekLog.Warn("RecordingStore",
+                        $"Readable sidecar mirror reconcile skipped invalid recording id '{rec.RecordingId}'");
+                }
+                return false;
+            }
+
+            string precPath = RecordingPaths.ResolveSaveScopedPath(
+                RecordingPaths.BuildTrajectoryRelativePath(rec.RecordingId));
+            string vesselPath = RecordingPaths.ResolveSaveScopedPath(
+                RecordingPaths.BuildVesselSnapshotRelativePath(rec.RecordingId));
+            string ghostPath = RecordingPaths.ResolveSaveScopedPath(
+                RecordingPaths.BuildGhostSnapshotRelativePath(rec.RecordingId));
+
+            if (string.IsNullOrEmpty(precPath)
+                || string.IsNullOrEmpty(vesselPath)
+                || string.IsNullOrEmpty(ghostPath))
+            {
+                if (!SuppressLogging)
+                {
+                    ParsekLog.Warn("RecordingStore",
+                        $"Readable sidecar mirror reconcile skipped unresolved path(s) for {rec.RecordingId}");
+                }
+                return false;
+            }
+
+            ReadableMirrorReconcileSummary summary = ReconcileReadableSidecarMirrors(
+                rec, precPath, vesselPath, ghostPath, GetExpectedGhostSnapshotMode(rec));
+            if (summary.Failed && !SuppressLogging)
+            {
+                ParsekLog.Warn("RecordingStore",
+                    $"Readable sidecar mirror reconcile failed for {rec.RecordingId}: {summary.FailureReason}");
+            }
+
+            return !summary.Failed;
+        }
+
         internal static bool LoadRecordingFiles(Recording rec)
         {
             if (rec == null)
@@ -4247,6 +4352,26 @@ namespace Parsek
                 return;
             }
 
+            var precNode = new ConfigNode("PARSEK_RECORDING");
+            precNode.AddValue("version", rec?.RecordingFormatVersion ?? 0);
+            if (rec != null && !string.IsNullOrEmpty(rec.RecordingId))
+                precNode.AddValue("recordingId", rec.RecordingId);
+            precNode.AddValue("sidecarEpoch", sidecarEpoch.ToString(System.Globalization.CultureInfo.InvariantCulture));
+            SerializeTrajectoryInto(precNode, rec);
+            SafeWriteConfigNode(precNode, path);
+        }
+
+        internal static bool ShouldWriteReadableSidecarMirrors()
+        {
+            if (WriteReadableSidecarMirrorsOverrideForTesting.HasValue)
+                return WriteReadableSidecarMirrorsOverrideForTesting.Value;
+
+            var settings = ParsekSettings.Current;
+            return settings == null || settings.writeReadableSidecarMirrors;
+        }
+
+        private static void WriteReadableTrajectoryMirror(string path, Recording rec, int sidecarEpoch)
+        {
             var precNode = new ConfigNode("PARSEK_RECORDING");
             precNode.AddValue("version", rec?.RecordingFormatVersion ?? 0);
             if (rec != null && !string.IsNullOrEmpty(rec.RecordingId))
@@ -4342,6 +4467,14 @@ namespace Parsek
             return SaveRecordingFilesToPathsInternal(rec, precPath, vesselPath, ghostPath, incrementEpoch);
         }
 
+        internal static bool ReconcileReadableSidecarMirrorsToPathsForTesting(
+            Recording rec, string precPath, string vesselPath, string ghostPath)
+        {
+            ReadableMirrorReconcileSummary summary = ReconcileReadableSidecarMirrors(
+                rec, precPath, vesselPath, ghostPath, GetExpectedGhostSnapshotMode(rec));
+            return !summary.Failed;
+        }
+
         internal static bool LoadRecordingFilesFromPathsForTesting(
             Recording rec, string precPath, string vesselPath, string ghostPath)
         {
@@ -4364,6 +4497,21 @@ namespace Parsek
         {
             public SnapshotSidecarLoadState VesselState;
             public SnapshotSidecarLoadState GhostState;
+            public string FailureReason;
+        }
+
+        private struct ReadableMirrorReconcileSummary
+        {
+            public bool Enabled;
+            public bool Failed;
+            public bool WroteTrajectory;
+            public bool WroteVessel;
+            public bool WroteGhost;
+            public bool DeletedTrajectory;
+            public bool DeletedVessel;
+            public bool DeletedGhost;
+            public string VesselSource;
+            public string GhostSource;
             public string FailureReason;
         }
 
@@ -4439,6 +4587,31 @@ namespace Parsek
         private static void WriteSnapshotSidecar(string path, ConfigNode node)
         {
             SnapshotSidecarCodec.Write(path, node);
+        }
+
+        private static void WriteReadableSnapshotMirror(string path, ConfigNode node)
+        {
+            SafeWriteConfigNode(node, path);
+        }
+
+        private static ConfigNode LoadSnapshotSidecarForReadableMirror(string authoritativePath)
+        {
+            if (string.IsNullOrEmpty(authoritativePath) || !File.Exists(authoritativePath))
+                return null;
+
+            if (!TryLoadSnapshotSidecar(authoritativePath, out ConfigNode node, out SnapshotSidecarProbe probe))
+            {
+                throw new InvalidOperationException(
+                    $"failed to load authoritative snapshot sidecar '{Path.GetFileName(authoritativePath)}' for readable mirror");
+            }
+
+            if (!probe.Supported)
+            {
+                throw new InvalidOperationException(
+                    $"unsupported authoritative snapshot sidecar '{Path.GetFileName(authoritativePath)}' for readable mirror");
+            }
+
+            return node;
         }
 
         private static bool LoadRecordingFilesFromPathsInternal(
@@ -4580,6 +4753,14 @@ namespace Parsek
 
                 ApplyStagedSidecarChanges(changes);
 
+                ReadableMirrorReconcileSummary mirrorSummary =
+                    ReconcileReadableSidecarMirrors(rec, precPath, vesselPath, ghostPath, ghostSnapshotMode);
+                if (mirrorSummary.Failed && !SuppressLogging)
+                {
+                    ParsekLog.Warn("RecordingStore",
+                        $"SaveRecordingFiles: readable sidecar mirror reconcile failed for {rec.RecordingId}: {mirrorSummary.FailureReason}");
+                }
+
                 if (!SuppressLogging)
                 {
                     ParsekLog.Verbose("RecordingStore",
@@ -4588,7 +4769,17 @@ namespace Parsek
                         $"snapshotCompression={SnapshotSidecarCodec.CurrentCompressionLevelLabel} " +
                         $"ghostSnapshotMode={ghostSnapshotMode} " +
                         $"wroteVessel={wroteVesselSnapshot} wroteGhost={wroteGhostSnapshot} " +
-                        $"deletedStaleGhost={deletedStaleGhostSnapshot}");
+                        $"deletedStaleGhost={deletedStaleGhostSnapshot} " +
+                        $"readableMirrorsEnabled={mirrorSummary.Enabled} " +
+                        $"wroteReadableTrajectory={mirrorSummary.WroteTrajectory} " +
+                        $"wroteReadableVessel={mirrorSummary.WroteVessel} " +
+                        $"readableVesselSource={mirrorSummary.VesselSource ?? "None"} " +
+                        $"wroteReadableGhost={mirrorSummary.WroteGhost} " +
+                        $"readableGhostSource={mirrorSummary.GhostSource ?? "None"} " +
+                        $"deletedReadableTrajectory={mirrorSummary.DeletedTrajectory} " +
+                        $"deletedReadableVessel={mirrorSummary.DeletedVessel} " +
+                        $"deletedReadableGhost={mirrorSummary.DeletedGhost}" +
+                        (mirrorSummary.Failed ? " readableMirrorReconcileFailed=True" : ""));
                 }
 
                 rec.FilesDirty = false;
@@ -4604,6 +4795,166 @@ namespace Parsek
                 Log($"[Parsek] Failed to save recording files for {rec.RecordingId}: {ex.Message}");
                 return false;
             }
+        }
+
+        private static ReadableMirrorReconcileSummary ReconcileReadableSidecarMirrors(
+            Recording rec, string precPath, string vesselPath, string ghostPath, GhostSnapshotMode ghostSnapshotMode)
+        {
+            var summary = new ReadableMirrorReconcileSummary
+            {
+                Enabled = ShouldWriteReadableSidecarMirrors()
+            };
+            var changes = new List<StagedSidecarChange>();
+            bool wroteTrajectory = false;
+            bool wroteVessel = false;
+            bool wroteGhost = false;
+            bool deletedTrajectory = false;
+            bool deletedVessel = false;
+            bool deletedGhost = false;
+
+            string readablePrecPath = GetReadableMirrorPath(precPath);
+            string readableVesselPath = GetReadableMirrorPath(vesselPath);
+            string readableGhostPath = GetReadableMirrorPath(ghostPath);
+
+            try
+            {
+                if (summary.Enabled)
+                {
+                    changes.Add(StageSidecarWrite(
+                        path => WriteReadableTrajectoryMirror(path, rec, rec.SidecarEpoch),
+                        readablePrecPath));
+                    wroteTrajectory = true;
+
+                    if (rec.VesselSnapshot != null)
+                    {
+                        changes.Add(StageSidecarWrite(
+                            path => WriteReadableSnapshotMirror(path, rec.VesselSnapshot),
+                            readableVesselPath));
+                        wroteVessel = true;
+                        summary.VesselSource = "InMemory";
+                    }
+                    else
+                    {
+                        ConfigNode preservedVesselSnapshot = LoadSnapshotSidecarForReadableMirror(vesselPath);
+                        if (preservedVesselSnapshot != null)
+                        {
+                            changes.Add(StageSidecarWrite(
+                                path => WriteReadableSnapshotMirror(path, preservedVesselSnapshot),
+                                readableVesselPath));
+                            wroteVessel = true;
+                            summary.VesselSource = "AuthoritativeSidecar";
+                        }
+                    }
+
+                    if (ghostSnapshotMode == GhostSnapshotMode.Separate && rec.GhostVisualSnapshot != null)
+                    {
+                        changes.Add(StageSidecarWrite(
+                            path => WriteReadableSnapshotMirror(path, rec.GhostVisualSnapshot),
+                            readableGhostPath));
+                        wroteGhost = true;
+                        summary.GhostSource = "InMemory";
+                    }
+                    else if (ghostSnapshotMode == GhostSnapshotMode.AliasVessel &&
+                             !string.IsNullOrEmpty(readableGhostPath) &&
+                             File.Exists(readableGhostPath))
+                    {
+                        changes.Add(new StagedSidecarChange
+                        {
+                            FinalPath = readableGhostPath,
+                            DeleteExisting = true
+                        });
+                        deletedGhost = true;
+                    }
+                }
+                else
+                {
+                    if (!string.IsNullOrEmpty(readablePrecPath) && File.Exists(readablePrecPath))
+                    {
+                        changes.Add(new StagedSidecarChange
+                        {
+                            FinalPath = readablePrecPath,
+                            DeleteExisting = true
+                        });
+                        deletedTrajectory = true;
+                    }
+
+                    if (!string.IsNullOrEmpty(readableVesselPath) && File.Exists(readableVesselPath))
+                    {
+                        changes.Add(new StagedSidecarChange
+                        {
+                            FinalPath = readableVesselPath,
+                            DeleteExisting = true
+                        });
+                        deletedVessel = true;
+                    }
+
+                    if (!string.IsNullOrEmpty(readableGhostPath) && File.Exists(readableGhostPath))
+                    {
+                        changes.Add(new StagedSidecarChange
+                        {
+                            FinalPath = readableGhostPath,
+                            DeleteExisting = true
+                        });
+                        deletedGhost = true;
+                    }
+                }
+
+                ApplyStagedSidecarChanges(changes);
+                summary.WroteTrajectory = wroteTrajectory;
+                summary.WroteVessel = wroteVessel;
+                summary.WroteGhost = wroteGhost;
+                summary.DeletedTrajectory = deletedTrajectory;
+                summary.DeletedVessel = deletedVessel;
+                summary.DeletedGhost = deletedGhost;
+            }
+            catch (Exception ex)
+            {
+                CleanupStagedSidecarArtifacts(changes, committed: null);
+                InvalidateReadableMirrorFinalFiles(changes);
+                summary.Failed = true;
+                summary.FailureReason = ex.Message;
+                summary.WroteTrajectory = false;
+                summary.WroteVessel = false;
+                summary.WroteGhost = false;
+                summary.DeletedTrajectory = false;
+                summary.DeletedVessel = false;
+                summary.DeletedGhost = false;
+                summary.VesselSource = null;
+                summary.GhostSource = null;
+            }
+
+            return summary;
+        }
+
+        private static void InvalidateReadableMirrorFinalFiles(IEnumerable<StagedSidecarChange> changes)
+        {
+            if (changes == null)
+                return;
+
+            foreach (var change in changes)
+            {
+                string finalPath = change != null ? change.FinalPath : null;
+                if (string.IsNullOrEmpty(finalPath) || !File.Exists(finalPath))
+                    continue;
+
+                try
+                {
+                    File.Delete(finalPath);
+                }
+                catch (Exception ex)
+                {
+                    if (!SuppressLogging)
+                    {
+                        ParsekLog.Warn("RecordingStore",
+                            $"Readable sidecar mirror invalidate failed for {Path.GetFileName(finalPath)}: {ex.Message}");
+                    }
+                }
+            }
+        }
+
+        private static string GetReadableMirrorPath(string authoritativePath)
+        {
+            return string.IsNullOrEmpty(authoritativePath) ? null : authoritativePath + ".txt";
         }
 
         internal static SnapshotSidecarLoadSummary LoadSnapshotSidecarsFromPaths(Recording rec, string vesselPath, string ghostPath)

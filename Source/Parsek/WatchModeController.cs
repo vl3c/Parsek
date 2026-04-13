@@ -877,6 +877,47 @@ namespace Parsek
             ResetWatchState(preserveLineageProtection, destroyOverlapAnchor: true);
         }
 
+        internal void ClearAfterSyntheticScenarioLoad()
+        {
+            if (watchedRecordingIndex >= 0)
+            {
+                ExitWatchMode(skipCameraRestore: false, preserveLineageProtection: false);
+                return;
+            }
+
+            RemoveWatchModeControlLockSafe();
+            ClearLineageProtection();
+            watchedOverlapCycleIndex = -1;
+            overlapRetargetAfterUT = -1;
+            watchEndHoldUntilRealTime = -1;
+            watchEndHoldMaxRealTime = -1;
+            watchEndHoldPendingActivationUT = double.NaN;
+            watchNoTargetFrames = 0;
+            currentCameraMode = WatchCameraMode.Free;
+            userModeOverride = false;
+            lastLoggedWatchTargetMismatch = null;
+            lastLoggedWatchFocusKey = null;
+            lastLoggedHorizonVectorKey = null;
+            savedCameraVessel = null;
+            savedCameraDistance = 0f;
+            savedCameraPitch = 0f;
+            savedCameraHeading = 0f;
+
+            if (overlapCameraAnchor == null)
+                return;
+
+            FlightCamera flightCamera = GetFlightCameraSafe();
+            Vessel activeVessel = GetActiveVesselSafe();
+            bool targetingOverlapAnchor = flightCamera != null
+                && flightCamera.Target == overlapCameraAnchor.transform;
+
+            UnityEngine.Object.Destroy(overlapCameraAnchor);
+            overlapCameraAnchor = null;
+
+            if (targetingOverlapAnchor && flightCamera != null && activeVessel != null)
+                flightCamera.SetTargetVessel(activeVessel);
+        }
+
         /// <summary>
         /// Determines whether a vessel's flight situation is safe for unattended flight.
         /// Safe means the vessel will not crash or deorbit while the player watches a ghost.
@@ -1126,6 +1167,7 @@ namespace Parsek
                 : WatchCameraMode.Free;
             lastLoggedHorizonVectorKey = null;
 
+            PrimeWatchTargetOrientation(state);
             ApplyCameraTarget(state);
 
             ParsekLog.Info("CameraFollow",
@@ -1147,6 +1189,11 @@ namespace Parsek
 
             CelestialBody body = ResolveBody(state);
 
+            // Keep the proxy rotation current before any mode switch so camera-target
+            // compensation sees the correct frame on the first HorizonLocked frame.
+            if (body != null)
+                UpdateHorizonProxyRotation(state, body);
+
             // Auto-detect mode (unless user overrode)
             if (!userModeOverride && body != null)
             {
@@ -1165,24 +1212,38 @@ namespace Parsek
                             state.lastInterpolatedBodyName));
                 }
             }
+        }
 
-            // Always update horizonProxy rotation (keeps it ready for smooth switch)
-            if (body != null && state.cameraPivot != null)
-            {
-                Vector3 ghostPos = state.cameraPivot.position;
-                Vector3 up = (ghostPos - body.position).normalized;
-                Vector3 bodyFrameVelocity = (Vector3)body.getRFrmVel(ghostPos);
-                var (forward, horizonVelocity, headingVelocity,
-                    appliedFrameVelocity, source) =
-                    ComputeWatchHorizonBasis(
-                        body.atmosphere, body.atmosphereDepth, state.lastInterpolatedAltitude,
-                        up, state.lastInterpolatedVelocity, bodyFrameVelocity,
-                        state.lastValidHorizonForward);
-                state.horizonProxy.rotation = Quaternion.LookRotation(forward, up);
-                state.lastValidHorizonForward = forward;
-                LogHorizonForwardState(state, up, forward, horizonVelocity,
-                    headingVelocity, bodyFrameVelocity, appliedFrameVelocity, source);
-            }
+        private void PrimeWatchTargetOrientation(GhostPlaybackState state)
+        {
+            if (state == null || currentCameraMode != WatchCameraMode.HorizonLocked)
+                return;
+
+            CelestialBody body = ResolveBody(state);
+            if (body == null)
+                return;
+
+            UpdateHorizonProxyRotation(state, body);
+        }
+
+        private void UpdateHorizonProxyRotation(GhostPlaybackState state, CelestialBody body)
+        {
+            if (state?.horizonProxy == null || state.cameraPivot == null || body == null)
+                return;
+
+            Vector3 ghostPos = state.cameraPivot.position;
+            Vector3 up = (ghostPos - body.position).normalized;
+            Vector3 bodyFrameVelocity = (Vector3)body.getRFrmVel(ghostPos);
+            var (forward, horizonVelocity, headingVelocity,
+                appliedFrameVelocity, source) =
+                ComputeWatchHorizonBasis(
+                    body.atmosphere, body.atmosphereDepth, state.lastInterpolatedAltitude,
+                    up, state.lastInterpolatedVelocity, bodyFrameVelocity,
+                    state.lastValidHorizonForward);
+            state.horizonProxy.rotation = Quaternion.LookRotation(forward, up);
+            state.lastValidHorizonForward = forward;
+            LogHorizonForwardState(state, up, forward, horizonVelocity,
+                headingVelocity, bodyFrameVelocity, appliedFrameVelocity, source);
         }
 
         /// <summary>
@@ -1297,6 +1358,7 @@ namespace Parsek
             watchNoTargetFrames = 0;
             if (FlightCamera.fetch != null)
                 FlightCamera.fetch.pivotTranslateSharpness = 0f;
+            PrimeWatchTargetOrientation(gs);
             ApplyCameraTarget(gs);
             if (FlightCamera.fetch?.transform?.parent != null && gs.cameraPivot != null)
                 FlightCamera.fetch.transform.parent.position = gs.cameraPivot.position;

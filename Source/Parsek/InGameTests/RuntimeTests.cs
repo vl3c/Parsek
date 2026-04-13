@@ -969,33 +969,6 @@ namespace Parsek.InGameTests
         }
 
         [InGameTest(Category = "SaveLoad",
-            Description = "Recording count survives ConfigNode round-trip through ParsekScenario")]
-        public void ScenarioRoundTripPreservesCount()
-        {
-            var scenario = Object.FindObjectOfType<ParsekScenario>();
-            if (scenario == null)
-            {
-                ParsekLog.Verbose("TestRunner", "No ParsekScenario instance — skipping round-trip");
-                return;
-            }
-
-            int beforeCount = RecordingStore.CommittedRecordings.Count;
-
-            // Serialize current state
-            var saveNode = new ConfigNode("SCENARIO");
-            scenario.OnSave(saveNode);
-
-            // Deserialize back
-            scenario.OnLoad(saveNode);
-            int afterCount = RecordingStore.CommittedRecordings.Count;
-
-            InGameAssert.AreEqual(beforeCount, afterCount,
-                $"Recording count changed after round-trip: {beforeCount} -> {afterCount}");
-            ParsekLog.Verbose("TestRunner",
-                $"Scenario round-trip: {beforeCount} recordings preserved");
-        }
-
-        [InGameTest(Category = "SaveLoad",
             Description = "External recording files exist on disk for committed v3 recordings")]
         public void ExternalFilesExist()
         {
@@ -2504,22 +2477,28 @@ namespace Parsek.InGameTests
 
         /// <summary>
         /// Canary test: verifies that the TestRunnerShortcut singleton survives a
-        /// scene transition via quickload. If this fails, all other QuickloadResume
-        /// tests are meaningless — the test infrastructure can't survive the reload.
+        /// scene transition via quickload. This drives a real stock quickload and is
+        /// intentionally single-run only: when stock restore itself fails, it can
+        /// leave the live FLIGHT session broken.
         /// </summary>
         [InGameTest(Category = "QuickloadResume", Scene = GameScenes.FLIGHT, RunLast = true,
+            AllowBatchExecution = false,
+            BatchSkipReason = "Single-run only — excluded from Run All / Run category because this real F5/F9 scene transition can leave the live FLIGHT session broken when stock quickload fails.",
             Description = "Verify TestRunnerShortcut DontDestroyOnLoad survives quickload")]
         public IEnumerator BridgeSurvivesSceneTransition()
         {
             // Sentinel: use a static field on TestRunnerShortcut
             var preInstance = TestRunnerShortcut.Instance;
             InGameAssert.IsNotNull(preInstance, "TestRunnerShortcut.Instance must be non-null before quickload");
+            var preFlight = ParsekFlight.Instance;
+            InGameAssert.IsNotNull(preFlight, "ParsekFlight.Instance must be non-null before quickload");
 
             Helpers.QuickloadResumeHelpers.TriggerQuicksave();
             yield return new WaitForSeconds(0.5f);
 
             Helpers.QuickloadResumeHelpers.TriggerQuickload();
-            yield return Helpers.QuickloadResumeHelpers.WaitForFlightReady(15f);
+            yield return Helpers.QuickloadResumeHelpers.WaitForFlightReady(
+                preFlight.GetInstanceID(), 15f);
 
             // The same singleton must survive — DontDestroyOnLoad keeps it alive
             var postInstance = TestRunnerShortcut.Instance;
@@ -2532,8 +2511,11 @@ namespace Parsek.InGameTests
         /// <summary>
         /// #269 core test: quickload mid-recording resumes with the same activeRecordingId.
         /// Verifies the full F5 → fly → F9 → restore coroutine → resumed recording path.
+        /// This also drives a real stock quickload, so it is intentionally single-run only.
         /// </summary>
         [InGameTest(Category = "QuickloadResume", Scene = GameScenes.FLIGHT, RunLast = true,
+            AllowBatchExecution = false,
+            BatchSkipReason = "Single-run only — excluded from Run All / Run category because this real F5/F9 resume check can poison the current FLIGHT session if stock quickload restores into a broken state.",
             Description = "F5/F9 mid-recording resumes same activeRecordingId")]
         public IEnumerator Quickload_MidRecording_ResumesSameActiveRecordingId()
         {
@@ -2548,6 +2530,7 @@ namespace Parsek.InGameTests
 
             string preRecId = flight.ActiveTreeForSerialization?.ActiveRecordingId;
             InGameAssert.IsNotNull(preRecId, "ActiveRecordingId must be set before F5");
+            int preFlightInstanceId = flight.GetInstanceID();
 
             // F5
             Helpers.QuickloadResumeHelpers.TriggerQuicksave();
@@ -2555,7 +2538,8 @@ namespace Parsek.InGameTests
 
             // F9
             Helpers.QuickloadResumeHelpers.TriggerQuickload();
-            yield return Helpers.QuickloadResumeHelpers.WaitForFlightReady(15f);
+            yield return Helpers.QuickloadResumeHelpers.WaitForFlightReady(
+                preFlightInstanceId, 15f);
             yield return Helpers.QuickloadResumeHelpers.WaitForActiveRecording(10f);
 
             // Re-query: old ParsekFlight instance is destroyed

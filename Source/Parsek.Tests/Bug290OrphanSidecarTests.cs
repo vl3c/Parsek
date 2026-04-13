@@ -271,17 +271,27 @@ namespace Parsek.Tests
             string keepPrec = Path.Combine(recordingsDir, "keep-rec.prec");
             string keepVessel = Path.Combine(recordingsDir, "keep-rec_vessel.craft");
             string keepGhost = Path.Combine(recordingsDir, "keep-rec_ghost.craft");
+            string keepReadablePrec = Path.Combine(recordingsDir, "keep-rec.prec.txt");
+            string keepReadableVessel = Path.Combine(recordingsDir, "keep-rec_vessel.craft.txt");
+            string keepReadableGhost = Path.Combine(recordingsDir, "keep-rec_ghost.craft.txt");
             File.WriteAllText(keepPrec, "keep-prec");
             File.WriteAllText(keepVessel, "keep-vessel");
             File.WriteAllText(keepGhost, "keep-ghost");
+            File.WriteAllText(keepReadablePrec, "keep-readable-prec");
+            File.WriteAllText(keepReadableVessel, "keep-readable-vessel");
+            File.WriteAllText(keepReadableGhost, "keep-readable-ghost");
 
             string transientStage = Path.Combine(recordingsDir, "orphan.prec.stage.1");
             string transientBak = Path.Combine(recordingsDir, "keep-rec_vessel.craft.bak.1");
             string transientTmp = Path.Combine(recordingsDir, "other-rec_ghost.craft.tmp");
+            string transientReadableTmp = Path.Combine(recordingsDir, "other-rec_ghost.craft.txt.tmp");
+            string orphanReadable = Path.Combine(recordingsDir, "orphan-readable.prec.txt");
             string readme = Path.Combine(recordingsDir, "readme.txt");
             File.WriteAllText(transientStage, "stage");
             File.WriteAllText(transientBak, "bak");
             File.WriteAllText(transientTmp, "tmp");
+            File.WriteAllText(transientReadableTmp, "readable-tmp");
+            File.WriteAllText(orphanReadable, "orphan-readable");
             File.WriteAllText(readme, "keep-me");
 
             logLines.Clear();
@@ -290,12 +300,17 @@ namespace Parsek.Tests
             Assert.True(File.Exists(keepPrec));
             Assert.True(File.Exists(keepVessel));
             Assert.True(File.Exists(keepGhost));
+            Assert.True(File.Exists(keepReadablePrec));
+            Assert.True(File.Exists(keepReadableVessel));
+            Assert.True(File.Exists(keepReadableGhost));
             Assert.False(File.Exists(transientStage));
             Assert.False(File.Exists(transientBak));
             Assert.False(File.Exists(transientTmp));
+            Assert.False(File.Exists(transientReadableTmp));
+            Assert.False(File.Exists(orphanReadable));
             Assert.True(File.Exists(readme));
             Assert.Contains(logLines, l =>
-                l.Contains("Cleaned 0 orphaned recording file(s), 3 transient sidecar artifact(s)"));
+                l.Contains("Cleaned 1 orphaned recording file(s), 4 transient sidecar artifact(s)"));
         }
 
         private string CreateRecordingsDir(string label)

@@ -571,6 +571,13 @@ namespace Parsek
         // Used to detect OnSave firing after HighLogic.SaveFolder has changed.
         private string scenarioSaveFolder;
 
+        private static void ReconcileReadableSidecarMirrorsOnLoadIfDisabled()
+        {
+            var settings = ParsekSettings.Current;
+            if (settings != null && !settings.writeReadableSidecarMirrors)
+                RecordingStore.ReconcileReadableSidecarMirrorsForKnownRecordings();
+        }
+
         public override void OnLoad(ConfigNode node)
         {
             DiagnosticsState.ResetSessionCounters();
@@ -616,6 +623,7 @@ namespace Parsek
                     if (RewindContext.IsRewinding)
                     {
                         HandleRewindOnLoad(node, recordings);
+                        ReconcileReadableSidecarMirrorsOnLoadIfDisabled();
                         WriteLoadTiming(sw, recordings.Count);
                         DiagnosticsComputation.EmitSceneLoadSnapshot(recordings.Count, HighLogic.LoadedScene.ToString());
                         return;
@@ -1101,6 +1109,7 @@ namespace Parsek
 
                     LedgerOrchestrator.RecalculateAndPatch();
                     ParsekLog.Info("Scenario", $"{(isRevert ? "Revert" : "Scene change")} — preserving {recordings.Count} session recordings");
+                    ReconcileReadableSidecarMirrorsOnLoadIfDisabled();
                     WriteLoadTiming(sw, recordings.Count);
                     DiagnosticsComputation.EmitSceneLoadSnapshot(recordings.Count, HighLogic.LoadedScene.ToString());
                     return;
@@ -1257,6 +1266,7 @@ namespace Parsek
                     }
                 }
 
+                ReconcileReadableSidecarMirrorsOnLoadIfDisabled();
                 WriteLoadTiming(sw, recordings.Count);
 
                 // Scene load memory snapshot (once per load, after all recordings are loaded)

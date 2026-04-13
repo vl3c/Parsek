@@ -21,6 +21,8 @@ namespace Parsek.InGameTests
         public MethodInfo Method;
         public Type DeclaringType;
         public bool RunLast;
+        public bool AllowBatchExecution = true;
+        public string BatchSkipReason;
         public TestStatus Status = TestStatus.NotRun;
         public string ErrorMessage;
         public float DurationMs;
@@ -33,6 +35,8 @@ namespace Parsek.InGameTests
     public class InGameTestRunner
     {
         private const string Tag = "TestRunner";
+        internal const string DefaultBatchSkipReason =
+            "Single-run only — excluded from Run All / Run category because it performs a destructive scene transition. Run it from the row play button in a disposable session.";
 
         private List<InGameTestInfo> allTests;
         private readonly List<GameObject> cleanupRegistry = new List<GameObject>();
@@ -86,7 +90,9 @@ namespace Parsek.InGameTests
                         RequiredScene = attr.Scene,
                         Method = method,
                         DeclaringType = type,
-                        RunLast = attr.RunLast
+                        RunLast = attr.RunLast,
+                        AllowBatchExecution = attr.AllowBatchExecution,
+                        BatchSkipReason = attr.BatchSkipReason
                     });
                 }
             }
@@ -98,15 +104,17 @@ namespace Parsek.InGameTests
         public void RunAll()
         {
             if (isRunning) return;
-            var eligible = OrderForBatchExecution(allTests.Where(t => IsEligibleForScene(t)));
+            var eligible = PrepareBatchExecution(allTests.Where(t => IsEligibleForScene(t)));
+            RecountResults();
             activeCoroutine = coroutineHost.StartCoroutine(RunBatch(eligible));
         }
 
         public void RunCategory(string category)
         {
             if (isRunning) return;
-            var eligible = OrderForBatchExecution(allTests
+            var eligible = PrepareBatchExecution(allTests
                 .Where(t => t.Category == category && IsEligibleForScene(t)));
+            RecountResults();
             activeCoroutine = coroutineHost.StartCoroutine(RunBatch(eligible));
         }
 
@@ -168,6 +176,42 @@ namespace Parsek.InGameTests
                 .ToList();
         }
 
+        internal static List<InGameTestInfo> PrepareBatchExecution(IEnumerable<InGameTestInfo> tests)
+        {
+            var ordered = OrderForBatchExecution(tests);
+            var batch = new List<InGameTestInfo>(ordered.Count);
+            int skippedForBatch = 0;
+
+            foreach (var test in ordered)
+            {
+                if (test.AllowBatchExecution)
+                {
+                    batch.Add(test);
+                    continue;
+                }
+
+                test.Status = TestStatus.Skipped;
+                test.ErrorMessage = GetBatchSkipReason(test);
+                test.DurationMs = 0f;
+                skippedForBatch++;
+            }
+
+            if (skippedForBatch > 0)
+                ParsekLog.Info(Tag, $"Batch execution skipped {skippedForBatch} single-run-only test(s)");
+
+            return batch;
+        }
+
+        internal static string GetBatchSkipReason(InGameTestInfo test)
+        {
+            if (test == null || test.AllowBatchExecution)
+                return null;
+
+            return string.IsNullOrEmpty(test.BatchSkipReason)
+                ? DefaultBatchSkipReason
+                : test.BatchSkipReason;
+        }
+
         private IEnumerator RunBatch(List<InGameTestInfo> tests)
         {
             isRunning = true;
@@ -188,8 +232,9 @@ namespace Parsek.InGameTests
             }
 
             isRunning = false;
+            int considered = allTests.Count(t => t.Status != TestStatus.NotRun);
             ParsekLog.Info(Tag,
-                $"Test run complete: {Passed} passed, {Failed} failed, {Skipped} skipped (of {tests.Count})");
+                $"Test run complete: {Passed} passed, {Failed} failed, {Skipped} skipped (of {considered})");
 
             ExportResultsFile();
         }
@@ -435,7 +480,8 @@ namespace Parsek.InGameTests
                         ? ""
                         : $" ({t.DurationMs.ToString("F1", ic)}ms)";
                     lines.Add($"    {status} {t.Name}{duration}");
-                    if (t.Status == TestStatus.Failed && !string.IsNullOrEmpty(t.ErrorMessage))
+                    if ((t.Status == TestStatus.Failed || t.Status == TestStatus.Skipped)
+                        && !string.IsNullOrEmpty(t.ErrorMessage))
                         lines.Add($"            {t.ErrorMessage}");
                 }
 

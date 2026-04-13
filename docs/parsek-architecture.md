@@ -512,14 +512,17 @@ Using KSP's `ScenarioModule` system (`ParsekScenario`). Lightweight metadata + m
 
 ```
 saves/<save-name>/Parsek/Recordings/
-├── <recordingId>.prec          # Trajectory (POINT, ORBIT_SEGMENT, PART_EVENT nodes)
-├── <recordingId>_vessel.craft  # Vessel snapshot (ProtoVessel ConfigNode)
-└── <recordingId>_ghost.craft   # Ghost visual snapshot (ProtoVessel ConfigNode)
+├── <recordingId>.prec              # Authoritative trajectory sidecar
+├── <recordingId>.prec.txt          # Optional readable trajectory mirror
+├── <recordingId>_vessel.craft      # Authoritative vessel snapshot sidecar
+├── <recordingId>_vessel.craft.txt  # Optional readable vessel snapshot mirror
+├── <recordingId>_ghost.craft       # Authoritative ghost snapshot sidecar
+└── <recordingId>_ghost.craft.txt   # Optional readable ghost snapshot mirror
 ```
 
-- `.prec` = Parsek Recording (ConfigNode format with version + recordingId header)
-- `.craft` = KSP-standard ConfigNode for vessel snapshots
-- Safe-write via `.tmp` + rename to prevent corruption
+- `.prec` / `.craft` sidecars are authoritative and may use compact binary / compressed encodings in current builds
+- `.txt` mirror siblings are a diagnostics/comparison aid, enabled by default for now, and are not required for load
+- Authoritative sidecars keep staged safe-write / rollback semantics; mirror reconciliation runs separately so mirror failures do not invalidate the real save
 - Stale vessel snapshots cleaned up on save when in-memory snapshot is null
 - `RecordingPaths.ValidateRecordingId` rejects path-traversal and invalid filename characters
 
