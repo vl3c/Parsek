@@ -333,35 +333,5 @@ namespace Parsek.Tests
             }
         }
 
-        [Fact]
-        public void StartWatchHold_PendingActivation_ClampsInitialDeadlineToMaxCap()
-        {
-            ParsekLog.SuppressLogging = true;
-            var previousRealtimeNow = WatchModeController.RealtimeNow;
-            WatchModeController.RealtimeNow = () => 10f;
-
-            try
-            {
-                var host = (ParsekFlight)FormatterServices.GetUninitializedObject(typeof(ParsekFlight));
-                var controller = new WatchModeController(host);
-
-                var startHoldMethod = typeof(WatchModeController).GetMethod("StartWatchHold",
-                    BindingFlags.Instance | BindingFlags.NonPublic);
-                startHoldMethod.Invoke(controller, new object[] { 100f, 150.0 });
-
-                var holdUntilField = typeof(WatchModeController).GetField("watchEndHoldUntilRealTime",
-                    BindingFlags.Instance | BindingFlags.NonPublic);
-                var holdMaxField = typeof(WatchModeController).GetField("watchEndHoldMaxRealTime",
-                    BindingFlags.Instance | BindingFlags.NonPublic);
-
-                Assert.Equal(55f, (float)holdUntilField.GetValue(controller));
-                Assert.Equal(55f, (float)holdMaxField.GetValue(controller));
-            }
-            finally
-            {
-                WatchModeController.RealtimeNow = previousRealtimeNow;
-                ParsekLog.SuppressLogging = false;
-            }
-        }
     }
 }

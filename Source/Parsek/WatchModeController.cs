@@ -1750,14 +1750,13 @@ namespace Parsek
         /// <summary>
         /// Sets the watch hold timer. Called by policy when playback ends for a watched recording.
         /// </summary>
-        internal void StartWatchHold(float holdUntilRealTime, double pendingActivationUT = double.NaN)
+        internal void StartWatchHold(
+            float holdUntilRealTime,
+            double pendingActivationUT = double.NaN,
+            float holdMaxRealTime = -1f)
         {
             watchEndHoldUntilRealTime = holdUntilRealTime;
-            watchEndHoldMaxRealTime = double.IsNaN(pendingActivationUT)
-                ? holdUntilRealTime
-                : RealtimeNow() + GhostPlaybackLogic.MaxPendingWatchHoldSeconds;
-            if (watchEndHoldMaxRealTime > 0f && watchEndHoldUntilRealTime > watchEndHoldMaxRealTime)
-                watchEndHoldUntilRealTime = watchEndHoldMaxRealTime;
+            watchEndHoldMaxRealTime = holdMaxRealTime > 0f ? holdMaxRealTime : holdUntilRealTime;
             watchEndHoldPendingActivationUT = pendingActivationUT;
             ParsekLog.Info("CameraFollow",
                 $"Watch hold timer set: holdUntilRealTime={holdUntilRealTime:F1}" +

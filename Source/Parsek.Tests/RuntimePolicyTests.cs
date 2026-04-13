@@ -237,6 +237,38 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void ComputePendingWatchHoldWindow_PendingContinuationUsesSharedRealtimeBase()
+        {
+            GhostPlaybackLogic.ComputePendingWatchHoldWindow(
+                3f,
+                currentRealtime: 10f,
+                currentUT: 53.68,
+                continuationActivationUT: 83.04,
+                warpRate: 5f,
+                out float holdUntilRealTime,
+                out float holdMaxRealTime);
+
+            Assert.Equal(18f, holdUntilRealTime);
+            Assert.Equal(55f, holdMaxRealTime);
+        }
+
+        [Fact]
+        public void ComputePendingWatchHoldWindow_PendingContinuationCapsInitialDeadlineAtMax()
+        {
+            GhostPlaybackLogic.ComputePendingWatchHoldWindow(
+                3f,
+                currentRealtime: 10f,
+                currentUT: 53.68,
+                continuationActivationUT: 200.0,
+                warpRate: 0.1f,
+                out float holdUntilRealTime,
+                out float holdMaxRealTime);
+
+            Assert.Equal(55f, holdUntilRealTime);
+            Assert.Equal(55f, holdMaxRealTime);
+        }
+
+        [Fact]
         public void ComputeScaledRcsEmissionRate_ShowcaseEnforcesVisibilityFloor()
         {
             float rate = GhostPlaybackLogic.ComputeScaledRcsEmissionRate(

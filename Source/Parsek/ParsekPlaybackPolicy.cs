@@ -343,6 +343,9 @@ namespace Parsek
                     // so warp-rate changes do not expire the hold before the continuation can spawn.
                     float holdSeconds = evt.Trajectory?.TerminalStateValue == TerminalState.Destroyed
                         ? 5f : 3f;
+                    float holdStartedRealTime = Time.time;
+                    float holdUntilRealTime = holdStartedRealTime + holdSeconds;
+                    float holdMaxRealTime = holdUntilRealTime;
                     string holdDetail = null;
                     double pendingContinuationUT = double.NaN;
                     if (evt.Index >= 0 && evt.Index < committed.Count
@@ -353,8 +356,15 @@ namespace Parsek
                             engine.HasActiveGhost,
                             out pendingContinuationUT))
                     {
-                        float extendedHold = GhostPlaybackLogic.ComputePendingWatchHoldSeconds(
-                            holdSeconds, evt.CurrentUT, pendingContinuationUT, TimeWarp.CurrentRate);
+                        GhostPlaybackLogic.ComputePendingWatchHoldWindow(
+                            holdSeconds,
+                            holdStartedRealTime,
+                            evt.CurrentUT,
+                            pendingContinuationUT,
+                            TimeWarp.CurrentRate,
+                            out holdUntilRealTime,
+                            out holdMaxRealTime);
+                        float extendedHold = holdUntilRealTime - holdStartedRealTime;
                         if (extendedHold > holdSeconds)
                         {
                             holdSeconds = extendedHold;
@@ -365,7 +375,7 @@ namespace Parsek
                                 evt.CurrentUT);
                         }
                     }
-                    host.StartWatchHoldFromPolicy(Time.time + holdSeconds, pendingContinuationUT);
+                    host.StartWatchHoldFromPolicy(holdUntilRealTime, pendingContinuationUT, holdMaxRealTime);
 
                     // Trigger explosion if terminal was Destroyed
                     engine.TriggerExplosionIfDestroyed(evt.State, evt.Trajectory, evt.Index,

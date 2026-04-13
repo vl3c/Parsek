@@ -3438,6 +3438,33 @@ namespace Parsek
             return Mathf.Clamp(Mathf.Max(baseHoldSeconds, requiredSeconds), baseHoldSeconds, MaxPendingWatchHoldSeconds);
         }
 
+        internal static void ComputePendingWatchHoldWindow(
+            float baseHoldSeconds,
+            float currentRealtime,
+            double currentUT,
+            double continuationActivationUT,
+            float warpRate,
+            out float holdUntilRealTime,
+            out float holdMaxRealTime)
+        {
+            float holdSeconds = ComputePendingWatchHoldSeconds(
+                baseHoldSeconds,
+                currentUT,
+                continuationActivationUT,
+                warpRate);
+
+            holdUntilRealTime = currentRealtime + holdSeconds;
+            if (!double.IsNaN(continuationActivationUT) && continuationActivationUT > currentUT)
+            {
+                holdMaxRealTime = currentRealtime + MaxPendingWatchHoldSeconds;
+                holdUntilRealTime = Mathf.Min(holdUntilRealTime, holdMaxRealTime);
+            }
+            else
+            {
+                holdMaxRealTime = holdUntilRealTime;
+            }
+        }
+
         private static double MinPendingActivationUT(double currentBest, double candidate)
         {
             if (double.IsNaN(candidate))
