@@ -1079,6 +1079,52 @@ namespace Parsek.Tests
             Assert.Equal(-1, result);
         }
 
+        [Fact]
+        public void ResolveEffectiveWatchTargetIndex_SourceGhostStillActive_ReturnsSource()
+        {
+            var recs = new List<Recording>
+            {
+                MakeRec("r0", chainId: "c1", chainIndex: 0),
+                MakeRec("r1", chainId: "c1", chainIndex: 1),
+            };
+
+            int result = GhostPlaybackLogic.ResolveEffectiveWatchTargetIndex(
+                0, recs, new List<RecordingTree>(), idx => idx == 0 || idx == 1);
+
+            Assert.Equal(0, result);
+        }
+
+        [Fact]
+        public void ResolveEffectiveWatchTargetIndex_ChainSingleHop_ReturnsActiveContinuation()
+        {
+            var recs = new List<Recording>
+            {
+                MakeRec("r0", chainId: "c1", chainIndex: 0),
+                MakeRec("r1", chainId: "c1", chainIndex: 1),
+            };
+
+            int result = GhostPlaybackLogic.ResolveEffectiveWatchTargetIndex(
+                0, recs, new List<RecordingTree>(), idx => idx == 1);
+
+            Assert.Equal(1, result);
+        }
+
+        [Fact]
+        public void ResolveEffectiveWatchTargetIndex_ChainMultiHopThroughInactiveIntermediate_ReturnsDeepActiveSegment()
+        {
+            var recs = new List<Recording>
+            {
+                MakeRec("r0", chainId: "c1", chainIndex: 0),
+                MakeRec("r1", chainId: "c1", chainIndex: 1),
+                MakeRec("r2", chainId: "c1", chainIndex: 2),
+            };
+
+            int result = GhostPlaybackLogic.ResolveEffectiveWatchTargetIndex(
+                0, recs, new List<RecordingTree>(), idx => idx == 2);
+
+            Assert.Equal(2, result);
+        }
+
         // --- Tree branching ---
 
         [Fact]
@@ -1106,6 +1152,46 @@ namespace Parsek.Tests
             int result = GhostPlaybackLogic.FindNextWatchTarget(
                 recs[0], recs, new List<RecordingTree> { tree }, idx => true);
             Assert.Equal(2, result); // same vessel PID preferred over debris
+        }
+
+        [Fact]
+        public void ResolveEffectiveWatchTargetIndex_TreeMultiHopThroughInactiveIntermediates_ReturnsDeepActiveDescendant()
+        {
+            var bp1 = new BranchPoint
+            {
+                Id = "bp1",
+                ChildRecordingIds = new List<string> { "child-1", "other-vessel" }
+            };
+            var bp2 = new BranchPoint
+            {
+                Id = "bp2",
+                ChildRecordingIds = new List<string> { "child-2" }
+            };
+            var bp3 = new BranchPoint
+            {
+                Id = "bp3",
+                ChildRecordingIds = new List<string> { "child-3" }
+            };
+            var tree = new RecordingTree
+            {
+                Id = "t1",
+                TreeName = "Test",
+                BranchPoints = new List<BranchPoint> { bp1, bp2, bp3 }
+            };
+
+            var recs = new List<Recording>
+            {
+                MakeRec("root", vesselPid: 100, treeId: "t1", childBpId: "bp1"),
+                MakeRec("child-1", vesselPid: 100, treeId: "t1", childBpId: "bp2"),
+                MakeRec("other-vessel", vesselPid: 200, treeId: "t1"),
+                MakeRec("child-2", vesselPid: 100, treeId: "t1", childBpId: "bp3"),
+                MakeRec("child-3", vesselPid: 100, treeId: "t1"),
+            };
+
+            int result = GhostPlaybackLogic.ResolveEffectiveWatchTargetIndex(
+                0, recs, new List<RecordingTree> { tree }, idx => idx == 4);
+
+            Assert.Equal(4, result);
         }
 
         [Fact]
@@ -1161,6 +1247,34 @@ namespace Parsek.Tests
 
             int result = GhostPlaybackLogic.FindNextWatchTarget(
                 recs[0], recs, new List<RecordingTree> { tree }, idx => true);
+            Assert.Equal(-1, result);
+        }
+
+        [Fact]
+        public void ResolveEffectiveWatchTargetIndex_BreakupDifferentPid_DoesNotFallbackToActiveChild()
+        {
+            var bp = new BranchPoint
+            {
+                Id = "bp1",
+                Type = BranchPointType.Breakup,
+                ChildRecordingIds = new List<string> { "child-main" }
+            };
+            var tree = new RecordingTree
+            {
+                Id = "t1",
+                TreeName = "Test",
+                BranchPoints = new List<BranchPoint> { bp }
+            };
+
+            var recs = new List<Recording>
+            {
+                MakeRec("root", vesselPid: 100, treeId: "t1", childBpId: "bp1"),
+                MakeRec("child-main", vesselName: "Ship", vesselPid: 300, treeId: "t1"),
+            };
+
+            int result = GhostPlaybackLogic.ResolveEffectiveWatchTargetIndex(
+                0, recs, new List<RecordingTree> { tree }, idx => idx == 1);
+
             Assert.Equal(-1, result);
         }
 
