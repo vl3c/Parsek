@@ -269,18 +269,16 @@ Add unit/in-game coverage around `F5/F9` during a branch, final save/load, and w
   - `Auto-follow on completion: #10 -> #13 (vessel=Kerbal X)`
   - the corresponding watch-focus lines show descending altitude (`278 m` then `65 m`), not a frozen parent trajectory
 - The older `s6` breakup bundle (`logs/2026-04-12_2055_main-stage-freeze-after-separation/`) did show a different watch bug where focus transferred to debris (`#0 -> #6 "GDLV3 Debris"`), but that was the now-fixed `#321` issue and is not proof of a current regression.
+- The same `s13` bundle **does** show a save/load storage gap in the main-stage `.prec` payload. At `03:03:26`, `FlushRecorderIntoActiveTreeForSerialization` logged `103` live points for root recording `034b687...`, but the sidecar written immediately afterward still contained only `trackSections=1 / sparsePoints=35`; the next quickload rebuilt only that single section. The `a936e14...` and `8109e9e...` same-PID continuations showed the same pattern at later save boundaries.
+- A saved local inspector script, `tools/inspect-recording-sidecar.ps1`, confirmed the persisted `Kerbal X` chain had large gaps between section-authoritative sparse segments even though live recording had advanced further in memory before save.
 
 **Impact:** If this is real on current head, the parent/main-stage recording can become visually unreliable after separation even while child debris recordings continue correctly. That would be a more serious playback-integrity bug than simple camera recovery or grouping.
 
-**Root cause / hypothesis:** Not isolated yet. Candidate areas are:
+**Root cause / hypothesis:** Root cause isolated on the `fix/327-main-stage-freeze-after-separation` branch. `ParsekFlight.FlushRecorderIntoActiveTreeForSerialization()` appended only already-closed `recorder.TrackSections` into the active-tree recording and then cleared them, but it did **not** checkpoint the recorder's currently-open `TrackSection` first. Mid-flight saves could therefore write a section-authoritative `.prec` sidecar that was missing the live in-progress sparse trajectory chunk, and quickload playback could freeze or drift across that gap while debris/child recordings continued normally.
 
-- same-PID continuation selection around breakup/save/load
-- parent trajectory hydration after save/load when child branches already exist
-- ghost/watch lifecycle around breakup-continuous effective-leaf parents versus debris children
+**Fix direction:** The branch now checkpoints the open active `TrackSection` during save-time serialization, immediately reopens a continuation section with the same environment/reference metadata, and adds regression coverage for absolute, relative, and orbital-checkpoint cases. This still needs an in-game save/load breakup repro on current head to confirm the visible frozen/off-trajectory symptom is gone.
 
-**Fix direction:** Capture a focused reproduction bundle where the frozen main stage is visible on current head, preferably with watch active and a save/load in the middle. Compare the parent `.prec` bounds, branchpoint ordering, watch transitions, and parent/child recording metadata before and after load. Add a regression only after the failure is reproduced concretely.
-
-**Status:** Open (needs focused repro)
+**Status:** Open (fix implemented on branch; needs in-game verification)
 
 ---
 

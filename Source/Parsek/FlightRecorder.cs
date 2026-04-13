@@ -3946,6 +3946,37 @@ namespace Parsek
                 $"UT={segment.startUT.ToString("F2", CultureInfo.InvariantCulture)}-{segment.endUT.ToString("F2", CultureInfo.InvariantCulture)}");
         }
 
+        /// <summary>
+        /// Closes the recorder's current open TrackSection at the given UT and immediately
+        /// opens a continuation section with the same environment/reference metadata.
+        /// Used by OnSave serialization flushes so the active tree persists the live
+        /// trajectory section that is still in progress, without stopping the recorder.
+        /// </summary>
+        internal void CheckpointOpenTrackSectionForSerialization(double ut)
+        {
+            if (!trackSectionActive) return;
+
+            var currentEnv = currentTrackSection.environment;
+            var currentRef = currentTrackSection.referenceFrame;
+            var currentSource = currentTrackSection.source;
+            uint currentAnchor = currentTrackSection.anchorVesselId;
+            TrajectoryPoint? boundaryPoint = GetLastTrackSectionFrame();
+
+            CloseCurrentTrackSection(ut);
+            StartNewTrackSection(currentEnv, currentRef, ut, currentSource);
+
+            if (currentRef == ReferenceFrame.Relative)
+                currentTrackSection.anchorVesselId = currentAnchor;
+
+            // Only absolute/relative sections carry sparse frame payloads.
+            if (currentRef != ReferenceFrame.OrbitalCheckpoint)
+                SeedBoundaryPoint(boundaryPoint);
+
+            ParsekLog.Verbose("Recorder",
+                $"Serialization checkpoint: env={currentEnv} ref={currentRef} " +
+                $"source={currentSource} at UT={ut.ToString("F2", CultureInfo.InvariantCulture)}");
+        }
+
         #endregion
 
         #region Anchor detection helpers (Phase 3a)
