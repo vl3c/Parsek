@@ -258,20 +258,28 @@ namespace Parsek
                 bool hasSurfaceData = traj.SurfacePos.HasValue;
                 if (!hasPoints && !hasOrbitData && !hasSurfaceData) continue;
 
-                if (ctx.currentUT < traj.StartUT)
-                {
-                    completedEventFired.Remove(i);
-                    earlyDestroyedDebrisCompleted.Remove(i);
-                }
-
-                bool inRange = ctx.currentUT >= traj.StartUT && ctx.currentUT <= traj.EndUT;
-                bool pastEnd = ctx.currentUT > traj.EndUT;
-                bool pastEffectiveEnd = ctx.currentUT > f.chainEndUT;
-
                 GhostPlaybackState state;
                 ghostStates.TryGetValue(i, out state);
                 bool ghostActive = HasLoadedGhostVisuals(state);
                 if (ghostActive) ghostsProcessed++;
+
+                double activationStartUT = ResolveGhostActivationStartUT(traj);
+
+                if (ctx.currentUT < activationStartUT)
+                {
+                    completedEventFired.Remove(i);
+                    earlyDestroyedDebrisCompleted.Remove(i);
+                    if (ghostActive)
+                    {
+                        DestroyAllOverlapGhosts(i);
+                        DestroyGhost(i, traj, f, reason: "before activation start UT");
+                    }
+                    continue;
+                }
+
+                bool inRange = ctx.currentUT <= traj.EndUT;
+                bool pastEnd = ctx.currentUT > traj.EndUT;
+                bool pastEffectiveEnd = ctx.currentUT > f.chainEndUT;
 
                 // === Loop dispatch (before main rendering) ===
                 if (ShouldLoopPlayback(traj))
@@ -340,7 +348,7 @@ namespace Parsek
                             completedEventFired.Remove(i);
                         }
 
-                        bool debrisInRange = parentLoopUT >= traj.StartUT && parentLoopUT <= traj.EndUT;
+                        bool debrisInRange = parentLoopUT >= activationStartUT && parentLoopUT <= traj.EndUT;
                         if (debrisInRange)
                         {
                             // Override UT for positioning — use parent's loop clock
@@ -677,7 +685,8 @@ namespace Parsek
             bool ghostActive = HasLoadedGhostVisuals(state);
 
             double intervalSeconds = GetLoopIntervalSeconds(traj, ctx.autoLoopIntervalSeconds);
-            double duration = traj.EndUT - traj.StartUT;
+            double loopStartUT = EffectiveLoopStartUT(traj);
+            double duration = traj.EndUT - loopStartUT;
 
             // High time warp: hide ghost, destroy overlaps
             if (suppressGhosts)
@@ -846,9 +855,10 @@ namespace Parsek
             GhostPlaybackState primaryState,
             double intervalSeconds, double duration, bool suppressVisualFx)
         {
-            if (ctx.currentUT < traj.StartUT)
+            double loopStartUT = EffectiveLoopStartUT(traj);
+            if (ctx.currentUT < loopStartUT)
             {
-                if (primaryState != null) DestroyGhost(index, traj, flags, reason: "before start UT");
+                if (primaryState != null) DestroyGhost(index, traj, flags, reason: "before activation start UT");
                 DestroyAllOverlapGhosts(index);
                 return;
             }
@@ -858,7 +868,7 @@ namespace Parsek
                 cycleDuration = GhostPlaybackLogic.MinCycleDuration;
 
             long firstCycle, lastCycle;
-            GhostPlaybackLogic.GetActiveCycles(ctx.currentUT, traj.StartUT, traj.EndUT, intervalSeconds,
+            GhostPlaybackLogic.GetActiveCycles(ctx.currentUT, loopStartUT, traj.EndUT, intervalSeconds,
                 MaxOverlapGhostsPerRecording, out firstCycle, out lastCycle);
 
             List<GhostPlaybackState> overlaps;
@@ -870,9 +880,9 @@ namespace Parsek
 
             // Primary ghost represents the newest (lastCycle)
             bool primaryCycleChanged = HasLoopCycleChanged(primaryState, lastCycle);
-            double primaryCycleStartUT = traj.StartUT + lastCycle * cycleDuration;
+            double primaryCycleStartUT = loopStartUT + lastCycle * cycleDuration;
             double primaryPhase = Math.Max(0, Math.Min(ctx.currentUT - primaryCycleStartUT, duration));
-            double primaryLoopUT = traj.StartUT + primaryPhase;
+            double primaryLoopUT = loopStartUT + primaryPhase;
 
             if (primaryCycleChanged)
             {
@@ -955,7 +965,7 @@ namespace Parsek
 
             // Update overlap ghosts (older cycles)
             UpdateExpireAndPositionOverlaps(index, traj, flags, ctx, overlaps,
-                duration, cycleDuration, suppressVisualFx);
+                duration, cycleDuration, loopStartUT, suppressVisualFx);
         }
 
         /// <summary>
@@ -966,7 +976,7 @@ namespace Parsek
         private void UpdateExpireAndPositionOverlaps(int index, IPlaybackTrajectory traj,
             TrajectoryPlaybackFlags flags, FrameContext ctx,
             List<GhostPlaybackState> overlaps,
-            double duration, double cycleDuration, bool suppressVisualFx)
+            double duration, double cycleDuration, double loopStartUT, bool suppressVisualFx)
         {
             for (int i = overlaps.Count - 1; i >= 0; i--)
             {
@@ -978,7 +988,7 @@ namespace Parsek
                 }
 
                 long cycle = ovState.loopCycleIndex;
-                double cycleStart = traj.StartUT + cycle * cycleDuration;
+                double cycleStart = loopStartUT + cycle * cycleDuration;
                 double phase = ctx.currentUT - cycleStart;
 
                 // Expired cycle
@@ -1016,7 +1026,7 @@ namespace Parsek
                 }
 
                 phase = Math.Max(0, Math.Min(phase, duration));
-                double loopUT = traj.StartUT + phase;
+                double loopUT = loopStartUT + phase;
                 double overlapDistance = ResolvePlaybackDistance(
                     index, traj, ovState, loopUT, ctx.activeVesselPos);
                 var zoneResult = positioner.ApplyZoneRendering(
@@ -1084,23 +1094,24 @@ namespace Parsek
         #region Loop utilities
 
         /// <summary>
-        /// Returns the effective loop start UT, falling back to traj.StartUT when
-        /// LoopStartUT is NaN or out of range.
+        /// Returns the effective loop start UT, falling back to the first playable
+        /// ghost-activation UT when LoopStartUT is NaN or out of range.
         /// </summary>
         internal static double EffectiveLoopStartUT(IPlaybackTrajectory traj)
         {
+            double activationStartUT = ResolveGhostActivationStartUT(traj);
             double loopStart = traj.LoopStartUT;
-            if (!double.IsNaN(loopStart) && loopStart >= traj.StartUT && loopStart < traj.EndUT)
+            if (!double.IsNaN(loopStart) && loopStart >= activationStartUT && loopStart < traj.EndUT)
             {
                 // Cross-validate: effective start must be less than effective end
                 double loopEnd = traj.LoopEndUT;
-                double effectiveEnd = (!double.IsNaN(loopEnd) && loopEnd <= traj.EndUT && loopEnd > traj.StartUT)
+                double effectiveEnd = (!double.IsNaN(loopEnd) && loopEnd <= traj.EndUT && loopEnd > activationStartUT)
                     ? loopEnd : traj.EndUT;
                 if (loopStart >= effectiveEnd)
-                    return traj.StartUT;
+                    return activationStartUT;
                 return loopStart;
             }
-            return traj.StartUT;
+            return activationStartUT;
         }
 
         /// <summary>
@@ -1109,13 +1120,14 @@ namespace Parsek
         /// </summary>
         internal static double EffectiveLoopEndUT(IPlaybackTrajectory traj)
         {
+            double activationStartUT = ResolveGhostActivationStartUT(traj);
             double loopEnd = traj.LoopEndUT;
-            if (!double.IsNaN(loopEnd) && loopEnd <= traj.EndUT && loopEnd > traj.StartUT)
+            if (!double.IsNaN(loopEnd) && loopEnd <= traj.EndUT && loopEnd > activationStartUT)
             {
                 // Cross-validate: effective end must be greater than effective start
                 double loopStart = traj.LoopStartUT;
-                double effectiveStart = (!double.IsNaN(loopStart) && loopStart >= traj.StartUT && loopStart < traj.EndUT)
-                    ? loopStart : traj.StartUT;
+                double effectiveStart = (!double.IsNaN(loopStart) && loopStart >= activationStartUT && loopStart < traj.EndUT)
+                    ? loopStart : activationStartUT;
                 if (loopEnd <= effectiveStart)
                     return traj.EndUT;
                 return loopEnd;
@@ -1991,6 +2003,17 @@ namespace Parsek
             state.hadVisibleRenderersLastFrame = false;
         }
 
+        internal static double ResolveGhostActivationStartUT(IPlaybackTrajectory traj)
+        {
+            if (traj == null)
+                return 0.0;
+
+            if (traj is Recording recording && recording.TryGetGhostActivationStartUT(out double activationStartUT))
+                return activationStartUT;
+
+            return traj.StartUT;
+        }
+
         private void TrackGhostAppearance(
             int index, IPlaybackTrajectory traj, GhostPlaybackState state, double playbackUT, string reason)
         {
@@ -2021,6 +2044,7 @@ namespace Parsek
             Quaternion rootRot = state.ghost.transform.rotation;
             Vector3d boundsCenter = visibleBounds.center;
             Vector3d boundsRootDelta = boundsCenter - rootPos;
+            double activationStartUT = ResolveGhostActivationStartUT(traj);
 
             Transform firstVisiblePart = FindFirstVisibleGhostPart(state.ghost);
             string firstVisiblePartLabel = "none";
@@ -2075,6 +2099,8 @@ namespace Parsek
                 $"Ghost #{index} \"{traj?.VesselName ?? state.vesselName ?? "unknown"}\" " +
                 $"appearance#{state.appearanceCount} reason={reason} " +
                 $"ut={playbackUT.ToString("F2", CultureInfo.InvariantCulture)} " +
+                $"activationStart={activationStartUT.ToString("F2", CultureInfo.InvariantCulture)} " +
+                $"activationLead={(playbackUT - activationStartUT).ToString("F2", CultureInfo.InvariantCulture)} " +
                 $"zone={state.currentZone} dist={state.lastDistance.ToString("F0", CultureInfo.InvariantCulture)}m " +
                 $"{activeSectionSummary} " +
                 $"root={FormatVector3d(rootPos)} rootRot={FormatQuaternion(rootRot)} " +

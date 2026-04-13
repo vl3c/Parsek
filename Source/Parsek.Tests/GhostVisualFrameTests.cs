@@ -137,6 +137,52 @@ namespace Parsek.Tests
             Assert.DoesNotContain("world=", summary);
         }
 
+        [Fact]
+        public void TryGetGhostActivationStartUT_PrefersFirstPlayableFrameOverExplicitStartAndSectionBoundary()
+        {
+            var rec = new Recording
+            {
+                ExplicitStartUT = 19.72,
+                TrackSections = new List<TrackSection>
+                {
+                    new TrackSection
+                    {
+                        referenceFrame = ReferenceFrame.Absolute,
+                        startUT = 20.24,
+                        endUT = 32.56,
+                        frames = new List<TrajectoryPoint>
+                        {
+                            new TrajectoryPoint { ut = 20.26, bodyName = "Kerbin" },
+                            new TrajectoryPoint { ut = 20.68, bodyName = "Kerbin" }
+                        }
+                    }
+                }
+            };
+
+            bool resolved = rec.TryGetGhostActivationStartUT(out double activationStartUT);
+
+            Assert.True(resolved);
+            Assert.Equal(20.26, activationStartUT, 2);
+        }
+
+        [Fact]
+        public void ResolveGhostActivationStartUT_UsesRecordingActivationStartInsteadOfSemanticStart()
+        {
+            var rec = new Recording
+            {
+                ExplicitStartUT = 27.58,
+                Points = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint { ut = 28.12, bodyName = "Kerbin" },
+                    new TrajectoryPoint { ut = 28.70, bodyName = "Kerbin" }
+                }
+            };
+
+            double activationStartUT = GhostPlaybackEngine.ResolveGhostActivationStartUT(rec);
+
+            Assert.Equal(28.12, activationStartUT, 2);
+        }
+
         private static ConfigNode BuildSnapshot(string coM)
         {
             var snapshot = new ConfigNode("VESSEL");
