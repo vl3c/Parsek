@@ -81,7 +81,7 @@ This closes the "spawned but never visible" playback path without loosening the 
 
 ---
 
-## 317. Horizon-locked watch camera can align retrograde instead of prograde during reentry playback
+## ~~317. Horizon-locked watch camera can align retrograde instead of prograde during reentry playback~~
 
 **Observed in:** 0.8.0 follow-up storage playtest (2026-04-12). While watching the `s4` reentry ghost, the user reported that horizon mode pointed the camera retrograde rather than prograde.
 
@@ -91,13 +91,18 @@ Collected evidence from `logs/2026-04-12_1857_phase-11-5-storage-followup-s4/`:
   - `Watch camera auto-switched to HorizonLocked (alt=606m, body=Kerbin)`
   - `Watch camera auto-switched to Free (alt=70003m, body=Kerbin)`
   - repeated `Watch camera mode toggled to HorizonLocked (user override)` during the watched reentry path
-- Current logs do not emit the computed horizon forward vector, selected velocity direction, or a prograde/retrograde label, so the report cannot be proven or disproven from the collected logs alone.
+- The archived logs did not emit the computed horizon forward vector, selected velocity frame, or a prograde/retrograde label, so the original report could not be proven or disproven from the collected bundle alone.
 
-**Root cause / hypothesis:** `WatchModeController.ComputeHorizonForward` currently derives the forward vector from the projected playback velocity. A sign/convention issue during reentry, chain transfer, or negative-relative-velocity cases could flip the watch camera to the retrograde direction.
+**Root cause:** `WatchModeController.UpdateHorizonProxy` fed raw playback velocity straight into the horizon-lock basis. During atmospheric watch playback, that can disagree with the ghost's surface-relative prograde once body rotation dominates the remaining horizontal component, making the camera appear retrograde even though the vessel is descending prograde relative to the atmosphere/ground track.
 
-**Fix direction:** Add one-shot observability around the chosen horizon forward vector and build a focused playback test for descending/reentry trajectories so the prograde direction is asserted rather than inferred visually.
+**Fix:** Horizon-locked watch mode now uses a dedicated atmospheric heading basis: in atmosphere it derives heading from `playbackVelocity - body.getRFrmVel(position)` before projecting onto the horizon plane, while outside atmosphere and on airless bodies it preserves the previous playback/inertial heading behavior. The watch-camera logs now emit the chosen horizon basis (`velocityFrame`, source, raw alignment, vectors) when the basis changes and also emit a rate-limited verbose snapshot during long watches so same-body direction shifts remain observable. Regression coverage now pins:
 
-**Status:** Open
+- atmospheric rotation-dominated inversion (surface-relative prograde wins over raw playback direction)
+- above-atmosphere preservation of the old playback/inertial heading
+- airless-body non-conversion
+- zero-result fallback to `lastForward`
+
+**Status:** Fixed in PR `#245`
 
 ---
 
