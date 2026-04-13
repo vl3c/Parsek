@@ -499,6 +499,7 @@ namespace Parsek
             engine.IsWatchedGhostStateResolver = (recordingIndex, state) =>
                 watchMode != null && watchMode.IsWatchedGhostState(recordingIndex, state);
             engine.ResolvePlaybackDistanceOverride = ResolvePlaybackDistanceForEngine;
+            engine.ResolvePlaybackActiveVesselDistanceOverride = ResolvePlaybackActiveVesselDistanceForEngine;
             policy = new ParsekPlaybackPolicy(engine, this);
 
             // Clean up any orphaned toolbar from rapid scene transitions (e.g. rewind)
@@ -8622,15 +8623,16 @@ namespace Parsek
         /// Shared by normal, background, and looped ghost update paths.
         /// </summary>
         ZoneRenderingResult ApplyZoneRenderingImpl(int recIdx, GhostPlaybackState state, IPlaybackTrajectory rec,
-            double ghostDistance, int protectedIndex)
+            double renderDistance, int protectedIndex)
         {
-            var zone = RenderingZoneManager.ClassifyDistance(ghostDistance);
+            double activeVesselDistance = state != null ? state.lastDistance : renderDistance;
+            var zone = RenderingZoneManager.ClassifyDistance(renderDistance);
             var (isWatchedGhost, _, isWatchProtectedRecording) =
                 ResolveZoneWatchState(recIdx, state, protectedIndex);
 
-            // Cache distance on state for use by IsGhostWithinVisualRange
+            // Cache render distance separately from active-vessel safety distance.
             if (state != null)
-                state.lastDistance = ghostDistance;
+                state.lastRenderDistance = renderDistance;
 
             // Detect zone transition
             if (state != null)
@@ -8639,7 +8641,7 @@ namespace Parsek
                 if (GhostPlaybackLogic.DetectZoneTransition(state.currentZone, zone, out transDesc))
                 {
                     RenderingZoneManager.LogZoneTransition(
-                        $"#{recIdx} \"{rec.VesselName}\"", state.currentZone, zone, ghostDistance);
+                        $"#{recIdx} \"{rec.VesselName}\"", state.currentZone, zone, renderDistance);
                     state.currentZone = zone;
                 }
             }
@@ -8653,19 +8655,20 @@ namespace Parsek
             if (isWatchedGhost || isWatchProtectedRecording)
             {
                 float cutoffKm = DistanceThresholds.GhostFlight.GetWatchCameraCutoffKm(ParsekSettings.Current);
-                if (isWatchedGhost && GhostPlaybackLogic.ShouldExitWatchForCutoff(ghostDistance, cutoffKm))
+                if (isWatchedGhost && GhostPlaybackLogic.ShouldExitWatchForCutoff(activeVesselDistance, cutoffKm))
                 {
                     ParsekLog.Info("Zone",
                         $"Ghost #{recIdx} \"{rec.VesselName}\" exceeded ghost camera cutoff " +
-                        $"({ghostDistance.ToString("F0", CultureInfo.InvariantCulture)}m >= " +
-                        $"{(cutoffKm * 1000.0).ToString("F0", CultureInfo.InvariantCulture)}m) — exiting watch mode");
+                        $"({activeVesselDistance.ToString("F0", CultureInfo.InvariantCulture)}m from active vessel >= " +
+                        $"{(cutoffKm * 1000.0).ToString("F0", CultureInfo.InvariantCulture)}m; " +
+                        $"render={renderDistance.ToString("F0", CultureInfo.InvariantCulture)}m) — exiting watch mode");
                     ExitWatchModePreservingLineage();
                     // Don't return — let zone rendering continue (ghost will be hidden if Beyond)
                 }
                 else
                 {
                     forceWatchedFullFidelity = isWatchProtectedRecording || GhostPlaybackLogic.ShouldForceWatchedFullFidelity(
-                        isWatchedGhost, ghostDistance, cutoffKm);
+                        isWatchedGhost, activeVesselDistance, cutoffKm);
                     (shouldHideMesh, shouldSkipPartEvents, shouldSkipPositioning) =
                         GhostPlaybackLogic.ApplyWatchedFullFidelityOverride(
                             shouldHideMesh, shouldSkipPartEvents, shouldSkipPositioning,
@@ -8684,7 +8687,7 @@ namespace Parsek
                                 : "watch-protected debris";
                             ParsekLog.VerboseRateLimited("Zone", $"watch-protected-zone-exempt-{recIdx}",
                                 $"Ghost #{recIdx} \"{rec.VesselName}\" beyond visual range " +
-                                $"({ghostDistance.ToString("F0", CultureInfo.InvariantCulture)}m) but {reason} — exempt from full-fidelity LOD suppression",
+                                $"({renderDistance.ToString("F0", CultureInfo.InvariantCulture)}m render distance) but {reason} — exempt from full-fidelity LOD suppression",
                                 5.0);
                         }
                     }
@@ -8695,7 +8698,7 @@ namespace Parsek
                 distanceSuppressVisualFx, distanceReduceFidelity) =
                 GhostPlaybackLogic.ApplyDistanceLodPolicy(
                     shouldHideMesh, shouldSkipPartEvents, shouldSkipPositioning,
-                    ghostDistance, forceWatchedFullFidelity);
+                    renderDistance, forceWatchedFullFidelity);
             shouldHideMesh = distanceHideMesh;
             shouldSkipPartEvents = distanceSkipPartEvents;
             shouldSkipPositioning = distanceSkipPositioning;
@@ -8708,7 +8711,7 @@ namespace Parsek
                 shouldHideMesh = false;
                 ParsekLog.VerboseRateLimited("Zone", $"warp-zone-exempt-{recIdx}",
                     $"Ghost #{recIdx} \"{rec.VesselName}\" beyond visual range " +
-                    $"({ghostDistance.ToString("F0", CultureInfo.InvariantCulture)}m) " +
+                    $"({renderDistance.ToString("F0", CultureInfo.InvariantCulture)}m render distance) " +
                     $"but exempt during warp (orbital ghost)", 5.0);
             }
 
@@ -8719,7 +8722,7 @@ namespace Parsek
                     state.ghost.SetActive(false);
                     ParsekLog.VerboseRateLimited("Zone", "zone-hide",
                         $"Ghost #{recIdx} \"{rec.VesselName}\" hidden by distance LOD " +
-                        $"({ghostDistance.ToString("F0", CultureInfo.InvariantCulture)}m)");
+                        $"({renderDistance.ToString("F0", CultureInfo.InvariantCulture)}m render distance)");
                 }
                 return new ZoneRenderingResult
                 {
@@ -8737,7 +8740,7 @@ namespace Parsek
                 state.ghost.SetActive(true);
                 ParsekLog.VerboseRateLimited("Zone", "zone-show",
                     $"Ghost #{recIdx} \"{rec.VesselName}\" re-shown: entered visible distance tier " +
-                    $"({ghostDistance.ToString("F0", CultureInfo.InvariantCulture)}m)");
+                    $"({renderDistance.ToString("F0", CultureInfo.InvariantCulture)}m render distance)");
             }
 
             return new ZoneRenderingResult
@@ -9361,6 +9364,30 @@ namespace Parsek
                 return double.NaN;
             }
 
+            return ResolvePlaybackDistanceFromReferencePosition(
+                index, traj, state, playbackUT, referencePosition);
+        }
+
+        double ResolvePlaybackActiveVesselDistanceForEngine(
+            int index, IPlaybackTrajectory traj, GhostPlaybackState state, double playbackUT)
+        {
+            Vector3d? activeVesselWorldPosition = FlightGlobals.ActiveVessel != null
+                ? (Vector3d?)FlightGlobals.ActiveVessel.transform.position
+                : null;
+            if (!activeVesselWorldPosition.HasValue
+                || !IsFiniteVector3d(activeVesselWorldPosition.Value))
+            {
+                return ResolvePlaybackDistanceForEngine(index, traj, state, playbackUT);
+            }
+
+            return ResolvePlaybackDistanceFromReferencePosition(
+                index, traj, state, playbackUT, activeVesselWorldPosition.Value);
+        }
+
+        double ResolvePlaybackDistanceFromReferencePosition(
+            int index, IPlaybackTrajectory traj, GhostPlaybackState state,
+            double playbackUT, Vector3d referencePosition)
+        {
             Vector3d worldPos;
             if (TryResolvePlaybackWorldPosition(index, traj, state, playbackUT, out worldPos))
             {
