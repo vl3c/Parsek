@@ -196,7 +196,7 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void TryGetOrbitSegmentForMapDisplay_UTInSameBodyGap_ExtendsVisibleWindowToNextStart()
+        public void TryGetOrbitSegmentForMapDisplay_UTInSameBodyGap_MergesEquivalentWindowAcrossGap()
         {
             var segments = new List<OrbitSegment>
             {
@@ -213,6 +213,19 @@ namespace Parsek.Tests
                     meanAnomalyAtEpoch = 2.5,
                     epoch = 240,
                     bodyName = "Kerbin"
+                },
+                new OrbitSegment
+                {
+                    startUT = 430,
+                    endUT = 600,
+                    inclination = 28.5,
+                    eccentricity = 0.001,
+                    semiMajorAxis = 700000,
+                    longitudeOfAscendingNode = 90,
+                    argumentOfPeriapsis = 45,
+                    meanAnomalyAtEpoch = 3.1,
+                    epoch = 430,
+                    bodyName = "Kerbin"
                 }
             };
 
@@ -222,7 +235,93 @@ namespace Parsek.Tests
             Assert.True(found);
             Assert.Equal(100, segment.startUT);
             Assert.Equal(100, visibleStartUT);
-            Assert.Equal(240, visibleEndUT);
+            Assert.Equal(600, visibleEndUT);
+        }
+
+        [Fact]
+        public void TryGetOrbitSegmentForMapDisplay_UTInsideEquivalentSegmentChain_MergesPastAndFutureSegments()
+        {
+            var segments = new List<OrbitSegment>
+            {
+                MakeSegment(100, 200, "Kerbin"),
+                new OrbitSegment
+                {
+                    startUT = 240,
+                    endUT = 400,
+                    inclination = 28.5,
+                    eccentricity = 0.001,
+                    semiMajorAxis = 700000,
+                    longitudeOfAscendingNode = 90,
+                    argumentOfPeriapsis = 45,
+                    meanAnomalyAtEpoch = 2.5,
+                    epoch = 240,
+                    bodyName = "Kerbin"
+                },
+                new OrbitSegment
+                {
+                    startUT = 430,
+                    endUT = 600,
+                    inclination = 28.5,
+                    eccentricity = 0.001,
+                    semiMajorAxis = 700000,
+                    longitudeOfAscendingNode = 90,
+                    argumentOfPeriapsis = 45,
+                    meanAnomalyAtEpoch = 3.1,
+                    epoch = 430,
+                    bodyName = "Kerbin"
+                }
+            };
+
+            bool found = TrajectoryMath.TryGetOrbitSegmentForMapDisplay(
+                segments, 300, out OrbitSegment segment, out double visibleStartUT, out double visibleEndUT);
+
+            Assert.True(found);
+            Assert.Equal(240, segment.startUT);
+            Assert.Equal(100, visibleStartUT);
+            Assert.Equal(600, visibleEndUT);
+        }
+
+        [Fact]
+        public void TryGetOrbitSegmentForMapDisplay_UTInsideEquivalentRun_StopsAtOrbitChangeBoundary()
+        {
+            var segments = new List<OrbitSegment>
+            {
+                MakeSegment(100, 200, "Kerbin"),
+                new OrbitSegment
+                {
+                    startUT = 240,
+                    endUT = 400,
+                    inclination = 28.5,
+                    eccentricity = 0.001,
+                    semiMajorAxis = 700000,
+                    longitudeOfAscendingNode = 90,
+                    argumentOfPeriapsis = 45,
+                    meanAnomalyAtEpoch = 2.5,
+                    epoch = 240,
+                    bodyName = "Kerbin"
+                },
+                new OrbitSegment
+                {
+                    startUT = 430,
+                    endUT = 600,
+                    inclination = 28.5,
+                    eccentricity = 0.001,
+                    semiMajorAxis = 710000,
+                    longitudeOfAscendingNode = 90,
+                    argumentOfPeriapsis = 45,
+                    meanAnomalyAtEpoch = 3.1,
+                    epoch = 430,
+                    bodyName = "Kerbin"
+                }
+            };
+
+            bool found = TrajectoryMath.TryGetOrbitSegmentForMapDisplay(
+                segments, 300, out OrbitSegment segment, out double visibleStartUT, out double visibleEndUT);
+
+            Assert.True(found);
+            Assert.Equal(240, segment.startUT);
+            Assert.Equal(100, visibleStartUT);
+            Assert.Equal(400, visibleEndUT);
         }
 
         [Fact]

@@ -1016,15 +1016,66 @@ namespace Parsek
                 && committed != null
                 && recordingIndex < committed.Count
                 && committed[recordingIndex].HasOrbitSegments
-                && TrajectoryMath.TryGetOrbitSegmentForMapDisplay(
+                && TrajectoryMath.TryGetOrbitWindowForMapDisplay(
                     committed[recordingIndex].OrbitSegments, currentUT,
-                    out _, out startUT, out endUT))
+                    out OrbitSegment segment,
+                    out startUT,
+                    out endUT,
+                    out int firstVisibleIndex,
+                    out int lastVisibleIndex,
+                    out bool carriedAcrossGap))
+            {
+                ParsekLog.VerboseRateLimited(Tag,
+                    string.Format(ic,
+                        "visible-window-{0}-{1:F3}-{2:F3}-{3:F3}-{4:F3}-{5}",
+                        vesselPid,
+                        segment.startUT,
+                        segment.endUT,
+                        startUT,
+                        endUT,
+                        carriedAcrossGap ? "gap" : "segment"),
+                    string.Format(ic,
+                        "Map-visible orbit window pid={0} recIndex={1} ut={2:F2} body={3} " +
+                        "segmentUT={4:F2}-{5:F2} windowUT={6:F2}-{7:F2} windowIndices={8}-{9} gapCarry={10}",
+                        vesselPid,
+                        recordingIndex,
+                        currentUT,
+                        segment.bodyName,
+                        segment.startUT,
+                        segment.endUT,
+                        startUT,
+                        endUT,
+                        firstVisibleIndex,
+                        lastVisibleIndex,
+                        carriedAcrossGap),
+                    1.0);
                 return true;
+            }
+
+            if (recordingIndex >= 0
+                && committed != null
+                && recordingIndex < committed.Count
+                && committed[recordingIndex].HasOrbitSegments)
+            {
+                ParsekLog.VerboseRateLimited(Tag,
+                    "visible-window-none-" + vesselPid,
+                    string.Format(ic,
+                        "Map-visible orbit window unavailable pid={0} recIndex={1} ut={2:F2} — " +
+                        "no active or equivalent same-orbit segment chain",
+                        vesselPid, recordingIndex, currentUT),
+                    1.0);
+            }
 
             if (ghostOrbitBounds.TryGetValue(vesselPid, out var bounds))
             {
                 startUT = bounds.startUT;
                 endUT = bounds.endUT;
+                ParsekLog.VerboseRateLimited(Tag,
+                    string.Format(ic, "visible-window-fallback-{0}-{1:F3}-{2:F3}", vesselPid, startUT, endUT),
+                    string.Format(ic,
+                        "Map-visible orbit window pid={0} source=stored-bounds ut={1:F2} windowUT={2:F2}-{3:F2}",
+                        vesselPid, currentUT, startUT, endUT),
+                    1.0);
                 return true;
             }
 
