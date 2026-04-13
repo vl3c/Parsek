@@ -843,7 +843,11 @@ namespace Parsek
             return rec != null
                 && !string.IsNullOrEmpty(rec.ChainId)
                 && rec.VesselSnapshot == null
-                && (rec.GhostVisualSnapshot != null || !string.IsNullOrEmpty(rec.EvaCrewName));
+                && (rec.GhostVisualSnapshot != null || !string.IsNullOrEmpty(rec.EvaCrewName))
+                && (!rec.TerminalStateValue.HasValue
+                    || rec.TerminalStateValue == TerminalState.Boarded
+                    || rec.TerminalStateValue == TerminalState.Destroyed
+                    || rec.TerminalStateValue == TerminalState.Recovered);
         }
 
         internal static KerbalEndState InferGhostOnlyChainHandoffEndState(TerminalState? terminalState)

@@ -558,6 +558,37 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void CreateKerbalAssignmentActions_GhostOnlyStableChainTip_DoesNotForceRecovered()
+        {
+            var snapshot = new ConfigNode("VESSEL");
+            var part = new ConfigNode("PART");
+            part.AddValue("crew", "Val Kerman");
+            snapshot.AddNode(part);
+
+            var rec = new Recording
+            {
+                RecordingId = "rec-ghost-tip",
+                VesselName = "Chain Tip",
+                ChainId = "chain-tip",
+                ChainIndex = 2,
+                GhostVisualSnapshot = snapshot,
+                TerminalStateValue = TerminalState.Orbiting
+            };
+            RecordingStore.ResetForTesting();
+            RecordingStore.AddRecordingWithTreeForTesting(rec);
+
+            var actions = LedgerOrchestrator.CreateKerbalAssignmentActions("rec-ghost-tip", 50.0, 150.0);
+
+            Assert.Single(actions);
+            Assert.Equal("Val Kerman", actions[0].KerbalName);
+            Assert.Equal(KerbalEndState.Unknown, actions[0].KerbalEndStateField);
+            Assert.Null(rec.CrewEndStates);
+            Assert.False(rec.CrewEndStatesResolved);
+
+            RecordingStore.ResetForTesting();
+        }
+
+        [Fact]
         public void CreateKerbalAssignmentActions_FallsBackToVesselSnapshot()
         {
             // No GhostVisualSnapshot, but VesselSnapshot has crew

@@ -7,6 +7,18 @@ Entries 272–303 (78 bugs, 6 TODOs — mostly resolved) archived in `done/todo-
 
 # Known Bugs
 
+## ~~346. Ghost-only handoff fallback can misclassify stable snapshot-less chain tips as finite `Recovered`~~
+
+**Observed in:** second GPT-5.4 xhigh PR review for `review/kerbals-recording-audit` (2026-04-13). The first handoff fix treated every ghost-only chain recording as an internal handoff. Auto-committed tree recordings can also become ghost-only by having `VesselSnapshot` nulled before ledger notification, including stable tips whose terminal state is still `Orbiting`, `Landed`, `Splashed`, or `Docked`.
+
+**Root cause:** `ShouldUseGhostOnlyChainHandoffEndState()` keyed only on `ChainId + no VesselSnapshot + crew source`, so it could not distinguish unresolved handoff segments from stable ghost-only chain tips that still need their normal `Aboard`/`Unknown` semantics.
+
+**Fix:** The ghost-only handoff fallback now applies only when the recording is still unresolved (`TerminalStateValue == null`) or has a genuinely finite terminal (`Recovered`, `Destroyed`, or `Boarded`). Stable ghost-only chain tips with intact terminals stay on the normal unresolved path. Added a regression that pins an `Orbiting` ghost-only chain tip to `Unknown` instead of forced `Recovered`.
+
+**Status:** ~~Fixed~~
+
+---
+
 ## ~~345. Existing ledger kerbal rows are not repaired once bad `KerbalAssignment` data is already persisted~~
 
 **Observed in:** GPT-5.4 xhigh PR review for `review/kerbals-recording-audit` (2026-04-13). The earlier audit fixes corrected new kerbal-action generation, but `MigrateKerbalAssignments()` still treated any recording with at least one existing `KerbalAssignment` row as already migrated. Old saves that had pre-fix stand-in names or ghost/EVA `Unknown` end states therefore kept replaying the stale ledger data forever.
