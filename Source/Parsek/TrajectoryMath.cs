@@ -130,6 +130,41 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Map-view policy helper: return the active orbit segment for the given UT, or
+        /// carry the immediately preceding segment across a gap when the next segment stays
+        /// in the same SOI/body. This avoids fragmenting ghost orbit lines across brief
+        /// off-rails sections during a continuous same-body journey.
+        /// </summary>
+        internal static OrbitSegment? FindOrbitSegmentForMapDisplay(List<OrbitSegment> segments, double ut)
+        {
+            OrbitSegment? current = FindOrbitSegment(segments, ut);
+            if (current.HasValue || segments == null || segments.Count < 2)
+                return current;
+
+            OrbitSegment? previous = null;
+            for (int i = 0; i < segments.Count; i++)
+            {
+                OrbitSegment segment = segments[i];
+                if (segment.endUT <= ut)
+                {
+                    previous = segment;
+                    continue;
+                }
+
+                if (!previous.HasValue || segment.startUT <= ut)
+                    return null;
+
+                return string.IsNullOrEmpty(previous.Value.bodyName)
+                    ? (OrbitSegment?)null
+                    : (string.Equals(previous.Value.bodyName, segment.bodyName, System.StringComparison.Ordinal)
+                        ? previous
+                        : (OrbitSegment?)null);
+            }
+
+            return null;
+        }
+
+        /// <summary>
         /// Find the waypoint index for interpolation using cached lookup.
         /// Parameterized to work with any point list + cached index.
         /// </summary>

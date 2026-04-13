@@ -1102,6 +1102,28 @@ namespace Parsek.Tests
         }
 
         /// <summary>
+        /// Null terminal state with same-body segment gap: keep showing the orbit ghost.
+        /// </summary>
+        [Fact]
+        public void ShouldCreate_NullTerminal_WithSameBodyGap_Created()
+        {
+            var rec = new Recording
+            {
+                TerminalStateValue = null,
+                OrbitSegments = new List<OrbitSegment>
+                {
+                    new OrbitSegment { startUT = 100, endUT = 200, bodyName = "Kerbin", semiMajorAxis = 700000 },
+                    new OrbitSegment { startUT = 240, endUT = 500, bodyName = "Kerbin", semiMajorAxis = 710000 }
+                }
+            };
+
+            var (should, reason) = GhostMapPresence.ShouldCreateTrackingStationGhost(rec, false, 220);
+
+            Assert.True(should);
+            Assert.Null(reason);
+        }
+
+        /// <summary>
         /// Null terminal state with orbit segments: skip when UT past all segments.
         /// </summary>
         [Fact]

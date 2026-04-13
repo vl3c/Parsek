@@ -449,8 +449,9 @@ namespace Parsek
 
         /// <summary>
         /// Per-frame lifecycle for tracking station ghost ProtoVessels.
-        /// Creates ghosts when UT enters an orbit segment range (handles time warp),
-        /// and removes them when UT passes the segment endUT.
+        /// Creates ghosts when UT enters a map-visible orbit range (handles time warp),
+        /// carries them across brief same-body gaps, and removes them when the visible
+        /// orbit range is truly exhausted.
         /// Called periodically from ParsekTrackingStation.Update.
         /// In the flight scene, this lifecycle is handled by ParsekPlaybackPolicy.CheckPendingMapVessels;
         /// in the tracking station, this method provides the equivalent.
@@ -458,21 +459,37 @@ namespace Parsek
         internal static void UpdateTrackingStationGhostLifecycle()
         {
             double currentUT = Planetarium.GetUniversalTime();
+            var committed = RecordingStore.CommittedRecordings;
+            if (committed == null || committed.Count == 0) return;
 
-            // --- Phase 1: remove expired ghosts ---
+            // --- Phase 1: refresh existing segment-based ghosts or remove exhausted ones ---
             if (vesselsByRecordingIndex.Count > 0)
             {
                 List<int> toRemove = null;
                 foreach (var kvp in vesselsByRecordingIndex)
                 {
+                    int idx = kvp.Key;
                     uint pid = kvp.Value.persistentId;
                     if (!ghostOrbitBounds.TryGetValue(pid, out var bounds)) continue;
 
-                    if (currentUT > bounds.endUT)
+                    if (idx < 0 || idx >= committed.Count)
                     {
                         if (toRemove == null) toRemove = new List<int>();
-                        toRemove.Add(kvp.Key);
+                        toRemove.Add(idx);
+                        continue;
                     }
+
+                    var rec = committed[idx];
+                    OrbitSegment? seg = TrajectoryMath.FindOrbitSegmentForMapDisplay(rec.OrbitSegments, currentUT);
+                    if (!seg.HasValue)
+                    {
+                        if (toRemove == null) toRemove = new List<int>();
+                        toRemove.Add(idx);
+                        continue;
+                    }
+
+                    if (bounds.startUT != seg.Value.startUT || bounds.endUT != seg.Value.endUT)
+                        UpdateGhostOrbitForRecording(idx, seg.Value);
                 }
 
                 if (toRemove != null)
@@ -483,16 +500,13 @@ namespace Parsek
                         RemoveGhostVesselForRecording(idx, "tracking-station-expired");
                         ParsekLog.Info(Tag,
                             string.Format(ic,
-                                "Removed expired ghost #{0} — UT {1:F1} past segment endUT",
+                                "Removed expired ghost #{0} — UT {1:F1} past visible orbit range",
                                 idx, currentUT));
                     }
                 }
             }
 
-            // --- Phase 2: create ghosts for recordings that just entered orbit segment range ---
-            var committed = RecordingStore.CommittedRecordings;
-            if (committed == null || committed.Count == 0) return;
-
+            // --- Phase 2: create ghosts for recordings that just entered visible orbit range ---
             // Compute once per tick — also used by ParsekTrackingStation.OnGUI via CachedSupersededIds
             var superseded = FindSupersededRecordingIds(committed);
             CachedSupersededIds = superseded;
@@ -514,7 +528,7 @@ namespace Parsek
                 }
                 else if (rec.HasOrbitSegments)
                 {
-                    OrbitSegment? seg = TrajectoryMath.FindOrbitSegment(rec.OrbitSegments, currentUT);
+                    OrbitSegment? seg = TrajectoryMath.FindOrbitSegmentForMapDisplay(rec.OrbitSegments, currentUT);
                     if (seg.HasValue)
                         v = CreateGhostVesselFromSegment(i, rec, seg.Value);
                 }
@@ -525,7 +539,7 @@ namespace Parsek
                     EnsureGhostOrbitRenderers();
                     ParsekLog.Info(Tag,
                         string.Format(ic,
-                            "Deferred ghost creation for #{0} \"{1}\" — UT {2:F1} entered orbit segment",
+                            "Deferred ghost creation for #{0} \"{1}\" — UT {2:F1} entered visible orbit range",
                             i, rec.VesselName ?? "(null)", currentUT));
                 }
             }
@@ -791,7 +805,7 @@ namespace Parsek
             // Orbit segments: find the one matching currentUT
             if (rec.HasOrbitSegments)
             {
-                OrbitSegment? seg = TrajectoryMath.FindOrbitSegment(rec.OrbitSegments, currentUT);
+                OrbitSegment? seg = TrajectoryMath.FindOrbitSegmentForMapDisplay(rec.OrbitSegments, currentUT);
                 if (seg.HasValue)
                     return (true, null);
                 return (false, "no-current-segment");
@@ -841,7 +855,7 @@ namespace Parsek
                 }
                 else if (rec.HasOrbitSegments)
                 {
-                    OrbitSegment? seg = TrajectoryMath.FindOrbitSegment(rec.OrbitSegments, currentUT);
+                    OrbitSegment? seg = TrajectoryMath.FindOrbitSegmentForMapDisplay(rec.OrbitSegments, currentUT);
                     if (seg.HasValue)
                         v = CreateGhostVesselFromSegment(i, rec, seg.Value);
                 }

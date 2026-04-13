@@ -166,6 +166,51 @@ namespace Parsek.Tests
             Assert.Null(result);
         }
 
+        [Fact]
+        public void FindOrbitSegmentForMapDisplay_UTInSameBodyGap_CarriesPreviousSegment()
+        {
+            var segments = new List<OrbitSegment>
+            {
+                MakeSegment(100, 200, "Kerbin"),
+                MakeSegment(240, 400, "Kerbin")
+            };
+
+            var result = TrajectoryMath.FindOrbitSegmentForMapDisplay(segments, 220);
+
+            Assert.NotNull(result);
+            Assert.Equal(100, result.Value.startUT);
+            Assert.Equal(200, result.Value.endUT);
+            Assert.Equal("Kerbin", result.Value.bodyName);
+        }
+
+        [Fact]
+        public void FindOrbitSegmentForMapDisplay_UTInDifferentBodyGap_ReturnsNull()
+        {
+            var segments = new List<OrbitSegment>
+            {
+                MakeSegment(100, 200, "Kerbin"),
+                MakeSegment(240, 400, "Mun")
+            };
+
+            var result = TrajectoryMath.FindOrbitSegmentForMapDisplay(segments, 220);
+
+            Assert.Null(result);
+        }
+
+        [Fact]
+        public void FindOrbitSegmentForMapDisplay_UTPastLastSegment_ReturnsNull()
+        {
+            var segments = new List<OrbitSegment>
+            {
+                MakeSegment(100, 200, "Kerbin"),
+                MakeSegment(240, 400, "Kerbin")
+            };
+
+            var result = TrajectoryMath.FindOrbitSegmentForMapDisplay(segments, 450);
+
+            Assert.Null(result);
+        }
+
         #endregion
 
         #region OrbitSegment Serialization

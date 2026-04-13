@@ -721,7 +721,7 @@ namespace Parsek
                     IPlaybackTrajectory traj = kvp.Value;
 
                     // Path A: orbit-segment-based (existing)
-                    OrbitSegment? seg = TrajectoryMath.FindOrbitSegment(traj.OrbitSegments, currentUT);
+                    OrbitSegment? seg = TrajectoryMath.FindOrbitSegmentForMapDisplay(traj.OrbitSegments, currentUT);
                     if (seg.HasValue)
                     {
                         if (toCreateFromSegment == null)
@@ -821,10 +821,10 @@ namespace Parsek
                 var rec = committed[idx];
                 if (!rec.HasOrbitSegments) continue;
 
-                OrbitSegment? seg = TrajectoryMath.FindOrbitSegment(rec.OrbitSegments, currentUT);
+                OrbitSegment? seg = TrajectoryMath.FindOrbitSegmentForMapDisplay(rec.OrbitSegments, currentUT);
 
-                // No orbit segment at current UT — either in a gap between segments or
-                // truly past all segments. Check if future segments exist.
+                // No map-visible orbit at current UT — either we've truly left orbital
+                // playback, or the next segment is in a different SOI/body.
                 if (!seg.HasValue)
                 {
                     bool hasFutureSegment = false;
