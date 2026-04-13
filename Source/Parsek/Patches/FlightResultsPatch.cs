@@ -36,18 +36,10 @@ namespace Parsek.Patches
         /// </summary>
         internal static string PendingOutcomeMsg;
 
-        /// <summary>
-        /// Active-crash fallback path: the original crash flow is still resolving whether a
-        /// later scene-change / OnFlightReady path will materialize a real merge owner.
-        /// While this is true, deferred FlightResults state may survive scene change, but it
-        /// must be resolved explicitly once the post-load owner state is known.
-        /// </summary>
-        internal static bool AwaitingSceneChangeMergeOwner;
-
         internal static DisplayInterceptDecision ClassifyDisplayIntercept(
             bool bypass,
             bool isAutoMerge,
-            bool deferredMergeArmed,
+            bool shouldIntercept,
             bool hasPendingOutcome)
         {
             if (bypass)
@@ -59,7 +51,7 @@ namespace Parsek.Patches
             if (hasPendingOutcome)
                 return DisplayInterceptDecision.SuppressDuplicate;
 
-            if (deferredMergeArmed)
+            if (shouldIntercept)
                 return DisplayInterceptDecision.SuppressAndCapture;
 
             return DisplayInterceptDecision.Allow;
@@ -67,10 +59,13 @@ namespace Parsek.Patches
 
         internal static bool Prefix(string outcomeMsg)
         {
+            bool shouldIntercept = DeferredMergeArmed
+                || RecordingStore.HasPendingTree
+                || HasActiveDestroyedRecording();
             var decision = ClassifyDisplayIntercept(
                 Bypass,
                 ParsekScenario.IsAutoMerge,
-                DeferredMergeArmed,
+                shouldIntercept,
                 HasPendingResults());
 
             switch (decision)
@@ -147,66 +142,11 @@ namespace Parsek.Patches
         internal static void DisarmDeferredMerge(string reason)
         {
             if (!DeferredMergeArmed)
-            {
-                AwaitingSceneChangeMergeOwner = false;
                 return;
-            }
 
             DeferredMergeArmed = false;
-            AwaitingSceneChangeMergeOwner = false;
             ParsekLog.Info("FlightResultsPatch",
                 $"Disarmed deferred FlightResults suppression ({reason})");
-        }
-
-        internal static void BeginAwaitingSceneChangeMergeOwner(string reason)
-        {
-            if (ParsekScenario.IsAutoMerge)
-                return;
-
-            if (AwaitingSceneChangeMergeOwner)
-            {
-                ParsekLog.Verbose("FlightResultsPatch",
-                    $"BeginAwaitingSceneChangeMergeOwner: already awaiting ({reason})");
-                return;
-            }
-
-            AwaitingSceneChangeMergeOwner = true;
-            ParsekLog.Info("FlightResultsPatch",
-                $"Awaiting scene-change merge owner ({reason})");
-        }
-
-        internal static void StopAwaitingSceneChangeMergeOwner(string reason)
-        {
-            if (!AwaitingSceneChangeMergeOwner)
-                return;
-
-            AwaitingSceneChangeMergeOwner = false;
-            ParsekLog.Info("FlightResultsPatch",
-                $"Stopped awaiting scene-change merge owner ({reason})");
-        }
-
-        internal static void ResolveAwaitingSceneChangeMergeOwnerOnFlightReady(
-            bool mergeOwnerExists,
-            string reason)
-        {
-            if (!AwaitingSceneChangeMergeOwner)
-                return;
-
-            AwaitingSceneChangeMergeOwner = false;
-
-            if (mergeOwnerExists)
-                return;
-
-            ClearPending(reason);
-        }
-
-        internal static bool ShouldPreserveAwaitingSceneChangeOwnerOnSceneChange(
-            bool awaitingSceneChangeMergeOwner,
-            GameScenes? pendingDestinationScene)
-        {
-            return awaitingSceneChangeMergeOwner
-                && pendingDestinationScene.HasValue
-                && pendingDestinationScene.Value != GameScenes.MAINMENU;
         }
 
         /// <summary>
@@ -218,6 +158,14 @@ namespace Parsek.Patches
             string msg = PrepareReplayFlightResults(reason);
             if (string.IsNullOrEmpty(msg))
                 return;
+
+            if (HighLogic.LoadedScene != GameScenes.FLIGHT)
+            {
+                ParsekLog.Warn("FlightResultsPatch",
+                    $"ReplayFlightResults: refusing to show stock dialog outside FLIGHT " +
+                    $"(scene={HighLogic.LoadedScene})");
+                return;
+            }
 
             FlightResultsDialog.Display(msg);
         }
@@ -233,7 +181,6 @@ namespace Parsek.Patches
             string msg = PendingOutcomeMsg;
             PendingOutcomeMsg = null;
             DeferredMergeArmed = false;
-            AwaitingSceneChangeMergeOwner = false;
 
             if (string.IsNullOrEmpty(msg))
             {
@@ -266,48 +213,6 @@ namespace Parsek.Patches
         }
 
         /// <summary>
-        /// Returns true when a pending tree represents a real merge owner for deferred
-        /// stock flight results. Limbo carriers are restore state, not merge dialogs.
-        /// </summary>
-        internal static bool PendingTreeOwnsReplay(
-            bool hasPendingTree,
-            PendingTreeState pendingTreeState)
-        {
-            return hasPendingTree && pendingTreeState == PendingTreeState.Finalized;
-        }
-
-        /// <summary>
-        /// Returns true when a captured stock dialog should be replayed on flight ready.
-        /// Pending-tree merge owners / merge-dialog owners suppress the safety-net replay
-        /// because they are responsible for showing Parsek's dialog first.
-        /// </summary>
-        internal static bool ShouldReplayOnFlightReady(
-            bool pendingTreeOwnsReplay,
-            bool mergeDialogPending)
-        {
-            if (!HasPendingResults())
-                return false;
-
-            return !pendingTreeOwnsReplay && !mergeDialogPending;
-        }
-
-        /// <summary>
-        /// Returns true when a captured stock dialog should survive scene change because
-        /// another owner (existing pending tree, current scene-exit merge path, or an
-        /// already-pending scenario merge dialog) will resolve it later.
-        /// </summary>
-        internal static bool ShouldPreserveCapturedResultsOnSceneChange(
-            bool pendingTreeOwnsReplay,
-            bool sceneChangeWillCreateMergeOwner,
-            bool mergeDialogPending)
-        {
-            if (!HasPendingResults())
-                return false;
-
-            return pendingTreeOwnsReplay || sceneChangeWillCreateMergeOwner || mergeDialogPending;
-        }
-
-        /// <summary>
         /// Clears all deferred flight-results state without replaying it.
         /// Used on scene change to prevent stale crash reports from persisting.
         /// </summary>
@@ -333,7 +238,18 @@ namespace Parsek.Patches
 
             PendingOutcomeMsg = null;
             DeferredMergeArmed = false;
-            AwaitingSceneChangeMergeOwner = false;
+        }
+
+        /// <summary>
+        /// Checks if the active recorder has a destroyed vessel recording in progress
+        /// that hasn't been stashed yet (the split/coroutine path will stash it shortly).
+        /// </summary>
+        static bool HasActiveDestroyedRecording()
+        {
+            var recorder = PhysicsFramePatch.ActiveRecorder;
+            if (recorder != null && recorder.VesselDestroyedDuringRecording)
+                return true;
+            return false;
         }
     }
 }
