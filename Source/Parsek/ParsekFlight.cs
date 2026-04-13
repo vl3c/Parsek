@@ -1231,15 +1231,14 @@ namespace Parsek
                 yield break;
             }
 
-            bool activeDestroyed = recorder == null || !recorder.IsRecording
-                || recorder.VesselDestroyedDuringRecording;
-            if (!RecordingTree.AreAllLeavesTerminal(activeTree.Recordings,
-                activeTree.ActiveRecordingId, activeDestroyed))
+            if (!RecordingTree.AreAllLeavesMergeReadyAfterActiveCrash(
+                activeTree.Recordings,
+                activeTree.ActiveRecordingId))
             {
                 Patches.FlightResultsPatch.CancelDeferredMerge(
-                    "tree destruction dialog aborted: not all leaves terminal");
+                    "tree destruction dialog aborted: non-debris leaves still merge-blocking");
                 ParsekLog.Info("Flight",
-                    "ShowPostDestructionTreeMergeDialog: not all leaves terminal — other vessels still alive");
+                    "ShowPostDestructionTreeMergeDialog: non-debris leaves still merge-blocking — other vessels still alive");
                 treeDestructionDialogPending = false;
                 yield break;
             }

@@ -1202,6 +1202,14 @@ namespace Parsek
             return baseState;
         }
 
+        static bool IsNonSpawnableTerminal(TerminalState terminalState)
+        {
+            return terminalState == TerminalState.Destroyed
+                || terminalState == TerminalState.Recovered
+                || terminalState == TerminalState.Docked
+                || terminalState == TerminalState.Boarded;
+        }
+
         /// <summary>
         /// Pure decision method: checks whether all leaf recordings in a tree have
         /// non-spawnable terminal states (Destroyed, Recovered, Docked, Boarded).
@@ -1258,8 +1266,7 @@ namespace Parsek
                 }
 
                 var ts = rec.TerminalStateValue.Value;
-                if (ts == TerminalState.Destroyed || ts == TerminalState.Recovered
-                    || ts == TerminalState.Docked || ts == TerminalState.Boarded)
+                if (IsNonSpawnableTerminal(ts))
                 {
                     // Non-spawnable terminal state — this leaf is done
                     ParsekLog.Verbose("TreeDestruction",
@@ -1274,6 +1281,74 @@ namespace Parsek
             }
 
             ParsekLog.Verbose("TreeDestruction", "AreAllLeavesTerminal: all leaves are terminal — returning true");
+            return true;
+        }
+
+        /// <summary>
+        /// Active-vessel crash readiness check for same-scene tree merge handling.
+        /// After the active recording is destroyed, debris leaves should not block the
+        /// merge dialog even if they still have null or spawnable terminal state, because
+        /// Parsek does not surface those debris vessels as merge-owned survivors. Any
+        /// non-debris leaf must still be fully terminal before the tree is merge-ready.
+        /// </summary>
+        internal static bool AreAllLeavesMergeReadyAfterActiveCrash(
+            Dictionary<string, Recording> recordings,
+            string activeRecordingId)
+        {
+            if (recordings.Count == 0)
+            {
+                ParsekLog.Verbose("TreeDestruction",
+                    "AreAllLeavesMergeReadyAfterActiveCrash: empty recordings dict — returning true");
+                return true;
+            }
+
+            foreach (var kvp in recordings)
+            {
+                var rec = kvp.Value;
+
+                if (rec.ChildBranchPointId != null)
+                    continue;
+
+                bool isActiveRecording = activeRecordingId != null && rec.RecordingId == activeRecordingId;
+                if (isActiveRecording)
+                {
+                    ParsekLog.Verbose("TreeDestruction",
+                        $"AreAllLeavesMergeReadyAfterActiveCrash: leaf '{rec.RecordingId}' ({rec.VesselName}) is the destroyed active recording — merge-ready");
+                    continue;
+                }
+
+                if (rec.IsDebris)
+                {
+                    string terminalText = rec.TerminalStateValue.HasValue
+                        ? $"terminal={rec.TerminalStateValue.Value}"
+                        : "terminal=<null>";
+                    ParsekLog.Verbose("TreeDestruction",
+                        $"AreAllLeavesMergeReadyAfterActiveCrash: leaf '{rec.RecordingId}' ({rec.VesselName}) is debris with {terminalText} — merge-ready");
+                    continue;
+                }
+
+                if (!rec.TerminalStateValue.HasValue)
+                {
+                    ParsekLog.Verbose("TreeDestruction",
+                        $"AreAllLeavesMergeReadyAfterActiveCrash: leaf '{rec.RecordingId}' ({rec.VesselName}) has no terminal state and is not debris — NOT merge-ready");
+                    return false;
+                }
+
+                var ts = rec.TerminalStateValue.Value;
+                if (IsNonSpawnableTerminal(ts))
+                {
+                    ParsekLog.Verbose("TreeDestruction",
+                        $"AreAllLeavesMergeReadyAfterActiveCrash: leaf '{rec.RecordingId}' ({rec.VesselName}) terminal={ts} — dead");
+                    continue;
+                }
+
+                ParsekLog.Verbose("TreeDestruction",
+                    $"AreAllLeavesMergeReadyAfterActiveCrash: leaf '{rec.RecordingId}' ({rec.VesselName}) terminal={ts} and is not debris — spawnable, NOT merge-ready");
+                return false;
+            }
+
+            ParsekLog.Verbose("TreeDestruction",
+                "AreAllLeavesMergeReadyAfterActiveCrash: all leaves are merge-ready — returning true");
             return true;
         }
     }
