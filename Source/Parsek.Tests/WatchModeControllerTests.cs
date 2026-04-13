@@ -372,5 +372,55 @@ namespace Parsek.Tests
             Assert.Equal(WatchCameraMode.Free, result);
         }
 
+        [Fact]
+        public void InitializeMapFocusRestoreState_MapAlreadyOpen_PrimesOneShotRestore()
+        {
+            var (lastMapViewEnabled, pendingMapFocusRestore) =
+                WatchModeController.InitializeMapFocusRestoreState(mapViewEnabled: true);
+
+            Assert.True(lastMapViewEnabled);
+            Assert.True(pendingMapFocusRestore);
+        }
+
+        [Fact]
+        public void AdvanceMapFocusRestoreState_ReopeningMap_RearmsRestoreAttempt()
+        {
+            var (lastMapViewEnabled, pendingMapFocusRestore, shouldAttemptRestore) =
+                WatchModeController.AdvanceMapFocusRestoreState(
+                    lastMapViewEnabled: false,
+                    pendingMapFocusRestore: false,
+                    mapViewEnabled: true);
+
+            Assert.True(lastMapViewEnabled);
+            Assert.True(pendingMapFocusRestore);
+            Assert.True(shouldAttemptRestore);
+        }
+
+        [Fact]
+        public void AdvanceMapFocusRestoreState_MapStillOpenWithoutPendingRestore_DoesNotRefocusAgain()
+        {
+            var (lastMapViewEnabled, pendingMapFocusRestore, shouldAttemptRestore) =
+                WatchModeController.AdvanceMapFocusRestoreState(
+                    lastMapViewEnabled: true,
+                    pendingMapFocusRestore: false,
+                    mapViewEnabled: true);
+
+            Assert.True(lastMapViewEnabled);
+            Assert.False(pendingMapFocusRestore);
+            Assert.False(shouldAttemptRestore);
+        }
+
+        [Fact]
+        public void CanRestoreMapFocus_MissingMapObject_StaysDeferred()
+        {
+            bool canRestore = WatchModeController.CanRestoreMapFocus(
+                ghostPid: 123u,
+                hasGhostVessel: true,
+                hasMapObject: false,
+                hasPlanetariumCamera: true);
+
+            Assert.False(canRestore);
+        }
+
     }
 }
