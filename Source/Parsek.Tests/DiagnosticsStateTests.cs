@@ -847,6 +847,44 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void PopulateGhostStateCounts_UsesRenderDistanceInsteadOfActiveVesselDistance()
+        {
+            var primary = new Dictionary<int, GhostPlaybackState>
+            {
+                { 0, new GhostPlaybackState
+                    {
+                        currentZone = RenderingZone.Physics,
+                        lastDistance = 150000.0,
+                        lastRenderDistance = 1000.0
+                    }
+                },
+                { 1, new GhostPlaybackState
+                    {
+                        currentZone = RenderingZone.Beyond,
+                        lastDistance = 1000.0,
+                        lastRenderDistance = 150000.0
+                    }
+                }
+            };
+
+            var snap = new MetricSnapshot();
+            DiagnosticsComputation.PopulateGhostStateCounts(
+                ref snap,
+                primary,
+                overlapStates: null,
+                watchedIndex: 1,
+                watchedLoopCycleIndex: -1,
+                fallbackActiveGhostCount: 99);
+
+            Assert.Equal(0, snap.activeGhostCount);
+            Assert.Equal(0, snap.activeOverlapGhostCount);
+            Assert.Equal(2, snap.fullGhostCount);
+            Assert.Equal(0, snap.reducedGhostCount);
+            Assert.Equal(0, snap.hiddenGhostCount);
+            Assert.Equal(1, snap.watchedOverrideGhostCount);
+        }
+
+        [Fact]
         public void PopulateGhostStateCounts_WatchedOverlapCycleMismatch_DoesNotCountOverride()
         {
             var primary = new Dictionary<int, GhostPlaybackState>

@@ -57,6 +57,7 @@ namespace Parsek
         public Vector3 lastValidHorizonForward; // fallback forward direction when velocity near zero
         public RenderingZone currentZone = RenderingZone.Physics; // distance-based rendering zone
         public double lastDistance; // meters from active vessel, updated per frame in ApplyZonePolicy
+        public double lastRenderDistance = double.NaN; // meters from the active render camera/reference, updated per frame in ApplyZonePolicy
         public int flagEventIndex;               // tracks which flags have been spawned
         public bool hadVisibleRenderersLastFrame; // true after the ghost produced visible mesh on the previous frame
         public int appearanceCount;              // increments every time the ghost becomes visibly rendered again
