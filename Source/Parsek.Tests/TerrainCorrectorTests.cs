@@ -151,6 +151,45 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void ClampAltitude_LongRangeWatchRepro_UsesDistanceAwareClearance()
+        {
+            // Repro from logs/2026-04-13_2136: watched landed ghost #19 was in
+            // Visual zone at 18.621 km with alt=283.8 and PQS terrain=283.1.
+            // The distance-based clearance at that range is ~2.42 m, so the
+            // visual floor should be ~285.52 m instead of the old 283.6 m
+            // (terrain + 0.5 m) last-frame floor.
+            double clearance = ParsekFlight.ComputeTerrainClearance(18621.0);
+            double result = TerrainCorrector.ClampAltitude(283.8, 283.1, clearance);
+            Assert.Equal(283.1 + clearance, result, 3);
+        }
+
+        [Fact]
+        public void ResolveNaNFallbackLandedGhostClearance_BelowLegacyFloor_UsesLegacyMinimum()
+        {
+            double clearance = ParsekFlight.ResolveNaNFallbackLandedGhostClearanceMeters(2.42);
+            Assert.Equal(VesselSpawner.LandedGhostClearanceMeters, clearance, 3);
+        }
+
+        [Fact]
+        public void ResolveNaNFallbackLandedGhostClearance_AboveLegacyFloor_UsesDistanceAwareFloor()
+        {
+            double clearance = ParsekFlight.ResolveNaNFallbackLandedGhostClearanceMeters(5.0);
+            Assert.Equal(5.0, clearance, 3);
+        }
+
+        [Fact]
+        public void ShouldApplyImmediateSurfacePositionClearance_NaNTerrain_False()
+        {
+            Assert.False(ParsekFlight.ShouldApplyImmediateSurfacePositionClearance(double.NaN));
+        }
+
+        [Fact]
+        public void ShouldApplyImmediateSurfacePositionClearance_CapturedTerrain_True()
+        {
+            Assert.True(ParsekFlight.ShouldApplyImmediateSurfacePositionClearance(283.1));
+        }
+
+        [Fact]
         public void ClampAltitude_JustAboveClearance_NoChange()
         {
             // Ghost at 70.6m, terrain at 70m, clearance 0.5m — just above threshold

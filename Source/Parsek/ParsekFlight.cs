@@ -499,6 +499,7 @@ namespace Parsek
             engine.IsWatchedGhostStateResolver = (recordingIndex, state) =>
                 watchMode != null && watchMode.IsWatchedGhostState(recordingIndex, state);
             engine.ResolvePlaybackDistanceOverride = ResolvePlaybackDistanceForEngine;
+            engine.ResolvePlaybackActiveVesselDistanceOverride = ResolvePlaybackActiveVesselDistanceForEngine;
             policy = new ParsekPlaybackPolicy(engine, this);
 
             // Clean up any orphaned toolbar from rapid scene transitions (e.g. rewind)
@@ -8622,15 +8623,16 @@ namespace Parsek
         /// Shared by normal, background, and looped ghost update paths.
         /// </summary>
         ZoneRenderingResult ApplyZoneRenderingImpl(int recIdx, GhostPlaybackState state, IPlaybackTrajectory rec,
-            double ghostDistance, int protectedIndex)
+            double renderDistance, int protectedIndex)
         {
-            var zone = RenderingZoneManager.ClassifyDistance(ghostDistance);
+            double activeVesselDistance = state != null ? state.lastDistance : renderDistance;
+            var zone = RenderingZoneManager.ClassifyDistance(renderDistance);
             var (isWatchedGhost, _, isWatchProtectedRecording) =
                 ResolveZoneWatchState(recIdx, state, protectedIndex);
 
-            // Cache distance on state for use by IsGhostWithinVisualRange
+            // Cache render distance separately from active-vessel safety distance.
             if (state != null)
-                state.lastDistance = ghostDistance;
+                state.lastRenderDistance = renderDistance;
 
             // Detect zone transition
             if (state != null)
@@ -8639,7 +8641,7 @@ namespace Parsek
                 if (GhostPlaybackLogic.DetectZoneTransition(state.currentZone, zone, out transDesc))
                 {
                     RenderingZoneManager.LogZoneTransition(
-                        $"#{recIdx} \"{rec.VesselName}\"", state.currentZone, zone, ghostDistance);
+                        $"#{recIdx} \"{rec.VesselName}\"", state.currentZone, zone, renderDistance);
                     state.currentZone = zone;
                 }
             }
@@ -8653,19 +8655,20 @@ namespace Parsek
             if (isWatchedGhost || isWatchProtectedRecording)
             {
                 float cutoffKm = DistanceThresholds.GhostFlight.GetWatchCameraCutoffKm(ParsekSettings.Current);
-                if (isWatchedGhost && GhostPlaybackLogic.ShouldExitWatchForCutoff(ghostDistance, cutoffKm))
+                if (isWatchedGhost && GhostPlaybackLogic.ShouldExitWatchForCutoff(activeVesselDistance, cutoffKm))
                 {
                     ParsekLog.Info("Zone",
                         $"Ghost #{recIdx} \"{rec.VesselName}\" exceeded ghost camera cutoff " +
-                        $"({ghostDistance.ToString("F0", CultureInfo.InvariantCulture)}m >= " +
-                        $"{(cutoffKm * 1000.0).ToString("F0", CultureInfo.InvariantCulture)}m) — exiting watch mode");
+                        $"({activeVesselDistance.ToString("F0", CultureInfo.InvariantCulture)}m from active vessel >= " +
+                        $"{(cutoffKm * 1000.0).ToString("F0", CultureInfo.InvariantCulture)}m; " +
+                        $"render={renderDistance.ToString("F0", CultureInfo.InvariantCulture)}m) — exiting watch mode");
                     ExitWatchModePreservingLineage();
                     // Don't return — let zone rendering continue (ghost will be hidden if Beyond)
                 }
                 else
                 {
                     forceWatchedFullFidelity = isWatchProtectedRecording || GhostPlaybackLogic.ShouldForceWatchedFullFidelity(
-                        isWatchedGhost, ghostDistance, cutoffKm);
+                        isWatchedGhost, activeVesselDistance, cutoffKm);
                     (shouldHideMesh, shouldSkipPartEvents, shouldSkipPositioning) =
                         GhostPlaybackLogic.ApplyWatchedFullFidelityOverride(
                             shouldHideMesh, shouldSkipPartEvents, shouldSkipPositioning,
@@ -8684,7 +8687,7 @@ namespace Parsek
                                 : "watch-protected debris";
                             ParsekLog.VerboseRateLimited("Zone", $"watch-protected-zone-exempt-{recIdx}",
                                 $"Ghost #{recIdx} \"{rec.VesselName}\" beyond visual range " +
-                                $"({ghostDistance.ToString("F0", CultureInfo.InvariantCulture)}m) but {reason} — exempt from full-fidelity LOD suppression",
+                                $"({renderDistance.ToString("F0", CultureInfo.InvariantCulture)}m render distance) but {reason} — exempt from full-fidelity LOD suppression",
                                 5.0);
                         }
                     }
@@ -8695,7 +8698,7 @@ namespace Parsek
                 distanceSuppressVisualFx, distanceReduceFidelity) =
                 GhostPlaybackLogic.ApplyDistanceLodPolicy(
                     shouldHideMesh, shouldSkipPartEvents, shouldSkipPositioning,
-                    ghostDistance, forceWatchedFullFidelity);
+                    renderDistance, forceWatchedFullFidelity);
             shouldHideMesh = distanceHideMesh;
             shouldSkipPartEvents = distanceSkipPartEvents;
             shouldSkipPositioning = distanceSkipPositioning;
@@ -8708,7 +8711,7 @@ namespace Parsek
                 shouldHideMesh = false;
                 ParsekLog.VerboseRateLimited("Zone", $"warp-zone-exempt-{recIdx}",
                     $"Ghost #{recIdx} \"{rec.VesselName}\" beyond visual range " +
-                    $"({ghostDistance.ToString("F0", CultureInfo.InvariantCulture)}m) " +
+                    $"({renderDistance.ToString("F0", CultureInfo.InvariantCulture)}m render distance) " +
                     $"but exempt during warp (orbital ghost)", 5.0);
             }
 
@@ -8719,7 +8722,7 @@ namespace Parsek
                     state.ghost.SetActive(false);
                     ParsekLog.VerboseRateLimited("Zone", "zone-hide",
                         $"Ghost #{recIdx} \"{rec.VesselName}\" hidden by distance LOD " +
-                        $"({ghostDistance.ToString("F0", CultureInfo.InvariantCulture)}m)");
+                        $"({renderDistance.ToString("F0", CultureInfo.InvariantCulture)}m render distance)");
                 }
                 return new ZoneRenderingResult
                 {
@@ -8737,7 +8740,7 @@ namespace Parsek
                 state.ghost.SetActive(true);
                 ParsekLog.VerboseRateLimited("Zone", "zone-show",
                     $"Ghost #{recIdx} \"{rec.VesselName}\" re-shown: entered visible distance tier " +
-                    $"({ghostDistance.ToString("F0", CultureInfo.InvariantCulture)}m)");
+                    $"({renderDistance.ToString("F0", CultureInfo.InvariantCulture)}m render distance)");
             }
 
             return new ZoneRenderingResult
@@ -8816,16 +8819,21 @@ namespace Parsek
             // under ~2 m buries the pod. Applies only to the PositionAtPoint
             // call sites (past-end hold, loop cycle boundary, loop pause hold,
             // overlap expired): these are the "stuck at final point" paths.
-            // Normal in-flight playback goes through InterpolateAndPosition and
-            // still relies on the existing ClampGhostsToTerrain LateUpdate pass
-            // with its 0.5 m floor — mid-playback clamp is a follow-up tracked
-            // in the #282 todo-and-known-bugs entry.
+            // Normal in-flight playback already gets the distance-aware terrain
+            // floor from ClampGhostsToTerrain in LateUpdate; mirror that same
+            // minimum here so long-range watched landed ghosts do not sink below
+            // the visual terrain right as playback reaches its final point.
             TrajectoryPoint positioned = point;
             if (traj != null)
             {
                 var term = traj.TerminalStateValue;
                 if (term == TerminalState.Landed || term == TerminalState.Splashed)
-                    positioned = ApplyLandedGhostClearance(point, index, traj.VesselName, traj.TerrainHeightAtEnd);
+                {
+                    positioned = ApplyLandedGhostClearance(
+                        point, index, traj.VesselName, traj.TerrainHeightAtEnd,
+                        ResolveImmediateLandedGhostClearanceMeters(
+                            point.bodyName, point.latitude, point.longitude, point.altitude));
+                }
             }
 
             PositionGhostAt(state.ghost, positioned);
@@ -8835,6 +8843,30 @@ namespace Parsek
             // for its "ghost at alt N m on Kerbin" line — if we don't update it,
             // the log reports the buried raw altitude even after the visual is fixed.
             state.lastInterpolatedAltitude = positioned.altitude;
+        }
+
+        private static double ResolveImmediateLandedGhostClearanceMeters(
+            string bodyName, double latitude, double longitude, double altitude)
+        {
+            CelestialBody body = FlightGlobals.Bodies?.Find(b => b.name == bodyName);
+            if (body == null || FlightGlobals.ActiveVessel == null)
+                return 0.5;
+
+            Vector3d pointWorld = body.GetWorldSurfacePosition(latitude, longitude, altitude);
+            double distToVessel = Vector3d.Distance(pointWorld, FlightGlobals.ActiveVessel.GetWorldPos3D());
+            return ComputeTerrainClearance(distToVessel);
+        }
+
+        internal static double ResolveNaNFallbackLandedGhostClearanceMeters(double minClearanceMeters)
+        {
+            return System.Math.Max(
+                VesselSpawner.LandedGhostClearanceMeters,
+                System.Math.Max(0.5, minClearanceMeters));
+        }
+
+        internal static bool ShouldApplyImmediateSurfacePositionClearance(double recordedTerrainHeight)
+        {
+            return !double.IsNaN(recordedTerrainHeight);
         }
 
         /// <summary>
@@ -8849,16 +8881,21 @@ namespace Parsek
         ///
         /// <para>New behavior: preserve the recorded altitude. The only correction
         /// is an underground safety floor — push up if the recorded altitude is
-        /// below (current PQS terrain + 0.5 m), which only fires when PQS terrain
-        /// has shifted UP since recording. For NaN-recorded-terrain legacy
-        /// recordings we fall back to a fixed clearance above PQS.</para>
+        /// below the current PQS terrain floor. The caller supplies the minimum
+        /// clearance to use for the current playback context; long-range watched
+        /// ghosts use the same distance-aware floor as <c>ClampGhostsToTerrain</c>.
+        /// For NaN-recorded-terrain legacy recordings we keep the historical 4 m
+        /// minimum clearance above PQS, but allow callers to request a larger
+        /// distance-aware floor at extreme watch ranges.</para>
         ///
         /// <para>Ghosts are kinematic — no physics damage concern — so the safety
-        /// floor is small (0.5 m). <c>internal static</c> so in-game tests can
-        /// exercise it without needing a full <c>IGhostPositioner</c> chain.</para>
+        /// floor defaults to 0.5 m when the caller has no better context.
+        /// <c>internal static</c> so in-game tests can exercise it without
+        /// needing a full <c>IGhostPositioner</c> chain.</para>
         /// </summary>
         internal static TrajectoryPoint ApplyLandedGhostClearance(
-            TrajectoryPoint p, int index, string vesselName, double recordedTerrainHeight)
+            TrajectoryPoint p, int index, string vesselName, double recordedTerrainHeight,
+            double minClearanceMeters = 0.5)
         {
             CelestialBody body = FlightGlobals.Bodies?.Find(b => b.name == p.bodyName);
             if (body == null)
@@ -8875,11 +8912,15 @@ namespace Parsek
             var ic = System.Globalization.CultureInfo.InvariantCulture;
             double pqsTerrain = body.TerrainAltitude(p.latitude, p.longitude, true);
 
-            // Legacy (NaN) path: no recorded surface height — use fixed clearance
-            // above PQS terrain as before.
+            double floorClearance = System.Math.Max(0.5, minClearanceMeters);
+
+            // Legacy (NaN) path: no recorded surface height — keep the historical
+            // 4 m fallback floor, but honor a larger caller-requested clearance so
+            // long-range watched ghosts do not clip near the edge of visual range.
             if (double.IsNaN(recordedTerrainHeight))
             {
-                double legacyTarget = pqsTerrain + VesselSpawner.LandedGhostClearanceMeters;
+                double legacyClearance = ResolveNaNFallbackLandedGhostClearanceMeters(minClearanceMeters);
+                double legacyTarget = pqsTerrain + legacyClearance;
                 if (p.altitude >= legacyTarget)
                     return p;
                 // delta is always > 0 here because we already verified p.altitude < legacyTarget.
@@ -8888,7 +8929,7 @@ namespace Parsek
                     $"Landed ghost clamp #{index} (\"{vesselName}\"): " +
                     $"alt={p.altitude.ToString("F1", ic)} pqsTerrain={pqsTerrain.ToString("F1", ic)} " +
                     $"-> {legacyTarget.ToString("F1", ic)} (delta=+{delta.ToString("F2", ic)}m, " +
-                    $"body={body.name}, NaN fallback)");
+                    $"body={body.name}, NaN fallback, clearance={legacyClearance.ToString("F1", ic)}m)");
                 p.altitude = legacyTarget;
                 return p;
             }
@@ -8896,7 +8937,7 @@ namespace Parsek
             // Primary path: trust the recorded altitude. Only push up if the
             // recorded altitude is below the current PQS terrain floor — which
             // only happens when PQS terrain has shifted UP since recording.
-            double safetyFloor = pqsTerrain + 0.5;
+            double safetyFloor = pqsTerrain + floorClearance;
             if (p.altitude >= safetyFloor)
                 return p;
 
@@ -8905,7 +8946,7 @@ namespace Parsek
                 $"Landed ghost clamp #{index} (\"{vesselName}\"): " +
                 $"alt={p.altitude.ToString("F1", ic)} pqsTerrain={pqsTerrain.ToString("F1", ic)} " +
                 $"-> {safetyFloor.ToString("F1", ic)} (delta=+{upDelta.ToString("F2", ic)}m, " +
-                $"body={body.name}, below-pqs-floor, " +
+                $"body={body.name}, below-pqs-floor, clearance={floorClearance.ToString("F1", ic)}m, " +
                 $"recSurface={recordedTerrainHeight.ToString("F1", ic)})");
             p.altitude = safetyFloor;
             return p;
@@ -8915,7 +8956,28 @@ namespace Parsek
             GhostPlaybackState state)
         {
             if (state?.ghost == null || traj?.SurfacePos == null) return;
-            PositionGhostAtSurface(state.ghost, traj.SurfacePos.Value, ShouldAutoActivateGhost(state));
+
+            SurfacePosition positioned = traj.SurfacePos.Value;
+            if (ShouldApplyImmediateSurfacePositionClearance(traj.TerrainHeightAtEnd))
+            {
+                var syntheticPoint = new TrajectoryPoint
+                {
+                    latitude = positioned.latitude,
+                    longitude = positioned.longitude,
+                    altitude = positioned.altitude,
+                    rotation = positioned.rotation,
+                    bodyName = positioned.body,
+                };
+                syntheticPoint = ApplyLandedGhostClearance(
+                    syntheticPoint, index, traj.VesselName, traj.TerrainHeightAtEnd,
+                    ResolveImmediateLandedGhostClearanceMeters(
+                        positioned.body, positioned.latitude, positioned.longitude, positioned.altitude));
+                positioned.altitude = syntheticPoint.altitude;
+            }
+
+            PositionGhostAtSurface(state.ghost, positioned, ShouldAutoActivateGhost(state));
+            state.lastInterpolatedBodyName = positioned.body;
+            state.lastInterpolatedAltitude = positioned.altitude;
         }
 
         void IGhostPositioner.PositionFromOrbit(int index, IPlaybackTrajectory traj,
@@ -9301,25 +9363,101 @@ namespace Parsek
         // Tracks which anchor-not-found warnings have been logged
         private readonly HashSet<long> loggedAnchorNotFound = new HashSet<long>();
 
+        internal static bool TryResolvePlaybackDistanceReferencePosition(
+            bool mapViewEnabled,
+            Vector3d? cameraWorldPosition,
+            Vector3d? activeVesselWorldPosition,
+            out Vector3d referencePosition)
+        {
+            referencePosition = Vector3d.zero;
+
+            if (!mapViewEnabled
+                && cameraWorldPosition.HasValue
+                && IsFiniteVector3d(cameraWorldPosition.Value))
+            {
+                referencePosition = cameraWorldPosition.Value;
+                return true;
+            }
+
+            if (activeVesselWorldPosition.HasValue
+                && IsFiniteVector3d(activeVesselWorldPosition.Value))
+            {
+                referencePosition = activeVesselWorldPosition.Value;
+                return true;
+            }
+
+            if (cameraWorldPosition.HasValue
+                && IsFiniteVector3d(cameraWorldPosition.Value))
+            {
+                referencePosition = cameraWorldPosition.Value;
+                return true;
+            }
+
+            return false;
+        }
+
+        private static bool IsFiniteVector3d(Vector3d value)
+        {
+            return !double.IsNaN(value.x) && !double.IsInfinity(value.x)
+                && !double.IsNaN(value.y) && !double.IsInfinity(value.y)
+                && !double.IsNaN(value.z) && !double.IsInfinity(value.z);
+        }
+
         double ResolvePlaybackDistanceForEngine(
             int index, IPlaybackTrajectory traj, GhostPlaybackState state, double playbackUT)
         {
-            if (FlightGlobals.ActiveVessel == null)
+            Camera sceneCamera = FlightCamera.fetch?.mainCamera;
+            Vector3d? cameraWorldPosition = sceneCamera != null
+                ? (Vector3d?)sceneCamera.transform.position
+                : null;
+            Vector3d? activeVesselWorldPosition = FlightGlobals.ActiveVessel != null
+                ? (Vector3d?)FlightGlobals.ActiveVessel.transform.position
+                : null;
+            Vector3d referencePosition;
+            if (!TryResolvePlaybackDistanceReferencePosition(
+                    MapView.MapIsEnabled,
+                    cameraWorldPosition,
+                    activeVesselWorldPosition,
+                    out referencePosition))
+            {
                 return double.NaN;
+            }
 
+            return ResolvePlaybackDistanceFromReferencePosition(
+                index, traj, state, playbackUT, referencePosition);
+        }
+
+        double ResolvePlaybackActiveVesselDistanceForEngine(
+            int index, IPlaybackTrajectory traj, GhostPlaybackState state, double playbackUT)
+        {
+            Vector3d? activeVesselWorldPosition = FlightGlobals.ActiveVessel != null
+                ? (Vector3d?)FlightGlobals.ActiveVessel.transform.position
+                : null;
+            if (!activeVesselWorldPosition.HasValue
+                || !IsFiniteVector3d(activeVesselWorldPosition.Value))
+            {
+                return ResolvePlaybackDistanceForEngine(index, traj, state, playbackUT);
+            }
+
+            return ResolvePlaybackDistanceFromReferencePosition(
+                index, traj, state, playbackUT, activeVesselWorldPosition.Value);
+        }
+
+        double ResolvePlaybackDistanceFromReferencePosition(
+            int index, IPlaybackTrajectory traj, GhostPlaybackState state,
+            double playbackUT, Vector3d referencePosition)
+        {
             Vector3d worldPos;
             if (TryResolvePlaybackWorldPosition(index, traj, state, playbackUT, out worldPos))
             {
-                return Vector3d.Distance(
-                    worldPos,
-                    (Vector3d)FlightGlobals.ActiveVessel.transform.position);
+                return Vector3d.Distance(worldPos, referencePosition);
             }
 
             if (state != null && state.ghost != null)
             {
                 return Vector3d.Distance(
                     (Vector3d)state.ghost.transform.position,
-                    (Vector3d)FlightGlobals.ActiveVessel.transform.position);
+                    referencePosition);
             }
 
             return double.NaN;
