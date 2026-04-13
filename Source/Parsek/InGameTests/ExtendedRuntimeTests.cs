@@ -1,6 +1,8 @@
 using System.Collections;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
+using System.Reflection;
 using UnityEngine;
 
 namespace Parsek.InGameTests
@@ -933,6 +935,98 @@ namespace Parsek.InGameTests
 
             ParsekLog.Verbose("TestRunner",
                 $"Crew replacement round-trip: {after.Count} entries preserved");
+        }
+
+        [InGameTest(Category = "SceneAndPatch", Scene = GameScenes.SPACECENTER, RunLast = true,
+            Description = "Bug #323: in-session OnLoad preserves root-level debris groups instead of loading stale save hierarchy")]
+        public void InSessionOnLoadPreservesRootLevelDebrisGroup_Bug323()
+        {
+            var scenario = Object.FindObjectOfType<ParsekScenario>();
+            if (scenario == null)
+                InGameAssert.Skip("No ParsekScenario instance");
+            if (string.IsNullOrEmpty(HighLogic.SaveFolder))
+                InGameAssert.Skip("No active save folder");
+
+            FieldInfo initialLoadDoneField = typeof(ParsekScenario).GetField(
+                "initialLoadDone", BindingFlags.Static | BindingFlags.NonPublic);
+            FieldInfo lastSaveFolderField = typeof(ParsekScenario).GetField(
+                "lastSaveFolder", BindingFlags.Static | BindingFlags.NonPublic);
+            FieldInfo lastOnSaveSceneField = typeof(ParsekScenario).GetField(
+                "lastOnSaveScene", BindingFlags.Static | BindingFlags.NonPublic);
+            InGameAssert.IsNotNull(initialLoadDoneField, "initialLoadDone field not found");
+            InGameAssert.IsNotNull(lastSaveFolderField, "lastSaveFolder field not found");
+            InGameAssert.IsNotNull(lastOnSaveSceneField, "lastOnSaveScene field not found");
+
+            bool previousInitialLoadDone = (bool)initialLoadDoneField.GetValue(null);
+            string previousLastSaveFolder = (string)lastSaveFolderField.GetValue(null);
+            GameScenes previousLastOnSaveScene = (GameScenes)lastOnSaveSceneField.GetValue(null);
+
+            try
+            {
+                RecordingStore.ResetForTesting();
+                MilestoneStore.ResetForTesting();
+                GroupHierarchyStore.ResetGroupsForTesting();
+                CrewReservationManager.ResetReplacementsForTesting();
+                RewindContext.ResetForTesting();
+
+                RecordingStore.AddRecordingWithTreeForTesting(new Recording
+                {
+                    RecordingId = "rec-root-level-debris",
+                    VesselName = "Rocket",
+                    RecordingGroups = new List<string> { "Rocket / Debris" }
+                });
+                RecordingStore.AddRecordingWithTreeForTesting(new Recording
+                {
+                    RecordingId = "rec-parented-debris",
+                    VesselName = "Booster Debris",
+                    IsDebris = true,
+                    RecordingGroups = new List<string> { "Booster / Debris" }
+                });
+
+                GroupHierarchyStore.SetGroupParent("Booster / Debris", "Booster");
+                InGameAssert.IsFalse(
+                    GroupHierarchyStore.TryGetGroupParent("Rocket / Debris", out _),
+                    "Precondition failed: root-level debris group already has a parent");
+
+                var saveNode = new ConfigNode("SCENARIO");
+                saveNode.AddValue("milestoneEpoch",
+                    MilestoneStore.CurrentEpoch.ToString(CultureInfo.InvariantCulture));
+                var hierarchyNode = saveNode.AddNode("GROUP_HIERARCHY");
+                var staleEntry = hierarchyNode.AddNode("ENTRY");
+                staleEntry.AddValue("child", "Rocket / Debris");
+                staleEntry.AddValue("parent", "Rocket");
+                AddSavedCommittedRecordingNode(saveNode, "rec-root-level-debris");
+                AddSavedCommittedRecordingNode(saveNode, "rec-parented-debris");
+
+                initialLoadDoneField.SetValue(null, true);
+                lastSaveFolderField.SetValue(null, HighLogic.SaveFolder);
+                lastOnSaveSceneField.SetValue(null, GameScenes.SPACECENTER);
+
+                scenario.OnLoad(saveNode);
+
+                InGameAssert.IsFalse(
+                    GroupHierarchyStore.TryGetGroupParent("Rocket / Debris", out _),
+                    "In-session OnLoad should preserve root-level 'Rocket / Debris' with no parent");
+                InGameAssert.IsTrue(
+                    GroupHierarchyStore.TryGetGroupParent("Booster / Debris", out string boosterParent),
+                    "Existing in-memory debris parent mapping was lost on OnLoad");
+                InGameAssert.AreEqual("Booster", boosterParent,
+                    "In-session OnLoad should preserve the existing 'Booster / Debris' parent");
+            }
+            finally
+            {
+                lastOnSaveSceneField.SetValue(null, previousLastOnSaveScene);
+                lastSaveFolderField.SetValue(null, previousLastSaveFolder);
+                initialLoadDoneField.SetValue(null, previousInitialLoadDone);
+            }
+        }
+
+        private static void AddSavedCommittedRecordingNode(
+            ConfigNode scenarioNode, string recordingId)
+        {
+            var treeNode = scenarioNode.AddNode("RECORDING_TREE");
+            var recNode = treeNode.AddNode("RECORDING");
+            recNode.AddValue("recordingId", recordingId);
         }
 
         [InGameTest(Category = "SceneAndPatch", Scene = GameScenes.FLIGHT,
