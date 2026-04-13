@@ -867,6 +867,7 @@ namespace Parsek
             if (latestEligibleUT <= traj.StartUT)
                 return false;
 
+            double earliestEligibleUT = double.NaN;
             for (int i = 0; i < traj.PartEvents.Count; i++)
             {
                 var evt = traj.PartEvents[i];
@@ -875,13 +876,17 @@ namespace Parsek
                 if (evt.ut < traj.StartUT)
                     continue;
                 if (evt.ut > latestEligibleUT)
-                    break;
+                    continue;
 
-                explosionUT = evt.ut;
-                return true;
+                if (double.IsNaN(earliestEligibleUT) || evt.ut < earliestEligibleUT)
+                    earliestEligibleUT = evt.ut;
             }
 
-            return false;
+            if (double.IsNaN(earliestEligibleUT))
+                return false;
+
+            explosionUT = earliestEligibleUT;
+            return true;
         }
 
         internal static void HideAllGhostParts(GhostPlaybackState state)

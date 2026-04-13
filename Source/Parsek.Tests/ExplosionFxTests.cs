@@ -196,6 +196,41 @@ namespace Parsek.Tests
             Assert.True(double.IsNaN(explosionUT));
         }
 
+        [Fact]
+        public void TryGetEarlyDestroyedDebrisExplosionUT_UnsortedEvents_ReturnsEarliestEligibleDestroyedEvent()
+        {
+            var rec = new Recording
+            {
+                IsDebris = true,
+                TerminalStateValue = TerminalState.Destroyed,
+                ExplicitStartUT = 10.0,
+                ExplicitEndUT = 20.0
+            };
+            rec.PartEvents.Add(new PartEvent
+            {
+                ut = 19.9,
+                eventType = PartEventType.Destroyed,
+                partName = "late"
+            });
+            rec.PartEvents.Add(new PartEvent
+            {
+                ut = 13.0,
+                eventType = PartEventType.Destroyed,
+                partName = "mid"
+            });
+            rec.PartEvents.Add(new PartEvent
+            {
+                ut = 12.0,
+                eventType = PartEventType.Destroyed,
+                partName = "early"
+            });
+
+            bool result = GhostPlaybackLogic.TryGetEarlyDestroyedDebrisExplosionUT(rec, out double explosionUT);
+
+            Assert.True(result);
+            Assert.Equal(12.0, explosionUT, 3);
+        }
+
         // --- Guard evaluation order: already-fired checked before terminal state ---
 
         [Fact]
