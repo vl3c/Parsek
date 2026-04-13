@@ -18,6 +18,8 @@ namespace Parsek.Tests
 
             RecordingStore.SuppressLogging = true;
             KspStatePatcher.SuppressUnityCallsForTesting = true;
+            GameStateStore.SuppressLogging = true;
+            GameStateStore.ResetForTesting();
             LedgerOrchestrator.ResetForTesting();
         }
 
@@ -26,6 +28,7 @@ namespace Parsek.Tests
             LedgerOrchestrator.ResetForTesting();
             KspStatePatcher.ResetForTesting();
             RecordingStore.SuppressLogging = false;
+            GameStateStore.ResetForTesting();
             ParsekLog.ResetTestOverrides();
             ParsekLog.SuppressLogging = true;
         }
@@ -822,6 +825,51 @@ namespace Parsek.Tests
             Assert.Equal("Bill Kerman", Ledger.Actions[0].KerbalName);
             Assert.Equal(KerbalEndState.Dead, Ledger.Actions[0].KerbalEndStateField);
             Assert.True(rec.CrewEndStatesResolved);
+
+            RecordingStore.ResetForTesting();
+        }
+
+        [Fact]
+        public void CreateKerbalAssignmentActions_TouristCrew_SkipsTourists()
+        {
+            var baseline = new GameStateBaseline();
+            baseline.crewEntries.Add(new GameStateBaseline.CrewEntry
+            {
+                name = "Jeb Kerman",
+                trait = "Pilot"
+            });
+            baseline.crewEntries.Add(new GameStateBaseline.CrewEntry
+            {
+                name = "Tourist Kerman",
+                trait = "Tourist"
+            });
+            GameStateStore.AddBaseline(baseline);
+
+            var snapshot = new ConfigNode("VESSEL");
+            var part = new ConfigNode("PART");
+            part.AddValue("crew", "Jeb Kerman");
+            part.AddValue("crew", "Tourist Kerman");
+            snapshot.AddNode(part);
+
+            var rec = new Recording
+            {
+                RecordingId = "rec-tourists",
+                VesselName = "Tour Bus",
+                GhostVisualSnapshot = snapshot
+            };
+            rec.CrewEndStates = new Dictionary<string, KerbalEndState>
+            {
+                { "Jeb Kerman", KerbalEndState.Recovered },
+                { "Tourist Kerman", KerbalEndState.Recovered }
+            };
+            RecordingStore.ResetForTesting();
+            RecordingStore.AddRecordingWithTreeForTesting(rec);
+
+            var actions = LedgerOrchestrator.CreateKerbalAssignmentActions("rec-tourists", 10.0, 20.0);
+
+            Assert.Single(actions);
+            Assert.Equal("Jeb Kerman", actions[0].KerbalName);
+            Assert.DoesNotContain(actions, a => a.KerbalName == "Tourist Kerman");
 
             RecordingStore.ResetForTesting();
         }

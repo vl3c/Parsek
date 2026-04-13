@@ -21,6 +21,8 @@ namespace Parsek.Tests
             ParsekLog.TestSinkForTesting = line => logLines.Add(line);
             RecordingStore.SuppressLogging = true;
             RecordingStore.ResetForTesting();
+            GameStateStore.SuppressLogging = true;
+            GameStateStore.ResetForTesting();
         }
 
         public void Dispose()
@@ -29,6 +31,7 @@ namespace Parsek.Tests
             ParsekLog.SuppressLogging = true;
             RecordingStore.SuppressLogging = false;
             RecordingStore.ResetForTesting();
+            GameStateStore.ResetForTesting();
         }
 
         /// <summary>
@@ -548,6 +551,48 @@ namespace Parsek.Tests
         {
             // In test environment, HighLogic is not available — should fall back to "Pilot"
             Assert.Equal("Pilot", KerbalsModule.FindTraitForKerbal("Jeb"));
+        }
+
+        [Fact]
+        public void FindTraitForKerbal_FallsBackToLatestBaselineTrait()
+        {
+            var baseline = new GameStateBaseline();
+            baseline.crewEntries.Add(new GameStateBaseline.CrewEntry
+            {
+                name = "Tourist Kerman",
+                trait = "Tourist"
+            });
+            GameStateStore.AddBaseline(baseline);
+
+            Assert.Equal("Tourist", KerbalsModule.FindTraitForKerbal("Tourist Kerman"));
+        }
+
+        [Fact]
+        public void ProcessAction_TouristKerbalAssignment_IsIgnored()
+        {
+            var module = new KerbalsModule();
+            var rec = MakeRecording("Tour Bus", new[] { "Tourist Kerman" },
+                TerminalState.Recovered, 1000);
+            rec.RecordingId = "rec-tourist-action";
+            RecordingStore.AddRecordingWithTreeForTesting(rec);
+
+            var action = new GameAction
+            {
+                UT = 0,
+                Type = GameActionType.KerbalAssignment,
+                RecordingId = "rec-tourist-action",
+                KerbalName = "Tourist Kerman",
+                KerbalRole = "Tourist",
+                KerbalEndStateField = KerbalEndState.Recovered,
+                StartUT = 0,
+                EndUT = 1000,
+                Sequence = 1
+            };
+
+            module.PrePass(new List<GameAction> { action });
+            module.ProcessAction(action);
+
+            Assert.Empty(module.Reservations);
         }
 
         // ── Retired stand-ins ──

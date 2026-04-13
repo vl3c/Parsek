@@ -152,6 +152,9 @@ namespace Parsek
             if (action == null || action.Type != GameActionType.KerbalAssignment)
                 return;
 
+            if (string.Equals(action.KerbalRole, "Tourist", System.StringComparison.OrdinalIgnoreCase))
+                return;
+
             string recordingId = action.RecordingId;
             if (string.IsNullOrEmpty(recordingId)) return;
 
@@ -576,6 +579,24 @@ namespace Parsek
             {
                 // HighLogic not available (unit test environment)
             }
+
+            var baselines = GameStateStore.Baselines;
+            if (baselines != null)
+            {
+                for (int i = baselines.Count - 1; i >= 0; i--)
+                {
+                    var baseline = baselines[i];
+                    if (baseline?.crewEntries == null) continue;
+
+                    for (int j = 0; j < baseline.crewEntries.Count; j++)
+                    {
+                        var crew = baseline.crewEntries[j];
+                        if (crew.name == kerbalName && !string.IsNullOrEmpty(crew.trait))
+                            return crew.trait;
+                    }
+                }
+            }
+
             return "Pilot";
         }
 

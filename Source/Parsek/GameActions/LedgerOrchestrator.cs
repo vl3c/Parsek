@@ -342,6 +342,11 @@ namespace Parsek
             public KerbalEndState EndState;
         }
 
+        private static bool ShouldTrackKerbalRole(string role)
+        {
+            return !string.Equals(role, "Tourist", StringComparison.OrdinalIgnoreCase);
+        }
+
         /// <summary>
         /// Extracts crew members from a recording's vessel snapshot data,
         /// mirroring the crew extraction logic in KerbalsModule.ProcessAction.
@@ -375,6 +380,10 @@ namespace Parsek
             for (int i = 0; i < names.Count; i++)
             {
                 string name = names[i];
+                string role = KerbalsModule.FindTraitForKerbal(name);
+                if (!ShouldTrackKerbalRole(role))
+                    continue;
+
                 KerbalEndState endState = KerbalEndState.Unknown;
                 if (rec.CrewEndStates != null)
                     rec.CrewEndStates.TryGetValue(name, out endState);
@@ -382,7 +391,7 @@ namespace Parsek
                 result.Add(new CrewInfo
                 {
                     Name = name,
-                    Role = KerbalsModule.FindTraitForKerbal(name),
+                    Role = role,
                     EndState = endState
                 });
             }

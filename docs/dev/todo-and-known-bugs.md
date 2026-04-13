@@ -7,6 +7,18 @@ Entries 272–303 (78 bugs, 6 TODOs — mostly resolved) archived in `done/todo-
 
 # Known Bugs
 
+## ~~342. Tourist passengers can leak into the managed kerbal reservation system~~
+
+**Observed in:** Kerbals/events-actions audit (2026-04-13). `CreateKerbalAssignmentActions()` emitted actions for every crew name in the recording snapshot, and `KerbalsModule.ProcessAction()` reserved every `KerbalAssignment` regardless of role, even though the design treats tourist passengers as contract-only temporary crew.
+
+**Root cause:** The kerbal action pipeline had no tourist-role exclusion. Action creation depended on `FindTraitForKerbal`, but there was no defense once a `KerbalAssignment` existed, and the non-runtime fallback could not identify tourists from saved roster history.
+
+**Fix:** `FindTraitForKerbal()` now falls back to the latest saved game-state baseline crew traits when a live KSP roster is unavailable, `LedgerOrchestrator` skips crew whose resolved role is `Tourist`, and `KerbalsModule.ProcessAction()` ignores any tourist assignments already present in the ledger as defense in depth. Added regression coverage for baseline trait fallback, tourist action suppression, and tourist action creation filtering.
+
+**Status:** ~~Fixed~~
+
+---
+
 ## ~~341. EVA-only recordings can skip crew end-state population during migration/load repair~~
 
 **Observed in:** Kerbals/events-actions audit (2026-04-13). Commit-time kerbal action creation already treated `EvaCrewName` as a valid crew source, but the legacy migration path and the "populate missing end states on load" safety net only ran when `VesselSnapshot != null`.
