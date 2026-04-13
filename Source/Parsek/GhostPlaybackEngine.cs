@@ -1999,8 +1999,10 @@ namespace Parsek
                 return false;
 
             // A single branch-boundary seed point should anchor the ghost only at the
-            // exact recording start; once playback advances, orbit propagation must take over.
-            return playbackUT > traj.Points[0].ut + 1e-6;
+            // exact recording start; once playback advances and an orbit segment is live,
+            // orbit propagation should take over.
+            return playbackUT > traj.Points[0].ut + 1e-6
+                && TrajectoryMath.FindOrbitSegment(traj.OrbitSegments, playbackUT).HasValue;
         }
 
         private static void ActivateGhostVisualsIfNeeded(GhostPlaybackState state)

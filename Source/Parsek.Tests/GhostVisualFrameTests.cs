@@ -226,7 +226,7 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void ShouldPrimeSinglePointGhostFromOrbit_ReturnsFalseAtSeedPointUT()
+        public void ShouldPrimeSinglePointGhostFromOrbit_ReturnsFalseBeforeFirstOrbitSegmentStarts()
         {
             var traj = new MockTrajectory
             {
@@ -236,11 +236,11 @@ namespace Parsek.Tests
                 },
                 OrbitSegments = new List<OrbitSegment>
                 {
-                    new OrbitSegment { startUT = 70.04, endUT = 122.60, bodyName = "Kerbin" }
+                    new OrbitSegment { startUT = 70.56, endUT = 122.60, bodyName = "Kerbin" }
                 }
             };
 
-            bool useOrbit = GhostPlaybackEngine.ShouldPrimeSinglePointGhostFromOrbit(traj, 70.04);
+            bool useOrbit = GhostPlaybackEngine.ShouldPrimeSinglePointGhostFromOrbit(traj, 70.20);
 
             Assert.False(useOrbit);
         }
