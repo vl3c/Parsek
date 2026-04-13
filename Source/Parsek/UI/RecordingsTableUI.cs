@@ -848,10 +848,11 @@ namespace Parsek
             if (!string.IsNullOrEmpty(phaseLabel))
             {
                 GUIStyle phaseStyle;
-                if (rec.SegmentPhase == "atmo") phaseStyle = phaseStyleAtmo;
-                else if (rec.SegmentPhase == "surface") phaseStyle = phaseStyleSurface;
-                else if (rec.SegmentPhase == "approach") phaseStyle = phaseStyleApproach;
-                else if (rec.SegmentPhase == "space") phaseStyle = phaseStyleSpace;
+                string phaseStyleKey = GetPhaseStyleKey(rec);
+                if (phaseStyleKey == "atmo") phaseStyle = phaseStyleAtmo;
+                else if (phaseStyleKey == "surface") phaseStyle = phaseStyleSurface;
+                else if (phaseStyleKey == "approach") phaseStyle = phaseStyleApproach;
+                else if (phaseStyleKey == "space") phaseStyle = phaseStyleSpace;
                 else phaseStyle = phaseStyleExo;
                 GUILayout.Label(phaseLabel, phaseStyle, GUILayout.Width(ColW_Phase));
             }
@@ -1973,6 +1974,28 @@ namespace Parsek
             if (now < rec.StartUT) return 0;  // future
             if (now <= rec.EndUT && !rec.TerminalStateValue.HasValue) return 1;    // active
             return 2;                          // past
+        }
+
+        internal static string GetPhaseStyleKey(Recording rec)
+        {
+            if (rec == null) return null;
+
+            if (RecordingStore.ShouldSuppressEvaBoundaryPhaseLabel(rec)
+                && rec.TrackSections != null)
+            {
+                for (int i = rec.TrackSections.Count - 1; i >= 0; i--)
+                {
+                    switch (RecordingOptimizer.SplitEnvironmentClass(rec.TrackSections[i].environment))
+                    {
+                        case 0: return "atmo";
+                        case 2: return "surface";
+                        case 3: return "approach";
+                        case 1: return "exo";
+                    }
+                }
+            }
+
+            return rec.SegmentPhase;
         }
 
         /// <summary>

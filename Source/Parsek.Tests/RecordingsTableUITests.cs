@@ -349,6 +349,37 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void GetPhaseStyleKey_SuppressedEvaBoundary_UsesLastSectionClass()
+        {
+            var rec = MakeRec(100, 200);
+            rec.EvaCrewName = "Bill Kerman";
+            rec.SegmentPhase = "exo";
+            rec.TrackSections.Add(new TrackSection
+            {
+                environment = SegmentEnvironment.Atmospheric
+            });
+            rec.TrackSections.Add(new TrackSection
+            {
+                environment = SegmentEnvironment.SurfaceStationary
+            });
+
+            Assert.Equal("surface", RecordingsTableUI.GetPhaseStyleKey(rec));
+        }
+
+        [Fact]
+        public void GetPhaseStyleKey_NonSuppressed_ReturnsSegmentPhase()
+        {
+            var rec = MakeRec(100, 200);
+            rec.SegmentPhase = "exo";
+            rec.TrackSections.Add(new TrackSection
+            {
+                environment = SegmentEnvironment.ExoBallistic
+            });
+
+            Assert.Equal("exo", RecordingsTableUI.GetPhaseStyleKey(rec));
+        }
+
+        [Fact]
         public void GetRecordingSortKey_Name_ReturnsRowFallback()
         {
             var rec = MakeRec(100, 200, "Vessel");
