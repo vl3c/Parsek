@@ -20,6 +20,21 @@ namespace Parsek
             return Path.Combine("Parsek", "Recordings", $"{recordingId}_ghost.craft");
         }
 
+        internal static string BuildReadableTrajectoryMirrorRelativePath(string recordingId)
+        {
+            return Path.Combine("Parsek", "Recordings", $"{recordingId}.prec.txt");
+        }
+
+        internal static string BuildReadableVesselSnapshotMirrorRelativePath(string recordingId)
+        {
+            return Path.Combine("Parsek", "Recordings", $"{recordingId}_vessel.craft.txt");
+        }
+
+        internal static string BuildReadableGhostSnapshotMirrorRelativePath(string recordingId)
+        {
+            return Path.Combine("Parsek", "Recordings", $"{recordingId}_ghost.craft.txt");
+        }
+
         internal static string ResolveSaveScopedPath(string relativePath)
         {
             string root = KSPUtil.ApplicationRootPath ?? "";

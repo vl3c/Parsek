@@ -43,11 +43,26 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void GetStoredReadableSidecarMirrors_DefaultsNull()
+        {
+            Assert.Null(ParsekSettingsPersistence.GetStoredReadableSidecarMirrors());
+        }
+
+        [Fact]
+        public void SetStoredReadableSidecarMirrors_RoundTrips()
+        {
+            ParsekSettingsPersistence.SetStoredReadableSidecarMirrorsForTesting(false);
+            Assert.False(ParsekSettingsPersistence.GetStoredReadableSidecarMirrors().Value);
+        }
+
+        [Fact]
         public void ResetForTesting_ClearsStoredValue()
         {
             ParsekSettingsPersistence.SetStoredGhostCameraCutoffKmForTesting(500f);
+            ParsekSettingsPersistence.SetStoredReadableSidecarMirrorsForTesting(false);
             ParsekSettingsPersistence.ResetForTesting();
             Assert.Null(ParsekSettingsPersistence.GetStoredGhostCameraCutoffKm());
+            Assert.Null(ParsekSettingsPersistence.GetStoredReadableSidecarMirrors());
         }
 
         // Tests for ApplyTo / RecordGhostCameraCutoff that touch ParsekSettings.Current

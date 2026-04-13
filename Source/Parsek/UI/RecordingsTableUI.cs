@@ -2673,7 +2673,8 @@ namespace Parsek
                     text += $"\nStorage: {DiagnosticsComputation.FormatBytes(storage.totalBytes)}" +
                             $" (trajectory: {DiagnosticsComputation.FormatBytes(storage.trajectoryFileBytes)}" +
                             $", vessel: {DiagnosticsComputation.FormatBytes(storage.vesselSnapshotBytes)}" +
-                            $", ghost: {DiagnosticsComputation.FormatBytes(storage.ghostSnapshotBytes)})";
+                            $", ghost: {DiagnosticsComputation.FormatBytes(storage.ghostSnapshotBytes)}" +
+                            $", readable mirrors: {DiagnosticsComputation.FormatBytes(storage.readableMirrorBytes)})";
                     text += $"\nEfficiency: {DiagnosticsComputation.FormatBytes((long)storage.bytesPerSecond)}/s of flight time";
                 }
             }

@@ -799,12 +799,15 @@ The first five storage slices are in place: representative fixture coverage, `v1
 section-authoritative `.prec` sidecars, alias-mode ghost snapshot dedupe, header-dispatched binary
 `v2` `.prec` sidecars, exact sparse `v3` defaults for stable per-point body/career fields, and
 lossless header-dispatched `Deflate` compression for `_vessel.craft` / `_ghost.craft` snapshot
-sidecars with legacy-text fallback.
+sidecars with legacy-text fallback. Current builds also keep a default-on readable `.txt` mirror
+path for `.prec` / `_vessel.craft` / `_ghost.craft` so binary-comparison debugging can happen
+without unpacking the authoritative files first.
 Remaining high-value work should stay measurement-gated and follow
 `docs/dev/plans/phase-11-5-recording-storage-optimization.md`:
 
 - fresh live-corpus rebaseline against current `v3` sidecars
 - snapshot-side work should keep focusing on `_ghost.craft` / `_vessel.craft` bytes, where the remaining storage bulk still lives after the first lossless compression slice
+- keep the readable mirror path strictly diagnostic: authoritative load/save stays on `.prec` / `.craft`, mirror failures stay non-fatal, and stale mirrors should continue to reconcile cleanly on flag changes
 - only pursue intra-save snapshot dedupe or any custom binary snapshot schema if the post-compression rebaseline still shows a meaningful measured win
 - additional sparse payload work only where exact reconstruction and real byte wins are proven
 - post-commit, error-bounded trajectory thinning only after the format wins are re-measured

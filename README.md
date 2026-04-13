@@ -33,7 +33,7 @@ Time travel paradoxes are avoided by enforcing causality: events are always proc
 - **Multi-vessel recording** - undocking, EVA, and docking are tracked automatically; all vessels in a mission record as a single tree
 - **Career mode integration** - milestones track tech research, part purchases, facility upgrades, and contracts; resource budgeting prevents paradoxes when rewinding
 - **Recordings manager** - browse, sort, loop, and delete individual recordings
-- **External recording files** - bulk trajectory data stored in sidecar files, keeping saves lightweight
+- **External recording files** - authoritative trajectory/snapshot sidecars keep saves lightweight, with default-on readable mirror files for storage debugging
 
 ## Controls
 

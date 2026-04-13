@@ -38,10 +38,12 @@ namespace Parsek
         private const string FileName = "settings.cfg";
         private const string RootNodeName = "PARSEK_SETTINGS";
         private const string GhostCameraCutoffKey = "ghostCameraCutoffKm";
+        private const string ReadableSidecarMirrorsKey = "writeReadableSidecarMirrors";
 
         // Null = no stored value (use defaults / whatever GameParameters loaded).
         // Non-null = user-set override, applied over GameParameters on load.
         private static float? storedGhostCameraCutoffKm;
+        private static bool? storedReadableSidecarMirrors;
         private static bool loaded;
 
         /// <summary>
@@ -90,13 +92,27 @@ namespace Parsek
                     && float.TryParse(cutoffStr, NumberStyles.Float, CultureInfo.InvariantCulture, out float cutoff))
                 {
                     storedGhostCameraCutoffKm = cutoff;
-                    ParsekLog.Info(Tag,
-                        $"Loaded settings from '{path}': ghostCameraCutoffKm={cutoff.ToString("F0", CultureInfo.InvariantCulture)}");
                 }
                 else
                 {
                     ParsekLog.Verbose(Tag, $"Settings file '{path}' has no {GhostCameraCutoffKey} — using default");
                 }
+
+                string mirrorsStr = root.GetValue(ReadableSidecarMirrorsKey);
+                if (!string.IsNullOrEmpty(mirrorsStr)
+                    && bool.TryParse(mirrorsStr, out bool writeMirrors))
+                {
+                    storedReadableSidecarMirrors = writeMirrors;
+                }
+                else
+                {
+                    ParsekLog.Verbose(Tag, $"Settings file '{path}' has no {ReadableSidecarMirrorsKey} — using default");
+                }
+
+                ParsekLog.Info(Tag,
+                    $"Loaded settings from '{path}': ghostCameraCutoffKm=" +
+                    (storedGhostCameraCutoffKm?.ToString("F0", CultureInfo.InvariantCulture) ?? "<default>") +
+                    $" writeReadableSidecarMirrors={(storedReadableSidecarMirrors.HasValue ? storedReadableSidecarMirrors.Value.ToString() : "<default>")}");
             }
             catch (Exception ex)
             {
@@ -124,6 +140,15 @@ namespace Parsek
                     $" → {storedGhostCameraCutoffKm.Value.ToString("F0", CultureInfo.InvariantCulture)}" +
                     " from persistent store");
             }
+
+            if (storedReadableSidecarMirrors.HasValue
+                && storedReadableSidecarMirrors.Value != settings.writeReadableSidecarMirrors)
+            {
+                bool prev = settings.writeReadableSidecarMirrors;
+                settings.writeReadableSidecarMirrors = storedReadableSidecarMirrors.Value;
+                ParsekLog.Info(Tag,
+                    $"Restored writeReadableSidecarMirrors {prev} -> {storedReadableSidecarMirrors.Value} from persistent store");
+            }
         }
 
         /// <summary>
@@ -134,6 +159,13 @@ namespace Parsek
         {
             LoadIfNeeded();
             storedGhostCameraCutoffKm = value;
+            Save();
+        }
+
+        internal static void RecordReadableSidecarMirrors(bool value)
+        {
+            LoadIfNeeded();
+            storedReadableSidecarMirrors = value;
             Save();
         }
 
@@ -151,10 +183,13 @@ namespace Parsek
                     root.AddValue(GhostCameraCutoffKey,
                         storedGhostCameraCutoffKm.Value.ToString("R", CultureInfo.InvariantCulture));
                 }
+                if (storedReadableSidecarMirrors.HasValue)
+                    root.AddValue(ReadableSidecarMirrorsKey, storedReadableSidecarMirrors.Value.ToString());
                 FileIOUtils.SafeWriteConfigNode(root, path, Tag);
                 ParsekLog.Verbose(Tag,
                     $"Saved settings to '{path}': ghostCameraCutoffKm=" +
-                    (storedGhostCameraCutoffKm?.ToString("F0", CultureInfo.InvariantCulture) ?? "<null>"));
+                    (storedGhostCameraCutoffKm?.ToString("F0", CultureInfo.InvariantCulture) ?? "<null>") +
+                    $" writeReadableSidecarMirrors={(storedReadableSidecarMirrors.HasValue ? storedReadableSidecarMirrors.Value.ToString() : "<null>")}");
             }
             catch (Exception ex)
             {
@@ -170,6 +205,7 @@ namespace Parsek
         internal static void ResetForTesting()
         {
             storedGhostCameraCutoffKm = null;
+            storedReadableSidecarMirrors = null;
             loaded = false;
         }
 
@@ -178,6 +214,8 @@ namespace Parsek
         /// </summary>
         internal static float? GetStoredGhostCameraCutoffKm() => storedGhostCameraCutoffKm;
 
+        internal static bool? GetStoredReadableSidecarMirrors() => storedReadableSidecarMirrors;
+
         /// <summary>
         /// Test-only: directly sets the stored cutoff without disk I/O.
         /// Marks the store as loaded so LoadIfNeeded doesn't clobber it.
@@ -185,6 +223,12 @@ namespace Parsek
         internal static void SetStoredGhostCameraCutoffKmForTesting(float? value)
         {
             storedGhostCameraCutoffKm = value;
+            loaded = true;
+        }
+
+        internal static void SetStoredReadableSidecarMirrorsForTesting(bool? value)
+        {
+            storedReadableSidecarMirrors = value;
             loaded = true;
         }
     }

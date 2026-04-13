@@ -102,6 +102,9 @@ namespace Parsek
             string precPath = SafeResolvePath(RecordingPaths.BuildTrajectoryRelativePath(rec.RecordingId));
             string vesselPath = SafeResolvePath(RecordingPaths.BuildVesselSnapshotRelativePath(rec.RecordingId));
             string ghostPath = SafeResolvePath(RecordingPaths.BuildGhostSnapshotRelativePath(rec.RecordingId));
+            string readablePrecPath = SafeResolvePath(RecordingPaths.BuildReadableTrajectoryMirrorRelativePath(rec.RecordingId));
+            string readableVesselPath = SafeResolvePath(RecordingPaths.BuildReadableVesselSnapshotMirrorRelativePath(rec.RecordingId));
+            string readableGhostPath = SafeResolvePath(RecordingPaths.BuildReadableGhostSnapshotMirrorRelativePath(rec.RecordingId));
 
             // .prec is always written. _vessel.craft and _ghost.craft are written
             // only when their in-memory snapshot is non-null. For tree continuation
@@ -113,8 +116,12 @@ namespace Parsek
                 warnIfMissing: ShouldExpectSidecarFile(rec, SidecarFileType.VesselSnapshot));
             bd.ghostSnapshotBytes = SafeGetFileSize(ghostPath,
                 warnIfMissing: ShouldExpectSidecarFile(rec, SidecarFileType.GhostSnapshot));
+            bd.readableMirrorBytes =
+                SafeGetFileSize(readablePrecPath, warnIfMissing: false) +
+                SafeGetFileSize(readableVesselPath, warnIfMissing: false) +
+                SafeGetFileSize(readableGhostPath, warnIfMissing: false);
             bd.totalBytes = bd.trajectoryFileBytes + bd.vesselSnapshotBytes
-                          + bd.ghostSnapshotBytes;
+                          + bd.ghostSnapshotBytes + bd.readableMirrorBytes;
 
             bd.bytesPerSecond = bd.durationSeconds > 0.0
                 ? bd.totalBytes / bd.durationSeconds

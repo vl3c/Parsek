@@ -25,6 +25,10 @@ namespace Parsek
             toolTip = "When enabled, write detailed diagnostics to KSP.log (default for development)")]
         public bool verboseLogging = true;
 
+        [GameParameters.CustomParameterUI("Readable sidecar mirrors",
+            toolTip = "When enabled, also write human-readable .txt mirrors of recording sidecars for debugging and binary/text comparison")]
+        public bool writeReadableSidecarMirrors = true;
+
         [GameParameters.CustomFloatParameterUI("Min sample interval (s)", minValue = 0.05f, maxValue = 1f,
             stepCount = 20, displayFormat = "F2",
             toolTip = "Minimum seconds between trajectory samples — caps sample rate during slow/jittery motion (e.g. EVA on surface)")]
