@@ -19,6 +19,7 @@ namespace Parsek
         internal const double DefaultLoopIntervalSeconds = 10.0;
         internal const double MinLoopDurationSeconds = 1.0;
         internal const double MinCycleDuration = 1.0;
+        internal const double MinEarlyDebrisExplosionLeadSeconds = 0.25;
         // Grace period before zone-based watch mode exit (wall-clock seconds).
         // Prevents immediate exit when a ghost briefly crosses a zone boundary at watch-mode start.
         internal const float WatchModeZoneGraceSeconds = 2.0f;
@@ -848,6 +849,43 @@ namespace Parsek
             {
                 return false;
             }
+            return true;
+        }
+
+        internal static bool TryGetEarlyDestroyedDebrisExplosionUT(
+            IPlaybackTrajectory traj, out double explosionUT)
+        {
+            explosionUT = double.NaN;
+
+            if (traj == null || !traj.IsDebris || traj.TerminalStateValue != TerminalState.Destroyed)
+                return false;
+
+            if (traj.PartEvents == null || traj.PartEvents.Count == 0)
+                return false;
+
+            double latestEligibleUT = traj.EndUT - MinEarlyDebrisExplosionLeadSeconds;
+            if (latestEligibleUT <= traj.StartUT)
+                return false;
+
+            double earliestEligibleUT = double.NaN;
+            for (int i = 0; i < traj.PartEvents.Count; i++)
+            {
+                var evt = traj.PartEvents[i];
+                if (evt.eventType != PartEventType.Destroyed)
+                    continue;
+                if (evt.ut < traj.StartUT)
+                    continue;
+                if (evt.ut > latestEligibleUT)
+                    continue;
+
+                if (double.IsNaN(earliestEligibleUT) || evt.ut < earliestEligibleUT)
+                    earliestEligibleUT = evt.ut;
+            }
+
+            if (double.IsNaN(earliestEligibleUT))
+                return false;
+
+            explosionUT = earliestEligibleUT;
             return true;
         }
 

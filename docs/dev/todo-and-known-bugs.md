@@ -187,26 +187,31 @@ Collected evidence from `logs/2026-04-12_1857_phase-11-5-storage-followup-s4/`:
 
 ---
 
-## 323. Main-stage and debris group hierarchy can appear wrong after commit/playback
+## ~~323. Main-stage and debris group hierarchy can appear wrong after commit/playback~~
 
 **Observed in:** `logs/2026-04-12_2128_kerbalx-booster-throttle-regression/` (`s7`). User report: a recording did not correctly group the main-stage recordings group together with the debris group.
 
-**What the current logs show:** raw auto-grouping did run at commit time:
+**What the logs showed:** raw auto-grouping did run at commit time:
 
 - `Group 'Kerbal X / Debris' assigned to parent group 'Kerbal X'`
 - `Auto-grouped 1 stage(s) under 'Kerbal X', 10 debris under 'Kerbal X / Debris'`
 
-That means the bundle does not currently prove a bad `GroupHierarchyStore.SetGroupParent(...)` call during commit. If the UI/grouping was still wrong in-game, the bug is more likely in a later path such as orphan adoption, duplicate-name group selection, hierarchy persistence/load, or UI tree construction.
+That means the bundle did not prove a bad `GroupHierarchyStore.SetGroupParent(...)` call during commit. The failure was later: during an in-session `ParsekScenario.OnLoad`, Parsek preserved the live committed recordings from memory but still reloaded `GROUP_HIERARCHY` from the save file. If the save's hierarchy snapshot was stale, root-level or otherwise corrected debris groups could be overwritten by older parent mappings even though the committed recordings themselves were current.
 
-**Fix direction:** Reproduce with a focused breakup tree that creates both a main stage and multiple debris recordings, then inspect:
+Concrete evidence from the collected bundle:
 
-- the final `RecordingGroups` on committed recordings
-- saved hierarchy serialization in `persistent.sfs`
-- UI group tree building for duplicate base names / debris subgroups
+- `KSP.log` reported `18 committed recordings`, `2 committed tree(s)`, but only `Saved group hierarchy: 1 entries`
+- the same save still serialized recordings under both `Kerbal X` and `Kerbal X / Debris`
+- `persistent.sfs` no longer contained the expected `Kerbal X / Debris -> Kerbal X` hierarchy entry
 
-Add an in-game or unit-level regression that asserts the main stage group remains the parent of the debris subgroup after save/load.
+So the problem was not "bad auto-grouping on commit"; it was "stale hierarchy load clobbers the live session view."
 
-**Status:** Open
+**Fix:** `LoadCrewAndGroupState` now only reloads group hierarchy from the save on true initial load. In-session loads and rewinds keep the in-memory hierarchy as the source of truth, matching the already-preserved in-memory committed recordings. This avoids reconstructing or guessing hierarchy from group names and prevents stale `.sfs` `GROUP_HIERARCHY` data from re-parenting root-level debris groups. Coverage now includes:
+
+- unit tests for `ShouldLoadGroupHierarchyFromSave(...)`
+- a live in-game `ParsekScenario.OnLoad` regression that seeds a root-level debris group, feeds `OnLoad` a stale saved parent mapping, and proves the in-memory root-level group remains unparented while existing valid mappings survive
+
+**Status:** ~~Fixed~~
 
 ---
 
@@ -264,18 +269,16 @@ Add an in-game or unit-level regression that asserts the main stage group remain
   - `Auto-follow on completion: #10 -> #13 (vessel=Kerbal X)`
   - the corresponding watch-focus lines show descending altitude (`278 m` then `65 m`), not a frozen parent trajectory
 - The older `s6` breakup bundle (`logs/2026-04-12_2055_main-stage-freeze-after-separation/`) did show a different watch bug where focus transferred to debris (`#0 -> #6 "GDLV3 Debris"`), but that was the now-fixed `#321` issue and is not proof of a current regression.
+- The same `s13` bundle **does** show a save/load storage gap in the main-stage `.prec` payload. At `03:03:26`, `FlushRecorderIntoActiveTreeForSerialization` logged `103` live points for root recording `034b687...`, but the sidecar written immediately afterward still contained only `trackSections=1 / sparsePoints=35`; the next quickload rebuilt only that single section. The `a936e14...` and `8109e9e...` same-PID continuations showed the same pattern at later save boundaries.
+- A saved local inspector script, `tools/inspect-recording-sidecar.ps1`, confirmed the persisted `Kerbal X` chain had large gaps between section-authoritative sparse segments even though live recording had advanced further in memory before save.
 
 **Impact:** If this is real on current head, the parent/main-stage recording can become visually unreliable after separation even while child debris recordings continue correctly. That would be a more serious playback-integrity bug than simple camera recovery or grouping.
 
-**Root cause / hypothesis:** Not isolated yet. Candidate areas are:
+**Root cause / hypothesis:** Root cause isolated on the `fix/327-main-stage-freeze-after-separation` branch. `ParsekFlight.FlushRecorderIntoActiveTreeForSerialization()` appended only already-closed `recorder.TrackSections` into the active-tree recording and then cleared them, but it did **not** checkpoint the recorder's currently-open `TrackSection` first. Mid-flight saves could therefore write a section-authoritative `.prec` sidecar that was missing the live in-progress sparse trajectory chunk, and quickload playback could freeze or drift across that gap while debris/child recordings continued normally.
 
-- same-PID continuation selection around breakup/save/load
-- parent trajectory hydration after save/load when child branches already exist
-- ghost/watch lifecycle around breakup-continuous effective-leaf parents versus debris children
+**Fix direction:** The branch now checkpoints the open active `TrackSection` during save-time serialization, immediately reopens a continuation section with the same environment/reference metadata, and adds regression coverage for absolute, relative, and orbital-checkpoint cases. This still needs an in-game save/load breakup repro on current head to confirm the visible frozen/off-trajectory symptom is gone.
 
-**Fix direction:** Capture a focused reproduction bundle where the frozen main stage is visible on current head, preferably with watch active and a save/load in the middle. Compare the parent `.prec` bounds, branchpoint ordering, watch transitions, and parent/child recording metadata before and after load. Add a regression only after the failure is reproduced concretely.
-
-**Status:** Open (needs focused repro)
+**Status:** Open (fix implemented on branch; needs in-game verification)
 
 ---
 
@@ -311,7 +314,7 @@ If the answer is yes, add focused regression coverage for a real continuous EVA 
 
 ---
 
-## 329. Debris explosion FX can fire noticeably after visible ground contact
+## ~~329. Debris explosion FX can fire noticeably after visible ground contact~~
 
 **Observed in:** 2026-04-13 local smoke after the snapshot-storage PR. User report: there was a visible delay between debris hitting the ground and the explosion effect.
 
@@ -329,9 +332,9 @@ If the answer is yes, add focused regression coverage for a real continuous EVA 
 - the deliberate `0.5 s` crash-coalescing window before the breakup branchpoint exists
 - explosion FX being tied to ghost terminal/past-end destruction timing instead of the earliest impact-aligned sample
 
-**Fix direction:** Capture a focused debris-impact bundle and compare three times for the same fragment: trajectory impact/contact, breakup branchpoint UT, and `Triggering explosion for ghost ...` log time. If the delay is confirmed, consider keeping the coalescer for branch classification while moving the FX timing closer to the first impact-aligned sample, or reducing/special-casing the coalescing window for simple crash playback.
+**Fix implemented:** Destroyed debris playback now resolves an earlier explosion UT from the earliest eligible recorded `PartEventType.Destroyed` and completes the debris ghost there instead of waiting for `EndUT`. Flight and KSC playback both use the same helper, while breakup coalescing/classification timing remains unchanged.
 
-**Status:** Open
+**Status:** Fixed in PR `#241`
 
 ---
 
