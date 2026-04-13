@@ -1480,13 +1480,26 @@ namespace Parsek
         /// </summary>
         private static void LoadCrewAndGroupState(ConfigNode node)
         {
-            if (!RewindContext.IsRewinding)
+            if (RewindContext.IsRewinding)
+                return;
+
+            CrewReservationManager.LoadCrewReplacements(node);
+            LedgerOrchestrator.Kerbals?.LoadSlots(node);
+
+            if (!ShouldLoadGroupHierarchyFromSave(initialLoadDone, RewindContext.IsRewinding))
             {
-                CrewReservationManager.LoadCrewReplacements(node);
-                LedgerOrchestrator.Kerbals?.LoadSlots(node);
-                GroupHierarchyStore.LoadGroupHierarchy(node);
-                GroupHierarchyStore.LoadHiddenGroups(node);
+                ParsekLog.Verbose("Scenario",
+                    "OnLoad: preserving in-memory group hierarchy for in-session load");
+                return;
             }
+
+            GroupHierarchyStore.LoadGroupHierarchy(node);
+            GroupHierarchyStore.LoadHiddenGroups(node);
+        }
+
+        internal static bool ShouldLoadGroupHierarchyFromSave(bool initialLoadDone, bool isRewinding)
+        {
+            return !isRewinding && !initialLoadDone;
         }
 
         /// <summary>

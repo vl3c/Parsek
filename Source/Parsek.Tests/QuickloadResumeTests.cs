@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Reflection;
 using Xunit;
 
 namespace Parsek.Tests
@@ -26,6 +27,9 @@ namespace Parsek.Tests
         {
             RecordingStore.ResetForTesting();
             MilestoneStore.ResetForTesting();
+            GroupHierarchyStore.ResetGroupsForTesting();
+            CrewReservationManager.ResetReplacementsForTesting();
+            RewindContext.ResetForTesting();
             ParsekLog.ResetTestOverrides();
 
             // Enable logging through the test sink (matches TreeLogVerificationTests pattern)
@@ -42,6 +46,9 @@ namespace Parsek.Tests
         {
             RecordingStore.ResetForTesting();
             MilestoneStore.ResetForTesting();
+            GroupHierarchyStore.ResetGroupsForTesting();
+            CrewReservationManager.ResetReplacementsForTesting();
+            RewindContext.ResetForTesting();
             ParsekLog.ResetTestOverrides();
             ParsekLog.SuppressLogging = true;
             RecordingStore.SuppressLogging = true;
@@ -55,6 +62,79 @@ namespace Parsek.Tests
         public void DefaultState_IsFinalized()
         {
             Assert.Equal(PendingTreeState.Finalized, RecordingStore.PendingTreeStateValue);
+        }
+
+        [Fact]
+        public void ShouldLoadGroupHierarchyFromSave_InitialLoad_ReturnsTrue()
+        {
+            Assert.True(ParsekScenario.ShouldLoadGroupHierarchyFromSave(
+                initialLoadDone: false, isRewinding: false));
+        }
+
+        [Fact]
+        public void ShouldLoadGroupHierarchyFromSave_InSessionLoad_ReturnsFalse()
+        {
+            Assert.False(ParsekScenario.ShouldLoadGroupHierarchyFromSave(
+                initialLoadDone: true, isRewinding: false));
+        }
+
+        [Fact]
+        public void ShouldLoadGroupHierarchyFromSave_Rewind_ReturnsFalse()
+        {
+            Assert.False(ParsekScenario.ShouldLoadGroupHierarchyFromSave(
+                initialLoadDone: false, isRewinding: true));
+        }
+
+        [Fact]
+        public void LoadCrewAndGroupState_InSessionLoad_PreservesRootLevelDebrisGroup_Unchanged()
+        {
+            RecordingStore.AddRecordingWithTreeForTesting(new Recording
+            {
+                VesselName = "Rocket",
+                RecordingGroups = new List<string> { "Rocket" }
+            });
+            RecordingStore.AddRecordingWithTreeForTesting(new Recording
+            {
+                VesselName = "Rocket Debris",
+                IsDebris = true,
+                RecordingGroups = new List<string> { "Rocket / Debris" }
+            });
+
+            GroupHierarchyStore.SetGroupParent("Booster / Debris", "Booster");
+            Assert.False(GroupHierarchyStore.TryGetGroupParent("Rocket / Debris", out _));
+
+            var scenarioNode = new ConfigNode("SCENARIO");
+            var hierarchyNode = scenarioNode.AddNode("GROUP_HIERARCHY");
+            var staleEntry = hierarchyNode.AddNode("ENTRY");
+            staleEntry.AddValue("child", "Stale / Debris");
+            staleEntry.AddValue("parent", "Stale");
+
+            logLines.Clear();
+            InvokeLoadCrewAndGroupState(scenarioNode, initialLoadDoneValue: true);
+
+            Assert.False(GroupHierarchyStore.TryGetGroupParent("Rocket / Debris", out _));
+            Assert.True(GroupHierarchyStore.TryGetGroupParent("Booster / Debris", out string boosterParent));
+            Assert.Equal("Booster", boosterParent);
+            Assert.False(GroupHierarchyStore.TryGetGroupParent("Stale / Debris", out _));
+            Assert.Contains(logLines, l => l.Contains("preserving in-memory group hierarchy"));
+        }
+
+        [Fact]
+        public void LoadCrewAndGroupState_InitialLoad_ReplacesHierarchyFromSave()
+        {
+            GroupHierarchyStore.SetGroupParent("Old / Debris", "Old");
+
+            var scenarioNode = new ConfigNode("SCENARIO");
+            var hierarchyNode = scenarioNode.AddNode("GROUP_HIERARCHY");
+            var entry = hierarchyNode.AddNode("ENTRY");
+            entry.AddValue("child", "Fresh / Debris");
+            entry.AddValue("parent", "Fresh");
+
+            InvokeLoadCrewAndGroupState(scenarioNode, initialLoadDoneValue: false);
+
+            Assert.False(GroupHierarchyStore.TryGetGroupParent("Old / Debris", out _));
+            Assert.True(GroupHierarchyStore.TryGetGroupParent("Fresh / Debris", out string freshParent));
+            Assert.Equal("Fresh", freshParent);
         }
 
         [Fact]
@@ -1071,6 +1151,29 @@ namespace Parsek.Tests
             snapshot.AddValue("name", vesselName);
             snapshot.AddValue("persistentId", pid.ToString());
             return snapshot;
+        }
+
+        private static void InvokeLoadCrewAndGroupState(
+            ConfigNode node, bool initialLoadDoneValue)
+        {
+            FieldInfo initialLoadDoneField = typeof(ParsekScenario).GetField(
+                "initialLoadDone", BindingFlags.Static | BindingFlags.NonPublic);
+            MethodInfo loadMethod = typeof(ParsekScenario).GetMethod(
+                "LoadCrewAndGroupState", BindingFlags.Static | BindingFlags.NonPublic);
+
+            Assert.NotNull(initialLoadDoneField);
+            Assert.NotNull(loadMethod);
+
+            bool previousInitialLoadDone = (bool)initialLoadDoneField.GetValue(null);
+            try
+            {
+                initialLoadDoneField.SetValue(null, initialLoadDoneValue);
+                loadMethod.Invoke(null, new object[] { node });
+            }
+            finally
+            {
+                initialLoadDoneField.SetValue(null, previousInitialLoadDone);
+            }
         }
     }
 }
