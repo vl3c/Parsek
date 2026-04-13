@@ -164,6 +164,32 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void ResolveNaNFallbackLandedGhostClearance_BelowLegacyFloor_UsesLegacyMinimum()
+        {
+            double clearance = ParsekFlight.ResolveNaNFallbackLandedGhostClearanceMeters(2.42);
+            Assert.Equal(VesselSpawner.LandedGhostClearanceMeters, clearance, 3);
+        }
+
+        [Fact]
+        public void ResolveNaNFallbackLandedGhostClearance_AboveLegacyFloor_UsesDistanceAwareFloor()
+        {
+            double clearance = ParsekFlight.ResolveNaNFallbackLandedGhostClearanceMeters(5.0);
+            Assert.Equal(5.0, clearance, 3);
+        }
+
+        [Fact]
+        public void ShouldApplyImmediateSurfacePositionClearance_NaNTerrain_False()
+        {
+            Assert.False(ParsekFlight.ShouldApplyImmediateSurfacePositionClearance(double.NaN));
+        }
+
+        [Fact]
+        public void ShouldApplyImmediateSurfacePositionClearance_CapturedTerrain_True()
+        {
+            Assert.True(ParsekFlight.ShouldApplyImmediateSurfacePositionClearance(283.1));
+        }
+
+        [Fact]
         public void ClampAltitude_JustAboveClearance_NoChange()
         {
             // Ghost at 70.6m, terrain at 70m, clearance 0.5m — just above threshold

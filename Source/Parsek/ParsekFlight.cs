@@ -8854,6 +8854,18 @@ namespace Parsek
             return ComputeTerrainClearance(distToVessel);
         }
 
+        internal static double ResolveNaNFallbackLandedGhostClearanceMeters(double minClearanceMeters)
+        {
+            return System.Math.Max(
+                VesselSpawner.LandedGhostClearanceMeters,
+                System.Math.Max(0.5, minClearanceMeters));
+        }
+
+        internal static bool ShouldApplyImmediateSurfacePositionClearance(double recordedTerrainHeight)
+        {
+            return !double.IsNaN(recordedTerrainHeight);
+        }
+
         /// <summary>
         /// Position a Landed/Splashed ghost. The recorded altitude is the TRUTH —
         /// the vessel was literally at that world-space position when the terminal
@@ -8869,8 +8881,9 @@ namespace Parsek
         /// below the current PQS terrain floor. The caller supplies the minimum
         /// clearance to use for the current playback context; long-range watched
         /// ghosts use the same distance-aware floor as <c>ClampGhostsToTerrain</c>.
-        /// For NaN-recorded-terrain legacy recordings we fall back to a fixed
-        /// clearance above PQS.</para>
+        /// For NaN-recorded-terrain legacy recordings we keep the historical 4 m
+        /// minimum clearance above PQS, but allow callers to request a larger
+        /// distance-aware floor at extreme watch ranges.</para>
         ///
         /// <para>Ghosts are kinematic — no physics damage concern — so the safety
         /// floor defaults to 0.5 m when the caller has no better context.
@@ -8896,11 +8909,15 @@ namespace Parsek
             var ic = System.Globalization.CultureInfo.InvariantCulture;
             double pqsTerrain = body.TerrainAltitude(p.latitude, p.longitude, true);
 
-            // Legacy (NaN) path: no recorded surface height — use fixed clearance
-            // above PQS terrain as before.
+            double floorClearance = System.Math.Max(0.5, minClearanceMeters);
+
+            // Legacy (NaN) path: no recorded surface height — keep the historical
+            // 4 m fallback floor, but honor a larger caller-requested clearance so
+            // long-range watched ghosts do not clip near the edge of visual range.
             if (double.IsNaN(recordedTerrainHeight))
             {
-                double legacyTarget = pqsTerrain + VesselSpawner.LandedGhostClearanceMeters;
+                double legacyClearance = ResolveNaNFallbackLandedGhostClearanceMeters(minClearanceMeters);
+                double legacyTarget = pqsTerrain + legacyClearance;
                 if (p.altitude >= legacyTarget)
                     return p;
                 // delta is always > 0 here because we already verified p.altitude < legacyTarget.
@@ -8909,7 +8926,7 @@ namespace Parsek
                     $"Landed ghost clamp #{index} (\"{vesselName}\"): " +
                     $"alt={p.altitude.ToString("F1", ic)} pqsTerrain={pqsTerrain.ToString("F1", ic)} " +
                     $"-> {legacyTarget.ToString("F1", ic)} (delta=+{delta.ToString("F2", ic)}m, " +
-                    $"body={body.name}, NaN fallback)");
+                    $"body={body.name}, NaN fallback, clearance={legacyClearance.ToString("F1", ic)}m)");
                 p.altitude = legacyTarget;
                 return p;
             }
@@ -8917,7 +8934,7 @@ namespace Parsek
             // Primary path: trust the recorded altitude. Only push up if the
             // recorded altitude is below the current PQS terrain floor — which
             // only happens when PQS terrain has shifted UP since recording.
-            double safetyFloor = pqsTerrain + System.Math.Max(0.5, minClearanceMeters);
+            double safetyFloor = pqsTerrain + floorClearance;
             if (p.altitude >= safetyFloor)
                 return p;
 
@@ -8926,7 +8943,7 @@ namespace Parsek
                 $"Landed ghost clamp #{index} (\"{vesselName}\"): " +
                 $"alt={p.altitude.ToString("F1", ic)} pqsTerrain={pqsTerrain.ToString("F1", ic)} " +
                 $"-> {safetyFloor.ToString("F1", ic)} (delta=+{upDelta.ToString("F2", ic)}m, " +
-                $"body={body.name}, below-pqs-floor, clearance={System.Math.Max(0.5, minClearanceMeters).ToString("F1", ic)}m, " +
+                $"body={body.name}, below-pqs-floor, clearance={floorClearance.ToString("F1", ic)}m, " +
                 $"recSurface={recordedTerrainHeight.ToString("F1", ic)})");
             p.altitude = safetyFloor;
             return p;
@@ -8938,19 +8955,22 @@ namespace Parsek
             if (state?.ghost == null || traj?.SurfacePos == null) return;
 
             SurfacePosition positioned = traj.SurfacePos.Value;
-            var syntheticPoint = new TrajectoryPoint
+            if (ShouldApplyImmediateSurfacePositionClearance(traj.TerrainHeightAtEnd))
             {
-                latitude = positioned.latitude,
-                longitude = positioned.longitude,
-                altitude = positioned.altitude,
-                rotation = positioned.rotation,
-                bodyName = positioned.body,
-            };
-            syntheticPoint = ApplyLandedGhostClearance(
-                syntheticPoint, index, traj.VesselName, traj.TerrainHeightAtEnd,
-                ResolveImmediateLandedGhostClearanceMeters(
-                    positioned.body, positioned.latitude, positioned.longitude, positioned.altitude));
-            positioned.altitude = syntheticPoint.altitude;
+                var syntheticPoint = new TrajectoryPoint
+                {
+                    latitude = positioned.latitude,
+                    longitude = positioned.longitude,
+                    altitude = positioned.altitude,
+                    rotation = positioned.rotation,
+                    bodyName = positioned.body,
+                };
+                syntheticPoint = ApplyLandedGhostClearance(
+                    syntheticPoint, index, traj.VesselName, traj.TerrainHeightAtEnd,
+                    ResolveImmediateLandedGhostClearanceMeters(
+                        positioned.body, positioned.latitude, positioned.longitude, positioned.altitude));
+                positioned.altitude = syntheticPoint.altitude;
+            }
 
             PositionGhostAtSurface(state.ghost, positioned, ShouldAutoActivateGhost(state));
             state.lastInterpolatedBodyName = positioned.body;
