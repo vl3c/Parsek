@@ -689,6 +689,52 @@ namespace Parsek.Tests
             Assert.Equal(200.0, merged.Points[3].ut);
         }
 
+        [Fact]
+        public void MergeTree_PreservesFlatTailWhenTrackSectionsAreStale()
+        {
+            var sections = new List<TrackSection>
+            {
+                MakeSection(0, 10, TrackSectionSource.Active),
+                MakeSection(10, 15, TrackSectionSource.Background)
+            };
+            var rec = MakeRecording("rec-stale", "Tail Vessel", sections);
+            rec.Points = new List<TrajectoryPoint>
+            {
+                new TrajectoryPoint
+                {
+                    ut = 0, latitude = 0, longitude = 0, altitude = 70000,
+                    bodyName = "Kerbin", rotation = Quaternion.identity, velocity = Vector3.zero
+                },
+                new TrajectoryPoint
+                {
+                    ut = 10, latitude = 0, longitude = 0, altitude = 70000,
+                    bodyName = "Kerbin", rotation = Quaternion.identity, velocity = Vector3.zero
+                },
+                new TrajectoryPoint
+                {
+                    ut = 15, latitude = 0, longitude = 0, altitude = 70000,
+                    bodyName = "Kerbin", rotation = Quaternion.identity, velocity = Vector3.zero
+                },
+                new TrajectoryPoint
+                {
+                    ut = 20, latitude = 0, longitude = 0, altitude = 70000,
+                    bodyName = "Kerbin", rotation = Quaternion.identity, velocity = Vector3.zero
+                }
+            };
+
+            var tree = MakeTree("Stale Sections", rec);
+
+            var result = SessionMerger.MergeTree(tree);
+            var merged = result["rec-stale"];
+
+            Assert.Equal(4, merged.Points.Count);
+            Assert.Equal(0.0, merged.Points[0].ut);
+            Assert.Equal(10.0, merged.Points[1].ut);
+            Assert.Equal(15.0, merged.Points[2].ut);
+            Assert.Equal(20.0, merged.Points[3].ut);
+            Assert.Equal(2, merged.TrackSections.Count);
+        }
+
         #endregion
 
         #region Log assertions — overlap count

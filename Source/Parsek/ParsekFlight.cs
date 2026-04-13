@@ -7787,7 +7787,7 @@ namespace Parsek
             for (int i = 0; i < committed.Count; i++)
             {
                 var rec = committed[i];
-                bool hasData = rec.Points.Count >= 2 || rec.OrbitSegments.Count > 0 || rec.SurfacePos.HasValue;
+                bool hasData = GhostPlaybackEngine.HasRenderableGhostData(rec);
 
                 bool isActiveChain = chainManager.ActiveChainId != null && rec.ChainId == chainManager.ActiveChainId;
                 bool chainLoopOrDisabled = rec.IsChainRecording &&
@@ -8873,7 +8873,10 @@ namespace Parsek
             // clamped position. WatchModeController reads state.lastInterpolatedAltitude
             // for its "ghost at alt N m on Kerbin" line — if we don't update it,
             // the log reports the buried raw altitude even after the visual is fixed.
-            state.lastInterpolatedAltitude = positioned.altitude;
+            state.SetInterpolated(new InterpolationResult(
+                positioned.velocity,
+                positioned.bodyName,
+                positioned.altitude));
         }
 
         private static double ResolveImmediateLandedGhostClearanceMeters(
