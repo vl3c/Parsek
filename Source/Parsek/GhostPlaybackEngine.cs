@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Globalization;
 using UnityEngine;
 
 namespace Parsek
@@ -257,20 +258,28 @@ namespace Parsek
                 bool hasSurfaceData = traj.SurfacePos.HasValue;
                 if (!hasPoints && !hasOrbitData && !hasSurfaceData) continue;
 
-                if (ctx.currentUT < traj.StartUT)
-                {
-                    completedEventFired.Remove(i);
-                    earlyDestroyedDebrisCompleted.Remove(i);
-                }
-
-                bool inRange = ctx.currentUT >= traj.StartUT && ctx.currentUT <= traj.EndUT;
-                bool pastEnd = ctx.currentUT > traj.EndUT;
-                bool pastEffectiveEnd = ctx.currentUT > f.chainEndUT;
-
                 GhostPlaybackState state;
                 ghostStates.TryGetValue(i, out state);
                 bool ghostActive = HasLoadedGhostVisuals(state);
                 if (ghostActive) ghostsProcessed++;
+
+                double activationStartUT = ResolveGhostActivationStartUT(traj);
+
+                if (ctx.currentUT < activationStartUT)
+                {
+                    completedEventFired.Remove(i);
+                    earlyDestroyedDebrisCompleted.Remove(i);
+                    if (ghostActive)
+                    {
+                        DestroyAllOverlapGhosts(i);
+                        DestroyGhost(i, traj, f, reason: "before activation start UT");
+                    }
+                    continue;
+                }
+
+                bool inRange = ctx.currentUT <= traj.EndUT;
+                bool pastEnd = ctx.currentUT > traj.EndUT;
+                bool pastEffectiveEnd = ctx.currentUT > f.chainEndUT;
 
                 // === Loop dispatch (before main rendering) ===
                 if (ShouldLoopPlayback(traj))
@@ -339,7 +348,7 @@ namespace Parsek
                             completedEventFired.Remove(i);
                         }
 
-                        bool debrisInRange = parentLoopUT >= traj.StartUT && parentLoopUT <= traj.EndUT;
+                        bool debrisInRange = parentLoopUT >= activationStartUT && parentLoopUT <= traj.EndUT;
                         if (debrisInRange)
                         {
                             // Override UT for positioning — use parent's loop clock
@@ -366,7 +375,10 @@ namespace Parsek
                 if (suppressGhosts && state != null)
                 {
                     if (ghostActive && state.ghost.activeSelf)
+                    {
                         state.ghost.SetActive(false);
+                        ResetGhostAppearanceTracking(state);
+                    }
                     DestroyAllOverlapGhosts(i);
                     continue;
                 }
@@ -453,7 +465,7 @@ namespace Parsek
 
             if (state == null)
             {
-                SpawnGhost(i, traj);
+                SpawnGhost(i, traj, ctx.currentUT);
                 ghostStates.TryGetValue(i, out state);
                 ghostActive = HasLoadedGhostVisuals(state);
                 if (ghostActive)
@@ -534,6 +546,9 @@ namespace Parsek
             // Apply visual events
             ApplyFrameVisuals(i, traj, state, ctx.currentUT, ctx.warpRate,
                 zoneResult.skipPartEvents, suppressVisualFx || zoneResult.suppressVisualFx);
+            ActivateGhostVisualsIfNeeded(state);
+            TrackGhostAppearance(index: i, traj: traj, state: state, playbackUT: ctx.currentUT,
+                reason: "playback");
 
             if (allowEarlyDestroyedDebrisCompletion
                 && TryHandleEarlyDestroyedDebrisCompletion(
@@ -670,7 +685,8 @@ namespace Parsek
             bool ghostActive = HasLoadedGhostVisuals(state);
 
             double intervalSeconds = GetLoopIntervalSeconds(traj, ctx.autoLoopIntervalSeconds);
-            double duration = traj.EndUT - traj.StartUT;
+            double loopStartUT = EffectiveLoopStartUT(traj);
+            double duration = traj.EndUT - loopStartUT;
 
             // High time warp: hide ghost, destroy overlaps
             if (suppressGhosts)
@@ -761,7 +777,7 @@ namespace Parsek
 
             if (state == null)
             {
-                SpawnGhost(index, traj);
+                SpawnGhost(index, traj, loopUT);
                 if (!ghostStates.TryGetValue(index, out state) || state == null)
                     return;
                 state.loopCycleIndex = cycleIndex;
@@ -839,9 +855,10 @@ namespace Parsek
             GhostPlaybackState primaryState,
             double intervalSeconds, double duration, bool suppressVisualFx)
         {
-            if (ctx.currentUT < traj.StartUT)
+            double loopStartUT = EffectiveLoopStartUT(traj);
+            if (ctx.currentUT < loopStartUT)
             {
-                if (primaryState != null) DestroyGhost(index, traj, flags, reason: "before start UT");
+                if (primaryState != null) DestroyGhost(index, traj, flags, reason: "before activation start UT");
                 DestroyAllOverlapGhosts(index);
                 return;
             }
@@ -851,7 +868,7 @@ namespace Parsek
                 cycleDuration = GhostPlaybackLogic.MinCycleDuration;
 
             long firstCycle, lastCycle;
-            GhostPlaybackLogic.GetActiveCycles(ctx.currentUT, traj.StartUT, traj.EndUT, intervalSeconds,
+            GhostPlaybackLogic.GetActiveCycles(ctx.currentUT, loopStartUT, traj.EndUT, intervalSeconds,
                 MaxOverlapGhostsPerRecording, out firstCycle, out lastCycle);
 
             List<GhostPlaybackState> overlaps;
@@ -863,6 +880,9 @@ namespace Parsek
 
             // Primary ghost represents the newest (lastCycle)
             bool primaryCycleChanged = HasLoopCycleChanged(primaryState, lastCycle);
+            double primaryCycleStartUT = loopStartUT + lastCycle * cycleDuration;
+            double primaryPhase = Math.Max(0, Math.Min(ctx.currentUT - primaryCycleStartUT, duration));
+            double primaryLoopUT = loopStartUT + primaryPhase;
 
             if (primaryCycleChanged)
             {
@@ -878,7 +898,7 @@ namespace Parsek
                 }
 
                 // Spawn new primary for lastCycle
-                SpawnGhost(index, traj);
+                SpawnGhost(index, traj, primaryLoopUT);
                 if (!ghostStates.TryGetValue(index, out primaryState) || primaryState == null)
                 {
                     ParsekLog.Warn("Engine",
@@ -914,39 +934,38 @@ namespace Parsek
             if (primaryState != null)
             {
                 bool primaryReady = true;
-                double cycleStartUT = traj.StartUT + lastCycle * cycleDuration;
-                double phase = Math.Max(0, Math.Min(ctx.currentUT - cycleStartUT, duration));
-                double loopUT = traj.StartUT + phase;
                 double primaryDistance = ResolvePlaybackDistance(
-                    index, traj, primaryState, loopUT, ctx.activeVesselPos);
+                    index, traj, primaryState, primaryLoopUT, ctx.activeVesselPos);
                 var zoneResult = positioner.ApplyZoneRendering(
                     index, primaryState, traj, primaryDistance, ctx.protectedIndex);
                 if (zoneResult.hiddenByZone)
                 {
                     HandleHiddenGhostVisualState(
-                        index, traj, primaryState, loopUT, ctx.warpRate, primaryDistance, overlapGhost: false,
+                        index, traj, primaryState, primaryLoopUT, ctx.warpRate, primaryDistance, overlapGhost: false,
                         hiddenReason: $"overlap primary hidden by distance LOD at {primaryDistance:F0}m");
                 }
                 else
                 {
                     if (!HasLoadedGhostVisuals(primaryState)
-                        && !EnsureGhostVisualsLoaded(index, traj, primaryState, loopUT, "overlap primary re-entered visible distance tier"))
+                        && !EnsureGhostVisualsLoaded(index, traj, primaryState, primaryLoopUT, "overlap primary re-entered visible distance tier"))
                         primaryReady = false;
 
                     if (primaryReady)
                     {
                         GhostPlaybackLogic.ApplyDistanceLodFidelity(primaryState, zoneResult.reduceFidelity);
                         bool effectiveSuppressVisualFx = suppressVisualFx || zoneResult.suppressVisualFx;
-                        positioner.PositionLoop(index, traj, primaryState, loopUT, effectiveSuppressVisualFx);
-                        ApplyFrameVisuals(index, traj, primaryState, loopUT, ctx.warpRate,
+                        positioner.PositionLoop(index, traj, primaryState, primaryLoopUT, effectiveSuppressVisualFx);
+                        ApplyFrameVisuals(index, traj, primaryState, primaryLoopUT, ctx.warpRate,
                             zoneResult.skipPartEvents, effectiveSuppressVisualFx);
+                        ActivateGhostVisualsIfNeeded(primaryState);
+                        TrackGhostAppearance(index, traj, primaryState, primaryLoopUT, "loop-primary");
                     }
                 }
             }
 
             // Update overlap ghosts (older cycles)
             UpdateExpireAndPositionOverlaps(index, traj, flags, ctx, overlaps,
-                duration, cycleDuration, suppressVisualFx);
+                duration, cycleDuration, loopStartUT, suppressVisualFx);
         }
 
         /// <summary>
@@ -957,7 +976,7 @@ namespace Parsek
         private void UpdateExpireAndPositionOverlaps(int index, IPlaybackTrajectory traj,
             TrajectoryPlaybackFlags flags, FrameContext ctx,
             List<GhostPlaybackState> overlaps,
-            double duration, double cycleDuration, bool suppressVisualFx)
+            double duration, double cycleDuration, double loopStartUT, bool suppressVisualFx)
         {
             for (int i = overlaps.Count - 1; i >= 0; i--)
             {
@@ -969,7 +988,7 @@ namespace Parsek
                 }
 
                 long cycle = ovState.loopCycleIndex;
-                double cycleStart = traj.StartUT + cycle * cycleDuration;
+                double cycleStart = loopStartUT + cycle * cycleDuration;
                 double phase = ctx.currentUT - cycleStart;
 
                 // Expired cycle
@@ -1007,7 +1026,7 @@ namespace Parsek
                 }
 
                 phase = Math.Max(0, Math.Min(phase, duration));
-                double loopUT = traj.StartUT + phase;
+                double loopUT = loopStartUT + phase;
                 double overlapDistance = ResolvePlaybackDistance(
                     index, traj, ovState, loopUT, ctx.activeVesselPos);
                 var zoneResult = positioner.ApplyZoneRendering(
@@ -1031,6 +1050,8 @@ namespace Parsek
                 positioner.PositionLoop(index, traj, ovState, loopUT, effectiveSuppressVisualFx);
                 ApplyFrameVisuals(index, traj, ovState, loopUT, ctx.warpRate,
                     zoneResult.skipPartEvents, effectiveSuppressVisualFx);
+                ActivateGhostVisualsIfNeeded(ovState);
+                TrackGhostAppearance(index, traj, ovState, loopUT, "loop-overlap");
             }
         }
 
@@ -1064,6 +1085,8 @@ namespace Parsek
                 state.lastInterpolatedVelocity = Vector3.zero;
                 UpdateReentryFx(index, state, traj.VesselName, warpRate);
             }
+            ActivateGhostVisualsIfNeeded(state);
+            TrackGhostAppearance(index, traj, state, lastPt.ut, "loop-pause");
         }
 
         #endregion
@@ -1071,23 +1094,24 @@ namespace Parsek
         #region Loop utilities
 
         /// <summary>
-        /// Returns the effective loop start UT, falling back to traj.StartUT when
-        /// LoopStartUT is NaN or out of range.
+        /// Returns the effective loop start UT, falling back to the first playable
+        /// ghost-activation UT when LoopStartUT is NaN or out of range.
         /// </summary>
         internal static double EffectiveLoopStartUT(IPlaybackTrajectory traj)
         {
+            double activationStartUT = ResolveGhostActivationStartUT(traj);
             double loopStart = traj.LoopStartUT;
-            if (!double.IsNaN(loopStart) && loopStart >= traj.StartUT && loopStart < traj.EndUT)
+            if (!double.IsNaN(loopStart) && loopStart >= activationStartUT && loopStart < traj.EndUT)
             {
                 // Cross-validate: effective start must be less than effective end
                 double loopEnd = traj.LoopEndUT;
-                double effectiveEnd = (!double.IsNaN(loopEnd) && loopEnd <= traj.EndUT && loopEnd > traj.StartUT)
+                double effectiveEnd = (!double.IsNaN(loopEnd) && loopEnd <= traj.EndUT && loopEnd > activationStartUT)
                     ? loopEnd : traj.EndUT;
                 if (loopStart >= effectiveEnd)
-                    return traj.StartUT;
+                    return activationStartUT;
                 return loopStart;
             }
-            return traj.StartUT;
+            return activationStartUT;
         }
 
         /// <summary>
@@ -1096,13 +1120,14 @@ namespace Parsek
         /// </summary>
         internal static double EffectiveLoopEndUT(IPlaybackTrajectory traj)
         {
+            double activationStartUT = ResolveGhostActivationStartUT(traj);
             double loopEnd = traj.LoopEndUT;
-            if (!double.IsNaN(loopEnd) && loopEnd <= traj.EndUT && loopEnd > traj.StartUT)
+            if (!double.IsNaN(loopEnd) && loopEnd <= traj.EndUT && loopEnd > activationStartUT)
             {
                 // Cross-validate: effective end must be greater than effective start
                 double loopStart = traj.LoopStartUT;
-                double effectiveStart = (!double.IsNaN(loopStart) && loopStart >= traj.StartUT && loopStart < traj.EndUT)
-                    ? loopStart : traj.StartUT;
+                double effectiveStart = (!double.IsNaN(loopStart) && loopStart >= activationStartUT && loopStart < traj.EndUT)
+                    ? loopStart : activationStartUT;
                 if (loopEnd <= effectiveStart)
                     return traj.EndUT;
                 return loopEnd;
@@ -1688,7 +1713,7 @@ namespace Parsek
         /// Builds the ghost mesh from the snapshot, or falls back to a sphere.
         /// Populates all ghost info dictionaries and reentry FX.
         /// </summary>
-        internal void SpawnGhost(int index, IPlaybackTrajectory traj)
+        internal void SpawnGhost(int index, IPlaybackTrajectory traj, double playbackUT)
         {
             // Debris with no snapshot would produce a distracting green sphere — skip entirely (#232)
             if (traj.IsDebris && GhostVisualBuilder.GetGhostSnapshot(traj) == null)
@@ -1709,6 +1734,7 @@ namespace Parsek
             if (!BuildGhostVisualsWithMetrics(index, traj, state, resetCompletedEventDedup: true, out string buildType))
                 return;
 
+            PrimeLoadedGhostForPlaybackUT(index, traj, state, playbackUT);
             GhostPlaybackLogic.InitializeFlagVisibility(traj, state);
             ghostStates[index] = state;
 
@@ -1802,6 +1828,13 @@ namespace Parsek
                 ghost, state.heatInfos, index, traj.VesselName);
             state.reentryMpb = new MaterialPropertyBlock();
 
+            // Keep fresh builds hidden until the playback loop has positioned them at the
+            // current UT. This prevents one-frame flashes at the recording-start snapshot.
+            if (ghost.activeSelf)
+                ghost.SetActive(false);
+            state.deferVisibilityUntilPlaybackSync = true;
+            ResetGhostAppearanceTracking(state);
+
             buildType = builtFromSnapshot
                 ? (traj.GhostVisualSnapshot != null ? "recording-start snapshot" : "vessel snapshot")
                 : "sphere fallback";
@@ -1832,6 +1865,7 @@ namespace Parsek
                     PositionLoadedGhostAtPlaybackUT(index, traj, state, playbackUT);
                     if (state.ghost.activeSelf)
                         state.ghost.SetActive(false);
+                    ResetGhostAppearanceTracking(state);
                     ApplyFrameVisuals(index, traj, state, playbackUT, warpRate,
                         skipPartEvents: false, suppressVisualFx: true, allowTransientEffects: false);
                     ParsekLog.VerboseRateLimited("Engine", $"prewarm-hidden-{index}",
@@ -1848,6 +1882,8 @@ namespace Parsek
                 else
                     UnloadGhostVisuals(index, state, hiddenReason);
             }
+
+            ResetGhostAppearanceTracking(state);
 
             return false;
         }
@@ -1866,13 +1902,13 @@ namespace Parsek
             if (!BuildGhostVisualsWithMetrics(index, traj, state, resetCompletedEventDedup: false, out string buildType))
                 return false;
 
-            RehydrateGhostVisualState(index, traj, state, playbackUT);
+            PrimeLoadedGhostForPlaybackUT(index, traj, state, playbackUT);
             ParsekLog.VerboseRateLimited("Engine", $"rebuild-{index}",
                 $"Ghost #{index} \"{state.vesselName}\" visuals rebuilt ({buildType}, {reason})", 1.0);
             return HasLoadedGhostVisuals(state);
         }
 
-        private static void RehydrateGhostVisualState(
+        private void PrimeLoadedGhostForPlaybackUT(
             int index, IPlaybackTrajectory traj, GhostPlaybackState state, double playbackUT)
         {
             if (state?.ghost == null)
@@ -1880,7 +1916,12 @@ namespace Parsek
 
             state.playbackIndex = 0;
             state.partEventIndex = 0;
-            GhostPlaybackLogic.ApplyPartEvents(index, traj, playbackUT, state, allowTransientEffects: false);
+            PositionLoadedGhostAtPlaybackUT(index, traj, state, playbackUT);
+            ApplyFrameVisuals(index, traj, state, playbackUT, TimeWarp.CurrentRate,
+                skipPartEvents: false, suppressVisualFx: false, allowTransientEffects: false);
+            if (state.ghost.activeSelf)
+                state.ghost.SetActive(false);
+            ResetGhostAppearanceTracking(state);
         }
 
         private void SynchronizeLoadedGhostForWatch(
@@ -1894,9 +1935,8 @@ namespace Parsek
             PositionLoadedGhostAtPlaybackUT(index, traj, state, playbackUT);
             ApplyFrameVisuals(index, traj, state, playbackUT, TimeWarp.CurrentRate,
                 skipPartEvents: false, suppressVisualFx: false, allowTransientEffects: false);
-
-            if (state.ghost != null && !state.ghost.activeSelf)
-                state.ghost.SetActive(true);
+            ActivateGhostVisualsIfNeeded(state);
+            TrackGhostAppearance(index, traj, state, playbackUT, "watch-sync");
         }
 
         private void PositionLoadedGhostAtPlaybackUT(
@@ -1942,6 +1982,301 @@ namespace Parsek
 
             if (hasOrbitData)
                 positioner.PositionFromOrbit(index, traj, state, playbackUT);
+        }
+
+        private static void ActivateGhostVisualsIfNeeded(GhostPlaybackState state)
+        {
+            if (state?.ghost == null)
+                return;
+
+            if (!state.ghost.activeSelf)
+                state.ghost.SetActive(true);
+
+            state.deferVisibilityUntilPlaybackSync = false;
+        }
+
+        private static void ResetGhostAppearanceTracking(GhostPlaybackState state)
+        {
+            if (state == null)
+                return;
+
+            state.hadVisibleRenderersLastFrame = false;
+        }
+
+        internal static double ResolveGhostActivationStartUT(IPlaybackTrajectory traj)
+        {
+            if (traj == null)
+                return 0.0;
+
+            if (traj is Recording recording && recording.TryGetGhostActivationStartUT(out double activationStartUT))
+                return activationStartUT;
+
+            return traj.StartUT;
+        }
+
+        private void TrackGhostAppearance(
+            int index, IPlaybackTrajectory traj, GhostPlaybackState state, double playbackUT, string reason)
+        {
+            if (state == null)
+                return;
+
+            if (state.ghost == null || !state.ghost.activeInHierarchy)
+            {
+                state.hadVisibleRenderersLastFrame = false;
+                return;
+            }
+
+            Bounds visibleBounds;
+            int rendererCount;
+            if (!TryGetCombinedVisibleRendererBounds(state.ghost, out visibleBounds, out rendererCount))
+            {
+                state.hadVisibleRenderersLastFrame = false;
+                return;
+            }
+
+            if (state.hadVisibleRenderersLastFrame)
+                return;
+
+            state.hadVisibleRenderersLastFrame = true;
+            state.appearanceCount++;
+
+            Vector3d rootPos = state.ghost.transform.position;
+            Quaternion rootRot = state.ghost.transform.rotation;
+            Vector3d boundsCenter = visibleBounds.center;
+            Vector3d boundsRootDelta = boundsCenter - rootPos;
+            double activationStartUT = ResolveGhostActivationStartUT(traj);
+
+            Transform firstVisiblePart = FindFirstVisibleGhostPart(state.ghost);
+            string firstVisiblePartLabel = "none";
+            Vector3d firstVisiblePartPos = Vector3d.zero;
+            Vector3d firstVisiblePartRootDelta = Vector3d.zero;
+            if (firstVisiblePart != null)
+            {
+                firstVisiblePartLabel = firstVisiblePart.name;
+                firstVisiblePartPos = firstVisiblePart.position;
+                firstVisiblePartRootDelta = firstVisiblePartPos - rootPos;
+            }
+
+            ConfigNode snapshotNode = GhostVisualBuilder.GetGhostSnapshot(traj);
+            Vector3 snapshotCoM = Vector3.zero;
+            bool hasSnapshotCoM = GhostVisualBuilder.TryGetSnapshotCenterOfMass(snapshotNode, out snapshotCoM);
+            Vector3 visualRootLocal = GhostVisualBuilder.ComputeSnapshotVisualRootLocalOffset(traj, snapshotNode);
+
+            string rootPartSummary = "rootPart=unknown";
+            Transform rootPartTransform = null;
+            string rootPartName;
+            uint rootPartPersistentId;
+            Vector3 rootPartLocalPosition;
+            Quaternion rootPartLocalRotation;
+            if (GhostVisualBuilder.TryGetSnapshotRootPartInfo(
+                snapshotNode,
+                out rootPartName,
+                out rootPartPersistentId,
+                out rootPartLocalPosition,
+                out rootPartLocalRotation))
+            {
+                rootPartSummary =
+                    $"rootPart={rootPartName ?? "unknown"} pid={rootPartPersistentId} " +
+                    $"rootPartLocal={FormatVector3(rootPartLocalPosition)} " +
+                    $"rootPartLocalRot={FormatQuaternion(rootPartLocalRotation)}";
+                if (rootPartPersistentId != 0)
+                    rootPartTransform = GhostVisualBuilder.FindGhostPartTransform(state.ghost, rootPartPersistentId);
+            }
+
+            string activeSectionSummary = DescribeAppearanceActiveSection(traj, playbackUT);
+            string recordingStartSummary = DescribeAppearanceRecordingStartPoint(traj, rootPos);
+
+            string rootPartWorldSummary = string.Empty;
+            if (rootPartTransform != null)
+            {
+                Vector3d rootPartWorldPos = rootPartTransform.position;
+                rootPartWorldSummary =
+                    $" rootPartWorld={FormatVector3d(rootPartWorldPos)} " +
+                    $"rootPart-root={FormatVector3d(rootPartWorldPos - rootPos)}";
+            }
+
+            ParsekLog.Info("GhostAppearance",
+                $"Ghost #{index} \"{traj?.VesselName ?? state.vesselName ?? "unknown"}\" " +
+                $"appearance#{state.appearanceCount} reason={reason} " +
+                $"ut={playbackUT.ToString("F2", CultureInfo.InvariantCulture)} " +
+                $"activationStart={activationStartUT.ToString("F2", CultureInfo.InvariantCulture)} " +
+                $"activationLead={(playbackUT - activationStartUT).ToString("F2", CultureInfo.InvariantCulture)} " +
+                $"zone={state.currentZone} dist={state.lastDistance.ToString("F0", CultureInfo.InvariantCulture)}m " +
+                $"{activeSectionSummary} " +
+                $"root={FormatVector3d(rootPos)} rootRot={FormatQuaternion(rootRot)} " +
+                $"boundsCenter={FormatVector3d(boundsCenter)} bounds-root={FormatVector3d(boundsRootDelta)} " +
+                $"firstVisiblePart={firstVisiblePartLabel}:{FormatVector3d(firstVisiblePartPos)} " +
+                $"part-root={FormatVector3d(firstVisiblePartRootDelta)} " +
+                $"{recordingStartSummary} " +
+                $"snapshotCoM={(hasSnapshotCoM ? FormatVector3(snapshotCoM) : "none")} " +
+                $"visualRootLocal={FormatVector3(visualRootLocal)} " +
+                $"{rootPartSummary}{rootPartWorldSummary} visibleRenderers={rendererCount}");
+        }
+
+        internal static string DescribeAppearanceActiveSection(IPlaybackTrajectory traj, double playbackUT)
+        {
+            if (traj?.TrackSections == null || traj.TrackSections.Count == 0)
+                return "activeFrame=unsectioned";
+
+            int sectionIdx = TrajectoryMath.FindTrackSectionForUT(traj.TrackSections, playbackUT);
+            if (sectionIdx < 0 || sectionIdx >= traj.TrackSections.Count)
+                return "activeFrame=none";
+
+            TrackSection section = traj.TrackSections[sectionIdx];
+            string anchorSuffix = section.referenceFrame == ReferenceFrame.Relative
+                ? $" anchorPid={section.anchorVesselId}"
+                : string.Empty;
+            return
+                $"activeFrame={section.referenceFrame} " +
+                $"sectionUT={section.startUT.ToString("F2", CultureInfo.InvariantCulture)}-" +
+                $"{section.endUT.ToString("F2", CultureInfo.InvariantCulture)}{anchorSuffix}";
+        }
+
+        internal static string DescribeAppearanceRecordingStartPoint(
+            IPlaybackTrajectory traj, Vector3d rootPos)
+        {
+            if (traj?.Points == null || traj.Points.Count == 0)
+                return "recordingStart=none";
+
+            TrajectoryPoint firstPoint = traj.Points[0];
+            ReferenceFrame frame = ReferenceFrame.Absolute;
+            uint anchorVesselId = 0;
+
+            if (traj.TrackSections != null && traj.TrackSections.Count > 0)
+            {
+                int sectionIdx = TrajectoryMath.FindTrackSectionForUT(traj.TrackSections, firstPoint.ut);
+                if (sectionIdx >= 0 && sectionIdx < traj.TrackSections.Count)
+                {
+                    TrackSection section = traj.TrackSections[sectionIdx];
+                    frame = section.referenceFrame;
+                    anchorVesselId = section.anchorVesselId;
+                }
+            }
+
+            if (frame == ReferenceFrame.Relative)
+            {
+                Vector3d offset = new Vector3d(firstPoint.latitude, firstPoint.longitude, firstPoint.altitude);
+                return
+                    $"recordingStart@{firstPoint.ut.ToString("F2", CultureInfo.InvariantCulture)} " +
+                    $"frame=Relative offset={FormatVector3d(offset)} anchorPid={anchorVesselId}";
+            }
+
+            string rawSummary =
+                $"recordingStart@{firstPoint.ut.ToString("F2", CultureInfo.InvariantCulture)} " +
+                $"frame={frame} body={firstPoint.bodyName ?? "unknown"} " +
+                $"lla={FormatVector3d(new Vector3d(firstPoint.latitude, firstPoint.longitude, firstPoint.altitude))}";
+
+            CelestialBody body = FlightGlobals.GetBodyByName(firstPoint.bodyName);
+            if (body == null)
+                return $"{rawSummary} world=unresolved";
+
+            Vector3d worldPos = body.GetWorldSurfacePosition(
+                firstPoint.latitude, firstPoint.longitude, firstPoint.altitude);
+            Vector3d worldRootDelta = worldPos - rootPos;
+            Quaternion worldRot = body.bodyTransform.rotation *
+                TrajectoryMath.SanitizeQuaternion(firstPoint.rotation);
+            return
+                $"{rawSummary} world={FormatVector3d(worldPos)} " +
+                $"recordingStart-root={FormatVector3d(worldRootDelta)} " +
+                $"recordingStartRot={FormatQuaternion(worldRot)}";
+        }
+
+        private static bool TryGetCombinedVisibleRendererBounds(
+            GameObject ghost, out Bounds combinedBounds, out int rendererCount)
+        {
+            combinedBounds = new Bounds();
+            rendererCount = 0;
+            if (ghost == null)
+                return false;
+
+            Transform partContainer = GhostVisualBuilder.GetGhostPartContainer(ghost.transform);
+            if (partContainer == null)
+                return false;
+
+            var renderers = partContainer.GetComponentsInChildren<Renderer>(true);
+            for (int i = 0; i < renderers.Length; i++)
+            {
+                Renderer renderer = renderers[i];
+                if (!ShouldUseRendererForAppearance(renderer))
+                    continue;
+
+                if (rendererCount == 0)
+                    combinedBounds = renderer.bounds;
+                else
+                    combinedBounds.Encapsulate(renderer.bounds);
+                rendererCount++;
+            }
+
+            return rendererCount > 0;
+        }
+
+        private static bool ShouldUseRendererForAppearance(Renderer renderer)
+        {
+            return renderer != null
+                && !(renderer is ParticleSystemRenderer)
+                && renderer.enabled
+                && renderer.gameObject.activeInHierarchy;
+        }
+
+        private static Transform FindFirstVisibleGhostPart(GameObject ghost)
+        {
+            if (ghost == null)
+                return null;
+
+            Transform partContainer = GhostVisualBuilder.GetGhostPartContainer(ghost.transform);
+            if (partContainer == null)
+                return null;
+
+            Transform firstActivePart = null;
+            for (int i = 0; i < partContainer.childCount; i++)
+            {
+                Transform child = partContainer.GetChild(i);
+                if (child == null || !child.gameObject.activeInHierarchy || !child.name.StartsWith("ghost_part_"))
+                    continue;
+
+                if (firstActivePart == null)
+                    firstActivePart = child;
+
+                var renderers = child.GetComponentsInChildren<Renderer>(true);
+                for (int r = 0; r < renderers.Length; r++)
+                {
+                    if (ShouldUseRendererForAppearance(renderers[r]))
+                        return child;
+                }
+            }
+
+            return firstActivePart;
+        }
+
+        private static string FormatVector3(Vector3 value)
+        {
+            return string.Format(
+                CultureInfo.InvariantCulture,
+                "({0:F2},{1:F2},{2:F2})",
+                value.x,
+                value.y,
+                value.z);
+        }
+
+        private static string FormatVector3d(Vector3d value)
+        {
+            return string.Format(
+                CultureInfo.InvariantCulture,
+                "({0:F2},{1:F2},{2:F2})",
+                value.x,
+                value.y,
+                value.z);
+        }
+
+        private static string FormatQuaternion(Quaternion value)
+        {
+            return string.Format(
+                CultureInfo.InvariantCulture,
+                "({0:F3},{1:F3},{2:F3},{3:F3})",
+                value.x,
+                value.y,
+                value.z,
+                value.w);
         }
 
         private void UnloadGhostVisuals(int index, GhostPlaybackState state, string reason)

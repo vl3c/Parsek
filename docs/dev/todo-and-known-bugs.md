@@ -418,6 +418,34 @@ So the problem was not "bad auto-grouping on commit"; it was "stale hierarchy lo
 
 ---
 
+## 336. Debris ghosts can appear ahead of their real playback start, then slide into place
+
+**Observed in:** `logs/2026-04-13_1959_debris-slide-still-broken-after-pr258/` after the first debris-positioning follow-up on PR `#258`. User report: debris ghosts still appeared in visibly wrong places on their first frame and only settled into the correct path afterward.
+
+**Collected evidence:**
+
+- The fresh `GhostAppearance` logs showed the ghost root was already snapped to the recording's first flat point on the first visible frame, but the ghost had become visible before any playable section was active:
+  - `Ghost #1 "Kerbal X Debris" appearance#1 reason=playback ut=19.72 ... activeFrame=none ... recordingStart@20.26 ...`
+  - `Ghost #7 "Kerbal X Debris" appearance#1 reason=playback ut=27.58 ... activeFrame=none ... recordingStart@28.12 ...`
+- The matching debris sidecars confirmed the same timing gap:
+  - recording `ceea24e2f9d04718ad9a63c9b95dd3c2` had `ExplicitStartUT = 19.72`, but its first playable `TrackSection` frame was `ut = 20.26`
+  - recording `9c9ea1b5b5964fe48311835181ba7d3d` had `ExplicitStartUT = 27.58`, but its first playable frame was `ut = 28.12`
+- The first structural part events landed only after the first visible frame (`Applied 2 part events for ghost #1` / `#2` after the appearance lines), so the replay briefly showed the full breakup snapshot state before the real payload timeline caught up.
+- This ruled out the earlier CoM/root-frame hypothesis as the primary cause of the visible "spawn ahead, then slide back" behavior in the fresh repro. The root was not lagging the recording; visibility was starting too early.
+
+**Impact:** Debris ghosts can become visible off branch metadata instead of their first real playable sample, making them appear tens of meters ahead of where the user expects before the steady-state playback path "catches up". Because breakup debris is snapshot-built and event-pruned, that early-visible window is especially obvious.
+
+**Root cause:** breakup child recordings intentionally preserve the branch boundary as `ExplicitStartUT`, but ghost activation was still keyed off `Recording.StartUT` / raw loop start instead of the first playable payload sample. For these debris recordings, `ExplicitStartUT` came from the breakup branch point, while the first real `TrackSection.frames[0].ut` landed ~0.5 s later. The engine therefore treated the ghost as in-range too early, clamped positioning to the future first point, and made the full snapshot visible before any active section or first-frame part-event pruning existed.
+
+**Fix implemented:** ghost activation now resolves from the first playable payload timestamp instead of the outer semantic branch start. `Recording.TryGetGhostActivationStartUT()` now prefers the first real frame/checkpoint payload, `GhostPlaybackEngine` gates normal playback and loop/debris-sync start off that activation UT, and `GhostAppearance` now logs `activationStart` / `activationLead` so future bundles can prove whether a ghost became visible before its real payload window. Added focused regression coverage for:
+
+- recordings whose `ExplicitStartUT` is earlier than the first playable debris frame
+- engine-side activation-start resolution preferring the real payload start over semantic branch timing
+
+**Status:** Fix implemented in PR `#258`; pending runtime validation from a fresh replay bundle.
+
+---
+
 ## ~~326. Landed EVA branch can be seeded as Atmospheric, leaving a bogus 1-point EVA fragment and bad optimizer splits~~
 
 **Observed in:** `logs/2026-04-12_2242_quickload-branch-gaps-s10/` (`s10`). The latest retry did **not** reproduce the exact `s9` watch-handoff failure; main-vessel watch transfer worked on current head. But the run exposed a different regression in the EVA branch path.

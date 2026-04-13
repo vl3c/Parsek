@@ -48,6 +48,7 @@ namespace Parsek
         public bool distanceLodReduced;  // true when distance-based LOD applied ReduceFidelity
         public List<Renderer> fidelityDisabledRenderers; // renderers disabled by ReduceFidelity (for precise restore)
         public bool simplified;          // true when SimplifyToOrbitLine soft cap hid the ghost mesh
+        public bool deferVisibilityUntilPlaybackSync; // fresh/rebuilt ghost stays hidden until positioned and synced
         public Transform cameraPivot; // child of ghost; centroid of active parts — camera targets this
         public Transform horizonProxy; // child of cameraPivot; horizon-aligned rotation for locked camera mode
         public Vector3 lastInterpolatedVelocity;
@@ -57,6 +58,8 @@ namespace Parsek
         public RenderingZone currentZone = RenderingZone.Physics; // distance-based rendering zone
         public double lastDistance; // meters from active vessel, updated per frame in ApplyZonePolicy
         public int flagEventIndex;               // tracks which flags have been spawned
+        public bool hadVisibleRenderersLastFrame; // true after the ghost produced visible mesh on the previous frame
+        public int appearanceCount;              // increments every time the ghost becomes visibly rendered again
 
         internal void ClearLoadedVisualReferences()
         {
@@ -88,8 +91,10 @@ namespace Parsek
             distanceLodReduced = false;
             fidelityDisabledRenderers = null;
             simplified = false;
+            deferVisibilityUntilPlaybackSync = false;
             cameraPivot = null;
             horizonProxy = null;
+            hadVisibleRenderersLastFrame = false;
         }
 
         public void SetInterpolated(InterpolationResult r)
