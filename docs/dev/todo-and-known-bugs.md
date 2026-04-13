@@ -258,7 +258,7 @@ So the problem was not "bad auto-grouping on commit"; it was "stale hierarchy lo
 
 ---
 
-## 327. Main stage can appear frozen or off-trajectory after separation while debris paths continue
+## ~~327. Main stage can appear frozen or off-trajectory after separation while debris paths continue~~
 
 **Observed in:** 2026-04-13 local smoke after the snapshot-storage PR. User report: the main stage appeared to freeze in the air or move along the wrong trajectory position, while the debris recordings continued playing normally.
 
@@ -272,13 +272,13 @@ So the problem was not "bad auto-grouping on commit"; it was "stale hierarchy lo
 - The same `s13` bundle **does** show a save/load storage gap in the main-stage `.prec` payload. At `03:03:26`, `FlushRecorderIntoActiveTreeForSerialization` logged `103` live points for root recording `034b687...`, but the sidecar written immediately afterward still contained only `trackSections=1 / sparsePoints=35`; the next quickload rebuilt only that single section. The `a936e14...` and `8109e9e...` same-PID continuations showed the same pattern at later save boundaries.
 - A saved local inspector script, `tools/inspect-recording-sidecar.ps1`, confirmed the persisted `Kerbal X` chain had large gaps between section-authoritative sparse segments even though live recording had advanced further in memory before save.
 
-**Impact:** If this is real on current head, the parent/main-stage recording can become visually unreliable after separation even while child debris recordings continue correctly. That would be a more serious playback-integrity bug than simple camera recovery or grouping.
+**Impact:** When it happened, the parent/main-stage recording could become visually unreliable after separation even while child debris recordings continued correctly. That made the playback-integrity failure more serious than a simple camera recovery or grouping issue.
 
-**Root cause / hypothesis:** Root cause isolated on the `fix/327-main-stage-freeze-after-separation` branch. `ParsekFlight.FlushRecorderIntoActiveTreeForSerialization()` appended only already-closed `recorder.TrackSections` into the active-tree recording and then cleared them, but it did **not** checkpoint the recorder's currently-open `TrackSection` first. Mid-flight saves could therefore write a section-authoritative `.prec` sidecar that was missing the live in-progress sparse trajectory chunk, and quickload playback could freeze or drift across that gap while debris/child recordings continued normally.
+**Root cause:** `ParsekFlight.FlushRecorderIntoActiveTreeForSerialization()` appended only already-closed `recorder.TrackSections` into the active-tree recording and then cleared them, but it did **not** checkpoint the recorder's currently-open `TrackSection` first. Mid-flight saves could therefore write a section-authoritative `.prec` sidecar that was missing the live in-progress sparse trajectory chunk, and quickload playback could freeze or drift across that gap while debris/child recordings continued normally.
 
-**Fix direction:** The branch now checkpoints the open active `TrackSection` during save-time serialization, immediately reopens a continuation section with the same environment/reference metadata, and adds regression coverage for absolute, relative, and orbital-checkpoint cases. This still needs an in-game save/load breakup repro on current head to confirm the visible frozen/off-trajectory symptom is gone.
+**Fix:** PR `#242` now checkpoints the open active `TrackSection` during save-time serialization, immediately reopens a continuation section with the same environment/reference metadata, and adds regression coverage for absolute, relative, and orbital-checkpoint cases. The changelog entry for `0.8.1` already records this shipped fix.
 
-**Status:** Open (fix implemented on branch; needs in-game verification)
+**Status:** ~~Fixed~~ (PR #242)
 
 ---
 
