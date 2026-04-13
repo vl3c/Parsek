@@ -195,16 +195,7 @@ namespace Parsek.Patches
             AwaitingSceneChangeMergeOwner = false;
 
             if (mergeOwnerExists)
-            {
-                if (DeferredMergeArmed && !HasPendingResults())
-                {
-                    DeferredMergeArmed = false;
-                    ParsekLog.Info("FlightResultsPatch",
-                        $"Resolved scene-change merge owner without captured results — disarmed ({reason})");
-                }
-
                 return;
-            }
 
             ClearPending(reason);
         }

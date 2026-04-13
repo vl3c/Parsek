@@ -235,7 +235,7 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void ResolveAwaitingSceneChangeMergeOwnerOnFlightReady_WithOwner_DisarmsOnlyUncapturedState()
+        public void ResolveAwaitingSceneChangeMergeOwnerOnFlightReady_WithOwner_KeepsArmedUntilCaptureOrResolution()
         {
             FlightResultsPatch.AwaitingSceneChangeMergeOwner = true;
             FlightResultsPatch.DeferredMergeArmed = true;
@@ -245,7 +245,7 @@ namespace Parsek.Tests
                 reason: "unit test owner exists");
 
             Assert.False(FlightResultsPatch.AwaitingSceneChangeMergeOwner);
-            Assert.False(FlightResultsPatch.DeferredMergeArmed);
+            Assert.True(FlightResultsPatch.DeferredMergeArmed);
             Assert.False(FlightResultsPatch.HasPendingResults());
         }
 
