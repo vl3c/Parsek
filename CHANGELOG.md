@@ -9,6 +9,7 @@ All notable changes to Parsek are documented here.
 ### Improvements
 
 - Phase 11.5 ghost LOD is now live in Flight: shared distance thresholds, unwatched reduced tier at `2.3-50 km`, hidden-mesh tier at `50-120 km`, and live diagnostics counts for `full / reduced / hidden / watched override`.
+- Phase 11.5 snapshot-storage follow-up now writes `_vessel.craft` / `_ghost.craft` sidecars as lossless header-dispatched `Deflate` envelopes at the highest built-in .NET compression level, while still loading legacy text snapshot files, preserving the existing alias/separate fallback rules, only falling back to vessel visuals when the ghost sidecar is actually missing, and using staged sidecar writes so caught partial-write failures roll back cleanly.
 - Hidden-tier ghosts now unload built mesh/resources while keeping their logical playback shell alive, prewarm shortly before visible-tier re-entry or imminent structural part events, and rebuild from snapshot state without replaying transient puff/audio effects.
 - Ghost performance tuning is now backend-owned. The old ghost soft-cap settings and the soft-cap subsystem were removed instead of leaving user-facing knobs that conflicted with the new distance policy.
 
@@ -21,7 +22,9 @@ All notable changes to Parsek are documented here.
 - Section-authoritative recording merges/splits now resync derived flat trajectory lists when the section payload can rebuild them losslessly, and recordings-window stats now use section altitude metadata plus relative-offset distance handling instead of treating relative frames as absolute surface coordinates (`#318`).
 - Active-tree restore now keeps a matching in-memory pending tree when the saved active tree hits stale-sidecar epoch failures, and hydration-failed recordings are no longer pruned as disposable zero-point leaves during finalize (`#314`).
 - Active-tree restore still keeps the full matching pending tree for stale-sidecar epoch failures, and other matched hydration failures now salvage only the failed recordings from the pending tree into the loaded disk tree, marking them dirty so the next save heals the sidecars without jumping the whole restore to the future timeline.
+- Snapshot-only hydration failures now heal from the matching pending tree without replacing the loaded disk trajectory, so a bad `_vessel.craft` / `_ghost.craft` sidecar cannot make quickload restore a future-timeline track just to recover snapshot state.
 - Separate ghost snapshot sidecars now rewrite on later saves instead of behaving like write-once files, so `_ghost.craft` stays aligned with `ghostSnapshotMode=Separate` after snapshot changes.
+- Snapshot-side staged writes now clean transient `.stage.*` / `.bak.*` / `.tmp` artifacts conservatively, and orphan cleanup recognizes any leftovers from interrupted writes instead of leaving them behind forever.
 - Mixed background recordings no longer let incomplete `TrackSections` suppress top-level trajectory on disk. Current-format sidecars now fall back conservatively when loaded background sections have not yet captured their checkpoint payload, preserving secondary-vessel and debris orbit continuation across save/load.
 - Background `TrackSection` flushes now append their concrete frames back into the live flat `Points`/`OrbitSegments` lists with boundary dedupe, so background playback/UI paths do not need to wait for a save/load round-trip before secondary-vessel trajectory becomes usable.
 - `#320` Tree-destruction merge confirmation now owns stock crash-dialog ordering explicitly. Deferred flight results are armed before the destruction coroutine gap, replay only after real merge/discard resolution, and are cleared when quickload/revert/stale-save cleanup abandons the pending-tree owner.
@@ -42,6 +45,7 @@ All notable changes to Parsek are documented here.
 ### Developer Tools
 
 - Added regression coverage for R/FF enablement reasons, including future/past timing, tree-branch rewind save resolution, and a UI guard that pins rewind/fast-forward independence from watch-distance state (`T60`).
+- Added regression coverage for compressed snapshot sidecars: legacy/new mixed corpora, alias/separate/ghost-only fallback behavior, corrupt/unsupported/oversized-envelope rejection, snapshot-hydration failure surfacing without misleading fallback logs, snapshot-only quickload salvage that preserves disk trajectory and alias invariants, transient sidecar-artifact cleanup, and staged-write rollback/heal behavior for both first-write and stale-ghost-delete branches.
 - Added regression coverage for exact watched-cycle protection, hidden-tier warp exemption, watched-override diagnostics counting, and the new frame-context watch-cycle field.
 - Added regression coverage for hidden-tier shell-state handling so unloaded ghosts keep their logical loop identity and rebuild paths preserve playback bookkeeping.
 - Added regression coverage for watched-lineage debris visibility, so watch-mode protection now stays pinned to the intended same-tree same-vessel debris path instead of only the exact watched recording row.

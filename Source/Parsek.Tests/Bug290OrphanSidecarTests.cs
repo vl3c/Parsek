@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using Xunit;
 
 namespace Parsek.Tests
@@ -13,9 +14,12 @@ namespace Parsek.Tests
     public class Bug290_BuildKnownRecordingIdsTests : IDisposable
     {
         private readonly List<string> logLines = new List<string>();
+        private readonly string originalSaveFolder;
+        private readonly List<string> cleanupRoots = new List<string>();
 
         public Bug290_BuildKnownRecordingIdsTests()
         {
+            originalSaveFolder = HighLogic.SaveFolder;
             ParsekLog.ResetTestOverrides();
             ParsekLog.SuppressLogging = false;
             ParsekLog.VerboseOverrideForTesting = true;
@@ -26,6 +30,16 @@ namespace Parsek.Tests
 
         public void Dispose()
         {
+            HighLogic.SaveFolder = originalSaveFolder;
+            for (int i = 0; i < cleanupRoots.Count; i++)
+            {
+                try
+                {
+                    if (Directory.Exists(cleanupRoots[i]))
+                        Directory.Delete(cleanupRoots[i], true);
+                }
+                catch { }
+            }
             RecordingStore.ResetForTesting();
             ParsekLog.ResetTestOverrides();
             ParsekLog.SuppressLogging = true;
@@ -245,6 +259,55 @@ namespace Parsek.Tests
 
             // Only 2 valid IDs, not 3 (empty ID filtered)
             Assert.Equal(2, pendingCount);
+        }
+
+        [Fact]
+        public void CleanOrphanFiles_DeletesTransientArtifacts_WithoutTouchingValidSidecars()
+        {
+            string recordingsDir = CreateRecordingsDir("transient-artifacts");
+            var keep = new Recording { RecordingId = "keep-rec", VesselName = "Keep" };
+            RecordingStore.AddRecordingWithTreeForTesting(keep);
+
+            string keepPrec = Path.Combine(recordingsDir, "keep-rec.prec");
+            string keepVessel = Path.Combine(recordingsDir, "keep-rec_vessel.craft");
+            string keepGhost = Path.Combine(recordingsDir, "keep-rec_ghost.craft");
+            File.WriteAllText(keepPrec, "keep-prec");
+            File.WriteAllText(keepVessel, "keep-vessel");
+            File.WriteAllText(keepGhost, "keep-ghost");
+
+            string transientStage = Path.Combine(recordingsDir, "orphan.prec.stage.1");
+            string transientBak = Path.Combine(recordingsDir, "keep-rec_vessel.craft.bak.1");
+            string transientTmp = Path.Combine(recordingsDir, "other-rec_ghost.craft.tmp");
+            string readme = Path.Combine(recordingsDir, "readme.txt");
+            File.WriteAllText(transientStage, "stage");
+            File.WriteAllText(transientBak, "bak");
+            File.WriteAllText(transientTmp, "tmp");
+            File.WriteAllText(readme, "keep-me");
+
+            logLines.Clear();
+            RecordingStore.CleanOrphanFiles();
+
+            Assert.True(File.Exists(keepPrec));
+            Assert.True(File.Exists(keepVessel));
+            Assert.True(File.Exists(keepGhost));
+            Assert.False(File.Exists(transientStage));
+            Assert.False(File.Exists(transientBak));
+            Assert.False(File.Exists(transientTmp));
+            Assert.True(File.Exists(readme));
+            Assert.Contains(logLines, l =>
+                l.Contains("Cleaned 0 orphaned recording file(s), 3 transient sidecar artifact(s)"));
+        }
+
+        private string CreateRecordingsDir(string label)
+        {
+            string saveFolder = "parsek-test-" + label + "-" + Guid.NewGuid().ToString("N");
+            HighLogic.SaveFolder = saveFolder;
+            string root = Path.GetFullPath(Path.Combine("saves", saveFolder));
+            string recordingsDir = Path.Combine(root, "Parsek", "Recordings");
+            Directory.CreateDirectory(recordingsDir);
+            RecordingStore.CleanOrphanFilesDirectoryOverrideForTesting = recordingsDir;
+            cleanupRoots.Add(root);
+            return recordingsDir;
         }
     }
 }

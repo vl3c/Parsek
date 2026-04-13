@@ -712,17 +712,22 @@ Create a `.netkan` file or submit to CKAN indexer so users can install Parsek vi
 
 The first five storage slices are in place: representative fixture coverage, `v1`
 section-authoritative `.prec` sidecars, alias-mode ghost snapshot dedupe, header-dispatched binary
-`v2` `.prec` sidecars, and exact sparse `v3` defaults for stable per-point body/career fields.
+`v2` `.prec` sidecars, exact sparse `v3` defaults for stable per-point body/career fields, and
+lossless header-dispatched `Deflate` compression for `_vessel.craft` / `_ghost.craft` snapshot
+sidecars with legacy-text fallback.
 Remaining high-value work should stay measurement-gated and follow
 `docs/dev/plans/phase-11-5-recording-storage-optimization.md`:
 
 - fresh live-corpus rebaseline against current `v3` sidecars
-- next PR after merging this branch should target snapshot-side size reduction first
-- snapshot work should focus on `_ghost.craft` / `_vessel.craft` bytes, where the remaining storage bulk now lives
+- snapshot-side work should keep focusing on `_ghost.craft` / `_vessel.craft` bytes, where the remaining storage bulk still lives after the first lossless compression slice
+- only pursue intra-save snapshot dedupe or any custom binary snapshot schema if the post-compression rebaseline still shows a meaningful measured win
 - additional sparse payload work only where exact reconstruction and real byte wins are proven
 - post-commit, error-bounded trajectory thinning only after the format wins are re-measured
-- any further snapshot-side work should preserve current alias semantics and stay covered by
-  sidecar/load diagnostics
+- snapshot-only hydration salvage must keep the loaded disk trajectory authoritative; if pending-tree data is used to heal bad snapshot sidecars, it should restore only snapshot state, not overwrite trajectory/timing with future in-memory data
+- out-of-band `incrementEpoch=false` sidecar writes still rely on the existing `.sfs` epoch and staged per-file replacement; if we ever need crash-proof mixed-generation detection there, add a sidecar-set commit marker/manifest instead of pretending the current epoch gate can prove it
+- any further snapshot-side work should preserve current alias semantics, keep the
+  missing-only ghost fallback contract, keep partial-write rollback safety intact, and stay
+  covered by sidecar/load diagnostics
 - add an end-to-end active-tree salvage test that proves a later `OnSave` rewrites healed sidecars
   and clears `FilesDirty`
 - add a mixed-case salvage test where several recordings fail hydration but only a subset can be

@@ -1,7 +1,9 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.IO.Compression;
 using System.Linq;
+using System.Reflection;
 using Parsek.Tests.Generators;
 using UnityEngine;
 using Xunit;
@@ -115,7 +117,12 @@ namespace Parsek.Tests
             Assert.Equal(expectedVessel != null, File.Exists(vesselPath));
             if (expectedVessel != null)
             {
-                ConfigNode loadedVessel = ConfigNode.Load(vesselPath);
+                SnapshotSidecarProbe vesselProbe;
+                Assert.True(RecordingStore.TryProbeSnapshotSidecar(vesselPath, out vesselProbe));
+                Assert.Equal(SnapshotSidecarEncoding.DeflateV1, vesselProbe.Encoding);
+
+                ConfigNode loadedVessel;
+                Assert.True(RecordingStore.LoadSnapshotSidecarForTesting(vesselPath, out loadedVessel));
                 Assert.NotNull(loadedVessel);
                 AssertConfigNodeEquivalent(expectedVessel, loadedVessel, "vessel");
             }
@@ -125,7 +132,12 @@ namespace Parsek.Tests
             if (ghostSnapshotMode == GhostSnapshotMode.Separate)
             {
                 ConfigNode expectedGhost = original.GhostVisualSnapshot;
-                ConfigNode loadedGhost = ConfigNode.Load(ghostPath);
+                SnapshotSidecarProbe ghostProbe;
+                Assert.True(RecordingStore.TryProbeSnapshotSidecar(ghostPath, out ghostProbe));
+                Assert.Equal(SnapshotSidecarEncoding.DeflateV1, ghostProbe.Encoding);
+
+                ConfigNode loadedGhost;
+                Assert.True(RecordingStore.LoadSnapshotSidecarForTesting(ghostPath, out loadedGhost));
                 Assert.NotNull(loadedGhost);
                 AssertConfigNodeEquivalent(expectedGhost, loadedGhost, "ghost");
             }
@@ -330,6 +342,86 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void SnapshotSidecar_LegacyTextFormat_StillLoads()
+        {
+            ConfigNode expected = BuildSnapshot("Legacy Snapshot", pid: 1001);
+            string path = Path.Combine(tempDir, "legacy_vessel.craft");
+            expected.Save(path);
+
+            SnapshotSidecarProbe probe;
+            Assert.True(RecordingStore.TryProbeSnapshotSidecar(path, out probe));
+            Assert.Equal(SnapshotSidecarEncoding.TextConfigNode, probe.Encoding);
+            Assert.True(probe.Supported);
+
+            ConfigNode loaded;
+            Assert.True(RecordingStore.LoadSnapshotSidecarForTesting(path, out loaded));
+            AssertConfigNodeEquivalent(expected, loaded, "legacySnapshot");
+        }
+
+        [Fact]
+        public void SnapshotSidecar_CompressedFormat_UsesOptimalCompression_AndRoundTrips()
+        {
+            Assert.Equal(CompressionLevel.Optimal, SnapshotSidecarCodec.CurrentCompressionLevel);
+
+            ConfigNode expected = VesselSnapshotBuilder.FleaRocket("Compressed Snapshot", "Jebediah Kerman", pid: 2002)
+                .Build();
+            string path = Path.Combine(tempDir, "compressed_vessel.craft");
+
+            RecordingStore.WriteSnapshotSidecarForTesting(path, expected);
+
+            SnapshotSidecarProbe probe;
+            Assert.True(RecordingStore.TryProbeSnapshotSidecar(path, out probe));
+            Assert.Equal(SnapshotSidecarEncoding.DeflateV1, probe.Encoding);
+            Assert.Equal(SnapshotSidecarCodec.CurrentVersion, probe.FormatVersion);
+            Assert.True(probe.CompressedLength > 0);
+            Assert.True(probe.UncompressedLength > probe.CompressedLength,
+                $"Expected compressed sidecar ({probe.CompressedLength} bytes) to be smaller than uncompressed payload ({probe.UncompressedLength} bytes)");
+
+            ConfigNode loaded;
+            Assert.True(RecordingStore.LoadSnapshotSidecarForTesting(path, out loaded));
+            AssertConfigNodeEquivalent(expected, loaded, "compressedSnapshot");
+        }
+
+        [Fact]
+        public void SnapshotSidecar_MixedLegacyAndCompressedFiles_LoadInSameProcess()
+        {
+            ConfigNode legacy = BuildSnapshot("Legacy Mixed", pid: 3001);
+            ConfigNode compressed = VesselSnapshotBuilder.FleaRocket("Compressed Mixed", "Valentina Kerman", pid: 3002)
+                .Build();
+
+            string legacyPath = Path.Combine(tempDir, "mixed-legacy_vessel.craft");
+            string compressedPath = Path.Combine(tempDir, "mixed-compressed_vessel.craft");
+
+            legacy.Save(legacyPath);
+            RecordingStore.WriteSnapshotSidecarForTesting(compressedPath, compressed);
+
+            ConfigNode loadedLegacy;
+            ConfigNode loadedCompressed;
+            Assert.True(RecordingStore.LoadSnapshotSidecarForTesting(legacyPath, out loadedLegacy));
+            Assert.True(RecordingStore.LoadSnapshotSidecarForTesting(compressedPath, out loadedCompressed));
+            AssertConfigNodeEquivalent(legacy, loadedLegacy, "mixedLegacy");
+            AssertConfigNodeEquivalent(compressed, loadedCompressed, "mixedCompressed");
+        }
+
+        [Fact]
+        public void SnapshotSidecar_CompressedFormat_IsSmallerThanEquivalentLegacyText()
+        {
+            ConfigNode expected = VesselSnapshotBuilder.FleaRocket("Snapshot Size", "Bill Kerman", pid: 4004)
+                .Build();
+            string legacyPath = Path.Combine(tempDir, "snapshot-size-legacy_vessel.craft");
+            string compressedPath = Path.Combine(tempDir, "snapshot-size-compressed_vessel.craft");
+
+            expected.Save(legacyPath);
+            RecordingStore.WriteSnapshotSidecarForTesting(compressedPath, expected);
+
+            long legacyBytes = new FileInfo(legacyPath).Length;
+            long compressedBytes = new FileInfo(compressedPath).Length;
+
+            Assert.True(compressedBytes < legacyBytes,
+                $"Expected compressed snapshot ({compressedBytes} bytes) to be smaller than legacy text ({legacyBytes} bytes)");
+        }
+
+        [Fact]
         public void UnsupportedBinaryTrajectoryVersion_IsRejected()
         {
             string path = Path.Combine(tempDir, "unsupported-binary.prec");
@@ -350,6 +442,411 @@ namespace Parsek.Tests
                 l.Contains("[WARN]") &&
                 l.Contains("[RecordingStore]") &&
                 l.Contains("unsupported binary trajectory version"));
+        }
+
+        [Fact]
+        public void UnsupportedSnapshotSidecarVersion_IsRejected()
+        {
+            string path = Path.Combine(tempDir, "unsupported_vessel.craft");
+            using (var stream = new FileStream(path, FileMode.Create, FileAccess.Write))
+            using (var writer = new BinaryWriter(stream))
+            {
+                writer.Write(new byte[] { (byte)'P', (byte)'R', (byte)'K', (byte)'S' });
+                writer.Write(99);
+                writer.Write((byte)1);
+                writer.Write(16);
+                writer.Write(4);
+                writer.Write(0u);
+                writer.Write(new byte[] { 1, 2, 3, 4 });
+            }
+
+            logLines.Clear();
+            SnapshotSidecarProbe probe;
+            Assert.True(RecordingStore.TryProbeSnapshotSidecar(path, out probe));
+            Assert.False(probe.Supported);
+            Assert.Equal(SnapshotSidecarEncoding.UnknownBinary, probe.Encoding);
+            Assert.Contains(logLines, l =>
+                l.Contains("[WARN]") &&
+                l.Contains("[RecordingStore]") &&
+                l.Contains("unsupported snapshot sidecar"));
+        }
+
+        [Fact]
+        public void SnapshotLoad_AliasMode_RecoversFromGhostSidecar_WhenVesselSidecarMissing()
+        {
+            ConfigNode ghost = BuildSnapshot("Alias Recovery", pid: 5001);
+            string vesselPath = Path.Combine(tempDir, "alias-missing_vessel.craft");
+            string ghostPath = Path.Combine(tempDir, "alias-recovery_ghost.craft");
+            RecordingStore.WriteSnapshotSidecarForTesting(ghostPath, ghost);
+
+            var rec = new Recording
+            {
+                RecordingId = "alias-recovery",
+                GhostSnapshotMode = GhostSnapshotMode.AliasVessel
+            };
+
+            logLines.Clear();
+            RecordingStore.LoadSnapshotSidecarsFromPaths(rec, vesselPath, ghostPath);
+
+            Assert.NotNull(rec.VesselSnapshot);
+            Assert.NotNull(rec.GhostVisualSnapshot);
+            AssertConfigNodeEquivalent(ghost, rec.VesselSnapshot, "aliasRecoveredVessel");
+            AssertConfigNodeEquivalent(ghost, rec.GhostVisualSnapshot, "aliasRecoveredGhost");
+            Assert.Contains(logLines, l =>
+                l.Contains("[WARN]") &&
+                l.Contains("[RecordingStore]") &&
+                l.Contains("missing vessel snapshot, recovered from ghost sidecar"));
+        }
+
+        [Fact]
+        public void SnapshotLoad_SeparateMode_FallsBackToVesselSnapshot_WhenGhostSidecarMissing()
+        {
+            ConfigNode vessel = BuildSnapshot("Separate Fallback", pid: 5002);
+            string vesselPath = Path.Combine(tempDir, "separate-fallback_vessel.craft");
+            string ghostPath = Path.Combine(tempDir, "separate-fallback_ghost.craft");
+            RecordingStore.WriteSnapshotSidecarForTesting(vesselPath, vessel);
+
+            var rec = new Recording
+            {
+                RecordingId = "separate-fallback",
+                GhostSnapshotMode = GhostSnapshotMode.Separate
+            };
+
+            logLines.Clear();
+            RecordingStore.LoadSnapshotSidecarsFromPaths(rec, vesselPath, ghostPath);
+
+            Assert.NotNull(rec.VesselSnapshot);
+            Assert.NotNull(rec.GhostVisualSnapshot);
+            AssertConfigNodeEquivalent(vessel, rec.VesselSnapshot, "separateFallbackVessel");
+            AssertConfigNodeEquivalent(vessel, rec.GhostVisualSnapshot, "separateFallbackGhost");
+            Assert.Contains(logLines, l =>
+                l.Contains("[WARN]") &&
+                l.Contains("[RecordingStore]") &&
+                l.Contains("missing ghost snapshot, fell back to vessel snapshot"));
+        }
+
+        [Fact]
+        public void SnapshotLoad_GhostOnlyRecording_RemainsSeparate()
+        {
+            ConfigNode ghost = BuildSnapshot("Ghost Only", pid: 5003);
+            string vesselPath = Path.Combine(tempDir, "ghost-only_vessel.craft");
+            string ghostPath = Path.Combine(tempDir, "ghost-only_ghost.craft");
+            RecordingStore.WriteSnapshotSidecarForTesting(ghostPath, ghost);
+
+            var rec = new Recording
+            {
+                RecordingId = "ghost-only",
+                GhostSnapshotMode = GhostSnapshotMode.Unspecified
+            };
+
+            RecordingStore.LoadSnapshotSidecarsFromPaths(rec, vesselPath, ghostPath);
+
+            Assert.Null(rec.VesselSnapshot);
+            Assert.NotNull(rec.GhostVisualSnapshot);
+            Assert.Equal(GhostSnapshotMode.Separate, rec.GhostSnapshotMode);
+            AssertConfigNodeEquivalent(ghost, rec.GhostVisualSnapshot, "ghostOnly");
+        }
+
+        [Theory]
+        [InlineData(true)]
+        [InlineData(false)]
+        public void SnapshotLoad_InvalidCompressedEnvelope_IsRejectedAndLogged(bool truncatePayload)
+        {
+            ConfigNode vessel = BuildSnapshot("Corrupt Snapshot", pid: 5004);
+            string vesselPath = Path.Combine(tempDir,
+                truncatePayload ? "invalid-truncated_vessel.craft" : "invalid-corrupt_vessel.craft");
+            RecordingStore.WriteSnapshotSidecarForTesting(vesselPath, vessel);
+
+            byte[] bytes = File.ReadAllBytes(vesselPath);
+            if (truncatePayload)
+            {
+                Array.Resize(ref bytes, bytes.Length - 3);
+            }
+            else
+            {
+                bytes[bytes.Length - 1] ^= 0x5A;
+            }
+            File.WriteAllBytes(vesselPath, bytes);
+
+            var rec = new Recording
+            {
+                RecordingId = truncatePayload ? "invalid-truncated" : "invalid-corrupt",
+                GhostSnapshotMode = GhostSnapshotMode.AliasVessel
+            };
+
+            logLines.Clear();
+            RecordingStore.LoadSnapshotSidecarsFromPaths(rec, vesselPath, ghostPath: null);
+
+            Assert.Null(rec.VesselSnapshot);
+            Assert.Null(rec.GhostVisualSnapshot);
+            Assert.Contains(logLines, l =>
+                l.Contains("[WARN]") &&
+                l.Contains("[RecordingStore]") &&
+                l.Contains("invalid vessel snapshot sidecar"));
+        }
+
+        [Fact]
+        public void SnapshotSidecar_OversizedLengthField_IsRejectedBeforeAllocation()
+        {
+            string path = Path.Combine(tempDir, "oversized_vessel.craft");
+            using (var stream = new FileStream(path, FileMode.Create, FileAccess.Write))
+            using (var writer = new BinaryWriter(stream))
+            {
+                writer.Write(new byte[] { (byte)'P', (byte)'R', (byte)'K', (byte)'S' });
+                writer.Write(SnapshotSidecarCodec.CurrentVersion);
+                writer.Write((byte)1);
+                writer.Write(SnapshotSidecarCodec.MaxPayloadBytes + 1);
+                writer.Write(0);
+                writer.Write(0u);
+            }
+
+            ConfigNode loaded;
+            SnapshotSidecarProbe probe;
+            Assert.False(RecordingStore.TryLoadSnapshotSidecar(path, out loaded, out probe));
+            Assert.Null(loaded);
+            Assert.Equal(
+                $"uncompressed payload too large ({SnapshotSidecarCodec.MaxPayloadBytes + 1} bytes)",
+                probe.FailureReason);
+        }
+
+        [Fact]
+        public void LoadRecordingFiles_InvalidVesselSnapshot_MarksSidecarLoadFailure()
+        {
+            string dir = Path.Combine(tempDir, "snapshot-load-failure");
+            Directory.CreateDirectory(dir);
+
+            string precPath = Path.Combine(dir, "snapshot-load-failure.prec");
+            string vesselPath = Path.Combine(dir, "snapshot-load-failure_vessel.craft");
+            string ghostPath = Path.Combine(dir, "snapshot-load-failure_ghost.craft");
+
+            Recording written = BuildRecordingWithSnapshots(
+                "snapshot-load-failure",
+                sidecarEpoch: 0,
+                vesselName: "Broken Vessel",
+                ghostName: "Broken Ghost",
+                pidBase: 5100,
+                pointUt: 200);
+            Assert.True(RecordingStore.SaveRecordingFilesToPathsForTesting(
+                written, precPath, vesselPath, ghostPath, incrementEpoch: true));
+
+            byte[] vesselBytes = File.ReadAllBytes(vesselPath);
+            vesselBytes[vesselBytes.Length - 1] ^= 0x5A;
+            File.WriteAllBytes(vesselPath, vesselBytes);
+
+            var loaded = new Recording
+            {
+                RecordingId = written.RecordingId,
+                SidecarEpoch = written.SidecarEpoch,
+                GhostSnapshotMode = written.GhostSnapshotMode
+            };
+
+            logLines.Clear();
+            Assert.False(RecordingStore.LoadRecordingFilesFromPathsForTesting(
+                loaded, precPath, vesselPath, ghostPath));
+            Assert.True(loaded.SidecarLoadFailed);
+            Assert.Equal("snapshot-vessel-invalid", loaded.SidecarLoadFailureReason);
+            Assert.Contains(logLines, l =>
+                l.Contains("[WARN]") &&
+                l.Contains("[RecordingStore]") &&
+                l.Contains("invalid vessel snapshot sidecar"));
+        }
+
+        [Theory]
+        [InlineData(false, "snapshot-ghost-invalid", "invalid ghost snapshot sidecar")]
+        [InlineData(true, "snapshot-ghost-unsupported", "unsupported ghost snapshot sidecar")]
+        public void LoadRecordingFiles_BadGhostSnapshot_DoesNotFallBackToVesselSnapshot(
+            bool unsupportedVersion, string expectedFailureReason, string expectedLogFragment)
+        {
+            string dir = Path.Combine(tempDir,
+                unsupportedVersion ? "ghost-sidecar-unsupported" : "ghost-sidecar-invalid");
+            Directory.CreateDirectory(dir);
+
+            string precPath = Path.Combine(dir, "ghost-sidecar.prec");
+            string vesselPath = Path.Combine(dir, "ghost-sidecar_vessel.craft");
+            string ghostPath = Path.Combine(dir, "ghost-sidecar_ghost.craft");
+
+            Recording written = BuildRecordingWithSnapshots(
+                "ghost-sidecar",
+                sidecarEpoch: 0,
+                vesselName: "Ghost Failure Vessel",
+                ghostName: "Ghost Failure Visual",
+                pidBase: 5200,
+                pointUt: 300);
+            Assert.True(RecordingStore.SaveRecordingFilesToPathsForTesting(
+                written, precPath, vesselPath, ghostPath, incrementEpoch: true));
+            Assert.Equal(GhostSnapshotMode.Separate, written.GhostSnapshotMode);
+
+            if (unsupportedVersion)
+            {
+                WriteUnsupportedSnapshotSidecar(ghostPath);
+            }
+            else
+            {
+                byte[] ghostBytes = File.ReadAllBytes(ghostPath);
+                ghostBytes[ghostBytes.Length - 1] ^= 0x5A;
+                File.WriteAllBytes(ghostPath, ghostBytes);
+            }
+
+            var loaded = new Recording
+            {
+                RecordingId = written.RecordingId,
+                SidecarEpoch = written.SidecarEpoch,
+                GhostSnapshotMode = written.GhostSnapshotMode
+            };
+
+            logLines.Clear();
+            Assert.False(RecordingStore.LoadRecordingFilesFromPathsForTesting(
+                loaded, precPath, vesselPath, ghostPath));
+            Assert.True(loaded.SidecarLoadFailed);
+            Assert.Equal(expectedFailureReason, loaded.SidecarLoadFailureReason);
+            Assert.NotNull(loaded.VesselSnapshot);
+            Assert.Null(loaded.GhostVisualSnapshot);
+            Assert.Contains(logLines, l =>
+                l.Contains("[WARN]") &&
+                l.Contains("[RecordingStore]") &&
+                l.Contains(expectedLogFragment));
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("missing ghost snapshot, fell back to vessel snapshot"));
+        }
+
+        [Fact]
+        public void SaveRecordingFiles_FailedGhostWrite_RollsBackOnDiskSidecars_AndLaterRewriteHeals()
+        {
+            string dir = Path.Combine(tempDir, "save-heal");
+            Directory.CreateDirectory(dir);
+
+            string precPath = Path.Combine(dir, "save-heal.prec");
+            string vesselPath = Path.Combine(dir, "save-heal_vessel.craft");
+            string ghostPath = Path.Combine(dir, "save-heal_ghost.craft");
+
+            Recording original = BuildRecordingWithSnapshots(
+                "save-heal",
+                sidecarEpoch: 2,
+                vesselName: "Heal Vessel Old",
+                ghostName: "Heal Ghost Old",
+                pidBase: 5005,
+                pointUt: 123);
+            Assert.True(RecordingStore.SaveRecordingFilesToPathsForTesting(
+                original, precPath, vesselPath, ghostPath, incrementEpoch: true));
+            Assert.Equal(3, original.SidecarEpoch);
+
+            Recording rewritten = BuildRecordingWithSnapshots(
+                "save-heal",
+                sidecarEpoch: original.SidecarEpoch,
+                vesselName: "Heal Vessel New",
+                ghostName: "Heal Ghost New",
+                pidBase: 5015,
+                pointUt: 456);
+            rewritten.GhostSnapshotMode = original.GhostSnapshotMode;
+
+            using (var ghostLock = new FileStream(ghostPath, FileMode.Open, FileAccess.Read, FileShare.Read))
+            {
+                logLines.Clear();
+                Assert.False(RecordingStore.SaveRecordingFilesToPathsForTesting(
+                    rewritten, precPath, vesselPath, ghostPath, incrementEpoch: true));
+            }
+            Assert.Equal(3, rewritten.SidecarEpoch);
+            Assert.Equal(original.GhostSnapshotMode, rewritten.GhostSnapshotMode);
+            Assert.True(rewritten.FilesDirty);
+
+            TrajectorySidecarProbe rolledBackProbe;
+            Assert.True(RecordingStore.TryProbeTrajectorySidecar(precPath, out rolledBackProbe));
+            Assert.Equal(3, rolledBackProbe.SidecarEpoch);
+
+            var loadedOld = new Recording
+            {
+                RecordingId = original.RecordingId,
+                SidecarEpoch = original.SidecarEpoch,
+                GhostSnapshotMode = original.GhostSnapshotMode
+            };
+            Assert.True(RecordingStore.LoadRecordingFilesFromPathsForTesting(
+                loadedOld, precPath, vesselPath, ghostPath));
+            Assert.False(loadedOld.SidecarLoadFailed);
+            Assert.Single(loadedOld.Points);
+            Assert.Equal(123, loadedOld.Points[0].ut);
+            AssertConfigNodeEquivalent(original.VesselSnapshot, loadedOld.VesselSnapshot, "rolledBackVessel");
+            AssertConfigNodeEquivalent(original.GhostVisualSnapshot, loadedOld.GhostVisualSnapshot, "rolledBackGhost");
+
+            Assert.True(RecordingStore.SaveRecordingFilesToPathsForTesting(
+                rewritten, precPath, vesselPath, ghostPath, incrementEpoch: true));
+            Assert.Equal(4, rewritten.SidecarEpoch);
+            Assert.Equal(GhostSnapshotMode.Separate, rewritten.GhostSnapshotMode);
+            Assert.False(rewritten.FilesDirty);
+
+            TrajectorySidecarProbe healedProbe;
+            Assert.True(RecordingStore.TryProbeTrajectorySidecar(precPath, out healedProbe));
+            Assert.Equal(4, healedProbe.SidecarEpoch);
+            Assert.True(File.Exists(vesselPath));
+            Assert.True(File.Exists(ghostPath));
+
+            var loadedNew = new Recording
+            {
+                RecordingId = rewritten.RecordingId,
+                SidecarEpoch = rewritten.SidecarEpoch,
+                GhostSnapshotMode = rewritten.GhostSnapshotMode
+            };
+            Assert.True(RecordingStore.LoadRecordingFilesFromPathsForTesting(
+                loadedNew, precPath, vesselPath, ghostPath));
+            Assert.Single(loadedNew.Points);
+            Assert.Equal(456, loadedNew.Points[0].ut);
+            AssertConfigNodeEquivalent(rewritten.VesselSnapshot, loadedNew.VesselSnapshot, "healedVessel");
+            AssertConfigNodeEquivalent(rewritten.GhostVisualSnapshot, loadedNew.GhostVisualSnapshot, "healedGhost");
+        }
+
+        [Fact]
+        public void SaveRecordingFiles_FirstWriteFailureAfterTrajectoryCommit_RollsBackNewFiles()
+        {
+            string dir = Path.Combine(tempDir, "first-write-rollback");
+            Directory.CreateDirectory(dir);
+
+            string precPath = Path.Combine(dir, "first-write-rollback.prec");
+            string vesselPath = Path.Combine(dir, "first-write-rollback_vessel.craft");
+            string ghostPath = Path.Combine(dir, "first-write-rollback_ghost.craft");
+            Directory.CreateDirectory(vesselPath);
+
+            Recording rec = BuildRecordingWithSnapshots(
+                "first-write-rollback",
+                sidecarEpoch: 0,
+                vesselName: "First Write Vessel",
+                ghostName: "First Write Ghost",
+                pidBase: 5300,
+                pointUt: 321);
+
+            logLines.Clear();
+            Assert.False(RecordingStore.SaveRecordingFilesToPathsForTesting(
+                rec, precPath, vesselPath, ghostPath, incrementEpoch: true));
+            Assert.Equal(0, rec.SidecarEpoch);
+            Assert.True(rec.FilesDirty);
+            Assert.False(File.Exists(precPath));
+            Assert.False(File.Exists(ghostPath));
+            Assert.True(Directory.Exists(vesselPath));
+            AssertNoTransientSidecarArtifacts(dir);
+        }
+
+        [Fact]
+        public void ApplyStagedSidecarChanges_DeleteExistingRollback_RestoresOriginalGhostFile()
+        {
+            string dir = Path.Combine(tempDir, "delete-existing-rollback");
+            Directory.CreateDirectory(dir);
+
+            string ghostPath = Path.Combine(dir, "delete-existing-rollback_ghost.craft");
+            string blockedPath = Path.Combine(dir, "delete-existing-rollback_blocked.prec");
+            string stagedBlockedPath = Path.Combine(dir, "delete-existing-rollback_blocked.prec.stage.test");
+            File.WriteAllText(ghostPath, "original ghost snapshot");
+            File.WriteAllText(stagedBlockedPath, "staged trajectory");
+            Directory.CreateDirectory(blockedPath);
+
+            TargetInvocationException ex = Assert.Throws<TargetInvocationException>(
+                () => InvokeApplyStagedSidecarChangesForTesting(
+                    CreateStagedDeleteChangeForTesting(ghostPath),
+                    CreateStagedWriteChangeForTesting(blockedPath, stagedBlockedPath)));
+
+            Assert.NotNull(ex.InnerException);
+            Assert.True(File.Exists(ghostPath));
+            Assert.Equal("original ghost snapshot", File.ReadAllText(ghostPath));
+            Assert.True(Directory.Exists(blockedPath));
+            Assert.False(File.Exists(stagedBlockedPath));
+            AssertNoTransientSidecarArtifacts(dir);
         }
 
         [Fact]
@@ -684,6 +1181,114 @@ namespace Parsek.Tests
             }
 
             return node;
+        }
+
+        private static ConfigNode BuildSnapshot(string vesselName, uint pid)
+        {
+            var snapshot = new ConfigNode("VESSEL");
+            snapshot.AddValue("name", vesselName);
+            snapshot.AddValue("persistentId", pid.ToString());
+
+            var part = snapshot.AddNode("PART");
+            part.AddValue("name", "probeCoreOcto");
+            part.AddValue("persistentId", pid.ToString());
+
+            var module = part.AddNode("MODULE");
+            module.AddValue("name", "ModuleCommand");
+            module.AddValue("isEnabled", "True");
+
+            return snapshot;
+        }
+
+        private static Recording BuildRecordingWithSnapshots(
+            string recordingId, int sidecarEpoch, string vesselName, string ghostName, uint pidBase, double pointUt)
+        {
+            var rec = new Recording
+            {
+                RecordingId = recordingId,
+                RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion,
+                SidecarEpoch = sidecarEpoch,
+                VesselName = vesselName,
+                GhostSnapshotMode = GhostSnapshotMode.Unspecified,
+                FilesDirty = true,
+                VesselSnapshot = BuildSnapshot(vesselName, pidBase),
+                GhostVisualSnapshot = BuildSnapshot(ghostName, pidBase + 1)
+            };
+
+            rec.Points.Add(new TrajectoryPoint
+            {
+                ut = pointUt,
+                latitude = 0.1,
+                longitude = 0.2,
+                altitude = 100,
+                rotation = new Quaternion(0, 0, 0, 1),
+                velocity = new Vector3(1, 2, 3),
+                bodyName = "Kerbin"
+            });
+
+            return rec;
+        }
+
+        private static void WriteUnsupportedSnapshotSidecar(string path)
+        {
+            using (var stream = new FileStream(path, FileMode.Create, FileAccess.Write))
+            using (var writer = new BinaryWriter(stream))
+            {
+                writer.Write(new byte[] { (byte)'P', (byte)'R', (byte)'K', (byte)'S' });
+                writer.Write(99);
+                writer.Write((byte)1);
+                writer.Write(16);
+                writer.Write(4);
+                writer.Write(0u);
+                writer.Write(new byte[] { 1, 2, 3, 4 });
+            }
+        }
+
+        private static void AssertNoTransientSidecarArtifacts(string dir)
+        {
+            string[] files = Directory.GetFiles(dir);
+            Assert.DoesNotContain(files, f => RecordingStore.IsTransientSidecarArtifactFile(Path.GetFileName(f)));
+        }
+
+        private static object CreateStagedDeleteChangeForTesting(string finalPath)
+        {
+            Type stagedType = GetStagedSidecarChangeType();
+            object change = Activator.CreateInstance(stagedType, nonPublic: true);
+            stagedType.GetField("FinalPath").SetValue(change, finalPath);
+            stagedType.GetField("DeleteExisting").SetValue(change, true);
+            return change;
+        }
+
+        private static object CreateStagedWriteChangeForTesting(string finalPath, string stagedPath)
+        {
+            Type stagedType = GetStagedSidecarChangeType();
+            object change = Activator.CreateInstance(stagedType, nonPublic: true);
+            stagedType.GetField("FinalPath").SetValue(change, finalPath);
+            stagedType.GetField("StagedPath").SetValue(change, stagedPath);
+            stagedType.GetField("DeleteExisting").SetValue(change, false);
+            return change;
+        }
+
+        private static void InvokeApplyStagedSidecarChangesForTesting(params object[] changes)
+        {
+            Type stagedType = GetStagedSidecarChangeType();
+            Type listType = typeof(List<>).MakeGenericType(stagedType);
+            object list = Activator.CreateInstance(listType);
+            MethodInfo addMethod = listType.GetMethod("Add");
+            for (int i = 0; i < changes.Length; i++)
+                addMethod.Invoke(list, new[] { changes[i] });
+
+            MethodInfo applyMethod = typeof(RecordingStore).GetMethod(
+                "ApplyStagedSidecarChanges",
+                BindingFlags.Static | BindingFlags.NonPublic);
+            applyMethod.Invoke(null, new[] { list });
+        }
+
+        private static Type GetStagedSidecarChangeType()
+        {
+            return typeof(RecordingStore).GetNestedType(
+                "StagedSidecarChange",
+                BindingFlags.NonPublic);
         }
     }
 }

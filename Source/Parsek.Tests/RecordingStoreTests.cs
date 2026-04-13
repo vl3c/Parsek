@@ -425,6 +425,21 @@ namespace Parsek.Tests
         }
 
         [Theory]
+        [InlineData("abc123.prec.stage.123", true)]
+        [InlineData("abc123.prec.stage.123.tmp", true)]
+        [InlineData("abc123_vessel.craft.bak.123", true)]
+        [InlineData("abc123_ghost.craft.tmp", true)]
+        [InlineData("abc123.prec", false)]
+        [InlineData("abc123.pcrf", false)]
+        [InlineData("readme.txt", false)]
+        [InlineData("", false)]
+        [InlineData(null, false)]
+        public void IsTransientSidecarArtifactFile_Works(string fileName, bool expected)
+        {
+            Assert.Equal(expected, RecordingStore.IsTransientSidecarArtifactFile(fileName));
+        }
+
+        [Theory]
         [InlineData("mk1pod_v2_123456", "mk1pod_v2")]
         [InlineData("probeCoreOcto2_1", "probeCoreOcto2")]
         [InlineData("solidBooster.sm.v2_12345", "solidBooster.sm.v2")]
