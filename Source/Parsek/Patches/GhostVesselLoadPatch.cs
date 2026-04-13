@@ -12,6 +12,7 @@ namespace Parsek.Patches
         Unavailable,
         NoActiveGhost,
         DifferentBody,
+        OutOfRange,
         Start,
         Stop,
         Refresh,
@@ -24,6 +25,7 @@ namespace Parsek.Patches
             int watchedRecordingIndex,
             bool hasActiveGhost,
             bool sameBody,
+            bool inRange,
             bool toggleIfAlreadyWatching)
         {
             if (recordingIndex < 0)
@@ -36,7 +38,35 @@ namespace Parsek.Patches
                 return GhostMapWatchAction.NoActiveGhost;
             if (!sameBody)
                 return GhostMapWatchAction.DifferentBody;
+            if (!inRange)
+                return GhostMapWatchAction.OutOfRange;
             return GhostMapWatchAction.Start;
+        }
+
+        internal static string GetWatchButtonLabel(GhostMapWatchAction action)
+        {
+            switch (action)
+            {
+                case GhostMapWatchAction.Stop:
+                    return "Stop Watching";
+                case GhostMapWatchAction.Refresh:
+                    return "Refresh Watch";
+                case GhostMapWatchAction.OutOfRange:
+                    return "Watch (Too Far)";
+                case GhostMapWatchAction.NoActiveGhost:
+                    return "Watch (Inactive)";
+                case GhostMapWatchAction.DifferentBody:
+                    return "Watch (Other SOI)";
+                default:
+                    return "Watch";
+            }
+        }
+
+        internal static bool IsWatchActionEnabled(GhostMapWatchAction action)
+        {
+            return action == GhostMapWatchAction.Start
+                || action == GhostMapWatchAction.Stop
+                || action == GhostMapWatchAction.Refresh;
         }
 
         internal static bool TryFocusGhostInMapView(Vessel vessel, string source)
@@ -79,11 +109,13 @@ namespace Parsek.Patches
 
             bool hasActiveGhost = recIndex >= 0 && flight.HasActiveGhost(recIndex);
             bool sameBody = recIndex >= 0 && flight.IsGhostOnSameBody(recIndex);
+            bool inRange = recIndex >= 0 && flight.IsGhostWithinVisualRange(recIndex);
             GhostMapWatchAction action = ResolveWatchAction(
                 recIndex,
                 flight.WatchedRecordingIndex,
                 hasActiveGhost,
                 sameBody,
+                inRange,
                 toggleIfAlreadyWatching);
 
             switch (action)
@@ -110,6 +142,15 @@ namespace Parsek.Patches
                         5f, ScreenMessageStyle.UPPER_CENTER);
                     ParsekLog.Info("GhostMap",
                         $"Ghost '{vesselName}' watch refused via {source} — different SOI (recIndex={recIndex})");
+                    return;
+
+                case GhostMapWatchAction.OutOfRange:
+                    ScreenMessages.PostScreenMessage(
+                        $"<b>{vesselName}</b> — ghost is out of watch range.",
+                        5f, ScreenMessageStyle.UPPER_CENTER);
+                    ParsekLog.Info("GhostMap",
+                        $"Ghost '{vesselName}' watch refused via {source} — out of range " +
+                        $"(recIndex={recIndex}) {flight.DescribeWatchEligibilityForLogs(recIndex)}");
                     return;
 
                 case GhostMapWatchAction.Stop:
@@ -188,11 +229,20 @@ namespace Parsek.Patches
             Vessel v = __instance.vessel;
             int recIndex = GhostMapPresence.FindRecordingIndexByVesselPid(v.persistentId);
             string vesselName = v.vesselName ?? "Ghost";
-            var flight = ParsekFlight.Instance;
-            bool isWatchingThisGhost = flight != null
-                && recIndex >= 0
-                && flight.WatchedRecordingIndex == recIndex;
-            string watchButtonLabel = isWatchingThisGhost ? "Stop Watching" : "Watch";
+            System.Func<GhostMapWatchAction> resolveCurrentWatchAction = () =>
+            {
+                var currentFlight = ParsekFlight.Instance;
+                bool hasActiveGhost = currentFlight != null && recIndex >= 0 && currentFlight.HasActiveGhost(recIndex);
+                bool sameBody = currentFlight != null && recIndex >= 0 && currentFlight.IsGhostOnSameBody(recIndex);
+                bool inRange = currentFlight != null && recIndex >= 0 && currentFlight.IsGhostWithinVisualRange(recIndex);
+                return GhostMapWatchHelper.ResolveWatchAction(
+                    recIndex,
+                    currentFlight != null ? currentFlight.WatchedRecordingIndex : -1,
+                    hasActiveGhost,
+                    sameBody,
+                    inRange,
+                    toggleIfAlreadyWatching: true);
+            };
 
             // Dismiss any existing ghost menu before opening a new one
             DismissCurrentMenu();
@@ -221,7 +271,10 @@ namespace Parsek.Patches
                         ParsekLog.Info("GhostMap", $"Ghost '{vesselName}' set as target via icon click");
                     }
                 }, dismissOnSelect: true),
-                new DialogGUIButton(watchButtonLabel, () =>
+                new DialogGUIButton(() =>
+                {
+                    return GhostMapWatchHelper.GetWatchButtonLabel(resolveCurrentWatchAction());
+                }, () =>
                 {
                     currentGhostMenu = null;
                     GhostMapWatchHelper.HandleWatchRequest(
@@ -229,7 +282,8 @@ namespace Parsek.Patches
                         recIndex,
                         source: "icon menu",
                         toggleIfAlreadyWatching: true);
-                }, dismissOnSelect: true)
+                }, () => GhostMapWatchHelper.IsWatchActionEnabled(resolveCurrentWatchAction()),
+                160f, 30f, true, (DialogGUIBase[])null)
             };
 
             // Anchors at (0,0) — matches KSP's MapContextMenu pattern (#196).
