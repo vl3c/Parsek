@@ -956,6 +956,11 @@ namespace Parsek.InGameTests
             InGameAssert.IsNotNull(initialLoadDoneField, "initialLoadDone field not found");
             InGameAssert.IsNotNull(lastSaveFolderField, "lastSaveFolder field not found");
             InGameAssert.IsNotNull(lastOnSaveSceneField, "lastOnSaveScene field not found");
+            if (RecordingStore.HasPendingTree || ParsekScenario.MergeDialogPending)
+            {
+                InGameAssert.Skip(
+                    "Live session has pending merge state; OnSave/OnLoad round-trip would mutate it");
+            }
 
             bool previousInitialLoadDone = (bool)initialLoadDoneField.GetValue(null);
             string previousLastSaveFolder = (string)lastSaveFolderField.GetValue(null);
