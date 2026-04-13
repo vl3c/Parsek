@@ -259,6 +259,68 @@ namespace Parsek.Tests
                 l.Contains("[TreeDestruction]") && l.Contains("active and alive"));
         }
 
+        [Fact]
+        public void ActiveCrashBlockers_DebrisLeafWithNullTerminal_ReturnsTrue()
+        {
+            var recs = MakeDict(
+                MakeLeaf("active", "Rocket Active", null),
+                new Recording
+                {
+                    RecordingId = "debris",
+                    VesselName = "Booster Debris",
+                    ChildBranchPointId = null,
+                    TerminalStateValue = null,
+                    IsDebris = true
+                });
+
+            bool result = RecordingTree.AreAllActiveCrashBlockersDebris(recs, "active");
+
+            Assert.True(result);
+        }
+
+        [Fact]
+        public void ActiveCrashBlockers_NonDebrisLeafWithNullTerminal_ReturnsFalse()
+        {
+            var recs = MakeDict(
+                MakeLeaf("active", "Rocket Active", null),
+                MakeLeaf("survivor", "Probe Core", null));
+
+            bool result = RecordingTree.AreAllActiveCrashBlockersDebris(recs, "active");
+
+            Assert.False(result);
+        }
+
+        [Fact]
+        public void ActiveCrashBlockers_DebrisLeafWithSpawnableTerminal_ReturnsTrue()
+        {
+            var recs = MakeDict(
+                MakeLeaf("active", "Rocket Active", null),
+                new Recording
+                {
+                    RecordingId = "debris",
+                    VesselName = "Fairing Debris",
+                    ChildBranchPointId = null,
+                    TerminalStateValue = TerminalState.SubOrbital,
+                    IsDebris = true
+                });
+
+            bool result = RecordingTree.AreAllActiveCrashBlockersDebris(recs, "active");
+
+            Assert.True(result);
+        }
+
+        [Fact]
+        public void ActiveCrashBlockers_NonDebrisLeafWithSpawnableTerminal_ReturnsFalse()
+        {
+            var recs = MakeDict(
+                MakeLeaf("active", "Rocket Active", null),
+                MakeLeaf("survivor", "Recovery Capsule", TerminalState.Orbiting));
+
+            bool result = RecordingTree.AreAllActiveCrashBlockersDebris(recs, "active");
+
+            Assert.False(result);
+        }
+
         #endregion
     }
 }

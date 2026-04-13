@@ -1202,6 +1202,14 @@ namespace Parsek
             return baseState;
         }
 
+        static bool IsNonSpawnableTerminal(TerminalState terminalState)
+        {
+            return terminalState == TerminalState.Destroyed
+                || terminalState == TerminalState.Recovered
+                || terminalState == TerminalState.Docked
+                || terminalState == TerminalState.Boarded;
+        }
+
         /// <summary>
         /// Pure decision method: checks whether all leaf recordings in a tree have
         /// non-spawnable terminal states (Destroyed, Recovered, Docked, Boarded).
@@ -1258,8 +1266,7 @@ namespace Parsek
                 }
 
                 var ts = rec.TerminalStateValue.Value;
-                if (ts == TerminalState.Destroyed || ts == TerminalState.Recovered
-                    || ts == TerminalState.Docked || ts == TerminalState.Boarded)
+                if (IsNonSpawnableTerminal(ts))
                 {
                     // Non-spawnable terminal state — this leaf is done
                     ParsekLog.Verbose("TreeDestruction",
@@ -1276,5 +1283,47 @@ namespace Parsek
             ParsekLog.Verbose("TreeDestruction", "AreAllLeavesTerminal: all leaves are terminal — returning true");
             return true;
         }
+
+        /// <summary>
+        /// Returns true when the only leaves still blocking same-scene crash finalization
+        /// are debris leaves. This is used only to decide whether the active-crash flow
+        /// should keep waiting for a debris-only fallback owner; it does NOT make the tree
+        /// merge-ready on its own.
+        /// </summary>
+        internal static bool AreAllActiveCrashBlockersDebris(
+            Dictionary<string, Recording> recordings,
+            string activeRecordingId)
+        {
+            bool sawBlockingLeaf = false;
+
+            foreach (var kvp in recordings)
+            {
+                var rec = kvp.Value;
+                if (rec.ChildBranchPointId != null)
+                    continue;
+
+                bool isActiveRecording = activeRecordingId != null && rec.RecordingId == activeRecordingId;
+                if (isActiveRecording)
+                    continue;
+
+                if (!rec.TerminalStateValue.HasValue)
+                {
+                    sawBlockingLeaf = true;
+                    if (!rec.IsDebris)
+                        return false;
+                    continue;
+                }
+
+                if (IsNonSpawnableTerminal(rec.TerminalStateValue.Value))
+                    continue;
+
+                sawBlockingLeaf = true;
+                if (!rec.IsDebris)
+                    return false;
+            }
+
+            return sawBlockingLeaf;
+        }
+
     }
 }
