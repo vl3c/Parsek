@@ -370,6 +370,8 @@ namespace Parsek
                 return;
             }
 
+            bool hasStartCrewSource = rec.GhostVisualSnapshot != null || !string.IsNullOrEmpty(rec.EvaCrewName);
+
             // Extract starting crew from ghost visual snapshot (recording-start state)
             var startingCrew = CrewReservationManager.ExtractCrewFromSnapshot(rec.GhostVisualSnapshot);
 
@@ -381,9 +383,18 @@ namespace Parsek
 
             if (startingCrew.Count == 0)
             {
+                if (!hasStartCrewSource)
+                {
+                    ParsekLog.Verbose(Tag,
+                        $"PopulateCrewEndStates: recording='{rec.VesselName}' (id={rec.RecordingId}) " +
+                        "has no start crew source -- leaving unresolved");
+                    return;
+                }
+
+                rec.CrewEndStatesResolved = true;
                 ParsekLog.Verbose(Tag,
                     $"PopulateCrewEndStates: recording='{rec.VesselName}' (id={rec.RecordingId}) " +
-                    "has no crew in ghost snapshot -- skipping");
+                    "has no crew in ghost snapshot -- resolved");
                 return;
             }
 
@@ -421,6 +432,7 @@ namespace Parsek
                 $"PopulateCrewEndStates: recording='{rec.VesselName}' (id={rec.RecordingId}) " +
                 $"crew={startingCrew.Count} aboard={aboardCount} dead={deadCount} " +
                 $"recovered={recoveredCount} unknown={unknownCount}");
+            rec.CrewEndStatesResolved = true;
         }
 
         /// <summary>
@@ -441,7 +453,7 @@ namespace Parsek
             for (int i = 0; i < recordings.Count; i++)
             {
                 var rec = recordings[i];
-                if (rec.CrewEndStates != null)
+                if (rec.CrewEndStatesResolved || rec.CrewEndStates != null)
                 {
                     skipped++;
                     continue;

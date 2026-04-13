@@ -522,6 +522,8 @@ namespace Parsek
                 recNode.AddValue("generation", rec.Generation.ToString(ic));
 
             // Crew end states (kerbals module)
+            if (rec.CrewEndStatesResolved)
+                recNode.AddValue("crewEndStatesResolved", rec.CrewEndStatesResolved.ToString());
             RecordingStore.SerializeCrewEndStates(recNode, rec);
 
             // Resource manifests (Phase 11)
@@ -892,7 +894,16 @@ namespace Parsek
             }
 
             // Crew end states (kerbals module)
+            string crewEndStatesResolvedStr = recNode.GetValue("crewEndStatesResolved");
+            if (crewEndStatesResolvedStr != null)
+            {
+                bool crewEndStatesResolved;
+                if (bool.TryParse(crewEndStatesResolvedStr, out crewEndStatesResolved))
+                    rec.CrewEndStatesResolved = crewEndStatesResolved;
+            }
             RecordingStore.DeserializeCrewEndStates(recNode, rec);
+            if (rec.CrewEndStates != null)
+                rec.CrewEndStatesResolved = true;
 
             // Resource manifests (Phase 11)
             RecordingStore.DeserializeResourceManifest(recNode, rec);
