@@ -3320,7 +3320,9 @@ namespace Parsek
                 }
             }
 
-            // Case 2: Tree branching via ChildBranchPointId, same-PID continuation only.
+            // Case 2: Tree branching via ChildBranchPointId. Mirror FindNextWatchTarget:
+            // prefer same-PID continuation, otherwise allow non-debris fallback on
+            // non-breakup branches.
             if (!string.IsNullOrEmpty(currentRec.ChildBranchPointId)
                 && currentRec.IsTreeRecording
                 && trees != null)
@@ -3345,39 +3347,68 @@ namespace Parsek
 
                 if (bp != null)
                 {
-                    double bestActivationUT = double.NaN;
+                    double samePidActivationUT = double.NaN;
+                    double fallbackActivationUT = double.NaN;
                     bool sawSamePidContinuation = false;
+                    bool sawActiveFallback = false;
+                    bool allowDifferentPidFallback = bp.Type != BranchPointType.Breakup;
                     for (int c = 0; c < bp.ChildRecordingIds.Count; c++)
                     {
                         string childId = bp.ChildRecordingIds[c];
                         for (int j = 0; j < committed.Count; j++)
                         {
                             var candidate = committed[j];
-                            if (candidate.RecordingId != childId
-                                || candidate.VesselPersistentId != currentRec.VesselPersistentId)
+                            if (candidate.RecordingId != childId)
                             {
                                 continue;
                             }
 
-                            sawSamePidContinuation = true;
+                            bool isPidMatch = candidate.VesselPersistentId == currentRec.VesselPersistentId;
+                            bool isAllowedFallback = allowDifferentPidFallback && !candidate.IsDebris;
+                            if (!isPidMatch && !isAllowedFallback)
+                                continue;
+
+                            if (isPidMatch)
+                            {
+                                sawSamePidContinuation = true;
+
+                                if (isGhostActive != null && isGhostActive(j))
+                                    return false;
+
+                                if (candidate.TryGetGhostActivationStartUT(out double candidateActivationUT))
+                                    samePidActivationUT = MinPendingActivationUT(samePidActivationUT, candidateActivationUT);
+
+                                if (TryGetPendingWatchActivationUT(
+                                        candidate, committed, trees, isGhostActive, out double deeperActivationUT, depth + 1))
+                                {
+                                    samePidActivationUT = MinPendingActivationUT(samePidActivationUT, deeperActivationUT);
+                                }
+                                continue;
+                            }
 
                             if (isGhostActive != null && isGhostActive(j))
-                                return false;
-
-                            if (candidate.TryGetGhostActivationStartUT(out double candidateActivationUT))
-                                bestActivationUT = MinPendingActivationUT(bestActivationUT, candidateActivationUT);
-
-                            if (TryGetPendingWatchActivationUT(
-                                    candidate, committed, trees, isGhostActive, out double deeperActivationUT, depth + 1))
                             {
-                                bestActivationUT = MinPendingActivationUT(bestActivationUT, deeperActivationUT);
+                                sawActiveFallback = true;
+                                continue;
                             }
+
+                            if (candidate.TryGetGhostActivationStartUT(out double candidateActivationFallbackUT))
+                                fallbackActivationUT = MinPendingActivationUT(fallbackActivationUT, candidateActivationFallbackUT);
                         }
                     }
 
-                    if (sawSamePidContinuation && !double.IsNaN(bestActivationUT))
+                    if (sawSamePidContinuation && !double.IsNaN(samePidActivationUT))
                     {
-                        activationUT = bestActivationUT;
+                        activationUT = samePidActivationUT;
+                        return true;
+                    }
+                    if (sawSamePidContinuation)
+                        return false;
+                    if (sawActiveFallback)
+                        return false;
+                    if (!double.IsNaN(fallbackActivationUT))
+                    {
+                        activationUT = fallbackActivationUT;
                         return true;
                     }
                 }

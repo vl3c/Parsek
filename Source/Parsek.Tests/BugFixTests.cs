@@ -1447,6 +1447,43 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void TreeBranch_DifferentPidFallbackNoGhost_PendingActivationReturnedOnUndock()
+        {
+            var bp = new BranchPoint
+            {
+                Id = "bp1",
+                Type = BranchPointType.Undock,
+                ChildRecordingIds = new List<string> { "child-debris", "child-main" }
+            };
+            var tree = new RecordingTree
+            {
+                Id = "t1",
+                TreeName = "Test",
+                BranchPoints = new List<BranchPoint> { bp }
+            };
+
+            var recs = new List<Recording>
+            {
+                MakeRec("root", vesselPid: 100, treeId: "t1", childBpId: "bp1"),
+                MakeRec("child-debris", vesselPid: 200, treeId: "t1"),
+                MakeRec("child-main", vesselPid: 300, treeId: "t1"),
+            };
+            recs[1].IsDebris = true;
+            recs[2].ExplicitStartUT = 115.0;
+            recs[2].Points = new List<TrajectoryPoint>
+            {
+                new TrajectoryPoint { ut = 132.0 },
+                new TrajectoryPoint { ut = 140.0 }
+            };
+
+            bool found = GhostPlaybackLogic.TryGetPendingWatchActivationUT(
+                recs[0], recs, new List<RecordingTree> { tree }, idx => false, out double activationUT);
+
+            Assert.True(found);
+            Assert.Equal(132.0, activationUT);
+        }
+
+        [Fact]
         public void TreeBranch_PidMatchWithGhost_StillPreferred()
         {
             // Both continuation and debris have ghosts — PID match wins as before.

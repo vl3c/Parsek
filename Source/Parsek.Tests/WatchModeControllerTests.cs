@@ -59,7 +59,9 @@ namespace Parsek.Tests
             RecordingStore.ResetForTesting();
             ParsekLog.SuppressLogging = true;
             var previousRealtimeNow = WatchModeController.RealtimeNow;
+            var previousCurrentUTNow = WatchModeController.CurrentUTNow;
             WatchModeController.RealtimeNow = () => 0f;
+            WatchModeController.CurrentUTNow = () => 0.0;
 
             try
             {
@@ -121,6 +123,127 @@ namespace Parsek.Tests
             finally
             {
                 WatchModeController.RealtimeNow = previousRealtimeNow;
+                WatchModeController.CurrentUTNow = previousCurrentUTNow;
+                RecordingStore.ResetForTesting();
+                ParsekLog.SuppressLogging = false;
+            }
+        }
+
+        [Fact]
+        public void ProcessWatchEndHoldTimer_PendingActivationUT_BlocksExpiryUntilCurrentUTCatchesUp()
+        {
+            RecordingStore.ResetForTesting();
+            ParsekLog.SuppressLogging = true;
+            var previousRealtimeNow = WatchModeController.RealtimeNow;
+            var previousCurrentUTNow = WatchModeController.CurrentUTNow;
+            WatchModeController.RealtimeNow = () => 5f;
+            WatchModeController.CurrentUTNow = () => 120.0;
+
+            try
+            {
+                var root = MakeRecording("root", 100);
+                RecordingStore.AddCommittedInternal(root);
+
+                var host = (ParsekFlight)FormatterServices.GetUninitializedObject(typeof(ParsekFlight));
+                var engine = new GhostPlaybackEngine(null);
+                engine.ghostStates[0] = new GhostPlaybackState();
+
+                var engineField = typeof(ParsekFlight).GetField("engine",
+                    BindingFlags.Instance | BindingFlags.NonPublic);
+                engineField.SetValue(host, engine);
+
+                var controller = new WatchModeController(host);
+
+                var watchedRecordingIndexField = typeof(WatchModeController).GetField("watchedRecordingIndex",
+                    BindingFlags.Instance | BindingFlags.NonPublic);
+                watchedRecordingIndexField.SetValue(controller, 0);
+
+                var watchedRecordingIdField = typeof(WatchModeController).GetField("watchedRecordingId",
+                    BindingFlags.Instance | BindingFlags.NonPublic);
+                watchedRecordingIdField.SetValue(controller, root.RecordingId);
+
+                var holdUntilField = typeof(WatchModeController).GetField("watchEndHoldUntilRealTime",
+                    BindingFlags.Instance | BindingFlags.NonPublic);
+                holdUntilField.SetValue(controller, 1f);
+
+                var pendingActivationField = typeof(WatchModeController).GetField("watchEndHoldPendingActivationUT",
+                    BindingFlags.Instance | BindingFlags.NonPublic);
+                pendingActivationField.SetValue(controller, 150.0);
+
+                var processMethod = typeof(WatchModeController).GetMethod("ProcessWatchEndHoldTimer",
+                    BindingFlags.Instance | BindingFlags.NonPublic);
+                bool handled = (bool)processMethod.Invoke(controller, null);
+
+                Assert.True(handled);
+                Assert.Equal(0, watchedRecordingIndexField.GetValue(controller));
+                Assert.Equal(1f, (float)holdUntilField.GetValue(controller));
+                Assert.Equal(150.0, (double)pendingActivationField.GetValue(controller));
+                Assert.True(engine.ghostStates.ContainsKey(0));
+            }
+            finally
+            {
+                WatchModeController.RealtimeNow = previousRealtimeNow;
+                WatchModeController.CurrentUTNow = previousCurrentUTNow;
+                RecordingStore.ResetForTesting();
+                ParsekLog.SuppressLogging = false;
+            }
+        }
+
+        [Fact]
+        public void ProcessWatchEndHoldTimer_PendingActivationUTReached_AddsPostActivationGrace()
+        {
+            RecordingStore.ResetForTesting();
+            ParsekLog.SuppressLogging = true;
+            var previousRealtimeNow = WatchModeController.RealtimeNow;
+            var previousCurrentUTNow = WatchModeController.CurrentUTNow;
+            WatchModeController.RealtimeNow = () => 5f;
+            WatchModeController.CurrentUTNow = () => 150.0;
+
+            try
+            {
+                var root = MakeRecording("root", 100);
+                RecordingStore.AddCommittedInternal(root);
+
+                var host = (ParsekFlight)FormatterServices.GetUninitializedObject(typeof(ParsekFlight));
+                var engine = new GhostPlaybackEngine(null);
+                engine.ghostStates[0] = new GhostPlaybackState();
+
+                var engineField = typeof(ParsekFlight).GetField("engine",
+                    BindingFlags.Instance | BindingFlags.NonPublic);
+                engineField.SetValue(host, engine);
+
+                var controller = new WatchModeController(host);
+
+                var watchedRecordingIndexField = typeof(WatchModeController).GetField("watchedRecordingIndex",
+                    BindingFlags.Instance | BindingFlags.NonPublic);
+                watchedRecordingIndexField.SetValue(controller, 0);
+
+                var watchedRecordingIdField = typeof(WatchModeController).GetField("watchedRecordingId",
+                    BindingFlags.Instance | BindingFlags.NonPublic);
+                watchedRecordingIdField.SetValue(controller, root.RecordingId);
+
+                var holdUntilField = typeof(WatchModeController).GetField("watchEndHoldUntilRealTime",
+                    BindingFlags.Instance | BindingFlags.NonPublic);
+                holdUntilField.SetValue(controller, 1f);
+
+                var pendingActivationField = typeof(WatchModeController).GetField("watchEndHoldPendingActivationUT",
+                    BindingFlags.Instance | BindingFlags.NonPublic);
+                pendingActivationField.SetValue(controller, 150.0);
+
+                var processMethod = typeof(WatchModeController).GetMethod("ProcessWatchEndHoldTimer",
+                    BindingFlags.Instance | BindingFlags.NonPublic);
+                bool handled = (bool)processMethod.Invoke(controller, null);
+
+                Assert.True(handled);
+                Assert.Equal(7f, (float)holdUntilField.GetValue(controller));
+                Assert.True(double.IsNaN((double)pendingActivationField.GetValue(controller)));
+                Assert.Equal(0, watchedRecordingIndexField.GetValue(controller));
+                Assert.True(engine.ghostStates.ContainsKey(0));
+            }
+            finally
+            {
+                WatchModeController.RealtimeNow = previousRealtimeNow;
+                WatchModeController.CurrentUTNow = previousCurrentUTNow;
                 RecordingStore.ResetForTesting();
                 ParsekLog.SuppressLogging = false;
             }

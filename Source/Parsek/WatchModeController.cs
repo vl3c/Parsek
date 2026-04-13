@@ -24,6 +24,7 @@ namespace Parsek
             ControlTypes.VESSEL_SWITCHING | ControlTypes.EVA_INPUT |
             ControlTypes.CAMERAMODES;
         internal static Func<float> RealtimeNow = GetRealtimeSafe;
+        internal static Func<double> CurrentUTNow = GetCurrentUTSafe;
 
         // Camera follow state — transient, never serialized
         private int watchedRecordingIndex = -1;       // -1 = not watching
@@ -36,7 +37,8 @@ namespace Parsek
         private float savedCameraDistance;
         private float savedCameraPitch;
         private float savedCameraHeading;
-        private float watchEndHoldUntilRealTime = -1;  // non-looped end hold timer (real time, warp-independent)
+        private float watchEndHoldUntilRealTime = -1;  // non-looped end hold timer
+        private double watchEndHoldPendingActivationUT = double.NaN;
         private int lineageProtectionRecordingIndex = -1; // post-watch debris visibility root
         private string lineageProtectionRecordingId;
         private double lineageProtectionUntilUT = double.NaN;
@@ -178,6 +180,22 @@ namespace Parsek
             catch (MethodAccessException)
             {
                 return 0f;
+            }
+        }
+
+        private static double GetCurrentUTSafe()
+        {
+            try
+            {
+                return Planetarium.GetUniversalTime();
+            }
+            catch (System.Security.SecurityException)
+            {
+                return double.NaN;
+            }
+            catch (MethodAccessException)
+            {
+                return double.NaN;
             }
         }
 
@@ -616,6 +634,7 @@ namespace Parsek
 
             // Clear hold timer and safety counter
             watchEndHoldUntilRealTime = -1;
+            watchEndHoldPendingActivationUT = double.NaN;
             watchNoTargetFrames = 0;
             lastLoggedWatchTargetMismatch = null;
             lastLoggedWatchFocusKey = null;
@@ -707,6 +726,7 @@ namespace Parsek
             savedCameraPitch = 0f;
             savedCameraHeading = 0f;
             watchEndHoldUntilRealTime = -1;
+            watchEndHoldPendingActivationUT = double.NaN;
             watchNoTargetFrames = 0;
             currentCameraMode = WatchCameraMode.Free;
             userModeOverride = false;
@@ -1175,6 +1195,7 @@ namespace Parsek
                 $"InputLockManager control lock \"{WatchModeLockId}\" re-set after transfer");
 
             watchEndHoldUntilRealTime = -1;
+            watchEndHoldPendingActivationUT = double.NaN;
 
             // Reset watch start time so the zone-exemption logging starts fresh
             // for the new segment (no stale elapsed time from the previous segment)
@@ -1295,7 +1316,7 @@ namespace Parsek
         /// </summary>
         private bool ProcessWatchEndHoldTimer()
         {
-            if (watchEndHoldUntilRealTime <= 0)
+            if (watchEndHoldUntilRealTime <= 0 && double.IsNaN(watchEndHoldPendingActivationUT))
                 return false;
 
             int idx = watchedRecordingIndex;
@@ -1322,6 +1343,18 @@ namespace Parsek
                     TransferWatchToNextSegment(nextTarget);
                     return true;
                 }
+            }
+
+            if (!double.IsNaN(watchEndHoldPendingActivationUT))
+            {
+                double currentUT = CurrentUTNow();
+                if (!double.IsNaN(currentUT) && currentUT + 0.001 < watchEndHoldPendingActivationUT)
+                    return true;
+
+                watchEndHoldPendingActivationUT = double.NaN;
+                float postActivationGraceUntil = RealtimeNow() + 2f;
+                if (watchEndHoldUntilRealTime < postActivationGraceUntil)
+                    watchEndHoldUntilRealTime = postActivationGraceUntil;
             }
 
             // Hold expired -- no continuation found, destroy and exit
@@ -1682,11 +1715,16 @@ namespace Parsek
         /// <summary>
         /// Sets the watch hold timer. Called by policy when playback ends for a watched recording.
         /// </summary>
-        internal void StartWatchHold(float holdUntilRealTime)
+        internal void StartWatchHold(float holdUntilRealTime, double pendingActivationUT = double.NaN)
         {
             watchEndHoldUntilRealTime = holdUntilRealTime;
+            watchEndHoldPendingActivationUT = pendingActivationUT;
             ParsekLog.Info("CameraFollow",
-                $"Watch hold timer set: holdUntilRealTime={holdUntilRealTime:F1} (watched #{watchedRecordingIndex})");
+                $"Watch hold timer set: holdUntilRealTime={holdUntilRealTime:F1}" +
+                (double.IsNaN(pendingActivationUT)
+                    ? string.Empty
+                    : $" pendingActivationUT={pendingActivationUT:F1}") +
+                $" (watched #{watchedRecordingIndex})");
         }
     }
 }

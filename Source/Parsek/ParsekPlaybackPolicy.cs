@@ -339,31 +339,33 @@ namespace Parsek
                     }
 
                     // No continuation found — hold ghost for camera (3-5 real seconds).
-                    // Uses real time (Time.time), not UT, so the hold duration is warp-independent.
+                    // Pending-activation holds also gate expiry on game UT inside WatchModeController
+                    // so warp-rate changes do not expire the hold before the continuation can spawn.
                     float holdSeconds = evt.Trajectory?.TerminalStateValue == TerminalState.Destroyed
                         ? 5f : 3f;
                     string holdDetail = null;
+                    double pendingContinuationUT = double.NaN;
                     if (evt.Index >= 0 && evt.Index < committed.Count
                         && GhostPlaybackLogic.TryGetPendingWatchActivationUT(
                             committed[evt.Index],
                             committed,
                             RecordingStore.CommittedTrees,
                             engine.HasActiveGhost,
-                            out double continuationActivationUT))
+                            out pendingContinuationUT))
                     {
                         float extendedHold = GhostPlaybackLogic.ComputePendingWatchHoldSeconds(
-                            holdSeconds, evt.CurrentUT, continuationActivationUT, TimeWarp.CurrentRate);
+                            holdSeconds, evt.CurrentUT, pendingContinuationUT, TimeWarp.CurrentRate);
                         if (extendedHold > holdSeconds)
                         {
                             holdSeconds = extendedHold;
                             holdDetail = string.Format(
                                 CultureInfo.InvariantCulture,
                                 " pendingContinuationUT={0:F1} currentUT={1:F1}",
-                                continuationActivationUT,
+                                pendingContinuationUT,
                                 evt.CurrentUT);
                         }
                     }
-                    host.StartWatchHoldFromPolicy(Time.time + holdSeconds);
+                    host.StartWatchHoldFromPolicy(Time.time + holdSeconds, pendingContinuationUT);
 
                     // Trigger explosion if terminal was Destroyed
                     engine.TriggerExplosionIfDestroyed(evt.State, evt.Trajectory, evt.Index,
