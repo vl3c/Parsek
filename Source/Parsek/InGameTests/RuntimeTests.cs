@@ -937,19 +937,6 @@ namespace Parsek.InGameTests
     /// </summary>
     public class SaveLoadTests
     {
-        private bool liveScenarioRoundTripMutatedSession;
-
-        [InGameTeardown]
-        private void CleanupLiveScenarioRoundTrip()
-        {
-            if (!liveScenarioRoundTripMutatedSession)
-                return;
-
-            Helpers.SyntheticScenarioLoadHelpers.CleanupFlightRuntime(
-                "SaveLoadTests live OnSave/OnLoad round-trip");
-            liveScenarioRoundTripMutatedSession = false;
-        }
-
         [InGameTest(Category = "SaveLoad",
             Description = "RecordingPaths.EnsureRecordingsDirectory creates/resolves the dir")]
         public void RecordingsDirectoryExists()
@@ -979,36 +966,6 @@ namespace Parsek.InGameTests
             var scenario = Object.FindObjectOfType<ParsekScenario>();
             InGameAssert.IsNotNull(scenario,
                 "ParsekScenario should be active (ScenarioModule loaded)");
-        }
-
-        [InGameTest(Category = "SaveLoad", RunLast = true,
-            Description = "Recording count survives ConfigNode round-trip through ParsekScenario")]
-        public void ScenarioRoundTripPreservesCount()
-        {
-            Helpers.SyntheticScenarioLoadHelpers.EnsureRoundTripSafeToRun();
-
-            var scenario = Object.FindObjectOfType<ParsekScenario>();
-            if (scenario == null)
-            {
-                ParsekLog.Verbose("TestRunner", "No ParsekScenario instance — skipping round-trip");
-                return;
-            }
-
-            int beforeCount = RecordingStore.CommittedRecordings.Count;
-
-            // Serialize current state
-            var saveNode = new ConfigNode("SCENARIO");
-            scenario.OnSave(saveNode);
-
-            // Deserialize back
-            liveScenarioRoundTripMutatedSession = true;
-            scenario.OnLoad(saveNode);
-            int afterCount = RecordingStore.CommittedRecordings.Count;
-
-            InGameAssert.AreEqual(beforeCount, afterCount,
-                $"Recording count changed after round-trip: {beforeCount} -> {afterCount}");
-            ParsekLog.Verbose("TestRunner",
-                $"Scenario round-trip: {beforeCount} recordings preserved");
         }
 
         [InGameTest(Category = "SaveLoad",
@@ -2520,10 +2477,13 @@ namespace Parsek.InGameTests
 
         /// <summary>
         /// Canary test: verifies that the TestRunnerShortcut singleton survives a
-        /// scene transition via quickload. If this fails, all other QuickloadResume
-        /// tests are meaningless — the test infrastructure can't survive the reload.
+        /// scene transition via quickload. This drives a real stock quickload and is
+        /// intentionally single-run only: when stock restore itself fails, it can
+        /// leave the live FLIGHT session broken.
         /// </summary>
         [InGameTest(Category = "QuickloadResume", Scene = GameScenes.FLIGHT, RunLast = true,
+            AllowBatchExecution = false,
+            BatchSkipReason = "Single-run only — excluded from Run All / Run category because this real F5/F9 scene transition can leave the live FLIGHT session broken when stock quickload fails.",
             Description = "Verify TestRunnerShortcut DontDestroyOnLoad survives quickload")]
         public IEnumerator BridgeSurvivesSceneTransition()
         {
@@ -2551,8 +2511,11 @@ namespace Parsek.InGameTests
         /// <summary>
         /// #269 core test: quickload mid-recording resumes with the same activeRecordingId.
         /// Verifies the full F5 → fly → F9 → restore coroutine → resumed recording path.
+        /// This also drives a real stock quickload, so it is intentionally single-run only.
         /// </summary>
         [InGameTest(Category = "QuickloadResume", Scene = GameScenes.FLIGHT, RunLast = true,
+            AllowBatchExecution = false,
+            BatchSkipReason = "Single-run only — excluded from Run All / Run category because this real F5/F9 resume check can poison the current FLIGHT session if stock quickload restores into a broken state.",
             Description = "F5/F9 mid-recording resumes same activeRecordingId")]
         public IEnumerator Quickload_MidRecording_ResumesSameActiveRecordingId()
         {

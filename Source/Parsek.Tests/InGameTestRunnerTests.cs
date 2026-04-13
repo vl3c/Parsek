@@ -37,5 +37,42 @@ namespace Parsek.Tests
                 new[] { "Alpha", "Beta", "Delta", "Gamma" },
                 ordered.Select(t => t.Name).ToArray());
         }
+
+        [Fact]
+        public void PrepareBatchExecution_SkipsSingleRunOnlyTestsWithExplicitReason()
+        {
+            var batchSafe = new InGameTestInfo { Category = "A", Name = "BatchSafe" };
+            var singleOnly = new InGameTestInfo
+            {
+                Category = "A",
+                Name = "SceneTransition",
+                AllowBatchExecution = false,
+                BatchSkipReason = "single-run only"
+            };
+
+            var batch = InGameTestRunner.PrepareBatchExecution(new[] { singleOnly, batchSafe });
+
+            Assert.Equal(new[] { "BatchSafe" }, batch.Select(t => t.Name).ToArray());
+            Assert.Equal(TestStatus.Skipped, singleOnly.Status);
+            Assert.Equal("single-run only", singleOnly.ErrorMessage);
+            Assert.Equal(0f, singleOnly.DurationMs);
+        }
+
+        [Fact]
+        public void PrepareBatchExecution_UsesDefaultReasonWhenSingleRunOnlyTestHasNoCustomReason()
+        {
+            var singleOnly = new InGameTestInfo
+            {
+                Category = "A",
+                Name = "SceneTransition",
+                AllowBatchExecution = false
+            };
+
+            var batch = InGameTestRunner.PrepareBatchExecution(new[] { singleOnly });
+
+            Assert.Empty(batch);
+            Assert.Equal(TestStatus.Skipped, singleOnly.Status);
+            Assert.Equal(InGameTestRunner.DefaultBatchSkipReason, singleOnly.ErrorMessage);
+        }
     }
 }

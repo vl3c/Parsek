@@ -156,9 +156,9 @@ Collected evidence from `logs/2026-04-12_1857_phase-11-5-storage-followup-s4/`:
 
 **Desired behavior:** When a recording session ends via vessel destruction and Parsek needs merge/commit input, surface the merge confirmation before the stock crash report so the Parsek flow is not hidden behind the stock dialog.
 
-**Root cause:** Deferred stock crash suppression was inferred from transient recorder / pending-tree timing instead of explicit merge ownership. The tree-destruction path had a real handoff gap before the pending tree existed, and stale pending-tree cleanup could preserve or later replay crash dialogs from abandoned futures.
+**Root cause:** The recent follow-up fix over-corrected the original ordering bug. When the active vessel crashed and only controller-less debris leaves were still unresolved, `ShowPostDestructionTreeMergeDialog()` stopped finalizing the tree in `FLIGHT` and instead waited for those debris leaves to become terminal or for a later revert/scene-load path to claim ownership. In the real repro, one debris leaf stayed live long enough that the wait timed out, the merge dialog fell back to `OnFlightReady()`, and the deferred crash dialog could then be replayed in the wrong scene or after the wrong owner had already resolved the tree.
 
-**Fix:** Flight-results suppression now has an explicit arm / capture / resolve state machine, but the active-crash fallback only stays armed when the remaining same-scene blockers are debris-only. That lets real surviving vessels cancel the deferred crash flow immediately, while debris-only crash paths preserve deferred stock results across the revert/scene-reload handoff until a real merge owner appears. `OnFlightReady()` now resolves that owner only after pending-tree fallback dispatch has had a chance to create the merge dialog, and abandoned quickload / vessel-switch / main-menu paths clear the deferred crash state instead of replaying or leaking it. Regression coverage now pins capture/bypass/clear transitions plus the debris-only-vs-real-survivor crash split.
+**Fix:** The active-crash tree path no longer waits for a later debris-only fallback owner. After the one-frame destruction settle, if the only remaining blockers are debris leaves, Parsek finalizes the tree immediately in `FLIGHT` and shows the merge dialog there. That restores the original ordering: merge confirmation first, stock crash report after the merge/discard choice. The merge dialog's default "spawnable" decisions now also reuse the real playback spawn policy, so debris and `SubOrbital` leaves no longer show up as fake surviving vessels. Regression coverage now pins the debris-only crash classification to same-scene finalization and the merge-dialog spawn-policy alignment.
 
 **Status:** ~~Fixed~~
 
@@ -316,9 +316,9 @@ So the problem was not "bad auto-grouping on commit"; it was "stale hierarchy lo
 
 ---
 
-## ~~332. In-game FLIGHT save/load tests can leave the diagnostics window transparent and watch/camera state stale~~
+## ~~332. In-game FLIGHT test batches can poison the live session (transparent diagnostics window, broken camera/watch context, null active vessel after quickload canary)~~
 
-**Observed in:** 2026-04-13 local FLIGHT batch run after collecting `logs/2026-04-13_1635_332-flight-save-load-anchor-ui/`. User report: after the in-game save/load test, the diagnostics window became transparent and the camera/watch anchor no longer stayed on the expected anchor vehicle on the pad.
+**Observed in:** 2026-04-13 local FLIGHT batch runs after collecting `logs/2026-04-13_1635_332-flight-save-load-anchor-ui/` and the follow-up `logs/2026-04-13_1739_332-followup-unsolved/`. User report: after running the in-game FLIGHT tests, the diagnostics window became transparent, the camera/watch anchor no longer stayed on the expected anchor vehicle on the pad, and later the whole session was left broken.
 
 **Collected evidence:**
 
@@ -326,14 +326,40 @@ So the problem was not "bad auto-grouping on commit"; it was "stale hierarchy lo
 - The failing code rendered the tooltip row conditionally: tooltip present emitted `GUILayout.Space(...)` + `GUILayout.Label(...)`, tooltip absent emitted a zero-height label only. That is the same IMGUI layout/repaint mismatch already avoided in `TestRunnerShortcut`.
 - The FLIGHT round-trip tests (`SaveLoadTests.ScenarioRoundTripPreservesCount`, `SceneAndPatchTests.ScenarioRoundTripPreservesTreeStructure`, `SceneAndPatchTests.CrewReplacementsRoundTrip`) call live `ParsekScenario.OnSave`/`OnLoad` mid-batch, which re-subscribes scenario/runtime state without a real scene transition.
 - `ParsekFlight` already had the right cleanup primitives (`ExitWatchMode`, `StopPlayback`, `DestroyAllTimelineGhosts`), but the destructive tests were not using them, so stale watch/ghost state could survive after the synthetic `OnLoad`.
-- The same bundle also showed the quickload canary path timing out after a broken restore while still reporting pass, because `QuickloadResumeHelpers.WaitForFlightReady` and `WaitForActiveRecording` only logged warnings instead of failing the test.
+- The first bundle also showed the quickload canary path timing out after a broken restore while still reporting pass, because `QuickloadResumeHelpers.WaitForFlightReady` and `WaitForActiveRecording` only logged warnings instead of failing the test.
+- The follow-up bundle proved the live-session break was still happening after that detection fix: `RuntimeTests.BridgeSurvivesSceneTransition` triggered a real `TriggerQuickload`, stock `FlightDriver.Start()` immediately threw `NullReferenceException`, and the session stayed in `scene=FLIGHT, flightReady=False, activeVessel=null` while `FlightCamera`, autopilot UI, and related systems kept throwing.
+- `parsek-test-results.txt` in the follow-up bundle was stale from an earlier run, which means the broken quickload path never reached clean result export; the reliable evidence was the fresh `KSP.log`.
 
-**Root cause:** Two separate harness issues were compounding:
+**Root cause:** The final diagnosis was two different harness faults, only one of which the first patch fully addressed:
 
 - the settings/diagnostics window had a real IMGUI control-count bug in its tooltip row
-- the destructive live `OnSave`/`OnLoad` tests mutated the running FLIGHT session without being isolated or normalized afterward, while the quickload canary helper was too weak to expose broken restore paths honestly
+- the destructive live `OnSave`/`OnLoad` tests mutated the running FLIGHT session without being isolated or normalized afterward
+- the real F5/F9 quickload scene-transition canaries were still being batched into normal FLIGHT runs, so once quickload wait helpers started failing honestly, the test harness could finally reveal that stock quickload itself was sometimes leaving the live session half-dead; hardening the wait helper did not stop the destructive scene transition from running
 
-**Fix:** `SettingsWindowUI` now always renders a stable tooltip row using cached zero-height/wrapped styles. The live scenario round-trip tests now run last, skip active-tree / pending-merge sessions, and tear down FLIGHT runtime state after a synthetic load by restoring camera/watch state, stopping preview playback, clearing deferred watch retarget, and destroying timeline ghosts so playback caches rebuild cleanly. Quickload wait helpers now fail with explicit scene/readiness context instead of letting timed-out restores pass silently.
+**Fix:** `SettingsWindowUI` now always renders a stable tooltip row using cached zero-height/wrapped styles. The destructive live `ParsekScenario.OnSave`/`OnLoad` round-trip tests were removed from the in-game suite entirely instead of trying to normalize the session after mutating it. Quickload wait helpers still fail with explicit scene/readiness context, and the destructive quickload canaries are now marked single-run-only and are excluded from `Run All` / `Run category` batches, with explicit skip reasons in the runner UI and exported results. They remain available from the row play button when intentionally run in a disposable session.
+
+**Status:** ~~Fixed~~
+
+---
+
+## ~~335. Crash merge dialog can open from an empty tree with the wrong message/duration while deferred split resolution is still running~~
+
+**Observed in:** 2026-04-13 crash follow-up playtests after `#320`. User report: three in-flight crash repros showed different merge-dialog text, and on one run the mission duration looked wrong.
+
+**Collected evidence from:** `logs/2026-04-13_1933_crash-merge-message-diff/`
+
+- `GDLV3` behaved correctly: the tree finalized in `FLIGHT`, all leaves were non-persistable, and the dialog opened with `recordings=6, spawnable=0`.
+- The first `Jumping Flea` run was wrong. The recorder had just stopped with `58 points ... over 31.2s`, but `FinalizeTreeRecordings` immediately logged the only recording as having no playback data, `PruneZeroPointLeaves` removed it, and Parsek stashed a pending tree with `0 recordings` before opening the merge dialog with `recordings=0, spawnable=0`.
+- Immediately after that empty-tree dialog, `DeferredJointBreakCheck` classified the same break as `WithinSegment` and resumed/committed the pending split recorder. That proves the dialog finalized before the deferred split classification finished.
+- A later `Jumping Flea` run opened with `recordings=1, spawnable=0`, which explains why the player saw different dialog wording across otherwise similar crash flows.
+
+**Impact:** The merge dialog could be built from an already-emptied tree, which changes the dialog body, can force the displayed duration to `0s`, and risks discarding the just-recorded trajectory that the pending split recorder was still trying to append back into the tree.
+
+**Root cause:** The `#320` debris-only crash-order fix restored same-scene finalization, but `ShowPostDestructionTreeMergeDialog()` still ignored `pendingSplitInProgress`. In false-alarm joint-break cases, the pending split recorder needs one more deferred frame to classify the break and, if it was not a real vessel split, append its captured data back into the active tree via `FallbackCommitSplitRecorder -> TryAppendCapturedToTree`. Finalizing the tree before that happened left the active leaf temporarily empty, and the later zero-point prune removed it before the dialog was shown. The older prune log text also misleadingly said "debris" even though the helper now removes any empty leaf/placeholder, not only debris.
+
+**Fix:** The post-destruction tree dialog now waits for deferred split resolution and any pending crash-coalescer breakup emission to finish before applying the terminal/debris-only finalization policy, then re-runs the normal guards and finalizes with the repaired tree state. Regression coverage now pins the new pending-crash wait policy branch, and the zero-point prune diagnostics were clarified to describe generic empty leaves/placeholders instead of only debris.
+
+**Residual gap:** There is still no coroutine-level regression test that drives the full `OnVesselWillDestroy -> DeferredJointBreakCheck -> TickCrashCoalescer -> ShowPostDestructionTreeMergeDialog` path. Current coverage pins the extracted pending-crash policy/helper decisions, but the end-to-end scene/coroutine ordering still depends on in-game validation.
 
 **Status:** ~~Fixed~~
 
@@ -389,6 +415,34 @@ So the problem was not "bad auto-grouping on commit"; it was "stale hierarchy lo
 **Fix:** PR `#251` now reopens a continuation `TrackSection` whenever a recorder resumes after a false alarm, but it no longer trusts only the last persisted section. Resume now prefers the recorder's latest closed-or-discarded section snapshot, so brief zero-frame relative/environment flickers do not reopen stale metadata, restores the relative anchor when needed, and rehydrates packed `OrbitalCheckpoint` on-rails state by reopening the live orbit segment before the next off-rails transition. Absolute/relative resumes still seed the boundary frame for continuity, and regression coverage now pins absolute, relative, discarded-section, and orbital-checkpoint false-alarm resumes.
 
 **Status:** Fixed in PR `#251`
+
+---
+
+## 336. Debris ghosts can appear ahead of their real playback start, then slide into place
+
+**Observed in:** `logs/2026-04-13_1959_debris-slide-still-broken-after-pr258/` after the first debris-positioning follow-up on PR `#258`. User report: debris ghosts still appeared in visibly wrong places on their first frame and only settled into the correct path afterward.
+
+**Collected evidence:**
+
+- The fresh `GhostAppearance` logs showed the ghost root was already snapped to the recording's first flat point on the first visible frame, but the ghost had become visible before any playable section was active:
+  - `Ghost #1 "Kerbal X Debris" appearance#1 reason=playback ut=19.72 ... activeFrame=none ... recordingStart@20.26 ...`
+  - `Ghost #7 "Kerbal X Debris" appearance#1 reason=playback ut=27.58 ... activeFrame=none ... recordingStart@28.12 ...`
+- The matching debris sidecars confirmed the same timing gap:
+  - recording `ceea24e2f9d04718ad9a63c9b95dd3c2` had `ExplicitStartUT = 19.72`, but its first playable `TrackSection` frame was `ut = 20.26`
+  - recording `9c9ea1b5b5964fe48311835181ba7d3d` had `ExplicitStartUT = 27.58`, but its first playable frame was `ut = 28.12`
+- The first structural part events landed only after the first visible frame (`Applied 2 part events for ghost #1` / `#2` after the appearance lines), so the replay briefly showed the full breakup snapshot state before the real payload timeline caught up.
+- This ruled out the earlier CoM/root-frame hypothesis as the primary cause of the visible "spawn ahead, then slide back" behavior in the fresh repro. The root was not lagging the recording; visibility was starting too early.
+
+**Impact:** Debris ghosts can become visible off branch metadata instead of their first real playable sample, making them appear tens of meters ahead of where the user expects before the steady-state playback path "catches up". Because breakup debris is snapshot-built and event-pruned, that early-visible window is especially obvious.
+
+**Root cause:** breakup child recordings intentionally preserve the branch boundary as `ExplicitStartUT`, but ghost activation was still keyed off `Recording.StartUT` / raw loop start instead of the first playable payload sample. For these debris recordings, `ExplicitStartUT` came from the breakup branch point, while the first real `TrackSection.frames[0].ut` landed ~0.5 s later. The engine therefore treated the ghost as in-range too early, clamped positioning to the future first point, and made the full snapshot visible before any active section or first-frame part-event pruning existed.
+
+**Fix implemented:** ghost activation now resolves from the first playable payload timestamp instead of the outer semantic branch start. `Recording.TryGetGhostActivationStartUT()` now prefers the first real frame/checkpoint payload, `GhostPlaybackEngine` gates normal playback and loop/debris-sync start off that activation UT, and `GhostAppearance` now logs `activationStart` / `activationLead` so future bundles can prove whether a ghost became visible before its real payload window. Added focused regression coverage for:
+
+- recordings whose `ExplicitStartUT` is earlier than the first playable debris frame
+- engine-side activation-start resolution preferring the real payload start over semantic branch timing
+
+**Status:** Fix implemented in PR `#258`; pending runtime validation from a fresh replay bundle.
 
 ---
 

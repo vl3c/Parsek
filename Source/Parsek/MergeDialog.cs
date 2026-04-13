@@ -174,28 +174,20 @@ namespace Parsek
         // ================================================================
 
         /// <summary>
-        /// Determines whether a recording's vessel can be persisted (spawned as real vessel).
-        /// Returns false for destroyed, recovered, docked, or boarded vessels,
-        /// and for recordings with no vessel snapshot.
-        /// Pure static for testability.
+        /// Determines whether a recording can actually spawn as a real vessel after merge.
+        /// This reuses the same intrinsic spawn policy as timeline playback so the dialog's
+        /// default "spawnable" count stays aligned with runtime behavior.
         /// </summary>
         internal static bool CanPersistVessel(Recording rec)
         {
             if (rec == null)
                 return false;
 
-            if (rec.VesselSnapshot == null)
-                return false;
-
-            if (rec.TerminalStateValue.HasValue)
-            {
-                var ts = rec.TerminalStateValue.Value;
-                if (ts == TerminalState.Destroyed || ts == TerminalState.Recovered
-                    || ts == TerminalState.Docked || ts == TerminalState.Boarded)
-                    return false;
-            }
-
-            return true;
+            var (needsSpawn, _) = GhostPlaybackLogic.ShouldSpawnAtRecordingEnd(
+                rec,
+                isActiveChainMember: false,
+                isChainLoopingOrDisabled: false);
+            return needsSpawn;
         }
 
         /// <summary>

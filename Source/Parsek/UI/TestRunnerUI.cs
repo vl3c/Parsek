@@ -180,11 +180,13 @@ namespace Parsek
                     string testLabel = test.Name;
                     if (test.Method.DeclaringType != null)
                         testLabel = test.Method.Name; // short name within category
+                    if (!test.AllowBatchExecution)
+                        testLabel += " [single]";
                     if (test.DurationMs > 0)
                         testLabel += $" ({test.DurationMs:F0}ms)";
                     GUILayout.Label(
                         new GUIContent(testLabel,
-                            test.Description ?? (eligible ? "" : $"Requires {test.RequiredScene} scene")),
+                            BuildTestTooltip(test, eligible)),
                         GUILayout.ExpandWidth(true));
                     GUI.enabled = true;
 
@@ -292,6 +294,12 @@ namespace Parsek
 
             // --- Scene filter note ---
             GUILayout.Label($"Scene: {HighLogic.LoadedScene}", GUI.skin.label);
+            if (HasSingleRunOnlyTestsForCurrentScene())
+            {
+                GUILayout.Label(
+                    "Single-run tests are skipped by Run All / Run category. Use the row ▶ button for destructive scene-transition checks.",
+                    GUI.skin.label);
+            }
 
             // --- Rebuild cached groups when run state changes ---
             bool running = testRunner.IsRunning;
@@ -358,6 +366,45 @@ namespace Parsek
                 case TestStatus.Skipped: return Color.gray;
                 default:                 return Color.white;
             }
+        }
+
+        private bool HasSingleRunOnlyTestsForCurrentScene()
+        {
+            if (testRunner == null) return false;
+
+            foreach (var test in testRunner.Tests)
+            {
+                bool eligible = test.RequiredScene == InGameTestAttribute.AnyScene
+                    || test.RequiredScene == HighLogic.LoadedScene;
+                if (eligible && !test.AllowBatchExecution)
+                    return true;
+            }
+
+            return false;
+        }
+
+        private static string BuildTestTooltip(InGameTestInfo test, bool eligible)
+        {
+            var lines = new List<string>();
+
+            if (!string.IsNullOrEmpty(test.Description))
+                lines.Add(test.Description);
+
+            string batchNote = InGameTestRunner.GetBatchSkipReason(test);
+            if (!string.IsNullOrEmpty(batchNote))
+                lines.Add(batchNote);
+
+            if (!eligible)
+                lines.Add($"Requires {test.RequiredScene} scene");
+
+            if ((test.Status == TestStatus.Failed || test.Status == TestStatus.Skipped)
+                && !string.IsNullOrEmpty(test.ErrorMessage)
+                && test.ErrorMessage != batchNote)
+            {
+                lines.Add(test.ErrorMessage);
+            }
+
+            return lines.Count > 0 ? string.Join("\n", lines.ToArray()) : string.Empty;
         }
     }
 }
