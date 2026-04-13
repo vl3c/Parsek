@@ -27,6 +27,8 @@ namespace Parsek
         // destroyed during the coalescing window. Keyed by vessel persistentId. (#157)
         private Dictionary<uint, ConfigNode> preCapturedSnapshots = new Dictionary<uint, ConfigNode>();
         private Dictionary<uint, ConfigNode> lastEmittedSnapshots = new Dictionary<uint, ConfigNode>();
+        private Dictionary<uint, TrajectoryPoint> preCapturedTrajectoryPoints = new Dictionary<uint, TrajectoryPoint>();
+        private Dictionary<uint, TrajectoryPoint> lastEmittedTrajectoryPoints = new Dictionary<uint, TrajectoryPoint>();
 
         // Snapshot of child PIDs from the last emitted BREAKUP,
         // preserved across Reset() so the caller can access them after Tick() returns.
@@ -50,7 +52,7 @@ namespace Parsek
         /// <param name="childHasController">Whether the child has a command part</param>
         /// <param name="splitCause">Cause string (CRASH, OVERHEAT, STRUCTURAL_FAILURE)</param>
         public void OnSplitEvent(double ut, uint childPid, bool childHasController, string splitCause = "CRASH",
-            ConfigNode preSnapshot = null)
+            ConfigNode preSnapshot = null, TrajectoryPoint? preTrajectoryPoint = null)
         {
             if (!HasPendingBreakup)
             {
@@ -85,6 +87,8 @@ namespace Parsek
             // At emission time (0.5s later), the vessel may already be destroyed.
             if (preSnapshot != null && !preCapturedSnapshots.ContainsKey(childPid))
                 preCapturedSnapshots[childPid] = preSnapshot;
+            if (preTrajectoryPoint.HasValue && !preCapturedTrajectoryPoints.ContainsKey(childPid))
+                preCapturedTrajectoryPoints[childPid] = preTrajectoryPoint.Value;
         }
 
         /// <summary>
@@ -131,6 +135,9 @@ namespace Parsek
             lastEmittedSnapshots.Clear();
             foreach (var kvp in preCapturedSnapshots)
                 lastEmittedSnapshots[kvp.Key] = kvp.Value;
+            lastEmittedTrajectoryPoints.Clear();
+            foreach (var kvp in preCapturedTrajectoryPoints)
+                lastEmittedTrajectoryPoints[kvp.Key] = kvp.Value;
 
             Reset();
             return bp;
@@ -167,6 +174,16 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Returns a pre-captured split-time trajectory point for the given PID, or null if none
+        /// was captured. Valid immediately after Tick() returns a non-null BranchPoint.
+        /// </summary>
+        public TrajectoryPoint? GetPreCapturedTrajectoryPoint(uint pid)
+        {
+            TrajectoryPoint point;
+            return lastEmittedTrajectoryPoints.TryGetValue(pid, out point) ? (TrajectoryPoint?)point : null;
+        }
+
+        /// <summary>
         /// Returns the current debris count. Only valid while HasPendingBreakup is true.
         /// </summary>
         public int CurrentDebrisCount => debrisPids.Count;
@@ -181,6 +198,7 @@ namespace Parsek
             controlledChildPids.Clear();
             debrisPids.Clear();
             preCapturedSnapshots.Clear();
+            preCapturedTrajectoryPoints.Clear();
             cause = null;
             ParsekLog.Verbose("Coalescer", "Reset -- window cleared");
         }

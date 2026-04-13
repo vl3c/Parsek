@@ -2698,14 +2698,22 @@ namespace Parsek
                         // Pre-capture snapshot while the vessel is still alive (#157).
                         // By coalescer emission time (0.5s later), debris may be destroyed.
                         ConfigNode preSnapshot = null;
+                        TrajectoryPoint? preTrajectoryPoint = null;
                         Vessel childVessel = FlightRecorder.FindVesselByPid(newPid);
                         if (childVessel != null)
+                        {
                             preSnapshot = VesselSpawner.TryBackupSnapshot(childVessel);
+                            preTrajectoryPoint = BackgroundRecorder.CreateAbsoluteTrajectoryPointFromVessel(
+                                childVessel, branchUT);
+                        }
 
                         ParsekLog.Info("Coalescer",
                             $"Feeding split to coalescer: childPid={newPid}, childHasController={hasController}" +
                             $", preSnapshot={preSnapshot != null}");
-                        crashCoalescer.OnSplitEvent(branchUT, newPid, hasController, preSnapshot: preSnapshot);
+                        crashCoalescer.OnSplitEvent(
+                            branchUT, newPid, hasController,
+                            preSnapshot: preSnapshot,
+                            preTrajectoryPoint: preTrajectoryPoint);
                     }
 
                     // Resume the recorder — the coalescer's Tick will emit the BREAKUP
@@ -3014,14 +3022,18 @@ namespace Parsek
                     // Add to BackgroundRecorder for trajectory sampling (no TTL — records indefinitely)
                     if (childVessel != null && backgroundRecorder != null)
                     {
+                        TrajectoryPoint? initialPoint = crashCoalescer.GetPreCapturedTrajectoryPoint(pid);
+                        if (!initialPoint.HasValue)
+                        {
+                            double sampleUT = Planetarium.GetUniversalTime();
+                            initialPoint = BackgroundRecorder.CreateAbsoluteTrajectoryPointFromVessel(
+                                childVessel, sampleUT);
+                        }
                         activeTree.BackgroundMap[pid] = childRec.RecordingId;
                         backgroundRecorder.OnVesselBackgrounded(
                             pid,
                             breakupEngineState,
-                            initialTrajectoryPoint: childVessel != null
-                                ? (TrajectoryPoint?)BackgroundRecorder.CreateAbsoluteTrajectoryPointFromVessel(
-                                    childVessel, breakupBp.UT)
-                                : null);
+                            initialTrajectoryPoint: initialPoint);
                     }
 
                     ParsekLog.Info("Coalescer",
@@ -3055,14 +3067,18 @@ namespace Parsek
 
                     if (debrisVessel != null && backgroundRecorder != null)
                     {
+                        TrajectoryPoint? initialPoint = crashCoalescer.GetPreCapturedTrajectoryPoint(pid);
+                        if (!initialPoint.HasValue)
+                        {
+                            double sampleUT = Planetarium.GetUniversalTime();
+                            initialPoint = BackgroundRecorder.CreateAbsoluteTrajectoryPointFromVessel(
+                                debrisVessel, sampleUT);
+                        }
                         activeTree.BackgroundMap[pid] = childRec.RecordingId;
                         backgroundRecorder.OnVesselBackgrounded(
                             pid,
                             breakupEngineState,
-                            initialTrajectoryPoint: debrisVessel != null
-                                ? (TrajectoryPoint?)BackgroundRecorder.CreateAbsoluteTrajectoryPointFromVessel(
-                                    debrisVessel, breakupBp.UT)
-                                : null);
+                            initialTrajectoryPoint: initialPoint);
                         backgroundRecorder.SetDebrisExpiry(pid, debrisExpiryUT);
                     }
 

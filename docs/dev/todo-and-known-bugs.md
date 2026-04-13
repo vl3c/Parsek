@@ -472,7 +472,7 @@ That confirms PR `#258` removed the original "ghost is visible before its first 
 
 **Root cause hypothesis:** This looks like a different gap from `#336`. Ghost visibility is now correctly keyed off the first playable payload frame, but the stack-separated debris recording still has no playable absolute sample until the new child vessel is backgrounded and sampled ~0.5 s after the split. The player expectation is anchored to the separation event, while the current playback path can only show the first recorded background sample.
 
-**Implemented fix:** Seed breakup/background child recordings with a real branch-boundary trajectory point and persist it immediately into the child recording, so playback has a playable absolute pose at the split UT instead of waiting for the first later background sample. The same seed is now carried through loaded and packed/on-rails background starts, and it becomes the recorder's first-sample baseline rather than an out-of-band cosmetic-only point.
+**Implemented fix:** Seed breakup/background child recordings with split-time trajectory data only when that pose is actually captured at the split moment, and otherwise fall back to the first honest post-split sample instead of backdating a later pose to the earlier branch UT. Packed/on-rails background starts still persist that seed immediately into the recording, and loaded starts still use it as the recorder's first-sample baseline.
 
 **Status:** Fix implemented on `fix/337-main-stage-debris-start-offset`; pending runtime validation from a fresh replay/save bundle
 

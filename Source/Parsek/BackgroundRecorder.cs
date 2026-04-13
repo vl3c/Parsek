@@ -86,9 +86,12 @@ namespace Parsek
 
         // Pending background split checks: after OnBackgroundPartJointBreak,
         // we defer one frame to let KSP finalize the vessel split, then check.
-        // Maps parent vessel PID -> (branchUT, recordingId)
-        private Dictionary<uint, (double branchUT, string recordingId)> pendingBackgroundSplitChecks
-            = new Dictionary<uint, (double, string)>();
+        // The parentBoundaryPoint is captured at the actual joint-break UT so
+        // parent continuation/closure can use an exact split-time pose instead
+        // of backdating a later sample from the deferred check frame.
+        private Dictionary<uint, (double branchUT, string recordingId, TrajectoryPoint? parentBoundaryPoint)>
+            pendingBackgroundSplitChecks
+                = new Dictionary<uint, (double, string, TrajectoryPoint?)>();
 
         // Pre-break snapshot of all vessel PIDs in FlightGlobals, per parent vessel.
         // Used to identify NEW vessels that appeared from the split.
@@ -383,7 +386,10 @@ namespace Parsek
                     }
                 }
                 preBreakVesselPidSnapshots[vesselPid] = snapshot;
-                pendingBackgroundSplitChecks[vesselPid] = (branchUT, recordingId);
+                TrajectoryPoint? parentBoundaryPoint = joint.Child.vessel != null
+                    ? (TrajectoryPoint?)CreateAbsoluteTrajectoryPointFromVessel(joint.Child.vessel, branchUT)
+                    : null;
+                pendingBackgroundSplitChecks[vesselPid] = (branchUT, recordingId, parentBoundaryPoint);
 
                 ParsekLog.Info("BgRecorder",
                     $"Scheduled deferred split check for background vessel: " +
@@ -406,7 +412,7 @@ namespace Parsek
             if (pendingBackgroundSplitChecks.Count == 0) return;
 
             // Copy keys to avoid modifying dict during iteration
-            var pending = new List<KeyValuePair<uint, (double branchUT, string recordingId)>>(
+            var pending = new List<KeyValuePair<uint, (double branchUT, string recordingId, TrajectoryPoint? parentBoundaryPoint)>>(
                 pendingBackgroundSplitChecks);
             pendingBackgroundSplitChecks.Clear();
 
@@ -415,12 +421,14 @@ namespace Parsek
                 uint parentPid = pending[i].Key;
                 double branchUT = pending[i].Value.branchUT;
                 string parentRecordingId = pending[i].Value.recordingId;
+                TrajectoryPoint? parentBoundaryPoint = pending[i].Value.parentBoundaryPoint;
 
                 HashSet<uint> preBreakPids;
                 preBreakVesselPidSnapshots.TryGetValue(parentPid, out preBreakPids);
                 preBreakVesselPidSnapshots.Remove(parentPid);
 
-                HandleBackgroundVesselSplit(parentPid, branchUT, parentRecordingId, preBreakPids);
+                HandleBackgroundVesselSplit(
+                    parentPid, branchUT, parentRecordingId, preBreakPids, parentBoundaryPoint);
             }
         }
 
@@ -431,7 +439,8 @@ namespace Parsek
         /// or when leaving physics bubble).
         /// </summary>
         internal void HandleBackgroundVesselSplit(uint parentPid, double branchUT,
-            string parentRecordingId, HashSet<uint> preBreakPids)
+            string parentRecordingId, HashSet<uint> preBreakPids,
+            TrajectoryPoint? parentBoundaryPoint = null)
         {
             if (tree == null) return;
 
@@ -518,7 +527,7 @@ namespace Parsek
             InheritedEngineState? parentEngineState = InheritedStateFromBackgroundVessel(parentLoaded);
 
             // Close parent recording: set ChildBranchPointId, close orbit segment/trajectory
-            CloseParentRecording(parentRec, parentPid, bp.Id, branchUT);
+            CloseParentRecording(parentRec, parentPid, bp.Id, branchUT, parentBoundaryPoint);
 
             // Add BranchPoint to tree
             tree.BranchPoints.Add(bp);
@@ -561,9 +570,12 @@ namespace Parsek
                 // Re-initialize tracking state for the parent continuation.
                 // Seed the continuation with the exact split-time pose so playback can
                 // start from the branch boundary instead of waiting for the next sample.
-                TrajectoryPoint? parentInitialPoint = parentVessel != null
-                    ? (TrajectoryPoint?)CreateAbsoluteTrajectoryPointFromVessel(parentVessel, branchUT)
-                    : null;
+                TrajectoryPoint? parentInitialPoint = parentBoundaryPoint;
+                if (!parentInitialPoint.HasValue && parentVessel != null)
+                {
+                    double sampleUT = Planetarium.GetUniversalTime();
+                    parentInitialPoint = CreateAbsoluteTrajectoryPointFromVessel(parentVessel, sampleUT);
+                }
                 OnVesselBackgrounded(parentPid, parentEngineState,
                     initialTrajectoryPoint: parentInitialPoint);
 
@@ -598,7 +610,8 @@ namespace Parsek
         /// Closes the parent recording at a branch point: sets ChildBranchPointId, ExplicitEndUT,
         /// closes any open orbit segment, samples a final boundary point, and removes from tracking dicts.
         /// </summary>
-        private void CloseParentRecording(Recording parentRec, uint parentPid, string branchPointId, double branchUT)
+        private void CloseParentRecording(Recording parentRec, uint parentPid, string branchPointId,
+            double branchUT, TrajectoryPoint? parentBoundaryPoint = null)
         {
             parentRec.ChildBranchPointId = branchPointId;
             parentRec.ExplicitEndUT = branchUT;
@@ -614,10 +627,18 @@ namespace Parsek
             BackgroundVesselState parentLoaded;
             if (loadedStates.TryGetValue(parentPid, out parentLoaded))
             {
-                Vessel parentVessel = FlightRecorder.FindVesselByPid(parentPid);
-                if (parentVessel != null)
+                if (parentBoundaryPoint.HasValue)
                 {
-                    SampleBoundaryPoint(parentVessel, parentRec, branchUT);
+                    ApplyTrajectoryPointToRecording(parentRec, parentBoundaryPoint.Value);
+                }
+                else
+                {
+                    Vessel parentVessel = FlightRecorder.FindVesselByPid(parentPid);
+                    if (parentVessel != null)
+                    {
+                        double sampleUT = Planetarium.GetUniversalTime();
+                        SampleBoundaryPoint(parentVessel, parentRec, sampleUT);
+                    }
                 }
             }
 
@@ -673,9 +694,12 @@ namespace Parsek
                 tree.AddOrReplaceRecording(child);
                 tree.BackgroundMap[child.VesselPersistentId] = child.RecordingId;
 
-                // Initialize tracking state for new child vessel, seeded with the split-time pose.
+                // Initialize tracking state for new child vessel. This check runs
+                // one frame after the joint break, so any child seed captured here
+                // must use the actual sample UT rather than the earlier branchUT.
+                double sampleUT = Planetarium.GetUniversalTime();
                 TrajectoryPoint? childInitialPoint = childVessel != null
-                    ? (TrajectoryPoint?)CreateAbsoluteTrajectoryPointFromVessel(childVessel, branchUT)
+                    ? (TrajectoryPoint?)CreateAbsoluteTrajectoryPointFromVessel(childVessel, sampleUT)
                     : null;
                 OnVesselBackgrounded(child.VesselPersistentId, inherited,
                     initialTrajectoryPoint: childInitialPoint);
