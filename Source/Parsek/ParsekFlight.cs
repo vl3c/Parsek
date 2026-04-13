@@ -435,6 +435,7 @@ namespace Parsek
         }
         public bool HasActiveChain => chainManager?.HasActiveChain ?? false;
         public bool HasActiveTree => activeTree != null;
+        internal bool HasDeferredWatchAfterFastForward => !string.IsNullOrEmpty(pendingWatchAfterFFId);
 
         // Camera follow (watch mode) — forwarded from WatchModeController
         internal bool IsWatchingGhost => watchMode.IsWatchingGhost;
@@ -1150,6 +1151,8 @@ namespace Parsek
                 case DestructionMode.TreeAllLeavesCheck:
                     Patches.FlightResultsPatch.ArmForDeferredMerge(
                         "active vessel destroyed in tree mode");
+                    Patches.FlightResultsPatch.BeginAwaitingSceneChangeMergeOwner(
+                        "active vessel destroyed in tree mode");
                     treeDestructionDialogPending = true;
                     ParsekLog.Info("Flight", "Active vessel destroyed in tree mode — scheduling tree destruction check");
                     StartCoroutine(ShowPostDestructionTreeMergeDialog());
@@ -1205,6 +1208,8 @@ namespace Parsek
                 }
                 else
                 {
+                    Patches.FlightResultsPatch.StopAwaitingSceneChangeMergeOwner(
+                        "tree destruction dialog aborted: activeTree null");
                     Patches.FlightResultsPatch.CancelDeferredMerge(
                         "tree destruction dialog aborted: activeTree null");
                     ParsekLog.Verbose("Flight",
@@ -1224,6 +1229,8 @@ namespace Parsek
             // Guard: active vessel still alive
             if (recorder != null && recorder.IsRecording && !recorder.VesselDestroyedDuringRecording)
             {
+                Patches.FlightResultsPatch.StopAwaitingSceneChangeMergeOwner(
+                    "tree destruction dialog aborted: active vessel survived");
                 Patches.FlightResultsPatch.CancelDeferredMerge(
                     "tree destruction dialog aborted: active vessel survived");
                 ParsekLog.Verbose("Flight", "ShowPostDestructionTreeMergeDialog: active vessel still alive — aborting");
@@ -1233,18 +1240,39 @@ namespace Parsek
 
             bool activeDestroyed = recorder == null || !recorder.IsRecording
                 || recorder.VesselDestroyedDuringRecording;
-            if (!RecordingTree.AreAllLeavesTerminal(activeTree.Recordings,
-                activeTree.ActiveRecordingId, activeDestroyed))
+            bool allLeavesTerminal = RecordingTree.AreAllLeavesTerminal(
+                activeTree.Recordings,
+                activeTree.ActiveRecordingId,
+                activeDestroyed);
+            bool onlyDebrisBlockersRemain = RecordingTree.AreAllActiveCrashBlockersDebris(
+                activeTree.Recordings,
+                activeTree.ActiveRecordingId);
+            switch (ClassifyPostDestructionMergeResolution(
+                activeDestroyed,
+                allLeavesTerminal,
+                onlyDebrisBlockersRemain))
             {
-                Patches.FlightResultsPatch.CancelDeferredMerge(
-                    "tree destruction dialog aborted: not all leaves terminal");
-                ParsekLog.Info("Flight",
-                    "ShowPostDestructionTreeMergeDialog: not all leaves terminal — other vessels still alive");
-                treeDestructionDialogPending = false;
-                yield break;
+                case PostDestructionMergeResolution.WaitForMoreLeavesOrSceneChange:
+                    treeDestructionDialogPending = false;
+                    ParsekLog.Info("Flight",
+                        "ShowPostDestructionTreeMergeDialog: only debris leaves still block " +
+                        "same-scene merge — keeping deferred FlightResults for scene-change merge owner");
+                    yield break;
+
+                case PostDestructionMergeResolution.CancelDeferredMerge:
+                    Patches.FlightResultsPatch.StopAwaitingSceneChangeMergeOwner(
+                        "tree destruction dialog aborted: not all leaves terminal");
+                    Patches.FlightResultsPatch.CancelDeferredMerge(
+                        "tree destruction dialog aborted: not all leaves terminal");
+                    ParsekLog.Info("Flight",
+                        "ShowPostDestructionTreeMergeDialog: not all leaves terminal — other vessels still alive");
+                    treeDestructionDialogPending = false;
+                    yield break;
             }
 
             // All leaves are terminal — finalize and show dialog
+            Patches.FlightResultsPatch.StopAwaitingSceneChangeMergeOwner(
+                "tree destruction dialog finalized in current scene");
             ParsekLog.Info("Flight", "ShowPostDestructionTreeMergeDialog: all leaves terminal — finalizing tree");
 
             double commitUT = Planetarium.GetUniversalTime();
@@ -1268,6 +1296,8 @@ namespace Parsek
                     $"ShowPostDestructionTreeMergeDialog: tree {reason} — auto-discarding");
                 ScreenMessage($"Recording discarded — {reason}", 3f);
                 RecordingStore.DiscardPendingTree();
+                Patches.FlightResultsPatch.StopAwaitingSceneChangeMergeOwner(
+                    $"tree destruction auto-discarded ({reason})");
                 Patches.FlightResultsPatch.CancelDeferredMerge(
                     $"tree destruction auto-discarded ({reason})");
                 // Clean up flight state
@@ -3029,6 +3059,26 @@ namespace Parsek
             return DestructionMode.None;
         }
 
+        internal enum PostDestructionMergeResolution
+        {
+            FinalizeNow,
+            WaitForMoreLeavesOrSceneChange,
+            CancelDeferredMerge,
+        }
+
+        internal static PostDestructionMergeResolution ClassifyPostDestructionMergeResolution(
+            bool activeDestroyed,
+            bool allLeavesTerminal,
+            bool onlyDebrisBlockersRemain)
+        {
+            if (allLeavesTerminal)
+                return PostDestructionMergeResolution.FinalizeNow;
+
+            return activeDestroyed && onlyDebrisBlockersRemain
+                ? PostDestructionMergeResolution.WaitForMoreLeavesOrSceneChange
+                : PostDestructionMergeResolution.CancelDeferredMerge;
+        }
+
         /// <summary>
         /// Pure decision method: determines whether a vessel is truly destroyed (not just unloaded
         /// or absorbed by docking) after the one-frame deferral.
@@ -3875,24 +3925,6 @@ namespace Parsek
             Log("Flight ready. Checking for pending recordings...");
             ParsekLog.RecState("OnFlightReady", CaptureRecorderState());
 
-            // Safety net: if FlightResultsPatch has a pending message that was never replayed
-            // (e.g., tree destruction path didn't fire), replay it now
-            bool pendingTreeOwnsReplay = Patches.FlightResultsPatch.PendingTreeOwnsReplay(
-                RecordingStore.HasPendingTree,
-                RecordingStore.PendingTreeStateValue);
-            if (Patches.FlightResultsPatch.ShouldReplayOnFlightReady(
-                pendingTreeOwnsReplay,
-                ParsekScenario.MergeDialogPending))
-            {
-                ParsekLog.Warn("Flight", "FlightResults safety net: replaying suppressed results on OnFlightReady");
-                Patches.FlightResultsPatch.ReplayFlightResults("OnFlightReady safety net");
-            }
-            else if (Patches.FlightResultsPatch.HasPendingResults())
-            {
-                ParsekLog.Info("Flight",
-                    "FlightResults safety net deferred — pending merge flow owns the replay");
-            }
-
             // #267: if a restore coroutine is already running (double OnFlightReady fire),
             // skip ResetFlightReadyState and the dispatch — the running coroutine owns
             // activeTree/recorder and ResetFlightReadyState would null them.
@@ -3999,6 +4031,39 @@ namespace Parsek
                     "restore coroutine in progress (#293)");
             }
 
+            // Safety net: if FlightResultsPatch has a pending message that was never replayed
+            // (for example, a crash path fell back to OnFlightReady), resolve any crash-scene
+            // owner wait AFTER the fallback pending-tree path above has had a chance to create
+            // a real merge owner for this scene.
+            bool pendingTreeOwnsReplay = Patches.FlightResultsPatch.PendingTreeOwnsReplay(
+                RecordingStore.HasPendingTree,
+                RecordingStore.PendingTreeStateValue);
+            bool mergeOwnerExistsAfterDispatch = OnFlightReadyHasMergeOwnerAfterDispatch(
+                pendingTreeOwnsReplay,
+                ParsekScenario.MergeDialogPending,
+                RecordingStore.HasPendingTree,
+                restoringActiveTree);
+            Patches.FlightResultsPatch.ResolveAwaitingSceneChangeMergeOwnerOnFlightReady(
+                mergeOwnerExistsAfterDispatch,
+                mergeOwnerExistsAfterDispatch
+                    ? "OnFlightReady: crash scene change resolved to pending merge owner"
+                    : "OnFlightReady: crash scene change resolved without pending merge owner");
+            pendingTreeOwnsReplay = Patches.FlightResultsPatch.PendingTreeOwnsReplay(
+                RecordingStore.HasPendingTree,
+                RecordingStore.PendingTreeStateValue);
+            if (Patches.FlightResultsPatch.ShouldReplayOnFlightReady(
+                pendingTreeOwnsReplay,
+                ParsekScenario.MergeDialogPending))
+            {
+                ParsekLog.Warn("Flight", "FlightResults safety net: replaying suppressed results on OnFlightReady");
+                Patches.FlightResultsPatch.ReplayFlightResults("OnFlightReady safety net");
+            }
+            else if (Patches.FlightResultsPatch.HasPendingResults())
+            {
+                ParsekLog.Info("Flight",
+                    "FlightResults safety net deferred — pending merge flow owns the replay");
+            }
+
             // Swap reserved crew out of the active vessel so the player
             // can't record with them again (they belong to deferred-spawn vessels)
             int swapResult = CrewReservationManager.SwapReservedCrewInFlight();
@@ -4035,15 +4100,13 @@ namespace Parsek
         /// </summary>
         private void ClearSceneChangeTransientState()
         {
-            bool hadTreeDestructionDialogPending = treeDestructionDialogPending;
             bool pendingTreeOwnsReplay = Patches.FlightResultsPatch.PendingTreeOwnsReplay(
                 RecordingStore.HasPendingTree,
                 RecordingStore.PendingTreeStateValue);
-            bool sceneChangeWillCreateMergeOwner = hadTreeDestructionDialogPending
-                && RecordingStore.PendingDestinationScene.HasValue
-                && RecordingStore.PendingDestinationScene.Value != GameScenes.FLIGHT
-                && RecordingStore.PendingDestinationScene.Value != GameScenes.MAINMENU
-                && !ParsekScenario.IsAutoMerge;
+            bool awaitingSceneChangeMergeOwner =
+                Patches.FlightResultsPatch.ShouldPreserveAwaitingSceneChangeOwnerOnSceneChange(
+                    Patches.FlightResultsPatch.AwaitingSceneChangeMergeOwner,
+                    RecordingStore.PendingDestinationScene);
 
             // Clear dock/undock pending state
             ClearDockUndockState();
@@ -4060,7 +4123,7 @@ namespace Parsek
             {
                 if (Patches.FlightResultsPatch.ShouldPreserveCapturedResultsOnSceneChange(
                     pendingTreeOwnsReplay,
-                    sceneChangeWillCreateMergeOwner,
+                    awaitingSceneChangeMergeOwner,
                     ParsekScenario.MergeDialogPending))
                 {
                     ParsekLog.Info("Flight",
@@ -4074,10 +4137,18 @@ namespace Parsek
             }
             else if (Patches.FlightResultsPatch.DeferredMergeArmed)
             {
-                ParsekLog.Info("Flight",
-                    "Clearing armed FlightResults suppression on scene change before any stock dialog was intercepted");
-                Patches.FlightResultsPatch.ClearPending(
-                    "scene change before stock FlightResults were intercepted");
+                if (awaitingSceneChangeMergeOwner)
+                {
+                    ParsekLog.Info("Flight",
+                        "Preserving armed FlightResults suppression on scene change — crash merge owner still resolving");
+                }
+                else
+                {
+                    ParsekLog.Info("Flight",
+                        "Clearing armed FlightResults suppression on scene change before any stock dialog was intercepted");
+                    Patches.FlightResultsPatch.ClearPending(
+                        "scene change before stock FlightResults were intercepted");
+                }
             }
 
             // Clear split event detection state
@@ -4086,6 +4157,17 @@ namespace Parsek
             pendingSplitInProgress = false;
             pendingSplitRecorder = null;
             preBreakVesselPids = null;
+        }
+
+        internal static bool OnFlightReadyHasMergeOwnerAfterDispatch(
+            bool pendingTreeOwnsReplay,
+            bool mergeDialogPending,
+            bool hasPendingTree,
+            bool restoringActiveTree)
+        {
+            return pendingTreeOwnsReplay
+                || mergeDialogPending
+                || (hasPendingTree && !restoringActiveTree);
         }
 
         #endregion
@@ -8058,10 +8140,25 @@ namespace Parsek
             engine.DestroyGhost(index);
         }
 
-        public void DestroyAllTimelineGhosts()
+        internal void NormalizeAfterSyntheticScenarioLoad(string reason)
+        {
+            string cleanupReason = string.IsNullOrEmpty(reason)
+                ? "synthetic scenario load"
+                : reason;
+            ParsekLog.Info("TestRunner",
+                $"Normalizing FLIGHT runtime after {cleanupReason}");
+
+            pendingWatchAfterFFId = null;
+            watchMode.ClearAfterSyntheticScenarioLoad();
+
+            StopPlayback();
+            DestroyAllTimelineGhosts("synthetic-scenario-load");
+        }
+
+        public void DestroyAllTimelineGhosts(string ghostMapReason = "rewind")
         {
             // Remove ghost map ProtoVessels before engine cleanup
-            GhostMapPresence.RemoveAllGhostVessels("rewind");
+            GhostMapPresence.RemoveAllGhostVessels(ghostMapReason);
 
             // Engine destroys all ghost GOs and clears engine-owned state.
             // Fires OnAllGhostsDestroying so policy clears its own state.

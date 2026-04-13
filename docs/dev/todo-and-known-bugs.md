@@ -158,7 +158,7 @@ Collected evidence from `logs/2026-04-12_1857_phase-11-5-storage-followup-s4/`:
 
 **Root cause:** Deferred stock crash suppression was inferred from transient recorder / pending-tree timing instead of explicit merge ownership. The tree-destruction path had a real handoff gap before the pending tree existed, and stale pending-tree cleanup could preserve or later replay crash dialogs from abandoned futures.
 
-**Fix:** Flight-results suppression now has an explicit arm / capture / resolve state machine. Tree-destruction flow arms suppression before the coroutine gap, merge/discard/auto-discard paths resolve or cancel it explicitly, scene-change / `OnFlightReady()` only treat finalized pending trees as replay owners, and quickload/revert/stale-save cleanup clears deferred crash results when the pending-tree owner is abandoned. Regression coverage now pins `Prefix` capture/duplicate/bypass behavior, finalized-vs-Limbo ownership, and quickload discard cleanup.
+**Fix:** Flight-results suppression now has an explicit arm / capture / resolve state machine, but the active-crash fallback only stays armed when the remaining same-scene blockers are debris-only. That lets real surviving vessels cancel the deferred crash flow immediately, while debris-only crash paths preserve deferred stock results across the revert/scene-reload handoff until a real merge owner appears. `OnFlightReady()` now resolves that owner only after pending-tree fallback dispatch has had a chance to create the merge dialog, and abandoned quickload / vessel-switch / main-menu paths clear the deferred crash state instead of replaying or leaking it. Regression coverage now pins capture/bypass/clear transitions plus the debris-only-vs-real-survivor crash split.
 
 **Status:** ~~Fixed~~
 
@@ -313,6 +313,29 @@ So the problem was not "bad auto-grouping on commit"; it was "stale hierarchy lo
 - UI/body-label formatting for repaired mixed-phase EVA recordings
 
 **Status:** ~~Fixed~~ (PR #248)
+
+---
+
+## ~~332. In-game FLIGHT save/load tests can leave the diagnostics window transparent and watch/camera state stale~~
+
+**Observed in:** 2026-04-13 local FLIGHT batch run after collecting `logs/2026-04-13_1635_332-flight-save-load-anchor-ui/`. User report: after the in-game save/load test, the diagnostics window became transparent and the camera/watch anchor no longer stayed on the expected anchor vehicle on the pad.
+
+**Collected evidence:**
+
+- `KSP.log` repeatedly threw `ArgumentException: Getting control ... position in a group with only ... controls when doing repaint` from `Parsek.SettingsWindowUI.DrawSettingsWindow`, which explains the transparent/corrupt diagnostics/settings window.
+- The failing code rendered the tooltip row conditionally: tooltip present emitted `GUILayout.Space(...)` + `GUILayout.Label(...)`, tooltip absent emitted a zero-height label only. That is the same IMGUI layout/repaint mismatch already avoided in `TestRunnerShortcut`.
+- The FLIGHT round-trip tests (`SaveLoadTests.ScenarioRoundTripPreservesCount`, `SceneAndPatchTests.ScenarioRoundTripPreservesTreeStructure`, `SceneAndPatchTests.CrewReplacementsRoundTrip`) call live `ParsekScenario.OnSave`/`OnLoad` mid-batch, which re-subscribes scenario/runtime state without a real scene transition.
+- `ParsekFlight` already had the right cleanup primitives (`ExitWatchMode`, `StopPlayback`, `DestroyAllTimelineGhosts`), but the destructive tests were not using them, so stale watch/ghost state could survive after the synthetic `OnLoad`.
+- The same bundle also showed the quickload canary path timing out after a broken restore while still reporting pass, because `QuickloadResumeHelpers.WaitForFlightReady` and `WaitForActiveRecording` only logged warnings instead of failing the test.
+
+**Root cause:** Two separate harness issues were compounding:
+
+- the settings/diagnostics window had a real IMGUI control-count bug in its tooltip row
+- the destructive live `OnSave`/`OnLoad` tests mutated the running FLIGHT session without being isolated or normalized afterward, while the quickload canary helper was too weak to expose broken restore paths honestly
+
+**Fix:** `SettingsWindowUI` now always renders a stable tooltip row using cached zero-height/wrapped styles. The live scenario round-trip tests now run last, skip active-tree / pending-merge sessions, and tear down FLIGHT runtime state after a synthetic load by restoring camera/watch state, stopping preview playback, clearing deferred watch retarget, and destroying timeline ghosts so playback caches rebuild cleanly. Quickload wait helpers now fail with explicit scene/readiness context instead of letting timed-out restores pass silently.
+
+**Status:** ~~Fixed~~
 
 ---
 

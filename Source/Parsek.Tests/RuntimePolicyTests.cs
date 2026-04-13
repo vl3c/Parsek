@@ -746,6 +746,84 @@ namespace Parsek.Tests
 
         #endregion
 
+        #region ClassifyPostDestructionMergeResolution
+
+        [Fact]
+        public void ClassifyPostDestructionMergeResolution_FinalizeWhenAllLeavesTerminal()
+        {
+            var result = ParsekFlight.ClassifyPostDestructionMergeResolution(
+                activeDestroyed: true,
+                allLeavesTerminal: true,
+                onlyDebrisBlockersRemain: false);
+
+            Assert.Equal(ParsekFlight.PostDestructionMergeResolution.FinalizeNow, result);
+        }
+
+        [Fact]
+        public void ClassifyPostDestructionMergeResolution_WaitsForActiveCrashFallback()
+        {
+            var result = ParsekFlight.ClassifyPostDestructionMergeResolution(
+                activeDestroyed: true,
+                allLeavesTerminal: false,
+                onlyDebrisBlockersRemain: true);
+
+            Assert.Equal(
+                ParsekFlight.PostDestructionMergeResolution.WaitForMoreLeavesOrSceneChange,
+                result);
+        }
+
+        [Fact]
+        public void ClassifyPostDestructionMergeResolution_CancelsWhenRealSurvivorStillExists()
+        {
+            var result = ParsekFlight.ClassifyPostDestructionMergeResolution(
+                activeDestroyed: true,
+                allLeavesTerminal: false,
+                onlyDebrisBlockersRemain: false);
+
+            Assert.Equal(ParsekFlight.PostDestructionMergeResolution.CancelDeferredMerge, result);
+        }
+
+        [Fact]
+        public void ClassifyPostDestructionMergeResolution_CancelsWhenNotCrashAndNotTerminal()
+        {
+            var result = ParsekFlight.ClassifyPostDestructionMergeResolution(
+                activeDestroyed: false,
+                allLeavesTerminal: false,
+                onlyDebrisBlockersRemain: true);
+
+            Assert.Equal(ParsekFlight.PostDestructionMergeResolution.CancelDeferredMerge, result);
+        }
+
+        #endregion
+
+        #region OnFlightReadyHasMergeOwnerAfterDispatch
+
+        [Fact]
+        public void OnFlightReadyHasMergeOwnerAfterDispatch_TrueForFallbackPendingTree()
+        {
+            bool result = ParsekFlight.OnFlightReadyHasMergeOwnerAfterDispatch(
+                pendingTreeOwnsReplay: false,
+                mergeDialogPending: false,
+                hasPendingTree: true,
+                restoringActiveTree: false);
+
+            Assert.True(result);
+        }
+
+        [Fact]
+        public void OnFlightReadyHasMergeOwnerAfterDispatch_FalseForPendingTreeUnderRestore()
+        {
+            bool result = ParsekFlight.OnFlightReadyHasMergeOwnerAfterDispatch(
+                pendingTreeOwnsReplay: false,
+                mergeDialogPending: false,
+                hasPendingTree: true,
+                restoringActiveTree: true);
+
+            Assert.False(result);
+        }
+
+        #endregion
+
         #region IsTreePadFailure
 
         [Fact]
