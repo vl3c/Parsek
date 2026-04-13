@@ -3417,6 +3417,9 @@ namespace Parsek
             return false;
         }
 
+        internal const float PendingWatchPostActivationGraceSeconds = 2f;
+        internal const float MaxPendingWatchHoldSeconds = 45f;
+
         internal static float ComputePendingWatchHoldSeconds(
             float baseHoldSeconds,
             double currentUT,
@@ -3430,8 +3433,9 @@ namespace Parsek
                 return baseHoldSeconds;
 
             float effectiveWarpRate = warpRate > 0.01f ? warpRate : 1f;
-            float requiredSeconds = Mathf.Ceil((float)((continuationActivationUT - currentUT) / effectiveWarpRate) + 2f);
-            return Mathf.Clamp(Mathf.Max(baseHoldSeconds, requiredSeconds), baseHoldSeconds, 45f);
+            float requiredSeconds = Mathf.Ceil((float)((continuationActivationUT - currentUT) / effectiveWarpRate)
+                + PendingWatchPostActivationGraceSeconds);
+            return Mathf.Clamp(Mathf.Max(baseHoldSeconds, requiredSeconds), baseHoldSeconds, MaxPendingWatchHoldSeconds);
         }
 
         private static double MinPendingActivationUT(double currentBest, double candidate)

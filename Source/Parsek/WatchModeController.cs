@@ -25,6 +25,7 @@ namespace Parsek
             ControlTypes.CAMERAMODES;
         internal static Func<float> RealtimeNow = GetRealtimeSafe;
         internal static Func<double> CurrentUTNow = GetCurrentUTSafe;
+        internal static Func<float> CurrentWarpRateNow = GetCurrentWarpRateSafe;
 
         // Camera follow state — transient, never serialized
         private int watchedRecordingIndex = -1;       // -1 = not watching
@@ -38,6 +39,7 @@ namespace Parsek
         private float savedCameraPitch;
         private float savedCameraHeading;
         private float watchEndHoldUntilRealTime = -1;  // non-looped end hold timer
+        private float watchEndHoldMaxRealTime = -1;
         private double watchEndHoldPendingActivationUT = double.NaN;
         private int lineageProtectionRecordingIndex = -1; // post-watch debris visibility root
         private string lineageProtectionRecordingId;
@@ -196,6 +198,22 @@ namespace Parsek
             catch (MethodAccessException)
             {
                 return double.NaN;
+            }
+        }
+
+        private static float GetCurrentWarpRateSafe()
+        {
+            try
+            {
+                return TimeWarp.CurrentRate;
+            }
+            catch (System.Security.SecurityException)
+            {
+                return 1f;
+            }
+            catch (MethodAccessException)
+            {
+                return 1f;
             }
         }
 
@@ -634,6 +652,7 @@ namespace Parsek
 
             // Clear hold timer and safety counter
             watchEndHoldUntilRealTime = -1;
+            watchEndHoldMaxRealTime = -1;
             watchEndHoldPendingActivationUT = double.NaN;
             watchNoTargetFrames = 0;
             lastLoggedWatchTargetMismatch = null;
@@ -726,6 +745,7 @@ namespace Parsek
             savedCameraPitch = 0f;
             savedCameraHeading = 0f;
             watchEndHoldUntilRealTime = -1;
+            watchEndHoldMaxRealTime = -1;
             watchEndHoldPendingActivationUT = double.NaN;
             watchNoTargetFrames = 0;
             currentCameraMode = WatchCameraMode.Free;
@@ -1195,6 +1215,7 @@ namespace Parsek
                 $"InputLockManager control lock \"{WatchModeLockId}\" re-set after transfer");
 
             watchEndHoldUntilRealTime = -1;
+            watchEndHoldMaxRealTime = -1;
             watchEndHoldPendingActivationUT = double.NaN;
 
             // Reset watch start time so the zone-exemption logging starts fresh
@@ -1349,10 +1370,24 @@ namespace Parsek
             {
                 double currentUT = CurrentUTNow();
                 if (!double.IsNaN(currentUT) && currentUT + 0.001 < watchEndHoldPendingActivationUT)
+                {
+                    float recomputedHoldSeconds = GhostPlaybackLogic.ComputePendingWatchHoldSeconds(
+                        0f,
+                        currentUT,
+                        watchEndHoldPendingActivationUT,
+                        CurrentWarpRateNow());
+                    float recomputedHoldUntil = RealtimeNow() + recomputedHoldSeconds;
+                    if (watchEndHoldMaxRealTime > 0f)
+                        recomputedHoldUntil = Mathf.Min(recomputedHoldUntil, watchEndHoldMaxRealTime);
+                    if (watchEndHoldUntilRealTime < recomputedHoldUntil)
+                        watchEndHoldUntilRealTime = recomputedHoldUntil;
                     return true;
+                }
 
                 watchEndHoldPendingActivationUT = double.NaN;
-                float postActivationGraceUntil = RealtimeNow() + 2f;
+                float postActivationGraceUntil = RealtimeNow() + GhostPlaybackLogic.PendingWatchPostActivationGraceSeconds;
+                if (watchEndHoldMaxRealTime > 0f)
+                    postActivationGraceUntil = Mathf.Min(postActivationGraceUntil, watchEndHoldMaxRealTime);
                 if (watchEndHoldUntilRealTime < postActivationGraceUntil)
                     watchEndHoldUntilRealTime = postActivationGraceUntil;
             }
@@ -1718,6 +1753,9 @@ namespace Parsek
         internal void StartWatchHold(float holdUntilRealTime, double pendingActivationUT = double.NaN)
         {
             watchEndHoldUntilRealTime = holdUntilRealTime;
+            watchEndHoldMaxRealTime = double.IsNaN(pendingActivationUT)
+                ? holdUntilRealTime
+                : RealtimeNow() + GhostPlaybackLogic.MaxPendingWatchHoldSeconds;
             watchEndHoldPendingActivationUT = pendingActivationUT;
             ParsekLog.Info("CameraFollow",
                 $"Watch hold timer set: holdUntilRealTime={holdUntilRealTime:F1}" +
