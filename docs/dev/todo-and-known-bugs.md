@@ -229,7 +229,7 @@ So the problem was not "bad auto-grouping on commit"; it was "stale hierarchy lo
 
 ---
 
-## 325. Repeated F5/F9 during a branched recording can leave child sidecars time-discontinuous and break watch handoff
+## ~~325. Repeated F5/F9 during a branched recording can leave child sidecars time-discontinuous and break watch handoff~~
 
 **Observed in:** `logs/2026-04-12_2159_f5-f9-watch-regression/` (`s9`). The `Crater Crawler` tree survived repeated quickload cycles structurally, but watching the root playback failed at the branch: when root `#0` completed, watch entered the hold timer and then exited instead of handing off to the continuation.
 
@@ -250,16 +250,11 @@ So the problem was not "bad auto-grouping on commit"; it was "stale hierarchy lo
 
 **Impact:** This is more than a camera/watch issue. Repeated quickload during a live branched tree can leave child recordings with stale explicit UT metadata and large gaps between the branch boundary and their actual saved trajectory. Watch handoff then fails because the same-PID continuation child is not ghost-active when the root ends, and the shorter hold expires before the delayed child ghost appears.
 
-**Root cause / hypothesis:** The quickload-resume path for active branched trees appears to preserve or restore stale explicit start/end metadata across resumed child recordings while appending newer post-quickload trajectory to the sidecar. That leaves the final recording internally inconsistent: branch/terminal metadata reflects the pre-quickload segment, but the saved points reflect only the later resumed segment. Likely touch points are `TryRestoreActiveTreeNode`, `RestoreActiveTreeFromPending`, and finalize/merge code that updates `ExplicitStartUT` / `ExplicitEndUT` after quickload-resumed branches.
+**Root cause:** The merged fix narrowed the user-visible failure to watch timing, not missing branch data. After repeated quickloads, resumed child recordings could still remain present but not become ghost-active until the first real payload sample well after the parent branch boundary. The old watch-end policy only used a fixed `3-5 s` real-time hold, so the watched parent could expire before the same-PID continuation ever had a chance to spawn.
 
-**Fix direction:** Reproduce with a focused branch + repeated quickload scenario, then pin two invariants:
+**Fix:** Watch handoff now asks the committed tree for the earliest pending continuation activation UT, preferring actual trajectory bounds over stale explicit metadata, and extends the watch-end hold using that future activation time plus the current warp rate. `WatchModeController` keeps recomputing and capping that pending hold until the continuation becomes eligible, then adds a short post-activation grace window before allowing the normal watch exit. Added regression coverage for same-PID and allowed fallback branches, actual-payload-start precedence, warp-aware hold sizing, and capped pending-hold expiry handling.
 
-- any finalized recording must have `StartUT/EndUT` metadata consistent with the actual saved sidecar bounds
-- branch handoff/watch logic must tolerate delayed child activation after quickload resume, or the resumed child recordings must be stitched so there is no artificial boundary gap
-
-Add unit/in-game coverage around `F5/F9` during a branch, final save/load, and watch handoff at the parent branch point.
-
-**Status:** Open
+**Status:** ~~Fixed~~ (PR #238)
 
 ---
 
@@ -698,11 +693,15 @@ For hyperbolic escape orbits, KSP's `OrbitRendererBase.UpdateSpline` draws the g
 
 ---
 
-## 220. PopulateCrewEndStates called repeatedly for 0-point intermediate recordings
+## ~~220. PopulateCrewEndStates called repeatedly for 0-point intermediate recordings~~
 
-Intermediate tree recordings with 0 trajectory points but non-null VesselSnapshot trigger `PopulateCrewEndStates` on every recalculation walk (36 times in a typical session). These recordings can never have crew.
+Intermediate tree recordings with 0 trajectory points but non-null `VesselSnapshot` could re-enter `PopulateCrewEndStates` on every recalculation walk (36 times in a typical session), even when the recording was just an empty intermediate/probe node and could never yield crew data.
 
-**Priority:** Deferred to Phase 11.5 (Recording Optimization & Observability)
+**Root cause:** Kerbal end-state inference only distinguished `CrewEndStates != null` from `CrewEndStates == null`. A recording that had already been conclusively evaluated as "no crew" stayed null forever, so later ledger/recalculation passes treated it like "not processed yet" and reran the inference every time. Missing start-snapshot cases also were not separated cleanly from legitimate no-crew recordings.
+
+**Fix:** Recordings now persist a separate `CrewEndStatesResolved` flag. `PopulateCrewEndStates` marks crewless recordings resolved when a valid start-crew source proves there is no crew, leaves genuinely missing-start-snapshot cases unresolved, and the ledger/tree-load paths skip repeat inference once that resolved-no-crew state is known. Added regression coverage for resolved-no-crew behavior, missing-start-snapshot behavior, and save/load persistence of `crewEndStatesResolved`.
+
+**Status:** ~~Fixed~~ (PR #239)
 
 ---
 
