@@ -3024,9 +3024,10 @@ namespace Parsek
                 {
                     uint pid = controlledChildren[i];
                     Vessel childVessel = FlightRecorder.FindVesselByPid(pid);
-                    ConfigNode ctrlSnap = childVessel == null
-                        ? crashCoalescer.GetPreCapturedSnapshot(pid)
-                        : null;
+                    // Keep the split-time ghost snapshot even when the child vessel is
+                    // still alive 0.5s later; otherwise the ghost builds from a later
+                    // post-split snapshot and can appear spatially ahead on frame 1.
+                    ConfigNode ctrlSnap = crashCoalescer.GetPreCapturedSnapshot(pid);
                     TrajectoryPoint? breakupChildPoint = crashCoalescer.GetPreCapturedTrajectoryPoint(pid);
                     var childRec = CreateBreakupChildRecording(activeTree, breakupBp, pid, childVessel, false, "Unknown",
                         ctrlSnap, breakupChildPoint, parentGeneration: activeRec.Generation);
@@ -3072,9 +3073,10 @@ namespace Parsek
                         continue;
                     }
 
-                    ConfigNode preSnap = debrisVessel == null
-                        ? crashCoalescer.GetPreCapturedSnapshot(pid)
-                        : null;
+                    // Use the coalescer's split-time snapshot for ghost visuals even when
+                    // the debris vessel survives the coalescing window; VesselSnapshot still
+                    // comes from the later live state for spawning.
+                    ConfigNode preSnap = crashCoalescer.GetPreCapturedSnapshot(pid);
                     TrajectoryPoint? breakupChildPoint = crashCoalescer.GetPreCapturedTrajectoryPoint(pid);
                     var childRec = CreateBreakupChildRecording(activeTree, breakupBp, pid, debrisVessel, true, "Debris",
                         preSnap, breakupChildPoint, parentGeneration: activeRec.Generation);

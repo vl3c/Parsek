@@ -491,14 +491,10 @@ namespace Parsek
         internal static Vector3 ComputeSnapshotVisualRootLocalOffset(
             IPlaybackTrajectory rec, ConfigNode snapshotNode)
         {
-            if (rec == null || !rec.IsDebris)
-                return Vector3.zero;
-
-            Vector3 snapshotCoM;
-            if (!TryGetSnapshotCenterOfMass(snapshotNode, out snapshotCoM))
-                return Vector3.zero;
-
-            return -snapshotCoM;
+            // The playback root already uses the vessel/root transform reference from
+            // the recorded trajectory point. Debris-only CoM shifting moves split
+            // stages and boosters forward from their actual separation position.
+            return Vector3.zero;
         }
 
         internal static bool TryGetSnapshotCenterOfMass(ConfigNode snapshotNode, out Vector3 centerOfMass)

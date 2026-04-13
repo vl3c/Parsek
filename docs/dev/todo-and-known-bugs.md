@@ -654,7 +654,9 @@ That confirms PR `#258` removed the original "ghost is visible before its first 
 
 **Implemented fix:** Seed breakup/background child recordings with split-time trajectory data only when that pose is actually captured at the split moment, and otherwise fall back to the first honest post-split sample instead of backdating a later pose to the earlier branch UT. Packed/on-rails background starts still persist that seed immediately into the recording, and loaded starts still use it as the recorder's first-sample baseline.
 
-**Status:** Fix implemented in PR `#264`; `gpt-5.4` `xhigh` review found no remaining substantive issues. Runtime validation is still pending from a fresh replay/save bundle.
+**Fresh validation:** `logs/2026-04-14_0000_main-stage-forward-bias` confirmed the split-time snapshot/seed fix is working: breakup children now build with `snapshotSource=pre-captured-ghost + live-vessel`, and the old slide-into-place behavior is gone. The remaining residual was a smaller but still visible debris-only root-frame bias: ghost playback was still applying a blanket `visualRootLocal = -snapshotCoM` shift to breakup debris, which moved both radial boosters and the stack-separated main stage forward from the recorded split point by roughly the magnitude of their saved `CoM`.
+
+**Status:** Follow-up root-frame fix implemented locally after the fresh bundle: debris ghosts no longer apply the snapshot-`CoM` visual-root shift. Runtime revalidation is still pending from the next replay/save bundle.
 
 ---
 

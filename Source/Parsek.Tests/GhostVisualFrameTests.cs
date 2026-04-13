@@ -8,14 +8,14 @@ namespace Parsek.Tests
     public class GhostVisualFrameTests
     {
         [Fact]
-        public void ComputeSnapshotVisualRootLocalOffset_DebrisUsesNegativeSnapshotCom()
+        public void ComputeSnapshotVisualRootLocalOffset_DebrisLeavesVisualsUnshifted()
         {
             var snapshot = BuildSnapshot("1.25,-2.5,3.75");
             var traj = new MockTrajectory { IsDebris = true };
 
             Vector3 offset = GhostVisualBuilder.ComputeSnapshotVisualRootLocalOffset(traj, snapshot);
 
-            AssertVector3Close(new Vector3(-1.25f, 2.5f, -3.75f), offset);
+            AssertVector3Close(Vector3.zero, offset);
         }
 
         [Fact]
