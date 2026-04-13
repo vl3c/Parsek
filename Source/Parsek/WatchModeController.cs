@@ -13,6 +13,15 @@ namespace Parsek
         ArbitraryPerpendicularFallback
     }
 
+    internal struct WatchCameraTransitionState
+    {
+        public float Distance;
+        public float Pitch;
+        public float Heading;
+        public WatchCameraMode Mode;
+        public bool UserModeOverride;
+    }
+
     /// <summary>
     /// Owns camera-follow (watch mode) state and methods.
     /// Extracted from ParsekFlight to isolate watch-mode lifecycle.
@@ -548,6 +557,84 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Captures the live ghost-relative camera orbit so manual watch switches
+        /// can reuse it on the next target instead of resetting to the default entry view.
+        /// </summary>
+        private bool TryCaptureActiveWatchCameraState(out WatchCameraTransitionState cameraState)
+        {
+            cameraState = default(WatchCameraTransitionState);
+
+            FlightCamera flightCamera = FlightCamera.fetch;
+            if (flightCamera == null)
+                return false;
+
+            cameraState.Distance = flightCamera.Distance;
+            cameraState.Pitch = flightCamera.camPitch;
+            cameraState.Heading = flightCamera.camHdg;
+            cameraState.Mode = currentCameraMode;
+            cameraState.UserModeOverride = userModeOverride;
+            return true;
+        }
+
+        internal static WatchCameraTransitionState ResolveSwitchCameraState(
+            WatchCameraTransitionState currentState,
+            bool hasAtmosphere,
+            double atmosphereDepth,
+            double altitude)
+        {
+            if (!currentState.UserModeOverride)
+            {
+                currentState.Mode = ShouldAutoHorizonLock(hasAtmosphere, atmosphereDepth, altitude)
+                    ? WatchCameraMode.HorizonLocked
+                    : WatchCameraMode.Free;
+            }
+
+            return currentState;
+        }
+
+        private WatchCameraTransitionState ResolveSwitchCameraStateForGhost(
+            WatchCameraTransitionState currentState,
+            GhostPlaybackState state)
+        {
+            CelestialBody body = ResolveBody(state);
+            bool hasAtmosphere = body != null && body.atmosphere;
+            double atmosphereDepth = body != null ? body.atmosphereDepth : 0.0;
+            double altitude = state != null ? state.lastInterpolatedAltitude : 0.0;
+            return ResolveSwitchCameraState(
+                currentState,
+                hasAtmosphere,
+                atmosphereDepth,
+                altitude);
+        }
+
+        private bool TryApplySwitchedWatchCameraState(
+            GhostPlaybackState state,
+            WatchCameraTransitionState cameraState)
+        {
+            FlightCamera flightCamera = FlightCamera.fetch;
+            if (flightCamera == null || state == null)
+                return false;
+
+            currentCameraMode = cameraState.Mode;
+            userModeOverride = cameraState.UserModeOverride;
+
+            PrimeWatchTargetOrientation(state);
+
+            Transform watchTarget = GetWatchTarget(state.cameraPivot) ?? state.ghost?.transform;
+            if (watchTarget != null)
+                flightCamera.SetTargetTransform(watchTarget);
+
+            flightCamera.SetDistance(cameraState.Distance);
+            flightCamera.camPitch = cameraState.Pitch;
+            flightCamera.camHdg = cameraState.Heading;
+
+            if (flightCamera.transform?.parent != null && state.cameraPivot != null)
+                flightCamera.transform.parent.position = state.cameraPivot.position;
+
+            return true;
+        }
+
+        /// <summary>
         /// Enter watch mode: point the camera at a ghost vessel.
         /// If already watching the same recording, toggles off (exits watch mode).
         /// If watching a different recording, switches to the new one (preserves camera state).
@@ -617,6 +704,12 @@ namespace Parsek
 
             // If already watching a different recording, exit first (switch case -- preserve camera state)
             bool switching = watchedRecordingIndex >= 0 && watchedRecordingIndex != index;
+            WatchCameraTransitionState switchCameraState = default(WatchCameraTransitionState);
+            bool hasSwitchCameraState = switching && TryCaptureActiveWatchCameraState(out switchCameraState);
+            Vessel preservedCameraVessel = savedCameraVessel;
+            float preservedCameraDistance = savedCameraDistance;
+            float preservedCameraPitch = savedCameraPitch;
+            float preservedCameraHeading = savedCameraHeading;
             if (switching)
             {
                 ParsekLog.Info("CameraFollow", $"Switching watch from #{watchedRecordingIndex} to #{index} \"{committed[index].VesselName}\"");
@@ -635,21 +728,42 @@ namespace Parsek
                 savedCameraHeading = FlightCamera.fetch.camHdg;
                 savedPivotSharpness = FlightCamera.fetch.pivotTranslateSharpness;
             }
+            else
+            {
+                // Keep Backspace restore pointed at the original player vessel/camera state
+                // even after hopping between multiple ghosts in one watch session.
+                savedCameraVessel = preservedCameraVessel;
+                savedCameraDistance = preservedCameraDistance;
+                savedCameraPitch = preservedCameraPitch;
+                savedCameraHeading = preservedCameraHeading;
+            }
 
             // Disable KSP's internal pivot tracking -- we drive the camera manually
             FlightCamera.fetch.pivotTranslateSharpness = 0f;
 
-            // Point camera at ghost (use cameraPivot or horizonProxy based on mode)
-            var watchTarget = GetWatchTarget(gs.cameraPivot) ?? gs.ghost?.transform;
-            if (watchTarget != null)
-                FlightCamera.fetch.SetTargetTransform(watchTarget);
-            FlightCamera.fetch.SetDistance(50f);  // override [75,400] entry clamp
+            bool restoredSwitchCameraState = switching
+                && hasSwitchCameraState
+                && TryApplySwitchedWatchCameraState(
+                    gs,
+                    ResolveSwitchCameraStateForGhost(switchCameraState, gs));
+
+            if (!restoredSwitchCameraState)
+            {
+                // Fresh watch entry starts from the default entry distance; manual ghost-to-ghost
+                // switches reuse the live watch camera state above instead of resetting here.
+                var watchTarget = GetWatchTarget(gs.cameraPivot) ?? gs.ghost?.transform;
+                if (watchTarget != null)
+                    FlightCamera.fetch.SetTargetTransform(watchTarget);
+                FlightCamera.fetch.SetDistance(50f);  // override [75,400] entry clamp
+            }
+
+            var activeWatchTarget = GetWatchTarget(gs.cameraPivot) ?? gs.ghost?.transform;
             watchedOverlapCycleIndex = gs.loopCycleIndex; // track which cycle we're following
-            if (watchTarget != null && gs.ghost != null)
+            if (activeWatchTarget != null && gs.ghost != null)
             {
                 ParsekLog.Info("CameraFollow",
                     $"EnterWatchMode: ghost #{index} \"{committed[index].VesselName}\"" +
-                    $" target='{watchTarget.name}' pivotLocal=({watchTarget.localPosition.x:F2},{watchTarget.localPosition.y:F2},{watchTarget.localPosition.z:F2})" +
+                    $" target='{activeWatchTarget.name}' pivotLocal=({activeWatchTarget.localPosition.x:F2},{activeWatchTarget.localPosition.y:F2},{activeWatchTarget.localPosition.z:F2})" +
                     $" ghostPos=({gs.ghost.transform.position.x:F1},{gs.ghost.transform.position.y:F1},{gs.ghost.transform.position.z:F1})" +
                     $" camDist={FlightCamera.fetch.Distance.ToString("F1", CultureInfo.InvariantCulture)}");
             }
