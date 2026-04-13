@@ -7500,24 +7500,12 @@ namespace Parsek
         /// </summary>
         private static Vector3d ComputeEndpointWorldPosition(Recording rec)
         {
-            // Terminal surface position
-            if (rec.TerminalPosition.HasValue)
+            if (RecordingEndpointResolver.TryGetRecordingEndpointCoordinates(
+                rec, out string bodyName, out double latitude, out double longitude, out double altitude))
             {
-                var tp = rec.TerminalPosition.Value;
-                CelestialBody body = FlightGlobals.GetBodyByName(tp.body);
-                if (body != null)
-                    return body.GetWorldSurfacePosition(tp.latitude, tp.longitude, tp.altitude);
-            }
-
-            // Last trajectory point
-            if (rec.Points != null && rec.Points.Count > 0)
-            {
-                var last = rec.Points[rec.Points.Count - 1];
-                string bodyName = last.bodyName;
-                if (string.IsNullOrEmpty(bodyName)) bodyName = "Kerbin";
                 CelestialBody body = FlightGlobals.GetBodyByName(bodyName);
                 if (body != null)
-                    return body.GetWorldSurfacePosition(last.latitude, last.longitude, last.altitude);
+                    return body.GetWorldSurfacePosition(latitude, longitude, altitude);
             }
 
             return Vector3d.zero;

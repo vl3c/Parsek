@@ -245,6 +245,47 @@ namespace Parsek.Tests
             Assert.False(useOrbit);
         }
 
+        [Fact]
+        public void ShouldUseOrbitEndpoint_WhenOrbitExtendsPastLastPoint_ReturnsTrue()
+        {
+            var traj = new MockTrajectory
+            {
+                Points = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint { ut = 70.04, bodyName = "Kerbin" }
+                },
+                OrbitSegments = new List<OrbitSegment>
+                {
+                    new OrbitSegment { startUT = 70.56, endUT = 122.60, bodyName = "Kerbin" }
+                }
+            };
+
+            bool useOrbitEndpoint = RecordingEndpointResolver.ShouldUseOrbitEndpoint(traj);
+
+            Assert.True(useOrbitEndpoint);
+        }
+
+        [Fact]
+        public void TryGetOrbitEndpointUT_ReturnsLastOrbitSegmentEndUT()
+        {
+            var traj = new MockTrajectory
+            {
+                Points = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint { ut = 70.04, bodyName = "Kerbin" }
+                },
+                OrbitSegments = new List<OrbitSegment>
+                {
+                    new OrbitSegment { startUT = 70.56, endUT = 122.60, bodyName = "Kerbin" }
+                }
+            };
+
+            bool resolved = RecordingEndpointResolver.TryGetOrbitEndpointUT(traj, out double endpointUT);
+
+            Assert.True(resolved);
+            Assert.Equal(122.60, endpointUT, 2);
+        }
+
         private static ConfigNode BuildSnapshot(string coM)
         {
             var snapshot = new ConfigNode("VESSEL");

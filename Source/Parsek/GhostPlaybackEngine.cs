@@ -608,12 +608,8 @@ namespace Parsek
 
             if (ghostActive)
             {
-                // Position ghost at final point
-                if (hasPoints)
-                {
-                    var lastPoint = traj.Points[traj.Points.Count - 1];
-                    positioner.PositionAtPoint(i, traj, state, lastPoint);
-                }
+                // Position ghost at the true recording endpoint.
+                PositionGhostAtRecordingEndpoint(i, traj, state);
 
                 // Trigger explosion if destroyed
                 TriggerExplosionIfDestroyed(state, traj, i, ctx.warpRate);
@@ -733,8 +729,8 @@ namespace Parsek
             if (cycleChanged && state != null)
             {
                 // Position at final point so explosion appears at crash site
-                if (traj.Points.Count > 0 && state != null && state.ghost != null)
-                    positioner.PositionAtPoint(index, traj, state, traj.Points[traj.Points.Count - 1]);
+                if (state.ghost != null)
+                    PositionGhostAtRecordingEndpoint(index, traj, state);
 
                 bool needsExplosion = state != null
                     && traj.TerminalStateValue == TerminalState.Destroyed
@@ -994,8 +990,8 @@ namespace Parsek
                 // Expired cycle
                 if (phase > duration)
                 {
-                    if (traj.Points.Count > 0 && ovState.ghost != null)
-                        positioner.PositionAtPoint(index, traj, ovState, traj.Points[traj.Points.Count - 1]);
+                    if (ovState.ghost != null)
+                        PositionGhostAtRecordingEndpoint(index, traj, ovState);
                     TriggerExplosionIfDestroyed(ovState, traj, index, ctx.warpRate);
 
                     // Fire camera event for overlap expiry
@@ -1063,16 +1059,17 @@ namespace Parsek
         private void HandleLoopPauseWindow(int index, IPlaybackTrajectory traj,
             GhostPlaybackState state, float warpRate)
         {
-            var lastPt = traj.Points[traj.Points.Count - 1];
-            positioner.PositionAtPoint(index, traj, state, lastPt);
+            PositionGhostAtRecordingEndpoint(index, traj, state);
             // PositionAtPoint now sets state.lastInterpolatedAltitude to the
             // clamped altitude (#282). Don't overwrite it here with the raw
-            // lastPt.altitude on the first pause-window frame, or the watch
-            // overlay reports the buried recorded value for that one frame.
+            // recording-end altitude on the first pause-window frame, or the
+            // watch overlay reports the buried recorded value for that one frame.
             // Still seed the body name (PositionAtPoint doesn't touch it).
             if (string.IsNullOrEmpty(state.lastInterpolatedBodyName))
             {
-                state.lastInterpolatedBodyName = lastPt.bodyName;
+                state.lastInterpolatedBodyName = traj?.Points != null && traj.Points.Count > 0
+                    ? traj.Points[traj.Points.Count - 1].bodyName
+                    : null;
             }
             TriggerExplosionIfDestroyed(state, traj, index, warpRate);
             if (!state.pauseHidden)
@@ -1086,7 +1083,52 @@ namespace Parsek
                 UpdateReentryFx(index, state, traj.VesselName, warpRate);
             }
             ActivateGhostVisualsIfNeeded(state);
-            TrackGhostAppearance(index, traj, state, lastPt.ut, "loop-pause");
+            double appearanceUT = RecordingEndpointResolver.TryGetOrbitEndpointUT(traj, out double orbitEndpointUT)
+                ? orbitEndpointUT
+                : (traj?.Points != null && traj.Points.Count > 0
+                    ? traj.Points[traj.Points.Count - 1].ut
+                    : (traj != null && traj.OrbitSegments != null && traj.OrbitSegments.Count > 0
+                        ? traj.OrbitSegments[traj.OrbitSegments.Count - 1].endUT
+                        : 0.0));
+            TrackGhostAppearance(index, traj, state, appearanceUT, "loop-pause");
+        }
+
+        private void PositionGhostAtRecordingEndpoint(
+            int index, IPlaybackTrajectory traj, GhostPlaybackState state)
+        {
+            if (state?.ghost == null || traj == null || positioner == null)
+                return;
+
+            if (RecordingEndpointResolver.TryGetOrbitEndpointUT(traj, out double orbitEndpointUT))
+            {
+                positioner.PositionFromOrbit(index, traj, state, orbitEndpointUT);
+                if (RecordingEndpointResolver.TryGetOrbitEndpointCoordinates(
+                    traj, out string bodyName, out _, out _, out double altitude))
+                {
+                    state.lastInterpolatedBodyName = bodyName;
+                    state.lastInterpolatedAltitude = altitude;
+                    state.lastInterpolatedVelocity = Vector3.zero;
+                }
+                return;
+            }
+
+            if (traj.Points != null && traj.Points.Count > 0)
+            {
+                positioner.PositionAtPoint(index, traj, state, traj.Points[traj.Points.Count - 1]);
+                return;
+            }
+
+            if (traj.SurfacePos.HasValue)
+            {
+                positioner.PositionAtSurface(index, traj, state);
+                state.lastInterpolatedBodyName = traj.SurfacePos.Value.body;
+                state.lastInterpolatedAltitude = traj.SurfacePos.Value.altitude;
+                state.lastInterpolatedVelocity = Vector3.zero;
+                return;
+            }
+
+            if (traj.HasOrbitSegments)
+                positioner.PositionFromOrbit(index, traj, state, traj.OrbitSegments[traj.OrbitSegments.Count - 1].endUT);
         }
 
         #endregion
