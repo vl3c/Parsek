@@ -586,6 +586,33 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void ShouldPersistNoPayloadOnRailsBoundaryTrackSection_AtmoToSurfaceWithoutPayload_ReturnsTrue()
+        {
+            Assert.True(BackgroundRecorder.ShouldPersistNoPayloadOnRailsBoundaryTrackSection(
+                SegmentEnvironment.Atmospheric,
+                SegmentEnvironment.SurfaceStationary,
+                willHavePlayableOnRailsPayload: false));
+        }
+
+        [Fact]
+        public void ShouldPersistNoPayloadOnRailsBoundaryTrackSection_SameCoarseClass_ReturnsFalse()
+        {
+            Assert.False(BackgroundRecorder.ShouldPersistNoPayloadOnRailsBoundaryTrackSection(
+                SegmentEnvironment.SurfaceMobile,
+                SegmentEnvironment.SurfaceStationary,
+                willHavePlayableOnRailsPayload: false));
+        }
+
+        [Fact]
+        public void ShouldPersistNoPayloadOnRailsBoundaryTrackSection_WithPlayablePayload_ReturnsFalse()
+        {
+            Assert.False(BackgroundRecorder.ShouldPersistNoPayloadOnRailsBoundaryTrackSection(
+                SegmentEnvironment.Atmospheric,
+                SegmentEnvironment.SurfaceStationary,
+                willHavePlayableOnRailsPayload: true));
+        }
+
+        [Fact]
         public void CheckpointAllVessels_NoOpenSegments_SkipsAll()
         {
             // Arrange: tree with two background vessels, neither has open orbit segments

@@ -1055,10 +1055,7 @@ namespace Parsek
             state.lastRecordedVelocity = point.velocity;
 
             // Dual-write: also add to current TrackSection's frames list
-            if (state.trackSectionActive && state.currentTrackSection.frames != null)
-            {
-                state.currentTrackSection.frames.Add(point);
-            }
+            AddFrameToActiveTrackSection(state, point);
 
             // Update ExplicitEndUT
             treeRec.ExplicitEndUT = ut;
@@ -1192,20 +1189,42 @@ namespace Parsek
             BackgroundVesselState loadedState;
             if (loadedStates.TryGetValue(pid, out loadedState))
             {
+                SegmentEnvironment previousEnv = loadedState.trackSectionActive
+                    ? loadedState.currentTrackSection.environment
+                    : loadedState.environmentHysteresis != null
+                        ? loadedState.environmentHysteresis.CurrentEnvironment
+                        : SegmentEnvironment.Atmospheric;
+                SegmentEnvironment nextEnv = ClassifyCurrentBackgroundEnvironment(v, loadedState.cachedEngines);
+                bool willHavePlayableOnRailsPayload = WillInitializeOnRailsWithPlayablePayload(v);
+                bool persistNoPayloadBoundarySection = ShouldPersistNoPayloadOnRailsBoundaryTrackSection(
+                    previousEnv, nextEnv, willHavePlayableOnRailsPayload);
+
                 // Close the active ABSOLUTE/Background TrackSection
                 CloseBackgroundTrackSection(loadedState, ut);
 
-                // Open an ORBITAL_CHECKPOINT/Checkpoint section for the on-rails phase
-                StartCheckpointTrackSection(loadedState, ut);
+                if (persistNoPayloadBoundarySection)
+                {
+                    StartBackgroundTrackSection(loadedState, nextEnv, ReferenceFrame.Absolute, ut);
+                    AddFrameToActiveTrackSection(loadedState, CreateTrajectoryPointFromVessel(v, ut));
+                    CloseBackgroundTrackSection(loadedState, ut);
+                    ParsekLog.Info("BgRecorder",
+                        $"Persisted no-payload on-rails boundary section: pid={pid} " +
+                        $"{previousEnv}->{nextEnv} at UT={ut.ToString("F2", CultureInfo.InvariantCulture)}");
+                }
 
                 // Flush accumulated TrackSections to the recording
                 Recording flushRec;
                 if (tree.Recordings.TryGetValue(loadedState.recordingId, out flushRec))
                 {
                     FlushTrackSectionsToRecording(loadedState, flushRec);
+                    flushRec.ExplicitEndUT = ut;
 
-                    // Sample a final boundary point
-                    SampleBoundaryPoint(v, flushRec, ut);
+                    if (!persistNoPayloadBoundarySection)
+                    {
+                        // Sample a final boundary point when the transition itself did not
+                        // create a playable boundary section.
+                        SampleBoundaryPoint(v, flushRec, ut);
+                    }
                 }
 
                 loadedStates.Remove(pid);
@@ -1554,9 +1573,54 @@ namespace Parsek
                 || situation == Vessel.Situations.ESCAPING;
         }
 
+        internal static bool ShouldPersistNoPayloadOnRailsBoundaryTrackSection(
+            SegmentEnvironment previousEnv,
+            SegmentEnvironment nextEnv,
+            bool willHavePlayableOnRailsPayload)
+        {
+            if (willHavePlayableOnRailsPayload)
+                return false;
+
+            return RecordingOptimizer.SplitEnvironmentClass(previousEnv)
+                != RecordingOptimizer.SplitEnvironmentClass(nextEnv);
+        }
+
         #endregion
 
         #region Internal State Management
+
+        private static SegmentEnvironment ClassifyCurrentBackgroundEnvironment(
+            Vessel v,
+            List<(Part part, ModuleEngines engine, int moduleIndex)> cachedEngines)
+        {
+            bool hasAtmo = v.mainBody != null && v.mainBody.atmosphere;
+            double atmoDepth = hasAtmo ? v.mainBody.atmosphereDepth : 0;
+            double approachAlt = (!hasAtmo && v.mainBody != null)
+                ? FlightRecorder.ComputeApproachAltitude(v.mainBody) : 0;
+            return ClassifyBackgroundEnvironment(
+                hasAtmo, v.altitude, atmoDepth,
+                (int)v.situation, v.srfSpeed, cachedEngines, approachAlt,
+                v.isEVA, v.heightFromTerrain,
+                EnvironmentDetector.IsHeightFromTerrainValid(v.heightFromTerrain),
+                v.mainBody != null && v.mainBody.ocean);
+        }
+
+        private static bool WillInitializeOnRailsWithPlayablePayload(Vessel v)
+        {
+            bool isLanded = v.situation == Vessel.Situations.LANDED ||
+                            v.situation == Vessel.Situations.SPLASHED;
+            if (isLanded || v.situation == Vessel.Situations.PRELAUNCH)
+                return false;
+
+            if (v.mainBody != null &&
+                FlightRecorder.ShouldSkipOrbitSegmentForAtmosphere(
+                    v.mainBody.atmosphere, v.altitude, v.mainBody.atmosphereDepth))
+            {
+                return false;
+            }
+
+            return v.orbit != null;
+        }
 
         private void InitializeOnRailsState(Vessel v, uint vesselPid, string recordingId)
         {
@@ -1993,6 +2057,27 @@ namespace Parsek
             };
         }
 
+        private static TrajectoryPoint CreateTrajectoryPointFromVessel(Vessel v, double ut)
+        {
+            Vector3 velocity = v.packed
+                ? (Vector3)v.obt_velocity
+                : (Vector3)(v.rb_velocityD + Krakensbane.GetFrameVelocity());
+
+            return new TrajectoryPoint
+            {
+                ut = ut,
+                latitude = v.latitude,
+                longitude = v.longitude,
+                altitude = v.altitude,
+                rotation = v.srfRelRotation,
+                velocity = velocity,
+                bodyName = v.mainBody?.name ?? "Unknown",
+                funds = Funding.Instance != null ? Funding.Instance.Funds : 0,
+                science = ResearchAndDevelopment.Instance != null ? ResearchAndDevelopment.Instance.Science : 0,
+                reputation = Reputation.Instance != null ? Reputation.CurrentRep : 0
+            };
+        }
+
         private void CloseOrbitSegment(BackgroundOnRailsState state, double ut)
         {
             if (!state.hasOpenOrbitSegment) return;
@@ -2017,24 +2102,7 @@ namespace Parsek
         {
             if (v == null) return;
 
-            Vector3 velocity = v.packed
-                ? (Vector3)v.obt_velocity
-                : (Vector3)(v.rb_velocityD + Krakensbane.GetFrameVelocity());
-
-            TrajectoryPoint point = new TrajectoryPoint
-            {
-                ut = ut,
-                latitude = v.latitude,
-                longitude = v.longitude,
-                altitude = v.altitude,
-                rotation = v.srfRelRotation,
-                velocity = velocity,
-                bodyName = v.mainBody?.name ?? "Unknown",
-                funds = Funding.Instance != null ? Funding.Instance.Funds : 0,
-                science = ResearchAndDevelopment.Instance != null ? ResearchAndDevelopment.Instance.Science : 0,
-                reputation = Reputation.Instance != null ? Reputation.CurrentRep : 0
-            };
-
+            TrajectoryPoint point = CreateTrajectoryPointFromVessel(v, ut);
             treeRec.Points.Add(point);
             treeRec.MarkFilesDirty();
             treeRec.ExplicitEndUT = ut;
@@ -2135,7 +2203,9 @@ namespace Parsek
                 startUT = ut,
                 source = TrackSectionSource.Background,
                 frames = new List<TrajectoryPoint>(),
-                checkpoints = new List<OrbitSegment>()
+                checkpoints = new List<OrbitSegment>(),
+                minAltitude = float.NaN,
+                maxAltitude = float.NaN
             };
             state.trackSectionActive = true;
             ParsekLog.Info("BgRecorder",
@@ -2156,7 +2226,9 @@ namespace Parsek
                 startUT = ut,
                 source = TrackSectionSource.Checkpoint,
                 frames = new List<TrajectoryPoint>(),
-                checkpoints = new List<OrbitSegment>()
+                checkpoints = new List<OrbitSegment>(),
+                minAltitude = float.NaN,
+                maxAltitude = float.NaN
             };
             state.trackSectionActive = true;
             ParsekLog.Info("BgRecorder",
@@ -2183,10 +2255,28 @@ namespace Parsek
         private static void SeedBackgroundBoundaryPoint(BackgroundVesselState state, TrajectoryPoint? point)
         {
             if (!point.HasValue) return;
-            if (!state.trackSectionActive || state.currentTrackSection.frames == null) return;
-            state.currentTrackSection.frames.Add(point.Value);
+            AddFrameToActiveTrackSection(state, point.Value);
             ParsekLog.Verbose("BgRecorder",
                 $"Boundary point seeded: pid={state.vesselPid} ut={point.Value.ut.ToString("F2", CultureInfo.InvariantCulture)}");
+        }
+
+        private static void AddFrameToActiveTrackSection(BackgroundVesselState state, TrajectoryPoint point)
+        {
+            if (!state.trackSectionActive || state.currentTrackSection.frames == null)
+                return;
+
+            state.currentTrackSection.frames.Add(point);
+            if (float.IsNaN(state.currentTrackSection.minAltitude)
+                || point.altitude < state.currentTrackSection.minAltitude)
+            {
+                state.currentTrackSection.minAltitude = (float)point.altitude;
+            }
+
+            if (float.IsNaN(state.currentTrackSection.maxAltitude)
+                || point.altitude > state.currentTrackSection.maxAltitude)
+            {
+                state.currentTrackSection.maxAltitude = (float)point.altitude;
+            }
         }
 
         /// <summary>
@@ -3305,20 +3395,7 @@ namespace Parsek
             if (!loadedStates.TryGetValue(vesselPid, out state))
                 return;
 
-            if (!state.trackSectionActive || state.currentTrackSection.frames == null)
-                return;
-
-            state.currentTrackSection.frames.Add(point);
-            if (float.IsNaN(state.currentTrackSection.minAltitude)
-                || point.altitude < state.currentTrackSection.minAltitude)
-            {
-                state.currentTrackSection.minAltitude = (float)point.altitude;
-            }
-            if (float.IsNaN(state.currentTrackSection.maxAltitude)
-                || point.altitude > state.currentTrackSection.maxAltitude)
-            {
-                state.currentTrackSection.maxAltitude = (float)point.altitude;
-            }
+            AddFrameToActiveTrackSection(state, point);
             loadedStates[vesselPid] = state;
         }
 
