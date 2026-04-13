@@ -446,7 +446,108 @@ So the problem was not "bad auto-grouping on commit"; it was "stale hierarchy lo
 
 ---
 
-## ~~337. Manual W watch switches reset the camera to the default ghost-entry angle~~
+## 337. Same-tree EVA branches and parachute-bearing secondaries can still be distance-LOD culled while watching a related ghost
+
+**Observed in:** `logs/2026-04-13_2136/` during the late `Kerbal X` watch session. User report: while watch mode was focused on a `Kerbal X` ghost, the same mission's EVA kerbals and their parachute-bearing secondary visuals were still being reduced/culled as if they were far away, even though the actual watch camera was already sitting near the ghost scene.
+
+**Collected evidence:**
+
+- `Player.log:87208` entered watch on ghost `#19 "Kerbal X"` with `camDist=50.0`.
+- `Player.log:87217` immediately afterward still evaluated that watched ghost at `dist=18.6km ... activeVessel="#autoLOC_501232"`, which shows the runtime distance number was still coming from the active vessel context rather than the actual flight camera now parked near the ghost.
+- `Player.log:87223` then logged `ReduceFidelity: disabled 36/49 renderers` during that watch session.
+- The same save proves the EVA recordings are part of the same tree, not unrelated standalone recordings:
+  - `persistent.sfs:1073-1097` recording `a1b840609b1c4c3da4db77fa427b6639` / `Bob Kerman` has `treeId = 62395ab8dcd5426ea2ada17811bacd2c`, `evaCrewName = Bob Kerman`, and `parentRecordingId = 9b3cc91fe9a6407baa49e9036eb0ac44`.
+  - `persistent.sfs:1196-1220` recording `58303cf3f681418a8e1854e1659acd25` / `Bill Kerman` has the same tree and EVA metadata.
+  - `persistent.sfs:1495-1524` shows both EVA children hanging off the same `Kerbal X` branch lineage.
+- The current watch-protection code only protects same-tree debris. `GhostPlaybackLogic.IsWatchProtectedRecording(...)` returns early unless `current.IsDebris`.
+- The current distance resolver still measures against `FlightGlobals.ActiveVessel.transform.position` (`ParsekFlight.ResolvePlaybackDistanceForEngine(...)`), not against the actual flight camera position.
+
+**Impact:** During watch mode, same-tree EVA branches and other non-debris secondaries can still enter reduced-fidelity or hidden tiers based on pad/active-vessel distance rather than the camera the player is actually using. That means renderer disabling and part-event suppression can hit exactly the tiny visuals the player is looking at most closely: EVA kerbals, EVA packs/parachutes, and related child-branch scene elements.
+
+**Root cause:** The decisive runtime bug was the distance reference, not the branch ancestry. Flight ghost LOD was still keyed off `FlightGlobals.ActiveVessel.transform.position`, so a watched scene that was only ~50 m from the real camera could still be treated like an 18 km-away visual-tier ghost if the active vessel stayed on the pad. Once that happens, unwatched same-tree EVA ghosts naturally fall into reduced-fidelity tiers even though they are physically near the watched scene.
+
+The debris-only watch-protection lineage introduced for `#316` remains separate. It is still needed for far, late debris visibility retention, but it was not the primary cause of this EVA/parachute repro.
+
+**Desired policy:** Distance LOD for flight ghosts should use the real active flight camera position in flight view. If the camera is sitting next to the watched ghost scene, nearby EVA/debris secondaries should naturally stay in the full-fidelity tier; only content that is actually far from the real camera should be reduced or culled.
+
+**Fix:** `ParsekFlight.ResolvePlaybackDistanceForEngine(...)` now resolves playback LOD distance from the live flight camera position in flight view, falls back to the active vessel when no usable scene camera exists or when map view is active, and has focused regression coverage in `PlaybackDistancePolicyTests`.
+
+**Status:** Fixed in branch `investigate/watch-eva-lod` — pending fresh runtime validation
+
+---
+
+## ~~338. Atmospheric-body EVA touchdown follow-ups can still misreport phase and split after packed landing~~
+
+**Observed in:** `logs/2026-04-13_2136` while validating the latest EVA optimizer follow-up. The user reported two symptoms in the Recordings list:
+
+- Bill and Bob showed purple `Kerbin` phase cells even though their EVA recordings had real landed/surface endings.
+- Jeb still committed as two separate recordings at the end (`Kerbin atmo` and `Kerbin surface`) even though this was expected to be one continuous touchdown sequence.
+
+**Collected evidence:**
+
+- Bill and Bob were already a single mixed EVA recording each. Their `.prec` payloads contained continuous atmospheric -> surface sections on Kerbin, but the table was suppressing the mixed phase text down to body-only `Kerbin` while still styling the cell from raw `SegmentPhase`.
+- Jeb's committed payload was genuinely discontinuous at touchdown:
+  - the atmospheric payload ended at `UT 213.72`
+  - the later surface payload did not begin until `UT 274.98`
+- The logs showed the missing bridge at the loaded -> on-rails handoff:
+  - parachute cut / atmospheric section close at touchdown
+  - vessel packed into landed on-rails state
+  - no playable surface boundary section persisted at the handoff UT
+  - later promotion reopened as a new surface section
+- Review follow-up found a second storage-side risk in the same area: ordinary loaded-flight -> packed-orbit fallback shapes still depended on top-level flat `Points` / `OrbitSegments`, but section-authoritative write eligibility was only checking for non-empty `TrackSections`, not whether those sections could exactly rebuild the flat payload.
+
+**Impact:**
+
+- Mixed atmospheric-body EVA rows could still look like exo/orbit recordings in the UI even when they were already a single repaired touchdown recording.
+- Atmospheric-body EVA touchdowns could still split into separate `atmo` and `surface` recordings when the kerbal packed into a landed no-payload on-rails state before the surface boundary was persisted.
+- The same loaded->on-rails area also risked silently truncating ordinary packed-orbit continuation on save/load if section-authoritative serialization dropped flat fallback orbit segments too aggressively.
+
+**Root cause:** This turned out to be three related follow-up defects around the same boundary:
+
+- `RecordingsTableUI` styled the phase cell from raw `rec.SegmentPhase` even when `RecordingStore.ShouldSuppressEvaBoundaryPhaseLabel(rec)` intentionally hid the mixed EVA `atmo`/`surface` wording and displayed only the body name.
+- `BackgroundRecorder.OnBackgroundVesselGoOnRails` preserved only a flat boundary point when a loaded EVA packed into a landed no-payload on-rails state after an environment-class change. That left no playable surface bridge section at the landing UT, so the optimizer still saw a real gap and split the recording.
+- `RecordingStore.ShouldWriteSectionAuthoritativeTrajectory` only checked whether `TrackSections` had payload, not whether they could losslessly reproduce the flat `Points` / `OrbitSegments` trajectory actually stored on the recording.
+
+**Fix:** PR `#266` now:
+
+- derives mixed-EVA phase styling from the displayed label semantics instead of the stale raw phase tag, so body-only mixed rows color as surface when their last playable section is surface
+- persists a one-point absolute boundary `TrackSection` when a loaded vessel crosses an environment-class boundary and then packs into a no-payload on-rails state, so atmospheric-body EVA touchdown keeps a playable surface bridge at the handoff UT
+- hardens section-authoritative sidecar writes so they only activate when `TrackSections` can exactly rebuild the recording's flat `Points` and `OrbitSegments`; otherwise text/binary `.prec` output stays on the conservative flat fallback path
+- adds regression coverage for mixed-EVA phase styling, the no-payload touchdown boundary path, and text/binary sidecar round-trips for the recorder loaded->on-rails fallback shape
+
+**Status:** Fixed in PR `#266`
+
+---
+
+## ~~339. Same-mission tree recordings can split between the mission root and partial vessel subgroups~~
+
+**Observed in:** `logs/2026-04-13_2136/` during the late `Kerbal X` validation pass. User report: inside the `Kerbal X` main group, one visible `Kerbal X` subgroup correctly held two recordings, but four other `Kerbal X` recordings from the same mission still sat directly under the main group instead of joining that subgroup. The same pass also called out a missing feature: EVA crew recordings should be grouped under per-mission `Crew` subgroups instead of staying at the mission root.
+
+**Collected evidence:**
+
+- The tree/branch commit itself already knew about the EVA children. `KSP.log` logged the EVA branch creation for the same mission tree, and the saved recordings kept both `parentRecordingId` and `evaCrewName`.
+- The persisted committed recordings in `persistent.sfs` still assigned those EVA rows directly to `recordingGroup = Kerbal X`; the only auto-created subgroup under that mission was `Kerbal X / Debris`.
+- The visible split inside the Recordings table was not purely a save/grouping bug. In the affected mission, only the later two `Kerbal X` rows carried a `ChainId`, so the UI nested those two together while leaving the earlier same-vessel tree siblings flat at the mission root even though they belonged to the same vessel lineage.
+
+**Impact:** The mission tree looked internally inconsistent in the UI. Same-vessel segments from one `Kerbal X` mission could be split between a partially nested subgroup and flat root-level rows, and EVA branches were harder to scan because crew recordings were mixed into the mission root instead of being collected under a dedicated per-mission crew branch.
+
+**Root cause:** This turned out to be two separate defects:
+
+- commit-time tree grouping only knew how to synthesize the debris subgroup; it never created `Mission / Crew` subgroups for EVA recordings, so committed EVA rows stayed assigned to the mission root group even though their tree metadata clearly identified them as EVA children
+- the Recordings table only built nested vessel blocks from `ChainId`, so same-vessel tree recordings without a chain marker stayed flat while later chain-linked siblings nested, producing the partial `Kerbal X` subgroup seen in the repro
+
+**Fix:** PR `#265` now:
+
+- creates `Mission / Crew` subgroups for EVA tree recordings during commit
+- re-homes orphaned same-tree EVA recordings into the correct crew subgroup only when their prior standalone group was auto-assigned by Parsek, avoiding accidental adoption of same-named manual groups
+- persists and clears that auto-assigned standalone-group marker through save/load and manual group edits so the adoption rule stays explicit
+- nests grouped mission rows in the Recordings table by `TreeId + VesselPersistentId` lineage instead of only `ChainId`, while preserving correct chain-member ordering inside the grouped block
+
+**Status:** Fixed in PR `#265`
+
+---
+
+## ~~340. Manual W watch switches reset the camera to the default ghost-entry angle~~
 
 **Observed in:** `logs/2026-04-13_2136/` during the Kerbal X / EVA watch-switch repro in flight mode. User report: switching between active `W` watch targets (vessel, EVA kerbal, later continuation) reset the ghost camera to a default under/overhead angle instead of keeping the previous relative watch angle around the new ghost.
 

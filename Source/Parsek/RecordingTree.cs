@@ -493,6 +493,8 @@ namespace Parsek
             if (rec.RecordingGroups != null)
                 for (int g = 0; g < rec.RecordingGroups.Count; g++)
                     recNode.AddValue("recordingGroup", rec.RecordingGroups[g]);
+            if (!string.IsNullOrEmpty(rec.AutoAssignedStandaloneGroupName))
+                recNode.AddValue("autoAssignedStandaloneGroup", rec.AutoAssignedStandaloneGroupName);
 
             // Controller info
             if (rec.Controllers != null)
@@ -847,6 +849,7 @@ namespace Parsek
                     recGroups[g] = Recording.ResolveLocalizedName(recGroups[g]);
                 rec.RecordingGroups = new List<string>(recGroups);
             }
+            rec.AutoAssignedStandaloneGroupName = recNode.GetValue("autoAssignedStandaloneGroup");
 
             // Controller info
             ConfigNode[] ctrlNodes = recNode.GetNodes("CONTROLLER");

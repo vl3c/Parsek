@@ -898,6 +898,84 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void RunOptimizationPass_EvaBoundarySurfaceBridgeWithLaterSurfaceGapRemainsSingleRecording()
+        {
+            RecordingStore.SuppressLogging = true;
+            RecordingStore.ResetForTesting();
+
+            var rec = new Recording
+            {
+                RecordingId = "eva_surface_bridge",
+                VesselName = "Jeb Kerman",
+                VesselPersistentId = 1002,
+                EvaCrewName = "Jeb Kerman",
+                ParentRecordingId = "parent-1",
+                StartBodyName = "Kerbin"
+            };
+
+            var atmoFrames = new List<TrajectoryPoint>
+            {
+                new TrajectoryPoint { ut = 17000, bodyName = "Kerbin" },
+                new TrajectoryPoint { ut = 17010, bodyName = "Kerbin" },
+                new TrajectoryPoint { ut = 17019.5, bodyName = "Kerbin" },
+            };
+            var bridgeFrames = new List<TrajectoryPoint>
+            {
+                new TrajectoryPoint { ut = 17020, bodyName = "Kerbin" },
+            };
+            var laterSurfaceFrames = new List<TrajectoryPoint>
+            {
+                new TrajectoryPoint { ut = 17080, bodyName = "Kerbin" },
+                new TrajectoryPoint { ut = 17100, bodyName = "Kerbin" },
+                new TrajectoryPoint { ut = 17120, bodyName = "Kerbin" },
+            };
+
+            rec.Points.AddRange(atmoFrames);
+            rec.Points.AddRange(bridgeFrames);
+            rec.Points.AddRange(laterSurfaceFrames);
+            rec.TrackSections.Add(new TrackSection
+            {
+                environment = SegmentEnvironment.Atmospheric,
+                referenceFrame = ReferenceFrame.Absolute,
+                startUT = 17000,
+                endUT = 17020,
+                frames = new List<TrajectoryPoint>(atmoFrames)
+            });
+            rec.TrackSections.Add(new TrackSection
+            {
+                environment = SegmentEnvironment.SurfaceStationary,
+                referenceFrame = ReferenceFrame.Absolute,
+                startUT = 17020,
+                endUT = 17020,
+                frames = new List<TrajectoryPoint>(bridgeFrames)
+            });
+            rec.TrackSections.Add(new TrackSection
+            {
+                environment = SegmentEnvironment.SurfaceStationary,
+                referenceFrame = ReferenceFrame.Absolute,
+                startUT = 17080,
+                endUT = 17120,
+                frames = new List<TrajectoryPoint>(laterSurfaceFrames)
+            });
+
+            Assert.Empty(RecordingOptimizer.FindSplitCandidatesForOptimizer(new List<Recording> { rec }));
+
+            var recordings = RecordingStore.CommittedRecordings;
+            RecordingStore.AddRecordingWithTreeForTesting(rec);
+
+            RecordingStore.RunOptimizationPass();
+
+            Assert.Single(recordings);
+            Assert.Equal("eva_surface_bridge", recordings[0].RecordingId);
+            Assert.True(recordings[0].TrackSections.Count >= 2);
+            Assert.Equal(SegmentEnvironment.Atmospheric, recordings[0].TrackSections[0].environment);
+            Assert.Equal(SegmentEnvironment.SurfaceStationary, recordings[0].TrackSections[1].environment);
+            Assert.Equal(17020, recordings[0].TrackSections[1].startUT);
+
+            RecordingStore.ResetForTesting();
+        }
+
+        [Fact]
         public void RunOptimizationPass_HealsSplitEvaAtmosphereSurfacePairWithoutNonMonotonicPoints()
         {
             RecordingStore.SuppressLogging = true;

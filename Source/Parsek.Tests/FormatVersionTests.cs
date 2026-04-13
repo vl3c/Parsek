@@ -239,6 +239,24 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void SerializeTrajectoryInto_V1RecorderLoadedToOnRailsFallback_FallsBackToFlatTrajectory()
+        {
+            var rec = BuildRecorderLoadedToOnRailsFallbackRecording(formatVersion: 1);
+
+            var node = new ConfigNode("PARSEK_RECORDING");
+            RecordingStore.SerializeTrajectoryInto(node, rec);
+
+            Assert.Equal(3, node.GetNodes("POINT").Length);
+            Assert.Single(node.GetNodes("ORBIT_SEGMENT"));
+            Assert.Single(node.GetNodes("TRACK_SECTION"));
+            Assert.Equal("False", node.GetValue("sectionAuthoritative"));
+            Assert.Contains(logLines, l =>
+                l.Contains("[RecordingStore]") &&
+                l.Contains("SerializeTrajectoryInto") &&
+                l.Contains("used flat fallback path"));
+        }
+
+        [Fact]
         public void SerializeTrajectoryInto_MissingHeader_BackfillsVersionAndRecordingId()
         {
             var rec = new Recording
@@ -420,6 +438,77 @@ namespace Parsek.Tests
             pt.AddValue("funds", "0");
             pt.AddValue("science", "0");
             pt.AddValue("rep", "0");
+        }
+
+        private static Recording BuildRecorderLoadedToOnRailsFallbackRecording(int formatVersion)
+        {
+            const uint pid = 9101;
+            const string recId = "recorder-loaded-to-onrails";
+
+            var tree = new RecordingTree { Id = "tree_fmt_bg" };
+            var rec = new Recording
+            {
+                RecordingId = recId,
+                RecordingFormatVersion = formatVersion,
+                VesselName = "Background Booster",
+                VesselPersistentId = pid
+            };
+            tree.Recordings[recId] = rec;
+            tree.BackgroundMap[pid] = recId;
+
+            var bgRecorder = new BackgroundRecorder(tree);
+            bgRecorder.InjectLoadedStateWithEnvironmentForTesting(
+                pid, recId, SegmentEnvironment.Atmospheric, 100.0);
+            bgRecorder.InjectCurrentTrackSectionFrameForTesting(pid, new TrajectoryPoint
+            {
+                ut = 100.0,
+                latitude = 0.0,
+                longitude = 0.0,
+                altitude = 1000.0,
+                rotation = new UnityEngine.Quaternion(0, 0, 0, 1),
+                bodyName = "Kerbin",
+                velocity = new UnityEngine.Vector3(0, 120, 0)
+            });
+            bgRecorder.InjectCurrentTrackSectionFrameForTesting(pid, new TrajectoryPoint
+            {
+                ut = 105.0,
+                latitude = 0.01,
+                longitude = 0.02,
+                altitude = 1500.0,
+                rotation = new UnityEngine.Quaternion(0, 0.1f, 0, 0.99f),
+                bodyName = "Kerbin",
+                velocity = new UnityEngine.Vector3(0, 200, 0)
+            });
+            bgRecorder.FlushLoadedStateForOnRailsTransitionForTesting(
+                pid,
+                SegmentEnvironment.ExoBallistic,
+                willHavePlayableOnRailsPayload: true,
+                boundaryPoint: new TrajectoryPoint
+                {
+                    ut = 110.0,
+                    latitude = 0.02,
+                    longitude = 0.04,
+                    altitude = 2000.0,
+                    rotation = new UnityEngine.Quaternion(0, 0.2f, 0, 0.98f),
+                    bodyName = "Kerbin",
+                    velocity = new UnityEngine.Vector3(0, 260, 0)
+                },
+                ut: 110.0);
+
+            rec.OrbitSegments.Add(new OrbitSegment
+            {
+                startUT = 110.0,
+                endUT = 500.0,
+                semiMajorAxis = 705000.0,
+                eccentricity = 0.01,
+                inclination = 28.5,
+                longitudeOfAscendingNode = 90.0,
+                argumentOfPeriapsis = 45.0,
+                meanAnomalyAtEpoch = 0.2,
+                epoch = 110.0,
+                bodyName = "Kerbin"
+            });
+            return rec;
         }
 
         #endregion
