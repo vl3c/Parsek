@@ -1167,6 +1167,7 @@ namespace Parsek
                 : WatchCameraMode.Free;
             lastLoggedHorizonVectorKey = null;
 
+            PrimeWatchTargetOrientation(state);
             ApplyCameraTarget(state);
 
             ParsekLog.Info("CameraFollow",
@@ -1188,6 +1189,11 @@ namespace Parsek
 
             CelestialBody body = ResolveBody(state);
 
+            // Keep the proxy rotation current before any mode switch so camera-target
+            // compensation sees the correct frame on the first HorizonLocked frame.
+            if (body != null)
+                UpdateHorizonProxyRotation(state, body);
+
             // Auto-detect mode (unless user overrode)
             if (!userModeOverride && body != null)
             {
@@ -1206,24 +1212,38 @@ namespace Parsek
                             state.lastInterpolatedBodyName));
                 }
             }
+        }
 
-            // Always update horizonProxy rotation (keeps it ready for smooth switch)
-            if (body != null && state.cameraPivot != null)
-            {
-                Vector3 ghostPos = state.cameraPivot.position;
-                Vector3 up = (ghostPos - body.position).normalized;
-                Vector3 bodyFrameVelocity = (Vector3)body.getRFrmVel(ghostPos);
-                var (forward, horizonVelocity, headingVelocity,
-                    appliedFrameVelocity, source) =
-                    ComputeWatchHorizonBasis(
-                        body.atmosphere, body.atmosphereDepth, state.lastInterpolatedAltitude,
-                        up, state.lastInterpolatedVelocity, bodyFrameVelocity,
-                        state.lastValidHorizonForward);
-                state.horizonProxy.rotation = Quaternion.LookRotation(forward, up);
-                state.lastValidHorizonForward = forward;
-                LogHorizonForwardState(state, up, forward, horizonVelocity,
-                    headingVelocity, bodyFrameVelocity, appliedFrameVelocity, source);
-            }
+        private void PrimeWatchTargetOrientation(GhostPlaybackState state)
+        {
+            if (state == null || currentCameraMode != WatchCameraMode.HorizonLocked)
+                return;
+
+            CelestialBody body = ResolveBody(state);
+            if (body == null)
+                return;
+
+            UpdateHorizonProxyRotation(state, body);
+        }
+
+        private void UpdateHorizonProxyRotation(GhostPlaybackState state, CelestialBody body)
+        {
+            if (state?.horizonProxy == null || state.cameraPivot == null || body == null)
+                return;
+
+            Vector3 ghostPos = state.cameraPivot.position;
+            Vector3 up = (ghostPos - body.position).normalized;
+            Vector3 bodyFrameVelocity = (Vector3)body.getRFrmVel(ghostPos);
+            var (forward, horizonVelocity, headingVelocity,
+                appliedFrameVelocity, source) =
+                ComputeWatchHorizonBasis(
+                    body.atmosphere, body.atmosphereDepth, state.lastInterpolatedAltitude,
+                    up, state.lastInterpolatedVelocity, bodyFrameVelocity,
+                    state.lastValidHorizonForward);
+            state.horizonProxy.rotation = Quaternion.LookRotation(forward, up);
+            state.lastValidHorizonForward = forward;
+            LogHorizonForwardState(state, up, forward, horizonVelocity,
+                headingVelocity, bodyFrameVelocity, appliedFrameVelocity, source);
         }
 
         /// <summary>
@@ -1338,6 +1358,7 @@ namespace Parsek
             watchNoTargetFrames = 0;
             if (FlightCamera.fetch != null)
                 FlightCamera.fetch.pivotTranslateSharpness = 0f;
+            PrimeWatchTargetOrientation(gs);
             ApplyCameraTarget(gs);
             if (FlightCamera.fetch?.transform?.parent != null && gs.cameraPivot != null)
                 FlightCamera.fetch.transform.parent.position = gs.cameraPivot.position;
