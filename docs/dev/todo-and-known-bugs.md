@@ -7,6 +7,18 @@ Entries 272–303 (78 bugs, 6 TODOs — mostly resolved) archived in `done/todo-
 
 # Known Bugs
 
+## ~~339. Chain reclaim can keep the deepest free stand-in active after an earlier occupant should have reclaimed~~
+
+**Observed in:** Kerbals/events-actions audit (2026-04-13). `KerbalsModule.GetActiveOccupant()` walked chains from deepest to shallowest, so if `Jeb -> [Hanley, Kirrim]` and only Jeb remained reserved, Parsek still preferred Kirrim instead of letting Hanley reclaim.
+
+**Root cause:** The active-occupant and retirement logic treated "deepest free stand-in" as the winner even after an earlier chain member became free again. That contradicted the design rule that reclaim stops at the first free occupant after the reserved prefix and all deeper entries become displaced.
+
+**Fix:** Kerbal-chain evaluation now follows the reserved prefix and picks the first free occupant as active. Deeper free stand-ins are treated as displaced for retirement/deletion, and `ApplyToRoster()` keeps the chain metadata instead of clearing it wholesale so the derived state stays consistent across later recalculations. Added regression coverage in `KerbalReservationTests` for reclaim ordering and displaced deeper stand-ins.
+
+**Status:** ~~Fixed~~
+
+---
+
 ## ~~338. Cold-start `OnLoad` can skip persisted `KERBAL_SLOTS` before the kerbals module exists~~
 
 **Observed in:** Kerbals/events-actions audit (2026-04-13). `ParsekScenario.OnLoad` called `LoadCrewAndGroupState()` before `LoadExternalFilesAndRestoreEpoch()`, so `LedgerOrchestrator.Kerbals?.LoadSlots(node)` ran while `LedgerOrchestrator.OnLoad()` had not yet initialized the kerbals module.

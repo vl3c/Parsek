@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using System.Linq;
+using System.Reflection;
 using Xunit;
 
 namespace Parsek.Tests
@@ -380,6 +381,30 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void GetActiveOccupant_FirstFreeStandInReclaimsFromDeeperFreeStandIn()
+        {
+            var module = new KerbalsModule();
+            var parent = new ConfigNode("TEST");
+            var slotsNode = parent.AddNode("KERBAL_SLOTS");
+            var slotNode = slotsNode.AddNode("SLOT");
+            slotNode.AddValue("owner", "Jeb");
+            slotNode.AddValue("trait", "Pilot");
+            var first = slotNode.AddNode("CHAIN_ENTRY");
+            first.AddValue("name", "Hanley");
+            var second = slotNode.AddNode("CHAIN_ENTRY");
+            second.AddValue("name", "Kirrim");
+            module.LoadSlots(parent);
+
+            var rec = MakeRecording("Ship", new[] { "Jeb" },
+                TerminalState.Recovered, 2000);
+            RecordingStore.AddRecordingWithTreeForTesting(rec);
+
+            var kerbals = KerbalsTestHelper.RecalculateModule(module);
+
+            Assert.Equal("Hanley", kerbals.GetActiveOccupant("Jeb"));
+        }
+
+        [Fact]
         public void GetActiveOccupant_AllReserved_ReturnsNull()
         {
             // Pre-populate slot with stand-in
@@ -531,6 +556,56 @@ namespace Parsek.Tests
             var kerbals = KerbalsTestHelper.RecalculateModule(module);
 
             Assert.DoesNotContain("Hanley", kerbals.RetiredKerbals);
+        }
+
+        [Fact]
+        public void ComputeRetiredSet_FreeIntermediateDisplacesUsedDeeperStandIn()
+        {
+            var module = new KerbalsModule();
+            var parent = new ConfigNode("TEST");
+            var slotsNode = parent.AddNode("KERBAL_SLOTS");
+            var slotNode = slotsNode.AddNode("SLOT");
+            slotNode.AddValue("owner", "Jeb");
+            slotNode.AddValue("trait", "Pilot");
+            var first = slotNode.AddNode("CHAIN_ENTRY");
+            first.AddValue("name", "Hanley");
+            var second = slotNode.AddNode("CHAIN_ENTRY");
+            second.AddValue("name", "Kirrim");
+            module.LoadSlots(parent);
+
+            var rec = MakeRecording("Ship", new[] { "Jeb" },
+                TerminalState.Recovered, 1000);
+            rec.RecordingId = "rec-jeb";
+            RecordingStore.AddRecordingWithTreeForTesting(rec);
+
+            var actions = new List<GameAction>
+            {
+                new GameAction
+                {
+                    UT = 0,
+                    Type = GameActionType.KerbalAssignment,
+                    RecordingId = "rec-jeb",
+                    KerbalName = "Jeb",
+                    KerbalEndStateField = KerbalEndState.Recovered,
+                    StartUT = 0,
+                    EndUT = 1000,
+                    Sequence = 1
+                }
+            };
+
+            module.PrePass(actions);
+            module.ProcessAction(actions[0]);
+
+            var allRecordingCrewField = typeof(KerbalsModule).GetField(
+                "allRecordingCrew", BindingFlags.Instance | BindingFlags.NonPublic);
+            Assert.NotNull(allRecordingCrewField);
+            allRecordingCrewField.SetValue(module, new HashSet<string> { "Kirrim" });
+
+            module.PostWalk();
+
+            Assert.Contains("Kirrim", module.RetiredKerbals);
+            Assert.DoesNotContain("Hanley", module.RetiredKerbals);
+            Assert.Equal("Hanley", module.GetActiveOccupant("Jeb"));
         }
 
         // ── Serialization ──
