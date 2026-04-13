@@ -3359,6 +3359,195 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Resolves the effective watch target for a source recording by walking the
+        /// preferred continuation lineage until an active ghost is found.
+        /// Returns the source index itself when its ghost is still active, otherwise
+        /// follows chain/tree continuation rules through inactive intermediates.
+        /// Used by aggregate UI affordances that should continue tracking the live
+        /// vessel after watch auto-follow hands off to a descendant segment.
+        /// </summary>
+        internal static int ResolveEffectiveWatchTargetIndex(
+            int sourceIndex,
+            IReadOnlyList<Recording> committed,
+            IReadOnlyList<RecordingTree> trees,
+            Func<int, bool> isGhostActive)
+        {
+            return ResolveEffectiveWatchTargetIndex(
+                sourceIndex,
+                committed,
+                trees,
+                isGhostActive,
+                new HashSet<int>(),
+                depth: 0);
+        }
+
+        private static int ResolveEffectiveWatchTargetIndex(
+            int sourceIndex,
+            IReadOnlyList<Recording> committed,
+            IReadOnlyList<RecordingTree> trees,
+            Func<int, bool> isGhostActive,
+            HashSet<int> visited,
+            int depth)
+        {
+            const int MaxRecursionDepth = 16;
+            if (committed == null
+                || visited == null
+                || sourceIndex < 0
+                || sourceIndex >= committed.Count
+                || depth > MaxRecursionDepth
+                || !visited.Add(sourceIndex))
+            {
+                return -1;
+            }
+
+            if (isGhostActive != null && isGhostActive(sourceIndex))
+                return sourceIndex;
+
+            Recording currentRec = committed[sourceIndex];
+            if (currentRec == null)
+                return -1;
+
+            int nextChainIndex = FindImmediateChainContinuationIndex(currentRec, committed);
+            if (nextChainIndex >= 0)
+            {
+                int resolvedChainIndex = ResolveEffectiveWatchTargetIndex(
+                    nextChainIndex,
+                    committed,
+                    trees,
+                    isGhostActive,
+                    visited,
+                    depth + 1);
+                if (resolvedChainIndex >= 0)
+                    return resolvedChainIndex;
+            }
+
+            return ResolveEffectiveTreeWatchTargetIndex(
+                currentRec,
+                committed,
+                trees,
+                isGhostActive,
+                visited,
+                depth);
+        }
+
+        private static int FindImmediateChainContinuationIndex(
+            Recording currentRec,
+            IReadOnlyList<Recording> committed)
+        {
+            if (currentRec == null
+                || committed == null
+                || string.IsNullOrEmpty(currentRec.ChainId)
+                || currentRec.ChainIndex < 0
+                || currentRec.ChainBranch != 0)
+            {
+                return -1;
+            }
+
+            int nextChainIndex = currentRec.ChainIndex + 1;
+            for (int i = 0; i < committed.Count; i++)
+            {
+                Recording candidate = committed[i];
+                if (candidate == null)
+                    continue;
+
+                if (candidate.ChainId == currentRec.ChainId
+                    && candidate.ChainBranch == 0
+                    && candidate.ChainIndex == nextChainIndex)
+                {
+                    return i;
+                }
+            }
+
+            return -1;
+        }
+
+        private static int ResolveEffectiveTreeWatchTargetIndex(
+            Recording currentRec,
+            IReadOnlyList<Recording> committed,
+            IReadOnlyList<RecordingTree> trees,
+            Func<int, bool> isGhostActive,
+            HashSet<int> visited,
+            int depth)
+        {
+            if (currentRec == null
+                || committed == null
+                || trees == null
+                || string.IsNullOrEmpty(currentRec.ChildBranchPointId)
+                || !currentRec.IsTreeRecording)
+            {
+                return -1;
+            }
+
+            RecordingTree tree = FindTreeById(trees, currentRec.TreeId);
+            BranchPoint branchPoint = FindBranchPointById(tree, currentRec.ChildBranchPointId);
+            if (branchPoint == null)
+                return -1;
+
+            bool pidMatchFound = false;
+            for (int i = 0; i < branchPoint.ChildRecordingIds.Count; i++)
+            {
+                int childIndex = FindRecordingIndexById(committed, branchPoint.ChildRecordingIds[i]);
+                if (childIndex < 0)
+                    continue;
+
+                Recording child = committed[childIndex];
+                if (child == null || child.VesselPersistentId != currentRec.VesselPersistentId)
+                    continue;
+
+                pidMatchFound = true;
+                int resolvedChildIndex = ResolveEffectiveWatchTargetIndex(
+                    childIndex,
+                    committed,
+                    trees,
+                    isGhostActive,
+                    visited,
+                    depth + 1);
+                if (resolvedChildIndex >= 0)
+                    return resolvedChildIndex;
+            }
+
+            // Mirror watch auto-follow: once a same-PID continuation exists, do not
+            // fall through to other branches if that lineage has no active target yet.
+            if (pidMatchFound || branchPoint.Type == BranchPointType.Breakup)
+                return -1;
+
+            for (int i = 0; i < branchPoint.ChildRecordingIds.Count; i++)
+            {
+                int childIndex = FindRecordingIndexById(committed, branchPoint.ChildRecordingIds[i]);
+                if (childIndex < 0)
+                    continue;
+
+                Recording child = committed[childIndex];
+                if (child == null || child.IsDebris)
+                    continue;
+
+                // Mirror FindNextWatchTarget exactly for non-PID fallback:
+                // only an immediate active non-debris child is a valid target.
+                if (isGhostActive != null && isGhostActive(childIndex))
+                    return childIndex;
+            }
+
+            return -1;
+        }
+
+        private static int FindRecordingIndexById(
+            IReadOnlyList<Recording> committed,
+            string recordingId)
+        {
+            if (committed == null || string.IsNullOrEmpty(recordingId))
+                return -1;
+
+            for (int i = 0; i < committed.Count; i++)
+            {
+                Recording candidate = committed[i];
+                if (candidate != null && candidate.RecordingId == recordingId)
+                    return i;
+            }
+
+            return -1;
+        }
+
+        /// <summary>
         /// Searches committed recordings for the next watch target after the current
         /// recording completes. Handles chain continuation (same chainId, next index)
         /// and tree branching (childBranchPointId → child with same vessel PID).
