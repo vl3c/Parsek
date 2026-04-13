@@ -717,6 +717,8 @@ namespace Parsek
             if (result.colorChangerInfos != null)
                 state.colorChangerInfos = GhostVisualBuilder.GroupColorChangersByPartId(result.colorChangerInfos);
 
+            state.compoundPartInfos = result.compoundPartInfos;
+
             if (result.audioInfos != null)
             {
                 // Cap audio sources per ghost to prevent channel exhaustion.
@@ -909,6 +911,59 @@ namespace Parsek
             }
         }
 
+        internal static bool RefreshCompoundPartVisibility(GhostPlaybackState state)
+        {
+            if (state == null || state.ghost == null || state.compoundPartInfos == null
+                || state.compoundPartInfos.Count == 0)
+                return false;
+
+            bool changed = false;
+            var snapshotPartIds = state.snapshotPartIds;
+            var ghostTransform = state.ghost.transform;
+            for (int i = 0; i < state.compoundPartInfos.Count; i++)
+            {
+                CompoundPartGhostInfo info = state.compoundPartInfos[i];
+                if (info == null || info.partTransform == null || info.targetPersistentId == 0)
+                    continue;
+
+                GameObject partObject = info.partTransform.gameObject;
+                if (partObject == null || !partObject.activeSelf)
+                    continue;
+
+                bool hidePart = false;
+                Transform targetTransform = ghostTransform.Find($"ghost_part_{info.targetPersistentId}");
+                hidePart = ShouldHideCompoundPart(
+                    info.targetPersistentId,
+                    snapshotPartIds,
+                    targetTransform != null,
+                    targetTransform != null && targetTransform.gameObject.activeSelf);
+
+                if (!hidePart)
+                    continue;
+
+                partObject.SetActive(false);
+                changed = true;
+            }
+
+            return changed;
+        }
+
+        internal static bool ShouldHideCompoundPart(
+            uint targetPersistentId,
+            HashSet<uint> snapshotPartIds,
+            bool targetVisualExists,
+            bool targetVisualActive)
+        {
+            if (targetPersistentId == 0)
+                return false;
+
+            if (snapshotPartIds != null && snapshotPartIds.Count > 0
+                && !snapshotPartIds.Contains(targetPersistentId))
+                return true;
+
+            return targetVisualExists && !targetVisualActive;
+        }
+
         #endregion
 
         #region Part Events
@@ -929,6 +984,7 @@ namespace Parsek
             var tree = state.partTree;
             var ghost = state.ghost;
             bool visibilityChanged = false;
+            bool needsReentryMeshRebuild = false;
 
             while (evtIdx < rec.PartEvents.Count && rec.PartEvents[evtIdx].ut <= currentUT)
             {
@@ -946,8 +1002,8 @@ namespace Parsek
                             HidePartSubtree(ghost, evt.partPersistentId, tree);
                         else
                             HideGhostPart(ghost, evt.partPersistentId);
-                        GhostVisualBuilder.RebuildReentryMeshes(ghost, state.reentryFxInfo);
                         visibilityChanged = true;
+                        needsReentryMeshRebuild = true;
                         break;
                     case PartEventType.Destroyed:
                         StopEngineFxForPart(state, evt.partPersistentId);
@@ -959,8 +1015,8 @@ namespace Parsek
                         if (allowTransientEffects)
                             SpawnPartPuffAtPart(ghost, evt.partPersistentId);
                         HideGhostPart(ghost, evt.partPersistentId);
-                        GhostVisualBuilder.RebuildReentryMeshes(ghost, state.reentryFxInfo);
                         visibilityChanged = true;
+                        needsReentryMeshRebuild = true;
                         break;
                     case PartEventType.ParachuteCut:
                         if (state.parachuteInfos != null)
@@ -1116,7 +1172,13 @@ namespace Parsek
                 ParsekLog.VerboseRateLimited("Flight", $"part-events-{recIdx}",
                     $"Applied {appliedCount} part events for ghost #{recIdx} (evtIdx now {evtIdx})");
             if (visibilityChanged)
+            {
+                if (RefreshCompoundPartVisibility(state))
+                    needsReentryMeshRebuild = true;
+                if (needsReentryMeshRebuild)
+                    GhostVisualBuilder.RebuildReentryMeshes(ghost, state.reentryFxInfo);
                 RecalculateCameraPivot(state);
+            }
             UpdateBlinkingLights(state, currentUT);
             UpdateActiveRobotics(state, currentUT);
         }

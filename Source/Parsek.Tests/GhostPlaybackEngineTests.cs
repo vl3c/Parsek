@@ -885,9 +885,11 @@ namespace Parsek.Tests
                 simplified = true,
                 materials = new List<Material>(),
                 partTree = new Dictionary<uint, List<uint>> { [1] = new List<uint> { 2, 3 } },
+                snapshotPartIds = new HashSet<uint> { 1, 2, 3 },
                 engineInfos = new Dictionary<ulong, EngineGhostInfo> { [1] = new EngineGhostInfo() },
                 rcsInfos = new Dictionary<ulong, RcsGhostInfo> { [2] = new RcsGhostInfo() },
                 audioInfos = new Dictionary<ulong, AudioGhostInfo> { [3] = new AudioGhostInfo() },
+                compoundPartInfos = new List<CompoundPartGhostInfo> { new CompoundPartGhostInfo() },
                 fakeCanopies = new Dictionary<uint, GameObject>(),
                 reentryFxInfo = new ReentryFxInfo()
             };
@@ -903,10 +905,13 @@ namespace Parsek.Tests
             Assert.Equal(67890, state.lastDistance);
             Assert.True(state.explosionFired);
             Assert.NotNull(state.partTree);
+            Assert.NotNull(state.snapshotPartIds);
+            Assert.Contains(2u, state.snapshotPartIds);
             Assert.Null(state.materials);
             Assert.Null(state.engineInfos);
             Assert.Null(state.rcsInfos);
             Assert.Null(state.audioInfos);
+            Assert.Null(state.compoundPartInfos);
             Assert.Null(state.fakeCanopies);
             Assert.Null(state.reentryFxInfo);
             Assert.False(state.pauseHidden);
