@@ -53,6 +53,7 @@ All notable changes to Parsek are documented here.
 - Destroyed debris playback now triggers whole-vessel explosion FX from the earliest eligible recorded destroy event instead of waiting for `EndUT`, so debris that visibly hits the ground no longer hangs before the final blast in either Flight or KSC playback (`#329`).
 - Mid-flight active-tree saves now checkpoint the recorder's currently-open `TrackSection` before serializing and immediately reopen a continuation section afterward, so quickload no longer drops the live sparse trajectory chunk and post-separation main-stage playback does not freeze or drift across the missing save/load interval (`#327`).
 - The in-game test runner window now uses a more compact layout without the visible blank rows between tests, and disruptive quickload-resume tests run last in batch execution so they do not interfere with later scenarios.
+- `#332` Running the in-game FLIGHT save/load round-trip tests no longer leaves the settings/diagnostics window transparent or watch/camera state pinned to stale ghost context: the settings window now keeps a stable tooltip layout every frame, and destructive synthetic `OnLoad` tests restore camera/playback/ghost state after they mutate the live session.
 
 ### Developer Tools
 
@@ -73,6 +74,7 @@ All notable changes to Parsek are documented here.
 - Added regression coverage for continuous EVA `atmo`/`surface` optimizer behavior, including split suppression for live same-body EVA sections, repair of already-split overlapping loaded pairs, and mixed-label UI formatting (`#328`).
 - Added regression coverage for resolved-no-crew end-state bookkeeping, including missing-start-snapshot behavior and save/load persistence of `crewEndStatesResolved` (`#220`).
 - Added regression coverage for save-time `TrackSection` checkpointing across active, relative, and orbital-checkpoint sections, and saved a reusable `tools/inspect-recording-sidecar.ps1` inspector for decoding `.prec` sparse trajectory payloads while debugging storage/playback issues like `#327`.
+- Live in-game `ParsekScenario.OnSave`/`OnLoad` round-trip tests now skip active-tree / pending-merge sessions, run last, clean up FLIGHT watch/ghost preview state after synthetic loads, and quickload wait helpers fail with explicit scene context instead of silently timing out (`#332`).
 - Diagnostics now report live engine/RCS FX counts plus last-frame ghost spawn/destroy timings, giving a measurement-first view of FX cost without changing FX behavior.
 - `scripts/inject-recordings.ps1 --run-diagnostics-tests` now runs the focused diagnostics/observability slice before showcase injection, including observability logging and in-game test runner ordering coverage.
 

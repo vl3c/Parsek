@@ -16,9 +16,11 @@ namespace Parsek.InGameTests.Helpers
         internal static void TriggerQuicksave()
         {
             string saveName = HighLogic.SaveFolder;
-            GamePersistence.SaveGame("quicksave", saveName, SaveMode.OVERWRITE);
+            string result = GamePersistence.SaveGame("quicksave", saveName, SaveMode.OVERWRITE);
+            InGameAssert.IsTrue(!string.IsNullOrEmpty(result),
+                $"TriggerQuicksave failed for '{saveName}/quicksave'");
             ParsekLog.Info("TestHelper",
-                $"TriggerQuicksave: saved to '{saveName}/quicksave'");
+                $"TriggerQuicksave: saved to '{saveName}/quicksave' ({result})");
         }
 
         /// <summary>
@@ -31,12 +33,8 @@ namespace Parsek.InGameTests.Helpers
         {
             string saveName = HighLogic.SaveFolder;
             Game game = GamePersistence.LoadGame("quicksave", saveName, true, false);
-            if (game == null)
-            {
-                ParsekLog.Warn("TestHelper",
-                    $"TriggerQuickload: LoadGame returned null for '{saveName}/quicksave'");
-                return;
-            }
+            InGameAssert.IsNotNull(game,
+                $"TriggerQuickload failed: LoadGame returned null for '{saveName}/quicksave'");
 
             HighLogic.CurrentGame = game;
             HighLogic.LoadScene(GameScenes.FLIGHT);
@@ -48,17 +46,30 @@ namespace Parsek.InGameTests.Helpers
         /// Waits until FlightGlobals.ready is true and HighLogic.LoadedScene matches
         /// the target scene, or until timeout.
         /// </summary>
-        internal static IEnumerator WaitForFlightReady(float timeoutSeconds = 10f)
+        internal static IEnumerator WaitForFlightReady(int previousFlightInstanceId, float timeoutSeconds = 10f)
         {
             float deadline = Time.time + timeoutSeconds;
             while (Time.time < deadline)
             {
-                if (HighLogic.LoadedScene == GameScenes.FLIGHT && FlightGlobals.ready)
+                var flight = ParsekFlight.Instance;
+                bool replacedFlight = flight != null
+                    && (previousFlightInstanceId <= 0
+                        || flight.GetInstanceID() != previousFlightInstanceId);
+                if (HighLogic.LoadedScene == GameScenes.FLIGHT
+                    && FlightGlobals.ready
+                    && replacedFlight)
                     yield break;
                 yield return null;
             }
-            ParsekLog.Warn("TestHelper",
-                $"WaitForFlightReady: timed out after {timeoutSeconds:F0}s");
+            string activeVesselName = FlightGlobals.ActiveVessel != null
+                ? FlightGlobals.ActiveVessel.vesselName
+                : "null";
+            var timedOutFlight = ParsekFlight.Instance;
+            InGameAssert.IsTrue(false,
+                $"WaitForFlightReady timed out after {timeoutSeconds:F0}s " +
+                $"(scene={HighLogic.LoadedScene}, flightReady={FlightGlobals.ready}, activeVessel={activeVesselName}, " +
+                $"parsekFlight={(timedOutFlight != null ? timedOutFlight.GetInstanceID().ToString() : "null")}, " +
+                $"expectedDifferentFrom={previousFlightInstanceId})");
         }
 
         /// <summary>
@@ -74,8 +85,13 @@ namespace Parsek.InGameTests.Helpers
                     yield break;
                 yield return null;
             }
-            ParsekLog.Warn("TestHelper",
-                $"WaitForActiveRecording: timed out after {timeoutSeconds:F0}s");
+            var flight = ParsekFlight.Instance;
+            string activeRecId = flight?.ActiveTreeForSerialization?.ActiveRecordingId ?? "null";
+            InGameAssert.IsTrue(false,
+                $"WaitForActiveRecording timed out after {timeoutSeconds:F0}s " +
+                $"(scene={HighLogic.LoadedScene}, flightReady={FlightGlobals.ready}, " +
+                $"parsekFlight={(flight != null)}, isRecording={flight?.IsRecording == true}, " +
+                $"hasActiveTree={flight?.HasActiveTree == true}, activeRecordingId={activeRecId})");
         }
     }
 }

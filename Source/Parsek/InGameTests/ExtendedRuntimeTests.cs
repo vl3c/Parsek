@@ -781,6 +781,19 @@ namespace Parsek.InGameTests
     /// </summary>
     public class SceneAndPatchTests
     {
+        private bool liveScenarioRoundTripMutatedSession;
+
+        [InGameTeardown]
+        private void CleanupLiveScenarioRoundTrip()
+        {
+            if (!liveScenarioRoundTripMutatedSession)
+                return;
+
+            Helpers.SyntheticScenarioLoadHelpers.CleanupFlightRuntime(
+                "SceneAndPatchTests live OnSave/OnLoad round-trip");
+            liveScenarioRoundTripMutatedSession = false;
+        }
+
         [InGameTest(Category = "SceneAndPatch", Scene = GameScenes.SPACECENTER,
             Description = "ParsekKSC MonoBehaviour exists in Space Center scene")]
         public void ParsekKscExistsInSpaceCenter()
@@ -853,10 +866,12 @@ namespace Parsek.InGameTests
                 $"ActiveRecorder={(Parsek.Patches.PhysicsFramePatch.ActiveRecorder != null ? "set" : "null")}");
         }
 
-        [InGameTest(Category = "SceneAndPatch",
+        [InGameTest(Category = "SceneAndPatch", RunLast = true,
             Description = "ParsekScenario survives OnSave+OnLoad round-trip for tree structure")]
         public void ScenarioRoundTripPreservesTreeStructure()
         {
+            Helpers.SyntheticScenarioLoadHelpers.EnsureRoundTripSafeToRun();
+
             // WARNING: This test calls OnSave+OnLoad on the live ParsekScenario.
             // OnLoad re-initializes RecordingStore from the serialized ConfigNode.
             // If the round-trip is imperfect, this could disrupt the session.
@@ -879,6 +894,7 @@ namespace Parsek.InGameTests
             // Round-trip
             var saveNode = new ConfigNode("SCENARIO");
             scenario.OnSave(saveNode);
+            liveScenarioRoundTripMutatedSession = true;
             scenario.OnLoad(saveNode);
 
             var treesAfter = RecordingStore.CommittedTrees;
@@ -899,10 +915,12 @@ namespace Parsek.InGameTests
                 $"Tree round-trip: {treesAfter.Count} trees, {afterBPTotal} branch points preserved");
         }
 
-        [InGameTest(Category = "SceneAndPatch",
+        [InGameTest(Category = "SceneAndPatch", RunLast = true,
             Description = "Crew replacement dict survives OnSave+OnLoad round-trip")]
         public void CrewReplacementsRoundTrip()
         {
+            Helpers.SyntheticScenarioLoadHelpers.EnsureRoundTripSafeToRun();
+
             // WARNING: Calls OnSave+OnLoad on live scenario — see comment on
             // ScenarioRoundTripPreservesTreeStructure for rationale.
             var scenario = Object.FindObjectOfType<ParsekScenario>();
@@ -912,6 +930,7 @@ namespace Parsek.InGameTests
 
             var saveNode = new ConfigNode("SCENARIO");
             scenario.OnSave(saveNode);
+            liveScenarioRoundTripMutatedSession = true;
             scenario.OnLoad(saveNode);
 
             var after = CrewReservationManager.CrewReplacements;

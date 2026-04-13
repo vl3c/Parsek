@@ -29,6 +29,8 @@ namespace Parsek
 
         private const float SpacingSmall = 3f;
         private const float SpacingLarge = 10f;
+        private GUIStyle zeroHeightLabelStyle;
+        private GUIStyle wrappedTooltipStyle;
 
         public bool IsOpen
         {
@@ -136,6 +138,7 @@ namespace Parsek
 
         private void DrawSettingsWindow(int windowID)
         {
+            EnsureLayoutStyles();
             var s = ParsekSettings.Current;
             if (s == null)
             {
@@ -201,17 +204,36 @@ namespace Parsek
             GUILayout.EndHorizontal();
 
             string tooltip = GUI.tooltip ?? "";
-            if (tooltip.Length > 0)
-            {
-                GUILayout.Space(SpacingSmall);
-                GUILayout.Label(tooltip, GUI.skin.box);
-            }
-            else
-            {
-                GUILayout.Label("", GUILayout.Height(0));
-            }
+            GUILayout.Space(tooltip.Length > 0 ? SpacingSmall : 0f);
+            GUILayout.Label(
+                tooltip.Length > 0 ? tooltip : string.Empty,
+                tooltip.Length > 0 ? wrappedTooltipStyle : zeroHeightLabelStyle,
+                tooltip.Length > 0 ? GUILayout.ExpandWidth(true) : GUILayout.Height(0f));
 
             GUI.DragWindow();
+        }
+
+        private void EnsureLayoutStyles()
+        {
+            if (zeroHeightLabelStyle == null)
+            {
+                zeroHeightLabelStyle = new GUIStyle(GUI.skin.label)
+                {
+                    fixedHeight = 0f,
+                    stretchHeight = false,
+                    wordWrap = false
+                };
+                zeroHeightLabelStyle.margin = new RectOffset(0, 0, 0, 0);
+                zeroHeightLabelStyle.padding = new RectOffset(0, 0, 0, 0);
+            }
+
+            if (wrappedTooltipStyle == null)
+            {
+                wrappedTooltipStyle = new GUIStyle(GUI.skin.box)
+                {
+                    wordWrap = true
+                };
+            }
         }
 
         private void DrawRecordingSettings(ParsekSettings s)

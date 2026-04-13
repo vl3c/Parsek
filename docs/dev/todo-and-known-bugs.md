@@ -316,6 +316,29 @@ So the problem was not "bad auto-grouping on commit"; it was "stale hierarchy lo
 
 ---
 
+## ~~332. In-game FLIGHT save/load tests can leave the diagnostics window transparent and watch/camera state stale~~
+
+**Observed in:** 2026-04-13 local FLIGHT batch run after collecting `logs/2026-04-13_1635_332-flight-save-load-anchor-ui/`. User report: after the in-game save/load test, the diagnostics window became transparent and the camera/watch anchor no longer stayed on the expected anchor vehicle on the pad.
+
+**Collected evidence:**
+
+- `KSP.log` repeatedly threw `ArgumentException: Getting control ... position in a group with only ... controls when doing repaint` from `Parsek.SettingsWindowUI.DrawSettingsWindow`, which explains the transparent/corrupt diagnostics/settings window.
+- The failing code rendered the tooltip row conditionally: tooltip present emitted `GUILayout.Space(...)` + `GUILayout.Label(...)`, tooltip absent emitted a zero-height label only. That is the same IMGUI layout/repaint mismatch already avoided in `TestRunnerShortcut`.
+- The FLIGHT round-trip tests (`SaveLoadTests.ScenarioRoundTripPreservesCount`, `SceneAndPatchTests.ScenarioRoundTripPreservesTreeStructure`, `SceneAndPatchTests.CrewReplacementsRoundTrip`) call live `ParsekScenario.OnSave`/`OnLoad` mid-batch, which re-subscribes scenario/runtime state without a real scene transition.
+- `ParsekFlight` already had the right cleanup primitives (`ExitWatchMode`, `StopPlayback`, `DestroyAllTimelineGhosts`), but the destructive tests were not using them, so stale watch/ghost state could survive after the synthetic `OnLoad`.
+- The same bundle also showed the quickload canary path timing out after a broken restore while still reporting pass, because `QuickloadResumeHelpers.WaitForFlightReady` and `WaitForActiveRecording` only logged warnings instead of failing the test.
+
+**Root cause:** Two separate harness issues were compounding:
+
+- the settings/diagnostics window had a real IMGUI control-count bug in its tooltip row
+- the destructive live `OnSave`/`OnLoad` tests mutated the running FLIGHT session without being isolated or normalized afterward, while the quickload canary helper was too weak to expose broken restore paths honestly
+
+**Fix:** `SettingsWindowUI` now always renders a stable tooltip row using cached zero-height/wrapped styles. The live scenario round-trip tests now run last, skip active-tree / pending-merge sessions, and tear down FLIGHT runtime state after a synthetic load by restoring camera/watch state, stopping preview playback, clearing deferred watch retarget, and destroying timeline ghosts so playback caches rebuild cleanly. Quickload wait helpers now fail with explicit scene/readiness context instead of letting timed-out restores pass silently.
+
+**Status:** ~~Fixed~~
+
+---
+
 ## ~~329. Debris explosion FX can fire noticeably after visible ground contact~~
 
 **Observed in:** 2026-04-13 local smoke after the snapshot-storage PR. User report: there was a visible delay between debris hitting the ground and the explosion effect.
