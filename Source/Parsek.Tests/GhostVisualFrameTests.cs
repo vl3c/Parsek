@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using UnityEngine;
 using Xunit;
 
@@ -72,6 +73,68 @@ namespace Parsek.Tests
 
             Assert.False(parsed);
             AssertVector3Close(Vector3.zero, centerOfMass);
+        }
+
+        [Fact]
+        public void DescribeAppearanceActiveSection_RelativeFrameIncludesAnchorPid()
+        {
+            var traj = new MockTrajectory
+            {
+                TrackSections = new List<TrackSection>
+                {
+                    new TrackSection
+                    {
+                        referenceFrame = ReferenceFrame.Relative,
+                        startUT = 19.74,
+                        endUT = 22.00,
+                        anchorVesselId = 77
+                    }
+                }
+            };
+
+            string summary = GhostPlaybackEngine.DescribeAppearanceActiveSection(traj, 20.00);
+
+            Assert.Contains("activeFrame=Relative", summary);
+            Assert.Contains("sectionUT=19.74-22.00", summary);
+            Assert.Contains("anchorPid=77", summary);
+        }
+
+        [Fact]
+        public void DescribeAppearanceRecordingStartPoint_RelativeFrameLogsOffsetInsteadOfWorldPosition()
+        {
+            var traj = new MockTrajectory
+            {
+                Points = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint
+                    {
+                        ut = 19.76,
+                        latitude = 1.25,
+                        longitude = -2.5,
+                        altitude = 3.75,
+                        bodyName = "Kerbin"
+                    }
+                },
+                TrackSections = new List<TrackSection>
+                {
+                    new TrackSection
+                    {
+                        referenceFrame = ReferenceFrame.Relative,
+                        startUT = 19.74,
+                        endUT = 22.00,
+                        anchorVesselId = 88
+                    }
+                }
+            };
+
+            string summary = GhostPlaybackEngine.DescribeAppearanceRecordingStartPoint(
+                traj, new Vector3d(10.0, 20.0, 30.0));
+
+            Assert.Contains("recordingStart@19.76", summary);
+            Assert.Contains("frame=Relative", summary);
+            Assert.Contains("offset=(1.25,-2.50,3.75)", summary);
+            Assert.Contains("anchorPid=88", summary);
+            Assert.DoesNotContain("world=", summary);
         }
 
         private static ConfigNode BuildSnapshot(string coM)

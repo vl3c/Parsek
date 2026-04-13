@@ -1994,7 +1994,7 @@ namespace Parsek
         private void TrackGhostAppearance(
             int index, IPlaybackTrajectory traj, GhostPlaybackState state, double playbackUT, string reason)
         {
-            if (!ParsekLog.IsVerboseEnabled || state == null)
+            if (state == null)
                 return;
 
             if (state.ghost == null || !state.ghost.activeInHierarchy)
@@ -2059,24 +2059,8 @@ namespace Parsek
                     rootPartTransform = GhostVisualBuilder.FindGhostPartTransform(state.ghost, rootPartPersistentId);
             }
 
-            string firstPointSummary = "firstPoint=none";
-            if (traj?.Points != null && traj.Points.Count > 0)
-            {
-                TrajectoryPoint firstPoint = traj.Points[0];
-                CelestialBody body = FlightGlobals.GetBodyByName(firstPoint.bodyName);
-                if (body != null)
-                {
-                    Vector3d firstPointWorldPos = body.GetWorldSurfacePosition(
-                        firstPoint.latitude, firstPoint.longitude, firstPoint.altitude);
-                    Vector3d firstPointRootDelta = firstPointWorldPos - rootPos;
-                    Quaternion firstPointWorldRot = body.bodyTransform.rotation *
-                        TrajectoryMath.SanitizeQuaternion(firstPoint.rotation);
-                    firstPointSummary =
-                        $"firstPoint@{firstPoint.ut.ToString("F2", CultureInfo.InvariantCulture)}=" +
-                        $"{FormatVector3d(firstPointWorldPos)} firstPoint-root={FormatVector3d(firstPointRootDelta)} " +
-                        $"firstPointRot={FormatQuaternion(firstPointWorldRot)}";
-                }
-            }
+            string activeSectionSummary = DescribeAppearanceActiveSection(traj, playbackUT);
+            string recordingStartSummary = DescribeAppearanceRecordingStartPoint(traj, rootPos);
 
             string rootPartWorldSummary = string.Empty;
             if (rootPartTransform != null)
@@ -2092,14 +2076,83 @@ namespace Parsek
                 $"appearance#{state.appearanceCount} reason={reason} " +
                 $"ut={playbackUT.ToString("F2", CultureInfo.InvariantCulture)} " +
                 $"zone={state.currentZone} dist={state.lastDistance.ToString("F0", CultureInfo.InvariantCulture)}m " +
+                $"{activeSectionSummary} " +
                 $"root={FormatVector3d(rootPos)} rootRot={FormatQuaternion(rootRot)} " +
                 $"boundsCenter={FormatVector3d(boundsCenter)} bounds-root={FormatVector3d(boundsRootDelta)} " +
                 $"firstVisiblePart={firstVisiblePartLabel}:{FormatVector3d(firstVisiblePartPos)} " +
                 $"part-root={FormatVector3d(firstVisiblePartRootDelta)} " +
-                $"{firstPointSummary} " +
+                $"{recordingStartSummary} " +
                 $"snapshotCoM={(hasSnapshotCoM ? FormatVector3(snapshotCoM) : "none")} " +
                 $"visualRootLocal={FormatVector3(visualRootLocal)} " +
                 $"{rootPartSummary}{rootPartWorldSummary} visibleRenderers={rendererCount}");
+        }
+
+        internal static string DescribeAppearanceActiveSection(IPlaybackTrajectory traj, double playbackUT)
+        {
+            if (traj?.TrackSections == null || traj.TrackSections.Count == 0)
+                return "activeFrame=unsectioned";
+
+            int sectionIdx = TrajectoryMath.FindTrackSectionForUT(traj.TrackSections, playbackUT);
+            if (sectionIdx < 0 || sectionIdx >= traj.TrackSections.Count)
+                return "activeFrame=none";
+
+            TrackSection section = traj.TrackSections[sectionIdx];
+            string anchorSuffix = section.referenceFrame == ReferenceFrame.Relative
+                ? $" anchorPid={section.anchorVesselId}"
+                : string.Empty;
+            return
+                $"activeFrame={section.referenceFrame} " +
+                $"sectionUT={section.startUT.ToString("F2", CultureInfo.InvariantCulture)}-" +
+                $"{section.endUT.ToString("F2", CultureInfo.InvariantCulture)}{anchorSuffix}";
+        }
+
+        internal static string DescribeAppearanceRecordingStartPoint(
+            IPlaybackTrajectory traj, Vector3d rootPos)
+        {
+            if (traj?.Points == null || traj.Points.Count == 0)
+                return "recordingStart=none";
+
+            TrajectoryPoint firstPoint = traj.Points[0];
+            ReferenceFrame frame = ReferenceFrame.Absolute;
+            uint anchorVesselId = 0;
+
+            if (traj.TrackSections != null && traj.TrackSections.Count > 0)
+            {
+                int sectionIdx = TrajectoryMath.FindTrackSectionForUT(traj.TrackSections, firstPoint.ut);
+                if (sectionIdx >= 0 && sectionIdx < traj.TrackSections.Count)
+                {
+                    TrackSection section = traj.TrackSections[sectionIdx];
+                    frame = section.referenceFrame;
+                    anchorVesselId = section.anchorVesselId;
+                }
+            }
+
+            if (frame == ReferenceFrame.Relative)
+            {
+                Vector3d offset = new Vector3d(firstPoint.latitude, firstPoint.longitude, firstPoint.altitude);
+                return
+                    $"recordingStart@{firstPoint.ut.ToString("F2", CultureInfo.InvariantCulture)} " +
+                    $"frame=Relative offset={FormatVector3d(offset)} anchorPid={anchorVesselId}";
+            }
+
+            string rawSummary =
+                $"recordingStart@{firstPoint.ut.ToString("F2", CultureInfo.InvariantCulture)} " +
+                $"frame={frame} body={firstPoint.bodyName ?? "unknown"} " +
+                $"lla={FormatVector3d(new Vector3d(firstPoint.latitude, firstPoint.longitude, firstPoint.altitude))}";
+
+            CelestialBody body = FlightGlobals.GetBodyByName(firstPoint.bodyName);
+            if (body == null)
+                return $"{rawSummary} world=unresolved";
+
+            Vector3d worldPos = body.GetWorldSurfacePosition(
+                firstPoint.latitude, firstPoint.longitude, firstPoint.altitude);
+            Vector3d worldRootDelta = worldPos - rootPos;
+            Quaternion worldRot = body.bodyTransform.rotation *
+                TrajectoryMath.SanitizeQuaternion(firstPoint.rotation);
+            return
+                $"{rawSummary} world={FormatVector3d(worldPos)} " +
+                $"recordingStart-root={FormatVector3d(worldRootDelta)} " +
+                $"recordingStartRot={FormatQuaternion(worldRot)}";
         }
 
         private static bool TryGetCombinedVisibleRendererBounds(
