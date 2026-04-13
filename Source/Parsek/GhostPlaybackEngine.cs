@@ -1968,20 +1968,39 @@ namespace Parsek
                 return;
             }
 
-            if (traj.Points != null && traj.Points.Count > 0)
-            {
-                positioner.PositionAtPoint(index, traj, state, traj.Points[0]);
-                return;
-            }
-
             if (hasSurfaceData)
             {
                 positioner.PositionAtSurface(index, traj, state);
                 return;
             }
 
+            if (traj.Points != null && traj.Points.Count > 0)
+            {
+                var firstPoint = traj.Points[0];
+
+                if (ShouldPrimeSinglePointGhostFromOrbit(traj, playbackUT))
+                {
+                    positioner.PositionFromOrbit(index, traj, state, playbackUT);
+                    return;
+                }
+
+                positioner.PositionAtPoint(index, traj, state, firstPoint);
+                return;
+            }
+
             if (hasOrbitData)
                 positioner.PositionFromOrbit(index, traj, state, playbackUT);
+        }
+
+        internal static bool ShouldPrimeSinglePointGhostFromOrbit(
+            IPlaybackTrajectory traj, double playbackUT)
+        {
+            if (traj?.Points == null || traj.Points.Count != 1 || !traj.HasOrbitSegments)
+                return false;
+
+            // A single branch-boundary seed point should anchor the ghost only at the
+            // exact recording start; once playback advances, orbit propagation must take over.
+            return playbackUT > traj.Points[0].ut + 1e-6;
         }
 
         private static void ActivateGhostVisualsIfNeeded(GhostPlaybackState state)

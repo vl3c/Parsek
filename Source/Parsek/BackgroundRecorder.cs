@@ -2261,7 +2261,7 @@ namespace Parsek
                 $"alt={point.altitude.ToString("F0", CultureInfo.InvariantCulture)}");
         }
 
-        private static void ApplyTrajectoryPointToRecording(Recording treeRec, TrajectoryPoint point)
+        internal static void ApplyTrajectoryPointToRecording(Recording treeRec, TrajectoryPoint point)
         {
             if (treeRec == null)
                 return;

@@ -205,6 +205,46 @@ namespace Parsek.Tests
             Assert.Equal(70.04, activationStartUT, 2);
         }
 
+        [Fact]
+        public void ShouldPrimeSinglePointGhostFromOrbit_ReturnsTrueAfterSeedPointUT()
+        {
+            var traj = new MockTrajectory
+            {
+                Points = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint { ut = 70.04, bodyName = "Kerbin" }
+                },
+                OrbitSegments = new List<OrbitSegment>
+                {
+                    new OrbitSegment { startUT = 70.04, endUT = 122.60, bodyName = "Kerbin" }
+                }
+            };
+
+            bool useOrbit = GhostPlaybackEngine.ShouldPrimeSinglePointGhostFromOrbit(traj, 70.58);
+
+            Assert.True(useOrbit);
+        }
+
+        [Fact]
+        public void ShouldPrimeSinglePointGhostFromOrbit_ReturnsFalseAtSeedPointUT()
+        {
+            var traj = new MockTrajectory
+            {
+                Points = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint { ut = 70.04, bodyName = "Kerbin" }
+                },
+                OrbitSegments = new List<OrbitSegment>
+                {
+                    new OrbitSegment { startUT = 70.04, endUT = 122.60, bodyName = "Kerbin" }
+                }
+            };
+
+            bool useOrbit = GhostPlaybackEngine.ShouldPrimeSinglePointGhostFromOrbit(traj, 70.04);
+
+            Assert.False(useOrbit);
+        }
+
         private static ConfigNode BuildSnapshot(string coM)
         {
             var snapshot = new ConfigNode("VESSEL");

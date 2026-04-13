@@ -2895,6 +2895,7 @@ namespace Parsek
             RecordingTree tree, BranchPoint breakupBp,
             uint pid, Vessel vessel, bool isDebris, string fallbackName,
             ConfigNode fallbackSnapshot = null,
+            TrajectoryPoint? fallbackTrajectoryPoint = null,
             int parentGeneration = 0)
         {
             string childRecId = Guid.NewGuid().ToString("N");
@@ -2923,6 +2924,8 @@ namespace Parsek
                 SeedBreakupChildSnapshots(childRec, pid, liveSnapshot: null, preCapturedSnapshot: fallbackSnapshot);
                 childRec.TerminalStateValue = TerminalState.Destroyed;
                 childRec.ExplicitEndUT = breakupBp.UT;
+                if (fallbackTrajectoryPoint.HasValue)
+                    BackgroundRecorder.ApplyTrajectoryPointToRecording(childRec, fallbackTrajectoryPoint.Value);
                 ParsekLog.Info("Coalescer",
                     $"CreateBreakupChildRecording: using pre-captured snapshot for pid={pid} (vessel destroyed)");
             }
@@ -2930,6 +2933,12 @@ namespace Parsek
             {
                 childRec.TerminalStateValue = TerminalState.Destroyed;
                 childRec.ExplicitEndUT = breakupBp.UT;
+                if (fallbackTrajectoryPoint.HasValue)
+                {
+                    BackgroundRecorder.ApplyTrajectoryPointToRecording(childRec, fallbackTrajectoryPoint.Value);
+                    ParsekLog.Info("Coalescer",
+                        $"CreateBreakupChildRecording: using pre-captured trajectory point for pid={pid} (vessel destroyed)");
+                }
             }
 
             tree.AddOrReplaceRecording(childRec);
@@ -3017,12 +3026,14 @@ namespace Parsek
                     ConfigNode ctrlSnap = childVessel == null
                         ? crashCoalescer.GetPreCapturedSnapshot(pid)
                         : null;
-                    var childRec = CreateBreakupChildRecording(activeTree, breakupBp, pid, childVessel, false, "Unknown", ctrlSnap, parentGeneration: activeRec.Generation);
+                    TrajectoryPoint? breakupChildPoint = crashCoalescer.GetPreCapturedTrajectoryPoint(pid);
+                    var childRec = CreateBreakupChildRecording(activeTree, breakupBp, pid, childVessel, false, "Unknown",
+                        ctrlSnap, breakupChildPoint, parentGeneration: activeRec.Generation);
 
                     // Add to BackgroundRecorder for trajectory sampling (no TTL — records indefinitely)
                     if (childVessel != null && backgroundRecorder != null)
                     {
-                        TrajectoryPoint? initialPoint = crashCoalescer.GetPreCapturedTrajectoryPoint(pid);
+                        TrajectoryPoint? initialPoint = breakupChildPoint;
                         if (!initialPoint.HasValue)
                         {
                             double sampleUT = Planetarium.GetUniversalTime();
@@ -3063,11 +3074,13 @@ namespace Parsek
                     ConfigNode preSnap = debrisVessel == null
                         ? crashCoalescer.GetPreCapturedSnapshot(pid)
                         : null;
-                    var childRec = CreateBreakupChildRecording(activeTree, breakupBp, pid, debrisVessel, true, "Debris", preSnap, parentGeneration: activeRec.Generation);
+                    TrajectoryPoint? breakupChildPoint = crashCoalescer.GetPreCapturedTrajectoryPoint(pid);
+                    var childRec = CreateBreakupChildRecording(activeTree, breakupBp, pid, debrisVessel, true, "Debris",
+                        preSnap, breakupChildPoint, parentGeneration: activeRec.Generation);
 
                     if (debrisVessel != null && backgroundRecorder != null)
                     {
-                        TrajectoryPoint? initialPoint = crashCoalescer.GetPreCapturedTrajectoryPoint(pid);
+                        TrajectoryPoint? initialPoint = breakupChildPoint;
                         if (!initialPoint.HasValue)
                         {
                             double sampleUT = Planetarium.GetUniversalTime();
