@@ -72,6 +72,26 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void TransformAlongAxis_UpAxis_PreservesIdentityOrientation()
+        {
+            var transformed = GhostVisualBuilder.TransformAlongAxis(
+                new Vector3(1f, 2f, 3f), Vector3.up, Vector3.zero);
+
+            AssertVectorApproximatelyEqual(new Vector3(1f, 2f, 3f), transformed);
+        }
+
+        [Fact]
+        public void TransformAlongAxis_ForwardAxis_MapsUpToAxisWithoutReflection()
+        {
+            Vector3 right = GhostVisualBuilder.TransformAlongAxis(Vector3.right, Vector3.forward, Vector3.zero);
+            Vector3 up = GhostVisualBuilder.TransformAlongAxis(Vector3.up, Vector3.forward, Vector3.zero);
+            Vector3 forward = GhostVisualBuilder.TransformAlongAxis(Vector3.forward, Vector3.forward, Vector3.zero);
+
+            AssertVectorApproximatelyEqual(Vector3.forward, up);
+            Assert.True(Dot(Cross(right, up), forward) > 0.99f);
+        }
+
+        [Fact]
         public void ComputeFairingVisualActivation_Deployed_HidesShellAndShowsTruss()
         {
             var visibility = GhostVisualBuilder.ComputeFairingVisualActivation(deployed: true);
@@ -127,6 +147,26 @@ namespace Parsek.Tests
             return !float.IsNaN(vector.x) && !float.IsInfinity(vector.x) &&
                    !float.IsNaN(vector.y) && !float.IsInfinity(vector.y) &&
                    !float.IsNaN(vector.z) && !float.IsInfinity(vector.z);
+        }
+
+        private static Vector3 Cross(Vector3 a, Vector3 b)
+        {
+            return new Vector3(
+                a.y * b.z - a.z * b.y,
+                a.z * b.x - a.x * b.z,
+                a.x * b.y - a.y * b.x);
+        }
+
+        private static float Dot(Vector3 a, Vector3 b)
+        {
+            return a.x * b.x + a.y * b.y + a.z * b.z;
+        }
+
+        private static void AssertVectorApproximatelyEqual(Vector3 expected, Vector3 actual, float tolerance = 1e-4f)
+        {
+            Assert.InRange(actual.x, expected.x - tolerance, expected.x + tolerance);
+            Assert.InRange(actual.y, expected.y - tolerance, expected.y + tolerance);
+            Assert.InRange(actual.z, expected.z - tolerance, expected.z + tolerance);
         }
     }
 }
