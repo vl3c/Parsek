@@ -932,6 +932,7 @@ namespace Parsek.Tests
                 flagEventIndex = 3,
                 currentZone = RenderingZone.Beyond,
                 lastDistance = 67890,
+                lastRenderDistance = 2345,
                 explosionFired = true,
                 pauseHidden = true,
                 fidelityReduced = true,
@@ -957,6 +958,7 @@ namespace Parsek.Tests
             Assert.Equal(3, state.flagEventIndex);
             Assert.Equal(RenderingZone.Beyond, state.currentZone);
             Assert.Equal(67890, state.lastDistance);
+            Assert.Equal(2345, state.lastRenderDistance);
             Assert.True(state.explosionFired);
             Assert.NotNull(state.partTree);
             Assert.NotNull(state.logicalPartIds);
@@ -1203,6 +1205,21 @@ namespace Parsek.Tests
             Assert.True(state.deferVisibilityUntilPlaybackSync);
 
             UnityEngine.Object.DestroyImmediate(state.ghost);
+        }
+
+        [Fact]
+        public void CachePlaybackDistances_CachesSeparateActiveVesselAndRenderDistances()
+        {
+            var state = new GhostPlaybackState
+            {
+                lastDistance = 1.0,
+                lastRenderDistance = 2.0
+            };
+
+            GhostPlaybackEngine.CachePlaybackDistances(state, 18600.0, 50.0);
+
+            Assert.Equal(18600.0, state.lastDistance);
+            Assert.Equal(50.0, state.lastRenderDistance);
         }
 
         #endregion

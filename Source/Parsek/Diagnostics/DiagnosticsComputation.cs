@@ -620,11 +620,13 @@ namespace Parsek
         {
             if (state == null) return;
 
+            double renderDistance = GetEffectiveRenderDistance(state);
+
             bool watchedOverrideActive =
                 GhostPlaybackLogic.IsProtectedGhost(
                     watchedIndex, watchedLoopCycleIndex,
                     recordingIndex, state.loopCycleIndex) &&
-                state.lastDistance >= DistanceThresholds.PhysicsBubbleMeters;
+                renderDistance >= DistanceThresholds.PhysicsBubbleMeters;
 
             if (watchedOverrideActive)
             {
@@ -635,7 +637,7 @@ namespace Parsek
 
             if (state.simplified
                 || state.currentZone == RenderingZone.Beyond
-                || state.lastDistance >= DistanceThresholds.GhostFlight.LoopSimplifiedMeters)
+                || renderDistance >= DistanceThresholds.GhostFlight.LoopSimplifiedMeters)
             {
                 hiddenGhostCount++;
                 return;
@@ -643,13 +645,28 @@ namespace Parsek
 
             if (state.distanceLodReduced
                 || state.fidelityReduced
-                || state.lastDistance >= DistanceThresholds.PhysicsBubbleMeters)
+                || renderDistance >= DistanceThresholds.PhysicsBubbleMeters)
             {
                 reducedGhostCount++;
                 return;
             }
 
             fullGhostCount++;
+        }
+
+        private static double GetEffectiveRenderDistance(GhostPlaybackState state)
+        {
+            if (state == null)
+                return double.MaxValue;
+
+            if (!double.IsNaN(state.lastRenderDistance)
+                && !double.IsInfinity(state.lastRenderDistance)
+                && state.lastRenderDistance >= 0)
+            {
+                return state.lastRenderDistance;
+            }
+
+            return state.lastDistance;
         }
 
         // ------------------------------------------------------------------
