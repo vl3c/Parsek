@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using System.Linq;
+using System.Reflection;
 using Xunit;
 
 namespace Parsek.Tests
@@ -20,6 +21,8 @@ namespace Parsek.Tests
             ParsekLog.TestSinkForTesting = line => logLines.Add(line);
             RecordingStore.SuppressLogging = true;
             RecordingStore.ResetForTesting();
+            GameStateStore.SuppressLogging = true;
+            GameStateStore.ResetForTesting();
         }
 
         public void Dispose()
@@ -28,6 +31,7 @@ namespace Parsek.Tests
             ParsekLog.SuppressLogging = true;
             RecordingStore.SuppressLogging = false;
             RecordingStore.ResetForTesting();
+            GameStateStore.ResetForTesting();
         }
 
         /// <summary>
@@ -293,6 +297,49 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void Recalculate_PermanentReservation_WithExistingChain_HasNoActiveStandIn()
+        {
+            var module = new KerbalsModule();
+            var parent = new ConfigNode("TEST");
+            var slotsNode = parent.AddNode("KERBAL_SLOTS");
+            var slotNode = slotsNode.AddNode("SLOT");
+            slotNode.AddValue("owner", "Jeb");
+            slotNode.AddValue("trait", "Pilot");
+            var entry = slotNode.AddNode("CHAIN_ENTRY");
+            entry.AddValue("name", "Hanley");
+            module.LoadSlots(parent);
+
+            var rec = MakeRecording("Ship", new[] { "Jeb" },
+                TerminalState.Destroyed, 1000);
+            RecordingStore.AddRecordingWithTreeForTesting(rec);
+
+            var kerbals = KerbalsTestHelper.RecalculateModule(module);
+
+            Assert.True(kerbals.Slots["Jeb"].OwnerPermanentlyGone);
+            Assert.Null(kerbals.GetActiveOccupant("Jeb"));
+        }
+
+        [Fact]
+        public void Recalculate_RemovedPermanentReservation_ClearsOwnerPermanentlyGone()
+        {
+            var module = new KerbalsModule();
+            var parent = new ConfigNode("TEST");
+            var slotsNode = parent.AddNode("KERBAL_SLOTS");
+            var slotNode = slotsNode.AddNode("SLOT");
+            slotNode.AddValue("owner", "Jeb");
+            slotNode.AddValue("trait", "Pilot");
+            slotNode.AddValue("permanentlyGone", "True");
+            var entry = slotNode.AddNode("CHAIN_ENTRY");
+            entry.AddValue("name", "Hanley");
+            module.LoadSlots(parent);
+
+            var kerbals = KerbalsTestHelper.RecalculateModule(module);
+
+            Assert.False(kerbals.Slots["Jeb"].OwnerPermanentlyGone);
+            Assert.Equal("Jeb", kerbals.GetActiveOccupant("Jeb"));
+        }
+
+        [Fact]
         public void Recalculate_ExistingChainEntry_Reused()
         {
             // Pre-populate a slot with an existing stand-in name
@@ -374,6 +421,30 @@ namespace Parsek.Tests
             var rec = MakeRecording("Ship", new[] { "Jeb" },
                 TerminalState.Recovered, 2000);
             RecordingStore.AddRecordingWithTreeForTesting(rec);
+            var kerbals = KerbalsTestHelper.RecalculateModule(module);
+
+            Assert.Equal("Hanley", kerbals.GetActiveOccupant("Jeb"));
+        }
+
+        [Fact]
+        public void GetActiveOccupant_FirstFreeStandInReclaimsFromDeeperFreeStandIn()
+        {
+            var module = new KerbalsModule();
+            var parent = new ConfigNode("TEST");
+            var slotsNode = parent.AddNode("KERBAL_SLOTS");
+            var slotNode = slotsNode.AddNode("SLOT");
+            slotNode.AddValue("owner", "Jeb");
+            slotNode.AddValue("trait", "Pilot");
+            var first = slotNode.AddNode("CHAIN_ENTRY");
+            first.AddValue("name", "Hanley");
+            var second = slotNode.AddNode("CHAIN_ENTRY");
+            second.AddValue("name", "Kirrim");
+            module.LoadSlots(parent);
+
+            var rec = MakeRecording("Ship", new[] { "Jeb" },
+                TerminalState.Recovered, 2000);
+            RecordingStore.AddRecordingWithTreeForTesting(rec);
+
             var kerbals = KerbalsTestHelper.RecalculateModule(module);
 
             Assert.Equal("Hanley", kerbals.GetActiveOccupant("Jeb"));
@@ -482,6 +553,48 @@ namespace Parsek.Tests
             Assert.Equal("Pilot", KerbalsModule.FindTraitForKerbal("Jeb"));
         }
 
+        [Fact]
+        public void FindTraitForKerbal_FallsBackToLatestBaselineTrait()
+        {
+            var baseline = new GameStateBaseline();
+            baseline.crewEntries.Add(new GameStateBaseline.CrewEntry
+            {
+                name = "Tourist Kerman",
+                trait = "Tourist"
+            });
+            GameStateStore.AddBaseline(baseline);
+
+            Assert.Equal("Tourist", KerbalsModule.FindTraitForKerbal("Tourist Kerman"));
+        }
+
+        [Fact]
+        public void ProcessAction_TouristKerbalAssignment_IsIgnored()
+        {
+            var module = new KerbalsModule();
+            var rec = MakeRecording("Tour Bus", new[] { "Tourist Kerman" },
+                TerminalState.Recovered, 1000);
+            rec.RecordingId = "rec-tourist-action";
+            RecordingStore.AddRecordingWithTreeForTesting(rec);
+
+            var action = new GameAction
+            {
+                UT = 0,
+                Type = GameActionType.KerbalAssignment,
+                RecordingId = "rec-tourist-action",
+                KerbalName = "Tourist Kerman",
+                KerbalRole = "Tourist",
+                KerbalEndStateField = KerbalEndState.Recovered,
+                StartUT = 0,
+                EndUT = 1000,
+                Sequence = 1
+            };
+
+            module.PrePass(new List<GameAction> { action });
+            module.ProcessAction(action);
+
+            Assert.Empty(module.Reservations);
+        }
+
         // ── Retired stand-ins ──
 
         [Fact]
@@ -531,6 +644,173 @@ namespace Parsek.Tests
             var kerbals = KerbalsTestHelper.RecalculateModule(module);
 
             Assert.DoesNotContain("Hanley", kerbals.RetiredKerbals);
+        }
+
+        [Fact]
+        public void ComputeRetiredSet_FreeIntermediateDisplacesUsedDeeperStandIn()
+        {
+            var module = new KerbalsModule();
+            var parent = new ConfigNode("TEST");
+            var slotsNode = parent.AddNode("KERBAL_SLOTS");
+            var slotNode = slotsNode.AddNode("SLOT");
+            slotNode.AddValue("owner", "Jeb");
+            slotNode.AddValue("trait", "Pilot");
+            var first = slotNode.AddNode("CHAIN_ENTRY");
+            first.AddValue("name", "Hanley");
+            var second = slotNode.AddNode("CHAIN_ENTRY");
+            second.AddValue("name", "Kirrim");
+            module.LoadSlots(parent);
+
+            var rec = MakeRecording("Ship", new[] { "Jeb" },
+                TerminalState.Recovered, 1000);
+            rec.RecordingId = "rec-jeb";
+            RecordingStore.AddRecordingWithTreeForTesting(rec);
+
+            var actions = new List<GameAction>
+            {
+                new GameAction
+                {
+                    UT = 0,
+                    Type = GameActionType.KerbalAssignment,
+                    RecordingId = "rec-jeb",
+                    KerbalName = "Jeb",
+                    KerbalEndStateField = KerbalEndState.Recovered,
+                    StartUT = 0,
+                    EndUT = 1000,
+                    Sequence = 1
+                }
+            };
+
+            module.PrePass(actions);
+            module.ProcessAction(actions[0]);
+
+            var allRecordingCrewField = typeof(KerbalsModule).GetField(
+                "allRecordingCrew", BindingFlags.Instance | BindingFlags.NonPublic);
+            Assert.NotNull(allRecordingCrewField);
+            allRecordingCrewField.SetValue(module, new HashSet<string> { "Kirrim" });
+
+            module.PostWalk();
+
+            Assert.Contains("Kirrim", module.RetiredKerbals);
+            Assert.DoesNotContain("Hanley", module.RetiredKerbals);
+            Assert.Equal("Hanley", module.GetActiveOccupant("Jeb"));
+        }
+
+        [Fact]
+        public void ApplyToRoster_DisplacedUnusedStandIn_IsNotRecreated()
+        {
+            var module = new KerbalsModule();
+            var parent = new ConfigNode("TEST");
+            var slotsNode = parent.AddNode("KERBAL_SLOTS");
+            var slotNode = slotsNode.AddNode("SLOT");
+            slotNode.AddValue("owner", "Jeb");
+            slotNode.AddValue("trait", "Pilot");
+            var first = slotNode.AddNode("CHAIN_ENTRY");
+            first.AddValue("name", "Hanley");
+            var second = slotNode.AddNode("CHAIN_ENTRY");
+            second.AddValue("name", "Kirrim");
+            module.LoadSlots(parent);
+
+            var rec = MakeRecording("Ship", new[] { "Jeb" },
+                TerminalState.Recovered, 1000);
+            rec.RecordingId = "rec-jeb";
+            RecordingStore.AddRecordingWithTreeForTesting(rec);
+
+            var kerbals = KerbalsTestHelper.RecalculateModule(module);
+
+            MethodInfo method = typeof(KerbalsModule).GetMethod(
+                "ShouldEnsureChainEntryInRoster", BindingFlags.Instance | BindingFlags.NonPublic);
+            Assert.NotNull(method);
+
+            Assert.True((bool)method.Invoke(kerbals, new object[] { kerbals.Slots["Jeb"], 0 }));
+            Assert.False((bool)method.Invoke(kerbals, new object[] { kerbals.Slots["Jeb"], 1 }));
+        }
+
+        [Fact]
+        public void ApplyToRoster_DisplacedRetiredStandIn_IsStillRecreated()
+        {
+            var module = new KerbalsModule();
+            var parent = new ConfigNode("TEST");
+            var slotsNode = parent.AddNode("KERBAL_SLOTS");
+            var slotNode = slotsNode.AddNode("SLOT");
+            slotNode.AddValue("owner", "Jeb");
+            slotNode.AddValue("trait", "Pilot");
+            var first = slotNode.AddNode("CHAIN_ENTRY");
+            first.AddValue("name", "Hanley");
+            var second = slotNode.AddNode("CHAIN_ENTRY");
+            second.AddValue("name", "Kirrim");
+            module.LoadSlots(parent);
+
+            var rec = MakeRecording("Ship", new[] { "Jeb" },
+                TerminalState.Recovered, 1000);
+            rec.RecordingId = "rec-jeb";
+            RecordingStore.AddRecordingWithTreeForTesting(rec);
+
+            var kerbals = KerbalsTestHelper.RecalculateModule(module);
+
+            var allRecordingCrewField = typeof(KerbalsModule).GetField(
+                "allRecordingCrew", BindingFlags.Instance | BindingFlags.NonPublic);
+            Assert.NotNull(allRecordingCrewField);
+            allRecordingCrewField.SetValue(kerbals, new HashSet<string> { "Kirrim" });
+
+            MethodInfo method = typeof(KerbalsModule).GetMethod(
+                "ShouldEnsureChainEntryInRoster", BindingFlags.Instance | BindingFlags.NonPublic);
+            Assert.NotNull(method);
+
+            Assert.True((bool)method.Invoke(kerbals, new object[] { kerbals.Slots["Jeb"], 1 }));
+        }
+
+        [Fact]
+        public void Recalculate_RepairedStandInRecording_StillRetiresHistoricalStandIn()
+        {
+            var module = new KerbalsModule();
+            var parent = new ConfigNode("TEST");
+            var slotsNode = parent.AddNode("KERBAL_SLOTS");
+            var slotNode = slotsNode.AddNode("SLOT");
+            slotNode.AddValue("owner", "Jeb");
+            slotNode.AddValue("trait", "Pilot");
+            var first = slotNode.AddNode("CHAIN_ENTRY");
+            first.AddValue("name", "Hanley");
+            var second = slotNode.AddNode("CHAIN_ENTRY");
+            second.AddValue("name", "Kirrim");
+            module.LoadSlots(parent);
+            LedgerOrchestrator.SetKerbalsForTesting(module);
+
+            var ownerRec = MakeRecording("Owner Flight", new[] { "Jeb" },
+                TerminalState.Recovered, 1000);
+            ownerRec.RecordingId = "rec-owner";
+            RecordingStore.AddRecordingWithTreeForTesting(ownerRec);
+
+            var standInSnapshot = new ConfigNode("VESSEL");
+            var standInPart = standInSnapshot.AddNode("PART");
+            standInPart.AddValue("crew", "Kirrim");
+            var standInRec = new Recording
+            {
+                RecordingId = "rec-standin",
+                VesselName = "Stand-In Flight",
+                GhostVisualSnapshot = standInSnapshot,
+                ExplicitStartUT = 0,
+                ExplicitEndUT = 1000,
+                CrewEndStates = new Dictionary<string, KerbalEndState>
+                {
+                    { "Jeb", KerbalEndState.Recovered }
+                }
+            };
+            RecordingStore.AddRecordingWithTreeForTesting(standInRec);
+
+            var actions = new List<GameAction>();
+            actions.AddRange(LedgerOrchestrator.CreateKerbalAssignmentActions("rec-owner", 0.0, 1000.0));
+            actions.AddRange(LedgerOrchestrator.CreateKerbalAssignmentActions("rec-standin", 0.0, 1000.0));
+
+            module.Reset();
+            module.PrePass(actions);
+            for (int i = 0; i < actions.Count; i++)
+                module.ProcessAction(actions[i]);
+            module.PostWalk();
+
+            Assert.Contains("Kirrim", module.RetiredKerbals);
+            Assert.DoesNotContain("Hanley", module.RetiredKerbals);
+            Assert.Equal("Hanley", module.GetActiveOccupant("Jeb"));
         }
 
         // ── Serialization ──

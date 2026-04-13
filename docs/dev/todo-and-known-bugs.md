@@ -7,6 +7,162 @@ Entries 272–303 (78 bugs, 6 TODOs — mostly resolved) archived in `done/todo-
 
 # Known Bugs
 
+## ~~349. Repaired stand-in rows can hide historical stand-in usage from retirement logic~~
+
+**Observed in:** final GPT-5.4 xhigh PR review for `review/kerbals-recording-audit` (2026-04-13). After the repair path started rewriting old stand-in `KerbalAssignment` rows back to the slot owner, the kerbals walk only recorded that logical owner name in `allRecordingCrew`. Retirement and roster-healing logic still asked whether the displaced stand-in's own name had ever appeared in recordings, so a historical stand-in like `Kirrim` could be treated as unused and deleted instead of retired once the owner reclaimed the slot.
+
+**Root cause:** The recalculation walk conflated two different identities: the logical kerbal identity used for reservations and the raw snapshot crew names needed to know which stand-in bodies were historically flown.
+
+**Fix:** `KerbalsModule.PrePass()` now caches each recording's raw snapshot crew names, and `ProcessAction()` feeds both the repaired logical owner name and the raw snapshot names into `allRecordingCrew`. That preserves correct retirement/deletion behavior after ledger repair. Added a regression that drives the real `CreateKerbalAssignmentActions()` path for a repaired stand-in recording and verifies the historical stand-in still retires correctly.
+
+**Status:** ~~Fixed~~
+
+---
+
+## ~~348. The displaced-stand-in recreation guard can also suppress retired stand-ins~~
+
+**Observed in:** second GPT-5.4 xhigh PR review for `review/kerbals-recording-audit` (2026-04-13). The first roster-churn fix stopped recreating any displaced, unreserved chain entry. That also covered retired stand-ins, even though the design expects retired kerbals to remain present in the roster and simply be filtered/managed.
+
+**Root cause:** The recreation guard distinguished only "reserved" vs "not reserved". It ignored the separate retired-stand-in case where a displaced kerbal still appears in historical recordings and therefore must remain as a managed roster entry even when no longer actively reserved.
+
+**Fix:** `ShouldEnsureChainEntryInRoster()` now keeps recreating displaced stand-ins that still appear in committed recordings, while continuing to skip genuinely unused displaced metadata. Added a regression that pins the retired stand-in branch separately from the unused branch.
+
+**Status:** ~~Fixed~~
+
+---
+
+## ~~347. Historical stand-in repairs can fail once the live replacement bridge has been cleared~~
+
+**Observed in:** second GPT-5.4 xhigh PR review for `review/kerbals-recording-audit` (2026-04-13). The new persisted-row repair compared old ledger rows against freshly regenerated rows, but regeneration still reverse-mapped stand-ins only through the live `CREW_REPLACEMENTS` bridge. If a slot owner had already reclaimed their place and the current replacement map was empty, an old stand-in row like `Hanley` still regenerated as `Hanley` even though `KERBAL_SLOTS` still knew that stand-in belonged to `Jeb`.
+
+**Root cause:** Reverse-mapping logic ignored persisted slot-chain metadata. `CREW_REPLACEMENTS` is transient bridge state rebuilt from the current derived roster, not a complete historical identity source.
+
+**Fix:** Stand-in reverse-mapping now falls back to persisted `KERBAL_SLOTS` when the live replacement bridge has no match, so migration/repair can still recover the original slot owner from saved chain metadata. Added regression coverage for an empty `CREW_REPLACEMENTS` map plus populated `KERBAL_SLOTS`.
+
+**Status:** ~~Fixed~~
+
+---
+
+## ~~346. Ghost-only handoff fallback can misclassify stable snapshot-less chain tips as finite `Recovered`~~
+
+**Observed in:** second GPT-5.4 xhigh PR review for `review/kerbals-recording-audit` (2026-04-13). The first handoff fix treated every ghost-only chain recording as an internal handoff. Auto-committed tree recordings can also become ghost-only by having `VesselSnapshot` nulled before ledger notification, including stable tips whose terminal state is still `Orbiting`, `Landed`, `Splashed`, or `Docked`.
+
+**Root cause:** `ShouldUseGhostOnlyChainHandoffEndState()` keyed only on `ChainId + no VesselSnapshot + crew source`, so it could not distinguish unresolved handoff segments from stable ghost-only chain tips that still need their normal `Aboard`/`Unknown` semantics.
+
+**Fix:** The ghost-only handoff fallback now applies only when the recording is still unresolved (`TerminalStateValue == null`) or has a genuinely finite terminal (`Recovered`, `Destroyed`, or `Boarded`). Stable ghost-only chain tips with intact terminals stay on the normal unresolved path. Added a regression that pins an `Orbiting` ghost-only chain tip to `Unknown` instead of forced `Recovered`.
+
+**Status:** ~~Fixed~~
+
+---
+
+## ~~345. Existing ledger kerbal rows are not repaired once bad `KerbalAssignment` data is already persisted~~
+
+**Observed in:** GPT-5.4 xhigh PR review for `review/kerbals-recording-audit` (2026-04-13). The earlier audit fixes corrected new kerbal-action generation, but `MigrateKerbalAssignments()` still treated any recording with at least one existing `KerbalAssignment` row as already migrated. Old saves that had pre-fix stand-in names or ghost/EVA `Unknown` end states therefore kept replaying the stale ledger data forever.
+
+**Root cause:** The migration path only filled missing per-recording kerbal rows; it never compared stored rows against the current derived truth for that recording, so there was no repair path for already-persisted bad actions.
+
+**Fix:** `MigrateKerbalAssignments()` now builds the desired `KerbalAssignment` set for every committed recording, compares it to the stored rows, and rewrites just that recording's kerbal actions when they diverge. Added regression coverage for both repaired stand-in identity rows and repaired ghost-only `Unknown` rows so legacy ledgers heal on the next load.
+
+**Status:** ~~Fixed~~
+
+---
+
+## ~~344. Ghost-only chain segments fall back to open-ended `Unknown` kerbal reservations~~
+
+**Observed in:** GPT-5.4 xhigh PR review for `review/kerbals-recording-audit` (2026-04-13). Mid-chain vessel/EVA recordings are committed with `VesselSnapshot = null`, but `CreateKerbalAssignmentActions()` still extracted crew from `GhostVisualSnapshot`. Because the old end-state population guard only trusted `VesselSnapshot` or `EvaCrewName`, those segments emitted `KerbalAssignment` rows with `KerbalEndState.Unknown`, which the kerbals walk treated as infinite temporary reservations.
+
+**Root cause:** Ghost-only chain handoff segments had no dedicated fallback end-state rule. The end-state population path assumed "no end snapshot" meant "can't resolve", even though these recordings are a known internal handoff case where the reservation should stay finite until later chain segments extend it.
+
+**Fix:** Ghost-only chain recordings now participate in crew end-state population, and their fallback state is treated as a finite chain handoff (`Recovered`, or `Dead` when the segment truly ended destroyed). `CreateKerbalAssignmentActions()` now forces that shared population path before emitting actions, so commit-time, migration, and load-repair all converge on the same non-`Unknown` result. Added regression coverage for both direct action creation and the load-time safety net.
+
+**Status:** ~~Fixed~~
+
+---
+
+## ~~343. Persisted displaced stand-ins can be recreated on every later roster walk~~
+
+**Observed in:** GPT-5.4 xhigh PR review for `review/kerbals-recording-audit` (2026-04-13). After bug `#339` started preserving displaced chain metadata, `ApplyToRoster()` still recreated any missing non-null chain entry before the delete/retire pass, so a stand-in that had already been deleted as displaced/unused would be re-hired and deleted again on every recalculation.
+
+**Root cause:** The roster-ensure pass only checked whether a chain entry name was missing from `KerbalRoster`. It did not distinguish active/reserved chain occupants from displaced metadata that intentionally no longer had a live roster entry.
+
+**Fix:** `ApplyToRoster()` now skips roster creation/recreation for displaced chain entries unless that stand-in is still actively reserved. The chain metadata remains persisted for deterministic rewinds, but deleted displaced stand-ins no longer churn back into the roster on later passes. Added a regression test that pins the helper decision for active vs displaced chain entries.
+
+**Status:** ~~Fixed~~
+
+---
+
+## ~~342. Tourist passengers can leak into the managed kerbal reservation system~~
+
+**Observed in:** Kerbals/events-actions audit (2026-04-13). `CreateKerbalAssignmentActions()` emitted actions for every crew name in the recording snapshot, and `KerbalsModule.ProcessAction()` reserved every `KerbalAssignment` regardless of role, even though the design treats tourist passengers as contract-only temporary crew.
+
+**Root cause:** The kerbal action pipeline had no tourist-role exclusion. Action creation depended on `FindTraitForKerbal`, but there was no defense once a `KerbalAssignment` existed, and the non-runtime fallback could not identify tourists from saved roster history.
+
+**Fix:** `FindTraitForKerbal()` now falls back to the latest saved game-state baseline crew traits when a live KSP roster is unavailable, `LedgerOrchestrator` skips crew whose resolved role is `Tourist`, and `KerbalsModule.ProcessAction()` ignores any tourist assignments already present in the ledger as defense in depth. Added regression coverage for baseline trait fallback, tourist action suppression, and tourist action creation filtering.
+
+**Status:** ~~Fixed~~
+
+---
+
+## ~~341. EVA-only recordings can skip crew end-state population during migration/load repair~~
+
+**Observed in:** Kerbals/events-actions audit (2026-04-13). Commit-time kerbal action creation already treated `EvaCrewName` as a valid crew source, but the legacy migration path and the "populate missing end states on load" safety net only ran when `VesselSnapshot != null`.
+
+**Root cause:** `MigrateKerbalAssignments()` and `PopulateUnpopulatedCrewEndStates()` duplicated an older, narrower guard instead of reusing the commit-time "has crew source" predicate. EVA recordings that stored only `EvaCrewName` therefore skipped end-state inference on those later paths.
+
+**Fix:** The migration and safety-net paths now share a single `NeedsCrewEndStatePopulation()` predicate that accepts either `VesselSnapshot` or `EvaCrewName`. Added `LedgerOrchestratorTests` regressions for both private paths to pin EVA-only recordings to a resolved `Dead`/`Recovered`/etc. end state instead of `Unknown`.
+
+**Status:** ~~Fixed~~
+
+---
+
+## ~~340. Permanent-loss slots can keep stale stand-in occupancy or stay permanently gone after the death is rewound away~~
+
+**Observed in:** Kerbals/events-actions audit (2026-04-13). Slots with an old temporary chain could still present a stand-in as the active occupant after the owner later died permanently, and a saved `permanentlyGone=True` flag could persist even after the death-causing recording was removed from the timeline.
+
+**Root cause:** `OwnerPermanentlyGone` lived in persisted slot state but was not recomputed from scratch each recalculation pass. Once set, it stayed sticky until a full slot reset, and older chain entries could still influence occupant selection unless the active-occupant logic explicitly rejected permanently gone owners.
+
+**Fix:** `PostWalk()` now clears and rebuilds `OwnerPermanentlyGone` from the current reservations on every pass, and regression coverage now pins both sides of the behavior: permanent owners with an existing chain have no active replacement occupant, and rewinding away the permanent loss restores the slot to a normal owner-active state.
+
+**Status:** ~~Fixed~~
+
+---
+
+## ~~339. Chain reclaim can keep the deepest free stand-in active after an earlier occupant should have reclaimed~~
+
+**Observed in:** Kerbals/events-actions audit (2026-04-13). `KerbalsModule.GetActiveOccupant()` walked chains from deepest to shallowest, so if `Jeb -> [Hanley, Kirrim]` and only Jeb remained reserved, Parsek still preferred Kirrim instead of letting Hanley reclaim.
+
+**Root cause:** The active-occupant and retirement logic treated "deepest free stand-in" as the winner even after an earlier chain member became free again. That contradicted the design rule that reclaim stops at the first free occupant after the reserved prefix and all deeper entries become displaced.
+
+**Fix:** Kerbal-chain evaluation now follows the reserved prefix and picks the first free occupant as active. Deeper free stand-ins are treated as displaced for retirement/deletion, and `ApplyToRoster()` keeps the chain metadata instead of clearing it wholesale so the derived state stays consistent across later recalculations. Added regression coverage in `KerbalReservationTests` for reclaim ordering and displaced deeper stand-ins.
+
+**Status:** ~~Fixed~~
+
+---
+
+## ~~338. Cold-start `OnLoad` can skip persisted `KERBAL_SLOTS` before the kerbals module exists~~
+
+**Observed in:** Kerbals/events-actions audit (2026-04-13). `ParsekScenario.OnLoad` called `LoadCrewAndGroupState()` before `LoadExternalFilesAndRestoreEpoch()`, so `LedgerOrchestrator.Kerbals?.LoadSlots(node)` ran while `LedgerOrchestrator.OnLoad()` had not yet initialized the kerbals module.
+
+**Root cause:** Slot loading relied on an already-created `LedgerOrchestrator.Kerbals` instance, but the first-load ordering guaranteed that the module was still null on a true cold start.
+
+**Fix:** `LoadCrewAndGroupState()` now initializes `LedgerOrchestrator` before loading slots, preserving the intended "load crew replacements + slot graph from save" behavior even on the first load after launching KSP. Added a `QuickloadResumeTests` regression that invokes the private load helper and verifies slot state is populated from the scenario node.
+
+**Status:** ~~Fixed~~
+
+---
+
+## ~~337. KerbalAssignment creation can reserve a stand-in instead of the original kerbal~~
+
+**Observed in:** Kerbals/events-actions audit (2026-04-13). `PopulateCrewEndStates` already reverse-mapped stand-in names back to the original slot owner, but `LedgerOrchestrator.CreateKerbalAssignmentActions` re-extracted raw snapshot crew and emitted the stand-in name directly.
+
+**Root cause:** `ExtractCrewFromRecording` did not apply the same `CrewReplacements` reverse-map that `KerbalsModule.PopulateCrewEndStates` uses. When `CrewEndStates` was keyed by the original owner and the emitted action used the stand-in name, the end-state lookup missed and the ledger reserved the temporary stand-in as `Unknown`.
+
+**Fix:** `ExtractCrewFromRecording` now reverse-maps snapshot crew through `CrewReservationManager.CrewReplacements` before building `CrewInfo`, so `CreateKerbalAssignmentActions` and `CrewEndStates` use the same kerbal identity. Added regression coverage in `LedgerOrchestratorTests` for both extraction and action creation.
+
+**Status:** ~~Fixed~~
+
+---
+
 ## ~~314. Save/load can prune branched recordings even when sidecars still contain real data~~
 
 **Observed in:** 0.8.0 follow-up storage playtest (2026-04-12). During a branched `Kerbal X` flight, the user saved, loaded, and then merged the tree. Two EVA/branch recordings had real sidecars on disk before the load:
@@ -1130,6 +1286,71 @@ Test game actions system with popular mods: CustomBarnKit (non-standard facility
 ---
 
 ## TODO — Recording Data Integrity
+
+### T62. Add a cold-start kerbal slot migration integration test
+
+The kerbals review fixed several issues that only show up on a true game restart path rather than during an already-initialized session: `KERBAL_SLOTS` loading before the kerbals module exists, persisted stand-in rows that need repair, and end-state population for EVA-only assignments.
+
+What still deserves dedicated coverage is the real cold-start sequence:
+
+- load a save with persisted `KERBAL_SLOTS`, `CREW_REPLACEMENTS`, and ledger rows from an older or partially broken format
+- run the actual `ParsekScenario.OnLoad` / `LedgerOrchestrator.OnLoad` / `OnKspLoad` ordering instead of unit-level helpers
+- verify slot chains, repaired assignment rows, stand-in reverse-mapping, and recalculated reservations all converge to the same final state after a restart
+
+Game scenario worth locking down:
+
+- Jeb has a persisted stand-in chain
+- an EVA-only recording exists for another kerbal
+- one or more saved assignment rows still point at a stand-in name from a pre-fix save
+- after a full reload, the same kerbals stay reserved, the same stand-ins stay attached to the same slots, and no extra replacement cascade appears
+
+**Priority:** Medium — current fixes are covered, but the exact cold-start ordering is still more integration-heavy than the focused unit suites
+
+**Status:** Open
+
+---
+
+### T63. Add end-to-end `ApplyToRoster()` coverage for repaired historical stand-ins
+
+The recent kerbals fixes restored several edge cases around displaced stand-ins, retired stand-in recreation, ghost-only chains, and historical retirement tracking. The logic now looks correct, but most of that confidence still comes from targeted tests around recomputation rather than a full roster-application pass.
+
+Add scenario tests that drive the final roster mutation step and verify:
+
+- a repaired historical stand-in that should remain retired is recreated in the roster as retired/unavailable
+- a displaced stand-in that no longer belongs to any active or historical chain is deleted instead of lingering as assignable crew
+- permanent owner loss shrinks the active slot correctly even if that slot previously had stand-ins
+- later reload/recompute cycles preserve the same historical-retirement outcome instead of oscillating between deleted/available/retired
+
+Game scenarios worth locking down:
+
+- remove an owner reservation while a deeper stand-in is still historically significant
+- load a save where the roster entry is missing but the slot graph proves the stand-in must still exist as retired history
+- kill the owner after a temporary chain existed and confirm no stale stand-in keeps auto-filling the dead kerbal's slot
+
+**Priority:** Medium — this is the main remaining integration risk in the kerbals reservation system after the audit fixes
+
+**Status:** Open
+
+---
+
+### T64. Add explicit diagnostics for kerbal slot/assignment repair on load
+
+The loader now repairs several historical data problems on purpose: stand-in names stored in assignment rows, missing reverse-maps from persisted slots, ghost-only chain tips, and cold-start slot initialization order. When those repairs happen silently, later bug reports become hard to root-cause because the save the player loads is no longer the save shape we debug against.
+
+Add focused diagnostics that emit once per load when Parsek repairs kerbal reservation data, including:
+
+- which assignment rows were remapped from stand-in name to owner name
+- whether persisted slot chains were repaired, trimmed, or ignored
+- whether historical stand-ins were recreated as retired roster entries
+- whether any tourist assignments were skipped during migration
+
+These should stay concise and summary-oriented rather than spamming per-frame logs.
+
+**Priority:** Low — not a correctness blocker, but it will reduce future debugging cost for save migration/regression reports
+
+**Status:** Open
+
+---
 
 ### ~~T60. Add regression coverage and diagnostics for R/FF enablement reasons~~
 
