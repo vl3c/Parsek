@@ -381,9 +381,10 @@ namespace Parsek
 
             if (startingCrew.Count == 0)
             {
+                rec.CrewEndStatesResolved = true;
                 ParsekLog.Verbose(Tag,
                     $"PopulateCrewEndStates: recording='{rec.VesselName}' (id={rec.RecordingId}) " +
-                    "has no crew in ghost snapshot -- skipping");
+                    "has no crew in ghost snapshot -- resolved");
                 return;
             }
 
@@ -421,6 +422,7 @@ namespace Parsek
                 $"PopulateCrewEndStates: recording='{rec.VesselName}' (id={rec.RecordingId}) " +
                 $"crew={startingCrew.Count} aboard={aboardCount} dead={deadCount} " +
                 $"recovered={recoveredCount} unknown={unknownCount}");
+            rec.CrewEndStatesResolved = true;
         }
 
         /// <summary>
@@ -441,7 +443,7 @@ namespace Parsek
             for (int i = 0; i < recordings.Count; i++)
             {
                 var rec = recordings[i];
-                if (rec.CrewEndStates != null)
+                if (rec.CrewEndStatesResolved || rec.CrewEndStates != null)
                 {
                     skipped++;
                     continue;

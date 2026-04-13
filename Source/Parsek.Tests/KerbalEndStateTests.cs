@@ -171,7 +171,7 @@ namespace Parsek.Tests
         /// Guards: crewless vessels (probes) don't get spurious end states.
         /// </summary>
         [Fact]
-        public void PopulateCrewEndStates_NoCrew_StaysNull()
+        public void PopulateCrewEndStates_NoCrew_LeavesNullButMarksResolved()
         {
             var rec = new Recording
             {
@@ -185,6 +185,7 @@ namespace Parsek.Tests
             KerbalsModule.PopulateCrewEndStates(rec);
 
             Assert.Null(rec.CrewEndStates);
+            Assert.True(rec.CrewEndStatesResolved);
             Assert.Contains(logLines, l => l.Contains("[KerbalsModule]") && l.Contains("has no crew"));
         }
 
@@ -302,6 +303,7 @@ namespace Parsek.Tests
             RecordingStore.DeserializeCrewEndStates(parentNode, rec);
 
             Assert.Null(rec.CrewEndStates);
+            Assert.False(rec.CrewEndStatesResolved);
         }
 
         /// <summary>
@@ -317,6 +319,26 @@ namespace Parsek.Tests
             RecordingStore.SerializeCrewEndStates(parentNode, rec);
 
             Assert.Null(parentNode.GetNode("CREW_END_STATES"));
+        }
+
+        [Fact]
+        public void RecordingTree_SaveLoad_PreservesResolvedNoCrewState()
+        {
+            var rec = new Recording
+            {
+                RecordingId = "resolved-001",
+                VesselName = "Probe",
+                CrewEndStatesResolved = true
+            };
+
+            var node = new ConfigNode("RECORDING");
+            RecordingTree.SaveRecordingInto(node, rec);
+
+            var loaded = new Recording();
+            RecordingTree.LoadRecordingFrom(node, loaded);
+
+            Assert.True(loaded.CrewEndStatesResolved);
+            Assert.Null(loaded.CrewEndStates);
         }
 
         #endregion
@@ -541,6 +563,7 @@ namespace Parsek.Tests
             KerbalsModule.PopulateCrewEndStates(rec);
 
             Assert.Null(rec.CrewEndStates);
+            Assert.True(rec.CrewEndStatesResolved);
             Assert.Contains(logLines, l => l.Contains("no crew in ghost snapshot"));
         }
 

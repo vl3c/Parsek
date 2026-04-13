@@ -113,7 +113,9 @@ namespace Parsek
 
             // 3b. Populate crew end states before action creation so KerbalEndStateField is correct
             var recForEndStates = FindRecordingById(recordingId);
-            if (recForEndStates != null && recForEndStates.CrewEndStates == null
+            if (recForEndStates != null
+                && !recForEndStates.CrewEndStatesResolved
+                && recForEndStates.CrewEndStates == null
                 && (recForEndStates.VesselSnapshot != null || !string.IsNullOrEmpty(recForEndStates.EvaCrewName)))
                 KerbalsModule.PopulateCrewEndStates(recForEndStates);
 
@@ -550,7 +552,7 @@ namespace Parsek
                 if (existingIds.Contains(rec.RecordingId)) continue;
 
                 // Populate end states first
-                if (rec.CrewEndStates == null && rec.VesselSnapshot != null)
+                if (!rec.CrewEndStatesResolved && rec.CrewEndStates == null && rec.VesselSnapshot != null)
                     KerbalsModule.PopulateCrewEndStates(rec);
 
                 var kerbalActions = CreateKerbalAssignmentActions(
@@ -581,7 +583,7 @@ namespace Parsek
             for (int i = 0; i < recordings.Count; i++)
             {
                 var rec = recordings[i];
-                if (rec.CrewEndStates == null && rec.VesselSnapshot != null)
+                if (!rec.CrewEndStatesResolved && rec.CrewEndStates == null && rec.VesselSnapshot != null)
                 {
                     KerbalsModule.PopulateCrewEndStates(rec);
                     if (rec.CrewEndStates != null) populated++;
