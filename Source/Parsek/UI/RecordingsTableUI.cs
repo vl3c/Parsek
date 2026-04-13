@@ -2649,8 +2649,6 @@ namespace Parsek
                     membersByKey[blockKey] = members;
                 }
 
-                AddDisplayBlockMember(members, ri);
-
                 // Preserve existing grouped-chain visibility: if one row in a group
                 // belongs to a chain, render the whole chain inside that block.
                 if (!string.IsNullOrEmpty(rec.ChainId)
@@ -2659,6 +2657,8 @@ namespace Parsek
                 {
                     AddDisplayBlockMembers(members, fullChain);
                 }
+
+                AddDisplayBlockMember(members, ri);
             }
 
             var emitted = new HashSet<string>(StringComparer.Ordinal);

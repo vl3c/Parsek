@@ -1912,6 +1912,97 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void CommitTree_ReplacesStandaloneAutoGroupWhenAdoptingOrphanEva()
+        {
+            var orphanEva = MakeRec("orphan-eva-grouped", "Bob Kerman", pid: 300, startUT: 120, endUT: 180);
+            orphanEva.TreeId = "t-crew-rehome";
+            orphanEva.ParentRecordingId = "root";
+            orphanEva.EvaCrewName = "Bob Kerman";
+            orphanEva.RecordingGroups = new List<string> { "Bob Kerman" };
+            RecordingStore.AddRecordingWithTreeForTesting(orphanEva);
+            RecordingStore.MarkAutoAssignedStandaloneGroupForTesting(orphanEva, "Bob Kerman");
+
+            var tree = new RecordingTree
+            {
+                Id = "t-crew-rehome", TreeName = "Kerbal X",
+                Recordings = new Dictionary<string, Recording>
+                {
+                    { "root", MakeRec("root", "Kerbal X", treeId: "t-crew-rehome", pid: 100, startUT: 100, endUT: 200) },
+                    { "cont", MakeRec("cont", "Kerbal X", treeId: "t-crew-rehome", pid: 100, startUT: 200, endUT: 300) }
+                }
+            };
+
+            RecordingStore.CommitTree(tree);
+
+            Assert.NotNull(orphanEva.RecordingGroups);
+            Assert.Single(orphanEva.RecordingGroups);
+            Assert.Equal("Kerbal X / Crew", orphanEva.RecordingGroups[0]);
+        }
+
+        [Fact]
+        public void CommitTree_DoesNotAdoptSameNamedManualRootGroupWithoutAutoGroupMarker()
+        {
+            var orphanEva = MakeRec("orphan-eva-manual", "Bob Kerman", pid: 300, startUT: 120, endUT: 180);
+            orphanEva.TreeId = "t-crew-manual";
+            orphanEva.ParentRecordingId = "root";
+            orphanEva.EvaCrewName = "Bob Kerman";
+            orphanEva.RecordingGroups = new List<string> { "Bob Kerman" };
+            RecordingStore.AddRecordingWithTreeForTesting(orphanEva);
+
+            var tree = new RecordingTree
+            {
+                Id = "t-crew-manual", TreeName = "Kerbal X",
+                Recordings = new Dictionary<string, Recording>
+                {
+                    { "root", MakeRec("root", "Kerbal X", treeId: "t-crew-manual", pid: 100, startUT: 100, endUT: 200) },
+                    { "cont", MakeRec("cont", "Kerbal X", treeId: "t-crew-manual", pid: 100, startUT: 200, endUT: 300) }
+                }
+            };
+
+            RecordingStore.CommitTree(tree);
+
+            Assert.NotNull(orphanEva.RecordingGroups);
+            Assert.Single(orphanEva.RecordingGroups);
+            Assert.Equal("Bob Kerman", orphanEva.RecordingGroups[0]);
+        }
+
+        [Fact]
+        public void AutoAssignedStandaloneGroupMarker_RoundTripsThroughRecordingNode()
+        {
+            var rec = MakeRec("roundtrip", "Bob Kerman", pid: 300, startUT: 120, endUT: 180);
+            rec.RecordingGroups = new List<string> { "Bob Kerman" };
+            RecordingStore.MarkAutoAssignedStandaloneGroupForTesting(rec, "Bob Kerman");
+
+            var node = new ConfigNode("RECORDING");
+            RecordingTree.SaveRecordingResourceAndState(node, rec);
+
+            var loaded = new Recording();
+            RecordingTree.LoadRecordingResourceAndState(node, loaded);
+
+            Assert.Equal("Bob Kerman", loaded.AutoAssignedStandaloneGroupName);
+        }
+
+        [Fact]
+        public void ManualGroupMutations_ClearAutoAssignedStandaloneGroupMarker()
+        {
+            var renameRec = MakeRec("rename", "Bob Kerman", pid: 300, startUT: 120, endUT: 180);
+            renameRec.RecordingGroups = new List<string> { "Bob Kerman" };
+            RecordingStore.AddRecordingWithTreeForTesting(renameRec);
+            RecordingStore.MarkAutoAssignedStandaloneGroupForTesting(renameRec, "Bob Kerman");
+
+            Assert.True(RecordingStore.RenameGroup("Bob Kerman", "Crew A"));
+            Assert.Null(renameRec.AutoAssignedStandaloneGroupName);
+
+            var replaceRec = MakeRec("replace", "Bill Kerman", pid: 301, startUT: 120, endUT: 180);
+            replaceRec.RecordingGroups = new List<string> { "Bill Kerman" };
+            RecordingStore.AddRecordingWithTreeForTesting(replaceRec);
+            RecordingStore.MarkAutoAssignedStandaloneGroupForTesting(replaceRec, "Bill Kerman");
+
+            Assert.Equal(1, RecordingStore.ReplaceGroupOnAll("Bill Kerman", null));
+            Assert.Null(replaceRec.AutoAssignedStandaloneGroupName);
+        }
+
+        [Fact]
         public void CommitTree_DoesNotAdoptGroupedRecording()
         {
             var alreadyGrouped = MakeRec("grouped", "Rocket", pid: 100, startUT: 100, endUT: 150);

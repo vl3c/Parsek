@@ -946,6 +946,30 @@ namespace Parsek.Tests
             Assert.Equal(new[] { 0, 1 }, block.Members);
         }
 
+        [Fact]
+        public void BuildGroupDisplayBlocks_GroupedLaterChainSegmentKeepsChainHeadFirst()
+        {
+            const string groupName = "Flights";
+            var committed = new List<Recording>
+            {
+                MakeDisplayRec(10, 20, "Seg0", chainId: "chain-late", chainIndex: 0),
+                MakeDisplayRec(20, 30, "Seg1", groupName, chainId: "chain-late", chainIndex: 1),
+            };
+
+            var blocks = RecordingsTableUI.BuildGroupDisplayBlocks(
+                groupName,
+                new List<int> { 1 },
+                committed,
+                new Dictionary<string, List<int>>
+                {
+                    { "chain-late", new List<int> { 0, 1 } }
+                });
+
+            var block = Assert.Single(blocks);
+            Assert.Equal("Seg0", block.DisplayName);
+            Assert.Equal(new[] { 0, 1 }, block.Members);
+        }
+
         // ── LaunchSite sorting ──
 
         private static Recording MakeRecWithSite(double startUT, double endUT, string site, string name = "Test")

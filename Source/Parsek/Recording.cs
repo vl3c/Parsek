@@ -50,6 +50,7 @@ namespace Parsek
 
         // UI grouping tags (e.g. "Synthetic", "Part Showcase") — multi-group membership
         public List<string> RecordingGroups;
+        public string AutoAssignedStandaloneGroupName;
 
         // Dirty flag: true when sidecar file data (trajectory, events, sections) has changed
         // since last SaveRecordingFiles call. Checked in OnSave to skip unchanged recordings.

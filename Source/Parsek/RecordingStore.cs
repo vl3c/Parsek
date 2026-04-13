@@ -62,6 +62,8 @@ namespace Parsek
         // When true, suppresses logging calls (for unit testing outside Unity)
         internal static bool SuppressLogging;
         internal static bool? WriteReadableSidecarMirrorsOverrideForTesting;
+        private static readonly Dictionary<string, string> autoAssignedStandaloneGroupsByRecordingId =
+            new Dictionary<string, string>(StringComparer.Ordinal);
 
         // PID of the active vessel at scene entry. Used by SpawnVesselOrChainTip to
         // bypass PID dedup statelessly — if a recording's VesselPersistentId matches
@@ -501,6 +503,7 @@ namespace Parsek
                     rec.RecordingGroups = new List<string>();
                 if (!rec.RecordingGroups.Contains(targetGroup))
                     rec.RecordingGroups.Add(targetGroup);
+                ClearAutoAssignedStandaloneGroup(rec);
             }
 
             int mainCount = tree.Recordings.Count - debrisCount - crewCount;
@@ -564,6 +567,88 @@ namespace Parsek
             return rootGroupName;
         }
 
+        private static bool GroupBelongsToRootHierarchy(string groupName, string rootGroupName)
+        {
+            if (string.IsNullOrEmpty(groupName) || string.IsNullOrEmpty(rootGroupName))
+                return false;
+
+            string current = groupName;
+            while (!string.IsNullOrEmpty(current))
+            {
+                if (string.Equals(current, rootGroupName, StringComparison.OrdinalIgnoreCase))
+                    return true;
+
+                string parent;
+                if (!GroupHierarchyStore.TryGetGroupParent(current, out parent))
+                    break;
+                current = parent;
+            }
+
+            return false;
+        }
+
+        internal static void MarkAutoAssignedStandaloneGroup(Recording rec, string groupName)
+        {
+            if (rec == null || string.IsNullOrEmpty(rec.RecordingId) || IsInvalidGroupName(groupName))
+                return;
+
+            rec.AutoAssignedStandaloneGroupName = groupName;
+            autoAssignedStandaloneGroupsByRecordingId[rec.RecordingId] = groupName;
+        }
+
+        private static void ClearAutoAssignedStandaloneGroup(Recording rec)
+        {
+            if (rec == null || string.IsNullOrEmpty(rec.RecordingId))
+                return;
+
+            rec.AutoAssignedStandaloneGroupName = null;
+            autoAssignedStandaloneGroupsByRecordingId.Remove(rec.RecordingId);
+        }
+
+        private static bool TryGetAutoAssignedStandaloneGroup(Recording rec, out string groupName)
+        {
+            groupName = null;
+            if (rec == null)
+                return false;
+
+            if (!string.IsNullOrEmpty(rec.AutoAssignedStandaloneGroupName))
+            {
+                groupName = rec.AutoAssignedStandaloneGroupName;
+                if (!string.IsNullOrEmpty(rec.RecordingId))
+                    autoAssignedStandaloneGroupsByRecordingId[rec.RecordingId] = groupName;
+                return true;
+            }
+
+            if (string.IsNullOrEmpty(rec.RecordingId))
+                return false;
+
+            return autoAssignedStandaloneGroupsByRecordingId.TryGetValue(rec.RecordingId, out groupName);
+        }
+
+        private static bool ShouldAdoptRecordingIntoTreeGroup(Recording rec, string rootGroupName)
+        {
+            if (rec == null)
+                return false;
+
+            if (rec.RecordingGroups == null || rec.RecordingGroups.Count == 0)
+                return true;
+
+            for (int i = 0; i < rec.RecordingGroups.Count; i++)
+            {
+                if (GroupBelongsToRootHierarchy(rec.RecordingGroups[i], rootGroupName))
+                    return false;
+            }
+
+            if (rec.RecordingGroups.Count != 1 || GroupHierarchyStore.HasGroupParent(rec.RecordingGroups[0]))
+                return false;
+
+            string autoGroupName;
+            if (!TryGetAutoAssignedStandaloneGroup(rec, out autoGroupName))
+                return false;
+
+            return string.Equals(rec.RecordingGroups[0], autoGroupName, StringComparison.Ordinal);
+        }
+
         /// <summary>
         /// Adopts orphaned committed recordings that belong to this tree but were
         /// committed as standalone before the tree (e.g., split segments committed
@@ -594,7 +679,6 @@ namespace Parsek
             for (int i = 0; i < committedRecordings.Count; i++)
             {
                 var cr = committedRecordings[i];
-                if (cr.RecordingGroups != null && cr.RecordingGroups.Count > 0) continue;
 
                 bool match = cr.TreeId == tree.Id;
                 if (!match && treePids.Contains(cr.VesselPersistentId)
@@ -602,9 +686,11 @@ namespace Parsek
                     match = true;
 
                 if (!match) continue;
+                if (!ShouldAdoptRecordingIntoTreeGroup(cr, rootGroupName)) continue;
 
                 string targetGroup = ResolveAdoptedTreeGroup(rootGroupName, cr);
                 cr.RecordingGroups = new List<string> { targetGroup };
+                ClearAutoAssignedStandaloneGroup(cr);
                 adopted++;
                 ParsekLog.Info("RecordingStore",
                     $"Adopted orphaned recording '{cr.VesselName}' (id={cr.RecordingId}) into group '{targetGroup}'");
@@ -1601,6 +1687,7 @@ namespace Parsek
             if (!rec.RecordingGroups.Contains(groupName))
             {
                 rec.RecordingGroups.Add(groupName);
+                ClearAutoAssignedStandaloneGroup(rec);
                 ParsekLog.Info("RecordingStore", $"Recording '{rec.VesselName}' added to group '{groupName}'");
             }
         }
@@ -1616,6 +1703,7 @@ namespace Parsek
             {
                 if (rec.RecordingGroups.Count == 0)
                     rec.RecordingGroups = null;
+                ClearAutoAssignedStandaloneGroup(rec);
                 ParsekLog.Info("RecordingStore", $"Recording '{rec.VesselName}' removed from group '{groupName}'");
             }
         }
@@ -1649,6 +1737,7 @@ namespace Parsek
                 if (!rec.RecordingGroups.Contains(groupName))
                 {
                     rec.RecordingGroups.Add(groupName);
+                    ClearAutoAssignedStandaloneGroup(rec);
                     count++;
                 }
             }
@@ -1671,6 +1760,7 @@ namespace Parsek
                 {
                     if (rec.RecordingGroups.Count == 0)
                         rec.RecordingGroups = null;
+                    ClearAutoAssignedStandaloneGroup(rec);
                     count++;
                 }
             }
@@ -1707,6 +1797,7 @@ namespace Parsek
                     if (idx >= 0)
                     {
                         groups[idx] = newName;
+                        ClearAutoAssignedStandaloneGroup(committedRecordings[i]);
                         updated++;
                     }
                 }
@@ -1730,6 +1821,7 @@ namespace Parsek
                 {
                     if (rec.RecordingGroups.Count == 0)
                         rec.RecordingGroups = null;
+                    ClearAutoAssignedStandaloneGroup(rec);
                     updated++;
                 }
             }
@@ -1757,6 +1849,7 @@ namespace Parsek
                     rec.RecordingGroups.RemoveAt(idx);
                 if (rec.RecordingGroups.Count == 0)
                     rec.RecordingGroups = null;
+                ClearAutoAssignedStandaloneGroup(rec);
                 updated++;
             }
             string dest = parentGroup ?? "(standalone)";
@@ -1771,6 +1864,7 @@ namespace Parsek
         {
             committedRecordings.Clear();
             committedTrees.Clear();
+            autoAssignedStandaloneGroupsByRecordingId.Clear();
             pendingTree = null;
             pendingTreeState = PendingTreeState.Finalized;
             CleanOrphanFilesDirectoryOverrideForTesting = null;
@@ -1804,6 +1898,11 @@ namespace Parsek
                 committedTrees.Add(tree);
             }
             committedRecordings.Add(rec);
+        }
+
+        internal static void MarkAutoAssignedStandaloneGroupForTesting(Recording rec, string groupName)
+        {
+            MarkAutoAssignedStandaloneGroup(rec, groupName);
         }
 
         /// <summary>
