@@ -320,6 +320,35 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void CurrentFormatTrajectorySidecar_RecorderLoadedToOnRailsFallback_RoundTripsWithoutDroppingOrbitSegments()
+        {
+            var original = BuildRecorderLoadedToOnRailsFallbackRecording();
+
+            string path = Path.Combine(tempDir, "bg-recorder-loaded-onrails-fallback.prec");
+            logLines.Clear();
+            ParsekLog.VerboseOverrideForTesting = true;
+            RecordingStore.WriteTrajectorySidecar(path, original, sidecarEpoch: 6);
+
+            TrajectorySidecarProbe probe;
+            Assert.True(RecordingStore.TryProbeTrajectorySidecar(path, out probe));
+            Assert.Equal(TrajectorySidecarEncoding.BinaryV3, probe.Encoding);
+            Assert.Contains(logLines, l =>
+                l.Contains("[RecordingStore]") &&
+                l.Contains("WriteBinaryTrajectoryFile") &&
+                l.Contains("sectionAuthoritative=False"));
+
+            var restored = new Recording { RecordingId = original.RecordingId };
+            logLines.Clear();
+            RecordingStore.DeserializeTrajectorySidecar(path, probe, restored);
+
+            Assert.Contains(logLines, l =>
+                l.Contains("[RecordingStore]") &&
+                l.Contains("ReadBinaryTrajectoryFile") &&
+                l.Contains("used flat fallback path"));
+            AssertSemanticTrajectoryEqual(original, restored);
+        }
+
+        [Fact]
         public void MixedFormatTrajectorySidecars_LoadInSameProcess()
         {
             var legacy = RecordingStorageFixtures.MaterializeTrajectory(
@@ -1235,6 +1264,77 @@ namespace Parsek.Tests
             };
             RecordingStore.DeserializeTrajectoryFrom(node, restored);
             return restored;
+        }
+
+        private static Recording BuildRecorderLoadedToOnRailsFallbackRecording()
+        {
+            const uint pid = 9201;
+            const string recId = "bg-recorder-loaded-onrails";
+
+            var tree = new RecordingTree { Id = "tree_storage_bg" };
+            var rec = new Recording
+            {
+                RecordingId = recId,
+                RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion,
+                VesselName = "Background Booster",
+                VesselPersistentId = pid
+            };
+            tree.Recordings[recId] = rec;
+            tree.BackgroundMap[pid] = recId;
+
+            var bgRecorder = new BackgroundRecorder(tree);
+            bgRecorder.InjectLoadedStateWithEnvironmentForTesting(
+                pid, recId, SegmentEnvironment.Atmospheric, 100.0);
+            bgRecorder.InjectCurrentTrackSectionFrameForTesting(pid, new TrajectoryPoint
+            {
+                ut = 100.0,
+                latitude = 0.0,
+                longitude = 0.0,
+                altitude = 1000.0,
+                rotation = new Quaternion(0, 0, 0, 1),
+                velocity = new Vector3(0, 120, 0),
+                bodyName = "Kerbin"
+            });
+            bgRecorder.InjectCurrentTrackSectionFrameForTesting(pid, new TrajectoryPoint
+            {
+                ut = 105.0,
+                latitude = 0.01,
+                longitude = 0.02,
+                altitude = 1500.0,
+                rotation = new Quaternion(0, 0.1f, 0, 0.99f),
+                velocity = new Vector3(0, 200, 0),
+                bodyName = "Kerbin"
+            });
+            bgRecorder.FlushLoadedStateForOnRailsTransitionForTesting(
+                pid,
+                SegmentEnvironment.ExoBallistic,
+                willHavePlayableOnRailsPayload: true,
+                boundaryPoint: new TrajectoryPoint
+                {
+                    ut = 110.0,
+                    latitude = 0.02,
+                    longitude = 0.04,
+                    altitude = 2000.0,
+                    rotation = new Quaternion(0, 0.2f, 0, 0.98f),
+                    velocity = new Vector3(0, 260, 0),
+                    bodyName = "Kerbin"
+                },
+                ut: 110.0);
+
+            rec.OrbitSegments.Add(new OrbitSegment
+            {
+                startUT = 110.0,
+                endUT = 500.0,
+                inclination = 28.5,
+                eccentricity = 0.01,
+                semiMajorAxis = 705000.0,
+                longitudeOfAscendingNode = 90.0,
+                argumentOfPeriapsis = 45.0,
+                meanAnomalyAtEpoch = 0.2,
+                epoch = 110.0,
+                bodyName = "Kerbin"
+            });
+            return rec;
         }
 
         private static double[] LookupBody(string bodyName)

@@ -2949,7 +2949,8 @@ namespace Parsek
                 && rec.RecordingFormatVersion >= 1
                 && rec.TrackSections != null
                 && rec.TrackSections.Count > 0
-                && HasCompleteTrackSectionPayloadForFlatSync(rec.TrackSections, allowRelativeSections: true);
+                && HasCompleteTrackSectionPayloadForFlatSync(rec.TrackSections, allowRelativeSections: true)
+                && FlatTrajectoryExactlyMatchesTrackSectionPayload(rec);
         }
 
         private static bool ShouldReadSectionAuthoritativeTrajectory(ConfigNode sourceNode, int formatVersion)
@@ -3094,6 +3095,53 @@ namespace Parsek
             RebuildOrbitSegmentsFromTrackSections(rec.TrackSections, rec.OrbitSegments);
             rec.CachedStats = null;
             rec.CachedStatsPointCount = 0;
+            return true;
+        }
+
+        private static bool FlatTrajectoryExactlyMatchesTrackSectionPayload(Recording rec)
+        {
+            if (rec == null)
+                return false;
+
+            var rebuiltPoints = new List<TrajectoryPoint>();
+            RebuildPointsFromTrackSections(rec.TrackSections, rebuiltPoints);
+            if (!TrajectoryPointListsEqual(rebuiltPoints, rec.Points))
+                return false;
+
+            var rebuiltOrbitSegments = new List<OrbitSegment>();
+            RebuildOrbitSegmentsFromTrackSections(rec.TrackSections, rebuiltOrbitSegments);
+            return OrbitSegmentListsEqual(rebuiltOrbitSegments, rec.OrbitSegments);
+        }
+
+        private static bool TrajectoryPointListsEqual(List<TrajectoryPoint> a, List<TrajectoryPoint> b)
+        {
+            if (ReferenceEquals(a, b))
+                return true;
+            if (a == null || b == null || a.Count != b.Count)
+                return false;
+
+            for (int i = 0; i < a.Count; i++)
+            {
+                if (!TrajectoryPointEquals(a[i], b[i]))
+                    return false;
+            }
+
+            return true;
+        }
+
+        private static bool OrbitSegmentListsEqual(List<OrbitSegment> a, List<OrbitSegment> b)
+        {
+            if (ReferenceEquals(a, b))
+                return true;
+            if (a == null || b == null || a.Count != b.Count)
+                return false;
+
+            for (int i = 0; i < a.Count; i++)
+            {
+                if (!OrbitSegmentEquals(a[i], b[i]))
+                    return false;
+            }
+
             return true;
         }
 

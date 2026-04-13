@@ -1189,42 +1189,18 @@ namespace Parsek
             BackgroundVesselState loadedState;
             if (loadedStates.TryGetValue(pid, out loadedState))
             {
-                SegmentEnvironment previousEnv = loadedState.trackSectionActive
-                    ? loadedState.currentTrackSection.environment
-                    : loadedState.environmentHysteresis != null
-                        ? loadedState.environmentHysteresis.CurrentEnvironment
-                        : SegmentEnvironment.Atmospheric;
                 SegmentEnvironment nextEnv = ClassifyCurrentBackgroundEnvironment(v, loadedState.cachedEngines);
                 bool willHavePlayableOnRailsPayload = WillInitializeOnRailsWithPlayablePayload(v);
-                bool persistNoPayloadBoundarySection = ShouldPersistNoPayloadOnRailsBoundaryTrackSection(
-                    previousEnv, nextEnv, willHavePlayableOnRailsPayload);
-
-                // Close the active ABSOLUTE/Background TrackSection
-                CloseBackgroundTrackSection(loadedState, ut);
-
-                if (persistNoPayloadBoundarySection)
-                {
-                    StartBackgroundTrackSection(loadedState, nextEnv, ReferenceFrame.Absolute, ut);
-                    AddFrameToActiveTrackSection(loadedState, CreateTrajectoryPointFromVessel(v, ut));
-                    CloseBackgroundTrackSection(loadedState, ut);
-                    ParsekLog.Info("BgRecorder",
-                        $"Persisted no-payload on-rails boundary section: pid={pid} " +
-                        $"{previousEnv}->{nextEnv} at UT={ut.ToString("F2", CultureInfo.InvariantCulture)}");
-                }
-
-                // Flush accumulated TrackSections to the recording
                 Recording flushRec;
                 if (tree.Recordings.TryGetValue(loadedState.recordingId, out flushRec))
                 {
-                    FlushTrackSectionsToRecording(loadedState, flushRec);
-                    flushRec.ExplicitEndUT = ut;
-
-                    if (!persistNoPayloadBoundarySection)
-                    {
-                        // Sample a final boundary point when the transition itself did not
-                        // create a playable boundary section.
-                        SampleBoundaryPoint(v, flushRec, ut);
-                    }
+                    FlushLoadedStateForOnRailsTransition(
+                        loadedState,
+                        flushRec,
+                        nextEnv,
+                        willHavePlayableOnRailsPayload,
+                        CreateTrajectoryPointFromVessel(v, ut),
+                        ut);
                 }
 
                 loadedStates.Remove(pid);
@@ -2098,17 +2074,46 @@ namespace Parsek
                 $"UT={state.currentOrbitSegment.startUT:F1}-{ut:F1} body={state.currentOrbitSegment.bodyName}");
         }
 
+        private void FlushLoadedStateForOnRailsTransition(
+            BackgroundVesselState loadedState,
+            Recording flushRec,
+            SegmentEnvironment nextEnv,
+            bool willHavePlayableOnRailsPayload,
+            TrajectoryPoint boundaryPoint,
+            double ut)
+        {
+            SegmentEnvironment previousEnv = loadedState.trackSectionActive
+                ? loadedState.currentTrackSection.environment
+                : loadedState.environmentHysteresis != null
+                    ? loadedState.environmentHysteresis.CurrentEnvironment
+                    : SegmentEnvironment.Atmospheric;
+            bool persistNoPayloadBoundarySection = ShouldPersistNoPayloadOnRailsBoundaryTrackSection(
+                previousEnv, nextEnv, willHavePlayableOnRailsPayload);
+
+            CloseBackgroundTrackSection(loadedState, ut);
+
+            if (persistNoPayloadBoundarySection)
+            {
+                StartBackgroundTrackSection(loadedState, nextEnv, ReferenceFrame.Absolute, ut);
+                AddFrameToActiveTrackSection(loadedState, boundaryPoint);
+                CloseBackgroundTrackSection(loadedState, ut);
+                ParsekLog.Info("BgRecorder",
+                    $"Persisted no-payload on-rails boundary section: pid={loadedState.vesselPid} " +
+                    $"{previousEnv}->{nextEnv} at UT={ut.ToString("F2", CultureInfo.InvariantCulture)}");
+            }
+
+            FlushTrackSectionsToRecording(loadedState, flushRec);
+            flushRec.ExplicitEndUT = ut;
+
+            if (!persistNoPayloadBoundarySection)
+                AppendBoundaryPointToRecording(flushRec, boundaryPoint, loadedState.vesselPid);
+        }
+
         private void SampleBoundaryPoint(Vessel v, Recording treeRec, double ut)
         {
             if (v == null) return;
 
-            TrajectoryPoint point = CreateTrajectoryPointFromVessel(v, ut);
-            treeRec.Points.Add(point);
-            treeRec.MarkFilesDirty();
-            treeRec.ExplicitEndUT = ut;
-
-            ParsekLog.Verbose("BgRecorder", $"Boundary point sampled: pid={v.persistentId} " +
-                $"UT={ut:F1} alt={v.altitude:F0} pts={treeRec.Points.Count}");
+            AppendBoundaryPointToRecording(treeRec, CreateTrajectoryPointFromVessel(v, ut), v.persistentId);
         }
 
         /// <summary>
@@ -2277,6 +2282,19 @@ namespace Parsek
             {
                 state.currentTrackSection.maxAltitude = (float)point.altitude;
             }
+        }
+
+        private static void AppendBoundaryPointToRecording(Recording treeRec, TrajectoryPoint point, uint vesselPid)
+        {
+            if (treeRec == null)
+                return;
+
+            treeRec.Points.Add(point);
+            treeRec.MarkFilesDirty();
+            treeRec.ExplicitEndUT = point.ut;
+
+            ParsekLog.Verbose("BgRecorder", $"Boundary point sampled: pid={vesselPid} " +
+                $"UT={point.ut:F1} alt={point.altitude:F0} pts={treeRec.Points.Count}");
         }
 
         /// <summary>
@@ -3397,6 +3415,31 @@ namespace Parsek
 
             AddFrameToActiveTrackSection(state, point);
             loadedStates[vesselPid] = state;
+        }
+
+        internal void FlushLoadedStateForOnRailsTransitionForTesting(
+            uint vesselPid,
+            SegmentEnvironment nextEnv,
+            bool willHavePlayableOnRailsPayload,
+            TrajectoryPoint boundaryPoint,
+            double ut)
+        {
+            BackgroundVesselState loadedState;
+            Recording flushRec;
+            if (!loadedStates.TryGetValue(vesselPid, out loadedState)
+                || !tree.Recordings.TryGetValue(loadedState.recordingId, out flushRec))
+            {
+                return;
+            }
+
+            FlushLoadedStateForOnRailsTransition(
+                loadedState,
+                flushRec,
+                nextEnv,
+                willHavePlayableOnRailsPayload,
+                boundaryPoint,
+                ut);
+            loadedStates.Remove(vesselPid);
         }
 
         #endregion
