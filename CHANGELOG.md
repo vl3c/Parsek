@@ -15,7 +15,6 @@ All notable changes to Parsek are documented here.
 
 ### Bug Fixes
 
-- Fairing ghosts now restore post-jettison internal truss visuals from snapshot state as well as live `FairingJettisoned` events, keeping the stock placeholder `Cap*`/`Truss*` clones hidden while generating a variant-aware procedural truss instead.
 - Recording timing bounds now combine actual trajectory coverage (points, orbit segments, playable track sections) with explicit outer bounds, so watch handoff and playback activation no longer get stuck when a section-authoritative continuation starts before its first flat point while still preserving live background and terminal end times.
 - Optimizer boring-tail trims now cut nested section-authoritative frame/checkpoint payloads as well as the flat mirrors, so trimmed tails no longer grow back after save/load, and relative-section splits now resync their flat playback caches the same way the storage format does.
 - Optimizer merges now carry the later segment's branch/end-state metadata and remove absorbed recordings from tree ownership cleanly, so merged chains keep branch continuation, terminal state, and tree/background bookkeeping consistent.
@@ -56,7 +55,6 @@ All notable changes to Parsek are documented here.
 
 ### Developer Tools
 
-- Added fairing-visual regression coverage for deployed-start snapshot state parsing, structural segment counting, procedural truss geometry validity, and fairing shell/truss activation rules.
 - Added regression coverage for R/FF enablement reasons, including future/past timing, tree-branch rewind save resolution, and a UI guard that pins rewind/fast-forward independence from watch-distance state (`T60`).
 - Added regression coverage for compressed snapshot sidecars: legacy/new mixed corpora, alias/separate/ghost-only fallback behavior, corrupt/unsupported/oversized-envelope rejection, snapshot-hydration failure surfacing without misleading fallback logs, snapshot-only quickload salvage that preserves disk trajectory and alias invariants, transient sidecar-artifact cleanup, and staged-write rollback/heal behavior for both first-write and stale-ghost-delete branches.
 - Added regression coverage for exact watched-cycle protection, hidden-tier warp exemption, watched-override diagnostics counting, and the new frame-context watch-cycle field.

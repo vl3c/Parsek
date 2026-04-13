@@ -1233,8 +1233,11 @@ namespace Parsek
                         if (state.fairingInfos != null)
                         {
                             FairingGhostInfo fInfo;
-                            if (state.fairingInfos.TryGetValue(evt.partPersistentId, out fInfo))
-                                GhostVisualBuilder.ApplyFairingVisualState(fInfo, deployed: true);
+                            if (state.fairingInfos.TryGetValue(evt.partPersistentId, out fInfo)
+                                && fInfo.fairingMeshObject != null)
+                            {
+                                fInfo.fairingMeshObject.SetActive(false);
+                            }
                         }
                         break;
                     case PartEventType.RCSActivated:

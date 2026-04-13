@@ -864,13 +864,13 @@ Conclusion: no pooling or FX lifecycle optimization is scheduled now. Re-open on
 
 ## TODO — Ghost Visuals
 
-### ~~T25. Fairing internal truss structure after jettison~~
+### T25. Fairing internal truss structure after jettison
 
-Ghost fairings used to hide the shell on `FairingJettisoned` but leave no correct post-jettison internal structure. The stock prefab `Cap*` / `Truss*` transforms are still unusable directly because their placeholder-scale meshes only get resized by KSP's live `ModuleProceduralFairing`.
+After fairing jettison, the ghost currently shows just the payload and base adapter. KSP's real vessel can show an internal truss structure (Cap/Truss meshes controlled by `ModuleStructuralNodeToggle.showMesh`). The prefab meshes are at placeholder scale (2000x10x2000) that only KSP's runtime `ModuleProceduralFairing` can set correctly. A procedural truss mesh was attempted but removed due to insufficient visual quality.
 
-**Fix:** The ghost builder now resolves fairing snapshot state (`fsm` + `ModuleStructuralNodeToggle.showMesh`), keeps the stock placeholder structure meshes hidden, generates a variant-aware procedural truss/cap mesh using the fairing XSECTION profile and structural-node segment count, starts that truss visible for already-deployed snapshots, and reveals it when `FairingJettisoned` plays back on intact ghosts.
+To implement properly: either rescale prefab Cap/Truss meshes from XSECTION data (need to reverse-engineer the mesh unit geometry), or generate higher-fidelity procedural geometry with proper materials.
 
-**Status:** ~~Fixed~~
+**Priority:** Low — cosmetic, only visible briefly after fairing jettison
 
 ---
 
